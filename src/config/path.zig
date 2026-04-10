@@ -134,6 +134,8 @@ pub const Path = union(enum) {
     pub fn expand(
         /// The path to expand.
         self: *Path,
+        /// The IO interface to use for filesystem operations.
+        io: std.Io,
         /// This must be an arena allocator because we rely on the arena to
         /// clean up our allocations.
         arena_alloc: Allocator,
@@ -195,8 +197,8 @@ pub const Path = union(enum) {
             return;
         }
 
-        var dir = try std.fs.openDirAbsolute(base, .{});
-        defer dir.close();
+        var dir = try std.Io.Dir.openDirAbsolute(io, base, .{});
+        defer dir.close(io);
 
         const abs = dir.realpath(path, &buf) catch |err| abs: {
             if (err == error.FileNotFound) {

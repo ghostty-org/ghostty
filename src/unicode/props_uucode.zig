@@ -48,7 +48,7 @@ pub fn main() !void {
     defer alloc.free(t.stage3);
 
     var buf: [4096]u8 = undefined;
-    var stdout = std.fs.File.stdout().writer(&buf);
+    var stdout = std.Io.File.stdout().writer(&buf);
     try t.writeZig(&stdout.interface);
     // Use flush instead of end because stdout is a pipe when captured by
     // the build system, and pipes cannot be truncated (Windows returns

@@ -23,14 +23,14 @@ const MainReturn = switch (build_config.artifact) {
     else => void,
 };
 
-pub fn main() !MainReturn {
+pub fn main(init: std.process.Init.Minimal) !MainReturn {
     // We first start by initializing our global state. This will setup
     // process-level state we need to run the terminal. The reason we use
     // a global is because the C API needs to be able to access this state;
     // no other Zig code should EVER access the global state.
-    state.init() catch |err| {
+    state.init(init) catch |err| {
         var buffer: [1024]u8 = undefined;
-        var stderr_writer = std.fs.File.stderr().writer(&buffer);
+        var stderr_writer = std.Io.File.stderr().writer(&buffer);
         const stderr = &stderr_writer.interface;
         defer posix.exit(1);
         const ErrSet = @TypeOf(err) || error{Unknown};
@@ -54,6 +54,7 @@ pub fn main() !MainReturn {
     };
     defer state.deinit();
     const alloc = state.alloc;
+    const io = state.io_threaded.io();
 
     if (comptime builtin.mode == .Debug) {
         std.log.warn("This is a debug build. Performance will be very poor.", .{});
@@ -72,7 +73,8 @@ pub fn main() !MainReturn {
     }
 
     if (comptime build_config.app_runtime == .none) {
-        const stdout = std.io.getStdOut().writer();
+        var buf: [1024]u8 = undefined;
+        const stdout = std.Io.File.stdout().writerStreaming(init.io, &buf);
         try stdout.print("Usage: ghostty +<action> [flags]\n\n", .{});
         try stdout.print(
             \\This is the Ghostty helper CLI that accompanies the graphical Ghostty app.
@@ -89,12 +91,13 @@ pub fn main() !MainReturn {
         ,
             .{},
         );
+        try stdout.flush();
 
         posix.exit(0);
     }
 
     // Create our app state
-    const app: *App = try App.create(alloc);
+    const app: *App = try App.create(alloc, io, init.environ);
     defer app.destroy();
 
     // Create our runtime app

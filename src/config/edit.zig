@@ -17,22 +17,23 @@ const file_load = @import("file_load.zig");
 /// files.
 ///
 /// The returned value is allocated using the provided allocator.
-pub fn openPath(alloc_gpa: Allocator) ![:0]const u8 {
+pub fn openPath(alloc_gpa: Allocator, io: std.Io, env: std.process.Environ) ![:0]const u8 {
     // Use an arena to make memory management easier in here.
     var arena = ArenaAllocator.init(alloc_gpa);
     defer arena.deinit();
     const alloc_arena = arena.allocator();
 
     // Get the path we should open
-    const config_path = try configPath(alloc_arena);
+    const config_path = try configPath(alloc_arena, io, env);
 
     // Create config directory recursively.
     if (std.fs.path.dirname(config_path)) |config_dir| {
-        try std.fs.cwd().makePath(config_dir);
+        try std.Io.Dir.cwd().createDirPath(io, config_dir);
     }
 
     // Try to create file and go on if it already exists
-    _ = std.fs.createFileAbsolute(
+    _ = std.Io.Dir.createFileAbsolute(
+        io,
         config_path,
         .{ .exclusive = true },
     ) catch |err| {
@@ -49,7 +50,7 @@ pub fn openPath(alloc_gpa: Allocator) ![:0]const u8 {
 ///
 /// The allocator must be an arena allocator. No memory is freed by this
 /// function and the resulting path is not all the memory that is allocated.
-fn configPath(alloc_arena: Allocator) ![]const u8 {
+fn configPath(io: std.Io, alloc_arena: Allocator) ![]const u8 {
     const paths: []const []const u8 = try configPathCandidates(alloc_arena);
     assert(paths.len > 0);
 
@@ -58,7 +59,7 @@ fn configPath(alloc_arena: Allocator) ![]const u8 {
     // exists.
     var exists: ?[]const u8 = null;
     for (paths) |path| {
-        const f = std.fs.openFileAbsolute(path, .{}) catch |err| {
+        const f = std.Io.Dir.openFileAbsolute(io, path, .{}) catch |err| {
             switch (err) {
                 // File doesn't exist, continue.
                 error.BadPathName, error.FileNotFound => continue,
@@ -67,10 +68,10 @@ fn configPath(alloc_arena: Allocator) ![]const u8 {
                 else => return err,
             }
         };
-        defer f.close();
+        defer f.close(io);
 
         // We expect stat to succeed because we just opened the file.
-        const stat = try f.stat();
+        const stat = try f.stat(io);
 
         // If the file is non-empty, return it.
         if (stat.size > 0) return path;

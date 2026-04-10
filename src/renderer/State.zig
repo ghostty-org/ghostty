@@ -11,7 +11,7 @@ const renderer = @import("../renderer.zig");
 /// members of this state. Note that the state itself is NOT protected
 /// by the mutex and is NOT thread-safe, only the members values of the
 /// state (i.e. the terminal, devmode, etc. values).
-mutex: *std.Thread.Mutex,
+mutex: *std.Io.Mutex,
 
 /// The terminal data.
 terminal: *terminalpkg.Terminal,

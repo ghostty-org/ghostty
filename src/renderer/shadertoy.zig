@@ -87,7 +87,7 @@ pub fn loadFromFile(
     // Read it all into memory -- we don't expect shaders to be large.
     const src = src: {
         // Load the shader file
-        const cwd = std.fs.cwd();
+        const cwd: std.Io.Dir = .cwd();
         const file = try cwd.openFile(path, .{});
         defer file.close();
 

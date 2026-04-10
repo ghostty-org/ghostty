@@ -566,7 +566,7 @@ pub fn init(
     errdefer renderer_impl.deinit();
 
     // The mutex used to protect our renderer state.
-    const mutex = try alloc.create(std.Thread.Mutex);
+    const mutex = try alloc.create(std.Io.Mutex);
     mutex.* = .{};
     errdefer alloc.destroy(mutex);
 
@@ -635,11 +635,11 @@ pub fn init(
     // This separate block ({}) is important because our errdefers must
     // be scoped here to be valid.
     {
-        var env = rt_surface.defaultTermioEnv() catch |err| env: {
+        var env: std.process.Environ.Map = rt_surface.defaultTermioEnv() catch |err| env: {
             // If an error occurs, we don't want to block surface startup.
             log.warn("error getting env map for surface err={}", .{err});
-            break :env internal_os.getEnvMap(alloc) catch
-                std.process.EnvMap.init(alloc);
+            break :env internal_os.getEnvMap(alloc, app.environ) catch
+                .init(alloc);
         };
         errdefer env.deinit();
 

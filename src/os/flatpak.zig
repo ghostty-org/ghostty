@@ -28,7 +28,7 @@ pub fn isFlatpak() bool {
 /// Requires GIO, GLib to be available and linked.
 pub const FlatpakHostCommand = struct {
     const fd_t = posix.fd_t;
-    const EnvMap = std.process.EnvMap;
+    const EnvMap = std.process.Environ.Map;
     const c = @cImport({
         @cInclude("gio/gio.h");
         @cInclude("gio/gunixfdlist.h");
@@ -55,8 +55,8 @@ pub const FlatpakHostCommand = struct {
     /// State of the process. This is updated by the dedicated thread it
     /// runs in and is protected by the given lock and condition variable.
     state: State = .{ .init = {} },
-    state_mutex: std.Thread.Mutex = .{},
-    state_cv: std.Thread.Condition = .{},
+    state_mutex: std.Io.Mutex = .init,
+    state_cv: std.Io.Condition = .init,
 
     /// State the process is in. This can't be inspected directly, you
     /// must use getters on the struct to get access.

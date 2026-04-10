@@ -20,8 +20,12 @@ const log = std.log.scoped(.app);
 
 const SurfaceList = std.ArrayListUnmanaged(*apprt.Surface);
 
+io: std.Io,
+
 /// General purpose allocator
 alloc: Allocator,
+
+environ: std.process.Environ,
 
 /// The list of surfaces that are currently active.
 surfaces: SurfaceList,
@@ -73,10 +77,10 @@ pub const CreateError = Allocator.Error || font.SharedGridSet.InitError;
 
 /// Create a new app instance. This returns a stable pointer to the app
 /// instance which is required for callbacks.
-pub fn create(alloc: Allocator) CreateError!*App {
+pub fn create(alloc: Allocator, io: std.Io, env: std.process.Environ) CreateError!*App {
     var app = try alloc.create(App);
     errdefer alloc.destroy(app);
-    try app.init(alloc);
+    try app.init(alloc, io, env);
     return app;
 }
 
@@ -89,12 +93,16 @@ pub fn create(alloc: Allocator) CreateError!*App {
 pub fn init(
     self: *App,
     alloc: Allocator,
+    io: std.Io,
+    env: std.process.Environ,
 ) CreateError!void {
     var font_grid_set = try font.SharedGridSet.init(alloc);
     errdefer font_grid_set.deinit();
 
     self.* = .{
         .alloc = alloc,
+        .io = io,
+        .environ = env,
         .surfaces = .{},
         .mailbox = .{},
         .font_grid_set = font_grid_set,

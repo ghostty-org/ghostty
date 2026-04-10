@@ -13,7 +13,7 @@ pub fn dataFile(path_: ?[]const u8) !?std.fs.File {
     if (std.mem.eql(u8, path, "-")) return .stdin();
 
     // Normal file
-    const file = try std.fs.cwd().openFile(path, .{});
+    const file = try std.Io.Dir.cwd().openFile(path, .{});
     errdefer file.close();
 
     return file;

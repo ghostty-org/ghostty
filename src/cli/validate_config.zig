@@ -29,7 +29,7 @@ pub const Options = struct {
 ///
 ///   * `--config-file`: can be passed to validate a specific target config file in
 ///     a non-default location
-pub fn run(alloc: std.mem.Allocator) !u8 {
+pub fn run(io: std.Io, alloc: std.mem.Allocator) !u8 {
     var opts: Options = .{};
     defer opts.deinit();
 
@@ -40,14 +40,15 @@ pub fn run(alloc: std.mem.Allocator) !u8 {
     }
 
     var buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    var stdout_writer = std.Io.File.stdout().writer(&buffer);
     const stdout = &stdout_writer.interface;
-    const result = runInner(alloc, opts, stdout);
+    const result = runInner(io, alloc, opts, stdout);
     try stdout_writer.end();
     return result;
 }
 
 fn runInner(
+    io: std.Io,
     alloc: std.mem.Allocator,
     opts: Options,
     stdout: *std.Io.Writer,
@@ -58,14 +59,14 @@ fn runInner(
     // If a config path is passed, validate it, otherwise validate default configs
     if (opts.@"config-file") |config_path| {
         var buf: [std.fs.max_path_bytes]u8 = undefined;
-        const abs_path = try std.fs.cwd().realpath(config_path, &buf);
-        try cfg.loadFile(alloc, abs_path);
-        try cfg.loadRecursiveFiles(alloc);
+        const abs_path = try std.Io.Dir.cwd().realpath(config_path, &buf);
+        try cfg.loadFile(io, alloc, abs_path);
+        try cfg.loadRecursiveFiles(io, alloc);
     } else {
-        cfg = try Config.load(alloc);
+        cfg = try Config.load(io, alloc);
     }
 
-    try cfg.finalize();
+    try cfg.finalize(io);
 
     if (cfg._diagnostics.items().len > 0) {
         for (cfg._diagnostics.items()) |diag| {

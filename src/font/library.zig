@@ -29,7 +29,7 @@ pub const FreetypeLibrary = struct {
 
     /// Mutex to be held any time the library is
     /// being used to create or destroy a face.
-    mutex: *std.Thread.Mutex,
+    mutex: *std.Io.Mutex,
 
     pub const InitError = freetype.Error || Allocator.Error;
 
@@ -37,7 +37,7 @@ pub const FreetypeLibrary = struct {
         const lib = try freetype.Library.init();
         errdefer lib.deinit();
 
-        const mutex = try alloc.create(std.Thread.Mutex);
+        const mutex = try alloc.create(std.Io.Mutex);
         mutex.* = .{};
 
         return Library{ .lib = lib, .alloc = alloc, .mutex = mutex };

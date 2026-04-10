@@ -62,12 +62,12 @@ pub fn BlockingQueue(
         len: Size = 0,
 
         /// The big mutex that must be held to read/write.
-        mutex: std.Thread.Mutex = .{},
+        mutex: std.Io.Mutex = .init,
 
         /// A CV for being notified when the queue is no longer full. This is
         /// used for writing. Note we DON'T have a CV for waiting on the
         /// queue not being EMPTY because we use external notifiers for that.
-        cond_not_full: std.Thread.Condition = .{},
+        cond_not_full: std.Io.Condition = .init,
         not_full_waiters: usize = 0,
 
         /// Allocate the blocking queue on the heap.

@@ -17,81 +17,64 @@ const log = std.log.scoped(.@"os-open");
 /// apprt for Ghostty, you should consider doing something special-cased
 /// for your platform.
 pub fn open(
-    alloc: Allocator,
+    io: std.Io,
+    env_map: std.process.Environ.Map,
     kind: apprt.action.OpenUrl.Kind,
     url: []const u8,
 ) !void {
-    var exe: std.process.Child = switch (builtin.os.tag) {
-        .linux, .freebsd => .init(
-            &.{ "xdg-open", url },
-            alloc,
-        ),
+    const argv: []const []const u8 = switch (builtin.os.tag) {
+        .linux, .freebsd => &.{ "xdg-open", url },
 
-        .windows => .init(
-            &.{ "rundll32", "url.dll,FileProtocolHandler", url },
-            alloc,
-        ),
+        .windows => &.{ "rundll32", "url.dll,FileProtocolHandler", url },
 
-        .macos => .init(
-            switch (kind) {
-                .text => &.{ "open", "-t", url },
-                .html, .unknown => &.{ "open", url },
-            },
-            alloc,
-        ),
+        .macos => switch (kind) {
+            .text => &.{ "open", "-t", url },
+            .html, .unknown => &.{ "open", url },
+        },
 
         .ios => return error.Unimplemented,
         else => @compileError("unsupported OS"),
     };
 
-    // Pipe stdout/stderr so we can collect output from the command.
-    // This must be set before spawning the process.
-    exe.stdout_behavior = .Pipe;
-    exe.stderr_behavior = .Pipe;
-
     // In the snap on Linux the launcher exports LD_LIBRARY_PATH pointing at
     // the snap's bundled libraries. Leaking this into child process can
     // can be problematic, so let's drop it from the env
-    var snap_env: std.process.EnvMap = if (comptime build_config.snap) blk: {
-        var env = try std.process.getEnvMap(alloc);
+    var env = env_map;
+    if (comptime build_config.snap) {
         env.remove("LD_LIBRARY_PATH");
-        break :blk env;
-    } else undefined;
-    defer if (comptime build_config.snap) snap_env.deinit();
-    if (comptime build_config.snap) exe.env_map = &snap_env;
-
-    // Spawn the process on our same thread so we can detect failure
-    // quickly.
-    try exe.spawn();
-
-    // Create a thread that handles collecting output and reaping
-    // the process. This is done in a separate thread because SOME
-    // open implementations block and some do not. It's easier to just
-    // spawn a thread to handle this so that we never block.
-    const thread = try std.Thread.spawn(.{}, openThread, .{ alloc, exe });
-    thread.detach();
-}
-
-fn openThread(alloc: Allocator, exe_: std.process.Child) !void {
-    // 50 KiB is the default value used by std.process.Child.run and should
-    // be enough to get the output we care about.
-    const output_max_size = 50 * 1024;
-
-    var stdout: std.ArrayListUnmanaged(u8) = .{};
-    var stderr: std.ArrayListUnmanaged(u8) = .{};
-    defer {
-        stdout.deinit(alloc);
-        stderr.deinit(alloc);
     }
 
+    // Spawn the process so we can detect failure quickly.
+    const child = try std.process.spawn(io, .{
+        .argv = argv,
+        // Pipe stdout/stderr so we can collect output from the command.
+        // This must be set before spawning the process.
+        .stdout = .Pipe,
+        .stderr = .Pipe,
+        .environ_map = if (comptime build_config.snap) &env else null,
+    });
+
+    // Create a task that handles collecting output and reaping
+    // the process. This is done in a separate task because SOME
+    // open implementations block and some do not. It's easier to just
+    // spawn a task to handle this so that we never block.
+    io.async(openTask, .{ io, child });
+}
+
+fn openTask(io: std.Io, exe_: std.process.Child) !void {
     // Copy the exe so it is non-const. This is necessary because wait()
     // requires a mutable reference and we can't have one as a thread
     // param.
     var exe = exe_;
-    try exe.collectOutput(alloc, &stdout, &stderr, output_max_size);
     _ = try exe.wait();
+
+    const stderr = exe.stderr.?;
 
     // If we have any stderr output we log it. This makes it easier for
     // users to debug why some open commands may not work as expected.
-    if (stderr.items.len > 0) log.warn("wait stderr={s}", .{stderr.items});
+    var buf: [5 * 1024]u8 = undefined;
+    const count = try stderr.readPositionalAll(io, &buf, 0);
+    if (count > 0) {
+        log.warn("wait stderr={s}", .{buf[0..count]});
+    }
 }

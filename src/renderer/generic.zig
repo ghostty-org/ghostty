@@ -98,7 +98,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         /// This mutex must be held whenever any state used in `drawFrame` is
         /// being modified, and also when it's being accessed in `drawFrame`.
-        draw_mutex: std.Thread.Mutex = .{},
+        draw_mutex: std.Io.Mutex = .init,
 
         /// The configuration we need derived from the main config.
         config: DerivedConfig,
@@ -252,7 +252,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             frame_index: std.math.IntFittingRange(0, buf_count) = 0,
             /// Semaphore that we wait on to make sure we have an available
             /// frame state struct so we can start working on a new frame.
-            frame_sema: std.Thread.Semaphore = .{ .permits = buf_count },
+            frame_sema: std.Io.Semaphore = .{ .permits = buf_count },
 
             /// Set to true when deinited, if you try to deinit a defunct
             /// swap chain it will just be ignored, to prevent double-free.

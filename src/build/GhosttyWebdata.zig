@@ -40,7 +40,7 @@ pub fn init(
         }
 
         const webgen_config_step = b.addRunArtifact(webgen_config);
-        const webgen_config_out = webgen_config_step.captureStdOut();
+        const webgen_config_out = webgen_config_step.captureStdOut(.{});
 
         try steps.append(b.allocator, &b.addInstallFile(
             webgen_config_out,
@@ -71,7 +71,7 @@ pub fn init(
         }
 
         const webgen_actions_step = b.addRunArtifact(webgen_actions);
-        const webgen_actions_out = webgen_actions_step.captureStdOut();
+        const webgen_actions_out = webgen_actions_step.captureStdOut(.{});
 
         try steps.append(b.allocator, &b.addInstallFile(
             webgen_actions_out,
@@ -102,7 +102,7 @@ pub fn init(
         }
 
         const webgen_commands_step = b.addRunArtifact(webgen_commands);
-        const webgen_commands_out = webgen_commands_step.captureStdOut();
+        const webgen_commands_out = webgen_commands_step.captureStdOut(.{});
 
         try steps.append(b.allocator, &b.addInstallFile(
             webgen_commands_out,

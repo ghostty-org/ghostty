@@ -31,7 +31,7 @@ pub fn run(alloc: Allocator) !u8 {
     }
 
     var buffer: [2048]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    var stdout_writer = std.Io.File.stdout().writer(&buffer);
     const stdout = &stdout_writer.interface;
     try stdout.writeAll(
         \\Usage: ghostty [+action] [options]

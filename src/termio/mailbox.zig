@@ -61,7 +61,7 @@ pub const Mailbox = union(enum) {
     pub fn send(
         self: *Mailbox,
         msg: termio.Message,
-        mutex: ?*std.Thread.Mutex,
+        mutex: ?*std.Io.Mutex,
     ) void {
         switch (self.*) {
             .spsc => |*mb| send: {

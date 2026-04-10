@@ -28,7 +28,7 @@ pub fn writer(self: *Pager, buffer: []u8) *std.Io.Writer {
     if (self.child) |child| {
         self.file_writer = child.stdin.?.writer(buffer);
     } else {
-        self.file_writer = std.fs.File.stdout().writer(buffer);
+        self.file_writer = std.Io.File.stdout().writer(buffer);
     }
     return &self.file_writer.interface;
 }

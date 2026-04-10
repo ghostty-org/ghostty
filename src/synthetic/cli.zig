@@ -91,7 +91,7 @@ fn mainActionImpl(
 
     // Our output always goes to stdout.
     var buffer: [2048]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    var stdout_writer = std.Io.File.stdout().writer(&buffer);
     const writer = &stdout_writer.interface;
 
     // Create our implementation

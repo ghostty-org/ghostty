@@ -8,7 +8,7 @@ const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const EnvMap = std.process.EnvMap;
+const EnvMap = std.process.Environ.Map;
 const posix = std.posix;
 const termio = @import("../termio.zig");
 const StreamHandler = @import("stream_handler.zig").StreamHandler;
@@ -125,7 +125,7 @@ const ThreadEnterState = struct {
             input[i] = switch (item) {
                 .raw => |v| .{ .string = try alloc.dupe(u8, v) },
                 .path => |path| file: {
-                    const f = std.fs.cwd().openFile(
+                    const f = std.Io.Dir.cwd().openFile(
                         path,
                         .{},
                     ) catch |err| {

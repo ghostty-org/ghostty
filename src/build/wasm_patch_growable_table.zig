@@ -30,15 +30,15 @@ pub fn main() !void {
     // Patch the file.
     const output: []const u8 = try patchTableGrowable(
         alloc,
-        try std.fs.cwd().readFileAlloc(
-            alloc,
+        try std.Io.Dir.cwd().readFileAlloc(
             args[1],
-            std.math.maxInt(usize),
+            alloc,
+            .none,
         ),
     );
 
     // Write our output
-    const out_file = try std.fs.cwd().createFile(args[2], .{});
+    const out_file = try std.Io.Dir.cwd().createFile(args[2], .{});
     defer out_file.close();
     try out_file.writeAll(output);
 }

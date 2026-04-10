@@ -12,7 +12,6 @@ pub const Struct = structpkg.Struct;
 pub const structSizedFieldFits = structpkg.sizedFieldFits;
 pub const Target = @import("target.zig").Target;
 pub const TaggedUnion = unionpkg.TaggedUnion;
-pub const cutPrefix = @import("string.zig").cutPrefix;
 
 test {
     std.testing.refAllDecls(@This());

@@ -25,9 +25,10 @@ pub fn build(b: *std.Build) !void {
     // use that as the version source of truth. Otherwise we fall back
     // to what is in the build.zig.zon.
     const file_version: ?[]const u8 = if (b.build_root.handle.readFileAlloc(
-        b.allocator,
+        b.graph.io,
         "VERSION",
-        128,
+        b.allocator,
+        .limited(128),
     )) |content| std.mem.trim(
         u8,
         content,

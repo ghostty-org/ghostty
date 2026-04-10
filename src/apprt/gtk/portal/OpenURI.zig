@@ -23,7 +23,7 @@ app: *App,
 dbus: ?*gio.DBusConnection = null,
 
 /// Mutex to protect modification of the entries map or the cleanup timer.
-mutex: std.Thread.Mutex = .{},
+mutex: std.Io.Mutex = .init,
 
 /// Map to store data about any in-flight calls to the portal.
 entries: std.AutoArrayHashMapUnmanaged(usize, *Entry) = .empty,
