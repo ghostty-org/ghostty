@@ -6,7 +6,6 @@ const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
     .preferred_link_mode = .dynamic,
     .search_strategy = .mode_first,
 };
-
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -42,6 +41,7 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
     b.installArtifact(lib);
@@ -52,13 +52,12 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     const upstream = upstream_ orelse return lib;
     const wayland_protocols = wayland_protocols_ orelse return lib;
 
-    lib.linkLibC();
-    lib.addIncludePath(upstream.path("include"));
-    lib.addIncludePath(upstream.path("src"));
+    lib.root_module.addIncludePath(upstream.path("include"));
+    lib.root_module.addIncludePath(upstream.path("src"));
     module.addIncludePath(upstream.path("include"));
 
     // GTK
-    lib.linkSystemLibrary2("gtk4", dynamic_link_opts);
+    lib.root_module.linkSystemLibrary("gtk4", .{});
 
     // Wayland headers and source files
     {
@@ -92,9 +91,9 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
             const source_scanner = b.addSystemCommand(&.{ "wayland-scanner", "private-code" });
             source_scanner.addFileArg(xml);
             const source = source_scanner.addOutputFileArg(b.fmt("{s}.c", .{name}));
-            lib.addCSourceFile(.{ .file = source });
+            lib.root_module.addCSourceFile(.{ .file = source });
         }
-        lib.addIncludePath(wf.getDirectory());
+        lib.root_module.addIncludePath(wf.getDirectory());
     }
 
     lib.installHeadersDirectory(
@@ -113,7 +112,7 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         "stubbed-surface.c",
         "xdg-surface-server.c",
     };
-    lib.addCSourceFiles(.{
+    lib.root_module.addCSourceFiles(.{
         .root = upstream.path("src"),
         .files = srcs,
         .flags = &.{

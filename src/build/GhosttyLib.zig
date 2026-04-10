@@ -29,12 +29,12 @@ pub fn initStatic(
             .strip = deps.config.strip,
             .omit_frame_pointer = deps.config.strip,
             .unwind_tables = if (deps.config.strip) .none else .sync,
+            .link_libc = true,
         }),
 
         // Fails on self-hosted x86_64 on macOS
         .use_llvm = true,
     });
-    lib.linkLibC();
 
     // These must be bundled since we're compiling into a static lib.
     // Otherwise, you get undefined symbol errors.
@@ -110,12 +110,17 @@ pub fn initShared(
     {
         // The CRT initialization code in msvcrt.lib calls __vcrt_initialize
         // and __acrt_initialize, which are in the static CRT libraries.
-        lib.linkSystemLibrary("libvcruntime");
+        lib.root_module.linkSystemLibrary("libvcruntime", .{});
 
         // ucrt.lib is in the Windows SDK 'ucrt' dir. Detect the SDK
         // installation and add the UCRT library path.
         const arch = deps.config.target.result.cpu.arch;
-        const sdk = std.zig.WindowsSdk.find(b.allocator, arch) catch null;
+        const sdk = std.zig.WindowsSdk.find(
+            b.allocator,
+            b.graph.io,
+            arch,
+            &b.graph.environ_map,
+        ) catch null;
         if (sdk) |s| {
             if (s.windows10sdk) |w10| {
                 const arch_str: []const u8 = switch (arch) {
@@ -131,11 +136,11 @@ pub fn initShared(
                 ) catch null;
 
                 if (ucrt_lib_path) |path| {
-                    lib.addLibraryPath(.{ .cwd_relative = path });
+                    lib.root_module.addLibraryPath(.{ .cwd_relative = path });
                 }
             }
         }
-        lib.linkSystemLibrary("libucrt");
+        lib.root_module.linkSystemLibrary("libucrt", .{});
     }
 
     // Get our debug symbols

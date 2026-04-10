@@ -66,9 +66,6 @@ emit_unicode_table_gen: bool = false,
 /// rather than as the root project.
 is_dep: bool = false,
 
-/// Environmental properties
-env: std.process.EnvMap,
-
 pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Config {
     // Setup our standard Zig target and optimize options, i.e.
     // `-Doptimize` and `-Dtarget`.
@@ -124,16 +121,11 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     // defaults.
     const gtk_targets = gtk.targets(b);
 
-    // We use env vars throughout the build so we grab them immediately here.
-    var env = try std.process.getEnvMap(b.allocator);
-    errdefer env.deinit();
-
     var config: Config = .{
         .optimize = optimize,
         .target = target,
         .wasm_target = wasm_target,
         .is_dep = is_dep,
-        .env = env,
     };
 
     //---------------------------------------------------------------
@@ -327,8 +319,8 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
 
         // If we're in a nix shell we default to doing this.
         // Note: we purposely never deinit envmap because we leak the strings
-        if (env.get("IN_NIX_SHELL") == null) break :patch_rpath null;
-        break :patch_rpath env.get("LD_LIBRARY_PATH");
+        if (b.graph.environ_map.get("IN_NIX_SHELL") == null) break :patch_rpath null;
+        break :patch_rpath b.graph.environ_map.get("LD_LIBRARY_PATH");
     };
 
     config.pie = b.option(
@@ -401,7 +393,7 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         if (system_package) break :emit_docs true;
 
         // We only default to true if we can find pandoc.
-        const path = expandPath(b.allocator, "pandoc") catch
+        const path = expandPath(b.graph.io, b.allocator, b.graph.environ_map, "pandoc") catch
             break :emit_docs false;
         defer if (path) |p| b.allocator.free(p);
         break :emit_docs path != null;
@@ -582,7 +574,7 @@ pub fn terminalOptions(self: *const Config, artifact: TerminalBuildOptions.Artif
 }
 
 /// Returns a baseline CPU target retaining all the other CPU configs.
-pub fn baselineTarget(self: *const Config) std.Build.ResolvedTarget {
+pub fn baselineTarget(self: *const Config, b: *std.Build) std.Build.ResolvedTarget {
     // Set our cpu model as baseline. There may need to be other modifications
     // we need to make such as resetting CPU features but for now this works.
     var q = self.target.query;
@@ -592,7 +584,7 @@ pub fn baselineTarget(self: *const Config) std.Build.ResolvedTarget {
     // handle the native case.
     return .{
         .query = q,
-        .result = std.zig.system.resolveTargetQuery(q) catch
+        .result = std.zig.system.resolveTargetQuery(b.graph.io, q) catch
             @panic("unable to resolve baseline query"),
     };
 }
@@ -606,7 +598,6 @@ pub fn fromOptions() Config {
         // Unused at runtime.
         .optimize = undefined,
         .target = undefined,
-        .env = undefined,
 
         .version = options.app_version,
         .flatpak = options.flatpak,

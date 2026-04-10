@@ -53,9 +53,8 @@ pub fn init(b: *std.Build, uucode_tables: std.Build.LazyPath) !UnicodeTables {
     const symbols_run = b.addRunArtifact(symbols_exe);
 
     // Generated Zig files have to end with .zig
-    const wf = b.addWriteFiles();
-    const props_output = wf.addCopyFile(props_run.captureStdOut(), "props.zig");
-    const symbols_output = wf.addCopyFile(symbols_run.captureStdOut(), "symbols.zig");
+    const props_output = props_run.captureStdOut(.{ .basename = "props.zig" });
+    const symbols_output = symbols_run.captureStdOut(.{ .basename = "symbols.zig" });
 
     return .{
         .props_exe = props_exe,

@@ -11,18 +11,18 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
         .linkage = .static,
     });
-    lib.linkLibC();
 
-    if (upstream_) |upstream| lib.addIncludePath(upstream.path("include"));
-    lib.addIncludePath(b.path("override/include"));
+    if (upstream_) |upstream| lib.root_module.addIncludePath(upstream.path("include"));
+    lib.root_module.addIncludePath(b.path("override/include"));
     if (target.result.os.tag == .windows) {
-        lib.addIncludePath(b.path("override/config/win32"));
-        lib.linkSystemLibrary("ws2_32");
+        lib.root_module.addIncludePath(b.path("override/config/win32"));
+        lib.root_module.linkSystemLibrary("ws2_32", .{});
     } else {
-        lib.addIncludePath(b.path("override/config/posix"));
+        lib.root_module.addIncludePath(b.path("override/config/posix"));
     }
 
     var flags: std.ArrayList([]const u8) = .empty;
@@ -98,7 +98,7 @@ pub fn build(b: *std.Build) !void {
     }
 
     if (upstream_) |upstream| {
-        lib.addCSourceFiles(.{
+        lib.root_module.addCSourceFiles(.{
             .root = upstream.path(""),
             .files = srcs,
             .flags = flags.items,

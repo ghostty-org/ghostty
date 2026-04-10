@@ -41,7 +41,7 @@ pub fn build(b: *std.Build) !void {
 
     if (b.systemIntegrationOption("fontconfig", .{})) {
         module.linkSystemLibrary("fontconfig", dynamic_link_opts);
-        test_exe.linkSystemLibrary2("fontconfig", dynamic_link_opts);
+        test_exe.root_module.linkSystemLibrary("fontconfig", dynamic_link_opts);
     } else {
         const lib = try buildLib(b, module, .{
             .target = target,
@@ -54,7 +54,7 @@ pub fn build(b: *std.Build) !void {
             .dynamic_link_opts = dynamic_link_opts,
         });
 
-        test_exe.linkLibrary(lib);
+        test_exe.root_module.linkLibrary(lib);
     }
 }
 
@@ -65,21 +65,23 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     const libxml2_enabled = options.libxml2_enabled;
     const libxml2_iconv_enabled = options.libxml2_iconv_enabled;
     const freetype_enabled = options.freetype_enabled;
+    const dynamic_link_opts = options.dynamic_link_opts;
 
     const lib = b.addLibrary(.{
         .name = "fontconfig",
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
         .linkage = .static,
     });
-    lib.linkLibC();
+    lib.root_module.linkSystemLibrary("pthread", .{});
     if (target.result.os.tag != .windows) {
-        lib.linkSystemLibrary("pthread");
+        lib.root_module.linkSystemLibrary("pthread", .{});
     }
 
-    lib.addIncludePath(b.path("override/include"));
+    lib.root_module.addIncludePath(b.path("override/include"));
     module.addIncludePath(b.path("override/include"));
 
     var flags: std.ArrayList([]const u8) = .empty;
@@ -194,19 +196,17 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         }
     }
 
-    const dynamic_link_opts = options.dynamic_link_opts;
-
     // Freetype2
     _ = b.systemIntegrationOption("freetype", .{}); // So it shows up in help
     if (freetype_enabled) {
         if (b.systemIntegrationOption("freetype", .{})) {
-            lib.linkSystemLibrary2("freetype2", dynamic_link_opts);
+            lib.root_module.linkSystemLibrary("freetype2", dynamic_link_opts);
         } else {
             if (b.lazyDependency(
                 "freetype",
                 .{ .target = target, .optimize = optimize },
             )) |freetype_dep| {
-                lib.linkLibrary(freetype_dep.artifact("freetype"));
+                lib.root_module.linkLibrary(freetype_dep.artifact("freetype"));
             }
         }
     }
@@ -227,22 +227,22 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         }
 
         if (b.systemIntegrationOption("libxml2", .{})) {
-            lib.linkSystemLibrary2("libxml-2.0", dynamic_link_opts);
+            lib.root_module.linkSystemLibrary("libxml-2.0", .{});
         } else {
             if (b.lazyDependency("libxml2", .{
                 .target = target,
                 .optimize = optimize,
                 .iconv = libxml2_iconv_enabled,
             })) |libxml2_dep| {
-                lib.linkLibrary(libxml2_dep.artifact("xml2"));
+                lib.root_module.linkLibrary(libxml2_dep.artifact("xml2"));
             }
         }
     }
 
     if (b.lazyDependency("fontconfig", .{})) |upstream| {
-        lib.addIncludePath(upstream.path(""));
+        lib.root_module.addIncludePath(upstream.path(""));
         module.addIncludePath(upstream.path(""));
-        lib.addCSourceFiles(.{
+        lib.root_module.addCSourceFiles(.{
             .root = upstream.path(""),
             .files = srcs,
             .flags = flags.items,
