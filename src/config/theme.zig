@@ -109,6 +109,8 @@ pub const LocationIterator = struct {
 /// will be added to the list and null will be returned.
 pub fn open(
     arena_alloc: Allocator,
+    io: std.Io,
+    arena_alloc: Allocator,
     theme: []const u8,
     diags: *cli.DiagnosticList,
 ) error{OutOfMemory}!?struct {
@@ -118,11 +120,12 @@ pub fn open(
     // Absolute themes are loaded a different path.
     if (std.fs.path.isAbsolute(theme)) {
         const file: std.fs.File = try openAbsolute(
+            io,
             arena_alloc,
             theme,
             diags,
         ) orelse return null;
-        const stat = file.stat() catch |err| {
+        const stat = file.stat(io) catch |err| {
             try diags.append(arena_alloc, .{
                 .message = try std.fmt.allocPrintSentinel(
                     arena_alloc,
@@ -166,7 +169,7 @@ pub fn open(
     // Iterate over the possible locations to try to find the
     // one that exists.
     var it: LocationIterator = .{ .arena_alloc = arena_alloc };
-    const cwd = std.fs.cwd();
+    const cwd: std.Io.Dir = .cwd();
     while (try it.next()) |loc| {
         const path = try std.fs.path.join(arena_alloc, &.{ loc.dir, theme });
         if (cwd.openFile(path, .{})) |file| {
@@ -249,10 +252,12 @@ pub fn open(
 /// free the returned allocations.
 pub fn openAbsolute(
     arena_alloc: Allocator,
+    io: std.Io,
+    arena_alloc: Allocator,
     theme: []const u8,
     diags: *cli.DiagnosticList,
-) error{OutOfMemory}!?std.fs.File {
-    return std.fs.openFileAbsolute(theme, .{}) catch |err| {
+) error{OutOfMemory}!?std.Io.File {
+    return std.Io.Dir.openFileAbsolute(io, theme, .{}) catch |err| {
         switch (err) {
             error.FileNotFound => try diags.append(arena_alloc, .{
                 .message = try std.fmt.allocPrintSentinel(

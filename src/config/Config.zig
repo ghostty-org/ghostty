@@ -3818,19 +3818,19 @@ pub fn deinit(self: *Config) void {
 ///   4. CLI flags
 ///   5. Recursively defined configuration files
 ///
-pub fn load(alloc_gpa: Allocator) !Config {
+pub fn load(io: std.Io, alloc_gpa: Allocator) !Config {
     var result = try default(alloc_gpa);
     errdefer result.deinit();
 
     // If we have a configuration file in our home directory, parse that first.
-    try result.loadDefaultFiles(alloc_gpa);
+    try result.loadDefaultFiles(io, alloc_gpa);
 
     // Parse the config from the CLI args.
-    try result.loadCliArgs(alloc_gpa);
+    try result.loadCliArgs(io, alloc_gpa);
 
     // Parse the config files that were added from our file and CLI args.
-    try result.loadRecursiveFiles(alloc_gpa);
-    try result.finalize();
+    try result.loadRecursiveFiles(io, alloc_gpa);
+    try result.finalize(io);
 
     return result;
 }
@@ -3872,9 +3872,9 @@ pub fn loadIter(
 /// Load configuration from the target config file at `path`.
 ///
 /// `path` must be resolved and absolute.
-pub fn loadFile(self: *Config, alloc: Allocator, path: []const u8) !void {
+pub fn loadFile(self: *Config, io: std.Io, alloc: Allocator, path: []const u8) !void {
     assert(std.fs.path.isAbsolute(path));
-    var file = file_load.open(path) catch |err| switch (err) {
+    var file = file_load.open(io, path) catch |err| switch (err) {
         error.NotAFile => {
             log.warn(
                 "config-file {s}: not reading because it is not a file",
@@ -3885,22 +3885,22 @@ pub fn loadFile(self: *Config, alloc: Allocator, path: []const u8) !void {
 
         else => return err,
     };
-    defer file.close();
+    defer file.close(io);
 
-    try self.loadFsFile(alloc, &file, path);
+    try self.loadFsFile(alloc, io, &file, path);
 }
 
 /// Load config from the given File.
-fn loadFsFile(self: *Config, alloc: Allocator, file: *std.fs.File, path: []const u8) !void {
+fn loadFsFile(self: *Config, io: std.Io, alloc: Allocator, file: *std.Io.File, path: []const u8) !void {
     std.log.info("reading configuration file path={s}", .{path});
     var buf: [2048]u8 = undefined;
     var file_reader = file.reader(&buf);
     const reader = &file_reader.interface;
-    try self.loadReader(alloc, reader, path);
+    try self.loadReader(alloc, io, reader, path);
 }
 
 /// Load config from the given Reader.
-fn loadReader(self: *Config, alloc: Allocator, reader: *std.Io.Reader, path: []const u8) !void {
+fn loadReader(self: *Config, io: std.Io, alloc: Allocator, reader: *std.Io.Reader, path: []const u8) !void {
     bom: {
         // If the file starts with a UTF-8 byte order mark, skip it.
         // https://en.wikipedia.org/wiki/Byte_order_mark#UTF-8
@@ -3913,7 +3913,7 @@ fn loadReader(self: *Config, alloc: Allocator, reader: *std.Io.Reader, path: []c
     }
     var iter: cli.args.LineIterator = .{ .r = reader, .filepath = path };
     try self.loadIter(alloc, &iter);
-    try self.expandPaths(std.fs.path.dirname(path).?);
+    try self.expandPaths(io, std.fs.path.dirname(path).?);
 }
 
 test "handle bom in config files" {
@@ -3927,6 +3927,7 @@ test "handle bom in config files" {
         defer cfg.deinit();
         try cfg.loadReader(
             alloc,
+            std.testing.io,
             &reader,
             "/home/ghostty/.config/ghostty/config.ghostty",
         );
@@ -3946,6 +3947,7 @@ test "handle bom in config files" {
         defer cfg.deinit();
         try cfg.loadReader(
             alloc,
+            std.testing.io,
             &reader,
             "/home/ghostty/.config/ghostty/config.ghostty",
         );
@@ -3967,9 +3969,11 @@ pub const OptionalFileAction = enum { loaded, not_found, @"error" };
 pub fn loadOptionalFile(
     self: *Config,
     alloc: Allocator,
+    io: std.Io,
+    alloc: Allocator,
     path: []const u8,
 ) OptionalFileAction {
-    if (self.loadFile(alloc, path)) {
+    if (self.loadFile(io, alloc, path)) {
         return .loaded;
     } else |err| switch (err) {
         error.FileNotFound => return .not_found,
@@ -3984,13 +3988,13 @@ pub fn loadOptionalFile(
     }
 }
 
-fn writeConfigTemplate(path: []const u8) !void {
+fn writeConfigTemplate(io: std.Io, path: []const u8) !void {
     log.info("creating template config file: path={s}", .{path});
     if (std.fs.path.dirname(path)) |dir_path| {
-        try std.fs.cwd().makePath(dir_path);
+        try std.Io.Dir.cwd().createDirPath(io, dir_path);
     }
-    const file = try std.fs.createFileAbsolute(path, .{});
-    defer file.close();
+    const file = try std.Io.Dir.createFileAbsolute(io, path, .{});
+    defer file.close(io);
     var buf: [4096]u8 = undefined;
     var file_writer = file.writer(&buf);
     const writer = &file_writer.interface;
@@ -4008,15 +4012,15 @@ fn writeConfigTemplate(path: []const u8) !void {
 ///
 /// The legacy `config` file (without extension) is first loaded,
 /// then `config.ghostty`.
-pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
+pub fn loadDefaultFiles(self: *Config, alloc: Allocator, io: std.Io, env: std.process.Environ) !void {
     // Load XDG first
     const legacy_xdg_path = try file_load.legacyDefaultXdgPath(alloc);
     defer alloc.free(legacy_xdg_path);
     const xdg_path = try file_load.defaultXdgPath(alloc);
     defer alloc.free(xdg_path);
     const xdg_loaded: bool = xdg_loaded: {
-        const legacy_xdg_action = self.loadOptionalFile(alloc, legacy_xdg_path);
-        const xdg_action = self.loadOptionalFile(alloc, xdg_path);
+        const legacy_xdg_action = self.loadOptionalFile(alloc, io, legacy_xdg_path);
+        const xdg_action = self.loadOptionalFile(alloc, io, xdg_path);
         if (xdg_action != .not_found and legacy_xdg_action != .not_found) {
             log.warn("both config files `{s}` and `{s}` exist.", .{ legacy_xdg_path, xdg_path });
             log.warn("loading them both in that order", .{});
@@ -4036,6 +4040,7 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
         const app_support_loaded: bool = loaded: {
             const legacy_app_support_action = self.loadOptionalFile(
                 alloc,
+                io,
                 legacy_app_support_path,
             );
 
@@ -4047,7 +4052,7 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
                 legacy_app_support_path,
                 app_support_path,
             )) self.loadOptionalFile(
-                alloc,
+                io,
                 app_support_path,
             ) else .not_found;
 
@@ -4067,13 +4072,13 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
         // If both files are not found, then we create a template file.
         // For macOS, we only create the template file in the app support
         if (!app_support_loaded and !xdg_loaded) {
-            writeConfigTemplate(app_support_path) catch |err| {
+            writeConfigTemplate(io, app_support_path) catch |err| {
                 log.warn("error creating template config file err={}", .{err});
             };
         }
     } else {
         if (!xdg_loaded) {
-            writeConfigTemplate(xdg_path) catch |err| {
+            writeConfigTemplate(io, xdg_path) catch |err| {
                 log.warn("error creating template config file err={}", .{err});
             };
         }
@@ -4081,7 +4086,7 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
 }
 
 /// Load and parse the CLI args.
-pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
+pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator, io: std.Io) !void {
     switch (builtin.os.tag) {
         .windows => {},
 
@@ -4181,11 +4186,11 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
     // Any paths referenced from the CLI are relative to the current working
     // directory.
     var buf: [std.fs.max_path_bytes]u8 = undefined;
-    try self.expandPaths(try std.fs.cwd().realpath(".", &buf));
+    try self.expandPaths(io, try std.Io.Dir.cwd().realpath(".", &buf));
 }
 
 /// Load and parse the config files that were added in the "config-file" key.
-pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
+pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator, io: std.Io) !void {
     if (self.@"config-file".value.items.len == 0) return;
     const arena_alloc = self._arena.?.allocator();
 
@@ -4244,7 +4249,7 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
             continue;
         }
 
-        var file = std.fs.openFileAbsolute(path, .{}) catch |err| {
+        var file = std.Io.Dir.openFileAbsolute(io, path, .{}) catch |err| {
             if (err != error.FileNotFound or !optional) {
                 const diag: cli.Diagnostic = .{
                     .message = try std.fmt.allocPrintSentinel(
@@ -4260,9 +4265,9 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
             }
             continue;
         };
-        defer file.close();
+        defer file.close(io);
 
-        const stat = try file.stat();
+        const stat = try file.stat(io);
         switch (stat.kind) {
             .file => {},
             else => |kind| {
@@ -4357,7 +4362,7 @@ pub fn changeConditionalState(
 
 /// Expand the relative paths in config-files to be absolute paths
 /// relative to the base directory.
-fn expandPaths(self: *Config, base: []const u8) !void {
+fn expandPaths(self: *Config, io: std.Io, base: []const u8) !void {
     const arena_alloc = self._arena.?.allocator();
 
     // Keep track of this step for replays
@@ -4371,6 +4376,7 @@ fn expandPaths(self: *Config, base: []const u8) !void {
         switch (field.type) {
             RepeatablePath, Path => {
                 try @field(self, field.name).expand(
+                    io,
                     arena_alloc,
                     base,
                     &self._diagnostics,
@@ -4379,6 +4385,7 @@ fn expandPaths(self: *Config, base: []const u8) !void {
             ?RepeatablePath, ?Path => {
                 if (@field(self, field.name)) |*path| {
                     try path.expand(
+                        io,
                         arena_alloc,
                         base,
                         &self._diagnostics,
@@ -4390,7 +4397,7 @@ fn expandPaths(self: *Config, base: []const u8) !void {
     }
 }
 
-fn loadTheme(self: *Config, theme: Theme) !void {
+fn loadTheme(self: *Config, io: std.Io, theme: Theme) !void {
     // Load the correct theme depending on the conditional state.
     // Dark/light themes were programmed prior to conditional configuration
     // so when we introduce that we probably want to replace this.
@@ -4402,12 +4409,14 @@ fn loadTheme(self: *Config, theme: Theme) !void {
     // Find our theme file and open it. See the open function for details.
     const themefile = (try themepkg.open(
         self._arena.?.allocator(),
+        io,
+        self._arena.?.allocator(),
         name,
         &self._diagnostics,
     )) orelse return;
     const path = themefile.path;
     const file = themefile.file;
-    defer file.close();
+    defer file.close(io);
 
     // From this point onwards, we load the theme and do a bit of a dance
     // to achieve two separate goals:
@@ -4488,7 +4497,7 @@ fn loadTheme(self: *Config, theme: Theme) !void {
 
 /// Call this once after you are done setting configuration. This
 /// is idempotent but will waste memory if called multiple times.
-pub fn finalize(self: *Config) !void {
+pub fn finalize(self: *Config, io: std.Io) !void {
     // We always load the theme first because it may set other fields
     // in our config.
     if (self.theme) |theme| {
@@ -4496,7 +4505,7 @@ pub fn finalize(self: *Config) !void {
 
         // Warning: loadTheme will deinit our existing config and replace
         // it so all memory from self prior to this point will be freed.
-        try self.loadTheme(theme);
+        try self.loadTheme(io, theme);
 
         // If we have different light vs dark mode themes, disable
         // window-theme = auto since that breaks it.

@@ -5,7 +5,7 @@ const Action = @import("../cli.zig").ghostty.Action;
 const apprt = @import("../apprt.zig");
 const args = @import("args.zig");
 const diagnostics = @import("diagnostics.zig");
-const lib = @import("../lib/main.zig");
+
 const homedir = @import("../os/homedir.zig");
 
 pub const Options = struct {
@@ -51,16 +51,16 @@ pub const Options = struct {
     }
 
     fn checkArg(self: *Options, alloc: Allocator, arg: []const u8) (error{InvalidValue} || homedir.ExpandError || std.fs.Dir.RealPathAllocError || Allocator.Error)!?[:0]const u8 {
-        if (lib.cutPrefix(u8, arg, "--class=")) |rest| {
+        if (std.mem.cutPrefix(u8, arg, "--class=")) |rest| {
             self.class = try alloc.dupeZ(u8, std.mem.trim(u8, rest, &std.ascii.whitespace));
             return null;
         }
 
-        if (lib.cutPrefix(u8, arg, "--working-directory=")) |rest| {
+        if (std.mem.cutPrefix(u8, arg, "--working-directory=")) |rest| {
             const stripped = std.mem.trim(u8, rest, &std.ascii.whitespace);
             if (std.mem.eql(u8, stripped, "home")) return try alloc.dupeZ(u8, arg);
             if (std.mem.eql(u8, stripped, "inherit")) return try alloc.dupeZ(u8, arg);
-            const cwd: std.fs.Dir = std.fs.cwd();
+            const cwd: std.Io.Dir = .cwd();
             var expandhome_buf: [std.fs.max_path_bytes]u8 = undefined;
             const expanded = try homedir.expandHome(stripped, &expandhome_buf);
             var realpath_buf: [std.fs.max_path_bytes]u8 = undefined;
@@ -151,7 +151,7 @@ pub fn run(alloc: Allocator) !u8 {
     defer iter.deinit();
 
     var buffer: [1024]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&buffer);
+    var stderr_writer = std.Io.File.stderr().writer(&buffer);
     const stderr = &stderr_writer.interface;
 
     const result = runArgs(alloc, &iter, stderr);
@@ -195,7 +195,7 @@ fn runArgs(
 
     if (!opts._working_directory_seen) {
         const alloc = opts._arena.?.allocator();
-        const cwd: std.fs.Dir = std.fs.cwd();
+        const cwd: std.Io.Dir = .cwd();
         var buf: [std.fs.max_path_bytes]u8 = undefined;
         const wd = try cwd.realpath(".", &buf);
         // This should be inserted at the beginning of the list, just in case `-e` was used.

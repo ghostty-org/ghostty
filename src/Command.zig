@@ -30,7 +30,7 @@ const debug = std.debug;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const File = std.fs.File;
-const EnvMap = std.process.EnvMap;
+const EnvMap = std.process.Environ.Map;
 const apprt = @import("apprt.zig");
 
 /// Function prototype for a function executed /in the child process/ after the
@@ -232,7 +232,7 @@ fn startPosix(self: *Command, arena: Allocator) !void {
     // something reasonable. Its important to note we MUST NOT return
     // any other error condition from here on out.
     var stderr_buf: [1024]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&stderr_buf);
+    var stderr_writer = std.Io.File.stderr().writer(&stderr_buf);
     const stderr = &stderr_writer.interface;
     switch (err) {
         error.FileNotFound => stderr.print(
@@ -689,7 +689,7 @@ test "Command: rt post fork 1" {
     try testing.expectError(error.PostForkError, cmd.testingStart());
 }
 
-fn createTestStdout(dir: std.fs.Dir) !File {
+fn createTestStdout(dir: std.Io.Dir) !File {
     const file = try dir.createFile("stdout.txt", .{ .read = true });
     if (builtin.os.tag == .windows) {
         try windows.SetHandleInformation(
@@ -702,7 +702,7 @@ fn createTestStdout(dir: std.fs.Dir) !File {
     return file;
 }
 
-fn createTestStderr(dir: std.fs.Dir) !File {
+fn createTestStderr(dir: std.Io.Dir) !File {
     const file = try dir.createFile("stderr.txt", .{ .read = true });
     if (builtin.os.tag == .windows) {
         try windows.SetHandleInformation(

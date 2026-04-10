@@ -24,7 +24,7 @@ const Command = @import("../Command.zig");
 const SegmentedPool = @import("../datastruct/main.zig").SegmentedPool;
 const ptypkg = @import("../pty.zig");
 const Pty = ptypkg.Pty;
-const EnvMap = std.process.EnvMap;
+const EnvMap = std.process.Environ.Map;
 const PasswdEntry = internal_os.passwd.Entry;
 const windows = internal_os.windows;
 const ProcessInfo = @import("../pty.zig").ProcessInfo;
@@ -668,7 +668,7 @@ const Subprocess = struct {
             }
 
             var exe_buf: [std.fs.max_path_bytes]u8 = undefined;
-            const exe_bin_path = std.fs.selfExePath(&exe_buf) catch |err| {
+            const exe_bin_path = std.process.executablePath(&exe_buf) catch |err| {
                 log.warn("failed to get ghostty exe path err={}", .{err});
                 break :ghostty_path;
             };
@@ -787,6 +787,7 @@ const Subprocess = struct {
             };
 
             const integration = try shell_integration.setup(
+                undefined,
                 alloc,
                 dir,
                 default_shell_command,
@@ -941,7 +942,7 @@ const Subprocess = struct {
                 //
                 // https://docs.flatpak.org/en/latest/sandbox-permissions.html#reserved-paths
                 log.info("flatpak detected, will use host command to verify cwd access", .{});
-                const dev_null = try std.fs.cwd().openFile("/dev/null", .{ .mode = .read_write });
+                const dev_null = try std.Io.Dir.cwd().openFile("/dev/null", .{ .mode = .read_write });
                 defer dev_null.close();
                 var cmd: internal_os.FlatpakHostCommand = .{
                     .argv = &[_][]const u8{
@@ -963,7 +964,7 @@ const Subprocess = struct {
                 break :cwd proposed;
             }
 
-            if (std.fs.cwd().access(proposed, .{})) {
+            if (std.Io.Dir.cwd().access(proposed, .{})) {
                 break :cwd proposed;
             } else |err| {
                 log.warn("cannot access cwd, ignoring: {}", .{err});

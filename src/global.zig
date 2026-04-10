@@ -30,6 +30,8 @@ pub const GlobalState = struct {
 
     gpa: ?GPA,
     alloc: std.mem.Allocator,
+    io_threaded: std.Io.Threaded,
+    env: std.process.Environ,
     action: ?cli.ghostty.Action,
     logging: Logging,
     rlimits: ResourceLimits = .{},
@@ -49,7 +51,8 @@ pub const GlobalState = struct {
     };
 
     /// Initialize the global state.
-    pub fn init(self: *GlobalState) !void {
+    pub fn init(self: *GlobalState, init_minimal: std.process.Init.Minimal) !void {
+        const environ = init_minimal.environ;
         // const start = try std.time.Instant.now();
         // const start_micro = std.time.microTimestamp();
         // defer {
@@ -111,8 +114,8 @@ pub const GlobalState = struct {
         // maybe once for logging) so for now this is an easy way to do
         // this. Env vars are useful for logging too because they are
         // easy to set.
-        if ((try internal_os.getenv(self.alloc, "GHOSTTY_LOG"))) |v| {
-            defer v.deinit(self.alloc);
+        if ((try environ.getAlloc(self.alloc, "GHOSTTY_LOG"))) |v| {
+            defer self.alloc.free(v);
             self.logging = cli.args.parsePackedStruct(Logging, v.value) catch .{};
         }
 
@@ -193,6 +196,7 @@ pub const GlobalState = struct {
             // the point at which it will output if there were safety violations.
             _ = value.deinit();
         }
+        self.io_threaded.deinit();
     }
 
     fn initSignals() void {

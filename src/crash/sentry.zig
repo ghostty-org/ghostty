@@ -261,6 +261,9 @@ pub const Transport = struct {
         defer arena.deinit();
         const alloc = arena.allocator();
 
+        var io_threaded: std.Io.Threaded = .init_single_threaded;
+        const io = io_threaded.io();
+
         // Parse into an envelope structure
         const json = envelope.serialize();
         defer sentry.free(@ptrCast(json.ptr));
@@ -288,16 +291,16 @@ pub const Transport = struct {
 
         // Get our XDG state directory where we'll store the crash reports.
         // This directory must exist for writing to work.
-        const dir = try crash.defaultDir(alloc);
-        try std.fs.cwd().makePath(dir.path);
+        const dir = try crash.defaultDir(io, alloc);
+        try std.Io.Dir.cwd().createDirPath(io, dir.path);
 
         // Build our final path and write to it.
         const path = try std.fs.path.join(alloc, &.{
             dir.path,
             try std.fmt.allocPrint(alloc, "{s}.ghosttycrash", .{uuid.string()}),
         });
-        const file = try std.fs.cwd().createFile(path, .{});
-        defer file.close();
+        const file = try std.Io.Dir.cwd().createFile(io, path, .{});
+        defer file.close(io);
         var buf: [4096]u8 = undefined;
         var file_writer = file.writer(&buf);
         try file_writer.interface.writeAll(json);

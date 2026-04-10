@@ -232,6 +232,7 @@ pub fn renderGlyph(
 /// Used in `testDrawRanges`, checks for diff between the provided atlas
 /// and the reference file for the range, returns true if there is a diff.
 fn testDiffAtlas(
+    io: std.Io,
     alloc: Allocator,
     atlas: *z2d.Surface,
     path: []const u8,
@@ -243,15 +244,15 @@ fn testDiffAtlas(
     // Get the file contents, we compare the PNG data first in
     // order to ensure that no one smuggles arbitrary binary
     // data in to the reference PNGs.
-    const test_file = try std.fs.openFileAbsolute(path, .{ .mode = .read_only });
-    defer test_file.close();
+    const test_file = try std.Io.Dir.openFileAbsolute(io, path, .{ .mode = .read_only });
+    defer test_file.close(io);
     const test_bytes = try test_file.readToEndAlloc(
         alloc,
         std.math.maxInt(usize),
     );
     defer alloc.free(test_bytes);
 
-    const cwd_absolute = try std.fs.cwd().realpathAlloc(alloc, ".");
+    const cwd_absolute = try std.Io.Dir.cwd().realPathFileAlloc(alloc, ".");
     defer alloc.free(cwd_absolute);
 
     // Get the reference file contents to compare.
@@ -262,7 +263,7 @@ fn testDiffAtlas(
     );
     defer alloc.free(ref_path);
     const ref_file =
-        std.fs.cwd().openFile(ref_path, .{ .mode = .read_only }) catch |err| {
+        std.Io.Dir.cwd().openFile(ref_path, .{ .mode = .read_only }) catch |err| {
             log.err("Can't open reference file {s}: {}\n", .{
                 ref_path,
                 err,
@@ -276,7 +277,7 @@ fn testDiffAtlas(
                 .{ cwd_absolute, i, i + 0xFF, width, height, thickness },
             );
             defer alloc.free(test_path);
-            try std.fs.copyFileAbsolute(path, test_path, .{});
+            try std.Io.Dir.copyFileAbsolute(io, path, std.Io.Dir.cwd(), test_path, .{});
 
             return true;
         };
@@ -387,6 +388,7 @@ fn testDrawRanges(
 ) !bool {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     const metrics: font.Metrics = .calc(.{
         // Fudged number, not used in anything we care about here.
@@ -432,7 +434,7 @@ fn testDrawRanges(
     // Try to make the sprite_face_test folder if it doesn't already exist.
     var dir = testing.tmpDir(.{});
     defer dir.cleanup();
-    const tmp_dir = try dir.dir.realpathAlloc(alloc, ".");
+    const tmp_dir = try dir.dir.realPathFileAlloc(io, alloc, ".");
     defer alloc.free(tmp_dir);
 
     // We set this to true if we have any fails so we can
@@ -454,6 +456,7 @@ fn testDrawRanges(
                 try z2d.png_exporter.writeToPNGFile(atlas, path, .{});
 
                 if (try testDiffAtlas(
+                    io,
                     alloc,
                     &atlas,
                     path,
@@ -498,6 +501,7 @@ fn testDrawRanges(
     defer alloc.free(path);
     try z2d.png_exporter.writeToPNGFile(atlas, path, .{});
     if (try testDiffAtlas(
+        io,
         alloc,
         &atlas,
         path,

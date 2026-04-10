@@ -41,7 +41,7 @@ pub const Face = struct {
     ///
     /// This means that anywhere where `self.face.loadGlyph`
     /// is called, this mutex must be held.
-    ft_mutex: *std.Thread.Mutex,
+    ft_mutex: *std.Io.Mutex,
 
     /// Harfbuzz font corresponding to this face.
     hb_font: harfbuzz.Font,
@@ -99,7 +99,7 @@ pub const Face = struct {
         var hb_font = try harfbuzz.freetype.createFont(face.handle);
         errdefer hb_font.destroy();
 
-        const ft_mutex = try lib.alloc.create(std.Thread.Mutex);
+        const ft_mutex = try lib.alloc.create(std.Io.Mutex);
         errdefer lib.alloc.destroy(ft_mutex);
         ft_mutex.* = .{};
 

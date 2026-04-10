@@ -13,7 +13,7 @@ const builtin = @import("builtin");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const Mutex = std.Thread.Mutex;
+const Mutex = std.Io.Mutex;
 const xev = @import("../../global.zig").xev;
 const internal_os = @import("../../os/main.zig");
 const BlockingQueue = @import("../../datastruct/main.zig").BlockingQueue;
@@ -812,7 +812,7 @@ const Search = struct {
 
 const TestUserData = struct {
     const Self = @This();
-    reset: std.Thread.ResetEvent = .{},
+    reset: std.Io.Event = .{},
     total: usize = 0,
     selected: ?Event.SelectedMatch = null,
     viewport: []FlattenedHighlight = &.{},

@@ -130,10 +130,11 @@ const OpenFileError = error{
 /// Opens the file at the given path and returns the file handle
 /// if it exists and is non-empty. This also constrains the possible
 /// errors to a smaller set that we can explicitly handle.
-pub fn open(path: []const u8) OpenFileError!std.fs.File {
+pub fn open(io: std.Io, path: []const u8) OpenFileError!std.Io.File {
     assert(std.fs.path.isAbsolute(path));
 
-    var file = std.fs.openFileAbsolute(
+    var file = std.Io.Dir.openFileAbsolute(
+        io,
         path,
         .{},
     ) catch |err| switch (err) {
@@ -146,9 +147,9 @@ pub fn open(path: []const u8) OpenFileError!std.fs.File {
             return OpenFileError.FileOpenFailed;
         },
     };
-    errdefer file.close();
+    errdefer file.close(io);
 
-    const stat = file.stat() catch |err| {
+    const stat = file.stat(io) catch |err| {
         log.warn("error getting file stat path={s} err={}", .{
             path,
             err,

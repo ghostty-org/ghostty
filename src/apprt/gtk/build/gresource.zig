@@ -144,7 +144,7 @@ pub fn main() !void {
     }
 
     var buf: [4096]u8 = undefined;
-    var stdout = std.fs.File.stdout().writer(&buf);
+    var stdout = std.Io.File.stdout().writer(&buf);
     const writer = &stdout.interface;
     try writer.writeAll(
         \\<?xml version="1.0" encoding="UTF-8"?>
@@ -173,7 +173,7 @@ fn genIcons(writer: *std.Io.Writer) !void {
         \\
     , .{build_info.resource_path});
 
-    const cwd = std.fs.cwd();
+    const cwd: std.Io.Dir = .cwd();
     inline for (icon_sizes) |size| {
         // 1x
         {
@@ -215,7 +215,7 @@ fn genRoot(writer: *std.Io.Writer) !void {
         \\
     , .{build_info.resource_path});
 
-    const cwd = std.fs.cwd();
+    const cwd: std.Io.Dir = .cwd();
     inline for (css) |name| {
         const source = std.fmt.comptimePrint(
             "{s}/{s}",

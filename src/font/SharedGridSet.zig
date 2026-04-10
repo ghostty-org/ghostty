@@ -44,7 +44,7 @@ font_lib: Library,
 font_discover: ?Discover = null,
 
 /// Lock to protect multi-threaded access to the map.
-lock: std.Thread.Mutex = .{},
+lock: std.Io.Mutex = .init,
 
 pub const InitError = Library.InitError;
 

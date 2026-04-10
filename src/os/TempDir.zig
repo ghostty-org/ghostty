@@ -4,7 +4,7 @@ const TempDir = @This();
 
 const std = @import("std");
 const testing = std.testing;
-const Dir = std.fs.Dir;
+const Dir = std.Io.Dir;
 const allocTmpDir = @import("file.zig").allocTmpDir;
 const freeTmpDir = @import("file.zig").freeTmpDir;
 
@@ -30,7 +30,7 @@ pub fn init() !TempDir {
     var rand_buf: [RANDOM_BYTES]u8 = undefined;
 
     const dir = dir: {
-        const cwd = std.fs.cwd();
+        const cwd: std.Io.Dir = .cwd();
         const tmp_dir = allocTmpDir(std.heap.page_allocator) orelse break :dir cwd;
         defer freeTmpDir(std.heap.page_allocator, tmp_dir);
         break :dir try cwd.openDir(tmp_dir, .{});
@@ -42,7 +42,7 @@ pub fn init() !TempDir {
         const tmp_path = b64_encoder.encode(&tmp_path_buf, &rand_buf);
         tmp_path_buf[tmp_path.len] = 0;
 
-        dir.makeDir(tmp_path) catch |err| switch (err) {
+        dir.createDir(tmp_path) catch |err| switch (err) {
             error.PathAlreadyExists => continue,
             else => |e| return e,
         };

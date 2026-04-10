@@ -7,11 +7,8 @@ const isFlatpak = @import("flatpak.zig").isFlatpak;
 pub const Error = Allocator.Error;
 
 /// Get the environment map.
-pub fn getEnvMap(alloc: Allocator) !std.process.EnvMap {
-    return if (isFlatpak())
-        std.process.EnvMap.init(alloc)
-    else
-        try std.process.getEnvMap(alloc);
+pub fn getEnvMap(alloc: Allocator, env: std.process.Environ) !std.process.Environ.Map {
+    return if (isFlatpak()) .init(alloc) else env.createMap(alloc);
 }
 
 /// Append a value to an environment variable such as PATH.
@@ -61,77 +58,6 @@ pub fn prependEnv(
         current,
     });
 }
-
-/// The result of getenv, with a shared deinit to properly handle allocation
-/// on Windows.
-pub const GetEnvResult = struct {
-    value: []const u8,
-
-    pub fn deinit(self: GetEnvResult, alloc: Allocator) void {
-        switch (builtin.os.tag) {
-            .windows => alloc.free(self.value),
-            else => {},
-        }
-    }
-};
-
-/// Gets the value of an environment variable, or null if not found.
-/// This will allocate on Windows but not on other platforms. The returned
-/// value should have deinit called to do the proper cleanup no matter what
-/// platform you are on.
-pub fn getenv(alloc: Allocator, key: []const u8) Error!?GetEnvResult {
-    return switch (builtin.os.tag) {
-        // Non-Windows doesn't need to allocate
-        else => if (posix.getenv(key)) |v| .{ .value = v } else null,
-
-        // Windows needs to allocate
-        .windows => if (std.process.getEnvVarOwned(alloc, key)) |v| .{
-            .value = v,
-        } else |err| switch (err) {
-            error.EnvironmentVariableNotFound => null,
-            error.InvalidWtf8 => null,
-            else => |e| e,
-        },
-    };
-}
-
-/// Gets the value of an environment variable. Returns null if not found or the
-/// value is empty. This will allocate on Windows but not on other platforms.
-/// The returned value should have deinit called to do the proper cleanup no
-/// matter what platform you are on.
-pub fn getenvNotEmpty(alloc: Allocator, key: []const u8) !?GetEnvResult {
-    const result_ = try getenv(alloc, key);
-    if (result_) |result| {
-        if (result.value.len == 0) {
-            result.deinit(alloc);
-            return null;
-        }
-    }
-    return result_;
-}
-
-pub fn setenv(key: [:0]const u8, value: [:0]const u8) c_int {
-    return switch (builtin.os.tag) {
-        .windows => c._putenv_s(key.ptr, value.ptr),
-        else => c.setenv(key.ptr, value.ptr, 1),
-    };
-}
-
-pub fn unsetenv(key: [:0]const u8) c_int {
-    return switch (builtin.os.tag) {
-        .windows => c._putenv_s(key.ptr, ""),
-        else => c.unsetenv(key.ptr),
-    };
-}
-
-const c = struct {
-    // POSIX
-    extern "c" fn setenv(name: ?[*]const u8, value: ?[*]const u8, overwrite: c_int) c_int;
-    extern "c" fn unsetenv(name: ?[*]const u8) c_int;
-
-    // Windows
-    extern "c" fn _putenv_s(varname: ?[*]const u8, value_string: ?[*]const u8) c_int;
-};
 
 test "appendEnv empty" {
     const testing = std.testing;

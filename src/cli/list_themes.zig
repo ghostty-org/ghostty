@@ -103,7 +103,7 @@ const ThemeListElement = struct {
 ///
 ///   * `--color`: Specify the color scheme of the themes included in the list.
 ///                This can be `dark`, `light`, or `all`. The default is `all`.
-pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
+pub fn run(io: std.Io, gpa_alloc: std.mem.Allocator) !u8 {
     var opts: Options = .{};
     defer opts.deinit();
 
@@ -122,7 +122,7 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
     const stdout = &stdout_writer.interface;
 
     var stderr_buf: [4096]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&stderr_buf);
+    var stderr_writer = std.Io.File.stderr().writer(&stderr_buf);
     const stderr = &stderr_writer.interface;
 
     const resources_dir = global_state.resources_dir.app();
@@ -136,19 +136,19 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
 
     var it: themepkg.LocationIterator = .{ .arena_alloc = arena.allocator() };
 
-    while (try it.next()) |loc| {
-        var dir = std.fs.cwd().openDir(loc.dir, .{ .iterate = true }) catch |err| switch (err) {
+    while (try it.next(io)) |loc| {
+        var dir = std.Io.Dir.cwd().openDir(io, loc.dir, .{ .iterate = true }) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => {
                 std.debug.print("error trying to open {s}: {}\n", .{ loc.dir, err });
                 continue;
             },
         };
-        defer dir.close();
+        defer dir.close(io);
 
         var walker = dir.iterate();
 
-        while (try walker.next()) |entry| {
+        while (try walker.next(io)) |entry| {
             switch (entry.kind) {
                 .file, .sym_link => {
                     if (std.mem.eql(u8, entry.name, ".DS_Store"))
@@ -175,7 +175,7 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
     std.mem.sortUnstable(ThemeListElement, themes.items, {}, ThemeListElement.lessThan);
 
     if (tui.can_pretty_print and !opts.plain and stdout_file.isTty()) {
-        try preview(gpa_alloc, themes.items, opts.color);
+        try preview(io, gpa_alloc, themes.items, opts.color);
         return 0;
     }
 
@@ -205,16 +205,16 @@ fn resolveAutoThemePath(alloc: std.mem.Allocator) ![]u8 {
     return try std.fs.path.join(alloc, &.{ base_dir, "auto", "theme.ghostty" });
 }
 
-fn writeAutoThemeFile(alloc: std.mem.Allocator, theme_name: []const u8) !void {
+fn writeAutoThemeFile(io: std.Io, alloc: std.mem.Allocator, theme_name: []const u8) !void {
     const auto_path = try resolveAutoThemePath(alloc);
     defer alloc.free(auto_path);
 
     if (std.fs.path.dirname(auto_path)) |dir| {
-        try std.fs.cwd().makePath(dir);
+        try std.Io.Dir.cwd().createDirPath(io, dir);
     }
 
-    var f = try std.fs.createFileAbsolute(auto_path, .{ .truncate = true });
-    defer f.close();
+    var f = try std.Io.Dir.createFileAbsolute(io, auto_path, .{ .truncate = true });
+    defer f.close(io);
 
     var buf: [128]u8 = undefined;
     var w = f.writer(&buf);
@@ -230,6 +230,7 @@ const Event = union(enum) {
 };
 
 const Preview = struct {
+    io: std.Io,
     allocator: std.mem.Allocator,
     should_quit: bool,
     tty: vaxis.Tty,
@@ -251,6 +252,7 @@ const Preview = struct {
     theme_filter: ColorScheme,
 
     pub fn init(
+        io: std.Io,
         allocator: std.mem.Allocator,
         themes: []ThemeListElement,
         theme_filter: ColorScheme,
@@ -259,6 +261,7 @@ const Preview = struct {
         const self = try allocator.create(Preview);
 
         self.* = .{
+            .io = io,
             .allocator = allocator,
             .should_quit = false,
             .tty = try .init(buf),
@@ -362,7 +365,7 @@ const Preview = struct {
             while (it.next()) |token| try tokens.append(self.allocator, token);
 
             for (self.themes, 0..) |*theme, i| {
-                try theme_config.loadFile(theme_config._arena.?.allocator(), theme.path);
+                try theme_config.loadFile(self.io, theme_config._arena.?.allocator(), theme.path);
                 if (!shouldIncludeTheme(self.theme_filter, theme_config)) continue;
 
                 theme.rank = zf.rank(theme.theme, tokens.items, .{
@@ -373,7 +376,7 @@ const Preview = struct {
             }
         } else {
             for (self.themes, 0..) |*theme, i| {
-                try theme_config.loadFile(theme_config._arena.?.allocator(), theme.path);
+                try theme_config.loadFile(self.io, theme_config._arena.?.allocator(), theme.path);
                 if (shouldIncludeTheme(self.theme_filter, theme_config)) {
                     try self.filtered.append(self.allocator, i);
                     theme.rank = null;
@@ -877,7 +880,7 @@ const Preview = struct {
             var config = try Config.default(alloc);
             defer config.deinit();
 
-            config.loadFile(config._arena.?.allocator(), theme.path) catch |err| {
+            config.loadFile(self.io, config._arena.?.allocator(), theme.path) catch |err| {
                 const theme_path_len: u16 = @intCast(theme.path.len);
 
                 const child = win.child(
@@ -1701,7 +1704,7 @@ const Preview = struct {
         const idx = self.filtered.items[self.current];
         const theme = self.themes[idx];
 
-        writeAutoThemeFile(self.allocator, theme.theme) catch {
+        writeAutoThemeFile(self.io, self.allocator, theme.theme) catch {
             return;
         };
     }
@@ -1719,9 +1722,10 @@ fn color(config: Config, palette: usize) vaxis.Color {
 
 const lorem_ipsum = @embedFile("lorem_ipsum.txt");
 
-fn preview(allocator: std.mem.Allocator, themes: []ThemeListElement, theme_filter: ColorScheme) !void {
+fn preview(io: std.Io, allocator: std.mem.Allocator, themes: []ThemeListElement, theme_filter: ColorScheme) !void {
     var buf: [4096]u8 = undefined;
     var app = try Preview.init(
+        io,
         allocator,
         themes,
         theme_filter,

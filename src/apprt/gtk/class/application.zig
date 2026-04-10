@@ -23,7 +23,6 @@ const xev = @import("../../../global.zig").xev;
 const Binding = @import("../../../input.zig").Binding;
 const CoreConfig = configpkg.Config;
 const CoreSurface = @import("../../../Surface.zig");
-const lib = @import("../../../lib/main.zig");
 
 const ext = @import("../ext.zig");
 const key = @import("../key.zig");
@@ -1752,7 +1751,7 @@ pub const Application = extern struct {
                     continue;
                 }
 
-                if (lib.cutPrefix(u8, str, "--command=")) |v| {
+                if (std.mem.cutPrefix(u8, str, "--command=")) |v| {
                     var cmd: configpkg.Command = undefined;
                     cmd.parseCLI(alloc, v) catch |err| {
                         log.warn("unable to parse command: {t}", .{err});
@@ -1761,14 +1760,14 @@ pub const Application = extern struct {
                     command = cmd;
                     continue;
                 }
-                if (lib.cutPrefix(u8, str, "--working-directory=")) |v| {
+                if (std.mem.cutPrefix(u8, str, "--working-directory=")) |v| {
                     working_directory = alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| wd: {
                         log.warn("unable to duplicate working directory: {t}", .{err});
                         break :wd null;
                     };
                     continue;
                 }
-                if (lib.cutPrefix(u8, str, "--title=")) |v| {
+                if (std.mem.cutPrefix(u8, str, "--title=")) |v| {
                     title = alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| t: {
                         log.warn("unable to duplicate title: {t}", .{err});
                         break :t null;

@@ -283,7 +283,7 @@ pub const LoadingImage = struct {
             };
         };
 
-        var file = std.fs.cwd().openFile(path, .{}) catch |err| {
+        var file = std.Io.Dir.openFileAbsolute(io, path, .{}) catch |err| {
             log.warn("failed to open temporary file: {}", .{err});
             return error.InvalidData;
         };
@@ -433,7 +433,7 @@ pub const LoadingImage = struct {
                 self.image.id,
             },
         );
-        const cwd = std.fs.cwd();
+        const cwd: std.Io.Dir = .cwd();
         const f = try cwd.createFile(filename, .{});
         defer f.close();
 

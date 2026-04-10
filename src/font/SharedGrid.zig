@@ -60,7 +60,7 @@ metrics: Metrics,
 /// this directly if they need to i.e. access the atlas directly. Because
 /// callers can use this lock directly, maintainers need to be extra careful
 /// to review call sites to ensure they are using the lock correctly.
-lock: std.Thread.RwLock,
+lock: std.Io.RwLock,
 
 pub const init_tw = tripwire.module(enum {
     codepoints_capacity,
