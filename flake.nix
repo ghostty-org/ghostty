@@ -75,10 +75,7 @@
   in {
     devShells = forAllPlatforms (pkgs: {
       default = pkgs.callPackage ./nix/devShell.nix {
-        zig =
-          if pkgs.stdenv.hostPlatform.isDarwin
-          then zig.packages.${pkgs.stdenv.hostPlatform.system}.brew."0.15.2"
-          else zig.packages.${pkgs.stdenv.hostPlatform.system}."0.15.2";
+        zig = zig.packages.${pkgs.stdenv.hostPlatform.system}."0.16.0";
         wraptest = pkgs.callPackage ./nix/pkgs/wraptest.nix {};
         zon2nix = zon2nix;
 
