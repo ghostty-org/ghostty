@@ -582,7 +582,7 @@ pub fn terminalOptions(self: *const Config, artifact: TerminalBuildOptions.Artif
 }
 
 /// Returns a baseline CPU target retaining all the other CPU configs.
-pub fn baselineTarget(self: *const Config) std.Build.ResolvedTarget {
+pub fn baselineTarget(self: *const Config, b: *std.Build) std.Build.ResolvedTarget {
     // Set our cpu model as baseline. There may need to be other modifications
     // we need to make such as resetting CPU features but for now this works.
     var q = self.target.query;
@@ -592,7 +592,7 @@ pub fn baselineTarget(self: *const Config) std.Build.ResolvedTarget {
     // handle the native case.
     return .{
         .query = q,
-        .result = std.zig.system.resolveTargetQuery(q) catch
+        .result = std.zig.system.resolveTargetQuery(b.graph.io, q) catch
             @panic("unable to resolve baseline query"),
     };
 }

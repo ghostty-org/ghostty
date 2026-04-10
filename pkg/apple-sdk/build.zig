@@ -44,14 +44,14 @@ pub fn addPaths(
         // Detect our SDK using the "findNative" Zig stdlib function.
         // This is really important because it forces using `xcrun` to
         // find the SDK path.
-        const libc = try std.zig.LibCInstallation.findNative(.{
-            .allocator = b.allocator,
+        const libc = try std.zig.LibCInstallation.findNative(b.allocator, b.graph.io, .{
             .target = &step.rootModuleTarget(),
+            .environ_map = &b.graph.environ_map,
             .verbose = false,
         });
 
         // Render the file compatible with the `--libc` Zig flag.
-        var stream: std.io.Writer.Allocating = .init(b.allocator);
+        var stream: std.Io.Writer.Allocating = .init(b.allocator);
         defer stream.deinit();
         try libc.render(&stream.writer);
 

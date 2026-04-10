@@ -37,9 +37,9 @@ pub fn build(b: *std.Build) !void {
     module.addIncludePath(b.path(""));
 
     if (b.systemIntegrationOption("freetype", .{})) {
-        module.linkSystemLibrary("freetype2", dynamic_link_opts);
+        module.linkSystemLibrary("freetype2", .{});
         if (test_exe) |exe| {
-            exe.linkSystemLibrary2("freetype2", dynamic_link_opts);
+            exe.root_module.linkSystemLibrary("freetype2", .{});
         }
     } else {
         const lib = try buildLib(b, module, .{
@@ -52,7 +52,7 @@ pub fn build(b: *std.Build) !void {
         });
 
         if (test_exe) |exe| {
-            exe.linkLibrary(lib);
+            exe.root_module.linkLibrary(lib);
         }
     }
 }
@@ -68,10 +68,10 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
         .linkage = .static,
     });
-    lib.linkLibC();
     if (target.result.os.tag.isDarwin()) {
         const apple_sdk = @import("apple_sdk");
         try apple_sdk.addPaths(b, lib);
@@ -97,14 +97,12 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         try flags.append(b.allocator, "-fPIC");
     }
 
-    const dynamic_link_opts = options.dynamic_link_opts;
-
     // Zlib
     if (b.systemIntegrationOption("zlib", .{})) {
-        lib.linkSystemLibrary2("zlib", dynamic_link_opts);
+        lib.root_module.linkSystemLibrary("zlib", .{});
     } else {
         const zlib_dep = b.dependency("zlib", .{ .target = target, .optimize = optimize });
-        lib.linkLibrary(zlib_dep.artifact("z"));
+        lib.root_module.linkLibrary(zlib_dep.artifact("z"));
     }
 
     // Libpng
@@ -113,50 +111,50 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         try flags.append(b.allocator, "-DFT_CONFIG_OPTION_USE_PNG=1");
 
         if (b.systemIntegrationOption("libpng", .{})) {
-            lib.linkSystemLibrary2("libpng", dynamic_link_opts);
+            lib.root_module.linkSystemLibrary("libpng", .{});
         } else {
             const libpng_dep = b.dependency(
                 "libpng",
                 .{ .target = target, .optimize = optimize },
             );
-            lib.linkLibrary(libpng_dep.artifact("png"));
+            lib.root_module.linkLibrary(libpng_dep.artifact("png"));
         }
     }
 
     if (b.lazyDependency("freetype", .{})) |upstream| {
-        lib.addIncludePath(upstream.path("include"));
+        lib.root_module.addIncludePath(upstream.path("include"));
         module.addIncludePath(upstream.path("include"));
-        lib.addCSourceFiles(.{
+        lib.root_module.addCSourceFiles(.{
             .root = upstream.path(""),
             .files = srcs,
             .flags = flags.items,
         });
 
         switch (target.result.os.tag) {
-            .linux => lib.addCSourceFile(.{
+            .linux => lib.root_module.addCSourceFile(.{
                 .file = upstream.path("builds/unix/ftsystem.c"),
                 .flags = flags.items,
             }),
-            .windows => lib.addCSourceFile(.{
+            .windows => lib.root_module.addCSourceFile(.{
                 .file = upstream.path("builds/windows/ftsystem.c"),
                 .flags = flags.items,
             }),
-            else => lib.addCSourceFile(.{
+            else => lib.root_module.addCSourceFile(.{
                 .file = upstream.path("src/base/ftsystem.c"),
                 .flags = flags.items,
             }),
         }
         switch (target.result.os.tag) {
             .windows => {
-                lib.addCSourceFile(.{
+                lib.root_module.addCSourceFile(.{
                     .file = upstream.path("builds/windows/ftdebug.c"),
                     .flags = flags.items,
                 });
-                lib.addWin32ResourceFile(.{
+                lib.root_module.addWin32ResourceFile(.{
                     .file = upstream.path("src/base/ftver.rc"),
                 });
             },
-            else => lib.addCSourceFile(.{
+            else => lib.root_module.addCSourceFile(.{
                 .file = upstream.path("src/base/ftdebug.c"),
                 .flags = flags.items,
             }),

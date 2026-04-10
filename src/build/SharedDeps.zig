@@ -503,7 +503,7 @@ pub fn add(
         }
 
         if (self.config.renderer == .opengl) {
-            step.linkFramework("OpenGL");
+            step.root_module.linkFramework("OpenGL", .{});
         }
 
         // Apple platforms do not include libc libintl so we bundle it.
@@ -583,8 +583,8 @@ pub fn add(
     // If we're building an exe then we have additional dependencies.
     if (step.kind != .lib) {
         // We always statically compile glad
-        step.addIncludePath(b.path("vendor/glad/include/"));
-        step.addCSourceFile(.{
+        step.root_module.addIncludePath(b.path("vendor/glad/include/"));
+        step.root_module.addCSourceFile(.{
             .file = b.path("vendor/glad/src/gl.c"),
             .flags = &.{},
         });
@@ -739,8 +739,8 @@ fn addGtkNg(
     {
         // Get our gresource c/h files and add them to our build.
         const dist = gtkNgDistResources(b);
-        step.addCSourceFile(.{ .file = dist.resources_c.path(b), .flags = &.{} });
-        step.addIncludePath(dist.resources_h.path(b).dirname());
+        step.root_module.addCSourceFile(.{ .file = dist.resources_c.path(b), .flags = &.{} });
+        step.root_module.addIncludePath(dist.resources_h.path(b).dirname());
     }
 }
 
@@ -881,11 +881,11 @@ pub fn gtkNgDistResources(
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/apprt/gtk/build/blueprint.zig"),
                 .target = b.graph.host,
+                .link_libc = true,
             }),
         });
-        blueprint_exe.linkLibC();
-        blueprint_exe.linkSystemLibrary2("gtk4", dynamic_link_opts);
-        blueprint_exe.linkSystemLibrary2("libadwaita-1", dynamic_link_opts);
+        blueprint_exe.root_module.linkSystemLibrary("gtk4", dynamic_link_opts);
+        blueprint_exe.root_module.linkSystemLibrary("libadwaita-1", dynamic_link_opts);
 
         for (gresource.blueprints) |bp| {
             const blueprint_run = b.addRunArtifact(blueprint_exe);

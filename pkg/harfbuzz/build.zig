@@ -54,9 +54,9 @@ pub fn build(b: *std.Build) !void {
         var it = module.import_table.iterator();
         while (it.next()) |entry| test_exe.root_module.addImport(entry.key_ptr.*, entry.value_ptr.*);
         if (b.systemIntegrationOption("freetype", .{})) {
-            test_exe.linkSystemLibrary2("freetype2", dynamic_link_opts);
+            test_exe.root_module.linkSystemLibrary("freetype2", .{});
         } else {
-            test_exe.linkLibrary(freetype.artifact("freetype"));
+            test_exe.root_module.linkLibrary(freetype.artifact("freetype"));
         }
         const tests_run = b.addRunArtifact(test_exe);
         const test_step = b.step("test", "Run tests");
@@ -64,8 +64,8 @@ pub fn build(b: *std.Build) !void {
     }
 
     if (b.systemIntegrationOption("harfbuzz", .{})) {
-        module.linkSystemLibrary("harfbuzz", dynamic_link_opts);
-        test_exe.linkSystemLibrary2("harfbuzz", dynamic_link_opts);
+        module.linkSystemLibrary("harfbuzz", .{});
+        test_exe.root_module.linkSystemLibrary("harfbuzz", .{});
     } else {
         const lib = try buildLib(b, module, .{
             .target = target,
@@ -77,7 +77,7 @@ pub fn build(b: *std.Build) !void {
             .dynamic_link_opts = dynamic_link_opts,
         });
 
-        test_exe.linkLibrary(lib);
+        test_exe.root_module.linkLibrary(lib);
     }
 }
 
@@ -87,6 +87,7 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
 
     const coretext_enabled = options.coretext_enabled;
     const freetype_enabled = options.freetype_enabled;
+    const dynamic_link_opts = options.dynamic_link_opts;
 
     const freetype = b.dependency("freetype", .{
         .target = target,
@@ -99,24 +100,22 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
         .linkage = .static,
     });
-    lib.linkLibC();
     // On MSVC, we must not use linkLibCpp because Zig unconditionally
     // passes -nostdinc++ and then adds its bundled libc++/libc++abi
     // include paths, which conflict with MSVC's own C++ runtime headers.
     // The MSVC SDK include directories (added via linkLibC) contain
     // both C and C++ headers, so linkLibCpp is not needed.
     if (target.result.abi != .msvc) {
-        lib.linkLibCpp();
+        lib.root_module.link_libcpp = true;
     }
 
     if (target.result.os.tag.isDarwin()) {
         try apple_sdk.addPaths(b, lib);
     }
-
-    const dynamic_link_opts = options.dynamic_link_opts;
 
     var flags: std.ArrayList([]const u8) = .empty;
     defer flags.deinit(b.allocator);
@@ -145,10 +144,10 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         });
 
         if (b.systemIntegrationOption("freetype", .{})) {
-            lib.linkSystemLibrary2("freetype2", dynamic_link_opts);
+            lib.root_module.linkSystemLibrary("freetype2", dynamic_link_opts);
             module.linkSystemLibrary("freetype2", dynamic_link_opts);
         } else {
-            lib.linkLibrary(freetype.artifact("freetype"));
+            lib.root_module.linkLibrary(freetype.artifact("freetype"));
 
             if (freetype.builder.lazyDependency(
                 "freetype",
@@ -161,14 +160,14 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
 
     if (coretext_enabled) {
         try flags.appendSlice(b.allocator, &.{"-DHAVE_CORETEXT=1"});
-        lib.linkFramework("CoreText");
+        lib.root_module.linkFramework("CoreText", .{});
         module.linkFramework("CoreText", .{});
     }
 
     if (b.lazyDependency("harfbuzz", .{})) |upstream| {
-        lib.addIncludePath(upstream.path("src"));
+        lib.root_module.addIncludePath(upstream.path("src"));
         module.addIncludePath(upstream.path("src"));
-        lib.addCSourceFile(.{
+        lib.root_module.addCSourceFile(.{
             .file = upstream.path("src/harfbuzz.cc"),
             .flags = flags.items,
         });

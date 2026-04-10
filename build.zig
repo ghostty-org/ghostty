@@ -292,7 +292,7 @@ pub fn build(b: *std.Build) !void {
         // We need to rebuild Ghostty with a baseline CPU target.
         const valgrind_exe = exe: {
             var valgrind_config = config;
-            valgrind_config.target = valgrind_config.baselineTarget();
+            valgrind_config.target = valgrind_config.baselineTarget(b);
             break :exe try buildpkg.GhosttyExe.init(
                 b,
                 &valgrind_config,
@@ -337,7 +337,7 @@ pub fn build(b: *std.Build) !void {
             .filters = test_filters,
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/main.zig"),
-                .target = config.baselineTarget(),
+                .target = config.baselineTarget(b),
                 .optimize = .Debug,
                 .strip = false,
                 .omit_frame_pointer = false,
@@ -352,7 +352,7 @@ pub fn build(b: *std.Build) !void {
         // Verify our internal libghostty header.
         const ghostty_h = b.addTranslateC(.{
             .root_source_file = b.path("include/ghostty.h"),
-            .target = config.baselineTarget(),
+            .target = config.baselineTarget(b),
             .optimize = .Debug,
         });
         test_exe.root_module.addImport("ghostty.h", ghostty_h.createModule());
