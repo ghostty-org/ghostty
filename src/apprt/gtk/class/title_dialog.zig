@@ -114,8 +114,11 @@ pub const TitleDialog = extern struct {
             priv.entry.getBuffer().setText(v, -1);
         }
 
-        // Set the title for the dialog
-        self.as(Dialog.Parent).setHeading(priv.target.title());
+        // Set the title for the dialog.
+        // Use Parent (not Dialog.Parent) to avoid an invalid cast on
+        // libadwaita < 1.5 where Dialog.Parent = MessageDialog but
+        // TitleDialog extends AlertDialog.
+        self.as(Parent).setHeading(priv.target.title());
 
         // Show it. We could also just use virtual methods to bind to
         // response but this is pretty simple.

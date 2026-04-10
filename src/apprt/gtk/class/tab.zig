@@ -5,6 +5,7 @@ const glib = @import("glib");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 
+const adw_version = @import("../adw_version.zig");
 const configpkg = @import("../../../config.zig");
 const apprt = @import("../../../apprt.zig");
 const CoreSurface = @import("../../../Surface.zig");
@@ -268,7 +269,9 @@ pub const Tab = extern struct {
         const title = std.mem.span(title_ptr);
         self.setTitleOverride(if (title.len == 0) null else title);
     }
+    /// Requires libadwaita 1.5+ (AdwAlertDialog); no-op on older versions.
     pub fn promptTabTitle(self: *Self) void {
+        if (comptime !adw_version.supportsDialogs()) return;
         const priv = self.private();
         const dialog = TitleDialog.new(.tab, priv.title_override orelse priv.title);
         _ = TitleDialog.signals.set.connect(

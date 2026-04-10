@@ -18,6 +18,7 @@ const internal_os = @import("../../../os/main.zig");
 const renderer = @import("../../../renderer.zig");
 const terminal = @import("../../../terminal/main.zig");
 const CoreSurface = @import("../../../Surface.zig");
+const adw_version = @import("../adw_version.zig");
 const gresource = @import("../build/gresource.zig");
 const ext = @import("../ext.zig");
 const gsettings = @import("../gsettings.zig");
@@ -1435,7 +1436,9 @@ pub const Surface = extern struct {
     }
 
     /// Prompt for a manual title change for the surface.
+    /// Requires libadwaita 1.5+ (AdwAlertDialog); no-op on older versions.
     pub fn promptTitle(self: *Self) void {
+        if (comptime !adw_version.supportsDialogs()) return;
         const priv = self.private();
         const dialog = TitleDialog.new(.surface, priv.title_override orelse priv.title);
         _ = TitleDialog.signals.set.connect(
