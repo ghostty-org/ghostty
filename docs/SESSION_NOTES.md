@@ -1,5 +1,37 @@
 # Session Notes — Ghostties
 
+## Apr 10–11, 2026 (Session 14)
+
+### Standalone App Build & Zig Toolchain Issue
+
+Short session focused on getting Ghostties running as a standalone app from /Applications/.
+
+**Zig Build Broken**
+
+- `zig build -Doptimize=ReleaseFast` fails with undefined libc symbols (`_abort`, `_free`, `_malloc`, etc.)
+- Zig 0.15.2 (installed Oct 2025) — no newer stable release available
+- Root cause unclear — same Zig + macOS 26 combo worked in March 2026
+- Likely a silent macOS SDK/security update between March 20 and April 10
+
+**Xcode Build Workaround**
+
+- `xcodebuild` with `ARCHS=arm64 ONLY_ACTIVE_ARCH=YES` builds successfully
+- Copied release build to `/Applications/Ghostties.app`
+- Had to clear `xattr` quarantine flags for Gatekeeper
+- Discovered Xcode builds don't bundle themes — copied 463 themes from upstream Ghostty.app
+
+**Key Commands**
+
+```bash
+xcodebuild -project macos/Ghostties.xcodeproj -scheme Ghostties -configuration Release -derivedDataPath macos/build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES
+cp -R macos/build/Build/Products/Release/Ghostties.app /Applications/Ghostties.app
+xattr -cr /Applications/Ghostties.app
+```
+
+**No commits** — no code changes, only build/install operations.
+
+---
+
 ## Mar 27–Apr 1, 2026 (Session 13)
 
 ### CEF Browser Phase 3 — Crash Fix, Side-by-Side, Code Review
@@ -7,6 +39,7 @@
 Extended session across multiple days. Picked up the browser work from Session 12, fixed the crash that blocked all CEF functionality, built the side-by-side layout, and ran a full multi-agent code review.
 
 **Crash Investigation & Fix**
+
 - Browser crashed on every Cmd+B trigger (SIGABRT)
 - Tried: CefSettings fixes (cache_path, locale), timer deferral, @MainActor fix, zero-bounds guard
 - Root cause: CEF requires `external_message_pump = true` + a `CefApp` subclass with `CefBrowserProcessHandler::OnScheduleMessagePumpWork` to integrate with AppKit's run loop
@@ -14,12 +47,14 @@ Extended session across multiple days. Picked up the browser work from Session 1
 - Commit: `d6e24080f`, `2c187c224`
 
 **Side-by-Side Layout**
+
 - Terminal and browser as two floating cards (Dia Browser style)
 - Drag-to-resize handle between panels
 - Percentage-based split ratio (scales with window resize)
 - Commits: `2c187c224`, `3a0b3c69a`, `bdb323d37`
 
 **Browser Features**
+
 - Viewport fill fix (`_syncCefChildBounds` + `WasResized()` on layout)
 - Popup interception (user-gesture links stay in Ghostties)
 - Network entitlements for localhost dev servers
@@ -28,17 +63,20 @@ Extended session across multiple days. Picked up the browser work from Session 1
 - Commits: `acd3aeaf1`, `10e466f51`, `5d2fe5f4b`, `67a597600`, `ea37e5eac`
 
 **Code Review (5 agents: security, performance, architecture, patterns, simplicity)**
+
 - P1: URL scheme filtering (block file://, javascript://, data://), cache moved from /tmp to ~/Library/Application Support/
 - P2: Timer 4Hz→30Hz, WasResized guard, closeBrowser on tab close, dead code removal (~84 LOC), unified macro, popup hardening, removed network.server entitlement
 - P3: activeCEFView helper, layout constants, terracotta token, truncatedTitle removal, unused properties
 - Commit: `6fae35504`
 
 **Compound Documentation**
+
 - Created `docs/solutions/integration-issues/cef-browser-macos-integration.md`
 - Updated with review findings (security hardening, performance, expanded checklist)
 - Commits: `11e4f926f`, `adbc167dd`
 
 **New Files Created**
+
 - `macos/Helpers/CEF/GhosttiesHelper.cc` — helper process entry point
 - `macos/GhosttiesHelper.entitlements` — helper entitlements
 - `macos/Resources/CEF/helper-Info.plist` — helper Info.plist template
@@ -48,12 +86,14 @@ Extended session across multiple days. Picked up the browser work from Session 1
 - `docs/solutions/integration-issues/cef-browser-macos-integration.md` — compound doc
 
 **Key Commits**
+
 - `d6e24080f` — CEF crash fix (external message pump + CefApp)
 - `2c187c224` — side-by-side panel + throttled pump
 - `6fae35504` — all code review fixes (security, performance, dead code)
 - `adbc167dd` — updated compound doc
 
 **Key Commands**
+
 - `/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project macos/Ghostties.xcodeproj -scheme Ghostties -configuration Debug build` — build when xcode-select points to CommandLineTools
 - `bash scripts/download-cef.sh` — download CEF framework (~300MB)
 
@@ -66,24 +106,29 @@ Extended session across multiple days. Picked up the browser work from Session 1
 Light session focused on getting uncommitted work pushed and tools up to date.
 
 **Committed & Pushed**
+
 - CEF Phase 2: dynamic loading, helper process, BrowserSessionBridge, build/embed scripts, entitlements (`624428640`)
 - Impeccable design skills (21 skills from pbakaus/impeccable) + gitignore editor dirs (`40fda3027`)
 - Removed accidentally committed agent worktrees + gitignored `.claude/worktrees/` (`e440741a5`)
 
 **Tools & Plugins**
+
 - Verified all 5 plugins at latest versions (compound-engineering v2.31.1, design v1.0.0, clangd-lsp, swift-lsp, cli-anything)
 - Installed/updated impeccable.style skills via `npx skills add pbakaus/impeccable` — 21 skills including new: arrange, overdrive, typeset
 - Reconnected Figma MCP (was needing auth)
 - Paper MCP still disconnected (app not running)
 
 **Cleanup**
+
 - Dropped 4 stale stashes (all from v1.3 merge era / dead floating-card branch)
 - Identified 10 leftover agent worktree branches for future cleanup
 
 **WIP (not committed — another agent running)**
+
 - SessionCoordinator.swift, WorkspaceViewContainer.swift, CEFBrowserView.mm have unstaged changes
 
 **Key commands**
+
 - `npx -y skills add pbakaus/impeccable --yes` — install impeccable skills non-interactively
 
 ## Mar 24, 2026 (Session 11)
@@ -93,6 +138,7 @@ Light session focused on getting uncommitted work pushed and tools up to date.
 Largest session yet: 25+ commits, 3 parallel implementation workstreams, CEF browser foundation, research, and design work.
 
 **Template Injection Fixes (verified working)**
+
 - `buildCommand()` changed from inline `--append-system-prompt` to `--append-system-prompt-file`
 - Inline preset prompts write to temp cache files (`~/.ghostties/cache/prompts/`)
 - PresetLoader versioned re-seeding via `.seed-version` marker
@@ -101,12 +147,14 @@ Largest session yet: 25+ commits, 3 parallel implementation workstreams, CEF bro
 - 38 AgentTemplate tests + 6 PresetLoader tests, all passing
 
 **Menu Bar Agent Status**
+
 - NSStatusItem with ghost silhouette icon + color-coded status dot
 - Aggregate state: error (red) > needsAttention (purple) > waiting (terracotta) > processing (green)
 - Popover dropdown: sessions grouped by project, click-to-focus
 - 8 MenuBar tests passing
 
 **Sidebar Header Overhaul**
+
 - Sidebar toggle moved from sidebar toolbar to terminal card header (AppKit NSButton)
 - NSToolbar approach for traffic light alignment tested but REVERTED (blocks clicks on buttons)
 - Sidebar content hidden (alpha 0) when collapsed — fixes "+" leaking through
@@ -114,17 +162,20 @@ Largest session yet: 25+ commits, 3 parallel implementation workstreams, CEF bro
 - Template edit form made scrollable to fix cut-off issue
 
 **Design Polish**
+
 - Agent template badge (cpu icon + name) added then hidden — too much clutter for now
 - "+" button alignment adjusted for terminal inset offset
 - TUI banner iterated: dim → terracotta background → muted terracotta + extra spacing
 
 **Agent Presets**
+
 - 6 MVP preset .md files created: Pair Programmer, Architect, Code Reviewer, Test Writer, Debugger, Orchestrator
 - All defaulting to opus model
 - Registered in Xcode project at `macos/Presets/` (folder reference)
 - Cleaned up duplicate at `macos/Resources/Presets/`
 
 **CEF Embedded Browser — Research + Brainstorm + Phase 1 Foundation**
+
 - Research: WKWebView, CEF, Ultralight, Servo, Wry, Vercel agent-browser — CEF chosen for Chrome DevTools + CDP
 - Research: LibGhostty/Ghostling evaluated — not applicable, stay on GhosttyKit
 - Research: CEF ARM64 macOS builds confirmed, ~150-200MB bundle impact
@@ -144,6 +195,7 @@ Largest session yet: 25+ commits, 3 parallel implementation workstreams, CEF bro
 - 258 unit tests passing, 0 failures
 
 **New Files (this session)**
+
 - `macos/Sources/Features/Ghostties/MenuBar/MenuBarController.swift`
 - `macos/Sources/Features/Ghostties/MenuBar/MenuBarDropdownView.swift`
 - `macos/Sources/Features/Ghostties/MenuBar/MenuBarIconRenderer.swift`
@@ -164,6 +216,7 @@ Largest session yet: 25+ commits, 3 parallel implementation workstreams, CEF bro
 **Commits:** `b058c5d86` through `3a366b3a6` (25+ commits)
 
 **Known Issues / Next Steps**
+
 - Traffic light vertical alignment still not solved (NSToolbar approach blocked clicks, reverted)
 - Terminal init error on empty state (may be pre-existing)
 - Menu bar status dots may not update visually (needs testing)
@@ -177,6 +230,7 @@ Largest session yet: 25+ commits, 3 parallel implementation workstreams, CEF bro
 Two features implemented in parallel via orchestrator-delegated subagents.
 
 **Feature 1: Agent Preset Gallery**
+
 - PresetLoader parses .md files with YAML frontmatter from ~/.ghostties/presets/
 - 6 MVP presets: Pair Programmer, Architect, Code Reviewer, Test Writer, Debugger, Orchestrator
 - Enhanced picker with sections (PRESETS / YOUR TEMPLATES), preview cards, "Don't show previews" toggle
@@ -185,12 +239,14 @@ Two features implemented in parallel via orchestrator-delegated subagents.
 - Presets seeded from Bundle.main on first launch
 
 **Feature 2: Session Status — needsAttention**
+
 - New `.needsAttention` indicator state with purple #A855F7 color
 - Faster 1.0s pulse (vs 2.0s for waiting)
 - Two-layer detection: silence heuristic + output pattern matching (pure regex, no LLM)
 - Detects [Y/n], Allow?, Do you want, Press Enter, etc.
 
 **Review Fixes (24 total this session)**
+
 - Session 9 carryover: 12 findings from agent template review (todos 032-043)
 - Session 10: 12 findings from preset gallery + status review (todos 032-043)
 - P1: presets bypass sanitization, command injection
@@ -198,23 +254,27 @@ Two features implemented in parallel via orchestrator-delegated subagents.
 - P3: merged row builders, static patterns, symlink check, naming, dead code
 
 ### Brainstorms Captured
+
 - Agent preset gallery UX
 - Session status improvements (needsAttention)
 
 ### Future Items Discussed
+
 - Seed presets to ~/.claude/prompts/ for cross-app use
 - Ghost-themed audio cues (ElevenLabs sound effects API)
 - Menu bar agent status dropdown (brainstormed Session 9, not yet built)
 
 ### Commits
-| Commit | Description |
-|--------|-------------|
-| `d183e8eea` | docs: preset gallery brainstorm |
-| `5cb55a9f0` | docs: session status brainstorm |
+
+| Commit      | Description                                     |
+| ----------- | ----------------------------------------------- |
+| `d183e8eea` | docs: preset gallery brainstorm                 |
+| `5cb55a9f0` | docs: session status brainstorm                 |
 | `911e6eedb` | feat: preset gallery + needsAttention indicator |
-| `ffaabd995` | fix: all 12 review findings |
+| `ffaabd995` | fix: all 12 review findings                     |
 
 ### Notes for Next Session
+
 - Menu bar agent status — brainstorm exists, ready for /workflows:plan
 - Seed presets to ~/.claude/prompts/ (cross-app agent presets)
 - Ghost-themed audio cues for status changes (ElevenLabs)
@@ -255,17 +315,20 @@ Set up the orchestrator agent pattern for this project — agent context files, 
 5. **MEMORY.md updated** — added Agent Context System section with links to all new files
 
 ### New Files Created
+
 - `.claude/projects/.../memory/general-agent-context.md`
 - `.claude/projects/.../memory/agent-workspace-sidebar.md`
 - `.claude/projects/.../memory/agent-design.md`
 - `.claude/projects/.../memory/ORCHESTRATOR.md`
 
 ### Files Modified
+
 - `AGENTS.md` (root) — added Ghostties Fork section at top
 - `macos/AGENTS.md` — added Ghostties Fork section at top
 - `.claude/projects/.../memory/MEMORY.md` — added agent context links
 
 ### Key Decisions
+
 - **4 files, not 6**: Consolidated upstream-terminal into general context (only 4 integration points). Dropped agents-playbook (folded domain map into ORCHESTRATOR.md).
 - **Additive AGENTS.md edits**: Fork section at top of existing files, upstream content preserved below. Prevents merge conflicts on next upstream sync.
 - **Gotchas-first approach**: Every context file has a Gotchas section with non-obvious failure modes. Cross-cutting checklists in sidebar file ("if you touch X, also verify Y").
@@ -279,6 +342,7 @@ After brainstorming, moved to `/workflows:plan` then started `/workflows:work`.
 **Phase 1** (done): Created `AgentTemplate.swift`, updated `WorkspacePersistence.swift` + `WorkspaceStore.swift`.
 
 **Phases 2+3** (launched in parallel, MAY NOT HAVE FINISHED):
+
 - Phase 2: SessionCoordinator + ProjectDisclosureRow → use AgentTemplate
 - Phase 3: All view files → replace SessionTemplate refs + delete SessionTemplate.swift
 - Both agents were running when session ended (WiFi loss)
@@ -290,6 +354,7 @@ After brainstorming, moved to `/workflows:plan` then started `/workflows:work`.
 Ran 5-agent code review (architecture, security, performance, patterns, simplicity), then fixed all findings in 2 waves of parallel agents.
 
 **P1 Critical (security):**
+
 - Shell-escape all `buildCommand()` values via `shellEscape()` helper
 - Apply sanitization at write time (addTemplate/updateTemplate), not just load time
 - Replace additionalFlags blocklist with regex allowlist
@@ -297,11 +362,13 @@ Ran 5-agent code review (architecture, security, performance, patterns, simplici
 - Add sanitization to duplicateTemplate
 
 **P2 Important:**
+
 - Move buildCommand() file I/O off main thread (Task.detached)
 - Remove redundant buildCommand() call in ProjectDisclosureRow
 - Add withoutAgent() method, shared dangerousEnvKeys, 1MB file size cap
 
 **P3 Simplification:**
+
 - Remove AgentConfig custom decoder (additionalFlags now optional)
 - Simplify Kind decoding, force unwrap cleanup, perf guard
 
@@ -310,6 +377,7 @@ Ran 5-agent code review (architecture, security, performance, patterns, simplici
 **Tests:** 15 new tests added across AgentTemplateTests + WorkspacePersistenceTests
 
 ### New Files Created
+
 - `macos/Sources/Features/Ghostties/Models/AgentTemplate.swift`
 - `docs/brainstorms/2026-03-21-agent-templates-brainstorm.md`
 - `docs/plans/2026-03-21-feat-agent-template-system-plan.md`
@@ -321,6 +389,7 @@ Ran 5-agent code review (architecture, security, performance, patterns, simplici
 Built full agent config edit form (model picker, prompt file browser, permission mode, effort, allowed tools). User feedback: **too complex** — needs curated presets, not raw config.
 
 **Research findings (6 MVP presets):**
+
 1. Pair Programmer (Sonnet, full access)
 2. Architect (Opus, read-only, no code)
 3. Code Reviewer (Sonnet, read-only, confidence scoring)
@@ -334,16 +403,17 @@ Built full agent config edit form (model picker, prompt file browser, permission
 
 ### Session 9 Commits
 
-| Commit | Description |
-|--------|-------------|
-| `ddde3627a` | feat: agent-first AgentTemplate model |
-| `a4b1fa05f` | docs: solution doc + 13 review todos |
-| `97c17a7e4` | docs: menu bar brainstorm |
+| Commit      | Description                                 |
+| ----------- | ------------------------------------------- |
+| `ddde3627a` | feat: agent-first AgentTemplate model       |
+| `a4b1fa05f` | docs: solution doc + 13 review todos        |
+| `97c17a7e4` | docs: menu bar brainstorm                   |
 | `c9682cf8b` | fix: resolve all 13 review findings (P1-P3) |
-| `4db60077b` | docs: session notes update |
+| `4db60077b` | docs: session notes update                  |
 | `e5ce3d1f9` | fix: agent config UI + command escaping bug |
 
 ### Notes for Next Session
+
 - **Next feature:** Agent preset gallery UX — card grid picker with 6 curated presets, replacing raw config form
 - Research saved in memory: `feedback-agent-templates-ux.md`
 - Menu bar agent status brainstorm ready for `/workflows:plan`
@@ -355,6 +425,7 @@ Built full agent config edit form (model picker, prompt file browser, permission
 Brainstormed the agent-first template system — replacing `SessionTemplate` with `AgentTemplate`.
 
 **Key decisions (8 total):**
+
 1. Agent-first redesign: every session is an "agent" (Shell = agent with no AI config)
 2. AgentConfig: systemPromptFile + model + additionalFlags (3 knobs)
 3. Kind enum: .shell, .claudeCode, .custom
@@ -386,10 +457,12 @@ Goal: Vertically center-align macOS window controls (traffic lights), sidebar "+
 3. **Align our elements to native traffic light position (~14pt)** — "+" and toggle aligned with each other at 14pt center, but too high/cramped. Doesn't match design mockup where buttons are lower (~22pt).
 
 ### What Works
+
 - SwiftUI/AppKit elements (+ button, toggle button, title label) can be freely positioned and DO align with each other
 - The problem is exclusively: macOS won't let us reposition the standard window buttons
 
 ### Untried Approaches (For Next Session)
+
 - NSToolbar with custom height (most promising — official API, how Dia likely does it)
 - NSWindow subclass `layoutIfNeeded()` override
 - KVO on close button frame to reposition on change
@@ -397,16 +470,20 @@ Goal: Vertically center-align macOS window controls (traffic lights), sidebar "+
 - Investigate Dia Browser's view hierarchy with Accessibility Inspector
 
 ### Stashed Work
+
 All changes in `git stash` (stash@{0}). Includes:
+
 - `WorkspaceLayout.swift` — `trafficLightCenterY` constant
 - `WorkspaceSidebarView.swift` — toolbar frame/padding adjustments
 - `WorkspaceViewContainer.swift` — `repositionTrafficLights()`, sidebar toggle button in card titlebar, closed-mode card inset
 
 ### Memory Updates
+
 - Saved `traffic-light-alignment.md` — full investigation notes
 - Saved `feedback-launch-preference.md` — user prefers `open` command over `zig build run` when not developing
 
 ### Notes for Next Session
+
 - Pop stash (`git stash pop`) to restore in-progress work
 - Try NSToolbar approach first — most likely to succeed
 - Design reference: Paper artboard mockups + Dia Browser screenshots
@@ -424,10 +501,12 @@ All changes in `git stash` (stash@{0}). Includes:
 - No other outstanding branches to merge
 
 ### In Progress
+
 - Terminal canvas padding: keep 8pt inset/card appearance when sidebar is closed (currently zeroes out to flush)
 - Not yet implemented — exploring approach
 
 ### Notes for Next Session
+
 - Implement closed-mode padding retention in `WorkspaceViewContainer.swift`
 - Push main to origin after session notes commit
 
@@ -452,16 +531,19 @@ Fixed two dark mode issues introduced/exposed by the v1.3.0 upstream merge.
 **Fix**: Added explicit dark mode color tokens to `WorkspaceLayout` — canvas at 14% white, card at 10% white — mirroring the light mode pattern (warm beige canvas / warm white card). Changed `canvasBackgroundCGColor` from optional to non-optional since both modes now have explicit values.
 
 ### Files Modified
+
 - `TerminalViewContainer.swift` — computed property looks through `WorkspaceViewContainer`
 - `WorkspaceViewContainer.swift` — `terminalContainer` exposed as `private(set)`, dark mode colors from `WorkspaceLayout`
 - `WorkspaceLayout.swift` — added `canvasBackgroundDark` (14% white), `cardBackgroundDark` (10% white)
 
 ### Status
+
 - Build succeeds, dark mode config propagation verified working
 - Dark mode canvas/card colors awaiting user visual verification (build in progress)
 - Not yet committed — pending user sign-off on color values
 
 ### Notes for Next Session
+
 - Dark mode color values (0.14 / 0.10 white) may need tuning based on user feedback
 - Overlay sidebar backlog items still pending (hit-testing, trigger sensitivity, dismissal on relaunch)
 - PR #2 on `merge/upstream-v1.3` branch — needs final merge to main after all fixes
@@ -494,10 +576,12 @@ Merged upstream Ghostty v1.3.0 (479 commits) into Ghostties via PR #2 on `merge/
 Merged `feat/floating-card-shadow-title` into `main` via PR #1, then adjusted light mode workspace colors and shadow.
 
 ### PR Merge
+
 - Created and merged PR #1 (15 commits, merge commit `25ac66c`)
 - Deleted `feat/floating-card-shadow-title` branch (local + remote)
 
 ### Light Mode Background Colors
+
 - **Canvas** (window behind card): `#F0E9E6` — warm beige
 - **Card** (terminal + title bar): `#FDF9F7` — warm white
 - **Sidebar**: transparent (unchanged)
@@ -505,17 +589,21 @@ Merged `feat/floating-card-shadow-title` into `main` via PR #1, then adjusted li
 - Added `viewDidChangeEffectiveAppearance()` to refresh on system theme change
 
 ### Shadow Tuning
+
 - Terminal card shadow: `0.2` → `0.15` (all pinned-mode paths)
 - Overlay sidebar shadow: unchanged at `0.2`
 
 ### Memory Updates
+
 - Saved auto-update TODO (Sparkle/ghostties.org) to project memory
 
 ### Files Modified
+
 - `WorkspaceLayout.swift` — added `canvasBackgroundLight`, `cardBackgroundLight` color tokens
 - `WorkspaceViewContainer.swift` — appearance-aware `cardBackgroundCGColor`/`canvasBackgroundCGColor`, canvas layer background, shadow 0.2→0.15
 
 ### Commits
+
 - `25ac66c` Merge pull request #1 (feat/floating-card-shadow-title → main)
 - `b7529e3` fix: light mode workspace background colors and softer card shadow
 
@@ -535,16 +623,15 @@ Fixed terminal session title styling to match Paper design, then ran full code r
 ### Code Review Findings Resolved
 
 **P2 — Important:**
+
 1. **Protect sidebarMode write access** — Made `WorkspaceStore.sidebarMode` `private(set)` with explicit `updateSidebarMode(_:)` method. Enforces unidirectional data flow at compile time.
 2. **Scope backgroundEffectView** — Constrained trailing edge to `sidebarHostingView.trailingAnchor` instead of full window width. Eliminates wasted vibrancy compositing behind the opaque terminal.
 3. **Thread-safe resolvedPaths cache** — Wrapped `SessionCoordinator._resolvedPaths` with `NSLock`. Eliminates undefined behavior from concurrent Dictionary mutation on detached tasks.
 
-**P3 — Nice-to-Have:**
-4. **Overlay transition debounce** — Added 0.25s `CACurrentMediaTime()` guard in `transitionTo()` to prevent rapid closed↔overlay oscillation near the hover boundary.
-5. **Double-layer overlay encode guard** — Added overlay→closed mapping in `State.encode(to:)` so the invariant is enforced at the encoding layer too.
-6. **Overlay persistence round-trip test** — New test verifying `.overlay` encodes as `.closed`.
+**P3 — Nice-to-Have:** 4. **Overlay transition debounce** — Added 0.25s `CACurrentMediaTime()` guard in `transitionTo()` to prevent rapid closed↔overlay oscillation near the hover boundary. 5. **Double-layer overlay encode guard** — Added overlay→closed mapping in `State.encode(to:)` so the invariant is enforced at the encoding layer too. 6. **Overlay persistence round-trip test** — New test verifying `.overlay` encodes as `.closed`.
 
 ### Files Modified
+
 - `WorkspaceViewContainer.swift` — title font 13→11, top offset→6, backgroundEffectView scoped, transition debounce, updateSidebarMode call
 - `WorkspaceStore.swift` — `private(set) sidebarMode`, `updateSidebarMode(_:)` method
 - `WorkspacePersistence.swift` — overlay→closed guard in `encode(to:)`
@@ -552,6 +639,7 @@ Fixed terminal session title styling to match Paper design, then ran full code r
 - `WorkspacePersistenceTests.swift` — overlay persistence round-trip test
 
 ### Commits
+
 - TBD (this session)
 
 ## Feb 27, 2026 (Session 2)
@@ -621,17 +709,21 @@ Refined the floating terminal card to match the Paper design (artboard Q3-0). Fi
 4. **Design-verified padding**: Confirmed via Paper computed styles that design uses 8pt on all four sides (equal inset)
 
 ### Files Modified
+
 - `WorkspaceViewContainer.swift` — safe area override, shadow opacity (0.15→0.2), corner curve/masking
 - `WorkspaceLayout.swift` — clarified comment that design uses 8pt on all four sides
 
 ### Commits
+
 - `a8a4fece7` feat(sidebar): safe area fix, shadow tuning, and continuous corner rounding
 
 ### Key Learnings
+
 - **NSView.topAnchor includes safe area**: With `.fullSizeContentView`, the safe area inset from the titlebar shifts `topAnchor` down. Override `safeAreaInsets` to zero when you need constraints to measure from the actual window edge.
 - **Design comparison workflow**: Used Paper `get_computed_styles` to extract exact measurements from design (padding, shadow, border radius) and matched implementation to those values.
 
 ### Notes for Next Session
+
 - Terminal card now matches Paper design for padding, shadow, and corner rounding
 - Hover/open/close animation still needs refinement (noted but not started)
 - 7 manual testing findings from Feb 20-22 still pending
@@ -650,17 +742,21 @@ Eliminated the visible titlebar band and aligned traffic lights with sidebar too
 Two `NSTitlebarAccessoryViewControllers` (resetZoom + update notification) added in `TerminalWindow.awakeFromNib()` inflated the titlebar from ~28pt to ~50-60pt. Additionally, missing `titlebarSeparatorStyle = .none` and missing `.ignoresSafeArea(.container, edges: .top)` on the SwiftUI sidebar.
 
 ### Files Modified
+
 - `TerminalController.swift` — expanded `configureWorkspaceTitlebar()` with accessory removal loop + separator suppression
 - `WorkspaceSidebarView.swift` — added `.ignoresSafeArea(.container, edges: .top)` to root view
 
 ### New Files Created
+
 - `docs/solutions/architecture/titlebar-accessory-inflation-arc-style-fix.md` — full solution documentation
 - `docs/plans/2026-02-26-fix-workspace-titlebar-arc-style-alignment-plan.md` — implementation plan
 
 ### Commits
+
 - `024ae3bc1` fix(titlebar): remove accessory inflation for Arc-style invisible titlebar
 
 ### Notes for Next Session
+
 - Titlebar is now fully invisible — traffic lights and sidebar buttons aligned
 - All 3 sidebar states (pinned/closed/overlay) render correctly
 - Remaining plan items: verify fullscreen transitions, confirm `syncAppearance()` doesn't revert, dark mode testing
@@ -683,16 +779,20 @@ Fixed the native macOS window titlebar that persisted in workspace mode despite 
 5. **Force base "Terminal" nib** — bypasses the complex subclass entirely; `titleVisibility = .hidden` + `titlebarAppearsTransparent = true` work correctly on the base `TerminalWindow`
 
 ### Files Modified
+
 - `TerminalController.swift` — `windowNibName` forced to "Terminal", added `configureWorkspaceTitlebar()`
 - `WorkspaceViewContainer.swift` — removed KVO title observer, cached text field, and title-hiding workarounds (-42 lines)
 
 ### New Files Created
+
 - `docs/solutions/architecture/nib-window-subclass-titlebar-hiding.md` — full solution documentation
 
 ### Commits
+
 - `509fc927f` fix(titlebar): force base Terminal nib to hide workspace titlebar
 
 ### Notes for Next Session
+
 - Titlebar is now transparent with no visible title text
 - Sidebar state machine (pinned/closed/overlay) still working correctly
 - 7 manual testing findings from Feb 20-22 still pending
@@ -733,6 +833,7 @@ Implemented the full sidebar state machine (pinned/closed/overlay), ran a 6-agen
 4. **Solution docs**: Documented 3-state sidebar pattern and Codable enum hardening
 
 ### Files Modified
+
 - `WorkspaceLayout.swift` — `SidebarMode` enum, `overlayTriggerWidth` constant
 - `WorkspacePersistence.swift` — `sidebarMode` replaces `sidebarVisible`, backward-compat decoding, raw Int hardening
 - `WorkspaceStore.swift` — `sidebarMode` property, overlay→closed on persist
@@ -741,15 +842,18 @@ Implemented the full sidebar state machine (pinned/closed/overlay), ran a 6-agen
 - `WorkspaceSidebarView.swift` — a11y fixes (ScrollView label, focusable buttons)
 
 ### New Files Created
+
 - `docs/solutions/architecture/sidebar-3-state-machine-overlay-pattern.md`
 - `docs/solutions/logic-errors/codable-enum-raw-value-wipes-state.md`
 - `todos/007-012` — 6 review finding files (all marked complete)
 
 ### Commits
+
 - `ecb7f04` feat(sidebar): 3-state machine (pinned/closed/overlay) with review fixes
 - `25b5511` docs: add solution docs and mark review todos complete
 
 ### Notes for Next Session
+
 - Design quality score: 85/100 (4 suggestions remain — all judgment calls)
 - App built and launches successfully
 - Manual testing checklist: pinned↔closed toggle, hover overlay trigger/dismiss, overlay→pinned promotion, window resign dismiss, dark mode, persistence round-trip
@@ -765,6 +869,7 @@ Converted the "Sidebar Polish v2 - Light Mode" artboard from dark mode colors to
 ### Changes Made
 
 **Light Mode Conversion (artboard `Q3-0`):**
+
 - Window background: `#1D1D1D` → `#ffffff`
 - Sidebar background: initially set `#f2f2f7`, then removed (transparent) per user preference
 - Terminal panel: `#141414` → `#fafafa`, shadow lightened to `#0000000D`
@@ -778,6 +883,7 @@ Converted the "Sidebar Polish v2 - Light Mode" artboard from dark mode colors to
 - Traffic lights, green prompt, ghost characters: unchanged
 
 **Font Update (Inter → SF Pro Text) across all artboards:**
+
 - Dark mode artboard (`1O-0`): 7 sidebar text nodes
 - Light mode artboard (`Q3-0`): 7 sidebar text nodes
 - Design System artboard (`9D-0`): 34 text nodes (headers, section labels, swatch names, typography samples)
@@ -794,6 +900,7 @@ Converted the "Sidebar Polish v2 - Light Mode" artboard from dark mode colors to
 6. **Font family strings**: Paper accepts short font names like `"SF Pro Text"` in `update_styles` — no need for the full `"SFProText-Regular", "SF Pro Text"` fallback chain.
 
 ### Notes for Next Session
+
 - Light mode artboard is fully converted and verified
 - All three artboards now use SF Pro Text for UI labels
 - The two modified Swift files (`WorkspaceLayout.swift`, `WorkspaceViewContainer.swift`) in git are unrelated to this design session
@@ -804,6 +911,7 @@ Converted the "Sidebar Polish v2 - Light Mode" artboard from dark mode colors to
 ## Feb 25, 2026
 
 ### Features Implemented
+
 1. **Code review remediation (20 findings)**: Fixed all P1-P3 issues from 6-agent review of sidebar feature commit `b8bf55102`
    - P1: Fixed SwiftUI tap gesture ordering (double-tap before single-tap), moved command resolution off main thread with async + cache + 3s timeout
    - P2: Fixed FocusState binding type, accent color opacity (0.12 → 0.15), replaced bulk didSet status sync with targeted setStatus, eliminated UUID?? double-optional, added nil window guard, expanded env var blocklist, consolidated session creation into shared helper, encapsulated globalStatuses
@@ -811,6 +919,7 @@ Converted the "Sidebar Polish v2 - Light Mode" artboard from dark mode colors to
 2. **Solution documentation**: Documented all findings and fixes in `docs/solutions/logic-errors/sidebar-code-review-remediation.md`
 
 ### Files Modified
+
 - `SessionDetailView.swift` — gesture order, FocusState binding, opacity, removed dead state
 - `SessionCoordinator.swift` — async createSession, resolveCommand cache/timeout, setStatus, createQuickSession, deinit cleanup
 - `WorkspaceStore.swift` — globalStatuses private(set), removed UUID??, removed dead moveSession methods, added updateSessionStatus/removeSessionStatus/clearDefaultTemplate
@@ -822,19 +931,23 @@ Converted the "Sidebar Polish v2 - Light Mode" artboard from dark mode colors to
 - `WorkspacePersistence.swift` — env var validation on load
 
 ### New Files Created
+
 - `docs/solutions/logic-errors/sidebar-code-review-remediation.md` — full solution documentation
 
 ### Key Commands
+
 ```bash
 rm -rf macos/build && zig build run -Doptimize=ReleaseFast  # Clean rebuild
 zig build -Doptimize=ReleaseFast                             # Incremental build
 ```
 
 ### Commits
+
 - `b1d9a4437` fix(sidebar): address P1–P3 code review findings from sidebar feature
 - `839596419` docs: add solution doc for sidebar code review remediation
 
 ### Notes for Next Session
+
 - All 20 review findings resolved — build passes clean
 - Manual verification checklist: double-click rename, Cmd+Shift+T session creation, project settings (ghost/template/clear), light↔dark appearance, window close/reopen status dots
 - 7 manual testing findings from Feb 20-22 session still pending (tab bar conflict, keyboard shortcut remapping, exit behavior, etc.)
@@ -844,12 +957,14 @@ zig build -Doptimize=ReleaseFast                             # Incremental build
 ## Feb 22, 2026
 
 ### Features Implemented
+
 1. **Xcode project rename**: Renamed `.xcodeproj`, scheme, target, and supporting files from "Ghostty" to "Ghostties" so Xcode UI matches the app name everywhere (scheme dropdown, target list, project navigator)
 2. **App icon replacement**: Replaced all 3 asset catalog icon sizes (1024/512/256) with new artwork from `Frame 1.png`
 3. **Merged to main**: Feature branch `feat/phase3-session-management` (Phases 2–4 + Xcode rename) merged to main via fast-forward
 4. **CLAUDE.md added**: Project conventions and fork guardrails — prevents accidental PRs against upstream `ghostty-org/ghostty`
 
 ### Files Changed
+
 - `macos/Ghostty.xcodeproj/` → `macos/Ghostties.xcodeproj/` (folder rename)
 - `Ghostty.xcscheme` → `Ghostties.xcscheme` (BlueprintName x3, ReferencedContainer x5)
 - `project.pbxproj` — target name, build config comments, file references, INFOPLIST_FILE, CODE_SIGN_ENTITLEMENTS
@@ -860,11 +975,13 @@ zig build -Doptimize=ReleaseFast                             # Incremental build
 - `macos/Assets.xcassets/AppIconImage.imageset/` — 3 icon PNGs replaced
 
 ### Preserved (by design)
+
 - `PRODUCT_MODULE_NAME = Ghostty` — all Swift code uses `import Ghostty`
 - `GhosttyTests` / `GhosttyUITests` target names
 - `GhosttyDebug.entitlements` / `GhosttyReleaseLocal.entitlements`
 
 ### Key Commands
+
 ```bash
 cd ~/Code/ghostties
 open macos/Ghostties.xcodeproj             # Verify Xcode shows "Ghostties"
@@ -872,16 +989,19 @@ zig build run -Doptimize=ReleaseFast       # Build + launch with new icon
 ```
 
 ### Commits
+
 - `179a4df00` rename(xcode): rename Xcode project to Ghostties and replace app icon
 - `2d3851bc8` docs: update session notes for Xcode rename and PR
 - `cc15ff465` docs: add CLAUDE.md with fork guardrails and project conventions
 
 ### Verification
+
 - [x] Xcode opens with "Ghostties" in scheme dropdown and target list
 - [ ] `zig build run` — app launches with new icon
 - [ ] `Cmd+U` in Xcode — all tests pass
 
 ### Notes
+
 - Accidentally opened PR #10955 against upstream `ghostty-org/ghostty` (now closed). Added guardrail to CLAUDE.md to prevent this in future sessions.
 - Feature branch merged to main — all work now on `main`
 
@@ -890,19 +1010,23 @@ zig build run -Doptimize=ReleaseFast       # Build + launch with new icon
 ## Feb 20-22, 2026
 
 ### Features Implemented
+
 1. **Phase 4 test suite**: Unit tests for WorkspacePersistence (9 tests) and AgentSession (5 tests), plus UI tests for sidebar toggle/menu/lifecycle (4 tests)
 2. **Xcode project fixes**: Fixed two pre-existing bugs preventing all Swift unit tests from running (TEST_HOST path mismatch, module name mismatch)
 
 ### New Files Created
+
 - `macos/Tests/Workspace/WorkspacePersistenceTests.swift` — State init, Codable round-trip, backward compat, validation tests
 - `macos/Tests/Workspace/AgentSessionTests.swift` — SessionStatus enum, AgentSession init/Codable/Hashable tests
 - `macos/GhosttyUITests/GhosttyWorkspaceUITests.swift` — Sidebar toggle, menu items, window lifecycle, dark mode UI tests (IDE-only)
 
 ### Files Modified
+
 - `macos/Sources/Features/Ghostties/WorkspacePersistence.swift` — `validate()` changed from `private` to `internal` for testability
 - `macos/Ghostty.xcodeproj/project.pbxproj` — Fixed TEST_HOST (Ghostty.app -> Ghostties.app), added PRODUCT_MODULE_NAME=Ghostty to all 3 build configs
 
 ### Key Commands
+
 ```bash
 cd ~/Code/ghostties
 zig build run -Doptimize=ReleaseFast   # Build + launch release app
@@ -912,6 +1036,7 @@ rm -rf macos/build && zig build run -Doptimize=ReleaseFast  # Clean rebuild
 ```
 
 ### Commits
+
 - `d5c35b95f` test(workspace): add unit and UI tests for workspace sidebar
 
 ### Manual Testing Findings (Phase 4)
@@ -935,25 +1060,30 @@ Issues discovered during manual verification:
 ### Xcode Test Results (Cmd+U)
 
 **Our tests:**
+
 - WorkspacePersistenceTests: 9/9 passed
 - AgentSessionTests: 4/5 passed, 1 fixed (Hashable test updated to match synthesized behavior)
 - UI tests: 2/4 passed, 1 fixed (sidebar toggle assertion), 1 skipped (P1-002 window lifecycle)
 
 **Pre-existing failures (not caused by our changes):**
+
 - SplitTreeTests: MainActor isolation errors in MockView (Swift 6 concurrency)
 - Missing ImGui symbols (linker error)
 - GhosttyThemeTests.testQuickTerminalThemeChange: debug build text not found
 
 ### Test Fixes Applied
+
 - `AgentSessionTests.sessionHashableUsesId` → renamed to `sessionHashableUsesAllFields`, fixed to match Swift's synthesized Hashable (hashes all fields, not just id)
 - `testToggleSidebarHidesAndShowsSidebar` → removed window-width assertion (sidebar animates internal constraints, not window frame), simplified to smoke test
 - `testWindowStaysOpenWhenLastSurfaceExits` → skipped with `XCTSkipIf` until P1-002 fix lands
 - `WorkspacePersistence.swift` → fixed unused `error` variable warning (`catch let error as DecodingError` → `catch is DecodingError`)
 
 ### Commits
+
 - `d5c35b95f` test(workspace): add unit and UI tests for workspace sidebar
 
 ### Notes for Next Session
+
 - Address the 7 manual testing findings above — most are behavioral bugs in Phase 4 implementation
 - Key design decision needed: keyboard shortcut remapping (sessions vs projects)
 - Tab bar hiding when workspace sidebar is active needs design decision (setting vs auto)
