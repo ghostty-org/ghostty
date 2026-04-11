@@ -11,8 +11,8 @@ pub const DetectError = error{
 };
 
 /// Detect the action from CLI args.
-pub fn detectArgs(comptime E: type, alloc: Allocator) !?E {
-    var iter = try std.process.argsWithAllocator(alloc);
+pub fn detectArgs(comptime E: type, alloc: Allocator, args: std.process.Args) !?E {
+    var iter = try args.iterateAllocator(alloc);
     defer iter.deinit();
     return try detectIter(E, &iter);
 }
@@ -29,7 +29,7 @@ pub fn detectArgs(comptime E: type, alloc: Allocator) !?E {
 ///
 pub fn detectIter(
     comptime E: type,
-    iter: anytype,
+    iter: *std.process.Args.Iterator,
 ) DetectError!?E {
     var fallback: ?E = null;
     var pending: ?E = null;

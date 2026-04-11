@@ -20,23 +20,21 @@ pub fn Struct(
         .zig => Zig,
         .c => c: {
             const info = @typeInfo(Zig).@"struct";
-            var fields: [info.fields.len]std.builtin.Type.StructField = undefined;
-            for (info.fields, 0..) |field, i| {
-                fields[i] = .{
-                    .name = field.name,
-                    .type = field.type,
+            var names: [info.fields.len][]const u8 = undefined;
+            var types: [info.fields.len]type = undefined;
+            var attrs: [info.fields.len]std.builtin.Type.StructField.Attributes = undefined;
+
+            for (info.fields, &names, &types, &attrs) |field, *name, *ty, *attr| {
+                name.* = field.name;
+                ty.* = field.type;
+                attr.* = .{
+                    .@"align" = field.alignment,
+                    .@"comptime" = field.is_comptime,
                     .default_value_ptr = field.default_value_ptr,
-                    .is_comptime = field.is_comptime,
-                    .alignment = if (field.alignment > 0) field.alignment else @alignOf(field.type),
                 };
             }
 
-            break :c @Type(.{ .@"struct" = .{
-                .layout = .@"extern",
-                .fields = &fields,
-                .decls = &.{},
-                .is_tuple = info.is_tuple,
-            } });
+            break :c @Struct(.@"extern", null, &names, &types, &attrs);
         },
     };
 }

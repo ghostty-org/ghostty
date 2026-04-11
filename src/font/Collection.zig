@@ -894,7 +894,7 @@ pub const Index = packed struct(Index.Backing) {
 
     /// The number of bits we use for the index.
     const idx_bits = backing_bits - @typeInfo(@typeInfo(Style).@"enum".tag_type).int.bits;
-    pub const IndexInt = @Type(.{ .int = .{ .signedness = .unsigned, .bits = idx_bits } });
+    pub const IndexInt = @Int(.unsigned, idx_bits);
 
     /// The special-case fonts that we support.
     pub const Special = enum(IndexInt) {

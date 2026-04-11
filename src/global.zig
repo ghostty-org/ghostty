@@ -102,6 +102,7 @@ pub const GlobalState = struct {
         self.action = try cli.action.detectArgs(
             cli.ghostty.Action,
             self.alloc,
+            init_minimal.args,
         );
 
         // If we have an action executing, we disable logging by default

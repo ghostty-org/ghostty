@@ -489,18 +489,13 @@ pub fn parseTaggedUnion(comptime T: type, alloc: Allocator, v: []const u8) !T {
 
             // We need to create a struct that looks like this union field.
             // This lets us use parseIntoField as if its a dedicated struct.
-            const Target = @Type(.{ .@"struct" = .{
-                .layout = .auto,
-                .fields = &.{.{
-                    .name = field.name,
-                    .type = field.type,
-                    .default_value_ptr = null,
-                    .is_comptime = false,
-                    .alignment = @alignOf(field.type),
-                }},
-                .decls = &.{},
-                .is_tuple = false,
-            } });
+            const Target = @Struct(
+                .auto,
+                null,
+                &.{field.name},
+                &.{field.type},
+                &.{.{ .@"align" = @alignOf(field.type) }},
+            );
 
             // Parse the value into the struct
             var t: Target = undefined;
