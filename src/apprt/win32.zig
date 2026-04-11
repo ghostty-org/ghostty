@@ -2826,8 +2826,8 @@ const Host = struct {
 
         var rect: RECT = undefined;
         if (GetClientRect(hwnd, &rect) == 0) return null;
-        const status_y = @max(host_tab_height + 2, rect.bottom - host_status_height + 4);
-        var status_x: i32 = 16;
+        const status_y = @max(self.scaled(host_tab_height) + self.scaled(2), rect.bottom - self.scaled(host_status_height) + self.scaled(4));
+        var status_x: i32 = self.scaled(16);
         const selected_index = self.selectedProfileIndex();
 
         if (self.selectedProfile()) |profile| {
@@ -2838,8 +2838,8 @@ const Host = struct {
                 self.app.launcherQuickSlotOrdinal(profile.key),
             ) catch return null;
             defer self.app.core_app.alloc.free(chip);
-            const chip_width = 16 + @as(i32, @intCast(chip.len * 7));
-            status_x += chip_width + 10;
+            const chip_width = self.scaled(16) + @as(i32, @intCast(chip.len * @as(usize, @intCast(self.scaled(7)))));
+            status_x += chip_width + self.scaled(10);
         }
 
         var slot_ordinal: usize = 0;
@@ -2852,17 +2852,17 @@ const Host = struct {
                 self.app.launcherQuickSlotOrdinal(profiles[profile_index].key),
             ) catch return null;
             defer self.app.core_app.alloc.free(chip);
-            const chip_width = 12 + @as(i32, @intCast(chip.len * 7));
+            const chip_width = self.scaled(12) + @as(i32, @intCast(chip.len * @as(usize, @intCast(self.scaled(7)))));
             const chip_rect = RECT{
                 .left = status_x,
-                .top = status_y - 1,
+                .top = status_y - self.scaled(1),
                 .right = status_x + chip_width,
-                .bottom = status_y + 13,
+                .bottom = status_y + self.scaled(13),
             };
             if (point.x >= chip_rect.left and point.x < chip_rect.right and point.y >= chip_rect.top and point.y < chip_rect.bottom) {
                 return profile_index;
             }
-            status_x = chip_rect.right + 6;
+            status_x = chip_rect.right + self.scaled(6);
         }
 
         return null;
@@ -4273,7 +4273,20 @@ const Host = struct {
     }
 
     fn tabBarHeight(self: *Host) i32 {
-        return if (self.shouldShowTabBar()) host_tab_height else 0;
+        return if (self.shouldShowTabBar()) self.scaled(host_tab_height) else 0;
+    }
+
+    fn rightButtonsWidth(self: *const Host) i32 {
+        return self.scaled(host_tab_cmd_button_width) +
+            self.scaled(host_tab_profiles_button_width) +
+            self.scaled(host_tab_target_button_width) +
+            self.scaled(host_tab_nav_button_width) +
+            self.scaled(host_tab_tabs_button_width) +
+            self.scaled(host_tab_nav_button_width) +
+            self.scaled(host_tab_find_button_width) +
+            self.scaled(host_tab_inspect_button_width) +
+            (self.scaled(host_tab_small_button_width) * 2) +
+            self.scaled(28);
     }
 
     fn scaled(self: *const Host, base: i32) i32 {
@@ -4288,13 +4301,13 @@ const Host = struct {
             return windows.unexpectedError(windows.kernel32.GetLastError());
         }
         const tab_offset: i32 = self.tabBarHeight();
-        const overlay_offset: i32 = if (self.overlay_mode == .none) 0 else host_overlay_height;
-        const inspector_offset: i32 = if (self.inspectorPanelVisible()) host_inspector_panel_height else 0;
+        const overlay_offset: i32 = if (self.overlay_mode == .none) 0 else self.scaled(host_overlay_height);
+        const inspector_offset: i32 = if (self.inspectorPanelVisible()) self.scaled(host_inspector_panel_height) else 0;
         return .{
             .left = 0,
             .top = tab_offset + overlay_offset + inspector_offset,
             .right = rect.right,
-            .bottom = @max(tab_offset + 1, rect.bottom - host_status_height),
+            .bottom = @max(tab_offset + 1, rect.bottom - self.scaled(host_status_height)),
         };
     }
 
@@ -4490,17 +4503,7 @@ const Host = struct {
             return windows.unexpectedError(windows.kernel32.GetLastError());
         }
         const width = @max(0, rect.right - rect.left);
-        const right_buttons_width =
-            host_tab_cmd_button_width +
-            host_tab_profiles_button_width +
-            host_tab_target_button_width +
-            host_tab_nav_button_width +
-            host_tab_tabs_button_width +
-            host_tab_nav_button_width +
-            host_tab_find_button_width +
-            host_tab_inspect_button_width +
-            (host_tab_small_button_width * 2) +
-            28;
+        const right_buttons_width = self.rightButtonsWidth();
         const tab_area_width = @max(1, width - right_buttons_width);
         const tab_range = visibleTabRange(self.tabs.items.len, self.active_tab, tab_area_width);
         const visible_count = @max(@as(i32, 1), @as(i32, @intCast(tab_range.count)));
@@ -4582,17 +4585,7 @@ const Host = struct {
             return windows.unexpectedError(windows.kernel32.GetLastError());
         }
         const width = @max(0, rect.right - rect.left);
-        const right_buttons_width =
-            host_tab_cmd_button_width +
-            host_tab_profiles_button_width +
-            host_tab_target_button_width +
-            host_tab_nav_button_width +
-            host_tab_tabs_button_width +
-            host_tab_nav_button_width +
-            host_tab_find_button_width +
-            host_tab_inspect_button_width +
-            (host_tab_small_button_width * 2) +
-            28;
+        const right_buttons_width = self.rightButtonsWidth();
         const tab_area_width = @max(1, width - right_buttons_width);
         const tab_range = visibleTabRange(self.tabs.items.len, self.active_tab, tab_area_width);
         const command_input = if (self.overlay_mode == .command_palette and self.overlay_edit_hwnd != null)
@@ -4709,17 +4702,7 @@ const Host = struct {
         }
 
         const width = @max(0, rect.right - rect.left);
-        const right_buttons_width =
-            host_tab_cmd_button_width +
-            host_tab_profiles_button_width +
-            host_tab_target_button_width +
-            host_tab_nav_button_width +
-            host_tab_tabs_button_width +
-            host_tab_nav_button_width +
-            host_tab_find_button_width +
-            host_tab_inspect_button_width +
-            (host_tab_small_button_width * 2) +
-            28;
+        const right_buttons_width = self.rightButtonsWidth();
         const tab_area_width = @max(1, width - right_buttons_width);
         const tab_range = visibleTabRange(self.tabs.items.len, self.active_tab, tab_area_width);
         const visible_count = @max(@as(i32, 1), @as(i32, @intCast(tab_range.count)));
@@ -4731,9 +4714,9 @@ const Host = struct {
                     _ = MoveWindow(
                         button_hwnd,
                         visible_index * button_width,
-                        4,
+                        self.scaled(4),
                         button_width,
-                        host_tab_height - 8,
+                        self.scaled(host_tab_height) - self.scaled(8),
                         1,
                     );
                     _ = ShowWindow(button_hwnd, SW_SHOW);
@@ -4743,55 +4726,55 @@ const Host = struct {
             }
         }
 
-        var button_x = width - 8;
+        var button_x = width - self.scaled(8);
         if (self.close_tab_hwnd) |button_hwnd| {
-            button_x -= host_tab_small_button_width;
-            _ = MoveWindow(button_hwnd, button_x, 4, host_tab_small_button_width, host_tab_height - 8, 1);
+            button_x -= self.scaled(host_tab_small_button_width);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_small_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
         }
-        button_x -= 4;
+        button_x -= self.scaled(4);
         if (self.new_tab_hwnd) |button_hwnd| {
-            button_x -= host_tab_small_button_width;
-            _ = MoveWindow(button_hwnd, button_x, 4, host_tab_small_button_width, host_tab_height - 8, 1);
+            button_x -= self.scaled(host_tab_small_button_width);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_small_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
         }
-        button_x -= 4;
+        button_x -= self.scaled(4);
         if (self.inspector_hwnd) |button_hwnd| {
-            button_x -= host_tab_inspect_button_width;
-            _ = MoveWindow(button_hwnd, button_x, 4, host_tab_inspect_button_width, host_tab_height - 8, 1);
+            button_x -= self.scaled(host_tab_inspect_button_width);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_inspect_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
         }
-        button_x -= 4;
+        button_x -= self.scaled(4);
         if (self.next_tab_hwnd) |button_hwnd| {
-            button_x -= host_tab_nav_button_width;
-            _ = MoveWindow(button_hwnd, button_x, 4, host_tab_nav_button_width, host_tab_height - 8, 1);
+            button_x -= self.scaled(host_tab_nav_button_width);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_nav_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
         }
-        button_x -= 4;
+        button_x -= self.scaled(4);
         if (self.tab_overview_hwnd) |button_hwnd| {
-            button_x -= host_tab_tabs_button_width;
-            _ = MoveWindow(button_hwnd, button_x, 4, host_tab_tabs_button_width, host_tab_height - 8, 1);
+            button_x -= self.scaled(host_tab_tabs_button_width);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_tabs_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
         }
-        button_x -= 4;
+        button_x -= self.scaled(4);
         if (self.prev_tab_hwnd) |button_hwnd| {
-            button_x -= host_tab_nav_button_width;
-            _ = MoveWindow(button_hwnd, button_x, 4, host_tab_nav_button_width, host_tab_height - 8, 1);
+            button_x -= self.scaled(host_tab_nav_button_width);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_nav_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
         }
-        button_x -= 4;
+        button_x -= self.scaled(4);
         if (self.search_hwnd) |button_hwnd| {
-            button_x -= host_tab_find_button_width;
-            _ = MoveWindow(button_hwnd, button_x, 4, host_tab_find_button_width, host_tab_height - 8, 1);
+            button_x -= self.scaled(host_tab_find_button_width);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_find_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
         }
-        button_x -= 4;
+        button_x -= self.scaled(4);
         if (self.command_palette_hwnd) |button_hwnd| {
-            button_x -= host_tab_cmd_button_width;
-            _ = MoveWindow(button_hwnd, button_x, 4, host_tab_cmd_button_width, host_tab_height - 8, 1);
+            button_x -= self.scaled(host_tab_cmd_button_width);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_cmd_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
         }
-        button_x -= 4;
+        button_x -= self.scaled(4);
         if (self.profiles_hwnd) |button_hwnd| {
-            button_x -= host_tab_profiles_button_width;
-            _ = MoveWindow(button_hwnd, button_x, 4, host_tab_profiles_button_width, host_tab_height - 8, 1);
+            button_x -= self.scaled(host_tab_profiles_button_width);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_profiles_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
         }
-        button_x -= 4;
+        button_x -= self.scaled(4);
         if (self.profile_target_hwnd) |button_hwnd| {
-            button_x -= host_tab_target_button_width;
-            _ = MoveWindow(button_hwnd, button_x, 4, host_tab_target_button_width, host_tab_height - 8, 1);
+            button_x -= self.scaled(host_tab_target_button_width);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_target_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
         }
 
         if (self.overlay_mode != .none) {
@@ -4799,10 +4782,10 @@ const Host = struct {
             const accept_hwnd = self.overlay_accept_hwnd orelse return;
             const cancel_hwnd = self.overlay_cancel_hwnd orelse return;
             const overlay_y = self.tabBarHeight();
-            const edit_width = @max(120, width - host_overlay_label_width - host_overlay_accept_width - host_overlay_cancel_width - (host_overlay_padding * 4));
-            _ = MoveWindow(edit_hwnd, host_overlay_padding + host_overlay_label_width + 8, overlay_y + 8, edit_width - 16, host_overlay_row_height - 4, 1);
-            _ = MoveWindow(accept_hwnd, width - host_overlay_cancel_width - host_overlay_accept_width - (host_overlay_padding * 2), overlay_y + 4, host_overlay_accept_width, host_overlay_row_height, 1);
-            _ = MoveWindow(cancel_hwnd, width - host_overlay_cancel_width - host_overlay_padding, overlay_y + 4, host_overlay_cancel_width, host_overlay_row_height, 1);
+            const edit_width = @max(self.scaled(120), width - self.scaled(host_overlay_label_width) - self.scaled(host_overlay_accept_width) - self.scaled(host_overlay_cancel_width) - (self.scaled(host_overlay_padding) * 4));
+            _ = MoveWindow(edit_hwnd, self.scaled(host_overlay_padding) + self.scaled(host_overlay_label_width) + self.scaled(8), overlay_y + self.scaled(8), edit_width - self.scaled(16), self.scaled(host_overlay_row_height) - self.scaled(4), 1);
+            _ = MoveWindow(accept_hwnd, width - self.scaled(host_overlay_cancel_width) - self.scaled(host_overlay_accept_width) - (self.scaled(host_overlay_padding) * 2), overlay_y + self.scaled(4), self.scaled(host_overlay_accept_width), self.scaled(host_overlay_row_height), 1);
+            _ = MoveWindow(cancel_hwnd, width - self.scaled(host_overlay_cancel_width) - self.scaled(host_overlay_padding), overlay_y + self.scaled(4), self.scaled(host_overlay_cancel_width), self.scaled(host_overlay_row_height), 1);
         }
 
         const content_rect = try self.contentRect();
@@ -4874,10 +4857,11 @@ const Host = struct {
         var client_rect: RECT = undefined;
         if (GetClientRect(hwnd, &client_rect) == 0) return;
         const tab_h = self.tabBarHeight();
-        const overlay_offset: i32 = if (self.overlay_mode != .none) host_overlay_height else 0;
+        // Note: tab_h is already scaled via tabBarHeight()
+        const overlay_offset: i32 = if (self.overlay_mode != .none) self.scaled(host_overlay_height) else 0;
         const inspector_panel_visible = self.inspectorPanelVisible();
-        const inspector_offset: i32 = if (inspector_panel_visible) host_inspector_panel_height else 0;
-        const banner_y: i32 = tab_h + overlay_offset + inspector_offset + 2;
+        const inspector_offset: i32 = if (inspector_panel_visible) self.scaled(host_inspector_panel_height) else 0;
+        const banner_y: i32 = tab_h + overlay_offset + inspector_offset + self.scaled(2);
 
         // Tab bar (only when visible)
         if (tab_h > 0) {
@@ -4905,7 +4889,7 @@ const Host = struct {
                 .left = 0,
                 .top = tab_h,
                 .right = client_rect.right,
-                .bottom = tab_h + host_overlay_height,
+                .bottom = tab_h + self.scaled(host_overlay_height),
             };
             fillSolidRect(hdc, overlay_rect, theme.overlay_bg);
             fillSolidRect(
@@ -4951,7 +4935,7 @@ const Host = struct {
             const overlay_label_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, overlay_label) catch return;
             defer alloc.free(overlay_label_w);
             _ = SetBkMode(hdc, TRANSPARENT);
-            var overlay_label_x: i32 = host_overlay_padding;
+            var overlay_label_x: i32 = self.scaled(host_overlay_padding);
             var overlay_label_color: u32 = theme.overlay_label_fg;
             if (self.overlay_mode == .profile) {
                 if (self.selectedProfile()) |profile| {
@@ -4959,12 +4943,12 @@ const Host = struct {
                     defer alloc.free(badge);
                     const badge_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, badge) catch return;
                     defer alloc.free(badge_w);
-                    const badge_width = 16 + @as(i32, @intCast(badge.len * 7));
+                    const badge_width = self.scaled(16) + @as(i32, @intCast(badge.len * @as(usize, @intCast(self.scaled(7)))));
                     const badge_rect = RECT{
-                        .left = host_overlay_padding,
-                        .top = overlay_rect.top + 5,
-                        .right = host_overlay_padding + badge_width,
-                        .bottom = overlay_rect.top + 23,
+                        .left = self.scaled(host_overlay_padding),
+                        .top = overlay_rect.top + self.scaled(5),
+                        .right = self.scaled(host_overlay_padding) + badge_width,
+                        .bottom = overlay_rect.top + self.scaled(23),
                     };
                     const accent = profileChromeAccent(profile.kind);
                     fillSolidRect(hdc, badge_rect, accent.idle_bg);
@@ -4994,8 +4978,8 @@ const Host = struct {
                     }, accent.idle_border);
                     _ = SetTextColor(hdc, profileKindLabelColor(profile.kind));
                     var badge_text_rect = badge_rect;
-                    badge_text_rect.left += 6;
-                    badge_text_rect.right -= 6;
+                    badge_text_rect.left += self.scaled(6);
+                    badge_text_rect.right -= self.scaled(6);
                     _ = DrawTextW(
                         hdc,
                         badge_w.ptr,
@@ -5003,20 +4987,20 @@ const Host = struct {
                         &badge_text_rect,
                         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                     );
-                    overlay_label_x = badge_rect.right + 8;
+                    overlay_label_x = badge_rect.right + self.scaled(8);
                     overlay_label_color = profileKindLabelColor(profile.kind);
                 }
             }
             _ = SetTextColor(hdc, overlay_label_color);
-            _ = TextOutW(hdc, overlay_label_x, overlay_rect.top + 7, overlay_label_w.ptr, @intCast(overlay_label_w.len - 1));
+            _ = TextOutW(hdc, overlay_label_x, overlay_rect.top + self.scaled(7), overlay_label_w.ptr, @intCast(overlay_label_w.len - 1));
 
-            const edit_frame_left = host_overlay_padding + host_overlay_label_width;
-            const edit_frame_right = client_rect.right - host_overlay_cancel_width - host_overlay_accept_width - (host_overlay_padding * 2);
+            const edit_frame_left = self.scaled(host_overlay_padding) + self.scaled(host_overlay_label_width);
+            const edit_frame_right = client_rect.right - self.scaled(host_overlay_cancel_width) - self.scaled(host_overlay_accept_width) - (self.scaled(host_overlay_padding) * 2);
             const edit_frame = RECT{
                 .left = edit_frame_left,
-                .top = overlay_rect.top + 4,
-                .right = @max(edit_frame_left + 24, edit_frame_right - 6),
-                .bottom = overlay_rect.top + 4 + host_overlay_row_height,
+                .top = overlay_rect.top + self.scaled(4),
+                .right = @max(edit_frame_left + self.scaled(24), edit_frame_right - self.scaled(6)),
+                .bottom = overlay_rect.top + self.scaled(4) + self.scaled(host_overlay_row_height),
             };
             const overlay_edit_focused = if (self.overlay_edit_hwnd) |edit_hwnd|
                 GetFocus() == edit_hwnd
@@ -5091,7 +5075,7 @@ const Host = struct {
                 .info => theme.info_fg,
                 .err => theme.error_fg,
             });
-            _ = TextOutW(hdc, host_overlay_padding, overlay_rect.top + 34, overlay_feedback_w.ptr, @intCast(overlay_feedback_w.len - 1));
+            _ = TextOutW(hdc, self.scaled(host_overlay_padding), overlay_rect.top + self.scaled(34), overlay_feedback_w.ptr, @intCast(overlay_feedback_w.len - 1));
         }
 
         if (inspector_panel_visible) {
@@ -5099,7 +5083,7 @@ const Host = struct {
                 .left = 0,
                 .top = tab_h + overlay_offset,
                 .right = client_rect.right,
-                .bottom = tab_h + overlay_offset + host_inspector_panel_height,
+                .bottom = tab_h + overlay_offset + self.scaled(host_inspector_panel_height),
             };
             fillSolidRect(hdc, panel_rect, theme.inspector_bg);
             fillSolidRect(
@@ -5124,18 +5108,18 @@ const Host = struct {
                 defer alloc.free(panel_title_w);
                 _ = SetBkMode(hdc, TRANSPARENT);
                 _ = SetTextColor(hdc, theme.overlay_label_fg);
-                _ = TextOutW(hdc, 16, panel_rect.top + 6, panel_title_w.ptr, @intCast(panel_title_w.len - 1));
+                _ = TextOutW(hdc, self.scaled(16), panel_rect.top + self.scaled(6), panel_title_w.ptr, @intCast(panel_title_w.len - 1));
 
                 const panel_hint = buildInspectorPanelHintText(alloc, pane_count, zoomed) catch return;
                 defer alloc.free(panel_hint);
                 const panel_hint_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, panel_hint) catch return;
                 defer alloc.free(panel_hint_w);
                 _ = SetTextColor(hdc, theme.text_secondary);
-                _ = TextOutW(hdc, 16, panel_rect.top + 22, panel_hint_w.ptr, @intCast(panel_hint_w.len - 1));
+                _ = TextOutW(hdc, self.scaled(16), panel_rect.top + self.scaled(22), panel_hint_w.ptr, @intCast(panel_hint_w.len - 1));
             }
         }
 
-        const status_top = @max(tab_h + overlay_offset, client_rect.bottom - host_status_height);
+        const status_top = @max(tab_h + overlay_offset, client_rect.bottom - self.scaled(host_status_height));
         const status_rect = RECT{
             .left = 0,
             .top = status_top,
@@ -5203,12 +5187,12 @@ const Host = struct {
             defer alloc.free(full);
             const banner_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, full) catch return;
             defer alloc.free(banner_w);
-            _ = TextOutW(hdc, 16, banner_y, banner_w.ptr, @intCast(banner_w.len - 1));
+            _ = TextOutW(hdc, self.scaled(16), banner_y, banner_w.ptr, @intCast(banner_w.len - 1));
         }
         _ = SetTextColor(hdc, theme.text_primary);
 
-        const status_y = @max(host_tab_height + 2, ps.rcPaint.bottom - host_status_height + 4);
-        var status_x: i32 = 16;
+        const status_y = @max(self.scaled(host_tab_height) + self.scaled(2), ps.rcPaint.bottom - self.scaled(host_status_height) + self.scaled(4));
+        var status_x: i32 = self.scaled(16);
         if (self.overlay_mode == .none) {
             const selected_profile_index = self.selectedProfileIndex();
             if (self.selectedProfile()) |profile| {
@@ -5224,12 +5208,12 @@ const Host = struct {
                 const chip_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, chip) catch return;
                 defer alloc.free(chip_w);
                 const accent = profileChromeAccent(profile.kind);
-                const chip_width = 16 + @as(i32, @intCast(chip.len * 7));
+                const chip_width = self.scaled(16) + @as(i32, @intCast(chip.len * @as(usize, @intCast(self.scaled(7)))));
                 const chip_rect = RECT{
                     .left = status_x,
-                    .top = status_y - 2,
+                    .top = status_y - self.scaled(2),
                     .right = status_x + chip_width,
-                    .bottom = status_y + 14,
+                    .bottom = status_y + self.scaled(14),
                 };
                 fillSolidRect(hdc, chip_rect, accent.idle_bg);
                 fillSolidRect(hdc, .{
@@ -5276,7 +5260,7 @@ const Host = struct {
                 );
                 _ = SetTextColor(hdc, profileKindLabelColor(profile.kind));
                 var chip_text_rect = chip_rect;
-                chip_text_rect.left += 6;
+                chip_text_rect.left += self.scaled(6);
                 chip_text_rect.right -= launcherChipRightInset(pinned_slot_digit != null, true);
                 _ = DrawTextW(
                     hdc,
@@ -5285,7 +5269,7 @@ const Host = struct {
                     &chip_text_rect,
                     DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS,
                 );
-                status_x = chip_rect.right + 10;
+                status_x = chip_rect.right + self.scaled(10);
             }
             if (self.profiles) |profiles| {
                 var drawn: usize = 0;
@@ -5306,12 +5290,12 @@ const Host = struct {
                     const hovered = self.hovered_quick_slot != null and self.hovered_quick_slot.? == index;
                     const target_marker = shouldPaintQuickSlotTargetMarker(hovered, focused);
                     const colors = quickSlotChipColors(profile.kind, hovered);
-                    const chip_width = 12 + @as(i32, @intCast(chip.len * 7));
+                    const chip_width = self.scaled(12) + @as(i32, @intCast(chip.len * @as(usize, @intCast(self.scaled(7)))));
                     const chip_rect = RECT{
                         .left = status_x,
-                        .top = status_y - 1,
+                        .top = status_y - self.scaled(1),
                         .right = status_x + chip_width,
-                        .bottom = status_y + 13,
+                        .bottom = status_y + self.scaled(13),
                     };
                     fillSolidRect(hdc, chip_rect, colors.bg);
                     fillSolidRect(hdc, .{
@@ -5357,33 +5341,33 @@ const Host = struct {
                     }
                     if (focused) {
                         fillSolidRect(hdc, .{
-                            .left = chip_rect.left + 2,
-                            .top = chip_rect.top + 2,
-                            .right = chip_rect.right - 2,
-                            .bottom = chip_rect.top + 4,
+                            .left = chip_rect.left + self.scaled(2),
+                            .top = chip_rect.top + self.scaled(2),
+                            .right = chip_rect.right - self.scaled(2),
+                            .bottom = chip_rect.top + self.scaled(4),
                         }, profileKindFocusRingColor(profile.kind));
                         fillSolidRect(hdc, .{
-                            .left = chip_rect.left + 2,
-                            .top = chip_rect.bottom - 4,
-                            .right = chip_rect.right - 2,
-                            .bottom = chip_rect.bottom - 2,
+                            .left = chip_rect.left + self.scaled(2),
+                            .top = chip_rect.bottom - self.scaled(4),
+                            .right = chip_rect.right - self.scaled(2),
+                            .bottom = chip_rect.bottom - self.scaled(2),
                         }, profileKindFocusRingColor(profile.kind));
                         fillSolidRect(hdc, .{
-                            .left = chip_rect.left + 2,
-                            .top = chip_rect.top + 2,
-                            .right = chip_rect.left + 4,
-                            .bottom = chip_rect.bottom - 2,
+                            .left = chip_rect.left + self.scaled(2),
+                            .top = chip_rect.top + self.scaled(2),
+                            .right = chip_rect.left + self.scaled(4),
+                            .bottom = chip_rect.bottom - self.scaled(2),
                         }, profileKindFocusRingColor(profile.kind));
                         fillSolidRect(hdc, .{
-                            .left = chip_rect.right - 4,
-                            .top = chip_rect.top + 2,
-                            .right = chip_rect.right - 2,
-                            .bottom = chip_rect.bottom - 2,
+                            .left = chip_rect.right - self.scaled(4),
+                            .top = chip_rect.top + self.scaled(2),
+                            .right = chip_rect.right - self.scaled(2),
+                            .bottom = chip_rect.bottom - self.scaled(2),
                         }, profileKindFocusRingColor(profile.kind));
                     }
                     _ = SetTextColor(hdc, colors.fg);
                     var chip_text_rect = chip_rect;
-                    chip_text_rect.left += 5;
+                    chip_text_rect.left += self.scaled(5);
                     chip_text_rect.right -= launcherChipRightInset(false, target_marker);
                     _ = DrawTextW(
                         hdc,
@@ -5392,7 +5376,7 @@ const Host = struct {
                         &chip_text_rect,
                         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS,
                     );
-                    status_x = chip_rect.right + 6;
+                    status_x = chip_rect.right + self.scaled(6);
                     drawn += 1;
                 }
             }
@@ -5411,7 +5395,7 @@ const Host = struct {
             _ = SetTextColor(hdc, theme.text_secondary);
             const detail_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, value) catch return;
             defer alloc.free(detail_w);
-            _ = TextOutW(hdc, status_x, status_y + 18, detail_w.ptr, @intCast(detail_w.len - 1));
+            _ = TextOutW(hdc, status_x, status_y + self.scaled(18), detail_w.ptr, @intCast(detail_w.len - 1));
         }
     }
 };
