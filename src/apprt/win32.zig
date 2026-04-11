@@ -4052,12 +4052,12 @@ const Host = struct {
             fillSolidRect(draw.hDC, .{
                 .left = draw.rcItem.left + 1,
                 .top = draw.rcItem.top + 1,
-                .right = draw.rcItem.left + 4,
+                .right = draw.rcItem.left + self.scaled(4),
                 .bottom = draw.rcItem.bottom - 1,
             }, stripe);
             if (self.profile_target_hwnd != null and draw.hwndItem == self.profile_target_hwnd.?) {
                 fillSolidRect(draw.hDC, .{
-                    .left = draw.rcItem.right - 4,
+                    .left = draw.rcItem.right - self.scaled(4),
                     .top = draw.rcItem.top + 1,
                     .right = draw.rcItem.right - 1,
                     .bottom = draw.rcItem.bottom - 1,
@@ -4090,28 +4090,28 @@ const Host = struct {
             else
                 buttonFocusRingColor(active, overlay, accept);
             fillSolidRect(draw.hDC, .{
-                .left = draw.rcItem.left + 2,
-                .top = draw.rcItem.top + 2,
-                .right = draw.rcItem.right - 2,
-                .bottom = draw.rcItem.top + 3,
+                .left = draw.rcItem.left + self.scaled(2),
+                .top = draw.rcItem.top + self.scaled(2),
+                .right = draw.rcItem.right - self.scaled(2),
+                .bottom = draw.rcItem.top + self.scaled(3),
             }, focus);
             fillSolidRect(draw.hDC, .{
-                .left = draw.rcItem.left + 2,
-                .top = draw.rcItem.bottom - 3,
-                .right = draw.rcItem.right - 2,
-                .bottom = draw.rcItem.bottom - 2,
+                .left = draw.rcItem.left + self.scaled(2),
+                .top = draw.rcItem.bottom - self.scaled(3),
+                .right = draw.rcItem.right - self.scaled(2),
+                .bottom = draw.rcItem.bottom - self.scaled(2),
             }, focus);
             fillSolidRect(draw.hDC, .{
-                .left = draw.rcItem.left + 2,
-                .top = draw.rcItem.top + 2,
-                .right = draw.rcItem.left + 3,
-                .bottom = draw.rcItem.bottom - 2,
+                .left = draw.rcItem.left + self.scaled(2),
+                .top = draw.rcItem.top + self.scaled(2),
+                .right = draw.rcItem.left + self.scaled(3),
+                .bottom = draw.rcItem.bottom - self.scaled(2),
             }, focus);
             fillSolidRect(draw.hDC, .{
-                .left = draw.rcItem.right - 3,
-                .top = draw.rcItem.top + 2,
-                .right = draw.rcItem.right - 2,
-                .bottom = draw.rcItem.bottom - 2,
+                .left = draw.rcItem.right - self.scaled(3),
+                .top = draw.rcItem.top + self.scaled(2),
+                .right = draw.rcItem.right - self.scaled(2),
+                .bottom = draw.rcItem.bottom - self.scaled(2),
             }, focus);
         }
 
@@ -4121,13 +4121,13 @@ const Host = struct {
         _ = SetTextColor(draw.hDC, fg);
         var text_rect = draw.rcItem;
         if (!overlay and draw.hwndItem != self.prev_tab_hwnd and draw.hwndItem != self.next_tab_hwnd) {
-            text_rect.left += 6;
-            text_rect.right -= 6;
+            text_rect.left += self.scaled(6);
+            text_rect.right -= self.scaled(6);
         }
         if (profile_kind != null) {
-            text_rect.left += 4;
+            text_rect.left += self.scaled(4);
             if (self.profile_target_hwnd != null and draw.hwndItem == self.profile_target_hwnd.?) {
-                text_rect.right -= 4;
+                text_rect.right -= self.scaled(4);
             }
         }
         text_rect.right -= buttonLabelRightInset(pinned_slot_ordinal, launcher_target);
@@ -4806,7 +4806,7 @@ const Host = struct {
                         self.scaled(4),
                         button_width,
                         self.scaled(host_tab_height) - self.scaled(8),
-                        1,
+                        0,
                     );
                     _ = ShowWindow(button_hwnd, SW_SHOW);
                 } else {
@@ -4818,52 +4818,52 @@ const Host = struct {
         var button_x = width - self.scaled(8);
         if (self.close_tab_hwnd) |button_hwnd| {
             button_x -= self.scaled(host_tab_small_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_small_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_small_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
         }
         button_x -= self.scaled(4);
         if (self.new_tab_hwnd) |button_hwnd| {
             button_x -= self.scaled(host_tab_small_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_small_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_small_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
         }
         button_x -= self.scaled(4);
         if (self.inspector_hwnd) |button_hwnd| {
             button_x -= self.scaled(host_tab_inspect_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_inspect_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_inspect_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
         }
         button_x -= self.scaled(4);
         if (self.next_tab_hwnd) |button_hwnd| {
             button_x -= self.scaled(host_tab_nav_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_nav_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_nav_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
         }
         button_x -= self.scaled(4);
         if (self.tab_overview_hwnd) |button_hwnd| {
             button_x -= self.scaled(host_tab_tabs_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_tabs_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_tabs_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
         }
         button_x -= self.scaled(4);
         if (self.prev_tab_hwnd) |button_hwnd| {
             button_x -= self.scaled(host_tab_nav_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_nav_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_nav_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
         }
         button_x -= self.scaled(4);
         if (self.search_hwnd) |button_hwnd| {
             button_x -= self.scaled(host_tab_find_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_find_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_find_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
         }
         button_x -= self.scaled(4);
         if (self.command_palette_hwnd) |button_hwnd| {
             button_x -= self.scaled(host_tab_cmd_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_cmd_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_cmd_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
         }
         button_x -= self.scaled(4);
         if (self.profiles_hwnd) |button_hwnd| {
             button_x -= self.scaled(host_tab_profiles_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_profiles_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_profiles_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
         }
         button_x -= self.scaled(4);
         if (self.profile_target_hwnd) |button_hwnd| {
             button_x -= self.scaled(host_tab_target_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_target_button_width), self.scaled(host_tab_height) - self.scaled(8), 1);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_target_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
         }
 
         if (self.overlay_mode != .none) {
@@ -4872,9 +4872,9 @@ const Host = struct {
             const cancel_hwnd = self.overlay_cancel_hwnd orelse return;
             const overlay_y = self.tabBarHeight();
             const edit_width = @max(self.scaled(120), width - self.scaled(host_overlay_label_width) - self.scaled(host_overlay_accept_width) - self.scaled(host_overlay_cancel_width) - (self.scaled(host_overlay_padding) * 4));
-            _ = MoveWindow(edit_hwnd, self.scaled(host_overlay_padding) + self.scaled(host_overlay_label_width) + self.scaled(8), overlay_y + self.scaled(8), edit_width - self.scaled(16), self.scaled(host_overlay_row_height) - self.scaled(4), 1);
-            _ = MoveWindow(accept_hwnd, width - self.scaled(host_overlay_cancel_width) - self.scaled(host_overlay_accept_width) - (self.scaled(host_overlay_padding) * 2), overlay_y + self.scaled(4), self.scaled(host_overlay_accept_width), self.scaled(host_overlay_row_height), 1);
-            _ = MoveWindow(cancel_hwnd, width - self.scaled(host_overlay_cancel_width) - self.scaled(host_overlay_padding), overlay_y + self.scaled(4), self.scaled(host_overlay_cancel_width), self.scaled(host_overlay_row_height), 1);
+            _ = MoveWindow(edit_hwnd, self.scaled(host_overlay_padding) + self.scaled(host_overlay_label_width) + self.scaled(8), overlay_y + self.scaled(8), edit_width - self.scaled(16), self.scaled(host_overlay_row_height) - self.scaled(4), 0);
+            _ = MoveWindow(accept_hwnd, width - self.scaled(host_overlay_cancel_width) - self.scaled(host_overlay_accept_width) - (self.scaled(host_overlay_padding) * 2), overlay_y + self.scaled(4), self.scaled(host_overlay_accept_width), self.scaled(host_overlay_row_height), 0);
+            _ = MoveWindow(cancel_hwnd, width - self.scaled(host_overlay_cancel_width) - self.scaled(host_overlay_padding), overlay_y + self.scaled(4), self.scaled(host_overlay_cancel_width), self.scaled(host_overlay_row_height), 0);
         }
 
         const content_rect = try self.contentRect();
@@ -4889,7 +4889,7 @@ const Host = struct {
                 const visible = entry.handle == zoomed;
                 entry.view.setVisible(visible);
                 if (visible) {
-                    if (entry.view.hwnd) |surface_hwnd| _ = MoveWindow(surface_hwnd, content_rect.left, content_y, content_width, content_height, 1);
+                    if (entry.view.hwnd) |surface_hwnd| _ = MoveWindow(surface_hwnd, content_rect.left, content_y, content_width, content_height, 0);
                     // Update content_scale if DPI changed since surface was last visible
                     if (self.pending_dpi_update and entry.view.core_initialized) {
                         const scale_val: f32 = @as(f32, @floatFromInt(self.current_dpi)) / 96.0;
@@ -4913,7 +4913,7 @@ const Host = struct {
                     const y: i32 = content_y + @as(i32, @intFromFloat(@round(slot.y * @as(f16, @floatFromInt(content_height)))));
                     const w: i32 = @max(1, @as(i32, @intFromFloat(@round(slot.width * @as(f16, @floatFromInt(content_width))))));
                     const h: i32 = @max(1, @as(i32, @intFromFloat(@round(slot.height * @as(f16, @floatFromInt(content_height))))));
-                    _ = MoveWindow(surface_hwnd, x, y, w, h, 1);
+                    _ = MoveWindow(surface_hwnd, x, y, w, h, 0);
                 }
                 // Update content_scale if DPI changed since surface was last visible
                 if (self.pending_dpi_update and entry.view.core_initialized) {
@@ -4927,6 +4927,9 @@ const Host = struct {
             }
         }
         self.pending_dpi_update = false;
+
+        // Batch-invalidate after all positioning
+        _ = InvalidateRect(hwnd, null, 0);
 
         for (self.tabs.items, 0..) |*tab, i| {
             if (i == self.active_tab) continue;
