@@ -5,10 +5,12 @@ const Allocator = std.mem.Allocator;
 const apprt = @import("../apprt.zig");
 const CoreApp = @import("../App.zig");
 const CoreSurface = @import("../Surface.zig");
+const cli = @import("../cli.zig");
 const configpkg = @import("../config.zig");
 const config_edit = @import("../config/edit.zig");
 const windows_shell = @import("../config/windows_shell.zig");
 const input = @import("../input.zig");
+const homedir = @import("../os/homedir.zig");
 const internal_os = @import("../os/main.zig");
 const terminal = @import("../terminal/main.zig");
 const SplitTree = @import("../datastruct/split_tree.zig").SplitTree;
@@ -41,8 +43,7 @@ const HWND = windows.HWND;
 const HINSTANCE = windows.HINSTANCE;
 const INTRESOURCE = ?*const anyopaque;
 
-const CS_HREDRAW = 0x0002;
-const CS_VREDRAW = 0x0001;
+const CS_OWNDC = 0x0020;
 const CW_USEDEFAULT = @as(i32, @bitCast(@as(u32, 0x80000000)));
 const GWLP_USERDATA = -21;
 const GWLP_WNDPROC = -4;
@@ -61,6 +62,7 @@ const WM_COMMAND = 0x0111;
 const WM_CLOSE = 0x0010;
 const WM_DESTROY = 0x0002;
 const WM_DRAWITEM = 0x002B;
+const WM_ERASEBKGND = 0x0014;
 const WM_GETMINMAXINFO = 0x0024;
 const WM_CHAR = 0x0102;
 const WM_KILLFOCUS = 0x0008;
@@ -84,12 +86,15 @@ const WM_RBUTTONDOWN = 0x0204;
 const WM_RBUTTONUP = 0x0205;
 const WM_SETCURSOR = 0x0020;
 const WM_SETFOCUS = 0x0007;
+const WM_SETTINGCHANGE = 0x001A;
 const WM_SIZE = 0x0005;
 const WM_SYSKEYDOWN = 0x0104;
 const WM_SYSKEYUP = 0x0105;
 const WM_WINHOSTTY_WAKE = WM_APP + 1;
 const WS_OVERLAPPED = 0x00000000;
 const WS_CHILD = 0x40000000;
+const WS_CLIPCHILDREN = 0x02000000;
+const WS_CLIPSIBLINGS = 0x04000000;
 const WS_CAPTION = 0x00C00000;
 const WS_GROUP = 0x00020000;
 const WS_SYSMENU = 0x00080000;
@@ -176,6 +181,23 @@ const curated_command_palette_actions = [_][]const u8{
     "reload_config",
 };
 const releases_url = "https://github.com/amanthanvi/winghostty/releases/latest";
+const WM_THEMECHANGED = 0x031A;
+const WM_SYSCOLORCHANGE = 0x0015;
+const DWMWA_USE_IMMERSIVE_DARK_MODE_V1: DWORD = 19;
+const DWMWA_USE_IMMERSIVE_DARK_MODE: DWORD = 20;
+const DWMWA_CAPTION_COLOR: DWORD = 35;
+const SPI_GETHIGHCONTRAST: UINT = 0x0042;
+const HCF_HIGHCONTRASTON: DWORD = 0x00000001;
+const COLOR_WINDOWTEXT = 8;
+const COLOR_BTNFACE = 15;
+const COLOR_BTNTEXT = 18;
+const COLOR_GRAYTEXT = 17;
+const COLOR_HIGHLIGHT = 13;
+const COLOR_HIGHLIGHTTEXT = 14;
+const HKEY_CURRENT_USER: usize = 0x80000001;
+const KEY_READ: DWORD = 0x20019;
+const REG_DWORD: DWORD = 4;
+const ERROR_SUCCESS: i32 = 0;
 const PFD_DRAW_TO_WINDOW = 0x00000004;
 const PFD_SUPPORT_OPENGL = 0x00000020;
 const PFD_DOUBLEBUFFER = 0x00000001;
@@ -247,7 +269,22 @@ const VK_OEM_7 = 0xDE;
 
 const KF_EXTENDED = 1 << 24;
 const KF_REPEAT = 1 << 30;
+const SPI_GETWHEELSCROLLLINES = 0x0068;
+const SPI_GETWHEELSCROLLCHARS = 0x006C;
 const WHEEL_DELTA = 120;
+const WHEEL_PAGESCROLL = 0xFFFF_FFFF;
+const ERROR_FILE_NOT_FOUND = 2;
+const ERROR_BROKEN_PIPE = 109;
+const ERROR_PIPE_BUSY = 231;
+const ERROR_PIPE_CONNECTED = 535;
+const PIPE_READMODE_BYTE = 0x00000000;
+const PIPE_WAIT = 0x00000000;
+const PIPE_ACCESS_DUPLEX = 0x00000003;
+const PIPE_UNLIMITED_INSTANCES = 255;
+const ipc_pipe_prefix = "\\\\.\\pipe\\winghostty.";
+const ipc_wire_version: u32 = 1;
+const ipc_ack_success: u8 = 0;
+const ipc_ack_failure: u8 = 1;
 
 const POINT = extern struct {
     x: i32,
@@ -438,6 +475,8 @@ extern "user32" fn SendMessageW(hWnd: HWND, Msg: UINT, wParam: WPARAM, lParam: L
 extern "user32" fn SetWindowTextW(hWnd: HWND, lpString: LPCWSTR) callconv(.winapi) BOOL;
 extern "user32" fn GetWindowLongPtrW(hWnd: HWND, nIndex: i32) callconv(.winapi) LONG_PTR;
 extern "user32" fn ShowWindow(hWnd: HWND, nCmdShow: i32) callconv(.winapi) BOOL;
+extern "user32" fn SystemParametersInfoW(uiAction: UINT, uiParam: UINT, pvParam: ?*anyopaque, fWinIni: UINT) callconv(.winapi) BOOL;
+extern "user32" fn GetSysColor(nIndex: i32) callconv(.winapi) u32;
 extern "user32" fn ToUnicode(
     wVirtKey: UINT,
     wScanCode: UINT,
@@ -449,9 +488,26 @@ extern "user32" fn ToUnicode(
 extern "user32" fn TranslateMessage(lpMsg: *const MSG) callconv(.winapi) BOOL;
 extern "user32" fn UpdateWindow(hWnd: HWND) callconv(.winapi) BOOL;
 extern "kernel32" fn GetModuleHandleW(lpModuleName: ?LPCWSTR) callconv(.winapi) HINSTANCE;
+extern "kernel32" fn CreateNamedPipeW(
+    lpName: LPCWSTR,
+    dwOpenMode: DWORD,
+    dwPipeMode: DWORD,
+    nMaxInstances: DWORD,
+    nOutBufferSize: DWORD,
+    nInBufferSize: DWORD,
+    nDefaultTimeOut: DWORD,
+    lpSecurityAttributes: ?*windows.SECURITY_ATTRIBUTES,
+) callconv(.winapi) windows.HANDLE;
+extern "kernel32" fn ConnectNamedPipe(
+    hNamedPipe: windows.HANDLE,
+    lpOverlapped: ?*anyopaque,
+) callconv(.winapi) BOOL;
+extern "kernel32" fn DisconnectNamedPipe(hNamedPipe: windows.HANDLE) callconv(.winapi) BOOL;
+extern "kernel32" fn FlushFileBuffers(hFile: windows.HANDLE) callconv(.winapi) BOOL;
 extern "kernel32" fn GetProcAddress(hModule: HMODULE, lpProcName: [*:0]const u8) callconv(.winapi) ?*const anyopaque;
 extern "kernel32" fn LoadLibraryA(lpLibFileName: [*:0]const u8) callconv(.winapi) HMODULE;
 extern "kernel32" fn SetCurrentDirectoryW(lpPathName: LPCWSTR) callconv(.winapi) BOOL;
+extern "kernel32" fn WaitNamedPipeW(lpNamedPipeName: LPCWSTR, nTimeOut: DWORD) callconv(.winapi) BOOL;
 extern "kernel32" fn GlobalAlloc(uFlags: UINT, dwBytes: usize) callconv(.winapi) ?*anyopaque;
 extern "kernel32" fn GlobalFree(hMem: ?*anyopaque) callconv(.winapi) ?*anyopaque;
 extern "kernel32" fn GlobalLock(hMem: ?*anyopaque) callconv(.winapi) ?*anyopaque;
@@ -466,10 +522,36 @@ extern "gdi32" fn SetPixelFormat(hdc: HDC, format: i32, ppfd: *const PIXELFORMAT
 extern "gdi32" fn SetTextColor(hdc: HDC, color: u32) callconv(.winapi) u32;
 extern "gdi32" fn SwapBuffers(hdc: HDC) callconv(.winapi) BOOL;
 extern "gdi32" fn TextOutW(hdc: HDC, x: i32, y: i32, lpString: LPCWSTR, c: i32) callconv(.winapi) BOOL;
+extern "advapi32" fn RegOpenKeyExW(hKey: usize, lpSubKey: LPCWSTR, ulOptions: DWORD, samDesired: DWORD, phkResult: *usize) callconv(.winapi) i32;
+extern "advapi32" fn RegQueryValueExW(hKey: usize, lpValueName: LPCWSTR, lpReserved: ?*DWORD, lpType: ?*DWORD, lpData: ?*u8, lpcbData: ?*DWORD) callconv(.winapi) i32;
+extern "advapi32" fn RegCloseKey(hKey: usize) callconv(.winapi) i32;
 extern "opengl32" fn wglCreateContext(hdc: HDC) callconv(.winapi) HGLRC;
 extern "opengl32" fn wglDeleteContext(hglrc: HGLRC) callconv(.winapi) BOOL;
 extern "opengl32" fn wglGetProcAddress(lpszProc: [*:0]const u8) callconv(.winapi) ?*const anyopaque;
 extern "opengl32" fn wglMakeCurrent(hdc: HDC, hglrc: HGLRC) callconv(.winapi) BOOL;
+extern "dwmapi" fn DwmSetWindowAttribute(hwnd: HWND, dwAttribute: DWORD, pvAttribute: *const anyopaque, cbAttribute: DWORD) callconv(.winapi) i32;
+
+const SystemWheelSettings = struct {
+    lines: u32 = 3,
+    chars: u32 = 3,
+};
+
+const MouseWheelAxis = enum {
+    horizontal,
+    vertical,
+};
+
+const WheelNormalizationContext = struct {
+    settings: SystemWheelSettings = .{},
+    cell_size: apprt.action.CellSize = .{ .width = 0, .height = 0 },
+    viewport: apprt.SurfaceSize = .{ .width = 0, .height = 0 },
+};
+
+const NormalizedWheelScroll = struct {
+    xoff: f64 = 0,
+    yoff: f64 = 0,
+    mods: input.ScrollMods = .{},
+};
 extern "shell32" fn ShellExecuteW(
     hwnd: ?HWND,
     lpOperation: ?LPCWSTR,
@@ -508,9 +590,6 @@ const host_tab_new_button_label = std.unicode.utf8ToUtf16LeStringLiteral("+");
 const host_tab_close_button_label = std.unicode.utf8ToUtf16LeStringLiteral("x");
 const host_banner_inspector_active = "Inspector active. Toggle inspector to return to the terminal view.";
 const host_banner_inspector_inactive = "Inspector hidden. Terminal view is active.";
-const fallback_line_1 = std.unicode.utf8ToUtf16LeStringLiteral("winghostty Win32");
-const fallback_line_2 = std.unicode.utf8ToUtf16LeStringLiteral("Native rendering is disabled for this run.");
-const fallback_line_3 = std.unicode.utf8ToUtf16LeStringLiteral("Unset WINGHOSTTY_WIN32_DISABLE_EXPERIMENTAL_DRAW to use the live renderer.");
 const clipboard_read_title = std.unicode.utf8ToUtf16LeStringLiteral("Allow clipboard paste?");
 const clipboard_read_message = std.unicode.utf8ToUtf16LeStringLiteral("winghostty needs confirmation before completing this clipboard paste or read request.");
 const clipboard_write_title = std.unicode.utf8ToUtf16LeStringLiteral("Allow clipboard write?");
@@ -520,6 +599,401 @@ const opengl32_name: [*:0]const u8 = "opengl32.dll";
 const shell_open: LPCWSTR = std.unicode.utf8ToUtf16LeStringLiteral("open");
 
 var opengl32_module: HMODULE = null;
+
+const ForwardedArgIterator = struct {
+    args: []const [:0]const u8,
+    idx: usize = 0,
+
+    fn next(self: *ForwardedArgIterator) ?[]const u8 {
+        if (self.idx >= self.args.len) return null;
+        defer self.idx += 1;
+        return self.args[self.idx];
+    }
+};
+
+fn hostWindowStyle() u32 {
+    // Prevent the host from repainting across the OpenGL child surface.
+    return WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPCHILDREN;
+}
+
+fn surfaceWindowStyle() u32 {
+    // Prevent the terminal child surface from repainting over sibling controls.
+    return WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS;
+}
+
+fn defaultIpcNamespace() []const u8 {
+    return if (builtin.mode == .Debug)
+        "com.mitchellh.ghostty-debug"
+    else
+        "com.mitchellh.ghostty";
+}
+
+fn sanitizeIpcNamespace(alloc: Allocator, raw: ?[]const u8) ![]const u8 {
+    const trimmed = std.mem.trim(u8, raw orelse defaultIpcNamespace(), &std.ascii.whitespace);
+    const source = if (trimmed.len == 0) defaultIpcNamespace() else trimmed;
+
+    var buf: std.ArrayList(u8) = .empty;
+    errdefer buf.deinit(alloc);
+
+    for (source) |c| {
+        if (std.ascii.isAlphanumeric(c) or c == '.' or c == '-' or c == '_') {
+            try buf.append(alloc, c);
+        } else {
+            try buf.append(alloc, '_');
+        }
+    }
+
+    if (buf.items.len == 0) try buf.appendSlice(alloc, defaultIpcNamespace());
+    return try buf.toOwnedSlice(alloc);
+}
+
+fn allocIpcPipeName(alloc: Allocator, raw_namespace: ?[]const u8) ![:0]const u16 {
+    const namespace = try sanitizeIpcNamespace(alloc, raw_namespace);
+    defer alloc.free(namespace);
+
+    const pipe_name_utf8 = try std.fmt.allocPrint(alloc, "{s}{s}", .{
+        ipc_pipe_prefix,
+        namespace,
+    });
+    defer alloc.free(pipe_name_utf8);
+
+    return try std.unicode.utf8ToUtf16LeAllocZ(alloc, pipe_name_utf8);
+}
+
+fn resolveIpcPipeNameForTarget(
+    alloc: Allocator,
+    target: apprt.ipc.Target,
+) ![:0]const u16 {
+    return switch (target) {
+        .class => |class| allocIpcPipeName(alloc, class),
+        .detect => allocIpcPipeName(alloc, null),
+    };
+}
+
+fn appendU32(dst: *std.ArrayList(u8), alloc: Allocator, value: u32) !void {
+    var buf: [4]u8 = undefined;
+    std.mem.writeInt(u32, &buf, value, .little);
+    try dst.appendSlice(alloc, &buf);
+}
+
+fn readU32(src: []const u8) u32 {
+    return std.mem.readInt(u32, src[0..4], .little);
+}
+
+fn freeOwnedArguments(alloc: Allocator, arguments: ?[]const [:0]const u8) void {
+    if (arguments) |owned| {
+        for (owned) |arg| alloc.free(arg);
+        alloc.free(owned);
+    }
+}
+
+fn encodeNewWindowIpcRequest(
+    alloc: Allocator,
+    arguments: ?[]const [:0]const u8,
+) ![]u8 {
+    var encoded: std.ArrayList(u8) = .empty;
+    errdefer encoded.deinit(alloc);
+
+    try appendU32(&encoded, alloc, ipc_wire_version);
+    try encoded.append(alloc, 1);
+
+    const argc: u32 = if (arguments) |argv| @intCast(argv.len) else 0;
+    try appendU32(&encoded, alloc, argc);
+
+    if (arguments) |argv| {
+        for (argv) |arg| {
+            try appendU32(&encoded, alloc, @intCast(arg.len));
+            try encoded.appendSlice(alloc, arg);
+        }
+    }
+
+    return try encoded.toOwnedSlice(alloc);
+}
+
+fn decodeNewWindowIpcRequest(
+    alloc: Allocator,
+    pipe: windows.HANDLE,
+) !?[]const [:0]const u8 {
+    var header: [9]u8 = undefined;
+    try readExactHandle(pipe, &header);
+
+    if (readU32(header[0..4]) != ipc_wire_version) return error.InvalidIpcRequest;
+    if (header[4] != 1) return error.InvalidIpcRequest;
+
+    const argc = readU32(header[5..9]);
+    if (argc == 0) return null;
+
+    const argv = try alloc.alloc([:0]const u8, argc);
+    errdefer freeOwnedArguments(alloc, argv);
+
+    for (argv, 0..) |*slot, i| {
+        _ = i;
+        var len_buf: [4]u8 = undefined;
+        try readExactHandle(pipe, &len_buf);
+        const len = readU32(&len_buf);
+
+        const arg = try alloc.allocSentinel(u8, len, 0);
+        try readExactHandle(pipe, arg[0..len]);
+        slot.* = arg;
+    }
+
+    return argv;
+}
+
+fn writeIpcAck(pipe: windows.HANDLE, success: bool) !void {
+    var response: [5]u8 = undefined;
+    std.mem.writeInt(u32, response[0..4], ipc_wire_version, .little);
+    response[4] = if (success) ipc_ack_success else ipc_ack_failure;
+    try writeAllHandle(pipe, &response);
+}
+
+fn readIpcAck(pipe: windows.HANDLE) !bool {
+    var response: [5]u8 = undefined;
+    try readExactHandle(pipe, &response);
+    if (readU32(response[0..4]) != ipc_wire_version) return error.InvalidIpcResponse;
+    return switch (response[4]) {
+        ipc_ack_success => true,
+        ipc_ack_failure => error.IPCFailed,
+        else => error.InvalidIpcResponse,
+    };
+}
+
+fn readExactHandle(pipe: windows.HANDLE, dst: []u8) !void {
+    var offset: usize = 0;
+    while (offset < dst.len) {
+        var read_len: u32 = 0;
+        if (windows.kernel32.ReadFile(
+            pipe,
+            dst[offset..].ptr,
+            @intCast(dst.len - offset),
+            &read_len,
+            null,
+        ) == 0) {
+            return switch (windows.kernel32.GetLastError()) {
+                ERROR_BROKEN_PIPE => error.EndOfStream,
+                else => |err| windows.unexpectedError(err),
+            };
+        }
+
+        if (read_len == 0) return error.EndOfStream;
+        offset += read_len;
+    }
+}
+
+fn writeAllHandle(pipe: windows.HANDLE, src: []const u8) !void {
+    var offset: usize = 0;
+    while (offset < src.len) {
+        var write_len: u32 = 0;
+        if (windows.kernel32.WriteFile(
+            pipe,
+            src[offset..].ptr,
+            @intCast(src.len - offset),
+            &write_len,
+            null,
+        ) == 0) return windows.unexpectedError(windows.kernel32.GetLastError());
+        if (write_len == 0) return error.WriteFailed;
+        offset += write_len;
+    }
+}
+
+fn connectToIpcPipe(pipe_name: [:0]const u16) !windows.HANDLE {
+    var retries: u8 = 0;
+    while (true) {
+        const handle = windows.kernel32.CreateFileW(
+            pipe_name.ptr,
+            windows.GENERIC_READ | windows.GENERIC_WRITE,
+            0,
+            null,
+            windows.OPEN_EXISTING,
+            windows.FILE_ATTRIBUTE_NORMAL,
+            null,
+        );
+        if (handle != windows.INVALID_HANDLE_VALUE) return handle;
+
+        const err = windows.kernel32.GetLastError();
+        switch (err) {
+            ERROR_FILE_NOT_FOUND => return error.FileNotFound,
+            ERROR_PIPE_BUSY => {
+                if (retries == 0 and WaitNamedPipeW(pipe_name.ptr, 1000) != 0) {
+                    retries += 1;
+                    continue;
+                }
+                return error.PipeBusy;
+            },
+            else => return windows.unexpectedError(err),
+        }
+    }
+}
+
+fn sendNewWindowIpc(
+    alloc: Allocator,
+    pipe_name: [:0]const u16,
+    arguments: ?[]const [:0]const u8,
+) !bool {
+    const pipe = connectToIpcPipe(pipe_name) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        error.PipeBusy => return error.IPCFailed,
+        else => return err,
+    };
+    defer _ = windows.CloseHandle(pipe);
+
+    const request = try encodeNewWindowIpcRequest(alloc, arguments);
+    defer alloc.free(request);
+
+    try writeAllHandle(pipe, request);
+    return try readIpcAck(pipe);
+}
+
+fn applyNewWindowArguments(
+    alloc_gpa: Allocator,
+    config: *configpkg.Config,
+    arguments: ?[]const [:0]const u8,
+) !void {
+    const argv = arguments orelse return;
+    if (argv.len == 0) return;
+
+    var iter: ForwardedArgIterator = .{ .args = argv };
+    try config.loadIter(alloc_gpa, &iter);
+    try config.finalize();
+}
+
+fn normalizeForwardedStartupArg(
+    alloc: Allocator,
+    arg: []const u8,
+) !?[:0]const u8 {
+    if (std.mem.startsWith(u8, arg, "--class=") or
+        std.mem.startsWith(u8, arg, "--single-instance=") or
+        std.mem.startsWith(u8, arg, "--gtk-single-instance="))
+    {
+        return null;
+    }
+
+    if (std.mem.startsWith(u8, arg, "--working-directory=")) {
+        const raw = arg["--working-directory=".len..];
+        const trimmed = std.mem.trim(u8, raw, &std.ascii.whitespace);
+        if (std.mem.eql(u8, trimmed, "home") or std.mem.eql(u8, trimmed, "inherit")) {
+            return try alloc.dupeZ(u8, arg);
+        }
+
+        const cwd = std.fs.cwd();
+        var home_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const expanded = homedir.expandHome(trimmed, &home_buf) catch trimmed;
+        var realpath_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const normalized = cwd.realpath(expanded, &realpath_buf) catch expanded;
+        return try std.fmt.allocPrintSentinel(
+            alloc,
+            "--working-directory={s}",
+            .{normalized},
+            0,
+        );
+    }
+
+    return try alloc.dupeZ(u8, arg);
+}
+
+fn collectStartupForwardArguments(alloc: Allocator) !?[]const [:0]const u8 {
+    var iter = try cli.args.argsIterator(alloc);
+    defer iter.deinit();
+
+    var argv: std.ArrayList([:0]const u8) = .empty;
+    var working_directory_seen = false;
+    errdefer {
+        for (argv.items) |arg| alloc.free(arg);
+        argv.deinit(alloc);
+    }
+
+    while (iter.next()) |arg| {
+        if (std.mem.startsWith(u8, arg, "--working-directory=")) {
+            working_directory_seen = true;
+        }
+        if (try normalizeForwardedStartupArg(alloc, arg)) |normalized| {
+            try argv.append(alloc, normalized);
+        }
+    }
+
+    if (!working_directory_seen) {
+        const cwd = std.fs.cwd();
+        var cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const wd = try cwd.realpath(".", &cwd_buf);
+        try argv.insert(alloc, 0, try std.fmt.allocPrintSentinel(
+            alloc,
+            "--working-directory={s}",
+            .{wd},
+            0,
+        ));
+    }
+
+    if (argv.items.len == 0) {
+        argv.deinit(alloc);
+        return null;
+    }
+
+    return try argv.toOwnedSlice(alloc);
+}
+
+fn ipcServerMain(app: *App) void {
+    const pipe_name = app.ipc_pipe_name orelse return;
+
+    while (!app.ipc_stop_requested.load(.acquire)) {
+        const pipe = CreateNamedPipeW(
+            pipe_name.ptr,
+            PIPE_ACCESS_DUPLEX,
+            windows.PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+            PIPE_UNLIMITED_INSTANCES,
+            16 * 1024,
+            16 * 1024,
+            0,
+            null,
+        );
+        if (pipe == windows.INVALID_HANDLE_VALUE) {
+            log.warn("failed to create win32 IPC pipe err={}", .{
+                windows.kernel32.GetLastError(),
+            });
+            return;
+        }
+
+        const connected = ConnectNamedPipe(pipe, null);
+        if (connected == 0) {
+            const err = windows.kernel32.GetLastError();
+            if (err != ERROR_PIPE_CONNECTED) {
+                _ = windows.CloseHandle(pipe);
+                if (!app.ipc_stop_requested.load(.acquire)) {
+                    log.warn("failed to connect win32 IPC client err={}", .{err});
+                }
+                continue;
+            }
+        }
+
+        if (app.ipc_stop_requested.load(.acquire)) {
+            _ = windows.CloseHandle(pipe);
+            break;
+        }
+
+        handleIpcClient(app, pipe) catch |err| {
+            log.warn("failed to process win32 IPC client err={}", .{err});
+            writeIpcAck(pipe, false) catch {};
+        };
+
+        _ = FlushFileBuffers(pipe);
+        _ = DisconnectNamedPipe(pipe);
+        _ = windows.CloseHandle(pipe);
+    }
+}
+
+fn handleIpcClient(app: *App, pipe: windows.HANDLE) !void {
+    const arguments = try decodeNewWindowIpcRequest(app.core_app.alloc, pipe);
+    errdefer freeOwnedArguments(app.core_app.alloc, arguments);
+
+    const mailbox: CoreApp.Mailbox = .{
+        .rt_app = app,
+        .mailbox = &app.core_app.mailbox,
+    };
+    _ = mailbox.push(.{ .new_window = .{
+        .arguments = arguments,
+    } }, .forever);
+
+    try writeIpcAck(pipe, true);
+}
 
 fn trace(comptime fmt: []const u8, args: anytype) void {
     var buf: [512]u8 = undefined;
@@ -551,6 +1025,7 @@ pub const App = struct {
 
     core_app: *CoreApp,
     config: configpkg.Config,
+    resolved_theme: ThemeColors = darkTheme(),
     hinstance: HINSTANCE,
     class_atom: ATOM = 0,
     host_class_atom: ATOM = 0,
@@ -563,8 +1038,11 @@ pub const App = struct {
     launcher_quick_slot_keys: [3]?[:0]const u8 = .{ null, null, null },
     launcher_profile_target: ProfileOpenTarget = .tab,
     startup_profile_picker: bool = false,
+    wheel_settings: SystemWheelSettings = .{},
+    ipc_pipe_name: ?[:0]const u16 = null,
+    ipc_thread: ?std.Thread = null,
+    ipc_stop_requested: std.atomic.Value(bool) = .init(false),
     running: bool = false,
-    experimental_draw: bool = true,
     windows_hidden: bool = false,
 
     pub fn init(
@@ -578,13 +1056,13 @@ pub const App = struct {
             .core_app = core_app,
             .config = try configpkg.Config.load(core_app.alloc),
             .hinstance = GetModuleHandleW(null),
-            .experimental_draw = detectExperimentalDraw(core_app.alloc),
             .launcher_profile_hint = detectDefaultProfileHint(core_app.alloc),
             .launcher_profile_order_hint = windows_shell.profileOrderHint(core_app.alloc),
             .launcher_profile_target = detectDefaultProfileTarget(core_app.alloc),
             .startup_profile_picker = detectStartupProfilePicker(core_app.alloc),
         };
-        log.info("win32 experimental_draw={}", .{self.experimental_draw});
+        self.refreshSystemWheelSettings();
+        self.resolved_theme = resolveTheme(&self.config);
     }
 
     pub fn run(self: *App) !void {
@@ -600,6 +1078,11 @@ pub const App = struct {
         try self.ensureWindowClass();
         trace("win32.App.run: class ready", .{});
 
+        if (try self.tryForwardStartupToExistingInstance()) {
+            trace("win32.App.run: forwarded startup to existing instance", .{});
+            return;
+        }
+
         if (self.config.@"initial-window") {
             try self.createWindow(default_title);
             if (self.startup_profile_picker) {
@@ -613,6 +1096,8 @@ pub const App = struct {
             log.info("initial-window is disabled; win32 runtime exiting without a window", .{});
             return;
         }
+
+        try self.startIpcServer();
 
         self.running = true;
         defer self.running = false;
@@ -633,6 +1118,7 @@ pub const App = struct {
     }
 
     pub fn terminate(self: *App) void {
+        self.stopIpcServer();
         self.destroyAllWindows();
         self.hosts.deinit(self.core_app.alloc);
         self.windows.deinit(self.core_app.alloc);
@@ -643,6 +1129,59 @@ pub const App = struct {
             if (value) |owned| self.core_app.alloc.free(owned);
         }
         self.config.deinit();
+    }
+
+    fn tryForwardStartupToExistingInstance(self: *App) !bool {
+        if (self.config.@"single-instance" != .true) return false;
+
+        const arguments = try collectStartupForwardArguments(self.core_app.alloc);
+        defer freeOwnedArguments(self.core_app.alloc, arguments);
+
+        const pipe_name = try self.resolveIpcPipeName(self.core_app.alloc);
+        defer self.core_app.alloc.free(pipe_name);
+
+        return try sendNewWindowIpc(
+            self.core_app.alloc,
+            pipe_name,
+            arguments,
+        );
+    }
+
+    fn startIpcServer(self: *App) !void {
+        if (self.config.@"single-instance" != .true) return;
+        if (self.ipc_thread != null) return;
+
+        self.ipc_pipe_name = try self.resolveIpcPipeName(self.core_app.alloc);
+        errdefer {
+            if (self.ipc_pipe_name) |pipe_name| self.core_app.alloc.free(pipe_name);
+            self.ipc_pipe_name = null;
+        }
+
+        self.ipc_stop_requested.store(false, .release);
+        self.ipc_thread = try std.Thread.spawn(.{}, ipcServerMain, .{self});
+    }
+
+    fn resolveIpcPipeName(self: *const App, alloc: Allocator) ![:0]const u16 {
+        return allocIpcPipeName(alloc, self.config.class);
+    }
+
+    fn stopIpcServer(self: *App) void {
+        if (self.ipc_thread) |thread| {
+            self.ipc_stop_requested.store(true, .release);
+            if (self.ipc_pipe_name) |pipe_name| {
+                if (connectToIpcPipe(pipe_name)) |pipe| {
+                    _ = windows.CloseHandle(pipe);
+                } else |_| {}
+            }
+            thread.join();
+            self.ipc_thread = null;
+        }
+
+        if (self.ipc_pipe_name) |pipe_name| {
+            self.core_app.alloc.free(pipe_name);
+            self.ipc_pipe_name = null;
+        }
+        self.ipc_stop_requested.store(false, .release);
     }
 
     pub fn wakeup(self: *App) void {
@@ -681,6 +1220,7 @@ pub const App = struct {
                     .window,
                 );
                 defer config.deinit();
+                try applyNewWindowArguments(self.core_app.alloc, &config, value.arguments);
                 _ = try self.createWindowSurface(&config, default_title, .{
                     .clone_state_from = self.findSurfaceForTarget(target),
                 });
@@ -747,6 +1287,7 @@ pub const App = struct {
                         const config = try value.config.clone(self.core_app.alloc);
                         self.config.deinit();
                         self.config = config;
+                        self.reconfigureTheme();
                         for (self.windows.items) |surface| {
                             try surface.applyRuntimeConfig(&self.config);
                         }
@@ -937,21 +1478,19 @@ pub const App = struct {
             },
 
             .render => {
-                if (!self.allowExperimentalDraw()) return true;
                 return switch (target) {
                     .app => blk: {
-                        for (self.windows.items) |surface| try surface.redraw();
+                        for (self.windows.items) |surface| try surface.requestRepaint();
                         break :blk true;
                     },
                     .surface => if (self.findSurfaceForTarget(target)) |surface| blk: {
-                        try surface.redraw();
+                        try surface.requestRepaint();
                         break :blk true;
                     } else false,
                 };
             },
 
             .render_inspector => {
-                if (!self.allowExperimentalDraw()) return true;
                 if (self.findSurfaceForTarget(target)) |surface| {
                     surface.redrawInspector();
                     return true;
@@ -968,17 +1507,10 @@ pub const App = struct {
             },
 
             .show_gtk_inspector => {
-                if (try self.showHostBanner(
-                    target,
-                    .info,
-                    "GTK inspector is not available on the native Win32 runtime.",
-                )) return true;
-                try self.showInfoMessage(
-                    target,
-                    "GTK Inspector Unsupported",
-                    "The GTK inspector is not available on the native Win32 runtime.",
-                );
-                return true;
+                if (self.findSurfaceForTarget(target)) |surface| {
+                    return try surface.setInspectorVisible(nextInspectorVisible(surface.inspector_visible, .show));
+                }
+                return false;
             },
 
             .set_title => {
@@ -1202,14 +1734,49 @@ pub const App = struct {
     }
 
     pub fn performIpc(
-        _: Allocator,
-        _: apprt.ipc.Target,
+        alloc: Allocator,
+        target: apprt.ipc.Target,
         comptime action: apprt.ipc.Action.Key,
-        _: apprt.ipc.Action.Value(action),
-    ) !bool {
+        value: apprt.ipc.Action.Value(action),
+    ) anyerror!bool {
         switch (action) {
-            .new_window => return false,
+            .new_window => {
+                const pipe_name = try resolveIpcPipeNameForTarget(alloc, target);
+                defer alloc.free(pipe_name);
+
+                if (try sendNewWindowIpc(alloc, pipe_name, value.arguments)) return true;
+                return try spawnWindowProcess(alloc, target, value);
+            },
         }
+    }
+
+    fn spawnWindowProcess(
+        alloc: Allocator,
+        target: apprt.ipc.Target,
+        value: apprt.ipc.Action.NewWindow,
+    ) !bool {
+        const exe_path = try std.fs.selfExePathAlloc(alloc);
+        defer alloc.free(exe_path);
+
+        var argv: std.ArrayList([]const u8) = .empty;
+        defer argv.deinit(alloc);
+
+        try argv.append(alloc, exe_path);
+        if (target == .class) {
+            const class_arg = try std.fmt.allocPrint(alloc, "--class={s}", .{target.class});
+            defer alloc.free(class_arg);
+            try argv.append(alloc, class_arg);
+        }
+        if (value.arguments) |arguments| {
+            for (arguments) |arg| try argv.append(alloc, arg);
+        }
+
+        var child = std.process.Child.init(argv.items, alloc);
+        child.stdin_behavior = .Ignore;
+        child.stdout_behavior = .Ignore;
+        child.stderr_behavior = .Ignore;
+        try child.spawn();
+        return true;
     }
 
     fn ensureWindowClass(self: *App) !void {
@@ -1217,14 +1784,14 @@ pub const App = struct {
 
         var wc: WNDCLASSEXW = .{
             .cbSize = @sizeOf(WNDCLASSEXW),
-            .style = CS_HREDRAW | CS_VREDRAW,
+            .style = CS_OWNDC,
             .lpfnWndProc = &windowProc,
             .cbClsExtra = 0,
             .cbWndExtra = 0,
             .hInstance = self.hinstance,
             .hIcon = null,
             .hCursor = LoadCursorW(null, IDC_ARROW),
-            .hbrBackground = @ptrFromInt(COLOR_WINDOW + 1),
+            .hbrBackground = null,
             .lpszMenuName = null,
             .lpszClassName = class_name,
             .hIconSm = null,
@@ -1241,14 +1808,14 @@ pub const App = struct {
 
         var wc: WNDCLASSEXW = .{
             .cbSize = @sizeOf(WNDCLASSEXW),
-            .style = CS_HREDRAW | CS_VREDRAW,
+            .style = 0,
             .lpfnWndProc = &hostWindowProc,
             .cbClsExtra = 0,
             .cbWndExtra = 0,
             .hInstance = self.hinstance,
             .hIcon = null,
             .hCursor = LoadCursorW(null, IDC_ARROW),
-            .hbrBackground = @ptrFromInt(COLOR_WINDOW + 1),
+            .hbrBackground = null,
             .lpszMenuName = null,
             .lpszClassName = host_class_name,
             .hIconSm = null,
@@ -1320,12 +1887,31 @@ pub const App = struct {
         _ = try self.createWindowSurface(&self.config, title, .{});
     }
 
+    fn refreshSystemWheelSettings(self: *App) void {
+        self.wheel_settings = .{
+            .lines = readSystemWheelSetting(SPI_GETWHEELSCROLLLINES, self.wheel_settings.lines),
+            .chars = readSystemWheelSetting(SPI_GETWHEELSCROLLCHARS, self.wheel_settings.chars),
+        };
+    }
+
+    fn reconfigureTheme(self: *App) void {
+        self.resolved_theme = resolveTheme(&self.config);
+        for (self.hosts.items) |host| {
+            host.rebuildThemeBrushes();
+            if (host.hwnd) |hwnd| applyDwmTheme(hwnd, &self.resolved_theme);
+        }
+    }
+
     fn applyLauncherQuickSlotPreferences(self: *App, profiles: []windows_shell.Profile) void {
         applyQuickSlotPreferenceOrder(profiles, .{
             self.launcher_quick_slot_keys[0],
             self.launcher_quick_slot_keys[1],
             self.launcher_quick_slot_keys[2],
         });
+    }
+
+    fn launcherQuickSlotOrdinal(self: *const App, key: []const u8) ?usize {
+        return findLauncherQuickSlotOrdinal(self.launcher_quick_slot_keys, key);
     }
 
     fn setLauncherQuickSlotPreference(self: *App, slot_ordinal: usize, key: []const u8) !void {
@@ -1364,6 +1950,24 @@ pub const App = struct {
         }
     }
 
+    fn clearLauncherQuickSlotPreferences(self: *App) void {
+        for (&self.launcher_quick_slot_keys) |*value| {
+            appendOwnedString(self.core_app.alloc, value, null) catch {};
+        }
+
+        for (self.hosts.items) |host| {
+            if (host.profiles != null) {
+                _ = host.reloadProfiles() catch false;
+            }
+            if (host.overlay_mode == .profile) {
+                host.syncOverlayLabel() catch {};
+                host.syncOverlayHint() catch {};
+                host.syncOverlayButtons() catch {};
+            }
+            host.refreshChrome() catch {};
+        }
+    }
+
     fn allocateHostId(self: *App) u32 {
         const id = self.next_host_id;
         self.next_host_id +%= 1;
@@ -1388,7 +1992,7 @@ pub const App = struct {
             0,
             host_class_name,
             title,
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            hostWindowStyle(),
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             1280,
@@ -1399,6 +2003,7 @@ pub const App = struct {
             host,
         ) orelse return windows.unexpectedError(windows.kernel32.GetLastError());
         host.hwnd = hwnd;
+        applyDwmTheme(hwnd, &self.resolved_theme);
         errdefer _ = DestroyWindow(hwnd);
 
         try self.hosts.append(self.core_app.alloc, host);
@@ -1923,10 +2528,6 @@ pub const App = struct {
         return .{ .hdc = hdc, .hglrc = hglrc };
     }
 
-    fn allowExperimentalDraw(self: *App) bool {
-        return self.experimental_draw;
-    }
-
     fn openUrl(self: *App, url: []const u8) !void {
         const url_w = try std.unicode.utf8ToUtf16LeAllocZ(self.core_app.alloc, url);
         defer self.core_app.alloc.free(url_w);
@@ -2134,6 +2735,7 @@ const Host = struct {
     chrome_brush: HBRUSH = null,
     overlay_brush: HBRUSH = null,
     edit_brush: HBRUSH = null,
+    status_brush: HBRUSH = null,
     command_palette_hwnd: ?HWND = null,
     profiles_hwnd: ?HWND = null,
     profile_target_hwnd: ?HWND = null,
@@ -2195,7 +2797,12 @@ const Host = struct {
         const selected_index = self.selectedProfileIndex();
 
         if (self.selectedProfile()) |profile| {
-            const chip = buildProfileStatusBadgeText(self.app.core_app.alloc, profile, selected_index) catch return null;
+            const chip = buildProfileStatusBadgeText(
+                self.app.core_app.alloc,
+                profile,
+                selected_index,
+                self.app.launcherQuickSlotOrdinal(profile.key),
+            ) catch return null;
             defer self.app.core_app.alloc.free(chip);
             const chip_width = 16 + @as(i32, @intCast(chip.len * 7));
             status_x += chip_width + 10;
@@ -2204,7 +2811,12 @@ const Host = struct {
         var slot_ordinal: usize = 0;
         while (slot_ordinal < 3) : (slot_ordinal += 1) {
             const profile_index = quickSlotProfileIndex(profiles.len, selected_index, slot_ordinal, 3) orelse break;
-            const chip = buildProfileQuickSlotChipText(self.app.core_app.alloc, &profiles[profile_index], profile_index) catch return null;
+            const chip = buildProfileQuickSlotChipText(
+                self.app.core_app.alloc,
+                &profiles[profile_index],
+                profile_index,
+                self.app.launcherQuickSlotOrdinal(profiles[profile_index].key),
+            ) catch return null;
             defer self.app.core_app.alloc.free(chip);
             const chip_width = 12 + @as(i32, @intCast(chip.len * 7));
             const chip_rect = RECT{
@@ -2529,13 +3141,13 @@ const Host = struct {
     fn setHoveredQuickSlot(self: *Host, slot: ?usize) void {
         if (self.hovered_quick_slot == slot) return;
         self.hovered_quick_slot = slot;
-        if (self.hwnd) |hwnd| _ = InvalidateRect(hwnd, null, 0);
+        self.invalidateChrome();
     }
 
     fn setFocusedQuickSlot(self: *Host, slot: ?usize) void {
         if (self.focused_quick_slot == slot) return;
         self.focused_quick_slot = slot;
-        if (self.hwnd) |hwnd| _ = InvalidateRect(hwnd, null, 0);
+        self.invalidateChrome();
     }
 
     fn focusQuickSlotEdge(self: *Host, toward_start: bool) bool {
@@ -2583,6 +3195,13 @@ const Host = struct {
         return true;
     }
 
+    fn clearQuickSlotPins(self: *Host) bool {
+        self.app.clearLauncherQuickSlotPreferences();
+        self.setFocusedQuickSlot(null);
+        self.setBanner(.info, "Cleared quick slot pins.") catch {};
+        return true;
+    }
+
     fn subclassButton(
         self: *Host,
         button_hwnd: HWND,
@@ -2620,7 +3239,7 @@ const Host = struct {
     fn setBanner(self: *Host, kind: HostBannerKind, text: ?[]const u8) !void {
         self.banner_kind = if (text == null) .none else kind;
         try appendOwnedString(self.app.core_app.alloc, &self.banner_text, text);
-        if (self.hwnd) |hwnd| _ = InvalidateRect(hwnd, null, 1);
+        self.invalidateChrome();
     }
 
     fn setOverlayDefaultBanner(self: *Host, mode: HostOverlayMode) !void {
@@ -3113,6 +3732,7 @@ const Host = struct {
                 text,
                 self.selectedProfileIndex() orelse 0,
                 self.app.launcher_profile_target,
+                self.app.launcher_quick_slot_keys,
             );
             defer alloc.free(hint);
             const hint_w = try std.unicode.utf8ToUtf16LeAllocZ(alloc, hint);
@@ -3145,15 +3765,26 @@ const Host = struct {
     }
 
     fn ensureThemeBrushes(self: *Host) !void {
+        const theme = &self.app.resolved_theme;
         if (self.chrome_brush == null) {
-            self.chrome_brush = CreateSolidBrush(rgb(34, 40, 49)) orelse return windows.unexpectedError(windows.kernel32.GetLastError());
+            self.chrome_brush = CreateSolidBrush(theme.chrome_bg) orelse return windows.unexpectedError(windows.kernel32.GetLastError());
         }
         if (self.overlay_brush == null) {
-            self.overlay_brush = CreateSolidBrush(rgb(28, 33, 41)) orelse return windows.unexpectedError(windows.kernel32.GetLastError());
+            self.overlay_brush = CreateSolidBrush(theme.overlay_bg) orelse return windows.unexpectedError(windows.kernel32.GetLastError());
         }
         if (self.edit_brush == null) {
-            self.edit_brush = CreateSolidBrush(rgb(20, 24, 31)) orelse return windows.unexpectedError(windows.kernel32.GetLastError());
+            self.edit_brush = CreateSolidBrush(theme.edit_bg) orelse return windows.unexpectedError(windows.kernel32.GetLastError());
         }
+    }
+
+    fn rebuildThemeBrushes(self: *Host) void {
+        if (self.chrome_brush) |brush| _ = DeleteObject(brush);
+        if (self.overlay_brush) |brush| _ = DeleteObject(brush);
+        if (self.edit_brush) |brush| _ = DeleteObject(brush);
+        self.chrome_brush = null;
+        self.overlay_brush = null;
+        self.edit_brush = null;
+        self.ensureThemeBrushes() catch {};
     }
 
     fn isOverlayButton(self: *Host, child: HWND) bool {
@@ -3186,6 +3817,8 @@ const Host = struct {
         const hovered = self.isHoveredButton(draw.hwndItem);
         const accept = draw.hwndItem == self.overlay_accept_hwnd;
         const profile_kind = self.buttonProfileKind(draw.hwndItem);
+        const pinned_slot_ordinal = self.buttonPinnedSlotOrdinal(draw.hwndItem);
+        const launcher_target = self.buttonLauncherTarget(draw.hwndItem);
         var colors = buttonColors(
             active,
             overlay,
@@ -3242,6 +3875,26 @@ const Host = struct {
                     .bottom = draw.rcItem.bottom - 1,
                 }, stripe);
             }
+            if (pinnedSlotBadgeDigit(pinned_slot_ordinal)) |digit| {
+                paintPinnedSlotBadge(
+                    draw.hDC,
+                    draw.rcItem,
+                    digit,
+                    colors.border,
+                    colors.bg,
+                    profileKindLabelColor(kind),
+                );
+            }
+            if (launcher_target) |target| {
+                paintTargetButtonBadge(
+                    draw.hDC,
+                    draw.rcItem,
+                    profileOpenTargetBadgeGlyph(target),
+                    colors.border,
+                    colors.bg,
+                    profileOpenTargetMarkerColor(target),
+                );
+            }
         }
         if (focused and !disabled) {
             const focus = if (profile_kind) |kind|
@@ -3289,6 +3942,7 @@ const Host = struct {
                 text_rect.right -= 4;
             }
         }
+        text_rect.right -= buttonLabelRightInset(pinned_slot_ordinal, launcher_target);
         _ = DrawTextW(
             draw.hDC,
             @ptrCast(&text_buf),
@@ -3304,6 +3958,33 @@ const Host = struct {
         if (self.profile_target_hwnd != null and hwnd == self.profile_target_hwnd.?) return profile.kind;
         if (self.overlay_mode == .profile and self.overlay_accept_hwnd != null and hwnd == self.overlay_accept_hwnd.?) {
             return profile.kind;
+        }
+        return null;
+    }
+
+    fn buttonPinnedSlotOrdinal(self: *Host, hwnd: HWND) ?usize {
+        const profile = self.selectedProfile() orelse return null;
+        if (self.profiles_hwnd != null and hwnd == self.profiles_hwnd.?) {
+            return self.app.launcherQuickSlotOrdinal(profile.key);
+        }
+        if (self.profile_target_hwnd != null and hwnd == self.profile_target_hwnd.?) {
+            return self.app.launcherQuickSlotOrdinal(profile.key);
+        }
+        if (self.overlay_mode == .profile and self.overlay_accept_hwnd != null and hwnd == self.overlay_accept_hwnd.?) {
+            return self.app.launcherQuickSlotOrdinal(profile.key);
+        }
+        return null;
+    }
+
+    fn buttonLauncherTarget(self: *Host, hwnd: HWND) ?ProfileOpenTarget {
+        if (self.profiles_hwnd != null and hwnd == self.profiles_hwnd.?) {
+            return self.app.launcher_profile_target;
+        }
+        if (self.profile_target_hwnd != null and hwnd == self.profile_target_hwnd.?) {
+            return self.app.launcher_profile_target;
+        }
+        if (self.overlay_mode == .profile and self.overlay_accept_hwnd != null and hwnd == self.overlay_accept_hwnd.?) {
+            return self.app.launcher_profile_target;
         }
         return null;
     }
@@ -3546,9 +4227,6 @@ const Host = struct {
             if (parts.items.len > 0) try parts.appendSlice(alloc, " | ");
             try parts.writer(alloc).print("table:{s}", .{value});
         }
-        const scroll = try scrollbarStatusText(alloc, surface.scrollbar);
-        defer if (scroll) |value| alloc.free(value);
-        if (scroll) |value| try append.raw(&parts, alloc, value);
         if (surface.search_active) {
             if (parts.items.len > 0) try parts.appendSlice(alloc, " | ");
             if (surface.search_needle) |needle| {
@@ -3587,6 +4265,7 @@ const Host = struct {
                     true,
                     self.app.launcher_profile_target,
                     self.app.launcher_profile_order_hint,
+                    self.app.launcher_quick_slot_keys,
                 );
             }
             return null;
@@ -3625,6 +4304,7 @@ const Host = struct {
                 false,
                 self.app.launcher_profile_target,
                 self.app.launcher_profile_order_hint,
+                self.app.launcher_quick_slot_keys,
             );
         }
 
@@ -3632,6 +4312,45 @@ const Host = struct {
     }
 
     fn refreshChrome(self: *Host) !void {
+        try self.syncWindowTitle();
+        try self.syncTabButtons();
+        try self.syncChromeButtons();
+        if (self.overlay_mode != .none) {
+            try self.syncOverlayLabel();
+            try self.syncOverlayHint();
+            try self.syncOverlayButtons();
+        }
+        self.invalidateChrome();
+    }
+
+    fn invalidateChrome(self: *Host) void {
+        const hwnd = self.hwnd orelse return;
+        var client_rect: RECT = undefined;
+        if (GetClientRect(hwnd, &client_rect) == 0) return;
+        const content_rect = self.contentRect() catch return;
+
+        const top_rect = RECT{
+            .left = client_rect.left,
+            .top = client_rect.top,
+            .right = client_rect.right,
+            .bottom = @max(client_rect.top, content_rect.top),
+        };
+        if (top_rect.bottom > top_rect.top) {
+            _ = InvalidateRect(hwnd, &top_rect, 0);
+        }
+
+        const bottom_rect = RECT{
+            .left = client_rect.left,
+            .top = @min(client_rect.bottom, content_rect.bottom),
+            .right = client_rect.right,
+            .bottom = client_rect.bottom,
+        };
+        if (bottom_rect.bottom > bottom_rect.top) {
+            _ = InvalidateRect(hwnd, &bottom_rect, 0);
+        }
+    }
+
+    fn syncWindowTitle(self: *Host) !void {
         const hwnd = self.hwnd orelse return;
         const surface = self.activeSurface() orelse return;
         const alloc = self.app.core_app.alloc;
@@ -3644,14 +4363,6 @@ const Host = struct {
         const title_w = try std.unicode.utf8ToUtf16LeAllocZ(alloc, host_base_title);
         defer alloc.free(title_w);
         _ = SetWindowTextW(hwnd, title_w.ptr);
-        _ = InvalidateRect(hwnd, null, 1);
-        try self.syncTabButtons();
-        try self.syncChromeButtons();
-        if (self.overlay_mode != .none) {
-            try self.syncOverlayLabel();
-            try self.syncOverlayHint();
-            try self.syncOverlayButtons();
-        }
     }
 
     fn syncTabButtons(self: *Host) !void {
@@ -3780,11 +4491,17 @@ const Host = struct {
         defer self.app.core_app.alloc.free(command_label);
         const command_label_w = try std.unicode.utf8ToUtf16LeAllocZ(self.app.core_app.alloc, command_label);
         defer self.app.core_app.alloc.free(command_label_w);
+        const selected_profile = self.selectedProfile();
+        const pinned_slot_ordinal = if (selected_profile) |profile|
+            self.app.launcherQuickSlotOrdinal(profile.key)
+        else
+            null;
         const profiles_label = try buildProfilesButtonLabel(
             self.app.core_app.alloc,
             self.overlay_mode == .profile,
             self.profiles,
             self.selectedProfileIndex(),
+            pinned_slot_ordinal,
         );
         defer self.app.core_app.alloc.free(profiles_label);
         const profiles_label_w = try std.unicode.utf8ToUtf16LeAllocZ(self.app.core_app.alloc, profiles_label);
@@ -3793,6 +4510,7 @@ const Host = struct {
             self.app.core_app.alloc,
             self.app.launcher_profile_target,
             self.selectedProfileIndex(),
+            pinned_slot_ordinal,
         );
         defer self.app.core_app.alloc.free(target_label);
         const target_label_w = try std.unicode.utf8ToUtf16LeAllocZ(self.app.core_app.alloc, target_label);
@@ -4203,6 +4921,7 @@ const Host = struct {
                         overlay_text,
                         self.selectedProfileIndex() orelse 0,
                         self.app.launcher_profile_target,
+                        self.app.launcher_quick_slot_keys,
                     ) catch return
             else
                 buildOverlayFeedbackText(
@@ -4351,7 +5070,14 @@ const Host = struct {
         if (self.overlay_mode == .none) {
             const selected_profile_index = self.selectedProfileIndex();
             if (self.selectedProfile()) |profile| {
-                const chip = buildProfileStatusBadgeText(alloc, profile, selected_profile_index) catch return;
+                const pinned_slot_ordinal = self.app.launcherQuickSlotOrdinal(profile.key);
+                const pinned_slot_digit = pinnedSlotBadgeDigit(pinned_slot_ordinal);
+                const chip = buildProfileStatusBadgeText(
+                    alloc,
+                    profile,
+                    selected_profile_index,
+                    pinned_slot_ordinal,
+                ) catch return;
                 defer alloc.free(chip);
                 const chip_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, chip) catch return;
                 defer alloc.free(chip_w);
@@ -4388,10 +5114,28 @@ const Host = struct {
                     .right = chip_rect.right,
                     .bottom = chip_rect.bottom,
                 }, accent.idle_border);
+                if (pinned_slot_digit) |digit| {
+                    paintPinnedSlotBadge(
+                        hdc,
+                        chip_rect,
+                        digit,
+                        accent.idle_border,
+                        accent.idle_bg,
+                        profileKindLabelColor(profile.kind),
+                    );
+                }
+                paintTargetChipBadge(
+                    hdc,
+                    chip_rect,
+                    profileOpenTargetBadgeGlyph(self.app.launcher_profile_target),
+                    accent.idle_border,
+                    accent.idle_bg,
+                    profileOpenTargetMarkerColor(self.app.launcher_profile_target),
+                );
                 _ = SetTextColor(hdc, profileKindLabelColor(profile.kind));
                 var chip_text_rect = chip_rect;
                 chip_text_rect.left += 6;
-                chip_text_rect.right -= 6;
+                chip_text_rect.right -= launcherChipRightInset(pinned_slot_digit != null, true);
                 _ = DrawTextW(
                     hdc,
                     chip_w.ptr,
@@ -4406,12 +5150,20 @@ const Host = struct {
                 for (profiles, 0..) |*profile, index| {
                     if (drawn >= 3) break;
                     if (selected_profile_index != null and index == selected_profile_index.?) continue;
-                    const chip = buildProfileQuickSlotChipText(alloc, profile, index) catch return;
+                    const pinned_slot_ordinal = self.app.launcherQuickSlotOrdinal(profile.key);
+                    const chip = buildProfileQuickSlotChipText(
+                        alloc,
+                        profile,
+                        index,
+                        pinned_slot_ordinal,
+                    ) catch return;
                     defer alloc.free(chip);
                     const chip_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, chip) catch return;
                     defer alloc.free(chip_w);
                     const focused = self.focused_quick_slot != null and self.focused_quick_slot.? == index;
-                    const colors = quickSlotChipColors(profile.kind, self.hovered_quick_slot != null and self.hovered_quick_slot.? == index);
+                    const hovered = self.hovered_quick_slot != null and self.hovered_quick_slot.? == index;
+                    const target_marker = shouldPaintQuickSlotTargetMarker(hovered, focused);
+                    const colors = quickSlotChipColors(profile.kind, hovered);
                     const chip_width = 12 + @as(i32, @intCast(chip.len * 7));
                     const chip_rect = RECT{
                         .left = status_x,
@@ -4444,6 +5196,23 @@ const Host = struct {
                         .right = chip_rect.right,
                         .bottom = chip_rect.bottom,
                     }, colors.border);
+                    if (pinned_slot_ordinal != null and pinned_slot_ordinal.? == index) {
+                        paintPinnedChipMarker(
+                            hdc,
+                            chip_rect,
+                            pinnedChipMarkerColor(profile.kind, hovered),
+                        );
+                    }
+                    if (target_marker) {
+                        paintTargetChipBadge(
+                            hdc,
+                            chip_rect,
+                            profileOpenTargetBadgeGlyph(self.app.launcher_profile_target),
+                            colors.border,
+                            colors.bg,
+                            profileOpenTargetMarkerColor(self.app.launcher_profile_target),
+                        );
+                    }
                     if (focused) {
                         fillSolidRect(hdc, .{
                             .left = chip_rect.left + 2,
@@ -4473,7 +5242,7 @@ const Host = struct {
                     _ = SetTextColor(hdc, colors.fg);
                     var chip_text_rect = chip_rect;
                     chip_text_rect.left += 5;
-                    chip_text_rect.right -= 5;
+                    chip_text_rect.right -= launcherChipRightInset(false, target_marker);
                     _ = DrawTextW(
                         hdc,
                         chip_w.ptr,
@@ -4648,6 +5417,364 @@ fn appendOwnedString(
 
 fn rgb(r: u8, g: u8, b: u8) u32 {
     return @as(u32, r) | (@as(u32, g) << 8) | (@as(u32, b) << 16);
+}
+
+const ThemeColors = struct {
+    // Chrome surfaces
+    chrome_bg: u32,
+    chrome_border: u32,
+    overlay_bg: u32,
+    overlay_border: u32,
+    edit_bg: u32,
+    edit_frame_bg: u32,
+    status_bg: u32,
+    inspector_bg: u32,
+
+    // Text
+    text_primary: u32,
+    text_secondary: u32,
+    text_disabled: u32,
+    edit_fg: u32,
+    overlay_label_fg: u32,
+    info_fg: u32,
+    error_fg: u32,
+
+    // Accent
+    accent: u32,
+    accent_hover: u32,
+    chrome_accent_idle: u32,
+    edit_border_unfocused: u32,
+
+    // Buttons - idle
+    button_bg: u32,
+    button_border: u32,
+    button_fg: u32,
+
+    // Buttons - overlay variant
+    button_overlay_bg: u32,
+    button_overlay_border: u32,
+    button_overlay_fg: u32,
+    button_chrome_fg: u32,
+
+    // Buttons - active
+    button_active_bg: u32,
+    button_active_border: u32,
+    button_active_fg: u32,
+
+    // Buttons - accept
+    button_accept_bg: u32,
+    button_accept_border: u32,
+    button_accept_fg: u32,
+
+    // Buttons - disabled
+    button_disabled_bg: u32,
+    button_disabled_border: u32,
+    button_disabled_fg: u32,
+
+    // Focus rings
+    button_focus_ring: u32,
+    button_overlay_focus_ring: u32,
+    button_active_focus_ring: u32,
+    button_accept_focus_ring: u32,
+
+    // Whether this is a dark theme (for DWM)
+    is_dark: bool,
+};
+
+fn darkTheme() ThemeColors {
+    return .{
+        .chrome_bg = rgb(34, 40, 49),
+        .chrome_border = rgb(58, 67, 80),
+        .overlay_bg = rgb(28, 33, 41),
+        .overlay_border = rgb(58, 67, 80),
+        .edit_bg = rgb(20, 24, 31),
+        .edit_frame_bg = rgb(18, 22, 29),
+        .status_bg = rgb(26, 30, 37),
+        .inspector_bg = rgb(22, 27, 35),
+
+        .text_primary = rgb(216, 221, 231),
+        .text_secondary = rgb(160, 170, 184),
+        .text_disabled = rgb(120, 128, 140),
+        .edit_fg = rgb(232, 236, 244),
+        .overlay_label_fg = rgb(210, 228, 255),
+        .info_fg = rgb(142, 197, 255),
+        .error_fg = rgb(255, 132, 132),
+
+        .accent = rgb(116, 156, 224),
+        .accent_hover = rgb(132, 172, 238),
+        .chrome_accent_idle = rgb(72, 82, 98),
+        .edit_border_unfocused = rgb(86, 96, 112),
+
+        .button_bg = rgb(36, 42, 51),
+        .button_border = rgb(72, 82, 98),
+        .button_fg = rgb(196, 204, 216),
+
+        .button_overlay_bg = rgb(44, 54, 68),
+        .button_overlay_border = rgb(92, 114, 148),
+        .button_overlay_fg = rgb(224, 229, 238),
+        .button_chrome_fg = rgb(190, 198, 210),
+
+        .button_active_bg = rgb(60, 76, 104),
+        .button_active_border = rgb(116, 156, 224),
+        .button_active_fg = rgb(244, 247, 252),
+
+        .button_accept_bg = rgb(52, 92, 166),
+        .button_accept_border = rgb(126, 169, 247),
+        .button_accept_fg = rgb(248, 250, 255),
+
+        .button_disabled_bg = rgb(28, 33, 41),
+        .button_disabled_border = rgb(54, 60, 72),
+        .button_disabled_fg = rgb(120, 128, 140),
+
+        .button_focus_ring = rgb(140, 166, 208),
+        .button_overlay_focus_ring = rgb(160, 190, 238),
+        .button_active_focus_ring = rgb(172, 206, 255),
+        .button_accept_focus_ring = rgb(184, 212, 255),
+
+        .is_dark = true,
+    };
+}
+
+fn lightTheme() ThemeColors {
+    return .{
+        .chrome_bg = rgb(243, 243, 243),
+        .chrome_border = rgb(209, 209, 209),
+        .overlay_bg = rgb(249, 249, 249),
+        .overlay_border = rgb(220, 220, 220),
+        .edit_bg = rgb(255, 255, 255),
+        .edit_frame_bg = rgb(245, 245, 245),
+        .status_bg = rgb(238, 238, 238),
+        .inspector_bg = rgb(235, 235, 235),
+
+        .text_primary = rgb(27, 27, 27),
+        .text_secondary = rgb(96, 96, 96),
+        .text_disabled = rgb(160, 160, 160),
+        .edit_fg = rgb(27, 27, 27),
+        .overlay_label_fg = rgb(0, 60, 116),
+        .info_fg = rgb(0, 95, 184),
+        .error_fg = rgb(196, 43, 28),
+
+        .accent = rgb(0, 120, 212),
+        .accent_hover = rgb(0, 99, 177),
+        .chrome_accent_idle = rgb(180, 180, 180),
+        .edit_border_unfocused = rgb(160, 160, 160),
+
+        .button_bg = rgb(251, 251, 251),
+        .button_border = rgb(209, 209, 209),
+        .button_fg = rgb(27, 27, 27),
+
+        .button_overlay_bg = rgb(245, 245, 245),
+        .button_overlay_border = rgb(180, 180, 180),
+        .button_overlay_fg = rgb(27, 27, 27),
+        .button_chrome_fg = rgb(96, 96, 96),
+
+        .button_active_bg = rgb(204, 228, 247),
+        .button_active_border = rgb(0, 120, 212),
+        .button_active_fg = rgb(0, 60, 116),
+
+        .button_accept_bg = rgb(0, 120, 212),
+        .button_accept_border = rgb(0, 99, 177),
+        .button_accept_fg = rgb(255, 255, 255),
+
+        .button_disabled_bg = rgb(243, 243, 243),
+        .button_disabled_border = rgb(209, 209, 209),
+        .button_disabled_fg = rgb(160, 160, 160),
+
+        .button_focus_ring = rgb(0, 120, 212),
+        .button_overlay_focus_ring = rgb(0, 120, 212),
+        .button_active_focus_ring = rgb(0, 90, 158),
+        .button_accept_focus_ring = rgb(0, 90, 158),
+
+        .is_dark = false,
+    };
+}
+
+fn highContrastThemeFromSysColors() ThemeColors {
+    const win_bg = GetSysColor(COLOR_WINDOW);
+    const win_fg = GetSysColor(COLOR_WINDOWTEXT);
+    const btn_bg = GetSysColor(COLOR_BTNFACE);
+    const btn_fg = GetSysColor(COLOR_BTNTEXT);
+    const hi_bg = GetSysColor(COLOR_HIGHLIGHT);
+    const hi_fg = GetSysColor(COLOR_HIGHLIGHTTEXT);
+    const gray = GetSysColor(COLOR_GRAYTEXT);
+
+    return .{
+        .chrome_bg = win_bg,
+        .chrome_border = win_fg,
+        .overlay_bg = win_bg,
+        .overlay_border = win_fg,
+        .edit_bg = win_bg,
+        .edit_frame_bg = win_bg,
+        .status_bg = win_bg,
+        .inspector_bg = win_bg,
+
+        .text_primary = win_fg,
+        .text_secondary = win_fg,
+        .text_disabled = gray,
+        .edit_fg = win_fg,
+        .overlay_label_fg = win_fg,
+        .info_fg = win_fg,
+        .error_fg = win_fg,
+
+        .accent = hi_bg,
+        .accent_hover = hi_bg,
+        .chrome_accent_idle = win_fg,
+        .edit_border_unfocused = win_fg,
+
+        .button_bg = btn_bg,
+        .button_border = btn_fg,
+        .button_fg = btn_fg,
+
+        .button_overlay_bg = btn_bg,
+        .button_overlay_border = btn_fg,
+        .button_overlay_fg = btn_fg,
+        .button_chrome_fg = btn_fg,
+
+        .button_active_bg = hi_bg,
+        .button_active_border = hi_fg,
+        .button_active_fg = hi_fg,
+
+        .button_accept_bg = hi_bg,
+        .button_accept_border = hi_fg,
+        .button_accept_fg = hi_fg,
+
+        .button_disabled_bg = btn_bg,
+        .button_disabled_border = gray,
+        .button_disabled_fg = gray,
+
+        .button_focus_ring = hi_bg,
+        .button_overlay_focus_ring = hi_bg,
+        .button_active_focus_ring = hi_fg,
+        .button_accept_focus_ring = hi_fg,
+
+        .is_dark = false,
+    };
+}
+
+fn isHighContrastActive() bool {
+    const HIGHCONTRASTW = extern struct {
+        cbSize: UINT,
+        dwFlags: DWORD,
+        lpszDefaultScheme: ?[*:0]u16,
+    };
+    var hc: HIGHCONTRASTW = .{
+        .cbSize = @sizeOf(HIGHCONTRASTW),
+        .dwFlags = 0,
+        .lpszDefaultScheme = null,
+    };
+    if (SystemParametersInfoW(SPI_GETHIGHCONTRAST, @sizeOf(HIGHCONTRASTW), @ptrCast(&hc), 0) != 0) {
+        return (hc.dwFlags & HCF_HIGHCONTRASTON) != 0;
+    }
+    return false;
+}
+
+fn isSystemDarkMode() bool {
+    const subkey = std.unicode.utf8ToUtf16LeStringLiteral("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize");
+    const value_name = std.unicode.utf8ToUtf16LeStringLiteral("AppsUseLightTheme");
+    var hkey: usize = 0;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, subkey, 0, KEY_READ, &hkey) != ERROR_SUCCESS) return true;
+    defer _ = RegCloseKey(hkey);
+
+    var data: u32 = 1;
+    var data_size: DWORD = @sizeOf(u32);
+    var reg_type: DWORD = 0;
+    if (RegQueryValueExW(hkey, value_name, null, &reg_type, @ptrCast(&data), &data_size) != ERROR_SUCCESS) return true;
+    if (reg_type != REG_DWORD or data_size != @sizeOf(u32)) return true;
+
+    return data == 0; // 0 = dark mode, 1 = light mode
+}
+
+fn resolveTheme(config: *const configpkg.Config) ThemeColors {
+    if (isHighContrastActive()) return highContrastThemeFromSysColors();
+    return switch (config.@"window-theme") {
+        .dark => darkTheme(),
+        .light => lightTheme(),
+        .system => if (isSystemDarkMode()) darkTheme() else lightTheme(),
+        .auto => if (isSystemDarkMode()) darkTheme() else lightTheme(),
+        .ghostty => darkTheme(),
+    };
+}
+
+fn applyDwmTheme(hwnd: HWND, theme: *const ThemeColors) void {
+    if (isHighContrastActive()) return; // Let system control title bar in HC mode
+    const dark_mode: u32 = if (theme.is_dark) 1 else 0;
+    // Try attribute 20 first (Win10 20H1+), fall back to 19 (Win10 1809-20H1)
+    const hr = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, @ptrCast(&dark_mode), @sizeOf(u32));
+    if (hr == @as(i32, @bitCast(@as(u32, 0x80070057)))) { // E_INVALIDARG
+        _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_V1, @ptrCast(&dark_mode), @sizeOf(u32));
+    }
+    // Set caption color to match chrome (Win11 only; fails silently on Win10)
+    _ = DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, @ptrCast(&theme.chrome_bg), @sizeOf(u32));
+}
+
+fn adjustColor(base: u32, dr: i16, dg: i16, db: i16) u32 {
+    const r: u8 = @intCast(@as(u16, @intCast(std.math.clamp(@as(i16, @intCast(base & 0xFF)) + dr, 0, 255))));
+    const g: u8 = @intCast(@as(u16, @intCast(std.math.clamp(@as(i16, @intCast((base >> 8) & 0xFF)) + dg, 0, 255))));
+    const b: u8 = @intCast(@as(u16, @intCast(std.math.clamp(@as(i16, @intCast((base >> 16) & 0xFF)) + db, 0, 255))));
+    return rgb(r, g, b);
+}
+
+fn buttonColorsFromTheme(
+    theme: *const ThemeColors,
+    active: bool,
+    overlay: bool,
+    hovered: bool,
+    pressed: bool,
+    disabled: bool,
+    accept: bool,
+) ButtonColors {
+    var colors: ButtonColors = .{
+        .bg = if (overlay) theme.button_overlay_bg else theme.button_bg,
+        .border = if (overlay) theme.button_overlay_border else theme.button_border,
+        .fg = theme.button_fg,
+    };
+
+    if (active) {
+        colors = .{
+            .bg = theme.button_active_bg,
+            .border = theme.button_active_border,
+            .fg = theme.button_active_fg,
+        };
+    }
+    if (accept) {
+        colors = .{
+            .bg = theme.button_accept_bg,
+            .border = theme.button_accept_border,
+            .fg = theme.button_accept_fg,
+        };
+    }
+    if (hovered and !pressed and !disabled) {
+        colors.bg = if (accept)
+            adjustColor(theme.button_accept_bg, 10, 12, 18)
+        else if (active)
+            adjustColor(theme.button_active_bg, 12, 14, 18)
+        else if (overlay)
+            adjustColor(theme.button_overlay_bg, 10, 12, 14)
+        else
+            adjustColor(theme.button_bg, 8, 10, 11);
+        colors.border = if (accept)
+            adjustColor(theme.button_accept_border, 20, 17, 8)
+        else if (active)
+            theme.accent_hover
+        else if (overlay)
+            adjustColor(theme.button_overlay_border, 16, 18, 20)
+        else
+            adjustColor(theme.button_border, 20, 22, 24);
+    }
+    if (pressed) {
+        colors.bg = if (overlay) adjustColor(theme.overlay_bg, -2, -2, -2) else adjustColor(theme.chrome_bg, -6, -7, -8);
+        if (active) colors.bg = adjustColor(theme.button_active_bg, -18, -20, -20);
+        if (accept) colors.bg = adjustColor(theme.button_accept_bg, -14, -20, -32);
+    }
+    if (disabled) {
+        colors = .{
+            .bg = theme.button_disabled_bg,
+            .border = theme.button_disabled_border,
+            .fg = theme.button_disabled_fg,
+        };
+    }
+
+    return colors;
 }
 
 fn fillSolidRect(hdc: HDC, rect: RECT, color: u32) void {
@@ -4953,6 +6080,11 @@ fn quickSlotPinOrdinalFromKey(vk: WPARAM, alt_pressed: bool, shift_pressed: bool
     return slot_ordinal;
 }
 
+fn clearQuickSlotPinsRequested(vk: WPARAM, alt_pressed: bool, shift_pressed: bool) bool {
+    if (!alt_pressed or !shift_pressed) return false;
+    return vk == VK_0 or vk == VK_NUMPAD0;
+}
+
 fn quickSlotFocusKeyAction(vk: WPARAM) ?QuickSlotFocusKeyAction {
     return switch (vk) {
         VK_LEFT, VK_UP => .previous,
@@ -5081,29 +6213,6 @@ fn formatProgressStatus(
     };
 }
 
-fn scrollbarStatusText(
-    alloc: Allocator,
-    scrollbar: terminal.Scrollbar,
-) !?[]u8 {
-    if (scrollbar.total == 0 or scrollbar.total <= scrollbar.len) return null;
-    const max_offset = scrollbar.total -| scrollbar.len;
-    if (max_offset == 0) return null;
-
-    const offset = @min(scrollbar.offset, max_offset);
-    const percent = @min(
-        @as(usize, 100),
-        @as(usize, @intFromFloat(@round(
-            (@as(f64, @floatFromInt(offset)) * 100.0) /
-                @as(f64, @floatFromInt(max_offset)),
-        ))),
-    );
-    return try std.fmt.allocPrint(alloc, "scroll:{d}/{d} ({d}%)", .{
-        offset,
-        max_offset,
-        percent,
-    });
-}
-
 fn buildWindowTitle(
     alloc: Allocator,
     base_title: ?[]const u8,
@@ -5131,9 +6240,6 @@ fn buildWindowTitle(
     if (status.key_sequence_active) try appendStatus(&buf, alloc, "keys", .{});
     if (status.key_table_name) |name| try appendStatus(&buf, alloc, "table:{s}", .{name});
     if (status.pwd) |pwd| try appendStatus(&buf, alloc, "cwd:{s}", .{pwd});
-    const scroll = try scrollbarStatusText(alloc, status.scrollbar);
-    defer if (scroll) |value| alloc.free(value);
-    if (scroll) |value| try appendStatus(&buf, alloc, "{s}", .{value});
     if (status.search.active) {
         if (status.search.needle) |needle| {
             if (status.search.selected) |selected| {
@@ -5711,6 +6817,7 @@ fn buildProfilesButtonLabel(
     active: bool,
     profiles_opt: ?[]const windows_shell.Profile,
     selected_index: ?usize,
+    pinned_slot_ordinal: ?usize,
 ) ![]u8 {
     const profiles = profiles_opt orelse return try alloc.dupe(u8, if (active) "[Prof]" else "Prof");
     if (profiles.len == 0) return try alloc.dupe(u8, if (active) "[Prof]" else "Prof");
@@ -5721,6 +6828,10 @@ fn buildProfilesButtonLabel(
     const badge = try buildProfileChromeBadgeText(alloc, profile.kind);
     defer alloc.free(badge);
     if (index < 9) {
+        if (pinned_slot_ordinal != null and pinned_slot_ordinal.? == index) {
+            if (active) return try std.fmt.allocPrint(alloc, "[*{d} {s} {s}]", .{ index + 1, badge, compact });
+            return try std.fmt.allocPrint(alloc, "*{d} {s} {s}", .{ index + 1, badge, compact });
+        }
         if (active) return try std.fmt.allocPrint(alloc, "[{d} {s} {s}]", .{ index + 1, badge, compact });
         return try std.fmt.allocPrint(alloc, "{d} {s} {s}", .{ index + 1, badge, compact });
     }
@@ -5732,6 +6843,7 @@ fn launchTargetButtonLabel(
     alloc: Allocator,
     target: ProfileOpenTarget,
     selected_index: ?usize,
+    pinned_slot_ordinal: ?usize,
 ) ![]u8 {
     const base = switch (target) {
         .tab => "Tab",
@@ -5739,7 +6851,12 @@ fn launchTargetButtonLabel(
         .split => "Pane",
     };
     if (selected_index) |index| {
-        if (index < 9) return try std.fmt.allocPrint(alloc, "{d} {s}", .{ index + 1, base });
+        if (index < 9) {
+            if (pinned_slot_ordinal != null and pinned_slot_ordinal.? == index) {
+                return try std.fmt.allocPrint(alloc, "*{d} {s}", .{ index + 1, base });
+            }
+            return try std.fmt.allocPrint(alloc, "{d} {s}", .{ index + 1, base });
+        }
     }
     return try alloc.dupe(u8, base);
 }
@@ -5794,13 +6911,19 @@ fn buildProfileStatusBadgeText(
     alloc: Allocator,
     profile: *const windows_shell.Profile,
     selected_index: ?usize,
+    pinned_slot_ordinal: ?usize,
 ) ![]u8 {
     const compact = try compactHostLabel(alloc, profile.label, 11);
     defer alloc.free(compact);
     const badge = try buildProfileChromeBadgeText(alloc, profile.kind);
     defer alloc.free(badge);
     if (selected_index) |index| {
-        if (index < 9) return try std.fmt.allocPrint(alloc, "{d} {s} {s}", .{ index + 1, badge, compact });
+        if (index < 9) {
+            if (pinned_slot_ordinal != null and pinned_slot_ordinal.? == index) {
+                return try std.fmt.allocPrint(alloc, "*{d} {s} {s}", .{ index + 1, badge, compact });
+            }
+            return try std.fmt.allocPrint(alloc, "{d} {s} {s}", .{ index + 1, badge, compact });
+        }
     }
     return try std.fmt.allocPrint(alloc, "{s} {s}", .{ badge, compact });
 }
@@ -5809,8 +6932,15 @@ fn buildProfileQuickSlotChipText(
     alloc: Allocator,
     profile: *const windows_shell.Profile,
     slot_index: usize,
+    pinned_slot_ordinal: ?usize,
 ) ![]u8 {
     if (slot_index < 9) {
+        if (pinned_slot_ordinal != null and pinned_slot_ordinal.? == slot_index) {
+            return try std.fmt.allocPrint(alloc, "*{d} {s}", .{
+                slot_index + 1,
+                profileKindBadge(profile.kind),
+            });
+        }
         return try std.fmt.allocPrint(alloc, "{d} {s}", .{
             slot_index + 1,
             profileKindBadge(profile.kind),
@@ -5826,6 +6956,216 @@ fn quickSlotChipColors(kind: windows_shell.ProfileKind, hovered: bool) ButtonCol
         .border = if (hovered) accent.hover_border else accent.idle_border,
         .fg = if (hovered) profileKindHintColor(kind) else profileKindLabelColor(kind),
     };
+}
+
+fn pinnedChipMarkerColor(kind: windows_shell.ProfileKind, hovered: bool) u32 {
+    return if (hovered) profileKindLabelColor(kind) else profileKindHintColor(kind);
+}
+
+fn launcherChipRightInset(has_slot_badge: bool, has_target_marker: bool) i32 {
+    if (has_slot_badge) return 16;
+    if (has_target_marker) return 12;
+    return 5;
+}
+
+fn targetButtonLabelRightInset(target: ?ProfileOpenTarget) i32 {
+    return if (target != null) 12 else 0;
+}
+
+fn buttonLabelRightInset(pinned_slot_ordinal: ?usize, target: ?ProfileOpenTarget) i32 {
+    const slot_inset: i32 = if (pinnedSlotBadgeDigit(pinned_slot_ordinal) != null) 16 else 0;
+    return @max(targetButtonLabelRightInset(target), slot_inset);
+}
+
+fn shouldPaintQuickSlotTargetMarker(hovered: bool, focused: bool) bool {
+    return hovered or focused;
+}
+
+fn paintPinnedChipMarker(hdc: HDC, chip_rect: RECT, color: u32) void {
+    fillSolidRect(hdc, .{
+        .left = chip_rect.left + 3,
+        .top = chip_rect.top + 3,
+        .right = chip_rect.left + 9,
+        .bottom = chip_rect.top + 5,
+    }, color);
+    fillSolidRect(hdc, .{
+        .left = chip_rect.left + 3,
+        .top = chip_rect.top + 3,
+        .right = chip_rect.left + 5,
+        .bottom = chip_rect.top + 9,
+    }, color);
+}
+
+fn pinnedSlotBadgeDigit(pinned_slot_ordinal: ?usize) ?u8 {
+    const ordinal = pinned_slot_ordinal orelse return null;
+    if (ordinal >= 9) return null;
+    return @as(u8, @intCast('1' + ordinal));
+}
+
+fn paintPinnedSlotBadge(hdc: HDC, rect: RECT, digit: u8, border: u32, bg: u32, fg: u32) void {
+    const badge_rect = RECT{
+        .left = rect.right - 15,
+        .top = rect.top + 3,
+        .right = rect.right - 4,
+        .bottom = rect.top + 14,
+    };
+    fillSolidRect(hdc, badge_rect, bg);
+    fillSolidRect(hdc, .{
+        .left = badge_rect.left,
+        .top = badge_rect.top,
+        .right = badge_rect.right,
+        .bottom = badge_rect.top + 1,
+    }, border);
+    fillSolidRect(hdc, .{
+        .left = badge_rect.left,
+        .top = badge_rect.bottom - 1,
+        .right = badge_rect.right,
+        .bottom = badge_rect.bottom,
+    }, border);
+    fillSolidRect(hdc, .{
+        .left = badge_rect.left,
+        .top = badge_rect.top,
+        .right = badge_rect.left + 1,
+        .bottom = badge_rect.bottom,
+    }, border);
+    fillSolidRect(hdc, .{
+        .left = badge_rect.right - 1,
+        .top = badge_rect.top,
+        .right = badge_rect.right,
+        .bottom = badge_rect.bottom,
+    }, border);
+    var text_buf = [_]u16{ digit, 0 };
+    _ = SetBkMode(hdc, TRANSPARENT);
+    _ = SetTextColor(hdc, fg);
+    var text_rect = badge_rect;
+    _ = DrawTextW(
+        hdc,
+        @ptrCast(&text_buf),
+        1,
+        &text_rect,
+        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+    );
+}
+
+fn paintPinnedButtonMarker(hdc: HDC, rect: RECT, color: u32) void {
+    fillSolidRect(hdc, .{
+        .left = rect.right - 10,
+        .top = rect.top + 3,
+        .right = rect.right - 4,
+        .bottom = rect.top + 5,
+    }, color);
+    fillSolidRect(hdc, .{
+        .left = rect.right - 6,
+        .top = rect.top + 3,
+        .right = rect.right - 4,
+        .bottom = rect.top + 9,
+    }, color);
+}
+
+fn profileOpenTargetMarkerColor(target: ProfileOpenTarget) u32 {
+    return switch (target) {
+        .tab => rgb(132, 172, 238),
+        .window => rgb(236, 182, 118),
+        .split => rgb(126, 204, 148),
+    };
+}
+
+fn profileOpenTargetBadgeGlyph(target: ProfileOpenTarget) u8 {
+    return switch (target) {
+        .tab => 'T',
+        .window => 'W',
+        .split => 'S',
+    };
+}
+
+fn paintTargetButtonBadge(hdc: HDC, rect: RECT, glyph: u8, border: u32, bg: u32, fg: u32) void {
+    const badge_rect = RECT{
+        .left = rect.right - 13,
+        .top = rect.bottom - 13,
+        .right = rect.right - 3,
+        .bottom = rect.bottom - 3,
+    };
+    fillSolidRect(hdc, badge_rect, bg);
+    fillSolidRect(hdc, .{
+        .left = badge_rect.left,
+        .top = badge_rect.top,
+        .right = badge_rect.right,
+        .bottom = badge_rect.top + 1,
+    }, border);
+    fillSolidRect(hdc, .{
+        .left = badge_rect.left,
+        .top = badge_rect.bottom - 1,
+        .right = badge_rect.right,
+        .bottom = badge_rect.bottom,
+    }, border);
+    fillSolidRect(hdc, .{
+        .left = badge_rect.left,
+        .top = badge_rect.top,
+        .right = badge_rect.left + 1,
+        .bottom = badge_rect.bottom,
+    }, border);
+    fillSolidRect(hdc, .{
+        .left = badge_rect.right - 1,
+        .top = badge_rect.top,
+        .right = badge_rect.right,
+        .bottom = badge_rect.bottom,
+    }, border);
+    var text_buf = [_]u16{ glyph, 0 };
+    _ = SetBkMode(hdc, TRANSPARENT);
+    _ = SetTextColor(hdc, fg);
+    var text_rect = badge_rect;
+    _ = DrawTextW(
+        hdc,
+        @ptrCast(&text_buf),
+        1,
+        &text_rect,
+        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+    );
+}
+
+fn paintTargetChipBadge(hdc: HDC, rect: RECT, glyph: u8, border: u32, bg: u32, fg: u32) void {
+    const badge_rect = RECT{
+        .left = rect.right - 13,
+        .top = rect.bottom - 13,
+        .right = rect.right - 3,
+        .bottom = rect.bottom - 3,
+    };
+    fillSolidRect(hdc, badge_rect, bg);
+    fillSolidRect(hdc, .{
+        .left = badge_rect.left,
+        .top = badge_rect.top,
+        .right = badge_rect.right,
+        .bottom = badge_rect.top + 1,
+    }, border);
+    fillSolidRect(hdc, .{
+        .left = badge_rect.left,
+        .top = badge_rect.bottom - 1,
+        .right = badge_rect.right,
+        .bottom = badge_rect.bottom,
+    }, border);
+    fillSolidRect(hdc, .{
+        .left = badge_rect.left,
+        .top = badge_rect.top,
+        .right = badge_rect.left + 1,
+        .bottom = badge_rect.bottom,
+    }, border);
+    fillSolidRect(hdc, .{
+        .left = badge_rect.right - 1,
+        .top = badge_rect.top,
+        .right = badge_rect.right,
+        .bottom = badge_rect.bottom,
+    }, border);
+    var text_buf = [_]u16{ glyph, 0 };
+    _ = SetBkMode(hdc, TRANSPARENT);
+    _ = SetTextColor(hdc, fg);
+    var text_rect = badge_rect;
+    _ = DrawTextW(
+        hdc,
+        @ptrCast(&text_buf),
+        1,
+        &text_rect,
+        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+    );
 }
 
 fn buildProfileCommandPreviewText(
@@ -5974,6 +7314,7 @@ fn buildProfileHintText(
     input_text: []const u8,
     selected_index: usize,
     default_target: ProfileOpenTarget,
+    pinned_slot_keys: [3]?[:0]const u8,
 ) ![]u8 {
     const profiles = profiles_opt orelse return try alloc.dupe(u8, "No supported Windows profiles detected.");
     if (profiles.len == 0) return try alloc.dupe(u8, "No supported Windows profiles detected.");
@@ -5990,14 +7331,20 @@ fn buildProfileHintText(
             defer alloc.free(preview);
             const badge = try buildProfileChromeBadgeText(alloc, profiles[index].kind);
             defer alloc.free(badge);
+            const pinned_slot = try buildPinnedProfileSlotText(
+                alloc,
+                findLauncherQuickSlotOrdinal(pinned_slot_keys, profiles[index].key),
+            );
+            defer alloc.free(pinned_slot);
             break :blk try std.fmt.allocPrint(
                 alloc,
-                "{s} {s} | key {s} | run {s} | Enter opens a {s}. Ctrl+Enter splits here. Shift+Enter opens a new window. Ctrl+1-9 launches directly. Alt+1-3 launches visible slots. Alt+Shift+1-3 pins the current profile.{s}",
+                "{s} {s} | key {s} | run {s}.{s} Enter opens a {s}. Ctrl+Enter splits here. Shift+Enter opens a new window. Ctrl+1-9 launches directly. Alt+1-3 launches visible slots. Alt+Shift+1-3 pins the current profile. Alt+Shift+0 clears pinning.{s}",
                 .{
                     badge,
                     profiles[index].label,
                     profiles[index].key,
                     preview,
+                    pinned_slot,
                     profileOpenTargetActionText(default_target),
                     quick_suffix,
                 },
@@ -6005,12 +7352,12 @@ fn buildProfileHintText(
         },
         .ambiguous => |count| try std.fmt.allocPrint(
             alloc,
-            "{d} profiles match. Keep typing a name or use Up/Down to cycle the current selection. Ctrl+1-9 launches directly. Alt+1-3 launches visible slots. Alt+Shift+1-3 pins the current profile.{s}",
+            "{d} profiles match. Keep typing a name or use Up/Down to cycle the current selection. Ctrl+1-9 launches directly. Alt+1-3 launches visible slots. Alt+Shift+1-3 pins the current profile. Alt+Shift+0 clears pinning.{s}",
             .{ count, quick_suffix },
         ),
         .invalid => try std.fmt.allocPrint(
             alloc,
-            "No matching profile. Try 1-{d} or a profile name like pwsh, ubuntu, git, or cmd. Ctrl+1-9 launches directly. Alt+1-3 launches visible slots. Alt+Shift+1-3 pins the current profile. Space keeps the picker open.{s}",
+            "No matching profile. Try 1-{d} or a profile name like pwsh, ubuntu, git, or cmd. Ctrl+1-9 launches directly. Alt+1-3 launches visible slots. Alt+Shift+1-3 pins the current profile. Alt+Shift+0 clears pinning. Space keeps the picker open.{s}",
             .{ profiles.len, quick_suffix },
         ),
     };
@@ -6023,11 +7370,17 @@ fn buildProfileDetailText(
     overlay_open: bool,
     default_target: ProfileOpenTarget,
     order_hint: ?[]const u8,
+    pinned_slot_keys: [3]?[:0]const u8,
 ) ![]u8 {
     const preview = try buildProfileCommandPreviewText(alloc, profile, 32);
     defer alloc.free(preview);
     const badge = try buildProfileChromeBadgeText(alloc, profile.kind);
     defer alloc.free(badge);
+    const pinned_slot = try buildPinnedProfileSlotText(
+        alloc,
+        findLauncherQuickSlotOrdinal(pinned_slot_keys, profile.key),
+    );
+    defer alloc.free(pinned_slot);
     const quick_picks = if (overlay_open)
         try buildProfileQuickPickText(alloc, profiles_opt orelse &.{}, 4, 10)
     else
@@ -6057,11 +7410,12 @@ fn buildProfileDetailText(
     return if (overlay_open)
         std.fmt.allocPrint(
             alloc,
-            "Selected profile: {s} {s}. Run {s}. Enter opens a {s}, Ctrl+Enter splits here, and Shift+Enter opens a new window. Alt+1-3 launches visible slots. Alt+Shift+1-3 pins the current profile.{s}",
+            "Selected profile: {s} {s}. Run {s}.{s} Enter opens a {s}, Ctrl+Enter splits here, and Shift+Enter opens a new window. Alt+1-3 launches visible slots. Alt+Shift+1-3 pins the current profile. Alt+Shift+0 clears pinning.{s}",
             .{
                 badge,
                 profile.label,
                 preview,
+                pinned_slot,
                 profileOpenTargetActionText(default_target),
                 overlay_suffix,
             },
@@ -6069,16 +7423,24 @@ fn buildProfileDetailText(
     else
         std.fmt.allocPrint(
             alloc,
-            "Default profile: {s} {s}. Run {s}. New hosts inherit this {s}. + opens a {s}, middle-click + splits here, and right-click + opens a new window. Alt+1-3 launches visible slots. Alt+Shift+1-3 pins the current profile.{s}",
+            "Default profile: {s} {s}. Run {s}.{s} New hosts inherit this {s}. + opens a {s}, middle-click + splits here, and right-click + opens a new window. Alt+1-3 launches visible slots. Alt+Shift+1-3 pins the current profile. Alt+Shift+0 clears pinning.{s}",
             .{
                 badge,
                 profile.label,
                 preview,
+                pinned_slot,
                 profileKindDetail(profile.kind),
                 profileOpenTargetActionText(default_target),
                 idle_suffix,
             },
         );
+}
+
+fn buildPinnedProfileSlotText(alloc: Allocator, pinned_slot_ordinal: ?usize) ![]u8 {
+    if (pinned_slot_ordinal) |ordinal| {
+        return try std.fmt.allocPrint(alloc, " Pinned slot {d}.", .{ordinal + 1});
+    }
+    return try alloc.dupe(u8, "");
 }
 
 fn buildInspectorButtonLabel(
@@ -6185,7 +7547,7 @@ fn commandPaletteActionSummary(action_text: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, action_text, "new_tab")) return "open a new tab in this window";
     if (std.mem.eql(u8, action_text, "new_split:right")) return "split the active tab to the right";
     if (std.mem.eql(u8, action_text, "goto_split:right")) return "move focus to the split on the right";
-    if (std.mem.eql(u8, action_text, "toggle_fullscreen")) return "toggle native fullscreen";
+    if (std.mem.eql(u8, action_text, "toggle_fullscreen")) return "toggle fullscreen";
     if (std.mem.eql(u8, action_text, "toggle_command_palette")) return "show or hide the command palette";
     if (std.mem.eql(u8, action_text, "toggle_tab_overview")) return "show the tab list for this window";
     if (std.mem.eql(u8, action_text, "start_search")) return "open the in-window search overlay";
@@ -6356,6 +7718,9 @@ fn hostButtonProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callcon
                 }
                 if (v.profiles_hwnd != null and hwnd == v.profiles_hwnd.?) {
                     if ((v.ensureProfiles() catch false)) {
+                        if (clearQuickSlotPinsRequested(wParam, keyPressed(VK_MENU), keyPressed(VK_SHIFT))) {
+                            if (v.clearQuickSlotPins()) return 0;
+                        }
                         if (quickSlotPinOrdinalFromKey(wParam, keyPressed(VK_MENU), keyPressed(VK_SHIFT))) |slot_ordinal| {
                             if (v.assignSelectedProfileToQuickSlot(slot_ordinal)) return 0;
                         }
@@ -6404,6 +7769,9 @@ fn hostButtonProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callcon
                 }
                 if (v.profile_target_hwnd != null and hwnd == v.profile_target_hwnd.?) {
                     if ((v.ensureProfiles() catch false)) {
+                        if (clearQuickSlotPinsRequested(wParam, keyPressed(VK_MENU), keyPressed(VK_SHIFT))) {
+                            if (v.clearQuickSlotPins()) return 0;
+                        }
                         if (quickSlotPinOrdinalFromKey(wParam, keyPressed(VK_MENU), keyPressed(VK_SHIFT))) |slot_ordinal| {
                             if (v.assignSelectedProfileToQuickSlot(slot_ordinal)) return 0;
                         }
@@ -6636,6 +8004,9 @@ fn overlayEditProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callco
             }
             if (v.overlay_mode == .profile) {
                 if ((v.ensureProfiles() catch false)) {
+                    if (clearQuickSlotPinsRequested(wParam, keyPressed(VK_MENU), keyPressed(VK_SHIFT))) {
+                        if (v.clearQuickSlotPins()) return 0;
+                    }
                     if (quickSlotPinOrdinalFromKey(wParam, keyPressed(VK_MENU), keyPressed(VK_SHIFT))) |slot_ordinal| {
                         if (v.assignSelectedProfileToQuickSlot(slot_ordinal)) return 0;
                     }
@@ -6709,6 +8080,20 @@ fn hostWindowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callcon
                 const draw: *const DRAWITEMSTRUCT = @ptrFromInt(@as(usize, @bitCast(lParam)));
                 v.drawButton(draw);
                 return 1;
+            }
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+        },
+        WM_ERASEBKGND => return 1,
+        WM_SETTINGCHANGE => {
+            if (host) |v| {
+                v.app.refreshSystemWheelSettings();
+                v.app.reconfigureTheme();
+            }
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+        },
+        WM_THEMECHANGED, WM_SYSCOLORCHANGE => {
+            if (host) |v| {
+                v.app.reconfigureTheme();
             }
             return DefWindowProcW(hwnd, msg, wParam, lParam);
         },
@@ -7087,13 +8472,13 @@ fn applyQuickSlotPreferenceOrder(
     }
 }
 
-fn detectExperimentalDraw(alloc: Allocator) bool {
-    const disable = std.process.getEnvVarOwned(alloc, "WINGHOSTTY_WIN32_DISABLE_EXPERIMENTAL_DRAW") catch
-        return true;
-    defer alloc.free(disable);
-    return !(std.mem.eql(u8, disable, "1") or
-        std.ascii.eqlIgnoreCase(disable, "true") or
-        std.ascii.eqlIgnoreCase(disable, "yes"));
+fn findLauncherQuickSlotOrdinal(slot_keys: [3]?[:0]const u8, key: []const u8) ?usize {
+    for (slot_keys, 0..) |slot_key, index| {
+        if (slot_key) |value| {
+            if (std.ascii.eqlIgnoreCase(value, key)) return index;
+        }
+    }
+    return null;
 }
 
 fn startupProfilePickerEnabled(raw: []const u8) bool {
@@ -7190,10 +8575,84 @@ fn cursorPosFromLParam(lParam: LPARAM) apprt.CursorPos {
     };
 }
 
-fn scrollAmountFromWParam(wParam: WPARAM) f64 {
+fn readSystemWheelSetting(action: UINT, fallback: u32) u32 {
+    var value: UINT = fallback;
+    if (SystemParametersInfoW(action, 0, @ptrCast(&value), 0) == 0) {
+        return fallback;
+    }
+    return value;
+}
+
+fn wheelDeltaFromWParam(wParam: WPARAM) i16 {
     const bits = @as(usize, @intCast(wParam));
-    const delta: i16 = @bitCast(highWord(bits));
-    return @as(f64, @floatFromInt(delta)) / WHEEL_DELTA;
+    return @bitCast(highWord(bits));
+}
+
+fn wheelSettingForAxis(settings: SystemWheelSettings, axis: MouseWheelAxis) u32 {
+    return switch (axis) {
+        .vertical => settings.lines,
+        .horizontal => settings.chars,
+    };
+}
+
+fn wheelUnitSize(ctx: WheelNormalizationContext, axis: MouseWheelAxis) f64 {
+    const dim: u32 = switch (axis) {
+        .vertical => ctx.cell_size.height,
+        .horizontal => ctx.cell_size.width,
+    };
+    return @floatFromInt(@max(dim, 1));
+}
+
+fn wheelViewportSize(ctx: WheelNormalizationContext, axis: MouseWheelAxis) f64 {
+    const dim: u32 = switch (axis) {
+        .vertical => ctx.viewport.height,
+        .horizontal => ctx.viewport.width,
+    };
+    const viewport: f64 = @floatFromInt(@max(dim, 1));
+    const unit = wheelUnitSize(ctx, axis);
+    return @max(unit, viewport - unit);
+}
+
+fn normalizeWheelDelta(
+    ctx: WheelNormalizationContext,
+    axis: MouseWheelAxis,
+    delta: i16,
+) NormalizedWheelScroll {
+    if (delta == 0) return .{};
+
+    const setting = wheelSettingForAxis(ctx.settings, axis);
+    if (setting == 0) {
+        return .{
+            .mods = .{
+                .precision = @rem(delta, WHEEL_DELTA) != 0,
+                .pixel_delta = true,
+            },
+        };
+    }
+
+    const precision = @rem(delta, WHEEL_DELTA) != 0;
+    const notch_delta = @as(f64, @floatFromInt(delta)) / WHEEL_DELTA;
+    const pixels = if (setting == WHEEL_PAGESCROLL)
+        notch_delta * wheelViewportSize(ctx, axis)
+    else
+        notch_delta * @as(f64, @floatFromInt(setting)) * wheelUnitSize(ctx, axis);
+
+    return switch (axis) {
+        .vertical => .{
+            .yoff = -pixels,
+            .mods = .{
+                .precision = precision,
+                .pixel_delta = true,
+            },
+        },
+        .horizontal => .{
+            .xoff = pixels,
+            .mods = .{
+                .precision = precision,
+                .pixel_delta = true,
+            },
+        },
+    };
 }
 
 fn keyPressed(vk: i32) bool {
@@ -7463,7 +8922,11 @@ fn windowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.w
 
         WM_MOUSEWHEEL => {
             if (surface) |v| {
-                v.handleMouseWheel(0, -scrollAmountFromWParam(wParam));
+                v.handleMouseWheel(normalizeWheelDelta(
+                    v.wheelNormalizationContext(),
+                    .vertical,
+                    wheelDeltaFromWParam(wParam),
+                ));
                 return 0;
             }
             return DefWindowProcW(hwnd, msg, wParam, lParam);
@@ -7471,9 +8934,20 @@ fn windowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.w
 
         WM_MOUSEHWHEEL => {
             if (surface) |v| {
-                v.handleMouseWheel(scrollAmountFromWParam(wParam), 0);
+                v.handleMouseWheel(normalizeWheelDelta(
+                    v.wheelNormalizationContext(),
+                    .horizontal,
+                    wheelDeltaFromWParam(wParam),
+                ));
                 return 0;
             }
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+        },
+
+        WM_ERASEBKGND => return 1,
+
+        WM_SETTINGCHANGE => {
+            if (surface) |v| v.app.refreshSystemWheelSettings();
             return DefWindowProcW(hwnd, msg, wParam, lParam);
         },
 
@@ -7487,17 +8961,16 @@ fn windowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.w
         },
 
         WM_PAINT => {
-            if (surface) |v| {
-                if (v.app.allowExperimentalDraw() and v.core_initialized) {
-                    var ps: PAINTSTRUCT = undefined;
-                    _ = BeginPaint(hwnd, &ps) orelse return 0;
-                    defer _ = EndPaint(hwnd, &ps);
+            var ps: PAINTSTRUCT = undefined;
+            _ = BeginPaint(hwnd, &ps) orelse return 0;
+            defer _ = EndPaint(hwnd, &ps);
 
+            if (surface) |v| {
+                v.paint_pending = false;
+                if (v.core_initialized) {
                     v.redraw() catch |err| {
                         log.err("win32 paint redraw failed err={}", .{err});
                     };
-                } else {
-                    v.paintPreview();
                 }
             }
 
@@ -7581,6 +9054,7 @@ pub const Surface = struct {
     progress_status: ?[:0]const u8 = null,
     inspector_visible: bool = false,
     debug_input_budget: u8 = 32,
+    paint_pending: bool = false,
 
     pub fn init(
         self: *Surface,
@@ -7608,7 +9082,7 @@ pub const Surface = struct {
             0,
             class_name,
             std.unicode.utf8ToUtf16LeStringLiteral(""),
-            WS_CHILD | WS_VISIBLE,
+            surfaceWindowStyle(),
             0,
             0,
             10,
@@ -7710,9 +9184,7 @@ pub const Surface = struct {
 
         try host.refreshChrome();
         try host.layout();
-        if (app.allowExperimentalDraw()) {
-            try self.redraw();
-        }
+        try self.requestRepaint();
 
         if (opts.clone_state_from) |source| {
             try self.inheritWindowStateFrom(source);
@@ -7878,14 +9350,19 @@ pub const Surface = struct {
 
     pub fn redrawInspector(self: *Surface) void {
         if (!self.inspector_visible) return;
-        self.redraw() catch |err| {
-            log.err("win32 inspector redraw failed err={}", .{err});
+        self.requestRepaint() catch |err| {
+            log.err("win32 inspector repaint request failed err={}", .{err});
         };
     }
 
-    pub fn supportsRender(self: *const Surface) bool {
-        _ = self;
-        return true;
+    pub fn requestRepaint(self: *Surface) !void {
+        const hwnd = self.hwnd orelse return;
+        if (self.paint_pending) return;
+        self.paint_pending = true;
+        if (InvalidateRect(hwnd, null, 0) == 0) {
+            self.paint_pending = false;
+            return windows.unexpectedError(windows.kernel32.GetLastError());
+        }
     }
 
     pub fn redraw(self: *Surface) !void {
@@ -8003,16 +9480,15 @@ pub const Surface = struct {
                 }
             }
         }
-        if (self.app.allowExperimentalDraw()) {
-            try self.redraw();
-        }
+        try self.requestRepaint();
         try self.refreshWindowTitle();
         return true;
     }
 
     fn refreshWindowTitle(self: *Surface) !void {
         if (self.host) |host| {
-            try host.refreshChrome();
+            try host.syncWindowTitle();
+            host.invalidateChrome();
             return;
         }
     }
@@ -8472,13 +9948,22 @@ pub const Surface = struct {
         };
     }
 
-    fn handleMouseWheel(self: *Surface, xoff: f64, yoff: f64) void {
+    fn wheelNormalizationContext(self: *const Surface) WheelNormalizationContext {
+        return .{
+            .settings = self.app.wheel_settings,
+            .cell_size = self.cell_size_pixels,
+            .viewport = self.size,
+        };
+    }
+
+    fn handleMouseWheel(self: *Surface, scroll: NormalizedWheelScroll) void {
         if (!self.core_initialized) return;
-        self.core_surface.scrollCallback(xoff, yoff, .{}) catch |err| {
-            log.err("win32 scroll callback failed err={} xoff={} yoff={}", .{
+        self.core_surface.scrollCallback(scroll.xoff, scroll.yoff, scroll.mods) catch |err| {
+            log.err("win32 scroll callback failed err={} xoff={} yoff={} mods={}", .{
                 err,
-                xoff,
-                yoff,
+                scroll.xoff,
+                scroll.yoff,
+                scroll.mods,
             });
         };
     }
@@ -8535,18 +10020,6 @@ pub const Surface = struct {
 
         self.app.windowDestroyed(self);
         alloc.destroy(self);
-    }
-
-    fn paintPreview(self: *Surface) void {
-        const hwnd = self.hwnd orelse return;
-
-        var ps: PAINTSTRUCT = undefined;
-        const hdc = BeginPaint(hwnd, &ps) orelse return;
-        defer _ = EndPaint(hwnd, &ps);
-
-        _ = TextOutW(hdc, 24, 24, fallback_line_1, fallback_line_1.len - 1);
-        _ = TextOutW(hdc, 24, 56, fallback_line_2, fallback_line_2.len - 1);
-        _ = TextOutW(hdc, 24, 88, fallback_line_3, fallback_line_3.len - 1);
     }
 
     fn setMouseShape(self: *Surface, shape: terminal.MouseShape) void {
@@ -8624,7 +10097,6 @@ pub const Surface = struct {
     fn setScrollbar(self: *Surface, value: terminal.Scrollbar) !void {
         if (self.scrollbar.eql(value)) return;
         self.scrollbar = value;
-        try self.refreshWindowTitle();
     }
 
     fn setProgressReport(self: *Surface, value: terminal.osc.Command.ProgressReport) !void {
@@ -8748,7 +10220,7 @@ pub const Surface = struct {
     }
 };
 
-test "win32 preview runtime can initialize config" {
+test "win32 runtime can initialize config" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
     var core = try CoreApp.create(std.testing.allocator);
@@ -8758,7 +10230,7 @@ test "win32 preview runtime can initialize config" {
     try app.init(core, .{});
     defer app.terminate();
 
-    try std.testing.expect(app.hinstance != null);
+    try std.testing.expect(@intFromPtr(app.hinstance) != 0);
 }
 
 test "win32 keyFromVirtualKey maps core keys" {
@@ -8775,11 +10247,121 @@ test "win32 keyFromVirtualKey maps core keys" {
 test "win32 cursorPosFromLParam decodes signed coordinates" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
-    const encoded = (@as(usize, @bitCast(@as(u16, @bitCast(@as(i16, -5))))) << 16) |
-        @as(usize, @bitCast(@as(u16, @bitCast(@as(i16, 12)))));
+    const y: u16 = @bitCast(@as(i16, -5));
+    const x: u16 = @bitCast(@as(i16, 12));
+    const encoded = (@as(usize, y) << 16) | @as(usize, x);
     const pos = cursorPosFromLParam(@bitCast(@as(isize, @intCast(encoded))));
     try std.testing.expectEqual(@as(f32, 12), pos.x);
     try std.testing.expectEqual(@as(f32, -5), pos.y);
+}
+
+test "win32 normalizeWheelDelta maps discrete wheel steps to pixel deltas" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const event = normalizeWheelDelta(.{
+        .settings = .{ .lines = 3, .chars = 5 },
+        .cell_size = .{ .width = 8, .height = 16 },
+        .viewport = .{ .width = 800, .height = 600 },
+    }, .vertical, 120);
+
+    try std.testing.expectApproxEqAbs(-48.0, event.yoff, 0.0001);
+    try std.testing.expectEqual(@as(f64, 0), event.xoff);
+    try std.testing.expect(!event.mods.precision);
+    try std.testing.expect(event.mods.pixel_delta);
+}
+
+test "win32 normalizeWheelDelta maps horizontal wheel steps to pixel deltas" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const event = normalizeWheelDelta(.{
+        .settings = .{ .lines = 3, .chars = 5 },
+        .cell_size = .{ .width = 8, .height = 16 },
+        .viewport = .{ .width = 800, .height = 600 },
+    }, .horizontal, 120);
+
+    try std.testing.expectApproxEqAbs(40.0, event.xoff, 0.0001);
+    try std.testing.expectEqual(@as(f64, 0), event.yoff);
+    try std.testing.expect(!event.mods.precision);
+    try std.testing.expect(event.mods.pixel_delta);
+}
+
+test "win32 normalizeWheelDelta marks high-resolution input as precision" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const event = normalizeWheelDelta(.{
+        .settings = .{ .lines = 3, .chars = 3 },
+        .cell_size = .{ .width = 8, .height = 16 },
+        .viewport = .{ .width = 800, .height = 600 },
+    }, .vertical, 40);
+
+    try std.testing.expectApproxEqAbs(-16.0, event.yoff, 0.0001);
+    try std.testing.expect(event.mods.precision);
+    try std.testing.expect(event.mods.pixel_delta);
+}
+
+test "win32 normalizeWheelDelta honors page scroll settings" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const event = normalizeWheelDelta(.{
+        .settings = .{ .lines = WHEEL_PAGESCROLL, .chars = 3 },
+        .cell_size = .{ .width = 8, .height = 16 },
+        .viewport = .{ .width = 800, .height = 600 },
+    }, .vertical, 120);
+
+    try std.testing.expectApproxEqAbs(-584.0, event.yoff, 0.0001);
+    try std.testing.expect(!event.mods.precision);
+    try std.testing.expect(event.mods.pixel_delta);
+}
+
+test "win32 sanitizeIpcNamespace normalizes invalid characters" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const actual = try sanitizeIpcNamespace(std.testing.allocator, "  team/alpha:*beta  ");
+    defer std.testing.allocator.free(actual);
+
+    try std.testing.expectEqualStrings("team_alpha__beta", actual);
+}
+
+test "win32 allocIpcPipeName prefixes sanitized namespace" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const pipe_name = try allocIpcPipeName(std.testing.allocator, "demo class");
+    defer std.testing.allocator.free(pipe_name);
+
+    const pipe_name_utf8 = try std.unicode.utf16LeToUtf8Alloc(std.testing.allocator, pipe_name[0..std.mem.len(pipe_name)]);
+    defer std.testing.allocator.free(pipe_name_utf8);
+
+    try std.testing.expectEqualStrings("\\\\.\\pipe\\winghostty.demo_class", pipe_name_utf8);
+}
+
+test "win32 normalizeForwardedStartupArg drops class and normalizes working directory" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try std.testing.expect(try normalizeForwardedStartupArg(std.testing.allocator, "--class=dev") == null);
+
+    const inherit = (try normalizeForwardedStartupArg(std.testing.allocator, "--working-directory=inherit")).?;
+    defer std.testing.allocator.free(inherit);
+    try std.testing.expectEqualStrings("--working-directory=inherit", inherit);
+
+    const other = (try normalizeForwardedStartupArg(std.testing.allocator, "--title=Inbox")).?;
+    defer std.testing.allocator.free(other);
+    try std.testing.expectEqualStrings("--title=Inbox", other);
+}
+
+test "win32 hostWindowStyle clips child repaints" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const style = hostWindowStyle();
+    try std.testing.expect((style & WS_CLIPCHILDREN) != 0);
+    try std.testing.expect((style & WS_VISIBLE) != 0);
+}
+
+test "win32 surfaceWindowStyle clips sibling repaints" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const style = surfaceWindowStyle();
+    try std.testing.expect((style & WS_CLIPSIBLINGS) != 0);
+    try std.testing.expect((style & WS_CHILD) != 0);
 }
 
 test "win32 buildWindowTitle appends active status segments" {
@@ -8807,32 +10389,9 @@ test "win32 buildWindowTitle appends active status segments" {
     defer std.testing.allocator.free(title);
 
     try std.testing.expectEqualStrings(
-        "pwsh | readonly | secure | keys | table:resize | cwd:/Users/amant | scroll:50/160 (31%) | find:foo (2/4) | progress:35%",
+        "pwsh | readonly | secure | keys | table:resize | cwd:/Users/amant | find:foo (2/4) | progress:35%",
         title,
     );
-}
-
-test "win32 scrollbarStatusText formats active scrollback" {
-    if (builtin.os.tag != .windows) return error.SkipZigTest;
-
-    const text = (try scrollbarStatusText(std.testing.allocator, .{
-        .total = 200,
-        .offset = 50,
-        .len = 40,
-    })).?;
-    defer std.testing.allocator.free(text);
-    try std.testing.expectEqualStrings("scroll:50/160 (31%)", text);
-}
-
-test "win32 scrollbarStatusText omits empty scroll region" {
-    if (builtin.os.tag != .windows) return error.SkipZigTest;
-
-    try std.testing.expect((try scrollbarStatusText(std.testing.allocator, .zero)) == null);
-    try std.testing.expect((try scrollbarStatusText(std.testing.allocator, .{
-        .total = 40,
-        .offset = 0,
-        .len = 40,
-    })) == null);
 }
 
 test "win32 buildWindowTitle uses default title when base is null" {
@@ -9022,11 +10581,11 @@ test "win32 buildProfilesButtonLabel reflects selected cached profile" {
         },
     };
 
-    const active = try buildProfilesButtonLabel(std.testing.allocator, true, &profiles, 1);
+    const active = try buildProfilesButtonLabel(std.testing.allocator, true, &profiles, 1, 1);
     defer std.testing.allocator.free(active);
-    try std.testing.expectEqualStrings("[2 GIT $> Git Bash]", active);
+    try std.testing.expectEqualStrings("[*2 GIT $> Git Bash]", active);
 
-    const idle = try buildProfilesButtonLabel(std.testing.allocator, false, &profiles, 0);
+    const idle = try buildProfilesButtonLabel(std.testing.allocator, false, &profiles, 0, null);
     defer std.testing.allocator.free(idle);
     try std.testing.expectEqualStrings("1 PWSH >> Power...", idle);
 }
@@ -9076,6 +10635,16 @@ test "win32 quickSlotPinOrdinalFromKey maps visible pin slots" {
     try std.testing.expectEqual(@as(?usize, null), quickSlotPinOrdinalFromKey('1', false, true));
 }
 
+test "win32 clearQuickSlotPinsRequested detects clear shortcut" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try std.testing.expect(clearQuickSlotPinsRequested(VK_0, true, true));
+    try std.testing.expect(clearQuickSlotPinsRequested(VK_NUMPAD0, true, true));
+    try std.testing.expect(!clearQuickSlotPinsRequested('1', true, true));
+    try std.testing.expect(!clearQuickSlotPinsRequested(VK_0, true, false));
+    try std.testing.expect(!clearQuickSlotPinsRequested(VK_0, false, true));
+}
+
 test "win32 quickSlotFocusKeyAction maps painted quick slot focus keys" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
@@ -9110,11 +10679,11 @@ test "win32 cycleProfileOpenTarget wraps launcher target order" {
 test "win32 launchTargetButtonLabel reflects selected launcher slot" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
-    const pane = try launchTargetButtonLabel(std.testing.allocator, .split, 2);
+    const pane = try launchTargetButtonLabel(std.testing.allocator, .split, 2, 2);
     defer std.testing.allocator.free(pane);
-    try std.testing.expectEqualStrings("3 Pane", pane);
+    try std.testing.expectEqualStrings("*3 Pane", pane);
 
-    const tab = try launchTargetButtonLabel(std.testing.allocator, .tab, null);
+    const tab = try launchTargetButtonLabel(std.testing.allocator, .tab, null, null);
     defer std.testing.allocator.free(tab);
     try std.testing.expectEqualStrings("Tab", tab);
 }
@@ -9144,15 +10713,15 @@ test "win32 parseProfileOpenTarget accepts terminal-style launch target names" {
 test "win32 launchTargetButtonLabel reflects Windows-style target wording" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
-    const tab = try launchTargetButtonLabel(std.testing.allocator, .tab, null);
+    const tab = try launchTargetButtonLabel(std.testing.allocator, .tab, null, null);
     defer std.testing.allocator.free(tab);
     try std.testing.expectEqualStrings("Tab", tab);
 
-    const win = try launchTargetButtonLabel(std.testing.allocator, .window, null);
+    const win = try launchTargetButtonLabel(std.testing.allocator, .window, null, null);
     defer std.testing.allocator.free(win);
     try std.testing.expectEqualStrings("Win", win);
 
-    const pane = try launchTargetButtonLabel(std.testing.allocator, .split, null);
+    const pane = try launchTargetButtonLabel(std.testing.allocator, .split, null, null);
     defer std.testing.allocator.free(pane);
     try std.testing.expectEqualStrings("Pane", pane);
 }
@@ -9240,14 +10809,16 @@ test "win32 buildProfileOverlayLabel and hint reflect selected profile" {
     defer std.testing.allocator.free(label);
     try std.testing.expectEqualStrings("Profile 2/2 CMD C>", label);
 
-    const hint = try buildProfileHintText(std.testing.allocator, &profiles, "cmd", 0, .window);
+    const hint = try buildProfileHintText(std.testing.allocator, &profiles, "cmd", 0, .window, .{ "pwsh.exe", "cmd.exe", null });
     defer std.testing.allocator.free(hint);
     try std.testing.expect(std.mem.indexOf(u8, hint, "CMD C>") != null);
     try std.testing.expect(std.mem.indexOf(u8, hint, "Command Prompt") != null);
     try std.testing.expect(std.mem.indexOf(u8, hint, "run cmd.exe") != null);
+    try std.testing.expect(std.mem.indexOf(u8, hint, "Pinned slot 2.") != null);
     try std.testing.expect(std.mem.indexOf(u8, hint, "opens a new window") != null);
     try std.testing.expect(std.mem.indexOf(u8, hint, "Alt+1-3 launches visible slots") != null);
     try std.testing.expect(std.mem.indexOf(u8, hint, "Alt+Shift+1-3 pins the current profile") != null);
+    try std.testing.expect(std.mem.indexOf(u8, hint, "Alt+Shift+0 clears pinning") != null);
     try std.testing.expect(std.mem.indexOf(u8, hint, "Quick picks: 1 PWSH >>") != null);
     try std.testing.expect(std.mem.indexOf(u8, hint, "2 CMD C>") != null);
 }
@@ -9277,24 +10848,28 @@ test "win32 buildProfileDetailText reflects selected launcher state" {
         },
     };
 
-    const overlay = try buildProfileDetailText(std.testing.allocator, &profile, &profiles, true, .split, "git,pwsh,Ubuntu,cmd");
+    const overlay = try buildProfileDetailText(std.testing.allocator, &profile, &profiles, true, .split, "git,pwsh,Ubuntu,cmd", .{ "pwsh.exe", "git-bash", null });
     defer std.testing.allocator.free(overlay);
     try std.testing.expect(std.mem.indexOf(u8, overlay, "Selected profile: PWSH >> PowerShell") != null);
     try std.testing.expect(std.mem.indexOf(u8, overlay, "Run pwsh.exe") != null);
+    try std.testing.expect(std.mem.indexOf(u8, overlay, "Pinned slot 1.") != null);
     try std.testing.expect(std.mem.indexOf(u8, overlay, "opens a split") != null);
     try std.testing.expect(std.mem.indexOf(u8, overlay, "Alt+1-3 launches visible slots") != null);
     try std.testing.expect(std.mem.indexOf(u8, overlay, "Alt+Shift+1-3 pins the current profile") != null);
+    try std.testing.expect(std.mem.indexOf(u8, overlay, "Alt+Shift+0 clears pinning") != null);
     try std.testing.expect(std.mem.indexOf(u8, overlay, "Quick picks: 1 PWSH >> PowerShell") != null);
     try std.testing.expect(std.mem.indexOf(u8, overlay, "Order: git > pwsh > Ubuntu > cmd.") != null);
 
-    const idle = try buildProfileDetailText(std.testing.allocator, &profile, &profiles, false, .window, "git,pwsh,Ubuntu,cmd");
+    const idle = try buildProfileDetailText(std.testing.allocator, &profile, &profiles, false, .window, "git,pwsh,Ubuntu,cmd", .{ "pwsh.exe", "git-bash", null });
     defer std.testing.allocator.free(idle);
     try std.testing.expect(std.mem.indexOf(u8, idle, "Default profile: PWSH >> PowerShell") != null);
     try std.testing.expect(std.mem.indexOf(u8, idle, "Run pwsh.exe") != null);
+    try std.testing.expect(std.mem.indexOf(u8, idle, "Pinned slot 1.") != null);
     try std.testing.expect(std.mem.indexOf(u8, idle, "PowerShell profile") != null);
     try std.testing.expect(std.mem.indexOf(u8, idle, "opens a new window") != null);
     try std.testing.expect(std.mem.indexOf(u8, idle, "Alt+1-3 launches visible slots") != null);
     try std.testing.expect(std.mem.indexOf(u8, idle, "Alt+Shift+1-3 pins the current profile") != null);
+    try std.testing.expect(std.mem.indexOf(u8, idle, "Alt+Shift+0 clears pinning") != null);
     try std.testing.expect(std.mem.indexOf(u8, idle, "Top slots: 1 PWSH >>") != null);
     try std.testing.expect(std.mem.indexOf(u8, idle, "2 GIT $> Git Bash") != null);
     try std.testing.expect(std.mem.indexOf(u8, idle, "Order: git > pwsh > Ubuntu > cmd.") != null);
@@ -9381,9 +10956,9 @@ test "win32 buildProfileStatusBadgeText reflects selected profile kind" {
         .command = .{ .direct = &.{"bash.exe"} },
     };
 
-    const badge = try buildProfileStatusBadgeText(std.testing.allocator, &profile, 0);
+    const badge = try buildProfileStatusBadgeText(std.testing.allocator, &profile, 0, 0);
     defer std.testing.allocator.free(badge);
-    try std.testing.expectEqualStrings("1 GIT $> Git Bash", badge);
+    try std.testing.expectEqualStrings("*1 GIT $> Git Bash", badge);
 }
 
 test "win32 buildProfileQuickSlotChipText reflects ordered quick slot badge" {
@@ -9396,9 +10971,9 @@ test "win32 buildProfileQuickSlotChipText reflects ordered quick slot badge" {
         .command = .{ .direct = &.{ "wsl.exe", "-d", "Ubuntu" } },
     };
 
-    const chip = try buildProfileQuickSlotChipText(std.testing.allocator, &profile, 2);
+    const chip = try buildProfileQuickSlotChipText(std.testing.allocator, &profile, 2, 2);
     defer std.testing.allocator.free(chip);
-    try std.testing.expectEqualStrings("3 WSL", chip);
+    try std.testing.expectEqualStrings("*3 WSL", chip);
 }
 
 test "win32 quickSlotChipColors follow profile hover accent" {
@@ -9413,6 +10988,75 @@ test "win32 quickSlotChipColors follow profile hover accent" {
     try std.testing.expectEqual(rgb(58, 48, 37), hovered.bg);
     try std.testing.expectEqual(rgb(236, 182, 118), hovered.border);
     try std.testing.expectEqual(rgb(248, 202, 134), hovered.fg);
+}
+
+test "win32 pinnedChipMarkerColor follows profile accent" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try std.testing.expectEqual(rgb(248, 202, 134), pinnedChipMarkerColor(.git_bash, false));
+    try std.testing.expectEqual(rgb(255, 224, 178), pinnedChipMarkerColor(.git_bash, true));
+    try std.testing.expectEqual(rgb(136, 216, 242), pinnedChipMarkerColor(.pwsh, false));
+}
+
+test "win32 launcherChipRightInset reserves badge and target space" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try std.testing.expectEqual(@as(i32, 5), launcherChipRightInset(false, false));
+    try std.testing.expectEqual(@as(i32, 12), launcherChipRightInset(false, true));
+    try std.testing.expectEqual(@as(i32, 16), launcherChipRightInset(true, false));
+    try std.testing.expectEqual(@as(i32, 16), launcherChipRightInset(true, true));
+}
+
+test "win32 targetButtonLabelRightInset reserves target badge space" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try std.testing.expectEqual(@as(i32, 0), targetButtonLabelRightInset(null));
+    try std.testing.expectEqual(@as(i32, 12), targetButtonLabelRightInset(.tab));
+    try std.testing.expectEqual(@as(i32, 12), targetButtonLabelRightInset(.window));
+    try std.testing.expectEqual(@as(i32, 12), targetButtonLabelRightInset(.split));
+}
+
+test "win32 buttonLabelRightInset reserves slot and target badge space" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try std.testing.expectEqual(@as(i32, 0), buttonLabelRightInset(null, null));
+    try std.testing.expectEqual(@as(i32, 12), buttonLabelRightInset(null, .tab));
+    try std.testing.expectEqual(@as(i32, 16), buttonLabelRightInset(0, null));
+    try std.testing.expectEqual(@as(i32, 16), buttonLabelRightInset(0, .split));
+    try std.testing.expectEqual(@as(i32, 12), buttonLabelRightInset(9, .window));
+}
+
+test "win32 shouldPaintQuickSlotTargetMarker follows active chip state" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try std.testing.expect(!shouldPaintQuickSlotTargetMarker(false, false));
+    try std.testing.expect(shouldPaintQuickSlotTargetMarker(true, false));
+    try std.testing.expect(shouldPaintQuickSlotTargetMarker(false, true));
+}
+
+test "win32 profileOpenTargetMarkerColor reflects launcher target" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try std.testing.expectEqual(rgb(132, 172, 238), profileOpenTargetMarkerColor(.tab));
+    try std.testing.expectEqual(rgb(236, 182, 118), profileOpenTargetMarkerColor(.window));
+    try std.testing.expectEqual(rgb(126, 204, 148), profileOpenTargetMarkerColor(.split));
+}
+
+test "win32 profileOpenTargetBadgeGlyph reflects launcher target" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try std.testing.expectEqual(@as(u8, 'T'), profileOpenTargetBadgeGlyph(.tab));
+    try std.testing.expectEqual(@as(u8, 'W'), profileOpenTargetBadgeGlyph(.window));
+    try std.testing.expectEqual(@as(u8, 'S'), profileOpenTargetBadgeGlyph(.split));
+}
+
+test "win32 pinnedSlotBadgeDigit reflects visible quick slot ordinals" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try std.testing.expectEqual(@as(?u8, '1'), pinnedSlotBadgeDigit(0));
+    try std.testing.expectEqual(@as(?u8, '3'), pinnedSlotBadgeDigit(2));
+    try std.testing.expectEqual(@as(?u8, null), pinnedSlotBadgeDigit(null));
+    try std.testing.expectEqual(@as(?u8, null), pinnedSlotBadgeDigit(9));
 }
 
 test "win32 quickSlotProfileIndex skips the selected profile and preserves order" {
@@ -9475,6 +11119,14 @@ test "win32 applyQuickSlotPreferenceOrder promotes pinned launcher profiles" {
     try std.testing.expectEqualStrings("cmd.exe", profiles[1].key);
     try std.testing.expectEqualStrings("pwsh.exe", profiles[2].key);
     try std.testing.expectEqualStrings("wsl:Ubuntu", profiles[3].key);
+}
+
+test "win32 findLauncherQuickSlotOrdinal finds runtime-pinned slots" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try std.testing.expectEqual(@as(?usize, 0), findLauncherQuickSlotOrdinal(.{ "git-bash", "cmd.exe", null }, "git-bash"));
+    try std.testing.expectEqual(@as(?usize, 1), findLauncherQuickSlotOrdinal(.{ "git-bash", "cmd.exe", null }, "CMD.EXE"));
+    try std.testing.expectEqual(@as(?usize, null), findLauncherQuickSlotOrdinal(.{ "git-bash", "cmd.exe", null }, "pwsh.exe"));
 }
 
 test "win32 buildProfileChromeBadgeText adds profile glyph treatment" {
@@ -10073,6 +11725,14 @@ test "win32 commandPaletteBannerText resolves unique prefix" {
     const banner = (try commandPaletteBannerText(std.testing.allocator, "reload_")).?;
     defer std.testing.allocator.free(banner);
     try std.testing.expectEqualStrings("Ready: reload_config - reload winghostty configuration", banner);
+}
+
+test "win32 commandPaletteBannerText uses Windows fullscreen wording" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const banner = (try commandPaletteBannerText(std.testing.allocator, "toggle_fullscreen")).?;
+    defer std.testing.allocator.free(banner);
+    try std.testing.expectEqualStrings("Ready: toggle_fullscreen - toggle fullscreen", banner);
 }
 
 test "win32 commandPaletteBannerText suggests tab overview action" {
