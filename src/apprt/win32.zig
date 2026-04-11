@@ -206,6 +206,24 @@ const PFD_DOUBLEBUFFER = 0x00000001;
 const PFD_TYPE_RGBA = 0;
 const PFD_MAIN_PLANE = 0;
 
+// Context menu constants
+const MF_STRING: UINT = 0x00000000;
+const MF_SEPARATOR: UINT = 0x00000800;
+const MF_GRAYED: UINT = 0x00000001;
+const TPM_LEFTALIGN: UINT = 0x0000;
+const TPM_TOPALIGN: UINT = 0x0000;
+const TPM_RETURNCMD: UINT = 0x0100;
+const TPM_RIGHTBUTTON: UINT = 0x0002;
+const WM_NULL: UINT = 0x0000;
+const CTX_COPY: usize = 4001;
+const CTX_PASTE: usize = 4002;
+const CTX_SELECT_ALL: usize = 4003;
+const CTX_FIND: usize = 4004;
+const CTX_COMMAND_PALETTE: usize = 4005;
+const CTX_NEW_TAB: usize = 4006;
+const CTX_SPLIT_RIGHT: usize = 4007;
+const CTX_NEW_WINDOW: usize = 4008;
+
 const WNDPROC = *const fn (HWND, UINT, WPARAM, LPARAM) callconv(.winapi) LRESULT;
 const SHORT = i16;
 
@@ -479,6 +497,11 @@ extern "user32" fn GetWindowLongPtrW(hWnd: HWND, nIndex: i32) callconv(.winapi) 
 extern "user32" fn ShowWindow(hWnd: HWND, nCmdShow: i32) callconv(.winapi) BOOL;
 extern "user32" fn SystemParametersInfoW(uiAction: UINT, uiParam: UINT, pvParam: ?*anyopaque, fWinIni: UINT) callconv(.winapi) BOOL;
 extern "user32" fn GetSysColor(nIndex: i32) callconv(.winapi) u32;
+extern "user32" fn CreatePopupMenu() callconv(.winapi) HMENU;
+extern "user32" fn AppendMenuW(hMenu: HMENU, uFlags: UINT, uIDNewItem: usize, lpNewItem: ?LPCWSTR) callconv(.winapi) BOOL;
+extern "user32" fn TrackPopupMenu(hMenu: HMENU, uFlags: UINT, x: i32, y: i32, nReserved: i32, hWnd: HWND, prcRect: ?*const RECT) callconv(.winapi) BOOL;
+extern "user32" fn DestroyMenu(hMenu: HMENU) callconv(.winapi) BOOL;
+extern "user32" fn ClientToScreen(hWnd: HWND, lpPoint: *POINT) callconv(.winapi) BOOL;
 extern "user32" fn ToUnicode(
     wVirtKey: UINT,
     wScanCode: UINT,
@@ -3787,6 +3810,71 @@ const Host = struct {
         self.overlay_brush = null;
         self.edit_brush = null;
         self.ensureThemeBrushes() catch {};
+    }
+
+    fn showContextMenu(self: *Host, screen_x: i32, screen_y: i32) void {
+        const hwnd = self.hwnd orelse return;
+        const menu = CreatePopupMenu() orelse return;
+        defer _ = DestroyMenu(menu);
+
+        // Check if active surface has a selection
+        const has_selection = if (self.activeSurface()) |s| blk: {
+            if (!s.core_initialized) break :blk false;
+            break :blk s.core_surface.hasSelection();
+        } else false;
+
+        _ = AppendMenuW(menu, if (has_selection) MF_STRING else MF_GRAYED, CTX_COPY, std.unicode.utf8ToUtf16LeStringLiteral("Copy\tCtrl+Shift+C"));
+        _ = AppendMenuW(menu, MF_STRING, CTX_PASTE, std.unicode.utf8ToUtf16LeStringLiteral("Paste\tCtrl+Shift+V"));
+        _ = AppendMenuW(menu, MF_STRING, CTX_SELECT_ALL, std.unicode.utf8ToUtf16LeStringLiteral("Select All"));
+        _ = AppendMenuW(menu, MF_SEPARATOR, 0, null);
+        _ = AppendMenuW(menu, MF_STRING, CTX_FIND, std.unicode.utf8ToUtf16LeStringLiteral("Find...\tCtrl+Shift+F"));
+        _ = AppendMenuW(menu, MF_STRING, CTX_COMMAND_PALETTE, std.unicode.utf8ToUtf16LeStringLiteral("Command Palette\tCtrl+Shift+P"));
+        _ = AppendMenuW(menu, MF_SEPARATOR, 0, null);
+        _ = AppendMenuW(menu, MF_STRING, CTX_NEW_TAB, std.unicode.utf8ToUtf16LeStringLiteral("New Tab"));
+        _ = AppendMenuW(menu, MF_STRING, CTX_SPLIT_RIGHT, std.unicode.utf8ToUtf16LeStringLiteral("Split Right"));
+        _ = AppendMenuW(menu, MF_STRING, CTX_NEW_WINDOW, std.unicode.utf8ToUtf16LeStringLiteral("New Window"));
+
+        // Menu must be owned by top-level host HWND to avoid dismiss bugs
+        _ = SetForegroundWindow(hwnd);
+        const cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_TOPALIGN, screen_x, screen_y, 0, hwnd, null);
+        _ = PostMessageW(hwnd, WM_NULL, 0, 0);
+
+        // Dispatch command (cmd is 0 on cancel)
+        self.handleContextMenuCommand(cmd);
+    }
+
+    fn handleContextMenuCommand(self: *Host, cmd: BOOL) void {
+        if (cmd <= 0) return; // 0 = cancel/dismiss
+        const surface = self.activeSurface() orelse return;
+        if (!surface.core_initialized) return;
+
+        switch (@as(usize, @intCast(cmd))) {
+            CTX_COPY => {
+                _ = surface.core_surface.performBindingAction(.{ .copy_to_clipboard = .mixed }) catch {};
+            },
+            CTX_PASTE => {
+                _ = surface.core_surface.performBindingAction(.{ .paste_from_clipboard = {} }) catch {};
+            },
+            CTX_SELECT_ALL => {
+                _ = surface.core_surface.performBindingAction(.{ .select_all = {} }) catch {};
+            },
+            CTX_FIND => {
+                surface.showSearchOverlay("") catch {};
+            },
+            CTX_COMMAND_PALETTE => {
+                _ = surface.toggleCommandPalette() catch {};
+            },
+            CTX_NEW_TAB => {
+                _ = self.app.performAction(.{ .surface = surface.core() }, .new_tab, {}) catch {};
+            },
+            CTX_SPLIT_RIGHT => {
+                _ = self.app.performAction(.{ .surface = surface.core() }, .new_split, .right) catch {};
+            },
+            CTX_NEW_WINDOW => {
+                _ = self.app.performAction(.{ .surface = surface.core() }, .new_window, {}) catch {};
+            },
+            else => {}, // 0 = cancel, ignore
+        }
     }
 
     fn isOverlayButton(self: *Host, child: HWND) bool {
@@ -8894,6 +8982,25 @@ fn windowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.w
 
         WM_KEYDOWN, WM_SYSKEYDOWN, WM_KEYUP, WM_SYSKEYUP => {
             if (surface) |v| {
+                // VK_APPS (Menu key) -> show context menu when not mouse reporting
+                const vk: UINT = @intCast(wParam & 0xFFFF);
+                if (vk == VK_APPS and (msg == WM_KEYDOWN or msg == WM_SYSKEYDOWN)) {
+                    if (!v.core_initialized or v.core_surface.io.terminal.flags.mouse_event == .none) {
+                        if (v.host) |h| {
+                            // Keyboard invoke: use center of surface
+                            var rect: RECT = undefined;
+                            if (GetClientRect(hwnd, &rect) != 0) {
+                                var pt: POINT = .{
+                                    .x = @divTrunc(rect.right, 2),
+                                    .y = @divTrunc(rect.bottom, 2),
+                                };
+                                _ = ClientToScreen(hwnd, &pt);
+                                h.showContextMenu(pt.x, pt.y);
+                            }
+                        }
+                        return 0;
+                    }
+                }
                 v.handleKeyMessage(msg, wParam, lParam);
                 return 0;
             }
@@ -8912,7 +9019,29 @@ fn windowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.w
             return DefWindowProcW(hwnd, msg, wParam, lParam);
         },
 
-        WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP => {
+        WM_RBUTTONUP => {
+            if (surface) |v| {
+                // If terminal has mouse reporting active, pass through normally
+                if (v.core_initialized and v.core_surface.io.terminal.flags.mouse_event != .none) {
+                    v.handleMouseButton(msg, wParam, lParam);
+                    return 0;
+                }
+                // Otherwise show context menu
+                _ = ReleaseCapture();
+                if (v.host) |h| {
+                    var pt: POINT = .{
+                        .x = signedLowWord(lParamBits(lParam)),
+                        .y = signedHighWord(lParamBits(lParam)),
+                    };
+                    _ = ClientToScreen(hwnd, &pt);
+                    h.showContextMenu(pt.x, pt.y);
+                }
+                return 0;
+            }
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+        },
+
+        WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONDOWN, WM_MBUTTONDOWN, WM_MBUTTONUP => {
             if (surface) |v| {
                 v.handleMouseButton(msg, wParam, lParam);
                 return 0;
