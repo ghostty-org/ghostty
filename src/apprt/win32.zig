@@ -2234,6 +2234,9 @@ pub const App = struct {
                 self.removeHost(host);
             } else if (self.running) {
                 if (self.activeTab(host)) |tab| if (tab.focusedSurface()) |replacement| self.activateSurface(replacement);
+                // Relayout when tab bar visibility may have changed (auto-hide crossing 1-tab threshold)
+                host.layout() catch {};
+                if (host.hwnd) |host_hwnd| _ = InvalidateRect(host_hwnd, null, 0);
             }
         }
 
@@ -4255,19 +4258,32 @@ const Host = struct {
         return true;
     }
 
+    fn shouldShowTabBar(self: *Host) bool {
+        return switch (self.app.config.@"window-show-tab-bar") {
+            .always => true,
+            .never => false,
+            .auto => self.tabs.items.len > 1,
+        };
+    }
+
+    fn tabBarHeight(self: *Host) i32 {
+        return if (self.shouldShowTabBar()) host_tab_height else 0;
+    }
+
     fn contentRect(self: *Host) !RECT {
         const hwnd = self.hwnd orelse return error.InvalidHost;
         var rect: RECT = undefined;
         if (GetClientRect(hwnd, &rect) == 0) {
             return windows.unexpectedError(windows.kernel32.GetLastError());
         }
+        const tab_offset: i32 = self.tabBarHeight();
         const overlay_offset: i32 = if (self.overlay_mode == .none) 0 else host_overlay_height;
         const inspector_offset: i32 = if (self.inspectorPanelVisible()) host_inspector_panel_height else 0;
         return .{
             .left = 0,
-            .top = host_tab_height + overlay_offset + inspector_offset,
+            .top = tab_offset + overlay_offset + inspector_offset,
             .right = rect.right,
-            .bottom = @max(host_tab_height + 1, rect.bottom - host_status_height),
+            .bottom = @max(tab_offset + 1, rect.bottom - host_status_height),
         };
     }
 
@@ -4771,7 +4787,7 @@ const Host = struct {
             const edit_hwnd = self.overlay_edit_hwnd orelse return;
             const accept_hwnd = self.overlay_accept_hwnd orelse return;
             const cancel_hwnd = self.overlay_cancel_hwnd orelse return;
-            const overlay_y = host_tab_height;
+            const overlay_y = self.tabBarHeight();
             const edit_width = @max(120, width - host_overlay_label_width - host_overlay_accept_width - host_overlay_cancel_width - (host_overlay_padding * 4));
             _ = MoveWindow(edit_hwnd, host_overlay_padding + host_overlay_label_width + 8, overlay_y + 8, edit_width - 16, host_overlay_row_height - 4, 1);
             _ = MoveWindow(accept_hwnd, width - host_overlay_cancel_width - host_overlay_accept_width - (host_overlay_padding * 2), overlay_y + 4, host_overlay_accept_width, host_overlay_row_height, 1);
@@ -4827,34 +4843,39 @@ const Host = struct {
         const theme = &self.app.resolved_theme;
         var client_rect: RECT = undefined;
         if (GetClientRect(hwnd, &client_rect) == 0) return;
+        const tab_h = self.tabBarHeight();
         const overlay_offset: i32 = if (self.overlay_mode != .none) host_overlay_height else 0;
         const inspector_panel_visible = self.inspectorPanelVisible();
         const inspector_offset: i32 = if (inspector_panel_visible) host_inspector_panel_height else 0;
-        const banner_y: i32 = host_tab_height + overlay_offset + inspector_offset + 2;
-        const tab_rect = RECT{
-            .left = 0,
-            .top = 0,
-            .right = client_rect.right,
-            .bottom = host_tab_height,
-        };
-        fillSolidRect(hdc, tab_rect, theme.chrome_bg);
-        fillSolidRect(
-            hdc,
-            .{
+        const banner_y: i32 = tab_h + overlay_offset + inspector_offset + 2;
+
+        // Tab bar (only when visible)
+        if (tab_h > 0) {
+            const tab_rect = RECT{
                 .left = 0,
-                .top = host_tab_height - 1,
+                .top = 0,
                 .right = client_rect.right,
-                .bottom = host_tab_height,
+                .bottom = tab_h,
+            };
+            fillSolidRect(hdc, tab_rect, theme.chrome_bg);
+            fillSolidRect(
+                hdc,
+                .{
+                    .left = 0,
+                    .top = tab_h - 1,
+                    .right = client_rect.right,
+                .bottom = tab_h,
             },
             theme.chrome_border,
         );
+        } // end tab bar painting
 
         if (self.overlay_mode != .none) {
             const overlay_rect = RECT{
                 .left = 0,
-                .top = host_tab_height,
+                .top = tab_h,
                 .right = client_rect.right,
-                .bottom = host_tab_height + host_overlay_height,
+                .bottom = tab_h + host_overlay_height,
             };
             fillSolidRect(hdc, overlay_rect, theme.overlay_bg);
             fillSolidRect(
@@ -5046,9 +5067,9 @@ const Host = struct {
         if (inspector_panel_visible) {
             const panel_rect = RECT{
                 .left = 0,
-                .top = host_tab_height + overlay_offset,
+                .top = tab_h + overlay_offset,
                 .right = client_rect.right,
-                .bottom = host_tab_height + overlay_offset + host_inspector_panel_height,
+                .bottom = tab_h + overlay_offset + host_inspector_panel_height,
             };
             fillSolidRect(hdc, panel_rect, theme.inspector_bg);
             fillSolidRect(
@@ -5084,7 +5105,7 @@ const Host = struct {
             }
         }
 
-        const status_top = @max(host_tab_height + overlay_offset, client_rect.bottom - host_status_height);
+        const status_top = @max(tab_h + overlay_offset, client_rect.bottom - host_status_height);
         const status_rect = RECT{
             .left = 0,
             .top = status_top,
