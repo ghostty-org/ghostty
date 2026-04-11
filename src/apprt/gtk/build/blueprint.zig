@@ -36,14 +36,11 @@ const required_blueprint_version = std.SemanticVersion{
     .patch = 0,
 };
 
-pub fn main() !void {
-    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
-    defer _ = debug_allocator.deinit();
-    const alloc = debug_allocator.allocator();
-
+pub fn main(init: std.process.Init) !void {
     // Get our args
-    var it = try std.process.argsWithAllocator(alloc);
+    var it = try init.minimal.args.iterateAllocator(init.gpa);
     defer it.deinit();
+
     _ = it.next(); // Skip argv0
     const arg_major = it.next() orelse return error.NoMajorVersion;
     const arg_minor = it.next() orelse return error.NoMinorVersion;
@@ -68,27 +65,15 @@ pub fn main() !void {
 
     // Version checks
     {
-        var stdout: std.ArrayListUnmanaged(u8) = .empty;
-        defer stdout.deinit(alloc);
-        var stderr: std.ArrayListUnmanaged(u8) = .empty;
-        defer stderr.deinit(alloc);
-
-        var blueprint_compiler = std.process.Child.init(
-            &.{
+        const blueprint_compiler = try std.process.spawn(init.io, .{
+            .argv = &.{
                 "blueprint-compiler",
                 "--version",
             },
-            alloc,
-        );
-        blueprint_compiler.stdout_behavior = .Pipe;
-        blueprint_compiler.stderr_behavior = .Pipe;
-        try blueprint_compiler.spawn();
-        try blueprint_compiler.collectOutput(
-            alloc,
-            &stdout,
-            &stderr,
-            std.math.maxInt(u16),
-        );
+            .stdout = .pipe,
+            .stderr = .pipe,
+        });
+
         const term = blueprint_compiler.wait() catch |err| switch (err) {
             error.FileNotFound => {
                 std.debug.print(
@@ -101,13 +86,16 @@ pub fn main() !void {
             else => return err,
         };
         switch (term) {
-            .Exited => |rc| if (rc != 0) std.process.exit(1),
+            .exited => |rc| if (rc != 0) std.process.exit(1),
             else => std.process.exit(1),
         }
 
+        var stdout_buffer: [2048]u8 = undefined;
+        const stdout_len = try blueprint_compiler.stdout.?.readPositionalAll(init.io, &stdout_buffer, 0);
+
         const version = try std.SemanticVersion.parse(std.mem.trim(
             u8,
-            stdout.items,
+            stdout_buffer[0..stdout_len],
             &std.ascii.whitespace,
         ));
         if (version.order(required_blueprint_version) == .lt) {
@@ -122,30 +110,18 @@ pub fn main() !void {
 
     // Compilation
     {
-        var stdout: std.ArrayListUnmanaged(u8) = .empty;
-        defer stdout.deinit(alloc);
-        var stderr: std.ArrayListUnmanaged(u8) = .empty;
-        defer stderr.deinit(alloc);
-
-        var blueprint_compiler = std.process.Child.init(
-            &.{
+        const blueprint_compiler = try std.process.spawn(init.io, .{
+            .argv = &.{
                 "blueprint-compiler",
                 "compile",
                 "--output",
                 output,
                 input,
             },
-            alloc,
-        );
-        blueprint_compiler.stdout_behavior = .Pipe;
-        blueprint_compiler.stderr_behavior = .Pipe;
-        try blueprint_compiler.spawn();
-        try blueprint_compiler.collectOutput(
-            alloc,
-            &stdout,
-            &stderr,
-            std.math.maxInt(u16),
-        );
+            .stdout = .pipe,
+            .stderr = .pipe,
+        });
+
         const term = blueprint_compiler.wait() catch |err| switch (err) {
             error.FileNotFound => {
                 std.debug.print(
@@ -158,15 +134,18 @@ pub fn main() !void {
             else => return err,
         };
 
+        var stderr_buffer: [2048]u8 = undefined;
+        const stderr_len = try blueprint_compiler.stderr.?.readPositionalAll(init.io, &stderr_buffer, 0);
+
         switch (term) {
             .Exited => |rc| {
                 if (rc != 0) {
-                    std.debug.print("{s}", .{stderr.items});
+                    std.debug.print("{s}", .{stderr_buffer[0..stderr_len]});
                     std.process.exit(1);
                 }
             },
             else => {
-                std.debug.print("{s}", .{stderr.items});
+                std.debug.print("{s}", .{stderr_buffer[0..stderr_len]});
                 std.process.exit(1);
             },
         }

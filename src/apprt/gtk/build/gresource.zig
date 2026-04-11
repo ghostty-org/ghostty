@@ -122,18 +122,17 @@ pub fn blueprint(comptime bp: Blueprint) [:0]const u8 {
     }
 }
 
-pub fn main() !void {
-    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
-    defer _ = debug_allocator.deinit();
-    const alloc = debug_allocator.allocator();
+pub fn main(init: std.process.Init) !void {
+    const alloc = init.arena.allocator();
 
     // Collect the UI files that are passed in as arguments.
-    var ui_files: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ui_files: std.ArrayList([]const u8) = .empty;
     defer {
         for (ui_files.items) |item| alloc.free(item);
         ui_files.deinit(alloc);
     }
-    var it = try std.process.argsWithAllocator(alloc);
+
+    var it = try init.minimal.args.iterateAllocator(alloc);
     defer it.deinit();
     while (it.next()) |arg| {
         if (!std.mem.endsWith(u8, arg, ".ui")) continue;
@@ -144,7 +143,7 @@ pub fn main() !void {
     }
 
     var buf: [4096]u8 = undefined;
-    var stdout = std.Io.File.stdout().writer(&buf);
+    var stdout = std.Io.File.stdout().writer(init.io, &buf);
     const writer = &stdout.interface;
     try writer.writeAll(
         \\<?xml version="1.0" encoding="UTF-8"?>

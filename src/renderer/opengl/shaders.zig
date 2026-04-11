@@ -63,22 +63,16 @@ const PipelineDescription = struct {
 
 /// We create a type for the pipeline collection based on our desc array.
 const PipelineCollection = t: {
-    var fields: [pipeline_descs.len]std.builtin.Type.StructField = undefined;
-    for (pipeline_descs, 0..) |pipeline, i| {
-        fields[i] = .{
-            .name = pipeline[0],
-            .type = Pipeline,
-            .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = @alignOf(Pipeline),
-        };
+    const StructField = std.builtin.Type.StructField;
+
+    var names: [pipeline_descs.len][]const u8 = undefined;
+    var types = [_]type{Pipeline} ** pipeline_descs.len;
+    var attrs = [_]StructField.Attributes{.{ .@"align" = @alignOf(Pipeline) }} ** pipeline_descs.len;
+
+    for (pipeline_descs, &names) |pipeline, *name| {
+        name.* = pipeline[0];
     }
-    break :t @Type(.{ .@"struct" = .{
-        .layout = .auto,
-        .fields = &fields,
-        .decls = &.{},
-        .is_tuple = false,
-    } });
+    break :t @Struct(.auto, null, &names, &types, &attrs);
 };
 
 /// This contains the state for the shaders used by the Metal renderer.
