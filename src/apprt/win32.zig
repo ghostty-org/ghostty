@@ -4016,7 +4016,7 @@ const Host = struct {
             accept,
         );
         if (profile_kind) |kind| {
-            colors = applyProfileChromeAccent(colors, kind, active, hovered, pressed, disabled);
+            colors = applyProfileChromeAccent(colors, kind, self.app.resolved_theme.is_dark, active, hovered, pressed, disabled);
         }
         const bg = colors.bg;
         const border = colors.border;
@@ -4048,7 +4048,7 @@ const Host = struct {
             .bottom = draw.rcItem.bottom,
         }, border);
         if (profile_kind) |kind| {
-            const stripe = profileChromeStripeColor(kind, active, hovered, pressed, disabled);
+            const stripe = profileChromeStripeColor(kind, self.app.resolved_theme.is_dark, active, hovered, pressed, disabled);
             fillSolidRect(draw.hDC, .{
                 .left = draw.rcItem.left + 1,
                 .top = draw.rcItem.top + 1,
@@ -4070,7 +4070,8 @@ const Host = struct {
                     digit,
                     colors.border,
                     colors.bg,
-                    profileKindLabelColor(kind),
+                    profileKindLabelColor(kind, self.app.resolved_theme.is_dark),
+                    self.current_dpi,
                 );
             }
             if (launcher_target) |target| {
@@ -4081,12 +4082,13 @@ const Host = struct {
                     colors.border,
                     colors.bg,
                     profileOpenTargetMarkerColor(target),
+                    self.current_dpi,
                 );
             }
         }
         if (focused and !disabled) {
             const focus = if (profile_kind) |kind|
-                profileKindFocusRingColor(kind)
+                profileKindFocusRingColor(kind, self.app.resolved_theme.is_dark)
             else
                 buttonFocusRingColor(active, overlay, accept);
             fillSolidRect(draw.hDC, .{
@@ -4381,6 +4383,12 @@ const Host = struct {
     fn scaled(self: *const Host, base: i32) i32 {
         if (self.current_dpi <= 96) return base;
         return @divTrunc(base * @as(i32, @intCast(self.current_dpi)), 96);
+    }
+
+    /// DPI-scale helper usable from free functions that lack a Host pointer.
+    fn scaledBy(base: i32, dpi: u32) i32 {
+        if (dpi <= 96) return base;
+        return @divTrunc(base * @as(i32, @intCast(dpi)), 96);
     }
 
     fn contentRect(self: *Host) !RECT {
@@ -5049,7 +5057,7 @@ const Host = struct {
                         .right = self.scaled(host_overlay_padding) + badge_width,
                         .bottom = overlay_rect.top + self.scaled(23),
                     };
-                    const accent = profileChromeAccent(profile.kind);
+                    const accent = profileChromeAccent(profile.kind, theme.is_dark);
                     fillSolidRect(hdc, badge_rect, accent.idle_bg);
                     fillSolidRect(hdc, .{
                         .left = badge_rect.left,
@@ -5075,7 +5083,7 @@ const Host = struct {
                         .right = badge_rect.right,
                         .bottom = badge_rect.bottom,
                     }, accent.idle_border);
-                    _ = SetTextColor(hdc, profileKindLabelColor(profile.kind));
+                    _ = SetTextColor(hdc, profileKindLabelColor(profile.kind, theme.is_dark));
                     var badge_text_rect = badge_rect;
                     badge_text_rect.left += self.scaled(6);
                     badge_text_rect.right -= self.scaled(6);
@@ -5087,7 +5095,7 @@ const Host = struct {
                         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                     );
                     overlay_label_x = badge_rect.right + self.scaled(8);
-                    overlay_label_color = profileKindLabelColor(profile.kind);
+                    overlay_label_color = profileKindLabelColor(profile.kind, theme.is_dark);
                 }
             }
             _ = SetTextColor(hdc, overlay_label_color);
@@ -5111,25 +5119,25 @@ const Host = struct {
                 .top = edit_frame.top,
                 .right = edit_frame.right,
                 .bottom = edit_frame.top + 1,
-            }, overlayEditBorderColor(self.overlay_mode, overlay_edit_focused));
+            }, overlayEditBorderColor(self.overlay_mode, overlay_edit_focused, theme.is_dark));
             fillSolidRect(hdc, .{
                 .left = edit_frame.left,
                 .top = edit_frame.bottom - 1,
                 .right = edit_frame.right,
                 .bottom = edit_frame.bottom,
-            }, overlayEditBorderColor(self.overlay_mode, overlay_edit_focused));
+            }, overlayEditBorderColor(self.overlay_mode, overlay_edit_focused, theme.is_dark));
             fillSolidRect(hdc, .{
                 .left = edit_frame.left,
                 .top = edit_frame.top,
                 .right = edit_frame.left + 1,
                 .bottom = edit_frame.bottom,
-            }, overlayEditBorderColor(self.overlay_mode, overlay_edit_focused));
+            }, overlayEditBorderColor(self.overlay_mode, overlay_edit_focused, theme.is_dark));
             fillSolidRect(hdc, .{
                 .left = edit_frame.right - 1,
                 .top = edit_frame.top,
                 .right = edit_frame.right,
                 .bottom = edit_frame.bottom,
-            }, overlayEditBorderColor(self.overlay_mode, overlay_edit_focused));
+            }, overlayEditBorderColor(self.overlay_mode, overlay_edit_focused, theme.is_dark));
 
             const pane_count = if (self.activeTab()) |tab| tab.leafCount() else 1;
             const overlay_feedback = if (self.overlay_mode == .profile)
@@ -5166,7 +5174,7 @@ const Host = struct {
             defer alloc.free(overlay_feedback_w);
             _ = SetTextColor(hdc, if (self.overlay_mode == .profile and self.banner_text == null)
                 if (self.selectedProfile()) |profile|
-                    profileKindHintColor(profile.kind)
+                    profileKindHintColor(profile.kind, theme.is_dark)
                 else
                     theme.text_secondary
             else switch (if (self.banner_text != null) self.banner_kind else .none) {
@@ -5306,7 +5314,7 @@ const Host = struct {
                 defer alloc.free(chip);
                 const chip_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, chip) catch return;
                 defer alloc.free(chip_w);
-                const accent = profileChromeAccent(profile.kind);
+                const accent = profileChromeAccent(profile.kind, theme.is_dark);
                 const chip_width = self.scaled(16) + @as(i32, @intCast(chip.len * @as(usize, @intCast(self.scaled(7)))));
                 const chip_rect = RECT{
                     .left = status_x,
@@ -5346,7 +5354,8 @@ const Host = struct {
                         digit,
                         accent.idle_border,
                         accent.idle_bg,
-                        profileKindLabelColor(profile.kind),
+                        profileKindLabelColor(profile.kind, theme.is_dark),
+                        self.current_dpi,
                     );
                 }
                 paintTargetChipBadge(
@@ -5356,8 +5365,9 @@ const Host = struct {
                     accent.idle_border,
                     accent.idle_bg,
                     profileOpenTargetMarkerColor(self.app.launcher_profile_target),
+                    self.current_dpi,
                 );
-                _ = SetTextColor(hdc, profileKindLabelColor(profile.kind));
+                _ = SetTextColor(hdc, profileKindLabelColor(profile.kind, theme.is_dark));
                 var chip_text_rect = chip_rect;
                 chip_text_rect.left += self.scaled(6);
                 chip_text_rect.right -= launcherChipRightInset(pinned_slot_digit != null, true);
@@ -5388,7 +5398,7 @@ const Host = struct {
                     const focused = self.focused_quick_slot != null and self.focused_quick_slot.? == index;
                     const hovered = self.hovered_quick_slot != null and self.hovered_quick_slot.? == index;
                     const target_marker = shouldPaintQuickSlotTargetMarker(hovered, focused);
-                    const colors = quickSlotChipColors(profile.kind, hovered);
+                    const colors = quickSlotChipColors(profile.kind, theme.is_dark, hovered);
                     const chip_width = self.scaled(12) + @as(i32, @intCast(chip.len * @as(usize, @intCast(self.scaled(7)))));
                     const chip_rect = RECT{
                         .left = status_x,
@@ -5425,7 +5435,8 @@ const Host = struct {
                         paintPinnedChipMarker(
                             hdc,
                             chip_rect,
-                            pinnedChipMarkerColor(profile.kind, hovered),
+                            pinnedChipMarkerColor(profile.kind, theme.is_dark, hovered),
+                            self.current_dpi,
                         );
                     }
                     if (target_marker) {
@@ -5436,33 +5447,35 @@ const Host = struct {
                             colors.border,
                             colors.bg,
                             profileOpenTargetMarkerColor(self.app.launcher_profile_target),
+                            self.current_dpi,
                         );
                     }
                     if (focused) {
+                        const focus_ring = profileKindFocusRingColor(profile.kind, theme.is_dark);
                         fillSolidRect(hdc, .{
                             .left = chip_rect.left + self.scaled(2),
                             .top = chip_rect.top + self.scaled(2),
                             .right = chip_rect.right - self.scaled(2),
                             .bottom = chip_rect.top + self.scaled(4),
-                        }, profileKindFocusRingColor(profile.kind));
+                        }, focus_ring);
                         fillSolidRect(hdc, .{
                             .left = chip_rect.left + self.scaled(2),
                             .top = chip_rect.bottom - self.scaled(4),
                             .right = chip_rect.right - self.scaled(2),
                             .bottom = chip_rect.bottom - self.scaled(2),
-                        }, profileKindFocusRingColor(profile.kind));
+                        }, focus_ring);
                         fillSolidRect(hdc, .{
                             .left = chip_rect.left + self.scaled(2),
                             .top = chip_rect.top + self.scaled(2),
                             .right = chip_rect.left + self.scaled(4),
                             .bottom = chip_rect.bottom - self.scaled(2),
-                        }, profileKindFocusRingColor(profile.kind));
+                        }, focus_ring);
                         fillSolidRect(hdc, .{
                             .left = chip_rect.right - self.scaled(4),
                             .top = chip_rect.top + self.scaled(2),
                             .right = chip_rect.right - self.scaled(2),
                             .bottom = chip_rect.bottom - self.scaled(2),
-                        }, profileKindFocusRingColor(profile.kind));
+                        }, focus_ring);
                     }
                     _ = SetTextColor(hdc, colors.fg);
                     var chip_text_rect = chip_rect;
@@ -6008,7 +6021,17 @@ fn fillSolidRect(hdc: HDC, rect: RECT, color: u32) void {
     _ = FillRect(hdc, &rect, brush);
 }
 
-fn overlayAccentColor(mode: HostOverlayMode) u32 {
+fn overlayAccentColor(mode: HostOverlayMode, is_dark: bool) u32 {
+    if (!is_dark) {
+        return switch (mode) {
+            .command_palette => rgb(0, 90, 158),
+            .profile => rgb(136, 60, 160),
+            .search => rgb(16, 124, 80),
+            .surface_title, .tab_title => rgb(156, 112, 24),
+            .tab_overview => rgb(102, 76, 180),
+            .none => rgb(140, 140, 140),
+        };
+    }
     return switch (mode) {
         .command_palette => rgb(116, 156, 224),
         .profile => rgb(192, 132, 214),
@@ -6019,8 +6042,14 @@ fn overlayAccentColor(mode: HostOverlayMode) u32 {
     };
 }
 
-fn overlayEditBorderColor(mode: HostOverlayMode, focused: bool) u32 {
-    if (focused) return overlayAccentColor(mode);
+fn overlayEditBorderColor(mode: HostOverlayMode, focused: bool, is_dark: bool) u32 {
+    if (focused) return overlayAccentColor(mode, is_dark);
+    if (!is_dark) {
+        return switch (mode) {
+            .none => rgb(180, 180, 180),
+            else => rgb(140, 140, 140),
+        };
+    }
     return switch (mode) {
         .none => rgb(72, 82, 98),
         else => rgb(86, 96, 112),
@@ -6100,7 +6129,62 @@ const ProfileChromeAccent = struct {
     focus: u32,
 };
 
-fn profileChromeAccent(kind: windows_shell.ProfileKind) ProfileChromeAccent {
+fn profileChromeAccent(kind: windows_shell.ProfileKind, is_dark: bool) ProfileChromeAccent {
+    if (!is_dark) {
+        return switch (kind) {
+            .wsl_default, .wsl_distro => .{
+                .idle_bg = rgb(228, 245, 233),
+                .idle_border = rgb(46, 125, 70),
+                .hover_bg = rgb(218, 238, 224),
+                .hover_border = rgb(36, 110, 58),
+                .pressed_bg = rgb(200, 228, 210),
+                .active_bg = rgb(195, 232, 208),
+                .active_border = rgb(28, 100, 48),
+                .focus = rgb(22, 80, 40),
+            },
+            .pwsh => .{
+                .idle_bg = rgb(224, 242, 248),
+                .idle_border = rgb(24, 120, 150),
+                .hover_bg = rgb(212, 236, 244),
+                .hover_border = rgb(16, 108, 138),
+                .pressed_bg = rgb(196, 226, 236),
+                .active_bg = rgb(188, 228, 240),
+                .active_border = rgb(12, 96, 126),
+                .focus = rgb(8, 80, 108),
+            },
+            .powershell => .{
+                .idle_bg = rgb(228, 232, 248),
+                .idle_border = rgb(48, 68, 156),
+                .hover_bg = rgb(218, 222, 242),
+                .hover_border = rgb(38, 56, 140),
+                .pressed_bg = rgb(200, 208, 232),
+                .active_bg = rgb(196, 206, 236),
+                .active_border = rgb(30, 48, 128),
+                .focus = rgb(24, 40, 108),
+            },
+            .git_bash => .{
+                .idle_bg = rgb(252, 244, 228),
+                .idle_border = rgb(168, 120, 24),
+                .hover_bg = rgb(248, 238, 216),
+                .hover_border = rgb(152, 108, 16),
+                .pressed_bg = rgb(240, 228, 200),
+                .active_bg = rgb(244, 232, 196),
+                .active_border = rgb(140, 96, 8),
+                .focus = rgb(120, 80, 4),
+            },
+            .cmd => .{
+                .idle_bg = rgb(240, 240, 240),
+                .idle_border = rgb(128, 128, 128),
+                .hover_bg = rgb(232, 232, 232),
+                .hover_border = rgb(112, 112, 112),
+                .pressed_bg = rgb(220, 220, 220),
+                .active_bg = rgb(216, 216, 216),
+                .active_border = rgb(96, 96, 96),
+                .focus = rgb(64, 64, 64),
+            },
+        };
+    }
+
     return switch (kind) {
         .wsl_default, .wsl_distro => .{
             .idle_bg = rgb(34, 46, 38),
@@ -6158,6 +6242,7 @@ fn profileChromeAccent(kind: windows_shell.ProfileKind) ProfileChromeAccent {
 fn applyProfileChromeAccent(
     base: ButtonColors,
     kind: windows_shell.ProfileKind,
+    is_dark: bool,
     active: bool,
     hovered: bool,
     pressed: bool,
@@ -6165,7 +6250,7 @@ fn applyProfileChromeAccent(
 ) ButtonColors {
     if (disabled) return base;
 
-    const accent = profileChromeAccent(kind);
+    const accent = profileChromeAccent(kind, is_dark);
     var colors = base;
     colors.bg = if (active) accent.active_bg else accent.idle_bg;
     colors.border = if (active) accent.active_border else accent.idle_border;
@@ -6179,7 +6264,7 @@ fn applyProfileChromeAccent(
         colors.border = if (active) accent.active_border else accent.hover_border;
     }
     if (active) {
-        colors.fg = rgb(248, 250, 255);
+        colors.fg = if (is_dark) rgb(248, 250, 255) else rgb(16, 16, 24);
     }
     return colors;
 }
@@ -6191,30 +6276,31 @@ fn buttonFocusRingColor(active: bool, overlay: bool, accept: bool) u32 {
     return rgb(140, 166, 208);
 }
 
-fn profileKindFocusRingColor(kind: windows_shell.ProfileKind) u32 {
-    return profileChromeAccent(kind).focus;
+fn profileKindFocusRingColor(kind: windows_shell.ProfileKind, is_dark: bool) u32 {
+    return profileChromeAccent(kind, is_dark).focus;
 }
 
 fn profileChromeStripeColor(
     kind: windows_shell.ProfileKind,
+    is_dark: bool,
     active: bool,
     hovered: bool,
     pressed: bool,
     disabled: bool,
 ) u32 {
-    const accent = profileChromeAccent(kind);
-    if (disabled) return rgb(86, 94, 108);
+    const accent = profileChromeAccent(kind, is_dark);
+    if (disabled) return if (is_dark) rgb(86, 94, 108) else rgb(180, 180, 180);
     if (pressed) return accent.hover_border;
     if (hovered or active) return accent.active_border;
     return accent.idle_border;
 }
 
-fn profileKindLabelColor(kind: windows_shell.ProfileKind) u32 {
-    return profileChromeAccent(kind).focus;
+fn profileKindLabelColor(kind: windows_shell.ProfileKind, is_dark: bool) u32 {
+    return profileChromeAccent(kind, is_dark).focus;
 }
 
-fn profileKindHintColor(kind: windows_shell.ProfileKind) u32 {
-    return profileChromeAccent(kind).active_border;
+fn profileKindHintColor(kind: windows_shell.ProfileKind, is_dark: bool) u32 {
+    return profileChromeAccent(kind, is_dark).active_border;
 }
 
 fn tabButtonKeyAction(vk: WPARAM, ctrl_pressed: bool) ?TabButtonKeyAction {
@@ -7174,17 +7260,17 @@ fn buildProfileQuickSlotChipText(
     return try alloc.dupe(u8, profileKindBadge(profile.kind));
 }
 
-fn quickSlotChipColors(kind: windows_shell.ProfileKind, hovered: bool) ButtonColors {
-    const accent = profileChromeAccent(kind);
+fn quickSlotChipColors(kind: windows_shell.ProfileKind, is_dark: bool, hovered: bool) ButtonColors {
+    const accent = profileChromeAccent(kind, is_dark);
     return .{
         .bg = if (hovered) accent.hover_bg else accent.idle_bg,
         .border = if (hovered) accent.hover_border else accent.idle_border,
-        .fg = if (hovered) profileKindHintColor(kind) else profileKindLabelColor(kind),
+        .fg = if (hovered) profileKindHintColor(kind, is_dark) else profileKindLabelColor(kind, is_dark),
     };
 }
 
-fn pinnedChipMarkerColor(kind: windows_shell.ProfileKind, hovered: bool) u32 {
-    return if (hovered) profileKindLabelColor(kind) else profileKindHintColor(kind);
+fn pinnedChipMarkerColor(kind: windows_shell.ProfileKind, is_dark: bool, hovered: bool) u32 {
+    return if (hovered) profileKindLabelColor(kind, is_dark) else profileKindHintColor(kind, is_dark);
 }
 
 fn launcherChipRightInset(has_slot_badge: bool, has_target_marker: bool) i32 {
@@ -7206,18 +7292,19 @@ fn shouldPaintQuickSlotTargetMarker(hovered: bool, focused: bool) bool {
     return hovered or focused;
 }
 
-fn paintPinnedChipMarker(hdc: HDC, chip_rect: RECT, color: u32) void {
+fn paintPinnedChipMarker(hdc: HDC, chip_rect: RECT, color: u32, dpi: u32) void {
+    const s = Host.scaledBy;
     fillSolidRect(hdc, .{
-        .left = chip_rect.left + 3,
-        .top = chip_rect.top + 3,
-        .right = chip_rect.left + 9,
-        .bottom = chip_rect.top + 5,
+        .left = chip_rect.left + s(3, dpi),
+        .top = chip_rect.top + s(3, dpi),
+        .right = chip_rect.left + s(9, dpi),
+        .bottom = chip_rect.top + s(5, dpi),
     }, color);
     fillSolidRect(hdc, .{
-        .left = chip_rect.left + 3,
-        .top = chip_rect.top + 3,
-        .right = chip_rect.left + 5,
-        .bottom = chip_rect.top + 9,
+        .left = chip_rect.left + s(3, dpi),
+        .top = chip_rect.top + s(3, dpi),
+        .right = chip_rect.left + s(5, dpi),
+        .bottom = chip_rect.top + s(9, dpi),
     }, color);
 }
 
@@ -7227,12 +7314,13 @@ fn pinnedSlotBadgeDigit(pinned_slot_ordinal: ?usize) ?u8 {
     return @as(u8, @intCast('1' + ordinal));
 }
 
-fn paintPinnedSlotBadge(hdc: HDC, rect: RECT, digit: u8, border: u32, bg: u32, fg: u32) void {
+fn paintPinnedSlotBadge(hdc: HDC, rect: RECT, digit: u8, border: u32, bg: u32, fg: u32, dpi: u32) void {
+    const s = Host.scaledBy;
     const badge_rect = RECT{
-        .left = rect.right - 15,
-        .top = rect.top + 3,
-        .right = rect.right - 4,
-        .bottom = rect.top + 14,
+        .left = rect.right - s(15, dpi),
+        .top = rect.top + s(3, dpi),
+        .right = rect.right - s(4, dpi),
+        .bottom = rect.top + s(14, dpi),
     };
     fillSolidRect(hdc, badge_rect, bg);
     fillSolidRect(hdc, .{
@@ -7272,18 +7360,19 @@ fn paintPinnedSlotBadge(hdc: HDC, rect: RECT, digit: u8, border: u32, bg: u32, f
     );
 }
 
-fn paintPinnedButtonMarker(hdc: HDC, rect: RECT, color: u32) void {
+fn paintPinnedButtonMarker(hdc: HDC, rect: RECT, color: u32, dpi: u32) void {
+    const s = Host.scaledBy;
     fillSolidRect(hdc, .{
-        .left = rect.right - 10,
-        .top = rect.top + 3,
-        .right = rect.right - 4,
-        .bottom = rect.top + 5,
+        .left = rect.right - s(10, dpi),
+        .top = rect.top + s(3, dpi),
+        .right = rect.right - s(4, dpi),
+        .bottom = rect.top + s(5, dpi),
     }, color);
     fillSolidRect(hdc, .{
-        .left = rect.right - 6,
-        .top = rect.top + 3,
-        .right = rect.right - 4,
-        .bottom = rect.top + 9,
+        .left = rect.right - s(6, dpi),
+        .top = rect.top + s(3, dpi),
+        .right = rect.right - s(4, dpi),
+        .bottom = rect.top + s(9, dpi),
     }, color);
 }
 
@@ -7303,12 +7392,13 @@ fn profileOpenTargetBadgeGlyph(target: ProfileOpenTarget) u8 {
     };
 }
 
-fn paintTargetButtonBadge(hdc: HDC, rect: RECT, glyph: u8, border: u32, bg: u32, fg: u32) void {
+fn paintTargetButtonBadge(hdc: HDC, rect: RECT, glyph: u8, border: u32, bg: u32, fg: u32, dpi: u32) void {
+    const s = Host.scaledBy;
     const badge_rect = RECT{
-        .left = rect.right - 13,
-        .top = rect.bottom - 13,
-        .right = rect.right - 3,
-        .bottom = rect.bottom - 3,
+        .left = rect.right - s(13, dpi),
+        .top = rect.bottom - s(13, dpi),
+        .right = rect.right - s(3, dpi),
+        .bottom = rect.bottom - s(3, dpi),
     };
     fillSolidRect(hdc, badge_rect, bg);
     fillSolidRect(hdc, .{
@@ -7348,12 +7438,13 @@ fn paintTargetButtonBadge(hdc: HDC, rect: RECT, glyph: u8, border: u32, bg: u32,
     );
 }
 
-fn paintTargetChipBadge(hdc: HDC, rect: RECT, glyph: u8, border: u32, bg: u32, fg: u32) void {
+fn paintTargetChipBadge(hdc: HDC, rect: RECT, glyph: u8, border: u32, bg: u32, fg: u32, dpi: u32) void {
+    const s = Host.scaledBy;
     const badge_rect = RECT{
-        .left = rect.right - 13,
-        .top = rect.bottom - 13,
-        .right = rect.right - 3,
-        .bottom = rect.bottom - 3,
+        .left = rect.right - s(13, dpi),
+        .top = rect.bottom - s(13, dpi),
+        .right = rect.right - s(3, dpi),
+        .bottom = rect.bottom - s(3, dpi),
     };
     fillSolidRect(hdc, badge_rect, bg);
     fillSolidRect(hdc, .{
@@ -11306,23 +11397,35 @@ test "win32 buildProfileQuickSlotChipText reflects ordered quick slot badge" {
 test "win32 quickSlotChipColors follow profile hover accent" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
-    const idle = quickSlotChipColors(.git_bash, false);
+    // Dark mode
+    const idle = quickSlotChipColors(.git_bash, true, false);
     try std.testing.expectEqual(rgb(48, 40, 31), idle.bg);
     try std.testing.expectEqual(rgb(212, 156, 92), idle.border);
     try std.testing.expectEqual(rgb(255, 224, 178), idle.fg);
 
-    const hovered = quickSlotChipColors(.git_bash, true);
+    const hovered = quickSlotChipColors(.git_bash, true, true);
     try std.testing.expectEqual(rgb(58, 48, 37), hovered.bg);
     try std.testing.expectEqual(rgb(236, 182, 118), hovered.border);
     try std.testing.expectEqual(rgb(248, 202, 134), hovered.fg);
+
+    // Light mode
+    const idle_light = quickSlotChipColors(.git_bash, false, false);
+    try std.testing.expectEqual(rgb(252, 244, 228), idle_light.bg);
+    try std.testing.expectEqual(rgb(168, 120, 24), idle_light.border);
+    try std.testing.expectEqual(rgb(120, 80, 4), idle_light.fg);
 }
 
 test "win32 pinnedChipMarkerColor follows profile accent" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
-    try std.testing.expectEqual(rgb(248, 202, 134), pinnedChipMarkerColor(.git_bash, false));
-    try std.testing.expectEqual(rgb(255, 224, 178), pinnedChipMarkerColor(.git_bash, true));
-    try std.testing.expectEqual(rgb(136, 216, 242), pinnedChipMarkerColor(.pwsh, false));
+    // Dark mode
+    try std.testing.expectEqual(rgb(248, 202, 134), pinnedChipMarkerColor(.git_bash, true, false));
+    try std.testing.expectEqual(rgb(255, 224, 178), pinnedChipMarkerColor(.git_bash, true, true));
+    try std.testing.expectEqual(rgb(136, 216, 242), pinnedChipMarkerColor(.pwsh, true, false));
+
+    // Light mode
+    try std.testing.expectEqual(rgb(140, 96, 8), pinnedChipMarkerColor(.git_bash, false, false));
+    try std.testing.expectEqual(rgb(120, 80, 4), pinnedChipMarkerColor(.git_bash, false, true));
 }
 
 test "win32 launcherChipRightInset reserves badge and target space" {
@@ -11627,9 +11730,15 @@ test "win32 commandPaletteDirectionFromWheelDelta maps wheel direction to comple
 test "win32 overlayEditBorderColor reflects mode and focus" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
-    try std.testing.expectEqual(overlayAccentColor(.search), overlayEditBorderColor(.search, true));
-    try std.testing.expectEqual(rgb(86, 96, 112), overlayEditBorderColor(.search, false));
-    try std.testing.expectEqual(rgb(72, 82, 98), overlayEditBorderColor(.none, false));
+    // Dark theme
+    try std.testing.expectEqual(overlayAccentColor(.search, true), overlayEditBorderColor(.search, true, true));
+    try std.testing.expectEqual(rgb(86, 96, 112), overlayEditBorderColor(.search, false, true));
+    try std.testing.expectEqual(rgb(72, 82, 98), overlayEditBorderColor(.none, false, true));
+
+    // Light theme
+    try std.testing.expectEqual(overlayAccentColor(.search, false), overlayEditBorderColor(.search, true, false));
+    try std.testing.expectEqual(rgb(140, 140, 140), overlayEditBorderColor(.search, false, false));
+    try std.testing.expectEqual(rgb(180, 180, 180), overlayEditBorderColor(.none, false, false));
 }
 
 test "win32 buttonColors reflects hover and active states" {
@@ -11660,63 +11769,101 @@ test "win32 buttonFocusRingColor reflects control role" {
 test "win32 profileChromeAccent assigns distinct profile accents" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
-    const pwsh = profileChromeAccent(.pwsh);
-    const git = profileChromeAccent(.git_bash);
-    const wsl = profileChromeAccent(.wsl_distro);
+    // Dark mode
+    const pwsh = profileChromeAccent(.pwsh, true);
+    const git = profileChromeAccent(.git_bash, true);
+    const wsl = profileChromeAccent(.wsl_distro, true);
 
     try std.testing.expectEqual(rgb(86, 176, 204), pwsh.idle_border);
     try std.testing.expectEqual(rgb(212, 156, 92), git.idle_border);
     try std.testing.expectEqual(rgb(92, 176, 118), wsl.idle_border);
     try std.testing.expect(pwsh.idle_border != git.idle_border);
     try std.testing.expect(wsl.focus != pwsh.focus);
+
+    // Light mode
+    const pwsh_light = profileChromeAccent(.pwsh, false);
+    const git_light = profileChromeAccent(.git_bash, false);
+    const wsl_light = profileChromeAccent(.wsl_distro, false);
+
+    try std.testing.expectEqual(rgb(24, 120, 150), pwsh_light.idle_border);
+    try std.testing.expectEqual(rgb(168, 120, 24), git_light.idle_border);
+    try std.testing.expectEqual(rgb(46, 125, 70), wsl_light.idle_border);
+    try std.testing.expect(pwsh_light.idle_border != git_light.idle_border);
+    try std.testing.expect(wsl_light.focus != pwsh_light.focus);
 }
 
 test "win32 applyProfileChromeAccent respects profile state" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
+    // Dark mode
     const base = buttonColors(false, false, false, false, false, false);
-    const idle = applyProfileChromeAccent(base, .git_bash, false, false, false, false);
+    const idle = applyProfileChromeAccent(base, .git_bash, true, false, false, false, false);
     try std.testing.expectEqual(rgb(48, 40, 31), idle.bg);
     try std.testing.expectEqual(rgb(212, 156, 92), idle.border);
 
-    const hovered = applyProfileChromeAccent(base, .git_bash, false, true, false, false);
+    const hovered = applyProfileChromeAccent(base, .git_bash, true, false, true, false, false);
     try std.testing.expectEqual(rgb(58, 48, 37), hovered.bg);
     try std.testing.expectEqual(rgb(236, 182, 118), hovered.border);
 
-    const active = applyProfileChromeAccent(base, .pwsh, true, false, false, false);
+    const active = applyProfileChromeAccent(base, .pwsh, true, true, false, false, false);
     try std.testing.expectEqual(rgb(44, 70, 82), active.bg);
     try std.testing.expectEqual(rgb(136, 216, 242), active.border);
     try std.testing.expectEqual(rgb(248, 250, 255), active.fg);
+
+    // Light mode active uses dark fg
+    const active_light = applyProfileChromeAccent(base, .pwsh, false, true, false, false, false);
+    try std.testing.expectEqual(rgb(188, 228, 240), active_light.bg);
+    try std.testing.expectEqual(rgb(12, 96, 126), active_light.border);
+    try std.testing.expectEqual(rgb(16, 16, 24), active_light.fg);
 }
 
 test "win32 profileChromeStripeColor tracks profile interaction state" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
+    // Dark mode
     try std.testing.expectEqual(
         rgb(212, 156, 92),
-        profileChromeStripeColor(.git_bash, false, false, false, false),
+        profileChromeStripeColor(.git_bash, true, false, false, false, false),
     );
     try std.testing.expectEqual(
         rgb(248, 202, 134),
-        profileChromeStripeColor(.git_bash, true, false, false, false),
+        profileChromeStripeColor(.git_bash, true, true, false, false, false),
     );
     try std.testing.expectEqual(
         rgb(236, 182, 118),
-        profileChromeStripeColor(.git_bash, false, false, true, false),
+        profileChromeStripeColor(.git_bash, true, false, false, true, false),
     );
     try std.testing.expectEqual(
         rgb(86, 94, 108),
-        profileChromeStripeColor(.git_bash, false, false, false, true),
+        profileChromeStripeColor(.git_bash, true, false, false, false, true),
+    );
+
+    // Light mode disabled uses light gray
+    try std.testing.expectEqual(
+        rgb(180, 180, 180),
+        profileChromeStripeColor(.git_bash, false, false, false, false, true),
+    );
+    // Light mode idle
+    try std.testing.expectEqual(
+        rgb(168, 120, 24),
+        profileChromeStripeColor(.git_bash, false, false, false, false, false),
     );
 }
 
 test "win32 profileKind label and hint colors follow profile accent" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
-    try std.testing.expectEqual(rgb(186, 232, 248), profileKindLabelColor(.pwsh));
-    try std.testing.expectEqual(rgb(136, 216, 242), profileKindHintColor(.pwsh));
-    try std.testing.expectEqual(rgb(255, 224, 178), profileKindLabelColor(.git_bash));
-    try std.testing.expectEqual(rgb(248, 202, 134), profileKindHintColor(.git_bash));
+    // Dark mode
+    try std.testing.expectEqual(rgb(186, 232, 248), profileKindLabelColor(.pwsh, true));
+    try std.testing.expectEqual(rgb(136, 216, 242), profileKindHintColor(.pwsh, true));
+    try std.testing.expectEqual(rgb(255, 224, 178), profileKindLabelColor(.git_bash, true));
+    try std.testing.expectEqual(rgb(248, 202, 134), profileKindHintColor(.git_bash, true));
+
+    // Light mode
+    try std.testing.expectEqual(rgb(8, 80, 108), profileKindLabelColor(.pwsh, false));
+    try std.testing.expectEqual(rgb(12, 96, 126), profileKindHintColor(.pwsh, false));
+    try std.testing.expectEqual(rgb(120, 80, 4), profileKindLabelColor(.git_bash, false));
+    try std.testing.expectEqual(rgb(140, 96, 8), profileKindHintColor(.git_bash, false));
 }
 
 test "win32 tabButtonKeyAction maps focused-tab keys" {
