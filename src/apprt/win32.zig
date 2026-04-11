@@ -185,6 +185,7 @@ const curated_command_palette_actions = [_][]const u8{
 const releases_url = "https://github.com/amanthanvi/winghostty/releases/latest";
 const WM_THEMECHANGED = 0x031A;
 const WM_SYSCOLORCHANGE = 0x0015;
+const WM_DPICHANGED: UINT = 0x02E0;
 const DWMWA_USE_IMMERSIVE_DARK_MODE_V1: DWORD = 19;
 const DWMWA_USE_IMMERSIVE_DARK_MODE: DWORD = 20;
 const DWMWA_CAPTION_COLOR: DWORD = 35;
@@ -497,6 +498,7 @@ extern "user32" fn GetWindowLongPtrW(hWnd: HWND, nIndex: i32) callconv(.winapi) 
 extern "user32" fn ShowWindow(hWnd: HWND, nCmdShow: i32) callconv(.winapi) BOOL;
 extern "user32" fn SystemParametersInfoW(uiAction: UINT, uiParam: UINT, pvParam: ?*anyopaque, fWinIni: UINT) callconv(.winapi) BOOL;
 extern "user32" fn GetSysColor(nIndex: i32) callconv(.winapi) u32;
+extern "user32" fn GetDpiForWindow(hwnd: HWND) callconv(.winapi) UINT;
 extern "user32" fn CreatePopupMenu() callconv(.winapi) HMENU;
 extern "user32" fn AppendMenuW(hMenu: HMENU, uFlags: UINT, uIDNewItem: usize, lpNewItem: ?LPCWSTR) callconv(.winapi) BOOL;
 extern "user32" fn TrackPopupMenu(hMenu: HMENU, uFlags: UINT, x: i32, y: i32, nReserved: i32, hWnd: HWND, prcRect: ?*const RECT) callconv(.winapi) BOOL;
@@ -2029,6 +2031,8 @@ pub const App = struct {
         ) orelse return windows.unexpectedError(windows.kernel32.GetLastError());
         host.hwnd = hwnd;
         applyDwmTheme(hwnd, &self.resolved_theme);
+        host.current_dpi = GetDpiForWindow(hwnd);
+        if (host.current_dpi == 0) host.current_dpi = 96;
         errdefer _ = DestroyWindow(hwnd);
 
         try self.hosts.append(self.core_app.alloc, host);
@@ -2764,6 +2768,8 @@ const Host = struct {
     overlay_brush: HBRUSH = null,
     edit_brush: HBRUSH = null,
     status_brush: HBRUSH = null,
+    current_dpi: u32 = 96,
+    pending_dpi_update: bool = false,
     command_palette_hwnd: ?HWND = null,
     profiles_hwnd: ?HWND = null,
     profile_target_hwnd: ?HWND = null,
@@ -4270,6 +4276,11 @@ const Host = struct {
         return if (self.shouldShowTabBar()) host_tab_height else 0;
     }
 
+    fn scaled(self: *const Host, base: i32) i32 {
+        if (self.current_dpi <= 96) return base;
+        return @divTrunc(base * @as(i32, @intCast(self.current_dpi)), 96);
+    }
+
     fn contentRect(self: *Host) !RECT {
         const hwnd = self.hwnd orelse return error.InvalidHost;
         var rect: RECT = undefined;
@@ -4807,6 +4818,15 @@ const Host = struct {
                 entry.view.setVisible(visible);
                 if (visible) {
                     if (entry.view.hwnd) |surface_hwnd| _ = MoveWindow(surface_hwnd, content_rect.left, content_y, content_width, content_height, 1);
+                    // Update content_scale if DPI changed since surface was last visible
+                    if (self.pending_dpi_update and entry.view.core_initialized) {
+                        const scale_val: f32 = @as(f32, @floatFromInt(self.current_dpi)) / 96.0;
+                        const new_scale: apprt.ContentScale = .{ .x = scale_val, .y = scale_val };
+                        if (entry.view.content_scale.x != new_scale.x or entry.view.content_scale.y != new_scale.y) {
+                            entry.view.content_scale = new_scale;
+                            entry.view.core_surface.contentScaleCallback(new_scale) catch {};
+                        }
+                    }
                 }
             }
         } else {
@@ -4823,8 +4843,18 @@ const Host = struct {
                     const h: i32 = @max(1, @as(i32, @intFromFloat(@round(slot.height * @as(f16, @floatFromInt(content_height))))));
                     _ = MoveWindow(surface_hwnd, x, y, w, h, 1);
                 }
+                // Update content_scale if DPI changed since surface was last visible
+                if (self.pending_dpi_update and entry.view.core_initialized) {
+                    const scale_val: f32 = @as(f32, @floatFromInt(self.current_dpi)) / 96.0;
+                    const new_scale: apprt.ContentScale = .{ .x = scale_val, .y = scale_val };
+                    if (entry.view.content_scale.x != new_scale.x or entry.view.content_scale.y != new_scale.y) {
+                        entry.view.content_scale = new_scale;
+                        entry.view.core_surface.contentScaleCallback(new_scale) catch {};
+                    }
+                }
             }
         }
+        self.pending_dpi_update = false;
 
         for (self.tabs.items, 0..) |*tab, i| {
             if (i == self.active_tab) continue;
@@ -4864,10 +4894,10 @@ const Host = struct {
                     .left = 0,
                     .top = tab_h - 1,
                     .right = client_rect.right,
-                .bottom = tab_h,
-            },
-            theme.chrome_border,
-        );
+                    .bottom = tab_h,
+                },
+                theme.chrome_border,
+            );
         } // end tab bar painting
 
         if (self.overlay_mode != .none) {
@@ -8209,6 +8239,35 @@ fn hostWindowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callcon
             }
             return DefWindowProcW(hwnd, msg, wParam, lParam);
         },
+        WM_DPICHANGED => {
+            if (host) |v| {
+                const new_dpi = GetDpiForWindow(hwnd);
+                if (new_dpi > 0) v.current_dpi = new_dpi;
+
+                // Resize window to the suggested rectangle from lParam
+                const suggested: *const RECT = @ptrFromInt(@as(usize, @bitCast(lParam)));
+                _ = SetWindowPos(hwnd, null, suggested.left, suggested.top, suggested.right - suggested.left, suggested.bottom - suggested.top, SWP_NOZORDER | SWP_NOACTIVATE);
+
+                // Update content_scale on active tab surfaces
+                const scale_val: f32 = @as(f32, @floatFromInt(v.current_dpi)) / 96.0;
+                const new_scale: apprt.ContentScale = .{ .x = scale_val, .y = scale_val };
+                if (v.activeTab()) |tab| {
+                    var it = tab.tree.iterator();
+                    while (it.next()) |entry| {
+                        entry.view.content_scale = new_scale;
+                        if (entry.view.core_initialized) {
+                            entry.view.core_surface.contentScaleCallback(new_scale) catch {};
+                        }
+                    }
+                }
+                v.pending_dpi_update = true;
+
+                // Relayout and repaint
+                v.layout() catch {};
+                v.invalidateChrome();
+            }
+            return 0;
+        },
         WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_CTLCOLORBTN => {
             if (host) |v| {
                 v.ensureThemeBrushes() catch return DefWindowProcW(hwnd, msg, wParam, lParam);
@@ -9308,6 +9367,12 @@ pub const Surface = struct {
             try host.tabs.append(app.core_app.alloc, try Tab.init(app.core_app.alloc, tab_id, self));
             host.active_tab = host.tabs.items.len - 1;
         }
+
+        // Set initial content_scale from host DPI before core init
+        self.content_scale = .{
+            .x = @as(f32, @floatFromInt(host.current_dpi)) / 96.0,
+            .y = @as(f32, @floatFromInt(host.current_dpi)) / 96.0,
+        };
 
         try self.core_surface.init(
             app.core_app.alloc,
