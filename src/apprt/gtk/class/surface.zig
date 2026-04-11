@@ -637,6 +637,7 @@ pub const Surface = extern struct {
         im_composing: bool = false,
         im_buf: [128]u8 = undefined,
         im_len: u7 = 0,
+        im_show_cursor: bool = false,
 
         /// True when we have a precision scroll in progress
         precision_scroll: bool = false,
@@ -1420,7 +1421,7 @@ pub const Surface = extern struct {
                 // such as quotation mark ordering for Chinese input.
                 if (priv.im_composing) {
                     priv.im_context.as(gtk.IMContext).reset();
-                    surface.preeditCallback(null) catch {};
+                    surface.preeditCallback(null, 0) catch {};
                 }
 
                 // Bell stops ringing when any key is pressed that is used by
@@ -3038,6 +3039,7 @@ pub const Surface = extern struct {
         const priv = self.private();
         priv.im_composing = true;
         priv.im_len = 0;
+        priv.im_show_cursor = false;
     }
 
     fn imPreeditChanged(
@@ -3061,17 +3063,28 @@ pub const Surface = extern struct {
 
         // Get our pre-edit string that we'll use to show the user.
         var buf: [*:0]u8 = undefined;
+        var cursor_pos: i32 = 0;
         ctx.as(gtk.IMContext).getPreeditString(
             &buf,
             null,
-            null,
+            &cursor_pos,
         );
         defer glib.free(buf);
         const str = std.mem.sliceTo(buf, 0);
 
+        // some IME may hard code the cursor as a bar,
+        // in which case, cursor_pos would always be 0
+        // if cursor_pos has never been non-zero,
+        // set it to -1 to hide the cursor to avoid conflict
+        if (cursor_pos > 0) {
+            priv.im_show_cursor = true;
+        } else if (!priv.im_show_cursor) {
+            cursor_pos = -1;
+        }
+
         // Update our preedit state in Ghostty core
         // log.warn("GTKIM: preedit change str={s}", .{str});
-        surface.preeditCallback(str) catch |err| {
+        surface.preeditCallback(str, cursor_pos) catch |err| {
             log.warn(
                 "error in preedit callback err={}",
                 .{err},
@@ -3091,7 +3104,7 @@ pub const Surface = extern struct {
 
         // End our preedit state in Ghostty core
         const surface = priv.core_surface orelse return;
-        surface.preeditCallback(null) catch |err| {
+        surface.preeditCallback(null, 0) catch |err| {
             log.warn("error in preedit callback err={}", .{err});
         };
     }
@@ -3160,7 +3173,7 @@ pub const Surface = extern struct {
         if (priv.core_surface) |surface| {
             // End our preedit state. Well-behaved input methods do this for us
             // by triggering a preedit-end event but some do not (ibus 1.5.29).
-            surface.preeditCallback(null) catch |err| {
+            surface.preeditCallback(null, 0) catch |err| {
                 log.warn("error in preedit callback err={}", .{err});
             };
 

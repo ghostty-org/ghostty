@@ -46,6 +46,7 @@ pub const Mouse = struct {
 pub const Preedit = struct {
     /// The codepoints to render as preedit text.
     codepoints: []const Codepoint = &.{},
+    cursor_pos: i32,
 
     /// A single codepoint to render as preedit text.
     pub const Codepoint = struct {
@@ -62,6 +63,7 @@ pub const Preedit = struct {
     pub fn clone(self: *const Preedit, alloc: Allocator) !Preedit {
         return .{
             .codepoints = try alloc.dupe(Codepoint, self.codepoints),
+            .cursor_pos = self.cursor_pos
         };
     }
 

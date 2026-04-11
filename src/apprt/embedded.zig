@@ -889,8 +889,8 @@ pub const Surface = struct {
         };
     }
 
-    pub fn preeditCallback(self: *Surface, preedit_: ?[]const u8) void {
-        _ = self.core_surface.preeditCallback(preedit_) catch |err| {
+    pub fn preeditCallback(self: *Surface, preedit_: ?[]const u8, cursor_pos: i32) void {
+        _ = self.core_surface.preeditCallback(preedit_, cursor_pos) catch |err| {
             log.err("error in preedit callback err={}", .{err});
             return;
         };
@@ -1810,8 +1810,9 @@ pub const CAPI = struct {
         surface: *Surface,
         ptr: [*]const u8,
         len: usize,
+        cursor_pos: i32
     ) void {
-        surface.preeditCallback(if (len == 0) null else ptr[0..len]);
+        surface.preeditCallback(if (len == 0) null else ptr[0..len], cursor_pos);
     }
 
     /// Returns true if the surface currently has mouse capturing
