@@ -77,6 +77,8 @@ const WM_MOUSEHWHEEL = 0x020E;
 const WM_MOUSEMOVE = 0x0200;
 const WM_MOUSEWHEEL = 0x020A;
 const WM_MOUSELEAVE = 0x02A3;
+const WM_POINTERHWHEEL = 0x024F;
+const WM_POINTERWHEEL = 0x024E;
 const WM_NCCREATE = 0x0081;
 const WM_PAINT = 0x000F;
 const WM_CTLCOLOREDIT = 0x0133;
@@ -4734,6 +4736,7 @@ const Host = struct {
         defer _ = EndPaint(hwnd, &ps);
 
         const alloc = self.app.core_app.alloc;
+        const theme = &self.app.resolved_theme;
         var client_rect: RECT = undefined;
         if (GetClientRect(hwnd, &client_rect) == 0) return;
         const overlay_offset: i32 = if (self.overlay_mode != .none) host_overlay_height else 0;
@@ -4746,7 +4749,7 @@ const Host = struct {
             .right = client_rect.right,
             .bottom = host_tab_height,
         };
-        fillSolidRect(hdc, tab_rect, rgb(34, 40, 49));
+        fillSolidRect(hdc, tab_rect, theme.chrome_bg);
         fillSolidRect(
             hdc,
             .{
@@ -4755,7 +4758,7 @@ const Host = struct {
                 .right = client_rect.right,
                 .bottom = host_tab_height,
             },
-            rgb(58, 67, 80),
+            theme.chrome_border,
         );
 
         if (self.overlay_mode != .none) {
@@ -4765,7 +4768,7 @@ const Host = struct {
                 .right = client_rect.right,
                 .bottom = host_tab_height + host_overlay_height,
             };
-            fillSolidRect(hdc, overlay_rect, rgb(28, 33, 41));
+            fillSolidRect(hdc, overlay_rect, theme.overlay_bg);
             fillSolidRect(
                 hdc,
                 .{
@@ -4774,7 +4777,7 @@ const Host = struct {
                     .right = client_rect.right,
                     .bottom = overlay_rect.bottom,
                 },
-                rgb(58, 67, 80),
+                theme.chrome_border,
             );
 
             const surface = self.activeSurface();
@@ -4810,7 +4813,7 @@ const Host = struct {
             defer alloc.free(overlay_label_w);
             _ = SetBkMode(hdc, TRANSPARENT);
             var overlay_label_x: i32 = host_overlay_padding;
-            var overlay_label_color: u32 = rgb(210, 228, 255);
+            var overlay_label_color: u32 = theme.overlay_label_fg;
             if (self.overlay_mode == .profile) {
                 if (self.selectedProfile()) |profile| {
                     const badge = buildProfileChromeBadgeText(alloc, profile.kind) catch return;
@@ -4880,7 +4883,7 @@ const Host = struct {
                 GetFocus() == edit_hwnd
             else
                 false;
-            fillSolidRect(hdc, edit_frame, rgb(18, 22, 29));
+            fillSolidRect(hdc, edit_frame, theme.edit_frame_bg);
             fillSolidRect(hdc, .{
                 .left = edit_frame.left,
                 .top = edit_frame.top,
@@ -4943,11 +4946,11 @@ const Host = struct {
                 if (self.selectedProfile()) |profile|
                     profileKindHintColor(profile.kind)
                 else
-                    rgb(160, 170, 184)
+                    theme.text_secondary
             else switch (if (self.banner_text != null) self.banner_kind else .none) {
-                .none => rgb(160, 170, 184),
-                .info => rgb(142, 197, 255),
-                .err => rgb(255, 132, 132),
+                .none => theme.text_secondary,
+                .info => theme.info_fg,
+                .err => theme.error_fg,
             });
             _ = TextOutW(hdc, host_overlay_padding, overlay_rect.top + 34, overlay_feedback_w.ptr, @intCast(overlay_feedback_w.len - 1));
         }
@@ -4959,7 +4962,7 @@ const Host = struct {
                 .right = client_rect.right,
                 .bottom = host_tab_height + overlay_offset + host_inspector_panel_height,
             };
-            fillSolidRect(hdc, panel_rect, rgb(22, 27, 35));
+            fillSolidRect(hdc, panel_rect, theme.inspector_bg);
             fillSolidRect(
                 hdc,
                 .{
@@ -4968,7 +4971,7 @@ const Host = struct {
                     .right = client_rect.right,
                     .bottom = panel_rect.bottom,
                 },
-                rgb(58, 67, 80),
+                theme.chrome_border,
             );
 
             if (self.activeSurface()) |surface| {
@@ -4981,14 +4984,14 @@ const Host = struct {
                 const panel_title_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, panel_title) catch return;
                 defer alloc.free(panel_title_w);
                 _ = SetBkMode(hdc, TRANSPARENT);
-                _ = SetTextColor(hdc, rgb(210, 228, 255));
+                _ = SetTextColor(hdc, theme.overlay_label_fg);
                 _ = TextOutW(hdc, 16, panel_rect.top + 6, panel_title_w.ptr, @intCast(panel_title_w.len - 1));
 
                 const panel_hint = buildInspectorPanelHintText(alloc, pane_count, zoomed) catch return;
                 defer alloc.free(panel_hint);
                 const panel_hint_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, panel_hint) catch return;
                 defer alloc.free(panel_hint_w);
-                _ = SetTextColor(hdc, rgb(160, 170, 184));
+                _ = SetTextColor(hdc, theme.text_secondary);
                 _ = TextOutW(hdc, 16, panel_rect.top + 22, panel_hint_w.ptr, @intCast(panel_hint_w.len - 1));
             }
         }
@@ -5000,7 +5003,7 @@ const Host = struct {
             .right = client_rect.right,
             .bottom = client_rect.bottom,
         };
-        fillSolidRect(hdc, status_rect, rgb(26, 30, 37));
+        fillSolidRect(hdc, status_rect, theme.status_bg);
         fillSolidRect(
             hdc,
             .{
@@ -5009,10 +5012,10 @@ const Host = struct {
                 .right = client_rect.right,
                 .bottom = status_top + 1,
             },
-            rgb(58, 67, 80),
+            theme.chrome_border,
         );
         _ = SetBkMode(hdc, TRANSPARENT);
-        _ = SetTextColor(hdc, rgb(216, 221, 231));
+        _ = SetTextColor(hdc, theme.text_primary);
 
         const banner_value: ?[]const u8 = blk: {
             if (self.overlay_mode != .none) break :blk null;
@@ -5045,9 +5048,9 @@ const Host = struct {
 
         if (banner_value) |value| {
             _ = SetTextColor(hdc, switch (banner_kind) {
-                .none => rgb(216, 221, 231),
-                .info => rgb(142, 197, 255),
-                .err => rgb(255, 132, 132),
+                .none => theme.text_primary,
+                .info => theme.info_fg,
+                .err => theme.error_fg,
             });
             const prefix = switch (banner_kind) {
                 .none => "",
@@ -5063,7 +5066,7 @@ const Host = struct {
             defer alloc.free(banner_w);
             _ = TextOutW(hdc, 16, banner_y, banner_w.ptr, @intCast(banner_w.len - 1));
         }
-        _ = SetTextColor(hdc, rgb(216, 221, 231));
+        _ = SetTextColor(hdc, theme.text_primary);
 
         const status_y = @max(host_tab_height + 2, ps.rcPaint.bottom - host_status_height + 4);
         var status_x: i32 = 16;
@@ -5266,7 +5269,7 @@ const Host = struct {
         const detail = self.detailText(alloc) catch null;
         defer if (detail) |owned| alloc.free(owned);
         if (detail) |value| {
-            _ = SetTextColor(hdc, rgb(160, 170, 184));
+            _ = SetTextColor(hdc, theme.text_secondary);
             const detail_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, value) catch return;
             defer alloc.free(detail_w);
             _ = TextOutW(hdc, status_x, status_y + 18, detail_w.ptr, @intCast(detail_w.len - 1));
@@ -7688,7 +7691,7 @@ fn hostButtonProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callcon
                     if (v.openSelectedProfileOrFallback(.split)) return 0;
                 }
             },
-            WM_MOUSEWHEEL, WM_MOUSEHWHEEL => {
+            WM_MOUSEWHEEL, WM_MOUSEHWHEEL, WM_POINTERWHEEL, WM_POINTERHWHEEL => {
                 if (v.command_palette_hwnd != null and hwnd == v.command_palette_hwnd.?) {
                     if (v.completeCommandPaletteFromButton(commandPaletteDirectionFromWheelDelta(signedHighWord(wParam)))) return 0;
                 }
@@ -8105,28 +8108,28 @@ fn hostWindowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callcon
                 switch (msg) {
                     WM_CTLCOLOREDIT => {
                         _ = SetBkMode(hdc, OPAQUE);
-                        _ = SetBkColor(hdc, rgb(20, 24, 31));
-                        _ = SetTextColor(hdc, rgb(232, 236, 244));
+                        _ = SetBkColor(hdc, v.app.resolved_theme.edit_bg);
+                        _ = SetTextColor(hdc, v.app.resolved_theme.edit_fg);
                         return @as(LRESULT, @intCast(@intFromPtr(v.edit_brush.?)));
                     },
                     WM_CTLCOLORSTATIC => {
                         _ = SetBkMode(hdc, TRANSPARENT);
                         _ = SetTextColor(hdc, if (v.overlay_hint_hwnd != null and child == v.overlay_hint_hwnd.?)
-                            rgb(160, 170, 184)
+                            v.app.resolved_theme.text_secondary
                         else
-                            rgb(216, 221, 231));
+                            v.app.resolved_theme.text_primary);
                         return @as(LRESULT, @intCast(@intFromPtr(v.overlay_brush.?)));
                     },
                     WM_CTLCOLORBTN => {
                         _ = SetBkMode(hdc, TRANSPARENT);
                         if (v.isOverlayButton(child)) {
-                            _ = SetTextColor(hdc, rgb(224, 229, 238));
+                            _ = SetTextColor(hdc, v.app.resolved_theme.button_overlay_fg);
                             return @as(LRESULT, @intCast(@intFromPtr(v.overlay_brush.?)));
                         }
                         _ = SetTextColor(hdc, if (v.isActiveChromeButton(child))
-                            rgb(244, 247, 252)
+                            v.app.resolved_theme.button_active_fg
                         else
-                            rgb(190, 198, 210));
+                            v.app.resolved_theme.button_chrome_fg);
                         return @as(LRESULT, @intCast(@intFromPtr(v.chrome_brush.?)));
                     },
                     else => {},
@@ -8297,7 +8300,7 @@ fn hostWindowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callcon
             return DefWindowProcW(hwnd, msg, wParam, lParam);
         },
 
-        WM_MOUSEWHEEL, WM_MOUSEHWHEEL => {
+        WM_MOUSEWHEEL, WM_MOUSEHWHEEL, WM_POINTERWHEEL, WM_POINTERHWHEEL => {
             if (host) |v| {
                 var point = POINT{
                     .x = signedLowWord(lParamBits(lParam)),
@@ -8620,22 +8623,19 @@ fn normalizeWheelDelta(
 ) NormalizedWheelScroll {
     if (delta == 0) return .{};
 
-    const setting = wheelSettingForAxis(ctx.settings, axis);
-    if (setting == 0) {
-        return .{
-            .mods = .{
-                .precision = @rem(delta, WHEEL_DELTA) != 0,
-                .pixel_delta = true,
-            },
-        };
-    }
-
     const precision = @rem(delta, WHEEL_DELTA) != 0;
     const notch_delta = @as(f64, @floatFromInt(delta)) / WHEEL_DELTA;
-    const pixels = if (setting == WHEEL_PAGESCROLL)
-        notch_delta * wheelViewportSize(ctx, axis)
-    else
-        notch_delta * @as(f64, @floatFromInt(setting)) * wheelUnitSize(ctx, axis);
+    const pixels = if (precision)
+        notch_delta * wheelUnitSize(ctx, axis)
+    else discrete: {
+        const setting = wheelSettingForAxis(ctx.settings, axis);
+        if (setting == 0) return .{};
+
+        break :discrete if (setting == WHEEL_PAGESCROLL)
+            notch_delta * wheelViewportSize(ctx, axis)
+        else
+            notch_delta * @as(f64, @floatFromInt(setting)) * wheelUnitSize(ctx, axis);
+    };
 
     return switch (axis) {
         .vertical => .{
@@ -8920,7 +8920,7 @@ fn windowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.w
             return DefWindowProcW(hwnd, msg, wParam, lParam);
         },
 
-        WM_MOUSEWHEEL => {
+        WM_MOUSEWHEEL, WM_POINTERWHEEL => {
             if (surface) |v| {
                 v.handleMouseWheel(normalizeWheelDelta(
                     v.wheelNormalizationContext(),
@@ -8932,7 +8932,7 @@ fn windowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.w
             return DefWindowProcW(hwnd, msg, wParam, lParam);
         },
 
-        WM_MOUSEHWHEEL => {
+        WM_MOUSEHWHEEL, WM_POINTERHWHEEL => {
             if (surface) |v| {
                 v.handleMouseWheel(normalizeWheelDelta(
                     v.wheelNormalizationContext(),
@@ -10285,7 +10285,7 @@ test "win32 normalizeWheelDelta maps horizontal wheel steps to pixel deltas" {
     try std.testing.expect(event.mods.pixel_delta);
 }
 
-test "win32 normalizeWheelDelta marks high-resolution input as precision" {
+test "win32 normalizeWheelDelta scales high-resolution input proportionally" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
     const event = normalizeWheelDelta(.{
@@ -10294,7 +10294,7 @@ test "win32 normalizeWheelDelta marks high-resolution input as precision" {
         .viewport = .{ .width = 800, .height = 600 },
     }, .vertical, 40);
 
-    try std.testing.expectApproxEqAbs(-16.0, event.yoff, 0.0001);
+    try std.testing.expectApproxEqAbs(-(16.0 / 3.0), event.yoff, 0.0001);
     try std.testing.expect(event.mods.precision);
     try std.testing.expect(event.mods.pixel_delta);
 }
@@ -10310,6 +10310,34 @@ test "win32 normalizeWheelDelta honors page scroll settings" {
 
     try std.testing.expectApproxEqAbs(-584.0, event.yoff, 0.0001);
     try std.testing.expect(!event.mods.precision);
+    try std.testing.expect(event.mods.pixel_delta);
+}
+
+test "win32 normalizeWheelDelta ignores page scroll settings for high-resolution input" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const event = normalizeWheelDelta(.{
+        .settings = .{ .lines = WHEEL_PAGESCROLL, .chars = 3 },
+        .cell_size = .{ .width = 8, .height = 16 },
+        .viewport = .{ .width = 800, .height = 600 },
+    }, .vertical, 40);
+
+    try std.testing.expectApproxEqAbs(-(16.0 / 3.0), event.yoff, 0.0001);
+    try std.testing.expect(event.mods.precision);
+    try std.testing.expect(event.mods.pixel_delta);
+}
+
+test "win32 normalizeWheelDelta ignores disabled notch settings for high-resolution input" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const event = normalizeWheelDelta(.{
+        .settings = .{ .lines = 0, .chars = 0 },
+        .cell_size = .{ .width = 8, .height = 16 },
+        .viewport = .{ .width = 800, .height = 600 },
+    }, .vertical, 40);
+
+    try std.testing.expectApproxEqAbs(-(16.0 / 3.0), event.yoff, 0.0001);
+    try std.testing.expect(event.mods.precision);
     try std.testing.expect(event.mods.pixel_delta);
 }
 
