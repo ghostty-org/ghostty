@@ -190,6 +190,15 @@ const DWMWA_USE_IMMERSIVE_DARK_MODE_V1: DWORD = 19;
 const DWMWA_USE_IMMERSIVE_DARK_MODE: DWORD = 20;
 const DWMWA_CAPTION_COLOR: DWORD = 35;
 const SPI_GETHIGHCONTRAST: UINT = 0x0042;
+const SPI_GETNONCLIENTMETRICS: UINT = 0x0029;
+const FW_NORMAL: i32 = 400;
+const DEFAULT_CHARSET: u8 = 1;
+const OUT_DEFAULT_PRECIS: u8 = 0;
+const CLIP_DEFAULT_PRECIS: u8 = 0;
+const CLEARTYPE_QUALITY: u8 = 5;
+const DEFAULT_PITCH: u8 = 0;
+const FF_DONTCARE: u8 = 0;
+const LF_FACESIZE = 32;
 const HCF_HIGHCONTRASTON: DWORD = 0x00000001;
 const COLOR_WINDOWTEXT = 8;
 const COLOR_BTNFACE = 15;
@@ -216,6 +225,7 @@ const TPM_TOPALIGN: UINT = 0x0000;
 const TPM_RETURNCMD: UINT = 0x0100;
 const TPM_RIGHTBUTTON: UINT = 0x0002;
 const WM_NULL: UINT = 0x0000;
+const WM_SETFONT: UINT = 0x0030;
 const CTX_COPY: usize = 4001;
 const CTX_PASTE: usize = 4002;
 const CTX_SELECT_ALL: usize = 4003;
@@ -431,6 +441,42 @@ const MINMAXINFO = extern struct {
     ptMaxTrackSize: POINT,
 };
 
+const LOGFONTW = extern struct {
+    lfHeight: i32 = 0,
+    lfWidth: i32 = 0,
+    lfEscapement: i32 = 0,
+    lfOrientation: i32 = 0,
+    lfWeight: i32 = FW_NORMAL,
+    lfItalic: u8 = 0,
+    lfUnderline: u8 = 0,
+    lfStrikeOut: u8 = 0,
+    lfCharSet: u8 = DEFAULT_CHARSET,
+    lfOutPrecision: u8 = OUT_DEFAULT_PRECIS,
+    lfClipPrecision: u8 = CLIP_DEFAULT_PRECIS,
+    lfQuality: u8 = CLEARTYPE_QUALITY,
+    lfPitchAndFamily: u8 = DEFAULT_PITCH | FF_DONTCARE,
+    lfFaceName: [LF_FACESIZE]u16 = [_]u16{0} ** LF_FACESIZE,
+};
+
+const NONCLIENTMETRICSW = extern struct {
+    cbSize: UINT,
+    iBorderWidth: i32,
+    iScrollWidth: i32,
+    iScrollHeight: i32,
+    iCaptionWidth: i32,
+    iCaptionHeight: i32,
+    lfCaptionFont: LOGFONTW,
+    iSmCaptionWidth: i32,
+    iSmCaptionHeight: i32,
+    lfSmCaptionFont: LOGFONTW,
+    iMenuWidth: i32,
+    iMenuHeight: i32,
+    lfMenuFont: LOGFONTW,
+    lfStatusFont: LOGFONTW,
+    lfMessageFont: LOGFONTW,
+    iPaddedBorderWidth: i32,
+};
+
 extern "user32" fn RegisterClassExW(lpWndClass: *const WNDCLASSEXW) callconv(.winapi) ATOM;
 extern "user32" fn CreateWindowExW(
     dwExStyle: u32,
@@ -549,6 +595,8 @@ extern "gdi32" fn SetPixelFormat(hdc: HDC, format: i32, ppfd: *const PIXELFORMAT
 extern "gdi32" fn SetTextColor(hdc: HDC, color: u32) callconv(.winapi) u32;
 extern "gdi32" fn SwapBuffers(hdc: HDC) callconv(.winapi) BOOL;
 extern "gdi32" fn TextOutW(hdc: HDC, x: i32, y: i32, lpString: LPCWSTR, c: i32) callconv(.winapi) BOOL;
+extern "gdi32" fn CreateFontIndirectW(lplf: *const LOGFONTW) callconv(.winapi) ?*anyopaque;
+extern "gdi32" fn SelectObject(hdc: HDC, h: ?*anyopaque) callconv(.winapi) ?*anyopaque;
 extern "advapi32" fn RegOpenKeyExW(hKey: usize, lpSubKey: LPCWSTR, ulOptions: DWORD, samDesired: DWORD, phkResult: *usize) callconv(.winapi) i32;
 extern "advapi32" fn RegQueryValueExW(hKey: usize, lpValueName: LPCWSTR, lpReserved: ?*DWORD, lpType: ?*DWORD, lpData: ?*u8, lpcbData: ?*DWORD) callconv(.winapi) i32;
 extern "advapi32" fn RegCloseKey(hKey: usize) callconv(.winapi) i32;
@@ -1925,6 +1973,7 @@ pub const App = struct {
         self.resolved_theme = resolveTheme(&self.config);
         for (self.hosts.items) |host| {
             host.rebuildThemeBrushes();
+            host.recreateChromeFont();
             if (host.hwnd) |hwnd| applyDwmTheme(hwnd, &self.resolved_theme);
         }
     }
@@ -2033,6 +2082,7 @@ pub const App = struct {
         applyDwmTheme(hwnd, &self.resolved_theme);
         host.current_dpi = GetDpiForWindow(hwnd);
         if (host.current_dpi == 0) host.current_dpi = 96;
+        host.chrome_font = host.createChromeFont();
         errdefer _ = DestroyWindow(hwnd);
 
         try self.hosts.append(self.core_app.alloc, host);
@@ -2770,6 +2820,7 @@ const Host = struct {
     status_brush: HBRUSH = null,
     current_dpi: u32 = 96,
     pending_dpi_update: bool = false,
+    chrome_font: ?*anyopaque = null, // HFONT, owned
     command_palette_hwnd: ?HWND = null,
     profiles_hwnd: ?HWND = null,
     profile_target_hwnd: ?HWND = null,
@@ -2803,6 +2854,7 @@ const Host = struct {
         if (self.chrome_brush) |brush| _ = DeleteObject(brush);
         if (self.overlay_brush) |brush| _ = DeleteObject(brush);
         if (self.edit_brush) |brush| _ = DeleteObject(brush);
+        if (self.chrome_font) |font| _ = DeleteObject(font);
         for (self.tabs.items) |*tab| tab.deinit();
         self.tabs.deinit(self.app.core_app.alloc);
         self.* = undefined;
@@ -3821,6 +3873,42 @@ const Host = struct {
         self.ensureThemeBrushes() catch {};
     }
 
+    fn createChromeFont(self: *Host) ?*anyopaque {
+        var lf: LOGFONTW = .{};
+        lf.lfHeight = -self.scaled(14);
+        lf.lfWeight = FW_NORMAL;
+
+        // Try config font family first
+        if (self.app.config.@"window-title-font-family") |family| {
+            const name_w = std.unicode.utf8ToUtf16LeAllocZ(self.app.core_app.alloc, family) catch return null;
+            defer self.app.core_app.alloc.free(name_w);
+            const copy_len = @min(name_w.len, LF_FACESIZE - 1);
+            @memcpy(lf.lfFaceName[0..copy_len], name_w[0..copy_len]);
+        } else {
+            // Fallback: system UI font via NONCLIENTMETRICS
+            var ncm: NONCLIENTMETRICSW = undefined;
+            ncm.cbSize = @sizeOf(NONCLIENTMETRICSW);
+            if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, @sizeOf(NONCLIENTMETRICSW), @ptrCast(&ncm), 0) != 0) {
+                lf = ncm.lfMessageFont;
+                lf.lfHeight = -self.scaled(14);
+                lf.lfQuality = CLEARTYPE_QUALITY;
+            }
+        }
+
+        return CreateFontIndirectW(&lf);
+    }
+
+    fn recreateChromeFont(self: *Host) void {
+        if (self.chrome_font) |old| _ = DeleteObject(old);
+        self.chrome_font = self.createChromeFont();
+        // Send WM_SETFONT to child controls
+        if (self.chrome_font) |font| {
+            if (self.overlay_edit_hwnd) |edit| _ = SendMessageW(edit, WM_SETFONT, @intFromPtr(font), 1);
+            if (self.overlay_label_hwnd) |label| _ = SendMessageW(label, WM_SETFONT, @intFromPtr(font), 1);
+            if (self.overlay_hint_hwnd) |hint| _ = SendMessageW(hint, WM_SETFONT, @intFromPtr(font), 1);
+        }
+    }
+
     fn showContextMenu(self: *Host, screen_x: i32, screen_y: i32) void {
         const hwnd = self.hwnd orelse return;
         const menu = CreatePopupMenu() orelse return;
@@ -3907,6 +3995,7 @@ const Host = struct {
     fn drawButton(self: *Host, draw: *const DRAWITEMSTRUCT) void {
         if (draw.CtlType != ODT_BUTTON) return;
         self.ensureThemeBrushes() catch return;
+        if (self.chrome_font) |font| _ = SelectObject(draw.hDC, font);
 
         const disabled = (draw.itemState & ODS_DISABLED) != 0;
         const pressed = (draw.itemState & ODS_SELECTED) != 0;
@@ -4854,6 +4943,13 @@ const Host = struct {
 
         const alloc = self.app.core_app.alloc;
         const theme = &self.app.resolved_theme;
+
+        // Select chrome font, save previous for restore
+        const prev_font = if (self.chrome_font) |font| SelectObject(hdc, font) else null;
+        defer if (prev_font) |pf| {
+            _ = SelectObject(hdc, pf);
+        };
+
         var client_rect: RECT = undefined;
         if (GetClientRect(hwnd, &client_rect) == 0) return;
         const tab_h = self.tabBarHeight();
@@ -8245,6 +8341,7 @@ fn hostWindowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callcon
                     }
                 }
                 v.pending_dpi_update = true;
+                v.recreateChromeFont();
 
                 // Relayout and repaint
                 v.layout() catch {};
