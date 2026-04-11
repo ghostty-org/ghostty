@@ -3,62 +3,63 @@
     .version = "1.3.2-dev",
     .paths = .{""},
     .fingerprint = 0x64407a2a0b4147e5,
-    .minimum_zig_version = "0.15.2",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{
         // Zig libs
 
         .libxev = .{
             // mitchellh/libxev
-            .url = "https://deps.files.ghostty.org/libxev-34fa50878aec6e5fa8f532867001ab3c36fae23e.tar.gz",
-            .hash = "libxev-0.0.0-86vtc4IcEwCqEYxEYoN_3KXmc6A9VLcm22aVImfvecYs",
+            .url = "https://github.com/mitchellh/libxev/archive/a82a04eabb46b0611c72d6d0e32db2d9dcf2e745.tar.gz",
+            .hash = "libxev-0.0.0-86vtcwIRFACVrx54GaHsMFFlyC4dTi0tcVh10V7btRUc",
             .lazy = true,
         },
         .vaxis = .{
             // rockorager/libvaxis
-            .url = "https://deps.files.ghostty.org/vaxis-7dbb9fd3122e4ffad262dd7c151d80d863b68558.tar.gz",
-            .hash = "vaxis-0.5.1-BWNV_LosCQAGmCCNOLljCIw6j6-yt53tji6n6rwJ2BhS",
+            // TODO: See https://github.com/rockorager/libvaxis/pull/316
+            .url = "https://github.com/rockorager/libvaxis/archive/6dff795b77e930fc9c9a4dc5851faf1d6e703636.tar.gz",
+            .hash = "vaxis-0.6.0-BWNV_EnQCQArQLgoFAs30nhVr6dIHdso3NNXJ9PKcdTH",
             .lazy = true,
         },
         .z2d = .{
             // vancluever/z2d
-            .url = "https://deps.files.ghostty.org/z2d-0.10.0-j5P_Hu-6FgBsZNgwphIqh17jDnj8_yPtD8yzjO6PpHRQ.tar.gz",
-            .hash = "z2d-0.10.0-j5P_Hu-6FgBsZNgwphIqh17jDnj8_yPtD8yzjO6PpHRQ",
+            .url = "https://github.com/vancluever/z2d/archive/4eab47ca696fb2b62f005125c0aa4ba8d2eba5ee.tar.gz",
+            .hash = "z2d-0.11.0-j5P_HtLzDwBGyQt49DrT0v4BuVqI_SRs6CXsuj7eBVhR",
             .lazy = true,
         },
         .zig_objc = .{
             // mitchellh/zig-objc
-            .url = "https://deps.files.ghostty.org/zig_objc-f356ed02833f0f1b8e84d50bed9e807bf7cdc0ae.tar.gz",
-            .hash = "zig_objc-0.0.0-Ir_Sp5gTAQCvxxR7oVIrPXxXwsfKgVP7_wqoOQrZjFeK",
+            .url = "https://github.com/mitchellh/zig-objc/archive/c8de82ff80281215ad92900866dab7103a8efa8b.tar.gz",
+            .hash = "zig_objc-0.0.0-Ir_Sp9gsAQCPAJc0oF5xoWePHWP6Y6tCphDeyNUThJoi",
             .lazy = true,
         },
         .zig_js = .{
             // mitchellh/zig-js
-            .url = "https://deps.files.ghostty.org/zig_js-04db83c617da1956ac5adc1cb9ba1e434c1cb6fd.tar.gz",
-            .hash = "zig_js-0.0.0-rjCAV-6GAADxFug7rDmPH-uM_XcnJ5NmuAMJCAscMjhi",
+            .url = "https://github.com/mitchellh/zig-js/archive/3c23860e47fdcdc5af805efb7fd0bdac5fd3e9bc.tar.gz",
+            .hash = "zig_js-0.0.0-rjCAV7-GAADvMTBL7lPMuvDk7xgS9PCMIZWiOUXLZSlj",
             .lazy = true,
         },
         .uucode = .{
             // jacobsandlund/uucode
-            .url = "https://deps.files.ghostty.org/uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9.tar.gz",
-            .hash = "uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9",
+            .url = "git+https://github.com/jacobsandlund/uucode#2826a37a4562284fdacd8fa029d49509cc9bffcd",
+            .hash = "uucode-0.2.0-ZZjBPlK5VADj7fdoq7G8LIHzD5o6FSkcBXXrRWr4jnrA",
         },
         .zig_wayland = .{
             // codeberg ifreund/zig-wayland
-            .url = "https://deps.files.ghostty.org/zig_wayland-1b5c038ec10da20ed3a15b0b2a6db1c21383e8ea.tar.gz",
-            .hash = "wayland-0.5.0-dev-lQa1khrMAQDJDwYFKpdH3HizherB7sHo5dKMECfvxQHe",
+            .url = "https://codeberg.org/ifreund/zig-wayland/archive/4a150a04f76f7329e80280661355c04328369d1f.tar.gz",
+            .hash = "wayland-0.6.0-dev-lQa1krD8AQBlMqwuhAMJjPQKXvpRByZBxxqMVAZ7yzbG",
             .lazy = true,
         },
         .zf = .{
             // natecraddock/zf
-            .url = "https://deps.files.ghostty.org/zf-3c52637b7e937c5ae61fd679717da3e276765b23.tar.gz",
-            .hash = "zf-0.10.3-OIRy8RuJAACKA3Lohoumrt85nRbHwbpMcUaLES8vxDnh",
+            .url = "https://github.com/natecraddock/zf/archive/91c8283b4804d9dbb4eb10b37e9884fb5593245a.tar.gz",
+            .hash = "zf-0.11.0-OIRy8X-RAAAwaRXHMYpj2uvBnuGTZWEE_3V7acqHQNtW",
             .lazy = true,
         },
         .gobject = .{
             // https://github.com/ghostty-org/zig-gobject based on zig_gobject
             // Temporary until we generate them at build time automatically.
-            .url = "https://deps.files.ghostty.org/gobject-2025-11-08-23-1.tar.zst",
-            .hash = "gobject-0.3.0-Skun7ANLnwDvEfIpVmohcppXgOvg_I6YOJFmPIsKfXk-",
+            .url = "https://github.com/ghostty-org/zig-gobject/releases/download/0.8.0-2026-04-23-26-1/ghostty-gobject-0.8.0-2026-04-23-26-1.tar.zst",
+            .hash = "gobject-0.3.1-Skun7E1KnwBGMX5nslHYG1yWHaSevywxQO8oM7tTOgIp",
             .lazy = true,
         },
 
