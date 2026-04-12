@@ -2811,6 +2811,15 @@ const Host = struct {
     current_dpi: u32 = 96,
     pending_dpi_update: bool = false,
     chrome_font: ?*anyopaque = null, // HFONT, owned
+
+    // Cached chrome paint strings — rebuilt only when chrome_dirty is set,
+    // so WM_PAINT can skip per-frame heap allocation + UTF-16 conversion.
+    chrome_dirty: bool = true,
+    cached_status_w: ?[:0]const u16 = null,
+    cached_detail_w: ?[:0]const u16 = null,
+    cached_inspector_title_w: ?[:0]const u16 = null,
+    cached_inspector_hint_w: ?[:0]const u16 = null,
+
     profiles_hwnd: ?HWND = null,
     overflow_hwnd: ?HWND = null,
     chrome_button_prev_proc: ?*const anyopaque = null,
@@ -2836,6 +2845,7 @@ const Host = struct {
         if (self.overlay_completion_value) |value| self.app.core_app.alloc.free(value);
         if (self.profiles) |profiles| windows_shell.deinitProfiles(self.app.core_app.alloc, profiles);
         if (self.selected_profile_key) |value| self.app.core_app.alloc.free(value);
+        self.freeCachedChromeStrings();
         if (self.chrome_brush) |brush| _ = DeleteObject(brush);
         if (self.overlay_brush) |brush| _ = DeleteObject(brush);
         if (self.edit_brush) |brush| _ = DeleteObject(brush);
@@ -4460,6 +4470,7 @@ const Host = struct {
     }
 
     fn invalidateChrome(self: *Host) void {
+        self.chrome_dirty = true;
         const hwnd = self.hwnd orelse return;
         var client_rect: RECT = undefined;
         if (GetClientRect(hwnd, &client_rect) == 0) return;
@@ -4484,6 +4495,18 @@ const Host = struct {
         if (bottom_rect.bottom > bottom_rect.top) {
             _ = InvalidateRect(hwnd, &bottom_rect, 0);
         }
+    }
+
+    fn freeCachedChromeStrings(self: *Host) void {
+        const alloc = self.app.core_app.alloc;
+        if (self.cached_status_w) |w| alloc.free(w);
+        if (self.cached_detail_w) |w| alloc.free(w);
+        if (self.cached_inspector_title_w) |w| alloc.free(w);
+        if (self.cached_inspector_hint_w) |w| alloc.free(w);
+        self.cached_status_w = null;
+        self.cached_detail_w = null;
+        self.cached_inspector_title_w = null;
+        self.cached_inspector_hint_w = null;
     }
 
     fn syncWindowTitle(self: *Host) !void {
@@ -5004,24 +5027,35 @@ const Host = struct {
             );
 
             if (self.activeSurface()) |surface| {
-                const host_status = self.app.hostTabStatus(surface);
-                const pane_count = if (self.activeTab()) |tab| tab.leafCount() else 1;
-                const zoomed = if (self.activeTab()) |tab| tab.tree.zoomed != null else false;
+                if (self.chrome_dirty) {
+                    const host_status = self.app.hostTabStatus(surface);
+                    const pane_count = if (self.activeTab()) |tab| tab.leafCount() else 1;
+                    const zoomed = if (self.activeTab()) |tab| tab.tree.zoomed != null else false;
 
-                const panel_title = buildInspectorPanelTitleText(alloc, host_status, pane_count, zoomed) catch return;
-                defer alloc.free(panel_title);
-                const panel_title_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, panel_title) catch return;
-                defer alloc.free(panel_title_w);
+                    if (self.cached_inspector_title_w) |old| alloc.free(old);
+                    self.cached_inspector_title_w = blk: {
+                        const utf8 = buildInspectorPanelTitleText(alloc, host_status, pane_count, zoomed) catch break :blk null;
+                        defer alloc.free(utf8);
+                        break :blk std.unicode.utf8ToUtf16LeAllocZ(alloc, utf8) catch null;
+                    };
+
+                    if (self.cached_inspector_hint_w) |old| alloc.free(old);
+                    self.cached_inspector_hint_w = blk: {
+                        const utf8 = buildInspectorPanelHintText(alloc, pane_count, zoomed) catch break :blk null;
+                        defer alloc.free(utf8);
+                        break :blk std.unicode.utf8ToUtf16LeAllocZ(alloc, utf8) catch null;
+                    };
+                }
+
                 _ = SetBkMode(hdc, TRANSPARENT);
-                _ = SetTextColor(hdc, theme.overlay_label_fg);
-                _ = TextOutW(hdc, self.scaled(16), panel_rect.top + self.scaled(6), panel_title_w.ptr, @intCast(panel_title_w.len - 1));
-
-                const panel_hint = buildInspectorPanelHintText(alloc, pane_count, zoomed) catch return;
-                defer alloc.free(panel_hint);
-                const panel_hint_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, panel_hint) catch return;
-                defer alloc.free(panel_hint_w);
-                _ = SetTextColor(hdc, theme.text_secondary);
-                _ = TextOutW(hdc, self.scaled(16), panel_rect.top + self.scaled(22), panel_hint_w.ptr, @intCast(panel_hint_w.len - 1));
+                if (self.cached_inspector_title_w) |title_w| {
+                    _ = SetTextColor(hdc, theme.overlay_label_fg);
+                    _ = TextOutW(hdc, self.scaled(16), panel_rect.top + self.scaled(6), title_w.ptr, @intCast(title_w.len - 1));
+                }
+                if (self.cached_inspector_hint_w) |hint_w| {
+                    _ = SetTextColor(hdc, theme.text_secondary);
+                    _ = TextOutW(hdc, self.scaled(16), panel_rect.top + self.scaled(22), hint_w.ptr, @intCast(hint_w.len - 1));
+                }
             }
         }
 
@@ -5292,20 +5326,31 @@ const Host = struct {
                 }
             }
         }
-        const status = self.statusText(alloc) catch null;
-        defer if (status) |owned| alloc.free(owned);
-        if (status) |value| {
-            const status_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, value) catch return;
-            defer alloc.free(status_w);
-            _ = TextOutW(hdc, status_x, status_y, status_w.ptr, @intCast(status_w.len - 1));
+        if (self.chrome_dirty) {
+            if (self.cached_status_w) |old| alloc.free(old);
+            self.cached_status_w = blk: {
+                const utf8 = self.statusText(alloc) catch break :blk null;
+                const owned = utf8 orelse break :blk null;
+                defer alloc.free(owned);
+                break :blk std.unicode.utf8ToUtf16LeAllocZ(alloc, owned) catch null;
+            };
+
+            if (self.cached_detail_w) |old| alloc.free(old);
+            self.cached_detail_w = blk: {
+                const utf8 = self.detailText(alloc) catch break :blk null;
+                const owned = utf8 orelse break :blk null;
+                defer alloc.free(owned);
+                break :blk std.unicode.utf8ToUtf16LeAllocZ(alloc, owned) catch null;
+            };
+
+            self.chrome_dirty = false;
         }
 
-        const detail = self.detailText(alloc) catch null;
-        defer if (detail) |owned| alloc.free(owned);
-        if (detail) |value| {
+        if (self.cached_status_w) |status_w| {
+            _ = TextOutW(hdc, status_x, status_y, status_w.ptr, @intCast(status_w.len - 1));
+        }
+        if (self.cached_detail_w) |detail_w| {
             _ = SetTextColor(hdc, theme.text_secondary);
-            const detail_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, value) catch return;
-            defer alloc.free(detail_w);
             _ = TextOutW(hdc, status_x, status_y + self.scaled(18), detail_w.ptr, @intCast(detail_w.len - 1));
         }
     }
