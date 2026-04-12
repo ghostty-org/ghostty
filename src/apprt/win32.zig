@@ -161,14 +161,10 @@ const host_overlay_label_width = 110;
 const host_overlay_row_height = 24;
 const host_overlay_accept_width = 70;
 const host_overlay_cancel_width = 80;
-const host_tab_cmd_button_width = 96;
 const host_tab_profiles_button_width = 118;
-const host_tab_target_button_width = 74;
-const host_tab_nav_button_width = 30;
 const host_tab_tabs_button_width = 88;
-const host_tab_find_button_width = 96;
-const host_tab_inspect_button_width = 96;
 const host_tab_small_button_width = 34;
+const host_tab_overflow_button_width = 34;
 const host_tab_label_max_len = 24;
 const host_tab_min_button_width = 108;
 const curated_command_palette_actions = [_][]const u8{
@@ -234,6 +230,7 @@ const CTX_COMMAND_PALETTE: usize = 4005;
 const CTX_NEW_TAB: usize = 4006;
 const CTX_SPLIT_RIGHT: usize = 4007;
 const CTX_NEW_WINDOW: usize = 4008;
+const CTX_INSPECTOR: usize = 4009;
 
 const WNDPROC = *const fn (HWND, UINT, WPARAM, LPARAM) callconv(.winapi) LRESULT;
 const SHORT = i16;
@@ -651,18 +648,11 @@ const host_overlay_profile_label = std.unicode.utf8ToUtf16LeStringLiteral("Profi
 const host_overlay_surface_title_label = std.unicode.utf8ToUtf16LeStringLiteral("Window title:");
 const host_overlay_tab_title_label = std.unicode.utf8ToUtf16LeStringLiteral("Tab title:");
 const host_overlay_tab_overview_label = std.unicode.utf8ToUtf16LeStringLiteral("Tab:");
-const host_tab_command_button_label = std.unicode.utf8ToUtf16LeStringLiteral("Cmd");
 const host_tab_profiles_button_label = std.unicode.utf8ToUtf16LeStringLiteral("Prof");
-const host_tab_target_button_label = std.unicode.utf8ToUtf16LeStringLiteral("Tab");
-const host_tab_command_button_active_label = std.unicode.utf8ToUtf16LeStringLiteral("[Cmd]");
-const host_tab_prev_button_label = std.unicode.utf8ToUtf16LeStringLiteral("<");
-const host_tab_next_button_label = std.unicode.utf8ToUtf16LeStringLiteral(">");
 const host_tab_tabs_button_label = std.unicode.utf8ToUtf16LeStringLiteral("Tabs");
-const host_tab_tabs_button_active_label = std.unicode.utf8ToUtf16LeStringLiteral("[Tabs]");
-const host_tab_inspector_button_label = std.unicode.utf8ToUtf16LeStringLiteral("Inspect");
-const host_tab_inspector_button_active_label = std.unicode.utf8ToUtf16LeStringLiteral("[Inspect]");
 const host_tab_new_button_label = std.unicode.utf8ToUtf16LeStringLiteral("+");
 const host_tab_close_button_label = std.unicode.utf8ToUtf16LeStringLiteral("x");
+const host_tab_overflow_button_label = std.unicode.utf8ToUtf16LeStringLiteral("\u{2026}"); // "..." (horizontal ellipsis)
 const host_banner_inspector_active = "Inspector active. Toggle inspector to return to the terminal view.";
 const host_banner_inspector_inactive = "Inspector hidden. Terminal view is active.";
 const clipboard_read_title = std.unicode.utf8ToUtf16LeStringLiteral("Allow clipboard paste?");
@@ -2821,15 +2811,10 @@ const Host = struct {
     current_dpi: u32 = 96,
     pending_dpi_update: bool = false,
     chrome_font: ?*anyopaque = null, // HFONT, owned
-    command_palette_hwnd: ?HWND = null,
     profiles_hwnd: ?HWND = null,
-    profile_target_hwnd: ?HWND = null,
+    overflow_hwnd: ?HWND = null,
     chrome_button_prev_proc: ?*const anyopaque = null,
-    prev_tab_hwnd: ?HWND = null,
     tab_overview_hwnd: ?HWND = null,
-    next_tab_hwnd: ?HWND = null,
-    search_hwnd: ?HWND = null,
-    inspector_hwnd: ?HWND = null,
     new_tab_hwnd: ?HWND = null,
     close_tab_hwnd: ?HWND = null,
     hovered_button_hwnd: ?HWND = null,
@@ -3436,24 +3421,6 @@ const Host = struct {
     fn ensureChromeButtons(self: *Host) !void {
         const hwnd = self.hwnd orelse return;
 
-        if (self.command_palette_hwnd == null) {
-            self.command_palette_hwnd = CreateWindowExW(
-                0,
-                prompt_button_class,
-                host_tab_command_button_label,
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                0,
-                0,
-                host_tab_cmd_button_width,
-                host_tab_height - 8,
-                hwnd,
-                @ptrFromInt(1901),
-                self.app.hinstance,
-                null,
-            ) orelse return windows.unexpectedError(windows.kernel32.GetLastError());
-            self.subclassButton(self.command_palette_hwnd.?, &hostButtonProc, &self.chrome_button_prev_proc);
-        }
-
         if (self.profiles_hwnd == null) {
             self.profiles_hwnd = CreateWindowExW(
                 0,
@@ -3470,42 +3437,6 @@ const Host = struct {
                 null,
             ) orelse return windows.unexpectedError(windows.kernel32.GetLastError());
             self.subclassButton(self.profiles_hwnd.?, &hostButtonProc, &self.chrome_button_prev_proc);
-        }
-
-        if (self.profile_target_hwnd == null) {
-            self.profile_target_hwnd = CreateWindowExW(
-                0,
-                prompt_button_class,
-                host_tab_target_button_label,
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                0,
-                0,
-                host_tab_target_button_width,
-                host_tab_height - 8,
-                hwnd,
-                @ptrFromInt(1910),
-                self.app.hinstance,
-                null,
-            ) orelse return windows.unexpectedError(windows.kernel32.GetLastError());
-            self.subclassButton(self.profile_target_hwnd.?, &hostButtonProc, &self.chrome_button_prev_proc);
-        }
-
-        if (self.prev_tab_hwnd == null) {
-            self.prev_tab_hwnd = CreateWindowExW(
-                0,
-                prompt_button_class,
-                host_tab_prev_button_label,
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                0,
-                0,
-                host_tab_nav_button_width,
-                host_tab_height - 8,
-                hwnd,
-                @ptrFromInt(1907),
-                self.app.hinstance,
-                null,
-            ) orelse return windows.unexpectedError(windows.kernel32.GetLastError());
-            self.subclassButton(self.prev_tab_hwnd.?, &hostButtonProc, &self.chrome_button_prev_proc);
         }
 
         if (self.tab_overview_hwnd == null) {
@@ -3526,58 +3457,22 @@ const Host = struct {
             self.subclassButton(self.tab_overview_hwnd.?, &hostButtonProc, &self.chrome_button_prev_proc);
         }
 
-        if (self.next_tab_hwnd == null) {
-            self.next_tab_hwnd = CreateWindowExW(
+        if (self.overflow_hwnd == null) {
+            self.overflow_hwnd = CreateWindowExW(
                 0,
                 prompt_button_class,
-                host_tab_next_button_label,
+                host_tab_overflow_button_label,
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                 0,
                 0,
-                host_tab_nav_button_width,
+                host_tab_overflow_button_width,
                 host_tab_height - 8,
                 hwnd,
-                @ptrFromInt(1908),
+                @ptrFromInt(1911),
                 self.app.hinstance,
                 null,
             ) orelse return windows.unexpectedError(windows.kernel32.GetLastError());
-            self.subclassButton(self.next_tab_hwnd.?, &hostButtonProc, &self.chrome_button_prev_proc);
-        }
-
-        if (self.search_hwnd == null) {
-            self.search_hwnd = CreateWindowExW(
-                0,
-                prompt_button_class,
-                std.unicode.utf8ToUtf16LeStringLiteral("Find"),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                0,
-                0,
-                host_tab_find_button_width,
-                host_tab_height - 8,
-                hwnd,
-                @ptrFromInt(1902),
-                self.app.hinstance,
-                null,
-            ) orelse return windows.unexpectedError(windows.kernel32.GetLastError());
-            self.subclassButton(self.search_hwnd.?, &hostButtonProc, &self.chrome_button_prev_proc);
-        }
-
-        if (self.inspector_hwnd == null) {
-            self.inspector_hwnd = CreateWindowExW(
-                0,
-                prompt_button_class,
-                host_tab_inspector_button_label,
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                0,
-                0,
-                host_tab_inspect_button_width,
-                host_tab_height - 8,
-                hwnd,
-                @ptrFromInt(1903),
-                self.app.hinstance,
-                null,
-            ) orelse return windows.unexpectedError(windows.kernel32.GetLastError());
-            self.subclassButton(self.inspector_hwnd.?, &hostButtonProc, &self.chrome_button_prev_proc);
+            self.subclassButton(self.overflow_hwnd.?, &hostButtonProc, &self.chrome_button_prev_proc);
         }
 
         if (self.new_tab_hwnd == null) {
@@ -3974,6 +3869,49 @@ const Host = struct {
         }
     }
 
+    fn showOverflowMenu(self: *Host) void {
+        const hwnd = self.hwnd orelse return;
+        const button = self.overflow_hwnd orelse return;
+
+        // Position menu below the overflow button
+        var rect: RECT = undefined;
+        if (GetWindowRect(button, &rect) == 0) return;
+
+        const menu = CreatePopupMenu() orelse return;
+        defer _ = DestroyMenu(menu);
+
+        _ = AppendMenuW(menu, MF_STRING, CTX_COMMAND_PALETTE, std.unicode.utf8ToUtf16LeStringLiteral("Command Palette\tCtrl+Shift+P"));
+        _ = AppendMenuW(menu, MF_STRING, CTX_FIND, std.unicode.utf8ToUtf16LeStringLiteral("Find...\tCtrl+Shift+F"));
+        _ = AppendMenuW(menu, MF_SEPARATOR, 0, null);
+        _ = AppendMenuW(menu, MF_STRING, CTX_INSPECTOR, std.unicode.utf8ToUtf16LeStringLiteral("Toggle Inspector"));
+
+        _ = SetForegroundWindow(hwnd);
+        const cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_TOPALIGN, rect.left, rect.bottom, 0, hwnd, null);
+        _ = PostMessageW(hwnd, WM_NULL, 0, 0);
+
+        self.handleOverflowMenuCommand(cmd);
+    }
+
+    fn handleOverflowMenuCommand(self: *Host, cmd: BOOL) void {
+        if (cmd <= 0) return;
+        const surface = self.activeSurface() orelse return;
+        if (!surface.core_initialized) return;
+
+        switch (@as(usize, @intCast(cmd))) {
+            CTX_COMMAND_PALETTE => {
+                _ = surface.toggleCommandPalette() catch {};
+            },
+            CTX_FIND => {
+                surface.showSearchOverlay("") catch {};
+            },
+            CTX_INSPECTOR => {
+                _ = surface.setInspectorVisible(!surface.inspector_visible) catch {};
+                self.refreshChrome() catch {};
+            },
+            else => {},
+        }
+    }
+
     fn isOverlayButton(self: *Host, child: HWND) bool {
         return (self.overlay_accept_hwnd != null and child == self.overlay_accept_hwnd.?) or
             (self.overlay_cancel_hwnd != null and child == self.overlay_cancel_hwnd.?);
@@ -3981,14 +3919,8 @@ const Host = struct {
 
     fn isActiveChromeButton(self: *Host, child: HWND) bool {
         if (self.isActiveTabButton(child)) return true;
-        if (self.command_palette_hwnd != null and child == self.command_palette_hwnd.?) return self.overlay_mode == .command_palette;
         if (self.profiles_hwnd != null and child == self.profiles_hwnd.?) return self.overlay_mode == .profile;
-        if (self.profile_target_hwnd != null and child == self.profile_target_hwnd.?) return true;
         if (self.tab_overview_hwnd != null and child == self.tab_overview_hwnd.?) return self.overlay_mode == .tab_overview;
-        if (self.search_hwnd != null and child == self.search_hwnd.?) return self.overlay_mode == .search;
-        if (self.inspector_hwnd != null and child == self.inspector_hwnd.?) {
-            if (self.activeSurface()) |surface| return surface.inspector_visible;
-        }
         return false;
     }
 
@@ -4055,14 +3987,6 @@ const Host = struct {
                 .right = draw.rcItem.left + self.scaled(4),
                 .bottom = draw.rcItem.bottom - 1,
             }, stripe);
-            if (self.profile_target_hwnd != null and draw.hwndItem == self.profile_target_hwnd.?) {
-                fillSolidRect(draw.hDC, .{
-                    .left = draw.rcItem.right - self.scaled(4),
-                    .top = draw.rcItem.top + 1,
-                    .right = draw.rcItem.right - 1,
-                    .bottom = draw.rcItem.bottom - 1,
-                }, stripe);
-            }
             if (pinnedSlotBadgeDigit(pinned_slot_ordinal)) |digit| {
                 paintPinnedSlotBadge(
                     draw.hDC,
@@ -4122,15 +4046,12 @@ const Host = struct {
         _ = SetBkMode(draw.hDC, TRANSPARENT);
         _ = SetTextColor(draw.hDC, fg);
         var text_rect = draw.rcItem;
-        if (!overlay and draw.hwndItem != self.prev_tab_hwnd and draw.hwndItem != self.next_tab_hwnd) {
+        if (!overlay) {
             text_rect.left += self.scaled(6);
             text_rect.right -= self.scaled(6);
         }
         if (profile_kind != null) {
             text_rect.left += self.scaled(4);
-            if (self.profile_target_hwnd != null and draw.hwndItem == self.profile_target_hwnd.?) {
-                text_rect.right -= self.scaled(4);
-            }
         }
         text_rect.right -= buttonLabelRightInset(pinned_slot_ordinal, launcher_target);
         _ = DrawTextW(
@@ -4145,7 +4066,6 @@ const Host = struct {
     fn buttonProfileKind(self: *Host, hwnd: HWND) ?windows_shell.ProfileKind {
         const profile = self.selectedProfile() orelse return null;
         if (self.profiles_hwnd != null and hwnd == self.profiles_hwnd.?) return profile.kind;
-        if (self.profile_target_hwnd != null and hwnd == self.profile_target_hwnd.?) return profile.kind;
         if (self.overlay_mode == .profile and self.overlay_accept_hwnd != null and hwnd == self.overlay_accept_hwnd.?) {
             return profile.kind;
         }
@@ -4157,9 +4077,6 @@ const Host = struct {
         if (self.profiles_hwnd != null and hwnd == self.profiles_hwnd.?) {
             return self.app.launcherQuickSlotOrdinal(profile.key);
         }
-        if (self.profile_target_hwnd != null and hwnd == self.profile_target_hwnd.?) {
-            return self.app.launcherQuickSlotOrdinal(profile.key);
-        }
         if (self.overlay_mode == .profile and self.overlay_accept_hwnd != null and hwnd == self.overlay_accept_hwnd.?) {
             return self.app.launcherQuickSlotOrdinal(profile.key);
         }
@@ -4168,9 +4085,6 @@ const Host = struct {
 
     fn buttonLauncherTarget(self: *Host, hwnd: HWND) ?ProfileOpenTarget {
         if (self.profiles_hwnd != null and hwnd == self.profiles_hwnd.?) {
-            return self.app.launcher_profile_target;
-        }
-        if (self.profile_target_hwnd != null and hwnd == self.profile_target_hwnd.?) {
             return self.app.launcher_profile_target;
         }
         if (self.overlay_mode == .profile and self.overlay_accept_hwnd != null and hwnd == self.overlay_accept_hwnd.?) {
@@ -4368,16 +4282,11 @@ const Host = struct {
     }
 
     fn rightButtonsWidth(self: *const Host) i32 {
-        return self.scaled(host_tab_cmd_button_width) +
-            self.scaled(host_tab_profiles_button_width) +
-            self.scaled(host_tab_target_button_width) +
-            self.scaled(host_tab_nav_button_width) +
+        return self.scaled(host_tab_profiles_button_width) +
             self.scaled(host_tab_tabs_button_width) +
-            self.scaled(host_tab_nav_button_width) +
-            self.scaled(host_tab_find_button_width) +
-            self.scaled(host_tab_inspect_button_width) +
+            self.scaled(host_tab_overflow_button_width) +
             (self.scaled(host_tab_small_button_width) * 2) +
-            self.scaled(28);
+            self.scaled(20); // 5 gaps of 4px
     }
 
     fn scaled(self: *const Host, base: i32) i32 {
@@ -4664,40 +4573,12 @@ const Host = struct {
     fn syncChromeButtons(self: *Host) !void {
         try self.ensureChromeButtons();
 
-        const command_hwnd = self.command_palette_hwnd orelse return;
         const profiles_hwnd = self.profiles_hwnd orelse return;
-        const profile_target_hwnd = self.profile_target_hwnd orelse return;
-        const prev_tab_hwnd = self.prev_tab_hwnd orelse return;
         const tabs_hwnd = self.tab_overview_hwnd orelse return;
-        const next_tab_hwnd = self.next_tab_hwnd orelse return;
-        const search_hwnd = self.search_hwnd orelse return;
-        const inspector_hwnd = self.inspector_hwnd orelse return;
+        const overflow_hwnd = self.overflow_hwnd orelse return;
         const new_tab_hwnd = self.new_tab_hwnd orelse return;
         const close_tab_hwnd = self.close_tab_hwnd orelse return;
-        const surface = self.activeSurface();
-        const tab = self.activeTab();
-        const hwnd = self.hwnd orelse return;
-        var rect: RECT = undefined;
-        if (GetClientRect(hwnd, &rect) == 0) {
-            return windows.unexpectedError(windows.kernel32.GetLastError());
-        }
-        const width = @max(0, rect.right - rect.left);
-        const right_buttons_width = self.rightButtonsWidth();
-        const tab_area_width = @max(1, width - right_buttons_width);
-        const tab_range = visibleTabRange(self.tabs.items.len, self.active_tab, tab_area_width);
-        const command_input = if (self.overlay_mode == .command_palette and self.overlay_edit_hwnd != null)
-            try readWindowTextUtf8Alloc(self.app.core_app.alloc, self.overlay_edit_hwnd.?)
-        else
-            null;
-        defer if (command_input) |value| self.app.core_app.alloc.free(value);
-        const command_label = try buildCommandButtonLabel(
-            self.app.core_app.alloc,
-            self.overlay_mode == .command_palette,
-            if (command_input) |value| value else null,
-        );
-        defer self.app.core_app.alloc.free(command_label);
-        const command_label_w = try std.unicode.utf8ToUtf16LeAllocZ(self.app.core_app.alloc, command_label);
-        defer self.app.core_app.alloc.free(command_label_w);
+
         const selected_profile = self.selectedProfile();
         const pinned_slot_ordinal = if (selected_profile) |profile|
             self.app.launcherQuickSlotOrdinal(profile.key)
@@ -4713,15 +4594,6 @@ const Host = struct {
         defer self.app.core_app.alloc.free(profiles_label);
         const profiles_label_w = try std.unicode.utf8ToUtf16LeAllocZ(self.app.core_app.alloc, profiles_label);
         defer self.app.core_app.alloc.free(profiles_label_w);
-        const target_label = try launchTargetButtonLabel(
-            self.app.core_app.alloc,
-            self.app.launcher_profile_target,
-            self.selectedProfileIndex(),
-            pinned_slot_ordinal,
-        );
-        defer self.app.core_app.alloc.free(target_label);
-        const target_label_w = try std.unicode.utf8ToUtf16LeAllocZ(self.app.core_app.alloc, target_label);
-        defer self.app.core_app.alloc.free(target_label_w);
         const tabs_label = try buildTabsButtonLabel(
             self.app.core_app.alloc,
             self.overlay_mode == .tab_overview,
@@ -4731,63 +4603,15 @@ const Host = struct {
         defer self.app.core_app.alloc.free(tabs_label);
         const tabs_label_w = try std.unicode.utf8ToUtf16LeAllocZ(self.app.core_app.alloc, tabs_label);
         defer self.app.core_app.alloc.free(tabs_label_w);
-        const search_label = try buildSearchButtonLabel(
-            self.app.core_app.alloc,
-            self.overlay_mode == .search,
-            if (surface) |s| s.search_total else null,
-            if (surface) |s| s.search_selected else null,
-        );
-        defer self.app.core_app.alloc.free(search_label);
-        const search_label_w = try std.unicode.utf8ToUtf16LeAllocZ(self.app.core_app.alloc, search_label);
-        defer self.app.core_app.alloc.free(search_label_w);
-        const inspector_label = try buildInspectorButtonLabel(
-            self.app.core_app.alloc,
-            surface != null and surface.?.inspector_visible,
-            if (tab) |value| value.leafCount() else 1,
-        );
-        defer self.app.core_app.alloc.free(inspector_label);
-        const inspector_label_w = try std.unicode.utf8ToUtf16LeAllocZ(self.app.core_app.alloc, inspector_label);
-        defer self.app.core_app.alloc.free(inspector_label_w);
 
-        _ = SetWindowTextW(
-            command_hwnd,
-            command_label_w.ptr,
-        );
-        _ = SetWindowTextW(
-            profiles_hwnd,
-            profiles_label_w.ptr,
-        );
-        _ = SetWindowTextW(
-            profile_target_hwnd,
-            target_label_w.ptr,
-        );
-        _ = SetWindowTextW(prev_tab_hwnd, host_tab_prev_button_label);
-        _ = SetWindowTextW(
-            tabs_hwnd,
-            tabs_label_w.ptr,
-        );
-        _ = SetWindowTextW(next_tab_hwnd, host_tab_next_button_label);
-        _ = SetWindowTextW(
-            search_hwnd,
-            search_label_w.ptr,
-        );
-        _ = SetWindowTextW(
-            inspector_hwnd,
-            inspector_label_w.ptr,
-        );
-        _ = ShowWindow(command_hwnd, SW_SHOW);
+        _ = SetWindowTextW(profiles_hwnd, profiles_label_w.ptr);
+        _ = SetWindowTextW(tabs_hwnd, tabs_label_w.ptr);
         _ = ShowWindow(profiles_hwnd, SW_SHOW);
-        _ = ShowWindow(profile_target_hwnd, SW_SHOW);
-        _ = ShowWindow(prev_tab_hwnd, SW_SHOW);
         _ = ShowWindow(tabs_hwnd, SW_SHOW);
-        _ = ShowWindow(next_tab_hwnd, SW_SHOW);
-        _ = ShowWindow(search_hwnd, SW_SHOW);
-        _ = ShowWindow(inspector_hwnd, SW_SHOW);
+        _ = ShowWindow(overflow_hwnd, SW_SHOW);
         _ = ShowWindow(new_tab_hwnd, SW_SHOW);
         _ = ShowWindow(close_tab_hwnd, SW_SHOW);
         _ = EnableWindow(profiles_hwnd, if (self.profiles == null or (self.profiles != null and self.profiles.?.len > 0)) 1 else 0);
-        _ = EnableWindow(prev_tab_hwnd, if (tab_range.start > 0) 1 else 0);
-        _ = EnableWindow(next_tab_hwnd, if (tab_range.start + tab_range.count < self.tabs.items.len) 1 else 0);
         _ = EnableWindow(close_tab_hwnd, if (self.tabs.items.len > 1) 1 else 0);
     }
 
@@ -4834,14 +4658,9 @@ const Host = struct {
             _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_small_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
         }
         button_x -= self.scaled(4);
-        if (self.inspector_hwnd) |button_hwnd| {
-            button_x -= self.scaled(host_tab_inspect_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_inspect_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
-        }
-        button_x -= self.scaled(4);
-        if (self.next_tab_hwnd) |button_hwnd| {
-            button_x -= self.scaled(host_tab_nav_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_nav_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
+        if (self.overflow_hwnd) |button_hwnd| {
+            button_x -= self.scaled(host_tab_overflow_button_width);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_overflow_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
         }
         button_x -= self.scaled(4);
         if (self.tab_overview_hwnd) |button_hwnd| {
@@ -4849,29 +4668,9 @@ const Host = struct {
             _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_tabs_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
         }
         button_x -= self.scaled(4);
-        if (self.prev_tab_hwnd) |button_hwnd| {
-            button_x -= self.scaled(host_tab_nav_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_nav_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
-        }
-        button_x -= self.scaled(4);
-        if (self.search_hwnd) |button_hwnd| {
-            button_x -= self.scaled(host_tab_find_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_find_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
-        }
-        button_x -= self.scaled(4);
-        if (self.command_palette_hwnd) |button_hwnd| {
-            button_x -= self.scaled(host_tab_cmd_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_cmd_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
-        }
-        button_x -= self.scaled(4);
         if (self.profiles_hwnd) |button_hwnd| {
             button_x -= self.scaled(host_tab_profiles_button_width);
             _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_profiles_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
-        }
-        button_x -= self.scaled(4);
-        if (self.profile_target_hwnd) |button_hwnd| {
-            button_x -= self.scaled(host_tab_target_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_target_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
         }
 
         if (self.overlay_mode != .none) {
@@ -7948,9 +7747,7 @@ fn hostButtonProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callcon
     if (host) |v| {
         switch (msg) {
             WM_SETFOCUS => {
-                if ((v.profiles_hwnd != null and hwnd == v.profiles_hwnd.?) or
-                    (v.profile_target_hwnd != null and hwnd == v.profile_target_hwnd.?))
-                {
+                if (v.profiles_hwnd != null and hwnd == v.profiles_hwnd.?) {
                     _ = v.focusQuickSlotEdge(true);
                 }
             },
@@ -7971,17 +7768,8 @@ fn hostButtonProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callcon
                 if (v.isHoveredButton(hwnd)) v.setHoveredButton(null);
             },
             WM_RBUTTONUP => {
-                if (v.command_palette_hwnd != null and hwnd == v.command_palette_hwnd.?) {
-                    if (v.dismissCommandPalette()) return 0;
-                }
                 if (v.profiles_hwnd != null and hwnd == v.profiles_hwnd.?) {
                     if (v.openSelectedProfile(.window)) return 0;
-                }
-                if (v.profile_target_hwnd != null and hwnd == v.profile_target_hwnd.?) {
-                    if (v.cycleLauncherProfileTarget(true)) return 0;
-                }
-                if (v.search_hwnd != null and hwnd == v.search_hwnd.?) {
-                    if (v.navigateActiveSearch(.previous)) return 0;
                 }
                 if (v.new_tab_hwnd != null and hwnd == v.new_tab_hwnd.?) {
                     if (v.openSelectedProfileOrFallback(.window)) return 0;
@@ -7997,41 +7785,19 @@ fn hostButtonProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callcon
                 if (v.profiles_hwnd != null and hwnd == v.profiles_hwnd.?) {
                     if (v.openSelectedProfile(.split)) return 0;
                 }
-                if (v.search_hwnd != null and hwnd == v.search_hwnd.?) {
-                    if (v.dismissActiveSearch()) return 0;
-                }
                 if (v.new_tab_hwnd != null and hwnd == v.new_tab_hwnd.?) {
                     if (v.openSelectedProfileOrFallback(.split)) return 0;
                 }
             },
             WM_MOUSEWHEEL, WM_MOUSEHWHEEL, WM_POINTERWHEEL, WM_POINTERHWHEEL => {
-                if (v.command_palette_hwnd != null and hwnd == v.command_palette_hwnd.?) {
-                    if (v.completeCommandPaletteFromButton(commandPaletteDirectionFromWheelDelta(signedHighWord(wParam)))) return 0;
-                }
                 if (v.profiles_hwnd != null and hwnd == v.profiles_hwnd.?) {
                     if (v.cycleSelectedProfile(profileDirectionFromWheelDelta(signedHighWord(wParam)))) return 0;
-                }
-                if (v.profile_target_hwnd != null and hwnd == v.profile_target_hwnd.?) {
-                    if (v.cycleLauncherProfileTarget(signedHighWord(wParam) > 0)) return 0;
-                }
-                if (v.search_hwnd != null and hwnd == v.search_hwnd.?) {
-                    if (v.navigateActiveSearch(searchDirectionFromWheelDelta(signedHighWord(wParam)))) return 0;
                 }
                 if (v.tab_overview_hwnd != null and hwnd == v.tab_overview_hwnd.?) {
                     if (v.activateTabByDirection(tabDirectionFromWheelDelta(signedHighWord(wParam)))) return 0;
                 }
             },
             WM_KEYDOWN, WM_SYSKEYDOWN => {
-                if (v.command_palette_hwnd != null and hwnd == v.command_palette_hwnd.?) {
-                    if (commandButtonKeyAction(wParam)) |action| {
-                        switch (action) {
-                            .toggle => if (v.toggleCommandPaletteFromButton()) return 0,
-                            .previous => if (v.completeCommandPaletteFromButton(true)) return 0,
-                            .next => if (v.completeCommandPaletteFromButton(false)) return 0,
-                            .dismiss => if (v.dismissCommandPalette()) return 0,
-                        }
-                    }
-                }
                 if (v.profiles_hwnd != null and hwnd == v.profiles_hwnd.?) {
                     if ((v.ensureProfiles() catch false)) {
                         if (clearQuickSlotPinsRequested(wParam, keyPressed(VK_MENU), keyPressed(VK_SHIFT))) {
@@ -8080,53 +7846,6 @@ fn hostButtonProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callcon
                                     return 0;
                                 }
                             },
-                        }
-                    }
-                }
-                if (v.profile_target_hwnd != null and hwnd == v.profile_target_hwnd.?) {
-                    if ((v.ensureProfiles() catch false)) {
-                        if (clearQuickSlotPinsRequested(wParam, keyPressed(VK_MENU), keyPressed(VK_SHIFT))) {
-                            if (v.clearQuickSlotPins()) return 0;
-                        }
-                        if (quickSlotPinOrdinalFromKey(wParam, keyPressed(VK_MENU), keyPressed(VK_SHIFT))) |slot_ordinal| {
-                            if (v.assignSelectedProfileToQuickSlot(slot_ordinal)) return 0;
-                        }
-                        if (quickSlotShortcutProfileIndex(v.profiles.?.len, v.selectedProfileIndex(), wParam, keyPressed(VK_MENU))) |index| {
-                            if (v.quickOpenProfileIndex(index, v.app.launcher_profile_target)) return 0;
-                        }
-                        if (keyPressed(VK_MENU)) {
-                            if (quickSlotFocusKeyAction(wParam)) |action| {
-                                switch (action) {
-                                    .previous => if (v.cycleFocusedQuickSlot(true)) return 0,
-                                    .next => if (v.cycleFocusedQuickSlot(false)) return 0,
-                                    .first => if (v.focusQuickSlotEdge(true)) return 0,
-                                    .last => if (v.focusQuickSlotEdge(false)) return 0,
-                                    .open => if (v.openFocusedQuickSlot(v.app.launcher_profile_target)) return 0,
-                                }
-                            }
-                        }
-                    }
-                    if (launchTargetButtonKeyAction(wParam)) |action| {
-                        switch (action) {
-                            .previous => if (v.cycleLauncherProfileTarget(true)) return 0,
-                            .next => if (v.cycleLauncherProfileTarget(false)) return 0,
-                            .first => {
-                                v.setLauncherProfileTarget(.tab);
-                                return 0;
-                            },
-                            .last => {
-                                v.setLauncherProfileTarget(.split);
-                                return 0;
-                            },
-                        }
-                    }
-                }
-                if (v.search_hwnd != null and hwnd == v.search_hwnd.?) {
-                    if (searchButtonKeyAction(wParam, keyPressed(VK_SHIFT))) |action| {
-                        switch (action) {
-                            .next => if (v.navigateActiveSearch(.next)) return 0,
-                            .previous => if (v.navigateActiveSearch(.previous)) return 0,
-                            .dismiss => if (v.dismissActiveSearch()) return 0,
                         }
                     }
                 }
@@ -8579,6 +8298,10 @@ fn hostWindowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callcon
                         if (v.activeSurface()) |surface| {
                             _ = v.app.closeTab(.{ .surface = surface.core() }, .this);
                         }
+                        return 0;
+                    },
+                    1911 => {
+                        v.showOverflowMenu();
                         return 0;
                     },
                     else => {},
