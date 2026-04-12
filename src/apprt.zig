@@ -2,23 +2,21 @@
 //! application runtime and lifecycle management such as creating windows,
 //! getting user input (mouse/keyboard), etc.
 //!
-//! This enables compile-time interfaces to be built to swap out the underlying
-//! application runtime. For example: pure macOS Cocoa, GTK+, browser, etc.
+//! This fork keeps a native Win32 runtime for the application and a minimal
+//! non-app/runtime split for library and wasm-specific artifacts.
 //!
-//! The goal is to have different implementations share as much of the core
-//! logic as possible, and to only reach out to platform-specific implementation
-//! code when absolutely necessary.
+//! The goal is still to share as much of the core logic as possible while
+//! keeping the user-facing application runtime Windows-native.
 const build_config = @import("build_config.zig");
 
 const structs = @import("apprt/structs.zig");
 
 pub const action = @import("apprt/action.zig");
 pub const ipc = @import("apprt/ipc.zig");
-pub const gtk = @import("apprt/gtk.zig");
 pub const none = @import("apprt/none.zig");
 pub const win32 = @import("apprt/win32.zig");
 pub const browser = @import("apprt/browser.zig");
-pub const embedded = @import("apprt/embedded.zig");
+pub const embedded = none;
 pub const surface = @import("apprt/surface.zig");
 
 pub const Action = action.Action;
@@ -44,7 +42,6 @@ pub const runtime = switch (build_config.artifact) {
     .exe => switch (build_config.app_runtime) {
         .none => none,
         .win32 => win32,
-        .gtk => gtk,
     },
     .lib => embedded,
     .wasm_module => browser,

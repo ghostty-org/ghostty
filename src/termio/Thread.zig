@@ -22,6 +22,13 @@ const renderer = @import("../renderer.zig");
 
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.io_thread);
+const darwin = if (builtin.os.tag.isDarwin()) struct {
+    fn setThreadName(name: [*:0]const u8) void {
+        internal_os.macos.pthread_setname_np(name);
+    }
+} else struct {
+    fn setThreadName(_: [*:0]const u8) void {}
+};
 
 /// This stores the information that is coalesced.
 const Coalesce = struct {
@@ -240,7 +247,7 @@ fn threadMain_(self: *Thread, io: *termio.Termio) !void {
     // thread, and we have no way to get the current thread from within it,
     // so instead we use this code to name the thread instead.
     if (builtin.os.tag.isDarwin()) {
-        internal_os.macos.pthread_setname_np(&"io".*);
+        darwin.setThreadName("io");
     }
 
     // Setup our crash metadata

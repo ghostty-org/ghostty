@@ -12,12 +12,20 @@ const build_config = @import("build_config.zig");
 const cursor = @import("renderer/cursor.zig");
 const message = @import("renderer/message.zig");
 const size = @import("renderer/size.zig");
-pub const shadertoy = @import("renderer/shadertoy.zig");
+pub const shadertoy = if (build_config.custom_shaders)
+    @import("renderer/shadertoy.zig")
+else
+    @import("renderer/shadertoy_stub.zig");
 pub const Backend = @import("renderer/backend.zig").Backend;
 pub const GenericRenderer = @import("renderer/generic.zig").Renderer;
-pub const Metal = @import("renderer/Metal.zig");
-pub const OpenGL = @import("renderer/OpenGL.zig");
-pub const WebGL = @import("renderer/WebGL.zig");
+pub const OpenGL = if (build_config.renderer == .opengl)
+    @import("renderer/OpenGL.zig")
+else
+    struct {};
+pub const WebGL = if (build_config.renderer == .webgl)
+    @import("renderer/WebGL.zig")
+else
+    struct {};
 pub const Options = @import("renderer/Options.zig");
 pub const Overlay = @import("renderer/Overlay.zig");
 pub const Thread = @import("renderer/Thread.zig");
@@ -36,7 +44,6 @@ pub const lib = @import("lib/main.zig");
 /// The implementation to use for the renderer. This is comptime chosen
 /// so that every build has exactly one renderer implementation.
 pub const Renderer = switch (build_config.renderer) {
-    .metal => GenericRenderer(Metal),
     .opengl => GenericRenderer(OpenGL),
     .webgl => WebGL,
 };

@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const build_config = @import("../build_config.zig");
 const xev = @import("xev");
 const wuffs = @import("wuffs");
 const apprt = @import("../apprt.zig");
@@ -20,7 +21,10 @@ const rowNeverExtendBg = @import("row.zig").neverExtendBg;
 const Overlay = @import("Overlay.zig");
 const imagepkg = @import("image.zig");
 const ImageState = imagepkg.State;
-const shadertoy = @import("shadertoy.zig");
+const shadertoy = if (build_config.custom_shaders)
+    @import("shadertoy.zig")
+else
+    @import("shadertoy_stub.zig");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
@@ -31,15 +35,7 @@ const getConstraint = @import("../font/nerd_font_attributes.zig").getConstraint;
 
 const FileType = @import("../file_type.zig").FileType;
 
-const macos = switch (builtin.os.tag) {
-    .macos => @import("macos"),
-    else => void,
-};
-
-const DisplayLink = switch (builtin.os.tag) {
-    .macos => *macos.video.DisplayLink,
-    else => void,
-};
+const DisplayLink = void;
 
 const log = std.log.scoped(.generic_renderer);
 
@@ -47,7 +43,7 @@ const log = std.log.scoped(.generic_renderer);
 ///
 /// The graphics API wrapper must provide the interface outlined below.
 /// Specific details for the interfaces are documented on the existing
-/// implementations (`Metal` and `OpenGL`).
+/// implementations (`OpenGL`).
 ///
 /// Hierarchy of graphics abstractions:
 ///
@@ -662,7 +658,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             var api = try GraphicsAPI.init(alloc, options);
             errdefer api.deinit();
 
-            const has_custom_shaders = options.config.custom_shaders.value.items.len > 0;
+            const has_custom_shaders = build_config.custom_shaders and
+                options.config.custom_shaders.value.items.len > 0;
 
             // Prepare our swap chain
             var swap_chain = try SwapChain.init(
@@ -691,7 +688,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             const display_link: ?DisplayLink = switch (builtin.os.tag) {
                 .macos => if (options.config.vsync)
-                    try macos.video.DisplayLink.createWithActiveCGDisplays()
+                    try DisplayLink.createWithActiveCGDisplays()
                 else
                     null,
                 else => null,
@@ -984,7 +981,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         }
 
         fn displayLinkCallback(
-            _: *macos.video.DisplayLink,
+            _: *DisplayLink,
             ud: ?*xev.Async,
         ) void {
             const draw_now = ud orelse return;
@@ -1000,12 +997,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         /// Called when we get an updated display ID for our display link.
         pub fn setMacOSDisplayID(self: *Self, id: u32) !void {
-            if (comptime DisplayLink == void) return;
-            const display_link = self.display_link orelse return;
-            log.info("updating display link display id={}", .{id});
-            display_link.setCurrentCGDisplay(id) catch |err| {
-                log.warn("error setting display link display id err={}", .{err});
-            };
+            _ = self;
+            _ = id;
         }
 
         /// True if our renderer has animations so that a higher frequency
@@ -1018,6 +1011,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// is responsible for triggering draw_now calls to the render thread.
         /// That is the only way to trigger a drawFrame.
         pub fn hasVsync(self: *const Self) bool {
+            // Win32 swap interval blocks presentation, but it does not yet
+            // provide the display-link style draw_now driver this render loop
+            // expects when hasVsync() is true.
+            if (apprt.runtime != apprt.win32 and comptime @hasDecl(GraphicsAPI, "hasVsync")) {
+                if (self.api.hasVsync()) return true;
+            }
+
             if (comptime DisplayLink == void) return false;
             const display_link = self.display_link orelse return false;
             return display_link.isRunning();
@@ -1393,17 +1393,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     @intFromFloat(@round(self.config.background_opacity * 255.0)),
                 };
 
-                // If we're on macOS and have glass styles, we remove
-                // the background opacity because the glass effect handles
-                // it.
-                if (comptime builtin.os.tag == .macos) switch (self.config.background_blur) {
-                    .@"macos-glass-regular",
-                    .@"macos-glass-clear",
-                    => self.uniforms.bg_color[3] = 0,
-
-                    else => {},
-                };
-
                 // Prepare our overlay image for upload (or unload). This
                 // has to use our general allocator since it modifies
                 // state that survives frames.
@@ -1488,7 +1477,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // We still need to present the last target again, because the
                 // apprt may be swapping buffers and display an outdated frame
                 // if we don't draw something new.
-                if (apprt.runtime == apprt.win32) log.info("drawFrame presentLastTarget", .{});
+                //
+                // Win32 owns its OpenGL buffer presentation in the redraw
+                // path, so re-presenting an unchanged frame only adds another
+                // SwapBuffers call into the driver with no visible benefit.
+                if (apprt.runtime == apprt.win32) {
+                    return;
+                }
                 try self.api.presentLastTarget();
                 return;
             }
@@ -1496,7 +1491,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Wait for a frame to be available.
             const frame = try self.swap_chain.nextFrame();
-            if (apprt.runtime == apprt.win32) log.info("drawFrame nextFrame acquired", .{});
             errdefer self.swap_chain.releaseFrame();
             // log.debug("drawing frame index={}", .{self.swap_chain.frame_index});
 

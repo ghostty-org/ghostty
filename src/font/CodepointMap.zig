@@ -6,7 +6,7 @@ const CodepointMap = @This();
 const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
-const discovery = @import("discovery.zig");
+const discovery = @import("main.zig").discovery;
 
 pub const Entry = struct {
     /// Unicode codepoint range. Asserts range[0] <= range[1].

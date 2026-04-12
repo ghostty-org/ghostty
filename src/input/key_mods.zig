@@ -25,7 +25,7 @@ pub const Mod = enum {
 
 /// A bitmask for all key modifiers.
 ///
-/// IMPORTANT: Any changes here update include/ghostty.h
+/// IMPORTANT: Keep compatibility surfaces in sync if this layout changes.
 pub const Mods = packed struct(Mods.Backing) {
     pub const Backing = u16;
 

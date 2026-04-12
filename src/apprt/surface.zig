@@ -118,16 +118,8 @@ pub const Message = union(enum) {
         exit_code: u32,
         runtime_ms: u64,
 
-        /// Make this a valid gobject if we're in a GTK environment.
-        pub const getGObjectType = switch (build_config.app_runtime) {
-            .gtk,
-            => @import("gobject").ext.defineBoxed(
-                ChildExited,
-                .{ .name = "GhosttyApprtChildExited" },
-            ),
-
-            .none, .win32 => void,
-        };
+        /// GTK boxed types are not used in the Windows-only fork.
+        pub const getGObjectType = void;
     };
 };
 

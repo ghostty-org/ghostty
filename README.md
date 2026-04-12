@@ -5,9 +5,9 @@
   <br>Ghostty
 </h1>
   <p align="center">
-    Fast, native, feature-rich terminal emulator pushing modern features.
+    Fast, native, feature-rich terminal emulator for Windows.
     <br />
-    A native GUI or embeddable library via <code>libghostty</code>.
+    Native Win32 app plus the retained <code>libghostty-vt</code> parser/state library.
     <br />
     <a href="#about">About</a>
     ·
@@ -24,17 +24,13 @@
 ## About
 
 Ghostty is a terminal emulator that differentiates itself by being
-fast, feature-rich, and native. While there are many excellent terminal
-emulators available, they all force you to choose between speed,
-features, or native UIs. Ghostty provides all three.
+fast, feature-rich, and native. This fork is focused on a Windows-only
+Win32 runtime and aims to behave like a native Windows terminal rather
+than a cross-platform application with Windows support layered on top.
 
-**`libghostty`** is a cross-platform, zero-dependency C and Zig library
-for building terminal emulators or utilizing terminal functionality
-(such as style parsing). Anyone can use `libghostty` to build a terminal
-emulator or embed a terminal into their own applications. See
-[Ghostling](https://github.com/ghostty-org/ghostling) for a minimal complete project
-example or the [`examples` directory](https://github.com/ghostty-org/ghostty/tree/main/example)
-for smaller examples of using `libghostty` in C and Zig.
+This fork retains **`libghostty-vt`**, the VT parser/state library for Zig
+and C. The broader app-embedding `libghostty` surface is not part of this
+Windows-focused runtime.
 
 For more details, see [About Ghostty](https://ghostty.org/docs/about).
 
@@ -48,15 +44,14 @@ See the [documentation](https://ghostty.org/docs) on the Ghostty website.
 
 ## Contributing and Developing
 
-If you have any ideas, issues, etc. regarding Ghostty, or would like to
-contribute to Ghostty through pull requests, please check out our
-["Contributing to Ghostty"](CONTRIBUTING.md) document. Those who would like
-to get involved with Ghostty's development as well should also read the
-["Developing Ghostty"](HACKING.md) document for more technical details.
+Development in this fork is branch-and-patch oriented rather than
+issue/PR-driven. Read ["Contributing to Ghostty"](CONTRIBUTING.md) for the
+fork workflow and ["Developing Ghostty"](HACKING.md) for the technical
+commands and runtime notes.
 
 ## Roadmap and Status
 
-Ghostty is stable and in use by millions of people and machines daily.
+Ghostty is stable and in active use as a native Windows terminal in this fork.
 
 The high-level ambitious plan for the project, in order:
 
@@ -65,8 +60,8 @@ The high-level ambitious plan for the project, in order:
 |  1  | Standards-compliant terminal emulation                  |   ✅   |
 |  2  | Competitive performance                                 |   ✅   |
 |  3  | Rich windowing features -- multi-window, tabbing, panes |   ✅   |
-|  4  | Native Platform Experiences                             |   ✅   |
-|  5  | Cross-platform `libghostty` for Embeddable Terminals    |   ✅   |
+|  4  | Native Windows Experience                               |   ✅   |
+|  5  | `libghostty-vt` for Embeddable VT State/Parsing         |   ✅   |
 |  6  | Ghostty-only Terminal Control Sequences                 |   ❌   |
 
 Additional details for each step in the big roadmap below:
@@ -104,70 +99,30 @@ performing terminal emulators.
 "The same performance category" means that Ghostty is much faster than
 traditional or "slow" terminals and is within an unnoticeable margin of the
 well-known "fast" terminals. For example, Ghostty and Alacritty are usually within
-a few percentage points of each other on various benchmarks, but are both
-something like 100x faster than Terminal.app and iTerm. However, Ghostty
-is much more feature rich than Alacritty and has a much more native app
-experience.
+a few percentage points of each other on various benchmarks while still
+delivering a richer native application experience than many traditional
+terminal emulators.
 
 This performance is achieved through high-level architectural decisions and
 low-level optimizations. At a high-level, Ghostty has a multi-threaded
 architecture with a dedicated read thread, write thread, and render thread
-per terminal. Our renderer uses OpenGL on Linux and Metal on macOS.
+per terminal. This Windows fork uses a native Win32 runtime with an OpenGL
+renderer.
 Our read thread has a heavily optimized terminal parser that leverages
 CPU-specific SIMD instructions. Etc.
 
 #### Rich Windowing Features
 
-The Mac and Linux (build with GTK) apps support multi-window, tabbing, and
-splits with additional features such as tab renaming, coloring, etc. These
-features allow for a higher degree of organization and customization than
-single-window terminals.
+This Windows fork supports multi-window workflows, tabs, and splits with
+additional features such as tab renaming and coloring. The goal is to behave
+like a native Windows terminal rather than a cross-platform build with Windows
+support layered on top.
 
-#### Native Platform Experiences
+#### `libghostty-vt`
 
-Ghostty is a cross-platform terminal emulator but we don't aim for a
-least-common-denominator experience. There is a large, shared core written
-in Zig but we do a lot of platform-native things:
-
-- The macOS app is a true SwiftUI-based application with all the things you
-  would expect such as real windowing, menu bars, a settings GUI, etc.
-- macOS uses a true Metal renderer with CoreText for font discovery.
-- macOS supports AppleScript, Apple Shortcuts (AppIntents), etc.
-- The Linux app is built with GTK.
-- The Linux app integrates deeply with systemd if available for things
-  like always-on, new windows in a single instance, cgroup isolation, etc.
-
-Our goal with Ghostty is for users of whatever platform they run Ghostty
-on to think that Ghostty was built for their platform first and maybe even
-exclusively. We want Ghostty to feel like a native app on every platform,
-for the best definition of "native" on each platform.
-
-#### Cross-platform `libghostty` for Embeddable Terminals
-
-In addition to being a standalone terminal emulator, Ghostty is a
-C-compatible library for embedding a fast, feature-rich terminal emulator
-in any 3rd party project. This library is called `libghostty`.
-
-Due to the scope of this project, we're breaking libghostty down into
-separate actually libraries, starting with `libghostty-vt`. The goal of
-this project is to focus on parsing terminal sequences and maintaining
-terminal state. This is covered in more detail in this
-[blog post](https://mitchellh.com/writing/libghostty-is-coming).
-
-`libghostty-vt` is already available and usable today for Zig and C and
-is compatible for macOS, Linux, Windows, and WebAssembly. The functionality
-is extremely stable (since its been proven in Ghostty GUI for a long time),
-but the API signatures are still in flux.
-
-`libghostty` is already heavily in use. See [`examples`](https://github.com/ghostty-org/ghostty/tree/main/example)
-for small examples of using `libghostty` in C and Zig or the
-[Ghostling](https://github.com/ghostty-org/ghostling) project for a
-complete example. See [awesome-libghostty](https://github.com/Uzaaft/awesome-libghostty)
-for a list of projects and resources related to `libghostty`.
-
-We haven't tagged libghostty with a version yet and we're still working
-on a better docs experience, but our [Doxygen website](https://libghostty.tip.ghostty.org/)
-is a good resource for the C API.
+This fork retains `libghostty-vt`, the VT parser/state library for Zig and C.
+The broader app-embedding `libghostty` surface is not part of this
+Windows-focused runtime.
 
 #### Ghostty-only Terminal Control Sequences
 
@@ -187,8 +142,8 @@ We haven't done any of this yet.
 ## Crash Reports
 
 Ghostty has a built-in crash reporter that will generate and save crash
-reports to disk. The crash reports are saved to the `$XDG_STATE_HOME/ghostty/crash`
-directory. If `$XDG_STATE_HOME` is not set, the default is `~/.local/state`.
+reports to disk. In this Windows fork, crash reports are saved under
+`%LOCALAPPDATA%\ghostty\crash`.
 **Crash reports are _not_ automatically sent anywhere off your machine.**
 
 Crash reports are only generated the next time Ghostty is started after a

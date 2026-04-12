@@ -3,7 +3,27 @@ const builtin = @import("builtin");
 const passwd = @import("passwd.zig");
 const win = @import("windows.zig");
 const posix = std.posix;
-const objc = @import("objc");
+const darwin = if (builtin.os.tag == .macos) struct {
+    const objc = @import("objc");
+
+    fn home(buf: []u8) !?[]const u8 {
+        const NSFileManager = objc.getClass("NSFileManager").?;
+        const manager = NSFileManager.msgSend(objc.Object, objc.sel("defaultManager"), .{});
+        const homeURL = manager.getProperty(objc.Object, "homeDirectoryForCurrentUser");
+        const homePath = homeURL.getProperty(objc.Object, "path");
+
+        const c_str = homePath.getProperty([*:0]const u8, "UTF8String");
+        const result = std.mem.sliceTo(c_str, 0);
+
+        if (buf.len < result.len) return Error.BufferTooSmall;
+        @memcpy(buf[0..result.len], result);
+        return buf[0..result.len];
+    }
+} else struct {
+    fn home(_: []u8) !?[]const u8 {
+        return null;
+    }
+};
 
 const Error = error{
     /// The buffer used for output is not large enough to store the value.
@@ -34,17 +54,7 @@ fn homeUnix(buf: []u8) !?[]const u8 {
 
     // On macOS: [NSFileManager defaultManager].homeDirectoryForCurrentUser.path
     if (builtin.os.tag == .macos) {
-        const NSFileManager = objc.getClass("NSFileManager").?;
-        const manager = NSFileManager.msgSend(objc.Object, objc.sel("defaultManager"), .{});
-        const homeURL = manager.getProperty(objc.Object, "homeDirectoryForCurrentUser");
-        const homePath = homeURL.getProperty(objc.Object, "path");
-
-        const c_str = homePath.getProperty([*:0]const u8, "UTF8String");
-        const result = std.mem.sliceTo(c_str, 0);
-
-        if (buf.len < result.len) return Error.BufferTooSmall;
-        @memcpy(buf[0..result.len], result);
-        return buf[0..result.len];
+        if (try darwin.home(buf)) |result| return result;
     }
 
     // Everything below here will require some allocation

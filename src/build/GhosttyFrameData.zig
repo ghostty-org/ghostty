@@ -9,11 +9,12 @@ const DistResource = @import("GhosttyDist.zig").Resource;
 output: std.Build.LazyPath,
 
 pub fn init(b: *std.Build) !GhosttyFrameData {
-    const dist = distResources(b);
-
     // Generate the Zig source file that embeds the compressed data
     const wf = b.addWriteFiles();
-    _ = wf.addCopyFile(dist.framedata.path(b), "framedata.compressed");
+    _ = wf.addCopyFile(
+        b.path("src/build/framegen/framedata.compressed"),
+        "framedata.compressed",
+    );
     const zig_file = wf.add("framedata.zig",
         \\//! This file is auto-generated. Do not edit.
         \\

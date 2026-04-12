@@ -1,7 +1,0 @@
-// This makes Ghostty available to the XCode build for the macOS app.
-// We append "Kit" to it not to be cute, but because targets have to have
-// unique names and we use Ghostty for other things.
-module GhosttyKit {
-    umbrella header "ghostty.h"
-    export *
-}

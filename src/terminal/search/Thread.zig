@@ -29,6 +29,25 @@ const ScreenSearch = @import("screen.zig").ScreenSearch;
 const ViewportSearch = @import("viewport.zig").ViewportSearch;
 
 const log = std.log.scoped(.search_thread);
+const darwin = if (builtin.os.tag.isDarwin()) struct {
+    const QosClass = internal_os.macos.QosClass;
+
+    fn setThreadName(name: [*:0]const u8) void {
+        internal_os.macos.pthread_setname_np(name);
+    }
+
+    fn setQosClass(class: QosClass) !void {
+        try internal_os.macos.setQosClass(class);
+    }
+} else struct {
+    const QosClass = enum {
+        utility,
+    };
+
+    fn setThreadName(_: [*:0]const u8) void {}
+
+    fn setQosClass(_: QosClass) !void {}
+};
 
 // TODO: Some stuff that could be improved:
 // - pause the refresh timer when the terminal isn't focused
@@ -140,11 +159,11 @@ fn threadMain_(self: *Thread) !void {
     // thread, and we have no way to get the current thread from within it,
     // so instead we use this code to name the thread instead.
     if (comptime builtin.os.tag.isDarwin()) {
-        internal_os.macos.pthread_setname_np(&"search".*);
+        darwin.setThreadName("search");
 
         // We can run with lower priority than other threads.
-        const class: internal_os.macos.QosClass = .utility;
-        if (internal_os.macos.setQosClass(class)) {
+        const class: darwin.QosClass = .utility;
+        if (darwin.setQosClass(class)) {
             log.debug("thread QoS class set class={}", .{class});
         } else |err| {
             log.warn("error setting QoS class err={}", .{err});

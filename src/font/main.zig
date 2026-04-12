@@ -6,13 +6,19 @@ const library = @import("library.zig");
 
 pub const Atlas = @import("Atlas.zig");
 pub const Backend = @import("backend.zig").Backend;
-pub const discovery = @import("discovery.zig");
+pub const discovery = if (options.backend == .windows_freetype)
+    @import("discovery_windows.zig")
+else
+    @import("discovery.zig");
 pub const embedded = @import("embedded.zig");
 pub const face = @import("face.zig");
 pub const CodepointMap = @import("CodepointMap.zig");
 pub const CodepointResolver = @import("CodepointResolver.zig");
 pub const Collection = @import("Collection.zig");
-pub const DeferredFace = @import("DeferredFace.zig");
+pub const DeferredFace = if (options.backend == .windows_freetype)
+    @import("DeferredFace_windows.zig")
+else
+    @import("DeferredFace.zig");
 pub const Face = face.Face;
 pub const Glyph = @import("Glyph.zig");
 pub const Metrics = @import("Metrics.zig");

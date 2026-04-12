@@ -1,8 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
-const objc = @import("objc");
-const macos = @import("macos");
 
 /// Returns an iterator over the command line arguments. This may or may
 /// not allocate depending on the platform.
@@ -29,7 +27,9 @@ pub const ArgIterator = switch (builtin.os.tag) {
 /// NSApplicationMain is not used, but I haven't tested that so I'm not
 /// sure. If/when libghostty is ever used outside of NSApplicationMain
 /// then we can revisit this.
-const IteratorMacOS = struct {
+const IteratorMacOS = if (builtin.os.tag == .macos) struct {
+    const objc = @import("objc");
+
     alloc: Allocator,
     index: usize,
     count: usize,
@@ -38,7 +38,7 @@ const IteratorMacOS = struct {
 
     pub const InitError = Allocator.Error;
 
-    pub fn initWithAllocator(alloc: Allocator) InitError!IteratorMacOS {
+    pub fn initWithAllocator(alloc: Allocator) InitError!@This() {
         const NSProcessInfo = objc.getClass("NSProcessInfo").?;
         const info = NSProcessInfo.msgSend(objc.Object, objc.sel("processInfo"), .{});
         const args = info.getProperty(objc.Object, "arguments");
@@ -77,14 +77,14 @@ const IteratorMacOS = struct {
         };
     }
 
-    pub fn deinit(self: *IteratorMacOS) void {
+    pub fn deinit(self: *@This()) void {
         self.alloc.free(self.buf);
 
         // Note: we don't release self.args because it is a pointer copy
         // not a retained object.
     }
 
-    pub fn next(self: *IteratorMacOS) ?[:0]const u8 {
+    pub fn next(self: *@This()) ?[:0]const u8 {
         if (self.index == self.count) return null;
 
         // NSString. No release because not a copy.
@@ -113,10 +113,26 @@ const IteratorMacOS = struct {
         return std.mem.sliceTo(self.buf, 0);
     }
 
-    pub fn skip(self: *IteratorMacOS) bool {
+    pub fn skip(self: *@This()) bool {
         if (self.index == self.count) return false;
         self.index += 1;
         return true;
+    }
+} else struct {
+    pub const InitError = error{};
+
+    pub fn initWithAllocator(_: Allocator) InitError!@This() {
+        unreachable;
+    }
+
+    pub fn deinit(_: *@This()) void {}
+
+    pub fn next(_: *@This()) ?[:0]const u8 {
+        return null;
+    }
+
+    pub fn skip(_: *@This()) bool {
+        return false;
     }
 };
 

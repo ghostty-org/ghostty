@@ -62,9 +62,8 @@ pub const Target = union(Key) {
 pub const Action = union(Key) {
     // A GUIDE TO ADDING NEW ACTIONS:
     //
-    // 1. Add the action to the `Key` enum. The order of the enum matters
-    //    because it maps directly to the libghostty C enum. For ABI
-    //    compatibility, new actions should be added to the end of the enum.
+    // 1. Add the action to the `Key` enum. Preserve enum ordering so the
+    //    retained compatibility checks keep passing for the Windows-only fork.
     //
     // 2. Add the action and optional value to the Action union.
     //
@@ -72,16 +71,15 @@ pub const Action = union(Key) {
     //    compatible (extern). If it is not, add a `C` decl to the value
     //    and a `cval` function to convert to the C ABI compatible value.
     //
-    // 4. Update `include/ghostty.h`: add the new key, value, and union
-    //    entry. If the value type is void then only the key needs to be
-    //    added. Ensure the order matches exactly with the Zig code.
+    // 4. If a compatibility surface still mirrors this action, update it
+    //    alongside the Zig definition and keep the ordering aligned.
 
     /// Quit the application.
     quit,
 
     /// Open a new window. The target determines whether properties such
     /// as font size should be inherited.
-    new_window,
+    new_window: NewWindow,
 
     /// Open a new tab. If the target is a surface it should be opened in
     /// the same window as the surface. If the target is the app then
@@ -188,7 +186,10 @@ pub const Action = union(Key) {
     /// Control whether the inspector is shown or hidden.
     inspector: Inspector,
 
-    /// Show the GTK inspector.
+    /// Show the legacy platform inspector.
+    ///
+    /// In the Windows-only fork this is treated as a compatibility alias for
+    /// showing the native Ghostty inspector.
     show_gtk_inspector,
 
     /// The inspector for the given target has changes and should be
@@ -549,6 +550,22 @@ pub const MoveTab = extern struct {
     amount: isize,
 };
 
+pub const NewWindow = struct {
+    /// Optional CLI-style arguments to apply to the first surface created in
+    /// the new window. These are primarily used by the Windows-only IPC path
+    /// for `ghostty +new-window`.
+    arguments: ?[]const [:0]const u8 = null,
+
+    pub const C = extern struct {
+        reserved: usize = 0,
+    };
+
+    pub fn cval(self: NewWindow) C {
+        _ = self;
+        return .{};
+    }
+};
+
 /// The tab to jump to. This is non-exhaustive so that integer values represent
 /// the index (zero-based) of the tab to jump to. Negative values are special
 /// values.
@@ -567,12 +584,6 @@ pub const GotoTab = enum(c_int) {
 /// The fullscreen mode to toggle to if we're moving to fullscreen.
 pub const Fullscreen = enum(c_int) {
     native,
-
-    /// macOS has a non-native fullscreen mode that is more like a maximized
-    /// window. This is much faster to enter and exit than the native mode.
-    macos_non_native,
-    macos_non_native_visible_menu,
-    macos_non_native_padded_notch,
 
     test "ghostty.h Fullscreen" {
         try lib.checkGhosttyHEnum(Fullscreen, "GHOSTTY_FULLSCREEN_");
@@ -675,15 +686,7 @@ pub const InitialSize = extern struct {
     width: u32,
     height: u32,
 
-    /// Make this a valid gobject if we're in a GTK environment.
-    pub const getGObjectType = switch (build_config.app_runtime) {
-        .gtk => @import("gobject").ext.defineBoxed(
-            InitialSize,
-            .{ .name = "GhosttyApprtInitialSize" },
-        ),
-
-        .none, .win32 => void,
-    };
+    pub const getGObjectType = void;
 };
 
 pub const CellSize = extern struct {

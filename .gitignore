@@ -9,7 +9,9 @@
 .flatpak-builder/
 zig-cache/
 .zig-cache/
+.zig-cache.*.bak/
 zig-out/
+zig-pkg/
 build-cmake/
 CMakeCache.txt
 CMakeFiles/
@@ -29,3 +31,9 @@ glad.zip
 
 vgcore.*
 
+/%TMPCLONE%/
+/cdb-*.txt
+/commit-msg.txt
+/src/help_strings.zig
+/src/unicode/generated_props.zig
+/src/unicode/generated_symbols.zig

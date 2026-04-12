@@ -15,6 +15,44 @@ const App = @import("../App.zig");
 
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.renderer_thread);
+const darwin = if (builtin.os.tag.isDarwin()) struct {
+    const objc = @import("objc");
+    const AutoreleasePool = objc.AutoreleasePool;
+    const QosClass = internal_os.macos.QosClass;
+
+    fn beginAutoreleasePool() AutoreleasePool {
+        return AutoreleasePool.init();
+    }
+
+    fn endAutoreleasePool(pool: AutoreleasePool) void {
+        pool.deinit();
+    }
+
+    fn setThreadName(name: [*:0]const u8) void {
+        internal_os.macos.pthread_setname_np(name);
+    }
+
+    fn setQosClass(class: QosClass) !void {
+        try internal_os.macos.setQosClass(class);
+    }
+} else struct {
+    const AutoreleasePool = void;
+    const QosClass = enum {
+        user_interactive,
+        user_initiated,
+        utility,
+    };
+
+    fn beginAutoreleasePool() AutoreleasePool {
+        return {};
+    }
+
+    fn endAutoreleasePool(_: AutoreleasePool) void {}
+
+    fn setThreadName(_: [*:0]const u8) void {}
+
+    fn setQosClass(_: QosClass) !void {}
+};
 
 fn trace(comptime fmt: []const u8, args: anytype) void {
     var buf: [512]u8 = undefined;
@@ -220,7 +258,7 @@ fn threadMain_(self: *Thread) !void {
     // thread, and we have no way to get the current thread from within it,
     // so instead we use this code to name the thread instead.
     if (builtin.os.tag.isDarwin()) {
-        internal_os.macos.pthread_setname_np(&"renderer".*);
+        darwin.setThreadName("renderer");
     }
 
     // Setup our crash metadata
@@ -279,7 +317,7 @@ fn setQosClass(self: *const Thread) void {
     // Thread QoS classes are only relevant on macOS.
     if (comptime !builtin.target.os.tag.isDarwin()) return;
 
-    const class: internal_os.macos.QosClass = class: {
+    const class: darwin.QosClass = class: {
         // If we aren't visible (our view is fully occluded) then we
         // always drop our rendering priority down because it's just
         // mostly wasted work.
@@ -298,7 +336,7 @@ fn setQosClass(self: *const Thread) void {
         break :class .user_interactive;
     };
 
-    if (internal_os.macos.setQosClass(class)) {
+    if (darwin.setQosClass(class)) {
         log.debug("thread QoS class set class={}", .{class});
     } else |err| {
         log.warn("error setting QoS class err={}", .{err});
@@ -352,11 +390,8 @@ fn drainMailbox(self: *Thread) !void {
     //
     // This is effectively an @autoreleasepool{} block, which we need in
     // order to ensure that autoreleased objects are properly released.
-    const pool = if (builtin.os.tag.isDarwin())
-        @import("objc").AutoreleasePool.init()
-    else
-        void;
-    defer if (builtin.os.tag.isDarwin()) pool.deinit();
+    const pool = darwin.beginAutoreleasePool();
+    defer darwin.endAutoreleasePool(pool);
 
     while (self.mailbox.pop()) |message| {
         log.debug("mailbox message={}", .{message});
@@ -508,23 +543,23 @@ fn drawFrame(self: *Thread, now: bool) void {
     // If we're invisible, we do not draw.
     if (!self.flags.visible) return;
 
-    // The current Win32 apprt is still a non-presenting preview runtime.
-    // Skip scheduling app-thread redraws until the HWND/WGL present path
-    // is stable, otherwise we wake the app loop continuously for work that
-    // cannot complete.
-    if (@hasDecl(apprt.Surface, "supportsRender") and !self.surface.supportsRender()) {
-        return;
-    }
-
     // If the renderer is managing a vsync on its own, we only draw
     // when we're forced to via `now`.
     if (!now and self.renderer.hasVsync()) return;
 
     if (must_draw_from_app_thread) {
-        _ = self.app_mailbox.push(
+        if (comptime @hasDecl(apprt.Surface, "beginRendererRepaintRequest")) {
+            if (!self.surface.beginRendererRepaintRequest()) return;
+        }
+
+        if (self.app_mailbox.push(
             .{ .redraw_surface = self.surface },
             .{ .instant = {} },
-        );
+        ) == 0) {
+            if (comptime @hasDecl(apprt.Surface, "cancelRendererRepaintRequest")) {
+                self.surface.cancelRendererRepaintRequest();
+            }
+        }
     } else {
         self.renderer.drawFrame(false) catch |err|
             log.warn("error drawing err={}", .{err});

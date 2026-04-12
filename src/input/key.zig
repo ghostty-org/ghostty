@@ -78,9 +78,9 @@ pub const KeyEvent = struct {
 };
 
 /// The action associated with an input event. This is backed by a c_int
-/// so that we can use the enum as-is for our embedding API.
+/// for compatibility with retained extern-facing structures.
 ///
-/// IMPORTANT: Any changes here update include/ghostty.h
+/// IMPORTANT: Keep compatibility surfaces in sync if this layout changes.
 pub const Action = enum(c_int) {
     release,
     press,
@@ -102,7 +102,7 @@ pub const Action = enum(c_int) {
 /// UTF-8 and are produced by the associated apprt. Ghostty core has
 /// no mechanism to map input events to strings without the apprt.
 ///
-/// IMPORTANT: Any changes here update include/ghostty.h ghostty_input_key_e
+/// IMPORTANT: Keep compatibility surfaces in sync if this layout changes.
 pub const Key = enum(c_int) {
     unidentified,
 

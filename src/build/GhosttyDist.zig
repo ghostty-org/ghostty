@@ -22,15 +22,10 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
     const name = if (cfg.emit_lib_vt) "libghostty-vt" else "ghostty";
 
     // Get the resources we're going to inject into the source tarball.
-    // lib-vt doesn't need GTK resources or frame data.
+    // lib-vt doesn't need app resources or frame data.
     const alloc = b.allocator;
     var resources: std.ArrayListUnmanaged(Resource) = .empty;
     if (!cfg.emit_lib_vt) {
-        {
-            const gtk = SharedDeps.gtkNgDistResources(b);
-            try resources.append(alloc, gtk.resources_c);
-            try resources.append(alloc, gtk.resources_h);
-        }
         {
             const framedata = GhosttyFrameData.distResources(b);
             try resources.append(alloc, framedata.framedata);

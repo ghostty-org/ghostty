@@ -11,6 +11,21 @@ const state = &@import("../global.zig").state;
 const Surface = @import("../Surface.zig");
 
 const log = std.log.scoped(.sentry);
+const darwin = if (builtin.os.tag.isDarwin()) struct {
+    fn setThreadName(name: [*:0]const u8) void {
+        internal_os.macos.pthread_setname_np(name);
+    }
+
+    fn cacheDir(alloc: Allocator, sub_path: []const u8) ![]const u8 {
+        return try internal_os.macos.cacheDir(alloc, sub_path);
+    }
+} else struct {
+    fn setThreadName(_: [*:0]const u8) void {}
+
+    fn cacheDir(_: Allocator, _: []const u8) ![]const u8 {
+        unreachable;
+    }
+};
 
 /// The global state for the Sentry SDK. This is unavoidable since crash
 /// handling is a global process-wide thing.
@@ -85,7 +100,7 @@ fn initThread(gpa: Allocator) !void {
     // thread, and we have no way to get the current thread from within it,
     // so instead we use this code to name the thread instead.
     if (builtin.os.tag.isDarwin()) {
-        internal_os.macos.pthread_setname_np(&"sentry-init".*);
+        darwin.setThreadName("sentry-init");
     }
 
     var arena = std.heap.ArenaAllocator.init(gpa);
@@ -119,7 +134,7 @@ fn initThread(gpa: Allocator) !void {
         // we will respect them.
         if (comptime builtin.os.tag == .macos) macos: {
             if (std.posix.getenv("XDG_CACHE_HOME") != null) break :macos;
-            break :cache_dir try internal_os.macos.cacheDir(
+            break :cache_dir try darwin.cacheDir(
                 alloc,
                 "sentry",
             );

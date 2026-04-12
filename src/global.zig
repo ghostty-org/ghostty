@@ -3,8 +3,14 @@ const builtin = @import("builtin");
 const build_config = @import("build_config.zig");
 const cli = @import("cli.zig");
 const internal_os = @import("os/main.zig");
-const fontconfig = @import("fontconfig");
-const glslang = @import("glslang");
+const fontconfig = if (build_config.font_backend.hasFontconfig())
+    @import("fontconfig")
+else
+    struct {
+        pub fn version() c_int {
+            return 0;
+        }
+    };
 const harfbuzz = @import("harfbuzz");
 const oni = @import("oniguruma");
 const crash = @import("crash/main.zig");
@@ -16,10 +22,10 @@ const apprt = @import("apprt.zig");
 /// backend.
 pub const xev = @import("xev").Dynamic;
 
-/// Global process state. This is initialized in main() for exe artifacts
-/// and by ghostty_init() for lib artifacts. This should ONLY be used by
-/// the C API. The Zig API should NOT use any global state and should
-/// rely on allocators being passed in as parameters.
+/// Global process state. This is initialized by the executable entrypoint.
+/// The removed app-embedding C API no longer initializes this separately.
+/// New code should avoid leaning on global state and prefer explicit
+/// allocators and runtime handles.
 pub var state: GlobalState = undefined;
 
 /// This represents the global process state. There should only
@@ -137,7 +143,7 @@ pub const GlobalState = struct {
             std.log.info("dependency fontconfig={d}", .{fontconfig.version()});
         }
         std.log.info("renderer={}", .{renderer.Renderer});
-        std.log.info("libxev default backend={t}", .{xev.backend});
+        std.log.info("event backend={t}", .{xev.backend});
 
         // As early as possible, initialize our resource limits.
         self.rlimits = .init();
@@ -163,8 +169,8 @@ pub const GlobalState = struct {
         // affects a lot of behaviors in a shell.
         try internal_os.ensureLocale(self.alloc);
 
-        // Initialize glslang for shader compilation
-        try glslang.init();
+        // Initialize custom shader support, if it is compiled in.
+        try renderer.shadertoy.init();
 
         // Initialize oniguruma for regex
         try oni.init(&.{oni.Encoding.utf8});

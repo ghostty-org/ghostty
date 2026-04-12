@@ -8,6 +8,10 @@ const configpkg = @import("../config.zig");
 
 const log = std.log.scoped(.shadertoy);
 
+pub fn init() !void {
+    try glslang.init();
+}
+
 /// The uniform struct used for shadertoy shaders.
 pub const Uniforms = extern struct {
     resolution: [3]f32 align(16),

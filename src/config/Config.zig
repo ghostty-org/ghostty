@@ -92,10 +92,6 @@ pub const compatibility = std.StaticStringMap(
     // Ghostty 1.2 removed the "desktop" option and renamed it to "detect".
     // The semantics also changed slightly but this is the correct mapping.
     .{ "gtk-single-instance", compatGtkSingleInstance },
-
-    // Ghostty 1.3 rename the "window" option to "new-window".
-    // See: https://github.com/ghostty-org/ghostty/pull/9764
-    .{ "macos-dock-drop-behavior", compatMacOSDockDropBehavior },
 });
 
 /// Set Ghostty's graphical user interface language to a language other than the
@@ -332,8 +328,8 @@ language: ?[:0]const u8 = null,
 /// Note: This only applies to text copying operations, not URL copying.
 @"clipboard-codepoint-map": RepeatableClipboardCodepointMap = .{},
 
-/// Draw fonts with a thicker stroke, if supported.
-/// This is currently only supported on macOS.
+/// Draw fonts with a thicker stroke, if supported by the active renderer and
+/// font pipeline.
 @"font-thicken": bool = false,
 
 /// Strength of thickening when `font-thicken` is enabled.
@@ -342,8 +338,6 @@ language: ?[:0]const u8 = null,
 /// *no* thickening, rather it corresponds to the lightest available thickening.
 ///
 /// Has no effect when `font-thicken` is set to `false`.
-///
-/// This is currently only supported on macOS.
 @"font-thicken-strength": u8 = 255,
 
 /// Locations to break font shaping into multiple runs.
@@ -557,10 +551,9 @@ language: ?[:0]const u8 = null,
 ///
 /// The second directory is the `themes` subdirectory of the Ghostty resources
 /// directory. Ghostty ships with a multitude of themes that will be installed
-/// into this directory. On macOS, this list is in the
-/// `Ghostty.app/Contents/Resources/ghostty/themes` directory. On Linux, this
-/// list is in the `share/ghostty/themes` directory (wherever you installed the
-/// Ghostty "share" directory.
+/// into this directory. In this Windows fork, the bundled themes live in the
+/// `share/ghostty/themes` directory next to the built application. When
+/// running from the source tree, this is typically `zig-out/share/ghostty/themes`.
 ///
 /// To see a list of available themes, run `ghostty +list-themes`.
 ///
@@ -1028,15 +1021,6 @@ palette: Palette = .{},
 ///     reasonable for a good looking blur. Higher blur intensities may
 ///     cause strange rendering and performance issues.
 ///
-/// On macOS 26.0 and later, there are additional special values that
-/// can be set to use the native macOS glass effects:
-///
-///   * `macos-glass-regular` - Standard glass effect with some opacity
-///   * `macos-glass-clear` - Highly transparent glass effect
-///
-/// If the macOS values are set, then this implies `background-blur = true`
-/// on non-macOS platforms.
-///
 /// Supported on macOS and on some Linux desktop environments, including:
 ///
 ///   * KDE Plasma (Wayland and X11)
@@ -1180,7 +1164,7 @@ command: ?Command = null,
 ///     be shell-expanded by the upstream (e.g. the shell used to type in
 ///     the `ghostty -e` command).
 ///
-///   * `gtk-single-instance=false` - This ensures that a new instance is
+///   * `single-instance=false` - This ensures that a new instance is
 ///     launched and the CLI args are respected.
 ///
 ///   * `quit-after-last-window-closed=true` - This ensures that the Ghostty
@@ -1450,22 +1434,6 @@ maximize: bool = false,
 ///
 ///   * `false` - Don't start in fullscreen (default)
 ///   * `true` - Start in native fullscreen
-///   * `non-native` - (macOS only) Start in non-native fullscreen, hiding the
-///     menu bar. This is faster than native fullscreen since it doesn't use
-///     animations. On non-macOS platforms, this behaves the same as `true`.
-///   * `non-native-visible-menu` - (macOS only) Start in non-native fullscreen,
-///     keeping the menu bar visible. On non-macOS platforms, behaves like `true`.
-///   * `non-native-padded-notch` - (macOS only) Start in non-native fullscreen,
-///     hiding the menu bar but padding for the notch on applicable devices.
-///     On non-macOS platforms, behaves like `true`.
-///
-/// Important: tabs DO NOT WORK with non-native fullscreen modes. Non-native
-/// fullscreen removes the titlebar and macOS native tabs require the titlebar.
-/// If you use tabs, use `true` (native) instead.
-///
-/// On macOS, `true` (native fullscreen) does not work if `window-decoration`
-/// is set to `false`, because native fullscreen on macOS requires window
-/// decorations.
 fullscreen: Fullscreen = .false,
 
 /// The title Ghostty will use for the window. This will force the title of the
@@ -1484,34 +1452,31 @@ fullscreen: Fullscreen = .false,
 /// to get the new title.
 title: ?[:0]const u8 = null,
 
-/// The setting that will change the application class value.
+/// The setting that controls the Ghostty instance namespace.
 ///
-/// This controls the class field of the `WM_CLASS` X11 property (when running
-/// under X11), the Wayland application ID (when running under Wayland), and the
-/// bus name that Ghostty uses to connect to DBus.
-///
-/// Note that changing this value between invocations will create new, separate
-/// instances, of Ghostty when running with `gtk-single-instance=true`. See that
-/// option for more details.
-///
-/// Changing this value may break launching Ghostty from `.desktop` files, via
-/// DBus activation, or systemd user services as the system is expecting Ghostty
-/// to connect to DBus using the default `class` when it is launched.
-///
-/// The class name must follow the requirements defined [in the GTK
-/// documentation](https://docs.gtk.org/gio/type_func.Application.id_is_valid.html).
+/// In this Windows fork, this value is used as the instance identifier for
+/// single-instance behavior and IPC routing. Changing it between invocations
+/// creates a separate Ghostty instance namespace, so commands such as
+/// `ghostty +new-window` will only target processes launched with the same
+/// `class` value.
 ///
 /// The default is `com.mitchellh.ghostty`.
-///
-/// This only affects GTK builds.
 class: ?[:0]const u8 = null,
 
-/// This controls the instance name field of the `WM_CLASS` X11 property when
-/// running under X11. It has no effect otherwise.
+/// If `true`, Ghostty will prefer reusing an existing instance namespace and
+/// opening a new window inside it.
 ///
-/// The default is `ghostty`.
+/// If `false`, each new `ghostty.exe` launch will prefer a dedicated process.
 ///
-/// This only affects GTK builds.
+/// If `detect`, Ghostty assumes single-instance behavior unless the CLI
+/// invocation clearly carries custom configuration that should not be inherited
+/// by an already-running process.
+///
+/// The default value is `detect`.
+@"single-instance": GtkSingleInstance = GtkSingleInstance.default,
+
+/// Deprecated compatibility setting retained for configuration parsing.
+/// It has no effect in this Windows-only fork.
 @"x11-instance-name": ?[:0]const u8 = null,
 
 /// The directory to change to after starting the command.
@@ -1522,10 +1487,9 @@ class: ?[:0]const u8 = null,
 /// setting will be used. Typically, this setting is used only for the first
 /// window.
 ///
-/// The default is `inherit` except in special scenarios listed next. On macOS,
-/// if Ghostty can detect it is launched from launchd (double-clicked) or
-/// `open`, then it defaults to `home`. On Linux with GTK, if Ghostty can detect
-/// it was launched from a desktop launcher, then it defaults to `home`.
+/// In the Windows-only fork, the default is `inherit`. Startup forwarding and
+/// `+new-window` IPC preserve the caller working directory unless an explicit
+/// `--working-directory` or config value overrides it.
 ///
 /// The value of this must be an absolute path, a path prefixed with `~/`
 /// (the tilde will be expanded to the user's home directory), or
@@ -2003,14 +1967,11 @@ keybind: Keybinds = .{},
 /// latency. If false, this will maximize redraw frequency but may cause tearing,
 /// and under heavy load may use more CPU and power.
 ///
-/// This defaults to true because out-of-sync rendering on macOS can
-/// cause kernel panics (macOS 14.4+) and performance issues for external
-/// displays over some hardware such as DisplayLink. If you want to minimize
-/// input latency, set this to false with the known aforementioned risks.
+/// This defaults to true because synchronized presentation is the safest
+/// default for the Windows OpenGL path. If you want to minimize input
+/// latency, set this to false with the usual tearing tradeoffs.
 ///
 /// Changing this value at runtime will only affect new terminals.
-///
-/// This setting is only supported currently on macOS.
 @"window-vsync": bool = true,
 
 /// If true, new windows will inherit the working directory of the
@@ -2094,8 +2055,6 @@ keybind: Keybinds = .{},
 ///
 /// Note: any font available on the system may be used, this font is not
 /// required to be a fixed-width font.
-///
-/// Available since: 1.0.0 on macOS, 1.1.0 on GTK
 @"window-title-font-family": ?[:0]const u8 = null,
 
 /// The text that will be displayed in the subtitle of the window. Valid values:
@@ -2104,9 +2063,9 @@ keybind: Keybinds = .{},
 ///   * `working-directory` - Set the subtitle to the working directory of the
 ///      surface.
 ///
-/// This feature is only supported on GTK.
+/// Retained compatibility setting from the removed GTK runtime.
 ///
-/// Available since: 1.1.0
+/// This has no effect in the Windows-only fork.
 @"window-subtitle": WindowSubtitle = .false,
 
 /// The theme to use for the windows. Valid values:
@@ -2187,13 +2146,8 @@ keybind: Keybinds = .{},
 /// Invalid positions are runtime-specific, but generally the positions are
 /// clamped to the nearest valid position.
 ///
-/// On macOS, the window position is relative to the top-left corner of
-/// the visible screen area. This means that if the menu bar is visible, the
-/// window will be placed below the menu bar.
-///
-/// Note: this is only supported on macOS. The GTK runtime does not support
-/// setting the window position, as windows are only allowed position
-/// themselves in X11 and not Wayland.
+/// Retained as a compatibility setting in the Windows-only fork. Window
+/// placement hints are not currently applied by the Win32 runtime.
 @"window-position-x": ?i16 = null,
 @"window-position-y": ?i16 = null,
 
@@ -2204,9 +2158,7 @@ keybind: Keybinds = .{},
 ///
 /// There are three valid values for this configuration:
 ///
-///   * `default` will use the default system behavior. On macOS, this
-///     will only save state if the application is forcibly terminated
-///     or if it is configured systemwide via Settings.app.
+///   * `default` will use the default system behavior.
 ///
 ///   * `never` will never save window state.
 ///
@@ -2216,9 +2168,8 @@ keybind: Keybinds = .{},
 /// Ghostty launch will NOT restore the window state.
 ///
 /// If you change this value to `default` while Ghostty is not running and the
-/// previous exit saved state, the next Ghostty launch will still restore the
-/// window state. This is because Ghostty cannot know if the previous exit was
-/// due to a forced save or not (macOS doesn't provide this information).
+/// previous exit saved state, the next Ghostty launch may still restore the
+/// previous state if the runtime keeps compatibility files around.
 ///
 /// If you change this value so that window state is saved while Ghostty is not
 /// running, the previous window state will not be restored because Ghostty only
@@ -2226,12 +2177,14 @@ keybind: Keybinds = .{},
 ///
 /// The default value is `default`.
 ///
-/// This is currently only supported on macOS. This has no effect on Linux.
+/// This is retained as a compatibility setting in the Windows-only fork and
+/// currently has no effect.
 @"window-save-state": WindowSaveState = .default,
 
 /// Resize the window in discrete increments of the focused surface's cell size.
-/// If this is disabled, surfaces are resized in pixel increments. Currently
-/// only supported on macOS.
+/// If this is disabled, surfaces are resized in pixel increments. This is
+/// retained as a compatibility setting in the Windows-only fork and currently
+/// has no effect.
 @"window-step-resize": bool = false,
 
 /// The position where new tabs are created. Valid values:
@@ -2584,10 +2537,6 @@ keybind: Keybinds = .{},
 /// `1h1h` is equivalent to `2h`. This is confusing and should be avoided.
 /// A future update may disallow this.
 ///
-/// This configuration is only supported on macOS. Linux doesn't
-/// support undo operations at all so this configuration has no
-/// effect.
-///
 /// Available since: 1.2.0
 @"undo-timeout": Duration = .{ .duration = 5 * std.time.ns_per_s },
 
@@ -2682,16 +2631,8 @@ keybind: Keybinds = .{},
 ///
 ///  * `mouse` - The screen that the mouse is currently hovered over.
 ///
-///  * `macos-menu-bar` - The screen that contains the macOS menu bar as
-///    set in the display settings on macOS. This is a bit confusing because
-///    every screen on macOS has a menu bar, but this is the screen that
-///    contains the primary menu bar.
-///
 /// The default value is `main` because this is the recommended screen
 /// by the operating system.
-///
-/// On macOS, `macos-menu-bar` uses the screen containing the menu bar.
-/// On Linux/Wayland, `macos-menu-bar` is treated as equivalent to `main`.
 ///
 /// Note: On Linux, there is no universal concept of a "primary" monitor.
 /// Ghostty uses the compositor-reported primary output when available and
@@ -2909,6 +2850,10 @@ keybind: Keybinds = .{},
 /// Custom shaders to run after the default shaders. This is a file path
 /// to a GLSL-syntax shader for all platforms.
 ///
+/// In this Windows-only fork, custom shader compilation support is disabled
+/// in default builds. This setting is retained for compatibility and only has
+/// an effect if Ghostty is built with `-Dcustom-shaders=true`.
+///
 /// Warning: Invalid shaders can cause Ghostty to become unusable such as by
 /// causing the window to be completely black. If this happens, you can
 /// unset this configuration to disable the shader.
@@ -3032,6 +2977,8 @@ keybind: Keybinds = .{},
 /// less than 10%) but allows the shader to animate. This only runs if there
 /// are custom shaders and the terminal is focused.
 ///
+/// This has no effect when Ghostty is built without custom shader support.
+///
 /// If this is set to `false`, the terminal and custom shader will only render
 /// when the terminal is updated. This is more efficient but the shader will
 /// not animate.
@@ -3140,9 +3087,9 @@ keybind: Keybinds = .{},
 /// A value of "false" will disable all notifications. A value of "true" will
 /// enable all notifications.
 ///
-/// This configuration only applies to GTK.
+/// Retained compatibility setting from the removed GTK runtime.
 ///
-/// Available since: 1.1.0
+/// This has no effect in the Windows-only fork.
 @"app-notifications": AppNotifications = .{},
 
 /// If anything other than false, fullscreen mode on macOS will not use the
@@ -3160,503 +3107,86 @@ keybind: Keybinds = .{},
 /// keybindings such as command+tilde. When you exit fullscreen, the window
 /// will return to the tabbed state it was in before.
 ///
-/// Allowable values are:
+/// Retained compatibility settings from Linux-specific runtime features.
 ///
-///   * `true` - Use non-native macOS fullscreen, hide the menu bar
-///   * `false` - Use native macOS fullscreen
-///   * `visible-menu` - Use non-native macOS fullscreen, keep the menu bar
-///     visible
-///   * `padded-notch` - Use non-native macOS fullscreen, hide the menu bar,
-///     but ensure the window is not obscured by the notch on applicable
-///     devices. The area around the notch will remain transparent currently,
-///     but in the future we may fill it with the window background color.
+/// These keys continue to parse so existing configs remain loadable, but they
+/// have no effect in the Windows-only fork unless a field explicitly documents
+/// otherwise.
 ///
-/// Changing this option at runtime works, but will only apply to the next
-/// time the window is made fullscreen. If a window is already fullscreen,
-/// it will retain the previous setting until fullscreen is exited.
-@"macos-non-native-fullscreen": NonNativeFullscreen = .false,
-
-/// Whether the window buttons in the macOS titlebar are visible. The window
-/// buttons are the colored buttons in the upper left corner of most macOS apps,
-/// also known as the traffic lights, that allow you to close, miniaturize, and
-/// zoom the window.
+/// Retained compatibility setting from Linux-specific runtime features.
 ///
-/// This setting has no effect when `window-decoration = none` or
-/// `macos-titlebar-style = hidden`, as the window buttons are always hidden in
-/// these modes.
-///
-/// Valid values are:
-///
-///   * `visible` - Show the window buttons.
-///   * `hidden` - Hide the window buttons.
-///
-/// The default value is `visible`.
-///
-/// Changing this option at runtime only applies to new windows.
-///
-/// Available since: 1.2.0
-@"macos-window-buttons": MacWindowButtons = .visible,
-
-/// The style of the macOS titlebar. Available values are: "native",
-/// "transparent", "tabs", and "hidden".
-///
-/// The "native" style uses the native macOS titlebar with zero customization.
-/// The titlebar will match your window theme (see `window-theme`).
-///
-/// The "transparent" style is the same as "native" but the titlebar will
-/// be transparent and allow your window background color to come through.
-/// This makes a more seamless window appearance but looks a little less
-/// typical for a macOS application and may not work well with all themes.
-///
-/// The "transparent" style will also update in real-time to dynamic
-/// changes to the window background color, e.g. via OSC 11. To make this
-/// more aesthetically pleasing, this only happens if the terminal is
-/// a window, tab, or split that borders the top of the window. This
-/// avoids a disjointed appearance where the titlebar color changes
-/// but all the topmost terminals don't match.
-///
-/// The "tabs" style is a completely custom titlebar that integrates the
-/// tab bar into the titlebar. This titlebar always matches the background
-/// color of the terminal. There are some limitations to this style:
-/// On macOS 13 and below, saved window state will not restore tabs correctly.
-/// macOS 14 does not have this issue and any other macOS version has not
-/// been tested.
-///
-/// The "hidden" style hides the titlebar. Unlike `window-decoration = none`,
-/// however, it does not remove the frame from the window or cause it to have
-/// squared corners. Changing to or from this option at run-time may affect
-/// existing windows in buggy ways.
-///
-/// When "hidden", the top titlebar area can no longer be used for dragging
-/// the window. To drag the window, you can use option+click on the resizable
-/// areas of the frame to drag the window. This is a standard macOS behavior
-/// and not something Ghostty enables.
-///
-/// The default value is "transparent". This is an opinionated choice
-/// but its one I think is the most aesthetically pleasing and works in
-/// most cases.
-///
-/// Changing this option at runtime only applies to new windows.
-@"macos-titlebar-style": MacTitlebarStyle = .transparent,
-
-/// Whether the proxy icon in the macOS titlebar is visible. The proxy icon
-/// is the icon that represents the folder of the current working directory.
-/// You can see this very clearly in the macOS built-in Terminal.app
-/// titlebar.
-///
-/// The proxy icon is only visible with the native macOS titlebar style.
-///
-/// Valid values are:
-///
-///   * `visible` - Show the proxy icon.
-///   * `hidden` - Hide the proxy icon.
-///
-/// The default value is `visible`.
-///
-/// This setting can be changed at runtime and will affect all currently
-/// open windows but only after their working directory changes again.
-/// Therefore, to make this work after changing the setting, you must
-/// usually `cd` to a different directory, open a different file in an
-/// editor, etc.
-@"macos-titlebar-proxy-icon": MacTitlebarProxyIcon = .visible,
-
-/// Controls the windowing behavior when dropping a file or folder
-/// onto the Ghostty icon in the macOS dock.
-///
-/// Valid values are:
-///
-///   * `new-tab` - Create a new tab in the current window, or open
-///     a new window if none exist.
-///   * `new-window` - Create a new window unconditionally.
-///
-/// The default value is `new-tab`.
-///
-/// This setting is only supported on macOS and has no effect on other
-/// platforms.
-@"macos-dock-drop-behavior": MacOSDockDropBehavior = .@"new-tab",
-
-/// macOS doesn't have a distinct "alt" key and instead has the "option"
-/// key which behaves slightly differently. On macOS by default, the
-/// option key plus a character will sometimes produce a Unicode character.
-/// For example, on US standard layouts option-b produces "∫". This may be
-/// undesirable if you want to use "option" as an "alt" key for keybindings
-/// in terminal programs or shells.
-///
-/// This configuration lets you change the behavior so that option is treated
-/// as alt.
-///
-/// The default behavior (unset) will depend on your active keyboard
-/// layout. If your keyboard layout is one of the keyboard layouts listed
-/// below, then the default value is "true". Otherwise, the default
-/// value is "false". Keyboard layouts with a default value of "true" are:
-///
-///   - U.S. Standard
-///   - U.S. International
-///
-/// Note that if an *Option*-sequence doesn't produce a printable character, it
-/// will be treated as *Alt* regardless of this setting. (e.g. `alt+ctrl+a`).
-///
-/// Explicit values that can be set:
-///
-/// If `true`, the *Option* key will be treated as *Alt*. This makes terminal
-/// sequences expecting *Alt* to work properly, but will break Unicode input
-/// sequences on macOS if you use them via the *Alt* key.
-///
-/// You may set this to `false` to restore the macOS *Alt* key unicode
-/// sequences but this will break terminal sequences expecting *Alt* to work.
-///
-/// The values `left` or `right` enable this for the left or right *Option*
-/// key, respectively.
-@"macos-option-as-alt": ?inputpkg.OptionAsAlt = null,
-
-/// Whether to enable the macOS window shadow. The default value is true.
-/// With some window managers and window transparency settings, you may
-/// find false more visually appealing.
-@"macos-window-shadow": bool = true,
-
-/// If true, the macOS icon in the dock and app switcher will be hidden. This is
-/// mainly intended for those primarily using the quick-terminal mode.
-///
-/// Note that setting this to true means that keyboard layout changes
-/// will no longer be automatic.
-///
-/// Control whether macOS app is excluded from the dock and app switcher,
-/// a "hidden" state. This is mainly intended for those primarily using
-/// quick-terminal mode, but is a general configuration for any use
-/// case.
-///
-/// Available values:
-///
-///   * `never` - The macOS app is never hidden.
-///   * `always` - The macOS app is always hidden.
-///
-/// Note: When the macOS application is hidden, keyboard layout changes
-/// will no longer be automatic. This is a limitation of macOS.
-///
-/// Available since: 1.2.0
-@"macos-hidden": MacHidden = .never,
-
-/// If true, Ghostty on macOS will automatically enable the "Secure Input"
-/// feature when it detects that a password prompt is being displayed.
-///
-/// "Secure Input" is a macOS security feature that prevents applications from
-/// reading keyboard events. This can always be enabled manually using the
-/// `Ghostty > Secure Keyboard Entry` menu item.
-///
-/// Note that automatic password prompt detection is based on heuristics
-/// and may not always work as expected. Specifically, it does not work
-/// over SSH connections, but there may be other cases where it also
-/// doesn't work.
-///
-/// A reason to disable this feature is if you find that it is interfering
-/// with legitimate accessibility software (or software that uses the
-/// accessibility APIs), since secure input prevents any application from
-/// reading keyboard events.
-@"macos-auto-secure-input": bool = true,
-
-/// If true, Ghostty will show a graphical indication when secure input is
-/// enabled. This indication is generally recommended to know when secure input
-/// is enabled.
-///
-/// Normally, secure input is only active when a password prompt is displayed
-/// or it is manually (and typically temporarily) enabled. However, if you
-/// always have secure input enabled, the indication can be distracting and
-/// you may want to disable it.
-@"macos-secure-input-indication": bool = true,
-
-/// If true, Ghostty exposes and handles the built-in AppleScript dictionary
-/// on macOS.
-///
-/// If false, all AppleScript interactions are disabled. This includes
-/// AppleScript commands and AppleScript object lookup for windows, tabs,
-/// and terminals.
-///
-/// The default is true.
-@"macos-applescript": bool = true,
-
-/// Customize the macOS app icon.
-///
-/// This only affects the icon that appears in the dock, application
-/// switcher, etc. This does not affect the icon in Finder because
-/// that is controlled by a hardcoded value in the signed application
-/// bundle and can't be changed at runtime. For more details on what
-/// exactly is affected, see the `NSApplication.icon` Apple documentation;
-/// that is the API that is being used to set the icon.
-///
-/// Valid values:
-///
-///  * `official` - Use the official Ghostty icon.
-///  * `blueprint`, `chalkboard`, `microchip`, `glass`, `holographic`,
-///    `paper`, `retro`, `xray` - Official variants of the Ghostty icon
-///    hand-created by artists (no AI).
-///  * `custom` - Use a completely custom icon. The location must be specified
-///    using the additional `macos-custom-icon` configuration
-///  * `custom-style` - Use the official Ghostty icon but with custom
-///    styles applied to various layers. The custom styles must be
-///    specified using the additional `macos-icon`-prefixed configurations.
-///    The `macos-icon-ghost-color` and `macos-icon-screen-color`
-///    configurations are required for this style.
-///
-/// WARNING: The `custom-style` option is _experimental_. We may change
-/// the format of the custom styles in the future. We're still finalizing
-/// the exact layers and customization options that will be available.
-///
-/// Other caveats:
-///
-///   * The icon in the update dialog will always be the official icon.
-///     This is because the update dialog is managed through a
-///     separate framework and cannot be customized without significant
-///     effort.
-@"macos-icon": MacAppIcon = .official,
-
-/// The absolute path to the custom icon file.
-/// Supported formats include PNG, JPEG, and ICNS.
-///
-/// Defaults to `~/.config/ghostty/Ghostty.icns`
-@"macos-custom-icon": ?[:0]const u8 = null,
-
-/// The material to use for the frame of the macOS app icon.
-///
-/// Valid values:
-///
-///  * `aluminum` - A brushed aluminum frame. This is the default.
-///  * `beige` - A classic 90's computer beige frame.
-///  * `plastic` - A glossy, dark plastic frame.
-///  * `chrome` - A shiny chrome frame.
-///
-/// Note: This configuration is required when `macos-icon` is set to
-/// `custom-style`.
-@"macos-icon-frame": MacAppIconFrame = .aluminum,
-
-/// The color of the ghost in the macOS app icon.
-///
-/// Note: This configuration is required when `macos-icon` is set to
-/// `custom-style`.
-///
-/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
-@"macos-icon-ghost-color": ?Color = null,
-
-/// The color of the screen in the macOS app icon.
-///
-/// The screen is a linear gradient so you can specify multiple colors
-/// that make up the gradient. Up to 64 comma-separated colors may be
-/// specified as either hex (`#RRGGBB` or `RRGGBB`) or as named X11
-/// colors. The first color is the bottom of the gradient and the last
-/// color is the top of the gradient.
-///
-/// Note: This configuration is required when `macos-icon` is set to
-/// `custom-style`.
-@"macos-icon-screen-color": ?ColorList = null,
-
-/// Whether macOS Shortcuts are allowed to control Ghostty.
-///
-/// Ghostty exposes a number of actions that allow Shortcuts to
-/// control and interact with Ghostty. This includes creating new
-/// terminals, sending text to terminals, running commands, invoking
-/// any keybind action, etc.
-///
-/// This is a powerful feature but can be a security risk if a malicious
-/// shortcut is able to be installed and executed. Therefore, this
-/// configuration allows you to disable this feature.
-///
-/// Valid values are:
-///
-/// * `ask` - Ask the user whether for permission. Ghostty will remember
-///   this choice and never ask again. This is similar to other macOS
-///   permissions such as microphone access, camera access, etc.
-///
-/// * `allow` - Allow Shortcuts to control Ghostty without asking.
-///
-/// * `deny` - Deny Shortcuts from controlling Ghostty.
-///
-/// Available since: 1.2.0
-@"macos-shortcuts": MacShortcuts = .ask,
-
-/// Put every surface (tab, split, window) into a transient `systemd` scope.
-///
-/// This allows per-surface resource management. For example, if a shell program
-/// is using too much memory, only that shell will be killed by the oom monitor
-/// instead of the entire Ghostty process. Similarly, if a shell program is
-/// using too much CPU, only that surface will be CPU-throttled.
-///
-/// This will cause startup times to be slower (a hundred milliseconds or so),
-/// so the default value is "single-instance." In single-instance mode, only
-/// one instance of Ghostty is running (see gtk-single-instance) so the startup
-/// time is a one-time cost. Additionally, single instance Ghostty is much
-/// more likely to have many windows, tabs, etc. so cgroup isolation is a
-/// big benefit.
-///
-/// This feature requires `systemd`. If `systemd` is unavailable, cgroup
-/// initialization will fail. By default, this will not prevent Ghostty from
-/// working (see `linux-cgroup-hard-fail`).
-///
-/// Changing this value and reloading the config will not affect existing
-/// surfaces.
-///
-/// Valid values are:
-///
-///   * `never` - Never use cgroups.
-///   * `always` - Always use cgroups.
-///   * `single-instance` - Enable cgroups only for Ghostty instances launched
-///     as single-instance applications (see gtk-single-instance).
+/// This continues to parse so existing configs remain loadable, but it has no
+/// effect in the Windows-only fork.
 @"linux-cgroup": LinuxCgroup = if (builtin.os.tag == .linux)
     .@"single-instance"
 else
     .never,
 
-/// Memory limit for any individual terminal process (tab, split, window,
-/// etc.) in bytes. If this is unset then no memory limit will be set.
+/// Retained compatibility setting from Linux-specific runtime features.
 ///
-/// Note that this sets the `MemoryHigh` setting on the transient `systemd`
-/// scope, which is a soft limit. You should configure something like
-/// `systemd-oom` to handle killing processes that have too much memory
-/// pressure.
-///
-/// Changing this value and reloading the config will not affect existing
-/// surfaces.
-///
-/// See the `systemd.resource-control` manual page for more information:
-/// https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html
+/// This has no effect in the Windows-only fork.
 @"linux-cgroup-memory-limit": ?u64 = null,
 
-/// Number of processes limit for any individual terminal process (tab, split,
-/// window, etc.). If this is unset then no limit will be set.
+/// Retained compatibility setting from Linux-specific runtime features.
 ///
-/// Note that this sets the `TasksMax` setting on the transient `systemd` scope,
-/// which is a hard limit.
-///
-/// Changing this value and reloading the config will not affect existing
-/// surfaces.
-///
-/// See the `systemd.resource-control` manual page for more information:
-/// https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html
+/// This has no effect in the Windows-only fork.
 @"linux-cgroup-processes-limit": ?u64 = null,
 
-/// If this is false, then creating a transient `systemd` scope (for
-/// `linux-cgroup`) will be allowed to fail and the failure is ignored. This is
-/// useful if you view cgroup isolation as a "nice to have" and not a critical
-/// resource management feature, because surface creation will not fail if
-/// `systemd` APIs fail.
+/// Retained compatibility setting from Linux-specific runtime features.
 ///
-/// If this is true, then any transient `systemd` scope creation failure will
-/// cause surface creation to fail.
-///
-/// Changing this value and reloading the config will not affect existing
-/// surfaces.
+/// This has no effect in the Windows-only fork.
 @"linux-cgroup-hard-fail": bool = false,
 
-/// Enable or disable GTK's OpenGL debugging logs. The default is `true` for
-/// debug builds, `false` for all others.
+/// Retained compatibility settings from the removed GTK runtime.
 ///
-/// Available since: 1.1.0
+/// These keys continue to parse so existing configs remain loadable, but they
+/// have no effect in the Windows-only fork unless a field explicitly documents
+/// otherwise.
+///
+/// Retained compatibility setting from the removed GTK runtime.
+///
+/// This has no effect in the Windows-only fork.
 @"gtk-opengl-debug": bool = builtin.mode == .Debug,
 
-/// If `true`, the Ghostty GTK application will run in single-instance mode:
-/// each new `ghostty` process launched will result in a new window if there is
-/// already a running process.
+/// Deprecated compatibility alias for `single-instance`.
 ///
-/// If `false`, each new ghostty process will launch a separate application.
-///
-/// If `detect`, Ghostty will assume true (single instance) unless one of
-/// the following scenarios is found:
-///
-/// 1. TERM_PROGRAM environment variable is a non-empty value. In this
-/// case, we assume Ghostty is being launched from a graphical terminal
-/// session and you want a dedicated instance.
-///
-/// 2. Any CLI arguments exist. In this case, we assume you are passing
-/// custom Ghostty configuration. Single instance mode inherits the
-/// configuration from when it was launched, so we must disable single
-/// instance to load the new configuration.
-///
-/// If either of these scenarios is producing a false positive, you can
-/// set this configuration explicitly to the behavior you want.
-///
-/// The pre-1.2 option `desktop` has been deprecated. Please replace
-/// this with `detect`.
-///
-/// The default value is `detect`.
-///
-/// Note that debug builds of Ghostty have a separate single-instance ID
-/// so you can test single instance without conflicting with release builds.
-@"gtk-single-instance": GtkSingleInstance = .default,
+/// This is retained so older configurations continue to parse cleanly in the
+/// Windows-only fork. New configurations should use `single-instance`.
+@"gtk-single-instance": GtkSingleInstance = GtkSingleInstance.default,
 
-/// When enabled, the full GTK titlebar is displayed instead of your window
-/// manager's simple titlebar. The behavior of this option will vary with your
-/// window manager.
+/// Retained compatibility setting from the removed GTK runtime.
 ///
-/// This option does nothing when `window-decoration` is none or when running
-/// under macOS.
+/// This has no effect in the Windows-only fork.
 @"gtk-titlebar": bool = true,
 
-/// Determines the side of the screen that the GTK tab bar will stick to.
-/// Top, bottom, and hidden are supported. The default is top.
+/// Retained compatibility setting from the removed GTK runtime.
 ///
-/// When `hidden` is set, a tab button displaying the number of tabs will appear
-/// in the title bar. It has the ability to open a tab overview for displaying
-/// tabs. Alternatively, you can use the `toggle_tab_overview` action in a
-/// keybind if your window doesn't have a title bar, or you can switch tabs
-/// with keybinds.
+/// This has no effect in the Windows-only fork.
 @"gtk-tabs-location": GtkTabsLocation = .top,
 
-/// If this is `true`, the titlebar will be hidden when the window is maximized,
-/// and shown when the titlebar is unmaximized. GTK only.
+/// Retained compatibility setting from the removed GTK runtime.
 ///
-/// Available since: 1.1.0
+/// This has no effect in the Windows-only fork.
 @"gtk-titlebar-hide-when-maximized": bool = false,
 
-/// Determines the appearance of the top and bottom bars tab bar.
+/// Retained compatibility setting from the removed GTK runtime.
 ///
-/// Valid values are:
-///
-///  * `flat` - Top and bottom bars are flat with the terminal window.
-///  * `raised` - Top and bottom bars cast a shadow on the terminal area.
-///  * `raised-border` - Similar to `raised` but the shadow is replaced with a
-///    more subtle border.
+/// This has no effect in the Windows-only fork.
 @"gtk-toolbar-style": GtkToolbarStyle = .raised,
 
-/// The style of the GTK titlebar. Available values are `native` and `tabs`.
+/// Retained compatibility setting from the removed GTK runtime.
 ///
-/// The `native` titlebar style is a traditional titlebar with a title, a few
-/// buttons and window controls. A separate tab bar will show up below the
-/// titlebar if you have multiple tabs open in the window.
-///
-/// The `tabs` titlebar merges the tab bar and the traditional titlebar.
-/// This frees up vertical space on your screen if you use multiple tabs. One
-/// limitation of the `tabs` titlebar is that you cannot drag the titlebar
-/// by the titles any longer (as they are tab titles now). Other areas of the
-/// `tabs` title bar can be used to drag the window around.
-///
-/// The default style is `native`.
+/// This has no effect in the Windows-only fork.
 @"gtk-titlebar-style": GtkTitlebarStyle = .native,
 
-/// If `true` (default), then the Ghostty GTK tabs will be "wide." Wide tabs
-/// are the new typical Gnome style where tabs fill their available space.
-/// If you set this to `false` then tabs will only take up space they need,
-/// which is the old style.
+/// Retained compatibility setting from the removed GTK runtime.
+///
+/// This has no effect in the Windows-only fork.
 @"gtk-wide-tabs": bool = true,
 
-/// Custom CSS files to be loaded.
+/// Retained compatibility setting from the removed GTK runtime.
 ///
-/// GTK CSS documentation can be found at the following links:
-///
-///   * https://docs.gtk.org/gtk4/css-overview.html - An overview of GTK CSS.
-///   * https://docs.gtk.org/gtk4/css-properties.html - A comprehensive list
-///     of supported CSS properties.
-///
-/// Launch Ghostty with `env GTK_DEBUG=interactive ghostty` to tweak Ghostty's
-/// CSS in real time using the GTK Inspector. Errors in your CSS files would
-/// also be reported in the terminal you started Ghostty from. See
-/// https://developer.gnome.org/documentation/tools/inspector.html for more
-/// information about the GTK Inspector.
-///
-/// This configuration can be repeated multiple times to load multiple files.
-/// Prepend a ? character to the file path to suppress errors if the file does
-/// not exist. If you want to include a file that begins with a literal ?
-/// character, surround the file path in double quotes (").
-/// The file size limit for a single stylesheet is 5MiB.
-///
-/// Available since: 1.1.0
+/// This has no effect in the Windows-only fork.
 @"gtk-custom-css": RepeatablePath = .{},
 
 /// If `true` (default), applications running in the terminal can show desktop
@@ -3730,22 +3260,18 @@ term: []const u8 = "xterm-ghostty",
 ///
 /// Changing this value requires a full application restart to take effect.
 ///
-/// This is only supported on Linux, since this is the only platform
-/// where we have multiple options. On macOS, we always use `kqueue`.
+/// Retained as a compatibility setting in the Windows-only fork. The Win32
+/// runtime uses its built-in Windows event backend, so changing this value has
+/// no effect.
 ///
 /// Available since: 1.2.0
 @"async-backend": AsyncBackend = .auto,
 
-/// Control the auto-update functionality of Ghostty. This is only supported
-/// on macOS currently, since Linux builds are distributed via package
-/// managers that are not centrally controlled by Ghostty.
+/// Control the auto-update functionality of Ghostty.
 ///
-/// Checking or downloading an update does not send any information to
-/// the project beyond standard network information mandated by the
-/// underlying protocols. To put it another way: Ghostty doesn't explicitly
-/// add any tracking to the update process. The update process works by
-/// downloading information about the latest version and comparing it
-/// client-side to the current version.
+/// This is retained as a compatibility setting in the Windows-only fork.
+/// There is no native updater wired into this runtime yet, so changing this
+/// value currently has no effect.
 ///
 /// Valid values are:
 ///
@@ -3755,10 +3281,7 @@ term: []const u8 = "xterm-ghostty",
 ///  * `download` - Check for updates, automatically download the update,
 ///    notify the user, but do not automatically install the update.
 ///
-/// If unset, we defer to Sparkle's default behavior, which respects the
-/// preference stored in the standard user defaults (`defaults(1)`).
-///
-/// Changing this value at runtime works after a small delay.
+/// A future native updater may honor this setting.
 @"auto-update": ?AutoUpdate = null,
 
 /// The release channel to use for auto-updates.
@@ -3777,10 +3300,8 @@ term: []const u8 = "xterm-ghostty",
 ///    beta testing by thousands of people. It is generally stable but
 ///    will likely have more bugs than the stable channel.
 ///
-/// Changing this configuration requires a full restart of
-/// Ghostty to take effect.
-///
-/// This only works on macOS since only macOS has an auto-update feature.
+/// Retained as a compatibility setting in the Windows-only fork.
+/// Without a native Windows updater, this currently has no effect.
 @"auto-update-channel": ?build_config.ReleaseChannel = null,
 
 /// This is set by the CLI parser for deinit.
@@ -3803,7 +3324,8 @@ _conditional_set: std.EnumSet(conditional.Key) = .{},
 /// as loadTheme which has more details on why.
 _replay_steps: std.ArrayListUnmanaged(Replay.Step) = .{},
 
-/// Set to true if Ghostty was executed as xdg-terminal-exec on Linux.
+/// Deprecated internal compatibility flag from the removed Linux desktop path.
+/// It has no effect in the Windows-only fork.
 @"_xdg-terminal-exec": bool = false,
 
 pub fn deinit(self: *Config) void {
@@ -3814,10 +3336,9 @@ pub fn deinit(self: *Config) void {
 /// Load the configuration according to the default rules:
 ///
 ///   1. Defaults
-///   2. XDG config dir
-///   3. "Application Support" directory (macOS only)
-///   4. CLI flags
-///   5. Recursively defined configuration files
+///   2. Standard per-user config locations for the current platform
+///   3. CLI flags
+///   4. Recursively defined configuration files
 ///
 pub fn load(alloc_gpa: Allocator) !Config {
     var result = try default(alloc_gpa);
@@ -4004,9 +3525,6 @@ fn writeConfigTemplate(path: []const u8) !void {
 /// Load configurations from the default configuration files. The default
 /// configuration file is at `$XDG_CONFIG_HOME/ghostty/config.ghostty`.
 ///
-/// On macOS, `$HOME/Library/Application Support/$CFBundleIdentifier/`
-/// is also loaded.
-///
 /// The legacy `config` file (without extension) is first loaded,
 /// then `config.ghostty`.
 pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
@@ -4028,56 +3546,10 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
             legacy_xdg_action != .not_found;
     };
 
-    // On macOS load the app support directory as well
-    if (comptime builtin.os.tag == .macos) {
-        const legacy_app_support_path = try file_load.legacyDefaultAppSupportPath(alloc);
-        defer alloc.free(legacy_app_support_path);
-        const app_support_path = try file_load.preferredAppSupportPath(alloc);
-        defer alloc.free(app_support_path);
-        const app_support_loaded: bool = loaded: {
-            const legacy_app_support_action = self.loadOptionalFile(
-                alloc,
-                legacy_app_support_path,
-            );
-
-            // The app support path and legacy may be the same, since we
-            // use the `preferred` call above. If its the same, avoid
-            // a double-load.
-            const app_support_action: OptionalFileAction = if (!std.mem.eql(
-                u8,
-                legacy_app_support_path,
-                app_support_path,
-            )) self.loadOptionalFile(
-                alloc,
-                app_support_path,
-            ) else .not_found;
-
-            if (app_support_action != .not_found and legacy_app_support_action != .not_found) {
-                log.warn(
-                    "both config files `{s}` and `{s}` exist.",
-                    .{ legacy_app_support_path, app_support_path },
-                );
-                log.warn("loading them both in that order", .{});
-                break :loaded true;
-            }
-
-            break :loaded app_support_action != .not_found or
-                legacy_app_support_action != .not_found;
+    if (!xdg_loaded) {
+        writeConfigTemplate(xdg_path) catch |err| {
+            log.warn("error creating template config file err={}", .{err});
         };
-
-        // If both files are not found, then we create a template file.
-        // For macOS, we only create the template file in the app support
-        if (!app_support_loaded and !xdg_loaded) {
-            writeConfigTemplate(app_support_path) catch |err| {
-                log.warn("error creating template config file err={}", .{err});
-            };
-        }
-    } else {
-        if (!xdg_loaded) {
-            writeConfigTemplate(xdg_path) catch |err| {
-                log.warn("error creating template config file err={}", .{err});
-            };
-        }
     }
 }
 
@@ -4629,23 +4101,25 @@ pub fn finalize(self: *Config) !void {
     try wd.finalize(alloc);
     self.@"working-directory" = wd;
 
-    // Apprt-specific defaults
-    switch (build_config.app_runtime) {
-        .none => {},
-        .win32 => {},
-        .gtk => {
-            switch (self.@"gtk-single-instance") {
-                .true, .false => {},
-
-                // For detection, we assume single instance unless we're
-                // in a CLI environment, then we disable single instance.
-                .detect => self.@"gtk-single-instance" = if (probable_cli)
-                    .false
-                else
-                    .true,
-            }
-        },
+    // Canonicalize the deprecated GTK alias onto the Windows-facing key.
+    if (self.@"single-instance" == GtkSingleInstance.default and
+        self.@"gtk-single-instance" != GtkSingleInstance.default)
+    {
+        self.@"single-instance" = self.@"gtk-single-instance";
     }
+
+    // Apprt-specific defaults
+    switch (self.@"single-instance") {
+        .true, .false => {},
+
+        // For detection, we assume single instance unless we're
+        // in a CLI environment, then we disable single instance.
+        .detect => self.@"single-instance" = if (probable_cli)
+            .false
+        else
+            .true,
+    }
+    self.@"gtk-single-instance" = self.@"single-instance";
 
     // Default our click interval
     if (self.@"click-repeat-interval" == 0 and
@@ -4737,6 +4211,7 @@ pub fn parseManuallyHook(
 
         // See "command" docs for the implied configurations and why.
         self.@"initial-command" = .{ .direct = command.items };
+        self.@"single-instance" = .false;
         self.@"gtk-single-instance" = .false;
         self.@"quit-after-last-window-closed" = true;
         self.@"quit-after-last-window-closed-delay" = null;
@@ -4785,6 +4260,7 @@ fn compatGtkSingleInstance(
     assert(std.mem.eql(u8, key, "gtk-single-instance"));
 
     if (std.mem.eql(u8, value orelse "", "desktop")) {
+        self.@"single-instance" = .detect;
         self.@"gtk-single-instance" = .detect;
         return true;
     }
@@ -4852,23 +4328,6 @@ fn compatBoldIsBright(
     }
 
     return true;
-}
-
-fn compatMacOSDockDropBehavior(
-    self: *Config,
-    alloc: Allocator,
-    key: []const u8,
-    value: ?[]const u8,
-) bool {
-    _ = alloc;
-    assert(std.mem.eql(u8, key, "macos-dock-drop-behavior"));
-
-    if (std.mem.eql(u8, value orelse "", "window")) {
-        self.@"macos-dock-drop-behavior" = .@"new-window";
-        return true;
-    }
-
-    return false;
 }
 
 /// Add a diagnostic message to the config with the given string.
@@ -5232,25 +4691,12 @@ pub const CustomShaderAnimation = enum(c_int) {
     always,
 };
 
-/// Valid values for macos-non-native-fullscreen
-/// c_int because it needs to be extern compatible
-/// If this is changed, you must also update ghostty.h
-pub const NonNativeFullscreen = enum(c_int) {
-    false,
-    true,
-    @"visible-menu",
-    @"padded-notch",
-};
-
 /// Valid values for fullscreen config option
 /// c_int because it needs to be extern compatible
 /// If this is changed, you must also update ghostty.h
 pub const Fullscreen = enum(c_int) {
     false,
     true,
-    @"non-native",
-    @"non-native-visible-menu",
-    @"non-native-padded-notch",
 };
 
 pub const WindowPaddingColor = enum {
@@ -8944,67 +8390,7 @@ pub const WindowColorspace = enum {
     @"display-p3",
 };
 
-/// See macos-window-buttons
-pub const MacWindowButtons = enum {
-    visible,
-    hidden,
-};
-
-/// See macos-titlebar-style
-pub const MacTitlebarStyle = enum {
-    native,
-    transparent,
-    tabs,
-    hidden,
-};
-
-/// See macos-titlebar-proxy-icon
-pub const MacTitlebarProxyIcon = enum {
-    visible,
-    hidden,
-};
-
-/// See macos-hidden
-pub const MacHidden = enum {
-    never,
-    always,
-};
-
-/// See macos-icon
-///
-/// Note: future versions of Ghostty can support a custom icon with
-/// path by changing this to a tagged union, which doesn't change our
-/// format at all.
-pub const MacAppIcon = enum {
-    official,
-    blueprint,
-    chalkboard,
-    microchip,
-    glass,
-    holographic,
-    paper,
-    retro,
-    xray,
-    custom,
-    @"custom-style",
-};
-
-/// See macos-icon-frame
-pub const MacAppIconFrame = enum {
-    aluminum,
-    beige,
-    plastic,
-    chrome,
-};
-
-/// See macos-shortcuts
-pub const MacShortcuts = enum {
-    allow,
-    deny,
-    ask,
-};
-
-/// See gtk-single-instance
+/// See single-instance
 pub const GtkSingleInstance = enum {
     false,
     true,
@@ -9032,11 +8418,6 @@ pub const GtkTitlebarStyle = enum(c_int) {
     tabs,
 
     pub const getGObjectType = switch (build_config.app_runtime) {
-        .gtk => @import("gobject").ext.defineEnum(
-            GtkTitlebarStyle,
-            .{ .name = "GhosttyGtkTitlebarStyle" },
-        ),
-
         .none, .win32 => void,
     };
 };
@@ -9184,12 +8565,6 @@ pub const WindowSaveState = enum {
 pub const WindowNewTabPosition = enum {
     current,
     end,
-};
-
-/// See macos-dock-drop-behavior
-pub const MacOSDockDropBehavior = enum {
-    @"new-tab",
-    @"new-window",
 };
 
 /// See window-show-tab-bar
@@ -9531,7 +8906,6 @@ pub const QuickTerminalSize = struct {
 pub const QuickTerminalScreen = enum {
     main,
     mouse,
-    @"macos-menu-bar",
 };
 
 // See quick-terminal-space-behavior
@@ -9629,8 +9003,6 @@ pub const AutoUpdate = enum {
 pub const BackgroundBlur = union(enum) {
     false,
     true,
-    @"macos-glass-regular",
-    @"macos-glass-clear",
     radius: u8,
 
     pub fn parseCLI(self: *BackgroundBlur, input: ?[]const u8) !void {
@@ -9676,11 +9048,6 @@ pub const BackgroundBlur = union(enum) {
             .false => false,
             .true => true,
             .radius => |v| v > 0,
-
-            // We treat these as true because they both imply some blur!
-            // This has the effect of making the standard blur happen on
-            // Linux.
-            .@"macos-glass-regular", .@"macos-glass-clear" => true,
         };
     }
 
@@ -9689,11 +9056,6 @@ pub const BackgroundBlur = union(enum) {
             .false => 0,
             .true => 20,
             .radius => |v| v,
-            // I hate sentinel values like this but this is only for
-            // our macOS application currently. We can switch to a proper
-            // tagged union if we ever need to.
-            .@"macos-glass-regular" => -1,
-            .@"macos-glass-clear" => -2,
         };
     }
 
@@ -9705,8 +9067,6 @@ pub const BackgroundBlur = union(enum) {
             .false => try formatter.formatEntry(bool, false),
             .true => try formatter.formatEntry(bool, true),
             .radius => |v| try formatter.formatEntry(u8, v),
-            .@"macos-glass-regular" => try formatter.formatEntry([]const u8, "macos-glass-regular"),
-            .@"macos-glass-clear" => try formatter.formatEntry([]const u8, "macos-glass-clear"),
         }
     }
 
@@ -9726,12 +9086,8 @@ pub const BackgroundBlur = union(enum) {
         try v.parseCLI("42");
         try testing.expectEqual(42, v.radius);
 
-        try v.parseCLI("macos-glass-regular");
-        try testing.expectEqual(.@"macos-glass-regular", v);
-
-        try v.parseCLI("macos-glass-clear");
-        try testing.expectEqual(.@"macos-glass-clear", v);
-
+        try testing.expectError(error.InvalidValue, v.parseCLI("macos-glass-regular"));
+        try testing.expectError(error.InvalidValue, v.parseCLI("macos-glass-clear"));
         try testing.expectError(error.InvalidValue, v.parseCLI(""));
         try testing.expectError(error.InvalidValue, v.parseCLI("aaaa"));
         try testing.expectError(error.InvalidValue, v.parseCLI("420"));
@@ -9745,15 +9101,8 @@ pub const WindowDecoration = enum(c_int) {
     server,
     none,
 
-    /// Make this a valid gobject if we're in a GTK environment.
-    pub const getGObjectType = switch (build_config.app_runtime) {
-        .gtk => @import("gobject").ext.defineEnum(
-            WindowDecoration,
-            .{ .name = "GhosttyConfigWindowDecoration" },
-        ),
-
-        .none, .win32 => void,
-    };
+    /// GTK gobject integration is not used in the Windows-only fork.
+    pub const getGObjectType = void;
 
     pub fn parseCLI(input_: ?[]const u8) !WindowDecoration {
         const input = input_ orelse return .auto;
@@ -10803,6 +10152,10 @@ test "compatibility: gtk-single-instance desktop" {
             GtkSingleInstance.detect,
             cfg.@"gtk-single-instance",
         );
+        try testing.expectEqual(
+            GtkSingleInstance.detect,
+            cfg.@"single-instance",
+        );
     }
 }
 
@@ -10870,25 +10223,6 @@ test "compatibility: removed bold-is-bright" {
         try testing.expectEqual(
             BoldColor.bright,
             cfg.@"bold-color",
-        );
-    }
-}
-
-test "compatibility: window new-window" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    {
-        var cfg = try Config.default(alloc);
-        defer cfg.deinit();
-        var it: TestIterator = .{ .data = &.{
-            "--macos-dock-drop-behavior=window",
-        } };
-        try cfg.loadIter(alloc, &it);
-        try cfg.finalize();
-        try testing.expectEqual(
-            MacOSDockDropBehavior.@"new-window",
-            cfg.@"macos-dock-drop-behavior",
         );
     }
 }

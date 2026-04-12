@@ -56,9 +56,8 @@ pub const Target = union(Key) {
 pub const Action = union(enum) {
     // A GUIDE TO ADDING NEW ACTIONS:
     //
-    // 1. Add the action to the `Key` enum. The order of the enum matters
-    //    because it maps directly to the libghostty C enum. For ABI
-    //    compatibility, new actions should be added to the end of the enum.
+    // 1. Add the action to the `Key` enum. Preserve enum ordering so the
+    //    retained compatibility checks keep passing for the Windows-only fork.
     //
     // 2. Add the action and optional value to the Action union.
     //
@@ -66,9 +65,8 @@ pub const Action = union(enum) {
     //    compatible (extern). If it is not, add a `C` decl to the value
     //    and a `cval` function to convert to the C ABI compatible value.
     //
-    // 4. Update `include/ghostty.h`: add the new key, value, and union
-    //    entry. If the value type is void then only the key needs to be
-    //    added. Ensure the order matches exactly with the Zig code.
+    // 4. If a compatibility surface still mirrors this action, update it
+    //    alongside the Zig definition and keep the ordering aligned.
 
     /// The arguments to pass to Ghostty as the command.
     new_window: NewWindow,

@@ -1,8 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
-const macos = @import("macos");
-const objc = @import("objc");
 const internal_os = @import("main.zig");
 const i18n = internal_os.i18n;
 
@@ -24,7 +22,7 @@ pub fn ensureLocale(alloc: std.mem.Allocator) !void {
     if (comptime builtin.target.os.tag.isDarwin()) {
         // Set the lang if it is not set or if its empty.
         if (lang == null or lang.?.value.len == 0) {
-            setLangFromCocoa();
+            darwin.setLangFromCocoa();
         }
     }
 
@@ -67,148 +65,143 @@ pub fn ensureLocale(alloc: std.mem.Allocator) !void {
 
 /// This sets the LANG environment variable based on the macOS system
 /// preferences selected locale settings.
-fn setLangFromCocoa() void {
-    const pool = objc.AutoreleasePool.init();
-    defer pool.deinit();
+const darwin = if (builtin.target.os.tag.isDarwin()) struct {
+    const macos = @import("macos");
+    const objc = @import("objc");
 
-    // The classes we're going to need.
-    const NSLocale = objc.getClass("NSLocale") orelse {
-        log.warn("NSLocale class not found. Locale may be incorrect.", .{});
-        return;
-    };
+    fn setLangFromCocoa() void {
+        const pool = objc.AutoreleasePool.init();
+        defer pool.deinit();
 
-    // Get our current locale and extract the language code ("en") and
-    // country code ("US")
-    const locale = NSLocale.msgSend(objc.Object, objc.sel("currentLocale"), .{});
-    const lang = locale.getProperty(objc.Object, "languageCode");
-    const country = locale.getProperty(objc.Object, "countryCode");
-
-    if (lang.value == null or country.value == null) {
-        log.warn("languageCode or countryCode not found. Locale may be incorrect.", .{});
-        return;
-    }
-
-    // Get our UTF8 string values
-    const c_lang = lang.getProperty([*:0]const u8, "UTF8String");
-    const c_country = country.getProperty([*:0]const u8, "UTF8String");
-
-    // Convert them to Zig slices
-    const z_lang = std.mem.sliceTo(c_lang, 0);
-    const z_country = std.mem.sliceTo(c_country, 0);
-
-    // Format our locale as "<lang>_<country>.UTF-8" and set it as LANG.
-    {
-        var buf: [128]u8 = undefined;
-        const env_value = std.fmt.bufPrintZ(&buf, "{s}_{s}.UTF-8", .{ z_lang, z_country }) catch |err| {
-            log.warn("error setting locale from system. err={}", .{err});
+        // The classes we're going to need.
+        const NSLocale = objc.getClass("NSLocale") orelse {
+            log.warn("NSLocale class not found. Locale may be incorrect.", .{});
             return;
         };
-        log.info("detected system locale={s}", .{env_value});
 
-        // Set it onto our environment
-        if (internal_os.setenv("LANG", env_value) < 0) {
-            log.warn("error setting locale env var", .{});
+        // Get our current locale and extract the language code ("en") and
+        // country code ("US")
+        const locale = NSLocale.msgSend(objc.Object, objc.sel("currentLocale"), .{});
+        const lang = locale.getProperty(objc.Object, "languageCode");
+        const country = locale.getProperty(objc.Object, "countryCode");
+
+        if (lang.value == null or country.value == null) {
+            log.warn("languageCode or countryCode not found. Locale may be incorrect.", .{});
             return;
+        }
+
+        // Get our UTF8 string values
+        const c_lang = lang.getProperty([*:0]const u8, "UTF8String");
+        const c_country = country.getProperty([*:0]const u8, "UTF8String");
+
+        // Convert them to Zig slices
+        const z_lang = std.mem.sliceTo(c_lang, 0);
+        const z_country = std.mem.sliceTo(c_country, 0);
+
+        // Format our locale as "<lang>_<country>.UTF-8" and set it as LANG.
+        {
+            var buf: [128]u8 = undefined;
+            const env_value = std.fmt.bufPrintZ(&buf, "{s}_{s}.UTF-8", .{ z_lang, z_country }) catch |err| {
+                log.warn("error setting locale from system. err={}", .{err});
+                return;
+            };
+            log.info("detected system locale={s}", .{env_value});
+
+            // Set it onto our environment
+            if (internal_os.setenv("LANG", env_value) < 0) {
+                log.warn("error setting locale env var", .{});
+                return;
+            }
+        }
+
+        // Get our preferred languages and set that to the LANGUAGE
+        // env var in case our language differs from our locale.
+        language: {
+            var buf: [1024]u8 = undefined;
+            const pref_ = preferredLanguageFromCocoa(
+                &buf,
+                NSLocale,
+            ) catch |err| {
+                log.warn("error getting preferred languages. err={}", .{err});
+                break :language;
+            };
+
+            const pref = pref_ orelse break :language;
+            log.debug(
+                "setting LANGUAGE from preferred languages value={s}",
+                .{pref},
+            );
+            _ = internal_os.setenv("LANGUAGE", pref);
         }
     }
 
-    // Get our preferred languages and set that to the LANGUAGE
-    // env var in case our language differs from our locale.
-    language: {
-        var buf: [1024]u8 = undefined;
-        const pref_ = preferredLanguageFromCocoa(
-            &buf,
-            NSLocale,
-        ) catch |err| {
-            log.warn("error getting preferred languages. err={}", .{err});
-            break :language;
+    /// Sets the LANGUAGE environment variable based on the preferred languages
+    /// as reported by NSLocale.
+    ///
+    /// macOS has a concept of preferred languages separate from the system
+    /// locale. The set of preferred languages is a list in priority order
+    /// of what translations the user prefers. A user can have, for example,
+    /// "fr_FR" as their locale but "en" as their preferred language. This would
+    /// mean that they want to use French units, date formats, etc. but they
+    /// prefer English translations.
+    ///
+    /// gettext uses the LANGUAGE environment variable to override only
+    /// translations and a priority order can be specified by separating
+    /// the languages with colons. For example, "en:fr" would mean that
+    /// English translations are preferred but if they are not available
+    /// then French translations should be used.
+    ///
+    /// To further complicate things, Apple reports the languages in BCP-47
+    /// format which is not compatible with gettext's POSIX locale format so
+    /// we have to canonicalize them.
+    fn preferredLanguageFromCocoa(
+        buf: []u8,
+        NSLocale: objc.Class,
+    ) error{NoSpaceLeft}!?[:0]const u8 {
+        var fbs = std.io.fixedBufferStream(buf);
+        const writer = fbs.writer();
+
+        // We need to get our app's preferred languages. These may not
+        // match the system locale (NSLocale.currentLocale).
+        const preferred: *macos.foundation.Array = array: {
+            const ns = NSLocale.msgSend(
+                objc.Object,
+                objc.sel("preferredLanguages"),
+                .{},
+            );
+            break :array @ptrCast(ns.value);
         };
+        for (0..preferred.getCount()) |i| {
+            var str_buf: [255:0]u8 = undefined;
+            const str = preferred.getValueAtIndex(macos.foundation.String, i);
+            const c_str = str.cstring(&str_buf, .utf8) orelse {
+                log.warn("failed to convert a preferred language to UTF-8", .{});
+                continue;
+            };
 
-        const pref = pref_ orelse break :language;
-        log.debug(
-            "setting LANGUAGE from preferred languages value={s}",
-            .{pref},
-        );
-        _ = internal_os.setenv("LANGUAGE", pref);
-    }
-}
+            if (fbs.pos > 0) {
+                _ = writer.writeByte(':') catch
+                    return error.NoSpaceLeft;
+            }
 
-/// Sets the LANGUAGE environment variable based on the preferred languages
-/// as reported by NSLocale.
-///
-/// macOS has a concept of preferred languages separate from the system
-/// locale. The set of preferred languages is a list in priority order
-/// of what translations the user prefers. A user can have, for example,
-/// "fr_FR" as their locale but "en" as their preferred language. This would
-/// mean that they want to use French units, date formats, etc. but they
-/// prefer English translations.
-///
-/// gettext uses the LANGUAGE environment variable to override only
-/// translations and a priority order can be specified by separating
-/// the languages with colons. For example, "en:fr" would mean that
-/// English translations are preferred but if they are not available
-/// then French translations should be used.
-///
-/// To further complicate things, Apple reports the languages in BCP-47
-/// format which is not compatible with gettext's POSIX locale format so
-/// we have to canonicalize them.
-fn preferredLanguageFromCocoa(
-    buf: []u8,
-    NSLocale: objc.Class,
-) error{NoSpaceLeft}!?[:0]const u8 {
-    var fbs = std.io.fixedBufferStream(buf);
-    const writer = fbs.writer();
+            const canon = try i18n.canonicalizeLocale(
+                fbs.buffer[fbs.pos..],
+                c_str,
+            );
+            fbs.seekBy(@intCast(canon.len)) catch unreachable;
 
-    // We need to get our app's preferred languages. These may not
-    // match the system locale (NSLocale.currentLocale).
-    const preferred: *macos.foundation.Array = array: {
-        const ns = NSLocale.msgSend(
-            objc.Object,
-            objc.sel("preferredLanguages"),
-            .{},
-        );
-        break :array @ptrCast(ns.value);
-    };
-    for (0..preferred.getCount()) |i| {
-        var str_buf: [255:0]u8 = undefined;
-        const str = preferred.getValueAtIndex(macos.foundation.String, i);
-        const c_str = str.cstring(&str_buf, .utf8) orelse {
-            // I don't think this can happen but if it does then I want
-            // to know about it if a user has translation issues.
-            log.warn("failed to convert a preferred language to UTF-8", .{});
-            continue;
-        };
-
-        // Append our separator if we have any previous languages
-        if (fbs.pos > 0) {
-            _ = writer.writeByte(':') catch
-                return error.NoSpaceLeft;
+            _ = writer.writeAll(".UTF-8") catch return error.NoSpaceLeft;
         }
 
-        // Apple languages are in BCP-47 format, and we need to
-        // canonicalize them to the POSIX format.
-        const canon = try i18n.canonicalizeLocale(
-            fbs.buffer[fbs.pos..],
-            c_str,
-        );
-        fbs.seekBy(@intCast(canon.len)) catch unreachable;
+        if (fbs.pos == 0) return null;
 
-        // The canonicalized locale never contains the encoding and
-        // all of our translations require UTF-8 so we add that.
-        _ = writer.writeAll(".UTF-8") catch return error.NoSpaceLeft;
+        _ = writer.writeByte(0) catch return error.NoSpaceLeft;
+        const slice = fbs.getWritten();
+        return slice[0 .. slice.len - 1 :0];
     }
-
-    // If we had no preferred languages then we return nothing.
-    if (fbs.pos == 0) return null;
-
-    // Null terminate it
-    _ = writer.writeByte(0) catch return error.NoSpaceLeft;
-
-    // Get our slice, this won't be null terminated so we have to
-    // reslice it with the null terminator.
-    const slice = fbs.getWritten();
-    return slice[0 .. slice.len - 1 :0];
-}
+} else struct {
+    fn setLangFromCocoa() void {}
+};
 
 const c = @import("locale-c");
 const LC_ALL: c_int = c.LC_ALL;

@@ -2,13 +2,17 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
-const isFlatpak = @import("flatpak.zig").isFlatpak;
+const flatpak = if (builtin.os.tag == .linux) @import("flatpak.zig") else struct {
+    pub fn isFlatpak() bool {
+        return false;
+    }
+};
 
 pub const Error = Allocator.Error;
 
 /// Get the environment map.
 pub fn getEnvMap(alloc: Allocator) !std.process.EnvMap {
-    return if (isFlatpak())
+    return if (flatpak.isFlatpak())
         std.process.EnvMap.init(alloc)
     else
         try std.process.getEnvMap(alloc);

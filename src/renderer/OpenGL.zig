@@ -4,8 +4,13 @@ pub const OpenGL = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const builtin = @import("builtin");
+const build_config = @import("../build_config.zig");
+const windows = std.os.windows;
 const gl = @import("opengl");
-const shadertoy = @import("shadertoy.zig");
+const shadertoy = if (build_config.custom_shaders)
+    @import("shadertoy.zig")
+else
+    @import("shadertoy_stub.zig");
 const apprt = @import("../apprt.zig");
 const font = @import("../font/main.zig");
 const configpkg = @import("../config.zig");
@@ -32,8 +37,14 @@ pub const custom_shader_y_is_down = false;
 pub const swap_chain_count = 1;
 
 const log = std.log.scoped(.opengl);
+const WglSwapIntervalExt = *const fn (interval: c_int) callconv(.winapi) windows.BOOL;
+const wgl_swap_interval_ext_name: [*:0]const u8 = "wglSwapIntervalEXT";
+const enable_gl_debug_output = false;
+const enable_win32_trace = false;
+const enable_win32_swap_interval = false;
 
 fn trace(comptime fmt: []const u8, args: anytype) void {
+    if (!enable_win32_trace) return;
     var buf: [512]u8 = undefined;
     const line = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
     var file = std.fs.cwd().createFile("winghostty-win32.log", .{
@@ -58,6 +69,9 @@ last_target: ?Target = null,
 
 /// Runtime surface used for context ownership and size queries on Win32.
 rt_surface: *apprt.Surface,
+vsync_enabled: bool,
+swap_interval_configured: bool = false,
+swap_interval_supported: bool = false,
 
 /// NOTE: This is an error{}!OpenGL instead of just OpenGL for parity with
 ///       Metal, since it needs to be fallible so does this, even though it
@@ -67,6 +81,7 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) error{}!OpenGL {
         .alloc = alloc,
         .blending = opts.config.blending,
         .rt_surface = opts.rt_surface,
+        .vsync_enabled = opts.config.vsync,
     };
 }
 
@@ -163,11 +178,13 @@ fn prepareContext(getProcAddress: anytype) !void {
         return error.OpenGLOutdated;
     }
 
-    // Enable debug output for the context.
-    try gl.enable(gl.c.GL_DEBUG_OUTPUT);
+    if (enable_gl_debug_output) {
+        // Enable debug output for the context.
+        try gl.enable(gl.c.GL_DEBUG_OUTPUT);
 
-    // Register our debug message callback with the OpenGL context.
-    gl.glad.context.DebugMessageCallback.?(glDebugMessageCallback, null);
+        // Register our debug message callback with the OpenGL context.
+        gl.glad.context.DebugMessageCallback.?(glDebugMessageCallback, null);
+    }
 
     // Enable SRGB framebuffer for linear blending support.
     try gl.enable(gl.c.GL_FRAMEBUFFER_SRGB);
@@ -177,10 +194,6 @@ fn prepareContext(getProcAddress: anytype) !void {
 pub fn surfaceInit(surface: *apprt.Surface) !void {
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
-
-        // GTK uses global OpenGL context so we load from null.
-        apprt.gtk,
-        => try prepareContext(null),
 
         apprt.win32 => {
             trace("OpenGL.surfaceInit: win32 begin", .{});
@@ -229,13 +242,6 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
 
-        apprt.gtk => {
-            // GTK doesn't support threaded OpenGL operations as far as I can
-            // tell, so we use the renderer thread to setup all the state
-            // but then do the actual draws and texture syncs and all that
-            // on the main thread. As such, we don't do anything here.
-        },
-
         apprt.win32 => {
             trace("OpenGL.threadEnter: begin", .{});
             _ = surface;
@@ -255,11 +261,6 @@ pub fn threadExit(self: *const OpenGL) void {
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
 
-        apprt.gtk => {
-            // We don't need to do any unloading for GTK because we may
-            // be sharing the global bindings with other windows.
-        },
-
         apprt.win32 => self.rt_surface.clearGLContextCurrent(),
 
         apprt.embedded => {
@@ -270,17 +271,30 @@ pub fn threadExit(self: *const OpenGL) void {
 
 pub fn displayRealized(self: *const OpenGL) void {
     _ = self;
+}
 
-    switch (apprt.runtime) {
-        apprt.gtk => prepareContext(null) catch |err| {
-            log.warn(
-                "Error preparing GL context in displayRealized, err={}",
-                .{err},
-            );
-        },
-
-        else => @compileError("only GTK should be calling displayRealized"),
+fn ensureWin32SwapInterval(self: *OpenGL) void {
+    if (apprt.runtime != apprt.win32) return;
+    if (self.swap_interval_configured) return;
+    self.swap_interval_configured = true;
+    if (!enable_win32_swap_interval) {
+        self.swap_interval_supported = false;
+        return;
     }
+
+    const proc = apprt.win32.getProcAddress(wgl_swap_interval_ext_name) orelse {
+        log.info("WGL swap interval extension unavailable; leaving window-vsync unmanaged", .{});
+        return;
+    };
+    const set_swap_interval: WglSwapIntervalExt = @ptrCast(proc);
+    const interval: c_int = if (self.vsync_enabled) 1 else 0;
+    if (set_swap_interval(interval) == 0) {
+        log.warn("failed to configure WGL swap interval interval={}", .{interval});
+        return;
+    }
+
+    self.swap_interval_supported = true;
+    log.info("configured WGL swap interval interval={}", .{interval});
 }
 
 /// Actions taken before doing anything in `drawFrame`.
@@ -295,6 +309,10 @@ pub fn drawFrameStart(self: *OpenGL) void {
 /// Right now there's nothing we need to do for OpenGL.
 pub fn drawFrameEnd(self: *OpenGL) void {
     _ = self;
+}
+
+pub fn hasVsync(self: *const OpenGL) bool {
+    return self.vsync_enabled and self.swap_interval_supported;
 }
 
 pub fn initShaders(
@@ -343,8 +361,11 @@ pub fn initTarget(self: *const OpenGL, width: usize, height: usize) !Target {
 /// Present the provided target.
 pub fn present(self: *OpenGL, target: Target) !void {
     trace("OpenGL.present: begin", .{});
+    if (target.width == 0 or target.height == 0) return;
+
     if (apprt.runtime == apprt.win32) {
         try self.rt_surface.makeGLContextCurrent();
+        self.ensureWin32SwapInterval();
     }
 
     // In order to present a target we blit it to the default framebuffer.
@@ -367,6 +388,8 @@ pub fn present(self: *OpenGL, target: Target) !void {
         break :size .{ @intCast(size.width), @intCast(size.height) };
     } else .{ @intCast(target.width), @intCast(target.height) };
 
+    if (dst_width <= 0 or dst_height <= 0) return;
+
     // Blit
     gl.glad.context.BlitFramebuffer.?(
         0,
@@ -385,6 +408,7 @@ pub fn present(self: *OpenGL, target: Target) !void {
     self.last_target = target;
 
     if (apprt.runtime == apprt.win32) {
+        gl.finish();
         try self.rt_surface.swapGLBuffers();
     }
 
@@ -519,4 +543,17 @@ pub inline fn beginFrame(
 ) !Frame {
     _ = self;
     return try Frame.begin(.{}, renderer, target);
+}
+
+test "OpenGL hasVsync requires enabled swap interval" {
+    var api: OpenGL = undefined;
+    api.vsync_enabled = true;
+    api.swap_interval_supported = false;
+    try std.testing.expect(!api.hasVsync());
+
+    api.swap_interval_supported = true;
+    try std.testing.expect(api.hasVsync());
+
+    api.vsync_enabled = false;
+    try std.testing.expect(!api.hasVsync());
 }

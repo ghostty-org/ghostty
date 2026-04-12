@@ -246,7 +246,10 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
         }
         switch (message) {
             .open_config => try self.performAction(rt_app, .open_config),
-            .new_window => |msg| try self.newWindow(rt_app, msg),
+            .new_window => |msg| {
+                defer msg.deinit(self.alloc);
+                try self.newWindow(rt_app, msg);
+            },
             .close => |surface| self.closeSurface(surface),
             .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
             .redraw_surface => |surface| try self.redrawSurface(rt_app, surface),
@@ -299,7 +302,7 @@ pub fn newWindow(self: *App, rt_app: *apprt.App, msg: Message.NewWindow) !void {
     _ = try rt_app.performAction(
         target,
         .new_window,
-        {},
+        .{ .arguments = msg.arguments },
     );
 }
 
@@ -572,6 +575,16 @@ pub const Message = union(enum) {
     const NewWindow = struct {
         /// The parent surface
         parent: ?*Surface = null,
+
+        /// Optional CLI-style arguments forwarded from a platform IPC path.
+        arguments: ?[]const [:0]const u8 = null,
+
+        pub fn deinit(self: NewWindow, alloc: Allocator) void {
+            if (self.arguments) |arguments| {
+                for (arguments) |arg| alloc.free(arg);
+                alloc.free(arguments);
+            }
+        }
     };
 };
 

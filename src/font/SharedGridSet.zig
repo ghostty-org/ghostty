@@ -25,7 +25,7 @@ const CodepointMap = font.CodepointMap;
 const DesiredSize = font.face.DesiredSize;
 const Face = font.Face;
 const SharedGrid = font.SharedGrid;
-const discovery = @import("discovery.zig");
+const discovery = font.discovery;
 const configpkg = @import("../config.zig");
 const Config = configpkg.Config;
 

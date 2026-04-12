@@ -1,18 +1,15 @@
-//! The main entrypoint for the `ghostty` application. This also serves
-//! as the process initialization code for the `libghostty` library.
+//! The main entrypoint for the `ghostty` application.
 
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
 const build_config = @import("build_config.zig");
-const macos = @import("macos");
 const cli = @import("cli.zig");
 const renderer = @import("renderer.zig");
 const apprt = @import("apprt.zig");
 
 const App = @import("App.zig");
-const Ghostty = @import("main_c.zig").Ghostty;
 const state = &@import("global.zig").state;
 
 fn trace(comptime fmt: []const u8, args: anytype) void {
@@ -26,9 +23,9 @@ fn trace(comptime fmt: []const u8, args: anytype) void {
     file.writeAll(line) catch {};
 }
 
-/// The return type for main() depends on the build artifact. The lib build
-/// also calls "main" in order to run the CLI actions, but it calls it as
-/// an API and not an entrypoint.
+/// The return type for main() depends on the build artifact. The retained
+/// non-app artifacts can still call "main" in order to run CLI actions,
+/// but they do not provide the native Win32 application entrypoint.
 const MainReturn = switch (build_config.artifact) {
     .lib => noreturn,
     else => void,
@@ -37,10 +34,7 @@ const MainReturn = switch (build_config.artifact) {
 pub fn main() !MainReturn {
     trace("main: start", .{});
 
-    // We first start by initializing our global state. This will setup
-    // process-level state we need to run the terminal. The reason we use
-    // a global is because the C API needs to be able to access this state;
-    // no other Zig code should EVER access the global state.
+    // We first start by initializing our global process state.
     state.init() catch |err| {
         trace("main: state.init failed err={}", .{err});
         var buffer: [1024]u8 = undefined;
@@ -86,28 +80,6 @@ pub fn main() !MainReturn {
         return;
     }
 
-    if (comptime build_config.app_runtime == .none) {
-        const stdout = std.io.getStdOut().writer();
-        try stdout.print("Usage: ghostty +<action> [flags]\n\n", .{});
-        try stdout.print(
-            \\This is the Ghostty helper CLI that accompanies the graphical Ghostty app.
-            \\To launch the terminal directly, please launch the graphical app
-            \\(i.e. Ghostty.app on macOS). This CLI can be used to perform various
-            \\actions such as inspecting the version, listing fonts, etc.
-            \\
-            \\On macOS, the terminal can also be launched using `open -na Ghostty.app`,
-            \\or `open -na Ghostty.app --args --foo=bar --baz=qux` to pass arguments.
-            \\
-            \\We don't have proper help output yet, sorry! Please refer to the
-            \\source code or Discord community for help for now. We'll fix this in time.
-            \\
-        ,
-            .{},
-        );
-
-        posix.exit(0);
-    }
-
     // Create our app state
     const app: *App = try App.create(alloc);
     defer app.destroy();
@@ -137,7 +109,7 @@ pub export fn WinMain(
     _: c_int,
 ) callconv(.winapi) c_int {
     trace("WinMain: entered", .{});
-    if (comptime builtin.target.os.tag != .windows or build_config.app_runtime == .none) {
+    if (comptime builtin.target.os.tag != .windows) {
         trace("WinMain: invalid build/runtime", .{});
         return 1;
     }
@@ -159,32 +131,6 @@ fn logFn(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    // On Mac, we use unified logging. To view this:
-    //
-    //   sudo log stream --level debug --predicate 'subsystem=="com.mitchellh.ghostty"'
-    //
-    // macOS logging is thread safe so no need for locks/mutexes
-    macos: {
-        if (comptime !builtin.target.os.tag.isDarwin()) break :macos;
-        if (!state.logging.macos) break :macos;
-
-        const prefix = if (scope == .default) "" else @tagName(scope) ++ ": ";
-
-        // Convert our levels to Mac levels
-        const mac_level: macos.os.LogType = switch (level) {
-            .debug => .debug,
-            .info => .info,
-            .warn => .err,
-            .err => .fault,
-        };
-
-        // Initialize a logger. This is slow to do on every operation
-        // but we shouldn't be logging too much.
-        const logger = macos.os.Log.create(build_config.bundle_id, @tagName(scope));
-        defer logger.release();
-        logger.log(std.heap.c_allocator, mac_level, prefix ++ format, args);
-    }
-
     stderr: {
         // don't log debug messages to stderr unless we are a debug build
         if (comptime builtin.mode != .Debug and level == .debug) break :stderr;

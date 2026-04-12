@@ -12,19 +12,6 @@ pub const Backend = enum {
     /// Fontconfig for font discovery and FreeType for font rendering.
     fontconfig_freetype,
 
-    /// CoreText for font discovery, rendering, and shaping (macOS).
-    coretext,
-
-    /// CoreText for font discovery, FreeType for rendering, and
-    /// HarfBuzz for shaping (macOS).
-    coretext_freetype,
-
-    /// CoreText for font discovery and rendering, HarfBuzz for shaping
-    coretext_harfbuzz,
-
-    /// CoreText for font discovery and rendering, no shaping.
-    coretext_noshape,
-
     /// Use the browser font system and the Canvas API (wasm). This limits
     /// the available fonts to browser fonts (anything Canvas natively
     /// supports).
@@ -47,10 +34,7 @@ pub const Backend = enum {
             return .windows_freetype;
         }
 
-        // macOS also supports "coretext_freetype" but there is no scenario
-        // that is the default. It is only used by people who want to
-        // self-compile Ghostty and prefer the freetype aesthetic.
-        return if (target.os.tag.isDarwin()) .coretext else .fontconfig_freetype;
+        return .fontconfig_freetype;
     }
 
     // All the functions below can be called at comptime or runtime to
@@ -61,31 +45,16 @@ pub const Backend = enum {
             .freetype,
             .windows_freetype,
             .fontconfig_freetype,
-            .coretext_freetype,
             => true,
 
-            .coretext,
-            .coretext_harfbuzz,
-            .coretext_noshape,
             .web_canvas,
             => false,
         };
     }
 
     pub fn hasCoretext(self: Backend) bool {
-        return switch (self) {
-            .coretext,
-            .coretext_freetype,
-            .coretext_harfbuzz,
-            .coretext_noshape,
-            => true,
-
-            .freetype,
-            .windows_freetype,
-            .fontconfig_freetype,
-            .web_canvas,
-            => false,
-        };
+        _ = self;
+        return false;
     }
 
     pub fn hasFontconfig(self: Backend) bool {
@@ -94,10 +63,6 @@ pub const Backend = enum {
 
             .freetype,
             .windows_freetype,
-            .coretext,
-            .coretext_freetype,
-            .coretext_harfbuzz,
-            .coretext_noshape,
             .web_canvas,
             => false,
         };
@@ -108,12 +73,8 @@ pub const Backend = enum {
             .freetype,
             .windows_freetype,
             .fontconfig_freetype,
-            .coretext_freetype,
-            .coretext_harfbuzz,
             => true,
 
-            .coretext,
-            .coretext_noshape,
             .web_canvas,
             => false,
         };

@@ -12,13 +12,9 @@ pub const Library = switch (options.backend) {
     .freetype,
     .windows_freetype,
     .fontconfig_freetype,
-    .coretext_freetype,
     => FreetypeLibrary,
 
-    // Some backends such as CT and Canvas don't have a "library"
-    .coretext,
-    .coretext_harfbuzz,
-    .coretext_noshape,
+    // Some backends such as Canvas don't have a "library"
     .web_canvas,
     => NoopLibrary,
 };

@@ -5,6 +5,7 @@ const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const builtin = @import("builtin");
+const build_config = @import("../build_config.zig");
 const objc = @import("objc");
 const macos = @import("macos");
 const graphics = macos.graphics;
@@ -13,7 +14,10 @@ const font = @import("../font/main.zig");
 const configpkg = @import("../config.zig");
 const rendererpkg = @import("../renderer.zig");
 const Renderer = rendererpkg.GenericRenderer(Metal);
-const shadertoy = @import("shadertoy.zig");
+const shadertoy = if (build_config.custom_shaders)
+    @import("shadertoy.zig")
+else
+    @import("shadertoy_stub.zig");
 
 const mtl = @import("metal/api.zig");
 const IOSurfaceLayer = @import("metal/IOSurfaceLayer.zig");

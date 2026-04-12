@@ -8,9 +8,10 @@ pub const Action = enum(c_int) { press, release, motion };
 
 /// The state of a mouse button.
 ///
-/// This is backed by a c_int so we can use this as-is for our embedding API.
+/// This is backed by a c_int for compatibility with retained extern-facing
+/// structures.
 ///
-/// IMPORTANT: Any changes here update include/ghostty.h
+/// IMPORTANT: Keep compatibility surfaces in sync if this layout changes.
 pub const ButtonState = enum(c_int) {
     release,
     press,
@@ -23,9 +24,10 @@ pub const ButtonState = enum(c_int) {
 /// Its a bit silly to name numbers like this but given its a restricted
 /// set, it feels better than passing around raw numeric literals.
 ///
-/// This is backed by a c_int so we can use this as-is for our embedding API.
+/// This is backed by a c_int for compatibility with retained extern-facing
+/// structures.
 ///
-/// IMPORTANT: Any changes here update include/ghostty.h
+/// IMPORTANT: Keep compatibility surfaces in sync if this layout changes.
 pub const Button = enum(c_int) {
     const Self = @This();
 
@@ -92,11 +94,15 @@ pub const ScrollMods = packed struct(u8) {
     /// and send very detailed scroll events.
     precision: bool = false,
 
+    /// True if the offsets are already normalized to pixels rather than
+    /// wheel ticks.
+    pixel_delta: bool = false,
+
     /// The momentum phase (if available, supported) of the scroll event.
     /// This is used to handle "inertial scrolling" (i.e. flicking).
     momentum: Momentum = .none,
 
-    _padding: u4 = 0,
+    _padding: u3 = 0,
 
     // For our own understanding
     test {
@@ -105,6 +111,10 @@ pub const ScrollMods = packed struct(u8) {
         try testing.expectEqual(
             @as(u8, @bitCast(ScrollMods{ .precision = true })),
             @as(u8, 0b0000_0001),
+        );
+        try testing.expectEqual(
+            @as(u8, @bitCast(ScrollMods{ .pixel_delta = true })),
+            @as(u8, 0b0000_0010),
         );
     }
 };

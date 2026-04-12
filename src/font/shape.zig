@@ -7,7 +7,9 @@ const terminal = @import("../terminal/main.zig");
 const SharedGrid = @import("main.zig").SharedGrid;
 pub const noop = @import("shaper/noop.zig");
 pub const harfbuzz = @import("shaper/harfbuzz.zig");
-pub const coretext = @import("shaper/coretext.zig");
+pub const coretext = struct {
+    pub const Shaper = void;
+};
 pub const web_canvas = @import("shaper/web_canvas.zig");
 pub const Cache = @import("shaper/Cache.zig");
 pub const TextRun = run.TextRun;
@@ -21,16 +23,7 @@ pub const Shaper = switch (options.backend) {
     .freetype,
     .windows_freetype,
     .fontconfig_freetype,
-    .coretext_freetype,
-    .coretext_harfbuzz,
     => harfbuzz.Shaper,
-
-    // Note that coretext_freetype cannot use the coretext
-    // shaper because the coretext shaper requests CoreText
-    // font faces.
-    .coretext => coretext.Shaper,
-
-    .coretext_noshape => noop.Shaper,
 
     .web_canvas => web_canvas.Shaper,
 };

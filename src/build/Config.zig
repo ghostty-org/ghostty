@@ -3,27 +3,20 @@
 const Config = @This();
 
 const std = @import("std");
-const builtin = @import("builtin");
-
 const ApprtRuntime = @import("../apprt/runtime.zig").Runtime;
 const FontBackend = @import("../font/backend.zig").Backend;
 const RendererBackend = @import("../renderer/backend.zig").Backend;
 const TerminalBuildOptions = @import("../terminal/build_options.zig").Options;
-const XCFrameworkTarget = @import("xcframework.zig").Target;
 const WasmTarget = @import("../os/wasm/target.zig").Target;
 const expandPath = @import("../os/path.zig").expand;
-
-const gtk = @import("gtk.zig");
-const GitVersion = @import("GitVersion.zig");
 
 /// Standard build configuration options.
 optimize: std.builtin.OptimizeMode,
 target: std.Build.ResolvedTarget,
-xcframework_target: XCFrameworkTarget = .universal,
 wasm_target: WasmTarget,
 
 /// Comptime interfaces
-app_runtime: ApprtRuntime = .none,
+app_runtime: ApprtRuntime = .win32,
 renderer: RendererBackend = .opengl,
 font_backend: FontBackend = .freetype,
 
@@ -33,6 +26,7 @@ wayland: bool = false,
 sentry: bool = true,
 simd: bool = true,
 i18n: bool = true,
+custom_shaders: bool = false,
 wasm_shared: bool = true,
 
 /// Ghostty exe properties
@@ -52,12 +46,10 @@ emit_docs: bool = false,
 emit_exe: bool = false,
 emit_helpgen: bool = false,
 emit_lib_vt: bool = false,
-emit_macos_app: bool = false,
 emit_terminfo: bool = false,
 emit_termcap: bool = false,
 emit_test_exe: bool = false,
 emit_themes: bool = false,
-emit_xcframework: bool = false,
 emit_webdata: bool = false,
 emit_unicode_table_gen: bool = false,
 
@@ -75,14 +67,6 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
     const target = target: {
         var result = b.standardTargetOptions(.{});
 
-        // If we're building for macOS and we're on macOS, we need to
-        // use a generic target to workaround compilation issues.
-        if (result.result.os.tag == .macos and
-            builtin.target.os.tag.isDarwin())
-        {
-            result = genericMacOSTarget(b, result.query.cpu_arch);
-        }
-
         // On Windows, default to the MSVC ABI so that produced COFF
         // objects (including compiler_rt) are compatible with the MSVC
         // linker. Zig defaults to the GNU ABI which produces objects
@@ -94,12 +78,6 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
             var query = result.query;
             query.abi = .msvc;
             result = b.resolveTargetQuery(query);
-        }
-
-        // If we have no minimum OS version, we set the default based on
-        // our tag. Not all tags have a minimum so this may be null.
-        if (result.query.os_version_min == null) {
-            result.query.os_version_min = osVersionMin(result.result.os.tag);
         }
 
         break :target result;
@@ -118,11 +96,6 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
     // one exists so this is hardcoded.
     const wasm_target: WasmTarget = .browser;
 
-    // Determine whether GTK supports X11 and Wayland. This is always safe
-    // to run even on non-Linux platforms because any failures result in
-    // defaults.
-    const gtk_targets = gtk.targets(b);
-
     // We use env vars throughout the build so we grab them immediately here.
     var env = try std.process.getEnvMap(b.allocator);
     errdefer env.deinit();
@@ -136,14 +109,6 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
     };
 
     //---------------------------------------------------------------
-    // Target-specific properties
-    config.xcframework_target = b.option(
-        XCFrameworkTarget,
-        "xcframework-target",
-        "The target for the xcframework.",
-    ) orelse .universal;
-
-    //---------------------------------------------------------------
     // Comptime Interfaces
     config.font_backend = b.option(
         FontBackend,
@@ -154,8 +119,11 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
     config.app_runtime = b.option(
         ApprtRuntime,
         "app-runtime",
-        "The app runtime to use. Not all values supported on all platforms.",
+        "The app runtime to use. This fork supports Win32 only for app builds.",
     ) orelse ApprtRuntime.default(target.result);
+    if (config.app_runtime == .win32 and target.result.os.tag != .windows) {
+        return error.WindowsOnlyAppRuntimeRequiresWindowsTarget;
+    }
 
     config.renderer = b.option(
         RendererBackend,
@@ -166,28 +134,19 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
     //---------------------------------------------------------------
     // Feature Flags
 
-    config.flatpak = b.option(
-        bool,
-        "flatpak",
-        "Build for Flatpak (integrates with Flatpak APIs). Only has an effect targeting Linux.",
-    ) orelse false;
+    // These remain in build_options for shared code paths, but the
+    // Windows-only fork no longer exposes them as user-facing build flags.
+    config.flatpak = false;
 
-    config.snap = b.option(
-        bool,
-        "snap",
-        "Build for Snap (do specific Snap operations). Only has an effect targeting Linux.",
-    ) orelse false;
+    config.snap = false;
 
     config.sentry = b.option(
         bool,
         "sentry",
-        "Build with Sentry crash reporting. Default for macOS is true, false for any other system.",
+        "Build with Sentry crash reporting. Enabled by default for Windows in this fork.",
     ) orelse sentry: {
         switch (target.result.os.tag) {
-            .macos, .ios => break :sentry true,
-
-            // Note its false for linux because the crash reports on Linux
-            // don't have much useful information.
+            .windows => break :sentry true,
             else => break :sentry false,
         }
     };
@@ -204,27 +163,24 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
         break :simd true;
     };
 
-    config.wayland = b.option(
-        bool,
-        "gtk-wayland",
-        "Enables linking against Wayland libraries when using the GTK rendering backend.",
-    ) orelse gtk_targets.wayland;
+    config.wayland = false;
 
-    config.x11 = b.option(
-        bool,
-        "gtk-x11",
-        "Enables linking against X11 libraries when using the GTK rendering backend.",
-    ) orelse gtk_targets.x11;
+    config.x11 = false;
 
     config.i18n = b.option(
         bool,
         "i18n",
-        "Enables gettext-based internationalization. Enabled by default only for macOS, and other Unix-like systems like Linux and FreeBSD when using glibc.",
+        "Enables gettext-based internationalization.",
     ) orelse switch (target.result.os.tag) {
-        .macos, .ios => true,
-        .linux, .freebsd => target.result.isGnuLibC(),
+        .windows => false,
         else => false,
     };
+
+    config.custom_shaders = b.option(
+        bool,
+        "custom-shaders",
+        "Enable custom shader compilation support. Disabled by default in the Windows-only fork to keep default app builds lighter.",
+    ) orelse false;
 
     //---------------------------------------------------------------
     // Ghostty Exe Properties
@@ -233,7 +189,7 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
         []const u8,
         "version-string",
         "A specific version string to use for the build. " ++
-            "If not specified, git will be used. This must be a semantic version.",
+            "If not specified, the Windows-only fork uses a generic dev version. This must be a semantic version.",
     );
 
     config.version = if (version_string) |v|
@@ -242,79 +198,24 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
     else version: {
         const app_version = try std.SemanticVersion.parse(appVersion);
 
-        // Is ghostty a dependency? If so, skip git detection.
-        if (is_dep) break :version .{
-            .major = app_version.major,
-            .minor = app_version.minor,
-            .patch = app_version.patch,
-        };
-
-        // If no explicit version is given, we try to detect it from git.
-        const vsn = GitVersion.detect(b) catch |err| switch (err) {
-            // If Git isn't available we just make an unknown dev version.
-            error.GitNotFound,
-            error.GitNotRepository,
-            => break :version .{
-                .major = app_version.major,
-                .minor = app_version.minor,
-                .patch = app_version.patch,
-                .pre = "dev",
-                .build = "0000000",
-            },
-
-            else => return err,
-        };
-        if (vsn.tag) |tag| {
-            // Tip releases behave just like any other pre-release so we skip.
-            if (!std.mem.eql(u8, tag, "tip")) {
-                const expected = b.fmt("v{d}.{d}.{d}", .{
-                    app_version.major,
-                    app_version.minor,
-                    app_version.patch,
-                });
-
-                if (!std.mem.eql(u8, tag, expected)) {
-                    @panic("tagged releases must be in vX.Y.Z format matching build.zig");
-                }
-
-                break :version .{
-                    .major = app_version.major,
-                    .minor = app_version.minor,
-                    .patch = app_version.patch,
-                };
-            }
-        }
-
         break :version .{
             .major = app_version.major,
             .minor = app_version.minor,
             .patch = app_version.patch,
-            .pre = vsn.branch,
-            .build = vsn.short_hash,
+            .pre = "dev",
+            .build = if (is_dep) null else "windows",
         };
     };
 
     //---------------------------------------------------------------
     // Binary Properties
 
-    // On NixOS, the built binary from `zig build` needs to patch the rpath
-    // into the built binary for it to be portable across the NixOS system
-    // it was built for. We default this to true if we can detect we're in
-    // a Nix shell and have LD_LIBRARY_PATH set.
-    config.patch_rpath = b.option(
+    _ = b.option(
         []const u8,
         "patch-rpath",
-        "Inject the LD_LIBRARY_PATH as the rpath in the built binary. " ++
-            "This defaults to LD_LIBRARY_PATH if we're in a Nix shell environment on NixOS.",
-    ) orelse patch_rpath: {
-        // We only do the patching if we're targeting our own CPU and its Linux.
-        if (!(target.result.os.tag == .linux) or !target.query.isNativeCpu()) break :patch_rpath null;
-
-        // If we're in a nix shell we default to doing this.
-        // Note: we purposely never deinit envmap because we leak the strings
-        if (env.get("IN_NIX_SHELL") == null) break :patch_rpath null;
-        break :patch_rpath env.get("LD_LIBRARY_PATH");
-    };
+        "Deprecated in the Windows-only fork. Retained as a disabled compatibility flag.",
+    );
+    config.patch_rpath = null;
 
     config.pie = b.option(
         bool,
@@ -338,7 +239,7 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
     config.emit_lib_vt = b.option(
         bool,
         "emit-lib-vt",
-        "Set defaults for a libghostty-vt-only build (disables xcframework, macOS app, and docs).",
+        "Set defaults for a libghostty-vt-only build in the Windows-only fork.",
     ) orelse false;
 
     config.emit_exe = b.option(
@@ -425,24 +326,6 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
         "Build the website data for the website.",
     ) orelse false;
 
-    config.emit_xcframework = b.option(
-        bool,
-        "emit-xcframework",
-        "Build and install the xcframework for the macOS library.",
-    ) orelse !config.emit_lib_vt and
-        builtin.target.os.tag.isDarwin() and
-        target.result.os.tag == .macos and
-        config.app_runtime == .none and
-        (!config.emit_bench and
-            !config.emit_test_exe and
-            !config.emit_helpgen);
-
-    config.emit_macos_app = b.option(
-        bool,
-        "emit-macos-app",
-        "Build and install the macOS app bundle.",
-    ) orelse !config.emit_lib_vt and config.emit_xcframework;
-
     //---------------------------------------------------------------
     // System Packages
 
@@ -468,9 +351,7 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
             _ = b.systemIntegrationOption(
                 dep,
                 .{
-                    // If we're not on darwin we want to use whatever the
-                    // default is via the system package mode
-                    .default = if (target.result.os.tag.isDarwin()) false else null,
+                    .default = null,
                 },
             );
         }
@@ -483,15 +364,6 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
             "simdutf",
         }) |dep| {
             _ = b.systemIntegrationOption(dep, .{ .default = false });
-        }
-
-        // These are dynamic libraries we default to true, preferring
-        // to use system packages over building and installing libs
-        // as they require additional ldconfig of library paths or
-        // patching the rpath of the program to discover the dynamic library
-        // at runtime
-        for (&[_][]const u8{"gtk4-layer-shell"}) |dep| {
-            _ = b.systemIntegrationOption(dep, .{ .default = true });
         }
     }
 
@@ -509,6 +381,7 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     step.addOption(bool, "sentry", self.sentry);
     step.addOption(bool, "simd", self.simd);
     step.addOption(bool, "i18n", self.i18n);
+    step.addOption(bool, "custom_shaders", self.custom_shaders);
     step.addOption(ApprtRuntime, "app_runtime", self.app_runtime);
     step.addOption(FontBackend, "font_backend", self.font_backend);
     step.addOption(RendererBackend, "renderer", self.renderer);
@@ -593,48 +466,8 @@ pub fn fromOptions() Config {
         .wasm_target = std.meta.stringToEnum(WasmTarget, @tagName(options.wasm_target)).?,
         .wasm_shared = options.wasm_shared,
         .i18n = options.i18n,
+        .custom_shaders = options.custom_shaders,
     };
-}
-
-/// Returns the minimum OS version for the given OS tag. This shouldn't
-/// be used generally, it should only be used for Darwin-based OS currently.
-pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
-    return switch (tag) {
-        // We support back to the earliest officially supported version
-        // of macOS by Apple. EOL versions are not supported.
-        .macos => .{ .semver = .{
-            .major = 13,
-            .minor = 0,
-            .patch = 0,
-        } },
-
-        // iOS 17 picked arbitrarily
-        .ios => .{ .semver = .{
-            .major = 17,
-            .minor = 0,
-            .patch = 0,
-        } },
-
-        // This should never happen currently. If we add a new target then
-        // we should add a new case here.
-        else => null,
-    };
-}
-
-// Returns a ResolvedTarget for a mac with a `target.result.cpu.model.name` of `generic`.
-// `b.standardTargetOptions()` returns a more specific cpu like `apple_a15`.
-//
-// This is used to workaround compilation issues on macOS.
-// (see for example https://github.com/mitchellh/ghostty/issues/1640).
-pub fn genericMacOSTarget(
-    b: *std.Build,
-    arch: ?std.Target.Cpu.Arch,
-) std.Build.ResolvedTarget {
-    return b.resolveTargetQuery(.{
-        .cpu_arch = arch orelse builtin.target.cpu.arch,
-        .os_tag = .macos,
-        .os_version_min = osVersionMin(.macos),
-    });
 }
 
 /// The possible entrypoints for the exe artifact. This has no effect on

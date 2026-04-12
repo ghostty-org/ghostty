@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const windows = std.os.windows;
 const assert = @import("../quirks.zig").inlineAssert;
 const args = @import("args.zig");
 const Allocator = std.mem.Allocator;
@@ -30,16 +31,11 @@ pub const Options = struct {
 /// this yet.
 ///
 /// The filepath opened is the default user-specific configuration
-/// file, which is typically located at `$XDG_CONFIG_HOME/ghostty/config.ghostty`.
-/// On macOS, this may also be located at
-/// `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty`.
-/// On macOS, whichever path exists and is non-empty will be prioritized,
-/// prioritizing the Application Support directory if neither are
-/// non-empty.
+/// file for Ghostty.
 ///
 /// This command prefers the `$VISUAL` environment variable over `$EDITOR`,
-/// if both are set. If neither are set, it will print an error
-/// and exit.
+/// if both are set. On Windows, if neither are set, the configuration file
+/// will be opened with the associated editor.
 pub fn run(alloc: Allocator) !u8 {
     // Implementation note (by @mitchellh): I do proper memory cleanup
     // throughout this command, even though we plan on doing `exec`.
@@ -72,24 +68,6 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
     var config = try Config.load(alloc);
     defer config.deinit();
 
-    // Find the preferred path.
-    const path = try configpkg.preferredDefaultFilePath(alloc);
-    defer alloc.free(path);
-
-    // We don't currently support Windows because we use the exec syscall.
-    if (comptime builtin.os.tag == .windows) {
-        try stderr.print(
-            \\The `ghostty +edit-config` command is not supported on Windows.
-            \\Please edit the configuration file manually at the following path:
-            \\
-            \\{s}
-            \\
-        ,
-            .{path},
-        );
-        return 1;
-    }
-
     // Get our editor
     const get_env_: ?internal_os.GetEnvResult = env: {
         // VISUAL vs. EDITOR: https://unix.stackexchange.com/questions/4859/visual-vs-editor-what-s-the-difference
@@ -107,6 +85,20 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
     };
     defer if (get_env_) |v| v.deinit(alloc);
     const editor: []const u8 = if (get_env_) |v| v.value else "";
+
+    // Find the preferred path.
+    const path = try configpkg.preferredDefaultFilePath(alloc);
+    defer alloc.free(path);
+
+    if (comptime builtin.os.tag == .windows) {
+        if (editor.len > 0) {
+            try launchWindowsEditor(alloc, editor, path);
+            return 0;
+        }
+
+        try openPathWithShell(alloc, path);
+        return 0;
+    }
 
     // If we don't have `$EDITOR` set then we can't do anything
     // but we can still print a helpful message.
@@ -178,3 +170,52 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
     , .{ err, editor, path });
     return 1;
 }
+
+fn launchWindowsEditor(
+    alloc: Allocator,
+    editor: []const u8,
+    path: []const u8,
+) !void {
+    const command = try std.fmt.allocPrint(
+        alloc,
+        "start \"\" {s} \"{s}\"",
+        .{ editor, path },
+    );
+    defer alloc.free(command);
+
+    var child = std.process.Child.init(
+        &.{ "C:\\Windows\\System32\\cmd.exe", "/C", command },
+        alloc,
+    );
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Ignore;
+    child.stderr_behavior = .Ignore;
+    _ = try child.spawnAndWait();
+}
+
+fn openPathWithShell(
+    alloc: Allocator,
+    path: []const u8,
+) !void {
+    const path_w = try std.unicode.utf8ToUtf16LeAllocZ(alloc, path);
+    defer alloc.free(path_w);
+    const verb_w = std.unicode.utf8ToUtf16LeStringLiteral("open");
+    const result = ShellExecuteW(
+        null,
+        verb_w.ptr,
+        path_w.ptr,
+        null,
+        null,
+        1,
+    );
+    if (@intFromPtr(result) <= 32) return error.OpenConfigFailed;
+}
+
+extern "shell32" fn ShellExecuteW(
+    hwnd: ?windows.HWND,
+    lpOperation: ?windows.LPCWSTR,
+    lpFile: ?windows.LPCWSTR,
+    lpParameters: ?windows.LPCWSTR,
+    lpDirectory: ?windows.LPCWSTR,
+    nShowCmd: windows.INT,
+) callconv(.winapi) ?windows.HINSTANCE;

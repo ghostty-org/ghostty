@@ -28,8 +28,6 @@ const darkTheme = win32_theme.darkTheme;
 const lightTheme = win32_theme.lightTheme;
 const adjustColor = win32_theme.adjustColor;
 const buttonColorsFromTheme = win32_theme.buttonColorsFromTheme;
-const buttonColors = win32_theme.buttonColors;
-const buttonFocusRingColor = win32_theme.buttonFocusRingColor;
 const overlayAccentColor = win32_theme.overlayAccentColor;
 const overlayEditBorderColor = win32_theme.overlayEditBorderColor;
 const profileChromeAccent = win32_theme.profileChromeAccent;
@@ -53,6 +51,8 @@ const HBRUSH = ?*anyopaque;
 const HCURSOR = ?*anyopaque;
 const HDC = ?*anyopaque;
 const HGLRC = ?*anyopaque;
+const HGDIOBJ = ?*anyopaque;
+const HPEN = ?*anyopaque;
 const HMODULE = ?*anyopaque;
 const HMENU = ?*anyopaque;
 const HICON = ?*anyopaque;
@@ -179,7 +179,7 @@ const DT_VCENTER = 0x00000004;
 const DT_SINGLELINE = 0x00000020;
 const DT_NOPREFIX = 0x00000800;
 const DT_END_ELLIPSIS = 0x00008000;
-const host_tab_height = 34;
+const host_tab_height = 32;
 const host_overlay_height = 58;
 const host_inspector_panel_height = 42;
 const host_status_height = 42;
@@ -212,6 +212,13 @@ const WM_DPICHANGED: UINT = 0x02E0;
 const DWMWA_USE_IMMERSIVE_DARK_MODE_V1: DWORD = 19;
 const DWMWA_USE_IMMERSIVE_DARK_MODE: DWORD = 20;
 const DWMWA_CAPTION_COLOR: DWORD = 35;
+const DWMWA_SYSTEMBACKDROP_TYPE: DWORD = 38;
+const DWMSBT_MAINWINDOW: u32 = 2;
+const DC_BRUSH: i32 = 18;
+const DC_PEN: i32 = 19;
+const PS_SOLID: i32 = 0;
+const host_tab_max_button_width = 220;
+const host_pane_divider_width = 2;
 const SPI_GETHIGHCONTRAST: UINT = 0x0042;
 const SPI_GETNONCLIENTMETRICS: UINT = 0x0029;
 const FW_NORMAL: i32 = 400;
@@ -621,11 +628,17 @@ extern "gdi32" fn SwapBuffers(hdc: HDC) callconv(.winapi) BOOL;
 extern "gdi32" fn TextOutW(hdc: HDC, x: i32, y: i32, lpString: LPCWSTR, c: i32) callconv(.winapi) BOOL;
 extern "gdi32" fn CreateFontIndirectW(lplf: *const LOGFONTW) callconv(.winapi) ?*anyopaque;
 extern "gdi32" fn SelectObject(hdc: HDC, h: ?*anyopaque) callconv(.winapi) ?*anyopaque;
+extern "gdi32" fn GetStockObject(i: i32) callconv(.winapi) HGDIOBJ;
+extern "gdi32" fn SetDCBrushColor(hdc: HDC, color: u32) callconv(.winapi) u32;
+extern "gdi32" fn SetDCPenColor(hdc: HDC, color: u32) callconv(.winapi) u32;
+extern "gdi32" fn RoundRect(hdc: HDC, left: i32, top: i32, right: i32, bottom: i32, width: i32, height: i32) callconv(.winapi) BOOL;
 extern "advapi32" fn RegOpenKeyExW(hKey: usize, lpSubKey: LPCWSTR, ulOptions: DWORD, samDesired: DWORD, phkResult: *usize) callconv(.winapi) i32;
 extern "advapi32" fn RegQueryValueExW(hKey: usize, lpValueName: LPCWSTR, lpReserved: ?*DWORD, lpType: ?*DWORD, lpData: ?*u8, lpcbData: ?*DWORD) callconv(.winapi) i32;
 extern "advapi32" fn RegCloseKey(hKey: usize) callconv(.winapi) i32;
 extern "opengl32" fn wglCreateContext(hdc: HDC) callconv(.winapi) HGLRC;
 extern "opengl32" fn wglDeleteContext(hglrc: HGLRC) callconv(.winapi) BOOL;
+extern "opengl32" fn wglGetCurrentContext() callconv(.winapi) HGLRC;
+extern "opengl32" fn wglGetCurrentDC() callconv(.winapi) HDC;
 extern "opengl32" fn wglGetProcAddress(lpszProc: [*:0]const u8) callconv(.winapi) ?*const anyopaque;
 extern "opengl32" fn wglMakeCurrent(hdc: HDC, hglrc: HGLRC) callconv(.winapi) BOOL;
 extern "dwmapi" fn DwmSetWindowAttribute(hwnd: HWND, dwAttribute: DWORD, pvAttribute: *const anyopaque, cbAttribute: DWORD) callconv(.winapi) i32;
@@ -696,7 +709,7 @@ const ForwardedArgIterator = struct {
     args: []const [:0]const u8,
     idx: usize = 0,
 
-    fn next(self: *ForwardedArgIterator) ?[]const u8 {
+    pub fn next(self: *ForwardedArgIterator) ?[]const u8 {
         if (self.idx >= self.args.len) return null;
         defer self.idx += 1;
         return self.args[self.idx];
@@ -704,13 +717,15 @@ const ForwardedArgIterator = struct {
 };
 
 fn hostWindowStyle() u32 {
-    // Prevent the host from repainting across the OpenGL child surface.
-    return WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPCHILDREN;
+    // Keep the host hidden until child controls and initial layout are ready,
+    // then show it explicitly from createHost.
+    return WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN;
 }
 
 fn surfaceWindowStyle() u32 {
-    // Prevent the terminal child surface from repainting over sibling controls.
-    return WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS;
+    // Keep the terminal child surface hidden until GL + core init complete,
+    // then show it explicitly from Surface.init.
+    return WS_CHILD | WS_CLIPSIBLINGS;
 }
 
 fn defaultIpcNamespace() []const u8 {
@@ -862,7 +877,7 @@ fn readExactHandle(pipe: windows.HANDLE, dst: []u8) !void {
             null,
         ) == 0) {
             return switch (windows.kernel32.GetLastError()) {
-                ERROR_BROKEN_PIPE => error.EndOfStream,
+                .BROKEN_PIPE => error.EndOfStream,
                 else => |err| windows.unexpectedError(err),
             };
         }
@@ -904,8 +919,8 @@ fn connectToIpcPipe(pipe_name: [:0]const u16) !windows.HANDLE {
 
         const err = windows.kernel32.GetLastError();
         switch (err) {
-            ERROR_FILE_NOT_FOUND => return error.FileNotFound,
-            ERROR_PIPE_BUSY => {
+            .FILE_NOT_FOUND => return error.FileNotFound,
+            .PIPE_BUSY => {
                 if (retries == 0 and WaitNamedPipeW(pipe_name.ptr, 1000) != 0) {
                     retries += 1;
                     continue;
@@ -1047,7 +1062,7 @@ fn ipcServerMain(app: *App) void {
         const connected = ConnectNamedPipe(pipe, null);
         if (connected == 0) {
             const err = windows.kernel32.GetLastError();
-            if (err != ERROR_PIPE_CONNECTED) {
+            if (err != .PIPE_CONNECTED) {
                 _ = windows.CloseHandle(pipe);
                 if (!app.ipc_stop_requested.load(.acquire)) {
                     log.warn("failed to connect win32 IPC client err={}", .{err});
@@ -2887,8 +2902,9 @@ const Host = struct {
         return &self.tabs.items[self.active_tab];
     }
 
-    fn activeSurface(self: *Host) ?*Surface {
-        const tab = self.activeTab() orelse return null;
+    fn activeSurface(self: *const Host) ?*Surface {
+        if (self.tabs.items.len == 0 or self.active_tab >= self.tabs.items.len) return null;
+        const tab: *const Tab = &self.tabs.items[self.active_tab];
         return tab.focusedSurface();
     }
 
@@ -2900,7 +2916,9 @@ const Host = struct {
 
         var rect: RECT = undefined;
         if (GetClientRect(hwnd, &rect) == 0) return null;
-        const status_y = @max(self.scaled(host_tab_height) + self.scaled(2), rect.bottom - self.scaled(host_status_height) + self.scaled(4));
+        const sb_h = self.statusBarHeight();
+        if (sb_h == 0) return null;
+        const status_y = @max(self.scaled(host_tab_height) + self.scaled(2), rect.bottom - sb_h + self.scaled(4));
         var status_x: i32 = self.scaled(16);
         const selected_index = self.selectedProfileIndex();
 
@@ -3184,7 +3202,7 @@ const Host = struct {
         const surface = self.activeSurface() orelse return false;
         switch (open_target) {
             .tab => _ = self.app.performAction(.{ .surface = surface.core() }, .new_tab, {}) catch return false,
-            .window => _ = self.app.performAction(.{ .surface = surface.core() }, .new_window, {}) catch return false,
+            .window => _ = self.app.performAction(.{ .surface = surface.core() }, .new_window, .{}) catch return false,
             .split => _ = self.app.performAction(.{ .surface = surface.core() }, .new_split, .right) catch return false,
         }
         return true;
@@ -3223,7 +3241,7 @@ const Host = struct {
         return true;
     }
 
-    fn inspectorPanelVisible(self: *Host) bool {
+    fn inspectorPanelVisible(self: *const Host) bool {
         if (self.overlay_mode != .none) return false;
         const surface = self.activeSurface() orelse return false;
         return surface.inspector_visible;
@@ -3232,6 +3250,15 @@ const Host = struct {
     fn isActiveTabButton(self: *Host, child: HWND) bool {
         const tab = self.activeTab() orelse return false;
         return if (tab.button_hwnd) |hwnd| hwnd == child else false;
+    }
+
+    fn isTabButton(self: *Host, child: HWND) bool {
+        for (self.tabs.items) |*tab| {
+            if (tab.button_hwnd) |hwnd| {
+                if (hwnd == child) return true;
+            }
+        }
+        return false;
     }
 
     fn isHoveredButton(self: *Host, child: HWND) bool {
@@ -3900,7 +3927,7 @@ const Host = struct {
                 _ = self.app.performAction(.{ .surface = surface.core() }, .new_split, .right) catch {};
             },
             CTX_NEW_WINDOW => {
-                _ = self.app.performAction(.{ .surface = surface.core() }, .new_window, {}) catch {};
+                _ = self.app.performAction(.{ .surface = surface.core() }, .new_window, .{}) catch {};
             },
             else => {}, // 0 = cancel, ignore
         }
@@ -3976,7 +4003,8 @@ const Host = struct {
         const profile_kind = self.buttonProfileKind(draw.hwndItem);
         const pinned_slot_ordinal = self.buttonPinnedSlotOrdinal(draw.hwndItem);
         const launcher_target = self.buttonLauncherTarget(draw.hwndItem);
-        var colors = buttonColors(
+        var colors = buttonColorsFromTheme(
+            &self.app.resolved_theme,
             active,
             overlay,
             hovered,
@@ -3990,39 +4018,21 @@ const Host = struct {
         const bg = colors.bg;
         const border = colors.border;
         const fg = colors.fg;
+        const theme = &self.app.resolved_theme;
 
-        fillSolidRect(draw.hDC, draw.rcItem, bg);
-        fillSolidRect(draw.hDC, .{
-            .left = draw.rcItem.left,
-            .top = draw.rcItem.top,
-            .right = draw.rcItem.right,
-            .bottom = draw.rcItem.top + 1,
-        }, border);
-        fillSolidRect(draw.hDC, .{
-            .left = draw.rcItem.left,
-            .top = draw.rcItem.bottom - 1,
-            .right = draw.rcItem.right,
-            .bottom = draw.rcItem.bottom,
-        }, border);
-        fillSolidRect(draw.hDC, .{
-            .left = draw.rcItem.left,
-            .top = draw.rcItem.top,
-            .right = draw.rcItem.left + 1,
-            .bottom = draw.rcItem.bottom,
-        }, border);
-        fillSolidRect(draw.hDC, .{
-            .left = draw.rcItem.right - 1,
-            .top = draw.rcItem.top,
-            .right = draw.rcItem.right,
-            .bottom = draw.rcItem.bottom,
-        }, border);
+        // Erase with parent background, then draw rounded button
+        const parent_bg = if (overlay) theme.overlay_bg else theme.chrome_bg;
+        fillSolidRect(draw.hDC, draw.rcItem, parent_bg);
+        drawRoundedRect(draw.hDC, draw.rcItem, bg, border, self.scaled(4));
         if (profile_kind) |kind| {
             const stripe = profileChromeStripeColor(kind, self.app.resolved_theme.is_dark, active, hovered, pressed, disabled);
+            // Inset stripe to fit inside rounded corners
+            const corner_inset = self.scaled(4);
             fillSolidRect(draw.hDC, .{
-                .left = draw.rcItem.left + 1,
-                .top = draw.rcItem.top + 1,
+                .left = draw.rcItem.left + 2,
+                .top = draw.rcItem.top + corner_inset,
                 .right = draw.rcItem.left + self.scaled(4),
-                .bottom = draw.rcItem.bottom - 1,
+                .bottom = draw.rcItem.bottom - corner_inset,
             }, stripe);
             if (pinnedSlotBadgeDigit(pinned_slot_ordinal)) |digit| {
                 paintPinnedSlotBadge(
@@ -4050,32 +4060,22 @@ const Host = struct {
         if (focused and !disabled) {
             const focus = if (profile_kind) |kind|
                 profileKindFocusRingColor(kind, self.app.resolved_theme.is_dark)
+            else if (accept)
+                self.app.resolved_theme.button_accept_focus_ring
+            else if (active)
+                self.app.resolved_theme.button_active_focus_ring
+            else if (overlay)
+                self.app.resolved_theme.button_overlay_focus_ring
             else
-                buttonFocusRingColor(active, overlay, accept);
-            fillSolidRect(draw.hDC, .{
+                self.app.resolved_theme.button_focus_ring;
+            // Rounded focus ring inset inside the button, matching corner radius
+            const inset_rect = RECT{
                 .left = draw.rcItem.left + self.scaled(2),
                 .top = draw.rcItem.top + self.scaled(2),
                 .right = draw.rcItem.right - self.scaled(2),
-                .bottom = draw.rcItem.top + self.scaled(3),
-            }, focus);
-            fillSolidRect(draw.hDC, .{
-                .left = draw.rcItem.left + self.scaled(2),
-                .top = draw.rcItem.bottom - self.scaled(3),
-                .right = draw.rcItem.right - self.scaled(2),
                 .bottom = draw.rcItem.bottom - self.scaled(2),
-            }, focus);
-            fillSolidRect(draw.hDC, .{
-                .left = draw.rcItem.left + self.scaled(2),
-                .top = draw.rcItem.top + self.scaled(2),
-                .right = draw.rcItem.left + self.scaled(3),
-                .bottom = draw.rcItem.bottom - self.scaled(2),
-            }, focus);
-            fillSolidRect(draw.hDC, .{
-                .left = draw.rcItem.right - self.scaled(3),
-                .top = draw.rcItem.top + self.scaled(2),
-                .right = draw.rcItem.right - self.scaled(2),
-                .bottom = draw.rcItem.bottom - self.scaled(2),
-            }, focus);
+            };
+            drawRoundedRect(draw.hDC, inset_rect, bg, focus, self.scaled(3));
         }
 
         var text_buf: [160]u16 = undefined;
@@ -4098,6 +4098,16 @@ const Host = struct {
             &text_rect,
             DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS,
         );
+
+        // Active tab accent underline (only for tab buttons, not chrome action buttons)
+        if (active and !overlay and self.isTabButton(draw.hwndItem)) {
+            fillSolidRect(draw.hDC, .{
+                .left = draw.rcItem.left + self.scaled(3),
+                .top = draw.rcItem.bottom - self.scaled(3),
+                .right = draw.rcItem.right - self.scaled(3),
+                .bottom = draw.rcItem.bottom - self.scaled(1),
+            }, theme.accent);
+        }
     }
 
     fn buttonProfileKind(self: *Host, hwnd: HWND) ?windows_shell.ProfileKind {
@@ -4337,6 +4347,20 @@ const Host = struct {
         return @divTrunc(base * @as(i32, @intCast(dpi)), 96);
     }
 
+    fn hasVisibleStatus(self: *const Host) bool {
+        // Status bar shows: profile chips, status text, banner info
+        if (self.cached_status_w != null) return true;
+        if (self.cached_detail_w != null) return true;
+        if (self.banner_text != null) return true;
+        if (self.profiles != null) return true;
+        if (self.overlay_mode != .none) return true;
+        return false;
+    }
+
+    fn statusBarHeight(self: *Host) i32 {
+        return if (self.hasVisibleStatus()) self.scaled(host_status_height) else 0;
+    }
+
     fn contentRect(self: *Host) !RECT {
         const hwnd = self.hwnd orelse return error.InvalidHost;
         var rect: RECT = undefined;
@@ -4350,7 +4374,7 @@ const Host = struct {
             .left = 0,
             .top = tab_offset + overlay_offset + inspector_offset,
             .right = rect.right,
-            .bottom = @max(tab_offset + 1, rect.bottom - self.scaled(host_status_height)),
+            .bottom = @max(tab_offset + 1, rect.bottom - self.statusBarHeight()),
         };
     }
 
@@ -4677,7 +4701,7 @@ const Host = struct {
         const tab_area_width = @max(1, width - right_buttons_width);
         const tab_range = visibleTabRange(self.tabs.items.len, self.active_tab, tab_area_width);
         const visible_count = @max(@as(i32, 1), @as(i32, @intCast(tab_range.count)));
-        const button_width = @max(1, @divTrunc(tab_area_width, visible_count));
+        const button_width = @min(@max(1, @divTrunc(tab_area_width, visible_count)), self.scaled(host_tab_max_button_width));
         for (self.tabs.items, 0..) |*tab, i| {
             if (tab.button_hwnd) |button_hwnd| {
                 if (i >= tab_range.start and i < tab_range.start + tab_range.count) {
@@ -4685,9 +4709,9 @@ const Host = struct {
                     _ = MoveWindow(
                         button_hwnd,
                         visible_index * button_width,
-                        self.scaled(4),
+                        self.scaled(3),
                         button_width,
-                        self.scaled(host_tab_height) - self.scaled(8),
+                        self.scaled(host_tab_height) - self.scaled(6),
                         0,
                     );
                     _ = ShowWindow(button_hwnd, SW_SHOW);
@@ -4700,27 +4724,27 @@ const Host = struct {
         var button_x = width - self.scaled(8);
         if (self.close_tab_hwnd) |button_hwnd| {
             button_x -= self.scaled(host_tab_small_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_small_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(3), self.scaled(host_tab_small_button_width), self.scaled(host_tab_height) - self.scaled(6), 0);
         }
         button_x -= self.scaled(4);
         if (self.new_tab_hwnd) |button_hwnd| {
             button_x -= self.scaled(host_tab_small_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_small_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(3), self.scaled(host_tab_small_button_width), self.scaled(host_tab_height) - self.scaled(6), 0);
         }
         button_x -= self.scaled(4);
         if (self.overflow_hwnd) |button_hwnd| {
             button_x -= self.scaled(host_tab_overflow_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_overflow_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(3), self.scaled(host_tab_overflow_button_width), self.scaled(host_tab_height) - self.scaled(6), 0);
         }
         button_x -= self.scaled(4);
         if (self.tab_overview_hwnd) |button_hwnd| {
             button_x -= self.scaled(host_tab_tabs_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_tabs_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(3), self.scaled(host_tab_tabs_button_width), self.scaled(host_tab_height) - self.scaled(6), 0);
         }
         button_x -= self.scaled(4);
         if (self.profiles_hwnd) |button_hwnd| {
             button_x -= self.scaled(host_tab_profiles_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(4), self.scaled(host_tab_profiles_button_width), self.scaled(host_tab_height) - self.scaled(8), 0);
+            _ = MoveWindow(button_hwnd, button_x, self.scaled(3), self.scaled(host_tab_profiles_button_width), self.scaled(host_tab_height) - self.scaled(6), 0);
         }
 
         if (self.overlay_mode != .none) {
@@ -4766,10 +4790,30 @@ const Host = struct {
                 entry.view.setVisible(true);
                 if (entry.view.hwnd) |surface_hwnd| {
                     const slot = spatial.slots[entry.handle.idx()];
-                    const x: i32 = content_rect.left + @as(i32, @intFromFloat(@round(slot.x * @as(f16, @floatFromInt(content_width)))));
-                    const y: i32 = content_y + @as(i32, @intFromFloat(@round(slot.y * @as(f16, @floatFromInt(content_height)))));
-                    const w: i32 = @max(1, @as(i32, @intFromFloat(@round(slot.width * @as(f16, @floatFromInt(content_width))))));
-                    const h: i32 = @max(1, @as(i32, @intFromFloat(@round(slot.height * @as(f16, @floatFromInt(content_height))))));
+                    var x: i32 = content_rect.left + @as(i32, @intFromFloat(@round(slot.x * @as(f16, @floatFromInt(content_width)))));
+                    var y: i32 = content_y + @as(i32, @intFromFloat(@round(slot.y * @as(f16, @floatFromInt(content_height)))));
+                    var w: i32 = @max(1, @as(i32, @intFromFloat(@round(slot.width * @as(f16, @floatFromInt(content_width))))));
+                    var h: i32 = @max(1, @as(i32, @intFromFloat(@round(slot.height * @as(f16, @floatFromInt(content_height))))));
+                    // Pane divider gap: inset internal edges only (pixel-space detection)
+                    const has_multi_panes = active_tab.leafCount() > 1;
+                    if (has_multi_panes) {
+                        if (x > content_rect.left) {
+                            x += 1;
+                            w -= 1;
+                        }
+                        if (x + w < content_rect.left + content_width) {
+                            w -= 1;
+                        }
+                        if (y > content_y) {
+                            y += 1;
+                            h -= 1;
+                        }
+                        if (y + h < content_y + content_height) {
+                            h -= 1;
+                        }
+                        w = @max(1, w);
+                        h = @max(1, h);
+                    }
                     _ = MoveWindow(surface_hwnd, x, y, w, h, 0);
                 }
                 // Update content_scale if DPI changed since surface was last visible
@@ -4907,31 +4951,7 @@ const Host = struct {
                         .bottom = overlay_rect.top + self.scaled(23),
                     };
                     const accent = profileChromeAccent(profile.kind, theme.is_dark);
-                    fillSolidRect(hdc, badge_rect, accent.idle_bg);
-                    fillSolidRect(hdc, .{
-                        .left = badge_rect.left,
-                        .top = badge_rect.top,
-                        .right = badge_rect.right,
-                        .bottom = badge_rect.top + 1,
-                    }, accent.idle_border);
-                    fillSolidRect(hdc, .{
-                        .left = badge_rect.left,
-                        .top = badge_rect.bottom - 1,
-                        .right = badge_rect.right,
-                        .bottom = badge_rect.bottom,
-                    }, accent.idle_border);
-                    fillSolidRect(hdc, .{
-                        .left = badge_rect.left,
-                        .top = badge_rect.top,
-                        .right = badge_rect.left + 1,
-                        .bottom = badge_rect.bottom,
-                    }, accent.idle_border);
-                    fillSolidRect(hdc, .{
-                        .left = badge_rect.right - 1,
-                        .top = badge_rect.top,
-                        .right = badge_rect.right,
-                        .bottom = badge_rect.bottom,
-                    }, accent.idle_border);
+                    drawRoundedRect(hdc, badge_rect, accent.idle_bg, accent.idle_border, self.scaled(3));
                     _ = SetTextColor(hdc, profileKindLabelColor(profile.kind, theme.is_dark));
                     var badge_text_rect = badge_rect;
                     badge_text_rect.left += self.scaled(6);
@@ -4962,31 +4982,7 @@ const Host = struct {
                 GetFocus() == edit_hwnd
             else
                 false;
-            fillSolidRect(hdc, edit_frame, theme.edit_frame_bg);
-            fillSolidRect(hdc, .{
-                .left = edit_frame.left,
-                .top = edit_frame.top,
-                .right = edit_frame.right,
-                .bottom = edit_frame.top + 1,
-            }, overlayEditBorderColor(self.overlay_mode, overlay_edit_focused, theme.is_dark));
-            fillSolidRect(hdc, .{
-                .left = edit_frame.left,
-                .top = edit_frame.bottom - 1,
-                .right = edit_frame.right,
-                .bottom = edit_frame.bottom,
-            }, overlayEditBorderColor(self.overlay_mode, overlay_edit_focused, theme.is_dark));
-            fillSolidRect(hdc, .{
-                .left = edit_frame.left,
-                .top = edit_frame.top,
-                .right = edit_frame.left + 1,
-                .bottom = edit_frame.bottom,
-            }, overlayEditBorderColor(self.overlay_mode, overlay_edit_focused, theme.is_dark));
-            fillSolidRect(hdc, .{
-                .left = edit_frame.right - 1,
-                .top = edit_frame.top,
-                .right = edit_frame.right,
-                .bottom = edit_frame.bottom,
-            }, overlayEditBorderColor(self.overlay_mode, overlay_edit_focused, theme.is_dark));
+            drawRoundedRect(hdc, edit_frame, theme.edit_frame_bg, overlayEditBorderColor(self.overlay_mode, overlay_edit_focused, theme.is_dark), self.scaled(4));
 
             const pane_count = if (self.activeTab()) |tab| tab.leafCount() else 1;
             const overlay_feedback = if (self.overlay_mode == .profile)
@@ -5086,24 +5082,67 @@ const Host = struct {
             }
         }
 
-        const status_top = @max(tab_h + overlay_offset, client_rect.bottom - self.scaled(host_status_height));
-        const status_rect = RECT{
-            .left = 0,
-            .top = status_top,
-            .right = client_rect.right,
-            .bottom = client_rect.bottom,
-        };
-        fillSolidRect(hdc, status_rect, theme.status_bg);
-        fillSolidRect(
-            hdc,
-            .{
+        // Paint pane divider gaps between split panes
+        if (self.activeTab()) |active_tab| {
+            if (active_tab.leafCount() > 1) {
+                const c_rect = self.contentRect() catch RECT{ .left = 0, .top = 0, .right = 0, .bottom = 0 };
+                const c_width = @max(1, c_rect.right - c_rect.left);
+                const c_height = @max(1, c_rect.bottom - c_rect.top);
+                // Fill entire content area with divider color first (gap pixels)
+                fillSolidRect(hdc, c_rect, theme.pane_divider);
+                // Draw accent border around focused pane
+                const focused_surface = self.activeSurface();
+                if (focused_surface) |surface| {
+                    if (surface.hwnd) |surface_hwnd| {
+                        var sr: RECT = undefined;
+                        if (GetWindowRect(surface_hwnd, &sr) != 0) {
+                            var tl = POINT{ .x = sr.left, .y = sr.top };
+                            var br = POINT{ .x = sr.right, .y = sr.bottom };
+                            _ = ScreenToClient(hwnd, &tl);
+                            _ = ScreenToClient(hwnd, &br);
+                            // Only draw focus border if pane is within content area
+                            if (tl.x >= c_rect.left and br.x <= c_rect.right and
+                                tl.y >= c_rect.top and br.y <= c_rect.bottom)
+                            {
+                                const bw: i32 = 1; // border width for focus accent
+                                // Top
+                                if (tl.y > c_rect.top) fillSolidRect(hdc, .{ .left = tl.x - bw, .top = tl.y - bw, .right = br.x + bw, .bottom = tl.y }, theme.pane_divider_focused);
+                                // Bottom
+                                if (br.y < c_rect.bottom) fillSolidRect(hdc, .{ .left = tl.x - bw, .top = br.y, .right = br.x + bw, .bottom = br.y + bw }, theme.pane_divider_focused);
+                                // Left
+                                if (tl.x > c_rect.left) fillSolidRect(hdc, .{ .left = tl.x - bw, .top = tl.y, .right = tl.x, .bottom = br.y }, theme.pane_divider_focused);
+                                // Right
+                                if (br.x < c_rect.right) fillSolidRect(hdc, .{ .left = br.x, .top = tl.y, .right = br.x + bw, .bottom = br.y }, theme.pane_divider_focused);
+                            }
+                            _ = c_width;
+                            _ = c_height;
+                        }
+                    }
+                }
+            }
+        }
+
+        const status_h = self.statusBarHeight();
+        const status_top = @max(tab_h + overlay_offset, client_rect.bottom - @max(1, status_h));
+        if (status_h > 0) {
+            const status_rect = RECT{
                 .left = 0,
                 .top = status_top,
                 .right = client_rect.right,
-                .bottom = status_top + 1,
-            },
-            theme.chrome_border,
-        );
+                .bottom = client_rect.bottom,
+            };
+            fillSolidRect(hdc, status_rect, theme.status_bg);
+            fillSolidRect(
+                hdc,
+                .{
+                    .left = 0,
+                    .top = status_top,
+                    .right = client_rect.right,
+                    .bottom = status_top + 1,
+                },
+                theme.chrome_border,
+            );
+        }
         _ = SetBkMode(hdc, TRANSPARENT);
         _ = SetTextColor(hdc, theme.text_primary);
 
@@ -5158,9 +5197,9 @@ const Host = struct {
         }
         _ = SetTextColor(hdc, theme.text_primary);
 
-        const status_y = @max(self.scaled(host_tab_height) + self.scaled(2), ps.rcPaint.bottom - self.scaled(host_status_height) + self.scaled(4));
+        const status_y = @max(self.scaled(host_tab_height) + self.scaled(2), ps.rcPaint.bottom - @max(1, status_h) + self.scaled(4));
         var status_x: i32 = self.scaled(16);
-        if (self.overlay_mode == .none) {
+        if (status_h > 0 and self.overlay_mode == .none) {
             const selected_profile_index = self.selectedProfileIndex();
             if (self.selectedProfile()) |profile| {
                 const pinned_slot_ordinal = self.app.launcherQuickSlotOrdinal(profile.key);
@@ -5182,31 +5221,7 @@ const Host = struct {
                     .right = status_x + chip_width,
                     .bottom = status_y + self.scaled(14),
                 };
-                fillSolidRect(hdc, chip_rect, accent.idle_bg);
-                fillSolidRect(hdc, .{
-                    .left = chip_rect.left,
-                    .top = chip_rect.top,
-                    .right = chip_rect.right,
-                    .bottom = chip_rect.top + 1,
-                }, accent.idle_border);
-                fillSolidRect(hdc, .{
-                    .left = chip_rect.left,
-                    .top = chip_rect.bottom - 1,
-                    .right = chip_rect.right,
-                    .bottom = chip_rect.bottom,
-                }, accent.idle_border);
-                fillSolidRect(hdc, .{
-                    .left = chip_rect.left,
-                    .top = chip_rect.top,
-                    .right = chip_rect.left + 1,
-                    .bottom = chip_rect.bottom,
-                }, accent.idle_border);
-                fillSolidRect(hdc, .{
-                    .left = chip_rect.right - 1,
-                    .top = chip_rect.top,
-                    .right = chip_rect.right,
-                    .bottom = chip_rect.bottom,
-                }, accent.idle_border);
+                drawRoundedRect(hdc, chip_rect, accent.idle_bg, accent.idle_border, self.scaled(3));
                 if (pinned_slot_digit) |digit| {
                     paintPinnedSlotBadge(
                         hdc,
@@ -5266,31 +5281,7 @@ const Host = struct {
                         .right = status_x + chip_width,
                         .bottom = status_y + self.scaled(13),
                     };
-                    fillSolidRect(hdc, chip_rect, colors.bg);
-                    fillSolidRect(hdc, .{
-                        .left = chip_rect.left,
-                        .top = chip_rect.top,
-                        .right = chip_rect.right,
-                        .bottom = chip_rect.top + 1,
-                    }, colors.border);
-                    fillSolidRect(hdc, .{
-                        .left = chip_rect.left,
-                        .top = chip_rect.bottom - 1,
-                        .right = chip_rect.right,
-                        .bottom = chip_rect.bottom,
-                    }, colors.border);
-                    fillSolidRect(hdc, .{
-                        .left = chip_rect.left,
-                        .top = chip_rect.top,
-                        .right = chip_rect.left + 1,
-                        .bottom = chip_rect.bottom,
-                    }, colors.border);
-                    fillSolidRect(hdc, .{
-                        .left = chip_rect.right - 1,
-                        .top = chip_rect.top,
-                        .right = chip_rect.right,
-                        .bottom = chip_rect.bottom,
-                    }, colors.border);
+                    drawRoundedRect(hdc, chip_rect, colors.bg, colors.border, self.scaled(3));
                     if (pinned_slot_ordinal != null and pinned_slot_ordinal.? == index) {
                         paintPinnedChipMarker(
                             hdc,
@@ -5566,6 +5557,9 @@ fn highContrastThemeFromSysColors() ThemeColors {
         .button_active_focus_ring = hi_fg,
         .button_accept_focus_ring = hi_fg,
 
+        .pane_divider = hi_bg,
+        .pane_divider_focused = hi_bg,
+
         .is_dark = false,
     };
 }
@@ -5624,13 +5618,29 @@ fn applyDwmTheme(hwnd: HWND, theme: *const ThemeColors) void {
     }
     // Set caption color to match chrome (Win11 only; fails silently on Win10)
     _ = DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, @ptrCast(&theme.chrome_bg), @sizeOf(u32));
+    // Enable Mica backdrop (Win11 22H2+; returns E_INVALIDARG on older builds, discarded)
+    const backdrop_type: u32 = DWMSBT_MAINWINDOW;
+    _ = DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, @ptrCast(&backdrop_type), @sizeOf(u32));
 }
 
-
 fn fillSolidRect(hdc: HDC, rect: RECT, color: u32) void {
-    const brush = CreateSolidBrush(color) orelse return;
-    defer _ = DeleteObject(brush);
+    const brush = GetStockObject(DC_BRUSH) orelse return;
+    _ = SetDCBrushColor(hdc, color);
     _ = FillRect(hdc, &rect, brush);
+}
+
+fn drawRoundedRect(hdc: HDC, rect: RECT, bg: u32, border: u32, radius: i32) void {
+    const stock_brush = GetStockObject(DC_BRUSH) orelse return;
+    const stock_pen = GetStockObject(DC_PEN) orelse return;
+    _ = SetDCBrushColor(hdc, bg);
+    _ = SetDCPenColor(hdc, border);
+    const old_brush = SelectObject(hdc, stock_brush);
+    const old_pen = SelectObject(hdc, stock_pen);
+    // Inset by 1px — GDI strokes are centered, prevents clipping at edges
+    _ = RoundRect(hdc, rect.left + 1, rect.top + 1, rect.right - 1, rect.bottom - 1, radius, radius);
+    _ = SelectObject(hdc, old_pen);
+    _ = SelectObject(hdc, old_brush);
+    // Stock objects — never delete
 }
 
 fn tabButtonKeyAction(vk: WPARAM, ctrl_pressed: bool) ?TabButtonKeyAction {
@@ -6639,31 +6649,7 @@ fn paintPinnedSlotBadge(hdc: HDC, rect: RECT, digit: u8, border: u32, bg: u32, f
         .right = rect.right - s(4, dpi),
         .bottom = rect.top + s(14, dpi),
     };
-    fillSolidRect(hdc, badge_rect, bg);
-    fillSolidRect(hdc, .{
-        .left = badge_rect.left,
-        .top = badge_rect.top,
-        .right = badge_rect.right,
-        .bottom = badge_rect.top + 1,
-    }, border);
-    fillSolidRect(hdc, .{
-        .left = badge_rect.left,
-        .top = badge_rect.bottom - 1,
-        .right = badge_rect.right,
-        .bottom = badge_rect.bottom,
-    }, border);
-    fillSolidRect(hdc, .{
-        .left = badge_rect.left,
-        .top = badge_rect.top,
-        .right = badge_rect.left + 1,
-        .bottom = badge_rect.bottom,
-    }, border);
-    fillSolidRect(hdc, .{
-        .left = badge_rect.right - 1,
-        .top = badge_rect.top,
-        .right = badge_rect.right,
-        .bottom = badge_rect.bottom,
-    }, border);
+    drawRoundedRect(hdc, badge_rect, bg, border, s(3, dpi));
     var text_buf = [_]u16{ digit, 0 };
     _ = SetBkMode(hdc, TRANSPARENT);
     _ = SetTextColor(hdc, fg);
@@ -6717,31 +6703,7 @@ fn paintTargetButtonBadge(hdc: HDC, rect: RECT, glyph: u8, border: u32, bg: u32,
         .right = rect.right - s(3, dpi),
         .bottom = rect.bottom - s(3, dpi),
     };
-    fillSolidRect(hdc, badge_rect, bg);
-    fillSolidRect(hdc, .{
-        .left = badge_rect.left,
-        .top = badge_rect.top,
-        .right = badge_rect.right,
-        .bottom = badge_rect.top + 1,
-    }, border);
-    fillSolidRect(hdc, .{
-        .left = badge_rect.left,
-        .top = badge_rect.bottom - 1,
-        .right = badge_rect.right,
-        .bottom = badge_rect.bottom,
-    }, border);
-    fillSolidRect(hdc, .{
-        .left = badge_rect.left,
-        .top = badge_rect.top,
-        .right = badge_rect.left + 1,
-        .bottom = badge_rect.bottom,
-    }, border);
-    fillSolidRect(hdc, .{
-        .left = badge_rect.right - 1,
-        .top = badge_rect.top,
-        .right = badge_rect.right,
-        .bottom = badge_rect.bottom,
-    }, border);
+    drawRoundedRect(hdc, badge_rect, bg, border, s(3, dpi));
     var text_buf = [_]u16{ glyph, 0 };
     _ = SetBkMode(hdc, TRANSPARENT);
     _ = SetTextColor(hdc, fg);
@@ -6763,31 +6725,7 @@ fn paintTargetChipBadge(hdc: HDC, rect: RECT, glyph: u8, border: u32, bg: u32, f
         .right = rect.right - s(3, dpi),
         .bottom = rect.bottom - s(3, dpi),
     };
-    fillSolidRect(hdc, badge_rect, bg);
-    fillSolidRect(hdc, .{
-        .left = badge_rect.left,
-        .top = badge_rect.top,
-        .right = badge_rect.right,
-        .bottom = badge_rect.top + 1,
-    }, border);
-    fillSolidRect(hdc, .{
-        .left = badge_rect.left,
-        .top = badge_rect.bottom - 1,
-        .right = badge_rect.right,
-        .bottom = badge_rect.bottom,
-    }, border);
-    fillSolidRect(hdc, .{
-        .left = badge_rect.left,
-        .top = badge_rect.top,
-        .right = badge_rect.left + 1,
-        .bottom = badge_rect.bottom,
-    }, border);
-    fillSolidRect(hdc, .{
-        .left = badge_rect.right - 1,
-        .top = badge_rect.top,
-        .right = badge_rect.right,
-        .bottom = badge_rect.bottom,
-    }, border);
+    drawRoundedRect(hdc, badge_rect, bg, border, s(3, dpi));
     var text_buf = [_]u16{ glyph, 0 };
     _ = SetBkMode(hdc, TRANSPARENT);
     _ = SetTextColor(hdc, fg);
@@ -8223,7 +8161,7 @@ fn normalizeWheelDelta(
 
     return switch (axis) {
         .vertical => .{
-            .yoff = -pixels,
+            .yoff = pixels,
             .mods = .{
                 .precision = precision,
                 .pixel_delta = true,
@@ -8592,6 +8530,7 @@ fn windowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.w
 
             if (surface) |v| {
                 v.paint_pending = false;
+                v.finishRendererRepaintRequest();
                 if (v.core_initialized) {
                     v.redraw() catch |err| {
                         log.err("win32 paint redraw failed err={}", .{err});
@@ -8680,6 +8619,8 @@ pub const Surface = struct {
     inspector_visible: bool = false,
     debug_input_budget: u8 = 32,
     paint_pending: bool = false,
+    renderer_repaint_requested: std.atomic.Value(bool) = .init(false),
+    draw_in_progress: bool = false,
 
     pub fn init(
         self: *Surface,
@@ -8719,7 +8660,6 @@ pub const Surface = struct {
         ) orelse return windows.unexpectedError(windows.kernel32.GetLastError());
         errdefer _ = DestroyWindow(hwnd);
         self.hwnd = hwnd;
-        _ = ShowWindow(hwnd, SW_SHOW);
         const content_rect: RECT = host.contentRect() catch .{
             .left = 0,
             .top = host_tab_height,
@@ -8801,6 +8741,8 @@ pub const Surface = struct {
         self.destroy_on_wm_destroy = true;
         trace("win32.Surface.init: core init ok", .{});
         log.info("surface.init core surface initialized", .{});
+
+        _ = ShowWindow(hwnd, SW_SHOW);
 
         if (GetFocus() == hwnd) {
             self.window_focused = true;
@@ -8986,37 +8928,71 @@ pub const Surface = struct {
         };
     }
 
+    pub fn beginRendererRepaintRequest(self: *Surface) bool {
+        return !self.renderer_repaint_requested.swap(true, .acq_rel);
+    }
+
+    pub fn cancelRendererRepaintRequest(self: *Surface) void {
+        self.renderer_repaint_requested.store(false, .release);
+    }
+
+    fn finishRendererRepaintRequest(self: *Surface) void {
+        self.renderer_repaint_requested.store(false, .release);
+    }
+
     pub fn requestRepaint(self: *Surface) !void {
         const hwnd = self.hwnd orelse return;
         if (self.paint_pending) return;
         self.paint_pending = true;
         if (InvalidateRect(hwnd, null, 0) == 0) {
             self.paint_pending = false;
+            self.cancelRendererRepaintRequest();
             return windows.unexpectedError(windows.kernel32.GetLastError());
         }
     }
 
     pub fn redraw(self: *Surface) !void {
         if (!self.core_initialized) return;
+        const hwnd = self.hwnd orelse return;
+        if (IsWindowVisible(hwnd) == 0) return;
+        if (self.size.width == 0 or self.size.height == 0) return;
+        if (self.hdc == null or self.hglrc == null) return;
+        if (self.draw_in_progress) return;
+        self.draw_in_progress = true;
+        defer self.draw_in_progress = false;
         try self.makeGLContextCurrent();
-        if (builtin.mode == .Debug) log.info("win32 redraw current context acquired", .{});
         try self.core_surface.draw();
-        if (builtin.mode == .Debug) log.info("win32 redraw draw complete", .{});
     }
 
     pub fn makeGLContextCurrent(self: *Surface) !void {
-        if (wglMakeCurrent(self.hdc, self.hglrc) == 0) {
+        const hdc = self.hdc orelse return error.NoDeviceContext;
+        const hglrc = self.hglrc orelse return error.NoOpenGLContext;
+
+        if (wglGetCurrentContext() == hglrc and wglGetCurrentDC() == hdc) {
+            return;
+        }
+
+        if (wglMakeCurrent(hdc, hglrc) == 0) {
             return windows.unexpectedError(windows.kernel32.GetLastError());
         }
     }
 
     pub fn clearGLContextCurrent(self: *Surface) void {
-        _ = self;
+        const hdc = self.hdc orelse return;
+        const hglrc = self.hglrc orelse return;
+
+        if (wglGetCurrentContext() != hglrc or wglGetCurrentDC() != hdc) {
+            return;
+        }
+
         _ = wglMakeCurrent(null, null);
     }
 
     pub fn swapGLBuffers(self: *Surface) !void {
-        if (SwapBuffers(self.hdc) == 0) {
+        const hdc = self.hdc orelse return error.NoDeviceContext;
+        _ = self.hglrc orelse return error.NoOpenGLContext;
+
+        if (SwapBuffers(hdc) == 0) {
             return windows.unexpectedError(windows.kernel32.GetLastError());
         }
     }
@@ -9477,6 +9453,8 @@ pub const Surface = struct {
         self.core_surface.focusCallback(focused) catch |err| {
             log.err("win32 focus callback failed err={}", .{err});
         };
+        // Repaint pane divider focus borders when split pane focus changes
+        if (self.host) |host| host.invalidateChrome();
     }
 
     fn handleKeyMessage(self: *Surface, msg: UINT, wParam: WPARAM, lParam: LPARAM) void {
@@ -9895,7 +9873,7 @@ test "win32 normalizeWheelDelta maps discrete wheel steps to pixel deltas" {
         .viewport = .{ .width = 800, .height = 600 },
     }, .vertical, 120);
 
-    try std.testing.expectApproxEqAbs(-48.0, event.yoff, 0.0001);
+    try std.testing.expectApproxEqAbs(48.0, event.yoff, 0.0001);
     try std.testing.expectEqual(@as(f64, 0), event.xoff);
     try std.testing.expect(!event.mods.precision);
     try std.testing.expect(event.mods.pixel_delta);
@@ -9925,7 +9903,7 @@ test "win32 normalizeWheelDelta scales high-resolution input proportionally" {
         .viewport = .{ .width = 800, .height = 600 },
     }, .vertical, 40);
 
-    try std.testing.expectApproxEqAbs(-(16.0 / 3.0), event.yoff, 0.0001);
+    try std.testing.expectApproxEqAbs(16.0 / 3.0, event.yoff, 0.0001);
     try std.testing.expect(event.mods.precision);
     try std.testing.expect(event.mods.pixel_delta);
 }
@@ -9939,7 +9917,7 @@ test "win32 normalizeWheelDelta honors page scroll settings" {
         .viewport = .{ .width = 800, .height = 600 },
     }, .vertical, 120);
 
-    try std.testing.expectApproxEqAbs(-584.0, event.yoff, 0.0001);
+    try std.testing.expectApproxEqAbs(584.0, event.yoff, 0.0001);
     try std.testing.expect(!event.mods.precision);
     try std.testing.expect(event.mods.pixel_delta);
 }
@@ -9953,7 +9931,7 @@ test "win32 normalizeWheelDelta ignores page scroll settings for high-resolution
         .viewport = .{ .width = 800, .height = 600 },
     }, .vertical, 40);
 
-    try std.testing.expectApproxEqAbs(-(16.0 / 3.0), event.yoff, 0.0001);
+    try std.testing.expectApproxEqAbs(16.0 / 3.0, event.yoff, 0.0001);
     try std.testing.expect(event.mods.precision);
     try std.testing.expect(event.mods.pixel_delta);
 }
@@ -9967,9 +9945,25 @@ test "win32 normalizeWheelDelta ignores disabled notch settings for high-resolut
         .viewport = .{ .width = 800, .height = 600 },
     }, .vertical, 40);
 
-    try std.testing.expectApproxEqAbs(-(16.0 / 3.0), event.yoff, 0.0001);
+    try std.testing.expectApproxEqAbs(16.0 / 3.0, event.yoff, 0.0001);
     try std.testing.expect(event.mods.precision);
     try std.testing.expect(event.mods.pixel_delta);
+}
+
+test "win32 renderer repaint request coalesces until paint completes" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    var surface: Surface = undefined;
+    surface.renderer_repaint_requested = .init(false);
+
+    try std.testing.expect(surface.beginRendererRepaintRequest());
+    try std.testing.expect(!surface.beginRendererRepaintRequest());
+
+    surface.cancelRendererRepaintRequest();
+    try std.testing.expect(surface.beginRendererRepaintRequest());
+
+    surface.finishRendererRepaintRequest();
+    try std.testing.expect(surface.beginRendererRepaintRequest());
 }
 
 test "win32 sanitizeIpcNamespace normalizes invalid characters" {
@@ -9987,7 +9981,7 @@ test "win32 allocIpcPipeName prefixes sanitized namespace" {
     const pipe_name = try allocIpcPipeName(std.testing.allocator, "demo class");
     defer std.testing.allocator.free(pipe_name);
 
-    const pipe_name_utf8 = try std.unicode.utf16LeToUtf8Alloc(std.testing.allocator, pipe_name[0..std.mem.len(pipe_name)]);
+    const pipe_name_utf8 = try std.unicode.utf16LeToUtf8Alloc(std.testing.allocator, pipe_name[0..pipe_name.len]);
     defer std.testing.allocator.free(pipe_name_utf8);
 
     try std.testing.expectEqualStrings("\\\\.\\pipe\\winghostty.demo_class", pipe_name_utf8);
@@ -10012,7 +10006,7 @@ test "win32 hostWindowStyle clips child repaints" {
 
     const style = hostWindowStyle();
     try std.testing.expect((style & WS_CLIPCHILDREN) != 0);
-    try std.testing.expect((style & WS_VISIBLE) != 0);
+    try std.testing.expect((style & WS_VISIBLE) == 0);
 }
 
 test "win32 surfaceWindowStyle clips sibling repaints" {
@@ -10968,6 +10962,13 @@ test "win32 commandPaletteDirectionFromWheelDelta maps wheel direction to comple
     try std.testing.expect(!commandPaletteDirectionFromWheelDelta(-120));
 }
 
+test "win32 profileDirectionFromWheelDelta maps wheel direction to profile navigation" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try std.testing.expect(profileDirectionFromWheelDelta(120));
+    try std.testing.expect(!profileDirectionFromWheelDelta(-120));
+}
+
 test "win32 overlayEditBorderColor reflects mode and focus" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
@@ -10982,29 +10983,32 @@ test "win32 overlayEditBorderColor reflects mode and focus" {
     try std.testing.expectEqual(rgb(180, 180, 180), overlayEditBorderColor(.none, false, false));
 }
 
-test "win32 buttonColors reflects hover and active states" {
+test "win32 buttonColorsFromTheme reflects hover and active states" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
-    const hovered = buttonColors(false, false, true, false, false, false);
-    try std.testing.expectEqual(rgb(44, 52, 62), hovered.bg);
-    try std.testing.expectEqual(rgb(92, 104, 122), hovered.border);
+    const theme = darkTheme();
+    const hovered = buttonColorsFromTheme(&theme, false, false, true, false, false, false);
+    // Hover should lighten bg and border from idle
+    try std.testing.expect(hovered.bg != theme.button_bg);
+    try std.testing.expect(hovered.border != theme.button_border);
 
-    const active_hovered = buttonColors(true, false, true, false, false, false);
-    try std.testing.expectEqual(rgb(72, 90, 122), active_hovered.bg);
-    try std.testing.expectEqual(rgb(132, 172, 238), active_hovered.border);
+    const active_hovered = buttonColorsFromTheme(&theme, true, false, true, false, false, false);
+    try std.testing.expect(active_hovered.bg != theme.button_active_bg);
+    try std.testing.expectEqual(theme.accent_hover, active_hovered.border);
 
-    const accept_hovered = buttonColors(false, false, true, false, false, true);
-    try std.testing.expectEqual(rgb(62, 104, 184), accept_hovered.bg);
-    try std.testing.expectEqual(rgb(146, 186, 255), accept_hovered.border);
+    const accept_hovered = buttonColorsFromTheme(&theme, false, false, true, false, false, true);
+    try std.testing.expect(accept_hovered.bg != theme.button_accept_bg);
+    try std.testing.expect(accept_hovered.border != theme.button_accept_border);
 }
 
-test "win32 buttonFocusRingColor reflects control role" {
+test "win32 focus ring colors from theme" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
-    try std.testing.expectEqual(rgb(184, 212, 255), buttonFocusRingColor(false, false, true));
-    try std.testing.expectEqual(rgb(172, 206, 255), buttonFocusRingColor(true, false, false));
-    try std.testing.expectEqual(rgb(160, 190, 238), buttonFocusRingColor(false, true, false));
-    try std.testing.expectEqual(rgb(140, 166, 208), buttonFocusRingColor(false, false, false));
+    const theme = darkTheme();
+    try std.testing.expectEqual(rgb(184, 212, 255), theme.button_accept_focus_ring);
+    try std.testing.expectEqual(rgb(172, 206, 255), theme.button_active_focus_ring);
+    try std.testing.expectEqual(rgb(160, 190, 238), theme.button_overlay_focus_ring);
+    try std.testing.expectEqual(rgb(140, 166, 208), theme.button_focus_ring);
 }
 
 test "win32 profileChromeAccent assigns distinct profile accents" {
@@ -11037,7 +11041,8 @@ test "win32 applyProfileChromeAccent respects profile state" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
     // Dark mode
-    const base = buttonColors(false, false, false, false, false, false);
+    const theme = darkTheme();
+    const base = buttonColorsFromTheme(&theme, false, false, false, false, false, false);
     const idle = applyProfileChromeAccent(base, .git_bash, true, false, false, false, false);
     try std.testing.expectEqual(rgb(48, 40, 31), idle.bg);
     try std.testing.expectEqual(rgb(212, 156, 92), idle.border);

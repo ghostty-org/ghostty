@@ -4,25 +4,15 @@ const std = @import("std");
 /// equivalent feature sets.
 pub const Runtime = enum {
     /// Will not produce an executable at all when `zig build` is called.
-    /// This is only useful if you're only interested in the lib only (macOS).
+    /// This is only useful for non-app/library-only builds.
     none,
 
-    /// Native Win32 runtime. This is currently bring-up only and is opt-in
-    /// until surface/window management is implemented.
+    /// Native Win32 runtime for the Windows-only fork.
     win32,
-
-    /// GTK4. Rich windowed application. This uses a full GObject-based
-    /// approach to building the application.
-    gtk,
 
     pub fn default(target: std.Target) Runtime {
         return switch (target.os.tag) {
-            // The Linux and FreeBSD default is GTK because it is a full
-            // featured application.
-            .linux, .freebsd => .gtk,
-            // Otherwise, we do NONE so we don't create an exe and we create
-            // libghostty. On macOS, Xcode is used to build the app that links
-            // to libghostty.
+            .windows => .win32,
             else => .none,
         };
     }

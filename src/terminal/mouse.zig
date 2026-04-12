@@ -81,11 +81,6 @@ pub const Shape = enum(c_int) {
         }
 
         break :gtk switch (@import("../build_config.zig").app_runtime) {
-            .gtk => @import("gobject").ext.defineEnum(
-                Shape,
-                .{ .name = "GhosttyMouseShape" },
-            ),
-
             .none, .win32 => void,
         };
     };

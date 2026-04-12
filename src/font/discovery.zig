@@ -2,13 +2,14 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = @import("../quirks.zig").inlineAssert;
 const freetype = @import("freetype");
-const fontconfig = @import("fontconfig");
-const macos = @import("macos");
 const opentype = @import("opentype.zig");
 const options = @import("main.zig").options;
 const Collection = @import("main.zig").Collection;
 const DeferredFace = @import("main.zig").DeferredFace;
 const Variation = @import("main.zig").face.Variation;
+const fontconfig = if (options.backend.hasFontconfig()) @import("fontconfig") else struct {};
+const macos = if (options.backend.hasCoretext()) @import("macos") else struct {};
+const CoreTextFontDescriptor = if (options.backend.hasCoretext()) *macos.text.FontDescriptor else void;
 
 const log = std.log.scoped(.discovery);
 
@@ -18,11 +19,6 @@ pub const Discover = switch (options.backend) {
     .windows_freetype => Windows,
     .fontconfig_freetype => Fontconfig,
     .web_canvas => void, // no discovery
-    .coretext,
-    .coretext_freetype,
-    .coretext_harfbuzz,
-    .coretext_noshape,
-    => CoreText,
 };
 
 /// Descriptor is used to search for fonts. The only required field
@@ -111,137 +107,143 @@ pub const Descriptor = struct {
     /// Convert to Fontconfig pattern to use for lookup. The pattern does
     /// not have defaults filled/substituted (Fontconfig thing) so callers
     /// must still do this.
-    pub fn toFcPattern(self: Descriptor) *fontconfig.Pattern {
-        const pat = fontconfig.Pattern.create();
-        if (self.family) |family| {
-            assert(pat.add(.family, .{ .string = family }, false));
-        }
-        if (self.style) |style| {
-            assert(pat.add(.style, .{ .string = style }, false));
-        }
-        if (self.codepoint > 0) {
-            const cs = fontconfig.CharSet.create();
-            defer cs.destroy();
-            assert(cs.addChar(self.codepoint));
-            assert(pat.add(.charset, .{ .char_set = cs }, false));
-        }
-        if (self.size > 0) assert(pat.add(
-            .size,
-            .{ .integer = @intFromFloat(@round(self.size)) },
-            false,
-        ));
-        if (self.bold) assert(pat.add(
-            .weight,
-            .{ .integer = @intFromEnum(fontconfig.Weight.bold) },
-            false,
-        ));
-        if (self.italic) assert(pat.add(
-            .slant,
-            .{ .integer = @intFromEnum(fontconfig.Slant.italic) },
-            false,
-        ));
+    pub fn toFcPattern(self: Descriptor) if (options.backend.hasFontconfig()) *fontconfig.Pattern else void {
+        if (comptime options.backend.hasFontconfig()) {
+            const pat = fontconfig.Pattern.create();
+            if (self.family) |family| {
+                assert(pat.add(.family, .{ .string = family }, false));
+            }
+            if (self.style) |style| {
+                assert(pat.add(.style, .{ .string = style }, false));
+            }
+            if (self.codepoint > 0) {
+                const cs = fontconfig.CharSet.create();
+                defer cs.destroy();
+                assert(cs.addChar(self.codepoint));
+                assert(pat.add(.charset, .{ .char_set = cs }, false));
+            }
+            if (self.size > 0) assert(pat.add(
+                .size,
+                .{ .integer = @intFromFloat(@round(self.size)) },
+                false,
+            ));
+            if (self.bold) assert(pat.add(
+                .weight,
+                .{ .integer = @intFromEnum(fontconfig.Weight.bold) },
+                false,
+            ));
+            if (self.italic) assert(pat.add(
+                .slant,
+                .{ .integer = @intFromEnum(fontconfig.Slant.italic) },
+                false,
+            ));
 
-        // For fontconfig, we always add monospace in the pattern. Since
-        // fontconfig sorts by closeness to the pattern, this doesn't fully
-        // exclude non-monospace but helps prefer it.
-        assert(pat.add(
-            .spacing,
-            .{ .integer = @intFromEnum(fontconfig.Spacing.mono) },
-            false,
-        ));
+            // For fontconfig, we always add monospace in the pattern. Since
+            // fontconfig sorts by closeness to the pattern, this doesn't fully
+            // exclude non-monospace but helps prefer it.
+            assert(pat.add(
+                .spacing,
+                .{ .integer = @intFromEnum(fontconfig.Spacing.mono) },
+                false,
+            ));
 
-        return pat;
+            return pat;
+        }
     }
 
     /// Convert to Core Text font descriptor to use for lookup or
     /// conversion to a specific font.
-    pub fn toCoreTextDescriptor(self: Descriptor) !*macos.text.FontDescriptor {
-        const attrs = try macos.foundation.MutableDictionary.create(0);
-        defer attrs.release();
+    pub fn toCoreTextDescriptor(self: Descriptor) !CoreTextFontDescriptor {
+        if (comptime options.backend.hasCoretext()) {
+            const attrs = try macos.foundation.MutableDictionary.create(0);
+            defer attrs.release();
 
-        // Family
-        if (self.family) |family_bytes| {
-            const family = try macos.foundation.String.createWithBytes(family_bytes, .utf8, false);
-            defer family.release();
-            attrs.setValue(
-                macos.text.FontAttribute.family_name.key(),
-                family,
-            );
+            // Family
+            if (self.family) |family_bytes| {
+                const family = try macos.foundation.String.createWithBytes(family_bytes, .utf8, false);
+                defer family.release();
+                attrs.setValue(
+                    macos.text.FontAttribute.family_name.key(),
+                    family,
+                );
+            }
+
+            // Style
+            if (self.style) |style_bytes| {
+                const style = try macos.foundation.String.createWithBytes(style_bytes, .utf8, false);
+                defer style.release();
+                attrs.setValue(
+                    macos.text.FontAttribute.style_name.key(),
+                    style,
+                );
+            }
+
+            // Codepoint support
+            if (self.codepoint > 0) {
+                const cs = try macos.foundation.CharacterSet.createWithCharactersInRange(.{
+                    .location = self.codepoint,
+                    .length = 1,
+                });
+                defer cs.release();
+                attrs.setValue(
+                    macos.text.FontAttribute.character_set.key(),
+                    cs,
+                );
+            }
+
+            // Set our size attribute if set
+            if (self.size > 0) {
+                const size32: i32 = @intFromFloat(@round(self.size));
+                const size = try macos.foundation.Number.create(
+                    .sint32,
+                    &size32,
+                );
+                defer size.release();
+                attrs.setValue(
+                    macos.text.FontAttribute.size.key(),
+                    size,
+                );
+            }
+
+            // Build our traits. If we set any, then we store it in the attributes
+            // otherwise we do nothing. We determine this by setting up the packed
+            // struct, converting to an int, and checking if it is non-zero.
+            const traits: macos.text.FontSymbolicTraits = .{
+                .bold = self.bold,
+                .italic = self.italic,
+                .monospace = self.monospace,
+            };
+            const traits_cval: u32 = @bitCast(traits);
+            if (traits_cval > 0) {
+                // Setting traits is a pain. We have to create a nested dictionary
+                // of the symbolic traits value, and set that in our attributes.
+                const traits_num = try macos.foundation.Number.create(
+                    .sint32,
+                    @as(*const i32, @ptrCast(&traits_cval)),
+                );
+                defer traits_num.release();
+
+                const traits_dict = try macos.foundation.MutableDictionary.create(0);
+                defer traits_dict.release();
+                traits_dict.setValue(
+                    macos.text.FontTraitKey.symbolic.key(),
+                    traits_num,
+                );
+
+                attrs.setValue(
+                    macos.text.FontAttribute.traits.key(),
+                    traits_dict,
+                );
+            }
+
+            return try macos.text.FontDescriptor.createWithAttributes(@ptrCast(attrs));
         }
 
-        // Style
-        if (self.style) |style_bytes| {
-            const style = try macos.foundation.String.createWithBytes(style_bytes, .utf8, false);
-            defer style.release();
-            attrs.setValue(
-                macos.text.FontAttribute.style_name.key(),
-                style,
-            );
-        }
-
-        // Codepoint support
-        if (self.codepoint > 0) {
-            const cs = try macos.foundation.CharacterSet.createWithCharactersInRange(.{
-                .location = self.codepoint,
-                .length = 1,
-            });
-            defer cs.release();
-            attrs.setValue(
-                macos.text.FontAttribute.character_set.key(),
-                cs,
-            );
-        }
-
-        // Set our size attribute if set
-        if (self.size > 0) {
-            const size32: i32 = @intFromFloat(@round(self.size));
-            const size = try macos.foundation.Number.create(
-                .sint32,
-                &size32,
-            );
-            defer size.release();
-            attrs.setValue(
-                macos.text.FontAttribute.size.key(),
-                size,
-            );
-        }
-
-        // Build our traits. If we set any, then we store it in the attributes
-        // otherwise we do nothing. We determine this by setting up the packed
-        // struct, converting to an int, and checking if it is non-zero.
-        const traits: macos.text.FontSymbolicTraits = .{
-            .bold = self.bold,
-            .italic = self.italic,
-            .monospace = self.monospace,
-        };
-        const traits_cval: u32 = @bitCast(traits);
-        if (traits_cval > 0) {
-            // Setting traits is a pain. We have to create a nested dictionary
-            // of the symbolic traits value, and set that in our attributes.
-            const traits_num = try macos.foundation.Number.create(
-                .sint32,
-                @as(*const i32, @ptrCast(&traits_cval)),
-            );
-            defer traits_num.release();
-
-            const traits_dict = try macos.foundation.MutableDictionary.create(0);
-            defer traits_dict.release();
-            traits_dict.setValue(
-                macos.text.FontTraitKey.symbolic.key(),
-                traits_num,
-            );
-
-            attrs.setValue(
-                macos.text.FontAttribute.traits.key(),
-                traits_dict,
-            );
-        }
-
-        return try macos.text.FontDescriptor.createWithAttributes(@ptrCast(attrs));
+        unreachable;
     }
 };
 
-pub const Fontconfig = struct {
+pub const Fontconfig = if (options.backend.hasFontconfig()) struct {
     fc_config: *fontconfig.Config,
 
     pub fn init() Fontconfig {
@@ -332,7 +334,7 @@ pub const Fontconfig = struct {
             };
         }
     };
-};
+} else struct {};
 
 pub const Windows = struct {
     alloc: Allocator,
@@ -691,7 +693,7 @@ pub const Windows = struct {
     }
 };
 
-pub const CoreText = struct {
+pub const CoreText = if (options.backend.hasCoretext()) struct {
     pub fn init() CoreText {
         // Required for the "interface" but does nothing for CoreText.
         return .{};
@@ -1236,6 +1238,50 @@ pub const CoreText = struct {
             };
         }
     };
+} else struct {
+    pub const DiscoverIterator = struct {
+        pub fn deinit(self: *DiscoverIterator) void {
+            _ = self;
+            unreachable;
+        }
+
+        pub fn next(self: *DiscoverIterator) !?DeferredFace {
+            _ = self;
+            unreachable;
+        }
+    };
+
+    pub fn init() CoreText {
+        return .{};
+    }
+
+    pub fn deinit(self: *CoreText) void {
+        _ = self;
+    }
+
+    pub fn discover(
+        self: *const CoreText,
+        alloc: Allocator,
+        desc: Descriptor,
+    ) !DiscoverIterator {
+        _ = self;
+        _ = alloc;
+        _ = desc;
+        unreachable;
+    }
+
+    pub fn discoverFallback(
+        self: *const CoreText,
+        alloc: Allocator,
+        collection: *Collection,
+        desc: Descriptor,
+    ) !DiscoverIterator {
+        _ = self;
+        _ = alloc;
+        _ = collection;
+        _ = desc;
+        unreachable;
+    }
 };
 
 test "descriptor hash" {
@@ -1287,124 +1333,15 @@ test "fontconfig codepoint" {
 }
 
 test "coretext" {
-    if (options.backend != .coretext and options.backend != .coretext_freetype)
-        return error.SkipZigTest;
-
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var ct = CoreText.init();
-    defer ct.deinit();
-    var it = try ct.discover(alloc, .{ .family = "Monaco", .size = 12 });
-    defer it.deinit();
-    var count: usize = 0;
-    while (try it.next()) |_| {
-        count += 1;
-    }
-    try testing.expect(count > 0);
+    return error.SkipZigTest;
 }
 
 test "coretext codepoint" {
-    if (options.backend != .coretext and options.backend != .coretext_freetype)
-        return error.SkipZigTest;
-
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var ct = CoreText.init();
-    defer ct.deinit();
-    var it = try ct.discover(alloc, .{ .codepoint = 'A', .size = 12 });
-    defer it.deinit();
-
-    // The first result should have the codepoint. Later ones may not
-    // because fontconfig returns all fonts sorted.
-    const face = (try it.next()).?;
-    try testing.expect(face.hasCodepoint('A', null));
-
-    // Should have other codepoints too
-    try testing.expect(face.hasCodepoint('B', null));
+    return error.SkipZigTest;
 }
 
 test "coretext sorting" {
-    if (options.backend != .coretext and options.backend != .coretext_freetype)
-        return error.SkipZigTest;
-
-    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!//
-    // FIXME: Disabled for now because SF Pro is not available in CI
-    //        The solution likely involves directly testing that the
-    //        `sortMatchingDescriptors` function sorts a bundled test
-    //        font correctly, instead of relying on the system fonts.
-    if (true) return error.SkipZigTest;
-    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!//
-
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var ct = CoreText.init();
-    defer ct.deinit();
-
-    // We try to get a Regular, Italic, Bold, & Bold Italic version of SF Pro,
-    // which should be installed on all Macs, and has many styles which makes
-    // it a good test, since there will be many results for each discovery.
-
-    // Regular
-    {
-        var it = try ct.discover(alloc, .{
-            .family = "SF Pro",
-            .size = 12,
-        });
-        defer it.deinit();
-        const res = (try it.next()).?;
-        var buf: [1024]u8 = undefined;
-        const name = try res.name(&buf);
-        try testing.expectEqualStrings("SF Pro Regular", name);
-    }
-
-    // Regular Italic
-    //
-    // NOTE: This makes sure that we don't accidentally prefer "Thin Italic",
-    //       which we previously did, because it has a shorter name.
-    {
-        var it = try ct.discover(alloc, .{
-            .family = "SF Pro",
-            .size = 12,
-            .italic = true,
-        });
-        defer it.deinit();
-        const res = (try it.next()).?;
-        var buf: [1024]u8 = undefined;
-        const name = try res.name(&buf);
-        try testing.expectEqualStrings("SF Pro Regular Italic", name);
-    }
-
-    // Bold
-    {
-        var it = try ct.discover(alloc, .{
-            .family = "SF Pro",
-            .size = 12,
-            .bold = true,
-        });
-        defer it.deinit();
-        const res = (try it.next()).?;
-        var buf: [1024]u8 = undefined;
-        const name = try res.name(&buf);
-        try testing.expectEqualStrings("SF Pro Bold", name);
-    }
-
-    // Bold Italic
-    {
-        var it = try ct.discover(alloc, .{
-            .family = "SF Pro",
-            .size = 12,
-            .bold = true,
-            .italic = true,
-        });
-        defer it.deinit();
-        const res = (try it.next()).?;
-        var buf: [1024]u8 = undefined;
-        const name = try res.name(&buf);
-        try testing.expectEqualStrings("SF Pro Bold Italic", name);
-    }
+    return error.SkipZigTest;
 }
 
 test "windowsSupportedFontFileHelper" {

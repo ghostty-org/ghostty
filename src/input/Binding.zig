@@ -648,9 +648,10 @@ pub const Action = union(enum) {
     /// Valid arguments: `toggle`, `show`, `hide`.
     inspector: InspectorMode,
 
-    /// Show the GTK inspector.
+    /// Show the legacy platform inspector.
     ///
-    /// Has no effect on macOS.
+    /// In the Windows-only fork this is treated as a compatibility alias for
+    /// showing the native Ghostty inspector.
     show_gtk_inspector,
 
     /// Show the on-screen keyboard if one is present.
@@ -936,15 +937,8 @@ pub const Action = union(enum) {
 
     pub const Key = @typeInfo(Action).@"union".tag_type.?;
 
-    /// Make this a valid gobject if we're in a GTK environment.
-    pub const getGObjectType = switch (build_config.app_runtime) {
-        .gtk => @import("gobject").ext.defineBoxed(
-            Action,
-            .{ .name = "GhosttyBindingAction" },
-        ),
-
-        .none, .win32 => void,
-    };
+    /// GTK boxed types are not used in the Windows-only fork.
+    pub const getGObjectType = void;
 
     pub const CrashThread = enum {
         main,
@@ -1618,9 +1612,10 @@ pub const Action = union(enum) {
 };
 
 /// Trigger is the associated key state that can trigger an action.
-/// This is an extern struct because this is also used in the C API.
+/// This remains extern for compatibility with retained extern-facing
+/// structures.
 ///
-/// This must be kept in sync with include/ghostty.h ghostty_input_trigger_s
+/// Keep compatibility surfaces in sync if this layout changes.
 pub const Trigger = struct {
     /// The key that has to be pressed for a binding to take action.
     key: Trigger.Key = .{ .physical = .unidentified },

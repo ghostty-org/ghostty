@@ -111,28 +111,17 @@ pub const Options = struct {
 /// If `--working-directory` is _not_ found on the command line, the working
 /// directory that `ghostty +new-window` is run from will be passed to Ghostty.
 ///
-/// GTK uses an application ID to identify instances of applications. If Ghostty
-/// is compiled with release optimizations, the default application ID will be
-/// `com.mitchellh.ghostty`. If Ghostty is compiled with debug optimizations,
-/// the default application ID will be `com.mitchellh.ghostty-debug`.  The
-/// `class` configuration entry can be used to set up a custom application
-/// ID. The class name must follow the requirements defined [in the GTK
-/// documentation](https://docs.gtk.org/gio/type_func.Application.id_is_valid.html)
-/// or it will be ignored and Ghostty will use the default as defined above.
-///
-/// On GTK, D-Bus activation must be properly configured. Ghostty does not need
-/// to be running for this to open a new window, making it suitable for binding
-/// to keys in your window manager (if other methods for configuring global
-/// shortcuts are unavailable). D-Bus will handle launching a new instance
-/// of Ghostty if it is not already running. See the Ghostty website for
-/// information on properly configuring D-Bus activation.
-///
-/// Only supported on GTK.
+/// On Win32, `+new-window` uses a native named-pipe IPC channel to forward the
+/// collected command-line arguments into an already-running `ghostty.exe`
+/// instance. If no matching instance is available, Ghostty falls back to
+/// launching a new `ghostty.exe` process. If `--class` is provided, that value
+/// is used as the instance namespace for both IPC lookup and process fallback.
 ///
 /// Flags:
 ///
 ///   * `--class=<class>`: If set, open up a new window in a custom instance of
-///     Ghostty. The class must be a valid GTK application ID.
+///     Ghostty. On Win32 this selects the IPC namespace and is also forwarded
+///     to the fallback process launch path.
 ///
 ///   * `--command`: The command to be executed in the first surface of the new window.
 ///
@@ -225,7 +214,6 @@ fn runArgs(
         },
     }) return 0;
 
-    // If we get here, the platform is not supported.
-    try stderr.print("+new-window is not supported on this platform.\n", .{});
+    try stderr.print("+new-window could not find or start a matching Ghostty instance.\n", .{});
     return 1;
 }

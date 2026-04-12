@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
@@ -7,14 +6,9 @@ const file_load = @import("file_load.zig");
 
 /// The path to the configuration that should be opened for editing.
 ///
-/// On Linux, this will use the file at the XDG config path. This is the
-/// only valid path for Linux so we don't need to check for other paths.
-///
-/// On macOS, both XDG and AppSupport paths are valid. Because Ghostty
-/// prioritizes AppSupport over XDG, we will use AppSupport if it exists,
-/// followed by XDG if it exists, and finally AppSupport if neither exist.
-/// For the existence check, we also prefer non-empty files over empty
-/// files.
+/// The Windows-only fork keeps a single per-user config location, so we only
+/// need to consider the current and legacy XDG-style config filenames and pick
+/// the first non-empty file that already exists.
 ///
 /// The returned value is allocated using the provided allocator.
 pub fn openPath(alloc_gpa: Allocator) ![:0]const u8 {
@@ -86,16 +80,10 @@ fn configPath(alloc_arena: Allocator) ![]const u8 {
     return paths[0];
 }
 
-/// Returns a const list of possible paths the main config file could be
-/// in for the current OS.
+/// Returns the possible main-config paths for the Windows-only fork.
 fn configPathCandidates(alloc_arena: Allocator) ![]const []const u8 {
-    var paths: std.ArrayList([]const u8) = try .initCapacity(alloc_arena, 4);
+    var paths: std.ArrayList([]const u8) = try .initCapacity(alloc_arena, 2);
     errdefer paths.deinit(alloc_arena);
-
-    if (comptime builtin.os.tag == .macos) {
-        paths.appendAssumeCapacity(try file_load.defaultAppSupportPath(alloc_arena));
-        paths.appendAssumeCapacity(try file_load.legacyDefaultAppSupportPath(alloc_arena));
-    }
 
     paths.appendAssumeCapacity(try file_load.defaultXdgPath(alloc_arena));
     paths.appendAssumeCapacity(try file_load.legacyDefaultXdgPath(alloc_arena));

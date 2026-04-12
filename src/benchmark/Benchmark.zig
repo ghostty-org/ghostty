@@ -4,8 +4,44 @@ const Benchmark = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const macos = @import("macos");
 const build_config = @import("../build_config.zig");
+const darwin = if (builtin.target.os.tag.isDarwin()) struct {
+    const macos = @import("macos");
+    const signpost_name = "ghostty";
+
+    const Signpost = struct {
+        log: *macos.os.Log,
+        id: macos.os.signpost.Id,
+    };
+
+    fn begin(ptr: *anyopaque) Signpost {
+        macos.os.signpost.init();
+        const log = macos.os.Log.create(
+            build_config.bundle_id,
+            macos.os.signpost.Category.points_of_interest,
+        );
+        const id = macos.os.signpost.Id.forPointer(log, ptr);
+        macos.os.signpost.intervalBegin(log, id, signpost_name);
+        return .{ .log = log, .id = id };
+    }
+
+    fn end(signpost: Signpost) void {
+        macos.os.signpost.intervalEnd(
+            signpost.log,
+            signpost.id,
+            signpost_name,
+        );
+        signpost.log.release();
+    }
+} else struct {
+    const Signpost = void;
+
+    fn begin(_: *anyopaque) Signpost {
+        return {};
+    }
+
+    fn end(_: Signpost) void {}
+};
 
 ptr: *anyopaque,
 vtable: VTable,
@@ -41,28 +77,8 @@ pub fn run(
     // If we're on macOS, we setup signposts so its easier to find
     // the results in Instruments. There's a lot of nasty comptime stuff
     // here but its just to ensure this does nothing on other platforms.
-    const signpost_name = "ghostty";
-    const signpost: if (builtin.target.os.tag.isDarwin()) struct {
-        log: *macos.os.Log,
-        id: macos.os.signpost.Id,
-    } else void = if (builtin.target.os.tag.isDarwin()) darwin: {
-        macos.os.signpost.init();
-        const log = macos.os.Log.create(
-            build_config.bundle_id,
-            macos.os.signpost.Category.points_of_interest,
-        );
-        const id = macos.os.signpost.Id.forPointer(log, self.ptr);
-        macos.os.signpost.intervalBegin(log, id, signpost_name);
-        break :darwin .{ .log = log, .id = id };
-    } else {};
-    defer if (comptime builtin.target.os.tag.isDarwin()) {
-        macos.os.signpost.intervalEnd(
-            signpost.log,
-            signpost.id,
-            signpost_name,
-        );
-        signpost.log.release();
-    };
+    const signpost = darwin.begin(self.ptr);
+    defer darwin.end(signpost);
 
     const start = std.time.Instant.now() catch return error.BenchmarkFailed;
     while (true) {

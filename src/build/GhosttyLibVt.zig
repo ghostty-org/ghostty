@@ -1,11 +1,9 @@
 const GhosttyLibVt = @This();
 
 const std = @import("std");
-const builtin = @import("builtin");
 const assert = std.debug.assert;
 const RunStep = std.Build.Step.Run;
 const GhosttyZig = @import("GhosttyZig.zig");
-const LibtoolStep = @import("LibtoolStep.zig");
 const SharedDeps = @import("SharedDeps.zig");
 
 /// The step that generates the file.
@@ -140,13 +138,6 @@ fn initLib(
         lib.bundle_ubsan_rt = false;
     }
 
-    if (lib.rootModuleTarget().abi.isAndroid()) {
-        // Support 16kb page sizes, required for Android 15+.
-        lib.link_z_max_page_size = 16384; // 16kb
-
-        try @import("android_ndk").addPaths(b, lib);
-    }
-
     if (lib.rootModuleTarget().os.tag.isDarwin()) {
         // Self-hosted x86_64 doesn't work for darwin. It may not work
         // for other platforms too but definitely darwin.
@@ -154,10 +145,6 @@ fn initLib(
 
         // This is required for codesign and dynamic linking to work.
         lib.headerpad_max_install_names = true;
-
-        // If we're not cross compiling then we try to find the Apple
-        // SDK using standard Apple tooling.
-        if (builtin.os.tag.isDarwin()) try @import("apple_sdk").addPaths(b, lib);
     }
 
     // Get our debug symbols (only for shared libs; static libs aren't linked)
@@ -227,20 +214,13 @@ fn initLib(
 }
 
 /// Combine multiple static archives into a single fat archive.
-/// Uses libtool on Darwin and ar MRI scripts on other platforms.
+/// Uses ar MRI scripts to combine archives directly without extracting.
 fn combineArchives(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     sources: []const std.Build.LazyPath,
 ) struct { step: *std.Build.Step, output: std.Build.LazyPath } {
-    if (target.result.os.tag.isDarwin()) {
-        const libtool = LibtoolStep.create(b, .{
-            .name = "ghostty-vt",
-            .out_name = "libghostty-vt.a",
-            .sources = @constCast(sources),
-        });
-        return .{ .step = libtool.step, .output = libtool.output };
-    }
+    _ = target;
 
     // On non-Darwin, use an MRI script with ar -M to combine archives
     // directly without extracting. This avoids issues with ar x

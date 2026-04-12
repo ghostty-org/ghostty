@@ -1,20 +1,16 @@
 const SharedDeps = @This();
 
 const std = @import("std");
-const builtin = @import("builtin");
 
 const Config = @import("Config.zig");
 const HelpStrings = @import("HelpStrings.zig");
-const MetallibStep = @import("MetallibStep.zig");
 const UnicodeTables = @import("UnicodeTables.zig");
 const GhosttyFrameData = @import("GhosttyFrameData.zig");
-const DistResource = @import("GhosttyDist.zig").Resource;
 
 config: *const Config,
 
 options: *std.Build.Step.Options,
 help_strings: HelpStrings,
-metallib: ?*MetallibStep,
 unicode_tables: UnicodeTables,
 framedata: GhosttyFrameData,
 uucode_tables: std.Build.LazyPath,
@@ -23,24 +19,17 @@ uucode_tables: std.Build.LazyPath,
 pub const LazyPathList = std.ArrayList(std.Build.LazyPath);
 
 pub fn init(b: *std.Build, cfg: *const Config) !SharedDeps {
-    const uucode_tables = blk: {
-        const uucode = b.dependency("uucode", .{
-            .build_config_path = b.path("src/build/uucode_config.zig"),
-        });
-
-        break :blk uucode.namedLazyPath("tables.zig");
-    };
+    const uucode_tables = b.path("src/build/uucode_tables.zig");
 
     var result: SharedDeps = .{
         .config = cfg,
         .help_strings = try .init(b, cfg),
-        .unicode_tables = try .init(b, uucode_tables),
+        .unicode_tables = try .init(b, cfg, uucode_tables),
         .framedata = try .init(b),
         .uucode_tables = uucode_tables,
 
         // Setup by retarget
         .options = undefined,
-        .metallib = undefined,
     };
     try result.initTarget(b, cfg.target);
     if (cfg.emit_unicode_table_gen) result.unicode_tables.install(b);
@@ -82,13 +71,6 @@ fn initTarget(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
 ) !void {
-    // Update our metallib
-    self.metallib = .create(b, .{
-        .name = "Ghostty",
-        .target = target,
-        .sources = &.{b.path("src/renderer/shaders/shaders.metal")},
-    });
-
     // Change our config
     const config = try b.allocator.create(Config);
     config.* = self.config.*;
@@ -116,19 +98,6 @@ pub fn add(
     var static_libs: LazyPathList = .empty;
     errdefer static_libs.deinit(b.allocator);
 
-    // WARNING: This is a hack!
-    // If we're cross-compiling to Darwin then we don't add any deps.
-    // We don't support cross-compiling to Darwin but due to the way
-    // lazy dependencies work with Zig, we call this function. So we just
-    // bail. The build will fail but the build would've failed anyways.
-    // And this lets other non-platform-specific targets like `-Demit-lib-vt`
-    // cross-compile properly.
-    if (!builtin.target.os.tag.isDarwin() and
-        self.config.target.result.os.tag.isDarwin())
-    {
-        return static_libs;
-    }
-
     // Every exe gets build options populated
     step.root_module.addOptions("build_options", self.options);
 
@@ -151,33 +120,6 @@ pub fn add(
             c.addSystemIncludePath(.{ .cwd_relative = libc.sys_include_dir.? });
         }
         step.root_module.addImport("locale-c", c.createModule());
-    }
-
-    // C imports needed to manage/create PTYs
-    switch (target.result.os.tag) {
-        .freebsd,
-        .linux,
-        .macos,
-        => {
-            const c = b.addTranslateC(.{
-                .root_source_file = b.path("src/pty.c"),
-                .target = target,
-                .optimize = optimize,
-            });
-            switch (target.result.os.tag) {
-                .macos => {
-                    const libc = try std.zig.LibCInstallation.findNative(.{
-                        .allocator = b.allocator,
-                        .target = &target.result,
-                        .verbose = false,
-                    });
-                    c.addSystemIncludePath(.{ .cwd_relative = libc.sys_include_dir.? });
-                },
-                else => {},
-            }
-            step.root_module.addImport("pty-c", c.createModule());
-        },
-        else => {},
     }
 
     // Freetype. We always include this even if our font backend doesn't
@@ -212,7 +154,7 @@ pub fn add(
             .target = target,
             .optimize = optimize,
             .@"enable-freetype" = self.config.font_backend.hasFreetype(),
-            .@"enable-coretext" = self.config.font_backend.hasCoretext(),
+            .@"enable-coretext" = false,
         })) |harfbuzz_dep| {
             step.root_module.addImport(
                 "harfbuzz",
@@ -305,44 +247,46 @@ pub fn add(
         }
     }
 
-    // Glslang
-    if (b.lazyDependency("glslang", .{
-        .target = target,
-        .optimize = optimize,
-    })) |glslang_dep| {
-        step.root_module.addImport("glslang", glslang_dep.module("glslang"));
-        if (b.systemIntegrationOption("glslang", .{})) {
-            step.linkSystemLibrary2("glslang", dynamic_link_opts);
-            step.linkSystemLibrary2(
-                "glslang-default-resource-limits",
-                dynamic_link_opts,
-            );
-        } else {
-            step.linkLibrary(glslang_dep.artifact("glslang"));
-            try static_libs.append(
-                b.allocator,
-                glslang_dep.artifact("glslang").getEmittedBin(),
-            );
+    if (self.config.custom_shaders) {
+        // Glslang
+        if (b.lazyDependency("glslang", .{
+            .target = target,
+            .optimize = optimize,
+        })) |glslang_dep| {
+            step.root_module.addImport("glslang", glslang_dep.module("glslang"));
+            if (b.systemIntegrationOption("glslang", .{})) {
+                step.linkSystemLibrary2("glslang", dynamic_link_opts);
+                step.linkSystemLibrary2(
+                    "glslang-default-resource-limits",
+                    dynamic_link_opts,
+                );
+            } else {
+                step.linkLibrary(glslang_dep.artifact("glslang"));
+                try static_libs.append(
+                    b.allocator,
+                    glslang_dep.artifact("glslang").getEmittedBin(),
+                );
+            }
         }
-    }
 
-    // Spirv-cross
-    if (b.lazyDependency("spirv_cross", .{
-        .target = target,
-        .optimize = optimize,
-    })) |spirv_cross_dep| {
-        step.root_module.addImport(
-            "spirv_cross",
-            spirv_cross_dep.module("spirv_cross"),
-        );
-        if (b.systemIntegrationOption("spirv-cross", .{})) {
-            step.linkSystemLibrary2("spirv-cross-c-shared", dynamic_link_opts);
-        } else {
-            step.linkLibrary(spirv_cross_dep.artifact("spirv_cross"));
-            try static_libs.append(
-                b.allocator,
-                spirv_cross_dep.artifact("spirv_cross").getEmittedBin(),
+        // Spirv-cross
+        if (b.lazyDependency("spirv_cross", .{
+            .target = target,
+            .optimize = optimize,
+        })) |spirv_cross_dep| {
+            step.root_module.addImport(
+                "spirv_cross",
+                spirv_cross_dep.module("spirv_cross"),
             );
+            if (b.systemIntegrationOption("spirv-cross", .{})) {
+                step.linkSystemLibrary2("spirv-cross-c-shared", dynamic_link_opts);
+            } else {
+                step.linkLibrary(spirv_cross_dep.artifact("spirv_cross"));
+                try static_libs.append(
+                    b.allocator,
+                    spirv_cross_dep.artifact("spirv_cross").getEmittedBin(),
+                );
+            }
         }
     }
 
@@ -399,8 +343,7 @@ pub fn add(
     }
 
     // On Linux, we need to add a couple common library paths that aren't
-    // on the standard search list. i.e. GTK is often in /usr/lib/x86_64-linux-gnu
-    // on x86_64.
+    // on the standard search list.
     if (step.rootModuleTarget().os.tag == .linux) {
         const triple = try step.rootModuleTarget().linuxTriple(b.allocator);
         const path = b.fmt("/usr/lib/{s}", .{triple});
@@ -413,9 +356,6 @@ pub fn add(
     step.linkLibC();
     step.addIncludePath(b.path("src/stb"));
     step.addCSourceFiles(.{ .files = &.{"src/stb/stb.c"} });
-    if (step.rootModuleTarget().os.tag == .linux) {
-        step.addIncludePath(b.path("src/apprt/gtk"));
-    }
 
     // libcpp is required for various dependencies. On MSVC, we must
     // not use linkLibCpp because Zig unconditionally passes -nostdinc++
@@ -425,18 +365,6 @@ pub fn add(
     // both C and C++ headers, so linkLibCpp is not needed.
     if (step.rootModuleTarget().abi != .msvc) {
         step.linkLibCpp();
-    }
-
-    // We always require the system SDK so that our system headers are available.
-    // This makes things like `os/log.h` available for cross-compiling.
-    if (step.rootModuleTarget().os.tag.isDarwin()) {
-        try @import("apple_sdk").addPaths(b, step);
-
-        const metallib = self.metallib.?;
-        metallib.output.addStepDependencies(&step.step);
-        step.root_module.addAnonymousImport("ghostty_metallib", .{
-            .root_source_file = metallib.output,
-        });
     }
 
     // Other dependencies, mostly pure Zig
@@ -473,65 +401,14 @@ pub fn add(
         step.root_module.addImport("zf", dep.module("zf"));
     }
 
-    // Mac Stuff
-    if (step.rootModuleTarget().os.tag.isDarwin()) {
-        if (b.lazyDependency("zig_objc", .{
-            .target = target,
-            .optimize = optimize,
-        })) |objc_dep| {
-            step.root_module.addImport(
-                "objc",
-                objc_dep.module("objc"),
-            );
-        }
-
-        if (b.lazyDependency("macos", .{
-            .target = target,
-            .optimize = optimize,
-        })) |macos_dep| {
-            step.root_module.addImport(
-                "macos",
-                macos_dep.module("macos"),
-            );
-            step.linkLibrary(
-                macos_dep.artifact("macos"),
-            );
-            try static_libs.append(
-                b.allocator,
-                macos_dep.artifact("macos").getEmittedBin(),
-            );
-        }
-
-        if (self.config.renderer == .opengl) {
-            step.linkFramework("OpenGL");
-        }
-
-        // Apple platforms do not include libc libintl so we bundle it.
-        // This is LGPL but since our source code is open source we are
-        // in compliance with the LGPL since end users can modify this
-        // build script to replace the bundled libintl with their own.
-        if (b.lazyDependency("libintl", .{
-            .target = target,
-            .optimize = optimize,
-        })) |libintl_dep| {
-            step.linkLibrary(libintl_dep.artifact("intl"));
-            try static_libs.append(
-                b.allocator,
-                libintl_dep.artifact("intl").getEmittedBin(),
-            );
-        }
-    }
-
     // cimgui
     if (b.lazyDependency("dcimgui", .{
         .target = target,
         .optimize = optimize,
         .freetype = true,
-        .@"backend-metal" = target.result.os.tag.isDarwin(),
-        .@"backend-osx" = target.result.os.tag == .macos,
-        // OpenGL3 backend should only be built on non-Apple targets.
-        // Apple platforms use Metal (and macOS may also use the OSX backend).
-        .@"backend-opengl3" = !target.result.os.tag.isDarwin(),
+        .@"backend-metal" = false,
+        .@"backend-osx" = false,
+        .@"backend-opengl3" = true,
     })) |dep| {
         step.root_module.addImport("dcimgui", dep.module("dcimgui"));
         step.linkLibrary(dep.artifact("dcimgui"));
@@ -589,10 +466,6 @@ pub fn add(
             .flags = &.{},
         });
 
-        // When we're targeting flatpak we ALWAYS link GTK so we
-        // get access to glib for dbus.
-        if (self.config.flatpak) step.linkSystemLibrary2("gtk4", dynamic_link_opts);
-
         switch (self.config.app_runtime) {
             .none => {},
             .win32 => {
@@ -600,7 +473,6 @@ pub fn add(
                 step.linkSystemLibrary2("gdi32", dynamic_link_opts);
                 step.linkSystemLibrary2("opengl32", dynamic_link_opts);
             },
-            .gtk => try self.addGtkNg(step),
         }
     }
 
@@ -609,144 +481,6 @@ pub fn add(
     self.framedata.addImport(step);
 
     return static_libs;
-}
-
-/// Setup the dependencies for the GTK apprt build.
-fn addGtkNg(
-    self: *const SharedDeps,
-    step: *std.Build.Step.Compile,
-) !void {
-    const b = step.step.owner;
-    const target = step.root_module.resolved_target.?;
-    const optimize = step.root_module.optimize.?;
-
-    const gobject_ = b.lazyDependency("gobject", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    if (gobject_) |gobject| {
-        const gobject_imports = .{
-            .{ "adw", "adw1" },
-            .{ "gdk", "gdk4" },
-            .{ "gio", "gio2" },
-            .{ "glib", "glib2" },
-            .{ "gobject", "gobject2" },
-            .{ "gtk", "gtk4" },
-            .{ "xlib", "xlib2" },
-        };
-        inline for (gobject_imports) |import| {
-            const name, const module = import;
-            step.root_module.addImport(name, gobject.module(module));
-        }
-    }
-
-    step.linkSystemLibrary2("gtk4", dynamic_link_opts);
-    step.linkSystemLibrary2("libadwaita-1", dynamic_link_opts);
-
-    if (self.config.x11) {
-        step.linkSystemLibrary2("X11", dynamic_link_opts);
-        if (gobject_) |gobject| {
-            step.root_module.addImport(
-                "gdk_x11",
-                gobject.module("gdkx114"),
-            );
-        }
-    }
-
-    if (self.config.wayland) wayland: {
-        // These need to be all be called to note that we need them.
-        const wayland_dep_ = b.lazyDependency("wayland", .{});
-        const wayland_protocols_dep_ = b.lazyDependency(
-            "wayland_protocols",
-            .{},
-        );
-        const plasma_wayland_protocols_dep_ = b.lazyDependency(
-            "plasma_wayland_protocols",
-            .{},
-        );
-        const zig_wayland_import_ = b.lazyImport(
-            @import("../../build.zig"),
-            "zig_wayland",
-        );
-        const zig_wayland_dep_ = b.lazyDependency("zig_wayland", .{});
-
-        // Unwrap or return, there are no more dependencies below.
-        const wayland_dep = wayland_dep_ orelse break :wayland;
-        const wayland_protocols_dep = wayland_protocols_dep_ orelse break :wayland;
-        const plasma_wayland_protocols_dep = plasma_wayland_protocols_dep_ orelse break :wayland;
-        const zig_wayland_import = zig_wayland_import_ orelse break :wayland;
-        const zig_wayland_dep = zig_wayland_dep_ orelse break :wayland;
-
-        const Scanner = zig_wayland_import.Scanner;
-        const scanner = Scanner.create(zig_wayland_dep.builder, .{
-            .wayland_xml = wayland_dep.path("protocol/wayland.xml"),
-            .wayland_protocols = wayland_protocols_dep.path(""),
-        });
-
-        // FIXME: replace with `zxdg_decoration_v1` once GTK merges https://gitlab.gnome.org/GNOME/gtk/-/merge_requests/6398
-        scanner.addCustomProtocol(
-            plasma_wayland_protocols_dep.path("src/protocols/server-decoration.xml"),
-        );
-        scanner.addCustomProtocol(
-            plasma_wayland_protocols_dep.path("src/protocols/slide.xml"),
-        );
-        scanner.addCustomProtocol(
-            plasma_wayland_protocols_dep.path("src/protocols/kde-output-order-v1.xml"),
-        );
-        scanner.addSystemProtocol("staging/xdg-activation/xdg-activation-v1.xml");
-        scanner.addSystemProtocol("staging/ext-background-effect/ext-background-effect-v1.xml");
-
-        scanner.generate("wl_compositor", 1);
-        scanner.generate("org_kde_kwin_server_decoration_manager", 1);
-        scanner.generate("org_kde_kwin_slide_manager", 1);
-        scanner.generate("kde_output_order_v1", 1);
-        scanner.generate("xdg_activation_v1", 1);
-        scanner.generate("ext_background_effect_manager_v1", 1);
-
-        step.root_module.addImport("wayland", b.createModule(.{
-            .root_source_file = scanner.result,
-        }));
-        if (gobject_) |gobject| step.root_module.addImport(
-            "gdk_wayland",
-            gobject.module("gdkwayland4"),
-        );
-
-        if (b.lazyDependency("gtk4_layer_shell", .{
-            .target = target,
-            .optimize = optimize,
-        })) |gtk4_layer_shell| {
-            const layer_shell_module = gtk4_layer_shell.module("gtk4-layer-shell");
-            if (gobject_) |gobject| {
-                layer_shell_module.addImport("gtk", gobject.module("gtk4"));
-                layer_shell_module.addImport("gdk", gobject.module("gdk4"));
-            }
-            step.root_module.addImport(
-                "gtk4-layer-shell",
-                layer_shell_module,
-            );
-
-            // IMPORTANT: gtk4-layer-shell must be linked BEFORE
-            // wayland-client, as it relies on shimming libwayland's APIs.
-            if (b.systemIntegrationOption("gtk4-layer-shell", .{})) {
-                step.linkSystemLibrary2("gtk4-layer-shell-0", dynamic_link_opts);
-            } else {
-                // gtk4-layer-shell *must* be dynamically linked,
-                // so we don't add it as a static library
-                const shared_lib = gtk4_layer_shell.artifact("gtk4-layer-shell");
-                b.installArtifact(shared_lib);
-                step.linkLibrary(shared_lib);
-            }
-        }
-
-        step.linkSystemLibrary2("wayland-client", dynamic_link_opts);
-    }
-
-    {
-        // Get our gresource c/h files and add them to our build.
-        const dist = gtkNgDistResources(b);
-        step.addCSourceFile(.{ .file = dist.resources_c.path(b), .flags = &.{} });
-        step.addIncludePath(dist.resources_h.path(b).dirname());
-    }
 }
 
 /// Add only the dependencies required for `Config.simd` enabled. This also
@@ -855,104 +589,6 @@ pub fn addSimd(
     }
 }
 
-/// Creates the resources that can be prebuilt for our dist build.
-pub fn gtkNgDistResources(
-    b: *std.Build,
-) struct {
-    resources_c: DistResource,
-    resources_h: DistResource,
-} {
-    const gresource = @import("../apprt/gtk/build/gresource.zig");
-    const gresource_xml = gresource_xml: {
-        const xml_exe = b.addExecutable(.{
-            .name = "generate_gresource_xml",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("src/apprt/gtk/build/gresource.zig"),
-                .target = b.graph.host,
-            }),
-        });
-        const xml_run = b.addRunArtifact(xml_exe);
-
-        // Run our blueprint compiler across all of our blueprint files.
-        const blueprint_exe = b.addExecutable(.{
-            .name = "gtk_blueprint_compiler",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("src/apprt/gtk/build/blueprint.zig"),
-                .target = b.graph.host,
-            }),
-        });
-        blueprint_exe.linkLibC();
-        blueprint_exe.linkSystemLibrary2("gtk4", dynamic_link_opts);
-        blueprint_exe.linkSystemLibrary2("libadwaita-1", dynamic_link_opts);
-
-        for (gresource.blueprints) |bp| {
-            const blueprint_run = b.addRunArtifact(blueprint_exe);
-            blueprint_run.addArgs(&.{
-                b.fmt("{d}", .{bp.major}),
-                b.fmt("{d}", .{bp.minor}),
-            });
-            const ui_file = blueprint_run.addOutputFileArg(b.fmt(
-                "{d}.{d}/{s}.ui",
-                .{
-                    bp.major,
-                    bp.minor,
-                    bp.name,
-                },
-            ));
-            blueprint_run.addFileArg(b.path(b.fmt(
-                "{s}/{d}.{d}/{s}.blp",
-                .{
-                    gresource.ui_path,
-                    bp.major,
-                    bp.minor,
-                    bp.name,
-                },
-            )));
-
-            xml_run.addFileArg(ui_file);
-        }
-
-        break :gresource_xml xml_run.captureStdOut();
-    };
-
-    const generate_c = b.addSystemCommand(&.{
-        "glib-compile-resources",
-        "--c-name",
-        "ghostty",
-        "--generate-source",
-        "--target",
-    });
-    const resources_c = generate_c.addOutputFileArg("ghostty_resources.c");
-    generate_c.addFileArg(gresource_xml);
-    for (gresource.file_inputs) |path| {
-        generate_c.addFileInput(b.path(path));
-    }
-
-    const generate_h = b.addSystemCommand(&.{
-        "glib-compile-resources",
-        "--c-name",
-        "ghostty",
-        "--generate-header",
-        "--target",
-    });
-    const resources_h = generate_h.addOutputFileArg("ghostty_resources.h");
-    generate_h.addFileArg(gresource_xml);
-    for (gresource.file_inputs) |path| {
-        generate_h.addFileInput(b.path(path));
-    }
-
-    return .{
-        .resources_c = .{
-            .dist = "src/apprt/gtk/ghostty_resources.c",
-            .generated = resources_c,
-        },
-        .resources_h = .{
-            .dist = "src/apprt/gtk/ghostty_resources.h",
-            .generated = resources_h,
-        },
-    };
-}
-
 pub fn addUucode(
     self: *const SharedDeps,
     b: *std.Build,
@@ -960,10 +596,10 @@ pub fn addUucode(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) void {
+    _ = self;
     if (b.lazyDependency("uucode", .{
         .target = target,
         .optimize = optimize,
-        .tables_path = self.uucode_tables,
         .build_config_path = b.path("src/build/uucode_config.zig"),
     })) |dep| {
         module.addImport("uucode", dep.module("uucode"));

@@ -84,6 +84,10 @@ pub const ThemeColors = struct {
     button_active_focus_ring: u32,
     button_accept_focus_ring: u32,
 
+    // Pane dividers
+    pane_divider: u32,
+    pane_divider_focused: u32,
+
     // Whether this is a dark theme (for DWM)
     is_dark: bool,
 };
@@ -103,38 +107,38 @@ pub const ProfileChromeAccent = struct {
 
 pub fn darkTheme() ThemeColors {
     return .{
-        .chrome_bg = rgb(34, 40, 49),
-        .chrome_border = rgb(58, 67, 80),
-        .overlay_bg = rgb(28, 33, 41),
-        .overlay_border = rgb(58, 67, 80),
-        .edit_bg = rgb(20, 24, 31),
-        .edit_frame_bg = rgb(18, 22, 29),
-        .status_bg = rgb(26, 30, 37),
-        .inspector_bg = rgb(22, 27, 35),
+        .chrome_bg = rgb(32, 32, 32),
+        .chrome_border = rgb(48, 48, 48),
+        .overlay_bg = rgb(26, 26, 28),
+        .overlay_border = rgb(48, 48, 48),
+        .edit_bg = rgb(20, 20, 22),
+        .edit_frame_bg = rgb(18, 18, 20),
+        .status_bg = rgb(26, 26, 28),
+        .inspector_bg = rgb(22, 22, 24),
 
-        .text_primary = rgb(216, 221, 231),
-        .text_secondary = rgb(160, 170, 184),
-        .text_disabled = rgb(120, 128, 140),
-        .edit_fg = rgb(232, 236, 244),
+        .text_primary = rgb(220, 220, 224),
+        .text_secondary = rgb(158, 158, 164),
+        .text_disabled = rgb(110, 110, 116),
+        .edit_fg = rgb(234, 234, 238),
         .overlay_label_fg = rgb(210, 228, 255),
         .info_fg = rgb(142, 197, 255),
         .error_fg = rgb(255, 132, 132),
 
         .accent = rgb(116, 156, 224),
         .accent_hover = rgb(132, 172, 238),
-        .chrome_accent_idle = rgb(72, 82, 98),
-        .edit_border_unfocused = rgb(86, 96, 112),
+        .chrome_accent_idle = rgb(62, 62, 62),
+        .edit_border_unfocused = rgb(72, 72, 72),
 
-        .button_bg = rgb(36, 42, 51),
-        .button_border = rgb(72, 82, 98),
-        .button_fg = rgb(196, 204, 216),
+        .button_bg = rgb(38, 38, 38),
+        .button_border = rgb(58, 58, 58),
+        .button_fg = rgb(200, 200, 200),
 
-        .button_overlay_bg = rgb(44, 54, 68),
-        .button_overlay_border = rgb(92, 114, 148),
-        .button_overlay_fg = rgb(224, 229, 238),
-        .button_chrome_fg = rgb(190, 198, 210),
+        .button_overlay_bg = rgb(36, 36, 38),
+        .button_overlay_border = rgb(68, 68, 72),
+        .button_overlay_fg = rgb(224, 224, 228),
+        .button_chrome_fg = rgb(190, 190, 194),
 
-        .button_active_bg = rgb(60, 76, 104),
+        .button_active_bg = rgb(50, 60, 82),
         .button_active_border = rgb(116, 156, 224),
         .button_active_fg = rgb(244, 247, 252),
 
@@ -142,14 +146,17 @@ pub fn darkTheme() ThemeColors {
         .button_accept_border = rgb(126, 169, 247),
         .button_accept_fg = rgb(248, 250, 255),
 
-        .button_disabled_bg = rgb(28, 33, 41),
-        .button_disabled_border = rgb(54, 60, 72),
-        .button_disabled_fg = rgb(120, 128, 140),
+        .button_disabled_bg = rgb(28, 28, 30),
+        .button_disabled_border = rgb(48, 48, 50),
+        .button_disabled_fg = rgb(110, 110, 114),
 
         .button_focus_ring = rgb(140, 166, 208),
         .button_overlay_focus_ring = rgb(160, 190, 238),
         .button_active_focus_ring = rgb(172, 206, 255),
         .button_accept_focus_ring = rgb(184, 212, 255),
+
+        .pane_divider = rgb(58, 58, 58),
+        .pane_divider_focused = rgb(116, 156, 224),
 
         .is_dark = true,
     };
@@ -205,6 +212,9 @@ pub fn lightTheme() ThemeColors {
         .button_active_focus_ring = rgb(0, 90, 158),
         .button_accept_focus_ring = rgb(0, 90, 158),
 
+        .pane_divider = rgb(209, 209, 209),
+        .pane_divider_focused = rgb(0, 120, 212),
+
         .is_dark = false,
     };
 }
@@ -250,25 +260,26 @@ pub fn buttonColorsFromTheme(
         };
     }
     if (hovered and !pressed and !disabled) {
+        // Stronger hover deltas for responsive premium feel
         colors.bg = if (accept)
-            adjustColor(theme.button_accept_bg, 10, 12, 18)
+            adjustColor(theme.button_accept_bg, 14, 16, 22)
         else if (active)
-            adjustColor(theme.button_active_bg, 12, 14, 18)
+            adjustColor(theme.button_active_bg, 16, 18, 22)
         else if (overlay)
-            adjustColor(theme.button_overlay_bg, 10, 12, 14)
+            adjustColor(theme.button_overlay_bg, 14, 14, 16)
         else
-            adjustColor(theme.button_bg, 8, 10, 11);
+            adjustColor(theme.button_bg, 16, 16, 18);
         colors.border = if (accept)
-            adjustColor(theme.button_accept_border, 20, 17, 8)
+            adjustColor(theme.button_accept_border, 24, 20, 10)
         else if (active)
             theme.accent_hover
         else if (overlay)
-            adjustColor(theme.button_overlay_border, 16, 18, 20)
+            adjustColor(theme.button_overlay_border, 20, 20, 24)
         else
-            adjustColor(theme.button_border, 20, 22, 24);
+            adjustColor(theme.button_border, 28, 28, 30);
     }
     if (pressed) {
-        colors.bg = if (overlay) adjustColor(theme.overlay_bg, -2, -2, -2) else adjustColor(theme.chrome_bg, -6, -7, -8);
+        colors.bg = if (overlay) adjustColor(theme.overlay_bg, -4, -4, -4) else adjustColor(theme.chrome_bg, -8, -8, -8);
         if (active) colors.bg = adjustColor(theme.button_active_bg, -18, -20, -20);
         if (accept) colors.bg = adjustColor(theme.button_accept_bg, -14, -20, -32);
     }
@@ -283,74 +294,8 @@ pub fn buttonColorsFromTheme(
     return colors;
 }
 
-pub fn buttonColors(
-    active: bool,
-    overlay: bool,
-    hovered: bool,
-    pressed: bool,
-    disabled: bool,
-    accept: bool,
-) ButtonColors {
-    var colors: ButtonColors = .{
-        .bg = if (overlay) rgb(44, 54, 68) else rgb(36, 42, 51),
-        .border = if (overlay) rgb(92, 114, 148) else rgb(72, 82, 98),
-        .fg = rgb(196, 204, 216),
-    };
-
-    if (active) {
-        colors = .{
-            .bg = rgb(60, 76, 104),
-            .border = rgb(116, 156, 224),
-            .fg = rgb(244, 247, 252),
-        };
-    }
-    if (accept) {
-        colors = .{
-            .bg = rgb(52, 92, 166),
-            .border = rgb(126, 169, 247),
-            .fg = rgb(248, 250, 255),
-        };
-    }
-    if (hovered and !pressed and !disabled) {
-        colors.bg = if (accept)
-            rgb(62, 104, 184)
-        else if (active)
-            rgb(72, 90, 122)
-        else if (overlay)
-            rgb(54, 66, 82)
-        else
-            rgb(44, 52, 62);
-        colors.border = if (accept)
-            rgb(146, 186, 255)
-        else if (active)
-            rgb(132, 172, 238)
-        else if (overlay)
-            rgb(108, 132, 168)
-        else
-            rgb(92, 104, 122);
-    }
-    if (pressed) {
-        colors.bg = if (overlay) rgb(26, 31, 39) else rgb(28, 33, 41);
-        if (active) colors.bg = rgb(42, 56, 84);
-        if (accept) colors.bg = rgb(38, 72, 134);
-    }
-    if (disabled) {
-        colors = .{
-            .bg = rgb(28, 33, 41),
-            .border = rgb(54, 60, 72),
-            .fg = rgb(120, 128, 140),
-        };
-    }
-
-    return colors;
-}
-
-pub fn buttonFocusRingColor(active: bool, overlay: bool, accept: bool) u32 {
-    if (accept) return rgb(184, 212, 255);
-    if (active) return rgb(172, 206, 255);
-    if (overlay) return rgb(160, 190, 238);
-    return rgb(140, 166, 208);
-}
+// Legacy buttonColors() and buttonFocusRingColor() removed.
+// Use buttonColorsFromTheme() and ThemeColors focus ring fields instead.
 
 // ── Overlay accent ──────────────────────────────────────────────────────
 

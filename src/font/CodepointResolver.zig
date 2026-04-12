@@ -404,18 +404,15 @@ test getIndex {
             .fallback = false,
             .size_adjustment = .none,
         });
-        if (comptime !font.options.backend.hasCoretext()) {
-            // Coretext doesn't support Noto's format
-            _ = try c.add(alloc, try .init(
-                lib,
-                testEmoji,
-                .{ .size = .{ .points = 12 } },
-            ), .{
-                .style = .regular,
-                .fallback = false,
-                .size_adjustment = .none,
-            });
-        }
+        _ = try c.add(alloc, try .init(
+            lib,
+            testEmoji,
+            .{ .size = .{ .points = 12 } },
+        ), .{
+            .style = .regular,
+            .fallback = false,
+            .size_adjustment = .none,
+        });
         _ = try c.add(alloc, try .init(
             lib,
             testEmojiText,
@@ -449,8 +446,7 @@ test getIndex {
     {
         const idx = r.getIndex(alloc, 0x270C, .regular, .text).?;
         try testing.expectEqual(Style.regular, idx.style);
-        const text_idx = if (comptime font.options.backend.hasCoretext()) 1 else 2;
-        try testing.expectEqual(@as(Collection.Index.IndexInt, text_idx), idx.idx);
+        try testing.expectEqual(@as(Collection.Index.IndexInt, 2), idx.idx);
     }
     {
         const idx = r.getIndex(alloc, 0x270C, .regular, .emoji).?;

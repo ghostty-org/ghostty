@@ -31,6 +31,14 @@ const windows = internal_os.windows;
 const ProcessInfo = @import("../pty.zig").ProcessInfo;
 
 const log = std.log.scoped(.io_exec);
+const flatpak_support = false;
+const darwin = if (builtin.os.tag.isDarwin()) struct {
+    fn setThreadName(name: [*:0]const u8) void {
+        internal_os.macos.pthread_setname_np(name);
+    }
+} else struct {
+    fn setThreadName(_: [*:0]const u8) void {}
+};
 
 /// The termios poll rate in milliseconds.
 const TERMIOS_POLL_MS = 200;
@@ -57,7 +65,7 @@ fn formatAsciiPreview(buf: []const u8, out: []u8) []const u8 {
 
 /// If we build with flatpak support then we have to keep track of
 /// a potential execution on the host.
-const FlatpakHostCommand = if (!build_config.flatpak) struct {
+const FlatpakHostCommand = if (!flatpak_support) struct {
     pub const Completion = struct {};
 } else internal_os.FlatpakHostCommand;
 
@@ -182,7 +190,7 @@ pub fn threadEnter(
         termio.Termio.ThreadData,
         td,
         processExit,
-    ) else if (comptime build_config.flatpak) flatpak: {
+    ) else if (comptime flatpak_support) flatpak: {
         switch (self.subprocess.process orelse break :flatpak) {
             // If we're in flatpak and we have a flatpak command
             // then we can run the special flatpak logic for watching.
@@ -681,7 +689,7 @@ const Subprocess = struct {
         // Add our binary to the path if we can find it.
         ghostty_path: {
             // Skip this for flatpak since host cannot reach them
-            if ((comptime build_config.flatpak) and
+            if ((comptime flatpak_support) and
                 internal_os.isFlatpak())
             {
                 break :ghostty_path;
@@ -998,7 +1006,7 @@ const Subprocess = struct {
                 }
             }
 
-            if ((comptime build_config.flatpak) and internal_os.isFlatpak()) {
+            if ((comptime flatpak_support) and internal_os.isFlatpak()) {
                 // Flatpak sandboxing prevents access to certain reserved paths
                 // regardless of configured permissions. Perform a test spawn
                 // to get around this problem
@@ -1036,12 +1044,7 @@ const Subprocess = struct {
         } else null;
 
         // In flatpak, we use the HostCommand to execute our shell.
-        if (internal_os.isFlatpak()) flatpak: {
-            if (comptime !build_config.flatpak) {
-                log.warn("flatpak detected, but flatpak support not built-in", .{});
-                break :flatpak;
-            }
-
+        if (comptime flatpak_support) if (internal_os.isFlatpak()) {
             // Flatpak command must have a stable pointer.
             self.process = .{ .flatpak = .{
                 .argv = self.args,
@@ -1064,7 +1067,7 @@ const Subprocess = struct {
                 .read = pty.master,
                 .write = pty.master,
             };
-        }
+        };
 
         // Build our subcommand
         var cmd: Command = .{
@@ -1160,7 +1163,7 @@ const Subprocess = struct {
                     log.err("error sending SIGHUP to command, may hang: {}", .{err});
             },
 
-            .flatpak => |*cmd| if (comptime build_config.flatpak) {
+            .flatpak => |*cmd| if (comptime flatpak_support) {
                 killCommandFlatpak(cmd) catch |err|
                     log.err("error sending SIGHUP to command, may hang: {}", .{err});
                 _ = cmd.wait() catch |err|
@@ -1326,7 +1329,7 @@ pub const ReadThread = struct {
         // thread, and we have no way to get the current thread from within it,
         // so instead we use this code to name the thread instead.
         if (builtin.os.tag.isDarwin()) {
-            internal_os.macos.pthread_setname_np(&"io-reader".*);
+            darwin.setThreadName("io-reader");
         }
 
         // Setup our crash metadata
@@ -1657,7 +1660,9 @@ fn execCommand(
                 // to setup some environment variables that are important to
                 // have set.
                 try args.append(alloc, "/bin/sh");
-                if (internal_os.isFlatpak()) try args.append(alloc, "-l");
+                if ((comptime flatpak_support) and internal_os.isFlatpak()) {
+                    try args.append(alloc, "-l");
+                }
                 try args.append(alloc, "-c");
             }
 

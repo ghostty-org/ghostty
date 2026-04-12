@@ -32,7 +32,6 @@ pub const FreetypeLoadFlags = Config.FreetypeLoadFlags;
 pub const Keybinds = Config.Keybinds;
 pub const MouseShiftCapture = Config.MouseShiftCapture;
 pub const MouseScrollMultiplier = Config.MouseScrollMultiplier;
-pub const NonNativeFullscreen = Config.NonNativeFullscreen;
 pub const Fullscreen = Config.Fullscreen;
 pub const RepeatableCodepointMap = Config.RepeatableCodepointMap;
 pub const RepeatableFontVariation = Config.RepeatableFontVariation;
@@ -49,7 +48,6 @@ pub const LinkPreviews = Config.LinkPreviews;
 pub const WorkingDirectory = Config.WorkingDirectory;
 
 // Alternate APIs
-pub const CApi = @import("config/CApi.zig");
 pub const Wasm = if (!builtin.target.cpu.arch.isWasm()) struct {} else @import("config/Wasm.zig");
 
 test {

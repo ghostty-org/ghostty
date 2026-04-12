@@ -5,7 +5,9 @@ const options = @import("main.zig").options;
 const Metrics = @import("main.zig").Metrics;
 const config = @import("../config.zig");
 const freetype = @import("face/freetype.zig");
-const coretext = @import("face/coretext.zig");
+const coretext = struct {
+    pub const Face = void;
+};
 pub const web_canvas = @import("face/web_canvas.zig");
 
 /// Face implementation for the compile options.
@@ -13,13 +15,7 @@ pub const Face = switch (options.backend) {
     .freetype,
     .windows_freetype,
     .fontconfig_freetype,
-    .coretext_freetype,
     => freetype.Face,
-
-    .coretext,
-    .coretext_harfbuzz,
-    .coretext_noshape,
-    => coretext.Face,
 
     .web_canvas => web_canvas.Face,
 };
@@ -58,15 +54,8 @@ pub const DesiredSize = struct {
         return (self.points * @as(f32, @floatFromInt(self.ydpi))) / 72;
     }
 
-    /// Make this a valid gobject if we're in a GTK environment.
-    pub const getGObjectType = switch (build_config.app_runtime) {
-        .gtk => @import("gobject").ext.defineBoxed(
-            DesiredSize,
-            .{ .name = "GhosttyFontDesiredSize" },
-        ),
-
-        .none, .win32 => void,
-    };
+    /// GTK boxed types are not used in the Windows-only fork.
+    pub const getGObjectType = void;
 };
 
 /// A font variation setting. The best documentation for this I know of
@@ -128,7 +117,7 @@ pub const RenderOptions = struct {
     /// Thicken the glyph. This draws the glyph with a thicker stroke width.
     /// This is purely an aesthetic setting.
     ///
-    /// This only works with CoreText currently.
+    /// This is ignored by the remaining backends in this fork.
     thicken: bool = false,
 
     /// "Strength" of the thickening, between `0` and `255`.
@@ -137,7 +126,7 @@ pub const RenderOptions = struct {
     /// `0` does not correspond to *no* thickening,
     /// just the *lightest* thickening available.
     ///
-    /// CoreText only.
+    /// Ignored by the remaining backends in this fork.
     thicken_strength: u8 = 255,
 
     /// See the `constraint` field.

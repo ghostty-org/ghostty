@@ -330,8 +330,6 @@ const DerivedConfig = struct {
     mouse_scroll_multiplier: configpkg.MouseScrollMultiplier,
     mouse_shift_capture: configpkg.MouseShiftCapture,
     fullscreen: configpkg.Fullscreen,
-    macos_non_native_fullscreen: configpkg.NonNativeFullscreen,
-    macos_option_as_alt: ?input.OptionAsAlt,
     selection_clear_on_copy: bool,
     selection_clear_on_typing: bool,
     selection_word_chars: []const u21,
@@ -408,8 +406,6 @@ const DerivedConfig = struct {
             .mouse_scroll_multiplier = config.@"mouse-scroll-multiplier",
             .mouse_shift_capture = config.@"mouse-shift-capture",
             .fullscreen = config.fullscreen,
-            .macos_non_native_fullscreen = config.@"macos-non-native-fullscreen",
-            .macos_option_as_alt = config.@"macos-option-as-alt",
             .selection_clear_on_copy = config.@"selection-clear-on-copy",
             .selection_clear_on_typing = config.@"selection-clear-on-typing",
             .selection_word_chars = try alloc.dupe(u21, config.@"selection-word-chars".codepoints),
@@ -3253,22 +3249,7 @@ fn encodeKeyOpts(self: *const Surface) input.key_encode.Options {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
     const t = &self.io.terminal;
-
-    var opts: input.key_encode.Options = .fromTerminal(t);
-    if (comptime builtin.os.tag != .macos) return opts;
-
-    opts.macos_option_as_alt = self.config.macos_option_as_alt orelse detect: {
-        // If we don't have alt pressed, it doesn't matter what this
-        // config is so we can just say "false" and break out and avoid
-        // more expensive checks below.
-        if (!self.mouse.mods.alt) break :detect .false;
-
-        // Alt is pressed, we're on macOS. We break some encapsulation
-        // here and assume libghostty for ease...
-        break :detect self.rt_app.keyboardLayout().detectOptionAsAlt();
-    };
-
-    return opts;
+    return .fromTerminal(t);
 }
 
 /// Sends text as-is to the terminal without triggering any keyboard
@@ -3413,9 +3394,9 @@ const ScrollAmount = struct {
 
 /// Mouse scroll event. Negative is down, left. Positive is up, right.
 ///
-/// "Natural scrolling" is a macOS term for inverting the scroll direction.
-/// This should be handled by the apprt implementation. At this layer,
-/// negative is always down, left.
+/// Platform runtimes must normalize wheel polarity before calling into the
+/// shared surface layer. At this layer, negative is always down/left and
+/// positive is always up/right.
 pub fn scrollCallback(
     self: *Surface,
     xoff: f64,
@@ -3431,6 +3412,8 @@ pub fn scrollCallback(
     // Always show the mouse again if it is hidden
     if (self.mouse.hidden) self.showMouse();
 
+    const discrete_multiplier_scale = self.config.mouse_scroll_multiplier.discrete / 3.0;
+
     const y: ScrollAmount = if (yoff == 0) .{} else y: {
         // We use cell_size to determine if we have accumulated enough to trigger a scroll
         const cell_size: f64 = @floatFromInt(self.size.cell.height);
@@ -3440,16 +3423,16 @@ pub fn scrollCallback(
         // wheel ticks, which don't necessarily get reported as precision scrolls. We normalize all
         // scroll events to pixels by multiplying the wheel tick value and the cell size. This means
         // that a wheel tick of 1 results in single scroll event.
-        const yoff_adjusted: f64 = if (scroll_mods.precision)
+        const yoff_adjusted: f64 = if (scroll_mods.pixel_delta)
+            yoff * (if (scroll_mods.precision)
+                self.config.mouse_scroll_multiplier.precision
+            else
+                discrete_multiplier_scale)
+        else if (scroll_mods.precision)
             yoff * self.config.mouse_scroll_multiplier.precision
         else yoff_adjusted: {
-            // Round out the yoff to an absolute minimum of 1. macos tries to
-            // simulate precision scrolling with non precision events by
-            // ramping up the magnitude of the offsets as it detects faster
-            // scrolling. Single click (very slow) scrolls are reported with a
-            // magnitude of 0.1 which would normally require a few clicks
-            // before we register an actual scroll event (depending on cell
-            // height and the mouse_scroll_multiplier setting).
+            // Round out the yoff to an absolute minimum of 1 so that very
+            // small discrete wheel reports still produce a single-row scroll.
             const yoff_max: f64 = if (yoff > 0)
                 @max(yoff, 1)
             else
@@ -3486,13 +3469,20 @@ pub fn scrollCallback(
 
     // For detailed comments see the y calculation above.
     const x: ScrollAmount = if (xoff == 0) .{} else x: {
-        if (!scroll_mods.precision) {
+        if (!scroll_mods.precision and !scroll_mods.pixel_delta) {
             const x_delta_isize: isize = @intFromFloat(@round(xoff));
             break :x .{ .delta = x_delta_isize };
         }
 
-        const poff: f64 = self.mouse.pending_scroll_x + xoff;
         const cell_size: f64 = @floatFromInt(self.size.cell.width);
+        const xoff_adjusted: f64 = if (scroll_mods.pixel_delta)
+            xoff * (if (scroll_mods.precision)
+                self.config.mouse_scroll_multiplier.precision
+            else
+                discrete_multiplier_scale)
+        else
+            xoff;
+        const poff: f64 = self.mouse.pending_scroll_x + xoff_adjusted;
         if (@abs(poff) < cell_size) {
             self.mouse.pending_scroll_x = poff;
             break :x .{};
@@ -3505,6 +3495,11 @@ pub fn scrollCallback(
         assert(@abs(delta) >= 1);
         break :x .{ .delta = delta };
     };
+
+    // High-resolution wheel devices can emit many sub-cell deltas while
+    // we accumulate pending scroll. If the viewport didn't actually move,
+    // there is nothing to redraw yet.
+    if (y.delta == 0 and x.delta == 0) return;
 
     // log.info("SCROLL: delta_y={} delta_x={}", .{ y.delta, x.delta });
 
@@ -5541,12 +5536,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .toggle_fullscreen => return try self.rt_app.performAction(
             .{ .surface = self },
             .toggle_fullscreen,
-            switch (self.config.macos_non_native_fullscreen) {
-                .false => .native,
-                .true => .macos_non_native,
-                .@"visible-menu" => .macos_non_native_visible_menu,
-                .@"padded-notch" => .macos_non_native_padded_notch,
-            },
+            .native,
         ),
 
         .toggle_window_decorations => return try self.rt_app.performAction(

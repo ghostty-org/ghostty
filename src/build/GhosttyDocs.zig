@@ -106,8 +106,8 @@ pub fn addStepDependencies(
 /// Installs some dummy files to satisfy the folder structure of docs
 /// without actually generating any documentation. This is useful
 /// when the `emit-docs` option is not set to true, but we still
-/// need the rough directory structure to exist, such as for the macOS
-/// app.
+/// need the rough directory structure to exist for Windows packaging
+/// and install layout checks.
 pub fn installDummy(self: *const GhosttyDocs, step: *std.Build.Step) void {
     _ = self;
 
