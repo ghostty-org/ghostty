@@ -6,10 +6,7 @@
 //! Example: blueprint.zig 1 5 output.ui input.blp
 
 const std = @import("std");
-
-pub const c = @cImport({
-    @cInclude("adwaita.h");
-});
+const adw = @import("adw");
 
 pub const blueprint_compiler_help =
     \\
@@ -25,11 +22,6 @@ pub const blueprint_compiler_help =
     \\more information on the recommended build instructions.
 ;
 
-const adwaita_version = std.SemanticVersion{
-    .major = c.ADW_MAJOR_VERSION,
-    .minor = c.ADW_MINOR_VERSION,
-    .patch = c.ADW_MICRO_VERSION,
-};
 const required_blueprint_version = std.SemanticVersion{
     .major = 0,
     .minor = 16,
@@ -37,8 +29,9 @@ const required_blueprint_version = std.SemanticVersion{
 };
 
 pub fn main(init: std.process.Init) !void {
+    const alloc = init.arena.allocator();
     // Get our args
-    var it = try init.minimal.args.iterateAllocator(init.gpa);
+    var it = try init.minimal.args.iterateAllocator(alloc);
     defer it.deinit();
 
     _ = it.next(); // Skip argv0
@@ -47,6 +40,11 @@ pub fn main(init: std.process.Init) !void {
     const output = it.next() orelse return error.NoOutput;
     const input = it.next() orelse return error.NoInput;
 
+    const adwaita_version = std.SemanticVersion{
+        .major = adw.getMajorVersion(),
+        .minor = adw.getMinorVersion(),
+        .patch = adw.getMicroVersion(),
+    };
     const required_adwaita_version = std.SemanticVersion{
         .major = try std.fmt.parseUnsigned(u8, arg_major, 10),
         .minor = try std.fmt.parseUnsigned(u8, arg_minor, 10),
@@ -60,42 +58,43 @@ pub fn main(init: std.process.Init) !void {
             \\compile this blueprint. Please install it, ensure that it is
             \\available on your PATH, and then retry building Ghostty.
         , .{required_adwaita_version});
-        std.posix.exit(1);
+        std.process.exit(1);
     }
 
     // Version checks
     {
-        const blueprint_compiler = try std.process.spawn(init.io, .{
+        var blueprint_compiler = std.process.spawn(init.io, .{
             .argv = &.{
                 "blueprint-compiler",
                 "--version",
             },
             .stdout = .pipe,
             .stderr = .pipe,
-        });
-
-        const term = blueprint_compiler.wait() catch |err| switch (err) {
+        }) catch |err| switch (err) {
             error.FileNotFound => {
                 std.debug.print(
                     \\`blueprint-compiler` not found.
                 ++ blueprint_compiler_help,
                     .{required_blueprint_version},
                 );
-                std.posix.exit(1);
+                std.process.exit(1);
             },
             else => return err,
         };
+
+        var stdout_buffer: [2048]u8 = undefined;
+        var stdout_reader = blueprint_compiler.stdout.?.reader(init.io, &stdout_buffer);
+        const stdout = try stdout_reader.interface.allocRemaining(alloc, .unlimited);
+
+        const term = try blueprint_compiler.wait(init.io);
         switch (term) {
             .exited => |rc| if (rc != 0) std.process.exit(1),
             else => std.process.exit(1),
         }
 
-        var stdout_buffer: [2048]u8 = undefined;
-        const stdout_len = try blueprint_compiler.stdout.?.readPositionalAll(init.io, &stdout_buffer, 0);
-
         const version = try std.SemanticVersion.parse(std.mem.trim(
             u8,
-            stdout_buffer[0..stdout_len],
+            stdout,
             &std.ascii.whitespace,
         ));
         if (version.order(required_blueprint_version) == .lt) {
@@ -104,13 +103,13 @@ pub fn main(init: std.process.Init) !void {
             ++ blueprint_compiler_help,
                 .{required_blueprint_version},
             );
-            std.posix.exit(1);
+            std.process.exit(1);
         }
     }
 
     // Compilation
     {
-        const blueprint_compiler = try std.process.spawn(init.io, .{
+        var blueprint_compiler = std.process.spawn(init.io, .{
             .argv = &.{
                 "blueprint-compiler",
                 "compile",
@@ -120,32 +119,32 @@ pub fn main(init: std.process.Init) !void {
             },
             .stdout = .pipe,
             .stderr = .pipe,
-        });
-
-        const term = blueprint_compiler.wait() catch |err| switch (err) {
+        }) catch |err| switch (err) {
             error.FileNotFound => {
                 std.debug.print(
                     \\`blueprint-compiler` not found.
                 ++ blueprint_compiler_help,
                     .{required_blueprint_version},
                 );
-                std.posix.exit(1);
+                std.process.exit(1);
             },
             else => return err,
         };
 
         var stderr_buffer: [2048]u8 = undefined;
-        const stderr_len = try blueprint_compiler.stderr.?.readPositionalAll(init.io, &stderr_buffer, 0);
+        var stderr_reader = blueprint_compiler.stderr.?.reader(init.io, &stderr_buffer);
+        const stderr = try stderr_reader.interface.allocRemaining(alloc, .unlimited);
 
+        const term = try blueprint_compiler.wait(init.io);
         switch (term) {
-            .Exited => |rc| {
+            .exited => |rc| {
                 if (rc != 0) {
-                    std.debug.print("{s}", .{stderr_buffer[0..stderr_len]});
+                    std.debug.print("{s}", .{stderr});
                     std.process.exit(1);
                 }
             },
             else => {
-                std.debug.print("{s}", .{stderr_buffer[0..stderr_len]});
+                std.debug.print("{s}", .{stderr});
                 std.process.exit(1);
             },
         }

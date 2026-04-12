@@ -151,8 +151,8 @@ pub fn main(init: std.process.Init) !void {
         \\
     );
 
-    try genRoot(writer);
-    try genIcons(writer);
+    try genRoot(init.io, writer);
+    try genIcons(init.io, writer);
     try genUi(alloc, writer, &ui_files);
 
     try writer.writeAll(
@@ -166,7 +166,7 @@ pub fn main(init: std.process.Init) !void {
 /// Generate the icon resources. This works by looking up all the icons
 /// specified by `icon_sizes` in `images/icons/`. They are asserted to exist
 /// by trying to access the file.
-fn genIcons(writer: *std.Io.Writer) !void {
+fn genIcons(io: std.Io, writer: *std.Io.Writer) !void {
     try writer.print(
         \\  <gresource prefix="{s}/icons">
         \\
@@ -178,7 +178,7 @@ fn genIcons(writer: *std.Io.Writer) !void {
         {
             const alias = std.fmt.comptimePrint("{d}x{d}", .{ size, size });
             const source = std.fmt.comptimePrint("images/gnome/{d}.png", .{size});
-            try cwd.access(source, .{});
+            try cwd.access(io, source, .{});
             try writer.print(
                 \\    <file alias="{s}/apps/{s}.png">{s}</file>
                 \\
@@ -191,7 +191,7 @@ fn genIcons(writer: *std.Io.Writer) !void {
         {
             const alias = std.fmt.comptimePrint("{d}x{d}@2", .{ size, size });
             const source = std.fmt.comptimePrint("images/gnome/{d}.png", .{size * 2});
-            try cwd.access(source, .{});
+            try cwd.access(io, source, .{});
             try writer.print(
                 \\    <file alias="{s}/apps/{s}.png">{s}</file>
                 \\
@@ -208,7 +208,7 @@ fn genIcons(writer: *std.Io.Writer) !void {
 }
 
 /// Generate the resources at the root prefix.
-fn genRoot(writer: *std.Io.Writer) !void {
+fn genRoot(io: std.Io, writer: *std.Io.Writer) !void {
     try writer.print(
         \\  <gresource prefix="{s}">
         \\
@@ -220,7 +220,7 @@ fn genRoot(writer: *std.Io.Writer) !void {
             "{s}/{s}",
             .{ css_path, name },
         );
-        try cwd.access(source, .{});
+        try cwd.access(io, source, .{});
         try writer.print(
             \\    <file compressed="true" alias="{s}">{s}</file>
             \\

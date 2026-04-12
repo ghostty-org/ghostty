@@ -27,14 +27,14 @@ pub const Action = enum {
     terminfo,
 };
 
-pub fn main() !void {
-    const alloc = std.heap.c_allocator;
-    const action_ = try cli.action.detectArgs(Action, alloc);
+pub fn main(init: std.process.Init) !void {
+    const alloc = init.arena.allocator();
+    const action_ = try cli.action.detectArgs(Action, alloc, init.minimal.args);
     const action = action_ orelse return error.NoAction;
 
     // Our output always goes to stdout.
     var buffer: [1024]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writerStreaming(&buffer);
+    var stdout_writer = std.Io.File.stdout().writerStreaming(init.io, &buffer);
     const writer = &stdout_writer.interface;
     switch (action) {
         .bash => try writer.writeAll(@import("extra/bash.zig").completions),

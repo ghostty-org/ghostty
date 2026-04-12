@@ -28,9 +28,9 @@ pub const Action = enum {
 };
 
 /// An entrypoint for the synthetic generator CLI.
-pub fn main() !void {
-    const alloc = std.heap.c_allocator;
-    const action_ = try cli.action.detectArgs(Action, alloc);
+pub fn main(init: std.process.Init) !void {
+    const alloc = init.arena.allocator();
+    const action_ = try cli.action.detectArgs(Action, alloc, init.minimal.args);
     const action = action_ orelse return error.NoAction;
     try mainAction(alloc, action, .cli);
 }
