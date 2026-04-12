@@ -672,7 +672,7 @@ test "parse: simple" {
     } = .{};
     defer if (data._arena) |arena| arena.deinit();
 
-    var iter = try std.process.ArgIteratorGeneral(.{}).init(
+    var iter = try std.process.Args.IteratorGeneral(.{}).init(
         testing.allocator,
         "--a=42 --b --b-f=false",
     );
@@ -684,7 +684,7 @@ test "parse: simple" {
     try testing.expect(!data.@"b-f");
 
     // Reparsing works
-    var iter2 = try std.process.ArgIteratorGeneral(.{}).init(
+    var iter2 = try std.process.Args.IteratorGeneral(.{}).init(
         testing.allocator,
         "--a=84",
     );
@@ -706,7 +706,7 @@ test "parse: quoted value" {
     } = .{};
     defer if (data._arena) |arena| arena.deinit();
 
-    var iter = try std.process.ArgIteratorGeneral(.{}).init(
+    var iter = try std.process.Args.IteratorGeneral(.{}).init(
         testing.allocator,
         "--a=\"42\" --b=\"hello!\"",
     );
@@ -726,7 +726,7 @@ test "parse: empty value resets to default" {
     } = .{};
     defer if (data._arena) |arena| arena.deinit();
 
-    var iter = try std.process.ArgIteratorGeneral(.{}).init(
+    var iter = try std.process.Args.IteratorGeneral(.{}).init(
         testing.allocator,
         "--a= --b=",
     );
@@ -745,7 +745,7 @@ test "parse: positional arguments are invalid" {
     } = .{};
     defer if (data._arena) |arena| arena.deinit();
 
-    var iter = try std.process.ArgIteratorGeneral(.{}).init(
+    var iter = try std.process.Args.IteratorGeneral(.{}).init(
         testing.allocator,
         "--a=84 what",
     );
@@ -769,7 +769,7 @@ test "parse: diagnostic tracking" {
     } = .{};
     defer if (data._arena) |arena| arena.deinit();
 
-    var iter = try std.process.ArgIteratorGeneral(.{}).init(
+    var iter = try std.process.Args.IteratorGeneral(.{}).init(
         testing.allocator,
         "--what --a=42",
     );
@@ -853,7 +853,7 @@ test "parse: compatibility handler" {
     } = .{};
     defer if (data._arena) |arena| arena.deinit();
 
-    var iter = try std.process.ArgIteratorGeneral(.{}).init(
+    var iter = try std.process.Args.IteratorGeneral(.{}).init(
         testing.allocator,
         "--a=yuh",
     );
@@ -879,7 +879,7 @@ test "parse: compatibility renamed" {
     } = .{};
     defer if (data._arena) |arena| arena.deinit();
 
-    var iter = try std.process.ArgIteratorGeneral(.{}).init(
+    var iter = try std.process.Args.IteratorGeneral(.{}).init(
         testing.allocator,
         "--old=true --b=true",
     );
@@ -1368,7 +1368,7 @@ pub fn argsIterator(alloc_gpa: Allocator) internal_os.args.ArgIterator.InitError
 test "ArgsIterator" {
     const testing = std.testing;
 
-    const child = try std.process.ArgIteratorGeneral(.{}).init(
+    const child = try std.process.Args.IteratorGeneral(.{}).init(
         testing.allocator,
         "--what +list-things --a=42",
     );

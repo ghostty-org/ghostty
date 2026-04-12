@@ -63,13 +63,8 @@ pub fn main(init: std.process.Init) !void {
 
     // Version checks
     {
-        var blueprint_compiler = std.process.spawn(init.io, .{
-            .argv = &.{
-                "blueprint-compiler",
-                "--version",
-            },
-            .stdout = .pipe,
-            .stderr = .pipe,
+        var blueprint_compiler = std.process.run(alloc, init.io, .{
+            .argv = &.{ "blueprint-compiler", "--version" },
         }) catch |err| switch (err) {
             error.FileNotFound => {
                 std.debug.print(
@@ -82,19 +77,14 @@ pub fn main(init: std.process.Init) !void {
             else => return err,
         };
 
-        var stdout_buffer: [2048]u8 = undefined;
-        var stdout_reader = blueprint_compiler.stdout.?.reader(init.io, &stdout_buffer);
-        const stdout = try stdout_reader.interface.allocRemaining(alloc, .unlimited);
-
-        const term = try blueprint_compiler.wait(init.io);
-        switch (term) {
+        switch (blueprint_compiler.term) {
             .exited => |rc| if (rc != 0) std.process.exit(1),
             else => std.process.exit(1),
         }
 
         const version = try std.SemanticVersion.parse(std.mem.trim(
             u8,
-            stdout,
+            blueprint_compiler.stdout,
             &std.ascii.whitespace,
         ));
         if (version.order(required_blueprint_version) == .lt) {
@@ -109,7 +99,7 @@ pub fn main(init: std.process.Init) !void {
 
     // Compilation
     {
-        var blueprint_compiler = std.process.spawn(init.io, .{
+        var blueprint_compiler = std.process.run(alloc, init.io, .{
             .argv = &.{
                 "blueprint-compiler",
                 "compile",
@@ -117,8 +107,6 @@ pub fn main(init: std.process.Init) !void {
                 output,
                 input,
             },
-            .stdout = .pipe,
-            .stderr = .pipe,
         }) catch |err| switch (err) {
             error.FileNotFound => {
                 std.debug.print(
@@ -131,20 +119,15 @@ pub fn main(init: std.process.Init) !void {
             else => return err,
         };
 
-        var stderr_buffer: [2048]u8 = undefined;
-        var stderr_reader = blueprint_compiler.stderr.?.reader(init.io, &stderr_buffer);
-        const stderr = try stderr_reader.interface.allocRemaining(alloc, .unlimited);
-
-        const term = try blueprint_compiler.wait(init.io);
-        switch (term) {
+        switch (blueprint_compiler.term) {
             .exited => |rc| {
                 if (rc != 0) {
-                    std.debug.print("{s}", .{stderr});
+                    std.debug.print("{s}", .{blueprint_compiler.stderr});
                     std.process.exit(1);
                 }
             },
             else => {
-                std.debug.print("{s}", .{stderr});
+                std.debug.print("{s}", .{blueprint_compiler.stderr});
                 std.process.exit(1);
             },
         }

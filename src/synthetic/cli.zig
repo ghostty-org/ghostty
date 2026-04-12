@@ -39,7 +39,7 @@ pub const Args = union(enum) {
     /// The arguments passed to the CLI via argc/argv.
     cli,
 
-    /// Simple string arguments, parsed via std.process.ArgIteratorGeneral.
+    /// Simple string arguments, parsed via std.process.Args.IteratorGeneral.
     string: []const u8,
 };
 
@@ -72,7 +72,7 @@ fn mainActionImpl(
             try cli.args.parse(Options, alloc, &opts, &iter);
         },
         .string => |str| {
-            var iter = try std.process.ArgIteratorGeneral(.{}).init(
+            var iter = try std.process.Args.IteratorGeneral(.{}).init(
                 alloc,
                 str,
             );
