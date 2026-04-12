@@ -32,7 +32,7 @@ pub const Entry = struct {
 
 /// Get the passwd entry for the currently executing user.
 pub fn get(alloc: Allocator) !Entry {
-    if (builtin.os.tag == .windows) @compileError("passwd is not available on windows");
+    if (comptime builtin.os.tag == .windows) @compileError("passwd is not available on windows");
 
     var buf: [1024]u8 = undefined;
     var pw: c.struct_passwd = undefined;

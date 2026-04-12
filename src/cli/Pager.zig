@@ -15,70 +15,75 @@ child: ?std.process.Child = null,
 
 /// The buffered file writer used for both the pager pipe and direct
 /// stdout paths.
-file_writer: std.fs.File.Writer = undefined,
+file_writer: std.Io.File.Writer = undefined,
 
 /// Initialize the pager. If stdout is a TTY, this spawns the pager
 /// process. Otherwise, output goes directly to stdout.
-pub fn init(alloc: Allocator) Pager {
-    return .{ .child = initPager(alloc) };
+pub fn init(alloc: Allocator, io: std.Io, env: std.process.Environ) Pager {
+    return .{
+        .io = io,
+        .child = initPager(alloc, io, env),
+    };
 }
 
 /// Writes to the pager process if available; otherwise, stdout.
-pub fn writer(self: *Pager, buffer: []u8) *std.Io.Writer {
+pub fn writer(self: *Pager, io: std.Io, buffer: []u8) *std.Io.Writer {
     if (self.child) |child| {
-        self.file_writer = child.stdin.?.writer(buffer);
+        self.file_writer = child.stdin.?.writer(io, buffer);
     } else {
-        self.file_writer = std.Io.File.stdout().writer(buffer);
+        self.file_writer = std.Io.File.stdout().writer(io, buffer);
     }
     return &self.file_writer.interface;
 }
 
 /// Deinitialize the pager. Waits for the spawned process to exit.
-pub fn deinit(self: *Pager) void {
+pub fn deinit(self: *Pager, io: std.Io) void {
     if (self.child) |*child| {
         // Flush any remaining buffered data, close the pipe so the
         // pager sees EOF, then wait for it to exit.
         self.file_writer.interface.flush() catch {};
         if (child.stdin) |stdin| {
-            stdin.close();
+            stdin.close(io);
             child.stdin = null;
         }
-        _ = child.wait() catch {};
+        _ = child.wait(io) catch {};
     }
 
     self.* = undefined;
 }
 
-fn initPager(alloc: Allocator) ?std.process.Child {
-    const stdout_file: std.fs.File = .stdout();
-    if (!stdout_file.isTty()) return null;
+fn initPager(alloc: Allocator, io: std.Io, env: std.process.Environ) ?std.process.Child {
+    const stdout_file: std.Io.File = .stdout();
+    const is_tty = stdout_file.isTty(io) catch return null;
+    if (!is_tty) return null;
 
     // Resolve the pager command: $GHOSTTY_PAGER > $PAGER > `less`.
     // An empty value for either env var disables paging.
-    const ghostty_var = internal_os.getenv(alloc, "GHOSTTY_PAGER") catch null;
-    defer if (ghostty_var) |v| v.deinit(alloc);
-    const pager_var = internal_os.getenv(alloc, "PAGER") catch null;
-    defer if (pager_var) |v| v.deinit(alloc);
+    const ghostty_var = env.getAlloc(alloc, "GHOSTTY_PAGER") catch return null;
+    defer alloc.free(ghostty_var);
+    const pager_var = env.getAlloc(alloc, "PAGER") catch return null;
+    defer alloc.free(pager_var);
 
-    const cmd: ?[]const u8 = cmd: {
-        if (ghostty_var) |v| break :cmd if (v.value.len > 0) v.value else null;
-        if (pager_var) |v| break :cmd if (v.value.len > 0) v.value else null;
+    const cmd: []const u8 = cmd: {
+        if (ghostty_var) |v| break :cmd if (v.value.len > 0) v.value else return null;
+        if (pager_var) |v| break :cmd if (v.value.len > 0) v.value else return null;
         break :cmd "less";
     };
 
-    if (cmd == null) return null;
-
-    var child: std.process.Child = .init(&.{cmd.?}, alloc);
-    child.stdin_behavior = .Pipe;
-    child.stdout_behavior = .Inherit;
-    child.stderr_behavior = .Inherit;
-
-    child.spawn() catch return null;
-    return child;
+    return std.process.spawn(io, .{
+        .argv = &.{cmd},
+        .stdin = .pipe,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    }) catch null;
 }
 
 test "pager: non-tty" {
-    var pager: Pager = .init(std.testing.allocator);
+    var pager: Pager = .init(
+        std.testing.allocator,
+        std.testing.io,
+        std.testing.environ,
+    );
     defer pager.deinit();
     try std.testing.expect(pager.child == null);
 }

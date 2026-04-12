@@ -49,8 +49,8 @@ pub fn open(
         .argv = argv,
         // Pipe stdout/stderr so we can collect output from the command.
         // This must be set before spawning the process.
-        .stdout = .Pipe,
-        .stderr = .Pipe,
+        .stdout = .pipe,
+        .stderr = .pipe,
         .environ_map = if (comptime build_config.snap) &env else null,
     });
 

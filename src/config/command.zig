@@ -108,7 +108,7 @@ pub const Command = union(enum) {
     /// For direct commands, this is very cheap and just iterates over
     /// the array. There is no allocation.
     ///
-    /// For shell commands, this will use Zig's ArgIteratorGeneral as
+    /// For shell commands, this will use Zig's Args.IteratorGeneral as
     /// a best effort shell string parser. This is not guaranteed to be
     /// 100% accurate, but it works for common cases. This requires allocation.
     pub fn argIterator(
@@ -123,7 +123,7 @@ pub const Command = union(enum) {
 
     /// Iterates over each argument in the command.
     pub const ArgIterator = union(enum) {
-        shell: std.process.ArgIteratorGeneral(.{}),
+        shell: std.process.Args.IteratorGeneral(.{}),
         direct: struct {
             i: usize = 0,
             args: []const [:0]const u8,
