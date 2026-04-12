@@ -20,8 +20,8 @@ pub const Options = struct {
 };
 
 /// Get the XDG user config directory. The returned value is allocated.
-pub fn config(alloc: Allocator, opts: Options) ![]u8 {
-    return try dir(alloc, opts, .{
+pub fn config(alloc: Allocator, io: std.Io, env: std.process.Environ, opts: Options) ![]u8 {
+    return try dir(alloc, opts, io, env, .{
         .env = "XDG_CONFIG_HOME",
         .windows_env = "LOCALAPPDATA",
         .default_subdir = ".config",
@@ -29,8 +29,8 @@ pub fn config(alloc: Allocator, opts: Options) ![]u8 {
 }
 
 /// Get the XDG cache directory. The returned value is allocated.
-pub fn cache(alloc: Allocator, opts: Options) ![]u8 {
-    return try dir(alloc, opts, .{
+pub fn cache(alloc: Allocator, io: std.Io, env: std.process.Environ, opts: Options) ![]u8 {
+    return try dir(alloc, opts, io, env, .{
         .env = "XDG_CACHE_HOME",
         .windows_env = "LOCALAPPDATA",
         .default_subdir = ".cache",
@@ -38,8 +38,8 @@ pub fn cache(alloc: Allocator, opts: Options) ![]u8 {
 }
 
 /// Get the XDG state directory. The returned value is allocated.
-pub fn state(alloc: Allocator, opts: Options) ![]u8 {
-    return try dir(alloc, opts, .{
+pub fn state(alloc: Allocator, io: std.Io, env: std.process.Environ, opts: Options) ![]u8 {
+    return try dir(alloc, opts, io, env, .{
         .env = "XDG_STATE_HOME",
         .windows_env = "LOCALAPPDATA",
         .default_subdir = ".local/state",
@@ -56,6 +56,8 @@ const InternalOptions = struct {
 fn dir(
     alloc: Allocator,
     opts: Options,
+    io: std.Io,
+    env: std.process.Environ,
     internal_opts: InternalOptions,
 ) ![]u8 {
     // If we have a cached home dir, use that.
@@ -70,17 +72,31 @@ fn dir(
     // First check the env var. On Windows we have to allocate so this tracks
     // both whether we have the env var and whether we own it.
     // on Windows we treat `LOCALAPPDATA` as a fallback for `XDG_CONFIG_HOME`
-    const env_ = try env_os.getenvNotEmpty(alloc, internal_opts.env) orelse switch (builtin.os.tag) {
-        else => null,
-        .windows => try env_os.getenvNotEmpty(alloc, internal_opts.windows_env),
-    };
-    defer if (env_) |env| env.deinit(alloc);
+    const env_var_ = v: {
+        if (env.getAlloc(alloc, internal_opts.env)) |v| {
+            if (v.len > 0) break :v v;
+        } else |err| switch (err) {
+            error.EnvironmentVariableMissing => {},
+            else => return err,
+        }
 
-    if (env_) |env| {
+        if (comptime builtin.os.tag != .windows) break :v null;
+
+        if (env.getAlloc(alloc, internal_opts.windows_env)) |v| {
+            if (v.len > 0) break :v v;
+        } else |err| switch (err) {
+            error.EnvironmentVariableMissing => {},
+            else => return err,
+        }
+        break :v null;
+    };
+    defer if (env_var_) |v| alloc.free(v);
+
+    if (env_var_) |env_var| {
         // If we have a subdir, then we use the env as-is to avoid a copy.
         if (opts.subdir) |subdir| {
-            return try std.fs.path.join(alloc, &[_][]const u8{
-                env.value,
+            return try std.fs.path.join(alloc, &.{
+                env_var,
                 subdir,
             });
         }
@@ -90,7 +106,7 @@ fn dir(
 
     // Get our home dir
     var buf: [1024]u8 = undefined;
-    if (try homedir.home(&buf)) |home| {
+    if (try homedir.home(io, env, &buf)) |home| {
         return try std.fs.path.join(alloc, &[_][]const u8{
             home,
             internal_opts.default_subdir,

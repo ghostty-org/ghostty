@@ -9,12 +9,15 @@ const i18n = internal_os.i18n;
 const log = std.log.scoped(.os_locale);
 
 /// Ensure that the locale is set.
-pub fn ensureLocale(alloc: std.mem.Allocator) !void {
+pub fn ensureLocale(alloc: std.mem.Allocator, env: std.process.Environ) !void {
     assert(builtin.link_libc);
 
     // Get our LANG env var. We use this many times but we also need
     // the original value later.
-    const lang = try internal_os.getenv(alloc, "LANG");
+    const lang = env.getAlloc(alloc, "LANG") catch |err| switch (err) {
+        error.EnvironmentVariableMissing => null,
+        else => return err,
+    };
     defer if (lang) |v| v.deinit(alloc);
 
     // On macOS, pre-populate the LANG env var with system preferences.
@@ -37,8 +40,7 @@ pub fn ensureLocale(alloc: std.mem.Allocator) !void {
     // setlocale failed. This is probably because the LANG env var is
     // invalid. Try to set it without the LANG var set to use the system
     // default.
-    if ((try internal_os.getenv(alloc, "LANG"))) |old_lang| {
-        defer old_lang.deinit(alloc);
+    if (lang) |old_lang| {
         if (old_lang.value.len > 0) {
             // We don't need to do both of these things but we do them
             // both to be sure that lang is either empty or unset completely.

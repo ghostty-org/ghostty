@@ -40,7 +40,11 @@ pub const Options = struct {
 /// This command prefers the `$VISUAL` environment variable over `$EDITOR`,
 /// if both are set. If neither are set, it will print an error
 /// and exit.
-pub fn run(alloc: Allocator) !u8 {
+pub fn run(
+    alloc: Allocator,
+    io: std.Io,
+    env: std.process.Environ,
+) !u8 {
     // Implementation note (by @mitchellh): I do proper memory cleanup
     // throughout this command, even though we plan on doing `exec`.
     // I do this out of good hygiene in case we ever change this to
@@ -48,7 +52,7 @@ pub fn run(alloc: Allocator) !u8 {
     // critical where setting up the defer cleanup is a problem.
 
     var buffer: [1024]u8 = undefined;
-    var stderr_writer = std.Io.File.stderr().writer(&buffer);
+    var stderr_writer = std.Io.File.stderr().writer(io, &buffer);
     const stderr = &stderr_writer.interface;
 
     var opts: Options = .{};
@@ -60,20 +64,25 @@ pub fn run(alloc: Allocator) !u8 {
         try args.parse(Options, alloc, &opts, &iter);
     }
 
-    const result = runInner(alloc, stderr);
+    const result = runInner(alloc, io, env, stderr);
     // Flushing *shouldn't* fail but...
     stderr.flush() catch {};
     return result;
 }
 
-fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
+fn runInner(
+    alloc: Allocator,
+    io: std.Io,
+    env: std.process.Environ,
+    stderr: *std.Io.Writer,
+) !u8 {
     // We load the configuration once because that will write our
     // default configuration files to disk. We don't use the config.
-    var config = try Config.load(alloc);
+    var config = try Config.load(alloc, io, env);
     defer config.deinit();
 
     // Find the preferred path.
-    const path = try configpkg.preferredDefaultFilePath(alloc);
+    const path = try configpkg.preferredDefaultFilePath(alloc, io, env);
     defer alloc.free(path);
 
     // We don't currently support Windows because we use the exec syscall.
@@ -91,17 +100,15 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
     }
 
     // Get our editor
-    const get_env_: ?internal_os.GetEnvResult = env: {
+    const get_env_: ?[]const u8 = env: {
         // VISUAL vs. EDITOR: https://unix.stackexchange.com/questions/4859/visual-vs-editor-what-s-the-difference
-        if (try internal_os.getenv(alloc, "VISUAL")) |v| {
-            if (v.value.len > 0) break :env v;
-            v.deinit(alloc);
-        }
+        const visual = try env.getAlloc(alloc, "VISUAL");
+        if (visual.value.len > 0) break :env visual;
+        alloc.free(visual);
 
-        if (try internal_os.getenv(alloc, "EDITOR")) |v| {
-            if (v.value.len > 0) break :env v;
-            v.deinit(alloc);
-        }
+        const editor = try env.getAlloc(alloc, "EDITOR");
+        if (editor.value.len > 0) break :env editor;
+        alloc.free(editor);
 
         break :env null;
     };
@@ -158,11 +165,10 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
     // so this is not a big deal.
     comptime assert(builtin.link_libc);
 
-    const err = std.posix.execvpeZ(
-        "/bin/sh",
-        &.{ "/bin/sh", "-c", command },
-        std.c.environ,
-    );
+    const err = std.process.replace(io, .{
+        .argv = &.{ "/bin/sh", "-c", command },
+        .environ_map = env.createMap(alloc),
+    });
 
     // If we reached this point then exec failed.
     try stderr.print(

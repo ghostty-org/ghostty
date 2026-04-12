@@ -59,6 +59,29 @@ pub fn prependEnv(
     });
 }
 
+pub fn setenv(key: [:0]const u8, value: [:0]const u8) c_int {
+    return switch (builtin.os.tag) {
+        .windows => c._putenv_s(key.ptr, value.ptr),
+        else => c.setenv(key.ptr, value.ptr, 1),
+    };
+}
+
+pub fn unsetenv(key: [:0]const u8) c_int {
+    return switch (builtin.os.tag) {
+        .windows => c._putenv_s(key.ptr, ""),
+        else => c.unsetenv(key.ptr),
+    };
+}
+
+const c = struct {
+    // POSIX
+    extern "c" fn setenv(name: ?[*]const u8, value: ?[*]const u8, overwrite: c_int) c_int;
+    extern "c" fn unsetenv(name: ?[*]const u8) c_int;
+
+    // Windows
+    extern "c" fn _putenv_s(varname: ?[*]const u8, value_string: ?[*]const u8) c_int;
+};
+
 test "appendEnv empty" {
     const testing = std.testing;
     const alloc = testing.allocator;
