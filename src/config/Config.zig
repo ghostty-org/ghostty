@@ -110,7 +110,7 @@ pub const compatibility = std.StaticStringMap(
 /// Warning: This setting cannot be reloaded at runtime. To change the language
 /// you must fully restart Ghostty.
 ///
-/// GTK only.
+/// Supported in the Windows-only fork.
 /// Available since 1.3.0.
 language: ?[:0]const u8 = null,
 
@@ -2078,14 +2078,10 @@ keybind: Keybinds = .{},
 ///   * `light` - Use the light theme regardless of system theme.
 ///   * `dark` - Use the dark theme regardless of system theme.
 ///   * `ghostty` - Use the background and foreground colors specified in the
-///     Ghostty configuration. This is only supported on Linux builds.
+///     Ghostty configuration. In the Windows-only fork this currently maps to
+///     the built-in dark window theme.
 ///
-/// On macOS, if `macos-titlebar-style` is `tabs` or `transparent`, the window theme will be
-/// automatically set based on the luminosity of the terminal background color.
-/// This only applies to terminal windows. This setting will still apply to
-/// non-terminal windows within Ghostty.
-///
-/// This is currently only supported on macOS and Linux.
+/// Supported in the Windows-only fork.
 @"window-theme": WindowTheme = .auto,
 
 /// The color space to use when interpreting terminal colors. "Terminal colors"
@@ -2097,7 +2093,7 @@ keybind: Keybinds = .{},
 ///   * `srgb` - Interpret colors in the sRGB color space. This is the default.
 ///   * `display-p3` - Interpret colors in the Display P3 color space.
 ///
-/// This setting is currently only supported on macOS.
+/// Supported in the Windows-only fork.
 @"window-colorspace": WindowColorspace = .srgb,
 
 /// The initial window size. This size is in terminal grid cells by default.
@@ -2120,11 +2116,6 @@ keybind: Keybinds = .{},
 /// This only affects the initial window size of any new window. Changing this
 /// value will not affect the size of the window after it has been created. This
 /// is only used for the initial size.
-///
-/// BUG: On Linux with GTK, the calculated window size will not properly take
-/// into account window decorations. As a result, the grid dimensions will not
-/// exactly match this configuration. If window decorations are disabled (see
-/// `window-decoration`), then this will work as expected.
 ///
 /// Windows smaller than 10 wide by 4 high are not allowed.
 @"window-height": u32 = 0,
@@ -2215,19 +2206,25 @@ keybind: Keybinds = .{},
 ///    Never show the tab bar. Tabs are only accessible via the tab
 ///    overview or by keybind actions.
 ///
-/// Currently only supported on Linux (GTK).
+/// Supported in the Windows-only fork.
 @"window-show-tab-bar": WindowShowTabBar = .auto,
 
 /// Background color for the window titlebar. This only takes effect if
-/// window-theme is set to ghostty. Currently only supported in the GTK app
-/// runtime.
+/// `window-theme` is set to `ghostty`.
+///
+/// Retained compatibility setting from the removed GTK runtime.
+///
+/// This currently has no effect in the Windows-only fork.
 ///
 /// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
 @"window-titlebar-background": ?Color = null,
 
 /// Foreground color for the window titlebar. This only takes effect if
-/// window-theme is set to ghostty. Currently only supported in the GTK app
-/// runtime.
+/// `window-theme` is set to `ghostty`.
+///
+/// Retained compatibility setting from the removed GTK runtime.
+///
+/// This currently has no effect in the Windows-only fork.
 ///
 /// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
 @"window-titlebar-foreground": ?Color = null,
@@ -2361,7 +2358,7 @@ keybind: Keybinds = .{},
 /// Middle-click paste will always use the selection clipboard. Middle-click
 /// paste is always enabled even if this is `false`.
 ///
-/// The default value is true on Linux and macOS.
+/// The default value is false in the Windows-only fork.
 @"copy-on-select": CopyOnSelect = switch (builtin.os.tag) {
     .linux => .true,
     .macos => .true,
@@ -2439,13 +2436,10 @@ keybind: Keybinds = .{},
 
 /// Whether or not to quit after the last surface is closed.
 ///
-/// This defaults to `false` on macOS since that is standard behavior for
-/// a macOS application. On Linux, this defaults to `true` since that is
-/// generally expected behavior.
+/// The default value is `false` in the Windows-only fork.
 ///
-/// On Linux, if this is `true`, Ghostty can delay quitting fully until a
-/// configurable amount of time has passed after the last window is closed.
-/// See the documentation of `quit-after-last-window-closed-delay`.
+/// The related `quit-after-last-window-closed-delay` setting is retained for
+/// compatibility, but currently has no effect in the Windows-only fork.
 @"quit-after-last-window-closed": bool = builtin.os.tag == .linux,
 
 /// Controls how long Ghostty will stay running after the last open surface has
@@ -2486,14 +2480,16 @@ keybind: Keybinds = .{},
 /// Ghostty will quit immediately after the last window is closed if
 /// `quit-after-last-window-closed` is `true`.
 ///
-/// Only implemented on Linux.
+/// Retained compatibility setting from Linux-specific runtime behavior.
+///
+/// This currently has no effect in the Windows-only fork.
 @"quit-after-last-window-closed-delay": ?Duration = null,
 
 /// This controls whether an initial window is created when Ghostty
 /// is run. Note that if `quit-after-last-window-closed` is `true` and
 /// `quit-after-last-window-closed-delay` is set, setting `initial-window` to
 /// `false` will mean that Ghostty will quit after the configured delay if no
-/// window is ever created. Only implemented on Linux and macOS.
+/// window is ever created.
 @"initial-window": bool = true,
 
 /// The duration that undo operations remain available. After this
@@ -2605,9 +2601,9 @@ keybind: Keybinds = .{},
 ///
 ///    The quick terminal appears behind all windows.
 ///
-/// GTK Wayland only.
+/// Retained compatibility setting from the removed GTK runtime.
 ///
-/// Available since: 1.2.0
+/// This has no effect in the Windows-only fork.
 @"gtk-quick-terminal-layer": QuickTerminalLayer = .top,
 /// The namespace for the quick terminal window.
 ///
@@ -2615,9 +2611,9 @@ keybind: Keybinds = .{},
 /// scripts to determine the type of layer surfaces and to possibly apply
 /// unique effects.
 ///
-/// GTK Wayland only.
+/// Retained compatibility setting from the removed GTK runtime.
 ///
-/// Available since: 1.2.0
+/// This has no effect in the Windows-only fork.
 @"gtk-quick-terminal-namespace": [:0]const u8 = "ghostty-quick-terminal",
 
 /// The screen where the quick terminal should show up.
@@ -2625,36 +2621,27 @@ keybind: Keybinds = .{},
 /// Valid values are:
 ///
 ///  * `main` - The screen that the operating system recommends as the main
-///    screen. On macOS, this is the screen that is currently receiving
-///    keyboard input. This screen is defined by the operating system and
-///    not chosen by Ghostty.
+///    screen.
 ///
 ///  * `mouse` - The screen that the mouse is currently hovered over.
 ///
-/// The default value is `main` because this is the recommended screen
-/// by the operating system.
-///
-/// Note: On Linux, there is no universal concept of a "primary" monitor.
-/// Ghostty uses the compositor-reported primary output when available and
-/// falls back to the first monitor reported by GDK if no primary output can
-/// be resolved.
+/// The default value is `main`.
 @"quick-terminal-screen": QuickTerminalScreen = .main,
 
 /// Duration (in seconds) of the quick terminal enter and exit animation.
 /// Set it to 0 to disable animation completely. This can be changed at
 /// runtime.
 ///
-/// Only implemented on macOS.
+/// Retained compatibility setting from platform-specific quick terminal
+/// behavior.
+///
+/// This currently has no effect in the Windows-only fork.
 @"quick-terminal-animation-duration": f64 = 0.2,
 
 /// Automatically hide the quick terminal when focus shifts to another window.
 /// Set it to false for the quick terminal to remain open even when it loses focus.
 ///
-/// Defaults to true on macOS and on false on Linux/BSD. This is because global
-/// shortcuts on Linux require system configuration and are considerably less
-/// accessible than on macOS, meaning that it is more preferable to keep the
-/// quick terminal open until the user has completed their task.
-/// This default may change in the future.
+/// The default value is `false` in the Windows-only fork.
 @"quick-terminal-autohide": bool = switch (builtin.os.tag) {
     .linux => false,
     .macos => true,
@@ -2662,9 +2649,7 @@ keybind: Keybinds = .{},
 },
 
 /// This configuration option determines the behavior of the quick terminal
-/// when switching between macOS spaces. macOS spaces are virtual desktops
-/// that can be manually created or are automatically created when an
-/// application is in full-screen mode.
+/// when switching between virtual desktops.
 ///
 /// Valid values are:
 ///
@@ -2677,15 +2662,14 @@ keybind: Keybinds = .{},
 ///
 /// The default value is `move`.
 ///
-/// Only implemented on macOS.
-/// On Linux the behavior is always equivalent to `move`.
+/// Retained compatibility setting from platform-specific quick terminal
+/// behavior.
 ///
-/// Available since: 1.1.0
+/// This currently has no effect in the Windows-only fork.
 @"quick-terminal-space-behavior": QuickTerminalSpaceBehavior = .move,
 
 /// Determines under which circumstances that the quick terminal should receive
-/// keyboard input. See the corresponding [Wayland documentation](https://wayland.app/protocols/wlr-layer-shell-unstable-v1#zwlr_layer_surface_v1:enum:keyboard_interactivity)
-/// for a more detailed explanation of the behavior of each option.
+/// keyboard input.
 ///
 /// > [!NOTE]
 /// > The exact behavior of each option may differ significantly across
@@ -2707,10 +2691,10 @@ keybind: Keybinds = .{},
 ///    The quick terminal will always receive keyboard input, even when another
 ///    window is currently focused.
 ///
-/// Only has an effect on Linux Wayland.
-/// On macOS the behavior is always equivalent to `on-demand`.
+/// Retained compatibility setting from platform-specific quick terminal
+/// behavior.
 ///
-/// Available since: 1.2.0
+/// This currently has no effect in the Windows-only fork.
 @"quick-terminal-keyboard-interactivity": QuickTerminalKeyboardInteractivity = .@"on-demand",
 
 /// Whether to enable shell integration auto-injection or not. Shell integration
