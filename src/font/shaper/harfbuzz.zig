@@ -36,14 +36,14 @@ pub const Shaper = struct {
     /// The codepoints added to the buffer before shaping. We need to keep
     /// these separately because after shaping, HarfBuzz replaces codepoints
     /// with glyph indices in the buffer.
-    codepoints: std.ArrayListUnmanaged(Codepoint) = .{},
+    codepoints: std.ArrayList(Codepoint) = .{},
 
     const Codepoint = struct {
         cluster: u32,
         codepoint: u32,
     };
 
-    const CellBuf = std.ArrayListUnmanaged(font.shape.Cell);
+    const CellBuf = std.ArrayList(font.shape.Cell);
 
     const RunOffset = struct {
         cluster: u32 = 0,

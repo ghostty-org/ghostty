@@ -730,7 +730,7 @@ pub const RenderState = struct {
         if (any_dirty and self.dirty == .false) self.dirty = .partial;
     }
 
-    pub const StringMap = std.ArrayListUnmanaged(point.Coordinate);
+    pub const StringMap = std.ArrayList(point.Coordinate);
 
     /// Convert the current render state contents to a UTF-8 encoded
     /// string written to the given writer. This will unwrap all the wrapped

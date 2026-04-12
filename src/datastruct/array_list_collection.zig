@@ -5,7 +5,7 @@ const Allocator = std.mem.Allocator;
 pub fn ArrayListCollection(comptime T: type) type {
     return struct {
         const Self = ArrayListCollection(T);
-        const ArrayListT = std.ArrayListUnmanaged(T);
+        const ArrayListT = std.ArrayList(T);
 
         // An array containing the lists that belong to this collection.
         lists: []ArrayListT,
