@@ -15,6 +15,33 @@ const internal_os = @import("../os/main.zig");
 const terminal = @import("../terminal/main.zig");
 const SplitTree = @import("../datastruct/split_tree.zig").SplitTree;
 
+const win32_theme = @import("win32_theme.zig");
+
+// Re-export types from theme module
+const ThemeColors = win32_theme.ThemeColors;
+const ButtonColors = win32_theme.ButtonColors;
+const ProfileChromeAccent = win32_theme.ProfileChromeAccent;
+const HostOverlayMode = win32_theme.HostOverlayMode;
+
+// Re-export functions from theme module
+const darkTheme = win32_theme.darkTheme;
+const lightTheme = win32_theme.lightTheme;
+const adjustColor = win32_theme.adjustColor;
+const buttonColorsFromTheme = win32_theme.buttonColorsFromTheme;
+const buttonColors = win32_theme.buttonColors;
+const buttonFocusRingColor = win32_theme.buttonFocusRingColor;
+const overlayAccentColor = win32_theme.overlayAccentColor;
+const overlayEditBorderColor = win32_theme.overlayEditBorderColor;
+const profileChromeAccent = win32_theme.profileChromeAccent;
+const applyProfileChromeAccent = win32_theme.applyProfileChromeAccent;
+const profileKindFocusRingColor = win32_theme.profileKindFocusRingColor;
+const profileChromeStripeColor = win32_theme.profileChromeStripeColor;
+const profileKindLabelColor = win32_theme.profileKindLabelColor;
+const profileKindHintColor = win32_theme.profileKindHintColor;
+const quickSlotChipColors = win32_theme.quickSlotChipColors;
+const pinnedChipMarkerColor = win32_theme.pinnedChipMarkerColor;
+const rgb = win32_theme.rgb;
+
 const log = std.log.scoped(.win32);
 const windows = std.os.windows;
 
@@ -5363,16 +5390,6 @@ const SurfaceInitOptions = struct {
     clone_state_from: ?*const Surface = null,
 };
 
-const HostOverlayMode = enum {
-    none,
-    command_palette,
-    profile,
-    search,
-    surface_title,
-    tab_title,
-    tab_overview,
-};
-
 const HostBannerKind = enum {
     none,
     info,
@@ -5482,12 +5499,6 @@ fn launchTargetButtonKeyAction(vk: WPARAM) ?LaunchTargetButtonKeyAction {
     };
 }
 
-const ButtonColors = struct {
-    bg: u32,
-    border: u32,
-    fg: u32,
-};
-
 fn appendOwnedString(
     alloc: Allocator,
     target: *?[:0]const u8,
@@ -5495,180 +5506,6 @@ fn appendOwnedString(
 ) !void {
     if (target.*) |existing| alloc.free(existing);
     target.* = if (value) |v| try alloc.dupeZ(u8, v) else null;
-}
-
-fn rgb(r: u8, g: u8, b: u8) u32 {
-    return @as(u32, r) | (@as(u32, g) << 8) | (@as(u32, b) << 16);
-}
-
-const ThemeColors = struct {
-    // Chrome surfaces
-    chrome_bg: u32,
-    chrome_border: u32,
-    overlay_bg: u32,
-    overlay_border: u32,
-    edit_bg: u32,
-    edit_frame_bg: u32,
-    status_bg: u32,
-    inspector_bg: u32,
-
-    // Text
-    text_primary: u32,
-    text_secondary: u32,
-    text_disabled: u32,
-    edit_fg: u32,
-    overlay_label_fg: u32,
-    info_fg: u32,
-    error_fg: u32,
-
-    // Accent
-    accent: u32,
-    accent_hover: u32,
-    chrome_accent_idle: u32,
-    edit_border_unfocused: u32,
-
-    // Buttons - idle
-    button_bg: u32,
-    button_border: u32,
-    button_fg: u32,
-
-    // Buttons - overlay variant
-    button_overlay_bg: u32,
-    button_overlay_border: u32,
-    button_overlay_fg: u32,
-    button_chrome_fg: u32,
-
-    // Buttons - active
-    button_active_bg: u32,
-    button_active_border: u32,
-    button_active_fg: u32,
-
-    // Buttons - accept
-    button_accept_bg: u32,
-    button_accept_border: u32,
-    button_accept_fg: u32,
-
-    // Buttons - disabled
-    button_disabled_bg: u32,
-    button_disabled_border: u32,
-    button_disabled_fg: u32,
-
-    // Focus rings
-    button_focus_ring: u32,
-    button_overlay_focus_ring: u32,
-    button_active_focus_ring: u32,
-    button_accept_focus_ring: u32,
-
-    // Whether this is a dark theme (for DWM)
-    is_dark: bool,
-};
-
-fn darkTheme() ThemeColors {
-    return .{
-        .chrome_bg = rgb(34, 40, 49),
-        .chrome_border = rgb(58, 67, 80),
-        .overlay_bg = rgb(28, 33, 41),
-        .overlay_border = rgb(58, 67, 80),
-        .edit_bg = rgb(20, 24, 31),
-        .edit_frame_bg = rgb(18, 22, 29),
-        .status_bg = rgb(26, 30, 37),
-        .inspector_bg = rgb(22, 27, 35),
-
-        .text_primary = rgb(216, 221, 231),
-        .text_secondary = rgb(160, 170, 184),
-        .text_disabled = rgb(120, 128, 140),
-        .edit_fg = rgb(232, 236, 244),
-        .overlay_label_fg = rgb(210, 228, 255),
-        .info_fg = rgb(142, 197, 255),
-        .error_fg = rgb(255, 132, 132),
-
-        .accent = rgb(116, 156, 224),
-        .accent_hover = rgb(132, 172, 238),
-        .chrome_accent_idle = rgb(72, 82, 98),
-        .edit_border_unfocused = rgb(86, 96, 112),
-
-        .button_bg = rgb(36, 42, 51),
-        .button_border = rgb(72, 82, 98),
-        .button_fg = rgb(196, 204, 216),
-
-        .button_overlay_bg = rgb(44, 54, 68),
-        .button_overlay_border = rgb(92, 114, 148),
-        .button_overlay_fg = rgb(224, 229, 238),
-        .button_chrome_fg = rgb(190, 198, 210),
-
-        .button_active_bg = rgb(60, 76, 104),
-        .button_active_border = rgb(116, 156, 224),
-        .button_active_fg = rgb(244, 247, 252),
-
-        .button_accept_bg = rgb(52, 92, 166),
-        .button_accept_border = rgb(126, 169, 247),
-        .button_accept_fg = rgb(248, 250, 255),
-
-        .button_disabled_bg = rgb(28, 33, 41),
-        .button_disabled_border = rgb(54, 60, 72),
-        .button_disabled_fg = rgb(120, 128, 140),
-
-        .button_focus_ring = rgb(140, 166, 208),
-        .button_overlay_focus_ring = rgb(160, 190, 238),
-        .button_active_focus_ring = rgb(172, 206, 255),
-        .button_accept_focus_ring = rgb(184, 212, 255),
-
-        .is_dark = true,
-    };
-}
-
-fn lightTheme() ThemeColors {
-    return .{
-        .chrome_bg = rgb(243, 243, 243),
-        .chrome_border = rgb(209, 209, 209),
-        .overlay_bg = rgb(249, 249, 249),
-        .overlay_border = rgb(220, 220, 220),
-        .edit_bg = rgb(255, 255, 255),
-        .edit_frame_bg = rgb(245, 245, 245),
-        .status_bg = rgb(238, 238, 238),
-        .inspector_bg = rgb(235, 235, 235),
-
-        .text_primary = rgb(27, 27, 27),
-        .text_secondary = rgb(96, 96, 96),
-        .text_disabled = rgb(160, 160, 160),
-        .edit_fg = rgb(27, 27, 27),
-        .overlay_label_fg = rgb(0, 60, 116),
-        .info_fg = rgb(0, 95, 184),
-        .error_fg = rgb(196, 43, 28),
-
-        .accent = rgb(0, 120, 212),
-        .accent_hover = rgb(0, 99, 177),
-        .chrome_accent_idle = rgb(180, 180, 180),
-        .edit_border_unfocused = rgb(160, 160, 160),
-
-        .button_bg = rgb(251, 251, 251),
-        .button_border = rgb(209, 209, 209),
-        .button_fg = rgb(27, 27, 27),
-
-        .button_overlay_bg = rgb(245, 245, 245),
-        .button_overlay_border = rgb(180, 180, 180),
-        .button_overlay_fg = rgb(27, 27, 27),
-        .button_chrome_fg = rgb(96, 96, 96),
-
-        .button_active_bg = rgb(204, 228, 247),
-        .button_active_border = rgb(0, 120, 212),
-        .button_active_fg = rgb(0, 60, 116),
-
-        .button_accept_bg = rgb(0, 120, 212),
-        .button_accept_border = rgb(0, 99, 177),
-        .button_accept_fg = rgb(255, 255, 255),
-
-        .button_disabled_bg = rgb(243, 243, 243),
-        .button_disabled_border = rgb(209, 209, 209),
-        .button_disabled_fg = rgb(160, 160, 160),
-
-        .button_focus_ring = rgb(0, 120, 212),
-        .button_overlay_focus_ring = rgb(0, 120, 212),
-        .button_active_focus_ring = rgb(0, 90, 158),
-        .button_accept_focus_ring = rgb(0, 90, 158),
-
-        .is_dark = false,
-    };
 }
 
 fn highContrastThemeFromSysColors() ThemeColors {
@@ -5789,362 +5626,11 @@ fn applyDwmTheme(hwnd: HWND, theme: *const ThemeColors) void {
     _ = DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, @ptrCast(&theme.chrome_bg), @sizeOf(u32));
 }
 
-fn adjustColor(base: u32, dr: i16, dg: i16, db: i16) u32 {
-    const r: u8 = @intCast(@as(u16, @intCast(std.math.clamp(@as(i16, @intCast(base & 0xFF)) + dr, 0, 255))));
-    const g: u8 = @intCast(@as(u16, @intCast(std.math.clamp(@as(i16, @intCast((base >> 8) & 0xFF)) + dg, 0, 255))));
-    const b: u8 = @intCast(@as(u16, @intCast(std.math.clamp(@as(i16, @intCast((base >> 16) & 0xFF)) + db, 0, 255))));
-    return rgb(r, g, b);
-}
-
-fn buttonColorsFromTheme(
-    theme: *const ThemeColors,
-    active: bool,
-    overlay: bool,
-    hovered: bool,
-    pressed: bool,
-    disabled: bool,
-    accept: bool,
-) ButtonColors {
-    var colors: ButtonColors = .{
-        .bg = if (overlay) theme.button_overlay_bg else theme.button_bg,
-        .border = if (overlay) theme.button_overlay_border else theme.button_border,
-        .fg = theme.button_fg,
-    };
-
-    if (active) {
-        colors = .{
-            .bg = theme.button_active_bg,
-            .border = theme.button_active_border,
-            .fg = theme.button_active_fg,
-        };
-    }
-    if (accept) {
-        colors = .{
-            .bg = theme.button_accept_bg,
-            .border = theme.button_accept_border,
-            .fg = theme.button_accept_fg,
-        };
-    }
-    if (hovered and !pressed and !disabled) {
-        colors.bg = if (accept)
-            adjustColor(theme.button_accept_bg, 10, 12, 18)
-        else if (active)
-            adjustColor(theme.button_active_bg, 12, 14, 18)
-        else if (overlay)
-            adjustColor(theme.button_overlay_bg, 10, 12, 14)
-        else
-            adjustColor(theme.button_bg, 8, 10, 11);
-        colors.border = if (accept)
-            adjustColor(theme.button_accept_border, 20, 17, 8)
-        else if (active)
-            theme.accent_hover
-        else if (overlay)
-            adjustColor(theme.button_overlay_border, 16, 18, 20)
-        else
-            adjustColor(theme.button_border, 20, 22, 24);
-    }
-    if (pressed) {
-        colors.bg = if (overlay) adjustColor(theme.overlay_bg, -2, -2, -2) else adjustColor(theme.chrome_bg, -6, -7, -8);
-        if (active) colors.bg = adjustColor(theme.button_active_bg, -18, -20, -20);
-        if (accept) colors.bg = adjustColor(theme.button_accept_bg, -14, -20, -32);
-    }
-    if (disabled) {
-        colors = .{
-            .bg = theme.button_disabled_bg,
-            .border = theme.button_disabled_border,
-            .fg = theme.button_disabled_fg,
-        };
-    }
-
-    return colors;
-}
 
 fn fillSolidRect(hdc: HDC, rect: RECT, color: u32) void {
     const brush = CreateSolidBrush(color) orelse return;
     defer _ = DeleteObject(brush);
     _ = FillRect(hdc, &rect, brush);
-}
-
-fn overlayAccentColor(mode: HostOverlayMode, is_dark: bool) u32 {
-    if (!is_dark) {
-        return switch (mode) {
-            .command_palette => rgb(0, 90, 158),
-            .profile => rgb(136, 60, 160),
-            .search => rgb(16, 124, 80),
-            .surface_title, .tab_title => rgb(156, 112, 24),
-            .tab_overview => rgb(102, 76, 180),
-            .none => rgb(140, 140, 140),
-        };
-    }
-    return switch (mode) {
-        .command_palette => rgb(116, 156, 224),
-        .profile => rgb(192, 132, 214),
-        .search => rgb(118, 196, 158),
-        .surface_title, .tab_title => rgb(212, 170, 92),
-        .tab_overview => rgb(168, 148, 228),
-        .none => rgb(72, 82, 98),
-    };
-}
-
-fn overlayEditBorderColor(mode: HostOverlayMode, focused: bool, is_dark: bool) u32 {
-    if (focused) return overlayAccentColor(mode, is_dark);
-    if (!is_dark) {
-        return switch (mode) {
-            .none => rgb(180, 180, 180),
-            else => rgb(140, 140, 140),
-        };
-    }
-    return switch (mode) {
-        .none => rgb(72, 82, 98),
-        else => rgb(86, 96, 112),
-    };
-}
-
-fn buttonColors(
-    active: bool,
-    overlay: bool,
-    hovered: bool,
-    pressed: bool,
-    disabled: bool,
-    accept: bool,
-) ButtonColors {
-    var colors: ButtonColors = .{
-        .bg = if (overlay) rgb(44, 54, 68) else rgb(36, 42, 51),
-        .border = if (overlay) rgb(92, 114, 148) else rgb(72, 82, 98),
-        .fg = rgb(196, 204, 216),
-    };
-
-    if (active) {
-        colors = .{
-            .bg = rgb(60, 76, 104),
-            .border = rgb(116, 156, 224),
-            .fg = rgb(244, 247, 252),
-        };
-    }
-    if (accept) {
-        colors = .{
-            .bg = rgb(52, 92, 166),
-            .border = rgb(126, 169, 247),
-            .fg = rgb(248, 250, 255),
-        };
-    }
-    if (hovered and !pressed and !disabled) {
-        colors.bg = if (accept)
-            rgb(62, 104, 184)
-        else if (active)
-            rgb(72, 90, 122)
-        else if (overlay)
-            rgb(54, 66, 82)
-        else
-            rgb(44, 52, 62);
-        colors.border = if (accept)
-            rgb(146, 186, 255)
-        else if (active)
-            rgb(132, 172, 238)
-        else if (overlay)
-            rgb(108, 132, 168)
-        else
-            rgb(92, 104, 122);
-    }
-    if (pressed) {
-        colors.bg = if (overlay) rgb(26, 31, 39) else rgb(28, 33, 41);
-        if (active) colors.bg = rgb(42, 56, 84);
-        if (accept) colors.bg = rgb(38, 72, 134);
-    }
-    if (disabled) {
-        colors = .{
-            .bg = rgb(28, 33, 41),
-            .border = rgb(54, 60, 72),
-            .fg = rgb(120, 128, 140),
-        };
-    }
-
-    return colors;
-}
-
-const ProfileChromeAccent = struct {
-    idle_bg: u32,
-    idle_border: u32,
-    hover_bg: u32,
-    hover_border: u32,
-    pressed_bg: u32,
-    active_bg: u32,
-    active_border: u32,
-    focus: u32,
-};
-
-fn profileChromeAccent(kind: windows_shell.ProfileKind, is_dark: bool) ProfileChromeAccent {
-    if (!is_dark) {
-        return switch (kind) {
-            .wsl_default, .wsl_distro => .{
-                .idle_bg = rgb(228, 245, 233),
-                .idle_border = rgb(46, 125, 70),
-                .hover_bg = rgb(218, 238, 224),
-                .hover_border = rgb(36, 110, 58),
-                .pressed_bg = rgb(200, 228, 210),
-                .active_bg = rgb(195, 232, 208),
-                .active_border = rgb(28, 100, 48),
-                .focus = rgb(22, 80, 40),
-            },
-            .pwsh => .{
-                .idle_bg = rgb(224, 242, 248),
-                .idle_border = rgb(24, 120, 150),
-                .hover_bg = rgb(212, 236, 244),
-                .hover_border = rgb(16, 108, 138),
-                .pressed_bg = rgb(196, 226, 236),
-                .active_bg = rgb(188, 228, 240),
-                .active_border = rgb(12, 96, 126),
-                .focus = rgb(8, 80, 108),
-            },
-            .powershell => .{
-                .idle_bg = rgb(228, 232, 248),
-                .idle_border = rgb(48, 68, 156),
-                .hover_bg = rgb(218, 222, 242),
-                .hover_border = rgb(38, 56, 140),
-                .pressed_bg = rgb(200, 208, 232),
-                .active_bg = rgb(196, 206, 236),
-                .active_border = rgb(30, 48, 128),
-                .focus = rgb(24, 40, 108),
-            },
-            .git_bash => .{
-                .idle_bg = rgb(252, 244, 228),
-                .idle_border = rgb(168, 120, 24),
-                .hover_bg = rgb(248, 238, 216),
-                .hover_border = rgb(152, 108, 16),
-                .pressed_bg = rgb(240, 228, 200),
-                .active_bg = rgb(244, 232, 196),
-                .active_border = rgb(140, 96, 8),
-                .focus = rgb(120, 80, 4),
-            },
-            .cmd => .{
-                .idle_bg = rgb(240, 240, 240),
-                .idle_border = rgb(128, 128, 128),
-                .hover_bg = rgb(232, 232, 232),
-                .hover_border = rgb(112, 112, 112),
-                .pressed_bg = rgb(220, 220, 220),
-                .active_bg = rgb(216, 216, 216),
-                .active_border = rgb(96, 96, 96),
-                .focus = rgb(64, 64, 64),
-            },
-        };
-    }
-
-    return switch (kind) {
-        .wsl_default, .wsl_distro => .{
-            .idle_bg = rgb(34, 46, 38),
-            .idle_border = rgb(92, 176, 118),
-            .hover_bg = rgb(40, 54, 44),
-            .hover_border = rgb(116, 206, 144),
-            .pressed_bg = rgb(28, 38, 31),
-            .active_bg = rgb(46, 72, 54),
-            .active_border = rgb(142, 224, 164),
-            .focus = rgb(188, 244, 200),
-        },
-        .pwsh => .{
-            .idle_bg = rgb(34, 45, 52),
-            .idle_border = rgb(86, 176, 204),
-            .hover_bg = rgb(40, 54, 62),
-            .hover_border = rgb(110, 204, 234),
-            .pressed_bg = rgb(28, 37, 43),
-            .active_bg = rgb(44, 70, 82),
-            .active_border = rgb(136, 216, 242),
-            .focus = rgb(186, 232, 248),
-        },
-        .powershell => .{
-            .idle_bg = rgb(34, 42, 58),
-            .idle_border = rgb(98, 144, 220),
-            .hover_bg = rgb(40, 50, 72),
-            .hover_border = rgb(122, 170, 244),
-            .pressed_bg = rgb(27, 34, 48),
-            .active_bg = rgb(46, 64, 96),
-            .active_border = rgb(148, 194, 255),
-            .focus = rgb(192, 220, 255),
-        },
-        .git_bash => .{
-            .idle_bg = rgb(48, 40, 31),
-            .idle_border = rgb(212, 156, 92),
-            .hover_bg = rgb(58, 48, 37),
-            .hover_border = rgb(236, 182, 118),
-            .pressed_bg = rgb(40, 33, 26),
-            .active_bg = rgb(78, 62, 42),
-            .active_border = rgb(248, 202, 134),
-            .focus = rgb(255, 224, 178),
-        },
-        .cmd => .{
-            .idle_bg = rgb(31, 41, 35),
-            .idle_border = rgb(104, 186, 126),
-            .hover_bg = rgb(38, 50, 42),
-            .hover_border = rgb(128, 210, 150),
-            .pressed_bg = rgb(25, 34, 29),
-            .active_bg = rgb(42, 64, 50),
-            .active_border = rgb(150, 228, 170),
-            .focus = rgb(194, 244, 202),
-        },
-    };
-}
-
-fn applyProfileChromeAccent(
-    base: ButtonColors,
-    kind: windows_shell.ProfileKind,
-    is_dark: bool,
-    active: bool,
-    hovered: bool,
-    pressed: bool,
-    disabled: bool,
-) ButtonColors {
-    if (disabled) return base;
-
-    const accent = profileChromeAccent(kind, is_dark);
-    var colors = base;
-    colors.bg = if (active) accent.active_bg else accent.idle_bg;
-    colors.border = if (active) accent.active_border else accent.idle_border;
-
-    if (hovered and !pressed) {
-        colors.bg = if (active) accent.active_bg else accent.hover_bg;
-        colors.border = if (active) accent.active_border else accent.hover_border;
-    }
-    if (pressed) {
-        colors.bg = accent.pressed_bg;
-        colors.border = if (active) accent.active_border else accent.hover_border;
-    }
-    if (active) {
-        colors.fg = if (is_dark) rgb(248, 250, 255) else rgb(16, 16, 24);
-    }
-    return colors;
-}
-
-fn buttonFocusRingColor(active: bool, overlay: bool, accept: bool) u32 {
-    if (accept) return rgb(184, 212, 255);
-    if (active) return rgb(172, 206, 255);
-    if (overlay) return rgb(160, 190, 238);
-    return rgb(140, 166, 208);
-}
-
-fn profileKindFocusRingColor(kind: windows_shell.ProfileKind, is_dark: bool) u32 {
-    return profileChromeAccent(kind, is_dark).focus;
-}
-
-fn profileChromeStripeColor(
-    kind: windows_shell.ProfileKind,
-    is_dark: bool,
-    active: bool,
-    hovered: bool,
-    pressed: bool,
-    disabled: bool,
-) u32 {
-    const accent = profileChromeAccent(kind, is_dark);
-    if (disabled) return if (is_dark) rgb(86, 94, 108) else rgb(180, 180, 180);
-    if (pressed) return accent.hover_border;
-    if (hovered or active) return accent.active_border;
-    return accent.idle_border;
-}
-
-fn profileKindLabelColor(kind: windows_shell.ProfileKind, is_dark: bool) u32 {
-    return profileChromeAccent(kind, is_dark).focus;
-}
-
-fn profileKindHintColor(kind: windows_shell.ProfileKind, is_dark: bool) u32 {
-    return profileChromeAccent(kind, is_dark).active_border;
 }
 
 fn tabButtonKeyAction(vk: WPARAM, ctrl_pressed: bool) ?TabButtonKeyAction {
@@ -7102,19 +6588,6 @@ fn buildProfileQuickSlotChipText(
         });
     }
     return try alloc.dupe(u8, profileKindBadge(profile.kind));
-}
-
-fn quickSlotChipColors(kind: windows_shell.ProfileKind, is_dark: bool, hovered: bool) ButtonColors {
-    const accent = profileChromeAccent(kind, is_dark);
-    return .{
-        .bg = if (hovered) accent.hover_bg else accent.idle_bg,
-        .border = if (hovered) accent.hover_border else accent.idle_border,
-        .fg = if (hovered) profileKindHintColor(kind, is_dark) else profileKindLabelColor(kind, is_dark),
-    };
-}
-
-fn pinnedChipMarkerColor(kind: windows_shell.ProfileKind, is_dark: bool, hovered: bool) u32 {
-    return if (hovered) profileKindLabelColor(kind, is_dark) else profileKindHintColor(kind, is_dark);
 }
 
 fn launcherChipRightInset(has_slot_badge: bool, has_target_marker: bool) i32 {
