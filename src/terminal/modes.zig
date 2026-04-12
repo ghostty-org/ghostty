@@ -107,10 +107,7 @@ pub const ModePacked = packed_struct: {
 
     for (entries, &names, &attrs) |entry, *name, *attr| {
         name.* = entry.name;
-        attr.* = .{
-            .@"align" = 0,
-            .default_value_ptr = &entry.default,
-        };
+        attr.* = .{ .default_value_ptr = &entry.default };
     }
 
     break :packed_struct @Struct(.@"packed", null, &names, &types, &attrs);

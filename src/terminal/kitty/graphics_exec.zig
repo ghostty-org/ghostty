@@ -117,7 +117,13 @@ fn query(
 
     // Attempt to load the image. If we cannot, then set an appropriate error.
     const storage = &terminal.screens.active.kitty_images;
-    var loading = LoadingImage.init(alloc, cmd, storage.image_limits) catch |err| {
+    var loading = LoadingImage.init(
+        alloc,
+        terminal.io,
+        terminal.env,
+        cmd,
+        storage.image_limits,
+    ) catch |err| {
         encodeError(&result, err);
         return result;
     };
@@ -327,7 +333,13 @@ fn loadAndAddImage(
         }
 
         break :loading loading.*;
-    } else try .init(alloc, cmd, storage.image_limits);
+    } else try .init(
+        alloc,
+        terminal.io,
+        terminal.env,
+        cmd,
+        storage.image_limits,
+    );
 
     // We only want to deinit on error. If we're chunking, then we don't
     // want to deinit at all. If we're not chunking, then we'll deinit
@@ -360,7 +372,7 @@ fn loadAndAddImage(
     // loading.debugDump() catch unreachable;
 
     // Validate and store our image
-    var img = try loading.complete(alloc);
+    var img = try loading.complete(alloc, terminal.io);
     errdefer img.deinit(alloc);
     try storage.addImage(alloc, img);
 

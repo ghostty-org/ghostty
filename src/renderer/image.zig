@@ -183,6 +183,7 @@ pub const State = struct {
         self: *State,
         alloc: Allocator,
         overlay_: ?Overlay,
+        io: std.Io,
     ) !void {
         const overlay = overlay_ orelse {
             // If we don't have an overlay, remove any existing one.
@@ -194,7 +195,7 @@ pub const State = struct {
 
         // For transmit time we always just use the current time
         // and overwrite the overlay.
-        const transmit_time = try std.time.Instant.now();
+        const transmit_time: std.Io.Timestamp = .now(io, .clock);
 
         // Ensure we have space for our overlay placement. Do this before
         // we upload our image so we don't have to deal with cleaning

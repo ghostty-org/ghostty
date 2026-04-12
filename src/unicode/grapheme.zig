@@ -28,8 +28,8 @@ pub fn graphemeBreak(cp1: u21, cp2: u21, state: *uucode.grapheme.BreakState) boo
 const Precompute = struct {
     const Key = packed struct(u13) {
         state: uucode.grapheme.BreakState,
-        gb1: uucode.x.types.GraphemeBreakNoControl,
-        gb2: uucode.x.types.GraphemeBreakNoControl,
+        gb1: uucode.types.GraphemeBreakNoControl,
+        gb2: uucode.types.GraphemeBreakNoControl,
 
         fn index(self: Key) usize {
             return @intCast(@as(u13, @bitCast(self)));
@@ -53,18 +53,18 @@ const Precompute = struct {
         };
 
         @setEvalBranchQuota(10_000);
-        const info = @typeInfo(uucode.x.types.GraphemeBreakNoControl).@"enum";
+        const info = @typeInfo(uucode.types.GraphemeBreakNoControl).@"enum";
         for (0..max_state_int + 1) |state_int| {
             for (info.fields) |field1| {
                 for (info.fields) |field2| {
                     var state: uucode.grapheme.BreakState = @enumFromInt(state_int);
 
                     const key: Key = .{
-                        .gb1 = @field(uucode.x.types.GraphemeBreakNoControl, field1.name),
-                        .gb2 = @field(uucode.x.types.GraphemeBreakNoControl, field2.name),
+                        .gb1 = @field(uucode.types.GraphemeBreakNoControl, field1.name),
+                        .gb2 = @field(uucode.types.GraphemeBreakNoControl, field2.name),
                         .state = state,
                     };
-                    const v = uucode.x.grapheme.computeGraphemeBreakNoControl(
+                    const v = uucode.grapheme.computeGraphemeBreakNoControl(
                         key.gb1,
                         key.gb2,
                         &state,

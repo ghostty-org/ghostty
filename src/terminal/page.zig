@@ -2018,12 +2018,18 @@ pub const Cell = packed struct(u64) {
         /// The codepoint that this cell contains. If `grapheme` is false,
         /// then this is the only codepoint in the cell. If `grapheme` is
         /// true, then this is the first codepoint in the grapheme cluster.
-        codepoint: u21,
+        codepoint: packed struct(u24) {
+            _pad: u3 = 0,
+            data: u21,
+        },
 
         /// The content is an empty cell with a background color.
-        color_palette: u8,
+        color_palette: packed struct(u24) {
+            _pad: u16 = 0,
+            data: u8,
+        },
         color_rgb: RGB,
-    } = .{ .codepoint = 0 },
+    } = .{ .codepoint = .{ .data = 0 } },
 
     /// The style ID to use for this cell within the style map. Zero
     /// is always the default style so no lookup is required.
@@ -2133,7 +2139,7 @@ pub const Cell = packed struct(u64) {
         return switch (self.content_tag) {
             .codepoint,
             .codepoint_grapheme,
-            => self.content.codepoint != 0,
+            => self.content.codepoint.data != 0,
 
             .bg_color_palette,
             .bg_color_rgb,
@@ -2145,7 +2151,7 @@ pub const Cell = packed struct(u64) {
         return switch (self.content_tag) {
             .codepoint,
             .codepoint_grapheme,
-            => self.content.codepoint,
+            => self.content.codepoint.data,
 
             .bg_color_palette,
             .bg_color_rgb,
@@ -2369,7 +2375,9 @@ test "Page read and write cells" {
         const rac = page.getRowAndCell(1, y);
         rac.cell.* = .{
             .content_tag = .codepoint,
-            .content = .{ .codepoint = @intCast(y) },
+            .content = .{
+                .codepoint = .{ .data = @intCast(y) },
+            },
         };
     }
 

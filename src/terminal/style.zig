@@ -111,7 +111,7 @@ pub const Style = struct {
         palette: *const color.Palette,
     ) ?color.RGB {
         return switch (cell.content_tag) {
-            .bg_color_palette => palette[cell.content.color_palette],
+            .bg_color_palette => palette[cell.content.color_palette.data],
             .bg_color_rgb => rgb: {
                 const rgb = cell.content.color_rgb;
                 break :rgb .{ .r = rgb.r, .g = rgb.g, .b = rgb.b };
@@ -212,7 +212,9 @@ pub const Style = struct {
             .none => null,
             .palette => |idx| .{
                 .content_tag = .bg_color_palette,
-                .content = .{ .color_palette = idx },
+                .content = .{
+                    .color_palette = .{ .data = idx },
+                },
             },
             .rgb => |rgb| .{
                 .content_tag = .bg_color_rgb,

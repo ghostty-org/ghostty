@@ -102,7 +102,7 @@ pub fn set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(Option, @intFromEnum(option)) catch {
+        _ = std.enums.fromInt(Option, @intFromEnum(option)) orelse {
             return .invalid_value;
         };
     }
@@ -148,35 +148,34 @@ fn emitLog(level: LogLevel, scope: []const u8, message: []const u8) void {
 const LogEmitter = struct {
     c_level: LogLevel,
     scope_text: []const u8,
-    buf: [2048]u8 = undefined,
-    pos: usize = 0,
+    writer: std.Io.Writer,
 
-    fn write(self: *@This(), bytes: []const u8) error{}!usize {
-        var remaining = bytes;
-        while (remaining.len > 0) {
-            const space = self.buf.len - self.pos;
-            if (space == 0) {
-                self.flush();
-                continue;
-            }
-
-            const n = @min(remaining.len, space);
-            @memcpy(self.buf[self.pos..][0..n], remaining[0..n]);
-            self.pos += n;
-            remaining = remaining[n..];
-        }
-
-        return bytes.len;
+    fn init(c_level: LogLevel, scope_text: []const u8, buf: []u8) LogEmitter {
+        return .{
+            .c_level = c_level,
+            .scope_text = scope_text,
+            .writer = .{
+                .vtable = &.{ .drain = drain },
+                .buffer = buf,
+            },
+        };
     }
 
-    fn flush(self: *@This()) void {
-        if (self.pos == 0) return;
-        emitLog(
-            self.c_level,
-            self.scope_text,
-            self.buf[0..self.pos],
-        );
-        self.pos = 0;
+    fn drain(w: *std.Io.Writer, data: []const []const u8, splat: usize) error{}!usize {
+        const self: *LogEmitter = @fieldParentPtr("writer", w);
+
+        emitLog(self.c_level, self.scope_text, w.buffer[0..w.end]);
+        w.end = 0;
+
+        var written: usize = data[data.len].len * splat;
+        for (data[0 .. data.len - 1]) |s| {
+            emitLog(self.c_level, self.scope_text, s);
+            written += s.len;
+        }
+        for (0..splat) |_| {
+            emitLog(self.c_level, self.scope_text, data[data.len]);
+        }
+        return written;
     }
 };
 
@@ -197,18 +196,11 @@ pub fn logFn(
     const scope_text: []const u8 = if (scope == .default) "" else @tagName(scope);
     const c_level = LogLevel.fromStd(level);
 
-    var ctx: LogEmitter = .{
-        .c_level = c_level,
-        .scope_text = scope_text,
-    };
-    const writer: std.io.GenericWriter(
-        *LogEmitter,
-        error{},
-        LogEmitter.write,
-    ) = .{ .context = &ctx };
+    var buf: [2048]u8 = undefined;
+    var ctx: LogEmitter = .init(c_level, scope_text, &buf);
 
-    nosuspend writer.print(format, args) catch {};
-    ctx.flush();
+    ctx.writer.print(format, args) catch {};
+    ctx.writer.flush() catch {};
 }
 
 /// Built-in log callback that writes to stderr.
@@ -239,14 +231,14 @@ pub fn logStderr(
     };
 
     var buffer: [64]u8 = undefined;
-    const writer = std.debug.lockStderrWriter(&buffer);
-    defer std.debug.unlockStderrWriter();
-    nosuspend {
-        if (scope.len > 0) {
-            writer.print("[{s}]({s}): {s}\n", .{ level_text, scope, message }) catch {};
-        } else {
-            writer.print("[{s}]: {s}\n", .{ level_text, message }) catch {};
-        }
+    var stderr = std.debug.lockStderr(&buffer);
+    defer std.debug.unlockStderr();
+    const writer = &stderr.file_writer.interface;
+
+    if (scope.len > 0) {
+        writer.print("[{s}]({s}): {s}\n", .{ level_text, scope, message }) catch {};
+    } else {
+        writer.print("[{s}]: {s}\n", .{ level_text, message }) catch {};
     }
 }
 

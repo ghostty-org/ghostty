@@ -164,7 +164,7 @@ fn parseGetSetAnsiColor(
     // Note: in ANY error scenario below we return the accumulated results.
     // This matches the xterm behavior (see misc.c ChangeAnsiColorRequest)
 
-    var result: List = .{};
+    var result: List = .empty;
     errdefer result.deinit(alloc);
     while (true) {
         // We expect a `c; spec` pair. If either doesn't exist then
@@ -182,19 +182,19 @@ fn parseGetSetAnsiColor(
         // Parse the color.
         const target: Target = switch (op) {
             // OSC5 maps directly to the Special enum.
-            .osc_5 => .{ .special = std.meta.intToEnum(
+            .osc_5 => .{ .special = std.enums.fromInt(
                 SpecialColor,
                 std.math.cast(u3, color) orelse return result,
-            ) catch return result },
+            ) orelse return result },
 
             // OSC4 maps 0-255 to palette, 256-259 to special offset
             // by the palette count.
             .osc_4 => if (std.math.cast(u8, color)) |idx| .{
                 .palette = idx,
-            } else .{ .special = std.meta.intToEnum(
+            } else .{ .special = std.enums.fromInt(
                 SpecialColor,
                 std.math.cast(u3, color - 256) orelse return result,
-            ) catch return result },
+            ) orelse return result },
 
             else => comptime unreachable,
         };
@@ -226,12 +226,12 @@ fn parseResetAnsiColor(
     // Kitty and I don't see a downside to being more flexible here. Hopefully
     // no one depends on the exact behavior of xterm.
 
-    var result: List = .{};
+    var result: List = .empty;
     errdefer result.deinit(alloc);
     while (true) {
         const color_str = it.next() orelse {
             // If no parameters are given, we reset the full table.
-            if (result.count() == 0) {
+            if (result.items.len == 0) {
                 const req = try result.addOne(alloc);
                 req.* = switch (op) {
                     .osc_104 => .reset_palette,
@@ -255,19 +255,19 @@ fn parseResetAnsiColor(
         // Parse the color.
         const target: Target = switch (op) {
             // OSC105 maps directly to the Special enum.
-            .osc_105 => .{ .special = std.meta.intToEnum(
+            .osc_105 => .{ .special = std.enums.fromInt(
                 SpecialColor,
                 std.math.cast(u3, color) orelse continue,
-            ) catch continue },
+            ) orelse continue },
 
             // OSC104 maps 0-255 to palette, 256-259 to special offset
             // by the palette count.
             .osc_104 => if (std.math.cast(u8, color)) |idx| .{
                 .palette = idx,
-            } else .{ .special = std.meta.intToEnum(
+            } else .{ .special = std.enums.fromInt(
                 SpecialColor,
                 std.math.cast(u3, color - 256) orelse continue,
-            ) catch continue },
+            ) orelse continue },
 
             else => comptime unreachable,
         };
@@ -286,7 +286,7 @@ fn parseGetSetDynamicColor(
     // Note: in ANY error scenario below we return the accumulated results.
     // This matches the xterm behavior (see misc.c ChangeColorsRequest)
 
-    var result: List = .{};
+    var result: List = .empty;
     var color: DynamicColor = start;
     while (true) {
         const spec_str = it.next() orelse return result;
@@ -314,7 +314,7 @@ fn parseResetDynamicColor(
     color: DynamicColor,
     it: *std.mem.TokenIterator(u8, .scalar),
 ) Allocator.Error!List {
-    var result: List = .{};
+    var result: List = .empty;
     errdefer result.deinit(alloc);
     if (it.next() != null) return result;
     const req = try result.addOne(alloc);
@@ -329,10 +329,7 @@ fn parseResetDynamicColor(
 /// The exact prealloc value is chosen arbitrarily assuming most
 /// color ops have very few. If we can get empirical data on more
 /// typical values we can switch to that.
-pub const List = std.SegmentedList(
-    Request,
-    2,
-);
+pub const List = std.ArrayList(Request);
 
 /// A single operation related to the terminal color palette.
 pub const Request = union(enum) {
@@ -450,7 +447,7 @@ test "OSC 4:" {
 
     // Test every special color
     for (0..@typeInfo(SpecialColor).@"enum".fields.len) |i| {
-        const special = try std.meta.intToEnum(SpecialColor, i);
+        const special = try std.enums.fromInt(SpecialColor, i);
 
         // Simple color set
         // printf '\e]4;256;red\\'
@@ -482,7 +479,7 @@ test "OSC 5:" {
 
     // Test every special color
     for (0..@typeInfo(SpecialColor).@"enum".fields.len) |i| {
-        const special = try std.meta.intToEnum(SpecialColor, i);
+        const special = try std.enums.fromInt(SpecialColor, i);
 
         // Simple color set
         // printf '\e]4;256;red\\'
@@ -592,7 +589,7 @@ test "OSC 104:" {
 
     // Test every special color
     for (0..@typeInfo(SpecialColor).@"enum".fields.len) |i| {
-        const special = try std.meta.intToEnum(SpecialColor, i);
+        const special = try std.enums.fromInt(SpecialColor, i);
 
         // Simple color set
         // printf '\e]104;256\\'

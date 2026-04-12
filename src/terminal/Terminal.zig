@@ -40,6 +40,9 @@ const log = std.log.scoped(.terminal);
 /// Default tabstop interval
 const TABSTOP_INTERVAL = 8;
 
+io: std.Io,
+env: std.process.Environ,
+
 /// The set of screens behind this terminal (e.g. primary vs alternate).
 screens: ScreenSet,
 
@@ -216,6 +219,8 @@ pub const Options = struct {
 /// Initialize a new terminal.
 pub fn init(
     alloc: Allocator,
+    io: std.Io,
+    env: std.process.Environ,
     opts: Options,
 ) !Terminal {
     const cols = opts.cols;
@@ -231,6 +236,8 @@ pub fn init(
     errdefer screen_set.deinit(alloc);
 
     return .{
+        .io = io,
+        .env = env,
         .cols = cols,
         .rows = rows,
         .screens = screen_set,
@@ -379,7 +386,7 @@ pub fn print(self: *Terminal, c: u21) !void {
 
         const grapheme_break = brk: {
             var state: uucode.grapheme.BreakState = .default;
-            var cp1: u21 = prev.cell.content.codepoint;
+            var cp1 = prev.cell.content.codepoint.data;
             if (prev.cell.hasGrapheme()) {
                 const cps = self.screens.active.cursor.page_pin.node.data.lookupGrapheme(prev.cell).?;
                 for (cps) |cp2| {
@@ -402,7 +409,7 @@ pub fn print(self: *Terminal, c: u21) !void {
             // the cell width accordingly. VS16 makes the character wide and
             // VS15 makes it narrow.
             if (c == 0xFE0F or c == 0xFE0E) {
-                const prev_props = unicode.table.get(prev.cell.content.codepoint);
+                const prev_props = unicode.table.get(prev.cell.content.codepoint.data);
                 // Check if it is a valid variation sequence in
                 // emoji-variation-sequences.txt, and if not, ignore the char.
                 if (!prev_props.emoji_vs_base) return;
@@ -449,10 +456,10 @@ pub fn print(self: *Terminal, c: u21) !void {
                             // grapheme data from the cell, so we can move it
                             // later.
                             prev.cell.wide = if (row_wrap) .spacer_head else .narrow;
-                            prev.cell.content.codepoint = 0;
+                            prev.cell.content.codepoint = .{ .data = 0 };
 
                             try self.printWrap();
-                            self.printCell(prev_cp, .wide);
+                            self.printCell(prev_cp.data, .wide);
 
                             const new_pin = self.screens.active.cursor.page_pin.*;
                             const new_rac = new_pin.rowAndCell();
@@ -487,7 +494,7 @@ pub fn print(self: *Terminal, c: u21) !void {
                                 if (row_wrap) .spacer_head else .narrow,
                             );
                             try self.printWrap();
-                            self.printCell(prev_cp, .wide);
+                            self.printCell(prev_cp.data, .wide);
 
                             // Point prev.cell to our new previous cell that
                             // we'll be appending graphemes to
@@ -597,7 +604,7 @@ pub fn print(self: *Terminal, c: u21) !void {
 
         // If this is a emoji variation selector, prev must be an emoji
         if (c == 0xFE0F or c == 0xFE0E) {
-            const prev_props = unicode.table.get(prev.content.codepoint);
+            const prev_props = unicode.table.get(prev.content.codepoint.data);
             const emoji = prev_props.grapheme_break == .extended_pictographic;
             if (!emoji) return;
         }
@@ -810,7 +817,7 @@ fn printCell(
     // Write
     cell.* = .{
         .content_tag = .codepoint,
-        .content = .{ .codepoint = c },
+        .content = .{ .codepoint = .{ .data = c } },
         .style_id = self.screens.active.cursor.style_id,
         .wide = wide,
         .protected = self.screens.active.cursor.protected,
@@ -1795,7 +1802,7 @@ fn rowWillBeShifted(
             page.clearGrapheme(wide_cell);
             page.updateRowGraphemeFlag(row);
         }
-        wide_cell.content.codepoint = 0;
+        wide_cell.content.codepoint = .{ .data = 0 };
         wide_cell.wide = .narrow;
         left_cell.wide = .narrow;
     }
@@ -1806,7 +1813,7 @@ fn rowWillBeShifted(
             page.clearGrapheme(right_cell);
             page.updateRowGraphemeFlag(row);
         }
-        right_cell.content.codepoint = 0;
+        right_cell.content.codepoint = .{ .data = 0 };
         right_cell.wide = .narrow;
         tail_cell.wide = .narrow;
     }
@@ -2671,7 +2678,7 @@ pub fn decaln(self: *Terminal) !void {
         const cells = cells_multi[0..page.size.cols];
         @memset(cells, .{
             .content_tag = .codepoint,
-            .content = .{ .codepoint = 'E' },
+            .content = .{ .codepoint = .{ .data = 'E' } },
             .style_id = self.screens.active.cursor.style_id,
 
             // DECALN does not respect protected state. Verified with xterm.
