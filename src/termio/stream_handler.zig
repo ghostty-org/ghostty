@@ -1222,7 +1222,7 @@ pub const StreamHandler = struct {
         var fba: std.heap.FixedBufferAllocator = .init(&buffer);
         const alloc = fba.allocator();
 
-        var response: std.ArrayListUnmanaged(u8) = .empty;
+        var response: std.ArrayList(u8) = .empty;
         const writer = response.writer(alloc);
 
         var it = requests.constIterator(0);

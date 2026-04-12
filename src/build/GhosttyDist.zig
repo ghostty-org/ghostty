@@ -24,7 +24,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
     // Get the resources we're going to inject into the source tarball.
     // lib-vt doesn't need GTK resources or frame data.
     const alloc = b.allocator;
-    var resources: std.ArrayListUnmanaged(Resource) = .empty;
+    var resources: std.ArrayList(Resource) = .empty;
     if (!cfg.emit_lib_vt) {
         {
             const gtk = SharedDeps.gtkNgDistResources(b);

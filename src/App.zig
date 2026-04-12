@@ -18,7 +18,7 @@ const font = @import("font/main.zig");
 
 const log = std.log.scoped(.app);
 
-const SurfaceList = std.ArrayListUnmanaged(*apprt.Surface);
+const SurfaceList = std.ArrayList(*apprt.Surface);
 
 io: std.Io,
 

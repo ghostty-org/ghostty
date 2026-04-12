@@ -3800,7 +3800,7 @@ _conditional_set: std.EnumSet(conditional.Key) = .{},
 /// The steps we can use to reload the configuration after it has been loaded
 /// without reopening the files. This is used in very specific cases such
 /// as loadTheme which has more details on why.
-_replay_steps: std.ArrayListUnmanaged(Replay.Step) = .{},
+_replay_steps: std.ArrayList(Replay.Step) = .empty,
 
 /// Set to true if Ghostty was executed as xdg-terminal-exec on Linux.
 @"_xdg-terminal-exec": bool = false,
@@ -5660,8 +5660,8 @@ pub const BoldColor = union(enum) {
 pub const ColorList = struct {
     const Self = @This();
 
-    colors: std.ArrayListUnmanaged(Color) = .{},
-    colors_c: std.ArrayListUnmanaged(Color.C) = .{},
+    colors: std.ArrayList(Color) = .empty,
+    colors_c: std.ArrayList(Color.C) = .empty,
 
     /// ghostty_config_color_list_s
     pub const C = extern struct {
@@ -5982,7 +5982,7 @@ pub const RepeatableString = struct {
     const Self = @This();
 
     // Allocator for the list is the arena for the parent config.
-    list: std.ArrayListUnmanaged([:0]const u8) = .{},
+    list: std.ArrayList([:0]const u8) = .empty,
 
     // If true, then the next value will clear the list and start over
     // rather than append. This is a bit of a hack but is here to make
@@ -6011,7 +6011,7 @@ pub const RepeatableString = struct {
     /// Deep copy of the struct. Required by Config.
     pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
         // Copy the list and all the strings in the list.
-        var list = try std.ArrayListUnmanaged([:0]const u8).initCapacity(
+        var list = try std.ArrayList([:0]const u8).initCapacity(
             alloc,
             self.list.items.len,
         );
@@ -6296,7 +6296,7 @@ pub const RepeatableFontVariation = struct {
     const Self = @This();
 
     // Allocator for the list is the arena for the parent config.
-    list: std.ArrayListUnmanaged(fontpkg.face.Variation) = .{},
+    list: std.ArrayList(fontpkg.face.Variation) = .empty,
 
     pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
         const input = input_ orelse return error.ValueRequired;
@@ -8549,7 +8549,7 @@ pub const FontShapingBreak = packed struct {
 pub const RepeatableLink = struct {
     const Self = @This();
 
-    links: std.ArrayListUnmanaged(inputpkg.Link) = .{},
+    links: std.ArrayList(inputpkg.Link) = .empty,
 
     pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
         _ = self;
@@ -8566,7 +8566,7 @@ pub const RepeatableLink = struct {
         // Note: we don't do any errdefers below since the allocation
         // is expected to be arena allocated.
 
-        var list = try std.ArrayListUnmanaged(inputpkg.Link).initCapacity(
+        var list = try std.ArrayList(inputpkg.Link).initCapacity(
             alloc,
             self.links.items.len,
         );
@@ -8657,8 +8657,8 @@ pub const SplitPreserveZoom = packed struct {
 pub const RepeatableCommand = struct {
     const Self = @This();
 
-    value: std.ArrayListUnmanaged(inputpkg.Command) = .empty,
-    value_c: std.ArrayListUnmanaged(inputpkg.Command.C) = .empty,
+    value: std.ArrayList(inputpkg.Command) = .empty,
+    value_c: std.ArrayList(inputpkg.Command.C) = .empty,
 
     /// ghostty_config_command_list_s
     pub const C = extern struct {

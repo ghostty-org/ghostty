@@ -538,7 +538,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             font_thicken: bool,
             font_thicken_strength: u8,
-            font_features: std.ArrayListUnmanaged([:0]const u8),
+            font_features: std.ArrayList([:0]const u8),
             font_styles: font.CodepointResolver.StyleStatus,
             font_shaping_break: configpkg.FontShapingBreak,
             cursor_color: ?configpkg.Config.TerminalColor,
