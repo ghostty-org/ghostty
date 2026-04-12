@@ -1,13 +1,9 @@
 const std = @import("std");
 const ghostty_vt = @import("ghostty-vt");
 
-pub fn main() !void {
-    var gpa: std.heap.DebugAllocator(.{}) = .init;
-    defer _ = gpa.deinit();
-    const alloc = gpa.allocator();
-
-    var t: ghostty_vt.Terminal = try .init(alloc, .{ .cols = 80, .rows = 24 });
-    defer t.deinit(alloc);
+pub fn main(init: std.process.Init) !void {
+    var t: ghostty_vt.Terminal = try .init(init.gpa, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(init.gpa);
 
     // Create a read-only VT stream for parsing terminal sequences
     var stream = t.vtStream();

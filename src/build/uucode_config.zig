@@ -77,6 +77,9 @@ const is_symbol = config.Extension{
     },
 };
 
+pub const fields: []const config.Field = &.{};
+pub const get_components: []const config.Component = &.{};
+
 pub const tables = [_]config.Table{
     .{
         .name = "runtime",

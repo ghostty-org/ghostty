@@ -884,6 +884,8 @@ pub fn gtkNgDistResources(
                 .link_libc = true,
             }),
         });
+        if (b.lazyDependency("gobject", .{})) |gobject|
+            blueprint_exe.root_module.addImport("adw", gobject.module("adw1"));
         blueprint_exe.root_module.linkSystemLibrary("gtk4", dynamic_link_opts);
         blueprint_exe.root_module.linkSystemLibrary("libadwaita-1", dynamic_link_opts);
 

@@ -2,9 +2,9 @@ const std = @import("std");
 const Action = @import("../../cli/ghostty.zig").Action;
 const help_strings = @import("help_strings");
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var buffer: [2048]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &buffer);
     const stdout = &stdout_writer.interface;
     try genActions(stdout);
 }
