@@ -5560,6 +5560,13 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
         .toggle_readonly => {
             self.readonly = !self.readonly;
+
+            // Update cursor visibility
+            self.renderer_state.mutex.lock();
+            const t: *terminal.Terminal = self.renderer_state.terminal;
+            t.modes.set(.cursor_visible, !self.readonly);
+            self.renderer_state.mutex.unlock();
+
             _ = try self.rt_app.performAction(
                 .{ .surface = self },
                 .readonly,
