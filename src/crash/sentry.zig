@@ -47,7 +47,7 @@ pub threadlocal var thread_state: ?ThreadState = null;
 /// crash reports and logs, but we only store them locally (see Transport).
 /// It is up to the user to grab the logs and manually send them to us
 /// (or they own Sentry instance) if they want to.
-pub fn init(gpa: Allocator) !void {
+pub fn init(gpa: Allocator, env: std.process.Environ) !void {
     if (comptime !build_options.sentry) return;
 
     // Not supported on Windows currently, doesn't build.
@@ -72,13 +72,13 @@ pub fn init(gpa: Allocator) !void {
     const thr = try std.Thread.spawn(
         .{},
         initThread,
-        .{gpa},
+        .{ gpa, env },
     );
     thr.setName("sentry-init") catch {};
     init_thread = thr;
 }
 
-fn initThread(gpa: Allocator) !void {
+fn initThread(gpa: Allocator, env: std.process.Environ) !void {
     if (comptime !build_options.sentry) return;
 
     // Right now, on Darwin, `std.Thread.setName` can only name the current
@@ -118,7 +118,7 @@ fn initThread(gpa: Allocator) !void {
         // a more idiomatic macOS application. But if XDG env vars are set
         // we will respect them.
         if (comptime builtin.os.tag == .macos) macos: {
-            if (std.posix.getenv("XDG_CACHE_HOME") != null) break :macos;
+            if (env.getPosix("XDG_CACHE_HOME") != null) break :macos;
             break :cache_dir try internal_os.macos.cacheDir(
                 alloc,
                 "sentry",

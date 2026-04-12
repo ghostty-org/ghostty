@@ -23,7 +23,7 @@ pub const Options = struct {
 ///
 /// This command currently only supports listing crash reports. Viewing
 /// and sending crash reports is unimplemented and will be added in the future.
-pub fn run(io: std.Io, alloc_gpa: Allocator) !u8 {
+pub fn run(alloc_gpa: Allocator, io: std.Io) !u8 {
     // Use an arena for the whole command to avoid manual memory management.
     var arena = std.heap.ArenaAllocator.init(alloc_gpa);
     defer arena.deinit();

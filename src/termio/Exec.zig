@@ -1421,6 +1421,8 @@ pub const ReadThread = struct {
 fn execCommand(
     alloc: Allocator,
     command: configpkg.Command,
+    io: std.Io,
+    env: std.process.Environ,
     comptime passwdpkg: type,
 ) (Allocator.Error || error{SystemError})![]const [:0]const u8 {
     // If we're on macOS, we have to use `login(1)` to get all of
@@ -1438,7 +1440,7 @@ fn execCommand(
         };
 
         const hush = if (passwd.home) |home| hush: {
-            var dir = std.fs.openDirAbsolute(home, .{}) catch |err| {
+            var dir = std.Io.Dir.openDirAbsolute(io, home, .{}) catch |err| {
                 log.warn(
                     "failed to open home dir, not checking for hushlogin err={}",
                     .{err},
@@ -1558,10 +1560,7 @@ fn execCommand(
 
                 // Note we don't free any of the memory below since it is
                 // allocated in the arena.
-                const windir = std.process.getEnvVarOwned(
-                    alloc,
-                    "WINDIR",
-                ) catch |err| {
+                const windir = env.getAlloc(alloc, "WINDIR") catch |err| {
                     log.warn("failed to get WINDIR, cannot run shell command err={}", .{err});
                     return error.SystemError;
                 };

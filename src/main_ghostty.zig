@@ -30,7 +30,7 @@ pub fn main(init: std.process.Init.Minimal) !MainReturn {
     // no other Zig code should EVER access the global state.
     state.init(init) catch |err| {
         var buffer: [1024]u8 = undefined;
-        var stderr_writer = std.Io.File.stderr().writer(&buffer);
+        var stderr_writer = std.Io.File.stderr().writer(init.io, &buffer);
         const stderr = &stderr_writer.interface;
         defer posix.exit(1);
         const ErrSet = @TypeOf(err) || error{Unknown};
@@ -65,7 +65,7 @@ pub fn main(init: std.process.Init.Minimal) !MainReturn {
     // Execute our action if we have one
     if (state.action) |action| {
         std.log.info("executing CLI action={}", .{action});
-        posix.exit(action.run(alloc) catch |err| err: {
+        std.process.exit(action.run(alloc, init.io, init.environ) catch |err| err: {
             std.log.err("CLI action failed error={}", .{err});
             break :err 1;
         });

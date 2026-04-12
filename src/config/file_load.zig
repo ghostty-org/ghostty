@@ -8,37 +8,41 @@ const log = std.log.scoped(.config);
 
 /// Default path for the XDG home configuration file. Returned value
 /// must be freed by the caller.
-pub fn defaultXdgPath(alloc: Allocator) ![]const u8 {
+pub fn defaultXdgPath(alloc: Allocator, io: std.Io, env: std.process.Environ) ![]const u8 {
     return try internal_os.xdg.config(
         alloc,
+        io,
+        env,
         .{ .subdir = "ghostty/config.ghostty" },
     );
 }
 
 /// Ghostty <1.3.0 default path for the XDG home configuration file.
 /// Returned value must be freed by the caller.
-pub fn legacyDefaultXdgPath(alloc: Allocator) ![]const u8 {
+pub fn legacyDefaultXdgPath(alloc: Allocator, io: std.Io, env: std.process.Environ) ![]const u8 {
     return try internal_os.xdg.config(
         alloc,
+        io,
+        env,
         .{ .subdir = "ghostty/config" },
     );
 }
 
 /// Preferred default path for the XDG home configuration file.
 /// Returned value must be freed by the caller.
-pub fn preferredXdgPath(alloc: Allocator) ![]const u8 {
+pub fn preferredXdgPath(alloc: Allocator, io: std.Io, env: std.process.Environ) ![]const u8 {
     // If the XDG path exists, use that.
-    const xdg_path = try defaultXdgPath(alloc);
-    if (open(xdg_path)) |f| {
-        f.close();
+    const xdg_path = try defaultXdgPath(alloc, io, env);
+    if (open(io, xdg_path)) |f| {
+        f.close(io);
         return xdg_path;
     } else |_| {}
 
     // Try the legacy path
     errdefer alloc.free(xdg_path);
-    const legacy_xdg_path = try legacyDefaultXdgPath(alloc);
-    if (open(legacy_xdg_path)) |f| {
-        f.close();
+    const legacy_xdg_path = try legacyDefaultXdgPath(alloc, io, env);
+    if (open(io, legacy_xdg_path)) |f| {
+        f.close(io);
         alloc.free(xdg_path);
         return legacy_xdg_path;
     } else |_| {}
@@ -63,19 +67,19 @@ pub fn legacyDefaultAppSupportPath(alloc: Allocator) ![]const u8 {
 
 /// Preferred default path for the macOS Application Support configuration file.
 /// Returned value must be freed by the caller.
-pub fn preferredAppSupportPath(alloc: Allocator) ![]const u8 {
+pub fn preferredAppSupportPath(alloc: Allocator, io: std.Io) ![]const u8 {
     // If the app support path exists, use that.
     const app_support_path = try defaultAppSupportPath(alloc);
-    if (open(app_support_path)) |f| {
-        f.close();
+    if (open(io, app_support_path)) |f| {
+        f.close(io);
         return app_support_path;
     } else |_| {}
 
     // Try the legacy path
     errdefer alloc.free(app_support_path);
     const legacy_app_support_path = try legacyDefaultAppSupportPath(alloc);
-    if (open(legacy_app_support_path)) |f| {
-        f.close();
+    if (open(io, legacy_app_support_path)) |f| {
+        f.close(io);
         alloc.free(app_support_path);
         return legacy_app_support_path;
     } else |_| {}
@@ -93,30 +97,30 @@ pub fn preferredAppSupportPath(alloc: Allocator) ![]const u8 {
 /// contents; downstream callers must handle this.
 ///
 /// The returned value must be freed by the caller.
-pub fn preferredDefaultFilePath(alloc: Allocator) ![]const u8 {
+pub fn preferredDefaultFilePath(alloc: Allocator, io: std.Io, env: std.process.Environ) ![]const u8 {
     switch (builtin.os.tag) {
         .macos => {
             // macOS prefers the Application Support directory
             // if it exists.
-            const app_support_path = try preferredAppSupportPath(alloc);
-            const app_support_file = open(app_support_path) catch {
+            const app_support_path = try preferredAppSupportPath(alloc, io);
+            const app_support_file = open(io, app_support_path) catch {
                 // Try the XDG path if it exists
-                const xdg_path = try preferredXdgPath(alloc);
-                const xdg_file = open(xdg_path) catch {
+                const xdg_path = try preferredXdgPath(alloc, io, env);
+                const xdg_file = open(io, xdg_path) catch {
                     // If neither file exists, use app support
                     alloc.free(xdg_path);
                     return app_support_path;
                 };
-                xdg_file.close();
+                xdg_file.close(io);
                 alloc.free(app_support_path);
                 return xdg_path;
             };
-            app_support_file.close();
+            app_support_file.close(io);
             return app_support_path;
         },
 
         // All other platforms use XDG only
-        else => return try preferredXdgPath(alloc),
+        else => return try preferredXdgPath(alloc, io, env),
     }
 }
 

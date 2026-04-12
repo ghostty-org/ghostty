@@ -3818,7 +3818,7 @@ pub fn deinit(self: *Config) void {
 ///   4. CLI flags
 ///   5. Recursively defined configuration files
 ///
-pub fn load(io: std.Io, alloc_gpa: Allocator) !Config {
+pub fn load(alloc_gpa: Allocator, io: std.Io, env: std.process.Environ) !Config {
     var result = try default(alloc_gpa);
     errdefer result.deinit();
 
@@ -3830,7 +3830,7 @@ pub fn load(io: std.Io, alloc_gpa: Allocator) !Config {
 
     // Parse the config files that were added from our file and CLI args.
     try result.loadRecursiveFiles(io, alloc_gpa);
-    try result.finalize(io);
+    try result.finalize(io, env);
 
     return result;
 }
@@ -3872,7 +3872,7 @@ pub fn loadIter(
 /// Load configuration from the target config file at `path`.
 ///
 /// `path` must be resolved and absolute.
-pub fn loadFile(self: *Config, io: std.Io, alloc: Allocator, path: []const u8) !void {
+pub fn loadFile(self: *Config, alloc: Allocator, io: std.Io, path: []const u8) !void {
     assert(std.fs.path.isAbsolute(path));
     var file = file_load.open(io, path) catch |err| switch (err) {
         error.NotAFile => {
@@ -3891,7 +3891,7 @@ pub fn loadFile(self: *Config, io: std.Io, alloc: Allocator, path: []const u8) !
 }
 
 /// Load config from the given File.
-fn loadFsFile(self: *Config, io: std.Io, alloc: Allocator, file: *std.Io.File, path: []const u8) !void {
+fn loadFsFile(self: *Config, alloc: Allocator, io: std.Io, file: *std.Io.File, path: []const u8) !void {
     std.log.info("reading configuration file path={s}", .{path});
     var buf: [2048]u8 = undefined;
     var file_reader = file.reader(&buf);
@@ -3900,7 +3900,7 @@ fn loadFsFile(self: *Config, io: std.Io, alloc: Allocator, file: *std.Io.File, p
 }
 
 /// Load config from the given Reader.
-fn loadReader(self: *Config, io: std.Io, alloc: Allocator, reader: *std.Io.Reader, path: []const u8) !void {
+fn loadReader(self: *Config, alloc: Allocator, io: std.Io, reader: *std.Io.Reader, path: []const u8) !void {
     bom: {
         // If the file starts with a UTF-8 byte order mark, skip it.
         // https://en.wikipedia.org/wiki/Byte_order_mark#UTF-8
@@ -4497,7 +4497,7 @@ fn loadTheme(self: *Config, io: std.Io, theme: Theme) !void {
 
 /// Call this once after you are done setting configuration. This
 /// is idempotent but will waste memory if called multiple times.
-pub fn finalize(self: *Config, io: std.Io) !void {
+pub fn finalize(self: *Config, io: std.Io, env: std.process.Environ) !void {
     // We always load the theme first because it may set other fields
     // in our config.
     if (self.theme) |theme| {
@@ -4575,7 +4575,7 @@ pub fn finalize(self: *Config, io: std.Io) !void {
                 // read from SHELL if we're in a probable CLI environment.
                 if (!probable_cli) break :shell_env;
 
-                if (std.process.getEnvVarOwned(alloc, "SHELL")) |value| {
+                if (env.getAlloc(alloc, "SHELL")) |value| {
                     log.info("default shell source=env value={s}", .{value});
 
                     const copy = try alloc.dupeZ(u8, value);
@@ -5068,7 +5068,7 @@ pub const ChangeIterator = struct {
 /// Ghostty in a CLI environment. We need this to change some behaviors.
 /// We should keep the set of behaviors that depend on this as small
 /// as possible because magic sucks, but each place is well documented.
-fn probableCliEnvironment() bool {
+fn probableCliEnvironment(env: std.process.Environ) bool {
     switch (builtin.os.tag) {
         // Windows has its own problems, just ignore it for now since
         // its not a real supported target and GTK via WSL2 assuming
@@ -5079,14 +5079,14 @@ fn probableCliEnvironment() bool {
         // Our desktop detection on macOS is very accurate due to how
         // processes are launched on macOS, so if we detect we're launched
         // from the app bundle then we're not in a CLI environment.
-        .macos => if (internal_os.launchedFromDesktop()) return false,
+        .macos => if (internal_os.launchedFromDesktop(env)) return false,
 
         else => {},
     }
 
     // If we have TERM_PROGRAM set to a non-empty value, we assume
     // a graphical terminal environment.
-    if (std.posix.getenv("TERM_PROGRAM")) |v| {
+    if (env.getPosix("TERM_PROGRAM")) |v| {
         if (v.len > 0) return true;
     }
 

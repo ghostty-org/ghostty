@@ -9,15 +9,15 @@ const log = std.log.scoped(.systemd);
 /// service. It will return false if Ghostty was launched any other way.
 ///
 /// For other platforms and app runtimes, this returns false.
-pub fn launchedBySystemd() bool {
+pub fn launchedBySystemd(io: std.Io, env: std.process.Environ) bool {
     return switch (builtin.os.tag) {
         .linux => linux: {
             // On Linux, systemd sets the `INVOCATION_ID` (v232+) and the
             // `JOURNAL_STREAM` (v231+) environment variables. If these
             // environment variables are not present we were not launched by
             // systemd.
-            if (std.posix.getenv("INVOCATION_ID") == null) break :linux false;
-            if (std.posix.getenv("JOURNAL_STREAM") == null) break :linux false;
+            if (env.getPosix("INVOCATION_ID") == null) break :linux false;
+            if (env.getPosix("JOURNAL_STREAM") == null) break :linux false;
 
             // If `INVOCATION_ID` and `JOURNAL_STREAM` are present, check to make sure
             // that our parent process is actually `systemd`, not some other terminal
@@ -33,11 +33,11 @@ pub fn launchedBySystemd() bool {
                 log.err("unable to format comm path for pid {d}", .{ppid});
                 break :linux false;
             };
-            const comm_file = std.fs.openFileAbsolute(comm_path, .{ .mode = .read_only }) catch {
+            const comm_file = std.Io.Dir.openFileAbsolute(io, comm_path, .{ .mode = .read_only }) catch {
                 log.err("unable to open '{s}' for reading", .{comm_path});
                 break :linux false;
             };
-            defer comm_file.close();
+            defer comm_file.close(io);
 
             // The maximum length of the command name is defined by
             // `TASK_COMM_LEN` in the Linux kernel. This is usually 16
@@ -46,7 +46,7 @@ pub fn launchedBySystemd() bool {
             // longer can be assumed to not be systemd.
             const TASK_COMM_LEN = 16;
             var comm_data_buf: [TASK_COMM_LEN]u8 = undefined;
-            const comm_size = comm_file.readAll(&comm_data_buf) catch {
+            const comm_size = comm_file.readPositionalAll(io, &comm_data_buf, 0) catch {
                 log.err("problems reading from '{s}'", .{comm_path});
                 break :linux false;
             };
@@ -86,12 +86,12 @@ pub const notify = struct {
     /// Send the given message to the UNIX socket specified in the NOTIFY_SOCKET
     /// environment variable. If there NOTIFY_SOCKET environment variable does
     /// not exist then no message is sent.
-    fn send(message: []const u8) void {
+    fn send(env: std.process.Environ, message: []const u8) void {
         // systemd is Linux-only so this is a no-op anywhere else
         if (comptime builtin.os.tag != .linux) return;
 
         // Get the socket address that should receive notifications.
-        const socket_path = std.posix.getenv("NOTIFY_SOCKET") orelse return;
+        const socket_path = env.getPosix("NOTIFY_SOCKET") orelse return;
 
         // If the socket address is an empty string return.
         if (socket_path.len == 0) return;
@@ -168,23 +168,19 @@ pub const notify = struct {
 
     /// Tell systemd that we are ready or that we are finished reloading.
     /// See: https://www.freedesktop.org/software/systemd/man/latest/sd_notify.html#READY=1
-    pub fn ready() void {
+    pub fn ready(env: std.process.Environ) void {
         if (comptime builtin.os.tag != .linux) return;
 
-        send("READY=1");
+        send(env, "READY=1");
     }
 
     /// Tell systemd that we have started reloading our configuration.
     /// See: https://www.freedesktop.org/software/systemd/man/latest/sd_notify.html#RELOADING=1
     /// and: https://www.freedesktop.org/software/systemd/man/latest/sd_notify.html#MONOTONIC_USEC=%E2%80%A6
-    pub fn reloading() void {
+    pub fn reloading(io: std.Io, env: std.process.Environ) void {
         if (comptime builtin.os.tag != .linux) return;
 
-        const ts = std.posix.clock_gettime(.MONOTONIC) catch |err| {
-            log.err("unable to get MONOTONIC clock: {}", .{err});
-            return;
-        };
-
+        const ts: std.Io.Timestamp = .now(io, .awake);
         const now = ts.sec * std.time.us_per_s + @divFloor(ts.nsec, std.time.ns_per_us);
 
         var buffer: [64]u8 = undefined;
@@ -193,6 +189,6 @@ pub const notify = struct {
             return;
         };
 
-        send(message);
+        send(env, message);
     }
 };
