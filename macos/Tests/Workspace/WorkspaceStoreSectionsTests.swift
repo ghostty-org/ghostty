@@ -876,6 +876,165 @@ struct WorkspaceStoreSectionsTests {
         #expect(afterPin == [zeta.id, alpha.id])
     }
 
+    // MARK: - Record Activity (Unit 5)
+
+    @MainActor
+    @Test func recordActivityUpdatesBothProjectAndSessionTimestamps() {
+        let p = makeProject(name: "Proj")
+        let s = makeSession(projectId: p.id)
+        let store = WorkspaceStore(testingProjects: [p], testingSessions: [s])
+
+        let now = Date(timeIntervalSince1970: 5_000)
+        store.recordActivity(sessionId: s.id, projectId: p.id, now: { now })
+
+        #expect(store.projects.first(where: { $0.id == p.id })?.lastActiveAt == now)
+        #expect(store.sessions.first(where: { $0.id == s.id })?.lastActiveAt == now)
+    }
+
+    @MainActor
+    @Test func recordActivityOnActiveSessionUpdatesGraceTracker() {
+        let p = makeProject(name: "Proj")
+        let s = makeSession(projectId: p.id)
+        let store = WorkspaceStore(testingProjects: [p], testingSessions: [s])
+
+        // Mark the session as actively processing — write-through must extend
+        // the grace tracker.
+        store.updateIndicatorState(id: s.id, state: .processing)
+
+        let now = Date(timeIntervalSince1970: 5_000)
+        store.recordActivity(sessionId: s.id, projectId: p.id, now: { now })
+
+        #expect(store._activeSinceTimestamp(for: p.id) == now)
+    }
+
+    @MainActor
+    @Test func recordActivityOnIdleSessionDoesNotTouchGraceTracker() {
+        let p = makeProject(name: "Proj")
+        let s = makeSession(projectId: p.id)
+        let store = WorkspaceStore(testingProjects: [p], testingSessions: [s])
+
+        // Idle activity (focus, prompt-time output) is a recency signal — it
+        // must update lastActiveAt but must NOT extend `.activeNow` grace.
+        store.updateIndicatorState(id: s.id, state: .idle)
+
+        let now = Date(timeIntervalSince1970: 5_000)
+        store.recordActivity(sessionId: s.id, projectId: p.id, now: { now })
+
+        #expect(store.projects.first(where: { $0.id == p.id })?.lastActiveAt == now)
+        #expect(store._activeSinceTimestamp(for: p.id) == nil)
+    }
+
+    @MainActor
+    @Test func recordActivityWithNoIndicatorStateDoesNotTouchGraceTracker() {
+        // A brand-new session has no entry in globalIndicatorStates.
+        // Write-through must still update timestamps, but not grace.
+        let p = makeProject(name: "Proj")
+        let s = makeSession(projectId: p.id)
+        let store = WorkspaceStore(testingProjects: [p], testingSessions: [s])
+
+        let now = Date(timeIntervalSince1970: 5_000)
+        store.recordActivity(sessionId: s.id, projectId: p.id, now: { now })
+
+        #expect(store.sessions.first(where: { $0.id == s.id })?.lastActiveAt == now)
+        #expect(store._activeSinceTimestamp(for: p.id) == nil)
+    }
+
+    @MainActor
+    @Test func recordActivityWithStaleSessionIdIsNoOp() {
+        let p = makeProject(name: "Proj")
+        let s = makeSession(projectId: p.id)
+        let store = WorkspaceStore(testingProjects: [p], testingSessions: [s])
+
+        let originalProjectTimestamp = store.projects.first?.lastActiveAt
+        let originalSessionTimestamp = store.sessions.first?.lastActiveAt
+
+        // Bogus session id — must not crash and must not write.
+        store.recordActivity(
+            sessionId: UUID(),
+            projectId: p.id,
+            now: { Date(timeIntervalSince1970: 5_000) }
+        )
+
+        #expect(store.projects.first?.lastActiveAt == originalProjectTimestamp)
+        #expect(store.sessions.first?.lastActiveAt == originalSessionTimestamp)
+        #expect(store._activeSinceTimestamp(for: p.id) == nil)
+    }
+
+    @MainActor
+    @Test func recordActivityWithStaleProjectIdIsNoOp() {
+        let p = makeProject(name: "Proj")
+        let s = makeSession(projectId: p.id)
+        let store = WorkspaceStore(testingProjects: [p], testingSessions: [s])
+
+        let originalProjectTimestamp = store.projects.first?.lastActiveAt
+        let originalSessionTimestamp = store.sessions.first?.lastActiveAt
+
+        // Real session id, bogus project id — must not crash and must not write.
+        store.recordActivity(
+            sessionId: s.id,
+            projectId: UUID(),
+            now: { Date(timeIntervalSince1970: 5_000) }
+        )
+
+        #expect(store.projects.first?.lastActiveAt == originalProjectTimestamp)
+        #expect(store.sessions.first?.lastActiveAt == originalSessionTimestamp)
+    }
+
+    @MainActor
+    @Test func recordActivityIsMonotonic() {
+        // Rapid repeat calls must never roll lastActiveAt backward, even if
+        // the injected clock somehow reports a non-increasing time.
+        let p = makeProject(name: "Proj")
+        let s = makeSession(projectId: p.id)
+        let store = WorkspaceStore(testingProjects: [p], testingSessions: [s])
+
+        let later = Date(timeIntervalSince1970: 5_000)
+        let earlier = Date(timeIntervalSince1970: 4_000)
+
+        store.recordActivity(sessionId: s.id, projectId: p.id, now: { later })
+        store.recordActivity(sessionId: s.id, projectId: p.id, now: { earlier })
+
+        // Later timestamp wins — clock skew or test-clock weirdness must not
+        // demote a project that just touched.
+        #expect(store.projects.first?.lastActiveAt == later)
+        #expect(store.sessions.first?.lastActiveAt == later)
+    }
+
+    @MainActor
+    @Test func recordActivityWritesThroughFreezeButLayoutStaysSnapshotted() {
+        // Freeze guarantees layout stability while the user is in the sidebar.
+        // Activity write-through must still flow into the underlying state so
+        // the next release reflects all accumulated mutations.
+        let active = makeProject(name: "Active")
+        let stale = makeProject(name: "Stale")
+        let s = makeSession(projectId: active.id)
+        let store = WorkspaceStore(testingProjects: [active, stale], testingSessions: [s])
+
+        // Pre-freeze: nothing active → both in `.all`.
+        #expect(Set(ids(in: .all, of: store.sectionedProjects)) == Set([active.id, stale.id]))
+
+        store.freezeSnapshot()
+        let snapshotIds = store.sectionedProjects.flatMap { $0.1.map(\.id) }
+
+        // While frozen: an active session emits output. Mark the session active
+        // first so the grace tracker engages.
+        store.updateIndicatorState(id: s.id, state: .processing)
+        let now = Date(timeIntervalSince1970: 9_999)
+        store.recordActivity(sessionId: s.id, projectId: active.id, now: { now })
+
+        // Underlying state is mutated…
+        #expect(store.projects.first(where: { $0.id == active.id })?.lastActiveAt == now)
+        #expect(store._activeSinceTimestamp(for: active.id) == now)
+
+        // …but `sectionedProjects` still returns the snapshot.
+        #expect(store.sectionedProjects.flatMap { $0.1.map(\.id) } == snapshotIds)
+        #expect(ids(in: .activeNow, of: store.sectionedProjects).isEmpty)
+
+        // After release, layout reflects the mutation.
+        store.releaseSnapshot()
+        #expect(ids(in: .activeNow, of: store.sectionedProjects) == [active.id])
+    }
+
     // MARK: - Perf Sanity
 
     @Test func computationIsFastFor50ProjectsWith200Sessions() {

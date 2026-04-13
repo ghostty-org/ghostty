@@ -54,7 +54,15 @@ final class WorkspaceStore: ObservableObject {
         self.sidebarMode = .pinned
         self.lastSelectedProjectId = nil
         self.templates = AgentTemplate.defaults
+        self.persistenceDisabled = true
     }
+
+    /// When `true`, `persist()` is a no-op. Set by the test-only init so that
+    /// mutating helpers like `recordActivity` don't pollute the real
+    /// `~/Library/Application Support/Ghostties/workspace.json`.
+    private let persistenceDisabled: Bool
+    #else
+    private let persistenceDisabled: Bool = false
     #endif
 
     private init() {
@@ -63,6 +71,9 @@ final class WorkspaceStore: ObservableObject {
         self.sessions = state.sessions
         self.sidebarMode = state.sidebarMode
         self.lastSelectedProjectId = state.lastSelectedProjectId
+        #if DEBUG
+        self.persistenceDisabled = false
+        #endif
 
         // Seed bundled presets to ~/.ghostties/presets/ on first launch.
         PresetLoader.seedIfNeeded()
@@ -154,6 +165,67 @@ final class WorkspaceStore: ObservableObject {
         activeSinceTimestamps[projectId]
     }
     #endif
+
+    /// Record activity for a session and its parent project — the unified
+    /// write-through called by `SessionCoordinator` from output, focus, and
+    /// session-creation triggers.
+    ///
+    /// Updates:
+    ///   - `session.lastActiveAt = now()` (project drives `.recent` bucket)
+    ///   - `project.lastActiveAt = now()`
+    ///   - `activeSinceTimestamps[projectId] = now()` **only if** the session's
+    ///     current indicator state is one of the active states. Idle activity
+    ///     (focus, output while at prompt) is a recency signal — it must update
+    ///     `lastActiveAt` for `.recent` bucketing but must NOT extend the
+    ///     `.activeNow` grace window.
+    ///
+    /// Monotonic guard: `lastActiveAt` only advances forward. Rapid repeat calls
+    /// within the same wall-clock millisecond keep the existing value if `now()`
+    /// reports a non-increasing time.
+    ///
+    /// Silent no-op when the session or project id is stale (e.g. a Combine
+    /// sink fires after the session was removed) — no crash, no write.
+    ///
+    /// Does NOT call `releaseSnapshot()`. Writes happen even while a freeze is
+    /// held — the freeze is about layout, not data. On `releaseSnapshot()`, the
+    /// next `sectionedProjects` read reflects all accumulated mutations. This
+    /// is the core anti-jump rule: activity feeds the tracker but does not
+    /// trigger an immediate reorder while the user is working in the sidebar.
+    ///
+    /// Persists through the existing 100ms debounced `persist()`. Bursty output
+    /// coalesces into a single disk write.
+    func recordActivity(
+        sessionId: UUID,
+        projectId: UUID,
+        now: () -> Date = Date.init
+    ) {
+        guard let sessionIdx = sessions.firstIndex(where: { $0.id == sessionId }),
+              let projectIdx = projects.firstIndex(where: { $0.id == projectId })
+        else { return }
+
+        let timestamp = now()
+
+        // Monotonic guard — never roll lastActiveAt backward.
+        if let existing = sessions[sessionIdx].lastActiveAt, existing > timestamp {
+            // No-op for the session timestamp; still consider the project / tracker.
+        } else {
+            sessions[sessionIdx].lastActiveAt = timestamp
+        }
+        if let existing = projects[projectIdx].lastActiveAt, existing > timestamp {
+            // No-op for the project timestamp.
+        } else {
+            projects[projectIdx].lastActiveAt = timestamp
+        }
+
+        // Only refresh the grace tracker if this session is currently in an
+        // active indicator state. Idle activity (focus, prompt-time output) is
+        // a recency signal, not an active-state signal.
+        if Self.isActiveIndicatorState(globalIndicatorStates[sessionId]) {
+            activeSinceTimestamps[projectId] = timestamp
+        }
+
+        persist()
+    }
 
     /// Refresh the per-project "active since" tracker from the current indicator
     /// state map. Call on indicator pushes or activity-timer ticks. Orphaned
@@ -689,6 +761,7 @@ final class WorkspaceStore: ObservableObject {
     private var persistTask: Task<Void, Never>?
 
     private func persist() {
+        guard !persistenceDisabled else { return }
         persistTask?.cancel()
         persistTask = Task { [projects, sessions, templates, sidebarMode, lastSelectedProjectId] in
             try? await Task.sleep(for: .milliseconds(100))

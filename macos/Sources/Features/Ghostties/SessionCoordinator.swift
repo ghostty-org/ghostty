@@ -195,6 +195,12 @@ final class SessionCoordinator: ObservableObject {
         subscribeToOutput(surface: newView, sessionId: session.id)
         activeSessionId = session.id
         lastActiveSessionPerProject[session.projectId] = session.id
+        // Stamp creation as activity so the project surfaces in `.recent`
+        // (or `.activeNow` once the surface produces output) right away.
+        WorkspaceStore.shared.recordActivity(
+            sessionId: session.id,
+            projectId: session.projectId
+        )
 
         showSession(newTree, focusView: newView)
 
@@ -253,6 +259,12 @@ final class SessionCoordinator: ObservableObject {
         setStatus(.running, for: session.id)
         activeSessionId = session.id
         lastActiveSessionPerProject[session.projectId] = session.id
+        // Stamp creation as activity so the project surfaces in `.recent`
+        // right away (browser sessions don't emit terminal output events).
+        WorkspaceStore.shared.recordActivity(
+            sessionId: session.id,
+            projectId: session.projectId
+        )
 
         showBrowserInContainer(manager)
 
@@ -301,6 +313,12 @@ final class SessionCoordinator: ObservableObject {
             showBrowserInContainer(manager)
             if let session = WorkspaceStore.shared.sessions.first(where: { $0.id == id }) {
                 lastActiveSessionPerProject[session.projectId] = id
+                // Focus counts as a touch — refresh activity so the project
+                // stays in `.recent`/`.activeNow` instead of demoting to `.all`.
+                WorkspaceStore.shared.recordActivity(
+                    sessionId: id,
+                    projectId: session.projectId
+                )
             }
             return
         }
@@ -318,6 +336,12 @@ final class SessionCoordinator: ObservableObject {
         // Record this session as the last active one for its project.
         if let session = WorkspaceStore.shared.sessions.first(where: { $0.id == id }) {
             lastActiveSessionPerProject[session.projectId] = id
+            // Focus counts as a touch — refresh activity so the project stays
+            // in `.recent`/`.activeNow` instead of demoting to `.all`.
+            WorkspaceStore.shared.recordActivity(
+                sessionId: id,
+                projectId: session.projectId
+            )
         }
     }
 
@@ -663,6 +687,18 @@ final class SessionCoordinator: ObservableObject {
                 if let title = surface?.title, !title.isEmpty {
                     self.lastSurfaceTitle[sessionId] = title
                 }
+                // Push activity into the workspace store so per-project /
+                // per-session `lastActiveAt` and the grace-period tracker stay
+                // current with real terminal output. The store handles the
+                // active-vs-idle indicator-state check internally.
+                if let projectId = WorkspaceStore.shared.sessions
+                    .first(where: { $0.id == sessionId })?.projectId
+                {
+                    WorkspaceStore.shared.recordActivity(
+                        sessionId: sessionId,
+                        projectId: projectId
+                    )
+                }
             }
     }
 
@@ -743,6 +779,11 @@ final class SessionCoordinator: ObservableObject {
                         let state = self.indicatorState(for: id)
                         WorkspaceStore.shared.updateIndicatorState(id: id, state: state)
                     }
+
+                    // Refresh the per-project grace-period tracker so projects
+                    // whose sessions emit output at <1Hz still keep their
+                    // `.activeNow` slot for the full grace window.
+                    WorkspaceStore.shared.updateProjectActivityFromIndicatorStates()
                 }
             }
         }
