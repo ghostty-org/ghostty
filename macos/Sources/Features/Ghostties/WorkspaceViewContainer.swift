@@ -229,12 +229,14 @@ class WorkspaceViewContainer: NSView {
         fallbackCardBackgroundNSColor.cgColor
     }
 
-    /// Canvas color behind the floating terminal card.
-    /// Light mode: warm beige. Dark mode: slightly lighter neutral.
+    /// Canvas color behind the floating terminal card. Driven by the focused
+    /// surface's theme (same resolver as the card) so the chrome around the
+    /// card reads as one cohesive theme color rather than a visible seam.
+    /// Falls back to the card palette (not the separate canvas palette) when
+    /// no surface is available — keeps the "single color" feel even during
+    /// fresh launch / surface swap.
     private var canvasBackgroundCGColor: CGColor {
-        isLightAppearance
-            ? WorkspaceLayout.canvasBackgroundLight.cgColor
-            : WorkspaceLayout.canvasBackgroundDark.cgColor
+        resolveChromeColor(surface: observedSurface).cgColor
     }
 
 
@@ -1176,11 +1178,19 @@ class WorkspaceViewContainer: NSView {
         return coordinator.sessionTrees[activeId]?.first
     }
 
-    /// Paint the terminal card layer with the current themed or fallback color.
-    /// No-op in overlay mode, which intentionally clears the card layer.
+    /// Paint both the terminal card layer and the surrounding workspace
+    /// canvas with the current themed (or fallback) color. The canvas strip
+    /// around the card is too narrow (~8pt) to read as a frame, so driving
+    /// both from the same resolved color removes the seam and produces one
+    /// cohesive theme-colored window chrome.
+    ///
+    /// No-op in overlay mode, which intentionally clears both layers to let
+    /// the vibrancy material show through.
     private func applyChromeColor() {
         guard sidebarMode == .pinned || sidebarMode == .closed else { return }
-        terminalShadowHost.layer?.backgroundColor = cardBackgroundCGColor
+        let color = resolveChromeColor(surface: observedSurface).cgColor
+        terminalShadowHost.layer?.backgroundColor = color
+        layer?.backgroundColor = color
     }
 }
 
