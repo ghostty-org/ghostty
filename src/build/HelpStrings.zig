@@ -10,33 +10,33 @@ exe: ?*std.Build.Step.Compile,
 output: std.Build.LazyPath,
 
 pub fn init(b: *std.Build, cfg: *const Config) !HelpStrings {
-    const exe = if (cfg.emit_helpgen) exe: {
-        const result = b.addExecutable(.{
-            .name = "helpgen",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("src/helpgen.zig"),
-                .target = b.graph.host,
-                .strip = false,
-                .omit_frame_pointer = false,
-                .unwind_tables = .sync,
-            }),
-        });
+    const result = b.addExecutable(.{
+        .name = "helpgen",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/helpgen.zig"),
+            .target = b.graph.host,
+            .strip = false,
+            .omit_frame_pointer = false,
+            .unwind_tables = .sync,
+        }),
+    });
 
-        const help_config = config: {
-            var copy = cfg.*;
-            copy.exe_entrypoint = .helpgen;
-            break :config copy;
-        };
-        const options = b.addOptions();
-        try help_config.addOptions(options);
-        result.root_module.addOptions("build_options", options);
+    const help_config = config: {
+        var copy = cfg.*;
+        copy.exe_entrypoint = .helpgen;
+        break :config copy;
+    };
+    const options = b.addOptions();
+    try help_config.addOptions(options);
+    result.root_module.addOptions("build_options", options);
 
-        break :exe result;
-    } else null;
+    const run = b.addRunArtifact(result);
+    const wf = b.addWriteFiles();
+    const output = wf.addCopyFile(run.captureStdOut(), "help_strings.zig");
 
     return .{
-        .exe = exe,
-        .output = b.path("src/help_strings.zig"),
+        .exe = if (cfg.emit_helpgen) result else null,
+        .output = output,
     };
 }
 

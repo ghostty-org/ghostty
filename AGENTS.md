@@ -36,13 +36,14 @@ A file for [guiding coding agents](https://agents.md/).
 
 ## Self-Correction Log
 
-- 2026-04-11: Non-TTY `exec_command` build sessions can keep `zig.exe` running while session stdin is already closed; stop those builds with `Stop-Process`, not `write_stdin`.
-- 2026-04-11: PowerShell tool sessions here may not inherit `LOCALAPPDATA`, `APPDATA`, `TEMP`, or `TMP`; set those explicitly for Zig commands instead of trusting the shell environment.
-- 2026-04-11: Avoid detached `start "" /b cmd /c ...` build launches in this wrapper; they can trigger a `\\` dialog saying "The network is not present or not started." Use direct `cmd.exe` builds plus PowerShell polling instead.
-- 2026-04-11: If direct `zig build -Demit-exe=true` keeps burning CPU for 6+ minutes while `zig-out/bin/ghostty.exe` and `.zig-cache/o/*` timestamps stay unchanged, treat it as a pre-install build-graph stall and stop killing/retrying blindly.
 - 2026-04-11: For real Zig diagnostics here, launch Zig via PowerShell `Start-Process` with `LOCALAPPDATA`/`APPDATA`/`TEMP`/`TMP` set and redirected stdout/stderr. Direct child-pipe launches can masquerade as fake `Compile Build Script` stalls.
 - 2026-04-12: Do not treat Win32 WGL swap interval as generic renderer `hasVsync()` yet; that flag means a display-link style `draw_now` driver exists, and returning true on Win32 can stall terminal rendering on startup.
 - 2026-04-12: In `src/apprt/win32.zig`, do not `ShowWindow(surface_hwnd, SW_SHOW)` before the GL context and `core_surface` are initialized; early `WM_PAINT` on a half-initialized child surface is a real Win32 startup hazard.
 - 2026-04-12: In `src/apprt/win32.zig`, delaying `ShowWindow(surface_hwnd, SW_SHOW)` is still insufficient if `surfaceWindowStyle()` includes `WS_VISIBLE`; the child GL surface must be created hidden and shown only after GL + core init.
 - 2026-04-12: An emergency `git clone . <temp-dir>` checkpoint clone points `origin` at the local repo path; repoint that temp clone to the real GitHub remote before any push.
 - 2026-04-12: GitHub push from this machine can fail with `getaddrinfo() thread failed to start` even after the commit succeeds in the temp clone; retry once, then report the exact push failure and keep working locally.
+- 2026-04-12: `src/helpgen.zig` depends on the injected `build_options` module; build it through `zig build -Demit-helpgen=true` instead of direct `zig build-exe src/helpgen.zig`.
+- 2026-04-12: `RegisterHotKey(NULL, ...)` posts `WM_HOTKEY` to the thread message queue, not a window proc; handle it directly in the `GetMessageW` loop.
+- 2026-04-12: Do not sync Win32 global hotkeys inline during startup window creation; schedule registration onto the live message loop and make sync failure non-fatal so hotkeys cannot take down launch.
+- 2026-04-12: Once Win32 can stay alive with zero windows, `wakeup()` must post to the UI thread queue, not only a window HWND, or mailbox work and quit timers will stall headless.
+- 2026-04-12: GDI brush handles (HBRUSH) returned from `WM_CTLCOLOR*` handlers must use `@bitCast` not `@intCast` to convert to LRESULT; GDI handles can have the high bit set on x64, causing `@intCast` to panic.

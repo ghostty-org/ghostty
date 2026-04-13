@@ -21,8 +21,6 @@ renderer: RendererBackend = .opengl,
 font_backend: FontBackend = .freetype,
 
 /// Feature flags
-x11: bool = false,
-wayland: bool = false,
 sentry: bool = true,
 simd: bool = true,
 i18n: bool = true,
@@ -39,8 +37,6 @@ strip: bool = false,
 patch_rpath: ?[]const u8 = null,
 
 /// Artifacts
-flatpak: bool = false,
-snap: bool = false,
 emit_bench: bool = false,
 emit_docs: bool = false,
 emit_exe: bool = false,
@@ -134,12 +130,6 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
     //---------------------------------------------------------------
     // Feature Flags
 
-    // These remain in build_options for shared code paths, but the
-    // Windows-only fork no longer exposes them as user-facing build flags.
-    config.flatpak = false;
-
-    config.snap = false;
-
     config.sentry = b.option(
         bool,
         "sentry",
@@ -162,10 +152,6 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
 
         break :simd true;
     };
-
-    config.wayland = false;
-
-    config.x11 = false;
 
     config.i18n = b.option(
         bool,
@@ -374,10 +360,6 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
 pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     // We need to break these down individual because addOption doesn't
     // support all types.
-    step.addOption(bool, "flatpak", self.flatpak);
-    step.addOption(bool, "snap", self.snap);
-    step.addOption(bool, "x11", self.x11);
-    step.addOption(bool, "wayland", self.wayland);
     step.addOption(bool, "sentry", self.sentry);
     step.addOption(bool, "simd", self.simd);
     step.addOption(bool, "i18n", self.i18n);
@@ -457,11 +439,9 @@ pub fn fromOptions() Config {
         .env = undefined,
 
         .version = options.app_version,
-        .flatpak = options.flatpak,
         .app_runtime = std.meta.stringToEnum(ApprtRuntime, @tagName(options.app_runtime)).?,
         .font_backend = std.meta.stringToEnum(FontBackend, @tagName(options.font_backend)).?,
         .renderer = std.meta.stringToEnum(RendererBackend, @tagName(options.renderer)).?,
-        .snap = options.snap,
         .exe_entrypoint = std.meta.stringToEnum(ExeEntrypoint, @tagName(options.exe_entrypoint)).?,
         .wasm_target = std.meta.stringToEnum(WasmTarget, @tagName(options.wasm_target)).?,
         .wasm_shared = options.wasm_shared,

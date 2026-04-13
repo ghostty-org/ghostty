@@ -69,8 +69,10 @@ pub const Windows = struct {
         color: bool,
         variable: bool,
         has_codepoint: bool,
+        charset: []const u32,
 
         fn deinit(self: *Record, alloc: Allocator) void {
+            alloc.free(self.charset);
             alloc.free(self.path);
             alloc.free(self.family_name);
             alloc.free(self.style_name);
@@ -169,6 +171,7 @@ pub const Windows = struct {
                     .full_name = try self.alloc.dupeZ(u8, record.full_name),
                     .variations = try self.alloc.dupe(Variation, self.variations),
                     .color = record.color,
+                    .charset = try self.alloc.dupe(u32, record.charset),
                 },
             };
         }
@@ -240,6 +243,25 @@ pub const Windows = struct {
         return try records.toOwnedSlice(alloc);
     }
 
+    fn extractCharset(alloc: Allocator, face: freetype.Face) ![]const u32 {
+        // Select unicode charmap for enumeration; if unavailable, treat as empty
+        if (freetype.c.FT_Select_Charmap(face.handle, freetype.c.FT_ENCODING_UNICODE) != 0) {
+            return try alloc.dupe(u32, &.{});
+        }
+
+        var codepoints: std.ArrayListUnmanaged(u32) = .{};
+        errdefer codepoints.deinit(alloc);
+
+        var glyph_index: u32 = undefined;
+        var charcode = freetype.c.FT_Get_First_Char(face.handle, &glyph_index);
+        while (glyph_index != 0) {
+            try codepoints.append(alloc, @intCast(charcode));
+            charcode = freetype.c.FT_Get_Next_Char(face.handle, charcode, &glyph_index);
+        }
+
+        return try codepoints.toOwnedSlice(alloc);
+    }
+
     fn inspectFace(
         alloc: Allocator,
         path: [:0]const u8,
@@ -258,6 +280,10 @@ pub const Windows = struct {
         const style_flags = face.handle.*.style_flags;
         const face_flags = face.handle.*.face_flags;
 
+        // Extract charset: enumerate all codepoints via FT_Get_First_Char/FT_Get_Next_Char
+        const charset = try extractCharset(alloc, face);
+        errdefer alloc.free(charset);
+
         return .{
             .path = try alloc.dupeZ(u8, path),
             .face_index = face_index,
@@ -271,6 +297,7 @@ pub const Windows = struct {
             .color = face.hasColor() or face.hasSBIX(),
             .variable = face.hasMultipleMasters(),
             .has_codepoint = false,
+            .charset = charset,
         };
     }
 
@@ -349,14 +376,12 @@ pub const Windows = struct {
     }
 
     fn recordHasCodepoint(record: Record, codepoint: u32) bool {
-        var lib = freetype.Library.init() catch return false;
-        defer lib.deinit();
-
-        const face = lib.initFace(record.path, record.face_index) catch return false;
-        defer face.deinit();
-
-        face.selectCharmap(.unicode) catch return false;
-        return face.getCharIndex(codepoint) != null;
+        const result = std.sort.binarySearch(u32, record.charset, codepoint, struct {
+            fn order(target: u32, item: u32) std.math.Order {
+                return std.math.order(target, item);
+            }
+        }.order);
+        return result != null;
     }
 
     fn supportedFontFile(name: []const u8) bool {

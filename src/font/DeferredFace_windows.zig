@@ -21,8 +21,10 @@ pub const Windows = struct {
     full_name: [:0]const u8,
     variations: []const font.face.Variation,
     color: bool,
+    charset: []const u32,
 
     pub fn deinit(self: *Windows) void {
+        self.alloc.free(self.charset);
         self.alloc.free(self.path);
         self.alloc.free(self.family_name);
         self.alloc.free(self.style_name);
@@ -58,25 +60,22 @@ pub fn load(
     return face;
 }
 
+/// Check if a codepoint exists in this font using the pre-computed charset.
+/// The charset is a sorted array of u32 codepoints extracted during font
+/// discovery, so this is an O(log n) binary search instead of the previous
+/// O(1)-but-expensive approach of creating a new FreeType library + face
+/// per call.
 pub fn hasCodepoint(self: DeferredFace, cp: u32, p: ?Presentation) bool {
     if (p) |desired| {
         const actual: Presentation = if (self.win.color) .emoji else .text;
         if (actual != desired) return false;
     }
 
-    var lib = freetype.Library.init() catch return false;
-    defer lib.deinit();
-
-    const face = lib.initFace(self.win.path, self.win.face_index) catch |err| {
-        log.warn("failed to init deferred Windows face path={s} index={} err={}", .{
-            self.win.path,
-            self.win.face_index,
-            err,
-        });
-        return false;
-    };
-    defer face.deinit();
-
-    face.selectCharmap(.unicode) catch return false;
-    return face.getCharIndex(cp) != null;
+    // Binary search in the pre-computed sorted charset
+    const result = std.sort.binarySearch(u32, self.win.charset, cp, struct {
+        fn order(target: u32, item: u32) std.math.Order {
+            return std.math.order(target, item);
+        }
+    }.order);
+    return result != null;
 }

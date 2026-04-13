@@ -125,10 +125,9 @@ language: ?[:0]const u8 = null,
 /// font. This is particularly useful for multiple languages, symbolic fonts,
 /// etc.
 ///
-/// Notes on emoji specifically: On macOS, Ghostty by default will always use
-/// Apple Color Emoji and on Linux will always use Noto Emoji. You can
-/// override this behavior by specifying a font family here that contains
-/// emoji glyphs.
+/// Notes on emoji specifically: the default emoji fallback is platform
+/// dependent. You can override this behavior by specifying a font family here
+/// that contains emoji glyphs.
 ///
 /// The specific styles (bold, italic, bold italic) do not need to be
 /// explicitly set. If a style is not set, then the regular style (font-family)
@@ -253,15 +252,7 @@ language: ?[:0]const u8 = null,
 /// Otherwise, the font size of existing terminals will be updated on
 /// reload.
 ///
-/// On Linux with GTK, font size is scaled according to both display-wide and
-/// text-specific scaling factors, which are often managed by your desktop
-/// environment (e.g. the GNOME display scale and large text settings).
-@"font-size": f32 = switch (builtin.os.tag) {
-    // On macOS we default a little bigger since this tends to look better. This
-    // is purely subjective but this is easy to modify.
-    .macos => 13,
-    else => 12,
-},
+@"font-size": f32 = 12,
 
 /// A repeatable configuration to set one or more font variations values for
 /// a variable font. A variable font is a single font, usually with a filename
@@ -372,13 +363,11 @@ language: ?[:0]const u8 = null,
 /// This affects the appearance of text and of any images with transparency.
 /// Additionally, custom shaders will receive colors in the configured space.
 ///
-/// On macOS the default is `native`, on all other platforms the default is
-/// `linear-corrected`.
+/// In the Windows-only fork the default is `linear-corrected`.
 ///
 /// Valid values:
 ///
 /// * `native` - Perform alpha blending in the native color space for the OS.
-///   On macOS this corresponds to Display P3, and on Linux it's sRGB.
 ///
 /// * `linear` - Perform alpha blending in linear space. This will eliminate
 ///   the darkening artifacts around the edges of text that are very visible
@@ -391,11 +380,7 @@ language: ?[:0]const u8 = null,
 ///   but without any of the darkening artifacts.
 ///
 /// Available since: 1.1.0
-@"alpha-blending": AlphaBlending =
-    if (builtin.os.tag == .macos)
-        .native
-    else
-        .@"linear-corrected",
+@"alpha-blending": AlphaBlending = .@"linear-corrected",
 
 /// All of the configurations behavior adjust various metrics determined by the
 /// font. The values can be integers (1, -1, etc.) or a percentage (20%, -15%,
@@ -910,8 +895,7 @@ palette: Palette = .{},
 
 /// Hide the mouse immediately when typing. The mouse becomes visible again
 /// when the mouse is used (button, movement, etc.). Platform-specific behavior
-/// may dictate other scenarios where the mouse is shown. For example on macOS,
-/// the mouse is shown again when a new window, tab, or split is created.
+/// may dictate other scenarios where the mouse is shown.
 @"mouse-hide-while-typing": bool = false,
 
 /// When to scroll the surface to the bottom. The format of this is a list of
@@ -988,11 +972,7 @@ palette: Palette = .{},
 /// 1 is fully opaque and a value of 0 is fully transparent. A value less than 0
 /// or greater than 1 will be clamped to the nearest valid value.
 ///
-/// On macOS, background opacity is disabled when the terminal enters native
-/// fullscreen. This is because the background becomes gray and it can cause
-/// widgets to show through which isn't generally desirable.
-///
-/// On macOS, changing this configuration requires restarting Ghostty completely.
+/// This can be changed in the Windows-only fork without restarting Ghostty.
 @"background-opacity": f64 = 1.0,
 
 /// Applies background opacity to cells with an explicit background color
@@ -1021,27 +1001,9 @@ palette: Palette = .{},
 ///     reasonable for a good looking blur. Higher blur intensities may
 ///     cause strange rendering and performance issues.
 ///
-/// Supported on macOS and on some Linux desktop environments, including:
-///
-///   * KDE Plasma (Wayland and X11)
-///
-/// Warning: the exact blur intensity is _ignored_ under KDE Plasma, and setting
-/// this setting to either `true` or any positive blur intensity value would
-/// achieve the same effect. The reason is that KWin, the window compositor
-/// powering Plasma, only has one global blur setting and does not allow
-/// applications to specify individual blur settings.
-///
-/// To configure KWin's global blur setting, open System Settings and go to
-/// "Apps & Windows" > "Window Management" > "Desktop Effects" and select the
-/// "Blur" plugin. If disabled, enable it by ticking the checkbox to the left.
-/// Then click on the "Configure" button and there will be two sliders that
-/// allow you to set background blur and noise intensities for all apps,
-/// including Ghostty.
-///
-/// All other Linux desktop environments are as of now unsupported. Users may
-/// need to set environment-specific settings and/or install third-party plugins
-/// in order to support background blur, as there isn't a unified interface for
-/// doing so.
+/// In the Windows-only fork this toggles the host window's system backdrop
+/// blur when `background-opacity` is less than 1. The numeric blur intensity
+/// is currently treated as enabled/disabled rather than a tunable radius.
 @"background-blur": BackgroundBlur = .false,
 
 /// The opacity level (opposite of transparency) of an unfocused split.
@@ -1345,9 +1307,7 @@ input: RepeatableReadableIO = .{},
 /// to be abnormal. This is used to show an error message when the process exits
 /// too quickly.
 ///
-/// On Linux, this must be paired with a non-zero exit code. On macOS, we allow
-/// any exit code because of the way shell processes are launched via the login
-/// command.
+/// This threshold is applied in the Windows-only fork regardless of exit code.
 @"abnormal-command-exit-runtime": u32 = 250,
 
 /// The size of the scrollback buffer in bytes. This also includes the active
@@ -1378,9 +1338,6 @@ input: RepeatableReadableIO = .{},
 /// Valid values:
 ///
 ///   * `system` - Respect the system settings for when to show scrollbars.
-///     For example, on macOS, this will respect the "Scrollbar behavior"
-///     system setting which by default usually only shows scrollbars while
-///     actively scrolling or hovering the gutter.
 ///
 ///   * `never` - Never show a scrollbar. You can still scroll using the mouse,
 ///     keybind actions, etc. but you will not have a visual UI widget showing
@@ -1670,10 +1627,11 @@ class: ?[:0]const u8 = null,
 ///    (e.g. even when Ghostty is not focused), specify this prefix.
 ///    This prefix implies `all:`.
 ///
-///    Note: this does not work in all environments; see the additional notes
-///    below for more information.
+///    In the Windows-only fork, this is implemented via Win32 `RegisterHotKey`
+///    while the application is running. Bindings that Win32 can't express as
+///    system-wide shortcuts are skipped.
 ///
-///    Available since: 1.0.0 on macOS, 1.2.0 on GTK
+///    Available since: 1.0.0
 ///
 ///  * `unconsumed:`
 ///
@@ -1715,33 +1673,9 @@ class: ?[:0]const u8 = null,
 /// `global:unconsumed:ctrl+a=reload_config` will make the keybind global
 /// and not consume the input to reload the config.
 ///
-/// Note: `global:` is only supported on macOS and certain Linux platforms.
-///
-/// On macOS, this feature requires accessibility permissions to be granted
-/// to Ghostty. When a `global:` keybind is specified and Ghostty is launched
-/// or reloaded, Ghostty will attempt to request these permissions.
-/// If the permissions are not granted, the keybind will not work. On macOS,
-/// you can find these permissions in System Preferences -> Privacy & Security
-/// -> Accessibility.
-///
-/// On Linux, you need a desktop environment that implements the
-/// [Global Shortcuts](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.GlobalShortcuts.html)
-/// protocol as a part of its XDG desktop protocol implementation.
-/// Desktop environments that are known to support (or not support)
-/// global shortcuts include:
-///
-///  - Users using KDE Plasma (since [5.27](https://kde.org/announcements/plasma/5/5.27.0/#wayland))
-///    and GNOME (since [48](https://release.gnome.org/48/#and-thats-not-all)) should be able
-///    to use global shortcuts with little to no configuration.
-///
-///  - Some manual configuration is required on Hyprland. Consult the steps
-///    outlined on the [Hyprland Wiki](https://wiki.hyprland.org/Configuring/Binds/#dbus-global-shortcuts)
-///    to set up global shortcuts correctly.
-///    (Important: [`xdg-desktop-portal-hyprland`](https://wiki.hyprland.org/Hypr-Ecosystem/xdg-desktop-portal-hyprland/)
-///    must also be installed!)
-///
-///  - Notably, global shortcuts have not been implemented on wlroots-based
-///    compositors like Sway (see [upstream issue](https://github.com/emersion/xdg-desktop-portal-wlr/issues/240)).
+/// Note: in the Windows-only fork, `global:` bindings are registered through
+/// Win32 `RegisterHotKey` while the application is running. Triggers that
+/// Win32 can't register system-wide remain loadable but are skipped.
 ///
 /// ## Chained Actions
 ///
@@ -2137,8 +2071,7 @@ keybind: Keybinds = .{},
 /// Invalid positions are runtime-specific, but generally the positions are
 /// clamped to the nearest valid position.
 ///
-/// Retained as a compatibility setting in the Windows-only fork. Window
-/// placement hints are not currently applied by the Win32 runtime.
+/// Supported in the Windows-only fork when both coordinates are set.
 @"window-position-x": ?i16 = null,
 @"window-position-y": ?i16 = null,
 
@@ -2212,9 +2145,7 @@ keybind: Keybinds = .{},
 /// Background color for the window titlebar. This only takes effect if
 /// `window-theme` is set to `ghostty`.
 ///
-/// Retained compatibility setting from the removed GTK runtime.
-///
-/// This currently has no effect in the Windows-only fork.
+/// Supported in the Windows-only fork when `window-theme=ghostty`.
 ///
 /// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
 @"window-titlebar-background": ?Color = null,
@@ -2222,9 +2153,7 @@ keybind: Keybinds = .{},
 /// Foreground color for the window titlebar. This only takes effect if
 /// `window-theme` is set to `ghostty`.
 ///
-/// Retained compatibility setting from the removed GTK runtime.
-///
-/// This currently has no effect in the Windows-only fork.
+/// Supported in the Windows-only fork when `window-theme=ghostty`.
 ///
 /// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
 @"window-titlebar-foreground": ?Color = null,
@@ -2349,21 +2278,17 @@ keybind: Keybinds = .{},
 @"image-storage-limit": u32 = 320 * 1000 * 1000,
 
 /// Whether to automatically copy selected text to the clipboard. `true`
-/// will prefer to copy to the selection clipboard, otherwise it will copy to
-/// the system clipboard.
+/// prefers the selection clipboard when it is supported, otherwise it copies
+/// to the system clipboard.
 ///
-/// The value `clipboard` will always copy text to the selection clipboard
-/// as well as the system clipboard.
+/// The value `clipboard` always copies to the system clipboard and also copies
+/// to the selection clipboard when it is supported.
 ///
-/// Middle-click paste will always use the selection clipboard. Middle-click
-/// paste is always enabled even if this is `false`.
+/// Middle-click paste prefers the selection clipboard when it is supported.
+/// Middle-click paste remains enabled even if this is `false`.
 ///
 /// The default value is false in the Windows-only fork.
-@"copy-on-select": CopyOnSelect = switch (builtin.os.tag) {
-    .linux => .true,
-    .macos => .true,
-    else => .false,
-},
+@"copy-on-select": CopyOnSelect = .false,
 
 /// The action to take when the user right-clicks on the terminal surface.
 ///
@@ -2437,10 +2362,7 @@ keybind: Keybinds = .{},
 /// Whether or not to quit after the last surface is closed.
 ///
 /// The default value is `false` in the Windows-only fork.
-///
-/// The related `quit-after-last-window-closed-delay` setting is retained for
-/// compatibility, but currently has no effect in the Windows-only fork.
-@"quit-after-last-window-closed": bool = builtin.os.tag == .linux,
+@"quit-after-last-window-closed": bool = false,
 
 /// Controls how long Ghostty will stay running after the last open surface has
 /// been closed. This only has an effect if `quit-after-last-window-closed` is
@@ -2482,7 +2404,8 @@ keybind: Keybinds = .{},
 ///
 /// Retained compatibility setting from Linux-specific runtime behavior.
 ///
-/// This currently has no effect in the Windows-only fork.
+/// The Windows-only fork now applies this delay before quitting after the last
+/// window closes.
 @"quit-after-last-window-closed-delay": ?Duration = null,
 
 /// This controls whether an initial window is created when Ghostty
@@ -2642,11 +2565,7 @@ keybind: Keybinds = .{},
 /// Set it to false for the quick terminal to remain open even when it loses focus.
 ///
 /// The default value is `false` in the Windows-only fork.
-@"quick-terminal-autohide": bool = switch (builtin.os.tag) {
-    .linux => false,
-    .macos => true,
-    else => false,
-},
+@"quick-terminal-autohide": bool = false,
 
 /// This configuration option determines the behavior of the quick terminal
 /// when switching between virtual desktops.
@@ -2987,32 +2906,17 @@ keybind: Keybinds = .{},
 ///
 ///    Instruct the system to notify the user using built-in system functions.
 ///    This could result in an audiovisual effect, a notification, or something
-///    else entirely. Changing these effects require altering system settings:
-///    for instance under the "Sound > Alert Sound" setting in GNOME,
-///    or the "Accessibility > System Bell" settings in KDE Plasma.
-///
-///    On macOS, this plays the system alert sound.
+///    else entirely. Changing these effects requires altering system settings.
 ///
 ///  * `audio`
 ///
-///    Play a custom sound. (Available since 1.3.0 on macOS)
+///    Play a custom sound.
 ///
 ///  * `attention` *(enabled by default)*
 ///
 ///    Request the user's attention when Ghostty is unfocused, until it has
-///    received focus again. On macOS, this will bounce the app icon in the
-///    dock once. On Linux, the behavior depends on the desktop environment
-///    and/or the window manager/compositor:
-///
-///    - On KDE, the background of the desktop icon in the task bar would be
-///      highlighted;
-///
-///    - On GNOME, you may receive a notification that, when clicked, would
-///      bring the Ghostty window into focus;
-///
-///    - On Sway, the window may be decorated with a distinctly colored border;
-///
-///    - On other systems this may have no effect at all.
+///    received focus again. The exact behavior depends on the runtime and
+///    operating system.
 ///
 ///  * `title` *(enabled by default)*
 ///
@@ -3024,8 +2928,6 @@ keybind: Keybinds = .{},
 ///    Display a border around the alerted surface until the terminal is
 ///    re-focused or interacted with (such as on keyboard input).
 ///
-///    Available since: 1.2.0 on GTK, 1.2.1 on macOS
-///
 /// Example: `audio`, `no-audio`, `system`, `no-system`
 ///
 /// Available since: 1.2.0
@@ -3036,22 +2938,14 @@ keybind: Keybinds = .{},
 /// configuration file that it is referenced from, or from the current working
 /// directory if this is used as a CLI flag. The path may be prefixed with `~/`
 /// to reference the user's home directory.
-///
-/// Available since: 1.2.0 on GTK, 1.3.0 on macOS.
 @"bell-audio-path": ?Path = null,
 
 /// If `audio` is an enabled bell feature, this is the volume to play the audio
 /// file at (relative to the system volume). This is a floating point number
 /// ranging from 0.0 (silence) to 1.0 (as loud as possible). The default is 0.5.
-///
-/// Available since: 1.2.0 on GTK, 1.3.0 on macOS.
 @"bell-audio-volume": f64 = 0.5,
 
 /// Control the in-app notifications that Ghostty shows.
-///
-/// On Linux (GTK), in-app notifications show up as toasts. Toasts appear
-/// overlaid on top of the terminal window. They are used to show information
-/// that is not critical but may be important.
 ///
 /// Possible notifications are:
 ///
@@ -3071,26 +2965,10 @@ keybind: Keybinds = .{},
 /// A value of "false" will disable all notifications. A value of "true" will
 /// enable all notifications.
 ///
-/// Retained compatibility setting from the removed GTK runtime.
-///
-/// This has no effect in the Windows-only fork.
+/// Controls native application notifications emitted by the Windows-only fork
+/// itself, such as clipboard-copy and config-reload notifications.
 @"app-notifications": AppNotifications = .{},
 
-/// If anything other than false, fullscreen mode on macOS will not use the
-/// native fullscreen, but make the window fullscreen without animations and
-/// using a new space. It's faster than the native fullscreen mode since it
-/// doesn't use animations.
-///
-/// Important: tabs DO NOT WORK in this mode. Non-native fullscreen removes
-/// the titlebar and macOS native tabs require the titlebar. If you use tabs,
-/// you should not use this mode.
-///
-/// If you fullscreen a window with tabs, the currently focused tab will
-/// become fullscreen while the others will remain in a separate window in
-/// the background. You can switch to that window using normal window-switching
-/// keybindings such as command+tilde. When you exit fullscreen, the window
-/// will return to the tabbed state it was in before.
-///
 /// Retained compatibility settings from Linux-specific runtime features.
 ///
 /// These keys continue to parse so existing configs remain loadable, but they
@@ -3101,10 +2979,7 @@ keybind: Keybinds = .{},
 ///
 /// This continues to parse so existing configs remain loadable, but it has no
 /// effect in the Windows-only fork.
-@"linux-cgroup": LinuxCgroup = if (builtin.os.tag == .linux)
-    .@"single-instance"
-else
-    .never,
+@"linux-cgroup": LinuxCgroup = .never,
 
 /// Retained compatibility setting from Linux-specific runtime features.
 ///
@@ -4010,14 +3885,9 @@ pub fn finalize(self: *Config) !void {
     {
         if (self.command == null or wd == .home) command: {
             // First look up the command using the SHELL env var if needed.
-            // We don't do this in flatpak because SHELL in Flatpak is always
-            // set to /bin/sh.
             if (self.command) |cmd|
                 log.info("shell src=config value={}", .{cmd})
             else shell_env: {
-                // Flatpak always gets its shell from outside the sandbox
-                if (internal_os.isFlatpak()) break :shell_env;
-
                 // Windows shell resolution is handled explicitly below so that
                 // `command = null` consistently follows our WSL-first order.
                 if (builtin.os.tag == .windows) break :shell_env;
@@ -4510,20 +4380,9 @@ pub const ChangeIterator = struct {
 /// We should keep the set of behaviors that depend on this as small
 /// as possible because magic sucks, but each place is well documented.
 fn probableCliEnvironment() bool {
-    switch (builtin.os.tag) {
-        // Windows has its own problems, just ignore it for now since
-        // its not a real supported target and GTK via WSL2 assuming
-        // single instance is probably fine.
-        .windows => return false,
-
-        // On macOS, we don't want to detect `open` calls as CLI envs.
-        // Our desktop detection on macOS is very accurate due to how
-        // processes are launched on macOS, so if we detect we're launched
-        // from the app bundle then we're not in a CLI environment.
-        .macos => if (internal_os.launchedFromDesktop()) return false,
-
-        else => {},
-    }
+    // The Windows-only fork treats launches as desktop by default and uses
+    // explicit runtime decisions for shell/working-directory behavior.
+    if (builtin.os.tag == .windows) return false;
 
     // If we have TERM_PROGRAM set to a non-empty value, we assume
     // a graphical terminal environment.
@@ -8029,12 +7888,12 @@ pub const CopyOnSelect = enum {
     /// Disables copy on select entirely.
     false,
 
-    /// Copy on select is enabled, but goes to the selection clipboard.
-    /// This is not supported on platforms such as macOS. This is the default.
+    /// Copy on select is enabled. This prefers the selection clipboard when it
+    /// is supported, otherwise it falls back to the system clipboard.
     true,
 
-    /// Copy on select is enabled and goes to both the system clipboard
-    /// and the selection clipboard (for Linux).
+    /// Copy on select is enabled and goes to the system clipboard and the
+    /// selection clipboard when it is supported.
     clipboard,
 };
 

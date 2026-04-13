@@ -62,6 +62,7 @@ const WPARAM = usize;
 const LRESULT = isize;
 const LONG_PTR = isize;
 const UINT = u32;
+const UINT_PTR = usize;
 const DWORD = u32;
 const WORD = u16;
 const BYTE = u8;
@@ -86,12 +87,22 @@ const SW_MAXIMIZE = 3;
 const SW_HIDE = 0;
 const WM_APP = 0x8000;
 const WM_COMMAND = 0x0111;
+const WM_CAPTURECHANGED = 0x0215;
 const WM_CLOSE = 0x0010;
 const WM_DESTROY = 0x0002;
 const WM_DRAWITEM = 0x002B;
 const WM_ERASEBKGND = 0x0014;
 const WM_GETMINMAXINFO = 0x0024;
 const WM_CHAR = 0x0102;
+const WM_HOTKEY = 0x0312;
+const WM_IME_SETCONTEXT = 0x0281;
+const WM_IME_STARTCOMPOSITION = 0x010D;
+const WM_IME_ENDCOMPOSITION = 0x010E;
+const WM_IME_COMPOSITION = 0x010F;
+const GCS_COMPSTR: u32 = 0x0008;
+const GCS_RESULTSTR: u32 = 0x0800;
+const CFS_POINT: u32 = 0x0002;
+const ISC_SHOWUICOMPOSITIONWINDOW: LPARAM = 0x80000000;
 const WM_KILLFOCUS = 0x0008;
 const WM_KEYDOWN = 0x0100;
 const WM_KEYUP = 0x0101;
@@ -108,10 +119,15 @@ const WM_POINTERHWHEEL = 0x024F;
 const WM_POINTERWHEEL = 0x024E;
 const WM_NCCREATE = 0x0081;
 const WM_PAINT = 0x000F;
+const WM_TIMER = 0x0113;
 const WM_CTLCOLOREDIT = 0x0133;
 const WM_CTLCOLORBTN = 0x0135;
 const WM_CTLCOLORSTATIC = 0x0138;
 const WM_RBUTTONDOWN = 0x0204;
+const WM_XBUTTONDOWN = 0x020B;
+const WM_XBUTTONUP = 0x020C;
+const XBUTTON1: WORD = 0x0001;
+const XBUTTON2: WORD = 0x0002;
 const WM_RBUTTONUP = 0x0205;
 const WM_SETCURSOR = 0x0020;
 const WM_SETFOCUS = 0x0007;
@@ -120,6 +136,7 @@ const WM_SIZE = 0x0005;
 const WM_SYSKEYDOWN = 0x0104;
 const WM_SYSKEYUP = 0x0105;
 const WM_WINHOSTTY_WAKE = WM_APP + 1;
+const PM_NOREMOVE: UINT = 0x0000;
 const WS_OVERLAPPED = 0x00000000;
 const WS_CHILD = 0x40000000;
 const WS_CLIPCHILDREN = 0x02000000;
@@ -136,6 +153,10 @@ const WS_BORDER = 0x00800000;
 const WS_OVERLAPPEDWINDOW = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
 const WS_POPUP = 0x80000000;
 const WS_EX_LAYERED = 0x00080000;
+const MOD_ALT = 0x0001;
+const MOD_CONTROL = 0x0002;
+const MOD_SHIFT = 0x0004;
+const MOD_WIN = 0x0008;
 const SWP_NOSIZE = 0x0001;
 const SWP_NOMOVE = 0x0002;
 const SWP_NOZORDER = 0x0004;
@@ -161,6 +182,8 @@ const MK_LBUTTON = 0x0001;
 const MK_MBUTTON = 0x0010;
 const MK_RBUTTON = 0x0002;
 const MK_SHIFT = 0x0004;
+const MK_XBUTTON1 = 0x0020;
+const MK_XBUTTON2 = 0x0040;
 const EN_CHANGE = 0x0300;
 const BS_PUSHBUTTON = 0x00000000;
 const BS_DEFPUSHBUTTON = 0x00000001;
@@ -196,14 +219,31 @@ const host_tab_label_max_len = 24;
 const host_tab_min_button_width = 108;
 const curated_command_palette_actions = [_][]const u8{
     "new_tab",
+    "new_window",
     "new_split:right",
+    "new_split:down",
+    "new_split:left",
+    "new_split:up",
     "goto_split:right",
+    "goto_split:left",
+    "goto_split:up",
+    "goto_split:down",
+    "toggle_split_zoom",
+    "equalize_splits",
+    "close_tab",
+    "close_window",
     "toggle_fullscreen",
+    "toggle_window_decorations",
     "toggle_command_palette",
     "toggle_tab_overview",
     "start_search",
-    "inspector:toggle",
+    "copy_to_clipboard",
+    "paste_from_clipboard",
+    "select_all",
+    "open_config",
     "reload_config",
+    "inspector:toggle",
+    "reset_window_size",
 };
 const releases_url = "https://github.com/amanthanvi/winghostty/releases/latest";
 const WM_THEMECHANGED = 0x031A;
@@ -212,7 +252,9 @@ const WM_DPICHANGED: UINT = 0x02E0;
 const DWMWA_USE_IMMERSIVE_DARK_MODE_V1: DWORD = 19;
 const DWMWA_USE_IMMERSIVE_DARK_MODE: DWORD = 20;
 const DWMWA_CAPTION_COLOR: DWORD = 35;
+const DWMWA_TEXT_COLOR: DWORD = 36;
 const DWMWA_SYSTEMBACKDROP_TYPE: DWORD = 38;
+const DWMSBT_NONE: u32 = 1;
 const DWMSBT_MAINWINDOW: u32 = 2;
 const DC_BRUSH: i32 = 18;
 const DC_PEN: i32 = 19;
@@ -265,6 +307,15 @@ const CTX_NEW_TAB: usize = 4006;
 const CTX_SPLIT_RIGHT: usize = 4007;
 const CTX_NEW_WINDOW: usize = 4008;
 const CTX_INSPECTOR: usize = 4009;
+const CTX_SPLIT_DOWN: usize = 4010;
+const CTX_SPLIT_LEFT: usize = 4011;
+const CTX_SPLIT_UP: usize = 4012;
+const CTX_TAB_RENAME: usize = 4020;
+const CTX_TAB_CLOSE: usize = 4021;
+const CTX_TAB_CLOSE_OTHERS: usize = 4022;
+const CTX_TAB_MOVE_LEFT: usize = 4023;
+const CTX_TAB_MOVE_RIGHT: usize = 4024;
+const MF_POPUP: UINT = 0x00000010;
 
 const WNDPROC = *const fn (HWND, UINT, WPARAM, LPARAM) callconv(.winapi) LRESULT;
 const SHORT = i16;
@@ -558,9 +609,13 @@ extern "user32" fn MessageBoxW(hWnd: ?HWND, lpText: LPCWSTR, lpCaption: LPCWSTR,
 extern "user32" fn MessageBeep(uType: UINT) callconv(.winapi) BOOL;
 extern "user32" fn InvalidateRect(hWnd: HWND, lpRect: ?*const RECT, bErase: BOOL) callconv(.winapi) BOOL;
 extern "user32" fn MoveWindow(hWnd: HWND, X: i32, Y: i32, nWidth: i32, nHeight: i32, bRepaint: BOOL) callconv(.winapi) BOOL;
+extern "user32" fn PeekMessageW(lpMsg: *MSG, hWnd: ?HWND, wMsgFilterMin: UINT, wMsgFilterMax: UINT, wRemoveMsg: UINT) callconv(.winapi) BOOL;
 extern "user32" fn PostMessageW(hWnd: HWND, Msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.winapi) BOOL;
+extern "user32" fn PostThreadMessageW(idThread: DWORD, Msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.winapi) BOOL;
 extern "user32" fn PostQuitMessage(nExitCode: i32) callconv(.winapi) void;
 extern "user32" fn ReleaseDC(hWnd: HWND, hDC: HDC) callconv(.winapi) i32;
+extern "user32" fn RegisterHotKey(hWnd: ?HWND, id: i32, fsModifiers: UINT, vk: UINT) callconv(.winapi) BOOL;
+extern "user32" fn SetTimer(hWnd: ?HWND, nIDEvent: UINT_PTR, uElapse: UINT, lpTimerFunc: ?*const anyopaque) callconv(.winapi) UINT_PTR;
 extern "user32" fn SetCursor(hCursor: HCURSOR) callconv(.winapi) HCURSOR;
 extern "user32" fn SetCapture(hWnd: HWND) callconv(.winapi) ?HWND;
 extern "user32" fn SetForegroundWindow(hWnd: HWND) callconv(.winapi) BOOL;
@@ -590,8 +645,11 @@ extern "user32" fn ToUnicode(
     wFlags: UINT,
 ) callconv(.winapi) i32;
 extern "user32" fn TranslateMessage(lpMsg: *const MSG) callconv(.winapi) BOOL;
+extern "user32" fn UnregisterHotKey(hWnd: ?HWND, id: i32) callconv(.winapi) BOOL;
 extern "user32" fn UpdateWindow(hWnd: HWND) callconv(.winapi) BOOL;
+extern "user32" fn KillTimer(hWnd: ?HWND, uIDEvent: UINT_PTR) callconv(.winapi) BOOL;
 extern "kernel32" fn GetModuleHandleW(lpModuleName: ?LPCWSTR) callconv(.winapi) HINSTANCE;
+extern "kernel32" fn GetCurrentThreadId() callconv(.winapi) DWORD;
 extern "kernel32" fn CreateNamedPipeW(
     lpName: LPCWSTR,
     dwOpenMode: DWORD,
@@ -642,6 +700,16 @@ extern "opengl32" fn wglGetCurrentDC() callconv(.winapi) HDC;
 extern "opengl32" fn wglGetProcAddress(lpszProc: [*:0]const u8) callconv(.winapi) ?*const anyopaque;
 extern "opengl32" fn wglMakeCurrent(hdc: HDC, hglrc: HGLRC) callconv(.winapi) BOOL;
 extern "dwmapi" fn DwmSetWindowAttribute(hwnd: HWND, dwAttribute: DWORD, pvAttribute: *const anyopaque, cbAttribute: DWORD) callconv(.winapi) i32;
+extern "imm32" fn ImmGetContext(hWnd: HWND) callconv(.winapi) ?*anyopaque;
+extern "imm32" fn ImmReleaseContext(hWnd: HWND, hIMC: ?*anyopaque) callconv(.winapi) BOOL;
+extern "imm32" fn ImmGetCompositionStringW(hIMC: *anyopaque, dwIndex: u32, lpBuf: ?[*]u16, dwBufLen: u32) callconv(.winapi) i32;
+extern "imm32" fn ImmSetCompositionWindow(hIMC: *anyopaque, lpCompForm: *const COMPOSITIONFORM) callconv(.winapi) BOOL;
+
+const COMPOSITIONFORM = extern struct {
+    dwStyle: u32,
+    ptCurrentPos: POINT,
+    rcArea: RECT,
+};
 
 const SystemWheelSettings = struct {
     lines: u32 = 3,
@@ -672,6 +740,12 @@ extern "shell32" fn ShellExecuteW(
     lpDirectory: ?LPCWSTR,
     nShowCmd: i32,
 ) callconv(.winapi) ?*anyopaque;
+extern "shell32" fn DragAcceptFiles(hWnd: HWND, fAccept: BOOL) callconv(.winapi) void;
+extern "shell32" fn DragQueryFileW(hDrop: *anyopaque, iFile: UINT, lpszFile: ?[*]u16, cch: UINT) callconv(.winapi) UINT;
+extern "shell32" fn DragFinish(hDrop: *anyopaque) callconv(.winapi) void;
+
+const WM_DROPFILES: UINT = 0x0233;
+const WS_EX_ACCEPTFILES: u32 = 0x00000010;
 
 const class_name = std.unicode.utf8ToUtf16LeStringLiteral("winghostty.win32");
 const host_class_name = std.unicode.utf8ToUtf16LeStringLiteral("winghostty.win32.host");
@@ -714,6 +788,17 @@ const ForwardedArgIterator = struct {
         defer self.idx += 1;
         return self.args[self.idx];
     }
+};
+
+const GlobalHotkeySpec = struct {
+    modifiers: UINT,
+    vk: UINT,
+};
+
+const RegisteredGlobalHotkey = struct {
+    id: i32,
+    trigger: input.Binding.Trigger,
+    binding: *const input.Binding.Set.Value,
 };
 
 fn hostWindowStyle() u32 {
@@ -1102,17 +1187,6 @@ fn handleIpcClient(app: *App, pipe: windows.HANDLE) !void {
     try writeIpcAck(pipe, true);
 }
 
-fn trace(comptime fmt: []const u8, args: anytype) void {
-    var buf: [512]u8 = undefined;
-    const line = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
-    var file = std.fs.cwd().createFile("winghostty-win32.log", .{
-        .truncate = false,
-    }) catch return;
-    defer file.close();
-    file.seekFromEnd(0) catch return;
-    file.writeAll(line) catch {};
-}
-
 pub fn getProcAddress(name: [*:0]const u8) callconv(.c) ?*const anyopaque {
     if (wglGetProcAddress(name)) |ptr| {
         const raw = @intFromPtr(ptr);
@@ -1149,6 +1223,10 @@ pub const App = struct {
     ipc_pipe_name: ?[:0]const u16 = null,
     ipc_thread: ?std.Thread = null,
     ipc_stop_requested: std.atomic.Value(bool) = .init(false),
+    global_hotkeys: std.ArrayListUnmanaged(RegisteredGlobalHotkey) = .empty,
+    global_hotkeys_dirty: bool = false,
+    ui_thread_id: DWORD = 0,
+    quit_timer_id: ?UINT_PTR = null,
     running: bool = false,
     windows_hidden: bool = false,
 
@@ -1174,21 +1252,28 @@ pub const App = struct {
 
     pub fn run(self: *App) !void {
         try self.sanitizeCurrentDirectory();
-        trace("win32.App.run: begin", .{});
         const cwd = std.process.getCwdAlloc(self.core_app.alloc) catch null;
         defer if (cwd) |v| self.core_app.alloc.free(v);
         if (cwd) |v| {
-            trace("win32.App.run: cwd={s}", .{v});
-            log.info("win32 current directory cwd={s}", .{v});
+            log.debug("win32 current directory cwd={s}", .{v});
         }
 
         try self.ensureWindowClass();
-        trace("win32.App.run: class ready", .{});
 
         if (try self.tryForwardStartupToExistingInstance()) {
-            trace("win32.App.run: forwarded startup to existing instance", .{});
             return;
         }
+
+        self.running = true;
+        self.ui_thread_id = GetCurrentThreadId();
+        self.ensureMessageQueue();
+        defer {
+            self.stopQuitTimer();
+            self.ui_thread_id = 0;
+            self.running = false;
+        }
+
+        try self.startIpcServer();
 
         if (self.config.@"initial-window") {
             try self.createWindow(default_title);
@@ -1198,16 +1283,18 @@ pub const App = struct {
                 }
                 self.startup_profile_picker = false;
             }
-            trace("win32.App.run: initial window created", .{});
         } else {
-            log.info("initial-window is disabled; win32 runtime exiting without a window", .{});
-            return;
+            log.info("initial-window is disabled; win32 runtime waiting without a window", .{});
         }
 
-        try self.startIpcServer();
-
-        self.running = true;
-        defer self.running = false;
+        self.scheduleGlobalHotkeySync();
+        if (self.global_hotkeys_dirty and self.windows.items.len == 0) {
+            self.global_hotkeys_dirty = false;
+            self.syncGlobalHotkeys() catch |err| {
+                log.err("failed to sync win32 global hotkeys err={}", .{err});
+            };
+        }
+        if (self.windows.items.len == 0) self.startQuitTimer();
 
         var msg: MSG = undefined;
         while (true) {
@@ -1215,8 +1302,45 @@ pub const App = struct {
             if (result == -1) return windows.unexpectedError(windows.kernel32.GetLastError());
             if (result == 0) break;
 
+            if (msg.message == WM_WINHOSTTY_WAKE) {
+                if (self.global_hotkeys_dirty) {
+                    self.global_hotkeys_dirty = false;
+                    self.syncGlobalHotkeys() catch |err| {
+                        log.err("failed to sync win32 global hotkeys err={}", .{err});
+                    };
+                }
+                try self.core_app.tick(self);
+                if (!self.running and self.windows.items.len == 0) break;
+                continue;
+            }
+
+            if (msg.message == WM_TIMER) {
+                if (self.quit_timer_id) |timer_id| {
+                    if (msg.wParam == timer_id) {
+                        self.stopQuitTimer();
+                        if (self.running and self.windows.items.len == 0 and self.config.@"quit-after-last-window-closed") {
+                            self.running = false;
+                            PostQuitMessage(0);
+                        }
+                        continue;
+                    }
+                }
+            }
+
+            if (msg.message == WM_HOTKEY) {
+                self.handleGlobalHotkey(@intCast(msg.wParam));
+                continue;
+            }
+
             _ = TranslateMessage(&msg);
             _ = DispatchMessageW(&msg);
+
+            if (self.global_hotkeys_dirty) {
+                self.global_hotkeys_dirty = false;
+                self.syncGlobalHotkeys() catch |err| {
+                    log.err("failed to sync win32 global hotkeys err={}", .{err});
+                };
+            }
 
             try self.core_app.tick(self);
 
@@ -1225,10 +1349,13 @@ pub const App = struct {
     }
 
     pub fn terminate(self: *App) void {
+        self.stopQuitTimer();
+        self.unregisterGlobalHotkeys();
         self.stopIpcServer();
         self.destroyAllWindows();
         self.hosts.deinit(self.core_app.alloc);
         self.windows.deinit(self.core_app.alloc);
+        self.global_hotkeys.deinit(self.core_app.alloc);
         if (self.launcher_profile_key) |value| self.core_app.alloc.free(value);
         if (self.launcher_profile_hint) |value| self.core_app.alloc.free(value);
         if (self.launcher_profile_order_hint) |value| self.core_app.alloc.free(value);
@@ -1291,14 +1418,122 @@ pub const App = struct {
         self.ipc_stop_requested.store(false, .release);
     }
 
+    fn unregisterGlobalHotkeys(self: *App) void {
+        for (self.global_hotkeys.items) |hotkey| {
+            _ = UnregisterHotKey(null, hotkey.id);
+        }
+        self.global_hotkeys.clearRetainingCapacity();
+    }
+
+    fn syncGlobalHotkeys(self: *App) !void {
+        self.unregisterGlobalHotkeys();
+
+        var next_id: i32 = 1;
+        var it = self.config.keybind.set.bindings.iterator();
+        while (it.next()) |entry| {
+            const generic = switch (entry.value_ptr.*) {
+                .leader => continue,
+                .leaf => |*leaf| leaf.generic(),
+                .leaf_chained => |*leaf| leaf.generic(),
+            };
+            if (!generic.flags.global) continue;
+
+            const spec = hotkeySpecForTrigger(entry.key_ptr.*) orelse {
+                log.debug("skipping unsupported win32 global keybind", .{});
+                continue;
+            };
+
+            if (RegisterHotKey(null, next_id, spec.modifiers, spec.vk) == 0) {
+                log.warn("failed to register win32 global hotkey id={} mods=0x{x} vk=0x{x} err={}", .{
+                    next_id,
+                    spec.modifiers,
+                    spec.vk,
+                    windows.kernel32.GetLastError(),
+                });
+                continue;
+            }
+
+            try self.global_hotkeys.append(self.core_app.alloc, .{
+                .id = next_id,
+                .trigger = entry.key_ptr.*,
+                .binding = entry.value_ptr,
+            });
+            next_id += 1;
+        }
+    }
+
+    fn scheduleGlobalHotkeySync(self: *App) void {
+        self.global_hotkeys_dirty = true;
+        self.wakeup();
+    }
+
+    fn handleGlobalHotkey(self: *App, id: i32) void {
+        for (self.global_hotkeys.items) |hotkey| {
+            if (hotkey.id != id) continue;
+
+            switch (hotkey.binding.*) {
+                .leader => unreachable,
+                .leaf => |*leaf| self.core_app.performAllChainedAction(self, leaf.generic().actionsSlice()),
+                .leaf_chained => |*leaf| self.core_app.performAllChainedAction(self, leaf.generic().actionsSlice()),
+            }
+            return;
+        }
+    }
+
     pub fn wakeup(self: *App) void {
-        if (self.windows.items.len == 0) return;
-        const hwnd = self.windows.items[0].hwnd orelse return;
-        _ = PostMessageW(hwnd, WM_WINHOSTTY_WAKE, 0, 0);
+        if (self.windows.items.len > 0) {
+            const hwnd = self.windows.items[0].hwnd orelse return;
+            _ = PostMessageW(hwnd, WM_WINHOSTTY_WAKE, 0, 0);
+            return;
+        }
+
+        if (self.ui_thread_id != 0) {
+            _ = PostThreadMessageW(self.ui_thread_id, WM_WINHOSTTY_WAKE, 0, 0);
+        }
     }
 
     pub fn startQuitTimer(self: *App) void {
+        if (!self.running) return;
+        if (self.windows.items.len != 0) {
+            self.stopQuitTimer();
+            return;
+        }
+        if (!self.config.@"quit-after-last-window-closed") {
+            self.stopQuitTimer();
+            return;
+        }
+
+        const delay = self.config.@"quit-after-last-window-closed-delay" orelse {
+            self.stopQuitTimer();
+            self.running = false;
+            PostQuitMessage(0);
+            return;
+        };
+
+        self.stopQuitTimer();
+        const delay_ms = quitTimerDelayMs(delay);
+        const timer_id = SetTimer(null, 0, delay_ms, null);
+        if (timer_id == 0) {
+            log.err("failed to start win32 quit timer delay_ms={} err={}", .{
+                delay_ms,
+                windows.kernel32.GetLastError(),
+            });
+            return;
+        }
+        self.quit_timer_id = timer_id;
+    }
+
+    fn stopQuitTimer(self: *App) void {
+        if (self.quit_timer_id) |timer_id| {
+            _ = KillTimer(null, timer_id);
+            self.quit_timer_id = null;
+        }
+    }
+
+    fn ensureMessageQueue(self: *App) void {
         _ = self;
+        var msg: MSG = undefined;
+        _ = PeekMessageW(&msg, null, 0, 0, PM_NOREMOVE);
     }
 
     pub fn keyboardLayout(self: *const App) input.KeyboardLayout {
@@ -1314,6 +1549,7 @@ pub const App = struct {
     ) !bool {
         switch (action) {
             .quit => {
+                self.stopQuitTimer();
                 self.running = false;
                 self.destroyAllWindows();
                 if (self.windows.items.len == 0) PostQuitMessage(0);
@@ -1373,6 +1609,7 @@ pub const App = struct {
             },
 
             .close_all_windows => {
+                self.stopQuitTimer();
                 self.running = false;
                 self.destroyAllWindows();
                 if (self.windows.items.len == 0) PostQuitMessage(0);
@@ -1392,11 +1629,18 @@ pub const App = struct {
                 switch (target) {
                     .app => {
                         const config = try value.config.clone(self.core_app.alloc);
+                        self.unregisterGlobalHotkeys();
                         self.config.deinit();
                         self.config = config;
+                        self.scheduleGlobalHotkeySync();
                         self.reconfigureTheme();
                         for (self.windows.items) |surface| {
                             try surface.applyRuntimeConfig(&self.config);
+                        }
+                        if (self.windows.items.len == 0) {
+                            self.startQuitTimer();
+                        } else {
+                            self.stopQuitTimer();
                         }
                     },
                     .surface => |core_surface| {
@@ -1412,17 +1656,22 @@ pub const App = struct {
                 if (target != .app) return false;
                 if (value.soft) {
                     try self.core_app.updateConfig(self, &self.config);
+                    if (self.config.@"app-notifications".@"config-reload") {
+                        try self.showDesktopNotification(.app, "winghostty", "Configuration reloaded");
+                    }
                     return true;
                 }
 
                 var config = try configpkg.Config.load(self.core_app.alloc);
                 defer config.deinit();
                 try self.core_app.updateConfig(self, &config);
+                if (self.config.@"app-notifications".@"config-reload") {
+                    try self.showDesktopNotification(.app, "winghostty", "Configuration reloaded");
+                }
                 return true;
             },
 
             .present_terminal,
-            .quit_timer,
             .renderer_health,
             .color_change,
             .mouse_over_link,
@@ -1433,6 +1682,15 @@ pub const App = struct {
                         return true;
                     }
                     return false;
+                }
+                return true;
+            },
+
+            .quit_timer => {
+                if (target != .app) return false;
+                switch (value) {
+                    .start => self.startQuitTimer(),
+                    .stop => self.stopQuitTimer(),
                 }
                 return true;
             },
@@ -2006,7 +2264,7 @@ pub const App = struct {
         for (self.hosts.items) |host| {
             host.rebuildThemeBrushes();
             host.recreateChromeFont();
-            if (host.hwnd) |hwnd| applyDwmTheme(hwnd, &self.resolved_theme);
+            if (host.hwnd) |hwnd| applyDwmTheme(hwnd, &self.resolved_theme, &self.config);
         }
     }
 
@@ -2096,13 +2354,15 @@ pub const App = struct {
             try appendOwnedString(self.core_app.alloc, &host.selected_profile_key, key);
         }
 
+        const position = configuredHostWindowPosition(&self.config);
+
         const hwnd = CreateWindowExW(
             0,
             host_class_name,
             title,
             hostWindowStyle(),
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
+            if (position) |v| v.x else CW_USEDEFAULT,
+            if (position) |v| v.y else CW_USEDEFAULT,
             1280,
             800,
             null,
@@ -2111,7 +2371,7 @@ pub const App = struct {
             host,
         ) orelse return windows.unexpectedError(windows.kernel32.GetLastError());
         host.hwnd = hwnd;
-        applyDwmTheme(hwnd, &self.resolved_theme);
+        applyDwmTheme(hwnd, &self.resolved_theme, &self.config);
         host.current_dpi = GetDpiForWindow(hwnd);
         if (host.current_dpi == 0) host.current_dpi = 96;
         host.chrome_font = host.createChromeFont();
@@ -2326,10 +2586,7 @@ pub const App = struct {
             }
         }
 
-        if (self.windows.items.len == 0) {
-            self.running = false;
-            PostQuitMessage(0);
-        }
+        if (self.windows.items.len == 0 and self.running) self.startQuitTimer();
     }
 
     fn gotoWindow(self: *App, target: apprt.Target, direction: apprt.action.GotoWindow) !bool {
@@ -2568,7 +2825,7 @@ pub const App = struct {
             return windows.unexpectedError(windows.kernel32.GetLastError());
         }
 
-        log.info("win32 current directory reset cwd={s}", .{profile});
+        log.debug("win32 current directory reset cwd={s}", .{profile});
     }
 
     fn clientSize(self: *App, hwnd: HWND) !apprt.SurfaceSize {
@@ -2873,6 +3130,9 @@ const Host = struct {
     focused_quick_slot: ?usize = null,
     banner_kind: HostBannerKind = .none,
     banner_text: ?[:0]const u8 = null,
+    tab_drag_index: ?usize = null,
+    tab_drag_start_x: i32 = 0,
+    tab_drag_active: bool = false,
 
     fn nextTabId(self: *Host) u32 {
         const id = self.next_tab_id;
@@ -2965,6 +3225,34 @@ const Host = struct {
             if (tab.button_hwnd == button_hwnd) return i;
         }
         return null;
+    }
+
+    fn tabIndexAtScreenX(self: *Host, screen_x: i32) ?usize {
+        for (self.tabs.items, 0..) |tab, i| {
+            const btn = tab.button_hwnd orelse continue;
+            var rect: RECT = undefined;
+            if (GetWindowRect(btn, &rect) == 0) continue;
+            // Check if screen_x falls within the button's horizontal midpoint region
+            if (screen_x >= rect.left and screen_x < rect.right) return i;
+        }
+        return null;
+    }
+
+    fn swapTabs(self: *Host, a: usize, b: usize) void {
+        if (a == b) return;
+        if (a >= self.tabs.items.len or b >= self.tabs.items.len) return;
+        const tmp = self.tabs.items[a];
+        self.tabs.items[a] = self.tabs.items[b];
+        self.tabs.items[b] = tmp;
+        // Update active tab index to follow the moved tab
+        if (self.active_tab == a) {
+            self.active_tab = b;
+        } else if (self.active_tab == b) {
+            self.active_tab = a;
+        }
+        self.chrome_dirty = true;
+        self.layout() catch {};
+        self.invalidateChrome();
     }
 
     fn activateTabIndex(self: *Host, index: usize) bool {
@@ -3887,7 +4175,15 @@ const Host = struct {
         _ = AppendMenuW(menu, MF_STRING, CTX_COMMAND_PALETTE, std.unicode.utf8ToUtf16LeStringLiteral("Command Palette\tCtrl+Shift+P"));
         _ = AppendMenuW(menu, MF_SEPARATOR, 0, null);
         _ = AppendMenuW(menu, MF_STRING, CTX_NEW_TAB, std.unicode.utf8ToUtf16LeStringLiteral("New Tab"));
-        _ = AppendMenuW(menu, MF_STRING, CTX_SPLIT_RIGHT, std.unicode.utf8ToUtf16LeStringLiteral("Split Right"));
+
+        // Split submenu with all four directions
+        const split_menu = CreatePopupMenu() orelse return;
+        _ = AppendMenuW(split_menu, MF_STRING, CTX_SPLIT_RIGHT, std.unicode.utf8ToUtf16LeStringLiteral("Split Right"));
+        _ = AppendMenuW(split_menu, MF_STRING, CTX_SPLIT_DOWN, std.unicode.utf8ToUtf16LeStringLiteral("Split Down"));
+        _ = AppendMenuW(split_menu, MF_STRING, CTX_SPLIT_LEFT, std.unicode.utf8ToUtf16LeStringLiteral("Split Left"));
+        _ = AppendMenuW(split_menu, MF_STRING, CTX_SPLIT_UP, std.unicode.utf8ToUtf16LeStringLiteral("Split Up"));
+        _ = AppendMenuW(menu, MF_POPUP, @intFromPtr(split_menu), std.unicode.utf8ToUtf16LeStringLiteral("Split"));
+
         _ = AppendMenuW(menu, MF_STRING, CTX_NEW_WINDOW, std.unicode.utf8ToUtf16LeStringLiteral("New Window"));
 
         // Menu must be owned by top-level host HWND to avoid dismiss bugs
@@ -3926,11 +4222,69 @@ const Host = struct {
             CTX_SPLIT_RIGHT => {
                 _ = self.app.performAction(.{ .surface = surface.core() }, .new_split, .right) catch {};
             },
+            CTX_SPLIT_DOWN => {
+                _ = self.app.performAction(.{ .surface = surface.core() }, .new_split, .down) catch {};
+            },
+            CTX_SPLIT_LEFT => {
+                _ = self.app.performAction(.{ .surface = surface.core() }, .new_split, .left) catch {};
+            },
+            CTX_SPLIT_UP => {
+                _ = self.app.performAction(.{ .surface = surface.core() }, .new_split, .up) catch {};
+            },
             CTX_NEW_WINDOW => {
                 _ = self.app.performAction(.{ .surface = surface.core() }, .new_window, .{}) catch {};
             },
             else => {}, // 0 = cancel, ignore
         }
+    }
+
+    fn showTabContextMenu(self: *Host, button_hwnd: HWND, tab_index: usize) void {
+        const hwnd = self.hwnd orelse return;
+        const menu = CreatePopupMenu() orelse return;
+        defer _ = DestroyMenu(menu);
+
+        _ = AppendMenuW(menu, MF_STRING, CTX_TAB_RENAME, std.unicode.utf8ToUtf16LeStringLiteral("Rename Tab"));
+        _ = AppendMenuW(menu, MF_SEPARATOR, 0, null);
+        _ = AppendMenuW(menu, MF_STRING, CTX_TAB_MOVE_LEFT, std.unicode.utf8ToUtf16LeStringLiteral("Move Tab Left"));
+        _ = AppendMenuW(menu, MF_STRING, CTX_TAB_MOVE_RIGHT, std.unicode.utf8ToUtf16LeStringLiteral("Move Tab Right"));
+        _ = AppendMenuW(menu, MF_SEPARATOR, 0, null);
+
+        // Only allow closing if there's more than one tab
+        const close_flag: UINT = if (self.tabs.items.len > 1) MF_STRING else MF_GRAYED;
+        _ = AppendMenuW(menu, close_flag, CTX_TAB_CLOSE, std.unicode.utf8ToUtf16LeStringLiteral("Close Tab"));
+        _ = AppendMenuW(menu, if (self.tabs.items.len > 1) MF_STRING else MF_GRAYED, CTX_TAB_CLOSE_OTHERS, std.unicode.utf8ToUtf16LeStringLiteral("Close Other Tabs"));
+
+        // Position below the tab button
+        var rect: RECT = undefined;
+        if (GetWindowRect(button_hwnd, &rect) == 0) return;
+
+        _ = SetForegroundWindow(hwnd);
+        const cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_TOPALIGN, rect.left, rect.bottom, 0, hwnd, null);
+        _ = PostMessageW(hwnd, WM_NULL, 0, 0);
+
+        if (cmd <= 0) return;
+        const surface = self.activeSurface() orelse return;
+        if (!surface.core_initialized) return;
+
+        switch (@as(usize, @intCast(cmd))) {
+            CTX_TAB_RENAME => {
+                surface.promptTitle(.tab) catch {};
+            },
+            CTX_TAB_CLOSE => {
+                _ = self.app.closeTab(.{ .surface = surface.core() }, .this);
+            },
+            CTX_TAB_CLOSE_OTHERS => {
+                _ = self.app.closeTab(.{ .surface = surface.core() }, .other);
+            },
+            CTX_TAB_MOVE_LEFT => {
+                _ = self.app.moveTab(.{ .surface = surface.core() }, .{ .amount = -1 }) catch {};
+            },
+            CTX_TAB_MOVE_RIGHT => {
+                _ = self.app.moveTab(.{ .surface = surface.core() }, .{ .amount = 1 }) catch {};
+            },
+            else => {},
+        }
+        _ = tab_index;
     }
 
     fn showOverflowMenu(self: *Host) void {
@@ -3946,6 +4300,9 @@ const Host = struct {
 
         _ = AppendMenuW(menu, MF_STRING, CTX_COMMAND_PALETTE, std.unicode.utf8ToUtf16LeStringLiteral("Command Palette\tCtrl+Shift+P"));
         _ = AppendMenuW(menu, MF_STRING, CTX_FIND, std.unicode.utf8ToUtf16LeStringLiteral("Find...\tCtrl+Shift+F"));
+        _ = AppendMenuW(menu, MF_SEPARATOR, 0, null);
+        _ = AppendMenuW(menu, MF_STRING, CTX_NEW_TAB, std.unicode.utf8ToUtf16LeStringLiteral("New Tab"));
+        _ = AppendMenuW(menu, MF_STRING, CTX_NEW_WINDOW, std.unicode.utf8ToUtf16LeStringLiteral("New Window"));
         _ = AppendMenuW(menu, MF_SEPARATOR, 0, null);
         _ = AppendMenuW(menu, MF_STRING, CTX_INSPECTOR, std.unicode.utf8ToUtf16LeStringLiteral("Toggle Inspector"));
 
@@ -3967,6 +4324,12 @@ const Host = struct {
             },
             CTX_FIND => {
                 surface.showSearchOverlay("") catch {};
+            },
+            CTX_NEW_TAB => {
+                _ = self.app.performAction(.{ .surface = surface.core() }, .new_tab, {}) catch {};
+            },
+            CTX_NEW_WINDOW => {
+                _ = self.app.performAction(.{ .surface = surface.core() }, .new_window, .{}) catch {};
             },
             CTX_INSPECTOR => {
                 _ = surface.setInspectorVisible(!surface.inspector_visible) catch {};
@@ -4441,6 +4804,17 @@ const Host = struct {
             } else {
                 try append.raw(&parts, alloc, "find");
             }
+        }
+        // Show scroll position when not at the bottom
+        if (surface.scrollbar.total > surface.scrollbar.len and
+            surface.scrollbar.offset + surface.scrollbar.len < surface.scrollbar.total)
+        {
+            const pct = if (surface.scrollbar.total > 0)
+                (surface.scrollbar.offset * 100) / surface.scrollbar.total
+            else
+                0;
+            if (parts.items.len > 0) try parts.appendSlice(alloc, " | ");
+            try parts.writer(alloc).print("\u{2191}{d}%", .{pct});
         }
         if (surface.progress_status) |value| try append.raw(&parts, alloc, value);
         if (parts.items.len == 0) return null;
@@ -5608,7 +5982,40 @@ fn resolveTheme(config: *const configpkg.Config) ThemeColors {
     };
 }
 
-fn applyDwmTheme(hwnd: HWND, theme: *const ThemeColors) void {
+fn shouldUseSystemBackdrop(config: *const configpkg.Config) bool {
+    return config.@"background-opacity" < 1.0 and config.@"background-blur".enabled();
+}
+
+fn configuredHostWindowPosition(config: *const configpkg.Config) ?struct { x: i32, y: i32 } {
+    const x = config.@"window-position-x" orelse return null;
+    const y = config.@"window-position-y" orelse return null;
+    return .{
+        .x = x,
+        .y = y,
+    };
+}
+
+fn titlebarCaptionColor(theme: *const ThemeColors, config: *const configpkg.Config) u32 {
+    if (config.@"window-theme" == .ghostty) {
+        if (config.@"window-titlebar-background") |color| {
+            return rgb(color.r, color.g, color.b);
+        }
+    }
+
+    return theme.chrome_bg;
+}
+
+fn titlebarTextColor(theme: *const ThemeColors, config: *const configpkg.Config) u32 {
+    if (config.@"window-theme" == .ghostty) {
+        if (config.@"window-titlebar-foreground") |color| {
+            return rgb(color.r, color.g, color.b);
+        }
+    }
+
+    return theme.text_primary;
+}
+
+fn applyDwmTheme(hwnd: HWND, theme: *const ThemeColors, config: *const configpkg.Config) void {
     if (isHighContrastActive()) return; // Let system control title bar in HC mode
     const dark_mode: u32 = if (theme.is_dark) 1 else 0;
     // Try attribute 20 first (Win10 20H1+), fall back to 19 (Win10 1809-20H1)
@@ -5617,9 +6024,12 @@ fn applyDwmTheme(hwnd: HWND, theme: *const ThemeColors) void {
         _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_V1, @ptrCast(&dark_mode), @sizeOf(u32));
     }
     // Set caption color to match chrome (Win11 only; fails silently on Win10)
-    _ = DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, @ptrCast(&theme.chrome_bg), @sizeOf(u32));
-    // Enable Mica backdrop (Win11 22H2+; returns E_INVALIDARG on older builds, discarded)
-    const backdrop_type: u32 = DWMSBT_MAINWINDOW;
+    const caption_color = titlebarCaptionColor(theme, config);
+    const text_color = titlebarTextColor(theme, config);
+    _ = DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, @ptrCast(&caption_color), @sizeOf(u32));
+    _ = DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, @ptrCast(&text_color), @sizeOf(u32));
+    // Toggle system backdrop blur (Win11 22H2+; returns E_INVALIDARG on older builds, discarded)
+    const backdrop_type: u32 = if (shouldUseSystemBackdrop(config)) DWMSBT_MAINWINDOW else DWMSBT_NONE;
     _ = DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, @ptrCast(&backdrop_type), @sizeOf(u32));
 }
 
@@ -7116,14 +7526,31 @@ fn buildCommandPaletteOverlayLabel(
 
 fn commandPaletteActionSummary(action_text: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, action_text, "new_tab")) return "open a new tab in this window";
-    if (std.mem.eql(u8, action_text, "new_split:right")) return "split the active tab to the right";
+    if (std.mem.eql(u8, action_text, "new_window")) return "open a new window";
+    if (std.mem.eql(u8, action_text, "new_split:right")) return "split the active pane to the right";
+    if (std.mem.eql(u8, action_text, "new_split:down")) return "split the active pane downward";
+    if (std.mem.eql(u8, action_text, "new_split:left")) return "split the active pane to the left";
+    if (std.mem.eql(u8, action_text, "new_split:up")) return "split the active pane upward";
     if (std.mem.eql(u8, action_text, "goto_split:right")) return "move focus to the split on the right";
+    if (std.mem.eql(u8, action_text, "goto_split:left")) return "move focus to the split on the left";
+    if (std.mem.eql(u8, action_text, "goto_split:up")) return "move focus to the split above";
+    if (std.mem.eql(u8, action_text, "goto_split:down")) return "move focus to the split below";
+    if (std.mem.eql(u8, action_text, "toggle_split_zoom")) return "zoom or unzoom the active split pane";
+    if (std.mem.eql(u8, action_text, "equalize_splits")) return "equalize all split pane sizes";
+    if (std.mem.eql(u8, action_text, "close_tab")) return "close the current tab";
+    if (std.mem.eql(u8, action_text, "close_window")) return "close the current window";
     if (std.mem.eql(u8, action_text, "toggle_fullscreen")) return "toggle fullscreen";
+    if (std.mem.eql(u8, action_text, "toggle_window_decorations")) return "show or hide the window title bar";
     if (std.mem.eql(u8, action_text, "toggle_command_palette")) return "show or hide the command palette";
     if (std.mem.eql(u8, action_text, "toggle_tab_overview")) return "show the tab list for this window";
     if (std.mem.eql(u8, action_text, "start_search")) return "open the in-window search overlay";
-    if (std.mem.eql(u8, action_text, "inspector:toggle")) return "toggle the terminal inspector";
+    if (std.mem.eql(u8, action_text, "copy_to_clipboard")) return "copy the current selection";
+    if (std.mem.eql(u8, action_text, "paste_from_clipboard")) return "paste from clipboard";
+    if (std.mem.eql(u8, action_text, "select_all")) return "select all terminal text";
+    if (std.mem.eql(u8, action_text, "open_config")) return "open the configuration file";
     if (std.mem.eql(u8, action_text, "reload_config")) return "reload winghostty configuration";
+    if (std.mem.eql(u8, action_text, "inspector:toggle")) return "toggle the terminal inspector";
+    if (std.mem.eql(u8, action_text, "reset_window_size")) return "reset the window to its default size";
     return null;
 }
 
@@ -7345,6 +7772,30 @@ fn tabButtonProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv
     if (host) |v| {
         if (v.tabIndexForButton(hwnd)) |index| {
             switch (msg) {
+                WM_LBUTTONDOWN => {
+                    // Start potential drag: record origin
+                    v.tab_drag_index = index;
+                    v.tab_drag_start_x = signedLowWord(lParamBits(lParam));
+                    v.tab_drag_active = false;
+                    _ = SetCapture(hwnd);
+                },
+                WM_LBUTTONUP => {
+                    if (v.tab_drag_index != null) {
+                        _ = ReleaseCapture();
+                        const was_drag = v.tab_drag_active;
+                        v.tab_drag_index = null;
+                        v.tab_drag_active = false;
+                        if (!was_drag) {
+                            // Normal click: activate this tab
+                            _ = v.activateTabIndex(index);
+                        }
+                        return 0;
+                    }
+                },
+                WM_CAPTURECHANGED => {
+                    v.tab_drag_index = null;
+                    v.tab_drag_active = false;
+                },
                 WM_MOUSEMOVE => {
                     var track: TRACKMOUSEEVENT = .{
                         .cbSize = @sizeOf(TRACKMOUSEEVENT),
@@ -7354,6 +7805,33 @@ fn tabButtonProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv
                     };
                     _ = TrackMouseEvent(&track);
                     v.setHoveredButton(hwnd);
+
+                    // Handle tab drag reorder
+                    if (v.tab_drag_index) |drag_idx| {
+                        const mouse_x = signedLowWord(lParamBits(lParam));
+                        const dx = if (mouse_x > v.tab_drag_start_x)
+                            mouse_x - v.tab_drag_start_x
+                        else
+                            v.tab_drag_start_x - mouse_x;
+
+                        // Activate drag after 5px threshold
+                        if (!v.tab_drag_active and dx > 5) {
+                            v.tab_drag_active = true;
+                        }
+
+                        if (v.tab_drag_active) {
+                            // Convert to screen coords, then find target tab
+                            var pt: POINT = .{ .x = mouse_x, .y = 0 };
+                            _ = ClientToScreen(hwnd, &pt);
+                            if (v.tabIndexAtScreenX(pt.x)) |target_idx| {
+                                if (target_idx != drag_idx and v.tabs.items.len > 1) {
+                                    v.swapTabs(drag_idx, target_idx);
+                                    v.tab_drag_index = target_idx;
+                                    v.tab_drag_start_x = mouse_x;
+                                }
+                            }
+                        }
+                    }
                 },
                 WM_MOUSELEAVE => {
                     if (v.isHoveredButton(hwnd)) v.setHoveredButton(null);
@@ -7456,6 +7934,12 @@ fn tabButtonProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv
                             surface.promptTitle(.tab) catch {};
                             return 0;
                         }
+                    }
+                },
+                WM_RBUTTONUP => {
+                    if (v.activateTabIndex(index)) {
+                        v.showTabContextMenu(hwnd, index);
+                        return 0;
                     }
                 },
                 else => {},
@@ -7628,7 +8112,7 @@ fn hostWindowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callcon
                         _ = SetBkMode(hdc, OPAQUE);
                         _ = SetBkColor(hdc, v.app.resolved_theme.edit_bg);
                         _ = SetTextColor(hdc, v.app.resolved_theme.edit_fg);
-                        return @as(LRESULT, @intCast(@intFromPtr(v.edit_brush.?)));
+                        return @as(LRESULT, @bitCast(@as(usize, @intFromPtr(v.edit_brush.?))));
                     },
                     WM_CTLCOLORSTATIC => {
                         _ = SetBkMode(hdc, TRANSPARENT);
@@ -7636,19 +8120,19 @@ fn hostWindowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callcon
                             v.app.resolved_theme.text_secondary
                         else
                             v.app.resolved_theme.text_primary);
-                        return @as(LRESULT, @intCast(@intFromPtr(v.overlay_brush.?)));
+                        return @as(LRESULT, @bitCast(@as(usize, @intFromPtr(v.overlay_brush.?))));
                     },
                     WM_CTLCOLORBTN => {
                         _ = SetBkMode(hdc, TRANSPARENT);
                         if (v.isOverlayButton(child)) {
                             _ = SetTextColor(hdc, v.app.resolved_theme.button_overlay_fg);
-                            return @as(LRESULT, @intCast(@intFromPtr(v.overlay_brush.?)));
+                            return @as(LRESULT, @bitCast(@as(usize, @intFromPtr(v.overlay_brush.?))));
                         }
                         _ = SetTextColor(hdc, if (v.isActiveChromeButton(child))
                             v.app.resolved_theme.button_active_fg
                         else
                             v.app.resolved_theme.button_chrome_fg);
-                        return @as(LRESULT, @intCast(@intFromPtr(v.chrome_brush.?)));
+                        return @as(LRESULT, @bitCast(@as(usize, @intFromPtr(v.chrome_brush.?))));
                     },
                     else => {},
                 }
@@ -8042,17 +8526,6 @@ fn detectDefaultProfileTarget(alloc: Allocator) ProfileOpenTarget {
     return parseProfileOpenTarget(raw) orelse .tab;
 }
 
-fn traceWin32(comptime fmt: []const u8, args: anytype) void {
-    var buf: [512]u8 = undefined;
-    const line = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
-    var file = std.fs.cwd().createFile("winghostty-win32.log", .{
-        .truncate = false,
-    }) catch return;
-    defer file.close();
-    file.seekFromEnd(0) catch return;
-    file.writeAll(line) catch {};
-}
-
 fn isSafeStartupCwd(path: []const u8) bool {
     return path.len >= 3 and
         std.ascii.isAlphabetic(path[0]) and
@@ -8311,6 +8784,139 @@ fn unshiftedCodepointForVirtualKey(vk: UINT) u21 {
     };
 }
 
+fn hotkeyModifiers(mods: input.Mods) UINT {
+    var result: UINT = 0;
+    if (mods.alt) result |= MOD_ALT;
+    if (mods.ctrl) result |= MOD_CONTROL;
+    if (mods.shift) result |= MOD_SHIFT;
+    if (mods.super) result |= MOD_WIN;
+    return result;
+}
+
+fn hotkeyPhysicalVirtualKey(key: input.Key) ?UINT {
+    const key_int = @intFromEnum(key);
+    if (key_int >= @intFromEnum(input.Key.key_a) and key_int <= @intFromEnum(input.Key.key_z)) {
+        return VK_A + @as(UINT, @intCast(key_int - @intFromEnum(input.Key.key_a)));
+    }
+    if (key_int >= @intFromEnum(input.Key.digit_0) and key_int <= @intFromEnum(input.Key.digit_9)) {
+        return VK_0 + @as(UINT, @intCast(key_int - @intFromEnum(input.Key.digit_0)));
+    }
+    if (key_int >= @intFromEnum(input.Key.numpad_0) and key_int <= @intFromEnum(input.Key.numpad_9)) {
+        return VK_NUMPAD0 + @as(UINT, @intCast(key_int - @intFromEnum(input.Key.numpad_0)));
+    }
+    if (key_int >= @intFromEnum(input.Key.f1) and key_int <= @intFromEnum(input.Key.f24)) {
+        return VK_F1 + @as(UINT, @intCast(key_int - @intFromEnum(input.Key.f1)));
+    }
+
+    return switch (key) {
+        .backspace => VK_BACK,
+        .tab => VK_TAB,
+        .enter, .numpad_enter => VK_RETURN,
+        .escape => VK_ESCAPE,
+        .space => VK_SPACE,
+        .page_up, .numpad_page_up => VK_PRIOR,
+        .page_down, .numpad_page_down => VK_NEXT,
+        .end, .numpad_end => VK_END,
+        .home, .numpad_home => VK_HOME,
+        .arrow_left, .numpad_left => VK_LEFT,
+        .arrow_up, .numpad_up => VK_UP,
+        .arrow_right, .numpad_right => VK_RIGHT,
+        .arrow_down, .numpad_down => VK_DOWN,
+        .print_screen => VK_SNAPSHOT,
+        .insert, .numpad_insert => VK_INSERT,
+        .delete, .numpad_delete => VK_DELETE,
+        .meta_left => VK_LWIN,
+        .meta_right => VK_RWIN,
+        .context_menu => VK_APPS,
+        .numpad_multiply => VK_MULTIPLY,
+        .numpad_add => VK_ADD,
+        .numpad_separator => VK_SEPARATOR,
+        .numpad_subtract => VK_SUBTRACT,
+        .numpad_decimal => VK_DECIMAL,
+        .numpad_divide => VK_DIVIDE,
+        .num_lock => VK_NUMLOCK,
+        .scroll_lock => VK_SCROLL,
+        .semicolon => VK_OEM_1,
+        .equal => VK_OEM_PLUS,
+        .comma => VK_OEM_COMMA,
+        .minus => VK_OEM_MINUS,
+        .period => VK_OEM_PERIOD,
+        .slash => VK_OEM_2,
+        .backquote => VK_OEM_3,
+        .bracket_left => VK_OEM_4,
+        .backslash => VK_OEM_5,
+        .bracket_right => VK_OEM_6,
+        .quote => VK_OEM_7,
+        else => null,
+    };
+}
+
+fn hotkeyUnicodeVirtualKey(cp: u21) ?struct { vk: UINT, shift: bool } {
+    return switch (cp) {
+        'a'...'z' => .{ .vk = VK_A + @as(UINT, @intCast(cp - 'a')), .shift = false },
+        'A'...'Z' => .{ .vk = VK_A + @as(UINT, @intCast(cp - 'A')), .shift = true },
+        '0'...'9' => .{ .vk = VK_0 + @as(UINT, @intCast(cp - '0')), .shift = false },
+        ')' => .{ .vk = VK_0, .shift = true },
+        '!' => .{ .vk = VK_0 + 1, .shift = true },
+        '@' => .{ .vk = VK_0 + 2, .shift = true },
+        '#' => .{ .vk = VK_0 + 3, .shift = true },
+        '$' => .{ .vk = VK_0 + 4, .shift = true },
+        '%' => .{ .vk = VK_0 + 5, .shift = true },
+        '^' => .{ .vk = VK_0 + 6, .shift = true },
+        '&' => .{ .vk = VK_0 + 7, .shift = true },
+        '*' => .{ .vk = VK_0 + 8, .shift = true },
+        '(' => .{ .vk = VK_0 + 9, .shift = true },
+        ' ' => .{ .vk = VK_SPACE, .shift = false },
+        ';' => .{ .vk = VK_OEM_1, .shift = false },
+        ':' => .{ .vk = VK_OEM_1, .shift = true },
+        '=' => .{ .vk = VK_OEM_PLUS, .shift = false },
+        '+' => .{ .vk = VK_OEM_PLUS, .shift = true },
+        ',' => .{ .vk = VK_OEM_COMMA, .shift = false },
+        '<' => .{ .vk = VK_OEM_COMMA, .shift = true },
+        '-' => .{ .vk = VK_OEM_MINUS, .shift = false },
+        '_' => .{ .vk = VK_OEM_MINUS, .shift = true },
+        '.' => .{ .vk = VK_OEM_PERIOD, .shift = false },
+        '>' => .{ .vk = VK_OEM_PERIOD, .shift = true },
+        '/' => .{ .vk = VK_OEM_2, .shift = false },
+        '?' => .{ .vk = VK_OEM_2, .shift = true },
+        '`' => .{ .vk = VK_OEM_3, .shift = false },
+        '~' => .{ .vk = VK_OEM_3, .shift = true },
+        '[' => .{ .vk = VK_OEM_4, .shift = false },
+        '{' => .{ .vk = VK_OEM_4, .shift = true },
+        '\\' => .{ .vk = VK_OEM_5, .shift = false },
+        '|' => .{ .vk = VK_OEM_5, .shift = true },
+        ']' => .{ .vk = VK_OEM_6, .shift = false },
+        '}' => .{ .vk = VK_OEM_6, .shift = true },
+        '\'' => .{ .vk = VK_OEM_7, .shift = false },
+        '"' => .{ .vk = VK_OEM_7, .shift = true },
+        else => null,
+    };
+}
+
+fn hotkeySpecForTrigger(trigger: input.Binding.Trigger) ?GlobalHotkeySpec {
+    var mods = trigger.mods.binding();
+    const vk = switch (trigger.key) {
+        .catch_all => return null,
+        .physical => |key| hotkeyPhysicalVirtualKey(key) orelse return null,
+        .unicode => |cp| unicode: {
+            const mapped = hotkeyUnicodeVirtualKey(cp) orelse return null;
+            if (mapped.shift) mods.shift = true;
+            break :unicode mapped.vk;
+        },
+    };
+
+    return .{
+        .modifiers = hotkeyModifiers(mods),
+        .vk = vk,
+    };
+}
+
+fn quitTimerDelayMs(delay: configpkg.Config.Duration) UINT {
+    const clamped_ns = @max(delay.duration, std.time.ns_per_s);
+    const delay_ms_u64 = @max(1, std.math.divCeil(u64, clamped_ns, std.time.ns_per_ms) catch std.math.maxInt(u64));
+    return @intCast(@min(delay_ms_u64, std.math.maxInt(UINT)));
+}
+
 fn mouseButtonFromMessage(msg: UINT) ?input.MouseButton {
     return switch (msg) {
         WM_LBUTTONDOWN, WM_LBUTTONUP => .left,
@@ -8441,6 +9047,43 @@ fn windowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.w
             return DefWindowProcW(hwnd, msg, wParam, lParam);
         },
 
+        WM_IME_STARTCOMPOSITION => {
+            if (surface) |v| {
+                v.ime_composing = true;
+                v.positionImeWindow();
+            }
+            return 0;
+        },
+
+        WM_IME_COMPOSITION => {
+            if (surface) |v| {
+                // Handle finalized (committed) text first
+                if ((@as(u32, @intCast(lParam)) & GCS_RESULTSTR) != 0) {
+                    v.handleImeResult();
+                }
+                // Then handle in-progress composition text
+                if ((@as(u32, @intCast(lParam)) & GCS_COMPSTR) != 0) {
+                    v.handleImeComposition();
+                }
+                return 0;
+            }
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+        },
+
+        WM_IME_ENDCOMPOSITION => {
+            if (surface) |v| {
+                v.ime_composing = false;
+                v.core_surface.preeditCallback(null) catch {};
+            }
+            return 0;
+        },
+
+        WM_IME_SETCONTEXT => {
+            // Mask out the default composition window; we handle preedit via the core renderer
+            const masked_lParam = lParam & ~ISC_SHOWUICOMPOSITIONWINDOW;
+            return DefWindowProcW(hwnd, msg, wParam, masked_lParam);
+        },
+
         WM_CHAR => {
             return 0;
         },
@@ -8455,8 +9098,11 @@ fn windowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.w
 
         WM_RBUTTONUP => {
             if (surface) |v| {
-                // If terminal has mouse reporting active, pass through normally
-                if (v.core_initialized and v.core_surface.io.terminal.flags.mouse_event != .none) {
+                // If terminal has mouse reporting active and Shift is not held,
+                // pass through as a mouse event. Shift+Right-Click always opens
+                // the context menu (standard terminal behavior).
+                const mods = mouseModsFromWParam(wParam);
+                if (v.core_initialized and v.core_surface.io.terminal.flags.mouse_event != .none and !mods.shift) {
                     v.handleMouseButton(msg, wParam, lParam);
                     return 0;
                 }
@@ -8481,6 +9127,21 @@ fn windowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(.w
                 return 0;
             }
             return DefWindowProcW(hwnd, msg, wParam, lParam);
+        },
+
+        WM_XBUTTONDOWN, WM_XBUTTONUP => {
+            if (surface) |v| {
+                v.handleXMouseButton(msg, wParam, lParam);
+            }
+            // Windows requires TRUE for XButton messages
+            return 1;
+        },
+
+        WM_DROPFILES => {
+            if (surface) |v| {
+                v.handleDropFiles(wParam);
+            }
+            return 0;
         },
 
         WM_MOUSEWHEEL, WM_POINTERWHEEL => {
@@ -8621,6 +9282,7 @@ pub const Surface = struct {
     paint_pending: bool = false,
     renderer_repaint_requested: std.atomic.Value(bool) = .init(false),
     draw_in_progress: bool = false,
+    ime_composing: bool = false,
 
     pub fn init(
         self: *Surface,
@@ -8629,8 +9291,7 @@ pub const Surface = struct {
         config: *const configpkg.Config,
         opts: SurfaceInitOptions,
     ) !void {
-        trace("win32.Surface.init: begin", .{});
-        log.info("surface.init begin", .{});
+        log.debug("surface.init begin", .{});
         const host = if (opts.host_id) |host_id|
             app.findHostById(host_id) orelse return error.InvalidHost
         else
@@ -8674,27 +9335,23 @@ pub const Surface = struct {
             @max(1, content_rect.bottom - content_rect.top),
             1,
         );
-        trace("win32.Surface.init: hwnd created", .{});
-        log.info("surface.init hwnd created", .{});
+        log.debug("surface.init hwnd created", .{});
 
         const gl = try app.createGLContext(hwnd);
         self.hdc = gl.hdc;
         self.hglrc = gl.hglrc;
         errdefer self.destroyGL();
-        trace("win32.Surface.init: gl created", .{});
-        log.info("surface.init gl context created", .{});
+        log.debug("surface.init gl context created", .{});
 
         self.size = try app.clientSize(hwnd);
-        log.info("surface.init client size width={} height={}", .{ self.size.width, self.size.height });
+        log.debug("surface.init client size width={} height={}", .{ self.size.width, self.size.height });
 
         try app.windows.append(app.core_app.alloc, self);
         errdefer app.removeWindow(self);
-        trace("win32.Surface.init: appended", .{});
-        log.info("surface.init appended to app windows", .{});
+        log.debug("surface.init appended to app windows", .{});
         try app.core_app.addSurface(self);
         errdefer app.core_app.deleteSurface(self);
-        trace("win32.Surface.init: added to core app", .{});
-        log.info("surface.init added to core app", .{});
+        log.debug("surface.init added to core app", .{});
 
         if (opts.tab_id) |tab_id| {
             for (host.tabs.items) |*tab| {
@@ -8739,10 +9396,10 @@ pub const Surface = struct {
         );
         self.core_initialized = true;
         self.destroy_on_wm_destroy = true;
-        trace("win32.Surface.init: core init ok", .{});
-        log.info("surface.init core surface initialized", .{});
+        log.debug("surface.init core surface initialized", .{});
 
         _ = ShowWindow(hwnd, SW_SHOW);
+        DragAcceptFiles(hwnd, 1);
 
         if (GetFocus() == hwnd) {
             self.window_focused = true;
@@ -8750,11 +9407,6 @@ pub const Surface = struct {
         if (self.window_focused) {
             self.focusChanged(true);
         }
-        traceWin32("win32 surface init: focused={} hwnd={*}", .{
-            self.window_focused,
-            hwnd,
-        });
-
         try host.refreshChrome();
         try host.layout();
         try self.requestRepaint();
@@ -9444,10 +10096,6 @@ pub const Surface = struct {
 
     fn focusChanged(self: *Surface, focused: bool) void {
         self.window_focused = focused;
-        traceWin32("win32 focus changed: focused={} core_initialized={}", .{
-            focused,
-            self.core_initialized,
-        });
         if (!self.core_initialized) return;
         if (focused) self.app.core_app.focusSurface(self.core());
         self.core_surface.focusCallback(focused) catch |err| {
@@ -9486,14 +10134,6 @@ pub const Surface = struct {
 
         if (self.debug_input_budget > 0) {
             self.debug_input_budget -= 1;
-            traceWin32("win32 key: msg=0x{x} vk=0x{x} action={} key={} utf8_len={} focused={}", .{
-                msg,
-                vk,
-                action,
-                key,
-                event.utf8.len,
-                self.window_focused,
-            });
         }
 
         _ = self.core_surface.keyCallback(event) catch |err| {
@@ -9505,6 +10145,176 @@ pub const Surface = struct {
                 mods,
             });
             return;
+        };
+    }
+
+    fn positionImeWindow(self: *Surface) void {
+        const surface_hwnd = self.hwnd orelse return;
+        const himc = ImmGetContext(surface_hwnd) orelse return;
+        defer _ = ImmReleaseContext(surface_hwnd, himc);
+
+        // Position the IME candidate window at the terminal cursor cell
+        const cursor_x: i32 = @intFromFloat(self.cursor_pos.x);
+        const cursor_y: i32 = @intFromFloat(self.cursor_pos.y);
+        const form = COMPOSITIONFORM{
+            .dwStyle = CFS_POINT,
+            .ptCurrentPos = .{ .x = cursor_x, .y = cursor_y },
+            .rcArea = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 },
+        };
+        _ = ImmSetCompositionWindow(himc, &form);
+    }
+
+    fn handleImeResult(self: *Surface) void {
+        if (!self.core_initialized) return;
+        const surface_hwnd = self.hwnd orelse return;
+        const himc = ImmGetContext(surface_hwnd) orelse return;
+        defer _ = ImmReleaseContext(surface_hwnd, himc);
+
+        // Get the byte length of the result string
+        const byte_len = ImmGetCompositionStringW(himc, GCS_RESULTSTR, null, 0);
+        if (byte_len <= 0) return;
+        const len: u32 = @intCast(byte_len);
+        const wchar_count = len / 2;
+
+        // Read the UTF-16 result into a stack buffer (most IME commits are short)
+        var stack_buf: [128]u16 = undefined;
+        const buf: []u16 = if (wchar_count <= stack_buf.len)
+            stack_buf[0..wchar_count]
+        else blk: {
+            const allocated = self.app.core_app.alloc.alloc(u16, wchar_count) catch return;
+            break :blk allocated;
+        };
+        defer if (wchar_count > stack_buf.len) self.app.core_app.alloc.free(buf);
+
+        const read = ImmGetCompositionStringW(himc, GCS_RESULTSTR, buf.ptr, len);
+        if (read <= 0) return;
+        const actual_wchars: usize = @intCast(read);
+        const result_slice = buf[0 .. actual_wchars / 2];
+
+        // Convert UTF-16 to UTF-8
+        var utf8_buf: [512]u8 = undefined;
+        const utf8_len = std.unicode.utf16LeToUtf8(&utf8_buf, result_slice) catch return;
+        if (utf8_len == 0) return;
+
+        // Clear preedit display, then commit text via a synthetic key event
+        self.core_surface.preeditCallback(null) catch {};
+
+        var event: input.KeyEvent = .{
+            .action = .press,
+            .key = .unidentified,
+            .mods = .{},
+        };
+        event.utf8 = utf8_buf[0..utf8_len];
+        _ = self.core_surface.keyCallback(event) catch |err| {
+            log.err("win32 IME commit failed err={}", .{err});
+        };
+    }
+
+    fn handleImeComposition(self: *Surface) void {
+        if (!self.core_initialized) return;
+        const surface_hwnd = self.hwnd orelse return;
+        const himc = ImmGetContext(surface_hwnd) orelse return;
+        defer _ = ImmReleaseContext(surface_hwnd, himc);
+
+        // Get the byte length of the composition string
+        const byte_len = ImmGetCompositionStringW(himc, GCS_COMPSTR, null, 0);
+        if (byte_len <= 0) {
+            self.core_surface.preeditCallback(null) catch {};
+            return;
+        }
+        const len: u32 = @intCast(byte_len);
+        const wchar_count = len / 2;
+
+        var stack_buf: [128]u16 = undefined;
+        const buf: []u16 = if (wchar_count <= stack_buf.len)
+            stack_buf[0..wchar_count]
+        else blk: {
+            const allocated = self.app.core_app.alloc.alloc(u16, wchar_count) catch return;
+            break :blk allocated;
+        };
+        defer if (wchar_count > stack_buf.len) self.app.core_app.alloc.free(buf);
+
+        const read = ImmGetCompositionStringW(himc, GCS_COMPSTR, buf.ptr, len);
+        if (read <= 0) {
+            self.core_surface.preeditCallback(null) catch {};
+            return;
+        }
+        const actual_wchars: usize = @intCast(read);
+        const comp_slice = buf[0 .. actual_wchars / 2];
+
+        var utf8_buf: [512]u8 = undefined;
+        const utf8_len = std.unicode.utf16LeToUtf8(&utf8_buf, comp_slice) catch {
+            self.core_surface.preeditCallback(null) catch {};
+            return;
+        };
+
+        // Update preedit display and reposition IME window
+        self.core_surface.preeditCallback(utf8_buf[0..utf8_len]) catch {};
+        self.positionImeWindow();
+    }
+
+    fn handleDropFiles(self: *Surface, wParam: WPARAM) void {
+        if (!self.core_initialized) return;
+        const hDrop: *anyopaque = @ptrFromInt(wParam);
+        defer DragFinish(hDrop);
+
+        const file_count = DragQueryFileW(hDrop, 0xFFFFFFFF, null, 0);
+        if (file_count == 0) return;
+
+        const alloc = self.app.core_app.alloc;
+        var result: std.ArrayListUnmanaged(u8) = .empty;
+        defer result.deinit(alloc);
+
+        var i: UINT = 0;
+        while (i < file_count) : (i += 1) {
+            // Get required buffer length (not counting null terminator)
+            const wchar_len = DragQueryFileW(hDrop, i, null, 0);
+            if (wchar_len == 0) continue;
+
+            // Allocate UTF-16 buffer (+1 for null)
+            const buf = alloc.alloc(u16, wchar_len + 1) catch continue;
+            defer alloc.free(buf);
+            _ = DragQueryFileW(hDrop, i, buf.ptr, wchar_len + 1);
+
+            // Convert UTF-16 to UTF-8
+            var utf8_buf: [1024]u8 = undefined;
+            const utf8_len = std.unicode.utf16LeToUtf8(&utf8_buf, buf[0..wchar_len]) catch continue;
+            const path = utf8_buf[0..utf8_len];
+
+            // Add separator between multiple files
+            if (result.items.len > 0) {
+                result.append(alloc, ' ') catch continue;
+            }
+
+            // Quote paths containing spaces or special characters
+            const needs_quoting = std.mem.indexOfAny(u8, path, " \t'\"\\(){}[]$&;|<>!~`#") != null;
+            if (needs_quoting) {
+                result.append(alloc, '\'') catch continue;
+                // Escape any existing single quotes within the path
+                for (path) |c| {
+                    if (c == '\'') {
+                        result.appendSlice(alloc, "'\\''") catch continue;
+                    } else {
+                        result.append(alloc, c) catch continue;
+                    }
+                }
+                result.append(alloc, '\'') catch continue;
+            } else {
+                result.appendSlice(alloc, path) catch continue;
+            }
+        }
+
+        if (result.items.len == 0) return;
+
+        // Write the path(s) to the terminal via a synthetic key event
+        var event: input.KeyEvent = .{
+            .action = .press,
+            .key = .unidentified,
+            .mods = .{},
+        };
+        event.utf8 = result.items;
+        _ = self.core_surface.keyCallback(event) catch |err| {
+            log.err("win32 drop files failed err={}", .{err});
         };
     }
 
@@ -9535,13 +10345,6 @@ pub const Surface = struct {
 
         if (self.debug_input_budget > 0) {
             self.debug_input_budget -= 1;
-            traceWin32("win32 mouse button: button={} state={} x={} y={} focused={}", .{
-                button,
-                state,
-                self.cursor_pos.x,
-                self.cursor_pos.y,
-                self.window_focused,
-            });
         }
 
         self.core_surface.cursorPosCallback(self.cursor_pos, mods) catch |err| {
@@ -9554,6 +10357,40 @@ pub const Surface = struct {
                 state,
             });
             return;
+        };
+    }
+
+    fn handleXMouseButton(self: *Surface, msg: UINT, wParam: WPARAM, lParam: LPARAM) void {
+        if (!self.core_initialized) return;
+
+        const hi = highWord(@as(usize, @intCast(wParam)));
+        const button: input.MouseButton = switch (hi) {
+            XBUTTON1 => .four,
+            XBUTTON2 => .five,
+            else => return,
+        };
+        const state: input.MouseButtonState = switch (msg) {
+            WM_XBUTTONDOWN => .press,
+            WM_XBUTTONUP => .release,
+            else => return,
+        };
+        const mods = mouseModsFromWParam(wParam);
+
+        self.cursor_pos = cursorPosFromLParam(lParam);
+        if (state == .press) {
+            if (self.hwnd) |h| {
+                _ = SetFocus(h);
+                _ = SetCapture(h);
+            }
+        } else {
+            _ = ReleaseCapture();
+        }
+
+        self.core_surface.cursorPosCallback(self.cursor_pos, mods) catch |err| {
+            log.err("win32 cursor pos callback failed before xbutton err={}", .{err});
+        };
+        _ = self.core_surface.mouseButtonCallback(state, button, mods) catch |err| {
+            log.err("win32 xbutton callback failed err={} button={} state={}", .{ err, button, state });
         };
     }
 
@@ -9706,6 +10543,8 @@ pub const Surface = struct {
     fn setScrollbar(self: *Surface, value: terminal.Scrollbar) !void {
         if (self.scrollbar.eql(value)) return;
         self.scrollbar = value;
+        // Refresh status bar to show/update scroll position indicator
+        if (self.host) |host| host.chrome_dirty = true;
     }
 
     fn setProgressReport(self: *Surface, value: terminal.osc.Command.ProgressReport) !void {
@@ -9853,6 +10692,100 @@ test "win32 keyFromVirtualKey maps core keys" {
     try std.testing.expectEqual(input.Key.quote, keyFromVirtualKey(VK_OEM_7, 0));
 }
 
+test "win32 hotkeySpecForTrigger maps physical key triggers" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const spec = hotkeySpecForTrigger(.{
+        .key = .{ .physical = .key_a },
+        .mods = .{ .ctrl = true, .shift = true },
+    }).?;
+
+    try std.testing.expectEqual(@as(UINT, MOD_CONTROL | MOD_SHIFT), spec.modifiers);
+    try std.testing.expectEqual(@as(UINT, VK_A), spec.vk);
+}
+
+test "win32 hotkeySpecForTrigger maps unicode triggers with implicit shift" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const spec = hotkeySpecForTrigger(.{
+        .key = .{ .unicode = '+' },
+        .mods = .{ .alt = true },
+    }).?;
+
+    try std.testing.expectEqual(@as(UINT, MOD_ALT | MOD_SHIFT), spec.modifiers);
+    try std.testing.expectEqual(@as(UINT, VK_OEM_PLUS), spec.vk);
+}
+
+test "win32 hotkeySpecForTrigger rejects unsupported catch-all triggers" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try std.testing.expect(hotkeySpecForTrigger(.{
+        .key = .catch_all,
+        .mods = .{ .ctrl = true },
+    }) == null);
+}
+
+test "win32 quitTimerDelayMs clamps to at least one second" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try std.testing.expectEqual(@as(UINT, 1000), quitTimerDelayMs(.{
+        .duration = 250 * std.time.ns_per_ms,
+    }));
+}
+
+test "win32 quitTimerDelayMs rounds up to the next millisecond" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try std.testing.expectEqual(@as(UINT, 1501), quitTimerDelayMs(.{
+        .duration = (1500 * std.time.ns_per_ms) + 1,
+    }));
+}
+
+test "win32 shouldUseSystemBackdrop requires opacity and blur" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    var config: configpkg.Config = .{};
+    try std.testing.expect(!shouldUseSystemBackdrop(&config));
+
+    config.@"background-opacity" = 0.85;
+    try std.testing.expect(!shouldUseSystemBackdrop(&config));
+
+    config.@"background-blur" = .true;
+    try std.testing.expect(shouldUseSystemBackdrop(&config));
+}
+
+test "win32 configuredHostWindowPosition requires both coordinates" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    var config: configpkg.Config = .{};
+    try std.testing.expect(configuredHostWindowPosition(&config) == null);
+
+    config.@"window-position-x" = 120;
+    try std.testing.expect(configuredHostWindowPosition(&config) == null);
+
+    config.@"window-position-y" = -40;
+    const position = configuredHostWindowPosition(&config).?;
+    try std.testing.expectEqual(@as(i32, 120), position.x);
+    try std.testing.expectEqual(@as(i32, -40), position.y);
+}
+
+test "win32 titlebar colors honor ghostty overrides" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const theme = darkTheme();
+    var config: configpkg.Config = .{};
+
+    try std.testing.expectEqual(theme.chrome_bg, titlebarCaptionColor(&theme, &config));
+    try std.testing.expectEqual(theme.text_primary, titlebarTextColor(&theme, &config));
+
+    config.@"window-theme" = .ghostty;
+    config.@"window-titlebar-background" = .{ .r = 1, .g = 2, .b = 3 };
+    config.@"window-titlebar-foreground" = .{ .r = 4, .g = 5, .b = 6 };
+
+    try std.testing.expectEqual(rgb(1, 2, 3), titlebarCaptionColor(&theme, &config));
+    try std.testing.expectEqual(rgb(4, 5, 6), titlebarTextColor(&theme, &config));
+}
+
 test "win32 cursorPosFromLParam decodes signed coordinates" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
@@ -9862,6 +10795,28 @@ test "win32 cursorPosFromLParam decodes signed coordinates" {
     const pos = cursorPosFromLParam(@bitCast(@as(isize, @intCast(encoded))));
     try std.testing.expectEqual(@as(f32, 12), pos.x);
     try std.testing.expectEqual(@as(f32, -5), pos.y);
+}
+
+test "win32 mouseButtonFromMessage maps standard buttons" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try std.testing.expectEqual(input.MouseButton.left, mouseButtonFromMessage(WM_LBUTTONDOWN).?);
+    try std.testing.expectEqual(input.MouseButton.right, mouseButtonFromMessage(WM_RBUTTONDOWN).?);
+    try std.testing.expectEqual(input.MouseButton.middle, mouseButtonFromMessage(WM_MBUTTONDOWN).?);
+    try std.testing.expect(mouseButtonFromMessage(WM_XBUTTONDOWN) == null);
+    try std.testing.expect(mouseButtonFromMessage(WM_XBUTTONUP) == null);
+}
+
+test "win32 XButton wParam decoding maps forward and back buttons" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    // XBUTTON1 in HIWORD of wParam
+    const wp1 = (@as(usize, XBUTTON1) << 16) | @as(usize, MK_XBUTTON1);
+    try std.testing.expectEqual(XBUTTON1, highWord(wp1));
+
+    // XBUTTON2 in HIWORD of wParam
+    const wp2 = (@as(usize, XBUTTON2) << 16) | @as(usize, MK_XBUTTON2);
+    try std.testing.expectEqual(XBUTTON2, highWord(wp2));
 }
 
 test "win32 normalizeWheelDelta maps discrete wheel steps to pixel deltas" {
@@ -10858,7 +11813,7 @@ test "win32 buildOverlayPaintLabelText reflects live overlay mode" {
         .{},
     );
     defer std.testing.allocator.free(command);
-    try std.testing.expectEqualStrings("Command 3", command);
+    try std.testing.expectEqualStrings("Command 5", command);
 
     const search = try buildOverlayPaintLabelText(
         std.testing.allocator,
@@ -11388,7 +12343,7 @@ test "win32 buildCommandPaletteOverlayLabel reflects palette state" {
 
     const matches = try buildCommandPaletteOverlayLabel(std.testing.allocator, "toggle_");
     defer std.testing.allocator.free(matches);
-    try std.testing.expectEqualStrings("Command 3", matches);
+    try std.testing.expectEqualStrings("Command 5", matches);
 
     const invalid = try buildCommandPaletteOverlayLabel(std.testing.allocator, "definitely_not_real");
     defer std.testing.allocator.free(invalid);
@@ -11403,20 +12358,20 @@ test "win32 commandPaletteCompletionCandidate resolves and cycles curated matche
         commandPaletteCompletionCandidate("reload_", "reload_", false).?,
     );
     try std.testing.expectEqualStrings(
-        "toggle_fullscreen",
+        "toggle_split_zoom",
         commandPaletteCompletionCandidate("toggle_", "toggle_", false).?,
     );
     try std.testing.expectEqualStrings(
-        "toggle_command_palette",
+        "toggle_fullscreen",
+        commandPaletteCompletionCandidate("toggle_", "toggle_split_zoom", false).?,
+    );
+    try std.testing.expectEqualStrings(
+        "toggle_window_decorations",
         commandPaletteCompletionCandidate("toggle_", "toggle_fullscreen", false).?,
     );
     try std.testing.expectEqualStrings(
-        "toggle_tab_overview",
-        commandPaletteCompletionCandidate("toggle_", "toggle_command_palette", false).?,
-    );
-    try std.testing.expectEqualStrings(
         "toggle_fullscreen",
-        commandPaletteCompletionCandidate("toggle_", "toggle_command_palette", true).?,
+        commandPaletteCompletionCandidate("toggle_", "toggle_window_decorations", true).?,
     );
 }
 
@@ -11436,7 +12391,7 @@ test "win32 commandPaletteBannerText suggests matching actions" {
     try std.testing.expect(std.mem.indexOf(u8, banner, "new_tab") != null);
     try std.testing.expect(std.mem.indexOf(u8, banner, "new_split:right") != null);
     try std.testing.expect(std.mem.indexOf(u8, banner, "open a new tab in this window") != null);
-    try std.testing.expect(std.mem.indexOf(u8, banner, "split the active tab to the right") != null);
+    try std.testing.expect(std.mem.indexOf(u8, banner, "split the active pane to the right") != null);
 }
 
 test "win32 commandPaletteBannerText resolves unique prefix" {

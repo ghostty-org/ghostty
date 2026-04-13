@@ -54,15 +54,6 @@ const darwin = if (builtin.os.tag.isDarwin()) struct {
     fn setQosClass(_: QosClass) !void {}
 };
 
-fn trace(comptime fmt: []const u8, args: anytype) void {
-    var buf: [512]u8 = undefined;
-    const line = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
-    std.fs.cwd().writeFile(.{
-        .sub_path = "winghostty-win32.log",
-        .data = line,
-    }) catch {};
-}
-
 const DRAW_INTERVAL = 8; // 120 FPS
 const CURSOR_BLINK_INTERVAL = 600;
 
@@ -275,14 +266,12 @@ fn threadMain_(self: *Thread) !void {
     const has_loop = @hasDecl(rendererpkg.Renderer, "loopEnter");
     if (has_loop) try self.renderer.loopEnter(self);
     defer if (has_loop) self.renderer.loopExit();
-    trace("Renderer.Thread: loopEnter ok", .{});
 
     // Run our thread start/end callbacks. This is important because some
     // renderers have to do per-thread setup. For example, OpenGL has to set
     // some thread-local state since that is how it works.
     try self.renderer.threadEnter(self.surface);
     defer self.renderer.threadExit();
-    trace("Renderer.Thread: threadEnter ok", .{});
 
     // Start the async handlers
     self.wakeup.wait(&self.loop, &self.wakeup_c, Thread, self, wakeupCallback);
@@ -291,7 +280,6 @@ fn threadMain_(self: *Thread) !void {
 
     // Send an initial wakeup message so that we render right away.
     try self.wakeup.notify();
-    trace("Renderer.Thread: initial wakeup sent", .{});
 
     // Start blinking the cursor.
     self.cursor_h.run(
@@ -305,7 +293,6 @@ fn threadMain_(self: *Thread) !void {
 
     // Start the draw timer
     self.syncDrawTimer();
-    trace("Renderer.Thread: draw timer synced", .{});
 
     // Run
     log.debug("starting renderer thread", .{});

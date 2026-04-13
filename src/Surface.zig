@@ -40,15 +40,6 @@ const ProcessInfo = @import("pty.zig").ProcessInfo;
 
 const log = std.log.scoped(.surface);
 
-fn trace(comptime fmt: []const u8, args: anytype) void {
-    var buf: [512]u8 = undefined;
-    const line = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
-    std.fs.cwd().writeFile(.{
-        .sub_path = "winghostty-win32.log",
-        .data = line,
-    }) catch {};
-}
-
 // The renderer implementation to use.
 const Renderer = rendererpkg.Renderer;
 
@@ -318,6 +309,7 @@ const DerivedConfig = struct {
     clipboard_paste_protection: bool,
     clipboard_paste_bracketed_safe: bool,
     clipboard_codepoint_map: configpkg.Config.RepeatableClipboardCodepointMap,
+    app_notifications: configpkg.Config.AppNotifications,
     copy_on_select: configpkg.CopyOnSelect,
     right_click_action: configpkg.RightClickAction,
     confirm_close_surface: configpkg.ConfirmCloseSurface,
@@ -394,6 +386,7 @@ const DerivedConfig = struct {
             .clipboard_paste_protection = config.@"clipboard-paste-protection",
             .clipboard_paste_bracketed_safe = config.@"clipboard-paste-bracketed-safe",
             .clipboard_codepoint_map = try config.@"clipboard-codepoint-map".clone(alloc),
+            .app_notifications = config.@"app-notifications",
             .copy_on_select = config.@"copy-on-select",
             .right_click_action = config.@"right-click-action",
             .confirm_close_surface = config.@"confirm-close-surface",
@@ -503,12 +496,10 @@ pub fn init(
 
     // Initialize our renderer with our initialized surface.
     try Renderer.surfaceInit(rt_surface);
-    trace("Surface.init: Renderer.surfaceInit ok", .{});
 
     // Determine our DPI configurations so we can properly configure
     // font points to pixels and handle other high-DPI scaling factors.
     const content_scale = try rt_surface.getContentScale();
-    trace("Surface.init: content_scale ok", .{});
     const x_dpi = content_scale.x * font.face.default_dpi;
     const y_dpi = content_scale.y * font.face.default_dpi;
     log.debug("xscale={} yscale={} xdpi={} ydpi={}", .{
@@ -531,7 +522,6 @@ pub fn init(
         &derived_config.font,
         font_size,
     );
-    trace("Surface.init: font_grid ok", .{});
 
     // Build our size struct which has all the sizes we need.
     const size: rendererpkg.Size = size: {
@@ -572,7 +562,6 @@ pub fn init(
         .thread = &self.renderer_thread,
     });
     errdefer renderer_impl.deinit();
-    trace("Surface.init: Renderer.init ok", .{});
 
     // The mutex used to protect our renderer state.
     const mutex = try alloc.create(std.Thread.Mutex);
@@ -589,12 +578,10 @@ pub fn init(
         app_mailbox,
     );
     errdefer render_thread.deinit();
-    trace("Surface.init: renderer thread init ok", .{});
 
     // Create the IO thread
     var io_thread = try termio.Thread.init(alloc);
     errdefer io_thread.deinit();
-    trace("Surface.init: io thread init ok", .{});
 
     self.* = .{
         .id = id: {
@@ -695,7 +682,6 @@ pub fn init(
             .renderer_mailbox = render_thread.mailbox,
             .surface_mailbox = .{ .surface = self, .app = app_mailbox },
         });
-        trace("Surface.init: termio init ok", .{});
     }
     // Outside the block, IO has now taken ownership of our temporary state
     // so we can just defer this and not the subcomponents.
@@ -726,12 +712,10 @@ pub fn init(
     // sizeCallback does retina-aware stuff we don't do here and don't want
     // to duplicate.
     try self.resize(self.size.screen);
-    trace("Surface.init: resize ok", .{});
 
     // Give the renderer one more opportunity to finalize any surface
     // setup on the main thread prior to spinning up the rendering thread.
     try renderer_impl.finalizeSurfaceInit(rt_surface);
-    trace("Surface.init: finalizeSurfaceInit ok", .{});
 
     // Start our renderer thread
     self.renderer_thr = try std.Thread.spawn(
@@ -739,7 +723,6 @@ pub fn init(
         rendererpkg.Thread.threadMain,
         .{&self.renderer_thread},
     );
-    trace("Surface.init: renderer thread spawned", .{});
     self.renderer_thr.setName("renderer") catch {};
 
     // Start our IO thread
@@ -748,7 +731,6 @@ pub fn init(
         termio.Thread.threadMain,
         .{ &self.io_thread, &self.io },
     );
-    trace("Surface.init: io thread spawned", .{});
     self.io_thr.setName("io") catch {};
 
     // Determine our initial window size if configured. We need to do this
@@ -765,26 +747,6 @@ pub fn init(
     };
 
     if (config.title) |title| {
-        _ = try rt_app.performAction(
-            .{ .surface = self },
-            .set_title,
-            .{ .title = title },
-        );
-    } else if ((comptime builtin.os.tag == .linux) and
-        config.@"_xdg-terminal-exec")
-    xdg: {
-        // For xdg-terminal-exec execution we special-case and set the window
-        // title to the command being executed. This allows window managers
-        // to set custom styling based on the command being executed.
-        const v = command orelse break :xdg;
-        const title = v.string(alloc) catch |err| {
-            log.warn(
-                "error copying command for title, title will not be set err={}",
-                .{err},
-            );
-            break :xdg;
-        };
-        defer alloc.free(title);
         _ = try rt_app.performAction(
             .{ .surface = self },
             .set_title,
@@ -1244,12 +1206,8 @@ fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
     // If our runtime was below some threshold then we assume that this
     // was an abnormal exit and we show an error message.
     if (info.runtime_ms <= self.config.abnormal_command_exit_runtime_ms) runtime: {
-        // On macOS, our exit code detection doesn't work, possibly
-        // because of our `login` wrapper. More investigation required.
-        if (comptime !builtin.target.os.tag.isDarwin()) {
-            // If the exit code is 0 then it was a good exit.
-            if (info.exit_code == 0) break :runtime;
-        }
+        // If the exit code is 0 then it was a good exit.
+        if (info.exit_code == 0) break :runtime;
 
         log.warn("abnormal process exit detected, showing error message", .{});
 
@@ -1375,17 +1333,13 @@ fn childExitedAbnormally(
     try t.printString(runtime_str);
     try t.setAttribute(.{ .unset = {} });
 
-    // We don't print this on macOS because the exit code is always 0
-    // due to the way we launch the process.
-    if (comptime !builtin.target.os.tag.isDarwin()) {
-        const exit_code_str = try std.fmt.allocPrint(alloc, "{d}", .{info.exit_code});
-        t.carriageReturn();
-        try t.linefeed();
-        try t.printString("Exit Code: ");
-        try t.setAttribute(.{ .@"8_fg" = .red });
-        try t.printString(exit_code_str);
-        try t.setAttribute(.{ .unset = {} });
-    }
+    const exit_code_str = try std.fmt.allocPrint(alloc, "{d}", .{info.exit_code});
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("Exit Code: ");
+    try t.setAttribute(.{ .@"8_fg" = .red });
+    try t.printString(exit_code_str);
+    try t.setAttribute(.{ .unset = {} });
 
     t.carriageReturn();
     try t.linefeed();
@@ -2330,16 +2284,25 @@ fn copySelectionToClipboards(
     }
 
     assert(contents.items.len > 0);
-    for (clipboards) |clipboard| self.rt_surface.setClipboard(
-        clipboard,
-        contents.items,
-        false,
-    ) catch |err| {
-        log.err(
-            "error setting clipboard string clipboard={} err={}",
-            .{ clipboard, err },
-        );
-    };
+    var copied = false;
+    for (clipboards) |clipboard| {
+        self.rt_surface.setClipboard(
+            clipboard,
+            contents.items,
+            false,
+        ) catch |err| {
+            log.err(
+                "error setting clipboard string clipboard={} err={}",
+                .{ clipboard, err },
+            );
+            continue;
+        };
+        copied = true;
+    }
+
+    if (copied and self.config.app_notifications.@"clipboard-copy") {
+        try self.showAppNotification("winghostty", "Copied selection to clipboard");
+    }
 }
 
 /// Set the selection contents.
@@ -6222,6 +6185,10 @@ fn showDesktopNotification(self: *Surface, title: [:0]const u8, body: [:0]const 
             .body = body,
         },
     );
+}
+
+fn showAppNotification(self: *Surface, title: [:0]const u8, body: [:0]const u8) !void {
+    try self.showDesktopNotification(title, body);
 }
 
 fn crashThreadState(self: *Surface) crash.sentry.ThreadState {

@@ -40,20 +40,7 @@ const log = std.log.scoped(.opengl);
 const WglSwapIntervalExt = *const fn (interval: c_int) callconv(.winapi) windows.BOOL;
 const wgl_swap_interval_ext_name: [*:0]const u8 = "wglSwapIntervalEXT";
 const enable_gl_debug_output = false;
-const enable_win32_trace = false;
 const enable_win32_swap_interval = false;
-
-fn trace(comptime fmt: []const u8, args: anytype) void {
-    if (!enable_win32_trace) return;
-    var buf: [512]u8 = undefined;
-    const line = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
-    var file = std.fs.cwd().createFile("winghostty-win32.log", .{
-        .truncate = false,
-    }) catch return;
-    defer file.close();
-    file.seekFromEnd(0) catch return;
-    file.writeAll(line) catch {};
-}
 
 /// We require at least OpenGL 4.3
 pub const MIN_VERSION_MAJOR = 4;
@@ -165,7 +152,7 @@ fn prepareContext(getProcAddress: anytype) !void {
     const major = gl.glad.versionMajor(@intCast(version));
     const minor = gl.glad.versionMinor(@intCast(version));
     errdefer gl.glad.unload();
-    log.info("loaded OpenGL {}.{}", .{ major, minor });
+    log.debug("loaded OpenGL {}.{}", .{ major, minor });
 
     // Need to check version before trying to enable it
     if (major < MIN_VERSION_MAJOR or
@@ -196,14 +183,11 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         else => @compileError("unsupported app runtime for OpenGL"),
 
         apprt.win32 => {
-            trace("OpenGL.surfaceInit: win32 begin", .{});
-            log.info("OpenGL.surfaceInit win32 begin", .{});
+            log.debug("OpenGL.surfaceInit win32 begin", .{});
             try surface.makeGLContextCurrent();
-            trace("OpenGL.surfaceInit: current", .{});
-            log.info("OpenGL.surfaceInit win32 current", .{});
+            log.debug("OpenGL.surfaceInit win32 current", .{});
             try prepareContext(&apprt.win32.getProcAddress);
-            trace("OpenGL.surfaceInit: prepared", .{});
-            log.info("OpenGL.surfaceInit win32 prepared", .{});
+            log.debug("OpenGL.surfaceInit win32 prepared", .{});
         },
 
         apprt.embedded => {
@@ -243,9 +227,7 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
         else => @compileError("unsupported app runtime for OpenGL"),
 
         apprt.win32 => {
-            trace("OpenGL.threadEnter: begin", .{});
             _ = surface;
-            trace("OpenGL.threadEnter: win32 app-thread draw mode", .{});
         },
 
         apprt.embedded => {
@@ -283,7 +265,7 @@ fn ensureWin32SwapInterval(self: *OpenGL) void {
     }
 
     const proc = apprt.win32.getProcAddress(wgl_swap_interval_ext_name) orelse {
-        log.info("WGL swap interval extension unavailable; leaving window-vsync unmanaged", .{});
+        log.debug("WGL swap interval extension unavailable; leaving window-vsync unmanaged", .{});
         return;
     };
     const set_swap_interval: WglSwapIntervalExt = @ptrCast(proc);
@@ -294,7 +276,7 @@ fn ensureWin32SwapInterval(self: *OpenGL) void {
     }
 
     self.swap_interval_supported = true;
-    log.info("configured WGL swap interval interval={}", .{interval});
+    log.debug("configured WGL swap interval interval={}", .{interval});
 }
 
 /// Actions taken before doing anything in `drawFrame`.
@@ -360,7 +342,6 @@ pub fn initTarget(self: *const OpenGL, width: usize, height: usize) !Target {
 
 /// Present the provided target.
 pub fn present(self: *OpenGL, target: Target) !void {
-    trace("OpenGL.present: begin", .{});
     if (target.width == 0 or target.height == 0) return;
 
     if (apprt.runtime == apprt.win32) {
@@ -411,8 +392,6 @@ pub fn present(self: *OpenGL, target: Target) !void {
         gl.finish();
         try self.rt_surface.swapGLBuffers();
     }
-
-    trace("OpenGL.present: end", .{});
 }
 
 /// Present the last presented target again.
