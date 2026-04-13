@@ -144,6 +144,111 @@ struct WorkspacePersistenceTests {
         #expect(decoded.sidebarMode == .closed)
     }
 
+    // MARK: - Project.lastActiveAt + isPinned default
+
+    @Test func projectMemberwiseInitDefaultsIsPinnedToFalse() {
+        // New semantics: a project constructed without specifying isPinned is NOT pinned.
+        // The explicit `isPinned: true` at WorkspaceStore.addProject(at:) remains intact;
+        // only the struct's default changes.
+        let project = Project(name: "Unpinned", rootPath: "/tmp/Unpinned")
+        #expect(project.isPinned == false)
+    }
+
+    @Test func projectMemberwiseInitDefaultsLastActiveAtToNil() {
+        let project = Project(name: "Fresh", rootPath: "/tmp/Fresh")
+        #expect(project.lastActiveAt == nil)
+    }
+
+    @Test func projectCodableRoundTripPreservesLastActiveAt() throws {
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let original = Project(
+            name: "Active",
+            rootPath: "/tmp/Active",
+            isPinned: true,
+            lastActiveAt: timestamp
+        )
+
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(Project.self, from: data)
+
+        #expect(decoded.lastActiveAt == timestamp)
+        #expect(decoded == original)
+    }
+
+    @Test func projectDecodingWithoutLastActiveAtDefaultsToNil() throws {
+        // Simulates a legacy project record predating the lastActiveAt field.
+        let id = UUID()
+        let json = """
+        {
+            "id": "\(id.uuidString)",
+            "name": "Legacy",
+            "rootPath": "/tmp/Legacy",
+            "isPinned": true
+        }
+        """
+        let data = Data(json.utf8)
+        let decoded = try JSONDecoder().decode(Project.self, from: data)
+
+        #expect(decoded.id == id)
+        #expect(decoded.name == "Legacy")
+        #expect(decoded.lastActiveAt == nil)
+        // Pre-upgrade pin state must be preserved exactly as stored.
+        #expect(decoded.isPinned == true)
+    }
+
+    @Test func projectDecodingMalformedLastActiveAtThrows() {
+        let id = UUID()
+        let json = """
+        {
+            "id": "\(id.uuidString)",
+            "name": "Bad",
+            "rootPath": "/tmp/Bad",
+            "isPinned": false,
+            "lastActiveAt": "not-a-date"
+        }
+        """
+        let data = Data(json.utf8)
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(Project.self, from: data)
+        }
+    }
+
+    @Test func decodingLegacyStateWithoutLastActiveAtFieldsLoadsCleanly() throws {
+        // Whole workspace payload: projects + sessions without any lastActiveAt field.
+        let projectId = UUID()
+        let sessionId = UUID()
+        let templateId = AgentTemplate.shell.id
+        let json = """
+        {
+            "projects": [
+                {
+                    "id": "\(projectId.uuidString)",
+                    "name": "Legacy",
+                    "rootPath": "/tmp/Legacy",
+                    "isPinned": true
+                }
+            ],
+            "sessions": [
+                {
+                    "id": "\(sessionId.uuidString)",
+                    "name": "Legacy Session",
+                    "templateId": "\(templateId.uuidString)",
+                    "projectId": "\(projectId.uuidString)"
+                }
+            ],
+            "templates": []
+        }
+        """
+        let data = Data(json.utf8)
+        let decoded = try JSONDecoder().decode(WorkspacePersistence.State.self, from: data)
+
+        #expect(decoded.projects.count == 1)
+        #expect(decoded.projects[0].lastActiveAt == nil)
+        #expect(decoded.projects[0].isPinned == true)
+        #expect(decoded.sessions.count == 1)
+        #expect(decoded.sessions[0].lastActiveAt == nil)
+    }
+
     // MARK: - Validation
 
     @Test func validateClearsStaleLastSelectedProjectId() {

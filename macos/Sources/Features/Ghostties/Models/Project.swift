@@ -15,13 +15,19 @@ struct Project: Identifiable, Codable, Hashable {
     /// Nil means always show the template picker.
     var defaultTemplateId: UUID?
 
+    /// The last moment any session in this project produced output, was focused,
+    /// or was created. Drives the "Recent" smart-section membership rule.
+    /// Nil means this project predates the timestamp system or has never been touched.
+    var lastActiveAt: Date?
+
     init(
         id: UUID = UUID(),
         name: String,
         rootPath: String,
-        isPinned: Bool = true,
+        isPinned: Bool = false,
         ghostCharacter: GhostCharacter? = nil,
-        defaultTemplateId: UUID? = nil
+        defaultTemplateId: UUID? = nil,
+        lastActiveAt: Date? = nil
     ) {
         self.id = id
         self.name = name
@@ -29,10 +35,11 @@ struct Project: Identifiable, Codable, Hashable {
         self.isPinned = isPinned
         self.ghostCharacter = ghostCharacter
         self.defaultTemplateId = defaultTemplateId
+        self.lastActiveAt = lastActiveAt
     }
 
-    // Custom decoder so existing workspace.json files (without ghost/template fields)
-    // load without error. New fields default to nil when missing.
+    // Custom decoder so existing workspace.json files (without ghost/template/timestamp
+    // fields) load without error. New fields default to nil when missing.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try container.decode(UUID.self, forKey: .id)
@@ -41,5 +48,6 @@ struct Project: Identifiable, Codable, Hashable {
         self.isPinned = try container.decode(Bool.self, forKey: .isPinned)
         self.ghostCharacter = try container.decodeIfPresent(GhostCharacter.self, forKey: .ghostCharacter)
         self.defaultTemplateId = try container.decodeIfPresent(UUID.self, forKey: .defaultTemplateId)
+        self.lastActiveAt = try container.decodeIfPresent(Date.self, forKey: .lastActiveAt)
     }
 }

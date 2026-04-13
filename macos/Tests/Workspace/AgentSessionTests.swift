@@ -78,6 +78,15 @@ struct AgentSessionTests {
         #expect(session1.id != session2.id)
     }
 
+    @Test func sessionMemberwiseInitDefaultsLastActiveAtToNil() {
+        let session = AgentSession(
+            name: "Test",
+            templateId: UUID(),
+            projectId: UUID()
+        )
+        #expect(session.lastActiveAt == nil)
+    }
+
     // MARK: - Codable
 
     @Test func sessionCodableRoundTrip() throws {
@@ -94,6 +103,66 @@ struct AgentSessionTests {
         #expect(decoded.name == original.name)
         #expect(decoded.templateId == original.templateId)
         #expect(decoded.projectId == original.projectId)
+    }
+
+    @Test func sessionCodableRoundTripPreservesLastActiveAt() throws {
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let original = AgentSession(
+            name: "Active Session",
+            templateId: AgentTemplate.claudeCode.id,
+            projectId: UUID(),
+            sortOrder: 3,
+            lastActiveAt: timestamp
+        )
+
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(AgentSession.self, from: data)
+
+        #expect(decoded.lastActiveAt == timestamp)
+        #expect(decoded == original)
+    }
+
+    @Test func sessionDecodingWithoutLastActiveAtDefaultsToNil() throws {
+        // Simulates a legacy workspace.json where sessions predate the lastActiveAt field.
+        let projectId = UUID()
+        let templateId = AgentTemplate.shell.id
+        let id = UUID()
+        let json = """
+        {
+            "id": "\(id.uuidString)",
+            "name": "Legacy Session",
+            "templateId": "\(templateId.uuidString)",
+            "projectId": "\(projectId.uuidString)"
+        }
+        """
+        let data = Data(json.utf8)
+        let decoded = try JSONDecoder().decode(AgentSession.self, from: data)
+
+        #expect(decoded.id == id)
+        #expect(decoded.name == "Legacy Session")
+        #expect(decoded.lastActiveAt == nil)
+        #expect(decoded.sortOrder == nil)
+    }
+
+    @Test func sessionDecodingMalformedLastActiveAtThrows() {
+        // A string where a numeric/date is expected should fail loudly rather than
+        // silently becoming nil. Protects against over-use of `try?` in the decoder.
+        let projectId = UUID()
+        let templateId = AgentTemplate.shell.id
+        let id = UUID()
+        let json = """
+        {
+            "id": "\(id.uuidString)",
+            "name": "Bad Session",
+            "templateId": "\(templateId.uuidString)",
+            "projectId": "\(projectId.uuidString)",
+            "lastActiveAt": "not-a-date"
+        }
+        """
+        let data = Data(json.utf8)
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(AgentSession.self, from: data)
+        }
     }
 
     // MARK: - Hashable

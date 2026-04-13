@@ -16,21 +16,28 @@ struct AgentSession: Identifiable, Codable, Hashable {
     /// drag-and-drop reorder and will be sorted alphabetically.
     var sortOrder: Int?
 
+    /// The last moment this session produced output, was focused, or transitioned
+    /// out of idle. Drives the session-level "Recent" bucket inside an expanded project.
+    /// Nil means this session predates the timestamp system or has never been touched.
+    var lastActiveAt: Date?
+
     init(
         id: UUID = UUID(),
         name: String,
         templateId: UUID,
         projectId: UUID,
-        sortOrder: Int? = nil
+        sortOrder: Int? = nil,
+        lastActiveAt: Date? = nil
     ) {
         self.id = id
         self.name = name
         self.templateId = templateId
         self.projectId = projectId
         self.sortOrder = sortOrder
+        self.lastActiveAt = lastActiveAt
     }
 
-    // Custom decoder so existing workspace.json files (without sortOrder)
+    // Custom decoder so existing workspace.json files (without sortOrder/lastActiveAt)
     // load without error.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -39,6 +46,7 @@ struct AgentSession: Identifiable, Codable, Hashable {
         self.templateId = try container.decode(UUID.self, forKey: .templateId)
         self.projectId = try container.decode(UUID.self, forKey: .projectId)
         self.sortOrder = try container.decodeIfPresent(Int.self, forKey: .sortOrder)
+        self.lastActiveAt = try container.decodeIfPresent(Date.self, forKey: .lastActiveAt)
     }
 }
 
