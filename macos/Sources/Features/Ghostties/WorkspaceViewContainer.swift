@@ -127,6 +127,16 @@ class WorkspaceViewContainer: NSView {
 
     private var cancellables = Set<AnyCancellable>()
 
+    /// Cancellables scoped to the currently-observed focused surface. Cleared and
+    /// repopulated every time the active session changes so we only listen to the
+    /// one surface driving the chrome color.
+    private var observedSurfaceCancellables = Set<AnyCancellable>()
+
+    /// Weak reference to the surface whose theme is currently driving the card
+    /// background. Held weakly so a torn-down surface doesn't pin memory; we
+    /// also cancel our subscription whenever the active session changes.
+    private weak var observedSurface: Ghostty.SurfaceView?
+
     /// Current sidebar state — always kept in sync with `WorkspaceStore.shared.sidebarMode`.
     private var sidebarMode: SidebarMode = .pinned
 
@@ -181,12 +191,42 @@ class WorkspaceViewContainer: NSView {
         effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua
     }
 
-    /// Card background color for pinned mode title bar region.
-    /// Light mode: explicit warm white. Dark mode: dark neutral.
-    private var cardBackgroundCGColor: CGColor {
+    /// Fallback card background color — used whenever no focused surface is
+    /// available to provide a theme color (fresh launch, between session swaps,
+    /// surface tear-down). Follows OS light/dark appearance.
+    private var fallbackCardBackgroundNSColor: NSColor {
         isLightAppearance
-            ? WorkspaceLayout.cardBackgroundLight.cgColor
-            : WorkspaceLayout.cardBackgroundDark.cgColor
+            ? WorkspaceLayout.cardBackgroundLight
+            : WorkspaceLayout.cardBackgroundDark
+    }
+
+    /// Resolve the chrome card background color for a given surface. When the
+    /// surface is nil (no active session yet, or surface torn down) this falls
+    /// back to the Ghostties palette color for the current OS appearance.
+    ///
+    /// The chrome is always fully opaque — we intentionally ignore the theme's
+    /// `backgroundOpacity` / `backgroundBlur` so the header buttons stay
+    /// readable even when the terminal is translucent.
+    private func resolveChromeColor(surface: Ghostty.SurfaceView?) -> NSColor {
+        guard let surface else { return fallbackCardBackgroundNSColor }
+        // DerivedConfig.backgroundColor is a SwiftUI.Color — project down to NSColor
+        // and force alpha=1 so the chrome never inherits theme transparency.
+        return NSColor(surface.derivedConfig.backgroundColor).withAlphaComponent(1)
+    }
+
+    /// Card background CGColor for the terminal card in pinned/closed modes.
+    /// Driven by the focused surface's theme when available; otherwise falls
+    /// back to the Ghostties palette.
+    private var cardBackgroundCGColor: CGColor {
+        resolveChromeColor(surface: observedSurface).cgColor
+    }
+
+    /// Browser card background — currently always the fallback palette because
+    /// the browser session type has no theme-color concept (see
+    /// `BrowserTabManager`). Kept as a separate computed property so a future
+    /// browser-theme integration has an obvious insertion point.
+    private var browserCardBackgroundCGColor: CGColor {
+        fallbackCardBackgroundNSColor.cgColor
     }
 
     /// Canvas color behind the floating terminal card.
@@ -277,9 +317,14 @@ class WorkspaceViewContainer: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         guard sidebarMode == .pinned || sidebarMode == .closed else { return }
+        // Canvas still follows OS light/dark — it's Ghostties chrome, not
+        // terminal content.
         layer?.backgroundColor = canvasBackgroundCGColor
+        // Terminal card follows the focused surface's theme when available;
+        // the resolver handles the light/dark fallback itself.
         terminalShadowHost.layer?.backgroundColor = cardBackgroundCGColor
-        browserShadowHost.layer?.backgroundColor = cardBackgroundCGColor
+        // Browser card has no theme concept — always the light/dark fallback.
+        browserShadowHost.layer?.backgroundColor = browserCardBackgroundCGColor
     }
 
     /// Zero out safe area insets so Auto Layout constraints measure from
@@ -719,7 +764,7 @@ class WorkspaceViewContainer: NSView {
             terminalShadowHost.layer?.cornerRadius = WorkspaceLayout.terminalCornerRadius
             terminalShadowHost.layer?.backgroundColor = cardBackgroundCGColor
             browserShadowHost.layer?.cornerRadius = WorkspaceLayout.terminalCornerRadius
-            browserShadowHost.layer?.backgroundColor = cardBackgroundCGColor
+            browserShadowHost.layer?.backgroundColor = browserCardBackgroundCGColor
             browserShadowHost.layer?.shadowOpacity = isBrowserVisible ? 0.15 : 0
             layer?.backgroundColor = canvasBackgroundCGColor
             sidebarOverlayBackground.layer?.shadowOpacity = 0
@@ -730,7 +775,7 @@ class WorkspaceViewContainer: NSView {
             terminalShadowHost.layer?.cornerRadius = WorkspaceLayout.terminalCornerRadius
             terminalShadowHost.layer?.backgroundColor = cardBackgroundCGColor
             browserShadowHost.layer?.cornerRadius = WorkspaceLayout.terminalCornerRadius
-            browserShadowHost.layer?.backgroundColor = cardBackgroundCGColor
+            browserShadowHost.layer?.backgroundColor = browserCardBackgroundCGColor
             browserShadowHost.layer?.shadowOpacity = isBrowserVisible ? 0.15 : 0
             layer?.backgroundColor = canvasBackgroundCGColor
             sidebarOverlayBackground.layer?.shadowOpacity = 0
@@ -1029,7 +1074,7 @@ class WorkspaceViewContainer: NSView {
         browserShadowHost.layer?.shadowOffset = CGSize(width: 0, height: -2)
         browserShadowHost.layer?.cornerRadius = hasCardInset ? WorkspaceLayout.terminalCornerRadius : 0
         browserShadowHost.layer?.cornerCurve = .continuous
-        browserShadowHost.layer?.backgroundColor = hasCardInset ? cardBackgroundCGColor : nil
+        browserShadowHost.layer?.backgroundColor = hasCardInset ? browserCardBackgroundCGColor : nil
         browserShadowHost.layer?.masksToBounds = false
         browserShadowHost.alphaValue = 0  // hidden initially
 
@@ -1062,6 +1107,80 @@ class WorkspaceViewContainer: NSView {
                 self?.titleLabel.stringValue = name
             }
             .store(in: &cancellables)
+
+        // Bind the terminal card background to the focused surface's theme so
+        // the chrome matches the terminal instead of the hardcoded palette.
+        // Mirrors TerminalWindow.syncAppearance() — same "focused surface drives
+        // window color" rule, applied to our card instead of the window itself.
+        coordinator.$activeSessionId
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.rebindFocusedSurfaceTheme()
+            }
+            .store(in: &cancellables)
+        // Initial bind so we pick up whatever surface exists at launch before
+        // the publisher fires.
+        rebindFocusedSurfaceTheme()
+    }
+
+    // MARK: - Focused Surface Theme Binding
+
+    /// Resubscribe to the focused surface's `$derivedConfig` whenever the
+    /// active session changes. Cancels any prior subscription, looks up the
+    /// new focused surface via the terminal controller, and both applies the
+    /// current theme color immediately and listens for future theme updates
+    /// (e.g. user edits config, OS appearance swap flips the auto-theme).
+    private func rebindFocusedSurfaceTheme() {
+        observedSurfaceCancellables.removeAll()
+
+        let surface = focusedSurfaceForActiveSession()
+        observedSurface = surface
+
+        // Apply immediately so the card doesn't wait for the next publisher
+        // emission. Skip the repaint in overlay mode where the card is hidden
+        // and its background was explicitly cleared.
+        applyChromeColor()
+
+        guard let surface else { return }
+
+        surface.$derivedConfig
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak surface] _ in
+                // Guard: only repaint if this surface is still the one we're
+                // observing. A stale emission from a replaced surface would
+                // otherwise overwrite the new theme.
+                guard let self, let surface, self.observedSurface === surface
+                else { return }
+                self.applyChromeColor()
+            }
+            .store(in: &observedSurfaceCancellables)
+    }
+
+    /// Look up the focused surface for the currently active session, falling
+    /// back to the session tree's first surface when the controller doesn't
+    /// yet have a focused surface (e.g. right after session creation).
+    /// Returns nil for browser sessions or when no session is active.
+    private func focusedSurfaceForActiveSession() -> Ghostty.SurfaceView? {
+        guard let activeId = coordinator.activeSessionId else { return nil }
+        // Browser sessions have no surface (and no theme).
+        if coordinator.browserManagers[activeId] != nil { return nil }
+        // Prefer the controller's live focused surface — that's what
+        // TerminalWindow.syncAppearance uses too, so our chrome stays aligned
+        // with the window background even when the user moves focus across
+        // splits within the same session.
+        if let controller = window?.windowController as? BaseTerminalController,
+           let focused = controller.focusedSurface {
+            return focused
+        }
+        // Fall back to the first surface in the stored tree.
+        return coordinator.sessionTrees[activeId]?.first
+    }
+
+    /// Paint the terminal card layer with the current themed or fallback color.
+    /// No-op in overlay mode, which intentionally clears the card layer.
+    private func applyChromeColor() {
+        guard sidebarMode == .pinned || sidebarMode == .closed else { return }
+        terminalShadowHost.layer?.backgroundColor = cardBackgroundCGColor
     }
 }
 

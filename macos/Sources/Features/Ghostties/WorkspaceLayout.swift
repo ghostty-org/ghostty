@@ -55,15 +55,19 @@ enum WorkspaceLayout {
     /// Workspace canvas color behind the floating terminal card (light mode).
     static let canvasBackgroundLight = NSColor(red: 0xF0 / 255.0, green: 0xE9 / 255.0, blue: 0xE6 / 255.0, alpha: 1)
 
-    /// Terminal card background including title bar region (light mode).
+    /// Fallback terminal card background (light mode). Used when no focused
+    /// surface is available to provide a theme color — the card normally binds
+    /// to `Ghostty.SurfaceView.DerivedConfig.backgroundColor` of the focused
+    /// surface so the chrome matches the terminal. See
+    /// `WorkspaceViewContainer.resolveChromeColor(surface:)`.
     static let cardBackgroundLight = NSColor(red: 0xFD / 255.0, green: 0xF9 / 255.0, blue: 0xF7 / 255.0, alpha: 1)
 
     /// Workspace canvas color behind the floating terminal card (dark mode).
     /// Slightly lighter than the card so the terminal appears to float.
     static let canvasBackgroundDark = NSColor(white: 0.14, alpha: 1)
 
-    /// Terminal card background including title bar region (dark mode).
-    /// Darker than the canvas to give the terminal visual weight.
+    /// Fallback terminal card background (dark mode). See `cardBackgroundLight`
+    /// — used only when no focused surface is available to theme the card.
     static let cardBackgroundDark = NSColor(white: 0.10, alpha: 1)
 
     /// Terracotta/warm rust accent for the "waiting" indicator state. #c97350
