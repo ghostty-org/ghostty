@@ -77,6 +77,28 @@ enum WorkspaceLayout {
 
     /// Purple accent for the "needs attention" indicator state. #A855F7
     static let needsAttentionPurple = Color(red: 0.659, green: 0.333, blue: 0.969)
+
+    // MARK: - Activity / Section Foregrounds
+
+    /// Foreground color for a project's ghost icon when the project has recent
+    /// activity (within 24h) but no live active session. Reads as "alive but not
+    /// running" — full-strength label, same weight as a body label.
+    static let activityNormalForeground = Color.primary
+
+    /// Foreground color for a project's ghost icon when the project is idle
+    /// (no live active session and nothing within the past 24h). Reads as "in
+    /// the long tail" — quietest tier above pure invisible.
+    static let activityMutedForeground = Color(.tertiaryLabelColor)
+
+    /// Foreground for the small section-header labels in the sidebar
+    /// ("Pinned", "Active Now", "Recent", "All Projects"). Muted by design so
+    /// the project rows themselves stay the dominant visual.
+    static let sectionHeaderForeground = Color(.tertiaryLabelColor)
+
+    /// Foreground for the smaller in-row session group headers ("Active",
+    /// "Recent", "Idle") inside an expanded project. One tier quieter than the
+    /// top-level section headers since they're nested.
+    static let sessionGroupHeaderForeground = Color(.tertiaryLabelColor)
 }
 
 // MARK: - Workspace Notifications

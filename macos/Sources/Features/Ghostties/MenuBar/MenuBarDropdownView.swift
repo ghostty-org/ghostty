@@ -121,9 +121,12 @@ struct MenuBarDropdownView: View {
 
     // MARK: - Data
 
-    /// Projects that have at least one session with a non-inactive indicator state.
+    /// Projects that have at least one session with a non-inactive indicator
+    /// state, in the same visual order as the sidebar (sectioned, then
+    /// flattened — pinned → activeNow → recent → all). Section headers
+    /// themselves are not rendered here; the menu bar dropdown is a flat list.
     private var activeProjects: [Project] {
-        store.sortedProjects.filter { project in
+        store.flatProjectsInVisualOrder.filter { project in
             !activeSessions(for: project.id).isEmpty
         }
     }

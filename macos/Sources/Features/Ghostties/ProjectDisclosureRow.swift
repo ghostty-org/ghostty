@@ -26,83 +26,175 @@ struct ProjectDisclosureRow: View {
             // Project header row (tap to expand/collapse)
             projectHeader
 
-            // Expanded children: sessions + "New Session" button
+            // Expanded children: grouped sessions + "New Session" button
             if isExpanded {
-                ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
-                    SessionRow(
-                        session: session,
-                        indicatorState: coordinator.indicatorState(for: session.id),
-                        ghostCharacter: project.ghostCharacter,
-                        isActive: coordinator.activeSessionId == session.id,
-                        isEditing: editingSessionId == session.id,
-                        agentTemplateName: agentTemplateName(for: session),
-                        editingName: editingSessionId == session.id ? $editingName : .constant(""),
-                        isRenameFocused: $renameFieldFocused,
-                        onCommitRename: { commitRename(session: session) },
-                        onCancelRename: { cancelRename() }
-                    )
-                    .padding(.leading, 20)
-                    .onTapGesture(count: 2) {
-                        beginRename(session: session)
-                    }
-                    .onTapGesture {
-                        selectedProjectId = project.id
-                        coordinator.focusSession(id: session.id)
-                    }
-                    .contextMenu {
-                        Button("Rename") {
-                            beginRename(session: session)
-                        }
-                        Divider()
-                        if index > 0 {
-                            Button("Move Up") {
-                                store.moveSession(id: session.id, toIndex: index - 1, inProject: project.id)
-                            }
-                        }
-                        if index < sessions.count - 1 {
-                            Button("Move Down") {
-                                store.moveSession(id: session.id, toIndex: index + 1, inProject: project.id)
-                            }
-                        }
-                        if index > 0 || index < sessions.count - 1 {
-                            Divider()
-                        }
-                        if coordinator.isRunning(id: session.id) {
-                            Button("Stop") {
-                                coordinator.closeSession(id: session.id)
-                            }
-                        } else {
-                            Button("Relaunch") {
-                                relaunchSession(session)
-                            }
-                            Button("Remove", role: .destructive) {
-                                coordinator.clearRuntime(id: session.id)
-                                store.removeSession(id: session.id)
-                            }
-                        }
-                    }
-                    .draggable(session.id.uuidString) {
-                        Text(session.name)
-                            .font(.system(size: 12))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(.ultraThinMaterial)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                    }
-                    .dropDestination(for: String.self) { items, _ in
-                        guard let droppedString = items.first,
-                              let droppedId = UUID(uuidString: droppedString) else { return false }
-                        guard let targetIndex = sessions.firstIndex(where: { $0.id == session.id }) else { return false }
-                        store.moveSession(id: droppedId, toIndex: targetIndex, inProject: project.id)
-                        return true
-                    }
-                }
-
+                expandedSessionList
                 newSessionButton
                     .padding(.leading, 20)
             }
         }
         .background(expandedContainerBackground)
+    }
+
+    // MARK: - Expanded Session List
+
+    /// Sessions for this project, grouped into `.active` / `.recent` / `.idle`
+    /// buckets. Drag-drop reordering still respects the project's flat
+    /// `sortOrder` — drag is bucket-local for now (R-D requirements).
+    private var sessionGroups: [(SessionBucket, [AgentSession])] {
+        store.sessionGroups(forProject: project.id)
+    }
+
+    @ViewBuilder
+    private var expandedSessionList: some View {
+        let groups = sessionGroups
+        let multipleBuckets = groups.count > 1
+
+        ForEach(groups, id: \.0) { bucket, bucketSessions in
+            if multipleBuckets {
+                SessionGroupHeader(bucket: bucket)
+                    .padding(.leading, 20)
+                    .padding(.top, bucket == groups.first?.0 ? 2 : 6)
+            }
+
+            ForEach(Array(bucketSessions.enumerated()), id: \.element.id) { index, session in
+                sessionRowView(
+                    for: session,
+                    index: index,
+                    bucketSessions: bucketSessions
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func sessionRowView(
+        for session: AgentSession,
+        index: Int,
+        bucketSessions: [AgentSession]
+    ) -> some View {
+        SessionRow(
+            session: session,
+            indicatorState: coordinator.indicatorState(for: session.id),
+            ghostCharacter: project.ghostCharacter,
+            isActive: coordinator.activeSessionId == session.id,
+            isEditing: editingSessionId == session.id,
+            agentTemplateName: agentTemplateName(for: session),
+            editingName: editingSessionId == session.id ? $editingName : .constant(""),
+            isRenameFocused: $renameFieldFocused,
+            onCommitRename: { commitRename(session: session) },
+            onCancelRename: { cancelRename() }
+        )
+        .padding(.leading, 20)
+        .onTapGesture(count: 2) {
+            beginRename(session: session)
+        }
+        .onTapGesture {
+            selectedProjectId = project.id
+            coordinator.focusSession(id: session.id)
+        }
+        .contextMenu {
+            Button("Rename") {
+                beginRename(session: session)
+            }
+            Divider()
+            if index > 0 {
+                Button("Move Up") {
+                    moveWithinBucket(
+                        session: session,
+                        from: index,
+                        to: index - 1,
+                        bucketSessions: bucketSessions
+                    )
+                }
+            }
+            if index < bucketSessions.count - 1 {
+                Button("Move Down") {
+                    moveWithinBucket(
+                        session: session,
+                        from: index,
+                        to: index + 1,
+                        bucketSessions: bucketSessions
+                    )
+                }
+            }
+            if index > 0 || index < bucketSessions.count - 1 {
+                Divider()
+            }
+            if coordinator.isRunning(id: session.id) {
+                Button("Stop") {
+                    coordinator.closeSession(id: session.id)
+                }
+            } else {
+                Button("Relaunch") {
+                    relaunchSession(session)
+                }
+                Button("Remove", role: .destructive) {
+                    coordinator.clearRuntime(id: session.id)
+                    store.removeSession(id: session.id)
+                }
+            }
+        }
+        .draggable(session.id.uuidString) {
+            Text(session.name)
+                .font(.system(size: 12))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.ultraThinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .dropDestination(for: String.self) { items, _ in
+            guard let droppedString = items.first,
+                  let droppedId = UUID(uuidString: droppedString) else { return false }
+            // Only allow drag-drop within the same bucket — cross-bucket
+            // reorders would let the user move "Idle" sessions ahead of
+            // "Active" ones, which fights the bucketing logic.
+            guard bucketSessions.contains(where: { $0.id == droppedId }) else {
+                return false
+            }
+            guard let targetIndexInBucket = bucketSessions.firstIndex(where: { $0.id == session.id })
+            else { return false }
+            moveWithinBucket(
+                draggedId: droppedId,
+                toIndexInBucket: targetIndexInBucket,
+                bucketSessions: bucketSessions
+            )
+            return true
+        }
+    }
+
+    /// Translate a within-bucket move into the project-flat `moveSession` call
+    /// the store understands. The flat list is the source of truth for
+    /// `sortOrder`; bucket order is computed downstream.
+    private func moveWithinBucket(
+        session: AgentSession,
+        from sourceIndexInBucket: Int,
+        to targetIndexInBucket: Int,
+        bucketSessions: [AgentSession]
+    ) {
+        guard targetIndexInBucket >= 0,
+              targetIndexInBucket < bucketSessions.count else { return }
+        let target = bucketSessions[targetIndexInBucket]
+        let flatSessions = store.sessions(for: project.id)
+        guard let flatTargetIndex = flatSessions.firstIndex(where: { $0.id == target.id })
+        else { return }
+        store.moveSession(id: session.id, toIndex: flatTargetIndex, inProject: project.id)
+    }
+
+    /// Drag-drop variant: the dragged session ID is not necessarily the row
+    /// being rendered — find its flat index and move it next to the target.
+    private func moveWithinBucket(
+        draggedId: UUID,
+        toIndexInBucket: Int,
+        bucketSessions: [AgentSession]
+    ) {
+        guard toIndexInBucket >= 0,
+              toIndexInBucket < bucketSessions.count else { return }
+        let target = bucketSessions[toIndexInBucket]
+        let flatSessions = store.sessions(for: project.id)
+        guard let flatTargetIndex = flatSessions.firstIndex(where: { $0.id == target.id })
+        else { return }
+        store.moveSession(id: draggedId, toIndex: flatTargetIndex, inProject: project.id)
     }
 
     // MARK: - Project Header
@@ -122,6 +214,19 @@ struct ProjectDisclosureRow: View {
                     color: projectHeaderColor,
                     isExpanded: isExpanded
                 )
+
+                // Ghost icon — color reflects the project's aggregate activity
+                // state (terracotta = live work, primary = recent, muted = idle).
+                // The ghost collapses two signals (project identity + activity)
+                // into one mark, per the smart-sections design.
+                if let ghost = project.ghostCharacter {
+                    GhostCharacterView(
+                        character: ghost,
+                        color: store.projectActivityColor(for: project)
+                    )
+                    .frame(width: 12, height: 12)
+                    .frame(width: 16, height: 16)
+                }
 
                 Text(project.name)
                     .font(.system(size: 13, weight: .medium))
@@ -303,5 +408,51 @@ struct ProjectDisclosureRow: View {
 
     private func cancelRename() {
         editingSessionId = nil
+    }
+}
+
+// MARK: - Session Group Header
+
+/// Smaller, subtler variant of the sidebar section header — used inside an
+/// expanded project to label the "Active / Recent / Idle" buckets when more
+/// than one is populated. Shares the muted vocabulary of the top-level headers
+/// but at a smaller scale because they're nested.
+private struct SessionGroupHeader: View {
+    let bucket: SessionBucket
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: iconName)
+                .font(.system(size: 8, weight: .semibold))
+                .frame(width: 10, alignment: .center)
+
+            Text(label.uppercased())
+                .font(.system(size: 9, weight: .semibold))
+                .tracking(0.5)
+
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(WorkspaceLayout.sessionGroupHeaderForeground)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    private var label: String {
+        switch bucket {
+        case .active: return "Active"
+        case .recent: return "Recent"
+        case .idle:   return "Idle"
+        }
+    }
+
+    private var iconName: String {
+        switch bucket {
+        case .active: return "bolt.fill"
+        case .recent: return "clock.fill"
+        case .idle:   return "moon.zzz.fill"
+        }
     }
 }

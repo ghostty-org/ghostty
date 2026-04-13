@@ -21,21 +21,37 @@ struct WorkspaceSidebarView: View {
             titlebarToolbar
 
             // Scrollable disclosure list or empty state
-            if store.sortedProjects.isEmpty {
+            if store.sectionedProjects.isEmpty {
                 emptyState
             } else {
                 ScrollView {
                     LazyVStack(spacing: 2) {
-                        ForEach(store.sortedProjects) { project in
-                            ProjectDisclosureRow(
-                                project: project,
-                                isExpanded: expandedBinding(for: project.id),
-                                selectedProjectId: $selectedProjectId
-                            )
+                        ForEach(store.sectionedProjects, id: \.0) { section, projects in
+                            // Hide the entire header for empty sections.
+                            // (`sectionedProjects` already drops empty buckets,
+                            // but this guard documents intent for future edits.)
+                            if !projects.isEmpty {
+                                SidebarSectionHeader(section: section)
+                                    .padding(.top, section == .pinned ? 0 : 8)
+
+                                ForEach(projects) { project in
+                                    ProjectDisclosureRow(
+                                        project: project,
+                                        isExpanded: expandedBinding(for: project.id),
+                                        selectedProjectId: $selectedProjectId
+                                    )
+                                }
+                            }
                         }
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
+                    .animation(
+                        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                            ? nil
+                            : .default,
+                        value: store.sectionSignature
+                    )
                 }
                 .accessibilityLabel("Projects")
             }
@@ -51,7 +67,7 @@ struct WorkspaceSidebarView: View {
                    store.projects.contains(where: { $0.id == lastId }) {
                     selectedProjectId = lastId
                 } else {
-                    selectedProjectId = store.sortedProjects.first?.id
+                    selectedProjectId = store.flatProjectsInVisualOrder.first?.id
                 }
             }
             // Auto-expand the project containing the active session.
@@ -154,23 +170,71 @@ struct WorkspaceSidebarView: View {
         }
     }
 
-    /// Move selection to the next or previous project in the sorted list,
-    /// auto-expanding the target project.
+    /// Move selection to the next or previous project in the flattened section
+    /// order (the visual order the user sees on screen), auto-expanding the
+    /// target project.
     private func selectAdjacentProject(offset: Int) {
-        let sorted = store.sortedProjects
-        guard !sorted.isEmpty else { return }
+        let visualOrder = store.flatProjectsInVisualOrder
+        guard !visualOrder.isEmpty else { return }
 
         guard let currentId = selectedProjectId,
-              let currentIndex = sorted.firstIndex(where: { $0.id == currentId }) else {
-            selectedProjectId = sorted.first?.id
-            if let id = sorted.first?.id { expandedProjectIds.insert(id) }
+              let currentIndex = visualOrder.firstIndex(where: { $0.id == currentId }) else {
+            selectedProjectId = visualOrder.first?.id
+            if let id = visualOrder.first?.id { expandedProjectIds.insert(id) }
             return
         }
 
-        let newIndex = (currentIndex + offset + sorted.count) % sorted.count
-        let targetId = sorted[newIndex].id
+        let newIndex = (currentIndex + offset + visualOrder.count) % visualOrder.count
+        let targetId = visualOrder[newIndex].id
         selectedProjectId = targetId
         expandedProjectIds.insert(targetId)
+    }
+}
+
+// MARK: - Section Header
+
+/// Small section header rendered above each non-empty group in the sidebar.
+/// Uses uppercase tracking + muted foreground to recede behind the project rows
+/// while still serving as a clear waypoint when scanning the list.
+private struct SidebarSectionHeader: View {
+    let section: SidebarSection
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: iconName)
+                .font(.system(size: 9, weight: .semibold))
+                .frame(width: 12, alignment: .center)
+
+            Text(label.uppercased())
+                .font(.system(size: 10, weight: .semibold))
+                .tracking(0.6)
+
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(WorkspaceLayout.sectionHeaderForeground)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    private var label: String {
+        switch section {
+        case .pinned:    return "Pinned"
+        case .activeNow: return "Active Now"
+        case .recent:    return "Recent"
+        case .all:       return "All Projects"
+        }
+    }
+
+    private var iconName: String {
+        switch section {
+        case .pinned:    return "pin.fill"
+        case .activeNow: return "bolt.fill"
+        case .recent:    return "clock.fill"
+        case .all:       return "square.grid.2x2.fill"
+        }
     }
 }
 

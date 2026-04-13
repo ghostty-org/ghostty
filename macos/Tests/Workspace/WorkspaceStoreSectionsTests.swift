@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 @testable import Ghostty
 
@@ -713,6 +714,166 @@ struct WorkspaceStoreSectionsTests {
         store.updateProjectActivityFromIndicatorStates(now: { Date() })
 
         #expect(store._activeSinceTimestamp(for: ghostId) == nil)
+    }
+
+    // MARK: - Project Activity Color (Unit 3)
+
+    @Test func activityColorIsTerracottaWhenAnySessionIsActive() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let p = makeProject(name: "Live", lastActiveAt: now)
+        let s = makeSession(projectId: p.id)
+        let color = WorkspaceStore.projectActivityColor(
+            project: p,
+            sessions: [s],
+            indicatorStates: [s.id: .processing],
+            now: { now }
+        )
+        #expect(color == WorkspaceLayout.waitingTerracotta)
+    }
+
+    @Test func activityColorTerracottaWinsOverRecentTimestamp() {
+        // Even if `lastActiveAt` is way in the past, a live active session
+        // overrides — the project is currently working.
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let p = makeProject(name: "Live", lastActiveAt: now.addingTimeInterval(-48 * 3600))
+        let s = makeSession(projectId: p.id)
+        let color = WorkspaceStore.projectActivityColor(
+            project: p,
+            sessions: [s],
+            indicatorStates: [s.id: .waiting],
+            now: { now }
+        )
+        #expect(color == WorkspaceLayout.waitingTerracotta)
+    }
+
+    @Test func activityColorIsNormalWhenRecentButNotActive() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let p = makeProject(name: "Recent", lastActiveAt: now.addingTimeInterval(-3600))
+        let s = makeSession(projectId: p.id)
+        let color = WorkspaceStore.projectActivityColor(
+            project: p,
+            sessions: [s],
+            indicatorStates: [s.id: .idle],
+            now: { now }
+        )
+        #expect(color == WorkspaceLayout.activityNormalForeground)
+    }
+
+    @Test func activityColorIsMutedWhenStale() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let p = makeProject(name: "Stale", lastActiveAt: now.addingTimeInterval(-48 * 3600))
+        let color = WorkspaceStore.projectActivityColor(
+            project: p,
+            sessions: [],
+            indicatorStates: [:],
+            now: { now }
+        )
+        #expect(color == WorkspaceLayout.activityMutedForeground)
+    }
+
+    @Test func activityColorIsMutedWhenLastActiveIsNil() {
+        // Brand-new project, no timestamp yet → muted.
+        let p = makeProject(name: "Brand New", lastActiveAt: nil)
+        let color = WorkspaceStore.projectActivityColor(
+            project: p,
+            sessions: [],
+            indicatorStates: [:],
+            now: { Date(timeIntervalSince1970: 1_000_000) }
+        )
+        #expect(color == WorkspaceLayout.activityMutedForeground)
+    }
+
+    @Test func activityColorIgnoresSessionsBelongingToOtherProjects() {
+        // A processing session in *another* project must not turn this
+        // project's ghost terracotta.
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let p = makeProject(name: "Quiet", lastActiveAt: now.addingTimeInterval(-3600))
+        let other = makeProject(name: "Other")
+        let foreignSession = makeSession(projectId: other.id)
+        let color = WorkspaceStore.projectActivityColor(
+            project: p,
+            sessions: [foreignSession],
+            indicatorStates: [foreignSession.id: .processing],
+            now: { now }
+        )
+        #expect(color == WorkspaceLayout.activityNormalForeground)
+    }
+
+    @Test func activityColorTwentyFourHourBoundaryIsInclusive() {
+        // Mirrors the section-bucketing rule — a project active exactly 24h
+        // ago still reads as "recent" (normal color, not muted).
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let exactly24h = makeProject(
+            name: "Edge",
+            lastActiveAt: now.addingTimeInterval(-24 * 3600)
+        )
+        let justOver = makeProject(
+            name: "Over",
+            lastActiveAt: now.addingTimeInterval(-24 * 3600 - 1)
+        )
+        #expect(
+            WorkspaceStore.projectActivityColor(
+                project: exactly24h,
+                sessions: [],
+                indicatorStates: [:],
+                now: { now }
+            ) == WorkspaceLayout.activityNormalForeground
+        )
+        #expect(
+            WorkspaceStore.projectActivityColor(
+                project: justOver,
+                sessions: [],
+                indicatorStates: [:],
+                now: { now }
+            ) == WorkspaceLayout.activityMutedForeground
+        )
+    }
+
+    // MARK: - Flat Visual Order (Unit 3)
+
+    @MainActor
+    @Test func flatProjectsInVisualOrderConcatenatesSections() {
+        // pinned A, activeNow B, recent C, all D — flat order should mirror
+        // the section render order, with intra-section ordering preserved.
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let pinned = makeProject(name: "Pinned", isPinned: true)
+        let active = makeProject(name: "Active")
+        let recent = makeProject(name: "Recent", lastActiveAt: now.addingTimeInterval(-3600))
+        let stale = makeProject(name: "Stale")
+        let activeSession = makeSession(projectId: active.id)
+
+        let store = WorkspaceStore(
+            testingProjects: [stale, recent, active, pinned],
+            testingSessions: [activeSession]
+        )
+        store.updateIndicatorState(id: activeSession.id, state: .processing)
+
+        let visual = store.flatProjectsInVisualOrder.map(\.name)
+        #expect(visual == ["Pinned", "Active", "Recent", "Stale"])
+    }
+
+    @MainActor
+    @Test func sectionSignatureChangesWhenLayoutChanges() {
+        // Set up so the initial alphabetical order has Zeta last; pinning Zeta
+        // should hoist it to the front of the flat visual order.
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let alpha = makeProject(name: "Alpha", lastActiveAt: now)
+        let zeta = makeProject(name: "Zeta", lastActiveAt: now)
+        let store = WorkspaceStore(
+            testingProjects: [alpha, zeta],
+            testingSessions: []
+        )
+
+        let initial = store.sectionSignature
+        #expect(initial == [alpha.id, zeta.id])
+
+        // Promote `zeta` into pinned — pinned section sorts above recent, so
+        // the flat order flips and the signature must change.
+        store.togglePin(id: zeta.id)
+        let afterPin = store.sectionSignature
+
+        #expect(initial != afterPin)
+        #expect(afterPin == [zeta.id, alpha.id])
     }
 
     // MARK: - Perf Sanity

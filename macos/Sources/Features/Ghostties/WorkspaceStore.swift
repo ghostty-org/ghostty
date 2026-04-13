@@ -111,11 +111,20 @@ final class WorkspaceStore: ObservableObject {
         )
     }
 
-    /// Flat, concatenated view of `sectionedProjects` — kept as a shim while
-    /// call sites migrate in Unit 3. Order: `.pinned` → `.activeNow` → `.recent` → `.all`.
-    @available(*, deprecated, message: "Use sectionedProjects")
-    var sortedProjects: [Project] {
+    /// Flat list of projects in the visual (sectioned) order users see in the
+    /// sidebar — `.pinned` → `.activeNow` → `.recent` → `.all`. Use this for
+    /// keyboard-nav adjacency and any other "what comes next/previous on screen"
+    /// computations.
+    var flatProjectsInVisualOrder: [Project] {
         sectionedProjects.flatMap { $0.1 }
+    }
+
+    /// Deterministic signature of the current section layout — an ordered list
+    /// of project IDs. Views can attach `.animation(.default, value:)` to this
+    /// so SwiftUI animates only when the actual ordering changes, not on every
+    /// `@Published` mutation.
+    var sectionSignature: [UUID] {
+        flatProjectsInVisualOrder.map(\.id)
     }
 
     /// Session grouping for an expanded project. Returns `(bucket, sessions)`
@@ -438,6 +447,46 @@ final class WorkspaceStore: ObservableObject {
         return projects.first(where: {
             $0.rootPath == url.standardizedFileURL.path
         })?.id
+    }
+
+    // MARK: - Project Activity Color
+
+    /// Three-state activity color for a project's ghost icon in the sidebar:
+    ///
+    /// - **Terracotta** (`WorkspaceLayout.waitingTerracotta`) when any session in
+    ///   the project is in an active indicator state
+    ///   (`.processing` / `.waiting` / `.longRunning` / `.needsAttention`).
+    /// - **Normal** (`WorkspaceLayout.activityNormalForeground`) when no active
+    ///   session but `lastActiveAt` is within 24h.
+    /// - **Muted** (`WorkspaceLayout.activityMutedForeground`) otherwise.
+    func projectActivityColor(for project: Project, now: () -> Date = Date.init) -> Color {
+        Self.projectActivityColor(
+            project: project,
+            sessions: sessions,
+            indicatorStates: globalIndicatorStates,
+            now: now
+        )
+    }
+
+    /// Pure-static variant of `projectActivityColor(for:)` for testing.
+    nonisolated static func projectActivityColor(
+        project: Project,
+        sessions: [AgentSession],
+        indicatorStates: [UUID: SessionIndicatorState],
+        now: () -> Date = Date.init
+    ) -> Color {
+        let hasActive = sessions.contains { session in
+            session.projectId == project.id
+                && isActiveIndicatorState(indicatorStates[session.id])
+        }
+        if hasActive { return WorkspaceLayout.waitingTerracotta }
+
+        let recentWindow: TimeInterval = 24 * 60 * 60
+        if let lastActiveAt = project.lastActiveAt,
+           now().timeIntervalSince(lastActiveAt) <= recentWindow {
+            return WorkspaceLayout.activityNormalForeground
+        }
+        return WorkspaceLayout.activityMutedForeground
     }
 
     // MARK: - Section Computation (pure helpers)
