@@ -36,7 +36,6 @@ struct WorkspaceSidebarView: View {
             // dismisses it. See Unit 6 for the migration design.
             if store.hasShownPinMigrationNotice && !store.hasDismissedPinMigrationNotice {
                 PinMigrationNoticeBanner(onDismiss: store.dismissPinMigrationNotice)
-                    .padding(.horizontal, 8)
                     .padding(.top, 12)
                     .padding(.bottom, 4)
                     .transition(.opacity)
@@ -225,10 +224,14 @@ private struct PinMigrationNoticeBanner: View {
     @State private var isCloseHovered = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        // Matches the column structure of `ProjectDisclosureRow` so the pin
+        // icon x-center aligns with row ghost icon x-center, and the text
+        // x-start aligns with project NAME text.
+        HStack(alignment: .top, spacing: WorkspaceLayout.sidebarIconLabelSpacing) {
             Image(systemName: "pin.fill")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(WorkspaceLayout.waitingTerracotta)
+                .frame(width: WorkspaceLayout.sidebarIconColumnWidth, alignment: .center)
                 .padding(.top, 1)
 
             Text("Pin now means \u{201C}always on top.\u{201D} Re-pin the projects you want above the smart sections.")
@@ -251,7 +254,8 @@ private struct PinMigrationNoticeBanner: View {
             .onHover { isCloseHovered = $0 }
             .accessibilityLabel("Dismiss pin migration notice")
         }
-        .padding(.horizontal, 10)
+        .padding(.leading, WorkspaceLayout.sidebarRowLeadingPadding)
+        .padding(.trailing, 8)
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 8)
