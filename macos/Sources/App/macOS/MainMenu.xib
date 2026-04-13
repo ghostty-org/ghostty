@@ -76,11 +76,11 @@
         <customObject id="YLy-65-1bz" customClass="NSFontManager"/>
         <menu title="Main Menu" systemMenu="main" id="AYu-sK-qS6">
             <items>
-                <menuItem title="Ghostty" id="1Xt-HY-uBw">
+                <menuItem title="Ghostties" id="1Xt-HY-uBw">
                     <modifierMask key="keyEquivalentModifierMask"/>
-                    <menu key="submenu" title="Ghostty" systemMenu="apple" id="uQy-DD-JDr">
+                    <menu key="submenu" title="Ghostties" systemMenu="apple" id="uQy-DD-JDr">
                         <items>
-                            <menuItem title="About Ghostty" id="5kV-Vb-QxS">
+                            <menuItem title="About Ghostties" id="5kV-Vb-QxS">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="showAbout:" target="-1" id="tGt-68-tLn"/>
@@ -110,7 +110,7 @@
                                     <action selector="toggleSecureInput:" target="bbz-4X-AYv" id="vWx-z8-5Sy"/>
                                 </connections>
                             </menuItem>
-                            <menuItem title="Make Ghostty the Default Terminal" id="b1t-oB-7MI" userLabel="Set Ghostty as Default Terminal App">
+                            <menuItem title="Make Ghostties the Default Terminal" id="b1t-oB-7MI" userLabel="Set Ghostty as Default Terminal App">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="setAsDefaultTerminal:" target="bbz-4X-AYv" id="QHh-CA-Qho"/>
@@ -122,7 +122,7 @@
                                 <menu key="submenu" title="Services" id="aQe-vS-j8Q"/>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="qno-yg-pur"/>
-                            <menuItem title="Hide Ghostty" keyEquivalent="h" id="Olw-nP-bQN">
+                            <menuItem title="Hide Ghostties" keyEquivalent="h" id="Olw-nP-bQN">
                                 <connections>
                                     <action selector="hide:" target="-1" id="PnN-Uc-m68"/>
                                 </connections>
@@ -140,7 +140,7 @@
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="kCx-OE-vgT"/>
-                            <menuItem title="Quit Ghostty" id="4sb-4s-VLi">
+                            <menuItem title="Quit Ghostties" id="4sb-4s-VLi">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="terminate:" target="-1" id="Te7-pn-YzF"/>
@@ -523,7 +523,7 @@
                     <modifierMask key="keyEquivalentModifierMask"/>
                     <menu key="submenu" title="Help" systemMenu="help" id="F2S-fz-NVQ">
                         <items>
-                            <menuItem title="Ghostty Help" keyEquivalent="?" id="FKE-Sm-Kum">
+                            <menuItem title="Ghostties Help" keyEquivalent="?" id="FKE-Sm-Kum">
                                 <connections>
                                     <action selector="showHelp:" target="bbz-4X-AYv" id="tiy-ow-xSw"/>
                                 </connections>

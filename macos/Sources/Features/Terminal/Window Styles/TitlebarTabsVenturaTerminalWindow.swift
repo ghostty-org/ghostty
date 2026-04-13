@@ -586,7 +586,7 @@ private class WindowButtonsBackdropView: NSView {
 // Custom NSToolbar subclass that displays a centered window title,
 // in order to accommodate the titlebar tabs feature.
 private class TerminalToolbar: NSToolbar, NSToolbarDelegate {
-    private let titleTextField = CenteredDynamicLabel(labelWithString: "👻 Ghostty")
+    private let titleTextField = CenteredDynamicLabel(labelWithString: "👻 Ghostties")
 
     var titleText: String {
         get {
