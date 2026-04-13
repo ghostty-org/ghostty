@@ -233,6 +233,7 @@ class WorkspaceViewContainer: NSView {
 
         // Clean up previous window's observers (handles view moving between windows).
         NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
 
         guard let window = window else { return }
         // Give the coordinator a reference to this view so it can discover
@@ -249,13 +250,28 @@ class WorkspaceViewContainer: NSView {
         // Apply initial traffic light visibility.
         setTrafficLightsHidden(sidebarMode == .closed)
 
-        // Auto-dismiss overlay when window loses focus.
+        // Auto-dismiss overlay when window loses focus + release the sidebar's
+        // freeze snapshot so the next focus shows fresh section bucketing.
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(windowDidResignKey),
             name: NSWindow.didResignKeyNotification,
             object: window
         )
+
+        // Freeze the sidebar's section layout while the window is active so the
+        // user's currently-focused project doesn't shift under bursty agent output.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidBecomeKey),
+            name: NSWindow.didBecomeKeyNotification,
+            object: window
+        )
+
+        // If the window is already key when we move into it, freeze immediately.
+        if window.isKeyWindow {
+            WorkspaceStore.shared.freezeSnapshot()
+        }
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -811,6 +827,27 @@ class WorkspaceViewContainer: NSView {
         if sidebarMode == .overlay {
             transitionTo(.closed)
         }
+        // Sidebar smart-sections freeze-on-focus (plan unit 4):
+        // window blur is treated as the primary release trigger. The next time
+        // the window becomes key we'll re-freeze with the (potentially changed)
+        // layout, and SwiftUI animates the diff via `sectionSignature`.
+        //
+        // Implementation note: we're using window-level key-state via
+        // `NSWindowDelegate`-style notifications rather than SwiftUI's
+        // `.focused()` because the sidebar is hosted in an `NSHostingView`
+        // (not an `NSHostingController`), and its rows aren't text-input
+        // focusable — `.focused()` doesn't fire reliably for tap-target rows
+        // in a hosting view. The window-key signal is coarser but bulletproof:
+        // any time the user is interacting with this window, the sidebar's
+        // bucketing is frozen.
+        WorkspaceStore.shared.releaseSnapshot()
+    }
+
+    @objc private func windowDidBecomeKey() {
+        // Sidebar smart-sections freeze-on-focus (plan unit 4):
+        // freeze the section layout while this window is the user's focus.
+        // No-op if already frozen — `freezeSnapshot()` guards against clobber.
+        WorkspaceStore.shared.freezeSnapshot()
     }
 
     // MARK: - Layout

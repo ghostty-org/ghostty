@@ -225,6 +225,9 @@ final class WorkspaceStore: ObservableObject {
         // Don't add duplicates (same path).
         if let index = projects.firstIndex(where: { $0.rootPath == path }) {
             projects[index].isPinned = true
+            // Re-pinning is a structural change — release any held freeze snapshot
+            // so the sidebar re-buckets immediately.
+            releaseSnapshot()
             persist()
             return
         }
@@ -237,6 +240,9 @@ final class WorkspaceStore: ObservableObject {
             ghostCharacter: GhostCharacter.randomUnused(excluding: usedGhosts)
         )
         projects.append(project)
+        // Adding a project is a fresh layout commit point — drop the freeze snapshot
+        // so the new project shows up in its correct section immediately.
+        releaseSnapshot()
         persist()
     }
 
@@ -252,6 +258,9 @@ final class WorkspaceStore: ObservableObject {
         sessions.removeAll { $0.projectId == id }
         projects.removeAll { $0.id == id }
         if lastSelectedProjectId == id { lastSelectedProjectId = nil }
+        // Project removal is a structural change — release any held freeze snapshot
+        // so the deleted project disappears immediately and remaining projects re-bucket.
+        releaseSnapshot()
         persist()
     }
 
@@ -274,6 +283,10 @@ final class WorkspaceStore: ObservableObject {
             sortOrder: maxOrder + 1
         )
         sessions.append(session)
+        // Session creation is a user action and a fresh layout commit point —
+        // release any held freeze snapshot so the parent project re-buckets
+        // immediately on the next sidebar read.
+        releaseSnapshot()
         persist()
         return session
     }

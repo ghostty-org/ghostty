@@ -197,6 +197,13 @@ final class SessionCoordinator: ObservableObject {
         lastActiveSessionPerProject[session.projectId] = session.id
 
         showSession(newTree, focusView: newView)
+
+        // Sidebar smart-sections (plan unit 4): session creation / relaunch is a
+        // user action and a fresh layout commit point. Release any held freeze
+        // snapshot so the parent project re-buckets on the next sidebar read.
+        // Coexists with `WorkspaceStore.addSession`'s release call — both are
+        // idempotent (release-while-unfrozen is a no-op).
+        WorkspaceStore.shared.releaseSnapshot()
         return true
     }
 
@@ -248,6 +255,10 @@ final class SessionCoordinator: ObservableObject {
         lastActiveSessionPerProject[session.projectId] = session.id
 
         showBrowserInContainer(manager)
+
+        // Sidebar smart-sections (plan unit 4): browser-session creation is a
+        // structural change too — release any held freeze snapshot.
+        WorkspaceStore.shared.releaseSnapshot()
         return true
     }
 

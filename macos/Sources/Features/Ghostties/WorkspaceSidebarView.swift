@@ -5,6 +5,17 @@ import SwiftUI
 /// Replaces the previous two-column ZStack layout (icon rail + detail panel) with a
 /// Finder/Arc-style list where projects are expandable rows that reveal sessions inline.
 /// Multiple projects can be expanded simultaneously.
+///
+/// Freeze-on-focus (plan unit 4):
+/// The smart-section layout is frozen while the view's window is key and released
+/// on blur, on add/remove project, and on session creation. Freeze/release is
+/// driven by `WorkspaceViewContainer`'s `windowDidBecomeKey` / `windowDidResignKey`
+/// observers and `WorkspaceStore`'s structural-mutation methods — see those sites
+/// for the wiring. This view doesn't observe focus directly because the sidebar
+/// is hosted in an `NSHostingView` whose rows aren't text-input focusable, and
+/// SwiftUI `.focused()` is unreliable in that context. Window-level key state
+/// is the bulletproof signal. The `.animation(value: store.sectionSignature)`
+/// modifier below animates only the layout commit when the snapshot releases.
 struct WorkspaceSidebarView: View {
     @EnvironmentObject private var store: WorkspaceStore
     @EnvironmentObject private var coordinator: SessionCoordinator
