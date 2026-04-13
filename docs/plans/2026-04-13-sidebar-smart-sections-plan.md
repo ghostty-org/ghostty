@@ -40,7 +40,7 @@ User juggles 4–8 active agents across 14+ projects. The current sidebar (`Work
 ### Deferred to Separate Tasks
 
 - Grace-period configurability as a user setting — hardcoded to 2 minutes for v1 (see Open Question)
-- Migration UX (silent unpin vs. one-time toast) — treated as v1 polish decision (see Open Question)
+- Migration UX — resolved to Option B (one-time toast + silent unpin); handled in Unit 6 (see Open Questions)
 
 ## Context & Research
 
@@ -74,7 +74,7 @@ External research skipped — the codebase has strong local patterns for every t
 - **Clock abstraction for testability.** Inject a clock (`() -> Date` closure defaulting to `Date.init`) into the section-computation helpers so unit tests can assert grace-period behavior deterministically without `Thread.sleep`.
 - **Sidebar focus detection via first-responder, not window key.** Per the origin doc open question — window `didResignKey` fires too broadly. Track first-responder changes scoped to the sidebar hosting view. Window blur is treated as implied sidebar blur.
 - **Reorder animation: keep instantaneous for v1.** The existing `NSAnimationContext 0.2s easeInOut` pattern is for container mode transitions, not list reordering. SwiftUI's implicit list animation on identifier-keyed `ForEach` can cause motion. Apply `.animation(nil, value: sectionLayout)` unless reduce-motion is off _and_ reorder-on-blur explicitly ran (i.e., animate the big commit, not the incremental ghost-color changes). Respects `accessibilityDisplayShouldReduceMotion`.
-- **Migration: silent for v1.** On first load after upgrade, existing projects decode `isPinned` from JSON; the `Project.isPinned` **default value** changes to `false` only for _new_ projects created after upgrade. Already-persisted `true` values stay true until the user explicitly unpins. Explicit follow-up if we want to force-unpin everything (see Open Question).
+- **Migration: one-time toast + silent unpin (Option B).** On first load after upgrade, flip all existing projects to `isPinned = false` and show a one-time toast explaining the new pin semantics. Track a `hasShownPinMigrationNotice` flag so the toast never re-appears. The `Project.isPinned` default value also changes to `false` for newly created projects going forward. See Unit 6 for implementation detail.
 
 ## Open Questions
 
@@ -94,7 +94,7 @@ External research skipped — the codebase has strong local patterns for every t
 
 ### Blocking — Needs User Answer Before Implementation
 
-- **Migration UX** (origin doc Q4): should the first-run-after-upgrade unpin all existing projects silently, show a one-time toast explaining the new pin semantics, or leave all existing projects pinned and only change the default for new projects? Each has different UX consequences for users who already have 14+ "pinned" projects.
+- **Migration UX** (origin doc Q4) → **RESOLVED: Option B — one-time toast explaining the new pin semantics.** On first app launch after upgrade, flip all existing projects to `isPinned = false` and show a one-time toast/banner: _"Pin now means 'always on top.' Re-pin the projects you want above the smart sections."_ (copy can be wordsmithed). Track a one-time-shown flag (`hasShownPinMigrationNotice: Bool` in user defaults or workspace persistence) so the toast never re-appears. Intent: explain the new meaning so users aren't confused about where their pins went.
 
 ## High-Level Technical Design
 
@@ -411,7 +411,7 @@ Inputs (live):                          Inputs (ephemeral):
 
 - [ ] **Unit 6: Migration polish and empty-section hiding QA**
 
-**Goal:** Resolve the migration UX decision (silent vs. toast), confirm empty-section hiding in every edge case, and verify reduce-motion behavior end-to-end.
+**Goal:** Execute the chosen migration path (Option B — flip all existing pins to `false` and show a one-time toast), confirm empty-section hiding in every edge case, and verify reduce-motion behavior end-to-end.
 
 **Requirements:** R5, R9, R11
 
@@ -419,40 +419,41 @@ Inputs (live):                          Inputs (ephemeral):
 
 **Files:**
 
-- Modify: `macos/Sources/Features/Ghostties/WorkspacePersistence.swift` (add migration step only if the user chooses "silent unpin" — see blocking Open Question)
-- Modify: `macos/Sources/Features/Ghostties/WorkspaceSidebarView.swift` (optional one-time toast if that path is chosen)
-- Test: `macos/Tests/Workspace/WorkspacePersistenceTests.swift` (migration round-trip)
+- Modify: `macos/Sources/Features/Ghostties/WorkspacePersistence.swift` (add one-time migration flipping all `isPinned` to `false` and set `hasShownPinMigrationNotice` flag)
+- Modify: `macos/Sources/Features/Ghostties/WorkspaceSidebarView.swift` (render the one-time toast/banner and dismiss wiring)
+- Test: `macos/Tests/Workspace/WorkspacePersistenceTests.swift` (migration round-trip + one-time flag)
 
 **Approach:**
 
-- Wait for the user's answer to the migration Open Question. Three viable paths:
-  1. **Silent unpin on first load after upgrade.** Add a one-time migration marker to `State` (e.g., `hasMigratedPinSemantics: Bool`); if false, flip all `isPinned` to `false` on load, set marker to true, persist. Users start with zero pins and pin the 2–3 they want.
-  2. **One-time toast explaining new pin semantics.** Same migration marker pattern but don't flip pins; show a dismissible banner in `WorkspaceSidebarView` the first launch after upgrade.
-  3. **No migration.** Existing pins stay; only new projects default to unpinned. Lowest friction, possibly confusing if the user has 14 "pinned" projects.
-- Regardless of choice, the `isPinned` memberwise-init default change from Unit 1 stands.
+- **Migration path locked in: Option B — one-time toast + silent unpin of existing projects.** See Open Questions section for the resolution record.
+- Add a one-time flag `hasShownPinMigrationNotice: Bool` to the persistence `State` (or user defaults — pick the lower-friction storage during Unit 6 kickoff; persistence `State` keeps it self-contained with the workspace file, user defaults survives workspace resets). Default to `false` for legacy files.
+- On first load after upgrade (flag is `false`): iterate all projects and set `isPinned = false`, set `hasShownPinMigrationNotice = true`, persist.
+- In `WorkspaceSidebarView`, render a dismissible toast/banner when the flag transitions or is observed `true`-pending-dismiss — copy: _"Pin now means 'always on top.' Re-pin the projects you want above the smart sections."_ (final wording open to wordsmithing; intent is to explain the new meaning so users aren't confused about where their pins went). Dismissal writes the persisted dismissal state so the toast never re-appears.
+- The `isPinned` memberwise-init default change from Unit 1 stands.
 - Empty-section QA: walk through every edge case from the origin doc (all active, only pinned, only long-tail, brand-new project) and visually verify no phantom headers or dividers render.
 - Reduce-motion QA: toggle `System Settings → Accessibility → Display → Reduce motion` and confirm no reorder animation fires; section content still updates on release.
 
-**Execution note:** This unit is a decision + polish pass, not new infrastructure. Skip if the user picks option 3.
+**Execution note:** This unit is a decision + polish pass. Ship migration + toast together so users see the explanation the first time their pins disappear.
 
 **Patterns to follow:**
 
-- `WorkspacePersistence.State.init(from:)` + `validate(_:)` for any migration-marker plumbing
-- Existing dismissible-banner patterns in the app (if option 2 is chosen — check `ProjectSettingsView.swift` and similar for popover style)
+- `WorkspacePersistence.State.init(from:)` + `validate(_:)` for the migration-marker plumbing
+- Existing dismissible-banner patterns in the app (check `ProjectSettingsView.swift` and similar for popover/banner style)
 
 **Test scenarios:**
 
-- Happy path (option 1): load a legacy `workspace.json` with `isPinned: true` on every project → after migration, every `isPinned` is `false` and the migration marker is set
-- Happy path (option 1): second load after migration → marker already set, no re-migration, pins chosen by the user in between are preserved
-- Happy path (option 2): first-run-after-upgrade flag triggers the toast exactly once
-- Edge case: corrupt/missing migration marker → treat as not-yet-migrated (safe side)
-- Edge case (option 3): non-test path; verify manually that the option is coherent with user expectations via the Open Question resolution
+- Happy path: load a legacy `workspace.json` with `isPinned: true` on every project and `hasShownPinMigrationNotice` absent → after migration, every `isPinned` is `false` and the flag is `true`
+- Happy path: second load after migration → flag already `true`, no re-migration, pins chosen by the user in between are preserved
+- Happy path: first-run-after-upgrade triggers the toast exactly once; dismissing persists and the toast does not re-appear on relaunch
+- Edge case: corrupt/missing migration flag → treat as not-yet-migrated (safe side; migration is idempotent because the flag flips to `true` immediately on first run)
+- Edge case: user re-pins a project after migration → flag stays `true`, no re-migration
 
 **Verification:**
 
 - Migration tests pass
 - Visual QA against the edge-case checklist in the origin doc passes
 - Reduce-motion System Settings toggle makes reorder commits instantaneous
+- Toast appears exactly once on first post-upgrade launch and never again after dismissal
 
 ## System-Wide Impact
 
