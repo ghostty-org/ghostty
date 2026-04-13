@@ -116,7 +116,7 @@ enum WorkspaceLayout {
 
     /// Horizontal gap between the icon column and the text label/name in a
     /// sidebar row or section header.
-    static let sidebarIconLabelSpacing: CGFloat = 6
+    static let sidebarIconLabelSpacing: CGFloat = 10
 
     /// Leading padding applied to the outermost HStack of both section headers
     /// and project rows. Combined with `sidebarIconColumnWidth` this yields the
