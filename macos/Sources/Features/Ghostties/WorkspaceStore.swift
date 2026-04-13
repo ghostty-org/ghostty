@@ -44,6 +44,19 @@ final class WorkspaceStore: ObservableObject {
         didSet { if oldValue != lastSelectedProjectId { persist() } }
     }
 
+    /// Test-only initializer. Bypasses disk persistence and preset loading so
+    /// tests can exercise section computation, grace-period logic, and the
+    /// freeze snapshot without touching the real shared instance.
+    #if DEBUG
+    init(testingProjects: [Project] = [], testingSessions: [AgentSession] = []) {
+        self.projects = testingProjects
+        self.sessions = testingSessions
+        self.sidebarMode = .pinned
+        self.lastSelectedProjectId = nil
+        self.templates = AgentTemplate.defaults
+    }
+    #endif
+
     private init() {
         let state = WorkspacePersistence.load()
         self.projects = state.projects
@@ -65,15 +78,115 @@ final class WorkspaceStore: ObservableObject {
         self.templates = presets + AgentTemplate.defaults + customTemplates
     }
 
-    // MARK: - Computed (Projects)
+    // MARK: - Smart Sections
 
-    /// Pinned projects first (by name), then unpinned (by name).
+    /// Grace period (seconds) during which a project remains in `.activeNow`
+    /// after its last active session quiets. Prevents the list from thrashing
+    /// on bursty agent output or mid-thought pauses.
+    nonisolated static let activeGracePeriod: TimeInterval = 120
+
+    /// Per-project timestamp: the last moment *any* session in this project was
+    /// in an active indicator state (`.processing`, `.waiting`, `.longRunning`,
+    /// `.needsAttention`). Drives the grace-period tail of `.activeNow`.
+    ///
+    /// Ephemeral — not persisted. Populated by `updateProjectActivityFromIndicatorStates()`.
+    private var activeSinceTimestamps: [UUID: Date] = [:]
+
+    /// When non-nil, `sectionedProjects` returns this snapshot verbatim instead
+    /// of recomputing. Views freeze/release to prevent the list from reordering
+    /// while the user is working in the sidebar.
+    private var frozenSnapshot: SectionedProjects?
+
+    /// Four-section sidebar layout: `.pinned`, `.activeNow`, `.recent`, `.all`.
+    /// Empty sections are dropped. While a freeze snapshot is held, returns the
+    /// snapshot verbatim (mutations update internal state but not layout).
+    var sectionedProjects: SectionedProjects {
+        if let frozen = frozenSnapshot { return frozen }
+        return Self.computeSectionedProjects(
+            projects: projects,
+            sessions: sessions,
+            indicatorStates: globalIndicatorStates,
+            activeSinceTimestamps: activeSinceTimestamps,
+            gracePeriod: Self.activeGracePeriod
+        )
+    }
+
+    /// Flat, concatenated view of `sectionedProjects` — kept as a shim while
+    /// call sites migrate in Unit 3. Order: `.pinned` → `.activeNow` → `.recent` → `.all`.
+    @available(*, deprecated, message: "Use sectionedProjects")
     var sortedProjects: [Project] {
-        let pinned = projects.filter(\.isPinned)
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        let unpinned = projects.filter { !$0.isPinned }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        return pinned + unpinned
+        sectionedProjects.flatMap { $0.1 }
+    }
+
+    /// Session grouping for an expanded project. Returns `(bucket, sessions)`
+    /// pairs for the non-empty buckets, in order `.active` → `.recent` → `.idle`.
+    /// Sessions are alphabetical within each bucket.
+    func sessionGroups(forProject projectId: UUID) -> [(SessionBucket, [AgentSession])] {
+        Self.computeSessionGroups(
+            projectId: projectId,
+            sessions: sessions,
+            indicatorStates: globalIndicatorStates
+        )
+    }
+
+    #if DEBUG
+    /// Test hook — seed the grace-period tracker directly. Production code must
+    /// use `updateProjectActivityFromIndicatorStates()` instead.
+    func _setActiveSinceTimestamp(projectId: UUID, date: Date?) {
+        if let date {
+            activeSinceTimestamps[projectId] = date
+        } else {
+            activeSinceTimestamps.removeValue(forKey: projectId)
+        }
+    }
+
+    /// Test hook — read the raw tracker value for a project.
+    func _activeSinceTimestamp(for projectId: UUID) -> Date? {
+        activeSinceTimestamps[projectId]
+    }
+    #endif
+
+    /// Refresh the per-project "active since" tracker from the current indicator
+    /// state map. Call on indicator pushes or activity-timer ticks. Orphaned
+    /// entries (project ids that no longer exist) are cleaned up here.
+    ///
+    /// Unit 2 exposes this method; Unit 5 wires it to the real triggers.
+    func updateProjectActivityFromIndicatorStates(now: () -> Date = Date.init) {
+        let validProjectIds = Set(projects.map(\.id))
+        // Drop orphaned entries — their project was removed.
+        activeSinceTimestamps = activeSinceTimestamps.filter { validProjectIds.contains($0.key) }
+
+        // For every project that currently has any active session, stamp "now".
+        let timestamp = now()
+        for project in projects {
+            let hasActiveSession = sessions.contains { session in
+                session.projectId == project.id
+                    && Self.isActiveIndicatorState(globalIndicatorStates[session.id])
+            }
+            if hasActiveSession {
+                activeSinceTimestamps[project.id] = timestamp
+            }
+        }
+    }
+
+    /// Capture the current section layout into the freeze snapshot. Subsequent
+    /// reads of `sectionedProjects` return the snapshot until `releaseSnapshot()`
+    /// is called. No-op if already frozen (nested freezes don't clobber).
+    func freezeSnapshot() {
+        guard frozenSnapshot == nil else { return }
+        frozenSnapshot = Self.computeSectionedProjects(
+            projects: projects,
+            sessions: sessions,
+            indicatorStates: globalIndicatorStates,
+            activeSinceTimestamps: activeSinceTimestamps,
+            gracePeriod: Self.activeGracePeriod
+        )
+    }
+
+    /// Release any held freeze snapshot. Next `sectionedProjects` read recomputes.
+    /// No-op if nothing is frozen.
+    func releaseSnapshot() {
+        frozenSnapshot = nil
     }
 
     // MARK: - Computed (Sessions)
@@ -322,9 +435,189 @@ final class WorkspaceStore: ObservableObject {
 
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
         addProject(at: url)
-        return sortedProjects.first(where: {
+        return projects.first(where: {
             $0.rootPath == url.standardizedFileURL.path
         })?.id
+    }
+
+    // MARK: - Section Computation (pure helpers)
+
+    /// Returns true for indicator states that count as "active" for sidebar bucketing:
+    /// `.processing`, `.waiting`, `.longRunning`, `.needsAttention`.
+    nonisolated static func isActiveIndicatorState(_ state: SessionIndicatorState?) -> Bool {
+        switch state {
+        case .processing, .waiting, .longRunning, .needsAttention:
+            return true
+        case .inactive, .idle, .error, .none:
+            return false
+        }
+    }
+
+    /// Pure function that bucketizes projects into the four sidebar sections.
+    /// Exposed as `static` for deterministic testing with injected clock + state.
+    ///
+    /// Rules (highest-priority match wins — a project lives in exactly one section):
+    /// - `.pinned`     — `project.isPinned == true`
+    /// - `.activeNow`  — any session is in an active indicator state **or** the
+    ///                   project is within `gracePeriod` seconds of last-active
+    /// - `.recent`     — `project.lastActiveAt` within the past 24h (inclusive)
+    /// - `.all`        — everything else
+    ///
+    /// Intra-section order:
+    /// - `.pinned`    — alphabetical (stable until Unit 6 adds user-chosen order)
+    /// - `.activeNow` — alphabetical (case-insensitive)
+    /// - `.recent`    — chronological by `project.lastActiveAt` descending
+    /// - `.all`       — alphabetical (case-insensitive)
+    ///
+    /// Empty sections are dropped from the returned array.
+    ///
+    /// 24h boundary is **inclusive**: a project with `lastActiveAt` exactly 24h
+    /// ago falls in `.recent`. Strictly older than 24h falls in `.all`.
+    ///
+    /// Grace period boundary is **exclusive** (`< gracePeriod`): at exactly
+    /// `gracePeriod` seconds since last active, the project has aged out.
+    nonisolated static func computeSectionedProjects(
+        projects: [Project],
+        sessions: [AgentSession],
+        indicatorStates: [UUID: SessionIndicatorState],
+        activeSinceTimestamps: [UUID: Date],
+        gracePeriod: TimeInterval,
+        now: () -> Date = Date.init
+    ) -> SectionedProjects {
+        let currentDate = now()
+        let recentWindow: TimeInterval = 24 * 60 * 60  // 24h
+
+        var pinned: [Project] = []
+        var activeNow: [Project] = []
+        var recent: [Project] = []
+        var all: [Project] = []
+
+        // Pre-group sessions by project id to avoid O(n*m) scans.
+        var sessionsByProject: [UUID: [AgentSession]] = [:]
+        for session in sessions {
+            sessionsByProject[session.projectId, default: []].append(session)
+        }
+
+        for project in projects {
+            if project.isPinned {
+                pinned.append(project)
+                continue
+            }
+
+            let projectSessions = sessionsByProject[project.id] ?? []
+            let hasLiveActive = projectSessions.contains { session in
+                isActiveIndicatorState(indicatorStates[session.id])
+            }
+
+            let inGrace: Bool = {
+                guard let lastActive = activeSinceTimestamps[project.id] else { return false }
+                return currentDate.timeIntervalSince(lastActive) < gracePeriod
+            }()
+
+            if hasLiveActive || inGrace {
+                activeNow.append(project)
+                continue
+            }
+
+            if let lastActiveAt = project.lastActiveAt,
+               currentDate.timeIntervalSince(lastActiveAt) <= recentWindow {
+                recent.append(project)
+                continue
+            }
+
+            all.append(project)
+        }
+
+        // Alphabetical (case-insensitive) for pinned / activeNow / all.
+        let alpha: (Project, Project) -> Bool = { a, b in
+            a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+        }
+        pinned.sort(by: alpha)
+        activeNow.sort(by: alpha)
+        all.sort(by: alpha)
+        // Recent: chronological descending by lastActiveAt (most recent first).
+        // Nil timestamps shouldn't land here by construction, but sort them last
+        // deterministically if they do (alphabetical tiebreaker).
+        recent.sort { a, b in
+            switch (a.lastActiveAt, b.lastActiveAt) {
+            case let (lhs?, rhs?):
+                if lhs == rhs { return alpha(a, b) }
+                return lhs > rhs
+            case (_?, nil): return true
+            case (nil, _?): return false
+            case (nil, nil): return alpha(a, b)
+            }
+        }
+
+        var result: SectionedProjects = []
+        if !pinned.isEmpty {
+            result.append((.pinned, pinned))
+        }
+        if !activeNow.isEmpty {
+            result.append((.activeNow, activeNow))
+        }
+        if !recent.isEmpty {
+            result.append((.recent, recent))
+        }
+        if !all.isEmpty {
+            result.append((.all, all))
+        }
+        return result
+    }
+
+    /// Pure function that groups the sessions of a single project into the
+    /// three expanded-view buckets. Empty buckets are dropped.
+    ///
+    /// Rules (highest-priority match wins):
+    /// - `.active` — indicator state is `.processing`/`.waiting`/`.longRunning`/`.needsAttention`
+    /// - `.recent` — not active and `lastActiveAt` within the past 24h (inclusive)
+    /// - `.idle`   — everything else
+    ///
+    /// Sessions are alphabetical (case-insensitive) within each bucket.
+    nonisolated static func computeSessionGroups(
+        projectId: UUID,
+        sessions: [AgentSession],
+        indicatorStates: [UUID: SessionIndicatorState],
+        now: () -> Date = Date.init
+    ) -> [(SessionBucket, [AgentSession])] {
+        let currentDate = now()
+        let recentWindow: TimeInterval = 24 * 60 * 60
+
+        var active: [AgentSession] = []
+        var recent: [AgentSession] = []
+        var idle: [AgentSession] = []
+
+        for session in sessions where session.projectId == projectId {
+            if isActiveIndicatorState(indicatorStates[session.id]) {
+                active.append(session)
+                continue
+            }
+            if let lastActiveAt = session.lastActiveAt,
+               currentDate.timeIntervalSince(lastActiveAt) <= recentWindow {
+                recent.append(session)
+                continue
+            }
+            idle.append(session)
+        }
+
+        let alpha: (AgentSession, AgentSession) -> Bool = { a, b in
+            a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+        }
+        active.sort(by: alpha)
+        recent.sort(by: alpha)
+        idle.sort(by: alpha)
+
+        var result: [(SessionBucket, [AgentSession])] = []
+        if !active.isEmpty {
+            result.append((.active, active))
+        }
+        if !recent.isEmpty {
+            result.append((.recent, recent))
+        }
+        if !idle.isEmpty {
+            result.append((.idle, idle))
+        }
+        return result
     }
 
     // MARK: - Private
@@ -353,4 +646,26 @@ final class WorkspaceStore: ObservableObject {
             }.value
         }
     }
+}
+
+// MARK: - Sidebar Section Types
+
+/// The four sidebar sections, in the order they render from top to bottom.
+enum SidebarSection: String, CaseIterable, Hashable {
+    case pinned
+    case activeNow
+    case recent
+    case all
+}
+
+/// Ordered list of `(section, projects)` pairs. Only non-empty sections are included.
+/// Kept as a simple tuple-array for now; upgrade to a typed struct only if call
+/// sites start needing keyed access beyond "iterate in order".
+typealias SectionedProjects = [(SidebarSection, [Project])]
+
+/// The three buckets used to group sessions inside an expanded project row.
+enum SessionBucket: String, CaseIterable, Hashable {
+    case active
+    case recent
+    case idle
 }
