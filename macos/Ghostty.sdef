@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
 
-<dictionary title="Ghostty Scripting Dictionary">
-  <suite name="Ghostty Suite" code="Ghst" description="Ghostty scripting support.">
-    <class name="application" code="capp" description="The Ghostty application.">
+<dictionary title="Ghostties Scripting Dictionary">
+  <suite name="Ghostties Suite" code="Ghst" description="Ghostties scripting support.">
+    <class name="application" code="capp" description="The Ghostties application.">
       <cocoa class="NSApplication"/>
       <property name="name" code="pnam" type="text" access="r" description="The name of the application."/>
       <property name="frontmost" code="pisf" type="boolean" access="r" description="Is this the active application?">
         <cocoa key="isActive"/>
       </property>
-      <property name="front window" code="GFWn" type="window" access="r" description="The frontmost Ghostty window.">
+      <property name="front window" code="GFWn" type="window" access="r" description="The frontmost Ghostties window.">
         <cocoa key="frontWindow"/>
       </property>
       <property name="version" code="vers" type="text" access="r" description="The version number of the application."/>
@@ -38,7 +38,7 @@
       </element>
     </class>
 
-    <class name="window" code="Gwnd" plural="windows" description="A Ghostty window containing one or more tabs.">
+    <class name="window" code="Gwnd" plural="windows" description="A Ghostties window containing one or more tabs.">
       <cocoa class="GhosttyScriptWindow"/>
       <property name="id" code="ID  " type="text" access="r" description="Stable ID for this window."/>
       <property name="name" code="pnam" type="text" access="r" description="The title of the window.">
@@ -61,7 +61,7 @@
       </element>
     </class>
 
-    <class name="tab" code="Gtab" plural="tabs" description="A tab within a Ghostty window.">
+    <class name="tab" code="Gtab" plural="tabs" description="A tab within a Ghostties window.">
       <cocoa class="GhosttyScriptTab"/>
       <property name="id" code="ID  " type="text" access="r" description="Stable ID for this tab."/>
       <property name="name" code="pnam" type="text" access="r" description="The title of the tab.">
@@ -151,8 +151,8 @@
       <enumerator name="stationary" code="SMst" description="Stationary."/>
     </enumeration>
 
-    <command name="perform action" code="GhstPfAc" description="Perform a Ghostty action string on a terminal.">
-      <direct-parameter type="text" description="The Ghostty action string."/>
+    <command name="perform action" code="GhstPfAc" description="Perform a Ghostties action string on a terminal.">
+      <direct-parameter type="text" description="The Ghostties action string."/>
       <parameter name="on" code="GonT" type="terminal" description="Target terminal."/>
       <result type="boolean" description="True when the action was performed."/>
     </command>
@@ -164,14 +164,14 @@
       <result type="surface configuration" description="The newly created surface configuration."/>
     </command>
 
-    <command name="new window" code="GhstNWin" description="Create a new Ghostty window.">
+    <command name="new window" code="GhstNWin" description="Create a new Ghostties window.">
       <parameter name="with configuration" code="GNwS" type="surface configuration" optional="yes" description="Base surface configuration for the initial terminal.">
         <cocoa key="configuration"/>
       </parameter>
       <result type="window" description="The newly created window."/>
     </command>
 
-    <command name="new tab" code="GhstNTab" description="Create a new Ghostty tab.">
+    <command name="new tab" code="GhstNTab" description="Create a new Ghostties tab.">
       <parameter name="in" code="GNtW" type="window" optional="yes" description="Target window for the new tab.">
         <cocoa key="window"/>
       </parameter>
@@ -200,7 +200,7 @@
       <direct-parameter type="specifier" description="The terminal to close."/>
     </command>
 
-    <command name="activate window" code="GhstAcWn" description="Activate a Ghostty window, bringing it to the front.">
+    <command name="activate window" code="GhstAcWn" description="Activate a Ghostties window, bringing it to the front.">
       <direct-parameter type="specifier" description="The window to activate."/>
     </command>
 

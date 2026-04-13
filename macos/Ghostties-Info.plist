@@ -108,7 +108,7 @@
 			<key>UTTypeIdentifier</key>
 			<string>com.seansmithdesign.ghosttiesSurfaceId</string>
 			<key>UTTypeDescription</key>
-			<string>Ghostty Surface Identifier</string>
+			<string>Ghostties Surface Identifier</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>
