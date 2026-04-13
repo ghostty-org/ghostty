@@ -6414,6 +6414,9 @@ pub const Keybinds = struct {
         table: []const u8,
     } = .root,
 
+    /// Whether all keybinds are cleared
+    cleared: bool = false,
+
     pub fn init(self: *Keybinds, alloc: Allocator) !void {
         // We don't clear the memory because it's in the arena and unlikely
         // to be free-able anyways (since arenas can only clear the last
@@ -7206,6 +7209,7 @@ pub const Keybinds = struct {
             self.set = .{};
             self.tables = .empty;
             self.chain_target = .root;
+            self.cleared = true;
             return;
         }
 
@@ -7291,6 +7295,7 @@ pub const Keybinds = struct {
         return .{
             .set = try self.set.clone(alloc),
             .tables = tables,
+            .cleared = self.cleared,
         };
     }
 
@@ -7307,7 +7312,7 @@ pub const Keybinds = struct {
             if (!equalSet(entry.value_ptr, &other_set)) return false;
         }
 
-        return true;
+        return self.cleared == other.cleared;
     }
 
     fn equalSet(
@@ -7911,6 +7916,7 @@ pub const Keybinds = struct {
 
         try testing.expectEqual(1, keybinds.set.bindings.count());
         try testing.expectEqual(2, keybinds.tables.count());
+        try testing.expectEqual(false, keybinds.cleared);
 
         // Clear all keybinds
         try keybinds.parseCLI(alloc, "clear");
@@ -7918,6 +7924,7 @@ pub const Keybinds = struct {
         // Both root set and tables should be cleared
         try testing.expectEqual(0, keybinds.set.bindings.count());
         try testing.expectEqual(0, keybinds.tables.count());
+        try testing.expectEqual(true, keybinds.cleared);
     }
 
     test "parseCLI reset clears tables" {

@@ -116,6 +116,10 @@ export fn ghostty_config_trigger_is_unbound(
     self: *Config,
     trigger: inputpkg.Binding.Trigger.C,
 ) bool {
+    if (self.keybind.cleared) {
+        // If all keybinds are cleared, then we treat any trigger as unbound
+        return true;
+    }
     const t = inputpkg.Binding.Trigger.evalC(trigger);
     return self.keybind.set.isUnbound(t);
 }
