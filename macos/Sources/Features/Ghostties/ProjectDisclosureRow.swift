@@ -209,24 +209,25 @@ struct ProjectDisclosureRow: View {
             }
             selectedProjectId = project.id
         } label: {
-            HStack(spacing: 4) {
-                PixelChevronView(
-                    color: projectHeaderColor,
-                    isExpanded: isExpanded
-                )
-
+            HStack(spacing: WorkspaceLayout.sidebarIconLabelSpacing) {
                 // Ghost icon — color reflects the project's aggregate activity
                 // state (terracotta = live work, primary = recent, muted = idle).
                 // The ghost collapses two signals (project identity + activity)
                 // into one mark, per the smart-sections design.
-                if let ghost = project.ghostCharacter {
-                    GhostCharacterView(
-                        character: ghost,
-                        color: store.projectActivityColor(for: project)
-                    )
-                    .frame(width: 12, height: 12)
-                    .frame(width: 16, height: 16)
+                //
+                // The frame width matches `sidebarIconColumnWidth` so the
+                // ghost's x-center lines up with the section-header icon
+                // (pin/bolt/clock/grid) on the row directly above it.
+                Group {
+                    if let ghost = project.ghostCharacter {
+                        GhostCharacterView(
+                            character: ghost,
+                            color: store.projectActivityColor(for: project)
+                        )
+                        .frame(width: 12, height: 12)
+                    }
                 }
+                .frame(width: WorkspaceLayout.sidebarIconColumnWidth, alignment: .center)
 
                 Text(project.name)
                     .font(.system(size: 13, weight: .medium))
@@ -247,7 +248,7 @@ struct ProjectDisclosureRow: View {
                     .accessibilityLabel("New session")
                 }
             }
-            .padding(.leading, 8)
+            .padding(.leading, WorkspaceLayout.sidebarRowLeadingPadding)
             .padding(.trailing, 12)
             .frame(height: 32)
             .background(

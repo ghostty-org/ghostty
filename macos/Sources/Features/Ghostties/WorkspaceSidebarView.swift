@@ -274,10 +274,13 @@ private struct SidebarSectionHeader: View {
     let section: SidebarSection
 
     var body: some View {
-        HStack(spacing: 6) {
+        // Matches the column structure of `ProjectDisclosureRow` header so
+        // section icons vertically center-align with row ghost icons, and
+        // section LABEL text left-aligns with project NAME text.
+        HStack(spacing: WorkspaceLayout.sidebarIconLabelSpacing) {
             Image(systemName: iconName)
                 .font(.system(size: 9, weight: .semibold))
-                .frame(width: 12, alignment: .center)
+                .frame(width: WorkspaceLayout.sidebarIconColumnWidth, alignment: .center)
 
             Text(label.uppercased())
                 .font(.system(size: 10, weight: .semibold))
@@ -286,7 +289,8 @@ private struct SidebarSectionHeader: View {
             Spacer(minLength: 0)
         }
         .foregroundStyle(WorkspaceLayout.sectionHeaderForeground)
-        .padding(.horizontal, 12)
+        .padding(.leading, WorkspaceLayout.sidebarRowLeadingPadding)
+        .padding(.trailing, 12)
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(label)

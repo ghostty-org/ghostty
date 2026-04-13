@@ -103,6 +103,25 @@ enum WorkspaceLayout {
     /// "Recent", "Idle") inside an expanded project. One tier quieter than the
     /// top-level section headers since they're nested.
     static let sessionGroupHeaderForeground = Color(.tertiaryLabelColor)
+
+    // MARK: - Sidebar Icon Column
+
+    /// Width of the icon column shared by section headers (pin/bolt/clock/grid)
+    /// and project rows (ghost icon). Both icons live in a fixed-width frame
+    /// with `.center` alignment so their x-centers align vertically when
+    /// scanning the list. The label/name text begins after this column plus
+    /// `sidebarIconLabelSpacing`, so section LABEL text and project NAME text
+    /// also left-align.
+    static let sidebarIconColumnWidth: CGFloat = 16
+
+    /// Horizontal gap between the icon column and the text label/name in a
+    /// sidebar row or section header.
+    static let sidebarIconLabelSpacing: CGFloat = 6
+
+    /// Leading padding applied to the outermost HStack of both section headers
+    /// and project rows. Combined with `sidebarIconColumnWidth` this yields the
+    /// common x-position for icons and labels.
+    static let sidebarRowLeadingPadding: CGFloat = 8
 }
 
 // MARK: - Workspace Notifications
