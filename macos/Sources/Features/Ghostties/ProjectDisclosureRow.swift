@@ -233,8 +233,7 @@ struct ProjectDisclosureRow: View {
                     .font(.system(size: 13, weight: .medium))
                     .tracking(-0.13)
                     .lineLimit(1)
-
-                Spacer()
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 if isExpanded {
                     Button(action: handleNewSession) {
