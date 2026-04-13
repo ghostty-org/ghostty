@@ -1,5 +1,72 @@
 # Session Notes — Ghostties
 
+## Apr 13, 2026 (Session 15)
+
+### Sidebar Smart Sections, Theme Binding, Rename, App Icon
+
+Large orchestrator session. Shipped a full sidebar reorganization, wired the workspace chrome to the terminal theme, completed the user-visible Ghostty → Ghostties rename, and fixed the app icon.
+
+**Sidebar Smart Sections (6 units)**
+
+Four-section layout (Pinned / Active / Recent / Archived) with grace-period transitions, freeze-on-focus reordering, session-group activity colors, activity write-throughs from `SessionCoordinator`, and a one-time pin-migration notice toast.
+
+- `c5e5d3eff` unit 1 — `lastActiveAt` field + flipped `isPinned` default
+- `f847b6d4d` unit 2 — section computation + grace period + freeze snapshot
+- `66a72aa6e` unit 3 — render four sections + ghost activity color + session groups
+- `ff47e6b39` unit 4 — freeze-on-focus reorder gating + blur detection
+- `9921fdca3` unit 5 — activity write-throughs from `SessionCoordinator`
+- `d5a13afee` unit 6 — pin migration + one-time notice toast
+
+**Theme Resource Vendoring**
+
+- `025204581` — bundle 463 themes + shell-integration under Xcode build (workaround for broken zig build on macOS 26)
+
+**Theme Color Binding**
+
+- `3602e406c` — workspace chrome now inherits the focused surface's terminal background. Browser card deferred until `BrowserTabManager` has a theme concept.
+
+**App Icon Wire-Up**
+
+- `168698d19` — fix `ASSETCATALOG_COMPILER_APPICON_NAME`, `Ghostties.icon` bundle now shows as the official app icon.
+
+**User-Visible Rename (Ghostty → Ghostties)**
+
+Four-commit rename of user-facing strings only. Executable name / module name intentionally left as `ghostty` / `Ghostty` per CLAUDE.md (see open work below).
+
+- `f609c07a2` menu and window chrome
+- `e554d86d8` dialogs, banners, About, and Shortcuts
+- `8edf68f39` AppleScript dictionary, CLI stderr, UTI description
+- `3576b390a` iOS init view, Dock Tile plugin display name
+
+**Release Install**
+
+Built Release via `xcodebuild` (arm64-only xcframework — see new memory learning), installed to `/Applications/Ghostties.app`. Old copy preserved at `/Applications/Ghostties-backup-pre-unit6.app`.
+
+**Plan + Brainstorm Commits**
+
+- `f3cd43c36` docs: sidebar smart sections plan
+- `decc8cec9` docs: resolve migration UX open question in sidebar plan
+- `8e0652856` docs: Ghostty→Ghostties text rename plan
+
+**Links**
+
+- Requirements: `docs/brainstorms/2026-04-13-sidebar-sort-requirements.md`
+- Plans: `docs/plans/2026-04-13-sidebar-smart-sections-plan.md`, `docs/plans/2026-04-13-ghostty-to-ghostties-text-rename-plan.md`
+- Decision Log: see `ORCHESTRATOR.md` (not duplicating here)
+
+**New Memory Learnings**
+
+- `reference-xcframework-arm64-only.md` — every `xcodebuild` CLI must pin `ONLY_ACTIVE_ARCH=YES ARCHS=arm64`
+- `reference-tcc-bundle-name-behavior.md` — TCC reads `CFBundleName`, not `CFBundleDisplayName`
+
+**Open Work**
+
+- User manual verification of the new `/Applications/Ghostties.app` still pending.
+- `CFBundleName`-driven TCC prompts still say "Ghostty" — deferred (exec rename is high-cost).
+- Browser card theme binding — deferred until `BrowserTabManager` gains a theme concept.
+
+---
+
 ## Apr 10–11, 2026 (Session 14)
 
 ### Standalone App Build & Zig Toolchain Issue
