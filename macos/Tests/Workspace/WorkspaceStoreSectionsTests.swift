@@ -1091,4 +1091,69 @@ struct WorkspaceStoreSectionsTests {
         // 16ms = 0.016s. Comment on measured result lives in test report.
         #expect(median < 0.016, "median computation time \(median)s exceeded 16ms budget")
     }
+
+    // MARK: - Empty-Section QA (Unit 6)
+
+    @Test func sectionedProjectsReturnsOnlyNonEmptyAllSection() async {
+        // Seed with three projects that all fall into `.all` (not pinned, no
+        // recent activity, no live sessions). The returned section list must
+        // contain exactly one entry — no phantom Pinned/Active/Recent buckets.
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let p1 = makeProject(name: "Alpha", isPinned: false, lastActiveAt: nil)
+        let p2 = makeProject(name: "Beta", isPinned: false, lastActiveAt: nil)
+        let p3 = makeProject(
+            name: "Gamma",
+            isPinned: false,
+            // Strictly older than 24h — falls to `.all`, not `.recent`.
+            lastActiveAt: now.addingTimeInterval(-25 * 60 * 60)
+        )
+
+        let result = WorkspaceStore.computeSectionedProjects(
+            projects: [p1, p2, p3],
+            sessions: [],
+            indicatorStates: [:],
+            activeSinceTimestamps: [:],
+            gracePeriod: 120,
+            now: { now }
+        )
+
+        #expect(result.count == 1, "Expected exactly one non-empty section, got \(result.count)")
+        #expect(populatedSections(result) == [.all])
+        #expect(names(in: .all, of: result) == ["Alpha", "Beta", "Gamma"])
+    }
+
+    @Test func sectionedProjectsHasNoEntriesForCompletelyEmptyStore() async {
+        let result = WorkspaceStore.computeSectionedProjects(
+            projects: [],
+            sessions: [],
+            indicatorStates: [:],
+            activeSinceTimestamps: [:],
+            gracePeriod: 120,
+            now: { Date() }
+        )
+        #expect(result.isEmpty)
+    }
+
+    // MARK: - Pin Migration Notice State (Unit 6)
+
+    @Test @MainActor func dismissPinMigrationNoticeFlipsFlag() {
+        let store = WorkspaceStore(
+            hasShownPinMigrationNotice: true,
+            hasDismissedPinMigrationNotice: false
+        )
+        #expect(store.hasShownPinMigrationNotice == true)
+        #expect(store.hasDismissedPinMigrationNotice == false)
+        store.dismissPinMigrationNotice()
+        #expect(store.hasDismissedPinMigrationNotice == true)
+    }
+
+    @Test @MainActor func dismissPinMigrationNoticeIsIdempotent() {
+        let store = WorkspaceStore(
+            hasShownPinMigrationNotice: true,
+            hasDismissedPinMigrationNotice: true
+        )
+        store.dismissPinMigrationNotice()
+        store.dismissPinMigrationNotice()
+        #expect(store.hasDismissedPinMigrationNotice == true)
+    }
 }

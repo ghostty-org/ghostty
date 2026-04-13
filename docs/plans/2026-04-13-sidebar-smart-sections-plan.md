@@ -144,7 +144,7 @@ Inputs (live):                          Inputs (ephemeral):
 
 ## Implementation Units
 
-- [ ] **Unit 1: Data model additions and persistence round-trip**
+- [x] **Unit 1: Data model additions and persistence round-trip**
 
 **Goal:** Add `lastActiveAt: Date?` to both `Project` and `AgentSession`. Change `Project.isPinned` memberwise-init default from `true` to `false`. Keep existing `workspace.json` files loading cleanly.
 
@@ -192,7 +192,7 @@ Inputs (live):                          Inputs (ephemeral):
 
 ---
 
-- [ ] **Unit 2: Section computation in WorkspaceStore**
+- [x] **Unit 2: Section computation in WorkspaceStore**
 
 **Goal:** Replace `WorkspaceStore.sortedProjects` (pinned-alpha + unpinned-alpha) with a four-section computed layout. Add the grace-period tracker and the freeze snapshot. Add a matching helper for expanded-project session grouping.
 
@@ -249,7 +249,7 @@ Inputs (live):                          Inputs (ephemeral):
 
 ---
 
-- [ ] **Unit 3: Sidebar rendering — sections, ghost color, expanded session groups**
+- [x] **Unit 3: Sidebar rendering — sections, ghost color, expanded session groups**
 
 **Goal:** Update the sidebar to render the four sections with headers, hide empty sections, bind each project's ghost icon color to its activity state (terracotta / normal / muted), and render session group headers inside expanded projects.
 
@@ -301,7 +301,7 @@ Inputs (live):                          Inputs (ephemeral):
 
 ---
 
-- [ ] **Unit 4: Freeze-on-focus reorder gating and blur detection**
+- [x] **Unit 4: Freeze-on-focus reorder gating and blur detection**
 
 **Goal:** Wire first-responder and activity signals to `WorkspaceStore.freezeSnapshot()` / `releaseSnapshot()` so the sidebar stops reordering while the user is working in it, and commits the new layout on blur, new-session-created, project-added/removed, or explicit refresh.
 
@@ -358,7 +358,7 @@ Inputs (live):                          Inputs (ephemeral):
 
 ---
 
-- [ ] **Unit 5: Activity write-throughs and hookup to SessionCoordinator**
+- [x] **Unit 5: Activity write-throughs and hookup to SessionCoordinator**
 
 **Goal:** Populate `Project.lastActiveAt` and `AgentSession.lastActiveAt` on the real triggers (output, focus, state change away from idle, session creation) and push per-project activity-since timestamps into the `WorkspaceStore` grace-period tracker.
 
@@ -409,7 +409,7 @@ Inputs (live):                          Inputs (ephemeral):
 
 ---
 
-- [ ] **Unit 6: Migration polish and empty-section hiding QA**
+- [x] **Unit 6: Migration polish and empty-section hiding QA**
 
 **Goal:** Execute the chosen migration path (Option B — flip all existing pins to `false` and show a one-time toast), confirm empty-section hiding in every edge case, and verify reduce-motion behavior end-to-end.
 

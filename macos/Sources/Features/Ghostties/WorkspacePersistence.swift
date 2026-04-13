@@ -39,22 +39,38 @@ struct WorkspacePersistence {
         /// The last selected project ID, for restoring selection on launch.
         var lastSelectedProjectId: UUID?
 
+        /// True once the one-time pin-semantics migration has run. Legacy
+        /// `workspace.json` files (pre-smart-sections) decoded with this flag
+        /// absent default to `false`, which triggers the migration on next load.
+        var hasShownPinMigrationNotice: Bool
+
+        /// True once the user has dismissed the post-migration toast in the
+        /// sidebar. Decoupled from `hasShownPinMigrationNotice` so the toast
+        /// stays visible until the user actively dismisses it (and never
+        /// re-appears after that).
+        var hasDismissedPinMigrationNotice: Bool
+
         init(
             projects: [Project] = [],
             sessions: [AgentSession] = [],
             templates: [AgentTemplate] = [],
             sidebarMode: SidebarMode = .pinned,
-            lastSelectedProjectId: UUID? = nil
+            lastSelectedProjectId: UUID? = nil,
+            hasShownPinMigrationNotice: Bool = false,
+            hasDismissedPinMigrationNotice: Bool = false
         ) {
             self.projects = projects
             self.sessions = sessions
             self.templates = templates
             self.sidebarMode = sidebarMode
             self.lastSelectedProjectId = lastSelectedProjectId
+            self.hasShownPinMigrationNotice = hasShownPinMigrationNotice
+            self.hasDismissedPinMigrationNotice = hasDismissedPinMigrationNotice
         }
 
         private enum CodingKeys: String, CodingKey {
             case projects, sessions, templates, sidebarMode, lastSelectedProjectId
+            case hasShownPinMigrationNotice, hasDismissedPinMigrationNotice
             // Legacy key for backward compatibility.
             case sidebarVisible
         }
@@ -65,6 +81,13 @@ struct WorkspacePersistence {
             self.sessions = try container.decodeIfPresent([AgentSession].self, forKey: .sessions) ?? []
             self.templates = try container.decodeIfPresent([AgentTemplate].self, forKey: .templates) ?? []
             self.lastSelectedProjectId = try container.decodeIfPresent(UUID.self, forKey: .lastSelectedProjectId)
+
+            // Migration-related flags. Missing/corrupt → safe default `false`,
+            // which means "treat as not-yet-migrated." The migration step is
+            // idempotent because it flips `hasShownPinMigrationNotice` to true
+            // immediately and persists, so the second load skips it.
+            self.hasShownPinMigrationNotice = (try? container.decodeIfPresent(Bool.self, forKey: .hasShownPinMigrationNotice)) ?? false
+            self.hasDismissedPinMigrationNotice = (try? container.decodeIfPresent(Bool.self, forKey: .hasDismissedPinMigrationNotice)) ?? false
 
             // Try new sidebarMode first; fall back to legacy sidebarVisible bool.
             // Decode as raw Int to avoid a DecodingError (and full state wipe) on
@@ -88,6 +111,9 @@ struct WorkspacePersistence {
             let persistedMode = sidebarMode == .overlay ? SidebarMode.closed : sidebarMode
             try container.encode(persistedMode, forKey: .sidebarMode)
             try container.encodeIfPresent(lastSelectedProjectId, forKey: .lastSelectedProjectId)
+            // Always encode migration flags so once flipped they survive future writes.
+            try container.encode(hasShownPinMigrationNotice, forKey: .hasShownPinMigrationNotice)
+            try container.encode(hasDismissedPinMigrationNotice, forKey: .hasDismissedPinMigrationNotice)
             // Omit the legacy sidebarVisible key on new writes.
         }
     }
@@ -101,15 +127,47 @@ struct WorkspacePersistence {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let state = try decoder.decode(State.self, from: data)
-            return validate(state)
+            let migrated = migratePinSemanticsIfNeeded(validate(state))
+            // If migration actually changed state, persist immediately so the
+            // flag survives even if the user quits before the next debounced write.
+            if migrated.hasShownPinMigrationNotice && !state.hasShownPinMigrationNotice {
+                save(migrated)
+            }
+            return migrated
         } catch is DecodingError {
             logger.error("Corrupted workspace.json, backing up and starting fresh")
             backupCorruptFile(at: url)
-            return State()
+            // Brand-new install equivalent: no legacy pins to clear, but we run
+            // the migration anyway so the flag is set and the toast won't fire.
+            return migratePinSemanticsIfNeeded(State())
         } catch {
-            // File doesn't exist or can't be read — start fresh
-            return State()
+            // File doesn't exist or can't be read — start fresh.
+            // Brand-new install: no toast, no legacy pins, flag flipped to true.
+            return migratePinSemanticsIfNeeded(State())
         }
+    }
+
+    /// One-time migration for the pin-semantics change introduced in the
+    /// smart-sections sidebar. Idempotent: once `hasShownPinMigrationNotice`
+    /// is `true`, this function is a no-op.
+    ///
+    /// On first run for a legacy workspace.json (flag absent → defaults to
+    /// `false`), every project's `isPinned` flips to `false` and the flag
+    /// flips to `true`. The `hasDismissedPinMigrationNotice` flag stays
+    /// `false` so the sidebar renders the explanatory toast on next launch.
+    ///
+    /// Brand-new installs (no legacy pins) also run the migration as a no-op
+    /// so the code path is consistent and the flag is set; the toast still
+    /// renders on a brand-new install but has nothing surprising to explain
+    /// — this is acceptable polish drift, not a correctness issue.
+    static func migratePinSemanticsIfNeeded(_ state: State) -> State {
+        guard !state.hasShownPinMigrationNotice else { return state }
+        var migrated = state
+        for index in migrated.projects.indices {
+            migrated.projects[index].isPinned = false
+        }
+        migrated.hasShownPinMigrationNotice = true
+        return migrated
     }
 
     /// Regex pattern matching valid CLI flags: single or double dash, then

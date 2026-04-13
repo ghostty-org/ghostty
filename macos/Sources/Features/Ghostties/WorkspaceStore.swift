@@ -44,16 +44,40 @@ final class WorkspaceStore: ObservableObject {
         didSet { if oldValue != lastSelectedProjectId { persist() } }
     }
 
+    /// True once the one-time pin-semantics migration has run. Set by
+    /// `WorkspacePersistence.load()` (or its in-memory equivalent for brand-new
+    /// installs). Read by `WorkspaceSidebarView` to gate the explanatory toast.
+    @Published private(set) var hasShownPinMigrationNotice: Bool = false
+
+    /// True once the user has dismissed the post-migration toast. The toast is
+    /// visible when `hasShownPinMigrationNotice && !hasDismissedPinMigrationNotice`.
+    @Published private(set) var hasDismissedPinMigrationNotice: Bool = false
+
+    /// Mark the post-migration toast as dismissed and persist. No-op if already
+    /// dismissed so repeat calls don't churn the persistence task.
+    func dismissPinMigrationNotice() {
+        guard !hasDismissedPinMigrationNotice else { return }
+        hasDismissedPinMigrationNotice = true
+        persist()
+    }
+
     /// Test-only initializer. Bypasses disk persistence and preset loading so
     /// tests can exercise section computation, grace-period logic, and the
     /// freeze snapshot without touching the real shared instance.
     #if DEBUG
-    init(testingProjects: [Project] = [], testingSessions: [AgentSession] = []) {
+    init(
+        testingProjects: [Project] = [],
+        testingSessions: [AgentSession] = [],
+        hasShownPinMigrationNotice: Bool = true,
+        hasDismissedPinMigrationNotice: Bool = true
+    ) {
         self.projects = testingProjects
         self.sessions = testingSessions
         self.sidebarMode = .pinned
         self.lastSelectedProjectId = nil
         self.templates = AgentTemplate.defaults
+        self.hasShownPinMigrationNotice = hasShownPinMigrationNotice
+        self.hasDismissedPinMigrationNotice = hasDismissedPinMigrationNotice
         self.persistenceDisabled = true
     }
 
@@ -71,9 +95,15 @@ final class WorkspaceStore: ObservableObject {
         self.sessions = state.sessions
         self.sidebarMode = state.sidebarMode
         self.lastSelectedProjectId = state.lastSelectedProjectId
+        self.hasShownPinMigrationNotice = state.hasShownPinMigrationNotice
+        self.hasDismissedPinMigrationNotice = state.hasDismissedPinMigrationNotice
         #if DEBUG
         self.persistenceDisabled = false
         #endif
+
+        // Pin migration is a layout-changing event but `frozenSnapshot` defaults
+        // to nil, so there's nothing to release here — see Unit 4 for the
+        // freeze/release contract.
 
         // Seed bundled presets to ~/.ghostties/presets/ on first launch.
         PresetLoader.seedIfNeeded()
@@ -763,7 +793,7 @@ final class WorkspaceStore: ObservableObject {
     private func persist() {
         guard !persistenceDisabled else { return }
         persistTask?.cancel()
-        persistTask = Task { [projects, sessions, templates, sidebarMode, lastSelectedProjectId] in
+        persistTask = Task { [projects, sessions, templates, sidebarMode, lastSelectedProjectId, hasShownPinMigrationNotice, hasDismissedPinMigrationNotice] in
             try? await Task.sleep(for: .milliseconds(100))
             guard !Task.isCancelled else { return }
             let customTemplates = templates.filter { !$0.isDefault }
@@ -774,7 +804,9 @@ final class WorkspaceStore: ObservableObject {
                 sessions: sessions,
                 templates: customTemplates,
                 sidebarMode: persistedMode,
-                lastSelectedProjectId: lastSelectedProjectId
+                lastSelectedProjectId: lastSelectedProjectId,
+                hasShownPinMigrationNotice: hasShownPinMigrationNotice,
+                hasDismissedPinMigrationNotice: hasDismissedPinMigrationNotice
             )
             await Task.detached(priority: .utility) {
                 WorkspacePersistence.save(state)

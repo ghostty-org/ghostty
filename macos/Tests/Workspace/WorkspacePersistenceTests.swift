@@ -392,4 +392,136 @@ struct WorkspacePersistenceTests {
         template = WorkspacePersistence.sanitizeTemplate(template)
         #expect(template.environmentVariables == ["SAFE_KEY": "ok"])
     }
+
+    // MARK: - Pin Migration (Unit 6)
+
+    @Test func legacyStateMissingMigrationFlagDefaultsToNotMigrated() throws {
+        // Pre-Unit-6 workspace.json: no flag, all projects pinned. Decoding
+        // alone (without the migration step) should expose the flag as `false`
+        // so `migratePinSemanticsIfNeeded` knows to run.
+        let projectId = UUID()
+        let json = """
+        {
+            "projects": [
+                {
+                    "id": "\(projectId.uuidString)",
+                    "name": "Legacy",
+                    "rootPath": "/tmp/Legacy",
+                    "isPinned": true
+                }
+            ],
+            "sessions": [],
+            "templates": []
+        }
+        """
+        let data = Data(json.utf8)
+        let decoded = try JSONDecoder().decode(WorkspacePersistence.State.self, from: data)
+        #expect(decoded.hasShownPinMigrationNotice == false)
+        #expect(decoded.hasDismissedPinMigrationNotice == false)
+        #expect(decoded.projects[0].isPinned == true)
+    }
+
+    @Test func migrationFlipsAllLegacyPinsAndSetsFlag() {
+        let p1 = Project(name: "Alpha", rootPath: "/tmp/Alpha", isPinned: true)
+        let p2 = Project(name: "Beta", rootPath: "/tmp/Beta", isPinned: true)
+        let p3 = Project(name: "Gamma", rootPath: "/tmp/Gamma", isPinned: true)
+        let state = WorkspacePersistence.State(
+            projects: [p1, p2, p3],
+            hasShownPinMigrationNotice: false
+        )
+        let migrated = WorkspacePersistence.migratePinSemanticsIfNeeded(state)
+        #expect(migrated.hasShownPinMigrationNotice == true)
+        #expect(migrated.hasDismissedPinMigrationNotice == false)
+        #expect(migrated.projects.allSatisfy { $0.isPinned == false })
+        // Other fields untouched (names preserved, count preserved).
+        #expect(migrated.projects.map(\.name) == ["Alpha", "Beta", "Gamma"])
+    }
+
+    @Test func migrationIsIdempotentWhenFlagAlreadyTrue() {
+        // Simulates a second launch after the migration has already run.
+        // The user re-pinned one project — that pin must be preserved.
+        let userPin = Project(name: "UserPinned", rootPath: "/tmp/UserPinned", isPinned: true)
+        let unpinned = Project(name: "Other", rootPath: "/tmp/Other", isPinned: false)
+        let state = WorkspacePersistence.State(
+            projects: [userPin, unpinned],
+            hasShownPinMigrationNotice: true,
+            hasDismissedPinMigrationNotice: true
+        )
+        let migrated = WorkspacePersistence.migratePinSemanticsIfNeeded(state)
+        #expect(migrated.hasShownPinMigrationNotice == true)
+        #expect(migrated.hasDismissedPinMigrationNotice == true)
+        #expect(migrated.projects[0].isPinned == true)   // user pin preserved
+        #expect(migrated.projects[1].isPinned == false)
+    }
+
+    @Test func migrationOnEmptyStateIsNoOpButSetsFlag() {
+        // Brand-new install equivalent: no projects, flag false.
+        // Acceptable per plan: migration runs as a no-op so the code path is
+        // exercised consistently and the flag is set.
+        let state = WorkspacePersistence.State()
+        #expect(state.hasShownPinMigrationNotice == false)
+        let migrated = WorkspacePersistence.migratePinSemanticsIfNeeded(state)
+        #expect(migrated.hasShownPinMigrationNotice == true)
+        #expect(migrated.hasDismissedPinMigrationNotice == false)
+        #expect(migrated.projects.isEmpty)
+    }
+
+    @Test func migrationRoundTripPreservesFlagsThroughCodable() throws {
+        let project = Project(name: "P", rootPath: "/tmp/P", isPinned: true)
+        let pre = WorkspacePersistence.State(
+            projects: [project],
+            hasShownPinMigrationNotice: false
+        )
+        let migrated = WorkspacePersistence.migratePinSemanticsIfNeeded(pre)
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(migrated)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(WorkspacePersistence.State.self, from: data)
+
+        #expect(decoded.hasShownPinMigrationNotice == true)
+        #expect(decoded.hasDismissedPinMigrationNotice == false)
+        #expect(decoded.projects[0].isPinned == false)
+
+        // Second migration pass on the decoded value is a no-op.
+        let secondPass = WorkspacePersistence.migratePinSemanticsIfNeeded(decoded)
+        #expect(secondPass.hasShownPinMigrationNotice == true)
+        #expect(secondPass.projects[0].isPinned == false)
+    }
+
+    @Test func dismissalFlagSurvivesEncodingAndDoesNotResurrectToast() throws {
+        // After dismissal, both flags are true. A round-trip must preserve
+        // both, and the toast condition (`shown && !dismissed`) must remain false.
+        let state = WorkspacePersistence.State(
+            hasShownPinMigrationNotice: true,
+            hasDismissedPinMigrationNotice: true
+        )
+        let data = try JSONEncoder().encode(state)
+        let decoded = try JSONDecoder().decode(WorkspacePersistence.State.self, from: data)
+        #expect(decoded.hasShownPinMigrationNotice == true)
+        #expect(decoded.hasDismissedPinMigrationNotice == true)
+        let toastVisible = decoded.hasShownPinMigrationNotice && !decoded.hasDismissedPinMigrationNotice
+        #expect(toastVisible == false)
+    }
+
+    @Test func decodingCorruptMigrationFlagDefaultsToNotMigrated() throws {
+        // A non-bool value where the flag should be → safe default `false`
+        // (treat as not-yet-migrated). This is intentional: the migration
+        // is idempotent, so re-running it costs nothing.
+        let json = """
+        {
+            "projects": [],
+            "sessions": [],
+            "templates": [],
+            "hasShownPinMigrationNotice": "not-a-bool",
+            "hasDismissedPinMigrationNotice": 42
+        }
+        """
+        let data = Data(json.utf8)
+        let decoded = try JSONDecoder().decode(WorkspacePersistence.State.self, from: data)
+        #expect(decoded.hasShownPinMigrationNotice == false)
+        #expect(decoded.hasDismissedPinMigrationNotice == false)
+    }
 }

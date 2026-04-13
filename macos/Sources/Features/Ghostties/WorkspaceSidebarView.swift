@@ -31,6 +31,16 @@ struct WorkspaceSidebarView: View {
             // Titlebar toolbar: action buttons right of traffic lights
             titlebarToolbar
 
+            // One-time pin-semantics migration banner.
+            // Visible after the migration runs and stays until the user
+            // dismisses it. See Unit 6 for the migration design.
+            if store.hasShownPinMigrationNotice && !store.hasDismissedPinMigrationNotice {
+                PinMigrationNoticeBanner(onDismiss: store.dismissPinMigrationNotice)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 4)
+                    .transition(.opacity)
+            }
+
             // Scrollable disclosure list or empty state
             if store.sectionedProjects.isEmpty {
                 emptyState
@@ -199,6 +209,59 @@ struct WorkspaceSidebarView: View {
         let targetId = visualOrder[newIndex].id
         selectedProjectId = targetId
         expandedProjectIds.insert(targetId)
+    }
+}
+
+// MARK: - Pin Migration Notice Banner
+
+/// One-time explanatory banner shown after the pin-semantics migration runs.
+/// Sits at the top of the sidebar (under the toolbar) and reads like a quiet
+/// note rather than an alert. Dismissed via `WorkspaceStore.dismissPinMigrationNotice()`,
+/// which writes a persisted flag so it never re-appears.
+private struct PinMigrationNoticeBanner: View {
+    let onDismiss: () -> Void
+
+    @State private var isCloseHovered = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "pin.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(WorkspaceLayout.waitingTerracotta)
+                .padding(.top, 1)
+
+            Text("Pin now means \u{201C}always on top.\u{201D} Re-pin the projects you want above the smart sections.")
+                .font(.system(size: 11))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .frame(width: 18, height: 18)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(isCloseHovered ? Color.primary.opacity(0.10) : .clear)
+                    )
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .onHover { isCloseHovered = $0 }
+            .accessibilityLabel("Dismiss pin migration notice")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(WorkspaceLayout.waitingTerracotta.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(WorkspaceLayout.waitingTerracotta.opacity(0.18), lineWidth: 0.5)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Pin meaning has changed. Re-pin the projects you want above the smart sections.")
     }
 }
 
