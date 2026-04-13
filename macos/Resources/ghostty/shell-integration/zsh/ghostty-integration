@@ -1,0 +1,458 @@
+# vim:ft=zsh
+#
+# Based on (started as) a copy of Kitty's zsh integration. Kitty is
+# distributed under GPLv3, so this file is also distributed under GPLv3.
+# The license header is reproduced below:
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+#
+# Enables integration between zsh and ghostty.
+#
+# This is an autoloadable function. It's invoked automatically in shells
+# directly spawned by Ghostty but not in any other shells. For example, running
+# `exec zsh`, `sudo -E zsh`, `tmux`, or plain `zsh` will create a shell where
+# ghostty-integration won't automatically run. Zsh users who want integration with
+# Ghostty in all shells should add the following lines to their .zshrc:
+#
+#   if [[ -n $GHOSTTY_RESOURCES_DIR ]]; then
+#     source "$GHOSTTY_RESOURCES_DIR"/shell-integration/zsh/ghostty-integration
+#   fi
+#
+# Implementation note: We can assume that alias expansion is disabled in this
+# file, so no need to quote defensively. We still have to defensively prefix all
+# builtins with `builtin` to avoid accidentally invoking user-defined functions.
+# We avoid `function` reserved word as an additional defensive measure.
+
+# Note that updating options with `builtin emulate -L zsh` affects the global options
+# if it's called outside of a function. So nearly all code has to be in functions.
+_entrypoint() {
+    builtin emulate -L zsh -o no_warn_create_global -o no_aliases
+
+    [[ -o interactive ]]              || builtin return 0  # non-interactive shell
+    (( ! $+_ghostty_state ))          || builtin return 0  # already initialized
+
+    # We require zsh 5.1+ (released Sept 2015) for features like functions_source,
+    # introspection arrays, and array pattern substitution.
+    if ! { builtin autoload -- is-at-least 2>/dev/null && is-at-least 5.1; }; then
+        builtin echo "Zsh ${ZSH_VERSION} is too old for ghostty shell integration (5.1+ required)" >&2
+        builtin return 1
+    fi
+
+    # 0: no OSC 133 [AC] marks have been written yet.
+    # 1: the last written OSC 133 C has not been closed with D yet.
+    # 2: none of the above.
+    builtin typeset -gi _ghostty_state
+
+    # Attempt to create a writable file descriptor to the TTY so that we can print
+    # to the TTY later even when STDOUT is redirected. This code is fairly subtle.
+    #
+    # - It's tempting to do `[[ -t 1 ]] && exec {_ghostty_state}>&1` but we cannot do this
+    #   because it'll create a file descriptor >= 10 without O_CLOEXEC. This file
+    #   descriptor will leak to child processes.
+    # - If we do `exec {3}>&1`, the file descriptor won't leak to the child processes
+    #   but it'll still leak if the current process is replaced with another. In
+    #   addition, it'll break user code that relies on fd 3 being available.
+    # - Zsh doesn't expose dup3, which would have allowed us to copy STDOUT with
+    #   O_CLOEXEC. The only way to create a file descriptor with O_CLOEXEC is via
+    #   sysopen.
+    # - `zmodload zsh/system` and `sysopen -o cloexec -wu _ghostty_fd -- /dev/tty` can
+    #   fail with an error message to STDERR (the latter can happen even if /dev/tty
+    #   is writable), hence the redirection of STDERR. We do it for the whole block
+    #   for performance reasons (redirections are slow).
+    # - We must open the file descriptor right here rather than in _ghostty_deferred_init
+    #   because there are broken zsh plugins out there that run `exec {fd}< <(cmd)`
+    #   and then close the file descriptor more than once while suppressing errors.
+    #   This could end up closing our file descriptor if we opened it in
+    #   _ghostty_deferred_init.
+    typeset -gi _ghostty_fd
+    {
+        builtin zmodload zsh/system && (( $+builtins[sysopen] )) && {
+            { [[ -w     $TTY ]] && builtin sysopen -o cloexec -wu _ghostty_fd --     $TTY } ||
+            { [[ -w /dev/tty ]] && builtin sysopen -o cloexec -wu _ghostty_fd -- /dev/tty }
+        }
+    } 2>/dev/null || (( _ghostty_fd = 1 ))
+
+    # Defer initialization so that other zsh init files can be configure
+    # the integration.
+    builtin typeset -ag precmd_functions
+    precmd_functions+=(_ghostty_deferred_init)
+}
+
+_ghostty_deferred_init() {
+    builtin emulate -L zsh -o no_warn_create_global -o no_aliases
+
+    # Enable semantic markup with OSC 133.
+    _ghostty_precmd() {
+        builtin local -i cmd_status=$?
+        builtin emulate -L zsh -o no_warn_create_global -o no_aliases
+
+        # Don't write OSC 133 D when our precmd handler is invoked from zle.
+        # Some plugins do that to update prompt on cd.
+        if ! builtin zle; then
+            # This code works incorrectly in the presence of a precmd or chpwd
+            # hook that prints. For example, sindresorhus/pure prints an empty
+            # line on precmd and marlonrichert/zsh-snap prints $PWD on chpwd.
+            # We'll end up writing our OSC 133 D mark too late.
+            #
+            # Another failure mode is when the output of a command doesn't end
+            # with LF and prompst_sp is set (it is by default). In this case
+            # we'll incorrectly state that '%' from prompt_sp is a part of the
+            # command's output.
+            if (( _ghostty_state == 1 )); then
+                # The last written OSC 133 C has not been closed with D yet.
+                # Close it and supply status.
+                builtin print -nu $_ghostty_fd '\e]133;D;'$cmd_status'\a'
+                (( _ghostty_state = 2 ))
+            elif (( _ghostty_state == 2 )); then
+                # There might be an unclosed OSC 133 C. Close that.
+                builtin print -nu $_ghostty_fd '\e]133;D\a'
+            fi
+        fi
+
+        builtin local mark1=$'%{\e]133;A;cl=line\a%}'
+        if [[ -o prompt_percent ]]; then
+            builtin typeset -g precmd_functions
+            if [[ ${precmd_functions[-1]} == _ghostty_precmd ]]; then
+                # This is the best case for us: we can add our marks to PS1 and
+                # PS2. This way our marks will be printed whenever zsh
+                # redisplays prompt: on reset-prompt, on SIGWINCH, and on
+                # SIGCHLD if notify is set. Themes that update prompt
+                # asynchronously from a `zle -F` handler might still remove our
+                # marks. Oh well.
+
+                # Restore PS1/PS2 to their pre-mark state if nothing else has
+                # modified them since we last added marks. This avoids exposing
+                # PS1 with our marks to other hooks (which can break themes like
+                # Pure that use pattern matching to strip/rebuild the prompt).
+                # If PS1 was modified (by a theme, async update, etc.), we
+                # keep the modified version, prioritizing the theme's changes.
+                builtin local ps1_changed=0
+                if [[ -n ${_ghostty_saved_ps1+x} ]]; then
+                    if [[ $PS1 == $_ghostty_marked_ps1 ]]; then
+                        PS1=$_ghostty_saved_ps1
+                        PS2=$_ghostty_saved_ps2
+                    elif [[ $PS1 != $_ghostty_saved_ps1 ]]; then
+                        ps1_changed=1
+                    fi
+                fi
+
+                # Save the clean PS1/PS2 before we add marks.
+                _ghostty_saved_ps1=$PS1
+                _ghostty_saved_ps2=$PS2
+
+                # Add our marks. Since we always start from a clean PS1
+                # (either restored above or freshly set by a theme), we can
+                # unconditionally add mark1 and markB.
+                builtin local mark2=$'%{\e]133;A;k=s\a%}'
+                builtin local markB=$'%{\e]133;B\a%}'
+                PS1=${mark1}${PS1}${markB}
+
+                # Handle multiline prompts by marking newline-separated
+                # continuation lines with k=s (mark2). We skip the newline
+                # immediately after mark1 to avoid introducing a double
+                # newline due to OSC 133;A's fresh-line behavior.
+                #
+                # We skip this when PS1 changed because injecting marks into
+                # newlines can break pattern matching in themes that
+                # strip/rebuild the prompt dynamically (e.g., Pure).
+                if (( ! ps1_changed )) && [[ $PS1 == *$'\n'* ]]; then
+                    if [[ $PS1 == ${mark1}$'\n'* ]]; then
+                        builtin local rest=${PS1#${mark1}$'\n'}
+                        if [[ $rest == *$'\n'* ]]; then
+                            PS1=${mark1}$'\n'${rest//$'\n'/$'\n'${mark2}}
+                        fi
+                    else
+                        PS1=${PS1//$'\n'/$'\n'${mark2}}
+                    fi
+                fi
+
+                # PS2 mark is needed when clearing the prompt on resize
+                PS2=${mark2}${PS2}${markB}
+
+                # Save the marked PS1 so we can detect modifications
+                # by other hooks in the next cycle.
+                _ghostty_marked_ps1=$PS1
+                (( _ghostty_state = 2 ))
+            else
+                # If our precmd hook is not the last, we cannot rely on prompt
+                # changes to stick, so we don't even try. At least we can move
+                # our hook to the end to have better luck next time. If there is
+                # another piece of code that wants to take this privileged
+                # position, this won't work well. We'll break them as much as
+                # they are breaking us.
+                precmd_functions=(${precmd_functions:#_ghostty_precmd} _ghostty_precmd)
+                # Plugins that invoke precmd hooks from zle do that before zle
+                # is trashed. This means that the cursor is in the middle of
+                # BUFFER and we cannot print our mark there. Prompt might
+                # already have a mark, so the following reset-prompt will write
+                # it. If it doesn't, there is nothing we can do.
+                if ! builtin zle; then
+                    builtin print -rnu $_ghostty_fd -- $mark1[3,-3]
+                    (( _ghostty_state = 2 ))
+                fi
+            fi
+        elif ! builtin zle; then
+            # Without prompt_percent we cannot patch prompt. Just print the
+            # mark, except when we are invoked from zle. In the latter case we
+            # cannot do anything.
+            builtin print -rnu $_ghostty_fd -- $mark1[3,-3]
+            (( _ghostty_state = 2 ))
+        fi
+    }
+
+    _ghostty_preexec() {
+        builtin emulate -L zsh -o no_warn_create_global -o no_aliases
+
+        # Restore the original PS1/PS2 if nothing else has modified them
+        # since our precmd added marks. This ensures other preexec hooks
+        # see a clean PS1 without our marks. If PS1 was modified (e.g.,
+        # by an async theme update), we leave it alone.
+        if [[ -n ${_ghostty_saved_ps1+x} && $PS1 == $_ghostty_marked_ps1 ]]; then
+            PS1=$_ghostty_saved_ps1
+            PS2=$_ghostty_saved_ps2
+        fi
+
+        # This will work incorrectly in the presence of a preexec hook that
+        # prints. For example, if MichaelAquilina/zsh-you-should-use installs
+        # its preexec hook before us, we'll incorrectly mark its output as
+        # belonging to the command (as if the user typed it into zle) rather
+        # than command output.
+        builtin print -nu $_ghostty_fd '\e]133;C\a'
+        (( _ghostty_state = 1 ))
+    }
+
+    # Enable reporting current working dir to terminal. Ghostty supports
+    # the kitty-shell-cwd format.
+    _ghostty_report_pwd() { builtin print -nu $_ghostty_fd '\e]7;kitty-shell-cwd://'"$HOST""$PWD"'\a'; }
+    chpwd_functions=(${chpwd_functions[@]} "_ghostty_report_pwd")
+    # An executed program could change cwd and report the changed cwd, so also report cwd at each new prompt
+    # as in this case chpwd_functions is insufficient. chpwd_functions is still needed for things like: cd x && something
+    functions[_ghostty_precmd]+="
+        _ghostty_report_pwd"
+    _ghostty_report_pwd
+
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
+      # Enable terminal title changes, formatted for user-friendly display.
+      functions[_ghostty_precmd]+="
+          builtin print -rnu $_ghostty_fd \$'\\e]2;'\"\${(%):-%(4~|…/%3~|%~)}\"\$'\\a'"
+      functions[_ghostty_preexec]+="
+          builtin print -rnu $_ghostty_fd \$'\\e]2;'\"\${1//[[:cntrl:]]}\"\$'\\a'"
+    fi
+
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor"* ]]; then
+      # Enable cursor shape changes depending on the current keymap.
+      # This implementation leaks blinking block cursor into external commands
+      # executed from zle. For example, users of fzf-based widgets may find
+      # themselves with a blinking block cursor within fzf.
+      _ghostty_zle_line_init _ghostty_zle_line_finish _ghostty_zle_keymap_select() {
+        builtin local steady=0
+        [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor:steady"* ]] && steady=1
+        case ${KEYMAP-} in
+            vicmd|visual) builtin print -nu "$_ghostty_fd" "\e[$(( 1 + steady )) q" ;; # block
+            *)            builtin print -nu "$_ghostty_fd" "\e[$(( 5 + steady )) q" ;; # bar
+        esac
+      }
+      # Restore the default shape before executing an external command
+      functions[_ghostty_preexec]+="
+	  builtin print -rnu $_ghostty_fd \$'\\e[0 q'"
+    fi
+
+    # Emit semantic prompt markers at line-init if PS1 doesn't contain our
+    # marks. This ensures the terminal sees prompt markers even if another
+    # plugin (like zinit or oh-my-posh) regenerated PS1 after our precmd ran.
+    # We use 133;P instead of 133;A to avoid fresh-line behavior which would
+    # disrupt the display since the prompt has already been drawn. We also
+    # emit 133;B to mark the input area, which is needed for click-to-move.
+    (( $+functions[_ghostty_zle_line_init] )) || _ghostty_zle_line_init() { builtin true; }
+    functions[_ghostty_zle_line_init]="
+        if [[ \$PS1 != *$'%{\\e]133;A'* ]]; then
+            builtin print -nu \$_ghostty_fd '\\e]133;P;k=i\\a\\e]133;B\\a'
+        fi
+    "${functions[_ghostty_zle_line_init]}
+
+    # Add Ghostty binary to PATH if the path feature is enabled
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *"path"* ]] && [[ -n "$GHOSTTY_BIN_DIR" ]]; then
+      if [[ ":$PATH:" != *":$GHOSTTY_BIN_DIR:"* ]]; then
+        builtin export PATH="$PATH:$GHOSTTY_BIN_DIR"
+      fi
+    fi
+
+    # Sudo
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *"sudo"* ]] && [[ -n "$TERMINFO" ]]; then
+      # Wrap `sudo` command to ensure Ghostty terminfo is preserved
+      function sudo() {
+        builtin local sudo_has_sudoedit_flags="no"
+        for arg in "$@"; do
+          # Check if argument is '-e' or '--edit' (sudoedit flags)
+          if [[ "$arg" == "-e" || $arg == "--edit" ]]; then
+            sudo_has_sudoedit_flags="yes"
+            builtin break
+          fi
+          # Check if argument is neither an option nor a key-value pair
+          if [[ "$arg" != -* && "$arg" != *=* ]]; then
+            builtin break
+          fi
+        done
+        if [[ "$sudo_has_sudoedit_flags" == "yes" ]]; then
+          builtin command sudo "$@";
+        else
+          builtin command sudo --preserve-env=TERMINFO "$@";
+        fi
+      }
+    fi
+
+    # SSH Integration
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *ssh-* ]]; then
+      function ssh() {
+        emulate -L zsh
+        setopt local_options no_glob_subst
+
+        local ssh_term ssh_opts
+        ssh_term="xterm-256color"
+        ssh_opts=()
+
+        # Configure environment variables for remote session
+        if [[ "$GHOSTTY_SHELL_FEATURES" == *ssh-env* ]]; then
+          ssh_opts+=(-o "SetEnv COLORTERM=truecolor")
+          ssh_opts+=(-o "SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION")
+        fi
+
+        # Install terminfo on remote host if needed
+        if [[ "$GHOSTTY_SHELL_FEATURES" == *ssh-terminfo* ]]; then
+          local ssh_user ssh_hostname
+
+          while IFS=' ' read -r ssh_key ssh_value; do
+            case "$ssh_key" in
+              user) ssh_user="$ssh_value" ;;
+              hostname) ssh_hostname="$ssh_value" ;;
+            esac
+            [[ -n "$ssh_user" && -n "$ssh_hostname" ]] && break
+          done < <(command ssh -G "$@" 2>/dev/null)
+
+          if [[ -n "$ssh_hostname" ]]; then
+            local ssh_target="${ssh_user}@${ssh_hostname}"
+
+            # Check if terminfo is already cached
+            if "$GHOSTTY_BIN_DIR/ghostty" +ssh-cache --host="$ssh_target" >/dev/null 2>&1; then
+              ssh_term="xterm-ghostty"
+            elif (( $+commands[infocmp] )); then
+              local ssh_terminfo ssh_cpath_dir ssh_cpath
+
+              ssh_terminfo=$(infocmp -0 -x xterm-ghostty 2>/dev/null)
+
+              if [[ -n "$ssh_terminfo" ]]; then
+                print "Setting up xterm-ghostty terminfo on $ssh_hostname..." >&2
+
+                ssh_cpath_dir=$(mktemp -d "/tmp/ghostty-ssh-$ssh_user.XXXXXX" 2>/dev/null) || ssh_cpath_dir="/tmp/ghostty-ssh-$ssh_user.$$"
+                ssh_cpath="$ssh_cpath_dir/socket"
+
+                if builtin print -r "$ssh_terminfo" | command ssh "${ssh_opts[@]}" -o ControlMaster=yes -o ControlPath="$ssh_cpath" -o ControlPersist=60s "$@" '
+                  infocmp xterm-ghostty >/dev/null 2>&1 && exit 0
+                  command -v tic >/dev/null 2>&1 || exit 1
+                  mkdir -p ~/.terminfo 2>/dev/null && tic -x - 2>/dev/null && exit 0
+                  exit 1
+                ' 2>/dev/null; then
+                  ssh_term="xterm-ghostty"
+                  ssh_opts+=(-o "ControlPath=$ssh_cpath")
+
+                  # Cache successful installation
+                  "$GHOSTTY_BIN_DIR/ghostty" +ssh-cache --add="$ssh_target" >/dev/null 2>&1 || true
+                else
+                  print "Warning: Failed to install terminfo." >&2
+                fi
+              else
+                print "Warning: Could not generate terminfo data." >&2
+              fi
+            else
+              print "Warning: ghostty command not available for cache management." >&2
+            fi
+          fi
+        fi
+
+        # Execute SSH with TERM environment variable
+        TERM="$ssh_term" command ssh "${ssh_opts[@]}" "$@"
+      }
+    fi
+
+    # Some zsh users manually run `source ~/.zshrc` in order to apply rc file
+    # changes to the current shell. This is a terrible practice that breaks many
+    # things, including our shell integration. For example, Oh My Zsh and Prezto
+    # (both very popular among zsh users) will remove zle-line-init and
+    # zle-line-finish hooks if .zshrc is manually sourced. Prezto will also remove
+    # zle-keymap-select.
+    #
+    # Another common (and much more robust) way to apply rc file changes to the
+    # current shell is `exec zsh`. This will remove our integration from the shell
+    # unless it's explicitly invoked from .zshrc. This is not an issue with
+    # `exec zsh` but rather with our implementation of automatic shell integration.
+
+    # In the ideal world we would use add-zle-hook-widget to hook zle-line-init
+    # and similar widget. This breaks user configs though, so we have do this
+    # horrible thing instead.
+    builtin local hook func widget orig_widget flag
+    for hook in line-init line-finish keymap-select; do
+        func=_ghostty_zle_${hook/-/_}
+        (( $+functions[$func] )) || builtin continue
+        widget=zle-$hook
+        if [[ $widgets[$widget] == user:azhw:* &&
+              $+functions[add-zle-hook-widget] -eq 1 ]]; then
+            # If the widget is already hooked by add-zle-hook-widget at the top
+            # level, add our hook at the end. We MUST do it this way. We cannot
+            # just wrap the widget ourselves in this case because it would
+            # trigger bugs in add-zle-hook-widget.
+            add-zle-hook-widget $hook $func
+        else
+            if (( $+widgets[$widget] )); then
+                # There is a widget but it's not from add-zle-hook-widget. We
+                # can rename the original widget, install our own and invoke
+                # the original when we are called.
+                #
+                # Note: The leading dot is to work around bugs in
+                # zsh-syntax-highlighting.
+                orig_widget=._ghostty_orig_$widget
+                builtin zle -A $widget $orig_widget
+                if [[ $widgets[$widget] == user:* ]]; then
+                    # No -w here to preserve $WIDGET within the original widget.
+                    flag=
+                else
+                    flag=w
+                fi
+                functions[$func]+="
+                    builtin zle $orig_widget -N$flag -- \"\$@\""
+            fi
+            builtin zle -N $widget $func
+        fi
+    done
+
+    if (( $+functions[_ghostty_preexec] )); then
+        builtin typeset -ag preexec_functions
+        preexec_functions+=(_ghostty_preexec)
+    fi
+
+    builtin typeset -ag precmd_functions
+    if (( $+functions[_ghostty_precmd] )); then
+        precmd_functions=(${precmd_functions:#_ghostty_deferred_init} _ghostty_precmd)
+        _ghostty_precmd
+    else
+        precmd_functions=(${precmd_functions:#_ghostty_deferred_init})
+    fi
+
+    # Unfunction _ghostty_deferred_init to save memory. Don't unfunction
+    # ghostty-integration though because decent public functions aren't supposed to
+    # to unfunction themselves when invoked. Unfunctioning is done by calling code.
+    builtin unfunction _ghostty_deferred_init
+}
+
+_entrypoint

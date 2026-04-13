@@ -481,6 +481,7 @@
 				A5B3052F299BEAAA0047F10C /* Resources */,
 				819324572F24E74E00A9ED8F /* Copy DockTilePlugin */,
 				B0CEF0012F8A000100018CBF /* Embed CEF */,
+				55E1BED12F00000000000001 /* Embed Ghostty Resources */,
 			);
 			buildRules = (
 			);
@@ -675,6 +676,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
 			shellScript = "\"${PROJECT_DIR}/../scripts/embed-cef.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		55E1BED12F00000000000001 /* Embed Ghostty Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed Ghostty Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "\"${PROJECT_DIR}/../scripts/embed-ghostty-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
 		FC501E0B2F46B410007AE49D /* Run SwiftLint */ = {
