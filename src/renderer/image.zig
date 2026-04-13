@@ -526,7 +526,7 @@ pub const State = struct {
         self: *State,
         alloc: Allocator,
         id: Id,
-        transmit_time: std.time.Instant,
+        transmit_time: std.Io.Timestamp,
         pending: Image.Pending,
     ) PrepImageError!void {
         // If this image exists and its transmit time is the same we assume
@@ -689,7 +689,7 @@ pub const Id = union(enum) {
 /// The map used for storing images.
 pub const ImageMap = std.AutoHashMapUnmanaged(Id, struct {
     image: Image,
-    transmit_time: std.time.Instant,
+    transmit_time: std.Io.Timestamp,
 });
 
 /// The state for a single image that is to be rendered.

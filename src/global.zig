@@ -53,10 +53,10 @@ pub const GlobalState = struct {
     /// Initialize the global state.
     pub fn init(self: *GlobalState, init_minimal: std.process.Init.Minimal) !void {
         const environ = init_minimal.environ;
-        // const start = try std.time.Instant.now();
+        // const start = try std.Io.Timestamp.now();
         // const start_micro = std.time.microTimestamp();
         // defer {
-        //     const end = std.time.Instant.now() catch unreachable;
+        //     const end = std.Io.Timestamp.now() catch unreachable;
         //     // "[updateFrame critical time] <START us>\t<TIME_TAKEN us>"
         //     std.log.err("[global init time] start={}us duration={}ns", .{ start_micro, end.since(start) / std.time.ns_per_us });
         // }
@@ -71,6 +71,10 @@ pub const GlobalState = struct {
             .logging = .{},
             .rlimits = .{},
             .resources_dir = .{},
+            .env = init_minimal.environ,
+
+            // TODO: Figure out how to place libxev within all of this.
+            .io_threaded = .init(self.alloc, .{}),
         };
         errdefer self.deinit();
 
@@ -198,6 +202,10 @@ pub const GlobalState = struct {
             _ = value.deinit();
         }
         self.io_threaded.deinit();
+    }
+
+    pub fn io(self: *GlobalState) std.Io {
+        return self.io_threaded.io();
     }
 
     fn initSignals() void {

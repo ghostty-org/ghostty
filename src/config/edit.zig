@@ -50,8 +50,8 @@ pub fn openPath(alloc_gpa: Allocator, io: std.Io, env: std.process.Environ) ![:0
 ///
 /// The allocator must be an arena allocator. No memory is freed by this
 /// function and the resulting path is not all the memory that is allocated.
-fn configPath(io: std.Io, alloc_arena: Allocator) ![]const u8 {
-    const paths: []const []const u8 = try configPathCandidates(alloc_arena);
+fn configPath(alloc_arena: Allocator, io: std.Io, env: std.process.Environ) ![]const u8 {
+    const paths: []const []const u8 = try configPathCandidates(alloc_arena, io, env);
     assert(paths.len > 0);
 
     // Find the first path that exists and is non-empty. If no paths are
@@ -89,7 +89,7 @@ fn configPath(io: std.Io, alloc_arena: Allocator) ![]const u8 {
 
 /// Returns a const list of possible paths the main config file could be
 /// in for the current OS.
-fn configPathCandidates(alloc_arena: Allocator) ![]const []const u8 {
+fn configPathCandidates(alloc_arena: Allocator, io: std.Io, env: std.process.Environ) ![]const []const u8 {
     var paths: std.ArrayList([]const u8) = try .initCapacity(alloc_arena, 4);
     errdefer paths.deinit(alloc_arena);
 
@@ -98,8 +98,8 @@ fn configPathCandidates(alloc_arena: Allocator) ![]const []const u8 {
         paths.appendAssumeCapacity(try file_load.legacyDefaultAppSupportPath(alloc_arena));
     }
 
-    paths.appendAssumeCapacity(try file_load.defaultXdgPath(alloc_arena));
-    paths.appendAssumeCapacity(try file_load.legacyDefaultXdgPath(alloc_arena));
+    paths.appendAssumeCapacity(try file_load.defaultXdgPath(alloc_arena, io, env));
+    paths.appendAssumeCapacity(try file_load.legacyDefaultXdgPath(alloc_arena, io, env));
 
     return paths.items;
 }

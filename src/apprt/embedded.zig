@@ -999,7 +999,7 @@ pub const Inspector = struct {
     content_scale: f64 = 1,
 
     /// Our previous instant used to calculate delta time for animations.
-    instant: ?std.time.Instant = null,
+    instant: ?std.Io.Timestamp = null,
 
     const Backend = enum {
         metal,
@@ -1228,7 +1228,7 @@ pub const Inspector = struct {
         const io: *cimgui.c.ImGuiIO = cimgui.c.ImGui_GetIO();
 
         // Determine our delta time
-        const now = try std.time.Instant.now();
+        const now = try std.Io.Timestamp.now();
         io.DeltaTime = if (self.instant) |prev| delta: {
             const since_ns: f64 = @floatFromInt(now.since(prev));
             const ns_per_s: f64 = @floatFromInt(std.time.ns_per_s);

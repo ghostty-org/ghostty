@@ -64,14 +64,14 @@ pub fn run(
         signpost.log.release();
     };
 
-    const start = std.time.Instant.now() catch return error.BenchmarkFailed;
+    const start = std.Io.Timestamp.now() catch return error.BenchmarkFailed;
     while (true) {
         // Run our step function. If it fails, we return the error.
         try self.vtable.stepFn(self.ptr);
         result.iterations += 1;
 
         // Get our current monotonic time and check our exit conditions.
-        const now = std.time.Instant.now() catch return error.BenchmarkFailed;
+        const now = std.Io.Timestamp.now() catch return error.BenchmarkFailed;
         const exit = switch (mode) {
             .once => true,
             .duration => |ns| now.since(start) >= ns,

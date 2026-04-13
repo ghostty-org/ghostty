@@ -101,7 +101,7 @@ fn dir(
             });
         }
 
-        return try alloc.dupe(u8, env.value);
+        return try alloc.dupe(u8, env_var);
     }
 
     // Get our home dir

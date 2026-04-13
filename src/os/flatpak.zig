@@ -7,10 +7,10 @@ const xev = @import("../global.zig").xev;
 const log = std.log.scoped(.flatpak);
 
 /// Returns true if we're running in a Flatpak environment.
-pub fn isFlatpak() bool {
+pub fn isFlatpak(io: std.Io) bool {
     // If we're not on Linux then we'll make this comptime false.
     if (comptime builtin.os.tag != .linux) return false;
-    return if (std.fs.accessAbsolute("/.flatpak-info", .{})) true else |_| false;
+    return if (std.Io.Dir.accessAbsolute(io, "/.flatpak-info", .{})) true else |_| false;
 }
 
 /// A struct to help execute commands on the host via the
