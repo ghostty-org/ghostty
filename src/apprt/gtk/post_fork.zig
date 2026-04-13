@@ -85,10 +85,10 @@ pub fn postFork(cmd: *Command) Command.PostForkError!void {
         return;
     };
 
-    const start = std.time.Instant.now() catch unreachable;
+    const start = std.Io.Timestamp.now() catch unreachable;
 
     loop: while (true) {
-        const now = std.time.Instant.now() catch unreachable;
+        const now = std.Io.Timestamp.now() catch unreachable;
 
         if (now.since(start) > 250 * std.time.ns_per_ms) {
             if (cmd.rt_pre_exec_info.linux_cgroup_hard_fail) {

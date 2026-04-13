@@ -47,10 +47,10 @@ pub fn preExec(cmd: *Command) ?u8 {
     var expected_cgroup_buf: [256]u8 = undefined;
     const expected_cgroup = cgroup.fmtScope(&expected_cgroup_buf, pid);
 
-    const start = std.time.Instant.now() catch unreachable;
+    const start = std.Io.Timestamp.now() catch unreachable;
 
     while (true) {
-        const now = std.time.Instant.now() catch unreachable;
+        const now = std.Io.Timestamp.now() catch unreachable;
 
         if (now.since(start) > 250 * std.time.ns_per_ms) {
             if (cmd.rt_pre_exec_info.linux_cgroup_hard_fail) {

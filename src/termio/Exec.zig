@@ -117,7 +117,7 @@ pub fn threadEnter(
     errdefer if (process) |*p| p.deinit();
 
     // Track our process start time for abnormal exits
-    const process_start = try std.time.Instant.now();
+    const process_start = try std.Io.Timestamp.now();
 
     // Create our pipe that we'll use to kill our read thread.
     // pipe[0] is the read end, pipe[1] is the write end.
@@ -273,7 +273,7 @@ fn processExitCommon(td: *termio.Termio.ThreadData, exit_code: u32) void {
 
     // Determine how long the process was running for.
     const runtime_ms: ?u64 = runtime: {
-        const process_end = std.time.Instant.now() catch break :runtime null;
+        const process_end = std.Io.Timestamp.now() catch break :runtime null;
         const runtime_ns = process_end.since(execdata.start);
         const runtime_ms = runtime_ns / std.time.ns_per_ms;
         break :runtime runtime_ms;
@@ -496,7 +496,7 @@ pub const ThreadData = struct {
     const WRITE_REQ_PREALLOC = std.math.pow(usize, 2, 5);
 
     /// Process start time and boolean of whether its already exited.
-    start: std.time.Instant,
+    start: std.Io.Timestamp,
     exited: bool = false,
 
     /// The data stream is the main IO for the pty.

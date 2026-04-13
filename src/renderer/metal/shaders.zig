@@ -326,7 +326,7 @@ pub const BgImage = extern struct {
 
 /// Initialize the MTLLibrary. A MTLLibrary is a collection of shaders.
 fn initLibrary(device: objc.Object) !objc.Object {
-    const start = try std.time.Instant.now();
+    const start = try std.Io.Timestamp.now();
 
     const data = try macos.dispatch.Data.create(
         @embedFile("ghostty_metallib"),
@@ -346,7 +346,7 @@ fn initLibrary(device: objc.Object) !objc.Object {
     );
     try checkError(err);
 
-    const end = try std.time.Instant.now();
+    const end = try std.Io.Timestamp.now();
     log.debug("shader library loaded time={}us", .{end.since(start) / std.time.ns_per_us});
 
     return library;

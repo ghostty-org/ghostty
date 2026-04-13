@@ -31,7 +31,7 @@ pub const Entry = struct {
 };
 
 /// Get the passwd entry for the currently executing user.
-pub fn get(alloc: Allocator) !Entry {
+pub fn get(alloc: Allocator, io: std.Io) !Entry {
     if (comptime builtin.os.tag == .windows) @compileError("passwd is not available on windows");
 
     var buf: [1024]u8 = undefined;
@@ -54,7 +54,7 @@ pub fn get(alloc: Allocator) !Entry {
     // If we're in flatpak then our entry is always empty so we grab it
     // by shelling out to the host. note that we do HAVE an entry in the
     // sandbox but only the username is correct.
-    if (internal_os.isFlatpak()) flatpak: {
+    if (internal_os.isFlatpak(io)) flatpak: {
         if (comptime !build_config.flatpak) {
             log.warn("flatpak detected, but this build doesn't contain flatpak support", .{});
             break :flatpak;

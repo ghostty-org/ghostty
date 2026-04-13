@@ -156,13 +156,14 @@ fn logFn(
 
         // Lock so we are thread-safe
         var buf: [64]u8 = undefined;
-        const stderr = std.debug.lockStderrWriter(&buf);
-        defer std.debug.unlockStderrWriter();
+        const stderr = std.debug.lockStderr(&buf);
+        defer std.debug.unlockStderr();
+        const writer = &stderr.file_writer.interface;
 
         const level_txt = comptime level.asText();
         const prefix = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-        nosuspend stderr.print(level_txt ++ prefix ++ format ++ "\n", args) catch break :stderr;
-        nosuspend stderr.flush() catch break :stderr;
+        nosuspend writer.print(level_txt ++ prefix ++ format ++ "\n", args) catch break :stderr;
+        nosuspend writer.flush() catch break :stderr;
     }
 }
 

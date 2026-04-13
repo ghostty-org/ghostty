@@ -3970,7 +3970,6 @@ pub fn loadOptionalFile(
     self: *Config,
     alloc: Allocator,
     io: std.Io,
-    alloc: Allocator,
     path: []const u8,
 ) OptionalFileAction {
     if (self.loadFile(io, alloc, path)) {
@@ -4014,9 +4013,9 @@ fn writeConfigTemplate(io: std.Io, path: []const u8) !void {
 /// then `config.ghostty`.
 pub fn loadDefaultFiles(self: *Config, alloc: Allocator, io: std.Io, env: std.process.Environ) !void {
     // Load XDG first
-    const legacy_xdg_path = try file_load.legacyDefaultXdgPath(alloc);
+    const legacy_xdg_path = try file_load.legacyDefaultXdgPath(alloc, io, env);
     defer alloc.free(legacy_xdg_path);
-    const xdg_path = try file_load.defaultXdgPath(alloc);
+    const xdg_path = try file_load.defaultXdgPath(alloc, io, env);
     defer alloc.free(xdg_path);
     const xdg_loaded: bool = xdg_loaded: {
         const legacy_xdg_action = self.loadOptionalFile(alloc, io, legacy_xdg_path);
@@ -4033,9 +4032,9 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator, io: std.Io, env: std.pr
 
     // On macOS load the app support directory as well
     if (comptime builtin.os.tag == .macos) {
-        const legacy_app_support_path = try file_load.legacyDefaultAppSupportPath(alloc);
+        const legacy_app_support_path = try file_load.legacyDefaultAppSupportPath(alloc, io);
         defer alloc.free(legacy_app_support_path);
-        const app_support_path = try file_load.preferredAppSupportPath(alloc);
+        const app_support_path = try file_load.preferredAppSupportPath(alloc, io);
         defer alloc.free(app_support_path);
         const app_support_loaded: bool = loaded: {
             const legacy_app_support_action = self.loadOptionalFile(
@@ -4410,7 +4409,6 @@ fn loadTheme(self: *Config, io: std.Io, theme: Theme) !void {
     const themefile = (try themepkg.open(
         self._arena.?.allocator(),
         io,
-        self._arena.?.allocator(),
         name,
         &self._diagnostics,
     )) orelse return;

@@ -50,7 +50,7 @@ fn homeUnix(buf: []u8, io: std.Io, env: std.process.Environ) !?[]const u8 {
     var fba = std.heap.FixedBufferAllocator.init(&temp_buf);
 
     // We try passwd. This doesn't work on multi-user mac but we try it anyways.
-    const pw = try passwd.get(fba.allocator());
+    const pw = try passwd.get(fba.allocator(), io);
     if (pw.home) |result| {
         try writer.writeAll(result);
         return writer.buffered();

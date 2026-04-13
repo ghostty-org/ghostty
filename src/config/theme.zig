@@ -23,6 +23,7 @@ pub const Location = enum {
     pub fn dir(
         self: Location,
         arena_alloc: Allocator,
+        io: std.Io,
     ) error{OutOfMemory}!?[]const u8 {
         return switch (self) {
             .user => user: {
@@ -32,6 +33,7 @@ pub const Location = enum {
 
                 break :user internal_os.xdg.config(
                     arena_alloc,
+                    io,
                     .{ .subdir = subdir },
                 ) catch |err| {
                     // We need to do some comptime tricks to get the right
@@ -71,7 +73,7 @@ pub const LocationIterator = struct {
     arena_alloc: Allocator,
     i: usize = 0,
 
-    pub fn next(self: *LocationIterator) !?struct {
+    pub fn next(self: *LocationIterator, io: std.Io) !?struct {
         location: Location,
         dir: []const u8,
     } {
@@ -79,7 +81,7 @@ pub const LocationIterator = struct {
         while (self.i < max) {
             const location: Location = @enumFromInt(self.i);
             self.i += 1;
-            if (try location.dir(self.arena_alloc)) |dir|
+            if (try location.dir(self.arena_alloc, io)) |dir|
                 return .{
                     .location = location,
                     .dir = dir,
@@ -110,18 +112,17 @@ pub const LocationIterator = struct {
 pub fn open(
     arena_alloc: Allocator,
     io: std.Io,
-    arena_alloc: Allocator,
     theme: []const u8,
     diags: *cli.DiagnosticList,
 ) error{OutOfMemory}!?struct {
     path: []const u8,
-    file: std.fs.File,
+    file: std.Io.File,
 } {
     // Absolute themes are loaded a different path.
     if (std.fs.path.isAbsolute(theme)) {
-        const file: std.fs.File = try openAbsolute(
-            io,
+        const file = try openAbsolute(
             arena_alloc,
+            io,
             theme,
             diags,
         ) orelse return null;
@@ -170,10 +171,10 @@ pub fn open(
     // one that exists.
     var it: LocationIterator = .{ .arena_alloc = arena_alloc };
     const cwd: std.Io.Dir = .cwd();
-    while (try it.next()) |loc| {
+    while (try it.next(io)) |loc| {
         const path = try std.fs.path.join(arena_alloc, &.{ loc.dir, theme });
-        if (cwd.openFile(path, .{})) |file| {
-            const stat = file.stat() catch |err| {
+        if (cwd.openFile(io, path, .{})) |file| {
+            const stat = file.stat(io) catch |err| {
                 try diags.append(arena_alloc, .{
                     .message = try std.fmt.allocPrintSentinel(
                         arena_alloc,
@@ -227,7 +228,7 @@ pub fn open(
     // This does double allocate some memory but for errors I think that's
     // fine.
     it.reset();
-    while (try it.next()) |loc| {
+    while (try it.next(io)) |loc| {
         const path = try std.fs.path.join(arena_alloc, &.{ loc.dir, theme });
         try diags.append(arena_alloc, .{
             .message = try std.fmt.allocPrintSentinel(
@@ -253,7 +254,6 @@ pub fn open(
 pub fn openAbsolute(
     arena_alloc: Allocator,
     io: std.Io,
-    arena_alloc: Allocator,
     theme: []const u8,
     diags: *cli.DiagnosticList,
 ) error{OutOfMemory}!?std.Io.File {

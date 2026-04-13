@@ -161,12 +161,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Timestamp we rendered out first frame.
         ///
         /// This is used when updating custom shader uniforms.
-        first_frame_time: ?std.time.Instant = null,
+        first_frame_time: ?std.Io.Timestamp = null,
 
         /// Timestamp when we rendered out more recent frame.
         ///
         /// This is used when updating custom shader uniforms.
-        last_frame_time: ?std.time.Instant = null,
+        last_frame_time: ?std.Io.Timestamp = null,
 
         /// The font structures.
         font_grid: *font.SharedGrid,
@@ -1125,10 +1125,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             state: *renderer.State,
             cursor_blink_visible: bool,
         ) Allocator.Error!void {
-            // const start = std.time.Instant.now() catch unreachable;
+            // const start = std.Io.Timestamp.now() catch unreachable;
             // const start_micro = std.time.microTimestamp();
             // defer {
-            //     const end = std.time.Instant.now() catch unreachable;
+            //     const end = std.Io.Timestamp.now() catch unreachable;
             //     log.warn(
             //         "[updateFrame time] start_micro={} duration={}ns",
             //         .{ start_micro, end.since(start) / std.time.ns_per_us },
@@ -1163,10 +1163,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Update all our data as tightly as possible within the mutex.
             var critical: Critical = critical: {
-                // const start = try std.time.Instant.now();
+                // const start = try std.Io.Timestamp.now();
                 // const start_micro = std.time.microTimestamp();
                 // defer {
-                //     const end = std.time.Instant.now() catch unreachable;
+                //     const end = std.Io.Timestamp.now() catch unreachable;
                 //     std.log.err("[updateFrame critical time] start={}\tduration={} us", .{ start_micro, end.since(start) / std.time.ns_per_us });
                 // }
 
@@ -1431,10 +1431,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self: *Self,
             sync: bool,
         ) !void {
-            // const start = std.time.Instant.now() catch unreachable;
+            // const start = std.Io.Timestamp.now() catch unreachable;
             // const start_micro = std.time.microTimestamp();
             // defer {
-            //     const end = std.time.Instant.now() catch unreachable;
+            //     const end = std.Io.Timestamp.now() catch unreachable;
             //     log.warn(
             //         "[drawFrame time] start_micro={} duration={}ns",
             //         .{ start_micro, end.since(start) / std.time.ns_per_us },
@@ -2105,7 +2105,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             const uniforms: *shadertoy.Uniforms = &self.custom_shader_uniforms;
 
-            const now = try std.time.Instant.now();
+            const now = try std.Io.Timestamp.now();
             defer self.last_frame_time = now;
             const first_frame_time = self.first_frame_time orelse t: {
                 self.first_frame_time = now;
@@ -2227,10 +2227,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self: *Self,
             features: []const Overlay.Feature,
         ) Overlay.InitError!void {
-            // const start = std.time.Instant.now() catch unreachable;
+            // const start = std.Io.Timestamp.now() catch unreachable;
             // const start_micro = std.time.microTimestamp();
             // defer {
-            //     const end = std.time.Instant.now() catch unreachable;
+            //     const end = std.Io.Timestamp.now() catch unreachable;
             //     log.warn(
             //         "[rebuildOverlay time] start_micro={} duration={}ns",
             //         .{ start_micro, end.since(start) / std.time.ns_per_us },
@@ -2312,10 +2312,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         ) Allocator.Error!void {
             const state: *terminal.RenderState = &self.terminal_state;
 
-            // const start = try std.time.Instant.now();
+            // const start = try std.Io.Timestamp.now();
             // const start_micro = std.time.microTimestamp();
             // defer {
-            //     const end = std.time.Instant.now() catch unreachable;
+            //     const end = std.Io.Timestamp.now() catch unreachable;
             //     // "[rebuildCells time] <START us>\t<TIME_TAKEN us>"
             //     std.log.warn("[rebuildCells time] {}\t{}", .{start_micro, end.since(start) / std.time.ns_per_us});
             // }

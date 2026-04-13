@@ -168,13 +168,13 @@ readonly: bool = false,
 /// precision timestamp. It does not necessarily need to correspond to the
 /// actual time, but we must be able to compare two subsequent timestamps to get
 /// the wall clock time that has elapsed between timestamps.
-command_timer: ?std.time.Instant = null,
+command_timer: ?std.Io.Timestamp = null,
 
 /// Search state
 search: ?Search = null,
 
 /// Used to rate limit BEL handling.
-last_bell_time: ?std.time.Instant = null,
+last_bell_time: ?std.Io.Timestamp = null,
 
 /// The effect of an input event. This can be used by callers to take
 /// the appropriate action after an input event. For example, key
@@ -239,7 +239,7 @@ const Mouse = struct {
     /// The left click time was the last time the left click was done. This
     /// is always set on the first left click.
     left_click_count: u8 = 0,
-    left_click_time: std.time.Instant = undefined,
+    left_click_time: std.Io.Timestamp = undefined,
 
     /// The last x/y sent for mouse reports.
     event_point: ?terminal.point.Coordinate = null,
@@ -1102,7 +1102,7 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         .password_input => |v| try self.passwordInput(v),
 
         .ring_bell => bell: {
-            const now = std.time.Instant.now() catch unreachable;
+            const now = std.Io.Timestamp.now() catch unreachable;
             if (self.last_bell_time) |last| {
                 if (now.since(last) < 100 * std.time.ns_per_ms) break :bell;
             }
@@ -1136,7 +1136,7 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         },
 
         .stop_command => |v| timer: {
-            const end: std.time.Instant = try .now();
+            const end: std.Io.Timestamp = try .now();
             const start = self.command_timer orelse break :timer;
             self.command_timer = null;
 
@@ -3768,7 +3768,7 @@ pub fn mouseButtonCallback(
 
             // If we are within the interval that the click would register
             // an increment then we do not extend the selection.
-            if (std.time.Instant.now()) |now| {
+            if (std.Io.Timestamp.now()) |now| {
                 const since = now.since(self.mouse.left_click_time);
                 if (since <= self.config.mouse_interval) {
                     // Click interval very short, we may be increasing
@@ -3932,7 +3932,7 @@ pub fn mouseButtonCallback(
         self.mouse.left_click_ypos = pos.y;
 
         // Setup our click counter and timer
-        if (std.time.Instant.now()) |now| {
+        if (std.Io.Timestamp.now()) |now| {
             // If we have mouse clicks, then we check if the time elapsed
             // is less than and our interval and if so, increase the count.
             if (self.mouse.left_click_count > 0) {
@@ -6167,7 +6167,7 @@ fn showDesktopNotification(self: *Surface, title: [:0]const u8, body: [:0]const 
     // how fast identical notifications can be sent sequentially.
     const hash_algorithm = std.hash.Wyhash;
 
-    const now = try std.time.Instant.now();
+    const now = try std.Io.Timestamp.now();
 
     // Set a limit of one desktop notification per second so that the OS
     // doesn't kill us when we run out of resources.
