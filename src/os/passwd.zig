@@ -89,7 +89,7 @@ pub fn get(alloc: Allocator, io: std.Io) !Entry {
         // Once started, we can close the child side. We do this after
         // wait right now but that is fine too. This lets us read the
         // parent and detect EOF.
-        _ = posix.close(pty.slave);
+        _ = std.c.close(pty.slave);
 
         // Read all of our output
         const output = output: {

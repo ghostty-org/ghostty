@@ -21,7 +21,6 @@ file_writer: std.Io.File.Writer = undefined,
 /// process. Otherwise, output goes directly to stdout.
 pub fn init(io: std.Io, env: *const std.process.Environ.Map) Pager {
     return .{
-        .io = io,
         .child = initPager(io, env),
     };
 }
@@ -59,12 +58,13 @@ fn initPager(io: std.Io, env: *const std.process.Environ.Map) ?std.process.Child
 
     // Resolve the pager command: $GHOSTTY_PAGER > $PAGER > `less`.
     // An empty value for either env var disables paging.
-    const ghostty_var = env.get("GHOSTTY_PAGER") catch return null;
-    const pager_var = env.get("PAGER") catch return null;
-
     const cmd: []const u8 = cmd: {
-        if (ghostty_var) |v| break :cmd if (v.value.len > 0) v.value else return null;
-        if (pager_var) |v| break :cmd if (v.value.len > 0) v.value else return null;
+        if (env.get("GHOSTTY_PAGER")) |v| {
+            if (v.len > 0) break :cmd v else return null;
+        }
+        if (env.get("PAGER")) |v| {
+            if (v.len > 0) break :cmd v else return null;
+        }
         break :cmd "less";
     };
 

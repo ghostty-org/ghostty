@@ -29,20 +29,36 @@ pub const Options = struct {
 ///
 ///   * `--config-file`: can be passed to validate a specific target config file in
 ///     a non-default location
-pub fn run(alloc: std.mem.Allocator, io: std.Io) !u8 {
+pub fn run(
+    alloc: std.mem.Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
+    proc_args: std.process.Args,
+) !u8 {
     var opts: Options = .{};
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc);
+        var iter = try args.argsIterator(
+            proc_args,
+            alloc,
+        );
         defer iter.deinit();
         try args.parse(Options, alloc, &opts, &iter);
     }
 
     var buffer: [1024]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &buffer);
+    var stdout_writer = std.Io.File
+        .stdout().writer(io, &buffer);
     const stdout = &stdout_writer.interface;
-    const result = runInner(io, alloc, opts, stdout);
+    const result = runInner(
+        io,
+        alloc,
+        env,
+        proc_args,
+        opts,
+        stdout,
+    );
     try stdout_writer.end();
     return result;
 }
@@ -50,6 +66,8 @@ pub fn run(alloc: std.mem.Allocator, io: std.Io) !u8 {
 fn runInner(
     io: std.Io,
     alloc: std.mem.Allocator,
+    env: *const std.process.Environ.Map,
+    proc_args: std.process.Args,
     opts: Options,
     stdout: *std.Io.Writer,
 ) !u8 {
@@ -59,14 +77,21 @@ fn runInner(
     // If a config path is passed, validate it, otherwise validate default configs
     if (opts.@"config-file") |config_path| {
         var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
-        const abs_path = try std.Io.Dir.cwd().realPath(io, config_path, &buf);
-        try cfg.loadFile(alloc, io, abs_path);
-        try cfg.loadRecursiveFiles(alloc, io);
+        const abs_len = try std.Io.Dir.cwd()
+            .realPathFile(io, config_path, &buf);
+        const abs_path = buf[0..abs_len];
+        try cfg.loadFile(alloc, io, env, abs_path);
+        try cfg.loadRecursiveFiles(alloc, io, env);
     } else {
-        cfg = try Config.load(alloc, io);
+        cfg = try Config.load(
+            alloc,
+            io,
+            proc_args,
+            env,
+        );
     }
 
-    try cfg.finalize(io);
+    try cfg.finalize(io, proc_args, env);
 
     if (cfg._diagnostics.items().len > 0) {
         for (cfg._diagnostics.items()) |diag| {

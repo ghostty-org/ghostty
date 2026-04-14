@@ -29,7 +29,7 @@ pub fn detectArgs(comptime E: type, alloc: Allocator, args: std.process.Args) !?
 ///
 pub fn detectIter(
     comptime E: type,
-    iter: *std.process.Args.IteratorGeneral(.{}),
+    iter: *std.process.Args.Iterator,
 ) DetectError!?E {
     var fallback: ?E = null;
     var pending: ?E = null;

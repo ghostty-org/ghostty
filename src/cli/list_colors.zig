@@ -29,12 +29,20 @@ pub const Options = struct {
 ///
 ///   * `--plain`: will disable formatting and make the output more
 ///     friendly for Unix tooling. This is default when not printing to a tty.
-pub fn run(alloc: Allocator) !u8 {
+pub fn run(
+    alloc: Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
+    proc_args: std.process.Args,
+) !u8 {
+    _ = env;
+    _ = proc_args;
+
     var opts: Options = .{};
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc);
+        var iter = try args.argsIterator(args, alloc);
         defer iter.deinit();
         try args.parse(Options, alloc, &opts, &iter);
     }
@@ -57,7 +65,7 @@ pub fn run(alloc: Allocator) !u8 {
         return prettyPrint(arena.allocator(), keys.items);
     } else {
         var buffer: [4096]u8 = undefined;
-        var stdout_writer = stdout.writer(&buffer);
+        var stdout_writer = stdout.writer(io, &buffer);
         const writer = &stdout_writer.interface;
         for (keys.items) |name| {
             const rgb = x11_color.map.get(name).?;

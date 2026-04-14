@@ -83,7 +83,7 @@ pub const Command = union(Key) {
     /// 4, 5, 10-19, 104, 105, 110-119
     color_operation: struct {
         op: color.Operation,
-        requests: color.List = .{},
+        requests: color.List = .empty,
         terminator: Terminator = .st,
     },
 

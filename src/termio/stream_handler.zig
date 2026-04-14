@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
+const global_state = &@import("../global.zig").state;
 const xev = @import("../global.zig").xev;
 const apprt = @import("../apprt.zig");
 const build_config = @import("../build_config.zig");
@@ -129,14 +130,14 @@ pub const StreamHandler = struct {
         // See messageWriter which has similar logic and explains why
         // we may have to do this.
         if (self.surface_mailbox.push(msg, .{ .instant = {} }) == 0) {
-            self.renderer_state.mutex.unlock();
-            defer self.renderer_state.mutex.lock();
+            self.renderer_state.mutex.unlock(self.terminal.io);
+            defer self.renderer_state.mutex.lockUncancelable(self.terminal.io);
             _ = self.surface_mailbox.push(msg, .{ .forever = {} });
         }
     }
 
     inline fn messageWriter(self: *StreamHandler, msg: termio.Message) void {
-        self.termio_mailbox.send(msg, self.renderer_state.mutex);
+        self.termio_mailbox.send(msg, self.renderer_state.mutex, self.terminal.io);
         self.termio_messaged = true;
     }
 
@@ -151,15 +152,15 @@ pub const StreamHandler = struct {
         // See termio.Mailbox.send for more details on how this works.
 
         // Try instant first. If it works then we can return.
-        if (self.renderer_mailbox.push(msg, .{ .instant = {} }) > 0) {
+        if (self.renderer_mailbox.push(msg, .{ .instant = {} }, self.terminal.io) > 0) {
             return;
         }
 
         // Instant would have blocked. Release the renderer mutex,
         // wake up the renderer to allow it to process the message,
         // and then try again.
-        self.renderer_state.mutex.unlock();
-        defer self.renderer_state.mutex.lock();
+        self.renderer_state.mutex.unlock(self.terminal.io);
+        defer self.renderer_state.mutex.lockUncancelable(self.terminal.io);
         self.renderer_wakeup.notify() catch |err| {
             // This is an EXTREMELY unlikely case. We still don't return
             // and attempt to send the message because its most likely
@@ -169,7 +170,7 @@ pub const StreamHandler = struct {
                 .{err},
             );
         };
-        _ = self.renderer_mailbox.push(msg, .{ .forever = {} });
+        _ = self.renderer_mailbox.push(msg, .{ .forever = {} }, self.terminal.io);
     }
 
     pub fn vt(
@@ -398,7 +399,11 @@ pub const StreamHandler = struct {
                         assert(self.tmux_viewer == null);
                         const viewer = try self.alloc.create(terminal.tmux.Viewer);
                         errdefer self.alloc.destroy(viewer);
-                        viewer.* = try .init(self.alloc);
+                        viewer.* = try .init(
+                            self.alloc,
+                            self.terminal.io,
+                            self.terminal.env,
+                        );
                         errdefer viewer.deinit();
                         self.tmux_viewer = viewer;
                         break :tmux;
@@ -470,72 +475,98 @@ pub const StreamHandler = struct {
 
             .decrqss => |decrqss| {
                 var response: [128]u8 = undefined;
-                var stream = std.io.fixedBufferStream(&response);
-                const writer = stream.writer();
+                var writer: std.Io.Writer = .fixed(&response);
 
-                // Offset the stream position to just past the response prefix.
-                // We will write the "payload" (if any) below. If no payload is
-                // written then we send an invalid DECRPSS response.
+                // Offset the writer position to just past the
+                // response prefix. We will write the "payload"
+                // (if any) below. If no payload is written then
+                // we send an invalid DECRPSS response.
                 const prefix_fmt = "\x1bP{d}$r";
-                const prefix_len = std.fmt.comptimePrint(prefix_fmt, .{0}).len;
-                stream.pos = prefix_len;
+                const prefix_len = comptime std.fmt
+                    .comptimePrint(prefix_fmt, .{0}).len;
+                writer.end = prefix_len;
 
                 switch (decrqss) {
                     // Invalid or unhandled request
                     .none => {},
 
                     .sgr => {
-                        const buf = try self.terminal.printAttributes(stream.buffer[stream.pos..]);
-
-                        // printAttributes wrote into our buffer, so adjust the stream
-                        // position
-                        stream.pos += buf.len;
-
+                        try self.terminal.printAttributes(&writer);
                         try writer.writeByte('m');
                     },
 
                     .decscusr => {
-                        const blink = self.terminal.modes.get(.cursor_blinking);
-                        const style: u8 = switch (self.terminal.screens.active.cursor.cursor_style) {
+                        const blink = self.terminal.modes
+                            .get(.cursor_blinking);
+                        const style: u8 = switch (self.terminal
+                            .screens.active.cursor.cursor_style) {
                             .block => if (blink) 1 else 2,
-                            .underline => if (blink) 3 else 4,
-                            .bar => if (blink) 5 else 6,
+                            .underline => if (blink)
+                                @as(u8, 3)
+                            else
+                                4,
+                            .bar => if (blink)
+                                @as(u8, 5)
+                            else
+                                6,
 
-                            // Below here, the cursor styles aren't represented by
-                            // DECSCUSR so we map it to some other style.
-                            .block_hollow => if (blink) 1 else 2,
+                            // Below here, the cursor styles
+                            // aren't represented by DECSCUSR so
+                            // we map it to some other style.
+                            .block_hollow => if (blink)
+                                @as(u8, 1)
+                            else
+                                2,
                         };
-                        try writer.print("{d} q", .{style});
+                        try writer.print(
+                            "{d} q",
+                            .{style},
+                        );
                     },
 
                     .decstbm => {
                         try writer.print("{d};{d}r", .{
-                            self.terminal.scrolling_region.top + 1,
-                            self.terminal.scrolling_region.bottom + 1,
+                            self.terminal.scrolling_region.top +
+                                1,
+                            self.terminal
+                                .scrolling_region.bottom + 1,
                         });
                     },
 
                     .decslrm => {
-                        // We only send a valid response when left and right
-                        // margin mode (DECLRMM) is enabled.
-                        if (self.terminal.modes.get(.enable_left_and_right_margin)) {
+                        // We only send a valid response when
+                        // left and right margin mode (DECLRMM)
+                        // is enabled.
+                        if (self.terminal.modes.get(
+                            .enable_left_and_right_margin,
+                        )) {
                             try writer.print("{d};{d}s", .{
-                                self.terminal.scrolling_region.left + 1,
-                                self.terminal.scrolling_region.right + 1,
+                                self.terminal
+                                    .scrolling_region.left + 1,
+                                self.terminal
+                                    .scrolling_region.right + 1,
                             });
                         }
                     },
                 }
 
-                // Our response is valid if we have a response payload
-                const valid = stream.pos > prefix_len;
+                // Our response is valid if we have a response
+                // payload
+                const valid = writer.end > prefix_len;
 
                 // Write the terminator
                 try writer.writeAll("\x1b\\");
 
                 // Write the response prefix into the buffer
-                _ = try std.fmt.bufPrint(response[0..prefix_len], prefix_fmt, .{@intFromBool(valid)});
-                const msg = try termio.Message.writeReq(self.alloc, response[0..stream.pos]);
+                _ = try std.fmt.bufPrint(
+                    response[0..prefix_len],
+                    prefix_fmt,
+                    .{@intFromBool(valid)},
+                );
+                const msg = try termio.Message.writeReq(
+                    self.alloc,
+                    response[0..writer.end],
+                );
                 self.messageWriter(msg);
             },
         }
@@ -1153,17 +1184,14 @@ pub const StreamHandler = struct {
             return;
         }
 
-        var host_buffer: [std.Uri.host_name_max]u8 = undefined;
-        const host = uri.getHost(&host_buffer) catch |err| switch (err) {
+        var host_buffer: [std.Io.net.HostName.max_len]u8 = undefined;
+        const host_name = uri.getHost(&host_buffer) catch |err| switch (err) {
             error.UriMissingHost => {
                 log.warn("OSC 7 uri must contain a hostname: {}", .{err});
                 return;
             },
-            error.UriHostTooLong => {
-                log.warn("failed to get full hostname for OSC 7 validation: {}", .{err});
-                return;
-            },
         };
+        const host = host_name.bytes;
 
         // OSC 7 is a little sketchy because anyone can send any value from
         // any host (such an SSH session). The best practice terminals follow
@@ -1216,18 +1244,16 @@ pub const StreamHandler = struct {
         _ = op;
 
         // return early if there is nothing to do
-        if (requests.count() == 0) return;
+        if (requests.items.len == 0) return;
 
-        var buffer: [1024]u8 = undefined;
-        var fba: std.heap.FixedBufferAllocator = .init(&buffer);
-        const alloc = fba.allocator();
+        var response: std.Io.Writer.Allocating = .init(
+            self.alloc,
+        );
+        defer response.deinit();
+        const writer = &response.writer;
 
-        var response: std.ArrayList(u8) = .empty;
-        const writer = response.writer(alloc);
-
-        var it = requests.constIterator(0);
-        while (it.next()) |req| {
-            switch (req.*) {
+        for (requests.items) |req| {
+            switch (req) {
                 .set => |set| {
                     switch (set.target) {
                         .palette => |i| {
@@ -1421,10 +1447,15 @@ pub const StreamHandler = struct {
             }
         }
 
-        if (response.items.len > 0) {
-            // If any of the operations were reports, finalize the report
-            // string and send it to the terminal.
-            const msg = try termio.Message.writeReq(self.alloc, response.items);
+        const written = response.written();
+        if (written.len > 0) {
+            // If any of the operations were reports,
+            // finalize the report string and send it to the
+            // terminal.
+            const msg = try termio.Message.writeReq(
+                self.alloc,
+                written,
+            );
             self.messageWriter(msg);
         }
     }

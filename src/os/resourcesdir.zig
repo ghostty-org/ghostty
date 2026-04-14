@@ -64,7 +64,8 @@ pub fn resourcesDir(alloc: Allocator, io: std.Io, env: *const std.process.Enviro
 
     // Get the path to our running binary
     var exe_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
-    var exe: []const u8 = std.process.executablePath(&exe_buf) catch return .{};
+    const exe_len = std.process.executablePath(io, &exe_buf) catch return .{};
+    var exe: []const u8 = exe_buf[0..exe_len];
 
     // We have an exe path! Climb the tree looking for the terminfo
     // bundle as we expect it.

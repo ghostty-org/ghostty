@@ -2651,7 +2651,7 @@ pub fn selectLine(self: *const Screen, opts: SelectLine) ?Selection {
             const this_whitespace = std.mem.indexOfAny(
                 u21,
                 whitespace,
-                &[_]u21{cell.content.codepoint},
+                &[_]u21{cell.codepoint()},
             ) != null;
             if (this_whitespace) continue;
 
@@ -2673,7 +2673,7 @@ pub fn selectLine(self: *const Screen, opts: SelectLine) ?Selection {
             const this_whitespace = std.mem.indexOfAny(
                 u21,
                 whitespace,
-                &[_]u21{cell.content.codepoint},
+                &[_]u21{cell.codepoint()},
             ) != null;
             if (this_whitespace) continue;
 
@@ -2705,7 +2705,7 @@ pub fn selectAll(self: *Screen) ?Selection {
             const this_whitespace = std.mem.indexOfAny(
                 u32,
                 whitespace,
-                &[_]u32{cell.content.codepoint},
+                &[_]u32{cell.codepoint()},
             ) != null;
             if (this_whitespace) continue;
 
@@ -2729,7 +2729,7 @@ pub fn selectAll(self: *Screen) ?Selection {
             const this_whitespace = std.mem.indexOfAny(
                 u32,
                 whitespace,
-                &[_]u32{cell.content.codepoint},
+                &[_]u32{cell.codepoint()},
             ) != null;
             if (this_whitespace) continue;
 
@@ -2797,7 +2797,7 @@ pub fn selectWord(
     const expect_boundary = std.mem.indexOfAny(
         u21,
         boundary_codepoints,
-        &[_]u21{start_cell.content.codepoint},
+        &[_]u21{start_cell.codepoint()},
     ) != null;
 
     // Go forwards to find our end boundary
@@ -2815,7 +2815,7 @@ pub fn selectWord(
             const this_boundary = std.mem.indexOfAny(
                 u21,
                 boundary_codepoints,
-                &[_]u21{cell.content.codepoint},
+                &[_]u21{cell.codepoint()},
             ) != null;
             if (this_boundary != expect_boundary) break :end prev;
 
@@ -2852,7 +2852,7 @@ pub fn selectWord(
             const this_boundary = std.mem.indexOfAny(
                 u21,
                 boundary_codepoints,
-                &[_]u21{cell.content.codepoint},
+                &[_]u21{cell.codepoint()},
             ) != null;
             if (this_boundary != expect_boundary) break :start prev;
 

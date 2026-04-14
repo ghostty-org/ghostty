@@ -2760,10 +2760,7 @@ pub fn setAttribute(self: *Terminal, attr: sgr.Attribute) !void {
 ///
 /// Boolean attributes are printed first, followed by foreground color, then
 /// background color. Each attribute is separated by a semicolon.
-pub fn printAttributes(self: *Terminal, buf: []u8) ![]const u8 {
-    var stream = std.io.fixedBufferStream(buf);
-    const writer = stream.writer();
-
+pub fn printAttributes(self: *Terminal, writer: *std.Io.Writer) !void {
     // The SGR response always starts with a 0. See https://vt100.net/docs/vt510-rm/DECRPSS
     try writer.writeByte('0');
 
@@ -2837,7 +2834,7 @@ pub fn printAttributes(self: *Terminal, buf: []u8) ![]const u8 {
         .rgb => |rgb| try writer.print(";48:2::{[r]}:{[g]}:{[b]}", rgb),
     }
 
-    return stream.getWritten();
+    return writer.buffered();
 }
 
 /// The modes for DECCOLM.
@@ -11515,20 +11512,23 @@ test "Terminal: printAttributes" {
     defer t.deinit(alloc);
 
     var storage: [64]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&storage);
 
     {
         try t.setAttribute(.{ .direct_color_fg = .{ .r = 1, .g = 2, .b = 3 } });
         defer t.setAttribute(.unset) catch unreachable;
-        const buf = try t.printAttributes(&storage);
-        try testing.expectEqualStrings("0;38:2::1:2:3", buf);
+        try t.printAttributes(&writer);
+        try testing.expectEqualStrings("0;38:2::1:2:3", writer.buffered());
+        writer.consumeAll();
     }
 
     {
         try t.setAttribute(.bold);
         try t.setAttribute(.{ .direct_color_bg = .{ .r = 1, .g = 2, .b = 3 } });
         defer t.setAttribute(.unset) catch unreachable;
-        const buf = try t.printAttributes(&storage);
-        try testing.expectEqualStrings("0;1;48:2::1:2:3", buf);
+        try t.printAttributes(&writer);
+        try testing.expectEqualStrings("0;1;48:2::1:2:3", writer.buffered());
+        writer.consumeAll();
     }
 
     {
@@ -11543,20 +11543,23 @@ test "Terminal: printAttributes" {
         try t.setAttribute(.{ .direct_color_fg = .{ .r = 100, .g = 200, .b = 255 } });
         try t.setAttribute(.{ .direct_color_bg = .{ .r = 101, .g = 102, .b = 103 } });
         defer t.setAttribute(.unset) catch unreachable;
-        const buf = try t.printAttributes(&storage);
-        try testing.expectEqualStrings("0;1;2;3;4;5;7;8;9;38:2::100:200:255;48:2::101:102:103", buf);
+        try t.printAttributes(&writer);
+        try testing.expectEqualStrings("0;1;2;3;4;5;7;8;9;38:2::100:200:255;48:2::101:102:103", writer.buffered());
+        writer.consumeAll();
     }
 
     {
         try t.setAttribute(.{ .underline = .single });
         defer t.setAttribute(.unset) catch unreachable;
-        const buf = try t.printAttributes(&storage);
-        try testing.expectEqualStrings("0;4", buf);
+        try t.printAttributes(&writer);
+        try testing.expectEqualStrings("0;4", writer.buffered());
+        writer.consumeAll();
     }
 
     {
-        const buf = try t.printAttributes(&storage);
-        try testing.expectEqualStrings("0", buf);
+        try t.printAttributes(&writer);
+        try testing.expectEqualStrings("0", writer.buffered());
+        writer.consumeAll();
     }
 }
 

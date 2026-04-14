@@ -134,11 +134,12 @@ pub const Path = union(enum) {
     pub fn expand(
         /// The path to expand.
         self: *Path,
-        /// The IO interface to use for filesystem operations.
-        io: std.Io,
         /// This must be an arena allocator because we rely on the arena to
         /// clean up our allocations.
         arena_alloc: Allocator,
+        /// The IO interface to use for filesystem operations.
+        io: std.Io,
+        env: *const std.process.Environ.Map,
         /// The base directory to expand relative paths. It must be an absolute
         /// path.
         base: []const u8,
@@ -168,6 +169,8 @@ pub const Path = union(enum) {
             const expanded: []const u8 = internal_os.expandHome(
                 path,
                 &buf,
+                io,
+                env,
             ) catch |err| {
                 try diags.append(arena_alloc, .{
                     .message = try std.fmt.allocPrintSentinel(
@@ -200,14 +203,14 @@ pub const Path = union(enum) {
         var dir = try std.Io.Dir.openDirAbsolute(io, base, .{});
         defer dir.close(io);
 
-        const abs = dir.realpath(path, &buf) catch |err| abs: {
+        const abs_len = dir.realPathFile(io, path, &buf) catch |err| abs_len: {
             if (err == error.FileNotFound) {
                 // The file doesn't exist. Try to resolve the relative path
                 // another way.
                 const resolved = try std.Io.Dir.path.resolve(arena_alloc, &.{ base, path });
                 defer arena_alloc.free(resolved);
                 @memcpy(buf[0..resolved.len], resolved);
-                break :abs buf[0..resolved.len];
+                break :abs_len resolved.len;
             }
 
             try diags.append(arena_alloc, .{
@@ -224,6 +227,7 @@ pub const Path = union(enum) {
 
             return;
         };
+        const abs = buf[0..abs_len];
 
         log.debug(
             "expanding file path relative={s} abs={s}",
@@ -429,11 +433,13 @@ pub const RepeatablePath = struct {
     pub fn expand(
         self: *RepeatablePath,
         alloc: Allocator,
+        io: std.Io,
+        env: *const std.process.Environ.Map,
         base: []const u8,
         diags: *cli.DiagnosticList,
     ) !void {
         for (self.value.items) |*path| {
-            try path.expand(alloc, base, diags);
+            try path.expand(alloc, io, env, base, diags);
         }
     }
     test "parseCLI" {

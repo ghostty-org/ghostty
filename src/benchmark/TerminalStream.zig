@@ -24,6 +24,7 @@ const Stream = terminalpkg.Stream(*Handler);
 
 const log = std.log.scoped(.@"terminal-stream-bench");
 
+io: std.Io,
 opts: Options,
 terminal: Terminal,
 handler: Handler,
@@ -50,14 +51,17 @@ pub const Options = struct {
 /// Create a new terminal stream handler for the given arguments.
 pub fn create(
     alloc: Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
     opts: Options,
 ) !*TerminalStream {
     const ptr = try alloc.create(TerminalStream);
     errdefer alloc.destroy(ptr);
 
     ptr.* = .{
+        .io = io,
         .opts = opts,
-        .terminal = try .init(alloc, .{
+        .terminal = try .init(alloc, io, env, .{
             .rows = opts.@"terminal-rows",
             .cols = opts.@"terminal-cols",
         }),
@@ -90,7 +94,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
     // Open our data file to prepare for reading. We can do more
     // validation here eventually.
     assert(self.data_f == null);
-    self.data_f = options.dataFile(self.opts.data) catch |err| {
+    self.data_f = options.dataFile(self.io, self.opts.data) catch |err| {
         log.warn("error opening data file err={}", .{err});
         return error.BenchmarkFailed;
     };
@@ -99,7 +103,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
 fn teardown(ptr: *anyopaque) void {
     const self: *TerminalStream = @ptrCast(@alignCast(ptr));
     if (self.data_f) |f| {
-        f.close();
+        f.close(self.io);
         self.data_f = null;
     }
 }
@@ -115,7 +119,7 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
     const f = self.data_f orelse return;
 
     var read_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
-    var f_reader = f.reader(&read_buf);
+    var f_reader = f.reader(self.io, &read_buf);
     const r = &f_reader.interface;
 
     var buf: [4096]u8 = undefined;

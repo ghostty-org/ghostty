@@ -58,7 +58,7 @@ pub fn open(
     // the process. This is done in a separate task because SOME
     // open implementations block and some do not. It's easier to just
     // spawn a task to handle this so that we never block.
-    io.async(openTask, .{ io, child });
+    _ = io.async(openTask, .{ io, child });
 }
 
 fn openTask(io: std.Io, exe_: std.process.Child) !void {
@@ -66,7 +66,7 @@ fn openTask(io: std.Io, exe_: std.process.Child) !void {
     // requires a mutable reference and we can't have one as a thread
     // param.
     var exe = exe_;
-    _ = try exe.wait();
+    _ = try exe.wait(io);
 
     const stderr = exe.stderr.?;
 

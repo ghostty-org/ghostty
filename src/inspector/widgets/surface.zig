@@ -46,6 +46,7 @@ pub const Inspector = struct {
 
     pub fn draw(
         self: *Inspector,
+        io: std.Io,
         surface: *const Surface,
         mouse: Mouse,
     ) void {
@@ -56,8 +57,8 @@ pub const Inspector = struct {
 
         // Draw everything that requires the terminal state mutex.
         {
-            surface.renderer_state.mutex.lock();
-            defer surface.renderer_state.mutex.unlock();
+            surface.renderer_state.mutex.lockUncancelable(io);
+            defer surface.renderer_state.mutex.unlock(io);
             const t = surface.renderer_state.terminal;
 
             // Terminal info window

@@ -38,7 +38,7 @@ pub const FreetypeLibrary = struct {
         errdefer lib.deinit();
 
         const mutex = try alloc.create(std.Io.Mutex);
-        mutex.* = .{};
+        mutex.* = .init;
 
         return Library{ .lib = lib, .alloc = alloc, .mutex = mutex };
     }

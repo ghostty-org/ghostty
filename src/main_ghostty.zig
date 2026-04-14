@@ -65,7 +65,7 @@ pub fn main(init: std.process.Init.Minimal) !MainReturn {
     // Execute our action if we have one
     if (state.action) |action| {
         std.log.info("executing CLI action={}", .{action});
-        std.process.exit(action.run(alloc, init.io, init.environ) catch |err| err: {
+        std.process.exit(action.run(alloc, init.io, &state.environ_map, init.args) catch |err| err: {
             std.log.err("CLI action failed error={}", .{err});
             break :err 1;
         });

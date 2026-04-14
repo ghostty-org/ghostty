@@ -55,6 +55,8 @@ pub const Error = error{
 pub fn parse(
     comptime T: type,
     alloc: Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
     dst: *T,
     iter: anytype,
 ) !void {
@@ -90,6 +92,8 @@ pub fn parse(
         if (@hasDecl(T, "parseManuallyHook")) {
             if (!try dst.parseManuallyHook(
                 arena_alloc,
+                io,
+                env,
                 arg,
                 iter,
             )) return;
@@ -1358,8 +1362,8 @@ pub fn ArgsIterator(comptime Iterator: type) type {
 }
 
 /// Create an args iterator for the process args. This will skip argv0.
-pub fn argsIterator(alloc_gpa: Allocator) internal_os.args.ArgIterator.InitError!ArgsIterator(internal_os.args.ArgIterator) {
-    var iter = try internal_os.args.iterator(alloc_gpa);
+pub fn argsIterator(args: std.process.Args, alloc: Allocator) internal_os.args.ArgIterator.InitError!ArgsIterator(internal_os.args.ArgIterator) {
+    var iter = try internal_os.args.iterator(args, alloc);
     errdefer iter.deinit();
     _ = iter.next(); // skip argv0
     return .{ .iterator = iter };

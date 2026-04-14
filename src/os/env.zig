@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const global_state = &@import("../global.zig").state;
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
 const isFlatpak = @import("flatpak.zig").isFlatpak;
@@ -7,8 +8,15 @@ const isFlatpak = @import("flatpak.zig").isFlatpak;
 pub const Error = Allocator.Error;
 
 /// Create the environment map for a new surface.
-pub fn getSurfaceEnvMap(alloc: Allocator, env: *const std.process.Environ.Map) !std.process.Environ.Map {
-    return if (isFlatpak()) .init(alloc) else env.createMap(alloc);
+pub fn getSurfaceEnvMap(
+    alloc: Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
+) !std.process.Environ.Map {
+    return if (isFlatpak(io))
+        .init(alloc)
+    else
+        env.clone(alloc);
 }
 
 /// Create an environment map from to the current libc `std.c.environ` variable.

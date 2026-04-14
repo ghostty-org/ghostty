@@ -93,7 +93,7 @@ pub const Envelope = struct {
         alloc: Allocator,
         reader: *std.Io.Reader,
     ) !std.ArrayList(Item) {
-        var items: std.ArrayList(Item) = .{};
+        var items: std.ArrayList(Item) = .empty;
         errdefer items.deinit(alloc);
         while (try parseOneItem(alloc, reader)) |item| {
             try items.append(alloc, item);

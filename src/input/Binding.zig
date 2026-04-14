@@ -1422,15 +1422,15 @@ pub const Action = union(enum) {
 
         const TagInt = std.math.IntFittingRange(0, i);
         var values: [i]TagInt = undefined;
-        for (raw_values, &values) |raw, *v| v.* = raw;
+        for (raw_values[0..i], &values) |raw, *v| v.* = raw;
 
         // Build our union
         return @Union(
             .auto,
-            @Enum(TagInt, .exhaustive, names, &values),
-            &names,
-            &types,
-            &attrs,
+            @Enum(TagInt, .exhaustive, names[0..i], &values),
+            names[0..i],
+            types[0..i],
+            attrs[0..i],
         );
     }
 

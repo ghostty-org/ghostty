@@ -37,7 +37,7 @@ pub fn ensureLocale(env: *const std.process.Environ.Map) !void {
     // invalid. Try to set it without the LANG var set to use the system
     // default.
     if (lang) |old_lang| {
-        if (old_lang.value.len > 0) {
+        if (old_lang.len > 0) {
             // We don't need to do both of these things but we do them
             // both to be sure that lang is either empty or unset completely.
             _ = internal_os.setenv("LANG", "");
@@ -49,7 +49,7 @@ pub fn ensureLocale(env: *const std.process.Environ.Map) !void {
                 // If we try to setlocale to an unsupported locale it'll return "C"
                 // as the POSIX/C fallback, if that's the case we want to not use
                 // it and move to our fallback of en_US.UTF-8
-                if (!std.mem.eql(u8, std.mem.sliceTo(v, 0), "C")) return;
+                if (!std.mem.eql(u8, std.mem.span(v), "C")) return;
             }
         }
     }

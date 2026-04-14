@@ -91,7 +91,7 @@ pub fn parse(parser: *Parser, terminator_ch: ?u8) ?*Command {
                     "failed to parse OSC {t} color request err={} data={s}",
                     .{ parser.state, err, data },
                 );
-                break :list .{};
+                break :list .empty;
             },
             .terminator = .init(terminator_ch),
         },
