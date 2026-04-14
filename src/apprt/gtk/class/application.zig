@@ -273,8 +273,7 @@ pub const Application = extern struct {
         const saved_language: ?[:0]const u8 = saved_language: {
             const old_language = old_language: {
                 const env = core_app.environ;
-                const result = env.getAlloc(alloc, "LANG") catch break :old_language null;
-                defer result.deinit(alloc);
+                const result = env.get("LANG") orelse break :old_language null;
                 break :old_language alloc.dupeZ(u8, result.value) catch break :old_language null;
             };
 

@@ -21,6 +21,7 @@ const row_c = @import("row.zig");
 const grid_ref_c = @import("grid_ref.zig");
 const style_c = @import("style.zig");
 const color = @import("../color.zig");
+const internal_os = @import("../../os/main.zig");
 const Result = @import("result.zig").Result;
 
 const Handler = @import("../stream_terminal.zig").Handler;
@@ -34,6 +35,8 @@ const TerminalWrapper = struct {
     terminal: *ZigTerminal,
     stream: Stream,
     effects: Effects = .{},
+    io: std.Io.Threaded,
+    env: std.process.Environ.Map,
 };
 
 /// C callback state for terminal effects. Trampolines are always
@@ -251,11 +254,15 @@ fn new_(
         return error.OutOfMemory;
     errdefer alloc.destroy(wrapper);
 
+    var io: std.Io.Threaded = .init_single_threaded;
+    var env = internal_os.getEnvMapC(alloc);
+    errdefer env.deinit();
+
     // Setup our terminal
     t.* = try .init(
         alloc,
-        std.Io.Threaded.global_single_threaded.io(),
-        std.process.Environ.empty, // FIXME: How do we smuggle the C environ state in here??
+        io.io(),
+        &env,
         .{
             .cols = opts.cols,
             .rows = opts.rows,
@@ -281,6 +288,8 @@ fn new_(
     wrapper.* = .{
         .terminal = t,
         .stream = .initAlloc(alloc, handler),
+        .io = io,
+        .env = env,
     };
 
     return wrapper;

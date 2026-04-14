@@ -6,9 +6,23 @@ const isFlatpak = @import("flatpak.zig").isFlatpak;
 
 pub const Error = Allocator.Error;
 
-/// Get the environment map.
-pub fn getEnvMap(alloc: Allocator, env: std.process.Environ) !std.process.Environ.Map {
+/// Create the environment map for a new surface.
+pub fn getSurfaceEnvMap(alloc: Allocator, env: *const std.process.Environ.Map) !std.process.Environ.Map {
     return if (isFlatpak()) .init(alloc) else env.createMap(alloc);
+}
+
+/// Create an environment map from to the current libc `std.c.environ` variable.
+///
+/// This should only be used in the C API. Zig code should always accept an
+/// environment map as a parameter. Returns an empty map if reading from
+/// `std.c.environ` fails.
+pub fn getEnvMapC(alloc: Allocator) std.process.Environ.Map {
+    var env: std.process.Environ.Map = .init(alloc);
+    const posix_block: std.process.Environ.PosixBlock = .{
+        .slice = std.mem.sliceTo(std.c.environ, null),
+    };
+    env.putPosixBlock(posix_block.view()) catch {};
+    return env;
 }
 
 /// Append a value to an environment variable such as PATH.

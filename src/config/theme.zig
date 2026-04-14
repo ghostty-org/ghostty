@@ -24,6 +24,7 @@ pub const Location = enum {
         self: Location,
         arena_alloc: Allocator,
         io: std.Io,
+        env: *const std.process.Environ.Map,
     ) error{OutOfMemory}!?[]const u8 {
         return switch (self) {
             .user => user: {
@@ -34,19 +35,20 @@ pub const Location = enum {
                 break :user internal_os.xdg.config(
                     arena_alloc,
                     io,
+                    env,
                     .{ .subdir = subdir },
                 ) catch |err| {
                     // We need to do some comptime tricks to get the right
                     // error set since some platforms don't support some
                     // error types.
                     const Error = @TypeOf(err) || switch (builtin.os.tag) {
-                        .ios => error{BufferTooSmall},
+                        .ios => error{WriteFailed},
                         else => error{},
                     };
 
                     switch (@as(Error, err)) {
                         error.OutOfMemory => return error.OutOfMemory,
-                        error.BufferTooSmall => return error.OutOfMemory,
+                        error.WriteFailed => return error.OutOfMemory,
 
                         // Any other error we treat as the XDG directory not
                         // existing. Windows in particularly can return a LOT
@@ -71,9 +73,11 @@ pub const LocationIterator = struct {
     /// similar allocator implementation) should be used. It may not be safe to
     /// free the returned allocations.
     arena_alloc: Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
     i: usize = 0,
 
-    pub fn next(self: *LocationIterator, io: std.Io) !?struct {
+    pub fn next(self: *LocationIterator) !?struct {
         location: Location,
         dir: []const u8,
     } {
@@ -81,7 +85,7 @@ pub const LocationIterator = struct {
         while (self.i < max) {
             const location: Location = @enumFromInt(self.i);
             self.i += 1;
-            if (try location.dir(self.arena_alloc, io)) |dir|
+            if (try location.dir(self.arena_alloc, self.io, self.env)) |dir|
                 return .{
                     .location = location,
                     .dir = dir,
@@ -112,6 +116,7 @@ pub const LocationIterator = struct {
 pub fn open(
     arena_alloc: Allocator,
     io: std.Io,
+    env: *const std.process.Environ.Map,
     theme: []const u8,
     diags: *cli.DiagnosticList,
 ) error{OutOfMemory}!?struct {
@@ -169,9 +174,13 @@ pub fn open(
 
     // Iterate over the possible locations to try to find the
     // one that exists.
-    var it: LocationIterator = .{ .arena_alloc = arena_alloc };
+    var it: LocationIterator = .{
+        .arena_alloc = arena_alloc,
+        .io = io,
+        .env = env,
+    };
     const cwd: std.Io.Dir = .cwd();
-    while (try it.next(io)) |loc| {
+    while (try it.next()) |loc| {
         const path = try std.fs.path.join(arena_alloc, &.{ loc.dir, theme });
         if (cwd.openFile(io, path, .{})) |file| {
             const stat = file.stat(io) catch |err| {
@@ -228,7 +237,7 @@ pub fn open(
     // This does double allocate some memory but for errors I think that's
     // fine.
     it.reset();
-    while (try it.next(io)) |loc| {
+    while (try it.next()) |loc| {
         const path = try std.fs.path.join(arena_alloc, &.{ loc.dir, theme });
         try diags.append(arena_alloc, .{
             .message = try std.fmt.allocPrintSentinel(

@@ -20,7 +20,7 @@ pub const Options = struct {
 };
 
 /// Get the XDG user config directory. The returned value is allocated.
-pub fn config(alloc: Allocator, io: std.Io, env: std.process.Environ, opts: Options) ![]u8 {
+pub fn config(alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map, opts: Options) ![]u8 {
     return try dir(alloc, opts, io, env, .{
         .env = "XDG_CONFIG_HOME",
         .windows_env = "LOCALAPPDATA",
@@ -29,7 +29,7 @@ pub fn config(alloc: Allocator, io: std.Io, env: std.process.Environ, opts: Opti
 }
 
 /// Get the XDG cache directory. The returned value is allocated.
-pub fn cache(alloc: Allocator, io: std.Io, env: std.process.Environ, opts: Options) ![]u8 {
+pub fn cache(alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map, opts: Options) ![]u8 {
     return try dir(alloc, opts, io, env, .{
         .env = "XDG_CACHE_HOME",
         .windows_env = "LOCALAPPDATA",
@@ -38,7 +38,7 @@ pub fn cache(alloc: Allocator, io: std.Io, env: std.process.Environ, opts: Optio
 }
 
 /// Get the XDG state directory. The returned value is allocated.
-pub fn state(alloc: Allocator, io: std.Io, env: std.process.Environ, opts: Options) ![]u8 {
+pub fn state(alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map, opts: Options) ![]u8 {
     return try dir(alloc, opts, io, env, .{
         .env = "XDG_STATE_HOME",
         .windows_env = "LOCALAPPDATA",
@@ -57,7 +57,7 @@ fn dir(
     alloc: Allocator,
     opts: Options,
     io: std.Io,
-    env: std.process.Environ,
+    env: *const std.process.Environ.Map,
     internal_opts: InternalOptions,
 ) ![]u8 {
     // If we have a cached home dir, use that.
@@ -73,20 +73,14 @@ fn dir(
     // both whether we have the env var and whether we own it.
     // on Windows we treat `LOCALAPPDATA` as a fallback for `XDG_CONFIG_HOME`
     const env_var_ = v: {
-        if (env.getAlloc(alloc, internal_opts.env)) |v| {
+        if (env.get(internal_opts.env)) |v| {
             if (v.len > 0) break :v v;
-        } else |err| switch (err) {
-            error.EnvironmentVariableMissing => {},
-            else => return err,
         }
 
         if (comptime builtin.os.tag != .windows) break :v null;
 
-        if (env.getAlloc(alloc, internal_opts.windows_env)) |v| {
+        if (env.get(internal_opts.windows_env)) |v| {
             if (v.len > 0) break :v v;
-        } else |err| switch (err) {
-            error.EnvironmentVariableMissing => {},
-            else => return err,
         }
         break :v null;
     };

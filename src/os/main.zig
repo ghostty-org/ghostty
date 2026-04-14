@@ -40,6 +40,7 @@ pub const getEnvMap = env.getEnvMap;
 pub const appendEnv = env.appendEnv;
 pub const appendEnvAlways = env.appendEnvAlways;
 pub const prependEnv = env.prependEnv;
+pub const getEnvMapC = env.getEnvMapC;
 pub const launchedFromDesktop = desktop.launchedFromDesktop;
 pub const launchedByDbusActivation = dbus.launchedByDbusActivation;
 pub const launchedBySystemd = systemd.launchedBySystemd;

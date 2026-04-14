@@ -54,25 +54,15 @@ pub fn restoreMaxFiles(lim: rlimit) void {
 }
 
 /// Return the recommended path for temporary files.
-/// This may not actually allocate memory, use freeTmpDir to properly
-/// free the memory when applicable.
-pub fn allocTmpDir(allocator: std.mem.Allocator, env: std.process.Environ) ?[]const u8 {
+pub fn getTmpDir(env: *const std.process.Environ.Map) ?[]const u8 {
     if (comptime builtin.os.tag == .windows) {
         // TODO: what is a good fallback path on windows?
-        return env.getAlloc(allocator, "TMP") catch |e| {
+        return env.get("TMP") catch |e| {
             log.warn("failed to convert temp dir path from windows string: {}", .{e});
             return null;
         };
     }
-    if (env.getPosix("TMPDIR")) |v| return v;
-    if (env.getPosix("TMP")) |v| return v;
+    if (env.get("TMPDIR")) |v| return v;
+    if (env.get("TMP")) |v| return v;
     return "/tmp";
-}
-
-/// Free a path returned by tmpDir if it allocated memory.
-/// This is a "no-op" for all platforms except windows.
-pub fn freeTmpDir(allocator: std.mem.Allocator, dir: []const u8) void {
-    if (comptime builtin.os.tag == .windows) {
-        allocator.free(dir);
-    }
 }

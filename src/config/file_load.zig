@@ -8,7 +8,7 @@ const log = std.log.scoped(.config);
 
 /// Default path for the XDG home configuration file. Returned value
 /// must be freed by the caller.
-pub fn defaultXdgPath(alloc: Allocator, io: std.Io, env: std.process.Environ) ![]const u8 {
+pub fn defaultXdgPath(alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map) ![]const u8 {
     return try internal_os.xdg.config(
         alloc,
         io,
@@ -19,7 +19,7 @@ pub fn defaultXdgPath(alloc: Allocator, io: std.Io, env: std.process.Environ) ![
 
 /// Ghostty <1.3.0 default path for the XDG home configuration file.
 /// Returned value must be freed by the caller.
-pub fn legacyDefaultXdgPath(alloc: Allocator, io: std.Io, env: std.process.Environ) ![]const u8 {
+pub fn legacyDefaultXdgPath(alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map) ![]const u8 {
     return try internal_os.xdg.config(
         alloc,
         io,
@@ -30,7 +30,7 @@ pub fn legacyDefaultXdgPath(alloc: Allocator, io: std.Io, env: std.process.Envir
 
 /// Preferred default path for the XDG home configuration file.
 /// Returned value must be freed by the caller.
-pub fn preferredXdgPath(alloc: Allocator, io: std.Io, env: std.process.Environ) ![]const u8 {
+pub fn preferredXdgPath(alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map) ![]const u8 {
     // If the XDG path exists, use that.
     const xdg_path = try defaultXdgPath(alloc, io, env);
     if (open(io, xdg_path)) |f| {
@@ -97,7 +97,7 @@ pub fn preferredAppSupportPath(alloc: Allocator, io: std.Io) ![]const u8 {
 /// contents; downstream callers must handle this.
 ///
 /// The returned value must be freed by the caller.
-pub fn preferredDefaultFilePath(alloc: Allocator, io: std.Io, env: std.process.Environ) ![]const u8 {
+pub fn preferredDefaultFilePath(alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map) ![]const u8 {
     switch (builtin.os.tag) {
         .macos => {
             // macOS prefers the Application Support directory

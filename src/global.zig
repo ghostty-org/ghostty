@@ -31,7 +31,7 @@ pub const GlobalState = struct {
     gpa: ?GPA,
     alloc: std.mem.Allocator,
     io_threaded: std.Io.Threaded,
-    env: std.process.Environ,
+    environ_map: std.process.Environ.Map,
     action: ?cli.ghostty.Action,
     logging: Logging,
     rlimits: ResourceLimits = .{},
@@ -52,7 +52,6 @@ pub const GlobalState = struct {
 
     /// Initialize the global state.
     pub fn init(self: *GlobalState, init_minimal: std.process.Init.Minimal) !void {
-        const environ = init_minimal.environ;
         // const start = try std.Io.Timestamp.now();
         // const start_micro = std.time.microTimestamp();
         // defer {
@@ -67,11 +66,11 @@ pub const GlobalState = struct {
         self.* = .{
             .gpa = null,
             .alloc = undefined,
+            .environ_map = undefined,
             .action = null,
             .logging = .{},
             .rlimits = .{},
             .resources_dir = .{},
-            .env = init_minimal.environ,
 
             // TODO: Figure out how to place libxev within all of this.
             .io_threaded = .init(self.alloc, .{}),
@@ -102,6 +101,8 @@ pub const GlobalState = struct {
         else
             unreachable;
 
+        self.environ_map = try init_minimal.environ.createMap(self.alloc);
+
         // We first try to parse any action that we may be executing.
         self.action = try cli.action.detectArgs(
             cli.ghostty.Action,
@@ -119,8 +120,7 @@ pub const GlobalState = struct {
         // maybe once for logging) so for now this is an easy way to do
         // this. Env vars are useful for logging too because they are
         // easy to set.
-        if ((try environ.getAlloc(self.alloc, "GHOSTTY_LOG"))) |v| {
-            defer self.alloc.free(v);
+        if ((try self.environ_map.get("GHOSTTY_LOG"))) |v| {
             self.logging = cli.args.parsePackedStruct(Logging, v.value) catch .{};
         }
 
@@ -196,12 +196,13 @@ pub const GlobalState = struct {
         // Flush our crash logs
         crash.deinit();
 
+        self.environ_map.deinit();
+        self.io_threaded.deinit();
         if (self.gpa) |*value| {
             // We want to ensure that we deinit the GPA because this is
             // the point at which it will output if there were safety violations.
             _ = value.deinit();
         }
-        self.io_threaded.deinit();
     }
 
     pub fn io(self: *GlobalState) std.Io {

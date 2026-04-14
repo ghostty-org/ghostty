@@ -6,7 +6,12 @@ const testing = std.testing;
 /// Search for "cmd" in the PATH and return the absolute path. This will
 /// always allocate if there is a non-null result. The caller must free the
 /// resulting value.
-pub fn expand(io: std.Io, alloc: Allocator, env: std.process.Environ.Map, cmd: []const u8) !?[]u8 {
+pub fn expand(
+    io: std.Io,
+    alloc: Allocator,
+    env: *const std.process.Environ.Map,
+    cmd: []const u8,
+) !?[]u8 {
     // If the command already contains a slash, then we return it as-is
     // because it is assumed to be absolute or relative.
     if (std.mem.indexOfScalar(u8, cmd, '/') != null) {
