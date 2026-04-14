@@ -36,6 +36,7 @@ struct WorkspaceSidebarView: View {
             // dismisses it. See Unit 6 for the migration design.
             if store.hasShownPinMigrationNotice && !store.hasDismissedPinMigrationNotice {
                 PinMigrationNoticeBanner(onDismiss: store.dismissPinMigrationNotice)
+                    .padding(.horizontal, 8)
                     .padding(.top, 12)
                     .padding(.bottom, 4)
                     .transition(.opacity)
