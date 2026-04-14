@@ -9,9 +9,8 @@ const macos = @import("macos");
 ///
 /// For Zig-aware readers: this is the same as std.process.argsWithAllocator
 /// but handles macOS using NSProcessInfo instead of libc argc/argv.
-pub fn iterator(a: std.process.Args, allocator: Allocator) ArgIterator.InitError!ArgIterator {
-    //if (true) return try std.process.argsWithAllocator(allocator);
-    return .initWithAllocator(a, allocator);
+pub fn iterator(args: std.process.Args, allocator: Allocator) ArgIterator.InitError!ArgIterator {
+    return .initAllocator(args, allocator);
 }
 
 /// Duck-typed to std.process.Args.Iterator

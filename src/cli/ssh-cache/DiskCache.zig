@@ -35,10 +35,14 @@ pub const Error = error{ CacheIsLocked, HostnameIsInvalid };
 /// The returned value is allocated and must be freed by the caller.
 pub fn defaultPath(
     alloc: Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
     program: []const u8,
 ) DefaultPathError![]const u8 {
     const state_dir: []const u8 = xdg.state(
         alloc,
+        io,
+        env,
         .{ .subdir = program },
     ) catch |err| return switch (err) {
         error.OutOfMemory => error.OutOfMemory,
@@ -60,11 +64,11 @@ pub fn clear(self: DiskCache) !void {
 
 pub const AddResult = enum { added, updated };
 
-pub const AddError = std.Io.Dir.MakeError ||
+pub const AddError = std.Io.Dir.CreateDirError ||
     std.Io.Dir.StatFileError ||
     std.Io.File.OpenError ||
-    std.Io.File.ChmodError ||
-    std.io.Reader.LimitedAllocError ||
+    std.Io.File.SetPermissionsError ||
+    std.Io.Reader.LimitedAllocError ||
     FixupPermissionsError ||
     ReadEntriesError ||
     WriteCacheFileError ||
@@ -92,7 +96,6 @@ pub fn add(
     const file = std.Io.Dir.createFileAbsolute(self.io, self.path, .{
         .read = true,
         .truncate = false,
-        .mode = 0o600,
     }) catch |err| switch (err) {
         error.PathAlreadyExists => blk: {
             const existing_file = try std.Io.Dir.openFileAbsolute(
@@ -111,11 +114,13 @@ pub fn add(
     // Lock
     // Causes a compile failure in the Zig std library on Windows, see:
     // https://github.com/ziglang/zig/issues/18430
-    if (comptime builtin.os.tag != .windows) _ = file.tryLock(.exclusive) catch return error.CacheIsLocked;
-    defer if (comptime builtin.os.tag != .windows) file.unlock();
+    if (comptime builtin.os.tag != .windows) _ = file.tryLock(self.io, .exclusive) catch return error.CacheIsLocked;
+    defer if (comptime builtin.os.tag != .windows) file.unlock(self.io);
 
-    var entries = try readEntries(alloc, file);
+    var entries = try readEntries(alloc, file, self.io);
     defer deinitEntries(alloc, &entries);
+
+    const now = std.Io.Timestamp.now(self.io, .real).toSeconds();
 
     // Add or update entry
     const gop = try entries.getOrPut(hostname);
@@ -128,13 +133,13 @@ pub fn add(
         gop.key_ptr.* = hostname_copy;
         gop.value_ptr.* = .{
             .hostname = gop.key_ptr.*,
-            .timestamp = std.time.timestamp(),
+            .timestamp = now,
             .terminfo_version = terminfo_copy,
         };
         break :add .added;
     } else update: {
         // Update timestamp for existing entry
-        gop.value_ptr.timestamp = std.time.timestamp();
+        gop.value_ptr.timestamp = now;
         break :update .updated;
     };
 
@@ -172,11 +177,11 @@ pub fn remove(
     // Lock
     // Causes a compile failure in the Zig std library on Windows, see:
     // https://github.com/ziglang/zig/issues/18430
-    if (comptime builtin.os.tag != .windows) _ = file.tryLock(.exclusive) catch return error.CacheIsLocked;
-    defer if (comptime builtin.os.tag != .windows) file.unlock();
+    if (comptime builtin.os.tag != .windows) _ = file.tryLock(self.io, .exclusive) catch return error.CacheIsLocked;
+    defer if (comptime builtin.os.tag != .windows) file.unlock(self.io);
 
     // Read existing entries
-    var entries = try readEntries(alloc, file);
+    var entries = try readEntries(alloc, file, self.io);
     defer deinitEntries(alloc, &entries);
 
     // Remove the entry if it exists and ensure we free the memory
@@ -214,7 +219,7 @@ pub fn contains(
     defer file.close(self.io);
 
     // Read existing entries
-    var entries = try readEntries(alloc, file);
+    var entries = try readEntries(alloc, file, self.io);
     defer deinitEntries(alloc, &entries);
 
     return entries.contains(hostname);
@@ -230,14 +235,14 @@ fn fixupPermissions(file: std.Io.File, io: std.Io) FixupPermissionsError!void {
     // owner only)
     const stat = try file.stat(io);
     if (@intFromEnum(stat.permissions) & 0o777 != 0o600) {
-        try file.setPermissions(io, 0o600);
+        try file.setPermissions(io, .fromMode(0o600));
     }
 }
 
 pub const WriteCacheFileError = std.Io.Dir.OpenError ||
-    std.Io.File.Atomic.InitError ||
-    std.Io.File.Atomic.FlushError ||
-    std.Io.File.Atomic.FinishError ||
+    std.Io.Dir.CreateFileAtomicError ||
+    std.Io.File.Writer.Error ||
+    std.Io.File.Atomic.ReplaceError ||
     Entry.FormatError ||
     error{InvalidCachePath};
 
@@ -254,19 +259,21 @@ fn writeCacheFile(
 
     var buf: [1024]u8 = undefined;
     var atomic_file = try dir.createFileAtomic(self.io, cache_basename, .{
-        .mode = 0o600,
-        .write_buffer = &buf,
+        .permissions = .fromMode(0o600),
         .make_path = true,
         .replace = true,
     });
     defer atomic_file.deinit(self.io);
 
+    var file_writer = atomic_file.file.writer(self.io, &buf);
+
     var iter = entries.iterator();
     while (iter.next()) |kv| {
         // Only write non-expired entries
-        if (kv.value_ptr.isExpired(expire_days)) continue;
-        try kv.value_ptr.format(&atomic_file.file_writer.interface);
+        if (kv.value_ptr.isExpired(self.io, expire_days)) continue;
+        try kv.value_ptr.format(&file_writer.interface);
     }
+    try file_writer.flush();
 
     try atomic_file.replace(self.io);
 }
@@ -288,7 +295,7 @@ pub fn list(
         else => return err,
     };
     defer file.close(self.io);
-    return readEntries(alloc, file);
+    return readEntries(alloc, file, self.io);
 }
 
 /// Free memory allocated by the `list` function.
@@ -308,13 +315,15 @@ pub fn deinitEntries(
     entries.deinit();
 }
 
-pub const ReadEntriesError = std.mem.Allocator.Error || std.io.Reader.LimitedAllocError;
+pub const ReadEntriesError = std.mem.Allocator.Error || std.Io.Reader.LimitedAllocError;
 
 fn readEntries(
     alloc: Allocator,
     file: std.Io.File,
+    io: std.Io,
 ) ReadEntriesError!std.StringHashMap(Entry) {
-    var reader = file.reader(&.{});
+    var read_buf: [4096]u8 = undefined;
+    var reader = file.reader(io, &read_buf);
     const content = try reader.interface.allocRemaining(
         alloc,
         .limited(MAX_CACHE_SIZE),
@@ -387,7 +396,7 @@ fn isValidHost(host: []const u8) bool {
     // We also accept valid IP addresses. In practice, IPv4 addresses are also
     // considered valid hostnames due to their overlapping syntax, so we can
     // simplify this check to be IPv6-specific.
-    if (std.net.Address.parseIp6(host, 0)) |_| {
+    if (std.Io.net.Ip6Address.parse(host, 0)) |_| {
         return true;
     } else |_| {
         return false;
@@ -408,8 +417,17 @@ fn isValidUser(user: []const u8) bool {
 test "disk cache default path" {
     const testing = std.testing;
     const alloc = std.testing.allocator;
+    const io = std.testing.io;
 
-    const path = try DiskCache.defaultPath(alloc, "ghostty");
+    var env: std.process.Environ.Map = .init(alloc);
+    defer env.deinit();
+
+    const path = try DiskCache.defaultPath(
+        alloc,
+        io,
+        &env,
+        "ghostty",
+    );
     defer alloc.free(path);
     try testing.expect(path.len > 0);
 }

@@ -113,19 +113,19 @@ fn dir(
 
 /// Parses the xdg-terminal-exec specification. This expects argv[0] to
 /// be "xdg-terminal-exec".
-pub fn parseTerminalExec(argv: []const [*:0]const u8) ?[]const [*:0]const u8 {
+pub fn parseTerminalExec(args: []const [:0]const u8) ?[]const [:0]const u8 {
     if (!std.mem.eql(
         u8,
-        std.Io.Dir.path.basename(std.mem.sliceTo(argv[0], 0)),
+        std.Io.Dir.path.basename(args[0]),
         "xdg-terminal-exec",
     )) return null;
 
     // We expect at least one argument
-    if (argv.len < 2) return &.{};
+    if (args.len < 2) return &.{};
 
     // If the first argument is "-e" we skip it.
-    const start: usize = if (std.mem.eql(u8, std.mem.sliceTo(argv[1], 0), "-e")) 2 else 1;
-    return argv[start..];
+    const start: usize = if (std.mem.eql(u8, args[1], "-e")) 2 else 1;
+    return args[start..];
 }
 
 test {

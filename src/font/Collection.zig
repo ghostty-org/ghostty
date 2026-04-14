@@ -67,9 +67,8 @@ pub fn init() Collection {
 pub fn deinit(self: *Collection, alloc: Allocator) void {
     var it = self.faces.iterator();
     while (it.next()) |array| {
-        var entry_it = array.value.iterator(0);
         // Deinit all entries, aliases can be ignored.
-        while (entry_it.next()) |entry_or_alias|
+        for (array.value.items) |*entry_or_alias|
             switch (entry_or_alias.*) {
                 .entry => |*entry| entry.deinit(),
                 .alias => {},
@@ -118,7 +117,7 @@ pub fn add(
     const list = self.faces.getPtr(opts.style);
 
     // We have some special indexes so we must never pass those.
-    const idx = list.count();
+    const idx = list.items.len;
     if (idx >= Index.Special.start - 1)
         return error.CollectionFull;
 
@@ -172,7 +171,7 @@ pub fn addDeferred(
     if (self.load_options == null) return error.DeferredLoadingUnavailable;
 
     // We have some special indexes so we must never pass those.
-    const idx = list.count();
+    const idx = list.items.len;
     if (idx >= Index.Special.start - 1)
         return error.CollectionFull;
 
@@ -210,8 +209,8 @@ pub const EntryError = error{
 pub fn getEntry(self: *Collection, index: Index) EntryError!*Entry {
     if (index.special() != null) return error.SpecialHasNoFace;
     const list = self.faces.getPtr(index.style);
-    if (index.idx >= list.len) return error.IndexOutOfBounds;
-    return list.at(index.idx).getEntry();
+    if (index.idx >= list.items.len) return error.IndexOutOfBounds;
+    return list.items[index.idx].getEntry();
 }
 
 /// Get the face from an entry.
@@ -275,17 +274,13 @@ pub fn getIndex(
     style: Style,
     p_mode: PresentationMode,
 ) ?Index {
-    var i: usize = 0;
-    var it = self.faces.get(style).constIterator(0);
-    while (it.next()) |entry_or_alias| {
+    for (self.faces.get(style).items, 0..) |entry_or_alias, i| {
         if (entry_or_alias.getConstEntry().hasCodepoint(cp, p_mode)) {
             return .{
                 .style = style,
                 .idx = @intCast(i),
             };
         }
-
-        i += 1;
     }
 
     // Not found
@@ -303,8 +298,8 @@ pub fn hasCodepoint(
     p_mode: PresentationMode,
 ) bool {
     const list = self.faces.get(index.style);
-    if (index.idx >= list.count()) return false;
-    return list.at(index.idx).getConstEntry().hasCodepoint(cp, p_mode);
+    if (index.idx >= list.items.len) return false;
+    return list.items[index.idx].getConstEntry().hasCodepoint(cp, p_mode);
 }
 
 pub const CompleteError = Allocator.Error || error{
@@ -327,7 +322,7 @@ pub fn completeStyles(
     empty: {
         var it = self.faces.iterator();
         while (it.next()) |entry| {
-            if (entry.value.count() == 0) break :empty;
+            if (entry.value.items.len == 0) break :empty;
         }
 
         return;
@@ -338,17 +333,16 @@ pub fn completeStyles(
     // if a user configures something like an Emoji font first.
     const regular_entry: *Entry = entry: {
         const list = self.faces.getPtr(.regular);
-        if (list.count() == 0) return;
+        if (list.items.len == 0) return;
 
         // Find our first regular face that has text glyphs.
-        var it = list.iterator(0);
-        while (it.next()) |entry_or_alias| {
+        for (list.items, 0..) |*entry_or_alias, idx| {
             // Load our face. If we fail to load it, we just skip it and
             // continue on to try the next one.
             const entry = entry_or_alias.getEntry();
             const face = self.getFaceFromEntry(entry) catch |err| {
                 log.warn("error loading regular entry={d} err={}", .{
-                    it.index - 1,
+                    idx,
                     err,
                 });
 
@@ -375,7 +369,7 @@ pub fn completeStyles(
     // If we can't create a synthetic italic face, we'll just use the regular
     // face for italic.
     const italic_list = self.faces.getPtr(.italic);
-    const have_italic = italic_list.count() > 0;
+    const have_italic = italic_list.items.len > 0;
     if (!have_italic) italic: {
         if (!synthetic_config.italic) {
             log.info("italic style not available and synthetic italic disabled", .{});
@@ -399,7 +393,7 @@ pub fn completeStyles(
 
     // If we don't have bold, use the regular font.
     const bold_list = self.faces.getPtr(.bold);
-    const have_bold = bold_list.count() > 0;
+    const have_bold = bold_list.items.len > 0;
     if (!have_bold) bold: {
         if (!synthetic_config.bold) {
             log.info("bold style not available and synthetic bold disabled", .{});
@@ -424,7 +418,7 @@ pub fn completeStyles(
     // If we don't have bold italic, we attempt to synthesize a bold variant
     // of the italic font. If we can't do that, we'll use the italic font.
     const bold_italic_list = self.faces.getPtr(.bold_italic);
-    if (bold_italic_list.count() == 0) bold_italic: {
+    if (bold_italic_list.items.len == 0) bold_italic: {
         if (!synthetic_config.@"bold-italic") {
             log.info("bold italic style not available and synthetic bold italic disabled", .{});
             try bold_italic_list.append(alloc, .{ .alias = regular_entry });
@@ -434,7 +428,7 @@ pub fn completeStyles(
         // Prefer to synthesize on top of the face we already had. If we
         // have bold then we try to synthesize italic on top of bold.
         if (have_bold) {
-            const base_entry: *Entry = bold_list.at(0).getEntry();
+            const base_entry: *Entry = bold_list.items[0].getEntry();
             if (self.syntheticItalic(base_entry)) |synthetic| {
                 log.info("synthetic bold italic face created from bold", .{});
                 const synthetic_entry: Entry = .{
@@ -449,7 +443,7 @@ pub fn completeStyles(
             // bold on whatever italic font we have.
         }
 
-        const base_entry: *Entry = italic_list.at(0).getEntry();
+        const base_entry: *Entry = italic_list.items[0].getEntry();
         if (self.syntheticBold(base_entry)) |synthetic| {
             log.info("synthetic bold italic face created from italic", .{});
             const synthetic_entry: Entry = .{
@@ -542,10 +536,9 @@ pub fn setSize(
     // Resize all our faces that are loaded
     var it = self.faces.iterator();
     while (it.next()) |array| {
-        var entry_it = array.value.iterator(0);
         // Resize all faces. We skip entries that are aliases, since
         // the underlying face will have a non-alias entry somewhere.
-        while (entry_it.next()) |entry_or_alias| {
+        for (array.value.items) |*entry_or_alias| {
             if (entry_or_alias.* == .alias) continue;
 
             const entry = entry_or_alias.getEntry();
@@ -688,13 +681,7 @@ pub fn updateMetrics(self: *Collection) UpdateMetricsError!void {
 /// styles are typically loaded for a terminal session. The overhead per
 /// style even if it is not used or barely used is minimal given the
 /// small style count.
-///
-/// We use a segmented list because the entry values must be pointer-stable
-/// to support aliases.
-///
-/// WARNING: We cannot use any prealloc yet for the segmented list because
-/// the collection is copied around by value and pointers aren't stable.
-const StyleArray = std.EnumArray(Style, std.SegmentedList(EntryOrAlias, 0));
+const StyleArray = std.EnumArray(Style, std.ArrayList(EntryOrAlias));
 
 /// Load options are used to configure all the details a Collection
 /// needs to load deferred faces.

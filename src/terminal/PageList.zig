@@ -809,7 +809,7 @@ pub fn clone(
 
     // Create our viewport. In a clone, the viewport always goes
     // to the top.
-    const viewport_pin = try pool.pins.create();
+    const viewport_pin = try pool.pins.create(pool.alloc);
     var tracked_pins: PinSet = .{};
     errdefer tracked_pins.deinit(pool.alloc);
     try tracked_pins.putNoClobber(pool.alloc, viewport_pin, {});
@@ -863,7 +863,7 @@ pub fn clone(
                 if (p.node != chunk.node or
                     p.y < chunk.start or
                     p.y >= chunk.end) continue;
-                const new_p = try pool.pins.create();
+                const new_p = try pool.pins.create(pool.alloc);
                 new_p.* = p.*;
                 new_p.node = node;
                 new_p.y -= chunk.start;

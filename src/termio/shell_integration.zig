@@ -61,6 +61,7 @@ pub fn setup(
         ),
 
         .nushell => try setupNushell(
+            io,
             alloc_arena,
             command,
             resource_dir,
@@ -382,7 +383,7 @@ fn setupBash(
         try env.put("ENV", script_path);
     } else |err| {
         log.warn("unable to open {s}: {}", .{ script_path, err });
-        env.remove("GHOSTTY_BASH_ENV");
+        _ = env.swapRemove("GHOSTTY_BASH_ENV");
         return null;
     }
 
@@ -395,7 +396,7 @@ fn setupBash(
     // staying in POSIX mode (--posix), change it back to ~/.bash_history.
     if (env.get("HISTFILE") == null) {
         var home_buf: [1024]u8 = undefined;
-        if (try homedir.home(&home_buf)) |home| {
+        if (try homedir.home(io, env, &home_buf)) |home| {
             var histfile_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
             const histfile = try std.fmt.bufPrint(
                 &histfile_buf,
@@ -758,6 +759,7 @@ test "xdg: missing resources" {
 /// We then add `--execute 'use ghostty ...'` to the nu command line to
 /// automatically enable our shelll features.
 fn setupNushell(
+    io: std.Io,
     alloc: Allocator,
     command: config.Command,
     resource_dir: []const u8,
@@ -766,7 +768,7 @@ fn setupNushell(
     // Add our XDG_DATA_DIRS entry (for nushell/vendor/autoload/). This
     // makes our 'ghostty' module automatically available, even if any
     // of the later checks abort the rest of our automatic integration.
-    if (!try setupXdgDataDirs(std.testing.io, alloc, resource_dir, env)) return null;
+    if (!try setupXdgDataDirs(io, alloc, resource_dir, env)) return null;
 
     var stack_fallback = std.heap.stackFallback(4096, alloc);
     var cmd = internal_os.shell.ShellCommandBuilder.init(stack_fallback.get());

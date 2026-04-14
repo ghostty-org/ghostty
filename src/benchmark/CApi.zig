@@ -21,6 +21,8 @@ export fn ghostty_benchmark_cli(
     cli.mainAction(
         state.alloc,
         action,
+        state.io(),
+        &state.environ_map,
         .{ .string = std.mem.sliceTo(args, 0) },
     ) catch |err| {
         log.warn("failed to run action={s} err={}", .{

@@ -14,6 +14,7 @@ pub const Thread = @This();
 const std = @import("std");
 const ArenaAllocator = std.heap.ArenaAllocator;
 const builtin = @import("builtin");
+const global_state = &@import("../global.zig").state;
 const xev = @import("../global.zig").xev;
 const crash = @import("../crash/main.zig");
 const internal_os = @import("../os/main.zig");
@@ -132,9 +133,9 @@ pub fn deinit(self: *Thread) void {
 }
 
 /// The main entrypoint for the thread.
-pub fn threadMain(self: *Thread, io: *termio.Termio) void {
+pub fn threadMain(self: *Thread, io: std.Io, tio: *termio.Termio) void {
     // Call child function so we can use errors...
-    self.threadMain_(io) catch |err| {
+    self.threadMain_(tio) catch |err| {
         log.warn("error in io thread err={}", .{err});
 
         // Use an arena to simplify memory management below
@@ -147,9 +148,9 @@ pub fn threadMain(self: *Thread, io: *termio.Termio) void {
         // the error to the surface thread and let the apprt deal with it
         // in some way but this works for now. Without this, the user would
         // just see a blank terminal window.
-        io.renderer_state.mutex.lock();
-        defer io.renderer_state.mutex.unlock();
-        const t = io.renderer_state.terminal;
+        tio.renderer_state.mutex.lockUncancelable(io);
+        defer tio.renderer_state.mutex.unlock(io);
+        const t = tio.renderer_state.terminal;
 
         // Hide the cursor
         t.modes.set(.cursor_visible, false);
@@ -281,7 +282,8 @@ fn threadMain_(self: *Thread, io: *termio.Termio) !void {
 /// This is the data passed to xev callbacks on the thread.
 const CallbackData = struct {
     self: *Thread,
-    io: *termio.Termio,
+    io: std.Io,
+    tio: *termio.Termio,
     data: termio.Termio.ThreadData = undefined,
 };
 
@@ -292,12 +294,12 @@ fn drainMailbox(
 ) !void {
     // We assert when starting the thread that this is the state
     const mailbox = cb.io.mailbox.spsc.queue;
-    const io = cb.io;
+    const tio = cb.tio;
     const data = &cb.data;
 
     // If we're draining, we just drain the mailbox and return.
     if (self.flags.drain) {
-        while (mailbox.pop()) |_| {}
+        while (mailbox.pop(cb.io)) |_| {}
         return;
     }
 
@@ -305,23 +307,23 @@ fn drainMailbox(
     // expectation is that all our message handlers will be non-blocking
     // ENOUGH to not mess up throughput on producers.
     var redraw: bool = false;
-    while (mailbox.pop()) |message| {
+    while (mailbox.pop(cb.io)) |message| {
         // If we have a message we always redraw
         redraw = true;
 
         log.debug("mailbox message={s}", .{@tagName(message)});
         switch (message) {
-            .color_scheme_report => |v| try io.colorSchemeReport(data, v.force),
+            .color_scheme_report => |v| try tio.colorSchemeReport(data, v.force),
             .crash => @panic("crash request, crashing intentionally"),
             .change_config => |config| {
                 defer config.alloc.destroy(config.ptr);
-                try io.changeConfig(data, config.ptr);
+                try tio.changeConfig(data, config.ptr);
             },
             .inspector => |v| self.flags.has_inspector = v,
             .resize => |v| self.handleResize(cb, v),
-            .size_report => |v| try io.sizeReport(data, v),
-            .clear_screen => |v| try io.clearScreen(data, v.history),
-            .scroll_viewport => |v| io.scrollViewport(v),
+            .size_report => |v| try tio.sizeReport(data, v),
+            .clear_screen => |v| try tio.clearScreen(data, v.history),
+            .scroll_viewport => |v| tio.scrollViewport(v),
             .selection_scroll => |v| {
                 if (v) {
                     self.startScrollTimer(cb);
@@ -329,23 +331,23 @@ fn drainMailbox(
                     self.stopScrollTimer();
                 }
             },
-            .jump_to_prompt => |v| try io.jumpToPrompt(v),
+            .jump_to_prompt => |v| try tio.jumpToPrompt(v),
             .start_synchronized_output => self.startSynchronizedOutput(cb),
             .linefeed_mode => |v| self.flags.linefeed_mode = v,
-            .focused => |v| try io.focusGained(data, v),
-            .write_small => |v| try io.queueWrite(
+            .focused => |v| try tio.focusGained(data, v),
+            .write_small => |v| try tio.queueWrite(
                 data,
                 v.data[0..v.len],
                 self.flags.linefeed_mode,
             ),
-            .write_stable => |v| try io.queueWrite(
+            .write_stable => |v| try tio.queueWrite(
                 data,
                 v,
                 self.flags.linefeed_mode,
             ),
             .write_alloc => |v| {
                 defer v.alloc.free(v.data);
-                try io.queueWrite(
+                try tio.queueWrite(
                     data,
                     v.data,
                     self.flags.linefeed_mode,
@@ -357,7 +359,7 @@ fn drainMailbox(
     // Trigger a redraw after we've drained so we don't waste cyces
     // messaging a redraw.
     if (redraw) {
-        try io.renderer_wakeup.notify();
+        try tio.renderer_wakeup.notify();
     }
 }
 

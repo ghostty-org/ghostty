@@ -14,6 +14,7 @@ const Terminal = terminalpkg.Terminal;
 
 const log = std.log.scoped(.@"terminal-stream-bench");
 
+io: std.Io,
 opts: Options,
 terminal: Terminal,
 
@@ -52,14 +53,17 @@ pub const Mode = enum {
 
 pub fn create(
     alloc: Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
     opts: Options,
 ) !*ScreenClone {
     const ptr = try alloc.create(ScreenClone);
     errdefer alloc.destroy(ptr);
 
     ptr.* = .{
+        .io = io,
         .opts = opts,
-        .terminal = try .init(alloc, .{
+        .terminal = try .init(alloc, io, env, .{
             .rows = opts.@"terminal-rows",
             .cols = opts.@"terminal-cols",
         }),
@@ -100,6 +104,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
 
     // Setup our terminal state
     const data_f: std.Io.File = (options.dataFile(
+        self.io,
         self.opts.data,
     ) catch |err| {
         log.warn("error opening data file err={}", .{err});
@@ -110,7 +115,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
     defer stream.deinit();
 
     var read_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
-    var f_reader = data_f.reader(&read_buf);
+    var f_reader = data_f.reader(self.io, &read_buf);
     const r = &f_reader.interface;
 
     var buf: [4096]u8 = undefined;

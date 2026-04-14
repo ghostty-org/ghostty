@@ -10,6 +10,7 @@ const options = @import("options.zig");
 
 const log = std.log.scoped(.@"terminal-stream-bench");
 
+io: std.Io,
 opts: Options,
 
 /// The file, opened in the setup function.
@@ -26,11 +27,14 @@ pub const Options = struct {
 
 pub fn create(
     alloc: Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
     opts: Options,
 ) !*TerminalParser {
+    _ = env;
     const ptr = try alloc.create(TerminalParser);
     errdefer alloc.destroy(ptr);
-    ptr.* = .{ .opts = opts };
+    ptr.* = .{ .io = io, .opts = opts };
     return ptr;
 }
 
@@ -52,7 +56,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
     // Open our data file to prepare for reading. We can do more
     // validation here eventually.
     assert(self.data_f == null);
-    self.data_f = options.dataFile(self.opts.data) catch |err| {
+    self.data_f = options.dataFile(self.io, self.opts.data) catch |err| {
         log.warn("error opening data file err={}", .{err});
         return error.BenchmarkFailed;
     };
@@ -61,7 +65,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
 fn teardown(ptr: *anyopaque) void {
     const self: *TerminalParser = @ptrCast(@alignCast(ptr));
     if (self.data_f) |f| {
-        f.close();
+        f.close(self.io);
         self.data_f = null;
     }
 }
@@ -76,7 +80,7 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
     // aren't currently IO bound.
     const f = self.data_f orelse return;
     var read_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
-    var f_reader = f.reader(&read_buf);
+    var f_reader = f.reader(self.io, &read_buf);
     var r = &f_reader.interface;
 
     var p: terminalpkg.Parser = .init();

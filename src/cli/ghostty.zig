@@ -100,8 +100,19 @@ pub const Action = enum {
     pub const help_error = error.ActionHelpRequested;
 
     /// Run the action. This returns the exit code to exit with.
-    pub fn run(self: Action, alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map) !u8 {
-        return self.runMain(alloc, io, env) catch |err| switch (err) {
+    pub fn run(
+        self: Action,
+        alloc: Allocator,
+        io: std.Io,
+        env: *const std.process.Environ.Map,
+        proc_args: std.process.Args,
+    ) !u8 {
+        return self.runMain(
+            alloc,
+            io,
+            env,
+            proc_args,
+        ) catch |err| switch (err) {
             // If help is requested, then we use some comptime trickery
             // to find this action in the help strings and output that.
             help_error => err: {
@@ -112,9 +123,10 @@ pub const Action = enum {
 
                     if (std.mem.eql(u8, field.name, @tagName(self))) {
                         var buffer: [1024]u8 = undefined;
-                        var stdout_writer = std.Io.File.stdout().writer(&buffer);
-                        const stdout = &stdout_writer.interface;
                         const text = @field(help_strings.Action, field.name) ++ "\n";
+                        var stdout_file: std.Io.File = .stdout();
+                        var stdout_writer = stdout_file.writer(io, &buffer);
+                        const stdout = &stdout_writer.interface;
                         stdout.writeAll(text) catch |write_err| {
                             std.log.warn("failed to write help text: {}\n", .{write_err});
                             break :err 1;
@@ -134,9 +146,15 @@ pub const Action = enum {
         };
     }
 
-    fn runMain(self: Action, alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map) !u8 {
+    fn runMain(
+        self: Action,
+        alloc: Allocator,
+        io: std.Io,
+        env: *const std.process.Environ.Map,
+        args: std.process.Args,
+    ) !u8 {
         return switch (self) {
-            .version => try version.run(alloc, io, env),
+            .version => try version.run(alloc, io),
             .help => try help.run(alloc, io, env),
             .@"list-fonts" => try list_fonts.run(alloc, io, env),
             .@"list-keybinds" => try list_keybinds.run(alloc, io, env),
@@ -152,6 +170,22 @@ pub const Action = enum {
             .@"show-face" => try show_face.run(alloc, io, env),
             .boo => try boo.run(alloc, io, env),
             .@"new-window" => try new_window.run(alloc, io, env),
+            .help => try help.run(alloc, io, args),
+            .@"list-fonts" => try list_fonts.run(alloc, io, args),
+            // .@"list-keybinds" => try list_keybinds.run(alloc, io, args),
+            // .@"list-themes" => try list_themes.run(alloc, io, args),
+            // .@"list-colors" => try list_colors.run(alloc, io, args),
+            .@"list-actions" => try list_actions.run(alloc, io, args),
+            .@"ssh-cache" => try ssh_cache.run(alloc, io, env, args),
+            .@"edit-config" => try edit_config.run(alloc, io, env, args),
+            .@"show-config" => try show_config.run(alloc, io, env, args),
+            .@"explain-config" => try explain_config.run(alloc, io, env, args),
+            .@"validate-config" => try validate_config.run(alloc, io, env, args),
+            .@"crash-report" => try crash_report.run(alloc, io, args),
+            // .@"boo" => try boo.run(alloc, io, args),
+            .@"show-face" => try show_face.run(alloc, io, env, args),
+            .@"new-window" => try new_window.run(alloc, io, env, args),
+>>>>>>> conflict 1 of 1 ends
         };
     }
 

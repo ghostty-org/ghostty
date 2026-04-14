@@ -65,7 +65,7 @@ env: ?*const EnvMap = null,
 
 /// Working directory to change to in the child process. If not set, the
 /// working directory of the calling process is preserved.
-cwd: ?[]const u8 = null,
+cwd: ?[:0]const u8 = null,
 
 /// The file handle to set for stdin/out/err. If this isn't set, we do
 /// nothing explicitly so it is up to the behavior of the operating system.
@@ -157,7 +157,7 @@ pub const RtPostForkInfo = if (@hasDecl(apprt.runtime, "post_fork")) apprt.runti
 /// Start the subprocess. This returns immediately once the child is started.
 ///
 /// After this is successful, self.pid is available.
-pub fn start(self: *Command, alloc: Allocator) !void {
+pub fn start(self: *Command, alloc: Allocator, io: std.Io) !void {
     // Use an arena allocator for the temporary allocations we need in this func.
     // IMPORTANT: do all allocation prior to the fork(). I believe it is undefined
     // behavior if you malloc between fork and exec. The source of the Zig
@@ -172,7 +172,7 @@ pub fn start(self: *Command, alloc: Allocator) !void {
     }
 }
 
-fn startPosix(self: *Command, arena: Allocator) !void {
+fn startPosix(self: *Command, arena: Allocator, io: std.Io) !void {
     // Null-terminate all our arguments
     const argsZ = try arena.allocSentinel(?[*:0]const u8, self.args.len, null);
     for (self.args, 0..) |arg, i| argsZ[i] = arg.ptr;
@@ -186,7 +186,8 @@ fn startPosix(self: *Command, arena: Allocator) !void {
         @compileError("missing env vars");
 
     // Fork.
-    const pid = try posix.fork();
+    const pid = std.c.fork();
+    if (pid < 0) return error.ExecFailedInChild;
 
     if (pid != 0) {
         // Parent, return immediately.
@@ -206,49 +207,55 @@ fn startPosix(self: *Command, arena: Allocator) !void {
         return error.ExecFailedInChild;
 
     // Setup our working directory
-    if (self.cwd) |cwd| posix.chdir(cwd) catch {
+    if (self.cwd) |cwd| {
         // This can fail if we don't have permission to go to
         // this directory or if due to race conditions it doesn't
         // exist or any various other reasons. We don't want to
         // crash the entire process if this fails so we ignore it.
         // We don't log because that'll show up in the output.
-    };
+        _ = posix.system.chdir(cwd.ptr);
+    }
 
     // Restore any rlimits that were set by Ghostty. This might fail but
     // any failures are ignored (its best effort).
     global_state.rlimits.restore();
 
     // If there are pre exec callbacks, call them now.
-    if (self.os_pre_exec) |f| if (f(self)) |exitcode| posix.exit(exitcode);
-    if (self.rt_pre_exec) |f| if (f(self)) |exitcode| posix.exit(exitcode);
+    if (self.os_pre_exec) |f| if (f(self)) |exitcode| std.process.exit(exitcode);
+    if (self.rt_pre_exec) |f| if (f(self)) |exitcode| std.process.exit(exitcode);
 
     // Finally, replace our process.
-    // Note: we must use the "p"-variant of exec here because we
-    // do not guarantee our command is looked up already in the path.
-    const err = posix.execvpeZ(self.path, argsZ, envp);
+    // Note: we must use the "p"-variant of exec because we
+    // do not guarantee our command is looked up in the path.
+    // We set environ explicitly then use execvp for PATH search.
+    if (builtin.link_libc) {
+        std.c.environ = envp;
+    }
+    _ = execvp(self.path, argsZ);
 
-    // If we are executing this code, the exec failed. We're in the
-    // child process so there isn't much we can do. We try to output
-    // something reasonable. Its important to note we MUST NOT return
-    // any other error condition from here on out.
+    // If we are executing this code, the exec failed. We're in
+    // the child process so there isn't much we can do. We try to
+    // output something reasonable. Its important to note we MUST
+    // NOT return any other error condition from here on out.
     var stderr_buf: [1024]u8 = undefined;
-    var stderr_writer = std.Io.File.stderr().writer(&stderr_buf);
+    var stderr_writer = std.Io.File.stderr().writer(
+        io,
+        &stderr_buf,
+    );
     const stderr = &stderr_writer.interface;
-    switch (err) {
-        error.FileNotFound => stderr.print(
-            \\Requested executable not found. Please verify the command is on
-            \\the PATH and try again.
+    const errno_val = std.c._errno().*;
+    if (errno_val == @intFromEnum(posix.E.NOENT)) {
+        stderr.print(
+            \\Requested executable not found. Please
+            \\verify the command is on the PATH and
+            \\try again.
             \\
-        ,
-            .{},
-        ) catch {},
-
-        else => stderr.print(
-            \\exec syscall failed with unexpected error: {}
+        , .{}) catch {};
+    } else {
+        stderr.print(
+            \\exec syscall failed with errno: {}
             \\
-        ,
-            .{err},
-        ) catch {},
+        , .{errno_val}) catch {};
     }
     stderr.flush() catch {};
 
@@ -257,7 +264,9 @@ fn startPosix(self: *Command, arena: Allocator) !void {
     return error.ExecFailedInChild;
 }
 
-fn startWindows(self: *Command, arena: Allocator) !void {
+fn startWindows(self: *Command, arena: Allocator, io: std.Io) !void {
+    _ = io;
+
     const application_w = try std.unicode.utf8ToUtf16LeAllocZ(arena, self.path);
     const cwd_w = if (self.cwd) |cwd| try std.unicode.utf8ToUtf16LeAllocZ(arena, cwd) else null;
     const command_line_w = if (self.args.len > 0) b: {
@@ -275,7 +284,7 @@ fn startWindows(self: *Command, arena: Allocator) !void {
             .creation = windows.OPEN_EXISTING,
         },
     ) else null;
-    defer if (null_fd) |fd| posix.close(fd);
+    defer if (null_fd) |fd| windows.CloseHandle(fd);
 
     // TODO: In the case of having FDs instead of pty, need to set up
     // attributes such that the child process only inherits these handles,
@@ -387,12 +396,59 @@ fn setupFd(src: File.Handle, target: i32) !void {
         .freebsd, .ios, .macos => {
             // Mac doesn't support dup3 so we use dup2. We purposely clear
             // CLO_ON_EXEC for this fd.
-            const flags = try posix.fcntl(src, posix.F.GETFD, 0);
+            const flags: u32 = while (true) {
+                const rc = posix.system.fcntl(src, posix.F.GETFD, 0);
+                switch (posix.errno()) {
+                    .SUCCESS => break @intCast(rc),
+                    .INTR => continue,
+                    .AGAIN, .ACCES => return error.Locked,
+                    .BADF => unreachable,
+                    .BUSY => return error.FileBusy,
+                    .INVAL => unreachable, // invalid parameters
+                    .PERM => return error.PermissionDenied,
+                    .MFILE => return error.ProcessFdQuotaExceeded,
+                    .NOTDIR => unreachable, // invalid parameter
+                    .DEADLK => return error.DeadLock,
+                    .NOLCK => return error.LockedRegionLimitExceeded,
+                    else => |err| return posix.unexpectedErrno(err),
+                }
+            };
+
             if (flags & posix.FD_CLOEXEC != 0) {
-                _ = try posix.fcntl(src, posix.F.SETFD, flags & ~@as(u32, posix.FD_CLOEXEC));
+                while (true) {
+                    const rc = posix.system.fcntl(
+                        src,
+                        posix.F.SETFD,
+                        flags & ~posix.FD_CLOEXEC,
+                    );
+                    switch (posix.errno(rc)) {
+                        .SUCCESS => break,
+                        .INTR => continue,
+                        .AGAIN, .ACCES => return error.Locked,
+                        .BADF => unreachable,
+                        .BUSY => return error.FileBusy,
+                        .INVAL => unreachable, // invalid parameters
+                        .PERM => return error.PermissionDenied,
+                        .MFILE => return error.ProcessFdQuotaExceeded,
+                        .NOTDIR => unreachable, // invalid parameter
+                        .DEADLK => return error.DeadLock,
+                        .NOLCK => return error.LockedRegionLimitExceeded,
+                        else => |err| return posix.unexpectedErrno(err),
+                    }
+                }
             }
 
-            try posix.dup2(src, target);
+            while (true) {
+                const rc = posix.system.dup2(src, target);
+                switch (posix.errno(rc)) {
+                    .SUCCESS => return,
+                    .BUSY, .INTR => continue,
+                    .MFILE => return error.ProcessFdQuotaExceeded,
+                    .INVAL => unreachable, // invalid parameters passed to dup2
+                    .BADF => unreachable, // invalid file descriptor
+                    else => |err| return posix.unexpectedErrno(err),
+                }
+            }
         },
         else => @compileError("unsupported platform"),
     }
@@ -537,6 +593,13 @@ fn windowsCreateCommandLine(allocator: mem.Allocator, argv: []const []const u8) 
 
     return buf.toOwnedSliceSentinel(0);
 }
+
+/// std.c/std.posix.system only models execve,
+/// so we need to manually add execvp here
+extern "c" fn execvp(
+    file: [*:0]const u8,
+    argv: [*:null]const ?[*:0]const u8,
+) c_int;
 
 test "createNullDelimitedEnvMap" {
     const allocator = testing.allocator;

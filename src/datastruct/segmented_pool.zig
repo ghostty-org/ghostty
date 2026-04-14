@@ -16,13 +16,34 @@ pub fn SegmentedPool(comptime T: type, comptime prealloc: usize) type {
     return struct {
         const Self = @This();
 
+        /// Each segment is a fixed-size array of T allocated on the
+        /// heap, giving stable pointers across growth.
+        const Segment = *[prealloc]T;
+
         i: usize = 0,
         available: usize = prealloc,
-        list: std.SegmentedList(T, prealloc) = .{ .len = prealloc },
+        len: usize = prealloc,
+        segments: std.ArrayList(Segment) = .empty,
+        prealloc_segment: [prealloc]T = undefined,
 
         pub fn deinit(self: *Self, alloc: Allocator) void {
-            self.list.deinit(alloc);
+            for (self.segments.items) |seg| {
+                alloc.destroy(seg);
+            }
+            self.segments.deinit(alloc);
             self.* = undefined;
+        }
+
+        /// Get a pointer to the element at index `idx` across
+        /// all segments (prealloc + dynamic).
+        fn at(self: *Self, idx: usize) *T {
+            if (idx < prealloc) {
+                return &self.prealloc_segment[idx];
+            }
+            const adjusted = idx - prealloc;
+            const seg_idx = adjusted / prealloc;
+            const elem_idx = adjusted % prealloc;
+            return &self.segments.items[seg_idx][elem_idx];
         }
 
         /// Get the next available value out of the list. This will not
@@ -32,10 +53,10 @@ pub fn SegmentedPool(comptime T: type, comptime prealloc: usize) type {
             if (self.available == 0) return error.OutOfValues;
 
             // The index we grab is just i % len, so we wrap around to the front.
-            const i = @mod(self.i, self.list.len);
-            self.i +%= 1; // Wrapping addition to swe go back to 0
+            const idx = @mod(self.i, self.len);
+            self.i +%= 1; // Wrapping addition so we go back to 0
             self.available -= 1;
-            return self.list.at(i);
+            return self.at(idx);
         }
 
         /// Get the next available value out of the list and grow the list
@@ -46,17 +67,23 @@ pub fn SegmentedPool(comptime T: type, comptime prealloc: usize) type {
         }
 
         fn grow(self: *Self, alloc: Allocator) !void {
-            try self.list.growCapacity(alloc, self.list.len * 2);
-            self.i = self.list.len;
-            self.available = self.list.len;
-            self.list.len *= 2;
+            // We need to add enough segments to double the total length.
+            const new_len = self.len * 2;
+            const new_segs_needed = (new_len - 1) / prealloc - self.segments.items.len;
+
+            const new = try self.segments.addManyAsSlice(alloc, new_segs_needed);
+            for (new) |s| s.* = try alloc.create([prealloc]T);
+
+            self.i = self.len;
+            self.available = self.len;
+            self.len = new_len;
         }
 
         /// Put a value back. The value put back is expected to be the
         /// in order of get.
         pub fn put(self: *Self) void {
             self.available += 1;
-            assert(self.available <= self.list.len);
+            assert(self.available <= self.len);
         }
     };
 }

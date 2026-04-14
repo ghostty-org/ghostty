@@ -44,6 +44,7 @@ pub fn run(
     alloc: Allocator,
     io: std.Io,
     env: *const std.process.Environ.Map,
+    proc_args: std.process.Args,
 ) !u8 {
     // Implementation note (by @mitchellh): I do proper memory cleanup
     // throughout this command, even though we plan on doing `exec`.
@@ -59,12 +60,21 @@ pub fn run(
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc);
+        var iter = try args.argsIterator(
+            proc_args,
+            alloc,
+        );
         defer iter.deinit();
         try args.parse(Options, alloc, &opts, &iter);
     }
 
-    const result = runInner(alloc, io, env, stderr);
+    const result = runInner(
+        alloc,
+        io,
+        env,
+        proc_args,
+        stderr,
+    );
     // Flushing *shouldn't* fail but...
     stderr.flush() catch {};
     return result;
@@ -74,11 +84,17 @@ fn runInner(
     alloc: Allocator,
     io: std.Io,
     env: *const std.process.Environ.Map,
+    proc_args: std.process.Args,
     stderr: *std.Io.Writer,
 ) !u8 {
     // We load the configuration once because that will write our
     // default configuration files to disk. We don't use the config.
-    var config = try Config.load(alloc, io, env);
+    var config = try Config.load(
+        alloc,
+        io,
+        proc_args,
+        env,
+    );
     defer config.deinit();
 
     // Find the preferred path.
@@ -102,15 +118,15 @@ fn runInner(
     // Get our editor
     const get_env_: ?[]const u8 = env: {
         // VISUAL vs. EDITOR: https://unix.stackexchange.com/questions/4859/visual-vs-editor-what-s-the-difference
-        const visual = try env.get("VISUAL");
-        if (visual.value.len > 0) break :env visual;
-
-        const editor = try env.get("EDITOR");
-        if (editor.value.len > 0) break :env editor;
-
+        if (env.get("VISUAL")) |v| {
+            if (v.len > 0) break :env v;
+        }
+        if (env.get("EDITOR")) |v| {
+            if (v.len > 0) break :env v;
+        }
         break :env null;
     };
-    const editor: []const u8 = if (get_env_) |v| v.value else "";
+    const editor: []const u8 = get_env_ orelse "";
 
     // If we don't have `$EDITOR` set then we can't do anything
     // but we can still print a helpful message.
@@ -141,7 +157,7 @@ fn runInner(
     }
 
     const command = command: {
-        var buffer: std.io.Writer.Allocating = .init(alloc);
+        var buffer: std.Io.Writer.Allocating = .init(alloc);
         defer buffer.deinit();
         const writer = &buffer.writer;
         try writer.writeAll(editor);
@@ -164,7 +180,7 @@ fn runInner(
 
     const err = std.process.replace(io, .{
         .argv = &.{ "/bin/sh", "-c", command },
-        .environ_map = env.createMap(alloc),
+        .environ_map = env,
     });
 
     // If we reached this point then exec failed.

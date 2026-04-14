@@ -45,13 +45,18 @@ pub const Options = struct {
 ///   * `--option`: The name of the configuration option to explain.
 ///   * `--keybind`: The name of the keybind action to explain.
 ///   * `--no-pager`: Disable automatic paging of output.
-pub fn run(alloc: Allocator) !u8 {
+pub fn run(
+    alloc: Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
+    proc_args: std.process.Args,
+) !u8 {
     var option_name: ?[]const u8 = null;
     var keybind_name: ?[]const u8 = null;
     var positional: ?[]const u8 = null;
     var no_pager: bool = false;
 
-    var iter = try args.argsIterator(alloc);
+    var iter = try args.argsIterator(proc_args, alloc);
     defer iter.deinit();
     defer if (option_name) |s| alloc.free(s);
     defer if (keybind_name) |s| alloc.free(s);
@@ -77,7 +82,7 @@ pub fn run(alloc: Allocator) !u8 {
     const name = keybind_name orelse option_name orelse positional orelse {
         var stderr: std.Io.File = .stderr();
         var buffer: [4096]u8 = undefined;
-        var stderr_writer = stderr.writer(&buffer);
+        var stderr_writer = stderr.writer(io, &buffer);
         try stderr_writer.interface.writeAll("Usage: ghostty +explain-config <option>\n");
         try stderr_writer.interface.writeAll("       ghostty +explain-config --option=<option>\n");
         try stderr_writer.interface.writeAll("       ghostty +explain-config --keybind=<action>\n");
@@ -92,10 +97,10 @@ pub fn run(alloc: Allocator) !u8 {
     else
         explainOption(name) orelse explainKeybind(name);
 
-    var pager: Pager = if (!no_pager) .init(alloc) else .{};
-    defer pager.deinit();
+    var pager: Pager = if (!no_pager) .init(io, env) else .{};
+    defer pager.deinit(io);
     var buffer: [4096]u8 = undefined;
-    const writer = pager.writer(&buffer);
+    const writer = pager.writer(io, &buffer);
 
     if (text) |t| {
         try writer.writeAll(t);

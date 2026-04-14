@@ -117,7 +117,7 @@ pub const Parser = struct {
                 const line = written[idx..];
 
                 if (parseBlockTerminator(line)) |terminator| {
-                    const output = std.mem.trimRight(
+                    const output = std.mem.trimEnd(
                         u8,
                         written[0..idx],
                         "\r\n",

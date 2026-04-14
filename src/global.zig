@@ -31,6 +31,7 @@ pub const GlobalState = struct {
     gpa: ?GPA,
     alloc: std.mem.Allocator,
     io_threaded: std.Io.Threaded,
+    args: std.process.Args,
     environ_map: std.process.Environ.Map,
     action: ?cli.ghostty.Action,
     logging: Logging,
@@ -66,6 +67,7 @@ pub const GlobalState = struct {
         self.* = .{
             .gpa = null,
             .alloc = undefined,
+            .args = init_minimal.args,
             .environ_map = undefined,
             .action = null,
             .logging = .{},
@@ -120,8 +122,8 @@ pub const GlobalState = struct {
         // maybe once for logging) so for now this is an easy way to do
         // this. Env vars are useful for logging too because they are
         // easy to set.
-        if ((try self.environ_map.get("GHOSTTY_LOG"))) |v| {
-            self.logging = cli.args.parsePackedStruct(Logging, v.value) catch .{};
+        if (self.environ_map.get("GHOSTTY_LOG")) |v| {
+            self.logging = cli.args.parsePackedStruct(Logging, v) catch .{};
         }
 
         // Setup our signal handlers before logging
@@ -151,7 +153,7 @@ pub const GlobalState = struct {
         self.rlimits = .init();
 
         // Initialize our crash reporting.
-        crash.init(self.alloc) catch |err| {
+        crash.init(self.alloc, &self.environ_map) catch |err| {
             std.log.warn(
                 "sentry init failed, no crash capture available err={}",
                 .{err},
@@ -169,7 +171,7 @@ pub const GlobalState = struct {
 
         // We need to make sure the process locale is set properly. Locale
         // affects a lot of behaviors in a shell.
-        try internal_os.ensureLocale(self.alloc);
+        try internal_os.ensureLocale(&self.environ_map);
 
         // Initialize glslang for shader compilation
         try glslang.init();
@@ -179,7 +181,7 @@ pub const GlobalState = struct {
 
         // Find our resources directory once for the app so every launch
         // hereafter can use this cached value.
-        self.resources_dir = try apprt.runtime.resourcesDir(self.alloc);
+        self.resources_dir = try apprt.runtime.resourcesDir(self.alloc, self.io(), &self.environ_map);
         errdefer self.resources_dir.deinit(self.alloc);
 
         // Setup i18n

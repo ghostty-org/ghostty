@@ -61,17 +61,25 @@ pub const Options = struct {
 ///     options, especially paired with `--default`.
 ///
 ///   * `--no-pager`: Disable automatic paging of output.
-pub fn run(alloc: Allocator) !u8 {
+pub fn run(
+    alloc: Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
+    proc_args: std.process.Args,
+) !u8 {
     var opts: Options = .{};
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc);
+        var iter = try args.argsIterator(proc_args, alloc);
         defer iter.deinit();
         try args.parse(Options, alloc, &opts, &iter);
     }
 
-    var config = if (opts.default) try Config.default(alloc) else try Config.load(alloc);
+    var config = if (opts.default)
+        try Config.default(alloc)
+    else
+        try Config.load(alloc, io, proc_args, env);
     defer config.deinit();
 
     const configfmt: configpkg.FileFormatter = .{
@@ -81,10 +89,13 @@ pub fn run(alloc: Allocator) !u8 {
         .docs = opts.docs,
     };
 
-    var pager: Pager = if (!opts.@"no-pager") .init(alloc) else .{};
-    defer pager.deinit();
+    var pager: Pager = if (!opts.@"no-pager")
+        .init(io, env)
+    else
+        .{};
+    defer pager.deinit(io);
     var buffer: [4096]u8 = undefined;
-    const writer = pager.writer(&buffer);
+    const writer = pager.writer(io, &buffer);
 
     try configfmt.format(writer);
     try writer.flush();

@@ -334,7 +334,7 @@ fn syncDrawTimer(self: *Thread) void {
 }
 
 /// Drain the mailbox.
-fn drainMailbox(self: *Thread) !void {
+fn drainMailbox(self: *Thread, io: std.Io) !void {
     // There's probably a more elegant way to do this...
     //
     // This is effectively an @autoreleasepool{} block, which we need in
@@ -345,7 +345,7 @@ fn drainMailbox(self: *Thread) !void {
         void;
     defer if (builtin.os.tag.isDarwin()) pool.deinit();
 
-    while (self.mailbox.pop()) |message| {
+    while (self.mailbox.pop(io)) |message| {
         log.debug("mailbox message={}", .{message});
         switch (message) {
             .crash => @panic("crash request, crashing intentionally"),

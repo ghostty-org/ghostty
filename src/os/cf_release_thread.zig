@@ -139,14 +139,14 @@ fn threadMain_(self: *Thread) !void {
 }
 
 /// Drain the mailbox, handling all the messages in our terminal implementation.
-fn drainMailbox(self: *Thread) !void {
+fn drainMailbox(self: *Thread, io: std.Io) !void {
     // If we're draining, we just drain the mailbox and return.
     if (self.flags.drain) {
-        while (self.mailbox.pop()) |_| {}
+        while (self.mailbox.pop(io)) |_| {}
         return;
     }
 
-    while (self.mailbox.pop()) |message| {
+    while (self.mailbox.pop(io)) |message| {
         // log.debug("mailbox message={}", .{message});
         switch (message) {
             .release => |msg| {

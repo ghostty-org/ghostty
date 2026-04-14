@@ -3818,19 +3818,24 @@ pub fn deinit(self: *Config) void {
 ///   4. CLI flags
 ///   5. Recursively defined configuration files
 ///
-pub fn load(alloc_gpa: Allocator, io: std.Io, env: *const std.process.Environ.Map) !Config {
+pub fn load(
+    alloc_gpa: Allocator,
+    io: std.Io,
+    args: std.process.Args,
+    env: *const std.process.Environ.Map,
+) !Config {
     var result = try default(alloc_gpa);
     errdefer result.deinit();
 
     // If we have a configuration file in our home directory, parse that first.
-    try result.loadDefaultFiles(alloc_gpa);
+    try result.loadDefaultFiles(alloc_gpa, io, env);
 
     // Parse the config from the CLI args.
-    try result.loadCliArgs(alloc_gpa, io);
+    try result.loadCliArgs(alloc_gpa, io, args, env);
 
     // Parse the config files that were added from our file and CLI args.
-    try result.loadRecursiveFiles(alloc_gpa, io);
-    try result.finalize(io, env);
+    try result.loadRecursiveFiles(alloc_gpa, io, env);
+    try result.finalize(io, args, env);
 
     return result;
 }
@@ -3872,7 +3877,7 @@ pub fn loadIter(
 /// Load configuration from the target config file at `path`.
 ///
 /// `path` must be resolved and absolute.
-pub fn loadFile(self: *Config, alloc: Allocator, io: std.Io, path: []const u8) !void {
+pub fn loadFile(self: *Config, alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map, path: []const u8) !void {
     assert(std.Io.Dir.path.isAbsolute(path));
     var file = file_load.open(io, path) catch |err| switch (err) {
         error.NotAFile => {
@@ -3887,20 +3892,20 @@ pub fn loadFile(self: *Config, alloc: Allocator, io: std.Io, path: []const u8) !
     };
     defer file.close(io);
 
-    try self.loadFsFile(alloc, io, &file, path);
+    try self.loadFsFile(alloc, io, env, &file, path);
 }
 
 /// Load config from the given File.
-fn loadFsFile(self: *Config, alloc: Allocator, io: std.Io, file: *std.Io.File, path: []const u8) !void {
+fn loadFsFile(self: *Config, alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map, file: *std.Io.File, path: []const u8) !void {
     std.log.info("reading configuration file path={s}", .{path});
     var buf: [2048]u8 = undefined;
     var file_reader = file.reader(io, &buf);
     const reader = &file_reader.interface;
-    try self.loadReader(alloc, io, reader, path);
+    try self.loadReader(alloc, io, env, reader, path);
 }
 
 /// Load config from the given Reader.
-fn loadReader(self: *Config, alloc: Allocator, io: std.Io, reader: *std.Io.Reader, path: []const u8) !void {
+fn loadReader(self: *Config, alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map, reader: *std.Io.Reader, path: []const u8) !void {
     bom: {
         // If the file starts with a UTF-8 byte order mark, skip it.
         // https://en.wikipedia.org/wiki/Byte_order_mark#UTF-8
@@ -3913,7 +3918,7 @@ fn loadReader(self: *Config, alloc: Allocator, io: std.Io, reader: *std.Io.Reade
     }
     var iter: cli.args.LineIterator = .{ .r = reader, .filepath = path };
     try self.loadIter(alloc, &iter);
-    try self.expandPaths(io, std.Io.Dir.path.dirname(path).?);
+    try self.expandPaths(io, env, std.Io.Dir.path.dirname(path).?);
 }
 
 test "handle bom in config files" {
@@ -3970,9 +3975,10 @@ pub fn loadOptionalFile(
     self: *Config,
     alloc: Allocator,
     io: std.Io,
+    env: *const std.process.Environ.Map,
     path: []const u8,
 ) OptionalFileAction {
-    if (self.loadFile(io, alloc, path)) {
+    if (self.loadFile(alloc, io, env, path)) {
         return .loaded;
     } else |err| switch (err) {
         error.FileNotFound => return .not_found,
@@ -3995,7 +4001,7 @@ fn writeConfigTemplate(io: std.Io, path: []const u8) !void {
     const file = try std.Io.Dir.createFileAbsolute(io, path, .{});
     defer file.close(io);
     var buf: [4096]u8 = undefined;
-    var file_writer = file.writer(&buf);
+    var file_writer = file.writer(io, &buf);
     const writer = &file_writer.interface;
     try writer.print(
         @embedFile("./config-template"),
@@ -4018,8 +4024,8 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator, io: std.Io, env: *const
     const xdg_path = try file_load.defaultXdgPath(alloc, io, env);
     defer alloc.free(xdg_path);
     const xdg_loaded: bool = xdg_loaded: {
-        const legacy_xdg_action = self.loadOptionalFile(alloc, io, legacy_xdg_path);
-        const xdg_action = self.loadOptionalFile(alloc, io, xdg_path);
+        const legacy_xdg_action = self.loadOptionalFile(alloc, io, env, legacy_xdg_path);
+        const xdg_action = self.loadOptionalFile(alloc, io, env, xdg_path);
         if (xdg_action != .not_found and legacy_xdg_action != .not_found) {
             log.warn("both config files `{s}` and `{s}` exist.", .{ legacy_xdg_path, xdg_path });
             log.warn("loading them both in that order", .{});
@@ -4040,6 +4046,7 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator, io: std.Io, env: *const
             const legacy_app_support_action = self.loadOptionalFile(
                 alloc,
                 io,
+                env,
                 legacy_app_support_path,
             );
 
@@ -4051,7 +4058,9 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator, io: std.Io, env: *const
                 legacy_app_support_path,
                 app_support_path,
             )) self.loadOptionalFile(
+                alloc,
                 io,
+                env,
                 app_support_path,
             ) else .not_found;
 
@@ -4085,15 +4094,21 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator, io: std.Io, env: *const
 }
 
 /// Load and parse the CLI args.
-pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator, io: std.Io) !void {
+pub fn loadCliArgs(
+    self: *Config,
+    alloc_gpa: Allocator,
+    io: std.Io,
+    raw_args: std.process.Args,
+    env: *const std.process.Environ.Map,
+) !void {
     switch (builtin.os.tag) {
         .windows => {},
 
         // Fast-path if we are Linux/BSD and have no args.
-        .linux, .freebsd => if (std.os.argv.len <= 1) return,
+        .linux, .freebsd => if (raw_args.vector.len <= 1) return,
 
         // Everything else we have to at least try because it may
-        // not use std.os.argv.
+        // not use the passed-in args.
         else => {},
     }
 
@@ -4109,9 +4124,10 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator, io: std.Io) !void {
     //
     // See: https://github.com/Vladimir-csp/xdg-terminal-exec
     if ((comptime builtin.os.tag == .linux) or (comptime builtin.os.tag == .freebsd)) {
-        if (internal_os.xdg.parseTerminalExec(std.os.argv)) |args| {
-            const arena_alloc = self._arena.?.allocator();
+        const arena_alloc = self._arena.?.allocator();
+        const arg_slice = try raw_args.toSlice(arena_alloc);
 
+        if (internal_os.xdg.parseTerminalExec(arg_slice)) |args| {
             // First, we add an artificial "-e" so that if we
             // replay the inputs to rebuild the config (i.e. if
             // a theme is set) then we will get the same behavior.
@@ -4159,7 +4175,7 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator, io: std.Io) !void {
     }
 
     // Initialize our CLI iterator.
-    var iter = try cli.args.argsIterator(alloc_gpa);
+    var iter = try cli.args.argsIterator(raw_args, alloc_gpa);
     defer iter.deinit();
     try self.loadIter(alloc_gpa, &iter);
 
@@ -4175,6 +4191,8 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator, io: std.Io) !void {
         errdefer new_config.deinit();
         var it = Replay.iterator(
             self._replay_steps.items[replay_len_start..replay_len_end],
+            io,
+            env,
             &new_config,
         );
         try new_config.loadIter(alloc_gpa, &it);
@@ -4185,11 +4203,12 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator, io: std.Io) !void {
     // Any paths referenced from the CLI are relative to the current working
     // directory.
     var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
-    try self.expandPaths(io, try std.Io.Dir.cwd().realpath(".", &buf));
+    const cwd_len = try std.Io.Dir.cwd().realPath(io, &buf);
+    try self.expandPaths(io, env, buf[0..cwd_len]);
 }
 
 /// Load and parse the config files that were added in the "config-file" key.
-pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator, io: std.Io) !void {
+pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator, io: std.Io, env: *const std.process.Environ.Map) !void {
     if (self.@"config-file".value.items.len == 0) return;
     const arena_alloc = self._arena.?.allocator();
 
@@ -4285,7 +4304,7 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator, io: std.Io) !void
             },
         }
 
-        try self.loadFsFile(arena_alloc, &file, path);
+        try self.loadFsFile(arena_alloc, io, env, &file, path);
     }
 
     // If we have a suffix, add that back.
@@ -4319,6 +4338,8 @@ pub fn arenaAlloc(self: *Config) Allocator {
 pub fn changeConditionalState(
     self: *const Config,
     new: conditional.State,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
 ) !?Config {
     // If the conditional state between the old and new is the same,
     // then we don't need to do anything.
@@ -4352,16 +4373,15 @@ pub fn changeConditionalState(
     new_config._conditional_state = new;
 
     // Replay all of our steps to rebuild the configuration
-    var it = Replay.iterator(self._replay_steps.items, &new_config);
+    var it = Replay.iterator(self._replay_steps.items, io, env, &new_config);
     try new_config.loadIter(alloc_gpa, &it);
-    try new_config.finalize();
 
     return new_config;
 }
 
 /// Expand the relative paths in config-files to be absolute paths
 /// relative to the base directory.
-fn expandPaths(self: *Config, io: std.Io, base: []const u8) !void {
+fn expandPaths(self: *Config, io: std.Io, env: *const std.process.Environ.Map, base: []const u8) !void {
     const arena_alloc = self._arena.?.allocator();
 
     // Keep track of this step for replays
@@ -4373,19 +4393,41 @@ fn expandPaths(self: *Config, io: std.Io, base: []const u8) !void {
     // Expand all of our paths
     inline for (@typeInfo(Config).@"struct".fields) |field| {
         switch (field.type) {
-            RepeatablePath, Path => {
+            RepeatablePath => {
                 try @field(self, field.name).expand(
-                    io,
                     arena_alloc,
+                    io,
+                    env,
                     base,
                     &self._diagnostics,
                 );
             },
-            ?RepeatablePath, ?Path => {
+            Path => {
+                try @field(self, field.name).expand(
+                    arena_alloc,
+                    io,
+                    env,
+                    base,
+                    &self._diagnostics,
+                );
+            },
+            ?RepeatablePath => {
                 if (@field(self, field.name)) |*path| {
                     try path.expand(
-                        io,
                         arena_alloc,
+                        io,
+                        env,
+                        base,
+                        &self._diagnostics,
+                    );
+                }
+            },
+            ?Path => {
+                if (@field(self, field.name)) |*path| {
+                    try path.expand(
+                        arena_alloc,
+                        io,
+                        env,
                         base,
                         &self._diagnostics,
                     );
@@ -4491,7 +4533,7 @@ fn loadTheme(
 
     // Replay our previous inputs so that we can override values
     // from the theme.
-    var slice_it = Replay.iterator(self._replay_steps.items, io, &new_config);
+    var slice_it = Replay.iterator(self._replay_steps.items, io, env, &new_config);
     try new_config.loadIter(alloc_gpa, &slice_it);
 
     // Success, swap our new config in and free the old.
@@ -4501,7 +4543,12 @@ fn loadTheme(
 
 /// Call this once after you are done setting configuration. This
 /// is idempotent but will waste memory if called multiple times.
-pub fn finalize(self: *Config, io: std.Io, env: *const std.process.Environ.Map) !void {
+pub fn finalize(
+    self: *Config,
+    io: std.Io,
+    args: std.process.Args,
+    env: *const std.process.Environ.Map,
+) !void {
     // We always load the theme first because it may set other fields
     // in our config.
     if (self.theme) |theme| {
@@ -4527,7 +4574,7 @@ pub fn finalize(self: *Config, io: std.Io, env: *const std.process.Environ.Map) 
 
     // Used for a variety of defaults. See the function docs as well the
     // specific variable use sites for more details.
-    const probable_cli = probableCliEnvironment();
+    const probable_cli = probableCliEnvironment(args, env);
 
     // If we have a font-family set and don't set the others, default
     // the others to the font family. This way, if someone does
@@ -4572,7 +4619,7 @@ pub fn finalize(self: *Config, io: std.Io, env: *const std.process.Environ.Map) 
                 log.info("shell src=config value={}", .{cmd})
             else shell_env: {
                 // Flatpak always gets its shell from outside the sandbox
-                if (internal_os.isFlatpak()) break :shell_env;
+                if (internal_os.isFlatpak(io)) break :shell_env;
 
                 // If we were launched from the desktop, our SHELL env var
                 // will represent our SHELL at login time. We only want to
@@ -4587,7 +4634,7 @@ pub fn finalize(self: *Config, io: std.Io, env: *const std.process.Environ.Map) 
 
                     // If we don't need the working directory, then we can exit now.
                     if (wd != .home) break :command;
-                } else |_| {}
+                }
             }
 
             switch (builtin.os.tag) {
@@ -4609,7 +4656,7 @@ pub fn finalize(self: *Config, io: std.Io, env: *const std.process.Environ.Map) 
 
                 else => {
                     // We need the passwd entry for the remainder
-                    const pw = try internal_os.passwd.get(alloc);
+                    const pw = try internal_os.passwd.get(alloc, io);
                     if (self.command == null) {
                         if (pw.shell) |sh| {
                             log.info("default shell src=passwd value={s}", .{sh});
@@ -4633,7 +4680,7 @@ pub fn finalize(self: *Config, io: std.Io, env: *const std.process.Environ.Map) 
             }
         }
     }
-    try wd.finalize(alloc);
+    try wd.finalize(alloc, io, env);
     self.@"working-directory" = wd;
 
     // Apprt-specific defaults
@@ -4707,9 +4754,14 @@ pub fn finalize(self: *Config, io: std.Io, env: *const std.process.Environ.Map) 
 pub fn parseManuallyHook(
     self: *Config,
     alloc: Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
     arg: []const u8,
     iter: anytype,
 ) !bool {
+    _ = io;
+    _ = env;
+
     if (std.mem.eql(u8, arg, "-e")) {
         // Add the special -e marker. This prevents:
         // (1) config-file from adding args to the end (see #2908)
@@ -5072,7 +5124,10 @@ pub const ChangeIterator = struct {
 /// Ghostty in a CLI environment. We need this to change some behaviors.
 /// We should keep the set of behaviors that depend on this as small
 /// as possible because magic sucks, but each place is well documented.
-fn probableCliEnvironment(env: *const std.process.Environ.Map) bool {
+fn probableCliEnvironment(
+    args: std.process.Args,
+    env: *const std.process.Environ.Map,
+) bool {
     switch (builtin.os.tag) {
         // Windows has its own problems, just ignore it for now since
         // its not a real supported target and GTK via WSL2 assuming
@@ -5095,7 +5150,7 @@ fn probableCliEnvironment(env: *const std.process.Environ.Map) bool {
     }
 
     // CLI arguments makes things probable
-    if (std.os.argv.len > 1) return true;
+    if (args.vector.len > 1) return true;
 
     // Unlikely CLI environment
     return false;
@@ -5164,6 +5219,7 @@ const Replay = struct {
 
         config: *Config,
         io: std.Io,
+        env: *const std.process.Environ.Map,
         slice: []const Replay.Step,
         idx: usize = 0,
 
@@ -5172,7 +5228,7 @@ const Replay = struct {
                 if (self.idx >= self.slice.len) return null;
                 defer self.idx += 1;
                 switch (self.slice[self.idx]) {
-                    .expand => |base| self.config.expandPaths(self.io, base) catch |err| {
+                    .expand => |base| self.config.expandPaths(self.io, self.env, base) catch |err| {
                         // This shouldn't happen because to reach this step
                         // means that it succeeded before. Its possible since
                         // expanding paths is a side effect process that the
@@ -5216,8 +5272,8 @@ const Replay = struct {
     /// Construct a Replay iterator from a slice of replay elements.
     /// This can be used with args.parse and handles intermediate
     /// steps such as expanding relative paths.
-    fn iterator(slice: []const Replay.Step, io: std.Io, dst: *Config) Iterator {
-        return .{ .slice = slice, .io = io, .config = dst };
+    fn iterator(slice: []const Replay.Step, io: std.Io, env: *const std.process.Environ.Map, dst: *Config) Iterator {
+        return .{ .slice = slice, .io = io, .env = env, .config = dst };
     }
 };
 
@@ -5315,7 +5371,7 @@ pub const WorkingDirectory = union(enum) {
     }
 
     /// Expand tilde paths in .path values.
-    pub fn finalize(self: *Self, alloc: Allocator) Allocator.Error!void {
+    pub fn finalize(self: *Self, alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map) Allocator.Error!void {
         const path = switch (self.*) {
             .path => |path| path,
             else => return,
@@ -5324,7 +5380,7 @@ pub const WorkingDirectory = union(enum) {
         if (!std.mem.startsWith(u8, path, "~/")) return;
 
         var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
-        const expanded = internal_os.expandHome(path, &buf) catch |err| {
+        const expanded = internal_os.expandHome(path, &buf, io, env) catch |err| {
             log.warn(
                 "error expanding home directory for working-directory path={s}: {}",
                 .{ path, err },
@@ -5385,13 +5441,17 @@ pub const WorkingDirectory = union(enum) {
         const alloc = arena.allocator();
 
         {
+            const io = global_state.io();
+            const env = &std.process.Environ.Map.init;
             var wd: Self = .{ .path = "~/projects/ghostty" };
-            try wd.finalize(alloc);
+            try wd.finalize(alloc, io, env);
 
             var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
             const expected = internal_os.expandHome(
                 "~/projects/ghostty",
                 &buf,
+                io,
+                env,
             ) catch "~/projects/ghostty";
             try testing.expectEqualStrings(expected, wd.value().?);
         }
@@ -10312,7 +10372,13 @@ test "parse hook: invalid command" {
     const alloc = cfg._arena.?.allocator();
 
     var it: TestIterator = .{ .data = &.{"foo"} };
-    try testing.expect(try cfg.parseManuallyHook(alloc, "--command", &it));
+    try testing.expect(try cfg.parseManuallyHook(
+        alloc,
+        std.testing.io,
+        &.init(alloc),
+        "--command",
+        &it,
+    ));
     try testing.expect(cfg.command == null);
 }
 
@@ -10323,7 +10389,13 @@ test "parse e: command only" {
     const alloc = cfg._arena.?.allocator();
 
     var it: TestIterator = .{ .data = &.{"foo"} };
-    try testing.expect(!try cfg.parseManuallyHook(alloc, "-e", &it));
+    try testing.expect(!try cfg.parseManuallyHook(
+        alloc,
+        std.testing.io,
+        &.init(alloc),
+        "-e",
+        &it,
+    ));
 
     const cmd = cfg.@"initial-command".?;
     try testing.expect(cmd == .direct);
@@ -10333,12 +10405,21 @@ test "parse e: command only" {
 
 test "parse e: command and args" {
     const testing = std.testing;
+    const env = try std.testing.environ.createMap(testing.allocator);
+    defer env.deinit();
+
     var cfg = try Config.default(testing.allocator);
     defer cfg.deinit();
     const alloc = cfg._arena.?.allocator();
 
     var it: TestIterator = .{ .data = &.{ "echo", "foo", "bar baz" } };
-    try testing.expect(!try cfg.parseManuallyHook(alloc, "-e", &it));
+    try testing.expect(!try cfg.parseManuallyHook(
+        alloc,
+        std.testing.io,
+        &.init(alloc),
+        "-e",
+        &it,
+    ));
 
     const cmd = cfg.@"initial-command".?;
     try testing.expect(cmd == .direct);

@@ -28,6 +28,7 @@ pub fn init(
 /// Run the benchmark.
 pub fn run(
     self: Benchmark,
+    io: std.Io,
     mode: RunMode,
 ) Error!RunResult {
     // Run our setup function if it exists. We do this first because
@@ -64,21 +65,21 @@ pub fn run(
         signpost.log.release();
     };
 
-    const start = std.Io.Timestamp.now() catch return error.BenchmarkFailed;
+    const start: std.Io.Timestamp = .now(io, .awake);
     while (true) {
         // Run our step function. If it fails, we return the error.
         try self.vtable.stepFn(self.ptr);
         result.iterations += 1;
 
         // Get our current monotonic time and check our exit conditions.
-        const now = std.Io.Timestamp.now() catch return error.BenchmarkFailed;
+        const now: std.Io.Timestamp = .now(io, .awake);
         const exit = switch (mode) {
             .once => true,
-            .duration => |ns| now.since(start) >= ns,
+            .duration => |ns| start.durationTo(now).nanoseconds >= ns,
         };
 
         if (exit) {
-            result.duration = now.since(start);
+            result.duration = start.durationTo(now).nanoseconds;
             return result;
         }
     }
@@ -96,7 +97,7 @@ pub const RunMode = union(enum) {
     /// Run the benchmark for a fixed duration in nanoseconds. This
     /// will not interrupt a running step so if the granularity of the
     /// duration is too low, benchmark results may be inaccurate.
-    duration: u64,
+    duration: i96,
 };
 
 /// The result of a benchmark run.
@@ -108,7 +109,7 @@ pub const RunResult = struct {
     /// The total time taken for the run. For "duration" run modes
     /// this will be relatively close to the requested duration.
     /// The units are nanoseconds.
-    duration: u64 = 0,
+    duration: i96 = 0,
 };
 
 /// The possible errors that can occur during various stages of the
@@ -122,7 +123,7 @@ pub const VTable = struct {
     /// testing throughput.
     stepFn: *const fn (ptr: *anyopaque) Error!void,
 
-    /// Setup and teardown functions. These are called once before
+    /// Setup and teardown functns. These are called once before
     /// the first step and once after the last step. They are not part
     /// of the benchmark results (unless you're benchmarking the full
     /// binary).

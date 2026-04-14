@@ -25,7 +25,7 @@ io: std.Io,
 /// General purpose allocator
 alloc: Allocator,
 
-environ: std.process.Environ,
+environ: *const std.process.Environ.Map,
 
 /// The list of surfaces that are currently active.
 surfaces: SurfaceList,
@@ -154,6 +154,8 @@ pub fn updateConfig(self: *App, rt_app: *apprt.App, config: *const Config) !void
     // config applies its own conditional state.
     var applied_: ?configpkg.Config = config.changeConditionalState(
         self.config_conditional_state,
+        self.io,
+        self.environ,
     ) catch |err| err: {
         log.warn("failed to apply conditional state to config err={}", .{err});
         break :err null;
@@ -244,7 +246,7 @@ pub fn needsConfirmQuit(self: *const App) bool {
 
 /// Drain the mailbox.
 fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
-    while (self.mailbox.pop()) |message| {
+    while (self.mailbox.pop(self.io)) |message| {
         if (comptime std.log.logEnabled(.debug, .app)) {
             switch (message) {
                 // these tend to be way too verbose for normal debugging
@@ -590,10 +592,11 @@ pub const Mailbox = struct {
 
     rt_app: *apprt.App,
     mailbox: *Queue,
+    io: std.Io,
 
     /// Send a message to the surface.
     pub fn push(self: Mailbox, msg: Message, timeout: Queue.Timeout) Queue.Size {
-        const result = self.mailbox.push(msg, timeout);
+        const result = self.mailbox.push(msg, timeout, self.io);
 
         // Wake up our app loop
         self.rt_app.wakeup();

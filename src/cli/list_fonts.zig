@@ -59,13 +59,21 @@ pub const Options = struct {
 ///   * `--family`: Filter results to a specific font family. The family handling
 ///     is identical to the `font-family` set of Ghostty configuration values, so
 ///     this can be used to debug why your desired font may not be loading.
-pub fn run(alloc: Allocator) !u8 {
-    var iter = try args.argsIterator(alloc);
+pub fn run(
+    alloc: Allocator,
+    io: std.Io,
+    proc_args: std.process.Args,
+) !u8 {
+    var iter = try args.argsIterator(proc_args, alloc);
     defer iter.deinit();
-    return try runArgs(alloc, &iter);
+    return try runArgs(alloc, io, &iter);
 }
 
-fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
+fn runArgs(
+    alloc_gpa: Allocator,
+    io: std.Io,
+    argsIter: anytype,
+) !u8 {
     var config: Options = .{};
     defer config.deinit();
     try args.parse(Options, alloc_gpa, &config, argsIter);
@@ -78,7 +86,7 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
     // Its possible to build Ghostty without font discovery!
     if (comptime font.Discover == void) {
         var buffer: [1024]u8 = undefined;
-        var stderr_writer = std.Io.File.stderr().writer(&buffer);
+        var stderr_writer = std.Io.File.stderr().writer(io, &buffer);
         const stderr = &stderr_writer.interface;
         try stderr.print(
             \\Ghostty was built without a font discovery mechanism. This is a compile-time
@@ -92,7 +100,7 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
     }
 
     var buffer: [2048]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(&buffer);
+    var stdout_writer = std.Io.File.stdout().writer(io, &buffer);
     const stdout = &stdout_writer.interface;
 
     // We'll be putting our fonts into a list categorized by family
