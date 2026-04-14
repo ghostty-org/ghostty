@@ -2678,6 +2678,13 @@ pub fn keyCallback(
         if (self.io.terminal.modes.get(.disable_keyboard)) return .consumed;
     }
 
+    // In caret mode, unbound keys are dicarded.
+    {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    if (self.io.terminal.screens.active.caret_mode) return .consumed;
+    }
+
     // If this input event has text, then we hide the mouse if configured.
     // We only do this on pressed events to avoid hiding the mouse when we
     // change focus due to a keybinding (i.e. switching tabs).
@@ -5817,6 +5824,128 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
             // Queue a render so its shown
             screen.dirty.selection = true;
+            try self.queueRender();
+        },
+
+        .enter_caret_mode => {
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
+
+            const screen: *terminal.Screen = self.io.terminal.screens.active;
+            if (screen.caret_mode) return false;
+
+            try screen.enterCaretMode();
+
+            // Push the "caret" key table so caret bindings become active.
+            if (self.config.keybind.tables.getPtr("caret")) |set| {
+                if (self.keyboard.table_stack.items.len < max_active_key_tables) {
+                    try self.keyboard.table_stack.append(self.alloc, .{
+                        .set = set,
+                        .once = false,
+                    });
+                    _ = self.rt_app.performAction(
+                        .{ .surface = self },
+                        .key_table,
+                        .{ .activate = "caret" },
+                    ) catch |err| {
+                        log.warn("failed to notify app of key table err={}", .{err});
+                    };
+                }
+            }
+
+            // Scroll viewport to show the caret (it starts at the terminal
+            // cursor which is always in the active area, so this is a no-op
+            // in the common case but handles edge cases).
+            if (screen.caret_pin) |cp| caret_scroll: {
+                const viewport_tl = screen.pages.getTopLeft(.viewport);
+                const viewport_br = screen.pages.getBottomRight(.viewport).?;
+                if (cp.*.isBetween(viewport_tl, viewport_br)) break :caret_scroll;
+                screen.scroll(.{ .pin = cp.* });
+            }
+
+            try self.queueRender();
+        },
+
+        .exit_caret_mode => {
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
+
+            const screen: *terminal.Screen = self.io.terminal.screens.active;
+            if (!screen.caret_mode) return false;
+
+            screen.exitCaretMode();
+
+            // Pop the "caret" key table.
+            switch (self.keyboard.table_stack.items.len) {
+                0 => {},
+                1 => self.keyboard.table_stack.clearAndFree(self.alloc),
+                else => _ = self.keyboard.table_stack.pop(),
+            }
+            _ = self.rt_app.performAction(
+                .{ .surface = self },
+                .key_table,
+                .deactivate,
+            ) catch |err| {
+                log.warn("failed to notify app of key table err={}", .{err});
+            };
+
+            try self.queueRender();
+        },
+
+        .move_caret => |direction| {
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
+
+            const screen: *terminal.Screen = self.io.terminal.screens.active;
+            if (!screen.caret_mode) return false;
+
+            screen.moveCaret(switch (direction) {
+                .left => .left,
+                .right => .right,
+                .up => .up,
+                .down => .down,
+                .page_up => .page_up,
+                .page_down => .page_down,
+                .home => .home,
+                .end => .end,
+                .beginning_of_line => .beginning_of_line,
+                .end_of_line => .end_of_line,
+            });
+
+            // Scroll viewport to keep caret in view.
+            if (screen.caret_pin) |cp| caret_scroll: {
+                const viewport_tl = screen.pages.getTopLeft(.viewport);
+                const viewport_br = screen.pages.getBottomRight(.viewport).?;
+                if (cp.*.isBetween(viewport_tl, viewport_br)) break :caret_scroll;
+
+                const target = if (cp.*.before(viewport_tl))
+                    cp.*
+                else
+                    cp.*.up(screen.pages.rows - 1) orelse cp.*;
+
+                screen.scroll(.{ .pin = target });
+            }
+
+            screen.dirty.caret = true;
+            try self.queueRender();
+        },
+
+        .toggle_caret_selection => {
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
+
+            const screen: *terminal.Screen = self.io.terminal.screens.active;
+            if (!screen.caret_mode) return false;
+
+            if (screen.selection != null) {
+                // Clear the existing selection.
+                screen.clearSelection();
+            } else if (screen.caret_pin) |cp| {
+                // Anchor a new selection at the caret position.
+                const sel = terminal.Selection.init(cp.*, cp.*, false);
+                try screen.select(sel);
+            }
+
             try self.queueRender();
         },
     }

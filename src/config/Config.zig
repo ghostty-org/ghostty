@@ -6581,6 +6581,60 @@ pub const Keybinds = struct {
             .{ .performable = true },
         );
 
+        // Built-in "caret" key table for keyboard-driven scrollback navigation.
+        // Users activate it by binding `enter_caret_mode` to a key.
+        {
+            const gop = try self.tables.getOrPut(alloc, "caret");
+            if (!gop.found_existing) {
+                gop.key_ptr.* = "caret";
+                gop.value_ptr.* = .{};
+            }
+            const t = gop.value_ptr;
+
+            // Line movement
+            try t.put(alloc, .{ .key = .{ .unicode = 'j' } }, .{ .move_caret = .down });
+            try t.put(alloc, .{ .key = .{ .unicode = 'k' } }, .{ .move_caret = .up });
+            try t.put(alloc, .{ .key = .{ .unicode = 'h' } }, .{ .move_caret = .left });
+            try t.put(alloc, .{ .key = .{ .unicode = 'l' } }, .{ .move_caret = .right });
+
+            // Arrow key movement
+            try t.put(alloc, .{ .key = .{ .physical = .arrow_up } }, .{ .move_caret = .up });
+            try t.put(alloc, .{ .key = .{ .physical = .arrow_down } }, .{ .move_caret = .down });
+            try t.put(alloc, .{ .key = .{ .physical = .arrow_left } }, .{ .move_caret = .left });
+            try t.put(alloc, .{ .key = .{ .physical = .arrow_right } }, .{ .move_caret = .right });
+
+            // Page movement
+            try t.put(alloc, .{ .key = .{ .physical = .page_up } }, .{ .move_caret = .page_up });
+            try t.put(alloc, .{ .key = .{ .physical = .page_down } }, .{ .move_caret = .page_down });
+            try t.put(alloc, .{ .key = .{ .unicode = 'd' }, .mods = .{ .ctrl = true } }, .{ .move_caret = .page_down });
+            try t.put(alloc, .{ .key = .{ .unicode = 'u' }, .mods = .{ .ctrl = true } }, .{ .move_caret = .page_up });
+            try t.put(alloc, .{ .key = .{ .unicode = 'f' }, .mods = .{ .ctrl = true } }, .{ .move_caret = .page_down });
+            try t.put(alloc, .{ .key = .{ .unicode = 'b' }, .mods = .{ .ctrl = true } }, .{ .move_caret = .page_up });
+
+            // Jump to top/bottom
+            t.parseAndPut(alloc, "g>g=move_caret:home") catch unreachable;
+            try t.put(alloc, .{ .key = .{ .unicode = 'G' }, .mods = .{ .shift = true } }, .{ .move_caret = .end });
+            try t.put(alloc, .{ .key = .{ .unicode = '0' } }, .{ .move_caret = .beginning_of_line });
+            try t.put(alloc, .{ .key = .{ .unicode = '$' }, .mods = .{ .shift = true } }, .{ .move_caret = .end_of_line });
+
+            // Search
+            try t.put(alloc, .{ .key = .{ .unicode = '/' } }, .start_search);
+            try t.put(alloc, .{ .key = .{ .unicode = 'n' } }, .{ .navigate_search = .next });
+            try t.put(alloc, .{ .key = .{ .unicode = 'N' }, .mods = .{ .shift = true } }, .{ .navigate_search = .previous });
+
+            // Selection
+            try t.put(alloc, .{ .key = .{ .unicode = 'v' } }, .toggle_caret_selection);
+            try t.put(alloc, .{ .key = .{ .unicode = 'y' } }, .{ .copy_to_clipboard = .mixed });
+
+            // Exit
+            try t.put(alloc, .{ .key = .{ .physical = .escape } }, .exit_caret_mode);
+            try t.put(alloc, .{ .key = .{ .unicode = 'q' } }, .exit_caret_mode);
+            try t.put(alloc, .{ .key = .{ .unicode = 'i' } }, .exit_caret_mode);
+
+            // Swallow all unbound keys so they don't reach the terminal.
+            t.parseAndPut(alloc, "catch_all=ignore") catch unreachable;
+        }
+
         // Tabs common to all platforms
         try self.set.put(
             alloc,

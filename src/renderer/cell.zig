@@ -119,7 +119,7 @@ pub const Contents = struct {
         fg_rows.lists[0].deinit(alloc);
         fg_rows.lists[0] = try .initCapacity(alloc, 1);
         fg_rows.lists[size.rows + 1].deinit(alloc);
-        fg_rows.lists[size.rows + 1] = try .initCapacity(alloc, 1);
+        fg_rows.lists[size.rows + 1] = try .initCapacity(alloc, 2);
 
         // Perform the swap, no going back from here.
         errdefer comptime unreachable;
@@ -154,6 +154,14 @@ pub const Contents = struct {
             // Other cursor styles should be drawn last
             .block_hollow, .bar, .underline, .lock => self.fg_rows.lists[self.size.rows + 1].appendAssumeCapacity(cell),
         }
+    }
+
+    /// Set the caret (keyboard navigation) glyph. Unlike setCursor, this does
+    /// not clear any existing cursor glyphs — it appends alongside them.
+    /// The caret is always drawn last (on top of text).
+    pub fn setCaret(self: *Contents, v: shaderpkg.CellText) void {
+        if (self.size.rows == 0) return;
+        self.fg_rows.lists[self.size.rows + 1].appendAssumeCapacity(v);
     }
 
     /// Returns the current cursor glyph if present, checking both cursor lists.
