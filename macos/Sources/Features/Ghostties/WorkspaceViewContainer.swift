@@ -191,52 +191,45 @@ class WorkspaceViewContainer: NSView {
         effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua
     }
 
-    /// Fallback card background color — used whenever no focused surface is
-    /// available to provide a theme color (fresh launch, between session swaps,
-    /// surface tear-down). Follows OS light/dark appearance.
-    private var fallbackCardBackgroundNSColor: NSColor {
+    /// Canvas palette color for the current OS appearance. The canvas layer
+    /// covers the terminal card background (internal header strip + card rim
+    /// around the GPU-rendered terminal area). Owned by the Ghostties design
+    /// system — intentionally independent of terminal theme.
+    private var canvasPaletteNSColor: NSColor {
         isLightAppearance
-            ? WorkspaceLayout.cardBackgroundLight
-            : WorkspaceLayout.cardBackgroundDark
+            ? WorkspaceLayout.canvasBackgroundLight
+            : WorkspaceLayout.canvasBackgroundDark
     }
 
-    /// Resolve the chrome card background color for a given surface. When the
-    /// surface is nil (no active session yet, or surface torn down) this falls
-    /// back to the Ghostties palette color for the current OS appearance.
-    ///
-    /// The chrome is always fully opaque — we intentionally ignore the theme's
-    /// `backgroundOpacity` / `backgroundBlur` so the header buttons stay
-    /// readable even when the terminal is translucent.
-    private func resolveChromeColor(surface: Ghostty.SurfaceView?) -> NSColor {
-        guard let surface else { return fallbackCardBackgroundNSColor }
-        // DerivedConfig.backgroundColor is a SwiftUI.Color — project down to NSColor
-        // and force alpha=1 so the chrome never inherits theme transparency.
-        return NSColor(surface.derivedConfig.backgroundColor).withAlphaComponent(1)
+    /// Chrome palette color for the current OS appearance. The chrome layer
+    /// covers the left sidebar column and the gutter padding around the
+    /// terminal card. Owned by the Ghostties design system — intentionally
+    /// independent of terminal theme.
+    private var chromePaletteNSColor: NSColor {
+        isLightAppearance
+            ? WorkspaceLayout.chromeBackgroundLight
+            : WorkspaceLayout.chromeBackgroundDark
     }
 
-    /// Card background CGColor for the terminal card in pinned/closed modes.
-    /// Driven by the focused surface's theme when available; otherwise falls
-    /// back to the Ghostties palette.
+    /// Terminal card background — the canvas layer. Always the Ghostties
+    /// canvas palette; terminal theme is intentionally NOT bound here. The
+    /// terminal content area inside the card is still painted by GhosttyKit
+    /// (its theme system owns that rectangle).
     private var cardBackgroundCGColor: CGColor {
-        resolveChromeColor(surface: observedSurface).cgColor
+        canvasPaletteNSColor.cgColor
     }
 
-    /// Browser card background — currently always the fallback palette because
-    /// the browser session type has no theme-color concept (see
-    /// `BrowserTabManager`). Kept as a separate computed property so a future
-    /// browser-theme integration has an obvious insertion point.
+    /// Browser card background — unified with the terminal card's canvas
+    /// palette so the two card types read as the same design-system layer.
     private var browserCardBackgroundCGColor: CGColor {
-        fallbackCardBackgroundNSColor.cgColor
+        canvasPaletteNSColor.cgColor
     }
 
-    /// Canvas color behind the floating terminal card. Driven by the focused
-    /// surface's theme (same resolver as the card) so the chrome around the
-    /// card reads as one cohesive theme color rather than a visible seam.
-    /// Falls back to the card palette (not the separate canvas palette) when
-    /// no surface is available — keeps the "single color" feel even during
-    /// fresh launch / surface swap.
+    /// Outer workspace canvas behind the sidebar and the gutter around the
+    /// terminal card — the chrome layer. Always the Ghostties chrome palette;
+    /// terminal theme is intentionally NOT bound here.
     private var canvasBackgroundCGColor: CGColor {
-        resolveChromeColor(surface: observedSurface).cgColor
+        chromePaletteNSColor.cgColor
     }
 
 
@@ -1178,19 +1171,21 @@ class WorkspaceViewContainer: NSView {
         return coordinator.sessionTrees[activeId]?.first
     }
 
-    /// Paint both the terminal card layer and the surrounding workspace
-    /// canvas with the current themed (or fallback) color. The canvas strip
-    /// around the card is too narrow (~8pt) to read as a frame, so driving
-    /// both from the same resolved color removes the seam and produces one
-    /// cohesive theme-colored window chrome.
+    /// Repaint the chrome and canvas layers with the current Ghostties design-
+    /// system palette (static, not theme-bound). The card + browser use the
+    /// canvas tone; the outer layer uses the chrome tone. The focused-surface
+    /// Combine subscription still drives this on session swaps and config
+    /// changes — after the theme-unbind refactor it's effectively a no-op
+    /// repaint with static tokens, but left in place to preserve the
+    /// session-swap invalidation path with minimal churn.
     ///
-    /// No-op in overlay mode, which intentionally clears both layers to let
+    /// No-op in overlay mode, which intentionally clears all layers to let
     /// the vibrancy material show through.
     private func applyChromeColor() {
         guard sidebarMode == .pinned || sidebarMode == .closed else { return }
-        let color = resolveChromeColor(surface: observedSurface).cgColor
-        terminalShadowHost.layer?.backgroundColor = color
-        layer?.backgroundColor = color
+        terminalShadowHost.layer?.backgroundColor = cardBackgroundCGColor
+        browserShadowHost.layer?.backgroundColor = browserCardBackgroundCGColor
+        layer?.backgroundColor = canvasBackgroundCGColor
     }
 }
 

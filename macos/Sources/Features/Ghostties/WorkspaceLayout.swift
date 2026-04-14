@@ -52,22 +52,31 @@ enum WorkspaceLayout {
     /// Background for active session row (light mode): 4% black.
     static let activeRowLight = Color.black.opacity(0.04)
 
-    /// Workspace canvas color behind the floating terminal card (light mode).
-    static let canvasBackgroundLight = NSColor(red: 0xF0 / 255.0, green: 0xE9 / 255.0, blue: 0xE6 / 255.0, alpha: 1)
+    /// Chrome background (light mode). Covers the left sidebar column and the
+    /// gutter padding around the terminal card. The outer of the two Ghostties
+    /// design-system layers — warm pink-cream, independent of terminal theme.
+    static let chromeBackgroundLight = NSColor(red: 0xF0 / 255.0, green: 0xE9 / 255.0, blue: 0xE6 / 255.0, alpha: 1)
 
-    /// Fallback terminal card background (light mode). Used when no focused
-    /// surface is available to provide a theme color — the card normally binds
-    /// to `Ghostty.SurfaceView.DerivedConfig.backgroundColor` of the focused
-    /// surface so the chrome matches the terminal. See
-    /// `WorkspaceViewContainer.resolveChromeColor(surface:)`.
+    /// Chrome background (dark mode). See `chromeBackgroundLight`.
+    static let chromeBackgroundDark = NSColor(white: 0.14, alpha: 1)
+
+    /// Canvas background (light mode). Covers the terminal card background
+    /// (internal header strip + card rim around the GPU-rendered terminal).
+    /// Slightly lighter and cooler than chrome — the inner of the two
+    /// Ghostties design-system layers. Also independent of terminal theme;
+    /// the terminal content area itself is painted by GhosttyKit.
+    static let canvasBackgroundLight = NSColor(red: 0xFA / 255.0, green: 0xF7 / 255.0, blue: 0xF3 / 255.0, alpha: 1)
+
+    /// Canvas background (dark mode). Slightly lighter than chrome dark, still
+    /// warm. See `canvasBackgroundLight`.
+    static let canvasBackgroundDark = NSColor(white: 0.18, alpha: 1)
+
+    /// Legacy fallback terminal card background (light mode). Retained for now
+    /// in case future browser/theme work wants a non-canvas fallback tone.
     static let cardBackgroundLight = NSColor(red: 0xFD / 255.0, green: 0xF9 / 255.0, blue: 0xF7 / 255.0, alpha: 1)
 
-    /// Workspace canvas color behind the floating terminal card (dark mode).
-    /// Slightly lighter than the card so the terminal appears to float.
-    static let canvasBackgroundDark = NSColor(white: 0.14, alpha: 1)
-
-    /// Fallback terminal card background (dark mode). See `cardBackgroundLight`
-    /// — used only when no focused surface is available to theme the card.
+    /// Legacy fallback terminal card background (dark mode). See
+    /// `cardBackgroundLight`.
     static let cardBackgroundDark = NSColor(white: 0.10, alpha: 1)
 
     /// Terracotta/warm rust accent for the "waiting" indicator state. #c97350
