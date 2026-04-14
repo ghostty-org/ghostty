@@ -331,7 +331,7 @@ fn defaultCommandWithLookupAndProbe(
             defer alloc.free(path);
             if (candidate.shell == .wsl and !try probe(alloc, path)) continue;
             return switch (candidate.shell) {
-                .wsl => try directCommand(alloc, &.{ path, "~" }),
+                .wsl => try directCommand(alloc, &.{path}),
                 else => try directCommand(alloc, &.{path}),
             };
         }
@@ -403,7 +403,7 @@ fn listProfilesWithLookupAndProbeAndWslListAndOrder(
                 .wsl_default,
                 "wsl-default",
                 "WSL (Default)",
-                &.{ path, "~" },
+                &.{path},
             );
 
             const distros = try list_wsl(alloc, path);
@@ -420,7 +420,7 @@ fn listProfilesWithLookupAndProbeAndWslListAndOrder(
                     .wsl_distro,
                     key,
                     label,
-                    &.{ path, "-d", distro, "~" },
+                    &.{ path, "-d", distro },
                 );
             }
         }
@@ -664,8 +664,7 @@ fn prepareWslDirect(
     }
 
     var count: usize = 1;
-    var need_home_arg = target_home;
-    if (target_cwd != null and !target_home) count += 2;
+    if (target_cwd != null) count += 2;
 
     var i: usize = 1;
     while (i < argv.len) : (i += 1) {
@@ -675,10 +674,8 @@ fn prepareWslDirect(
         }
 
         if (std.mem.eql(u8, argv[i], "~")) {
-            if (target_home) {
-                need_home_arg = false;
-                count += 1;
-            }
+            // Treat a bare "~" as our legacy home sentinel for WSL launches.
+            // Modern WSL expects "--cd ~" instead of a positional "~".
             continue;
         }
 
@@ -695,17 +692,11 @@ fn prepareWslDirect(
     j += 1;
 
     if (target_cwd) |cwd| {
-        if (target_home) {
-            if (need_home_arg) {
-                args[j] = try alloc.dupeZ(u8, "~");
-                j += 1;
-            }
-        } else {
-            args[j] = try alloc.dupeZ(u8, "--cd");
-            j += 1;
-            args[j] = try alloc.dupeZ(u8, cwd);
-            j += 1;
-        }
+        _ = target_home;
+        args[j] = try alloc.dupeZ(u8, "--cd");
+        j += 1;
+        args[j] = try alloc.dupeZ(u8, cwd);
+        j += 1;
     }
 
     i = 1;
@@ -716,10 +707,6 @@ fn prepareWslDirect(
         }
 
         if (std.mem.eql(u8, argv[i], "~")) {
-            if (target_home) {
-                args[j] = try alloc.dupeZ(u8, argv[i]);
-                j += 1;
-            }
             continue;
         }
 
@@ -727,6 +714,7 @@ fn prepareWslDirect(
         j += 1;
     }
 
+    std.debug.assert(j == count);
     return .{ .direct = args };
 }
 
@@ -786,10 +774,27 @@ fn listWslDistros(alloc: Allocator, exe_path: []const u8) ![][]u8 {
         return error.Unexpected;
     };
 
-    const output = try stdout.readToEndAlloc(alloc, 64 * 1024);
-    defer alloc.free(output);
+    const raw_bytes = try stdout.readToEndAlloc(alloc, 64 * 1024);
+    defer alloc.free(raw_bytes);
 
     _ = try child.wait();
+
+    // wsl.exe outputs UTF-16LE. Convert to UTF-8 before parsing.
+    // bytesAsSlice returns align(1) u16, but utf16LeToUtf8Alloc needs align(2).
+    // Copy into a properly-aligned buffer first.
+    const output = if (raw_bytes.len >= 2 and raw_bytes.len % 2 == 0) blk: {
+        const unaligned = std.mem.bytesAsSlice(u16, raw_bytes);
+        const aligned = try alloc.alloc(u16, unaligned.len);
+        defer alloc.free(aligned);
+        @memcpy(aligned, unaligned);
+        // Skip BOM if present
+        const data: []const u16 = if (aligned.len > 0 and aligned[0] == 0xFEFF) aligned[1..] else aligned;
+        break :blk std.unicode.utf16LeToUtf8Alloc(alloc, data) catch {
+            // Fallback: treat as raw UTF-8 if conversion fails
+            break :blk try alloc.dupe(u8, raw_bytes);
+        };
+    } else try alloc.dupe(u8, raw_bytes);
+    defer alloc.free(output);
 
     var result: std.ArrayList([]u8) = .empty;
     errdefer {
@@ -799,12 +804,27 @@ fn listWslDistros(alloc: Allocator, exe_path: []const u8) ![][]u8 {
 
     var it = std.mem.splitAny(u8, output, "\r\n");
     while (it.next()) |line_raw| {
-        const line = std.mem.trim(u8, line_raw, " \t\r\n");
+        const line = std.mem.trim(u8, line_raw, " \t\r\n\x00");
         if (line.len == 0) continue;
+        // Filter out Docker Desktop and Rancher Desktop service distros
+        // (matches Windows Terminal behavior)
+        if (isWslServiceDistro(line)) continue;
         try result.append(alloc, try alloc.dupe(u8, line));
     }
 
     return try result.toOwnedSlice(alloc);
+}
+
+/// Returns true for WSL distros that are internal service distributions
+/// (not intended for interactive use). Matches Windows Terminal's filtering.
+fn isWslServiceDistro(name: []const u8) bool {
+    return asciiStartsWithIgnoreCase(name, "docker-desktop") or
+        asciiStartsWithIgnoreCase(name, "rancher-desktop");
+}
+
+fn asciiStartsWithIgnoreCase(haystack: []const u8, prefix: []const u8) bool {
+    if (haystack.len < prefix.len) return false;
+    return std.ascii.eqlIgnoreCase(haystack[0..prefix.len], prefix);
 }
 
 fn deinitOwnedStringList(alloc: Allocator, values: []const []u8) void {
@@ -975,9 +995,8 @@ test "defaultCommandWithLookup prefers absolute wsl path" {
     defer command.deinit(alloc);
 
     try testing.expect(command == .direct);
-    try testing.expectEqual(@as(usize, 2), command.direct.len);
+    try testing.expectEqual(@as(usize, 1), command.direct.len);
     try testing.expectEqualStrings("C:\\Windows\\System32\\wsl.exe", command.direct[0]);
-    try testing.expectEqualStrings("~", command.direct[1]);
 }
 
 test "defaultCommandWithLookupAndProbe falls back when wsl probe fails" {
@@ -1069,12 +1088,11 @@ test "listProfilesWithLookupAndProbeAndWslList enumerates windows profiles" {
     try testing.expectEqual(@as(usize, 7), profiles.len);
     try testing.expectEqual(ProfileKind.wsl_default, profiles[0].kind);
     try testing.expectEqualStrings("WSL (Default)", profiles[0].label);
-    try testing.expectEqual(@as(usize, 2), profiles[0].command.direct.len);
-    try testing.expectEqualStrings("~", profiles[0].command.direct[1]);
+    try testing.expectEqual(@as(usize, 1), profiles[0].command.direct.len);
 
     try testing.expectEqual(ProfileKind.wsl_distro, profiles[1].kind);
     try testing.expectEqualStrings("WSL: Ubuntu", profiles[1].label);
-    try testing.expectEqual(@as(usize, 4), profiles[1].command.direct.len);
+    try testing.expectEqual(@as(usize, 3), profiles[1].command.direct.len);
     try testing.expectEqualStrings("-d", profiles[1].command.direct[1]);
     try testing.expectEqualStrings("Ubuntu", profiles[1].command.direct[2]);
 
@@ -1298,7 +1316,7 @@ test "prepareCommand replaces default wsl home sentinel with explicit cwd" {
     try testing.expectEqualStrings("/mnt/d/work/winghostty", prepared.direct[2]);
 }
 
-test "prepareCommand preserves bare wsl home sentinel when cwd is home" {
+test "prepareCommand rewrites wsl home sentinel to explicit --cd" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -1313,9 +1331,10 @@ test "prepareCommand preserves bare wsl home sentinel when cwd is home" {
     defer prepared.deinit(alloc);
 
     try testing.expect(prepared == .direct);
-    try testing.expectEqual(@as(usize, 2), prepared.direct.len);
+    try testing.expectEqual(@as(usize, 3), prepared.direct.len);
     try testing.expectEqualStrings("C:\\Windows\\System32\\wsl.exe", prepared.direct[0]);
-    try testing.expectEqualStrings("~", prepared.direct[1]);
+    try testing.expectEqualStrings("--cd", prepared.direct[1]);
+    try testing.expectEqualStrings("~", prepared.direct[2]);
 }
 
 test "prepareCommand replaces existing wsl --cd" {
