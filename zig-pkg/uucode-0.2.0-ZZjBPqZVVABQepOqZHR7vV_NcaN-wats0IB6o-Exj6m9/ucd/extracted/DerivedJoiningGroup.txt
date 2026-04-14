@@ -1,0 +1,761 @@
+# DerivedJoiningGroup-17.0.0.txt
+# Date: 2025-01-27, 18:09:13 GMT
+# © 2025 Unicode®, Inc.
+# Unicode and the Unicode Logo are registered trademarks of Unicode, Inc. in the U.S. and other countries.
+# For terms of use and license, see https://www.unicode.org/terms_of_use.html
+#
+# Unicode Character Database
+#   For documentation, see https://www.unicode.org/reports/tr44/
+
+# ================================================
+
+# Joining Group (listing ArabicShaping.txt, field 3)
+
+#  All code points not explicitly listed for Joining_Group
+#  have the value No_Joining_Group.
+
+# @missing: 0000..10FFFF; No_Joining_Group
+
+# ================================================
+
+0639..063A    ; Ain # Lo   [2] ARABIC LETTER AIN..ARABIC LETTER GHAIN
+06A0          ; Ain # Lo       ARABIC LETTER AIN WITH THREE DOTS ABOVE
+06FC          ; Ain # Lo       ARABIC LETTER GHAIN WITH DOT BELOW
+075D..075F    ; Ain # Lo   [3] ARABIC LETTER AIN WITH TWO DOTS ABOVE..ARABIC LETTER AIN WITH TWO DOTS VERTICALLY ABOVE
+08B3          ; Ain # Lo       ARABIC LETTER AIN WITH THREE DOTS BELOW
+08C3          ; Ain # Lo       ARABIC LETTER GHAIN WITH THREE DOTS ABOVE
+
+# Total code points: 9
+
+# ================================================
+
+0710          ; Alaph # Lo       SYRIAC LETTER ALAPH
+
+# Total code points: 1
+
+# ================================================
+
+0622..0623    ; Alef # Lo   [2] ARABIC LETTER ALEF WITH MADDA ABOVE..ARABIC LETTER ALEF WITH HAMZA ABOVE
+0625          ; Alef # Lo       ARABIC LETTER ALEF WITH HAMZA BELOW
+0627          ; Alef # Lo       ARABIC LETTER ALEF
+0671..0673    ; Alef # Lo   [3] ARABIC LETTER ALEF WASLA..ARABIC LETTER ALEF WITH WAVY HAMZA BELOW
+0675          ; Alef # Lo       ARABIC LETTER HIGH HAMZA ALEF
+0773..0774    ; Alef # Lo   [2] ARABIC LETTER ALEF WITH EXTENDED ARABIC-INDIC DIGIT TWO ABOVE..ARABIC LETTER ALEF WITH EXTENDED ARABIC-INDIC DIGIT THREE ABOVE
+0870..0882    ; Alef # Lo  [19] ARABIC LETTER ALEF WITH ATTACHED FATHA..ARABIC LETTER ALEF WITH ATTACHED LEFT HAMZA
+
+# Total code points: 29
+
+# ================================================
+
+0628          ; Beh # Lo       ARABIC LETTER BEH
+062A..062B    ; Beh # Lo   [2] ARABIC LETTER TEH..ARABIC LETTER THEH
+066E          ; Beh # Lo       ARABIC LETTER DOTLESS BEH
+0679..0680    ; Beh # Lo   [8] ARABIC LETTER TTEH..ARABIC LETTER BEHEH
+0750..0756    ; Beh # Lo   [7] ARABIC LETTER BEH WITH THREE DOTS HORIZONTALLY BELOW..ARABIC LETTER BEH WITH SMALL V
+08A0..08A1    ; Beh # Lo   [2] ARABIC LETTER BEH WITH SMALL V BELOW..ARABIC LETTER BEH WITH HAMZA ABOVE
+08B6..08B8    ; Beh # Lo   [3] ARABIC LETTER BEH WITH SMALL MEEM ABOVE..ARABIC LETTER TEH WITH SMALL TEH ABOVE
+08BE..08C0    ; Beh # Lo   [3] ARABIC LETTER PEH WITH SMALL V..ARABIC LETTER TTEH WITH SMALL V
+
+# Total code points: 27
+
+# ================================================
+
+0712          ; Beth # Lo       SYRIAC LETTER BETH
+072D          ; Beth # Lo       SYRIAC LETTER PERSIAN BHETH
+
+# Total code points: 2
+
+# ================================================
+
+062F..0630    ; Dal # Lo   [2] ARABIC LETTER DAL..ARABIC LETTER THAL
+0688..0690    ; Dal # Lo   [9] ARABIC LETTER DDAL..ARABIC LETTER DAL WITH FOUR DOTS ABOVE
+06EE          ; Dal # Lo       ARABIC LETTER DAL WITH INVERTED V
+0759..075A    ; Dal # Lo   [2] ARABIC LETTER DAL WITH TWO DOTS VERTICALLY BELOW AND SMALL TAH..ARABIC LETTER DAL WITH INVERTED SMALL V BELOW
+08AE          ; Dal # Lo       ARABIC LETTER DAL WITH THREE DOTS BELOW
+10EC2         ; Dal # Lo       ARABIC LETTER DAL WITH TWO DOTS VERTICALLY BELOW
+
+# Total code points: 16
+
+# ================================================
+
+0715..0716    ; Dalath_Rish # Lo   [2] SYRIAC LETTER DALATH..SYRIAC LETTER DOTLESS DALATH RISH
+072A          ; Dalath_Rish # Lo       SYRIAC LETTER RISH
+072F          ; Dalath_Rish # Lo       SYRIAC LETTER PERSIAN DHALATH
+
+# Total code points: 4
+
+# ================================================
+
+0725          ; E # Lo       SYRIAC LETTER E
+
+# Total code points: 1
+
+# ================================================
+
+0641          ; Feh # Lo       ARABIC LETTER FEH
+06A1..06A6    ; Feh # Lo   [6] ARABIC LETTER DOTLESS FEH..ARABIC LETTER PEHEH
+0760..0761    ; Feh # Lo   [2] ARABIC LETTER FEH WITH TWO DOTS BELOW..ARABIC LETTER FEH WITH THREE DOTS POINTING UPWARDS BELOW
+08A4          ; Feh # Lo       ARABIC LETTER FEH WITH DOT BELOW AND THREE DOTS ABOVE
+
+# Total code points: 10
+
+# ================================================
+
+0724          ; Final_Semkath # Lo       SYRIAC LETTER FINAL SEMKATH
+
+# Total code points: 1
+
+# ================================================
+
+063B..063C    ; Gaf # Lo   [2] ARABIC LETTER KEHEH WITH TWO DOTS ABOVE..ARABIC LETTER KEHEH WITH THREE DOTS BELOW
+06A9          ; Gaf # Lo       ARABIC LETTER KEHEH
+06AB          ; Gaf # Lo       ARABIC LETTER KAF WITH RING
+06AF..06B4    ; Gaf # Lo   [6] ARABIC LETTER GAF..ARABIC LETTER GAF WITH THREE DOTS ABOVE
+0762..0764    ; Gaf # Lo   [3] ARABIC LETTER KEHEH WITH DOT ABOVE..ARABIC LETTER KEHEH WITH THREE DOTS POINTING UPWARDS BELOW
+088D          ; Gaf # Lo       ARABIC LETTER KEHEH WITH TWO DOTS VERTICALLY BELOW
+08B0          ; Gaf # Lo       ARABIC LETTER GAF WITH INVERTED STROKE
+08C2          ; Gaf # Lo       ARABIC LETTER KEHEH WITH SMALL V
+08C8          ; Gaf # Lo       ARABIC LETTER GRAF
+
+# Total code points: 17
+
+# ================================================
+
+0713..0714    ; Gamal # Lo   [2] SYRIAC LETTER GAMAL..SYRIAC LETTER GAMAL GARSHUNI
+072E          ; Gamal # Lo       SYRIAC LETTER PERSIAN GHAMAL
+
+# Total code points: 3
+
+# ================================================
+
+062C..062E    ; Hah # Lo   [3] ARABIC LETTER JEEM..ARABIC LETTER KHAH
+0681..0687    ; Hah # Lo   [7] ARABIC LETTER HAH WITH HAMZA ABOVE..ARABIC LETTER TCHEHEH
+06BF          ; Hah # Lo       ARABIC LETTER TCHEH WITH DOT ABOVE
+0757..0758    ; Hah # Lo   [2] ARABIC LETTER HAH WITH TWO DOTS ABOVE..ARABIC LETTER HAH WITH THREE DOTS POINTING UPWARDS BELOW
+076E..076F    ; Hah # Lo   [2] ARABIC LETTER HAH WITH SMALL ARABIC LETTER TAH BELOW..ARABIC LETTER HAH WITH SMALL ARABIC LETTER TAH AND TWO DOTS
+0772          ; Hah # Lo       ARABIC LETTER HAH WITH SMALL ARABIC LETTER TAH ABOVE
+077C          ; Hah # Lo       ARABIC LETTER HAH WITH EXTENDED ARABIC-INDIC DIGIT FOUR BELOW
+088A          ; Hah # Lo       ARABIC LETTER HAH WITH INVERTED SMALL V BELOW
+08A2          ; Hah # Lo       ARABIC LETTER JEEM WITH TWO DOTS ABOVE
+08C1          ; Hah # Lo       ARABIC LETTER TCHEH WITH SMALL V
+08C5..08C6    ; Hah # Lo   [2] ARABIC LETTER JEEM WITH THREE DOTS ABOVE..ARABIC LETTER JEEM WITH THREE DOTS BELOW
+
+# Total code points: 22
+
+# ================================================
+
+06C3          ; Teh_Marbuta_Goal # Lo       ARABIC LETTER TEH MARBUTA GOAL
+
+# Total code points: 1
+
+# ================================================
+
+0717          ; He # Lo       SYRIAC LETTER HE
+
+# Total code points: 1
+
+# ================================================
+
+0647          ; Heh # Lo       ARABIC LETTER HEH
+
+# Total code points: 1
+
+# ================================================
+
+06C1..06C2    ; Heh_Goal # Lo   [2] ARABIC LETTER HEH GOAL..ARABIC LETTER HEH GOAL WITH HAMZA ABOVE
+
+# Total code points: 2
+
+# ================================================
+
+071A          ; Heth # Lo       SYRIAC LETTER HETH
+
+# Total code points: 1
+
+# ================================================
+
+0643          ; Kaf # Lo       ARABIC LETTER KAF
+06AC..06AE    ; Kaf # Lo   [3] ARABIC LETTER KAF WITH DOT ABOVE..ARABIC LETTER KAF WITH THREE DOTS BELOW
+077F          ; Kaf # Lo       ARABIC LETTER KAF WITH TWO DOTS ABOVE
+08B4          ; Kaf # Lo       ARABIC LETTER KAF WITH DOT BELOW
+10EC4         ; Kaf # Lo       ARABIC LETTER KAF WITH TWO DOTS VERTICALLY BELOW
+
+# Total code points: 7
+
+# ================================================
+
+071F          ; Kaph # Lo       SYRIAC LETTER KAPH
+
+# Total code points: 1
+
+# ================================================
+
+06BE          ; Knotted_Heh # Lo       ARABIC LETTER HEH DOACHASHMEE
+06FF          ; Knotted_Heh # Lo       ARABIC LETTER HEH WITH INVERTED V
+
+# Total code points: 2
+
+# ================================================
+
+0644          ; Lam # Lo       ARABIC LETTER LAM
+06B5..06B8    ; Lam # Lo   [4] ARABIC LETTER LAM WITH SMALL V..ARABIC LETTER LAM WITH THREE DOTS BELOW
+076A          ; Lam # Lo       ARABIC LETTER LAM WITH BAR
+08A6          ; Lam # Lo       ARABIC LETTER LAM WITH DOUBLE BAR
+08C7          ; Lam # Lo       ARABIC LETTER LAM WITH SMALL ARABIC LETTER TAH ABOVE
+
+# Total code points: 8
+
+# ================================================
+
+0720          ; Lamadh # Lo       SYRIAC LETTER LAMADH
+
+# Total code points: 1
+
+# ================================================
+
+0645          ; Meem # Lo       ARABIC LETTER MEEM
+0765..0766    ; Meem # Lo   [2] ARABIC LETTER MEEM WITH DOT ABOVE..ARABIC LETTER MEEM WITH DOT BELOW
+08A7          ; Meem # Lo       ARABIC LETTER MEEM WITH THREE DOTS ABOVE
+
+# Total code points: 4
+
+# ================================================
+
+0721          ; Mim # Lo       SYRIAC LETTER MIM
+
+# Total code points: 1
+
+# ================================================
+
+0646          ; Noon # Lo       ARABIC LETTER NOON
+06B9..06BC    ; Noon # Lo   [4] ARABIC LETTER NOON WITH DOT BELOW..ARABIC LETTER NOON WITH RING
+0767..0769    ; Noon # Lo   [3] ARABIC LETTER NOON WITH TWO DOTS BELOW..ARABIC LETTER NOON WITH SMALL V
+0889          ; Noon # Lo       ARABIC LETTER NOON WITH INVERTED SMALL V
+088F          ; Noon # Lo       ARABIC LETTER NOON WITH RING ABOVE
+
+# Total code points: 10
+
+# ================================================
+
+0722          ; Nun # Lo       SYRIAC LETTER NUN
+
+# Total code points: 1
+
+# ================================================
+
+0726          ; Pe # Lo       SYRIAC LETTER PE
+
+# Total code points: 1
+
+# ================================================
+
+0642          ; Qaf # Lo       ARABIC LETTER QAF
+066F          ; Qaf # Lo       ARABIC LETTER DOTLESS QAF
+06A7..06A8    ; Qaf # Lo   [2] ARABIC LETTER QAF WITH DOT ABOVE..ARABIC LETTER QAF WITH THREE DOTS ABOVE
+08A5          ; Qaf # Lo       ARABIC LETTER QAF WITH DOT BELOW
+08B5          ; Qaf # Lo       ARABIC LETTER QAF WITH DOT BELOW AND NO DOTS ABOVE
+
+# Total code points: 6
+
+# ================================================
+
+0729          ; Qaph # Lo       SYRIAC LETTER QAPH
+
+# Total code points: 1
+
+# ================================================
+
+0631..0632    ; Reh # Lo   [2] ARABIC LETTER REH..ARABIC LETTER ZAIN
+0691..0699    ; Reh # Lo   [9] ARABIC LETTER RREH..ARABIC LETTER REH WITH FOUR DOTS ABOVE
+06EF          ; Reh # Lo       ARABIC LETTER REH WITH INVERTED V
+075B          ; Reh # Lo       ARABIC LETTER REH WITH STROKE
+076B..076C    ; Reh # Lo   [2] ARABIC LETTER REH WITH TWO DOTS VERTICALLY ABOVE..ARABIC LETTER REH WITH HAMZA ABOVE
+0771          ; Reh # Lo       ARABIC LETTER REH WITH SMALL ARABIC LETTER TAH AND TWO DOTS
+08AA          ; Reh # Lo       ARABIC LETTER REH WITH LOOP
+08B2          ; Reh # Lo       ARABIC LETTER ZAIN WITH INVERTED V ABOVE
+08B9          ; Reh # Lo       ARABIC LETTER REH WITH SMALL NOON ABOVE
+
+# Total code points: 19
+
+# ================================================
+
+0727          ; Reversed_Pe # Lo       SYRIAC LETTER REVERSED PE
+
+# Total code points: 1
+
+# ================================================
+
+0635..0636    ; Sad # Lo   [2] ARABIC LETTER SAD..ARABIC LETTER DAD
+069D..069E    ; Sad # Lo   [2] ARABIC LETTER SAD WITH TWO DOTS BELOW..ARABIC LETTER SAD WITH THREE DOTS ABOVE
+06FB          ; Sad # Lo       ARABIC LETTER DAD WITH DOT BELOW
+08AF          ; Sad # Lo       ARABIC LETTER SAD WITH THREE DOTS BELOW
+
+# Total code points: 6
+
+# ================================================
+
+0728          ; Sadhe # Lo       SYRIAC LETTER SADHE
+
+# Total code points: 1
+
+# ================================================
+
+0633..0634    ; Seen # Lo   [2] ARABIC LETTER SEEN..ARABIC LETTER SHEEN
+069A..069C    ; Seen # Lo   [3] ARABIC LETTER SEEN WITH DOT BELOW AND DOT ABOVE..ARABIC LETTER SEEN WITH THREE DOTS BELOW AND THREE DOTS ABOVE
+06FA          ; Seen # Lo       ARABIC LETTER SHEEN WITH DOT BELOW
+075C          ; Seen # Lo       ARABIC LETTER SEEN WITH FOUR DOTS ABOVE
+076D          ; Seen # Lo       ARABIC LETTER SEEN WITH TWO DOTS VERTICALLY ABOVE
+0770          ; Seen # Lo       ARABIC LETTER SEEN WITH SMALL ARABIC LETTER TAH AND TWO DOTS
+077D..077E    ; Seen # Lo   [2] ARABIC LETTER SEEN WITH EXTENDED ARABIC-INDIC DIGIT FOUR ABOVE..ARABIC LETTER SEEN WITH INVERTED V
+
+# Total code points: 11
+
+# ================================================
+
+0723          ; Semkath # Lo       SYRIAC LETTER SEMKATH
+
+# Total code points: 1
+
+# ================================================
+
+072B          ; Shin # Lo       SYRIAC LETTER SHIN
+
+# Total code points: 1
+
+# ================================================
+
+06AA          ; Swash_Kaf # Lo       ARABIC LETTER SWASH KAF
+
+# Total code points: 1
+
+# ================================================
+
+0637..0638    ; Tah # Lo   [2] ARABIC LETTER TAH..ARABIC LETTER ZAH
+069F          ; Tah # Lo       ARABIC LETTER TAH WITH THREE DOTS ABOVE
+088B..088C    ; Tah # Lo   [2] ARABIC LETTER TAH WITH DOT BELOW..ARABIC LETTER TAH WITH THREE DOTS BELOW
+08A3          ; Tah # Lo       ARABIC LETTER TAH WITH TWO DOTS ABOVE
+10EC3         ; Tah # Lo       ARABIC LETTER TAH WITH TWO DOTS VERTICALLY BELOW
+
+# Total code points: 7
+
+# ================================================
+
+072C          ; Taw # Lo       SYRIAC LETTER TAW
+
+# Total code points: 1
+
+# ================================================
+
+0629          ; Teh_Marbuta # Lo       ARABIC LETTER TEH MARBUTA
+06C0          ; Teh_Marbuta # Lo       ARABIC LETTER HEH WITH YEH ABOVE
+06D5          ; Teh_Marbuta # Lo       ARABIC LETTER AE
+
+# Total code points: 3
+
+# ================================================
+
+071B..071C    ; Teth # Lo   [2] SYRIAC LETTER TETH..SYRIAC LETTER TETH GARSHUNI
+
+# Total code points: 2
+
+# ================================================
+
+0624          ; Waw # Lo       ARABIC LETTER WAW WITH HAMZA ABOVE
+0648          ; Waw # Lo       ARABIC LETTER WAW
+0676..0677    ; Waw # Lo   [2] ARABIC LETTER HIGH HAMZA WAW..ARABIC LETTER U WITH HAMZA ABOVE
+06C4..06CB    ; Waw # Lo   [8] ARABIC LETTER WAW WITH RING..ARABIC LETTER VE
+06CF          ; Waw # Lo       ARABIC LETTER WAW WITH DOT ABOVE
+0778..0779    ; Waw # Lo   [2] ARABIC LETTER WAW WITH EXTENDED ARABIC-INDIC DIGIT TWO ABOVE..ARABIC LETTER WAW WITH EXTENDED ARABIC-INDIC DIGIT THREE ABOVE
+08AB          ; Waw # Lo       ARABIC LETTER WAW WITH DOT WITHIN
+
+# Total code points: 16
+
+# ================================================
+
+0718          ; Syriac_Waw # Lo       SYRIAC LETTER WAW
+
+# Total code points: 1
+
+# ================================================
+
+0626          ; Yeh # Lo       ARABIC LETTER YEH WITH HAMZA ABOVE
+0649..064A    ; Yeh # Lo   [2] ARABIC LETTER ALEF MAKSURA..ARABIC LETTER YEH
+0678          ; Yeh # Lo       ARABIC LETTER HIGH HAMZA YEH
+06D0..06D1    ; Yeh # Lo   [2] ARABIC LETTER E..ARABIC LETTER YEH WITH THREE DOTS BELOW
+0777          ; Yeh # Lo       ARABIC LETTER FARSI YEH WITH EXTENDED ARABIC-INDIC DIGIT FOUR BELOW
+08A8..08A9    ; Yeh # Lo   [2] ARABIC LETTER YEH WITH TWO DOTS BELOW AND HAMZA ABOVE..ARABIC LETTER YEH WITH TWO DOTS BELOW AND DOT ABOVE
+08BA          ; Yeh # Lo       ARABIC LETTER YEH WITH TWO DOTS BELOW AND SMALL NOON ABOVE
+10EC7         ; Yeh # Lo       ARABIC LETTER YEH WITH FOUR DOTS BELOW
+
+# Total code points: 11
+
+# ================================================
+
+06D2..06D3    ; Yeh_Barree # Lo   [2] ARABIC LETTER YEH BARREE..ARABIC LETTER YEH BARREE WITH HAMZA ABOVE
+
+# Total code points: 2
+
+# ================================================
+
+06CD          ; Yeh_With_Tail # Lo       ARABIC LETTER YEH WITH TAIL
+
+# Total code points: 1
+
+# ================================================
+
+071D          ; Yudh # Lo       SYRIAC LETTER YUDH
+
+# Total code points: 1
+
+# ================================================
+
+071E          ; Yudh_He # Lo       SYRIAC LETTER YUDH HE
+
+# Total code points: 1
+
+# ================================================
+
+0719          ; Zain # Lo       SYRIAC LETTER ZAIN
+
+# Total code points: 1
+
+# ================================================
+
+074D          ; Zhain # Lo       SYRIAC LETTER SOGDIAN ZHAIN
+
+# Total code points: 1
+
+# ================================================
+
+074E          ; Khaph # Lo       SYRIAC LETTER SOGDIAN KHAPH
+
+# Total code points: 1
+
+# ================================================
+
+074F          ; Fe # Lo       SYRIAC LETTER SOGDIAN FE
+
+# Total code points: 1
+
+# ================================================
+
+077A..077B    ; Burushaski_Yeh_Barree # Lo   [2] ARABIC LETTER YEH BARREE WITH EXTENDED ARABIC-INDIC DIGIT TWO ABOVE..ARABIC LETTER YEH BARREE WITH EXTENDED ARABIC-INDIC DIGIT THREE ABOVE
+
+# Total code points: 2
+
+# ================================================
+
+063D..063F    ; Farsi_Yeh # Lo   [3] ARABIC LETTER FARSI YEH WITH INVERTED V..ARABIC LETTER FARSI YEH WITH THREE DOTS ABOVE
+06CC          ; Farsi_Yeh # Lo       ARABIC LETTER FARSI YEH
+06CE          ; Farsi_Yeh # Lo       ARABIC LETTER YEH WITH SMALL V
+0775..0776    ; Farsi_Yeh # Lo   [2] ARABIC LETTER FARSI YEH WITH EXTENDED ARABIC-INDIC DIGIT TWO ABOVE..ARABIC LETTER FARSI YEH WITH EXTENDED ARABIC-INDIC DIGIT THREE ABOVE
+
+# Total code points: 7
+
+# ================================================
+
+06BD          ; Nya # Lo       ARABIC LETTER NOON WITH THREE DOTS ABOVE
+
+# Total code points: 1
+
+# ================================================
+
+08AC          ; Rohingya_Yeh # Lo       ARABIC LETTER ROHINGYA YEH
+
+# Total code points: 1
+
+# ================================================
+
+08B1          ; Straight_Waw # Lo       ARABIC LETTER STRAIGHT WAW
+
+# Total code points: 1
+
+# ================================================
+
+10AC0         ; Manichaean_Aleph # Lo       MANICHAEAN LETTER ALEPH
+
+# Total code points: 1
+
+# ================================================
+
+10AD9..10ADA  ; Manichaean_Ayin # Lo   [2] MANICHAEAN LETTER AYIN..MANICHAEAN LETTER AAYIN
+
+# Total code points: 2
+
+# ================================================
+
+10AC1..10AC2  ; Manichaean_Beth # Lo   [2] MANICHAEAN LETTER BETH..MANICHAEAN LETTER BHETH
+
+# Total code points: 2
+
+# ================================================
+
+10AC5         ; Manichaean_Daleth # Lo       MANICHAEAN LETTER DALETH
+
+# Total code points: 1
+
+# ================================================
+
+10AD4         ; Manichaean_Dhamedh # Lo       MANICHAEAN LETTER DHAMEDH
+
+# Total code points: 1
+
+# ================================================
+
+10AEC         ; Manichaean_Five # No       MANICHAEAN NUMBER FIVE
+
+# Total code points: 1
+
+# ================================================
+
+10AC3..10AC4  ; Manichaean_Gimel # Lo   [2] MANICHAEAN LETTER GIMEL..MANICHAEAN LETTER GHIMEL
+
+# Total code points: 2
+
+# ================================================
+
+10ACD         ; Manichaean_Heth # Lo       MANICHAEAN LETTER HETH
+
+# Total code points: 1
+
+# ================================================
+
+10AEF         ; Manichaean_Hundred # No       MANICHAEAN NUMBER ONE HUNDRED
+
+# Total code points: 1
+
+# ================================================
+
+10AD0..10AD2  ; Manichaean_Kaph # Lo   [3] MANICHAEAN LETTER KAPH..MANICHAEAN LETTER KHAPH
+
+# Total code points: 3
+
+# ================================================
+
+10AD3         ; Manichaean_Lamedh # Lo       MANICHAEAN LETTER LAMEDH
+
+# Total code points: 1
+
+# ================================================
+
+10AD6         ; Manichaean_Mem # Lo       MANICHAEAN LETTER MEM
+
+# Total code points: 1
+
+# ================================================
+
+10AD7         ; Manichaean_Nun # Lo       MANICHAEAN LETTER NUN
+
+# Total code points: 1
+
+# ================================================
+
+10AEB         ; Manichaean_One # No       MANICHAEAN NUMBER ONE
+
+# Total code points: 1
+
+# ================================================
+
+10ADB..10ADC  ; Manichaean_Pe # Lo   [2] MANICHAEAN LETTER PE..MANICHAEAN LETTER FE
+
+# Total code points: 2
+
+# ================================================
+
+10ADE..10AE0  ; Manichaean_Qoph # Lo   [3] MANICHAEAN LETTER QOPH..MANICHAEAN LETTER QHOPH
+
+# Total code points: 3
+
+# ================================================
+
+10AE1         ; Manichaean_Resh # Lo       MANICHAEAN LETTER RESH
+
+# Total code points: 1
+
+# ================================================
+
+10ADD         ; Manichaean_Sadhe # Lo       MANICHAEAN LETTER SADHE
+
+# Total code points: 1
+
+# ================================================
+
+10AD8         ; Manichaean_Samekh # Lo       MANICHAEAN LETTER SAMEKH
+
+# Total code points: 1
+
+# ================================================
+
+10AE4         ; Manichaean_Taw # Lo       MANICHAEAN LETTER TAW
+
+# Total code points: 1
+
+# ================================================
+
+10AED         ; Manichaean_Ten # No       MANICHAEAN NUMBER TEN
+
+# Total code points: 1
+
+# ================================================
+
+10ACE         ; Manichaean_Teth # Lo       MANICHAEAN LETTER TETH
+
+# Total code points: 1
+
+# ================================================
+
+10AD5         ; Manichaean_Thamedh # Lo       MANICHAEAN LETTER THAMEDH
+
+# Total code points: 1
+
+# ================================================
+
+10AEE         ; Manichaean_Twenty # No       MANICHAEAN NUMBER TWENTY
+
+# Total code points: 1
+
+# ================================================
+
+10AC7         ; Manichaean_Waw # Lo       MANICHAEAN LETTER WAW
+
+# Total code points: 1
+
+# ================================================
+
+10ACF         ; Manichaean_Yodh # Lo       MANICHAEAN LETTER YODH
+
+# Total code points: 1
+
+# ================================================
+
+10AC9..10ACA  ; Manichaean_Zayin # Lo   [2] MANICHAEAN LETTER ZAYIN..MANICHAEAN LETTER ZHAYIN
+
+# Total code points: 2
+
+# ================================================
+
+08BB          ; African_Feh # Lo       ARABIC LETTER AFRICAN FEH
+
+# Total code points: 1
+
+# ================================================
+
+08BC          ; African_Qaf # Lo       ARABIC LETTER AFRICAN QAF
+08C4          ; African_Qaf # Lo       ARABIC LETTER AFRICAN QAF WITH THREE DOTS ABOVE
+
+# Total code points: 2
+
+# ================================================
+
+08BD          ; African_Noon # Lo       ARABIC LETTER AFRICAN NOON
+
+# Total code points: 1
+
+# ================================================
+
+0860          ; Malayalam_Nga # Lo       SYRIAC LETTER MALAYALAM NGA
+
+# Total code points: 1
+
+# ================================================
+
+0861          ; Malayalam_Ja # Lo       SYRIAC LETTER MALAYALAM JA
+
+# Total code points: 1
+
+# ================================================
+
+0862          ; Malayalam_Nya # Lo       SYRIAC LETTER MALAYALAM NYA
+
+# Total code points: 1
+
+# ================================================
+
+0863          ; Malayalam_Tta # Lo       SYRIAC LETTER MALAYALAM TTA
+
+# Total code points: 1
+
+# ================================================
+
+0864          ; Malayalam_Nna # Lo       SYRIAC LETTER MALAYALAM NNA
+
+# Total code points: 1
+
+# ================================================
+
+0865          ; Malayalam_Nnna # Lo       SYRIAC LETTER MALAYALAM NNNA
+
+# Total code points: 1
+
+# ================================================
+
+0866          ; Malayalam_Bha # Lo       SYRIAC LETTER MALAYALAM BHA
+
+# Total code points: 1
+
+# ================================================
+
+0867          ; Malayalam_Ra # Lo       SYRIAC LETTER MALAYALAM RA
+
+# Total code points: 1
+
+# ================================================
+
+0868          ; Malayalam_Lla # Lo       SYRIAC LETTER MALAYALAM LLA
+
+# Total code points: 1
+
+# ================================================
+
+0869          ; Malayalam_Llla # Lo       SYRIAC LETTER MALAYALAM LLLA
+
+# Total code points: 1
+
+# ================================================
+
+086A          ; Malayalam_Ssa # Lo       SYRIAC LETTER MALAYALAM SSA
+
+# Total code points: 1
+
+# ================================================
+
+10D02         ; Hanifi_Rohingya_Pa # Lo       HANIFI ROHINGYA LETTER PA
+10D09         ; Hanifi_Rohingya_Pa # Lo       HANIFI ROHINGYA LETTER FA
+10D1C         ; Hanifi_Rohingya_Pa # Lo       HANIFI ROHINGYA LETTER VA
+
+# Total code points: 3
+
+# ================================================
+
+10D19         ; Hanifi_Rohingya_Kinna_Ya # Lo       HANIFI ROHINGYA LETTER KINNA YA
+10D1E         ; Hanifi_Rohingya_Kinna_Ya # Lo       HANIFI ROHINGYA VOWEL I
+10D20         ; Hanifi_Rohingya_Kinna_Ya # Lo       HANIFI ROHINGYA VOWEL E
+10D23         ; Hanifi_Rohingya_Kinna_Ya # Lo       HANIFI ROHINGYA MARK NA KHONNA
+
+# Total code points: 4
+
+# ================================================
+
+0886          ; Thin_Yeh # Lo       ARABIC LETTER THIN YEH
+
+# Total code points: 1
+
+# ================================================
+
+088E          ; Vertical_Tail # Lo       ARABIC VERTICAL TAIL
+
+# Total code points: 1
+
+# ================================================
+
+0620          ; Kashmiri_Yeh # Lo       ARABIC LETTER KASHMIRI YEH
+
+# Total code points: 1
+
+# ================================================
+
+10EC6         ; Thin_Noon # Lo       ARABIC LETTER THIN NOON
+
+# Total code points: 1
+
+# EOF

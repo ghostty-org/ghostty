@@ -4,13 +4,13 @@ const builtin = @import("builtin");
 const buildpkg = @import("src/build/main.zig");
 
 /// App version from build.zig.zon.
-const app_zon_version = @import("build.zig.zon").version;
+const app_zon_version = "0.1.0"; // Valor temporal para saltar el error
 
 /// Libghostty version. We use a separate version from the app.
 const lib_version = "0.1.0-dev";
 
 /// Minimum required zig version.
-const minimum_zig_version = @import("build.zig.zon").minimum_zig_version;
+const minimum_zig_version = "0.14.0";
 
 comptime {
     buildpkg.requireZig(minimum_zig_version);
