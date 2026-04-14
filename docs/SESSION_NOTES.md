@@ -1,5 +1,59 @@
 # Session Notes — Ghostties
 
+## Apr 13, 2026 (Session 17)
+
+### Post-Compact Fixes — Bg Model Correction
+
+Picked up after a compaction. Two user-facing issues surfaced immediately after Session 16:
+
+1. **On-launch config error** — "theme '3024 Day' not found, tried path ~/.config/ghostty/themes/3024 Day" dialog on every launch, even though the bundle had 463 vendored theme files.
+2. **Sidebar/chrome colors wrong** — Session 16's `687dcecc0` (extend theme binding to canvas) pulled the sidebar into the user's 3024 cream terminal theme. User wanted the two-layer Ghostties design-system model back: distinct chrome (sidebar + gutter) + canvas (card body), both owned by Ghostties palette, neither theme-bound.
+
+### Root Cause — Theme Error
+
+Ghostty's release-build `resourcesDir()` at `src/os/resourcesdir.zig:79` walks up from the binary looking for sentinel `Contents/Resources/terminfo/78/xterm-ghostty`. Once found, it assumes themes live at `<parent>/ghostty/themes/`. The Xcode project references `../zig-out/share/terminfo` for this file, but the zig build is broken on macOS 26 → zig-out empty → sentinel never makes it into the bundle → themes never found. `/Applications/Ghostty.app` has the sentinel (built on an earlier macOS); `/Applications/Ghostties.app` didn't.
+
+### Root Cause — Bg Color Coupling
+
+Session 16 bound both `canvasBackgroundCGColor` and `cardBackgroundCGColor` in `WorkspaceViewContainer.swift` to `resolveChromeColor(surface:)` — the terminal theme color. Because the sidebar uses `.background(.clear)`, whatever color sat on `self.layer` showed through. Result: sidebar read as user's terminal theme (3024 cream). Paper mock confirms the intent is two distinct Ghostties-owned layers.
+
+### Fixes
+
+- **`324266cd9`** `fix: vendor terminfo + set GHOSTTY_RESOURCES_DIR so release bundle resolves themes`
+  - Copied `/Applications/Ghostty.app/Contents/Resources/terminfo/` → `macos/Resources/terminfo/`
+  - Extended `scripts/embed-ghostty-resources.sh` to copy terminfo into `Contents/Resources/terminfo/` alongside themes/shell-integration
+  - Added `setenv("GHOSTTY_RESOURCES_DIR", Bundle.main.resourcePath + "/ghostty", 1)` in `macOS/AppDelegate.swift` `applicationWillFinishLaunching(_:)` as belt-and-braces — release builds honor this before sentinel detection
+  - Left `../zig-out/share/terminfo` PBXBuildFile reference intact (additive, harmless when zig-out is empty)
+
+- **`9c52717de`** `fix: align pin migration banner to sidebar row grid (add horizontal inset)`
+  - Banner was at 8pt leading, rows at 16pt (sidebar `LazyVStack` has `.padding(.horizontal, 8)` that banner sat outside of)
+  - Added `.padding(.horizontal, 8)` to the banner modifier chain in `WorkspaceSidebarView.swift:39`
+
+- **`9f8ee3094`** `refactor: split chrome and canvas background tokens; unbind from terminal theme`
+  - Renamed `canvasBackgroundLight/Dark` → `chromeBackgroundLight/Dark` (values unchanged: `#F0E9E6` / `white:0.14`)
+  - Added new `canvasBackgroundLight/Dark` tokens for the card body: `#FAF7F3` / `white:0.18`
+  - Rewrote `canvasBackgroundCGColor` + `cardBackgroundCGColor` to return static appearance-aware palette (no theme lookup)
+  - Unified `browserCardBackgroundCGColor` onto the canvas palette for visual consistency
+  - Removed dead code: `resolveChromeColor(surface:)`, `fallbackCardBackgroundNSColor`
+  - Combine subscription kept in place (Path A — minimal risk); repaint calls now no-op on session swaps since the getters are static
+
+### Key Decisions
+
+See `ORCHESTRATOR.md` Decision Log (Session 17 entries):
+
+- **Chrome + canvas are design-system, not theme-bound** — rule for future work: don't re-couple to `derivedConfig.backgroundColor`
+- **Terminfo must be vendored** — workaround for broken zig build; env var is durable belt-and-braces
+
+### Open Work
+
+- Browser card theme binding — still deferred (awaits `BrowserTabManager` theme concept)
+- Sidebar widen decision — still open
+- Traffic-light alignment — still stashed (`git stash@{0}`)
+- `CFBundleName` TCC rename — user said "leave it"
+- Optional future: ship a "Ghostties-Default" terminal theme file and set as the bundled app default so terminal content (GPU-painted region) matches the canvas layer out of the box — currently only the card chrome matches canvas, terminal content uses whatever user theme (3024) dictates
+
+---
+
 ## Apr 13, 2026 (Session 16)
 
 ### Post-Migration Polish Pass
