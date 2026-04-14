@@ -171,6 +171,13 @@ class AppDelegate: NSObject,
     // MARK: - NSApplicationDelegate
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // Ensures Ghostty finds vendored themes even when terminfo sentinel is missing from the bundle.
+        if getenv("GHOSTTY_RESOURCES_DIR") == nil,
+           let resourcePath = Bundle.main.resourcePath {
+            let ghosttyResources = resourcePath + "/ghostty"
+            setenv("GHOSTTY_RESOURCES_DIR", ghosttyResources, 1)
+        }
+
         UserDefaults.standard.register(defaults: [
             // Disable the automatic full screen menu item because we handle
             // it manually.
