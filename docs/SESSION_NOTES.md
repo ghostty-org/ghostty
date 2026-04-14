@@ -1,5 +1,41 @@
 # Session Notes — Ghostties
 
+## Apr 13, 2026 (Session 16)
+
+### Post-Migration Polish Pass
+
+Continuation of Session 15 — a focused polish pass on the newly-shipped sidebar sections, theme binding, and app icon. No new features; alignment, spacing, theme-reach, and icon correctness.
+
+**Polish Commits**
+
+- `687dcecc0` extend theme color binding to workspace canvas (no color seam at top strip)
+- `8fb540c4a` hide row chevron + align icon columns across section headers and project rows
+- `44dda103b` use custom `AppIconImage` as the official app icon
+- `f5392b827` bump icon-to-label spacing 6pt → 10pt
+- `8b4760cc2` pin migration banner top padding 12pt (was crowding titlebar)
+- `4007efbd0` auto-transform app icon to full-bleed (kills macOS gray tile frame)
+- `5f34f15f6` remove row `Spacer()`, let project name text flex to fill row width
+- `cf7123eb6` align pin migration banner to row column grid
+
+Plus a clean rebuild + reinstall to `/Applications/Ghostties.app` (no commit).
+
+**Key Decisions**
+
+See `ORCHESTRATOR.md` Decision Log (2026-04-13 entries under Session 16) — icon full-bleed requirement, shared sidebar column-grid tokens, row name uses flex frame rather than Spacer.
+
+**New Memory Learning**
+
+- `reference-macos-fullbleed-icon-requirement.md` — macOS 14+ applies its own squircle tile + bezel; artwork must be full-bleed 1024×1024 or double-framing shows a gray tile around the icon. Includes PIL alpha-bbox crop+scale snippet.
+
+**Open Work**
+
+- Browser card theme binding — still deferred (awaits `BrowserTabManager` theme concept)
+- Sidebar widen decision — still open
+- Traffic-light alignment — still stashed (`git stash@{0}`)
+- `CFBundleName` TCC rename — user said "leave it"
+
+---
+
 ## Apr 13, 2026 (Session 15)
 
 ### Sidebar Smart Sections, Theme Binding, Rename, App Icon
