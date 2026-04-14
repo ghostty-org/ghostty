@@ -29,7 +29,7 @@ const posix = std.posix;
 const debug = std.debug;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
-const File = std.fs.File;
+const File = std.Io.File;
 const EnvMap = std.process.Environ.Map;
 const apprt = @import("apprt.zig");
 

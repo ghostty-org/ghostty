@@ -135,7 +135,7 @@ const OpenFileError = error{
 /// if it exists and is non-empty. This also constrains the possible
 /// errors to a smaller set that we can explicitly handle.
 pub fn open(io: std.Io, path: []const u8) OpenFileError!std.Io.File {
-    assert(std.fs.path.isAbsolute(path));
+    assert(std.Io.Dir.path.isAbsolute(path));
 
     var file = std.Io.Dir.openFileAbsolute(
         io,

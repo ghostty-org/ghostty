@@ -1744,7 +1744,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Call this any time the background image path changes.
         ///
         /// Caller must hold the draw mutex.
-        fn prepBackgroundImage(self: *Self) !void {
+        fn prepBackgroundImage(self: *Self, io: std.Io) !void {
             // Then we try to load the background image if we have a path.
             if (self.config.bg_image) |p| load_background: {
                 const path = switch (p) {
@@ -1752,7 +1752,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 };
 
                 // Open the file
-                var file = std.fs.openFileAbsolute(path, .{}) catch |err| {
+                var file = std.Io.Dir.openFileAbsolute(io, path, .{}) catch |err| {
                     log.warn(
                         "error opening background image file \"{s}\": {}",
                         .{ path, err },
@@ -1777,7 +1777,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // Figure out what type it probably is.
                 const file_type = switch (FileType.detect(contents)) {
                     .unknown => FileType.guessFromExtension(
-                        std.fs.path.extension(path),
+                        std.Io.Dir.path.extension(path),
                     ),
                     else => |t| t,
                 };

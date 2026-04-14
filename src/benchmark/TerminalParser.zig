@@ -13,7 +13,7 @@ const log = std.log.scoped(.@"terminal-stream-bench");
 opts: Options,
 
 /// The file, opened in the setup function.
-data_f: ?std.fs.File = null,
+data_f: ?std.Io.File = null,
 
 pub const Options = struct {
     /// The data to read as a filepath. If this is "-" then

@@ -295,7 +295,7 @@ pub const Transport = struct {
         try std.Io.Dir.cwd().createDirPath(io, dir.path);
 
         // Build our final path and write to it.
-        const path = try std.fs.path.join(alloc, &.{
+        const path = try std.Io.Dir.path.join(alloc, &.{
             dir.path,
             try std.fmt.allocPrint(alloc, "{s}.ghosttycrash", .{uuid.string()}),
         });

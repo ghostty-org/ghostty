@@ -35,11 +35,11 @@ pub fn init(resources_dir: []const u8) InitError!void {
         else => {
             // Our resources dir is always nested below the share dir that
             // is standard for translations.
-            const share_dir = std.fs.path.dirname(resources_dir) orelse
+            const share_dir = std.Io.Dir.path.dirname(resources_dir) orelse
                 return error.InvalidResourcesDir;
 
             // Build our locale path
-            var buf: [std.fs.max_path_bytes]u8 = undefined;
+            var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
             const path = std.fmt.bufPrintZ(&buf, "{s}/locale", .{share_dir}) catch
                 return error.OutOfMemory;
 

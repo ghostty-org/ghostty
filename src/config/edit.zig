@@ -27,7 +27,7 @@ pub fn openPath(alloc_gpa: Allocator, io: std.Io, env: *const std.process.Enviro
     const config_path = try configPath(alloc_arena, io, env);
 
     // Create config directory recursively.
-    if (std.fs.path.dirname(config_path)) |config_dir| {
+    if (std.Io.Dir.path.dirname(config_path)) |config_dir| {
         try std.Io.Dir.cwd().createDirPath(io, config_dir);
     }
 

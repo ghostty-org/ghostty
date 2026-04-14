@@ -62,7 +62,9 @@ export fn ghostty_config_load_cli_args(self: *Config) void {
 /// is usually done first. The default file locations are locations
 /// such as the home directory.
 export fn ghostty_config_load_default_files(self: *Config) void {
-    self.loadDefaultFiles(state.alloc, state.io(), state.env) catch |err| {
+    const env = internal_os.getEnvMapC(state.alloc);
+    defer env.deinit();
+    self.loadDefaultFiles(state.alloc, state.io(), &env) catch |err| {
         log.err("error loading config err={}", .{err});
     };
 }

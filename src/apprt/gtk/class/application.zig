@@ -1059,7 +1059,7 @@ pub const Application = extern struct {
         }
     }
 
-    fn loadCustomCss(self: *Self) (std.fs.File.ReadError || Allocator.Error)!void {
+    fn loadCustomCss(self: *Self) (std.Io.File.ReadError || Allocator.Error)!void {
         const priv: *Private = self.private();
         const alloc = self.allocator();
         const display = gdk.Display.getDefault() orelse {
@@ -1083,7 +1083,8 @@ pub const Application = extern struct {
                 .optional => |path| .{ path, true },
                 .required => |path| .{ path, false },
             };
-            const file = std.fs.openFileAbsolute(path, .{}) catch |err| {
+            const io = Application.default().core().io;
+            const file = std.Io.Dir.openFileAbsolute(io, path, .{}) catch |err| {
                 if (err != error.FileNotFound or !optional) {
                     log.warn(
                         "error opening gtk-custom-css file {s}: {}",

@@ -132,7 +132,7 @@ pub const LoadingImage = struct {
             }
         }
 
-        var abs_buf: [std.fs.max_path_bytes]u8 = undefined;
+        var abs_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
         const path = switch (t.medium) {
             .direct => unreachable, // handled above
             .file, .temporary_file => file: {
@@ -177,7 +177,7 @@ pub const LoadingImage = struct {
 
         // Since we're only supporting posix then max_path_bytes should
         // be enough to stack allocate the path.
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
         const pathz = std.fmt.bufPrintZ(&buf, "{s}", .{path}) catch return error.InvalidData;
 
         const fd = std.c.shm_open(pathz, @as(c_int, @bitCast(std.c.O{ .ACCMODE = .RDONLY })), 0);
@@ -347,7 +347,7 @@ pub const LoadingImage = struct {
 
             // The temporary dir is sometimes a symlink. On macOS for
             // example /tmp is /private/var/...
-            var buf: [std.fs.max_path_bytes]u8 = undefined;
+            var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
             if (std.Io.Dir.realPathFileAbsolute(io, dir, &buf)) |real_dir| {
                 if (std.mem.startsWith(u8, path, buf[0..real_dir])) return true;
             } else |_| {}
@@ -763,7 +763,7 @@ test "image load: temporary file without correct path" {
         .data = data,
     });
 
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = try tmp_dir.dir.realpath("image.data", &buf);
 
     var cmd: command.Command = .{
@@ -796,7 +796,7 @@ test "image load: rgb, not compressed, temporary file" {
         .data = data,
     });
 
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = try tmp_dir.dir.realpath("tty-graphics-protocol-image.data", &buf);
 
     var cmd: command.Command = .{
@@ -833,7 +833,7 @@ test "image load: rgb, not compressed, regular file" {
         .data = data,
     });
 
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = try tmp_dir.dir.realpath("image.data", &buf);
 
     var cmd: command.Command = .{
@@ -870,7 +870,7 @@ test "image load: png, not compressed, regular file" {
         .data = data,
     });
 
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = try tmp_dir.dir.realpath("tty-graphics-protocol-image.data", &buf);
 
     var cmd: command.Command = .{
@@ -927,7 +927,7 @@ test "limits: file medium blocked by limits" {
         .data = data,
     });
 
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = try tmp_dir.dir.realpath("image.data", &buf);
 
     var cmd: command.Command = .{
@@ -957,7 +957,7 @@ test "limits: file medium allowed by limits" {
         .data = data,
     });
 
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = try tmp_dir.dir.realpath("image.data", &buf);
 
     var cmd: command.Command = .{
@@ -992,7 +992,7 @@ test "limits: temporary file medium blocked by limits" {
         .data = data,
     });
 
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = try tmp_dir.dir.realpath("tty-graphics-protocol-image.data", &buf);
 
     var cmd: command.Command = .{
@@ -1029,7 +1029,7 @@ test "limits: temporary file medium allowed by limits" {
         .data = data,
     });
 
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = try tmp_dir.dir.realpath("tty-graphics-protocol-image.data", &buf);
 
     var cmd: command.Command = .{

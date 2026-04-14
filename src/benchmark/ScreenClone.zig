@@ -99,7 +99,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
     s.nextSlice("hello");
 
     // Setup our terminal state
-    const data_f: std.fs.File = (options.dataFile(
+    const data_f: std.Io.File = (options.dataFile(
         self.opts.data,
     ) catch |err| {
         log.warn("error opening data file err={}", .{err});

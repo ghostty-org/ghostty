@@ -20,7 +20,7 @@ pub fn resourcesDir(alloc: Allocator) !internal_os.ResourcesDir {
             const app_dir = std.mem.span(keyfile.getString("Instance", "app-path", null)) orelse return result;
             defer glib.free(app_dir.ptr);
 
-            result.host_path = try std.fs.path.join(alloc, &[_][]const u8{ app_dir, "share", "ghostty" });
+            result.host_path = try std.Io.Dir.path.join(alloc, &[_][]const u8{ app_dir, "share", "ghostty" });
             return result;
         }
     }

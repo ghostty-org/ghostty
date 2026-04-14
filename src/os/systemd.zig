@@ -28,7 +28,7 @@ pub fn launchedBySystemd(io: std.Io, env: *const std.process.Environ.Map) bool {
             // If the parent PID is not 1 we need to check to see if we were launched by
             // a user systemd daemon. Do that by checking the `/proc/<ppid>/comm`
             // to see if it ends with `systemd`.
-            var comm_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+            var comm_path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
             const comm_path = std.fmt.bufPrint(&comm_path_buf, "/proc/{d}/comm", .{ppid}) catch {
                 log.err("unable to format comm path for pid {d}", .{ppid});
                 break :linux false;
