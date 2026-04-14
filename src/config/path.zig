@@ -94,7 +94,7 @@ pub const Path = union(enum) {
 
     /// Used by formatter.
     pub fn formatEntry(self: *const Path, formatter: formatterpkg.EntryFormatter) !void {
-        var buf: [std.fs.max_path_bytes + 1]u8 = undefined;
+        var buf: [std.Io.Dir.max_path_bytes + 1]u8 = undefined;
         const value = switch (self.*) {
             .optional => |path| std.fmt.bufPrint(
                 &buf,
@@ -145,18 +145,18 @@ pub const Path = union(enum) {
         /// Errors will be added to the list of diagnostics if they occur.
         diags: *cli.DiagnosticList,
     ) !void {
-        assert(std.fs.path.isAbsolute(base));
+        assert(std.Io.Dir.path.isAbsolute(base));
 
         const path = switch (self.*) {
             .optional, .required => |path| path,
         };
 
         // If it is already absolute we can ignore it.
-        if (path.len == 0 or std.fs.path.isAbsolute(path)) return;
+        if (path.len == 0 or std.Io.Dir.path.isAbsolute(path)) return;
 
         // If it isn't absolute, we need to make it absolute relative
         // to the base.
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
 
         // Check if the path starts with a tilde and expand it to the
         // home directory on Linux/macOS. We explicitly look for "~/"
@@ -204,7 +204,7 @@ pub const Path = union(enum) {
             if (err == error.FileNotFound) {
                 // The file doesn't exist. Try to resolve the relative path
                 // another way.
-                const resolved = try std.fs.path.resolve(arena_alloc, &.{ base, path });
+                const resolved = try std.Io.Dir.path.resolve(arena_alloc, &.{ base, path });
                 defer arena_alloc.free(resolved);
                 @memcpy(buf[0..resolved.len], resolved);
                 break :abs buf[0..resolved.len];
@@ -406,7 +406,7 @@ pub const RepeatablePath = struct {
             return;
         }
 
-        var buf: [std.fs.max_path_bytes + 1]u8 = undefined;
+        var buf: [std.Io.Dir.max_path_bytes + 1]u8 = undefined;
         for (self.value.items) |item| {
             const value = switch (item) {
                 .optional => |path| std.fmt.bufPrint(

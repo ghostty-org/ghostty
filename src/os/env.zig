@@ -51,7 +51,7 @@ pub fn appendEnvAlways(
 ) Error![]u8 {
     return try std.fmt.allocPrint(alloc, "{s}{c}{s}", .{
         current,
-        std.fs.path.delimiter,
+        std.Io.Dir.path.delimiter,
         value,
     });
 }
@@ -68,7 +68,7 @@ pub fn prependEnv(
 
     return try std.fmt.allocPrint(alloc, "{s}{c}{s}", .{
         value,
-        std.fs.path.delimiter,
+        std.Io.Dir.path.delimiter,
         current,
     });
 }

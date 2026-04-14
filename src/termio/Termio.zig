@@ -146,7 +146,7 @@ const ThreadEnterState = struct {
 
     const Input = union(enum) {
         string: []const u8,
-        file: std.fs.File,
+        file: std.Io.File,
     };
 };
 

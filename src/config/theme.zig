@@ -28,7 +28,7 @@ pub const Location = enum {
     ) error{OutOfMemory}!?[]const u8 {
         return switch (self) {
             .user => user: {
-                const subdir = std.fs.path.join(arena_alloc, &.{
+                const subdir = std.Io.Dir.path.join(arena_alloc, &.{
                     "ghostty", "themes",
                 }) catch return error.OutOfMemory;
 
@@ -58,7 +58,7 @@ pub const Location = enum {
                 };
             },
 
-            .resources => try std.fs.path.join(arena_alloc, &.{
+            .resources => try std.Io.Dir.path.join(arena_alloc, &.{
                 global_state.resources_dir.app() orelse return null,
                 "themes",
             }),
@@ -124,7 +124,7 @@ pub fn open(
     file: std.Io.File,
 } {
     // Absolute themes are loaded a different path.
-    if (std.fs.path.isAbsolute(theme)) {
+    if (std.Io.Dir.path.isAbsolute(theme)) {
         const file = try openAbsolute(
             arena_alloc,
             io,
@@ -159,7 +159,7 @@ pub fn open(
         return .{ .path = theme, .file = file };
     }
 
-    const basename = std.fs.path.basename(theme);
+    const basename = std.Io.Dir.path.basename(theme);
     if (!std.mem.eql(u8, theme, basename)) {
         try diags.append(arena_alloc, .{
             .message = try std.fmt.allocPrintSentinel(
@@ -181,7 +181,7 @@ pub fn open(
     };
     const cwd: std.Io.Dir = .cwd();
     while (try it.next()) |loc| {
-        const path = try std.fs.path.join(arena_alloc, &.{ loc.dir, theme });
+        const path = try std.Io.Dir.path.join(arena_alloc, &.{ loc.dir, theme });
         if (cwd.openFile(io, path, .{})) |file| {
             const stat = file.stat(io) catch |err| {
                 try diags.append(arena_alloc, .{
@@ -238,7 +238,7 @@ pub fn open(
     // fine.
     it.reset();
     while (try it.next()) |loc| {
-        const path = try std.fs.path.join(arena_alloc, &.{ loc.dir, theme });
+        const path = try std.Io.Dir.path.join(arena_alloc, &.{ loc.dir, theme });
         try diags.append(arena_alloc, .{
             .message = try std.fmt.allocPrintSentinel(
                 arena_alloc,

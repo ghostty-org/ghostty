@@ -146,7 +146,7 @@ fn commonDir(
     @memcpy(paths[1..], sub_paths);
     defer alloc.free(paths);
 
-    return try std.fs.path.join(alloc, paths);
+    return try std.Io.Dir.path.join(alloc, paths);
 }
 
 test "cacheDir paths" {

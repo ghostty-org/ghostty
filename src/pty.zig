@@ -122,7 +122,7 @@ const PosixPty = struct {
 
     /// Buffer for storage of slave tty name so that we don't have to recompute
     /// it every time we need it.
-    tty_name_buf: [std.fs.max_path_bytes:0]u8 = undefined,
+    tty_name_buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined,
     /// The name of slave tty. If `null` it has not yet been computed or
     /// may not be available. Should not be accessed directly, but through
     /// `self.getProcessInfo(.tty_name)`

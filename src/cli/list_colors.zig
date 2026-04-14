@@ -50,7 +50,7 @@ pub fn run(alloc: Allocator) !u8 {
     }.lessThan);
 
     // Despite being under the posix namespace, this also works on Windows as of zig 0.13.0
-    var stdout: std.fs.File = .stdout();
+    var stdout: std.Io.File = .stdout();
     if (tui.can_pretty_print and !opts.plain and std.posix.isatty(stdout.handle)) {
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();

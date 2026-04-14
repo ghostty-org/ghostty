@@ -50,7 +50,13 @@ pub const Options = struct {
         return false;
     }
 
-    fn checkArg(self: *Options, alloc: Allocator, arg: []const u8) (error{InvalidValue} || homedir.ExpandError || std.fs.Dir.RealPathAllocError || Allocator.Error)!?[:0]const u8 {
+    fn checkArg(
+        self: *Options,
+        alloc: Allocator,
+        io: std.Io,
+        env: *const std.process.Environ.Map,
+        arg: []const u8,
+    ) (error{InvalidValue} || homedir.ExpandError || std.Io.Dir.RealPathFileAllocError || Allocator.Error)!?[:0]const u8 {
         if (std.mem.cutPrefix(u8, arg, "--class=")) |rest| {
             self.class = try alloc.dupeZ(u8, std.mem.trim(u8, rest, &std.ascii.whitespace));
             return null;
@@ -61,9 +67,9 @@ pub const Options = struct {
             if (std.mem.eql(u8, stripped, "home")) return try alloc.dupeZ(u8, arg);
             if (std.mem.eql(u8, stripped, "inherit")) return try alloc.dupeZ(u8, arg);
             const cwd: std.Io.Dir = .cwd();
-            var expandhome_buf: [std.fs.max_path_bytes]u8 = undefined;
-            const expanded = try homedir.expandHome(stripped, &expandhome_buf);
-            var realpath_buf: [std.fs.max_path_bytes]u8 = undefined;
+            var expandhome_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+            const expanded = try homedir.expandHome(stripped, &expandhome_buf, io, env);
+            var realpath_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
             const realpath = try cwd.realpath(expanded, &realpath_buf);
             self._working_directory_seen = true;
             return try std.fmt.allocPrintSentinel(alloc, "--working-directory={s}", .{realpath}, 0);
@@ -196,7 +202,7 @@ fn runArgs(
     if (!opts._working_directory_seen) {
         const alloc = opts._arena.?.allocator();
         const cwd: std.Io.Dir = .cwd();
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
         const wd = try cwd.realpath(".", &buf);
         // This should be inserted at the beginning of the list, just in case `-e` was used.
         try opts._arguments.insert(alloc, 0, try std.fmt.allocPrintSentinel(alloc, "--working-directory={s}", .{wd}, 0));

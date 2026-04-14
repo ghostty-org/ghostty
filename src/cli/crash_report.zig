@@ -39,7 +39,7 @@ pub fn run(alloc_gpa: Allocator, io: std.Io) !u8 {
     }
 
     var buffer: [1024]u8 = undefined;
-    var stdout_file: std.fs.File = .stdout();
+    var stdout_file: std.Io.File = .stdout();
     var stdout_writer = stdout_file.writer(&buffer);
     const stdout = &stdout_writer.interface;
 
@@ -51,7 +51,7 @@ pub fn run(alloc_gpa: Allocator, io: std.Io) !u8 {
 fn runInner(
     io: std.Io,
     alloc: Allocator,
-    stdout_file: *std.fs.File,
+    stdout_file: *std.Io.File,
     stdout: *std.Io.Writer,
 ) !u8 {
     const crash_dir = try crash.defaultDir(io, alloc);

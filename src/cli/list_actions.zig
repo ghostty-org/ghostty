@@ -37,7 +37,7 @@ pub fn run(alloc: Allocator) !u8 {
         try args.parse(Options, alloc, &opts, &iter);
     }
 
-    var stdout: std.fs.File = .stdout();
+    var stdout: std.Io.File = .stdout();
     var buffer: [4096]u8 = undefined;
     var stdout_writer = stdout.writer(&buffer);
     try helpgen_actions.generate(

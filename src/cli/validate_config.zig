@@ -58,7 +58,7 @@ fn runInner(
 
     // If a config path is passed, validate it, otherwise validate default configs
     if (opts.@"config-file") |config_path| {
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
         const abs_path = try std.Io.Dir.cwd().realPath(io, config_path, &buf);
         try cfg.loadFile(alloc, io, abs_path);
         try cfg.loadRecursiveFiles(alloc, io);

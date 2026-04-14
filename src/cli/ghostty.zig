@@ -112,7 +112,7 @@ pub const Action = enum {
 
                     if (std.mem.eql(u8, field.name, @tagName(self))) {
                         var buffer: [1024]u8 = undefined;
-                        var stdout_writer = std.fs.File.stdout().writer(&buffer);
+                        var stdout_writer = std.Io.File.stdout().writer(&buffer);
                         const stdout = &stdout_writer.interface;
                         const text = @field(help_strings.Action, field.name) ++ "\n";
                         stdout.writeAll(text) catch |write_err| {

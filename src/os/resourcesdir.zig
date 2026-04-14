@@ -63,20 +63,20 @@ pub fn resourcesDir(alloc: Allocator, io: std.Io, env: *const std.process.Enviro
     };
 
     // Get the path to our running binary
-    var exe_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var exe_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     var exe: []const u8 = std.process.executablePath(&exe_buf) catch return .{};
 
     // We have an exe path! Climb the tree looking for the terminfo
     // bundle as we expect it.
-    var dir_buf: [std.fs.max_path_bytes]u8 = undefined;
-    while (std.fs.path.dirname(exe)) |dir| {
+    var dir_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    while (std.Io.Dir.path.dirname(exe)) |dir| {
         exe = dir;
 
         // On MacOS, we look for the app bundle path.
         if (comptime builtin.target.os.tag.isDarwin()) {
             inline for (sentinels) |sentinel| {
                 if (try maybeDir(io, &dir_buf, dir, "Contents/Resources", sentinel)) |v| {
-                    return .{ .app_path = try std.fs.path.join(alloc, &.{ v, "ghostty" }) };
+                    return .{ .app_path = try std.Io.Dir.path.join(alloc, &.{ v, "ghostty" }) };
                 }
             }
         }
@@ -92,7 +92,7 @@ pub fn resourcesDir(alloc: Allocator, io: std.Io, env: *const std.process.Enviro
                 if (builtin.target.os.tag == .freebsd) "local/share" else "share",
                 sentinel,
             )) |v| {
-                return .{ .app_path = try std.fs.path.join(alloc, &.{ v, "ghostty" }) };
+                return .{ .app_path = try std.Io.Dir.path.join(alloc, &.{ v, "ghostty" }) };
             }
         }
     }

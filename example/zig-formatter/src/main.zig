@@ -11,14 +11,18 @@ pub fn main(init: std.process.Init) !void {
     defer stream.deinit();
 
     // Read from stdin
-    const stdin = std.fs.File.stdin();
+    var stdin = std.Io.File.stdin();
     var buf: [4096]u8 = undefined;
+    var reader = stdin.reader(init.io, &buf);
+
     while (true) {
-        const n = try stdin.readAll(&buf);
-        if (n == 0) break;
+        reader.interface.fillMore() catch |err| switch (err) {
+            error.EndOfStream => break,
+            error.ReadFailed => return reader.err,
+        };
 
         // Replace \n with \r\n
-        for (buf[0..n]) |byte| {
+        for (reader.interface.buffered()) |byte| {
             if (byte == '\n') stream.next('\r');
             stream.next(byte);
         }
@@ -31,7 +35,7 @@ pub fn main(init: std.process.Init) !void {
     });
 
     // Write to stdout
-    var stdout_writer = std.fs.File.stdout().writer(&buf);
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &buf);
     const stdout = &stdout_writer.interface;
     try stdout.print("{f}", .{formatter});
     try stdout.flush();

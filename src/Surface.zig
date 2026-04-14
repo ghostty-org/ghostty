@@ -2066,14 +2066,14 @@ fn resolvePathForOpening(
     self: *Surface,
     path: []const u8,
 ) Allocator.Error!?[]const u8 {
-    if (!std.fs.path.isAbsolute(path)) {
+    if (!std.Io.Dir.path.isAbsolute(path)) {
         const terminal_pwd = self.io.terminal.getPwd() orelse {
             return null;
         };
 
-        const resolved = try std.fs.path.resolve(self.alloc, &.{ terminal_pwd, path });
+        const resolved = try std.Io.Dir.path.resolve(self.alloc, &.{ terminal_pwd, path });
 
-        std.fs.accessAbsolute(resolved, .{}) catch {
+        std.Io.Dir.accessAbsolute(self.app.io, resolved, .{}) catch {
             self.alloc.free(resolved);
             return null;
         };
@@ -5854,7 +5854,7 @@ fn writeScreenFile(
     var tmp_dir = try internal_os.TempDir.init();
     errdefer tmp_dir.deinit();
 
-    var filename_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var filename_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const filename = try std.fmt.bufPrint(
         &filename_buf,
         "{s}.{s}",
@@ -5947,7 +5947,7 @@ fn writeScreenFile(
     try buf_writer.flush();
 
     // Get the final path
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = try tmp_dir.dir.realpath(filename, &path_buf);
 
     switch (write_screen.action) {

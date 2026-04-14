@@ -13,7 +13,7 @@ const log = std.log.scoped(.@"osc-parser-bench");
 opts: Options,
 
 /// The file, opened in the setup function.
-data_f: ?std.fs.File = null,
+data_f: ?std.Io.File = null,
 
 parser: Parser,
 

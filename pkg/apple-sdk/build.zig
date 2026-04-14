@@ -64,9 +64,9 @@ pub fn addPaths(
         // parse this from the libc txt file for `-framework` flags:
         // https://github.com/ziglang/zig/issues/24024
         const framework_path = framework: {
-            const down1 = std.fs.path.dirname(libc.sys_include_dir.?).?;
-            const down2 = std.fs.path.dirname(down1).?;
-            break :framework try std.fs.path.join(b.allocator, &.{
+            const down1 = std.Io.Dir.path.dirname(libc.sys_include_dir.?).?;
+            const down2 = std.Io.Dir.path.dirname(down1).?;
+            break :framework try std.Io.Dir.path.join(b.allocator, &.{
                 down2,
                 "System",
                 "Library",
@@ -75,8 +75,8 @@ pub fn addPaths(
         };
 
         const library_path = library: {
-            const down1 = std.fs.path.dirname(libc.sys_include_dir.?).?;
-            break :library try std.fs.path.join(b.allocator, &.{
+            const down1 = std.Io.Dir.path.dirname(libc.sys_include_dir.?).?;
+            break :library try std.Io.Dir.path.join(b.allocator, &.{
                 down1,
                 "lib",
             });

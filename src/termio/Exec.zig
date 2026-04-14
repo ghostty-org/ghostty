@@ -642,9 +642,9 @@ const Subprocess = struct {
 
             // Assume that the resources directory is adjacent to the terminfo
             // database
-            var buf: [std.fs.max_path_bytes]u8 = undefined;
+            var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
             const dir = try std.fmt.bufPrint(&buf, "{s}/terminfo", .{
-                std.fs.path.dirname(base) orelse unreachable,
+                std.Io.Dir.path.dirname(base) orelse unreachable,
             });
             try env.put("TERMINFO", dir);
         } else {
@@ -667,12 +667,12 @@ const Subprocess = struct {
                 break :ghostty_path;
             }
 
-            var exe_buf: [std.fs.max_path_bytes]u8 = undefined;
+            var exe_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
             const exe_bin_path = std.process.executablePath(&exe_buf) catch |err| {
                 log.warn("failed to get ghostty exe path err={}", .{err});
                 break :ghostty_path;
             };
-            const exe_dir = std.fs.path.dirname(exe_bin_path) orelse break :ghostty_path;
+            const exe_dir = std.Io.Dir.path.dirname(exe_bin_path) orelse break :ghostty_path;
             log.debug("appending ghostty bin to path dir={s}", .{exe_dir});
 
             // We always set this so that if the shell overwrites the path
@@ -685,7 +685,7 @@ const Subprocess = struct {
             // then we just set it to the directory of the binary.
             if (env.get("PATH")) |path| {
                 // Verify that our path doesn't already contain this entry
-                var it = std.mem.tokenizeScalar(u8, path, std.fs.path.delimiter);
+                var it = std.mem.tokenizeScalar(u8, path, std.Io.Dir.path.delimiter);
                 while (it.next()) |entry| {
                     if (std.mem.eql(u8, entry, exe_dir)) break :ghostty_path;
                 }
@@ -704,7 +704,7 @@ const Subprocess = struct {
         if (comptime builtin.target.os.tag.isDarwin()) darwin: {
             const resources_dir = cfg.resources_dir orelse break :darwin;
 
-            var buf: [std.fs.max_path_bytes]u8 = undefined;
+            var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
 
             const xdg_data_dir_key = "XDG_DATA_DIRS";
             if (std.fmt.bufPrint(&buf, "{s}/..", .{resources_dir})) |data_dir| {
@@ -1564,7 +1564,7 @@ fn execCommand(
                     log.warn("failed to get WINDIR, cannot run shell command", .{});
                     return error.SystemError;
                 };
-                const cmd = try std.fs.path.joinZ(alloc, &[_][]const u8{
+                const cmd = try std.Io.Dir.path.joinZ(alloc, &[_][]const u8{
                     windir,
                     "System32",
                     "cmd.exe",

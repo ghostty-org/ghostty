@@ -45,7 +45,7 @@ pub fn defaultPath(
         else => error.XdgLookupFailed,
     };
     defer alloc.free(state_dir);
-    return try std.fs.path.join(alloc, &.{ state_dir, "ssh_cache" });
+    return try std.Io.Dir.path.join(alloc, &.{ state_dir, "ssh_cache" });
 }
 
 /// Clear all cache data stored in the disk cache.
@@ -81,7 +81,7 @@ pub fn add(
     if (!isValidCacheKey(hostname)) return error.HostnameIsInvalid;
 
     // Create cache directory if needed
-    if (std.fs.path.dirname(self.path)) |dir| {
+    if (std.Io.Dir.path.dirname(self.path)) |dir| {
         std.Io.Dir.cwd().createDirPath(self.io, dir) catch |err| switch (err) {
             error.PathAlreadyExists => {},
             else => return err,
@@ -142,7 +142,7 @@ pub fn add(
     return result;
 }
 
-pub const RemoveError = std.fs.File.OpenError ||
+pub const RemoveError = std.Io.File.OpenError ||
     FixupPermissionsError ||
     ReadEntriesError ||
     WriteCacheFileError ||
@@ -189,7 +189,7 @@ pub fn remove(
     try self.writeCacheFile(entries, null);
 }
 
-pub const ContainsError = std.fs.File.OpenError ||
+pub const ContainsError = std.Io.File.OpenError ||
     ReadEntriesError ||
     error{HostnameIsInvalid};
 
@@ -234,10 +234,10 @@ fn fixupPermissions(file: std.Io.File, io: std.Io) FixupPermissionsError!void {
     }
 }
 
-pub const WriteCacheFileError = std.fs.Dir.OpenError ||
-    std.fs.AtomicFile.InitError ||
-    std.fs.AtomicFile.FlushError ||
-    std.fs.AtomicFile.FinishError ||
+pub const WriteCacheFileError = std.Io.Dir.OpenError ||
+    std.Io.File.Atomic.InitError ||
+    std.Io.File.Atomic.FlushError ||
+    std.Io.File.Atomic.FinishError ||
     Entry.FormatError ||
     error{InvalidCachePath};
 
@@ -246,16 +246,18 @@ fn writeCacheFile(
     entries: std.StringHashMap(Entry),
     expire_days: ?u32,
 ) WriteCacheFileError!void {
-    const cache_dir = std.fs.path.dirname(self.path) orelse return error.InvalidCachePath;
-    const cache_basename = std.fs.path.basename(self.path);
+    const cache_dir = std.Io.Dir.path.dirname(self.path) orelse return error.InvalidCachePath;
+    const cache_basename = std.Io.Dir.path.basename(self.path);
 
     var dir = try std.Io.Dir.cwd().openDir(self.io, cache_dir, .{});
     defer dir.close(self.io);
 
     var buf: [1024]u8 = undefined;
-    var atomic_file = try dir.atomicFile(self.io, cache_basename, .{
+    var atomic_file = try dir.createFileAtomic(self.io, cache_basename, .{
         .mode = 0o600,
         .write_buffer = &buf,
+        .make_path = true,
+        .replace = true,
     });
     defer atomic_file.deinit(self.io);
 
@@ -266,7 +268,7 @@ fn writeCacheFile(
         try kv.value_ptr.format(&atomic_file.file_writer.interface);
     }
 
-    try atomic_file.finish(self.io);
+    try atomic_file.replace(self.io);
 }
 
 /// List all entries in the cache.
@@ -310,7 +312,7 @@ pub const ReadEntriesError = std.mem.Allocator.Error || std.io.Reader.LimitedAll
 
 fn readEntries(
     alloc: Allocator,
-    file: std.fs.File,
+    file: std.Io.File,
 ) ReadEntriesError!std.StringHashMap(Entry) {
     var reader = file.reader(&.{});
     const content = try reader.interface.allocRemaining(
@@ -500,7 +502,7 @@ test "disk cache cleans up temp files" {
 
     const tmp_path = try tmp.dir.realPathFileAlloc(io, alloc, ".");
     defer alloc.free(tmp_path);
-    const cache_path = try std.fs.path.join(alloc, &.{ tmp_path, "cache" });
+    const cache_path = try std.Io.Dir.path.join(alloc, &.{ tmp_path, "cache" });
     defer alloc.free(cache_path);
 
     const cache: DiskCache = .{ .io = io, .path = cache_path };

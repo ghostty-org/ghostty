@@ -16,7 +16,7 @@ pub const Options = struct {};
 /// either `+version` or `--version`.
 pub fn run(alloc: Allocator) !u8 {
     var buffer: [1024]u8 = undefined;
-    const stdout_file: std.fs.File = .stdout();
+    const stdout_file: std.Io.File = .stdout();
     var stdout_writer = stdout_file.writer(&buffer);
 
     const stdout = &stdout_writer.interface;

@@ -339,7 +339,7 @@ fn initPostPipeline(data: [:0]const u8) !Pipeline {
 /// quote marks. If we ever want to process `#include`s for custom shaders
 /// then we need to write something better than this for it.
 fn loadShaderCode(comptime path: []const u8) [:0]const u8 {
-    return comptime processIncludes(@embedFile(path), std.fs.path.dirname(path).?);
+    return comptime processIncludes(@embedFile(path), std.Io.Dir.path.dirname(path).?);
 }
 
 /// Used by loadShaderCode

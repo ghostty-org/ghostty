@@ -19,8 +19,8 @@ pub fn expand(
     }
 
     const PATH = env.get("PATH") orelse return null;
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    var it = std.mem.tokenizeScalar(u8, PATH, std.fs.path.delimiter);
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    var it = std.mem.tokenizeScalar(u8, PATH, std.Io.Dir.path.delimiter);
     var seen_eacces = false;
     while (it.next()) |search_path| {
         // We need enough space in our path buffer to store this
@@ -29,7 +29,7 @@ pub fn expand(
 
         // Copy in the full path
         @memcpy(path_buf[0..search_path.len], search_path);
-        path_buf[search_path.len] = std.fs.path.sep;
+        path_buf[search_path.len] = std.Io.Dir.path.sep;
         @memcpy(path_buf[search_path.len + 1 ..][0..cmd.len], cmd);
         path_buf[path_len] = 0;
         const full_path = path_buf[0..path_len :0];

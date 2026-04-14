@@ -263,7 +263,7 @@ fn testDiffAtlas(
     );
     defer alloc.free(ref_path);
     const ref_file =
-        std.Io.Dir.cwd().openFile(ref_path, .{ .mode = .read_only }) catch |err| {
+        std.Io.Dir.cwd().openFile(io, ref_path, .{ .mode = .read_only }) catch |err| {
             log.err("Can't open reference file {s}: {}\n", .{
                 ref_path,
                 err,
@@ -301,7 +301,7 @@ fn testDiffAtlas(
         .{ cwd_absolute, i, i + 0xFF, width, height, thickness },
     );
     defer alloc.free(test_path);
-    try std.fs.copyFileAbsolute(path, test_path, .{});
+    try std.Io.Dir.copyFileAbsolute(io, path, test_path, .{});
 
     // Use wuffs to decode the reference PNG to raw pixels.
     // These will be RGBA, so when diffing we can just compare

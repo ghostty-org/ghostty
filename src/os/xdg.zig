@@ -62,7 +62,7 @@ fn dir(
 ) ![]u8 {
     // If we have a cached home dir, use that.
     if (opts.home) |home| {
-        return try std.fs.path.join(alloc, &[_][]const u8{
+        return try std.Io.Dir.path.join(alloc, &[_][]const u8{
             home,
             internal_opts.default_subdir,
             opts.subdir orelse "",
@@ -89,7 +89,7 @@ fn dir(
     if (env_var_) |env_var| {
         // If we have a subdir, then we use the env as-is to avoid a copy.
         if (opts.subdir) |subdir| {
-            return try std.fs.path.join(alloc, &.{
+            return try std.Io.Dir.path.join(alloc, &.{
                 env_var,
                 subdir,
             });
@@ -101,7 +101,7 @@ fn dir(
     // Get our home dir
     var buf: [1024]u8 = undefined;
     if (try homedir.home(io, env, &buf)) |home| {
-        return try std.fs.path.join(alloc, &[_][]const u8{
+        return try std.Io.Dir.path.join(alloc, &[_][]const u8{
             home,
             internal_opts.default_subdir,
             opts.subdir orelse "",
@@ -116,7 +116,7 @@ fn dir(
 pub fn parseTerminalExec(argv: []const [*:0]const u8) ?[]const [*:0]const u8 {
     if (!std.mem.eql(
         u8,
-        std.fs.path.basename(std.mem.sliceTo(argv[0], 0)),
+        std.Io.Dir.path.basename(std.mem.sliceTo(argv[0], 0)),
         "xdg-terminal-exec",
     )) return null;
 
@@ -150,7 +150,7 @@ test "cache directory paths" {
         {
             const cache_path = try cache(alloc, .{ .home = mock_home });
             defer alloc.free(cache_path);
-            const expected = try std.fs.path.join(alloc, &.{ mock_home, ".cache" });
+            const expected = try std.Io.Dir.path.join(alloc, &.{ mock_home, ".cache" });
             defer alloc.free(expected);
             try testing.expectEqualStrings(expected, cache_path);
         }
@@ -162,7 +162,7 @@ test "cache directory paths" {
                 .subdir = "ghostty",
             });
             defer alloc.free(cache_path);
-            const expected = try std.fs.path.join(alloc, &.{ mock_home, ".cache", "ghostty" });
+            const expected = try std.Io.Dir.path.join(alloc, &.{ mock_home, ".cache", "ghostty" });
             defer alloc.free(expected);
             try testing.expectEqualStrings(expected, cache_path);
         }
@@ -216,7 +216,7 @@ test "fallback when xdg env empty" {
             alloc.free(value);
         }
 
-        const expected = try std.fs.path.join(alloc, &[_][]const u8{
+        const expected = try std.Io.Dir.path.join(alloc, &[_][]const u8{
             temp_home,
             case.default_subdir,
         });
@@ -280,7 +280,7 @@ test "fallback when xdg env empty and subdir" {
             alloc.free(value);
         }
 
-        const expected = try std.fs.path.join(alloc, &[_][]const u8{
+        const expected = try std.Io.Dir.path.join(alloc, &[_][]const u8{
             temp_home,
             case.default_subdir,
             "ghostty",

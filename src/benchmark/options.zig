@@ -6,7 +6,7 @@ const std = @import("std");
 /// across our CLI. If the path is not set then no file is returned.
 /// If the path is "-", then we will return stdin. If the path is
 /// a file then we will open and return the handle.
-pub fn dataFile(path_: ?[]const u8) !?std.fs.File {
+pub fn dataFile(path_: ?[]const u8) !?std.Io.File {
     const path = path_ orelse return null;
 
     // Stdin

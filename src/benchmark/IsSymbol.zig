@@ -17,7 +17,7 @@ const log = std.log.scoped(.@"is-symbol-bench");
 opts: Options,
 
 /// The file, opened in the setup function.
-data_f: ?std.fs.File = null,
+data_f: ?std.Io.File = null,
 
 pub const Options = struct {
     /// Which test to run.

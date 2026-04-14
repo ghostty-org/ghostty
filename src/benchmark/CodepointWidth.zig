@@ -20,7 +20,7 @@ const log = std.log.scoped(.@"terminal-stream-bench");
 opts: Options,
 
 /// The file, opened in the setup function.
-data_f: ?std.fs.File = null,
+data_f: ?std.Io.File = null,
 
 pub const Options = struct {
     /// The type of codepoint width calculation to use.

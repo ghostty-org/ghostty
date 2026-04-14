@@ -65,7 +65,7 @@ pub fn run(alloc: Allocator) !u8 {
     defer config.deinit();
 
     var buffer: [1024]u8 = undefined;
-    const stdout: std.fs.File = .stdout();
+    const stdout: std.Io.File = .stdout();
     var stdout_writer = stdout.writer(&buffer);
     const writer = &stdout_writer.interface;
 

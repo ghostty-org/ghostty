@@ -3873,7 +3873,7 @@ pub fn loadIter(
 ///
 /// `path` must be resolved and absolute.
 pub fn loadFile(self: *Config, alloc: Allocator, io: std.Io, path: []const u8) !void {
-    assert(std.fs.path.isAbsolute(path));
+    assert(std.Io.Dir.path.isAbsolute(path));
     var file = file_load.open(io, path) catch |err| switch (err) {
         error.NotAFile => {
             log.warn(
@@ -3894,7 +3894,7 @@ pub fn loadFile(self: *Config, alloc: Allocator, io: std.Io, path: []const u8) !
 fn loadFsFile(self: *Config, alloc: Allocator, io: std.Io, file: *std.Io.File, path: []const u8) !void {
     std.log.info("reading configuration file path={s}", .{path});
     var buf: [2048]u8 = undefined;
-    var file_reader = file.reader(&buf);
+    var file_reader = file.reader(io, &buf);
     const reader = &file_reader.interface;
     try self.loadReader(alloc, io, reader, path);
 }
@@ -3913,7 +3913,7 @@ fn loadReader(self: *Config, alloc: Allocator, io: std.Io, reader: *std.Io.Reade
     }
     var iter: cli.args.LineIterator = .{ .r = reader, .filepath = path };
     try self.loadIter(alloc, &iter);
-    try self.expandPaths(io, std.fs.path.dirname(path).?);
+    try self.expandPaths(io, std.Io.Dir.path.dirname(path).?);
 }
 
 test "handle bom in config files" {
@@ -3989,7 +3989,7 @@ pub fn loadOptionalFile(
 
 fn writeConfigTemplate(io: std.Io, path: []const u8) !void {
     log.info("creating template config file: path={s}", .{path});
-    if (std.fs.path.dirname(path)) |dir_path| {
+    if (std.Io.Dir.path.dirname(path)) |dir_path| {
         try std.Io.Dir.cwd().createDirPath(io, dir_path);
     }
     const file = try std.Io.Dir.createFileAbsolute(io, path, .{});
@@ -4184,7 +4184,7 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator, io: std.Io) !void {
 
     // Any paths referenced from the CLI are relative to the current working
     // directory.
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     try self.expandPaths(io, try std.Io.Dir.cwd().realpath(".", &buf));
 }
 
@@ -4230,7 +4230,7 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator, io: std.Io) !void
 
         // All paths should already be absolute at this point because
         // they're fixed up after each load.
-        assert(std.fs.path.isAbsolute(path));
+        assert(std.Io.Dir.path.isAbsolute(path));
 
         // We must only load a unique file once
         if (try loaded.fetchPut(path, {}) != null) {
@@ -4491,7 +4491,7 @@ fn loadTheme(
 
     // Replay our previous inputs so that we can override values
     // from the theme.
-    var slice_it = Replay.iterator(self._replay_steps.items, &new_config);
+    var slice_it = Replay.iterator(self._replay_steps.items, io, &new_config);
     try new_config.loadIter(alloc_gpa, &slice_it);
 
     // Success, swap our new config in and free the old.
@@ -4598,7 +4598,7 @@ pub fn finalize(self: *Config, io: std.Io, env: *const std.process.Environ.Map) 
                     }
 
                     if (wd == .home) {
-                        var buf: [std.fs.max_path_bytes]u8 = undefined;
+                        var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
                         if (try internal_os.home(&buf)) |home| {
                             wd = .{ .path = try alloc.dupe(u8, home) };
                         } else {
@@ -5163,6 +5163,7 @@ const Replay = struct {
         const Self = @This();
 
         config: *Config,
+        io: std.Io,
         slice: []const Replay.Step,
         idx: usize = 0,
 
@@ -5171,7 +5172,7 @@ const Replay = struct {
                 if (self.idx >= self.slice.len) return null;
                 defer self.idx += 1;
                 switch (self.slice[self.idx]) {
-                    .expand => |base| self.config.expandPaths(base) catch |err| {
+                    .expand => |base| self.config.expandPaths(self.io, base) catch |err| {
                         // This shouldn't happen because to reach this step
                         // means that it succeeded before. Its possible since
                         // expanding paths is a side effect process that the
@@ -5215,8 +5216,8 @@ const Replay = struct {
     /// Construct a Replay iterator from a slice of replay elements.
     /// This can be used with args.parse and handles intermediate
     /// steps such as expanding relative paths.
-    fn iterator(slice: []const Replay.Step, dst: *Config) Iterator {
-        return .{ .slice = slice, .config = dst };
+    fn iterator(slice: []const Replay.Step, io: std.Io, dst: *Config) Iterator {
+        return .{ .slice = slice, .io = io, .config = dst };
     }
 };
 
@@ -5322,7 +5323,7 @@ pub const WorkingDirectory = union(enum) {
 
         if (!std.mem.startsWith(u8, path, "~/")) return;
 
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
         const expanded = internal_os.expandHome(path, &buf) catch |err| {
             log.warn(
                 "error expanding home directory for working-directory path={s}: {}",
@@ -5387,7 +5388,7 @@ pub const WorkingDirectory = union(enum) {
             var wd: Self = .{ .path = "~/projects/ghostty" };
             try wd.finalize(alloc);
 
-            var buf: [std.fs.max_path_bytes]u8 = undefined;
+            var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
             const expected = internal_os.expandHome(
                 "~/projects/ghostty",
                 &buf,
@@ -10414,9 +10415,9 @@ test "clone can then change conditional state" {
         try writer.interface.writeAll(@embedFile("testdata/theme_dark"));
         try writer.end();
     }
-    var light_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var light_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const light = try td.dir.realpath("theme_light", &light_buf);
-    var dark_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var dark_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const dark = try td.dir.realpath("theme_dark", &dark_buf);
 
     var cfg_light = try Config.default(alloc);
@@ -10488,7 +10489,7 @@ test "working-directory expands tilde" {
     try cfg.loadIter(alloc, &it);
     try cfg.finalize();
 
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const expected = internal_os.expandHome(
         "~/projects/ghostty",
         &buf,
@@ -10566,7 +10567,7 @@ test "theme loading" {
         try writer.interface.writeAll(@embedFile("testdata/theme_simple"));
         try writer.end();
     }
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = try td.dir.realpath("theme", &path_buf);
 
     var cfg = try Config.default(alloc);
@@ -10605,7 +10606,7 @@ test "theme loading preserves conditional state" {
         try writer.interface.writeAll(@embedFile("testdata/theme_simple"));
         try writer.end();
     }
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = try td.dir.realpath("theme", &path_buf);
 
     var cfg = try Config.default(alloc);
@@ -10638,7 +10639,7 @@ test "theme priority is lower than config" {
         try writer.interface.writeAll(@embedFile("testdata/theme_simple"));
         try writer.end();
     }
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = try td.dir.realpath("theme", &path_buf);
 
     var cfg = try Config.default(alloc);
@@ -10682,9 +10683,9 @@ test "theme loading correct light/dark" {
         try writer.interface.writeAll(@embedFile("testdata/theme_dark"));
         try writer.end();
     }
-    var light_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var light_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const light = try td.dir.realpath("theme_light", &light_buf);
-    var dark_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var dark_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const dark = try td.dir.realpath("theme_dark", &dark_buf);
 
     // Light

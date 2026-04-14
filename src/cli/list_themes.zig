@@ -163,7 +163,7 @@ pub fn run(
                         continue;
                     count += 1;
 
-                    const path = try std.fs.path.join(alloc, &.{ loc.dir, entry.name });
+                    const path = try std.Io.Dir.path.join(alloc, &.{ loc.dir, entry.name });
                     try themes.append(alloc, .{
                         .path = path,
                         .location = loc.location,
@@ -209,15 +209,15 @@ fn resolveAutoThemePath(alloc: std.mem.Allocator) ![]u8 {
     const main_cfg_path = try configpkg.preferredDefaultFilePath(alloc);
     defer alloc.free(main_cfg_path);
 
-    const base_dir = std.fs.path.dirname(main_cfg_path) orelse return error.BadPathName;
-    return try std.fs.path.join(alloc, &.{ base_dir, "auto", "theme.ghostty" });
+    const base_dir = std.Io.Dir.path.dirname(main_cfg_path) orelse return error.BadPathName;
+    return try std.Io.Dir.path.join(alloc, &.{ base_dir, "auto", "theme.ghostty" });
 }
 
 fn writeAutoThemeFile(io: std.Io, alloc: std.mem.Allocator, theme_name: []const u8) !void {
     const auto_path = try resolveAutoThemePath(alloc);
     defer alloc.free(auto_path);
 
-    if (std.fs.path.dirname(auto_path)) |dir| {
+    if (std.Io.Dir.path.dirname(auto_path)) |dir| {
         try std.Io.Dir.cwd().createDirPath(io, dir);
     }
 

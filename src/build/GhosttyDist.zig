@@ -66,14 +66,14 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
         // generated file.
         const copied = b.addWriteFiles().addCopyFile(
             resource.generated,
-            std.fs.path.basename(resource.dist),
+            std.Io.Dir.path.basename(resource.dist),
         );
 
         // --add-file uses the most recent --prefix to determine the path
         // in the archive to copy the file (the directory only).
         git_archive.addArg(b.fmt("--prefix={s}-{f}/{s}/", .{
             name,                                 cfg.version,
-            std.fs.path.dirname(resource.dist).?,
+            std.Io.Dir.path.dirname(resource.dist).?,
         }));
         git_archive.addPrefixedFileArg("--add-file=", copied);
     }
