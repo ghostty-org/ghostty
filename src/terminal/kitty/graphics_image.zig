@@ -12,8 +12,7 @@ const sys = @import("../sys.zig");
 
 const temp_dir = struct {
     const TempDir = @import("../../os/TempDir.zig");
-    const allocTmpDir = @import("../../os/file.zig").allocTmpDir;
-    const freeTmpDir = @import("../../os/file.zig").freeTmpDir;
+    const getTmpDir = @import("../../os/file.zig").getTmpDir;
 };
 
 const log = std.log.scoped(.kitty_gfx);
@@ -74,7 +73,7 @@ pub const LoadingImage = struct {
     pub fn init(
         alloc: Allocator,
         io: std.Io,
-        env: std.process.Environ,
+        env: *const std.process.Environ.Map,
         cmd: *const command.Command,
         limits: Limits,
     ) !LoadingImage {
@@ -264,7 +263,7 @@ pub const LoadingImage = struct {
         comptime medium: command.Transmission.Medium,
         alloc: Allocator,
         io: std.Io,
-        env: std.process.Environ,
+        env: *const std.process.Environ.Map,
         t: command.Transmission,
         path: []const u8,
     ) !void {
@@ -340,11 +339,10 @@ pub const LoadingImage = struct {
 
     /// Returns true if path appears to be in a temporary directory.
     /// Copies logic from Kitty.
-    fn isPathInTempDir(io: std.Io, env: std.process.Environ, path: []const u8) bool {
+    fn isPathInTempDir(io: std.Io, env: *const std.process.Environ.Map, path: []const u8) bool {
         if (std.mem.startsWith(u8, path, "/tmp")) return true;
         if (std.mem.startsWith(u8, path, "/dev/shm")) return true;
-        if (temp_dir.allocTmpDir(std.heap.page_allocator, env)) |dir| {
-            defer temp_dir.freeTmpDir(std.heap.page_allocator, dir);
+        if (temp_dir.getTmpDir(env)) |dir| {
             if (std.mem.startsWith(u8, path, dir)) return true;
 
             // The temporary dir is sometimes a symlink. On macOS for

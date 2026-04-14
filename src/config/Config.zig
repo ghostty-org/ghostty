@@ -3818,18 +3818,18 @@ pub fn deinit(self: *Config) void {
 ///   4. CLI flags
 ///   5. Recursively defined configuration files
 ///
-pub fn load(alloc_gpa: Allocator, io: std.Io, env: std.process.Environ) !Config {
+pub fn load(alloc_gpa: Allocator, io: std.Io, env: *const std.process.Environ.Map) !Config {
     var result = try default(alloc_gpa);
     errdefer result.deinit();
 
     // If we have a configuration file in our home directory, parse that first.
-    try result.loadDefaultFiles(io, alloc_gpa);
+    try result.loadDefaultFiles(alloc_gpa);
 
     // Parse the config from the CLI args.
-    try result.loadCliArgs(io, alloc_gpa);
+    try result.loadCliArgs(alloc_gpa, io);
 
     // Parse the config files that were added from our file and CLI args.
-    try result.loadRecursiveFiles(io, alloc_gpa);
+    try result.loadRecursiveFiles(alloc_gpa, io);
     try result.finalize(io, env);
 
     return result;
@@ -4011,7 +4011,7 @@ fn writeConfigTemplate(io: std.Io, path: []const u8) !void {
 ///
 /// The legacy `config` file (without extension) is first loaded,
 /// then `config.ghostty`.
-pub fn loadDefaultFiles(self: *Config, alloc: Allocator, io: std.Io, env: std.process.Environ) !void {
+pub fn loadDefaultFiles(self: *Config, alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map) !void {
     // Load XDG first
     const legacy_xdg_path = try file_load.legacyDefaultXdgPath(alloc, io, env);
     defer alloc.free(legacy_xdg_path);
@@ -4396,7 +4396,12 @@ fn expandPaths(self: *Config, io: std.Io, base: []const u8) !void {
     }
 }
 
-fn loadTheme(self: *Config, io: std.Io, theme: Theme) !void {
+fn loadTheme(
+    self: *Config,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
+    theme: Theme,
+) !void {
     // Load the correct theme depending on the conditional state.
     // Dark/light themes were programmed prior to conditional configuration
     // so when we introduce that we probably want to replace this.
@@ -4409,6 +4414,7 @@ fn loadTheme(self: *Config, io: std.Io, theme: Theme) !void {
     const themefile = (try themepkg.open(
         self._arena.?.allocator(),
         io,
+        env,
         name,
         &self._diagnostics,
     )) orelse return;
@@ -4436,7 +4442,7 @@ fn loadTheme(self: *Config, io: std.Io, theme: Theme) !void {
 
     // Load our theme
     var buf: [2048]u8 = undefined;
-    var file_reader = file.reader(&buf);
+    var file_reader = file.reader(io, &buf);
     const reader = &file_reader.interface;
     var iter: cli.args.LineIterator = .{ .r = reader, .filepath = path };
     try new_config.loadIter(alloc_gpa, &iter);
@@ -4495,7 +4501,7 @@ fn loadTheme(self: *Config, io: std.Io, theme: Theme) !void {
 
 /// Call this once after you are done setting configuration. This
 /// is idempotent but will waste memory if called multiple times.
-pub fn finalize(self: *Config, io: std.Io, env: std.process.Environ) !void {
+pub fn finalize(self: *Config, io: std.Io, env: *const std.process.Environ.Map) !void {
     // We always load the theme first because it may set other fields
     // in our config.
     if (self.theme) |theme| {
@@ -4503,7 +4509,7 @@ pub fn finalize(self: *Config, io: std.Io, env: std.process.Environ) !void {
 
         // Warning: loadTheme will deinit our existing config and replace
         // it so all memory from self prior to this point will be freed.
-        try self.loadTheme(io, theme);
+        try self.loadTheme(io, env, theme);
 
         // If we have different light vs dark mode themes, disable
         // window-theme = auto since that breaks it.
@@ -4573,7 +4579,7 @@ pub fn finalize(self: *Config, io: std.Io, env: std.process.Environ) !void {
                 // read from SHELL if we're in a probable CLI environment.
                 if (!probable_cli) break :shell_env;
 
-                if (env.getAlloc(alloc, "SHELL")) |value| {
+                if (env.get("SHELL")) |value| {
                     log.info("default shell source=env value={s}", .{value});
 
                     const copy = try alloc.dupeZ(u8, value);
@@ -5066,7 +5072,7 @@ pub const ChangeIterator = struct {
 /// Ghostty in a CLI environment. We need this to change some behaviors.
 /// We should keep the set of behaviors that depend on this as small
 /// as possible because magic sucks, but each place is well documented.
-fn probableCliEnvironment(env: std.process.Environ) bool {
+fn probableCliEnvironment(env: *const std.process.Environ.Map) bool {
     switch (builtin.os.tag) {
         // Windows has its own problems, just ignore it for now since
         // its not a real supported target and GTK via WSL2 assuming
@@ -5084,7 +5090,7 @@ fn probableCliEnvironment(env: std.process.Environ) bool {
 
     // If we have TERM_PROGRAM set to a non-empty value, we assume
     // a graphical terminal environment.
-    if (env.getPosix("TERM_PROGRAM")) |v| {
+    if (env.get("TERM_PROGRAM")) |v| {
         if (v.len > 0) return true;
     }
 

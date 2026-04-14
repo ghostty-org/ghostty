@@ -77,7 +77,7 @@ pub const CreateError = Allocator.Error || font.SharedGridSet.InitError;
 
 /// Create a new app instance. This returns a stable pointer to the app
 /// instance which is required for callbacks.
-pub fn create(alloc: Allocator, io: std.Io, env: std.process.Environ) CreateError!*App {
+pub fn create(alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map) CreateError!*App {
     var app = try alloc.create(App);
     errdefer alloc.destroy(app);
     try app.init(alloc, io, env);
@@ -94,7 +94,7 @@ pub fn init(
     self: *App,
     alloc: Allocator,
     io: std.Io,
-    env: std.process.Environ,
+    env: *const std.process.Environ.Map,
 ) CreateError!void {
     var font_grid_set = try font.SharedGridSet.init(alloc);
     errdefer font_grid_set.deinit();

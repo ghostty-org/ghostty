@@ -124,7 +124,10 @@ pub export fn ghostty_init(argc: usize, argv: [*][*:0]u8) c_int {
 pub export fn ghostty_cli_try_action() void {
     const action = state.action orelse return;
     std.log.info("executing CLI action={}", .{action});
-    std.process.exit(action.run(state.alloc, state.io_threaded.io(), state.env) catch |err| {
+
+    const env = internal_os.getEnvMapC(state.alloc);
+    defer env.deinit();
+    std.process.exit(action.run(state.alloc, state.io_threaded.io(), &env) catch |err| {
         std.log.err("CLI action failed error={}", .{err});
         std.process.exit(1);
     });

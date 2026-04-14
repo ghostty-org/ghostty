@@ -41,7 +41,7 @@ const log = std.log.scoped(.terminal);
 const TABSTOP_INTERVAL = 8;
 
 io: std.Io,
-env: std.process.Environ,
+env: *const std.process.Environ.Map,
 
 /// The set of screens behind this terminal (e.g. primary vs alternate).
 screens: ScreenSet,
@@ -220,7 +220,7 @@ pub const Options = struct {
 pub fn init(
     alloc: Allocator,
     io: std.Io,
-    env: std.process.Environ,
+    env: *const std.process.Environ.Map,
     opts: Options,
 ) !Terminal {
     const cols = opts.cols;

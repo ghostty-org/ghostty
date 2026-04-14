@@ -19,10 +19,10 @@ file_writer: std.Io.File.Writer = undefined,
 
 /// Initialize the pager. If stdout is a TTY, this spawns the pager
 /// process. Otherwise, output goes directly to stdout.
-pub fn init(alloc: Allocator, io: std.Io, env: std.process.Environ) Pager {
+pub fn init(io: std.Io, env: *const std.process.Environ.Map) Pager {
     return .{
         .io = io,
-        .child = initPager(alloc, io, env),
+        .child = initPager(io, env),
     };
 }
 
@@ -52,17 +52,15 @@ pub fn deinit(self: *Pager, io: std.Io) void {
     self.* = undefined;
 }
 
-fn initPager(alloc: Allocator, io: std.Io, env: std.process.Environ) ?std.process.Child {
+fn initPager(io: std.Io, env: *const std.process.Environ.Map) ?std.process.Child {
     const stdout_file: std.Io.File = .stdout();
     const is_tty = stdout_file.isTty(io) catch return null;
     if (!is_tty) return null;
 
     // Resolve the pager command: $GHOSTTY_PAGER > $PAGER > `less`.
     // An empty value for either env var disables paging.
-    const ghostty_var = env.getAlloc(alloc, "GHOSTTY_PAGER") catch return null;
-    defer alloc.free(ghostty_var);
-    const pager_var = env.getAlloc(alloc, "PAGER") catch return null;
-    defer alloc.free(pager_var);
+    const ghostty_var = env.get("GHOSTTY_PAGER") catch return null;
+    const pager_var = env.get("PAGER") catch return null;
 
     const cmd: []const u8 = cmd: {
         if (ghostty_var) |v| break :cmd if (v.value.len > 0) v.value else return null;

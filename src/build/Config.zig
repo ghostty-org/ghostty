@@ -393,8 +393,12 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         if (system_package) break :emit_docs true;
 
         // We only default to true if we can find pandoc.
-        const path = expandPath(b.graph.io, b.allocator, b.graph.environ_map, "pandoc") catch
-            break :emit_docs false;
+        const path = expandPath(
+            b.graph.io,
+            b.allocator,
+            &b.graph.environ_map,
+            "pandoc",
+        ) catch break :emit_docs false;
         defer if (path) |p| b.allocator.free(p);
         break :emit_docs path != null;
     };

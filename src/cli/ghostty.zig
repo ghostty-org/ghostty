@@ -100,7 +100,7 @@ pub const Action = enum {
     pub const help_error = error.ActionHelpRequested;
 
     /// Run the action. This returns the exit code to exit with.
-    pub fn run(self: Action, alloc: Allocator, io: std.Io, env: std.process.Environ) !u8 {
+    pub fn run(self: Action, alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map) !u8 {
         return self.runMain(alloc, io, env) catch |err| switch (err) {
             // If help is requested, then we use some comptime trickery
             // to find this action in the help strings and output that.
@@ -134,7 +134,7 @@ pub const Action = enum {
         };
     }
 
-    fn runMain(self: Action, alloc: Allocator, io: std.Io, env: std.process.Environ) !u8 {
+    fn runMain(self: Action, alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map) !u8 {
         return switch (self) {
             .version => try version.run(alloc, io, env),
             .help => try help.run(alloc, io, env),

@@ -7,6 +7,7 @@ const String = @import("../main_c.zig").String;
 const Config = @import("Config.zig");
 const c_get = @import("c_get.zig");
 const edit = @import("edit.zig");
+const internal_os = @import("../os/main.zig");
 const Key = @import("key.zig").Key;
 
 const log = std.log.scoped(.config);
@@ -85,7 +86,9 @@ export fn ghostty_config_load_recursive_files(self: *Config) void {
 }
 
 export fn ghostty_config_finalize(self: *Config) void {
-    self.finalize(state.io(), state.env) catch |err| {
+    const env = internal_os.getEnvMapC(state.alloc);
+    defer env.deinit();
+    self.finalize(state.io(), &env) catch |err| {
         log.err("error finalizing config err={}", .{err});
     };
 }

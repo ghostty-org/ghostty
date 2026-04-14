@@ -103,7 +103,11 @@ const ThemeListElement = struct {
 ///
 ///   * `--color`: Specify the color scheme of the themes included in the list.
 ///                This can be `dark`, `light`, or `all`. The default is `all`.
-pub fn run(io: std.Io, gpa_alloc: std.mem.Allocator) !u8 {
+pub fn run(
+    gpa_alloc: std.mem.Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
+) !u8 {
     var opts: Options = .{};
     defer opts.deinit();
 
@@ -117,12 +121,12 @@ pub fn run(io: std.Io, gpa_alloc: std.mem.Allocator) !u8 {
     const alloc = arena.allocator();
 
     var stdout_buf: [4096]u8 = undefined;
-    var stdout_file: std.fs.File = .stdout();
-    var stdout_writer = stdout_file.writer(&stdout_buf);
+    var stdout_file: std.Io.File = .stdout();
+    var stdout_writer = stdout_file.writer(io, &stdout_buf);
     const stdout = &stdout_writer.interface;
 
     var stderr_buf: [4096]u8 = undefined;
-    var stderr_writer = std.Io.File.stderr().writer(&stderr_buf);
+    var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buf);
     const stderr = &stderr_writer.interface;
 
     const resources_dir = global_state.resources_dir.app();
@@ -134,9 +138,13 @@ pub fn run(io: std.Io, gpa_alloc: std.mem.Allocator) !u8 {
 
     var themes: std.ArrayList(ThemeListElement) = .empty;
 
-    var it: themepkg.LocationIterator = .{ .arena_alloc = arena.allocator() };
+    var it: themepkg.LocationIterator = .{
+        .arena_alloc = arena.allocator(),
+        .io = io,
+        .env = env,
+    };
 
-    while (try it.next(io)) |loc| {
+    while (try it.next()) |loc| {
         var dir = std.Io.Dir.cwd().openDir(io, loc.dir, .{ .iterate = true }) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => {

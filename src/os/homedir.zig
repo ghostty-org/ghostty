@@ -11,7 +11,7 @@ const Error = error{
 
 /// Determine the home directory for the currently executing user. This
 /// is generally an expensive process so the value should be cached.
-pub inline fn home(io: std.Io, env: std.process.Environ, buf: []u8) !?[]const u8 {
+pub inline fn home(io: std.Io, env: *const std.process.Environ.Map, buf: []u8) !?[]const u8 {
     return switch (builtin.os.tag) {
         .linux, .freebsd, .macos => try homeUnix(buf, io, env),
         .windows => try homeWindows(buf),
@@ -23,10 +23,10 @@ pub inline fn home(io: std.Io, env: std.process.Environ, buf: []u8) !?[]const u8
     };
 }
 
-fn homeUnix(buf: []u8, io: std.Io, env: std.process.Environ) !?[]const u8 {
+fn homeUnix(buf: []u8, io: std.Io, env: *const std.process.Environ.Map) !?[]const u8 {
     var writer: std.Io.Writer = .fixed(buf);
     // First: if we have a HOME env var, then we use that.
-    if (env.getPosix("HOME")) |result| {
+    if (env.get("HOME")) |result| {
         try writer.writeAll(result);
         return writer.buffered();
     }
@@ -71,14 +71,9 @@ fn homeUnix(buf: []u8, io: std.Io, env: std.process.Environ) !?[]const u8 {
     return null;
 }
 
-fn homeWindows(buf: []u8, env: std.process.Environ) !?[]const u8 {
+fn homeWindows(buf: []u8, env: *const std.process.Environ.Map) !?[]const u8 {
     const drive_len = blk: {
-        var fba_instance = std.heap.FixedBufferAllocator.init(buf);
-        const fba = fba_instance.allocator();
-        const drive = env.getAlloc(fba, "HOMEDRIVE") catch |err| switch (err) {
-            error.OutOfMemory => return Error.BufferTooSmall,
-            error.InvalidWtf8, error.EnvironmentVariableMissing => return null,
-        };
+        const drive = env.get("HOMEDRIVE") orelse return null;
         // could shift the contents if this ever happens
         if (drive.ptr != buf.ptr) @panic("codebug");
         break :blk drive.len;
@@ -86,12 +81,7 @@ fn homeWindows(buf: []u8, env: std.process.Environ) !?[]const u8 {
 
     const path_len = blk: {
         const path_buf = buf[drive_len..];
-        var fba_instance = std.heap.FixedBufferAllocator.init(buf[drive_len..]);
-        const fba = fba_instance.allocator();
-        const homepath = env.getAlloc(fba, "HOMEPATH") catch |err| switch (err) {
-            error.OutOfMemory => return Error.BufferTooSmall,
-            error.InvalidWtf8, error.EnvironmentVariableMissing => return null,
-        };
+        const homepath = env.get("HOMEPATH") orelse return null;
         // could shift the contents if this ever happens
         if (homepath.ptr != path_buf.ptr) @panic("codebug");
         break :blk homepath.len;
@@ -114,7 +104,7 @@ pub const ExpandError = error{
 ///
 /// Errors if `home` fails or if the size of the expanded path is larger
 /// than `buf.len`.
-pub fn expandHome(path: []const u8, buf: []u8, io: std.Io, env: std.process.Environ) ExpandError![]const u8 {
+pub fn expandHome(path: []const u8, buf: []u8, io: std.Io, env: *const std.process.Environ.Map) ExpandError![]const u8 {
     return switch (builtin.os.tag) {
         .linux, .freebsd, .macos => try expandHomeUnix(path, buf, io, env),
 
@@ -128,7 +118,7 @@ pub fn expandHome(path: []const u8, buf: []u8, io: std.Io, env: std.process.Envi
     };
 }
 
-fn expandHomeUnix(path: []const u8, buf: []u8, io: std.Io, env: std.process.Environ) ExpandError![]const u8 {
+fn expandHomeUnix(path: []const u8, buf: []u8, io: std.Io, env: *const std.process.Environ.Map) ExpandError![]const u8 {
     if (!std.mem.startsWith(u8, path, "~/")) return path;
     const home_dir: []const u8 = if (home(io, env, buf)) |home_|
         home_ orelse return error.HomeDetectionFailed

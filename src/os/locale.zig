@@ -9,16 +9,12 @@ const i18n = internal_os.i18n;
 const log = std.log.scoped(.os_locale);
 
 /// Ensure that the locale is set.
-pub fn ensureLocale(alloc: std.mem.Allocator, env: std.process.Environ) !void {
+pub fn ensureLocale(env: *const std.process.Environ.Map) !void {
     assert(builtin.link_libc);
 
     // Get our LANG env var. We use this many times but we also need
     // the original value later.
-    const lang = env.getAlloc(alloc, "LANG") catch |err| switch (err) {
-        error.EnvironmentVariableMissing => null,
-        else => return err,
-    };
-    defer if (lang) |v| v.deinit(alloc);
+    const lang = env.get("LANG");
 
     // On macOS, pre-populate the LANG env var with system preferences.
     // When launching the .app, LANG is not set so we must query it from the

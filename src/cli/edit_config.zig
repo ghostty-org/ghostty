@@ -43,7 +43,7 @@ pub const Options = struct {
 pub fn run(
     alloc: Allocator,
     io: std.Io,
-    env: std.process.Environ,
+    env: *const std.process.Environ.Map,
 ) !u8 {
     // Implementation note (by @mitchellh): I do proper memory cleanup
     // throughout this command, even though we plan on doing `exec`.
@@ -73,7 +73,7 @@ pub fn run(
 fn runInner(
     alloc: Allocator,
     io: std.Io,
-    env: std.process.Environ,
+    env: *const std.process.Environ.Map,
     stderr: *std.Io.Writer,
 ) !u8 {
     // We load the configuration once because that will write our
@@ -102,17 +102,14 @@ fn runInner(
     // Get our editor
     const get_env_: ?[]const u8 = env: {
         // VISUAL vs. EDITOR: https://unix.stackexchange.com/questions/4859/visual-vs-editor-what-s-the-difference
-        const visual = try env.getAlloc(alloc, "VISUAL");
+        const visual = try env.get("VISUAL");
         if (visual.value.len > 0) break :env visual;
-        alloc.free(visual);
 
-        const editor = try env.getAlloc(alloc, "EDITOR");
+        const editor = try env.get("EDITOR");
         if (editor.value.len > 0) break :env editor;
-        alloc.free(editor);
 
         break :env null;
     };
-    defer if (get_env_) |v| v.deinit(alloc);
     const editor: []const u8 = if (get_env_) |v| v.value else "";
 
     // If we don't have `$EDITOR` set then we can't do anything

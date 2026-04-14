@@ -9,15 +9,15 @@ const log = std.log.scoped(.systemd);
 /// service. It will return false if Ghostty was launched any other way.
 ///
 /// For other platforms and app runtimes, this returns false.
-pub fn launchedBySystemd(io: std.Io, env: std.process.Environ) bool {
+pub fn launchedBySystemd(io: std.Io, env: *const std.process.Environ.Map) bool {
     return switch (builtin.os.tag) {
         .linux => linux: {
             // On Linux, systemd sets the `INVOCATION_ID` (v232+) and the
             // `JOURNAL_STREAM` (v231+) environment variables. If these
             // environment variables are not present we were not launched by
             // systemd.
-            if (env.getPosix("INVOCATION_ID") == null) break :linux false;
-            if (env.getPosix("JOURNAL_STREAM") == null) break :linux false;
+            if (env.get("INVOCATION_ID") == null) break :linux false;
+            if (env.get("JOURNAL_STREAM") == null) break :linux false;
 
             // If `INVOCATION_ID` and `JOURNAL_STREAM` are present, check to make sure
             // that our parent process is actually `systemd`, not some other terminal
@@ -86,12 +86,12 @@ pub const notify = struct {
     /// Send the given message to the UNIX socket specified in the NOTIFY_SOCKET
     /// environment variable. If there NOTIFY_SOCKET environment variable does
     /// not exist then no message is sent.
-    fn send(env: std.process.Environ, message: []const u8) void {
+    fn send(env: *const std.process.Environ.Map, message: []const u8) void {
         // systemd is Linux-only so this is a no-op anywhere else
         if (comptime builtin.os.tag != .linux) return;
 
         // Get the socket address that should receive notifications.
-        const socket_path = env.getPosix("NOTIFY_SOCKET") orelse return;
+        const socket_path = env.get("NOTIFY_SOCKET") orelse return;
 
         // If the socket address is an empty string return.
         if (socket_path.len == 0) return;
@@ -168,7 +168,7 @@ pub const notify = struct {
 
     /// Tell systemd that we are ready or that we are finished reloading.
     /// See: https://www.freedesktop.org/software/systemd/man/latest/sd_notify.html#READY=1
-    pub fn ready(env: std.process.Environ) void {
+    pub fn ready(env: *const std.process.Environ.Map) void {
         if (comptime builtin.os.tag != .linux) return;
 
         send(env, "READY=1");
@@ -177,7 +177,7 @@ pub const notify = struct {
     /// Tell systemd that we have started reloading our configuration.
     /// See: https://www.freedesktop.org/software/systemd/man/latest/sd_notify.html#RELOADING=1
     /// and: https://www.freedesktop.org/software/systemd/man/latest/sd_notify.html#MONOTONIC_USEC=%E2%80%A6
-    pub fn reloading(io: std.Io, env: std.process.Environ) void {
+    pub fn reloading(io: std.Io, env: *const std.process.Environ.Map) void {
         if (comptime builtin.os.tag != .linux) return;
 
         const ts: std.Io.Timestamp = .now(io, .awake);

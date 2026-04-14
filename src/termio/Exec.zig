@@ -1422,7 +1422,7 @@ fn execCommand(
     alloc: Allocator,
     command: configpkg.Command,
     io: std.Io,
-    env: std.process.Environ,
+    env: *const std.process.Environ.Map,
     comptime passwdpkg: type,
 ) (Allocator.Error || error{SystemError})![]const [:0]const u8 {
     // If we're on macOS, we have to use `login(1)` to get all of
@@ -1560,8 +1560,8 @@ fn execCommand(
 
                 // Note we don't free any of the memory below since it is
                 // allocated in the arena.
-                const windir = env.getAlloc(alloc, "WINDIR") catch |err| {
-                    log.warn("failed to get WINDIR, cannot run shell command err={}", .{err});
+                const windir = env.get("WINDIR") orelse {
+                    log.warn("failed to get WINDIR, cannot run shell command", .{});
                     return error.SystemError;
                 };
                 const cmd = try std.fs.path.joinZ(alloc, &[_][]const u8{

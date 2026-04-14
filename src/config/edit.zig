@@ -17,7 +17,7 @@ const file_load = @import("file_load.zig");
 /// files.
 ///
 /// The returned value is allocated using the provided allocator.
-pub fn openPath(alloc_gpa: Allocator, io: std.Io, env: std.process.Environ) ![:0]const u8 {
+pub fn openPath(alloc_gpa: Allocator, io: std.Io, env: *const std.process.Environ.Map) ![:0]const u8 {
     // Use an arena to make memory management easier in here.
     var arena = ArenaAllocator.init(alloc_gpa);
     defer arena.deinit();
@@ -50,7 +50,7 @@ pub fn openPath(alloc_gpa: Allocator, io: std.Io, env: std.process.Environ) ![:0
 ///
 /// The allocator must be an arena allocator. No memory is freed by this
 /// function and the resulting path is not all the memory that is allocated.
-fn configPath(alloc_arena: Allocator, io: std.Io, env: std.process.Environ) ![]const u8 {
+fn configPath(alloc_arena: Allocator, io: std.Io, env: *const std.process.Environ.Map) ![]const u8 {
     const paths: []const []const u8 = try configPathCandidates(alloc_arena, io, env);
     assert(paths.len > 0);
 
@@ -89,7 +89,7 @@ fn configPath(alloc_arena: Allocator, io: std.Io, env: std.process.Environ) ![]c
 
 /// Returns a const list of possible paths the main config file could be
 /// in for the current OS.
-fn configPathCandidates(alloc_arena: Allocator, io: std.Io, env: std.process.Environ) ![]const []const u8 {
+fn configPathCandidates(alloc_arena: Allocator, io: std.Io, env: *const std.process.Environ.Map) ![]const []const u8 {
     var paths: std.ArrayList([]const u8) = try .initCapacity(alloc_arena, 4);
     errdefer paths.deinit(alloc_arena);
 

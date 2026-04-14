@@ -7,13 +7,13 @@ const builtin = @import("builtin");
 /// activation. It will return false if Ghostty was launched any other way.
 ///
 /// For other platforms and app runtimes, this returns false.
-pub fn launchedByDbusActivation(env: std.process.Environ) bool {
+pub fn launchedByDbusActivation(env: *const std.process.Environ.Map) bool {
     return switch (builtin.os.tag) {
         // On Linux, D-Bus activation sets `DBUS_STARTER_ADDRESS` and
         // `DBUS_STARTER_BUS_TYPE`. If these environment variables are present
         // (no matter the value) we were launched by D-Bus activation.
-        .linux => env.getPosix("DBUS_STARTER_ADDRESS") != null and
-            env.getPosix("DBUS_STARTER_BUS_TYPE") != null,
+        .linux => env.get("DBUS_STARTER_ADDRESS") != null and
+            env.get("DBUS_STARTER_BUS_TYPE") != null,
 
         // No other system supports D-Bus so always return false.
         else => false,

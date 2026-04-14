@@ -37,7 +37,7 @@ pub const ResourcesDir = struct {
 ///
 /// This is highly Ghostty-specific and can likely be generalized at
 /// some point but we can cross that bridge if we ever need to.
-pub fn resourcesDir(alloc: Allocator, io: std.Io, env: std.process.Environ) !ResourcesDir {
+pub fn resourcesDir(alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map) !ResourcesDir {
     // Use the GHOSTTY_RESOURCES_DIR environment variable in release builds.
     //
     // In debug builds we try using terminfo detection first instead, since
@@ -48,11 +48,8 @@ pub fn resourcesDir(alloc: Allocator, io: std.Io, env: std.process.Environ) !Res
     // Note: we ALWAYS want to allocate here because the result is always
     // freed, do not try to use internal_os.getenv or posix getenv.
     if (comptime builtin.mode != .Debug) {
-        if (env.getAlloc(alloc, "GHOSTTY_RESOURCES_DIR")) |dir| {
+        if (env.get("GHOSTTY_RESOURCES_DIR")) |dir| {
             if (dir.len > 0) return .{ .app_path = dir };
-        } else |err| switch (err) {
-            error.EnvironmentVariableNotFound => {},
-            else => return err,
         }
     }
 
@@ -103,11 +100,8 @@ pub fn resourcesDir(alloc: Allocator, io: std.Io, env: std.process.Environ) !Res
     // If terminfo detection failed in debug builds (somehow),
     // fallback and use the provided resources dir.
     if (comptime builtin.mode == .Debug) {
-        if (env.getAlloc(alloc, "GHOSTTY_RESOURCES_DIR")) |dir| {
+        if (env.get("GHOSTTY_RESOURCES_DIR")) |dir| {
             if (dir.len > 0) return .{ .app_path = dir };
-        } else |err| switch (err) {
-            error.EnvironmentVariableNotFound => {},
-            else => return err,
         }
     }
 
