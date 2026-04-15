@@ -16,11 +16,11 @@ pub const Options = struct {
 };
 
 const help_prelude =
-    \\Usage: ghostty [+action] [options]
+    \\Usage: winghostty [+action] [options]
     \\
-    \\Run the Windows-native Ghostty terminal or a specific helper action.
+    \\Run the Windows-native winghostty terminal or a specific helper action.
     \\
-    \\If no `+action` is specified, run `ghostty.exe`.
+    \\If no `+action` is specified, run `winghostty.exe`.
     \\All configuration keys are available as command line options.
     \\To specify a configuration key, use the `--<key>=<value>` syntax
     \\where key and value are the same format you'd put into a configuration
@@ -32,18 +32,18 @@ const help_prelude =
     \\
     \\A special command line argument `-e <command>` can be used to run
     \\the specific command inside the terminal emulator. For example,
-    \\`ghostty -e top` will run the `top` command inside the terminal.
+    \\`winghostty -e top` will run the `top` command inside the terminal.
     \\
     \\Useful Windows actions:
-    \\  `ghostty +new-window` forwards into the running instance when possible.
-    \\  `ghostty +edit-config` opens the config file in your default editor.
+    \\  `winghostty +new-window` forwards into the running instance when possible.
+    \\  `winghostty +edit-config` opens the config file in your default editor.
     \\
     \\Available actions:
     \\
     \\
 ;
 
-/// The `help` command shows general help about Ghostty. Recognized as either
+/// The `help` command shows general help about winghostty. Recognized as either
 /// `-h, `--help`, or like other actions `+help`.
 ///
 /// You can also specify `--help` or `-h` along with any action such as
@@ -79,8 +79,8 @@ pub fn run(alloc: Allocator) !u8 {
 }
 
 test "help prelude is Windows-only" {
-    try std.testing.expect(std.mem.indexOf(u8, help_prelude, "Windows-native Ghostty terminal") != null);
-    try std.testing.expect(std.mem.indexOf(u8, help_prelude, "ghostty.exe") != null);
+    try std.testing.expect(std.mem.indexOf(u8, help_prelude, "Windows-native winghostty terminal") != null);
+    try std.testing.expect(std.mem.indexOf(u8, help_prelude, "winghostty.exe") != null);
     try std.testing.expect(std.mem.indexOf(u8, help_prelude, "Ghostty.app") == null);
     try std.testing.expect(std.mem.indexOf(u8, help_prelude, "open -na") == null);
 }

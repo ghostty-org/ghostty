@@ -8,6 +8,7 @@ const sentry_envelope = @import("sentry_envelope.zig");
 pub const sentry = @import("sentry.zig");
 pub const Envelope = sentry_envelope.Envelope;
 pub const defaultDir = dir.defaultDir;
+pub const legacyGhosttyDir = dir.legacyGhosttyDir;
 pub const Dir = dir.Dir;
 pub const ReportIterator = dir.ReportIterator;
 pub const Report = dir.Report;

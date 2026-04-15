@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic version to package, without a leading v
+        required: true
+        type: string
+      prerelease:
+        description: Publish the manual build as a prerelease
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-release:
+    name: Windows Release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.15.2
+
+      - name: Resolve release metadata
+        id: meta
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "push") {
+            $tag = "${{ github.ref_name }}"
+            $version = $tag.TrimStart('v')
+            $prerelease = "false"
+          } else {
+            $version = "${{ inputs.version }}"
+            $tag = "v$version"
+            $prerelease = "${{ inputs.prerelease }}"
+          }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Run targeted tests
+        shell: pwsh
+        run: |
+          zig build test -Dtest-filter=win32
+          zig build test -Dtest-filter=scroll
+          zig build test -Dtest-filter=keybind
+
+      - name: Package Windows artifacts
+        shell: pwsh
+        run: >
+          powershell -ExecutionPolicy Bypass -File scripts/package-windows.ps1
+          -Version ${{ steps.meta.outputs.version }}
+          -RequireInstaller
+
+      - name: Publish GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.meta.outputs.tag }}"
+          $version = "${{ steps.meta.outputs.version }}"
+          $artifactDir = Join-Path $PWD "dist/artifacts/winghostty-$version-windows-x64"
+          $assets = @(
+            (Join-Path $artifactDir "winghostty-$version-windows-x64-setup.exe"),
+            (Join-Path $artifactDir "winghostty-$version-windows-x64-portable.zip"),
+            (Join-Path $artifactDir "SHA256SUMS.txt")
+          )
+
+          & gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            $extra = @()
+            if ("${{ steps.meta.outputs.prerelease }}" -eq "true") {
+              $extra += "--prerelease"
+            }
+            & gh release create $tag --title $tag --generate-notes @extra @assets
+          } else {
+            & gh release upload $tag @assets --clobber
+          }

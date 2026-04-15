@@ -1,0 +1,22 @@
+name: Feature request
+description: Propose a focused improvement for winghostty
+labels: ["enhancement"]
+body:
+  - type: textarea
+    attributes:
+      label: Problem or missing capability
+      placeholder: Managing multiple tabs would be easier if pinned tabs stayed grouped to the left.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Proposed change
+      placeholder: Add pinned-tab grouping with drag/drop preserved inside the pinned section.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Why this belongs in winghostty
+      placeholder: This improves the Windows-native multi-tab workflow already supported by the project.
+    validations:
+      required: true

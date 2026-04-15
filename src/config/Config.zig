@@ -94,21 +94,21 @@ pub const compatibility = std.StaticStringMap(
     .{ "gtk-single-instance", compatGtkSingleInstance },
 });
 
-/// Set Ghostty's graphical user interface language to a language other than the
+/// Set winghostty's graphical user interface language to a language other than the
 /// system default language. For example:
 ///
 ///     language = de
 ///
-/// will force the strings in Ghostty's graphical user interface to be in German
+/// will force the strings in winghostty's graphical user interface to be in German
 /// rather than the system default.
 ///
-/// This will not affect the language used by programs run _within_ Ghostty.
+/// This will not affect the language used by programs run _within_ winghostty.
 /// Those will continue to use the default system language. There are also many
-/// non-GUI elements in Ghostty that are not translated - this setting will have
+/// non-GUI elements in winghostty that are not translated - this setting will have
 /// no effect on those.
 ///
 /// Warning: This setting cannot be reloaded at runtime. To change the language
-/// you must fully restart Ghostty.
+/// you must fully restart winghostty.
 ///
 /// Supported in the Windows-only fork.
 /// Available since 1.3.0.
@@ -118,7 +118,7 @@ language: ?[:0]const u8 = null,
 ///
 /// You can generate the list of valid values using the CLI:
 ///
-///     ghostty +list-fonts
+///     winghostty +list-fonts
 ///
 /// This configuration can be repeated multiple times to specify preferred
 /// fallback fonts when the requested codepoint is not available in the primary
@@ -132,10 +132,10 @@ language: ?[:0]const u8 = null,
 /// The specific styles (bold, italic, bold italic) do not need to be
 /// explicitly set. If a style is not set, then the regular style (font-family)
 /// will be searched for stylistic variants. If a stylistic variant is not
-/// found, Ghostty will use the regular style. This prevents falling back to a
+/// found, winghostty will use the regular style. This prevents falling back to a
 /// different font family just to get a style such as bold. This also applies
 /// if you explicitly specify a font family for a style. For example, if you
-/// set `font-family-bold = FooBar` and "FooBar" cannot be found, Ghostty will
+/// set `font-family-bold = FooBar` and "FooBar" cannot be found, winghostty will
 /// use whatever font is set for `font-family` for the bold style.
 ///
 /// Finally, some styles may be synthesized if they are not supported.
@@ -183,10 +183,10 @@ language: ?[:0]const u8 = null,
 @"font-style-italic": FontStyle = .{ .default = {} },
 @"font-style-bold-italic": FontStyle = .{ .default = {} },
 
-/// Control whether Ghostty should synthesize a style if the requested style is
+/// Control whether winghostty should synthesize a style if the requested style is
 /// not available in the specified font-family.
 ///
-/// Ghostty can synthesize bold, italic, and bold italic styles if the font
+/// winghostty can synthesize bold, italic, and bold italic styles if the font
 /// does not have a specific style. For bold, this is done by drawing an
 /// outline around the glyph of varying thickness. For italic, this is done by
 /// applying a slant to the glyph. For bold italic, both of these are applied.
@@ -228,7 +228,7 @@ language: ?[:0]const u8 = null,
 ///
 /// The syntax is fairly loose, but invalid settings will be silently ignored.
 ///
-/// The font feature will apply to all fonts rendered by Ghostty. A future
+/// The font feature will apply to all fonts rendered by winghostty. A future
 /// enhancement will allow targeting specific faces.
 ///
 /// To disable programming ligatures, use `-calt` since this is the typical
@@ -517,11 +517,11 @@ language: ?[:0]const u8 = null,
 @"freetype-load-flags": FreetypeLoadFlags = .{},
 
 /// A theme to use. This can be a built-in theme name, a custom theme
-/// name, or an absolute path to a custom theme file. Ghostty also supports
+/// name, or an absolute path to a custom theme file. winghostty also supports
 /// specifying a different theme to use for light and dark mode. Each
 /// option is documented below.
 ///
-/// If the theme is an absolute pathname, Ghostty will attempt to load that
+/// If the theme is an absolute pathname, winghostty will attempt to load that
 /// file as a theme. If that file does not exist or is inaccessible, an error
 /// will be logged and no other directories will be searched.
 ///
@@ -530,19 +530,19 @@ language: ?[:0]const u8 = null,
 /// systems with case-sensitive filesystems. It is an error for a theme name to
 /// include path separators unless it is an absolute pathname.
 ///
-/// The first directory is the `themes` subdirectory of your Ghostty
-/// configuration directory. This is `$XDG_CONFIG_HOME/ghostty/themes` or
-/// `~/.config/ghostty/themes`.
+/// The first directory is the `themes` subdirectory of your winghostty
+/// configuration directory. This is `$XDG_CONFIG_HOME/winghostty/themes` or
+/// `~/.config/winghostty/themes`.
 ///
-/// The second directory is the `themes` subdirectory of the Ghostty resources
-/// directory. Ghostty ships with a multitude of themes that will be installed
+/// The second directory is the `themes` subdirectory of the winghostty resources
+/// directory. winghostty ships with a multitude of themes that will be installed
 /// into this directory. In this Windows fork, the bundled themes live in the
 /// `share/ghostty/themes` directory next to the built application. When
 /// running from the source tree, this is typically `zig-out/share/ghostty/themes`.
 ///
-/// To see a list of available themes, run `ghostty +list-themes`.
+/// To see a list of available themes, run `winghostty +list-themes`.
 ///
-/// A theme file is simply another Ghostty configuration file. They share
+/// A theme file is simply another winghostty configuration file. They share
 /// the same syntax and same configuration options. A theme can set any valid
 /// configuration option so please do not use a theme file from an untrusted
 /// source. The built-in themes are audited to only set safe configuration
@@ -550,7 +550,7 @@ language: ?[:0]const u8 = null,
 ///
 /// Some options cannot be set within theme files. The reason these are not
 /// supported should be self-evident. A theme file cannot set `theme` or
-/// `config-file`. At the time of writing this, Ghostty will not show any
+/// `config-file`. At the time of writing this, winghostty will not show any
 /// warnings or errors if you set these options in a theme file but they will
 /// be silently ignored.
 ///
@@ -585,11 +585,11 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 ///
 /// The background image is currently per-terminal, not per-window. If
 /// you are a heavy split user, the background image will be repeated across
-/// splits. A future improvement to Ghostty will address this.
+/// splits. A future improvement to winghostty will address this.
 ///
 /// WARNING: Background images are currently duplicated in VRAM per-terminal.
 /// For sufficiently large images, this could lead to a large increase in
-/// memory usage (specifically VRAM usage). A future Ghostty improvement
+/// memory usage (specifically VRAM usage). A future winghostty improvement
 /// will resolve this by sharing image textures across terminals.
 ///
 /// Available since: 1.2.0
@@ -1393,8 +1393,8 @@ maximize: bool = false,
 ///   * `true` - Start in native fullscreen
 fullscreen: Fullscreen = .false,
 
-/// The title Ghostty will use for the window. This will force the title of the
-/// window to be this title at all times and Ghostty will ignore any set title
+/// The title winghostty will use for the window. This will force the title of the
+/// window to be this title at all times and winghostty will ignore any set title
 /// escape sequences programs (such as Neovim) may send.
 ///
 /// If you want a blank title, set this to one or more spaces by quoting
@@ -1409,23 +1409,23 @@ fullscreen: Fullscreen = .false,
 /// to get the new title.
 title: ?[:0]const u8 = null,
 
-/// The setting that controls the Ghostty instance namespace.
+/// The setting that controls the winghostty instance namespace.
 ///
 /// In this Windows fork, this value is used as the instance identifier for
 /// single-instance behavior and IPC routing. Changing it between invocations
-/// creates a separate Ghostty instance namespace, so commands such as
-/// `ghostty +new-window` will only target processes launched with the same
+/// creates a separate winghostty instance namespace, so commands such as
+/// `winghostty +new-window` will only target processes launched with the same
 /// `class` value.
 ///
-/// The default is `com.mitchellh.ghostty`.
+/// The default is `io.github.amanthanvi.winghostty`.
 class: ?[:0]const u8 = null,
 
-/// If `true`, Ghostty will prefer reusing an existing instance namespace and
+/// If `true`, winghostty will prefer reusing an existing instance namespace and
 /// opening a new window inside it.
 ///
-/// If `false`, each new `ghostty.exe` launch will prefer a dedicated process.
+/// If `false`, each new `winghostty.exe` launch will prefer a dedicated process.
 ///
-/// If `detect`, Ghostty assumes single-instance behavior unless the CLI
+/// If `detect`, winghostty assumes single-instance behavior unless the CLI
 /// invocation clearly carries custom configuration that should not be inherited
 /// by an already-running process.
 ///
@@ -1439,13 +1439,13 @@ class: ?[:0]const u8 = null,
 /// The directory to change to after starting the command.
 ///
 /// This setting is secondary to the `window-inherit-working-directory`
-/// setting. If a previous Ghostty terminal exists in the same process,
+/// setting. If a previous winghostty terminal exists in the same process,
 /// `window-inherit-working-directory` will take precedence. Otherwise, this
 /// setting will be used. Typically, this setting is used only for the first
 /// window.
 ///
 /// In the Windows-only fork, the default is `inherit`. Startup forwarding and
-/// `+new-window` IPC preserve the caller working directory unless an explicit
+/// `+new-window` IPC preserves the caller working directory unless an explicit
 /// `--working-directory` or config value overrides it.
 ///
 /// The value of this must be an absolute path, a path prefixed with `~/`
@@ -1459,7 +1459,7 @@ class: ?[:0]const u8 = null,
 
 /// Key bindings. The format is `trigger=action`. Duplicate triggers will
 /// overwrite previously set values. The list of actions is available in
-/// the documentation or using the `ghostty +list-actions` command.
+/// the documentation or using the `winghostty +list-actions` command.
 ///
 /// Trigger: `+`-separated list of keys and modifiers. Example: `ctrl+a`,
 /// `ctrl+shift+b`, `up`.
@@ -1590,7 +1590,7 @@ class: ?[:0]const u8 = null,
 ///     e.g. `text:\x15` sends Ctrl-U.
 ///
 ///   * All other actions can be found in the documentation or by using the
-///     `ghostty +list-actions` command.
+///     `winghostty +list-actions` command.
 ///
 /// Some notes for the action:
 ///
@@ -2340,7 +2340,7 @@ keybind: Keybinds = .{},
 
 /// When this is true, the default configuration file paths will be loaded.
 /// The default configuration file paths are currently only the XDG
-/// config path ($XDG_CONFIG_HOME/ghostty/config.ghostty).
+/// config path ($XDG_CONFIG_HOME/winghostty/config.ghostty).
 ///
 /// If this is false, the default configuration paths will not be loaded.
 /// This is targeted directly at using Ghostty from the CLI in a way
@@ -2668,7 +2668,7 @@ keybind: Keybinds = .{},
 ///     (Available since: 1.2.0)
 ///
 ///   * `ssh-terminfo` - Enable automatic terminfo installation on remote hosts.
-///     Attempts to install Ghostty's terminfo entry using `infocmp` and `tic` when
+///     Attempts to install winghostty's terminfo entry using `infocmp` and `tic` when
 ///     connecting to hosts that lack it. Requires `infocmp` to be available locally
 ///     and `tic` to be available on remote hosts. Once terminfo is installed on a
 ///     remote host, it will be automatically "cached" to avoid repeat installations.
@@ -2676,13 +2676,13 @@ keybind: Keybinds = .{},
 ///     cache manually using various arguments.
 ///     (Available since: 1.2.0)
 ///
-///   * `path` - Add Ghostty's binary directory to PATH. This ensures the `ghostty`
+///   * `path` - Add winghostty's binary directory to PATH. This ensures the `winghostty`
 ///     command is available in the shell even if shell init scripts reset PATH.
 ///     This is particularly useful on macOS where PATH is often overridden by
 ///     system scripts. The directory is only added if not already present.
 ///
 /// SSH features work independently and can be combined for optimal experience:
-/// when both `ssh-env` and `ssh-terminfo` are enabled, Ghostty will install its
+/// when both `ssh-env` and `ssh-terminfo` are enabled, winghostty will install its
 /// terminfo on remote hosts and use `xterm-ghostty` as TERM, falling back to
 /// `xterm-256color` with environment variables if terminfo installation fails.
 @"shell-integration-features": ShellIntegrationFeatures = .{},
@@ -2708,7 +2708,7 @@ keybind: Keybinds = .{},
 /// command-palette-entry = title:Reset Font Style, action:csi:0m
 /// command-palette-entry = title:Crash on Main Thread,description:Causes a crash on the main (UI) thread.,action:crash:main
 /// command-palette-entry = title:Focus Split: Right,description:"Focus the split to the right, if it exists.",action:goto_split:right
-/// command-palette-entry = title:"Ghostty",description:"Add a little Ghostty to your terminal.",action:"text:\xf0\x9f\x91\xbb"
+/// command-palette-entry = title:"winghostty",description:"Add a little winghostty to your terminal.",action:"text:\xf0\x9f\x91\xbb"
 /// ```
 ///
 /// By default, the command palette is preloaded with most actions that might
@@ -3126,29 +3126,27 @@ term: []const u8 = "xterm-ghostty",
 /// Available since: 1.2.0
 @"async-backend": AsyncBackend = .auto,
 
-/// Control the auto-update functionality of Ghostty.
+/// Control the auto-update functionality of winghostty.
 ///
-/// This is retained as a compatibility setting in the Windows-only fork.
-/// There is no native updater wired into this runtime yet, so changing this
-/// value currently has no effect.
+/// The Windows runtime currently supports notify-only stable update checks
+/// backed by GitHub Releases.
 ///
 /// Valid values are:
 ///
 ///  * `off` - Disable auto-updates.
 ///  * `check` - Check for updates and notify the user if an update is
-///    available, but do not automatically download or install the update.
+///    available, but do not automatically install the update.
 ///  * `download` - Check for updates, automatically download the update,
 ///    notify the user, but do not automatically install the update.
-///
-/// A future native updater may honor this setting.
+///    In v1 of the Windows updater this behaves the same as `check`.
 @"auto-update": ?AutoUpdate = null,
 
 /// The release channel to use for auto-updates.
 ///
 /// The default value of this matches the release channel of the currently
-/// running Ghostty version. If you download a pre-release version of Ghostty
+/// running winghostty version. If you download a pre-release version of winghostty
 /// then this will be set to `tip` and you will receive pre-release updates.
-/// If you download a stable version of Ghostty then this will be set to
+/// If you download a stable version of winghostty then this will be set to
 /// `stable` and you will receive stable updates.
 ///
 /// Valid values are:
@@ -3159,8 +3157,8 @@ term: []const u8 = "xterm-ghostty",
 ///    beta testing by thousands of people. It is generally stable but
 ///    will likely have more bugs than the stable channel.
 ///
-/// Retained as a compatibility setting in the Windows-only fork.
-/// Without a native Windows updater, this currently has no effect.
+/// The v1 Windows updater only checks the `stable` channel. `tip` remains a
+/// manual prerelease channel until signed download/install support exists.
 @"auto-update-channel": ?build_config.ReleaseChannel = null,
 
 /// This is set by the CLI parser for deinit.
@@ -3382,13 +3380,13 @@ fn writeConfigTemplate(path: []const u8) !void {
 }
 
 /// Load configurations from the default configuration files. The default
-/// configuration file is at `$XDG_CONFIG_HOME/ghostty/config.ghostty`.
+/// configuration file is at `$XDG_CONFIG_HOME/winghostty/config.ghostty`.
 ///
 /// The legacy `config` file (without extension) is first loaded,
 /// then `config.ghostty`.
 pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
     // Load XDG first
-    const legacy_xdg_path = try file_load.legacyDefaultXdgPath(alloc);
+    const legacy_xdg_path = try file_load.legacyGhosttyDefaultXdgPath(alloc);
     defer alloc.free(legacy_xdg_path);
     const xdg_path = try file_load.defaultXdgPath(alloc);
     defer alloc.free(xdg_path);

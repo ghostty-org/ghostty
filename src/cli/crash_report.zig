@@ -53,15 +53,11 @@ fn runInner(
     stdout_file: *std.fs.File,
     stdout: *std.Io.Writer,
 ) !u8 {
-    const crash_dir = try crash.defaultDir(alloc);
     var reports: std.ArrayList(crash.Report) = .empty;
     errdefer reports.deinit(alloc);
 
-    var it = try crash_dir.iterator();
-    while (try it.next()) |report| try reports.append(alloc, .{
-        .name = try alloc.dupe(u8, report.name),
-        .mtime = report.mtime,
-    });
+    try appendReports(alloc, &reports, try crash.defaultDir(alloc));
+    try appendReports(alloc, &reports, try crash.legacyGhosttyDir(alloc));
 
     // If we have no reports, then we're done. If we have a tty then we
     // print a message, otherwise we do nothing.
@@ -90,4 +86,16 @@ fn runInner(
 
 fn lt(_: void, lhs: crash.Report, rhs: crash.Report) bool {
     return lhs.mtime > rhs.mtime;
+}
+
+fn appendReports(
+    alloc: Allocator,
+    reports: *std.ArrayList(crash.Report),
+    crash_dir: crash.Dir,
+) !void {
+    var it = try crash_dir.iterator();
+    while (try it.next()) |report| try reports.append(alloc, .{
+        .name = try alloc.dupe(u8, report.name),
+        .mtime = report.mtime,
+    });
 }

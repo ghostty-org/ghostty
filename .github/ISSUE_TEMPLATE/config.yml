@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Features, Bug Reports, Questions
-    url: https://github.com/ghostty-org/ghostty/discussions/new/choose
-    about: Our preferred starting point if you have any questions or suggestions about configuration, features or behavior.
+  - name: Questions and discussion
+    url: https://github.com/amanthanvi/winghostty/discussions
+    about: Use Discussions for usage questions, design discussion, or support requests that are not actionable bugs.

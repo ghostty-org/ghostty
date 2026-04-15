@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 
 const apprt = @import("../apprt.zig");
+const build_config = @import("../build_config.zig");
 const CoreApp = @import("../App.zig");
 const CoreSurface = @import("../Surface.zig");
 const cli = @import("../cli.zig");
@@ -13,6 +14,7 @@ const input = @import("../input.zig");
 const homedir = @import("../os/homedir.zig");
 const internal_os = @import("../os/main.zig");
 const terminal = @import("../terminal/main.zig");
+const updatepkg = @import("../update/github_releases.zig");
 const SplitTree = @import("../datastruct/split_tree.zig").SplitTree;
 
 const win32_theme = @import("win32_theme.zig");
@@ -136,6 +138,7 @@ const WM_SIZE = 0x0005;
 const WM_SYSKEYDOWN = 0x0104;
 const WM_SYSKEYUP = 0x0105;
 const WM_WINHOSTTY_WAKE = WM_APP + 1;
+const WM_WINHOSTTY_UPDATE = WM_APP + 2;
 const PM_NOREMOVE: UINT = 0x0000;
 const WS_OVERLAPPED = 0x00000000;
 const WS_CHILD = 0x40000000;
@@ -243,7 +246,7 @@ const curated_command_palette_actions = [_][]const u8{
     "inspector:toggle",
     "reset_window_size",
 };
-const releases_url = "https://github.com/amanthanvi/winghostty/releases/latest";
+const releases_url = updatepkg.releases_url;
 const WM_THEMECHANGED = 0x031A;
 const WM_SYSCOLORCHANGE = 0x0015;
 const WM_DPICHANGED: UINT = 0x02E0;
@@ -846,9 +849,9 @@ fn shouldShowSurfaceImmediately(host_id: ?u32) bool {
 
 fn defaultIpcNamespace() []const u8 {
     return if (builtin.mode == .Debug)
-        "com.mitchellh.ghostty-debug"
+        "io.github.amanthanvi.winghostty-debug"
     else
-        "com.mitchellh.ghostty";
+        "io.github.amanthanvi.winghostty";
 }
 
 fn sanitizeIpcNamespace(alloc: Allocator, raw: ?[]const u8) ![]const u8 {
@@ -1232,6 +1235,60 @@ pub fn getProcAddress(name: [*:0]const u8) callconv(.c) ?*const anyopaque {
     return GetProcAddress(module, name);
 }
 
+const UpdateNotice = struct {
+    version_text: ?[]u8 = null,
+    release_url: ?[]u8 = null,
+    message_text: ?[]u8 = null,
+
+    fn init(alloc: Allocator, version_text: []const u8, release_url: []const u8) !UpdateNotice {
+        return .{
+            .version_text = try alloc.dupe(u8, version_text),
+            .release_url = try alloc.dupe(u8, release_url),
+            .message_text = try std.fmt.allocPrint(
+                alloc,
+                "Update available: winghostty {s} is ready on GitHub Releases.",
+                .{version_text},
+            ),
+        };
+    }
+
+    fn deinit(self: *UpdateNotice, alloc: Allocator) void {
+        if (self.version_text) |value| alloc.free(value);
+        if (self.release_url) |value| alloc.free(value);
+        if (self.message_text) |value| alloc.free(value);
+        self.* = undefined;
+    }
+};
+
+const UpdateCheckRequest = struct {
+    alloc: Allocator,
+    ui_thread_id: DWORD,
+    state_path: []u8,
+    current_version: std.SemanticVersion,
+    current_version_string: []u8,
+    force: bool,
+    manual: bool,
+    respect_dismissal: bool,
+
+    fn deinit(self: *UpdateCheckRequest) void {
+        self.alloc.free(self.state_path);
+        self.alloc.free(self.current_version_string);
+        self.* = undefined;
+    }
+};
+
+const UpdateCheckCompletion = struct {
+    alloc: Allocator,
+    release: ?updatepkg.Release = null,
+    manual_message: ?[]u8 = null,
+
+    fn deinit(self: *UpdateCheckCompletion) void {
+        if (self.release) |*value| value.deinit(self.alloc);
+        if (self.manual_message) |value| self.alloc.free(value);
+        self.* = undefined;
+    }
+};
+
 pub const App = struct {
     pub const must_draw_from_app_thread = true;
 
@@ -1260,6 +1317,9 @@ pub const App = struct {
     quit_timer_id: ?UINT_PTR = null,
     running: bool = false,
     windows_hidden: bool = false,
+    update_check_running: std.atomic.Value(bool) = .init(false),
+    update_notice: ?UpdateNotice = null,
+    update_auto_check_started: bool = false,
 
     pub fn init(
         self: *App,
@@ -1345,6 +1405,18 @@ pub const App = struct {
                 continue;
             }
 
+            if (msg.message == WM_WINHOSTTY_UPDATE) {
+                const completion: *UpdateCheckCompletion = @ptrFromInt(@as(usize, @bitCast(msg.lParam)));
+                defer {
+                    completion.deinit();
+                    self.core_app.alloc.destroy(completion);
+                }
+                self.handleUpdateCheckCompletion(completion);
+                try self.core_app.tick(self);
+                if (!self.running and self.windows.items.len == 0) break;
+                continue;
+            }
+
             if (msg.message == WM_TIMER) {
                 if (self.quit_timer_id) |timer_id| {
                     if (msg.wParam == timer_id) {
@@ -1381,6 +1453,11 @@ pub const App = struct {
 
     pub fn terminate(self: *App) void {
         self.stopQuitTimer();
+        self.update_check_running.store(false, .release);
+        if (self.update_notice) |*notice| {
+            notice.deinit(self.core_app.alloc);
+            self.update_notice = null;
+        }
         self.unregisterGlobalHotkeys();
         self.stopIpcServer();
         self.destroyAllWindows();
@@ -1521,6 +1598,128 @@ pub const App = struct {
         if (self.ui_thread_id != 0) {
             _ = PostThreadMessageW(self.ui_thread_id, WM_WINHOSTTY_WAKE, 0, 0);
         }
+    }
+
+    fn maybeScheduleAutomaticUpdateCheck(self: *App) void {
+        if (self.update_auto_check_started) return;
+        if (self.config.@"auto-update" == .off) return;
+        if (self.config.@"auto-update-channel" != .stable) return;
+        if (self.ui_thread_id == 0) return;
+
+        self.update_auto_check_started = true;
+        self.scheduleUpdateCheck(.{
+            .force = false,
+            .manual = false,
+            .respect_dismissal = true,
+        }) catch |err| {
+            log.warn("failed to start automatic update check err={}", .{err});
+        };
+    }
+
+    fn scheduleUpdateCheck(
+        self: *App,
+        opts: struct {
+            force: bool,
+            manual: bool,
+            respect_dismissal: bool,
+        },
+    ) !void {
+        if (self.ui_thread_id == 0) return;
+
+        const current = self.update_check_running.cmpxchgStrong(false, true, .acq_rel, .acquire);
+        if (current != null) {
+            if (opts.manual) try self.showUpdateInfo("Update check already running.");
+            return;
+        }
+        errdefer self.update_check_running.store(false, .release);
+
+        const request = try self.core_app.alloc.create(UpdateCheckRequest);
+        errdefer self.core_app.alloc.destroy(request);
+
+        request.* = .{
+            .alloc = self.core_app.alloc,
+            .ui_thread_id = self.ui_thread_id,
+            .state_path = try updatepkg.defaultStatePath(self.core_app.alloc),
+            .current_version = build_config.version,
+            .current_version_string = try self.core_app.alloc.dupe(u8, build_config.version_string),
+            .force = opts.force,
+            .manual = opts.manual,
+            .respect_dismissal = opts.respect_dismissal,
+        };
+
+        const thread = try std.Thread.spawn(.{}, updateCheckThreadMain, .{request});
+        thread.detach();
+    }
+
+    fn handleUpdateCheckCompletion(self: *App, completion: *UpdateCheckCompletion) void {
+        self.update_check_running.store(false, .release);
+
+        if (completion.release) |release| {
+            self.setUpdateNotice(release.version_text, release.release_url) catch |err| {
+                log.warn("failed to surface update notice err={}", .{err});
+            };
+            if (completion.manual_message) |_| {}
+            return;
+        }
+
+        if (completion.manual_message) |message| {
+            self.showUpdateInfo(message) catch |err| {
+                log.warn("failed to show updater status message err={}", .{err});
+            };
+        }
+    }
+
+    fn setUpdateNotice(self: *App, version_text: []const u8, release_url: []const u8) !void {
+        if (self.update_notice) |*notice| {
+            notice.deinit(self.core_app.alloc);
+            self.update_notice = null;
+        }
+
+        self.update_notice = try UpdateNotice.init(self.core_app.alloc, version_text, release_url);
+        for (self.hosts.items) |host| host.invalidateChrome();
+    }
+
+    fn clearUpdateNotice(self: *App) void {
+        if (self.update_notice) |*notice| {
+            notice.deinit(self.core_app.alloc);
+            self.update_notice = null;
+            for (self.hosts.items) |host| host.invalidateChrome();
+        }
+    }
+
+    fn openUpdateNotice(self: *App) !void {
+        const notice = self.update_notice orelse return;
+        try self.openUrl(notice.release_url.?);
+    }
+
+    fn dismissUpdateNotice(self: *App) void {
+        const notice = self.update_notice orelse return;
+        const version_text = notice.version_text orelse {
+            self.clearUpdateNotice();
+            return;
+        };
+
+        const state_path = updatepkg.defaultStatePath(self.core_app.alloc) catch |err| {
+            log.warn("failed to resolve updater state path err={}", .{err});
+            self.clearUpdateNotice();
+            return;
+        };
+        defer self.core_app.alloc.free(state_path);
+
+        updatepkg.recordDismissal(self.core_app.alloc, state_path, version_text) catch |err| {
+            log.warn("failed to record updater dismissal err={}", .{err});
+        };
+        self.clearUpdateNotice();
+    }
+
+    fn showUpdateInfo(self: *App, message: []const u8) !void {
+        if (self.primarySurface()) |surface| {
+            if (surface.host) |host| {
+                try host.setBanner(.info, message);
+                return;
+            }
+        }
+        try self.showInfoMessage(.app, "winghostty", message);
     }
 
     pub fn startQuitTimer(self: *App) void {
@@ -2083,8 +2282,17 @@ pub const App = struct {
             },
 
             .check_for_updates => {
-                _ = try self.showHostBanner(target, .info, "Opening winghostty releases in your browser.");
-                try self.openUrl(releases_url);
+                if (self.config.@"auto-update-channel" != .stable) {
+                    _ = try self.showHostBanner(target, .info, "Automatic prerelease update checks are not supported yet. Opening releases.");
+                    try self.openUrl(releases_url);
+                    return true;
+                }
+
+                try self.scheduleUpdateCheck(.{
+                    .force = true,
+                    .manual = true,
+                    .respect_dismissal = false,
+                });
                 return true;
             },
 
@@ -2415,6 +2623,7 @@ pub const App = struct {
 
         _ = ShowWindow(hwnd, SW_SHOW);
         _ = UpdateWindow(hwnd);
+        self.maybeScheduleAutomaticUpdateCheck();
         return host;
     }
 
@@ -3035,6 +3244,94 @@ pub const App = struct {
     }
 };
 
+fn updateCheckThreadMain(request: *UpdateCheckRequest) void {
+    const alloc = request.alloc;
+    defer {
+        request.deinit();
+        alloc.destroy(request);
+    }
+
+    const completion = alloc.create(UpdateCheckCompletion) catch {
+        return;
+    };
+    completion.* = .{ .alloc = alloc };
+    errdefer {
+        completion.deinit();
+        alloc.destroy(completion);
+    }
+
+    const result = updatepkg.checkLatestStableRelease(alloc, request.state_path, .{
+        .current_version = request.current_version,
+        .force = request.force,
+        .respect_dismissal = request.respect_dismissal,
+    }) catch |err| {
+        if (request.manual) {
+            completion.manual_message = std.fmt.allocPrint(
+                alloc,
+                "Unable to check GitHub Releases right now ({s}).",
+                .{@errorName(err)},
+            ) catch null;
+        }
+        postUpdateCheckCompletion(request.ui_thread_id, completion);
+        return;
+    };
+    defer {
+        var owned = result;
+        owned.deinit(alloc);
+    }
+
+    switch (result) {
+        .update_available => |release| {
+            const version_text = tryOrNull(alloc, release.version_text);
+            const release_url = tryOrNull(alloc, release.release_url);
+            if (version_text != null and release_url != null) {
+                completion.release = .{
+                    .version_text = version_text.?,
+                    .release_url = release_url.?,
+                };
+            } else {
+                if (version_text) |value| alloc.free(value);
+                if (release_url) |value| alloc.free(value);
+                completion.manual_message = if (request.manual)
+                    std.fmt.allocPrint(
+                        alloc,
+                        "Unable to prepare the update notice for winghostty {s}.",
+                        .{release.version_text},
+                    ) catch null
+                else
+                    null;
+            }
+        },
+        .up_to_date, .throttled => {
+            if (request.manual) {
+                completion.manual_message = std.fmt.allocPrint(
+                    alloc,
+                    "winghostty {s} is already current on the stable channel.",
+                    .{request.current_version_string},
+                ) catch null;
+            }
+        },
+    }
+
+    postUpdateCheckCompletion(request.ui_thread_id, completion);
+}
+
+fn tryOrNull(alloc: Allocator, text: []const u8) ?[]u8 {
+    return alloc.dupe(u8, text) catch null;
+}
+
+fn postUpdateCheckCompletion(ui_thread_id: DWORD, completion: *UpdateCheckCompletion) void {
+    if (PostThreadMessageW(
+        ui_thread_id,
+        WM_WINHOSTTY_UPDATE,
+        0,
+        @as(LPARAM, @bitCast(@as(usize, @intFromPtr(completion)))),
+    ) == 0) {
+        completion.deinit();
+        completion.alloc.destroy(completion);
+    }
+}
+
 const SearchStatus = struct {
     active: bool = false,
     needle: ?[]const u8 = null,
@@ -3160,6 +3457,8 @@ const Host = struct {
     focused_quick_slot: ?usize = null,
     banner_kind: HostBannerKind = .none,
     banner_text: ?[:0]const u8 = null,
+    update_open_rect: RECT = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 },
+    update_dismiss_rect: RECT = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 },
     tab_drag_index: ?usize = null,
     tab_drag_start_x: i32 = 0,
     tab_drag_active: bool = false,
@@ -3697,6 +3996,26 @@ const Host = struct {
         self.banner_kind = if (text == null) .none else kind;
         try appendOwnedString(self.app.core_app.alloc, &self.banner_text, text);
         self.invalidateChrome();
+    }
+
+    fn clearUpdateActionRects(self: *Host) void {
+        self.update_open_rect = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 };
+        self.update_dismiss_rect = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 };
+    }
+
+    fn handleUpdateNoticeClick(self: *Host, point: POINT) bool {
+        if (self.app.update_notice == null) return false;
+        if (pointInRect(point, self.update_open_rect)) {
+            self.app.openUpdateNotice() catch |err| {
+                log.warn("failed to open release URL err={}", .{err});
+            };
+            return true;
+        }
+        if (pointInRect(point, self.update_dismiss_rect)) {
+            self.app.dismissUpdateNotice();
+            return true;
+        }
+        return false;
     }
 
     fn setOverlayDefaultBanner(self: *Host, mode: HostOverlayMode) !void {
@@ -5678,8 +5997,114 @@ const Host = struct {
                 defer alloc.free(value);
             }
         }
+        self.clearUpdateActionRects();
+        if (self.overlay_mode == .none and !inspector_panel_visible and self.banner_text == null) {
+            if (self.app.update_notice) |notice| {
+                const open_label = std.unicode.utf8ToUtf16LeStringLiteral("Open Release");
+                const dismiss_label = std.unicode.utf8ToUtf16LeStringLiteral("Dismiss");
+                const button_height = self.scaled(22);
+                const dismiss_width = self.scaled(72);
+                const open_width = self.scaled(102);
+                const button_gap = self.scaled(8);
+                const dismiss_rect = RECT{
+                    .left = client_rect.right - dismiss_width - self.scaled(16),
+                    .top = banner_y - self.scaled(4),
+                    .right = client_rect.right - self.scaled(16),
+                    .bottom = banner_y - self.scaled(4) + button_height,
+                };
+                const open_rect = RECT{
+                    .left = dismiss_rect.left - open_width - button_gap,
+                    .top = dismiss_rect.top,
+                    .right = dismiss_rect.left - button_gap,
+                    .bottom = dismiss_rect.bottom,
+                };
+                self.update_open_rect = open_rect;
+                self.update_dismiss_rect = dismiss_rect;
 
-        if (banner_value) |value| {
+                const text_right = @max(self.scaled(120), open_rect.left - self.scaled(10));
+                var text_rect = RECT{
+                    .left = self.scaled(16),
+                    .top = banner_y - self.scaled(2),
+                    .right = text_right,
+                    .bottom = banner_y + button_height,
+                };
+
+                _ = SetTextColor(hdc, theme.info_fg);
+                if (notice.message_text) |message| {
+                    const banner_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, message) catch return;
+                    defer alloc.free(banner_w);
+                    _ = DrawTextW(
+                        hdc,
+                        banner_w.ptr,
+                        @intCast(banner_w.len - 1),
+                        &text_rect,
+                        DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS,
+                    );
+                }
+
+                drawRoundedRect(
+                    hdc,
+                    open_rect,
+                    if (theme.is_dark)
+                        adjustColor(theme.overlay_bg, 10, 10, 12)
+                    else
+                        adjustColor(theme.overlay_bg, -4, -4, -4),
+                    theme.info_fg,
+                    self.scaled(5),
+                );
+                drawRoundedRect(
+                    hdc,
+                    dismiss_rect,
+                    if (theme.is_dark)
+                        adjustColor(theme.status_bg, 10, 10, 12)
+                    else
+                        adjustColor(theme.status_bg, -4, -4, -4),
+                    theme.chrome_border,
+                    self.scaled(5),
+                );
+
+                _ = SetTextColor(hdc, theme.text_primary);
+                var open_text_rect = open_rect;
+                open_text_rect.left += self.scaled(6);
+                open_text_rect.right -= self.scaled(6);
+                var dismiss_text_rect = dismiss_rect;
+                dismiss_text_rect.left += self.scaled(6);
+                dismiss_text_rect.right -= self.scaled(6);
+                _ = DrawTextW(
+                    hdc,
+                    open_label,
+                    @intCast(std.mem.sliceTo(open_label, 0).len),
+                    &open_text_rect,
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+                );
+                _ = DrawTextW(
+                    hdc,
+                    dismiss_label,
+                    @intCast(std.mem.sliceTo(dismiss_label, 0).len),
+                    &dismiss_text_rect,
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+                );
+            } else if (banner_value) |value| {
+                _ = SetTextColor(hdc, switch (banner_kind) {
+                    .none => theme.text_primary,
+                    .info => theme.info_fg,
+                    .err => theme.error_fg,
+                });
+                const prefix = switch (banner_kind) {
+                    .none => "",
+                    .info => "Info: ",
+                    .err => "Error: ",
+                };
+                const full = if (prefix.len == 0)
+                    alloc.dupe(u8, value) catch return
+                else
+                    std.fmt.allocPrint(alloc, "{s}{s}", .{ prefix, value }) catch return;
+                defer alloc.free(full);
+                const banner_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, full) catch return;
+                defer alloc.free(banner_w);
+                _ = TextOutW(hdc, self.scaled(16), banner_y, banner_w.ptr, @intCast(banner_w.len - 1));
+            }
+        } else if (banner_value) |value| {
             _ = SetTextColor(hdc, switch (banner_kind) {
                 .none => theme.text_primary,
                 .info => theme.info_fg,
@@ -8448,6 +8873,9 @@ fn hostWindowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callcon
                     .x = signedLowWord(lParamBits(lParam)),
                     .y = signedHighWord(lParamBits(lParam)),
                 };
+                if (msg == WM_LBUTTONUP and v.handleUpdateNoticeClick(point)) {
+                    return 0;
+                }
                 if (v.quickSlotProfileIndexAtPoint(point)) |profile_index| {
                     v.setSelectedProfileIndex(profile_index) catch return 0;
                     const open_target = switch (msg) {
@@ -8653,6 +9081,13 @@ fn isSafeStartupCwd(path: []const u8) bool {
         std.ascii.isAlphabetic(path[0]) and
         path[1] == ':' and
         (path[2] == '\\' or path[2] == '/');
+}
+
+fn pointInRect(point: POINT, rect: RECT) bool {
+    return point.x >= rect.left and
+        point.x < rect.right and
+        point.y >= rect.top and
+        point.y < rect.bottom;
 }
 
 fn lParamBits(lParam: LPARAM) usize {

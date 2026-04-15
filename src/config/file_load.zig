@@ -1,6 +1,7 @@
 const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
+const build_config = @import("../build_config.zig");
 const internal_os = @import("../os/main.zig");
 
 const log = std.log.scoped(.config);
@@ -10,16 +11,23 @@ const log = std.log.scoped(.config);
 pub fn defaultXdgPath(alloc: Allocator) ![]const u8 {
     return try internal_os.xdg.config(
         alloc,
-        .{ .subdir = "ghostty/config.ghostty" },
+        .{ .subdir = build_config.data_dir_name ++ "/config.ghostty" },
     );
 }
 
-/// Ghostty <1.3.0 default path for the XDG home configuration file.
+/// Legacy Ghostty default path for the XDG home configuration file.
 /// Returned value must be freed by the caller.
-pub fn legacyDefaultXdgPath(alloc: Allocator) ![]const u8 {
+pub fn legacyGhosttyDefaultXdgPath(alloc: Allocator) ![]const u8 {
     return try internal_os.xdg.config(
         alloc,
         .{ .subdir = "ghostty/config" },
+    );
+}
+
+pub fn legacyGhosttyConfigDotGhosttyPath(alloc: Allocator) ![]const u8 {
+    return try internal_os.xdg.config(
+        alloc,
+        .{ .subdir = "ghostty/config.ghostty" },
     );
 }
 
@@ -35,15 +43,22 @@ pub fn preferredXdgPath(alloc: Allocator) ![]const u8 {
 
     // Try the legacy path
     errdefer alloc.free(xdg_path);
-    const legacy_xdg_path = try legacyDefaultXdgPath(alloc);
+    const legacy_config_ghostty_path = try legacyGhosttyConfigDotGhosttyPath(alloc);
+    if (open(legacy_config_ghostty_path)) |f| {
+        f.close();
+        alloc.free(xdg_path);
+        return legacy_config_ghostty_path;
+    } else |_| {}
+
+    alloc.free(legacy_config_ghostty_path);
+    const legacy_xdg_path = try legacyGhosttyDefaultXdgPath(alloc);
     if (open(legacy_xdg_path)) |f| {
         f.close();
         alloc.free(xdg_path);
         return legacy_xdg_path;
     } else |_| {}
 
-    // Legacy path and XDG path both don't exist. Return the
-    // new one.
+    // Legacy paths and XDG path both don't exist. Return the new one.
     alloc.free(legacy_xdg_path);
     return xdg_path;
 }

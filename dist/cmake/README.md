@@ -14,7 +14,7 @@ Add the following to your project's `CMakeLists.txt`:
 ```cmake
 include(FetchContent)
 FetchContent_Declare(ghostty
-    GIT_REPOSITORY https://github.com/ghostty-org/ghostty.git
+    GIT_REPOSITORY https://github.com/amanthanvi/winghostty.git
     GIT_TAG main
 )
 FetchContent_MakeAvailable(ghostty)
@@ -23,17 +23,17 @@ add_executable(myapp main.c)
 target_link_libraries(myapp PRIVATE ghostty-vt)
 ```
 
-This fetches the Ghostty source, builds libghostty-vt via Zig during your
+This fetches the winghostty source, builds libghostty-vt via Zig during your
 CMake build, and links it into your target. Headers are added to the
 include path automatically.
 
 ### Using a local checkout
 
-If you already have the Ghostty source checked out, skip the download by
+If you already have the winghostty source checked out, skip the download by
 pointing CMake at it:
 
 ```shell-session
-cmake -B build -DFETCHCONTENT_SOURCE_DIR_GHOSTTY=/path/to/ghostty
+cmake -B build -DFETCHCONTENT_SOURCE_DIR_GHOSTTY=/path/to/winghostty
 cmake --build build
 ```
 
@@ -42,7 +42,7 @@ cmake --build build
 Build and install libghostty-vt first:
 
 ```shell-session
-cd /path/to/ghostty
+cd /path/to/winghostty
 cmake -B build
 cmake --build build
 cmake --install build --prefix /usr/local

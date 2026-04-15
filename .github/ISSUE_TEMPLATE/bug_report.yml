@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a reproducible problem in winghostty
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please keep this focused on one reproducible issue.
+  - type: textarea
+    attributes:
+      label: Summary
+      description: What is broken?
+      placeholder: Opening a new split after restoring a minimized window leaves the surface blank.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Reproduction steps
+      description: List the exact steps needed to reproduce the issue.
+      placeholder: |
+        1. Launch winghostty.
+        2. Open a second split.
+        3. Minimize and restore the window.
+        4. Observe the blank surface.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Expected behavior
+      placeholder: The restored split should repaint immediately.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Actual behavior
+      placeholder: The split stays blank until I resize the window.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: winghostty version
+      description: Paste the output of `winghostty +version`.
+      render: text
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Minimal config
+      description: Include only the config lines required to reproduce the bug.
+      render: ini
+  - type: textarea
+    attributes:
+      label: Logs or screenshots
+      description: Add logs, stack traces, or screenshots if they help reproduce or explain the bug.
+      render: text

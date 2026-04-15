@@ -4,7 +4,7 @@ const std = @import("std");
 const Config = @import("Config.zig");
 const SharedDeps = @import("SharedDeps.zig");
 
-/// The primary Ghostty executable.
+/// The primary winghostty executable.
 exe: *std.Build.Step.Compile,
 
 /// The install step for the executable.
@@ -12,7 +12,7 @@ install_step: *std.Build.Step.InstallArtifact,
 
 pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty {
     const exe: *std.Build.Step.Compile = b.addExecutable(.{
-        .name = "ghostty",
+        .name = "winghostty",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = cfg.target,
@@ -52,7 +52,7 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
         .windows => {
             exe.subsystem = .Windows;
             exe.addWin32ResourceFile(.{
-                .file = b.path("dist/windows/ghostty.rc"),
+                .file = b.path("dist/windows/winghostty.rc"),
             });
         },
 
@@ -65,7 +65,7 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
     };
 }
 
-/// Add the ghostty exe to the install target.
+/// Add the winghostty exe to the install target.
 pub fn install(self: *const Ghostty) void {
     const b = self.install_step.step.owner;
     b.getInstallStep().dependOn(&self.install_step.step);

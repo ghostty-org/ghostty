@@ -38,7 +38,7 @@ pub fn main() !MainReturn {
             error.InvalidAction => try stderr.print(
                 "Error: unknown CLI action specified. CLI actions are specified with\n" ++
                     "the '+' character.\n\n" ++
-                    "All valid CLI actions can be listed with `ghostty +help`\n",
+                    "All valid CLI actions can be listed with `winghostty +help`\n",
                 .{},
             ),
 
@@ -51,13 +51,13 @@ pub fn main() !MainReturn {
 
     if (comptime builtin.mode == .Debug) {
         std.log.warn("This is a debug build. Performance will be very poor.", .{});
-        std.log.warn("You should only use a debug build for developing Ghostty.", .{});
+        std.log.warn("You should only use a debug build for developing winghostty.", .{});
         std.log.warn("Otherwise, please rebuild in a release mode.", .{});
     }
 
     // Execute our action if we have one
     if (state.action) |action| {
-        std.log.info("executing CLI action={}", .{action});
+        std.log.info("executing winghostty CLI action={}", .{action});
         posix.exit(action.run(alloc) catch |err| err: {
             std.log.err("CLI action failed error={}", .{err});
             break :err 1;

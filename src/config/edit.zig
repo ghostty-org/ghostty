@@ -82,11 +82,12 @@ fn configPath(alloc_arena: Allocator) ![]const u8 {
 
 /// Returns the possible main-config paths for the Windows-only fork.
 fn configPathCandidates(alloc_arena: Allocator) ![]const []const u8 {
-    var paths: std.ArrayList([]const u8) = try .initCapacity(alloc_arena, 2);
+    var paths: std.ArrayList([]const u8) = try .initCapacity(alloc_arena, 3);
     errdefer paths.deinit(alloc_arena);
 
     paths.appendAssumeCapacity(try file_load.defaultXdgPath(alloc_arena));
-    paths.appendAssumeCapacity(try file_load.legacyDefaultXdgPath(alloc_arena));
+    paths.appendAssumeCapacity(try file_load.legacyGhosttyConfigDotGhosttyPath(alloc_arena));
+    paths.appendAssumeCapacity(try file_load.legacyGhosttyDefaultXdgPath(alloc_arena));
 
     return paths.items;
 }
