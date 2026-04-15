@@ -36,7 +36,6 @@ A file for [guiding coding agents](https://agents.md/).
 
 ## Self-Correction Log
 
-- 2026-04-12: Do not treat Win32 WGL swap interval as generic renderer `hasVsync()` yet; that flag means a display-link style `draw_now` driver exists, and returning true on Win32 can stall terminal rendering on startup.
 - 2026-04-12: In `src/apprt/win32.zig`, do not `ShowWindow(surface_hwnd, SW_SHOW)` before the GL context and `core_surface` are initialized; early `WM_PAINT` on a half-initialized child surface is a real Win32 startup hazard.
 - 2026-04-12: In `src/apprt/win32.zig`, delaying `ShowWindow(surface_hwnd, SW_SHOW)` is still insufficient if `surfaceWindowStyle()` includes `WS_VISIBLE`; the child GL surface must be created hidden and shown only after GL + core init.
 - 2026-04-12: `RegisterHotKey(NULL, ...)` posts `WM_HOTKEY` to the thread message queue, not a window proc; handle it directly in the `GetMessageW` loop.
@@ -46,3 +45,4 @@ A file for [guiding coding agents](https://agents.md/).
 - 2026-04-14: On Win32, hiding a surface HWND is not enough; tab/window visibility changes must also drive `core_surface.occlusionCallback` or hidden tabs keep rendering and can crash the WGL/NVIDIA present path.
 - 2026-04-14: In `src/apprt/win32.zig`, same-host tab/split surfaces must stay hidden through `Surface.init`; letting them show and repaint before `activateSurface()` briefly exposes multiple child GL surfaces in one host and destabilizes the render path.
 - 2026-04-14: In `src/apprt/win32.zig`, hide inactive child GL surfaces before showing the active host tab; briefly overlapping multiple WGL child HWNDs can crash `nvoglv64!DrvPresentBuffers` during repeated tab opens.
+- 2026-04-15: On Win32, do not trust `wsl.exe --status` as proof that WSL is a safe implicit default shell; actual `wsl.exe` session launch can still fail, so prefer the preview/non-WSL default path unless WSL is explicitly selected.

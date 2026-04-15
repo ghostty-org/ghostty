@@ -3911,8 +3911,8 @@ pub fn finalize(self: *Config) !void {
             switch (builtin.os.tag) {
                 .windows => {
                     if (self.command == null) {
-                        const cmd = try windows_shell.defaultCommand(alloc);
-                        log.info("default shell src=windows-default value={}", .{cmd});
+                        const cmd = try windows_shell.previewCommand(alloc);
+                        log.info("default shell src=windows-preview value={}", .{cmd});
                         self.command = cmd;
                     }
 
