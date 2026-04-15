@@ -36,6 +36,7 @@ A file for [guiding coding agents](https://agents.md/).
 
 ## Self-Correction Log
 
+- 2026-04-12: In `src/apprt/win32.zig`, do not `ShowWindow(surface_hwnd, SW_SHOW)` before the GL context and `core_surface` are initialized; early `WM_PAINT` on a half-initialized child surface is a real Win32 startup hazard.
 - 2026-04-12: In `src/apprt/win32.zig`, delaying `ShowWindow(surface_hwnd, SW_SHOW)` is still insufficient if `surfaceWindowStyle()` includes `WS_VISIBLE`; the child GL surface must be created hidden and shown only after GL + core init.
 - 2026-04-12: `RegisterHotKey(NULL, ...)` posts `WM_HOTKEY` to the thread message queue, not a window proc; handle it directly in the `GetMessageW` loop.
 - 2026-04-12: Do not sync Win32 global hotkeys inline during startup window creation; schedule registration onto the live message loop and make sync failure non-fatal so hotkeys cannot take down launch.
