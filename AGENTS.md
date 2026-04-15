@@ -36,7 +36,6 @@ A file for [guiding coding agents](https://agents.md/).
 
 ## Self-Correction Log
 
-- 2026-04-12: In `src/apprt/win32.zig`, do not `ShowWindow(surface_hwnd, SW_SHOW)` before the GL context and `core_surface` are initialized; early `WM_PAINT` on a half-initialized child surface is a real Win32 startup hazard.
 - 2026-04-12: In `src/apprt/win32.zig`, delaying `ShowWindow(surface_hwnd, SW_SHOW)` is still insufficient if `surfaceWindowStyle()` includes `WS_VISIBLE`; the child GL surface must be created hidden and shown only after GL + core init.
 - 2026-04-12: `RegisterHotKey(NULL, ...)` posts `WM_HOTKEY` to the thread message queue, not a window proc; handle it directly in the `GetMessageW` loop.
 - 2026-04-12: Do not sync Win32 global hotkeys inline during startup window creation; schedule registration onto the live message loop and make sync failure non-fatal so hotkeys cannot take down launch.
@@ -46,3 +45,4 @@ A file for [guiding coding agents](https://agents.md/).
 - 2026-04-14: In `src/apprt/win32.zig`, same-host tab/split surfaces must stay hidden through `Surface.init`; letting them show and repaint before `activateSurface()` briefly exposes multiple child GL surfaces in one host and destabilizes the render path.
 - 2026-04-14: In `src/apprt/win32.zig`, hide inactive child GL surfaces before showing the active host tab; briefly overlapping multiple WGL child HWNDs can crash `nvoglv64!DrvPresentBuffers` during repeated tab opens.
 - 2026-04-15: On Win32, do not trust `wsl.exe --status` as proof that WSL is a safe implicit default shell; actual `wsl.exe` session launch can still fail, so prefer the preview/non-WSL default path unless WSL is explicitly selected.
+- 2026-04-15: In `scripts/package-windows.ps1`, avoid `Compress-Archive` for the portable ZIP; on Windows it can intermittently fail on staged theme files with spaces (for example `Monokai Classic`) even when staging itself is correct.

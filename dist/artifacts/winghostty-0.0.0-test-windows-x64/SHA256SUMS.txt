@@ -1,1 +1,2 @@
-7efbe695d37ad7e41f3e8756404de54970fb6f929351304fc7f8f39d38e105e4 *winghostty-0.0.0-test-windows-x64-portable.zip
+b010db0372520375f30d139cd28593c4760723a08c36dff9c49ab20f205bc7fa *winghostty-0.0.0-test-windows-x64-portable.zip
+e8cc5ea52913e850241e9f0d52f6082c2fc2e70ce9e52d9b0f1e9cb362eb3e6a *winghostty-0.0.0-test-windows-x64-setup.exe

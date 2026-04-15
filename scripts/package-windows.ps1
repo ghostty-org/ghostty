@@ -11,6 +11,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $outputRootPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputRoot))
@@ -117,11 +118,17 @@ if (Test-Path -LiteralPath $zigOutShare) {
 if (Test-Path -LiteralPath $zipPath) {
     Remove-Item -LiteralPath $zipPath -Force
 }
-Compress-Archive -LiteralPath $portableRoot -DestinationPath $zipPath -Force
+[System.IO.Compression.ZipFile]::CreateFromDirectory(
+    $portableRoot,
+    $zipPath,
+    [System.IO.Compression.CompressionLevel]::Optimal,
+    $true
+)
 
 $iscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue
 if (-not $iscc) {
     $candidates = @(
+        (Join-Path $localAppData "Programs\Inno Setup 6\ISCC.exe"),
         "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
         "C:\Program Files\Inno Setup 6\ISCC.exe"
     )
