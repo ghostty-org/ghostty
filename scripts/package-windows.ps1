@@ -34,6 +34,10 @@ $checksumsPath = Join-Path $stageBase "SHA256SUMS.txt"
 $zigOutBin = Join-Path $repoRoot "zig-out/bin"
 $zigOutShare = Join-Path $repoRoot "zig-out/share/ghostty"
 $exePath = Join-Path $zigOutBin "winghostty.exe"
+$runtimeFiles = @(
+    "winghostty.exe",
+    "ghostty-vt.dll"
+)
 $licensePath = Join-Path $repoRoot "LICENSE"
 $readmePath = Join-Path $repoRoot "README.md"
 $configTemplatePath = Join-Path $repoRoot "src/config/config-template"
@@ -92,8 +96,13 @@ if (-not (Test-Path -LiteralPath $exePath)) {
 Remove-TreeIfPresent -PathToRemove $stageBase
 New-Item -ItemType Directory -Path $portableRoot -Force | Out-Null
 
-Get-ChildItem -LiteralPath $zigOutBin -File | ForEach-Object {
-    Copy-Item -LiteralPath $_.FullName -Destination $portableRoot -Force
+foreach ($runtimeFile in $runtimeFiles) {
+    $runtimePath = Join-Path $zigOutBin $runtimeFile
+    if (-not (Test-Path -LiteralPath $runtimePath)) {
+        throw "Expected runtime artifact was not found: $runtimePath"
+    }
+
+    Copy-Item -LiteralPath $runtimePath -Destination (Join-Path $portableRoot $runtimeFile) -Force
 }
 
 Copy-Item -LiteralPath $licensePath -Destination (Join-Path $portableRoot "LICENSE") -Force
