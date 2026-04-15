@@ -22,9 +22,15 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
     override func awakeFromNib() {
         super.awakeFromNib()
 
-        // Setup all the KVO we will use, see the docs for the respective functions
-        // to learn why we need KVO.
-        setupKVO()
+        // Defer KVO setup to the next run loop iteration. Accessing `tabGroup`
+        // synchronously during NIB loading triggers AppKit to build the tab bar,
+        // which makes a synchronous XPC call to IconServices for the app icon.
+        // Right after system boot, IconServices may not be ready yet, blocking
+        // the main thread for 15+ seconds. Deferring is safe because
+        // `syncAppearance` will also call `setupKVO` once the surface is ready.
+        DispatchQueue.main.async { [weak self] in
+            self?.setupKVO()
+        }
     }
 
     override func becomeMain() {
