@@ -24,8 +24,12 @@ A file for [guiding coding agents](https://agents.md/).
 ## Directory Structure
 
 - Shared Zig core: `src/`
-- macOS app: `macos/`
-- GTK (Linux and FreeBSD) app: `src/apprt/gtk`
+- Win32 application runtime: `src/apprt/win32.zig` + `src/apprt/win32_theme.zig`
+- Windows packaging: `dist/windows/` + `scripts/package-windows.ps1`
+- libghostty-vt headers: `include/ghostty/`
+
+This fork has removed the upstream `macos/` Xcode app and the
+`src/apprt/gtk` runtime. Do not reintroduce them.
 
 ## Issue and PR Guidelines
 
