@@ -1,9 +1,9 @@
 <h1 align="center">winghostty</h1>
 
 <p align="center">
-  A native Windows terminal emulator built from the Ghostty codebase.
+  A native Windows terminal emulator with a retained <code>libghostty-vt</code> parser/state library.
   <br />
-  Win32 runtime, OpenGL renderer, and the retained <code>libghostty-vt</code> parser/state library.
+  Win32 runtime and OpenGL renderer.
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
 ## About
 
 `winghostty` is a Windows-first terminal emulator fork focused on a native
-Win32 application experience. The project keeps the Ghostty terminal core
+Win32 application experience. The project keeps the upstream terminal core
 and VT implementation while removing the upstream/private-fork workflow
 assumptions that made this repository awkward to use as a public project.
 
@@ -86,12 +86,12 @@ Not in scope for this fork:
 
 - macOS application packaging
 - GTK/Linux desktop runtime work
-- upstream Ghostty community process replication
+- upstream community process replication
 
 ## Crash Reports
 
 Crash reports are stored locally under `%LOCALAPPDATA%\winghostty\crash`.
-Legacy Ghostty-branded crash directories remain readable for compatibility.
+Legacy upstream-branded crash directories remain readable for compatibility.
 
 Crash reports are not automatically uploaded anywhere. They are written on the
 next successful launch after a crash. Use the CLI action below to inspect what

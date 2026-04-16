@@ -1,9 +1,9 @@
 /**
- * Ghostty Doxygen Custom Stylesheet
- * Minimal branding customizations for Ghostty colors
+ * winghostty Doxygen Custom Stylesheet
+ * Minimal customizations for project docs colors.
  */
 
-/* Ghostty brand color for links and accents - high contrast for dark bg */
+/* Accent color for links and highlights - high contrast for dark bg */
 a,
 a:link {
   color: #99b3ff;
