@@ -7,12 +7,13 @@ extension UpdateDriver: SPUUpdaterDelegate {
             return nil
         }
 
-        // Sparkle supports a native concept of "channels" but it requires that
-        // you share a single appcast file. We don't want to do that so we
-        // do this instead.
+        // Ghostties-specific appcast feeds (not upstream Ghostty).
+        // Hosted on GitHub Releases — each tagged release uploads both files.
+        // Stable channel: only receives non-beta releases.
+        // Tip/beta channel: receives all releases including betas.
         switch appDelegate.ghostty.config.autoUpdateChannel {
-        case .tip: return "https://tip.files.ghostty.org/appcast.xml"
-        case .stable: return "https://release.files.ghostty.org/appcast.xml"
+        case .tip: return "https://github.com/SeanSmithDesign/ghostties/releases/latest/download/appcast-beta.xml"
+        case .stable: return "https://github.com/SeanSmithDesign/ghostties/releases/latest/download/appcast-stable.xml"
         }
     }
 
