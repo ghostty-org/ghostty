@@ -24,8 +24,12 @@ change, then run `zig build` before you finish.
 
 ## Toolchain
 
-This fork is pinned to Zig `0.15.2` in CI. If you have multiple Zig versions
-installed locally, verify the one on your PATH before debugging build issues.
+This fork requires a **Zig 0.15.x release with patch ≥ 2**. The check is
+enforced at compile time in `src/build/zig.zig::requireZig`: any 0.14.x,
+0.16.x, or 0.15.0 / 0.15.1 toolchain will fail with a `@compileError` before
+user code runs; 0.15.2 and any later 0.15 patch will compile. CI uses
+0.15.2 exactly. If you have multiple Zig versions installed locally,
+verify the one on your `PATH` before debugging build issues.
 
 If Zig fails before compilation because the dependency cache is empty or cannot
 be hydrated automatically, seed it first from the repo root:
@@ -45,6 +49,22 @@ environment already configured.
 - The repo still retains `libghostty-vt` for Zig and C consumers.
 - Cross-platform app packaging, GTK, and macOS app workflows have been removed
   from this fork and should not be reintroduced.
+
+## Project Layout (quick map)
+
+- `src/apprt/win32.zig` — Win32 application runtime entry point (~13.7k
+  LOC, single file; extractions in progress, see commit `a759eb6`).
+- `src/apprt/win32_theme.zig` — theme tokens, DWM integration, accent
+  helpers, HC handling (extracted from `win32.zig` in `a759eb6`).
+- `src/update/github_releases.zig` — notify-only GitHub Releases updater.
+- `src/renderer/OpenGL.zig` — WGL + OpenGL 4.3 renderer backend.
+- `src/config/Config.zig` — single source of config options and defaults.
+- `dist/windows/` — Inno Setup script, icon, manifest, RC file.
+- `scripts/` — Windows packaging, dep-cache bootstrap, dev-shell helpers.
+
+Upstream-derived areas intentionally left alone in day-to-day fork work
+include `src/terminal/`, `src/font/`, `src/input/`, `src/termio/`,
+`src/shell-integration/`, `src/crash/`, and `libghostty-vt` surfaces.
 
 ## Logging
 

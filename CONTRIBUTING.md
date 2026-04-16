@@ -6,6 +6,12 @@ This repository is a public Windows-first project. Issues and pull requests are
 welcome, but contributions still need to be tight, technically defensible, and
 validated against the Windows runtime shipped here.
 
+For usage questions, design discussion, or anything that is not a
+reproducible bug, please use
+[Discussions](https://github.com/amanthanvi/winghostty/discussions). GitHub
+Issues on this repo are reserved for reproducible bugs so triage stays
+signal-heavy.
+
 ## Contribution Rules
 
 1. Understand the change end to end before calling it done.
