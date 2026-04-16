@@ -445,6 +445,8 @@ typedef struct {
   uint32_t rows;
   uint32_t cursor_x;
   uint32_t cursor_y;
+  uint32_t default_fg;
+  uint32_t default_bg;
   bool cursor_visible;
 } ghostty_cells_s;
 

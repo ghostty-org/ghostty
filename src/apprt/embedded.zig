@@ -1696,6 +1696,8 @@ pub const CAPI = struct {
         rows: u32,
         cursor_x: u32,
         cursor_y: u32,
+        default_fg: u32,
+        default_bg: u32,
         cursor_visible: bool,
     };
 
@@ -1752,6 +1754,8 @@ pub const CAPI = struct {
                 .rows = rows,
                 .cursor_x = 0,
                 .cursor_y = 0,
+                .default_fg = rgbPack(fg_eff),
+                .default_bg = rgbPack(bg_eff),
                 .cursor_visible = false,
             };
             return false;
@@ -1835,6 +1839,8 @@ pub const CAPI = struct {
             .rows = rows,
             .cursor_x = cursor_x,
             .cursor_y = cursor_y,
+            .default_fg = rgbPack(fg_eff),
+            .default_bg = rgbPack(bg_eff),
             .cursor_visible = cursor_visible,
         };
         return true;
