@@ -36,9 +36,6 @@ A file for [guiding coding agents](https://agents.md/).
 
 ## Self-Correction Log
 
-- 2026-04-12: In `src/apprt/win32.zig`, do not `ShowWindow(surface_hwnd, SW_SHOW)` before the GL context and `core_surface` are initialized; early `WM_PAINT` on a half-initialized child surface is a real Win32 startup hazard.
-- 2026-04-12: In `src/apprt/win32.zig`, delaying `ShowWindow(surface_hwnd, SW_SHOW)` is still insufficient if `surfaceWindowStyle()` includes `WS_VISIBLE`; the child GL surface must be created hidden and shown only after GL + core init.
-- 2026-04-12: `RegisterHotKey(NULL, ...)` posts `WM_HOTKEY` to the thread message queue, not a window proc; handle it directly in the `GetMessageW` loop.
 - 2026-04-12: Do not sync Win32 global hotkeys inline during startup window creation; schedule registration onto the live message loop and make sync failure non-fatal so hotkeys cannot take down launch.
 - 2026-04-12: Once Win32 can stay alive with zero windows, `wakeup()` must post to the UI thread queue, not only a window HWND, or mailbox work and quit timers will stall headless.
 - 2026-04-12: GDI brush handles (HBRUSH) returned from `WM_CTLCOLOR*` handlers must use `@bitCast` not `@intCast` to convert to LRESULT; GDI handles can have the high bit set on x64, causing `@intCast` to panic.
@@ -49,3 +46,4 @@ A file for [guiding coding agents](https://agents.md/).
 - 2026-04-15: In `scripts/package-windows.ps1`, avoid `Compress-Archive` for the portable ZIP; on Windows it can intermittently fail on staged theme files with spaces (for example `Monokai Classic`) even when staging itself is correct.
 - 2026-04-15: Fresh GitHub Actions checkouts cannot build or test without `src/unicode/generated_props.zig` and `src/unicode/generated_symbols.zig`; keep them versioned until the stale `uucode` generator path is repaired.
 - 2026-04-15: `scripts/package-windows.ps1` must build with `-Demit-lib-vt=true`; otherwise warm local trees can mask that fresh CI runners never produced `zig-out/bin/ghostty-vt.dll`.
+- 2026-04-15: In this Windows-focused fork, `nix/package.nix` and `nix/libghostty-vt.nix` can silently stale when `dist/linux` is removed; salvage `libghostty-vt`, but make the GTK/Linux app derivation fail fast with an explicit unsupported message.

@@ -28,6 +28,8 @@
   };
   strip = optimize != "Debug" && optimize != "ReleaseSafe";
 in
+  assert lib.assertMsg (builtins.pathExists ../dist/linux)
+    "winghostty no longer ships dist/linux; nix/package.nix still targets the upstream GTK/Linux app and is unsupported in this Windows-focused fork";
   stdenv.mkDerivation (finalAttrs: {
     pname = "ghostty";
     version = "1.3.2-dev";
@@ -35,8 +37,7 @@ in
     # We limit source like this to try and reduce the amount of rebuilds as possible
     # thus we only provide the source that is needed for the build
     #
-    # NOTE: as of the current moment only linux files are provided,
-    # since darwin support is not finished
+    # NOTE: this derivation is for the retained upstream GTK/Linux app.
     src = lib.fileset.toSource {
       root = ../.;
       fileset = lib.fileset.intersection (lib.fileset.fromSource (lib.sources.cleanSource ../.)) (

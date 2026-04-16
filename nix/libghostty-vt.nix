@@ -16,13 +16,12 @@ stdenv.mkDerivation (finalAttrs: {
   # We limit source like this to try and reduce the amount of rebuilds as possible
   # thus we only provide the source that is needed for the build
   #
-  # NOTE: as of the current moment only linux files are provided,
-  # since darwin support is not finished
+  # NOTE: the Windows-focused fork no longer ships dist/linux. libghostty-vt
+  # only needs the shared core/include/build inputs listed below.
   src = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.intersection (lib.fileset.fromSource (lib.sources.cleanSource ../.)) (
       lib.fileset.unions [
-        ../dist/linux
         ../images
         ../include
         ../po
