@@ -1679,6 +1679,179 @@ pub const CAPI = struct {
         ptr.deinit();
     }
 
+    // ghostty_cell_s
+    const CellOut = extern struct {
+        codepoint: u32,
+        fg_rgb: u32,
+        bg_rgb: u32,
+        flags: u16,
+        _reserved: u16,
+    };
+
+    // ghostty_cells_s
+    const Cells = extern struct {
+        cells: ?[*]CellOut,
+        cells_len: usize,
+        cols: u32,
+        rows: u32,
+        cursor_x: u32,
+        cursor_y: u32,
+        cursor_visible: bool,
+    };
+
+    const CellFlag = struct {
+        const bold: u16 = 1 << 0;
+        const italic: u16 = 1 << 1;
+        const faint: u16 = 1 << 2;
+        const blink: u16 = 1 << 3;
+        const inverse: u16 = 1 << 4;
+        const invisible: u16 = 1 << 5;
+        const strike: u16 = 1 << 6;
+        const underline: u16 = 1 << 7;
+        const overline: u16 = 1 << 8;
+        const wide: u16 = 1 << 9;
+        const spacer: u16 = 1 << 10;
+    };
+
+    /// Read the current viewport as a grid of cells with resolved colors
+    /// and attribute flags. Allocates `out.cells`; caller must free with
+    /// `ghostty_surface_free_cells`.
+    export fn ghostty_surface_read_cells(
+        surface: *Surface,
+        out: *Cells,
+    ) bool {
+        const core_surface = &surface.core_surface;
+        core_surface.renderer_state.mutex.lock();
+        defer core_surface.renderer_state.mutex.unlock();
+
+        const t = core_surface.renderer_state.terminal;
+        const screen = t.screens.active;
+        const cols: u32 = @intCast(screen.pages.cols);
+        const rows: u32 = @intCast(screen.pages.rows);
+        const total: usize = @as(usize, cols) * @as(usize, rows);
+
+        const default_fg = t.colors.foreground.get() orelse
+            terminal.color.RGB{ .r = 0xff, .g = 0xff, .b = 0xff };
+        const default_bg = t.colors.background.get() orelse
+            terminal.color.RGB{ .r = 0, .g = 0, .b = 0 };
+
+        var fg_eff = default_fg;
+        var bg_eff = default_bg;
+        if (t.modes.get(.reverse_colors)) {
+            fg_eff = default_bg;
+            bg_eff = default_fg;
+        }
+
+        const palette = &t.colors.palette.current;
+
+        const out_cells = global.alloc.alloc(CellOut, total) catch {
+            out.* = .{
+                .cells = null,
+                .cells_len = 0,
+                .cols = cols,
+                .rows = rows,
+                .cursor_x = 0,
+                .cursor_y = 0,
+                .cursor_visible = false,
+            };
+            return false;
+        };
+        @memset(out_cells, .{
+            .codepoint = 0,
+            .fg_rgb = rgbPack(fg_eff),
+            .bg_rgb = rgbPack(bg_eff),
+            .flags = 0,
+            ._reserved = 0,
+        });
+
+        var row_it = screen.pages.rowIterator(
+            .right_down,
+            .{ .viewport = .{} },
+            null,
+        );
+        var y: usize = 0;
+        while (row_it.next()) |row_pin| : (y += 1) {
+            if (y >= rows) break;
+            const p = &row_pin.node.data;
+            const rac = row_pin.rowAndCell();
+            const row_cells = p.getCells(rac.row);
+            const len = @min(row_cells.len, cols);
+            var x: usize = 0;
+            while (x < len) : (x += 1) {
+                const page_cell = &row_cells[x];
+                const style: terminal.Style = if (page_cell.style_id > 0)
+                    p.styles.get(p.memory, page_cell.style_id).*
+                else
+                    .{};
+
+                const style_bg = style.bg(page_cell, palette);
+                const style_fg = style.fg(.{
+                    .default = fg_eff,
+                    .palette = palette,
+                });
+
+                var final_fg = style_fg;
+                var final_bg = style_bg orelse bg_eff;
+                if (style.flags.inverse) {
+                    const tmp = final_fg;
+                    final_fg = final_bg;
+                    final_bg = tmp;
+                }
+
+                var flags: u16 = 0;
+                if (style.flags.bold) flags |= CellFlag.bold;
+                if (style.flags.italic) flags |= CellFlag.italic;
+                if (style.flags.faint) flags |= CellFlag.faint;
+                if (style.flags.blink) flags |= CellFlag.blink;
+                if (style.flags.inverse) flags |= CellFlag.inverse;
+                if (style.flags.invisible) flags |= CellFlag.invisible;
+                if (style.flags.strikethrough) flags |= CellFlag.strike;
+                if (style.flags.overline) flags |= CellFlag.overline;
+                if (style.flags.underline != .none) flags |= CellFlag.underline;
+                switch (page_cell.wide) {
+                    .wide => flags |= CellFlag.wide,
+                    .spacer_tail, .spacer_head => flags |= CellFlag.spacer,
+                    .narrow => {},
+                }
+
+                out_cells[y * cols + x] = .{
+                    .codepoint = page_cell.codepoint(),
+                    .fg_rgb = rgbPack(final_fg),
+                    .bg_rgb = rgbPack(final_bg),
+                    .flags = flags,
+                    ._reserved = 0,
+                };
+            }
+        }
+
+        const cursor_visible = t.modes.get(.cursor_visible);
+        const cursor_x: u32 = @intCast(screen.cursor.x);
+        const cursor_y: u32 = @intCast(screen.cursor.y);
+
+        out.* = .{
+            .cells = out_cells.ptr,
+            .cells_len = total,
+            .cols = cols,
+            .rows = rows,
+            .cursor_x = cursor_x,
+            .cursor_y = cursor_y,
+            .cursor_visible = cursor_visible,
+        };
+        return true;
+    }
+
+    export fn ghostty_surface_free_cells(_: *Surface, ptr: *Cells) void {
+        if (ptr.cells) |p| {
+            global.alloc.free(p[0..ptr.cells_len]);
+            ptr.cells = null;
+            ptr.cells_len = 0;
+        }
+    }
+
+    inline fn rgbPack(c: terminal.color.RGB) u32 {
+        return (@as(u32, c.r) << 16) | (@as(u32, c.g) << 8) | @as(u32, c.b);
+    }
+
     /// Tell the surface that it needs to schedule a render
     export fn ghostty_surface_refresh(surface: *Surface) void {
         surface.refresh();

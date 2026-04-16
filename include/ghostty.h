@@ -416,6 +416,39 @@ typedef struct {
 } ghostty_text_s;
 
 typedef enum {
+  GHOSTTY_CELL_FLAG_NONE      = 0,
+  GHOSTTY_CELL_FLAG_BOLD      = 1 << 0,
+  GHOSTTY_CELL_FLAG_ITALIC    = 1 << 1,
+  GHOSTTY_CELL_FLAG_FAINT     = 1 << 2,
+  GHOSTTY_CELL_FLAG_BLINK     = 1 << 3,
+  GHOSTTY_CELL_FLAG_INVERSE   = 1 << 4,
+  GHOSTTY_CELL_FLAG_INVISIBLE = 1 << 5,
+  GHOSTTY_CELL_FLAG_STRIKE    = 1 << 6,
+  GHOSTTY_CELL_FLAG_UNDERLINE = 1 << 7,
+  GHOSTTY_CELL_FLAG_OVERLINE  = 1 << 8,
+  GHOSTTY_CELL_FLAG_WIDE      = 1 << 9,
+  GHOSTTY_CELL_FLAG_SPACER    = 1 << 10,
+} ghostty_cell_flags_e;
+
+typedef struct {
+  uint32_t codepoint;
+  uint32_t fg_rgb;
+  uint32_t bg_rgb;
+  uint16_t flags;
+  uint16_t _reserved;
+} ghostty_cell_s;
+
+typedef struct {
+  ghostty_cell_s* cells;
+  uintptr_t cells_len;
+  uint32_t cols;
+  uint32_t rows;
+  uint32_t cursor_x;
+  uint32_t cursor_y;
+  bool cursor_visible;
+} ghostty_cells_s;
+
+typedef enum {
   GHOSTTY_POINT_ACTIVE,
   GHOSTTY_POINT_VIEWPORT,
   GHOSTTY_POINT_SCREEN,
@@ -1159,6 +1192,8 @@ GHOSTTY_API bool ghostty_surface_read_text(ghostty_surface_t,
                                               ghostty_selection_s,
                                               ghostty_text_s*);
 GHOSTTY_API void ghostty_surface_free_text(ghostty_surface_t, ghostty_text_s*);
+GHOSTTY_API bool ghostty_surface_read_cells(ghostty_surface_t, ghostty_cells_s*);
+GHOSTTY_API void ghostty_surface_free_cells(ghostty_surface_t, ghostty_cells_s*);
 
 #ifdef __APPLE__
 GHOSTTY_API void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);
