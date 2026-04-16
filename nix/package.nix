@@ -130,7 +130,7 @@ in
     '';
 
     meta = {
-      homepage = "https://ghostty.org";
+      homepage = "https://github.com/amanthanvi/winghostty";
       license = lib.licenses.mit;
       platforms = [
         "x86_64-linux"
