@@ -4,11 +4,9 @@
 # headers, and pkg-config file. It exists so that CMake-based projects can
 # consume libghostty-vt without interacting with the Zig build system
 # directly. However, downstream users do still require `zig` on the PATH.
-# Please consult the Ghostty docs for the required Zig version:
+# See dist/cmake/README.md and the repo build docs for toolchain details.
 #
-# https://ghostty.org/docs/install/build
-#
-# Building within the Ghostty repo
+# Building within the winghostty repo
 # ---------------------------------
 #
 #   cmake -B build
@@ -25,18 +23,18 @@
 # Option 1 — FetchContent (recommended, no manual install step):
 #
 #   include(FetchContent)
-#   FetchContent_Declare(ghostty
-#       GIT_REPOSITORY https://github.com/ghostty-org/ghostty.git
+#   FetchContent_Declare(winghostty
+#       GIT_REPOSITORY https://github.com/amanthanvi/winghostty.git
 #       GIT_TAG main
 #   )
-#   FetchContent_MakeAvailable(ghostty)
+#   FetchContent_MakeAvailable(winghostty)
 #
 #   target_link_libraries(myapp PRIVATE ghostty-vt)        # shared
 #   target_link_libraries(myapp PRIVATE ghostty-vt-static) # static
 #
 # To use a local checkout instead of fetching:
 #
-#   cmake -B build -DFETCHCONTENT_SOURCE_DIR_GHOSTTY=/path/to/ghostty
+#   cmake -B build -DFETCHCONTENT_SOURCE_DIR_WINGHOSTTY=/path/to/winghostty
 #
 # Option 2 — find_package (after installing to a prefix):
 #
