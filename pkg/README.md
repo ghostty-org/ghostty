@@ -1,16 +1,16 @@
 # Packages
 
-This folder contains packages written for and used by Ghostty that could
-potentially be useful for other projects. These are in-tree with Ghostty
-because I don't want to maintain them as separate projects (i.e. get
-dedicated issues, PRs, etc.). If you want to use them, you can copy and
+This folder contains packages written for and used by winghostty that could
+potentially be useful for other projects. These are kept in-tree with
+winghostty because maintaining them as separate projects would mean
+dedicated issues, PRs, etc. If you want to use them, you can copy and
 paste them into your project.
 
 ## License
 
 **This license only applies to the contents of the `pkg` folder within
-the Ghostty project. This license does not apply to the rest of the
-Ghostty project.**
+the winghostty project. This license does not apply to the rest of the
+winghostty project.**
 
 Copyright © 2024 Mitchell Hashimoto, Ghostty contributors
 

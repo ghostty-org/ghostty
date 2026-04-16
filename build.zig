@@ -53,7 +53,7 @@ pub fn build(b: *std.Build) !void {
         test_filters.len > 0 or
         want_lib_vt_graph;
 
-    // Ghostty dependencies used by many artifacts.
+    // Shared dependencies used by many artifacts.
     const deps = try SharedDeps.init(b, &config);
 
     // All our steps which we'll hook up later. The steps are shown
@@ -89,7 +89,7 @@ pub fn build(b: *std.Build) !void {
         break :resources try GhosttyResources.init(b, &config, &deps);
     } else null;
 
-    // Ghostty executable, the actual runnable Ghostty program.
+    // winghostty executable, the actual runnable app binary.
     const exe = try GhosttyExe.init(b, &config, &deps);
 
     // libghostty-vt is retained in this fork, but normal app builds

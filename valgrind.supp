@@ -1,8 +1,8 @@
-# This Valgrind suppression file contains the suppressions necessary
-# to run Ghostty with GTK under Valgrind. There may be some false suppressions
-# here so we should scrutinize this file periodically.
+# This retained Valgrind suppression file contains the suppressions needed
+# to run the upstream GTK app under Valgrind. There may be some false
+# suppressions here so we should scrutinize this file periodically.
 #
-# To run Ghostty under Valgrind:
+# For the upstream GTK app, run under Valgrind with:
 #
 #   valgrind \
 #     --leak-check=full \
@@ -10,12 +10,12 @@
 #     --suppressions=valgrind.supp \
 #     ./zig-out/bin/ghostty
 #
-# You must gracefully exit Ghostty (do not SIGINT) by closing all windows
-# and quitting. Otherwise, we leave a number of GTK resources around.
+# You must gracefully exit the app (do not SIGINT) by closing all windows
+# and quitting. Otherwise, GTK leaves a number of resources around.
 
 
 # Reproduction: 
-# 1. Launch Ghostty (no config)
+# 1. Launch the GTK app (no config)
 # 2. Right Click on the terminal
 # 3. Hover over "Split" to get a submenu
 # 4. Close menu by clicking away
@@ -47,7 +47,7 @@
 
 # Reproduction:
 #
-# 1. Launch Ghostty
+# 1. Launch the GTK app
 # 2. Split Right
 # 3. Hit "X" to close
 {
