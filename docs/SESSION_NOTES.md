@@ -1,5 +1,36 @@
 # Session Notes — Ghostties
 
+## Apr 16, 2026 (Session 18)
+
+### v0.1.0 Distribution Pipeline — Planning + CI Setup
+
+Planned and began implementing the v0.1.0 Beta Distribution milestone. Goal: direct DMG download via GitHub Releases with Sparkle auto-update (beta + stable channels).
+
+**Key decisions:**
+
+- Distribution via GitHub Releases (not ghostties.org) — free, zero infra, right audience
+- Skip zig build in CI — use committed `GhosttyKit.xcframework` directly (zig broken on macOS 26)
+- Appcast hosted as GitHub Release assets (`appcast-stable.xml`, `appcast-beta.xml`)
+- Sparkle public key: `p4A5Tc5lUgQGbOEnOGesE7YA+EPePQxKiLrKdRfvdMg=`
+
+**What shipped (commit `a8b390749`):**
+
+- `.github/workflows/ghostties-release.yml` — full release pipeline: build → codesign → DMG → notarize → appcast → GitHub Release
+- `macos/Sources/Features/Update/UpdateDelegate.swift` — URLs swapped from upstream ghostty.org to GitHub Releases appcast URLs
+- `macos/Ghostties.xcodeproj/project.pbxproj` — `MARKETING_VERSION` normalized to `0.1.0` across all configs
+
+**Linear:**
+
+- Created milestone "v0.1.0 — Beta Distribution" with SEA-135 through SEA-139
+- Created 7 backlog bugs: SEA-140 through SEA-146
+- SEA-136, SEA-137, SEA-139 → Done; SEA-135 → In Progress (user adding GitHub secrets)
+
+**Remaining before first release:**
+
+1. SEA-135: Add 9 GitHub secrets (Sparkle key, Developer ID cert, notarization API key)
+2. SEA-138: Investigate Finder permission error on release build (may self-resolve with proper codesigning)
+3. `git tag v0.1.0-beta.1 && git push --tags` → CI does the rest
+
 ## Apr 13, 2026 (Session 17)
 
 ### Post-Compact Fixes — Bg Model Correction
