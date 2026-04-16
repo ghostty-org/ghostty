@@ -171,7 +171,7 @@ const Boo = struct {
     }
 };
 
-/// The `boo` command is used to display the animation from the Ghostty website in the terminal
+/// The `boo` command is used to display the project animation in the terminal.
 pub fn run(gpa: Allocator) !u8 {
     // Disable on non-desktop systems.
     switch (builtin.os.tag) {

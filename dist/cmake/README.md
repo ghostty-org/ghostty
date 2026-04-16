@@ -13,11 +13,11 @@ Add the following to your project's `CMakeLists.txt`:
 
 ```cmake
 include(FetchContent)
-FetchContent_Declare(ghostty
+FetchContent_Declare(winghostty
     GIT_REPOSITORY https://github.com/amanthanvi/winghostty.git
     GIT_TAG main
 )
-FetchContent_MakeAvailable(ghostty)
+FetchContent_MakeAvailable(winghostty)
 
 add_executable(myapp main.c)
 target_link_libraries(myapp PRIVATE ghostty-vt)
@@ -33,7 +33,7 @@ If you already have the winghostty source checked out, skip the download by
 pointing CMake at it:
 
 ```shell-session
-cmake -B build -DFETCHCONTENT_SOURCE_DIR_GHOSTTY=/path/to/winghostty
+cmake -B build -DFETCHCONTENT_SOURCE_DIR_WINGHOSTTY=/path/to/winghostty
 cmake --build build
 ```
 

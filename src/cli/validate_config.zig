@@ -20,7 +20,7 @@ pub const Options = struct {
     }
 };
 
-/// The `validate-config` command is used to validate a Ghostty config file.
+/// The `validate-config` command is used to validate a winghostty config file.
 ///
 /// When executed without any arguments, this will load the config from the default
 /// location.

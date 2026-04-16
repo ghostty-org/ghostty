@@ -40,7 +40,7 @@ pub const Options = struct {
     }
 };
 
-/// The `show-face` command shows what font face Ghostty will use to render a
+/// The `show-face` command shows what font face winghostty will use to render a
 /// specific codepoint. Note that this command does not take into consideration
 /// grapheme clustering or any other Unicode features that might modify the
 /// presentation of a codepoint, so this may show a different font face than
@@ -93,8 +93,8 @@ fn runArgs(
     // Its possible to build Ghostty without font discovery!
     if (comptime font.Discover == void) {
         try stderr.print(
-            \\Ghostty was built without a font discovery mechanism. This is a compile-time
-            \\option. Please review how Ghostty was built from source, contact the
+            \\winghostty was built without a font discovery mechanism. This is a compile-time
+            \\option. Please review how winghostty was built from source, contact the
             \\maintainer to enable a font discovery mechanism, and try again.
         ,
             .{},

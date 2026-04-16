@@ -21,17 +21,17 @@ pub const Options = struct {
     }
 };
 
-/// The `edit-config` command opens the Ghostty configuration file in the
+/// The `edit-config` command opens the winghostty configuration file in the
 /// editor specified by the `$VISUAL` or `$EDITOR` environment variables.
 ///
 /// IMPORTANT: This command will not reload the configuration after
 /// editing. You will need to manually reload the configuration using the
-/// application menu, configured keybind, or by restarting Ghostty. We
-/// plan to auto-reload in the future, but Ghostty isn't capable of
+/// application menu, configured keybind, or by restarting winghostty. We
+/// plan to auto-reload in the future, but winghostty isn't capable of
 /// this yet.
 ///
 /// The filepath opened is the default user-specific configuration
-/// file for Ghostty.
+/// file for winghostty.
 ///
 /// This command prefers the `$VISUAL` environment variable over `$EDITOR`,
 /// if both are set. On Windows, if neither are set, the configuration file
@@ -105,7 +105,7 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
     if (editor.len == 0) {
         try stderr.print(
             \\The $EDITOR or $VISUAL environment variable is not set or is empty.
-            \\This environment variable is required to edit the Ghostty configuration
+            \\This environment variable is required to edit the winghostty configuration
             \\via this CLI command.
             \\
             \\Please set the environment variable to your preferred terminal

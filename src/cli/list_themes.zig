@@ -81,8 +81,8 @@ const ThemeListElement = struct {
 /// Two different directories will be searched for themes.
 ///
 /// The first directory is the `themes` subdirectory of your winghostty
-/// configuration directory. This is `$XDG_CONFIG_HOME/ghostty/themes` or
-/// `~/.config/ghostty/themes`.
+/// configuration directory. This is `$XDG_CONFIG_HOME/winghostty/themes` or
+/// `~/.config/winghostty/themes`.
 ///
 /// The second directory is the `themes` subdirectory of the resources
 /// directory. winghostty ships with a multitude of themes that will be installed
@@ -1596,14 +1596,14 @@ const Preview = struct {
                 }
                 _ = child.print(
                     &.{
-                        .{ .text = "ghostty ", .style = color6 },
+                        .{ .text = "winghostty ", .style = color6 },
                         .{ .text = "on ", .style = standard },
                         .{ .text = " main ", .style = color4 },
                         .{ .text = "[+] ", .style = color1 },
                         .{ .text = "via ", .style = standard },
                         .{ .text = " v0.13.0 ", .style = color3 },
                         .{ .text = "via ", .style = standard },
-                        .{ .text = "  impure (ghostty-env)", .style = color4 },
+                        .{ .text = "  impure (winghostty-env)", .style = color4 },
                     },
                     .{
                         .row_offset = 22,

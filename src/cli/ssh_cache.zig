@@ -26,7 +26,7 @@ pub const Options = struct {
 /// Manage the SSH terminfo cache for automatic remote host setup.
 ///
 /// When SSH integration is enabled with `shell-integration-features = ssh-terminfo`,
-/// Ghostty automatically installs its terminfo on remote hosts. This command
+/// winghostty automatically installs its terminfo on remote hosts. This command
 /// manages the cache of successful installations to avoid redundant uploads.
 ///
 /// The cache stores hostnames (or user@hostname combinations) along with timestamps.
@@ -39,13 +39,13 @@ pub const Options = struct {
 /// multiple actions into separate commands.
 ///
 /// Examples:
-///   ghostty +ssh-cache                          # List all cached hosts
-///   ghostty +ssh-cache --host=example.com       # Check if host is cached
-///   ghostty +ssh-cache --add=example.com        # Manually add host to cache
-///   ghostty +ssh-cache --add=user@example.com   # Add user@host combination
-///   ghostty +ssh-cache --remove=example.com     # Remove host from cache
-///   ghostty +ssh-cache --clear                  # Clear entire cache
-///   ghostty +ssh-cache --expire-days=30         # Set custom expiration period
+///   winghostty +ssh-cache                          # List all cached hosts
+///   winghostty +ssh-cache --host=example.com       # Check if host is cached
+///   winghostty +ssh-cache --add=example.com        # Manually add host to cache
+///   winghostty +ssh-cache --add=user@example.com   # Add user@host combination
+///   winghostty +ssh-cache --remove=example.com     # Remove host from cache
+///   winghostty +ssh-cache --clear                  # Clear entire cache
+///   winghostty +ssh-cache --expire-days=30         # Set custom expiration period
 pub fn run(alloc_gpa: Allocator) !u8 {
     var arena = std.heap.ArenaAllocator.init(alloc_gpa);
     defer arena.deinit();
@@ -162,13 +162,13 @@ pub fn runInner(
 
         if (cached) {
             try stdout.print(
-                "'{s}' has Ghostty terminfo installed.\n",
+                "'{s}' has winghostty terminfo installed.\n",
                 .{host},
             );
             return 0;
         } else {
             try stdout.print(
-                "'{s}' does not have Ghostty terminfo installed.\n",
+                "'{s}' does not have winghostty terminfo installed.\n",
                 .{host},
             );
             return 1;
