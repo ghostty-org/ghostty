@@ -1,6 +1,6 @@
 # Examples
 
-Standalone projects demonstrating the Ghostty library APIs.
+Standalone projects demonstrating the retained `ghostty-vt` library APIs.
 The directories starting with `c-` use the C API and the directories
 starting with `zig-` use the Zig API.
 
