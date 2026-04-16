@@ -95,7 +95,7 @@
           "fill" : "automatic",
           "hidden" : false,
           "image-name" : "Ghostty.png",
-          "name" : "Ghostty",
+          "name" : "winghostty",
           "position" : {
             "scale" : 1,
             "translation-in-points" : [
@@ -112,7 +112,7 @@
           "glass" : true,
           "hidden" : false,
           "image-name" : "Ghostty.png",
-          "name" : "GhosttyBlur",
+          "name" : "winghosttyBlur",
           "position" : {
             "scale" : 1,
             "translation-in-points" : [
