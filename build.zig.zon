@@ -63,5 +63,10 @@
             .hash = "N-V-__8AAMVLTABmYkLqhZPLXnMl-KyN38R8UVYqGrxqO26s",
             .lazy = true,
         },
+        .iterm2_themes = .{
+            .url = "https://deps.files.ghostty.org/ghostty-themes-release-20260323-152405-a2c7b60.tgz",
+            .hash = "N-V-__8AAL6FAwBDPampKgDjoxlJYDIn2jv0VaINS4W6CXJN",
+            .lazy = true,
+        },
     },
 }

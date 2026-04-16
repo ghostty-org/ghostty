@@ -48,3 +48,4 @@ A file for [guiding coding agents](https://agents.md/).
 - 2026-04-15: On Win32, do not trust `wsl.exe --status` as proof that WSL is a safe implicit default shell; actual `wsl.exe` session launch can still fail, so prefer the preview/non-WSL default path unless WSL is explicitly selected.
 - 2026-04-15: In `scripts/package-windows.ps1`, avoid `Compress-Archive` for the portable ZIP; on Windows it can intermittently fail on staged theme files with spaces (for example `Monokai Classic`) even when staging itself is correct.
 - 2026-04-15: Fresh GitHub Actions checkouts cannot build or test without `src/unicode/generated_props.zig` and `src/unicode/generated_symbols.zig`; keep them versioned until the stale `uucode` generator path is repaired.
+- 2026-04-15: `scripts/package-windows.ps1` must build with `-Demit-lib-vt=true`; otherwise warm local trees can mask that fresh CI runners never produced `zig-out/bin/ghostty-vt.dll`.

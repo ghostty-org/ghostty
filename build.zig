@@ -77,12 +77,13 @@ pub fn build(b: *std.Build) !void {
         "Update translation files",
     );
 
-    // The Windows-only fork doesn't generate Unix-focused install resources
-    // for the default local exe build. They can remain opt-in elsewhere.
+    // The Windows-only fork keeps the default local exe build lean, but
+    // packaging builds opt back into install resources by also enabling
+    // emit-lib-vt. The package script depends on the installed share tree.
     const install_resources =
         config.emit_exe and
         config.app_runtime != .none and
-        config.target.result.os.tag != .windows;
+        (config.target.result.os.tag != .windows or config.emit_lib_vt);
     const resources = if (install_resources) resources: {
         const GhosttyResources = @import("src/build/GhosttyResources.zig");
         break :resources try GhosttyResources.init(b, &config, &deps);

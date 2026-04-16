@@ -24,6 +24,10 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
     });
     build_data_exe.linkLibC();
 
+    const build_data_options = b.addOptions();
+    try cfg.addOptions(build_data_options);
+    build_data_exe.root_module.addOptions("build_options", build_data_options);
+
     deps.help_strings.addImport(build_data_exe);
 
     // Terminfo

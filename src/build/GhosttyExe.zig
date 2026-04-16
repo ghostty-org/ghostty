@@ -29,9 +29,9 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
     // Set PIE if requested
     if (cfg.pie) exe.pie = true;
 
-    // Add the shared dependencies. When building only lib-vt we skip
-    // heavy deps so cross-compilation doesn't pull in GTK, etc.
-    if (!cfg.emit_lib_vt) _ = try deps.add(exe);
+    // The app executable always needs the shared dependency wiring,
+    // including build_options and generated imports.
+    _ = try deps.add(exe);
 
     // Windows-only fork: app builds no longer carry Nix/Linux-specific
     // launch guidance or rpath mutation behavior.
