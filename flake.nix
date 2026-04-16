@@ -59,7 +59,7 @@
     # Our supported systems are the same supported systems as the Zig binaries.
     platforms = lib.attrNames zig.packages;
 
-    # It's not always possible to build Ghostty with Nix for each system,
+    # It's not always possible to build winghostty with Nix for each system,
     # one such example being macOS due to missing Swift 6 and xcodebuild
     # support in the Nix ecosystem. Therefore for things like package outputs
     # we need to limit the attributes we expose.
