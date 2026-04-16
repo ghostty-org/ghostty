@@ -9,8 +9,8 @@ pub fn build(b: *std.Build) !void {
 
 /// Setup the step to point to the proper Apple SDK for libc and
 /// frameworks. This expects and relies on the native SDK being
-/// installed on the system. Ghostty doesn't support cross-compilation
-/// for Apple platforms.
+/// installed on the system. The retained Apple build support in this
+/// fork does not support cross-compilation for Apple platforms.
 pub fn addPaths(
     b: *std.Build,
     step: *std.Build.Step.Compile,
