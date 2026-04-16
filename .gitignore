@@ -36,5 +36,3 @@ vgcore.*
 /cdb-*.txt
 /commit-msg.txt
 /src/help_strings.zig
-/src/unicode/generated_props.zig
-/src/unicode/generated_symbols.zig
