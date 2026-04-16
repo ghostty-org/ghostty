@@ -1,6 +1,6 @@
 # WebAssembly Key Encoder Example
 
-This example demonstrates how to use the Ghostty VT library from WebAssembly
+This example demonstrates how to use the `ghostty-vt` library from WebAssembly
 to encode key events into terminal escape sequences.
 
 ## Building
@@ -18,7 +18,7 @@ This will create `zig-out/bin/ghostty-vt.wasm`.
 **Important:** You must serve this via HTTP, not open it as a file directly.
 Browsers block loading WASM files from `file://` URLs.
 
-From the **root of the ghostty repository**, serve with a local HTTP server:
+From the **root of the winghostty repository**, serve with a local HTTP server:
 
 ```bash
 # Using Python (recommended)
