@@ -218,6 +218,35 @@ pub const Contents = struct {
     }
 };
 
+/// Dirty tracking for row-oriented background uploads.
+pub const DirtyRows = union(enum) {
+    none,
+    full,
+    range: struct {
+        start: usize,
+        end: usize,
+    },
+
+    pub fn markFull(self: *DirtyRows) void {
+        self.* = .full;
+    }
+
+    pub fn includeRow(self: *DirtyRows, row: usize) void {
+        switch (self.*) {
+            .none => self.* = .{ .range = .{ .start = row, .end = row + 1 } },
+            .full => {},
+            .range => |*range| {
+                range.start = @min(range.start, row);
+                range.end = @max(range.end, row + 1);
+            },
+        }
+    }
+
+    pub fn reset(self: *DirtyRows) void {
+        self.* = .none;
+    }
+};
+
 /// Returns true if a codepoint for a cell is a covering character. A covering
 /// character is a character that covers the entire cell. This is used to
 /// make window-padding-color=extend work better. See #2099.
@@ -504,6 +533,29 @@ test "Contents with zero-sized screen" {
 
     c.setCursor(null, null);
     try testing.expect(c.getCursorGlyph() == null);
+}
+
+test "DirtyRows tracks contiguous bounds" {
+    const testing = std.testing;
+
+    var rows: DirtyRows = .none;
+    rows.includeRow(4);
+    rows.includeRow(6);
+    rows.includeRow(5);
+
+    switch (rows) {
+        .range => |range| {
+            try testing.expectEqual(@as(usize, 4), range.start);
+            try testing.expectEqual(@as(usize, 7), range.end);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+
+    rows.markFull();
+    try testing.expect(rows == .full);
+
+    rows.reset();
+    try testing.expect(rows == .none);
 }
 
 test "Cell constraint widths" {

@@ -88,7 +88,27 @@ pub fn Buffer(comptime T: type) type {
             }
 
             // We can fit within the buffer so we can just replace bytes.
+            if (data.len == 0) return;
             try binding.setSubData(0, data);
+        }
+
+        /// Sync a contiguous subrange to the buffer starting at the given
+        /// element offset.
+        pub fn syncRange(self: *Self, offset: usize, data: []const T) !void {
+            const binding = try self.buffer.bind(self.opts.target);
+            defer binding.unbind();
+
+            const required_len = offset + data.len;
+            if (required_len > self.len) {
+                self.len = required_len * 2;
+                try binding.setDataNullManual(
+                    self.len * @sizeOf(T),
+                    self.opts.usage,
+                );
+            }
+
+            if (data.len == 0) return;
+            try binding.setSubData(offset * @sizeOf(T), data);
         }
 
         /// Like Buffer.sync but takes data from an array of ArrayLists,
@@ -116,8 +136,47 @@ pub fn Buffer(comptime T: type) type {
             var i: usize = 0;
 
             for (lists) |list| {
+                if (list.items.len == 0) continue;
                 try binding.setSubData(i, list.items);
                 i += list.items.len * @sizeOf(T);
+            }
+
+            return total_len;
+        }
+
+        /// Like Buffer.syncFromArrayLists but only uploads the suffix
+        /// starting at the given list index. Returns the total item count
+        /// across all lists.
+        pub fn syncFromArrayListsStart(
+            self: *Self,
+            lists: []const std.ArrayListUnmanaged(T),
+            start_index: usize,
+        ) !usize {
+            const binding = try self.buffer.bind(self.opts.target);
+            defer binding.unbind();
+
+            const start = @min(start_index, lists.len);
+
+            var total_len: usize = 0;
+            var prefix_len: usize = 0;
+            for (lists, 0..) |list, i| {
+                total_len += list.items.len;
+                if (i < start) prefix_len += list.items.len;
+            }
+
+            if (total_len > self.len) {
+                self.len = total_len * 2;
+                try binding.setDataNullManual(
+                    self.len * @sizeOf(T),
+                    self.opts.usage,
+                );
+            }
+
+            var offset = prefix_len * @sizeOf(T);
+            for (lists[start..]) |list| {
+                if (list.items.len == 0) continue;
+                try binding.setSubData(offset, list.items);
+                offset += list.items.len * @sizeOf(T);
             }
 
             return total_len;

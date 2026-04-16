@@ -657,35 +657,48 @@ pub fn focusGained(self: *Termio, td: *ThreadData, focused: bool) !void {
 /// call with pty data but it is also called by the read thread when using
 /// an exec subprocess.
 pub fn processOutput(self: *Termio, buf: []const u8) void {
-    // We are modifying terminal state from here on out and we need
-    // the lock to grab our read data.
-    self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
-    self.processOutputLocked(buf);
+    const should_render = render: {
+        // We are modifying terminal state from here on out and we need
+        // the lock to grab our read data.
+        self.renderer_state.mutex.lock();
+        defer self.renderer_state.mutex.unlock();
+        const had_render_work = terminalNeedsRendererWake(&self.terminal);
+        const queued_renderer_message = self.processOutputLocked(buf);
+        const has_render_work = terminalNeedsRendererWake(&self.terminal);
+        break :render !had_render_work and (has_render_work or queued_renderer_message);
+    };
+
+    if (should_render) {
+        // Wake the renderer after parsing so it doesn't contend on the
+        // terminal mutex while the PTY thread is still mutating state.
+        self.terminal_stream.handler.queueRender() catch unreachable;
+    }
 }
 
 /// Process output from readdata but the lock is already held.
-fn processOutputLocked(self: *Termio, buf: []const u8) void {
-    // Schedule a render. We can call this first because we have the lock.
-    self.terminal_stream.handler.queueRender() catch unreachable;
+fn processOutputLocked(self: *Termio, buf: []const u8) bool {
+    var queued_renderer_message = false;
 
     // Whenever a character is typed, we ensure the cursor is in the
     // non-blink state so it is rendered if visible. If we're under
     // HEAVY read load, we don't want to send a ton of these so we
     // use a timer under the covers
-    if (std.time.Instant.now()) |now| cursor_reset: {
-        if (self.last_cursor_reset) |last| {
-            if (now.since(last) <= (500 * std.time.ns_per_ms)) {
-                break :cursor_reset;
+    if (buf.len > 0) {
+        if (std.time.Instant.now()) |now| cursor_reset: {
+            if (self.last_cursor_reset) |last| {
+                if (now.since(last) <= (500 * std.time.ns_per_ms)) {
+                    break :cursor_reset;
+                }
             }
-        }
 
-        self.last_cursor_reset = now;
-        _ = self.renderer_mailbox.push(.{
-            .reset_cursor_blink = {},
-        }, .{ .instant = {} });
-    } else |err| {
-        log.warn("failed to get current time err={}", .{err});
+            self.last_cursor_reset = now;
+            _ = self.renderer_mailbox.push(.{
+                .reset_cursor_blink = {},
+            }, .{ .instant = {} });
+            queued_renderer_message = true;
+        } else |err| {
+            log.warn("failed to get current time err={}", .{err});
+        }
     }
 
     // If we have an inspector, we enter SLOW MODE because we need to
@@ -714,6 +727,31 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
         self.terminal_stream.handler.termio_messaged = false;
         self.mailbox.notify();
     }
+
+    return queued_renderer_message;
+}
+
+fn terminalNeedsRendererWake(t: *const terminalpkg.Terminal) bool {
+    const screen = t.screens.active;
+
+    if (packedStructDirty(t.flags.dirty)) return true;
+    if (packedStructDirty(screen.dirty)) return true;
+    if (screen.kitty_images.dirty) return true;
+
+    // Check the viewport bottom-up so steady-state PTY output usually
+    // hits a dirty row near the cursor without scanning the full viewport.
+    var row_it = screen.pages.rowIterator(.left_up, .{ .viewport = .{} }, null);
+    while (row_it.next()) |pin| {
+        if (pin.isDirty()) return true;
+    }
+
+    return false;
+}
+
+fn packedStructDirty(value: anytype) bool {
+    const T = @TypeOf(value);
+    const Int = @typeInfo(T).@"struct".backing_integer.?;
+    return @as(Int, @bitCast(value)) != 0;
 }
 
 /// Sends a DSR response for the current color scheme to the pty.
@@ -770,4 +808,29 @@ pub const ThreadData = struct {
 /// not available on a particular platform.
 pub fn getProcessInfo(self: *Termio, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
     return self.backend.getProcessInfo(info);
+}
+
+test "terminalNeedsRendererWake tracks visible terminal dirtiness" {
+    const testing = std.testing;
+
+    var t = try terminalpkg.Terminal.init(testing.allocator, .{
+        .cols = 8,
+        .rows = 4,
+    });
+    defer t.deinit(testing.allocator);
+
+    try testing.expect(!terminalNeedsRendererWake(&t));
+
+    try t.print('x');
+    try testing.expect(terminalNeedsRendererWake(&t));
+
+    t.screens.active.pages.clearDirty();
+    try testing.expect(!terminalNeedsRendererWake(&t));
+
+    t.flags.dirty.palette = true;
+    try testing.expect(terminalNeedsRendererWake(&t));
+
+    t.flags.dirty = .{};
+    t.screens.active.kitty_images.dirty = true;
+    try testing.expect(terminalNeedsRendererWake(&t));
 }

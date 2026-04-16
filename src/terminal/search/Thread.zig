@@ -62,6 +62,10 @@ const darwin = if (builtin.os.tag.isDarwin()) struct {
 /// we hold the terminal lock too often.
 const REFRESH_INTERVAL = 24; // 40 FPS
 
+fn shouldRunRefreshTimer(has_search: bool, visible: bool, focused: bool) bool {
+    return has_search and visible and focused;
+}
+
 /// Allocator used for some state
 alloc: std.mem.Allocator,
 
@@ -87,6 +91,11 @@ stop_c: xev.Completion = .{},
 refresh: xev.Timer,
 refresh_c: xev.Completion = .{},
 refresh_active: bool = false,
+
+/// Search refreshes only need to run while the search is active and the
+/// owning surface is both visible and focused.
+visible: bool = true,
+focused: bool = true,
 
 /// Search state. Starts as null and is populated when a search is
 /// started (a needle is given).
@@ -126,6 +135,8 @@ pub fn init(alloc: Allocator, opts: Options) !Thread {
         .wakeup = wakeup_h,
         .stop = stop_h,
         .refresh = refresh_h,
+        .visible = opts.visible,
+        .focused = opts.focused,
         .opts = opts,
     };
 }
@@ -177,8 +188,8 @@ fn threadMain_(self: *Thread) !void {
     // Send an initial wakeup so we drain our mailbox immediately.
     try self.wakeup.notify();
 
-    // Start the refresh timer
-    self.startRefreshTimer();
+    // The refresh timer only runs while an active search is visible/focused.
+    self.syncRefreshTimer();
 
     // Run
     log.debug("starting search thread", .{});
@@ -263,8 +274,19 @@ fn drainMailbox(self: *Thread) !void {
             .change_needle => |v| {
                 defer v.deinit();
                 try self.changeNeedle(v.slice());
+                self.syncRefreshTimer();
             },
             .select => |v| try self.select(v),
+            .visible => |v| {
+                if (self.visible == v) continue;
+                self.visible = v;
+                self.syncRefreshTimer();
+            },
+            .focus => |v| {
+                if (self.focused == v) continue;
+                self.focused = v;
+                self.syncRefreshTimer();
+            },
         }
     }
 }
@@ -383,6 +405,15 @@ fn stopRefreshTimer(self: *Thread) void {
     self.refresh_active = false;
 }
 
+fn syncRefreshTimer(self: *Thread) void {
+    if (!shouldRunRefreshTimer(self.search != null, self.visible, self.focused)) {
+        self.stopRefreshTimer();
+        return;
+    }
+
+    self.startRefreshTimer();
+}
+
 fn wakeupCallback(
     self_: ?*Thread,
     _: *xev.Loop,
@@ -461,6 +492,11 @@ pub const Options = struct {
     /// should use our search structures directly then).
     event_cb: ?EventCallback = null,
     event_userdata: ?*anyopaque = null,
+
+    /// Initial surface visibility/focus state so the refresh timer doesn't
+    /// start polling before the owning surface is interactive.
+    visible: bool = true,
+    focused: bool = true,
 };
 
 pub const EventCallback = *const fn (event: Event, userdata: ?*anyopaque) void;
@@ -481,6 +517,12 @@ pub const Message = union(enum) {
 
     /// Select a search result.
     select: ScreenSearch.Select,
+
+    /// Surface visibility changed.
+    visible: bool,
+
+    /// Surface focus changed.
+    focus: bool,
 };
 
 /// Events that can be emitted from the search thread. The caller
@@ -921,4 +963,11 @@ test {
             .y = 0,
         } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
     }
+}
+
+test "search refresh timer requires active visible focused search" {
+    try testing.expect(shouldRunRefreshTimer(true, true, true));
+    try testing.expect(!shouldRunRefreshTimer(false, true, true));
+    try testing.expect(!shouldRunRefreshTimer(true, false, true));
+    try testing.expect(!shouldRunRefreshTimer(true, true, false));
 }

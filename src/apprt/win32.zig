@@ -758,8 +758,14 @@ const quick_terminal_title = std.unicode.utf8ToUtf16LeStringLiteral("winghostty 
 const prompt_label_class = std.unicode.utf8ToUtf16LeStringLiteral("STATIC");
 const prompt_edit_class = std.unicode.utf8ToUtf16LeStringLiteral("EDIT");
 const prompt_button_class = std.unicode.utf8ToUtf16LeStringLiteral("BUTTON");
+const prompt_ok_label_utf8 = "OK";
+const prompt_cancel_label_utf8 = "Cancel";
 const prompt_ok_label = std.unicode.utf8ToUtf16LeStringLiteral("OK");
 const prompt_cancel_label = std.unicode.utf8ToUtf16LeStringLiteral("Cancel");
+const host_overlay_command_palette_label_utf8 = "Command:";
+const host_overlay_profile_label_utf8 = "Profile:";
+const host_overlay_surface_title_label_utf8 = "Window title:";
+const host_overlay_tab_title_label_utf8 = "Tab title:";
 const host_overlay_command_palette_label = std.unicode.utf8ToUtf16LeStringLiteral("Command:");
 const host_overlay_search_label = std.unicode.utf8ToUtf16LeStringLiteral("Search:");
 const host_overlay_profile_label = std.unicode.utf8ToUtf16LeStringLiteral("Profile:");
@@ -845,6 +851,23 @@ fn shouldApplyInheritedWindowState(dst_host_id: ?u32, src_host_id: ?u32) bool {
 
 fn shouldShowSurfaceImmediately(host_id: ?u32) bool {
     return host_id == null;
+}
+
+fn shouldDispatchOcclusion(current: ?bool, visible: bool) bool {
+    return current == null or current.? != visible;
+}
+
+fn applyProfileSurfaceConfig(
+    config: *configpkg.Config,
+    profile: *const windows_shell.Profile,
+) !void {
+    const alloc = config._arena.?.allocator();
+
+    // newConfig() returns a shallow clone, so aliased fields such as
+    // command remain owned by the source config arena. Replacing command on
+    // the clone must not deinit the inherited value.
+    config.command = try profile.command.clone(alloc);
+    config.@"working-directory" = .home;
 }
 
 fn defaultIpcNamespace() []const u8 {
@@ -2461,11 +2484,7 @@ pub const App = struct {
             },
         );
         defer config.deinit();
-
-        const alloc = config._arena.?.allocator();
-        if (config.command) |command| command.deinit(alloc);
-        config.command = try profile.command.clone(alloc);
-        config.@"working-directory" = .home;
+        try applyProfileSurfaceConfig(&config, profile);
 
         const tab_id = switch (open_target) {
             .split => blk: {
@@ -2547,9 +2566,9 @@ pub const App = struct {
         for (self.hosts.items) |host| {
             host.reapplyLauncherProfilePreferences() catch {};
             if (host.overlay_mode == .profile) {
-                host.syncOverlayLabel() catch {};
-                host.syncOverlayHint() catch {};
-                host.syncOverlayButtons() catch {};
+                _ = host.syncOverlayLabel() catch false;
+                _ = host.syncOverlayHint() catch false;
+                _ = host.syncOverlayButtons() catch false;
             }
             host.refreshChrome() catch {};
         }
@@ -2565,9 +2584,9 @@ pub const App = struct {
                 _ = host.reloadProfiles() catch false;
             }
             if (host.overlay_mode == .profile) {
-                host.syncOverlayLabel() catch {};
-                host.syncOverlayHint() catch {};
-                host.syncOverlayButtons() catch {};
+                _ = host.syncOverlayLabel() catch false;
+                _ = host.syncOverlayHint() catch false;
+                _ = host.syncOverlayButtons() catch false;
             }
             host.refreshChrome() catch {};
         }
@@ -3355,6 +3374,14 @@ const HostTabStatus = struct {
     total: usize = 1,
 };
 
+const ChildPlacement = struct {
+    hwnd: ?HWND = null,
+    rect: RECT = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 },
+    rect_known: bool = false,
+    visible: bool = false,
+    visible_known: bool = false,
+};
+
 const VisibleTabRange = struct {
     start: usize,
     count: usize,
@@ -3369,14 +3396,25 @@ const TabOverviewEntry = struct {
 const SplitTreeSurface = SplitTree(Surface);
 
 const Tab = struct {
+    alloc: Allocator,
     id: u32,
     tree: SplitTreeSurface,
     focused: SplitTreeSurface.Node.Handle = .root,
     button_hwnd: ?HWND = null,
     button_prev_proc: ?*const anyopaque = null,
+    cached_button_title: ?[:0]const u8 = null,
+    cached_button_label: ?[:0]const u8 = null,
+    cached_button_index: usize = 0,
+    cached_button_active: bool = false,
+    cached_button_pane_count: usize = 0,
+    cached_button_label_max_len: usize = 0,
+    cached_button_show_pane_count: bool = false,
+    button_label_cache_valid: bool = false,
+    button_placement: ChildPlacement = .{},
 
     fn init(alloc: Allocator, id: u32, surface: *Surface) !Tab {
         return .{
+            .alloc = alloc,
             .id = id,
             .tree = try SplitTreeSurface.init(alloc, surface),
             .focused = .root,
@@ -3384,6 +3422,8 @@ const Tab = struct {
     }
 
     fn deinit(self: *Tab) void {
+        if (self.cached_button_title) |value| self.alloc.free(value);
+        if (self.cached_button_label) |value| self.alloc.free(value);
         destroySubclassedWindow(&self.button_hwnd, &self.button_prev_proc);
         self.tree.deinit();
         self.* = undefined;
@@ -3424,10 +3464,15 @@ const Host = struct {
     overlay_label_hwnd: ?HWND = null,
     overlay_edit_hwnd: ?HWND = null,
     overlay_edit_prev_proc: ?*const anyopaque = null,
+    cached_overlay_edit: ?[:0]const u8 = null,
     overlay_hint_hwnd: ?HWND = null,
     overlay_accept_hwnd: ?HWND = null,
     overlay_cancel_hwnd: ?HWND = null,
     overlay_button_prev_proc: ?*const anyopaque = null,
+    cached_overlay_label: ?[:0]const u8 = null,
+    cached_overlay_hint: ?[:0]const u8 = null,
+    cached_overlay_accept: ?[:0]const u8 = null,
+    cached_overlay_cancel: ?[:0]const u8 = null,
     overlay_completion_seed: ?[:0]const u8 = null,
     overlay_completion_value: ?[:0]const u8 = null,
     profiles: ?[]windows_shell.Profile = null,
@@ -3441,17 +3486,32 @@ const Host = struct {
     pending_dpi_update: bool = false,
     chrome_font: ?*anyopaque = null, // HFONT, owned
 
-    // Cached chrome paint strings — rebuilt only when chrome_dirty is set,
+    // Cached chrome paint strings — rebuilt only when chrome_text_dirty is set,
     // so WM_PAINT can skip per-frame heap allocation + UTF-16 conversion.
-    chrome_dirty: bool = true,
+    chrome_repaint_dirty: bool = true,
+    chrome_text_dirty: bool = true,
     cached_status_w: ?[:0]const u16 = null,
     cached_detail_w: ?[:0]const u16 = null,
+    cached_banner_w: ?[:0]const u16 = null,
     cached_inspector_title_w: ?[:0]const u16 = null,
     cached_inspector_hint_w: ?[:0]const u16 = null,
+    cached_overlay_paint_badge_w: ?[:0]const u16 = null,
+    cached_overlay_paint_label_w: ?[:0]const u16 = null,
+    cached_overlay_paint_feedback_w: ?[:0]const u16 = null,
+    cached_launcher_selected_chip_w: ?[:0]const u16 = null,
+    cached_launcher_quick_slot_chip_w: [3]?[:0]const u16 = .{ null, null, null },
+    cached_window_title: ?[:0]const u8 = null,
 
     overflow_hwnd: ?HWND = null, // dropdown chevron (▾)
+    overflow_placement: ChildPlacement = .{},
     chrome_button_prev_proc: ?*const anyopaque = null,
     new_tab_hwnd: ?HWND = null,
+    new_tab_placement: ChildPlacement = .{},
+    overlay_label_placement: ChildPlacement = .{},
+    overlay_edit_placement: ChildPlacement = .{},
+    overlay_hint_placement: ChildPlacement = .{},
+    overlay_accept_placement: ChildPlacement = .{},
+    overlay_cancel_placement: ChildPlacement = .{},
     hovered_button_hwnd: ?HWND = null,
     hovered_quick_slot: ?usize = null,
     focused_quick_slot: ?usize = null,
@@ -3474,8 +3534,14 @@ const Host = struct {
         if (self.banner_text) |value| self.app.core_app.alloc.free(value);
         if (self.overlay_completion_seed) |value| self.app.core_app.alloc.free(value);
         if (self.overlay_completion_value) |value| self.app.core_app.alloc.free(value);
+        if (self.cached_overlay_edit) |value| self.app.core_app.alloc.free(value);
+        if (self.cached_overlay_label) |value| self.app.core_app.alloc.free(value);
+        if (self.cached_overlay_hint) |value| self.app.core_app.alloc.free(value);
+        if (self.cached_overlay_accept) |value| self.app.core_app.alloc.free(value);
+        if (self.cached_overlay_cancel) |value| self.app.core_app.alloc.free(value);
         if (self.profiles) |profiles| windows_shell.deinitProfiles(self.app.core_app.alloc, profiles);
         if (self.selected_profile_key) |value| self.app.core_app.alloc.free(value);
+        if (self.cached_window_title) |value| self.app.core_app.alloc.free(value);
         self.freeCachedChromeStrings();
         if (self.chrome_brush) |brush| _ = DeleteObject(brush);
         if (self.overlay_brush) |brush| _ = DeleteObject(brush);
@@ -3523,28 +3589,24 @@ const Host = struct {
         const selected_index = self.selectedProfileIndex();
 
         if (self.selectedProfile()) |profile| {
-            const chip = buildProfileStatusBadgeText(
-                self.app.core_app.alloc,
+            const chip_len = profileStatusBadgeTextLen(
                 profile,
                 selected_index,
                 self.app.launcherQuickSlotOrdinal(profile.key),
-            ) catch return null;
-            defer self.app.core_app.alloc.free(chip);
-            const chip_width = self.scaled(16) + @as(i32, @intCast(chip.len * @as(usize, @intCast(self.scaled(7)))));
+            );
+            const chip_width = self.scaled(16) + @as(i32, @intCast(chip_len * @as(usize, @intCast(self.scaled(7)))));
             status_x += chip_width + self.scaled(10);
         }
 
         var slot_ordinal: usize = 0;
         while (slot_ordinal < 3) : (slot_ordinal += 1) {
             const profile_index = quickSlotProfileIndex(profiles.len, selected_index, slot_ordinal, 3) orelse break;
-            const chip = buildProfileQuickSlotChipText(
-                self.app.core_app.alloc,
+            const chip_len = profileQuickSlotChipTextLen(
                 &profiles[profile_index],
                 profile_index,
                 self.app.launcherQuickSlotOrdinal(profiles[profile_index].key),
-            ) catch return null;
-            defer self.app.core_app.alloc.free(chip);
-            const chip_width = self.scaled(12) + @as(i32, @intCast(chip.len * @as(usize, @intCast(self.scaled(7)))));
+            );
+            const chip_width = self.scaled(12) + @as(i32, @intCast(chip_len * @as(usize, @intCast(self.scaled(7)))));
             const chip_rect = RECT{
                 .left = status_x,
                 .top = status_y - self.scaled(1),
@@ -3590,7 +3652,6 @@ const Host = struct {
         } else if (self.active_tab == b) {
             self.active_tab = a;
         }
-        self.chrome_dirty = true;
         self.layout() catch {};
         self.invalidateChrome();
     }
@@ -3769,9 +3830,7 @@ const Host = struct {
         if (!(try self.ensureProfiles())) return false;
         const profiles = self.profiles.?;
         const edit_hwnd = self.overlay_edit_hwnd orelse return false;
-        const raw = try readWindowTextUtf8Alloc(self.app.core_app.alloc, edit_hwnd);
-        defer self.app.core_app.alloc.free(raw);
-        const text = std.mem.trim(u8, raw, " \t\r\n");
+        const text = std.mem.trim(u8, try overlayEditText(self), " \t\r\n");
         const fallback = self.selectedProfileIndex() orelse 0;
         const current_index = switch (resolveProfileSelection(profiles, text, fallback)) {
             .exact => |index| index,
@@ -3779,13 +3838,16 @@ const Host = struct {
         };
         const next = nextTabOverviewSelection(current_index + 1, profiles.len, reverse) - 1;
         try self.setSelectedProfileIndex(next);
-        const next_w = try std.unicode.utf8ToUtf16LeAllocZ(self.app.core_app.alloc, profiles[next].key);
-        defer self.app.core_app.alloc.free(next_w);
-        _ = SetWindowTextW(edit_hwnd, next_w.ptr);
+        _ = try syncWindowTextUtf8CachedAfterSet(
+            self.app.core_app.alloc,
+            edit_hwnd,
+            &self.cached_overlay_edit,
+            profiles[next].key,
+        );
         _ = SendMessageW(edit_hwnd, EM_SETSEL, 0, -1);
-        try self.syncOverlayLabel();
-        try self.syncOverlayHint();
-        try self.syncOverlayButtons();
+        _ = try self.syncOverlayLabel();
+        _ = try self.syncOverlayHint();
+        _ = try self.syncOverlayButtons();
         try self.refreshChrome();
         return true;
     }
@@ -3828,10 +3890,8 @@ const Host = struct {
             try self.setBanner(.err, "No supported Windows profiles detected.");
             return false;
         }
-        const edit_hwnd = self.overlay_edit_hwnd orelse return false;
-        const raw = try readWindowTextUtf8Alloc(self.app.core_app.alloc, edit_hwnd);
-        defer self.app.core_app.alloc.free(raw);
-        const text = std.mem.trim(u8, raw, " \t\r\n");
+        _ = self.overlay_edit_hwnd orelse return false;
+        const text = std.mem.trim(u8, try overlayEditText(self), " \t\r\n");
         const selection = resolveProfileSelection(self.profiles.?, text, self.selectedProfileIndex() orelse 0);
         switch (selection) {
             .exact => |index| {
@@ -3891,13 +3951,13 @@ const Host = struct {
     fn setHoveredQuickSlot(self: *Host, slot: ?usize) void {
         if (self.hovered_quick_slot == slot) return;
         self.hovered_quick_slot = slot;
-        self.invalidateChrome();
+        self.repaintStatusBar();
     }
 
     fn setFocusedQuickSlot(self: *Host, slot: ?usize) void {
         if (self.focused_quick_slot == slot) return;
         self.focused_quick_slot = slot;
-        self.invalidateChrome();
+        self.repaintStatusBar();
     }
 
     fn focusQuickSlotEdge(self: *Host, toward_start: bool) bool {
@@ -3993,7 +4053,16 @@ const Host = struct {
     }
 
     fn setBanner(self: *Host, kind: HostBannerKind, text: ?[]const u8) !void {
-        self.banner_kind = if (text == null) .none else kind;
+        const next_kind: HostBannerKind = if (text == null) .none else kind;
+        if (self.banner_kind == next_kind) {
+            if (text) |value| {
+                if (ownedStringEquals(self.banner_text, value)) return;
+            } else if (self.banner_text == null) {
+                return;
+            }
+        }
+
+        self.banner_kind = next_kind;
         try appendOwnedString(self.app.core_app.alloc, &self.banner_text, text);
         self.invalidateChrome();
     }
@@ -4169,21 +4238,30 @@ const Host = struct {
         self.clearOverlayCompletion();
         try self.setOverlayDefaultBanner(mode);
 
+        if (self.overlay_label_hwnd) |label_hwnd| {
+            _ = applyChildVisibility(label_hwnd, &self.overlay_label_placement, false);
+        }
         const edit_hwnd = self.overlay_edit_hwnd orelse return;
+        if (self.overlay_hint_hwnd) |hint_hwnd| {
+            _ = applyChildVisibility(hint_hwnd, &self.overlay_hint_placement, false);
+        }
         const accept_hwnd = self.overlay_accept_hwnd orelse return;
         const cancel_hwnd = self.overlay_cancel_hwnd orelse return;
-        _ = ShowWindow(edit_hwnd, SW_SHOW);
-        _ = ShowWindow(accept_hwnd, SW_SHOW);
-        _ = ShowWindow(cancel_hwnd, SW_SHOW);
+        _ = applyChildVisibility(edit_hwnd, &self.overlay_edit_placement, true);
+        _ = applyChildVisibility(accept_hwnd, &self.overlay_accept_placement, true);
+        _ = applyChildVisibility(cancel_hwnd, &self.overlay_cancel_placement, true);
 
         const initial_text = initial orelse "";
-        const initial_w = try std.unicode.utf8ToUtf16LeAllocZ(self.app.core_app.alloc, initial_text);
-        defer self.app.core_app.alloc.free(initial_w);
-        _ = SetWindowTextW(edit_hwnd, initial_w.ptr);
+        _ = try syncWindowTextUtf8CachedAfterSet(
+            self.app.core_app.alloc,
+            edit_hwnd,
+            &self.cached_overlay_edit,
+            initial_text,
+        );
 
-        try self.syncOverlayLabel();
-        try self.syncOverlayHint();
-        try self.syncOverlayButtons();
+        _ = try self.syncOverlayLabel();
+        _ = try self.syncOverlayHint();
+        _ = try self.syncOverlayButtons();
         try self.layout();
         _ = SetFocus(edit_hwnd);
         _ = SendMessageW(edit_hwnd, EM_SETSEL, 0, -1);
@@ -4193,11 +4271,11 @@ const Host = struct {
         self.overlay_mode = .none;
         self.clearOverlayCompletion();
         self.setBanner(.none, null) catch {};
-        if (self.overlay_label_hwnd) |hwnd| _ = ShowWindow(hwnd, SW_HIDE);
-        if (self.overlay_edit_hwnd) |hwnd| _ = ShowWindow(hwnd, SW_HIDE);
-        if (self.overlay_hint_hwnd) |hwnd| _ = ShowWindow(hwnd, SW_HIDE);
-        if (self.overlay_accept_hwnd) |hwnd| _ = ShowWindow(hwnd, SW_HIDE);
-        if (self.overlay_cancel_hwnd) |hwnd| _ = ShowWindow(hwnd, SW_HIDE);
+        if (self.overlay_label_hwnd) |hwnd| _ = applyChildVisibility(hwnd, &self.overlay_label_placement, false);
+        if (self.overlay_edit_hwnd) |hwnd| _ = applyChildVisibility(hwnd, &self.overlay_edit_placement, false);
+        if (self.overlay_hint_hwnd) |hwnd| _ = applyChildVisibility(hwnd, &self.overlay_hint_placement, false);
+        if (self.overlay_accept_hwnd) |hwnd| _ = applyChildVisibility(hwnd, &self.overlay_accept_placement, false);
+        if (self.overlay_cancel_hwnd) |hwnd| _ = applyChildVisibility(hwnd, &self.overlay_cancel_placement, false);
     }
 
     fn overlayInitialText(self: *Host, mode: HostOverlayMode) ?[]const u8 {
@@ -4234,22 +4312,26 @@ const Host = struct {
         };
     }
 
-    fn syncOverlayLabel(self: *Host) !void {
-        const label_hwnd = self.overlay_label_hwnd orelse return;
+    fn syncOverlayLabel(self: *Host) !bool {
+        const label_hwnd = self.overlay_label_hwnd orelse return false;
         const alloc = self.app.core_app.alloc;
         switch (self.overlay_mode) {
-            .none => _ = SetWindowTextW(label_hwnd, host_overlay_command_palette_label),
+            .none => return try syncWindowTextUtf8Cached(
+                alloc,
+                label_hwnd,
+                &self.cached_overlay_label,
+                host_overlay_command_palette_label_utf8,
+            ),
             .profile => {
                 if (!(try self.ensureProfiles())) {
-                    _ = SetWindowTextW(label_hwnd, host_overlay_profile_label);
-                    return;
+                    return try syncWindowTextUtf8Cached(
+                        alloc,
+                        label_hwnd,
+                        &self.cached_overlay_label,
+                        host_overlay_profile_label_utf8,
+                    );
                 }
-                const raw = if (self.overlay_edit_hwnd) |edit_hwnd|
-                    try readWindowTextUtf8Alloc(alloc, edit_hwnd)
-                else
-                    try alloc.dupeZ(u8, "");
-                defer alloc.free(raw);
-                const text = std.mem.trim(u8, raw, " \t\r\n");
+                const text = std.mem.trim(u8, try overlayEditText(self), " \t\r\n");
                 const label = try buildProfileOverlayLabel(
                     alloc,
                     self.profiles.?,
@@ -4257,24 +4339,35 @@ const Host = struct {
                     self.selectedProfileIndex() orelse 0,
                 );
                 defer alloc.free(label);
-                const label_w = try std.unicode.utf8ToUtf16LeAllocZ(alloc, label);
-                defer alloc.free(label_w);
-                _ = SetWindowTextW(label_hwnd, label_w.ptr);
+                return try syncWindowTextUtf8Cached(
+                    alloc,
+                    label_hwnd,
+                    &self.cached_overlay_label,
+                    label,
+                );
             },
-            .surface_title => _ = SetWindowTextW(label_hwnd, host_overlay_surface_title_label),
-            .tab_title => _ = SetWindowTextW(label_hwnd, host_overlay_tab_title_label),
+            .surface_title => return try syncWindowTextUtf8Cached(
+                alloc,
+                label_hwnd,
+                &self.cached_overlay_label,
+                host_overlay_surface_title_label_utf8,
+            ),
+            .tab_title => return try syncWindowTextUtf8Cached(
+                alloc,
+                label_hwnd,
+                &self.cached_overlay_label,
+                host_overlay_tab_title_label_utf8,
+            ),
             .command_palette => {
-                const raw = if (self.overlay_edit_hwnd) |edit_hwnd|
-                    try readWindowTextUtf8Alloc(alloc, edit_hwnd)
-                else
-                    try alloc.dupeZ(u8, "");
-                defer alloc.free(raw);
-                const text = std.mem.trim(u8, raw, " \t\r\n");
+                const text = std.mem.trim(u8, try overlayEditText(self), " \t\r\n");
                 const label = try buildCommandPaletteOverlayLabel(alloc, text);
                 defer alloc.free(label);
-                const label_w = try std.unicode.utf8ToUtf16LeAllocZ(alloc, label);
-                defer alloc.free(label_w);
-                _ = SetWindowTextW(label_hwnd, label_w.ptr);
+                return try syncWindowTextUtf8Cached(
+                    alloc,
+                    label_hwnd,
+                    &self.cached_overlay_label,
+                    label,
+                );
             },
             .search => {
                 const surface = self.activeSurface();
@@ -4284,33 +4377,35 @@ const Host = struct {
                     if (surface) |value| value.search_selected else null,
                 );
                 defer alloc.free(label);
-                const label_w = try std.unicode.utf8ToUtf16LeAllocZ(alloc, label);
-                defer alloc.free(label_w);
-                _ = SetWindowTextW(label_hwnd, label_w.ptr);
+                return try syncWindowTextUtf8Cached(
+                    alloc,
+                    label_hwnd,
+                    &self.cached_overlay_label,
+                    label,
+                );
             },
             .tab_overview => {
                 const surface = self.activeSurface();
                 const status = if (surface) |value| self.app.hostTabStatus(value) else HostTabStatus{};
                 const label = try buildTabOverviewOverlayLabel(alloc, status.index, status.total);
                 defer alloc.free(label);
-                const label_w = try std.unicode.utf8ToUtf16LeAllocZ(alloc, label);
-                defer alloc.free(label_w);
-                _ = SetWindowTextW(label_hwnd, label_w.ptr);
+                return try syncWindowTextUtf8Cached(
+                    alloc,
+                    label_hwnd,
+                    &self.cached_overlay_label,
+                    label,
+                );
             },
         }
     }
 
-    fn syncOverlayButtons(self: *Host) !void {
-        const accept_hwnd = self.overlay_accept_hwnd orelse return;
-        const cancel_hwnd = self.overlay_cancel_hwnd orelse return;
+    fn syncOverlayButtons(self: *Host) !bool {
+        const accept_hwnd = self.overlay_accept_hwnd orelse return false;
+        const cancel_hwnd = self.overlay_cancel_hwnd orelse return false;
         const alloc = self.app.core_app.alloc;
-        const raw = if (self.overlay_edit_hwnd) |edit_hwnd|
-            try readWindowTextUtf8Alloc(alloc, edit_hwnd)
-        else
-            try alloc.dupeZ(u8, "");
-        defer alloc.free(raw);
-        const text = std.mem.trim(u8, raw, " \t\r\n");
+        const text = std.mem.trim(u8, try overlayEditText(self), " \t\r\n");
         const surface = self.activeSurface();
+        var changed = false;
         if (self.overlay_mode == .profile) {
             const accept = try buildProfileAcceptLabel(
                 alloc,
@@ -4320,14 +4415,19 @@ const Host = struct {
                 self.app.launcher_profile_target,
             );
             defer alloc.free(accept);
-            const accept_w = try std.unicode.utf8ToUtf16LeAllocZ(alloc, accept);
-            defer alloc.free(accept_w);
-            _ = SetWindowTextW(accept_hwnd, accept_w.ptr);
-
-            const cancel_w = try std.unicode.utf8ToUtf16LeAllocZ(alloc, overlayCancelLabel(self.overlay_mode));
-            defer alloc.free(cancel_w);
-            _ = SetWindowTextW(cancel_hwnd, cancel_w.ptr);
-            return;
+            changed = (try syncWindowTextUtf8Cached(
+                alloc,
+                accept_hwnd,
+                &self.cached_overlay_accept,
+                accept,
+            )) or changed;
+            changed = (try syncWindowTextUtf8Cached(
+                alloc,
+                cancel_hwnd,
+                &self.cached_overlay_cancel,
+                overlayCancelLabel(self.overlay_mode),
+            )) or changed;
+            return changed;
         }
         const accept = try buildOverlayAcceptLabel(
             alloc,
@@ -4338,25 +4438,25 @@ const Host = struct {
             if (surface) |value| value.search_selected else null,
         );
         defer alloc.free(accept);
-        const accept_w = try std.unicode.utf8ToUtf16LeAllocZ(alloc, accept);
-        defer alloc.free(accept_w);
-        _ = SetWindowTextW(accept_hwnd, accept_w.ptr);
-
-        const cancel = overlayCancelLabel(self.overlay_mode);
-        const cancel_w = try std.unicode.utf8ToUtf16LeAllocZ(alloc, cancel);
-        defer alloc.free(cancel_w);
-        _ = SetWindowTextW(cancel_hwnd, cancel_w.ptr);
+        changed = (try syncWindowTextUtf8Cached(
+            alloc,
+            accept_hwnd,
+            &self.cached_overlay_accept,
+            accept,
+        )) or changed;
+        changed = (try syncWindowTextUtf8Cached(
+            alloc,
+            cancel_hwnd,
+            &self.cached_overlay_cancel,
+            overlayCancelLabel(self.overlay_mode),
+        )) or changed;
+        return changed;
     }
 
-    fn syncOverlayHint(self: *Host) !void {
-        const hint_hwnd = self.overlay_hint_hwnd orelse return;
+    fn syncOverlayHint(self: *Host) !bool {
+        const hint_hwnd = self.overlay_hint_hwnd orelse return false;
         const alloc = self.app.core_app.alloc;
-        const raw = if (self.overlay_edit_hwnd) |edit_hwnd|
-            try readWindowTextUtf8Alloc(alloc, edit_hwnd)
-        else
-            try alloc.dupeZ(u8, "");
-        defer alloc.free(raw);
-        const text = std.mem.trim(u8, raw, " \t\r\n");
+        const text = std.mem.trim(u8, try overlayEditText(self), " \t\r\n");
         if (self.overlay_mode == .profile) {
             const hint = try buildProfileHintText(
                 alloc,
@@ -4367,10 +4467,12 @@ const Host = struct {
                 self.app.launcher_quick_slot_keys,
             );
             defer alloc.free(hint);
-            const hint_w = try std.unicode.utf8ToUtf16LeAllocZ(alloc, hint);
-            defer alloc.free(hint_w);
-            _ = SetWindowTextW(hint_hwnd, hint_w.ptr);
-            return;
+            return try syncWindowTextUtf8Cached(
+                alloc,
+                hint_hwnd,
+                &self.cached_overlay_hint,
+                hint,
+            );
         }
         const surface = self.activeSurface();
         const hint = try buildOverlayHintText(
@@ -4384,9 +4486,12 @@ const Host = struct {
             if (self.activeTab()) |tab| tab.leafCount() else 1,
         );
         defer alloc.free(hint);
-        const hint_w = try std.unicode.utf8ToUtf16LeAllocZ(alloc, hint);
-        defer alloc.free(hint_w);
-        _ = SetWindowTextW(hint_hwnd, hint_w.ptr);
+        return try syncWindowTextUtf8Cached(
+            alloc,
+            hint_hwnd,
+            &self.cached_overlay_hint,
+            hint,
+        );
     }
 
     fn clearOverlayCompletion(self: *Host) void {
@@ -4898,13 +5003,11 @@ const Host = struct {
             self.clearOverlayCompletion();
             return;
         }
-        const edit_hwnd = self.overlay_edit_hwnd orelse {
+        _ = self.overlay_edit_hwnd orelse {
             self.clearOverlayCompletion();
             return;
         };
-        const raw = try readWindowTextUtf8Alloc(self.app.core_app.alloc, edit_hwnd);
-        defer self.app.core_app.alloc.free(raw);
-        const text = std.mem.trim(u8, raw, " \t\r\n");
+        const text = std.mem.trim(u8, try overlayEditText(self), " \t\r\n");
         if (self.overlay_completion_value) |value| {
             if (std.mem.eql(u8, value, text)) return;
         }
@@ -4914,9 +5017,7 @@ const Host = struct {
     fn completeCommandPalette(self: *Host, reverse: bool) !bool {
         if (self.overlay_mode != .command_palette) return false;
         const edit_hwnd = self.overlay_edit_hwnd orelse return false;
-        const raw = try readWindowTextUtf8Alloc(self.app.core_app.alloc, edit_hwnd);
-        defer self.app.core_app.alloc.free(raw);
-        const text = std.mem.trim(u8, raw, " \t\r\n");
+        const text = std.mem.trim(u8, try overlayEditText(self), " \t\r\n");
         const seed = if (self.overlay_completion_seed) |value|
             if (self.overlay_completion_value) |current|
                 if (std.mem.eql(u8, current, text)) value else text
@@ -4925,9 +5026,12 @@ const Host = struct {
         else
             text;
         const candidate = commandPaletteCompletionCandidate(seed, text, reverse) orelse return false;
-        const candidate_w = try std.unicode.utf8ToUtf16LeAllocZ(self.app.core_app.alloc, candidate);
-        defer self.app.core_app.alloc.free(candidate_w);
-        _ = SetWindowTextW(edit_hwnd, candidate_w.ptr);
+        _ = try syncWindowTextUtf8CachedAfterSet(
+            self.app.core_app.alloc,
+            edit_hwnd,
+            &self.cached_overlay_edit,
+            candidate,
+        );
         _ = SendMessageW(edit_hwnd, EM_SETSEL, 0, -1);
         try appendOwnedString(self.app.core_app.alloc, &self.overlay_completion_seed, seed);
         try appendOwnedString(self.app.core_app.alloc, &self.overlay_completion_value, candidate);
@@ -4941,21 +5045,22 @@ const Host = struct {
         const total = self.tabs.items.len;
         if (total == 0) return false;
 
-        const raw = try readWindowTextUtf8Alloc(self.app.core_app.alloc, edit_hwnd);
-        defer self.app.core_app.alloc.free(raw);
-        const text = std.mem.trim(u8, raw, " \t\r\n");
+        const text = std.mem.trim(u8, try overlayEditText(self), " \t\r\n");
 
         const current: usize = std.fmt.parseUnsigned(usize, text, 10) catch self.active_tab + 1;
         const next = nextTabOverviewSelection(current, total, reverse);
         const next_text = try std.fmt.allocPrint(self.app.core_app.alloc, "{d}", .{next});
         defer self.app.core_app.alloc.free(next_text);
-        const next_w = try std.unicode.utf8ToUtf16LeAllocZ(self.app.core_app.alloc, next_text);
-        defer self.app.core_app.alloc.free(next_w);
-        _ = SetWindowTextW(edit_hwnd, next_w.ptr);
+        _ = try syncWindowTextUtf8CachedAfterSet(
+            self.app.core_app.alloc,
+            edit_hwnd,
+            &self.cached_overlay_edit,
+            next_text,
+        );
         _ = SendMessageW(edit_hwnd, EM_SETSEL, 0, -1);
-        try self.syncOverlayLabel();
-        try self.syncOverlayHint();
-        try self.syncOverlayButtons();
+        _ = try self.syncOverlayLabel();
+        _ = try self.syncOverlayHint();
+        _ = try self.syncOverlayButtons();
         return true;
     }
 
@@ -4968,25 +5073,21 @@ const Host = struct {
     }
 
     fn syncSearchOverlay(self: *Host) !bool {
-        const edit_hwnd = self.overlay_edit_hwnd orelse return false;
+        _ = self.overlay_edit_hwnd orelse return false;
         const surface = self.activeSurface() orelse return false;
-        const raw = try readWindowTextUtf8Alloc(self.app.core_app.alloc, edit_hwnd);
-        defer self.app.core_app.alloc.free(raw);
-        const text = std.mem.trim(u8, raw, " \t\r\n");
+        const text = std.mem.trim(u8, try overlayEditText(self), " \t\r\n");
         _ = try surface.core_surface.setSearchText(text);
         try surface.setSearchActive(text.len > 0, text);
-        try self.syncOverlayLabel();
-        try self.syncOverlayHint();
-        try self.syncOverlayButtons();
+        _ = try self.syncOverlayLabel();
+        _ = try self.syncOverlayHint();
+        _ = try self.syncOverlayButtons();
         return true;
     }
 
     fn syncCommandPaletteBanner(self: *Host) !bool {
         if (self.overlay_mode != .command_palette) return false;
-        const edit_hwnd = self.overlay_edit_hwnd orelse return false;
-        const raw = try readWindowTextUtf8Alloc(self.app.core_app.alloc, edit_hwnd);
-        defer self.app.core_app.alloc.free(raw);
-        const text = std.mem.trim(u8, raw, " \t\r\n");
+        _ = self.overlay_edit_hwnd orelse return false;
+        const text = std.mem.trim(u8, try overlayEditText(self), " \t\r\n");
         const banner = try commandPaletteBannerText(self.app.core_app.alloc, text);
         defer if (banner) |value| self.app.core_app.alloc.free(value);
         if (banner) |value| {
@@ -4994,17 +5095,15 @@ const Host = struct {
         } else {
             try self.setBanner(.none, null);
         }
-        try self.syncOverlayLabel();
-        try self.syncOverlayHint();
-        try self.syncOverlayButtons();
+        _ = try self.syncOverlayLabel();
+        _ = try self.syncOverlayHint();
+        _ = try self.syncOverlayButtons();
         return true;
     }
 
     fn submitOverlay(self: *Host) !bool {
-        const edit_hwnd = self.overlay_edit_hwnd orelse return false;
-        const raw = try readWindowTextUtf8Alloc(self.app.core_app.alloc, edit_hwnd);
-        defer self.app.core_app.alloc.free(raw);
-        const text = std.mem.trim(u8, raw, " \t\r\n");
+        _ = self.overlay_edit_hwnd orelse return false;
+        const text = std.mem.trim(u8, try overlayEditText(self), " \t\r\n");
         if (text.len == 0 and self.overlay_mode != .search and self.overlay_mode != .profile) {
             self.hideOverlay();
             try self.layout();
@@ -5120,20 +5219,18 @@ const Host = struct {
         return if (self.hasVisibleStatus()) self.scaled(host_status_height) else 0;
     }
 
-    fn estimateLauncherLaneRight(self: *Host, alloc: Allocator) !i32 {
+    fn estimateLauncherLaneRight(self: *Host) i32 {
         var x = self.scaled(16);
         const selected_profile_index = self.selectedProfileIndex();
 
         if (self.selectedProfile()) |profile| {
             const pinned_slot_ordinal = self.app.launcherQuickSlotOrdinal(profile.key);
-            const chip = try buildProfileStatusBadgeText(
-                alloc,
+            const chip_len = profileStatusBadgeTextLen(
                 profile,
                 selected_profile_index,
                 pinned_slot_ordinal,
             );
-            defer alloc.free(chip);
-            const chip_width = self.scaled(16) + @as(i32, @intCast(chip.len * @as(usize, @intCast(self.scaled(7)))));
+            const chip_width = self.scaled(16) + @as(i32, @intCast(chip_len * @as(usize, @intCast(self.scaled(7)))));
             x += chip_width + self.scaled(10);
         }
 
@@ -5143,14 +5240,12 @@ const Host = struct {
                 if (drawn >= 3) break;
                 if (selected_profile_index != null and index == selected_profile_index.?) continue;
                 const pinned_slot_ordinal = self.app.launcherQuickSlotOrdinal(profile.key);
-                const chip = try buildProfileQuickSlotChipText(
-                    alloc,
+                const chip_len = profileQuickSlotChipTextLen(
                     profile,
                     index,
                     pinned_slot_ordinal,
                 );
-                defer alloc.free(chip);
-                const chip_width = self.scaled(12) + @as(i32, @intCast(chip.len * @as(usize, @intCast(self.scaled(7)))));
+                const chip_width = self.scaled(12) + @as(i32, @intCast(chip_len * @as(usize, @intCast(self.scaled(7)))));
                 x += chip_width + self.scaled(6);
                 drawn += 1;
             }
@@ -5317,19 +5412,20 @@ const Host = struct {
     }
 
     fn refreshChrome(self: *Host) !void {
+        var invalidate = self.chrome_repaint_dirty;
         try self.syncWindowTitle();
-        try self.syncTabButtons();
+        invalidate = (try self.syncTabButtons()) or invalidate;
         try self.syncChromeButtons();
         if (self.overlay_mode != .none) {
-            try self.syncOverlayLabel();
-            try self.syncOverlayHint();
-            try self.syncOverlayButtons();
+            invalidate = (try self.syncOverlayLabel()) or invalidate;
+            invalidate = (try self.syncOverlayHint()) or invalidate;
+            _ = try self.syncOverlayButtons();
         }
-        self.invalidateChrome();
+        if (invalidate) self.invalidateChrome();
     }
 
-    fn invalidateChrome(self: *Host) void {
-        self.chrome_dirty = true;
+    fn repaintChrome(self: *Host) void {
+        self.chrome_repaint_dirty = true;
         const hwnd = self.hwnd orelse return;
         var client_rect: RECT = undefined;
         if (GetClientRect(hwnd, &client_rect) == 0) return;
@@ -5356,16 +5452,63 @@ const Host = struct {
         }
     }
 
+    fn repaintStatusBar(self: *Host) void {
+        const status_h = self.statusBarHeight();
+        if (status_h <= 0) return;
+
+        const hwnd = self.hwnd orelse return;
+        var client_rect: RECT = undefined;
+        if (GetClientRect(hwnd, &client_rect) == 0) return;
+
+        const tab_h = self.tabBarHeight();
+        const inspector_offset: i32 = if (self.inspectorPanelVisible()) self.scaled(host_inspector_panel_height) else 0;
+        const status_top = @max(tab_h + inspector_offset, client_rect.bottom - @max(1, status_h));
+        const status_rect = RECT{
+            .left = client_rect.left,
+            .top = status_top,
+            .right = client_rect.right,
+            .bottom = client_rect.bottom,
+        };
+        if (status_rect.bottom > status_rect.top) {
+            _ = InvalidateRect(hwnd, &status_rect, 0);
+        }
+    }
+
+    fn invalidateStatusBarText(self: *Host) void {
+        self.chrome_text_dirty = true;
+        self.repaintStatusBar();
+    }
+
+    fn invalidateChrome(self: *Host) void {
+        self.chrome_text_dirty = true;
+        self.repaintChrome();
+    }
+
     fn freeCachedChromeStrings(self: *Host) void {
         const alloc = self.app.core_app.alloc;
+        self.chrome_text_dirty = true;
         if (self.cached_status_w) |w| alloc.free(w);
         if (self.cached_detail_w) |w| alloc.free(w);
+        if (self.cached_banner_w) |w| alloc.free(w);
         if (self.cached_inspector_title_w) |w| alloc.free(w);
         if (self.cached_inspector_hint_w) |w| alloc.free(w);
+        if (self.cached_overlay_paint_badge_w) |w| alloc.free(w);
+        if (self.cached_overlay_paint_label_w) |w| alloc.free(w);
+        if (self.cached_overlay_paint_feedback_w) |w| alloc.free(w);
+        if (self.cached_launcher_selected_chip_w) |w| alloc.free(w);
+        for (&self.cached_launcher_quick_slot_chip_w) |*slot| {
+            if (slot.*) |w| alloc.free(w);
+            slot.* = null;
+        }
         self.cached_status_w = null;
         self.cached_detail_w = null;
+        self.cached_banner_w = null;
         self.cached_inspector_title_w = null;
         self.cached_inspector_hint_w = null;
+        self.cached_overlay_paint_badge_w = null;
+        self.cached_overlay_paint_label_w = null;
+        self.cached_overlay_paint_feedback_w = null;
+        self.cached_launcher_selected_chip_w = null;
     }
 
     fn syncWindowTitle(self: *Host) !void {
@@ -5378,13 +5521,15 @@ const Host = struct {
             self.app.hostTabStatus(surface),
         );
         defer alloc.free(host_base_title);
+        if (ownedStringEquals(self.cached_window_title, host_base_title)) return;
+        try appendOwnedString(alloc, &self.cached_window_title, host_base_title);
         const title_w = try std.unicode.utf8ToUtf16LeAllocZ(alloc, host_base_title);
         defer alloc.free(title_w);
         _ = SetWindowTextW(hwnd, title_w.ptr);
     }
 
-    fn syncTabButtons(self: *Host) !void {
-        const hwnd = self.hwnd orelse return;
+    fn syncTabButtons(self: *Host) !bool {
+        const hwnd = self.hwnd orelse return false;
         try self.ensureChromeButtons();
         var rect: RECT = undefined;
         if (GetClientRect(hwnd, &rect) == 0) {
@@ -5399,20 +5544,37 @@ const Host = struct {
         const label_max_len = hostTabLabelMaxLen(button_width);
         for (self.tabs.items, 0..) |*tab, i| {
             const surface = tab.focusedSurface() orelse continue;
+            const title = if (surface.effectiveTitle()) |value| value else null;
+            const active = i == self.active_tab;
             const pane_count = tab.leafCount();
+            const show_pane_count = shouldShowPaneCount(button_width, pane_count);
+            const title_unchanged = if (title) |value|
+                ownedStringEquals(tab.cached_button_title, value)
+            else
+                tab.cached_button_title == null;
+            const label_inputs_unchanged = tab.button_hwnd != null and
+                tab.button_label_cache_valid and
+                title_unchanged and
+                tab.cached_button_index == i and
+                tab.cached_button_active == active and
+                tab.cached_button_pane_count == pane_count and
+                tab.cached_button_label_max_len == label_max_len and
+                tab.cached_button_show_pane_count == show_pane_count;
+            if (label_inputs_unchanged) continue;
             const label = try buildTabButtonLabel(
                 self.app.core_app.alloc,
-                if (surface.effectiveTitle()) |value| value else null,
+                title,
                 i,
-                i == self.active_tab,
+                active,
                 pane_count,
                 label_max_len,
-                shouldShowPaneCount(button_width, pane_count),
+                show_pane_count,
             );
             defer self.app.core_app.alloc.free(label);
-            const label_w = try std.unicode.utf8ToUtf16LeAllocZ(self.app.core_app.alloc, label);
-            defer self.app.core_app.alloc.free(label_w);
             if (tab.button_hwnd == null) {
+                try appendOwnedString(self.app.core_app.alloc, &tab.cached_button_label, label);
+                const label_w = try std.unicode.utf8ToUtf16LeAllocZ(self.app.core_app.alloc, label);
+                defer self.app.core_app.alloc.free(label_w);
                 tab.button_hwnd = CreateWindowExW(
                     0,
                     prompt_button_class,
@@ -5428,25 +5590,122 @@ const Host = struct {
                     null,
                 ) orelse return windows.unexpectedError(windows.kernel32.GetLastError());
                 self.subclassButton(tab.button_hwnd.?, &tabButtonProc, &tab.button_prev_proc);
-            } else {
+            } else if (!ownedStringEquals(tab.cached_button_label, label)) {
+                try appendOwnedString(self.app.core_app.alloc, &tab.cached_button_label, label);
+                const label_w = try std.unicode.utf8ToUtf16LeAllocZ(self.app.core_app.alloc, label);
+                defer self.app.core_app.alloc.free(label_w);
                 _ = SetWindowTextW(tab.button_hwnd.?, label_w.ptr);
             }
-            _ = ShowWindow(
-                tab.button_hwnd.?,
-                if (i >= tab_range.start and i < tab_range.start + tab_range.count) SW_SHOW else SW_HIDE,
-            );
+            try appendOwnedString(self.app.core_app.alloc, &tab.cached_button_title, title);
+            tab.cached_button_index = i;
+            tab.cached_button_active = active;
+            tab.cached_button_pane_count = pane_count;
+            tab.cached_button_label_max_len = label_max_len;
+            tab.cached_button_show_pane_count = show_pane_count;
+            tab.button_label_cache_valid = true;
         }
-        try self.layout();
+        var chrome_changed = false;
+        if (!self.layoutChromeForRect(rect, &chrome_changed)) return chrome_changed;
+        return chrome_changed;
     }
 
     fn syncChromeButtons(self: *Host) !void {
         try self.ensureChromeButtons();
+    }
 
-        const overflow_hwnd = self.overflow_hwnd orelse return;
-        const new_tab_hwnd = self.new_tab_hwnd orelse return;
+    fn layoutChromeForRect(self: *Host, rect: RECT, changed: *bool) bool {
+        const width = @max(0, rect.right - rect.left);
+        const right_buttons_width = self.rightButtonsWidth();
+        const tab_area_width = @max(1, width - right_buttons_width);
+        const tab_range = visibleTabRange(self.tabs.items.len, self.active_tab, tab_area_width);
+        const visible_count = @max(@as(i32, 1), @as(i32, @intCast(tab_range.count)));
+        const button_width = @min(@max(1, @divTrunc(tab_area_width, visible_count)), self.scaled(host_tab_max_button_width));
+        const button_y = self.scaled(3);
+        const button_height = self.scaled(host_tab_height) - self.scaled(6);
+        for (self.tabs.items, 0..) |*tab, i| {
+            if (tab.button_hwnd) |button_hwnd| {
+                if (i >= tab_range.start and i < tab_range.start + tab_range.count) {
+                    const visible_index: i32 = @intCast(i - tab_range.start);
+                    changed.* = applyChildRect(
+                        button_hwnd,
+                        &tab.button_placement,
+                        childRect(
+                            visible_index * button_width,
+                            button_y,
+                            button_width,
+                            button_height,
+                        ),
+                    ) or changed.*;
+                    changed.* = applyChildVisibility(button_hwnd, &tab.button_placement, true) or changed.*;
+                } else {
+                    changed.* = applyChildVisibility(button_hwnd, &tab.button_placement, false) or changed.*;
+                }
+            }
+        }
 
-        _ = ShowWindow(new_tab_hwnd, SW_SHOW);
-        _ = ShowWindow(overflow_hwnd, SW_SHOW);
+        // Right-side cluster: [+][▾] — new tab and dropdown chevron
+        var button_x = width - self.scaled(8);
+        if (self.overflow_hwnd) |button_hwnd| {
+            const overflow_width = self.scaled(host_tab_overflow_button_width);
+            button_x -= overflow_width;
+            changed.* = applyChildRect(
+                button_hwnd,
+                &self.overflow_placement,
+                childRect(button_x, button_y, overflow_width, button_height),
+            ) or changed.*;
+            changed.* = applyChildVisibility(button_hwnd, &self.overflow_placement, true) or changed.*;
+        }
+        button_x -= self.scaled(4);
+        if (self.new_tab_hwnd) |button_hwnd| {
+            const new_tab_width = self.scaled(host_tab_small_button_width);
+            button_x -= new_tab_width;
+            changed.* = applyChildRect(
+                button_hwnd,
+                &self.new_tab_placement,
+                childRect(button_x, button_y, new_tab_width, button_height),
+            ) or changed.*;
+            changed.* = applyChildVisibility(button_hwnd, &self.new_tab_placement, true) or changed.*;
+        }
+
+        if (self.overlay_mode != .none) {
+            const edit_hwnd = self.overlay_edit_hwnd orelse return false;
+            const accept_hwnd = self.overlay_accept_hwnd orelse return false;
+            const cancel_hwnd = self.overlay_cancel_hwnd orelse return false;
+            const overlay_y = self.tabBarHeight();
+            const edit_width = @max(self.scaled(120), width - self.scaled(host_overlay_label_width) - self.scaled(host_overlay_accept_width) - self.scaled(host_overlay_cancel_width) - (self.scaled(host_overlay_padding) * 4));
+            changed.* = applyChildRect(
+                edit_hwnd,
+                &self.overlay_edit_placement,
+                childRect(
+                    self.scaled(host_overlay_padding) + self.scaled(host_overlay_label_width) + self.scaled(8),
+                    overlay_y + self.scaled(8),
+                    edit_width - self.scaled(16),
+                    self.scaled(host_overlay_row_height) - self.scaled(4),
+                ),
+            ) or changed.*;
+            changed.* = applyChildRect(
+                accept_hwnd,
+                &self.overlay_accept_placement,
+                childRect(
+                    width - self.scaled(host_overlay_cancel_width) - self.scaled(host_overlay_accept_width) - (self.scaled(host_overlay_padding) * 2),
+                    overlay_y + self.scaled(4),
+                    self.scaled(host_overlay_accept_width),
+                    self.scaled(host_overlay_row_height),
+                ),
+            ) or changed.*;
+            changed.* = applyChildRect(
+                cancel_hwnd,
+                &self.overlay_cancel_placement,
+                childRect(
+                    width - self.scaled(host_overlay_cancel_width) - self.scaled(host_overlay_padding),
+                    overlay_y + self.scaled(4),
+                    self.scaled(host_overlay_cancel_width),
+                    self.scaled(host_overlay_row_height),
+                ),
+            ) or changed.*;
+        }
+
+        return true;
     }
 
     fn layout(self: *Host) !void {
@@ -5455,54 +5714,8 @@ const Host = struct {
         if (GetClientRect(hwnd, &rect) == 0) {
             return windows.unexpectedError(windows.kernel32.GetLastError());
         }
-
-        const width = @max(0, rect.right - rect.left);
-        const right_buttons_width = self.rightButtonsWidth();
-        const tab_area_width = @max(1, width - right_buttons_width);
-        const tab_range = visibleTabRange(self.tabs.items.len, self.active_tab, tab_area_width);
-        const visible_count = @max(@as(i32, 1), @as(i32, @intCast(tab_range.count)));
-        const button_width = @min(@max(1, @divTrunc(tab_area_width, visible_count)), self.scaled(host_tab_max_button_width));
-        for (self.tabs.items, 0..) |*tab, i| {
-            if (tab.button_hwnd) |button_hwnd| {
-                if (i >= tab_range.start and i < tab_range.start + tab_range.count) {
-                    const visible_index: i32 = @intCast(i - tab_range.start);
-                    _ = MoveWindow(
-                        button_hwnd,
-                        visible_index * button_width,
-                        self.scaled(3),
-                        button_width,
-                        self.scaled(host_tab_height) - self.scaled(6),
-                        0,
-                    );
-                    _ = ShowWindow(button_hwnd, SW_SHOW);
-                } else {
-                    _ = ShowWindow(button_hwnd, SW_HIDE);
-                }
-            }
-        }
-
-        // Right-side cluster: [+][▾] — new tab and dropdown chevron
-        var button_x = width - self.scaled(8);
-        if (self.overflow_hwnd) |button_hwnd| {
-            button_x -= self.scaled(host_tab_overflow_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(3), self.scaled(host_tab_overflow_button_width), self.scaled(host_tab_height) - self.scaled(6), 0);
-        }
-        button_x -= self.scaled(4);
-        if (self.new_tab_hwnd) |button_hwnd| {
-            button_x -= self.scaled(host_tab_small_button_width);
-            _ = MoveWindow(button_hwnd, button_x, self.scaled(3), self.scaled(host_tab_small_button_width), self.scaled(host_tab_height) - self.scaled(6), 0);
-        }
-
-        if (self.overlay_mode != .none) {
-            const edit_hwnd = self.overlay_edit_hwnd orelse return;
-            const accept_hwnd = self.overlay_accept_hwnd orelse return;
-            const cancel_hwnd = self.overlay_cancel_hwnd orelse return;
-            const overlay_y = self.tabBarHeight();
-            const edit_width = @max(self.scaled(120), width - self.scaled(host_overlay_label_width) - self.scaled(host_overlay_accept_width) - self.scaled(host_overlay_cancel_width) - (self.scaled(host_overlay_padding) * 4));
-            _ = MoveWindow(edit_hwnd, self.scaled(host_overlay_padding) + self.scaled(host_overlay_label_width) + self.scaled(8), overlay_y + self.scaled(8), edit_width - self.scaled(16), self.scaled(host_overlay_row_height) - self.scaled(4), 0);
-            _ = MoveWindow(accept_hwnd, width - self.scaled(host_overlay_cancel_width) - self.scaled(host_overlay_accept_width) - (self.scaled(host_overlay_padding) * 2), overlay_y + self.scaled(4), self.scaled(host_overlay_accept_width), self.scaled(host_overlay_row_height), 0);
-            _ = MoveWindow(cancel_hwnd, width - self.scaled(host_overlay_cancel_width) - self.scaled(host_overlay_padding), overlay_y + self.scaled(4), self.scaled(host_overlay_cancel_width), self.scaled(host_overlay_row_height), 0);
-        }
+        var layout_changed = false;
+        if (!self.layoutChromeForRect(rect, &layout_changed)) return;
 
         const content_rect = try self.contentRect();
         const content_y = content_rect.top;
@@ -5519,9 +5732,16 @@ const Host = struct {
             var it = active_tab.tree.iterator();
             while (it.next()) |entry| {
                 const visible = entry.handle == zoomed;
+                layout_changed = layout_changed or entry.view.window_visible != visible;
                 entry.view.setVisible(visible);
                 if (visible) {
-                    if (entry.view.hwnd) |surface_hwnd| _ = MoveWindow(surface_hwnd, content_rect.left, content_y, content_width, content_height, 0);
+                    if (entry.view.hwnd) |surface_hwnd| {
+                        layout_changed = applyChildRect(
+                            surface_hwnd,
+                            &entry.view.placement,
+                            childRect(content_rect.left, content_y, content_width, content_height),
+                        ) or layout_changed;
+                    }
                     // Update content_scale if DPI changed since surface was last visible
                     if (self.pending_dpi_update and entry.view.core_initialized) {
                         const scale_val: f32 = @as(f32, @floatFromInt(self.current_dpi)) / 96.0;
@@ -5538,6 +5758,7 @@ const Host = struct {
             defer spatial.deinit(self.app.core_app.alloc);
             var it = active_tab.tree.iterator();
             while (it.next()) |entry| {
+                layout_changed = layout_changed or !entry.view.window_visible;
                 entry.view.setVisible(true);
                 if (entry.view.hwnd) |surface_hwnd| {
                     const slot = spatial.slots[entry.handle.idx()];
@@ -5565,7 +5786,11 @@ const Host = struct {
                         w = @max(1, w);
                         h = @max(1, h);
                     }
-                    _ = MoveWindow(surface_hwnd, x, y, w, h, 0);
+                    layout_changed = applyChildRect(
+                        surface_hwnd,
+                        &entry.view.placement,
+                        childRect(x, y, w, h),
+                    ) or layout_changed;
                 }
                 // Update content_scale if DPI changed since surface was last visible
                 if (self.pending_dpi_update and entry.view.core_initialized) {
@@ -5580,8 +5805,10 @@ const Host = struct {
         }
         self.pending_dpi_update = false;
 
-        // Batch-invalidate after all positioning
-        _ = InvalidateRect(hwnd, null, 0);
+        if (layout_changed) {
+            // Batch-invalidate after actual positioning/visibility changes.
+            _ = InvalidateRect(hwnd, null, 0);
+        }
     }
 
     fn paintChrome(self: *Host) void {
@@ -5719,46 +5946,92 @@ const Host = struct {
             );
 
             const surface = self.activeSurface();
-            const overlay_raw = if (self.overlay_edit_hwnd) |edit_hwnd|
-                readWindowTextUtf8Alloc(alloc, edit_hwnd) catch null
-            else
-                null;
-            defer if (overlay_raw) |owned| alloc.free(owned);
-            const overlay_text = if (overlay_raw) |value|
-                std.mem.trim(u8, value, " \t\r\n")
-            else
-                "";
-            const overlay_status = if (surface) |value| self.app.hostTabStatus(value) else HostTabStatus{};
+            const overlay_paint_dirty = overlayPaintCacheDirty(
+                self.chrome_text_dirty,
+                self.overlay_mode,
+                self.cached_overlay_paint_label_w,
+                self.cached_overlay_paint_feedback_w,
+                self.cached_overlay_paint_badge_w,
+            );
+            if (overlay_paint_dirty) {
+                const overlay_text = std.mem.trim(u8, overlayEditText(self) catch "", " \t\r\n");
+                const overlay_status = if (surface) |value| self.app.hostTabStatus(value) else HostTabStatus{};
+                const pane_count = if (self.activeTab()) |tab| tab.leafCount() else 1;
+                const overlay_label = if (self.overlay_mode == .profile)
+                    buildProfileOverlayLabel(
+                        alloc,
+                        self.profiles orelse &.{},
+                        overlay_text,
+                        self.selectedProfileIndex() orelse 0,
+                    ) catch return
+                else
+                    buildOverlayPaintLabelText(
+                        alloc,
+                        self.overlay_mode,
+                        overlay_text,
+                        if (surface) |value| value.search_total else null,
+                        if (surface) |value| value.search_selected else null,
+                        overlay_status,
+                    ) catch return;
+                defer alloc.free(overlay_label);
+                if (self.cached_overlay_paint_label_w) |old| alloc.free(old);
+                self.cached_overlay_paint_label_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, overlay_label) catch return;
 
-            const overlay_label = if (self.overlay_mode == .profile)
-                buildProfileOverlayLabel(
-                    alloc,
-                    self.profiles orelse &.{},
-                    overlay_text,
-                    self.selectedProfileIndex() orelse 0,
-                ) catch return
-            else
-                buildOverlayPaintLabelText(
-                    alloc,
-                    self.overlay_mode,
-                    overlay_text,
-                    if (surface) |value| value.search_total else null,
-                    if (surface) |value| value.search_selected else null,
-                    overlay_status,
-                ) catch return;
-            defer alloc.free(overlay_label);
-            const overlay_label_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, overlay_label) catch return;
-            defer alloc.free(overlay_label_w);
+                const overlay_feedback = if (self.overlay_mode == .profile)
+                    if (self.banner_text) |value|
+                        switch (self.banner_kind) {
+                            .err => std.fmt.allocPrint(alloc, "Error: {s}", .{value}) catch return,
+                            .info => std.fmt.allocPrint(alloc, "Info: {s}", .{value}) catch return,
+                            .none => alloc.dupe(u8, value) catch return,
+                        }
+                    else
+                        buildProfileHintText(
+                            alloc,
+                            self.profiles,
+                            overlay_text,
+                            self.selectedProfileIndex() orelse 0,
+                            self.app.launcher_profile_target,
+                            self.app.launcher_quick_slot_keys,
+                        ) catch return
+                else
+                    buildOverlayFeedbackText(
+                        alloc,
+                        self.banner_kind,
+                        self.banner_text,
+                        self.overlay_mode,
+                        overlay_text,
+                        if (surface) |value| value.search_needle else null,
+                        if (surface) |value| value.search_total else null,
+                        if (surface) |value| value.search_selected else null,
+                        overlay_status,
+                        pane_count,
+                    ) catch return;
+                defer alloc.free(overlay_feedback);
+                if (self.cached_overlay_paint_feedback_w) |old| alloc.free(old);
+                self.cached_overlay_paint_feedback_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, overlay_feedback) catch return;
+
+                if (self.overlay_mode == .profile) {
+                    if (self.selectedProfile()) |profile| {
+                        const badge = buildProfileChromeBadgeText(alloc, profile.kind) catch return;
+                        defer alloc.free(badge);
+                        if (self.cached_overlay_paint_badge_w) |old| alloc.free(old);
+                        self.cached_overlay_paint_badge_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, badge) catch return;
+                    } else {
+                        if (self.cached_overlay_paint_badge_w) |old| alloc.free(old);
+                        self.cached_overlay_paint_badge_w = null;
+                    }
+                } else {
+                    if (self.cached_overlay_paint_badge_w) |old| alloc.free(old);
+                    self.cached_overlay_paint_badge_w = null;
+                }
+            }
             _ = SetBkMode(hdc, TRANSPARENT);
             var overlay_label_x: i32 = self.scaled(host_overlay_padding) + self.scaled(10);
             var overlay_label_color: u32 = theme.overlay_label_fg;
             if (self.overlay_mode == .profile) {
                 if (self.selectedProfile()) |profile| {
-                    const badge = buildProfileChromeBadgeText(alloc, profile.kind) catch return;
-                    defer alloc.free(badge);
-                    const badge_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, badge) catch return;
-                    defer alloc.free(badge_w);
-                    const badge_width = self.scaled(16) + @as(i32, @intCast(badge.len * @as(usize, @intCast(self.scaled(7)))));
+                    const badge_w = self.cached_overlay_paint_badge_w orelse return;
+                    const badge_width = self.scaled(16) + @as(i32, @intCast(badge_w.len * @as(usize, @intCast(self.scaled(7)))));
                     const badge_rect = RECT{
                         .left = self.scaled(host_overlay_padding) + self.scaled(10),
                         .top = overlay_rect.top + self.scaled(5),
@@ -5783,7 +6056,9 @@ const Host = struct {
                 }
             }
             _ = SetTextColor(hdc, overlay_label_color);
-            _ = TextOutW(hdc, overlay_label_x, overlay_rect.top + self.scaled(7), overlay_label_w.ptr, @intCast(overlay_label_w.len - 1));
+            if (self.cached_overlay_paint_label_w) |overlay_label_w| {
+                _ = TextOutW(hdc, overlay_label_x, overlay_rect.top + self.scaled(7), overlay_label_w.ptr, @intCast(overlay_label_w.len - 1));
+            }
 
             const edit_frame_left = self.scaled(host_overlay_padding) + self.scaled(host_overlay_label_width);
             const edit_frame_right = client_rect.right - self.scaled(host_overlay_cancel_width) - self.scaled(host_overlay_accept_width) - (self.scaled(host_overlay_padding) * 2);
@@ -5807,39 +6082,6 @@ const Host = struct {
                 }, overlayAccentColor(self.overlay_mode, theme.is_dark));
             }
 
-            const pane_count = if (self.activeTab()) |tab| tab.leafCount() else 1;
-            const overlay_feedback = if (self.overlay_mode == .profile)
-                if (self.banner_text) |value|
-                    switch (self.banner_kind) {
-                        .err => std.fmt.allocPrint(alloc, "Error: {s}", .{value}) catch return,
-                        .info => std.fmt.allocPrint(alloc, "Info: {s}", .{value}) catch return,
-                        .none => alloc.dupe(u8, value) catch return,
-                    }
-                else
-                    buildProfileHintText(
-                        alloc,
-                        self.profiles,
-                        overlay_text,
-                        self.selectedProfileIndex() orelse 0,
-                        self.app.launcher_profile_target,
-                        self.app.launcher_quick_slot_keys,
-                    ) catch return
-            else
-                buildOverlayFeedbackText(
-                    alloc,
-                    self.banner_kind,
-                    self.banner_text,
-                    self.overlay_mode,
-                    overlay_text,
-                    if (surface) |value| value.search_needle else null,
-                    if (surface) |value| value.search_total else null,
-                    if (surface) |value| value.search_selected else null,
-                    overlay_status,
-                    pane_count,
-                ) catch return;
-            defer alloc.free(overlay_feedback);
-            const overlay_feedback_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, overlay_feedback) catch return;
-            defer alloc.free(overlay_feedback_w);
             _ = SetTextColor(hdc, if (self.overlay_mode == .profile and self.banner_text == null)
                 if (self.selectedProfile()) |profile|
                     profileKindHintColor(profile.kind, theme.is_dark)
@@ -5850,7 +6092,9 @@ const Host = struct {
                 .info => theme.info_fg,
                 .err => theme.error_fg,
             });
-            _ = TextOutW(hdc, self.scaled(host_overlay_padding) + self.scaled(10), overlay_rect.top + self.scaled(34), overlay_feedback_w.ptr, @intCast(overlay_feedback_w.len - 1));
+            if (self.cached_overlay_paint_feedback_w) |overlay_feedback_w| {
+                _ = TextOutW(hdc, self.scaled(host_overlay_padding) + self.scaled(10), overlay_rect.top + self.scaled(34), overlay_feedback_w.ptr, @intCast(overlay_feedback_w.len - 1));
+            }
         }
 
         if (inspector_panel_visible) {
@@ -5873,7 +6117,7 @@ const Host = struct {
             );
 
             if (self.activeSurface()) |surface| {
-                if (self.chrome_dirty) {
+                if (self.chrome_text_dirty) {
                     const host_status = self.app.hostTabStatus(surface);
                     const pane_count = if (self.activeTab()) |tab| tab.leafCount() else 1;
                     const zoomed = if (self.activeTab()) |tab| tab.tree.zoomed != null else false;
@@ -5997,6 +6241,26 @@ const Host = struct {
                 defer alloc.free(value);
             }
         }
+        const paint_update_notice = self.overlay_mode == .none and
+            !inspector_panel_visible and
+            self.banner_text == null and
+            self.app.update_notice != null;
+        if (self.chrome_text_dirty) {
+            if (self.cached_banner_w) |old| alloc.free(old);
+            self.cached_banner_w = null;
+
+            if (paint_update_notice) {
+                if (self.app.update_notice) |notice| {
+                    if (notice.message_text) |message| {
+                        self.cached_banner_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, message) catch return;
+                    }
+                }
+            } else if (banner_value) |value| {
+                const full = buildHostBannerText(alloc, banner_kind, value) catch return;
+                defer alloc.free(full);
+                self.cached_banner_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, full) catch return;
+            }
+        }
         self.clearUpdateActionRects();
         if (self.overlay_mode == .none and !inspector_panel_visible and self.banner_text == null) {
             if (self.app.update_notice) |notice| {
@@ -6030,9 +6294,8 @@ const Host = struct {
                 };
 
                 _ = SetTextColor(hdc, theme.info_fg);
-                if (notice.message_text) |message| {
-                    const banner_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, message) catch return;
-                    defer alloc.free(banner_w);
+                _ = notice;
+                if (self.cached_banner_w) |banner_w| {
                     _ = DrawTextW(
                         hdc,
                         banner_w.ptr,
@@ -6090,19 +6353,10 @@ const Host = struct {
                     .info => theme.info_fg,
                     .err => theme.error_fg,
                 });
-                const prefix = switch (banner_kind) {
-                    .none => "",
-                    .info => "Info: ",
-                    .err => "Error: ",
-                };
-                const full = if (prefix.len == 0)
-                    alloc.dupe(u8, value) catch return
-                else
-                    std.fmt.allocPrint(alloc, "{s}{s}", .{ prefix, value }) catch return;
-                defer alloc.free(full);
-                const banner_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, full) catch return;
-                defer alloc.free(banner_w);
-                _ = TextOutW(hdc, self.scaled(16), banner_y, banner_w.ptr, @intCast(banner_w.len - 1));
+                _ = value;
+                if (self.cached_banner_w) |banner_w| {
+                    _ = TextOutW(hdc, self.scaled(16), banner_y, banner_w.ptr, @intCast(banner_w.len - 1));
+                }
             }
         } else if (banner_value) |value| {
             _ = SetTextColor(hdc, switch (banner_kind) {
@@ -6110,19 +6364,10 @@ const Host = struct {
                 .info => theme.info_fg,
                 .err => theme.error_fg,
             });
-            const prefix = switch (banner_kind) {
-                .none => "",
-                .info => "Info: ",
-                .err => "Error: ",
-            };
-            const full = if (prefix.len == 0)
-                alloc.dupe(u8, value) catch return
-            else
-                std.fmt.allocPrint(alloc, "{s}{s}", .{ prefix, value }) catch return;
-            defer alloc.free(full);
-            const banner_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, full) catch return;
-            defer alloc.free(banner_w);
-            _ = TextOutW(hdc, self.scaled(16), banner_y, banner_w.ptr, @intCast(banner_w.len - 1));
+            _ = value;
+            if (self.cached_banner_w) |banner_w| {
+                _ = TextOutW(hdc, self.scaled(16), banner_y, banner_w.ptr, @intCast(banner_w.len - 1));
+            }
         }
         _ = SetTextColor(hdc, theme.text_primary);
 
@@ -6130,7 +6375,7 @@ const Host = struct {
         var status_x: i32 = self.scaled(16);
         const launcher_lane_right: ?i32 = blk: {
             if (!(status_h > 0 and self.overlay_mode == .none and self.selectedProfile() != null)) break :blk null;
-            const estimated = self.estimateLauncherLaneRight(alloc) catch break :blk null;
+            const estimated = self.estimateLauncherLaneRight();
             const lane_right = @min(client_rect.right - self.scaled(18), estimated + self.scaled(6));
             if (lane_right <= self.scaled(24)) break :blk null;
             break :blk lane_right;
@@ -6166,20 +6411,53 @@ const Host = struct {
         }
         if (status_h > 0 and self.overlay_mode == .none) {
             const selected_profile_index = self.selectedProfileIndex();
+            if (self.chrome_text_dirty) {
+                if (self.cached_launcher_selected_chip_w) |old| alloc.free(old);
+                self.cached_launcher_selected_chip_w = null;
+                for (&self.cached_launcher_quick_slot_chip_w) |*slot| {
+                    if (slot.*) |old| alloc.free(old);
+                    slot.* = null;
+                }
+
+                if (self.selectedProfile()) |profile| {
+                    const chip = buildProfileStatusBadgeText(
+                        alloc,
+                        profile,
+                        selected_profile_index,
+                        self.app.launcherQuickSlotOrdinal(profile.key),
+                    ) catch return;
+                    defer alloc.free(chip);
+                    self.cached_launcher_selected_chip_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, chip) catch return;
+                }
+
+                if (self.profiles) |profiles| {
+                    var cached_slot: usize = 0;
+                    for (profiles, 0..) |*profile, index| {
+                        if (cached_slot >= self.cached_launcher_quick_slot_chip_w.len) break;
+                        if (selected_profile_index != null and index == selected_profile_index.?) continue;
+                        const chip = buildProfileQuickSlotChipText(
+                            alloc,
+                            profile,
+                            index,
+                            self.app.launcherQuickSlotOrdinal(profile.key),
+                        ) catch return;
+                        defer alloc.free(chip);
+                        self.cached_launcher_quick_slot_chip_w[cached_slot] = std.unicode.utf8ToUtf16LeAllocZ(alloc, chip) catch return;
+                        cached_slot += 1;
+                    }
+                }
+            }
+
             if (self.selectedProfile()) |profile| {
                 const pinned_slot_ordinal = self.app.launcherQuickSlotOrdinal(profile.key);
                 const pinned_slot_digit = pinnedSlotBadgeDigit(pinned_slot_ordinal);
-                const chip = buildProfileStatusBadgeText(
-                    alloc,
+                const chip_w = self.cached_launcher_selected_chip_w orelse return;
+                const accent = profileChromeAccent(profile.kind, theme.is_dark);
+                const chip_width = self.scaled(16) + @as(i32, @intCast(profileStatusBadgeTextLen(
                     profile,
                     selected_profile_index,
                     pinned_slot_ordinal,
-                ) catch return;
-                defer alloc.free(chip);
-                const chip_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, chip) catch return;
-                defer alloc.free(chip_w);
-                const accent = profileChromeAccent(profile.kind, theme.is_dark);
-                const chip_width = self.scaled(16) + @as(i32, @intCast(chip.len * @as(usize, @intCast(self.scaled(7)))));
+                ) * @as(usize, @intCast(self.scaled(7)))));
                 const chip_rect = RECT{
                     .left = status_x,
                     .top = status_y - self.scaled(2),
@@ -6226,20 +6504,16 @@ const Host = struct {
                     if (drawn >= 3) break;
                     if (selected_profile_index != null and index == selected_profile_index.?) continue;
                     const pinned_slot_ordinal = self.app.launcherQuickSlotOrdinal(profile.key);
-                    const chip = buildProfileQuickSlotChipText(
-                        alloc,
-                        profile,
-                        index,
-                        pinned_slot_ordinal,
-                    ) catch return;
-                    defer alloc.free(chip);
-                    const chip_w = std.unicode.utf8ToUtf16LeAllocZ(alloc, chip) catch return;
-                    defer alloc.free(chip_w);
+                    const chip_w = self.cached_launcher_quick_slot_chip_w[drawn] orelse return;
                     const focused = self.focused_quick_slot != null and self.focused_quick_slot.? == index;
                     const hovered = self.hovered_quick_slot != null and self.hovered_quick_slot.? == index;
                     const target_marker = shouldPaintQuickSlotTargetMarker(hovered, focused);
                     const colors = quickSlotChipColors(profile.kind, theme.is_dark, hovered);
-                    const chip_width = self.scaled(12) + @as(i32, @intCast(chip.len * @as(usize, @intCast(self.scaled(7)))));
+                    const chip_width = self.scaled(12) + @as(i32, @intCast(profileQuickSlotChipTextLen(
+                        profile,
+                        index,
+                        pinned_slot_ordinal,
+                    ) * @as(usize, @intCast(self.scaled(7)))));
                     const chip_rect = RECT{
                         .left = status_x,
                         .top = status_y - self.scaled(1),
@@ -6318,7 +6592,7 @@ const Host = struct {
                 .bottom = status_y + self.scaled(12),
             }, theme.chrome_border);
         }
-        if (self.chrome_dirty) {
+        if (self.chrome_text_dirty) {
             if (self.cached_status_w) |old| alloc.free(old);
             self.cached_status_w = blk: {
                 const utf8 = self.statusText(alloc) catch break :blk null;
@@ -6335,7 +6609,7 @@ const Host = struct {
                 break :blk std.unicode.utf8ToUtf16LeAllocZ(alloc, owned) catch null;
             };
 
-            self.chrome_dirty = false;
+            self.chrome_text_dirty = false;
         }
 
         if (self.cached_status_w) |status_w| {
@@ -6345,6 +6619,7 @@ const Host = struct {
             _ = SetTextColor(hdc, theme.text_secondary);
             _ = TextOutW(hdc, status_x, status_y + self.scaled(18), detail_w.ptr, @intCast(detail_w.len - 1));
         }
+        self.chrome_repaint_dirty = false;
     }
 };
 
@@ -6528,6 +6803,98 @@ fn appendOwnedString(
 ) !void {
     if (target.*) |existing| alloc.free(existing);
     target.* = if (value) |v| try alloc.dupeZ(u8, v) else null;
+}
+
+fn ownedStringEquals(current: ?[:0]const u8, value: []const u8) bool {
+    return if (current) |existing|
+        std.mem.eql(u8, existing, value)
+    else
+        false;
+}
+
+fn syncWindowTextUtf8Cached(
+    alloc: Allocator,
+    hwnd: HWND,
+    cached: *?[:0]const u8,
+    value: []const u8,
+) !bool {
+    if (ownedStringEquals(cached.*, value)) return false;
+    try appendOwnedString(alloc, cached, value);
+    const value_w = try std.unicode.utf8ToUtf16LeAllocZ(alloc, value);
+    defer alloc.free(value_w);
+    _ = SetWindowTextW(hwnd, value_w.ptr);
+    return true;
+}
+
+fn syncWindowTextUtf8CachedAfterSet(
+    alloc: Allocator,
+    hwnd: HWND,
+    cached: *?[:0]const u8,
+    value: []const u8,
+) !bool {
+    if (ownedStringEquals(cached.*, value)) return false;
+    const value_w = try std.unicode.utf8ToUtf16LeAllocZ(alloc, value);
+    defer alloc.free(value_w);
+    _ = SetWindowTextW(hwnd, value_w.ptr);
+    try appendOwnedString(alloc, cached, value);
+    return true;
+}
+
+fn overlayEditText(self: *Host) ![]const u8 {
+    const edit_hwnd = self.overlay_edit_hwnd orelse return "";
+    if (self.cached_overlay_edit) |value| return value;
+
+    const raw = try readWindowTextUtf8Alloc(self.app.core_app.alloc, edit_hwnd);
+    defer self.app.core_app.alloc.free(raw);
+    try appendOwnedString(self.app.core_app.alloc, &self.cached_overlay_edit, raw);
+    return self.cached_overlay_edit orelse "";
+}
+
+fn rectEquals(a: RECT, b: RECT) bool {
+    return a.left == b.left and
+        a.top == b.top and
+        a.right == b.right and
+        a.bottom == b.bottom;
+}
+
+fn childRect(x: i32, y: i32, width: i32, height: i32) RECT {
+    return .{
+        .left = x,
+        .top = y,
+        .right = x + width,
+        .bottom = y + height,
+    };
+}
+
+fn syncChildPlacementTarget(placement: *ChildPlacement, hwnd: HWND) void {
+    if (placement.hwnd == null or placement.hwnd.? != hwnd) {
+        placement.* = .{ .hwnd = hwnd };
+    }
+}
+
+fn applyChildRect(hwnd: HWND, placement: *ChildPlacement, rect: RECT) bool {
+    syncChildPlacementTarget(placement, hwnd);
+    if (placement.rect_known and rectEquals(placement.rect, rect)) return false;
+    _ = MoveWindow(
+        hwnd,
+        rect.left,
+        rect.top,
+        @max(0, rect.right - rect.left),
+        @max(0, rect.bottom - rect.top),
+        0,
+    );
+    placement.rect = rect;
+    placement.rect_known = true;
+    return true;
+}
+
+fn applyChildVisibility(hwnd: HWND, placement: *ChildPlacement, visible: bool) bool {
+    syncChildPlacementTarget(placement, hwnd);
+    if (placement.visible_known and placement.visible == visible) return false;
+    _ = ShowWindow(hwnd, if (visible) SW_SHOW else SW_HIDE);
+    placement.visible = visible;
+    placement.visible_known = true;
+    return true;
 }
 
 fn highContrastThemeFromSysColors() ThemeColors {
@@ -7060,6 +7427,11 @@ fn compactHostLabel(
     return try std.fmt.allocPrint(alloc, "{s}...", .{value[0 .. max_len - 3]});
 }
 
+fn compactHostLabelLen(value: []const u8, max_len: usize) usize {
+    if (value.len <= max_len) return value.len;
+    return if (max_len <= 3) 3 else max_len;
+}
+
 fn hostTabLabelMaxLen(button_width: i32) usize {
     const estimated = @as(usize, @intCast(@max(6, @divTrunc(button_width - 26, 8))));
     return std.math.clamp(estimated, @as(usize, 6), @as(usize, host_tab_label_max_len));
@@ -7358,6 +7730,31 @@ fn overlayCancelLabel(mode: HostOverlayMode) []const u8 {
     };
 }
 
+fn buildHostBannerText(
+    alloc: Allocator,
+    banner_kind: HostBannerKind,
+    value: []const u8,
+) ![]u8 {
+    return switch (banner_kind) {
+        .none => try alloc.dupe(u8, value),
+        .info => try std.fmt.allocPrint(alloc, "Info: {s}", .{value}),
+        .err => try std.fmt.allocPrint(alloc, "Error: {s}", .{value}),
+    };
+}
+
+fn overlayPaintCacheDirty(
+    chrome_text_dirty: bool,
+    overlay_mode: HostOverlayMode,
+    cached_label_w: ?[:0]const u16,
+    cached_feedback_w: ?[:0]const u16,
+    cached_badge_w: ?[:0]const u16,
+) bool {
+    return chrome_text_dirty or
+        cached_label_w == null or
+        cached_feedback_w == null or
+        (overlay_mode == .profile and cached_badge_w == null);
+}
+
 fn buildInspectorBannerText(
     alloc: Allocator,
     host: HostTabStatus,
@@ -7616,6 +8013,16 @@ fn buildProfileStatusBadgeText(
     return try alloc.dupe(u8, compact);
 }
 
+fn profileStatusBadgeTextLen(
+    profile: *const windows_shell.Profile,
+    selected_index: ?usize,
+    pinned_slot_ordinal: ?usize,
+) usize {
+    _ = selected_index;
+    _ = pinned_slot_ordinal;
+    return compactHostLabelLen(profile.label, 12);
+}
+
 /// Build a label for the profile dropdown menu: "Profile Name\tCtrl+Shift+N"
 fn buildDropdownProfileLabel(
     alloc: Allocator,
@@ -7647,6 +8054,18 @@ fn buildProfileQuickSlotChipText(
         });
     }
     return try alloc.dupe(u8, profileKindBadge(profile.kind));
+}
+
+fn profileQuickSlotChipTextLen(
+    profile: *const windows_shell.Profile,
+    slot_index: usize,
+    pinned_slot_ordinal: ?usize,
+) usize {
+    const badge_len = profileKindBadge(profile.kind).len;
+    if (slot_index < 9) {
+        return badge_len + 2 + if (pinned_slot_ordinal != null and pinned_slot_ordinal.? == slot_index) @as(usize, 1) else 0;
+    }
+    return badge_len;
 }
 
 fn launcherChipRightInset(has_slot_badge: bool, has_target_marker: bool) i32 {
@@ -8709,15 +9128,16 @@ fn hostWindowProc(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) callcon
                 switch (command_id) {
                     2002 => {
                         if (notify_code == EN_CHANGE) {
+                            appendOwnedString(v.app.core_app.alloc, &v.cached_overlay_edit, null) catch {};
                             if (v.overlay_mode == .search) {
                                 _ = v.syncSearchOverlay() catch {};
                             } else if (v.overlay_mode == .command_palette) {
                                 v.syncOverlayCompletionState() catch {};
                                 _ = v.syncCommandPaletteBanner() catch {};
                             } else {
-                                v.syncOverlayLabel() catch {};
-                                v.syncOverlayHint() catch {};
-                                v.syncOverlayButtons() catch {};
+                                _ = v.syncOverlayLabel() catch false;
+                                _ = v.syncOverlayHint() catch false;
+                                _ = v.syncOverlayButtons() catch false;
                             }
                             return 0;
                         }
@@ -9215,9 +9635,9 @@ fn keyToggled(vk: i32) bool {
     return (GetKeyState(vk) & 1) != 0;
 }
 
-fn modsFromKeyboardState(state: [256]u8) input.Mods {
+fn modsFromKeyboardState(state: *const [256]u8) input.Mods {
     const pressed = struct {
-        fn check(state_: [256]u8, vk: usize) bool {
+        fn check(state_: *const [256]u8, vk: usize) bool {
             return (state_[vk] & 0x80) != 0;
         }
     };
@@ -9238,26 +9658,35 @@ fn modsFromKeyboardState(state: [256]u8) input.Mods {
     };
 }
 
+fn fallbackMods() input.Mods {
+    return .{
+        .shift = keyPressed(VK_SHIFT),
+        .ctrl = keyPressed(VK_CONTROL),
+        .alt = keyPressed(VK_MENU),
+        .super = keyPressed(VK_LWIN) or keyPressed(VK_RWIN),
+        .caps_lock = keyToggled(VK_CAPITAL),
+        .num_lock = keyToggled(VK_NUMLOCK),
+        .sides = .{
+            .shift = if (keyPressed(VK_RSHIFT)) .right else .left,
+            .ctrl = if (keyPressed(VK_RCONTROL)) .right else .left,
+            .alt = if (keyPressed(VK_RMENU)) .right else .left,
+            .super = if (keyPressed(VK_RWIN)) .right else .left,
+        },
+    };
+}
+
+fn currentKeyboardState(state: *[256]u8) ?*const [256]u8 {
+    if (GetKeyboardState(state) == 0) return null;
+    return state;
+}
+
+fn currentModsFromKeyboardState(state: ?*const [256]u8) input.Mods {
+    return if (state) |keyboard_state| modsFromKeyboardState(keyboard_state) else fallbackMods();
+}
+
 fn currentMods() input.Mods {
     var state: [256]u8 = [_]u8{0} ** 256;
-    if (GetKeyboardState(&state) == 0) {
-        return .{
-            .shift = keyPressed(VK_SHIFT),
-            .ctrl = keyPressed(VK_CONTROL),
-            .alt = keyPressed(VK_MENU),
-            .super = keyPressed(VK_LWIN) or keyPressed(VK_RWIN),
-            .caps_lock = keyToggled(VK_CAPITAL),
-            .num_lock = keyToggled(VK_NUMLOCK),
-            .sides = .{
-                .shift = if (keyPressed(VK_RSHIFT)) .right else .left,
-                .ctrl = if (keyPressed(VK_RCONTROL)) .right else .left,
-                .alt = if (keyPressed(VK_RMENU)) .right else .left,
-                .super = if (keyPressed(VK_RWIN)) .right else .left,
-            },
-        };
-    }
-
-    return modsFromKeyboardState(state);
+    return currentModsFromKeyboardState(currentKeyboardState(&state));
 }
 
 fn keyFromVirtualKey(vk: UINT, lParam: LPARAM) input.Key {
@@ -9507,14 +9936,18 @@ const KeyText = struct {
     unshifted_codepoint: u21 = 0,
 };
 
-fn translateKeyText(vk: UINT, lParam: LPARAM, mods: input.Mods) KeyText {
-    var state: [256]u8 = [_]u8{0} ** 256;
-    if (GetKeyboardState(&state) == 0) {
+fn translateKeyText(
+    vk: UINT,
+    lParam: LPARAM,
+    mods: input.Mods,
+    keyboard_state: ?*const [256]u8,
+) KeyText {
+    const state = keyboard_state orelse {
         return .{ .unshifted_codepoint = unshiftedCodepointForVirtualKey(vk) };
-    }
+    };
 
     var utf16: [4]u16 = [_]u16{0} ** 4;
-    const count = ToUnicode(vk, scanCodeFromLParam(lParam), &state, &utf16, utf16.len, 0);
+    const count = ToUnicode(vk, scanCodeFromLParam(lParam), state, &utf16, utf16.len, 0);
     if (count <= 0) {
         return .{ .unshifted_codepoint = unshiftedCodepointForVirtualKey(vk) };
     }
@@ -9791,7 +10224,9 @@ pub const Surface = struct {
     host_id: u32 = 0,
     host_active: bool = true,
     window_visible: bool = false,
+    occlusion_visible: ?bool = null,
     hwnd: ?HWND = null,
+    placement: ChildPlacement = .{},
     hdc: HDC = null,
     hglrc: HGLRC = null,
     core_surface: CoreSurface = undefined,
@@ -9886,14 +10321,9 @@ pub const Surface = struct {
             .right = 1280,
             .bottom = 800 - host_status_height,
         };
-        _ = MoveWindow(
-            hwnd,
-            content_rect.left,
-            content_rect.top,
-            @max(1, content_rect.right - content_rect.left),
-            @max(1, content_rect.bottom - content_rect.top),
-            1,
-        );
+        _ = applyChildRect(hwnd, &self.placement, content_rect);
+        self.placement.visible = false;
+        self.placement.visible_known = true;
         log.debug("surface.init hwnd created", .{});
 
         const gl = try app.createGLContext(hwnd);
@@ -9979,9 +10409,11 @@ pub const Surface = struct {
         self.destroy_on_wm_destroy = true;
         log.debug("surface.init core surface initialized", .{});
 
-        if (shouldShowSurfaceImmediately(opts.host_id)) {
-            self.setVisible(true);
-        }
+        // Same-host tabs/splits must stay hidden through init, but they still
+        // need an initial occlusion sync so hidden child GL surfaces stop
+        // rendering before activation ordering runs.
+        const activate_during_init = shouldShowSurfaceImmediately(opts.host_id);
+        self.setVisible(activate_during_init);
         DragAcceptFiles(hwnd, 1);
 
         if (GetFocus() == hwnd) {
@@ -9990,9 +10422,11 @@ pub const Surface = struct {
         if (self.window_focused) {
             self.focusChanged(true);
         }
-        try host.refreshChrome();
-        try host.layout();
-        try self.requestRepaint();
+        if (activate_during_init) {
+            try host.refreshChrome();
+            try host.layout();
+            try self.requestRepaint();
+        }
 
         if (opts.clone_state_from) |source| {
             if (!shouldApplyInheritedWindowState(self.host_id, source.host_id)) return;
@@ -10693,7 +11127,9 @@ pub const Surface = struct {
 
         const vk: UINT = @intCast(wParam & 0xFFFF);
         const key = keyFromVirtualKey(vk, lParam);
-        const mods = currentMods();
+        var keyboard_state_storage: [256]u8 = [_]u8{0} ** 256;
+        const keyboard_state = currentKeyboardState(&keyboard_state_storage);
+        const mods = currentModsFromKeyboardState(keyboard_state);
         const action: input.Action = switch (msg) {
             WM_KEYUP, WM_SYSKEYUP => .release,
             else => if (isRepeatedKey(lParam)) .repeat else .press,
@@ -10707,7 +11143,7 @@ pub const Surface = struct {
         };
 
         if (action != .release) {
-            const translated = translateKeyText(vk, lParam, mods);
+            const translated = translateKeyText(vk, lParam, mods, keyboard_state);
             event.utf8 = translated.utf8[0..translated.len];
             event.consumed_mods = translated.consumed_mods;
             if (translated.unshifted_codepoint != 0) {
@@ -11061,13 +11497,14 @@ pub const Surface = struct {
     }
 
     fn setVisible(self: *Surface, visible: bool) void {
-        const changed = self.window_visible != visible;
         self.window_visible = visible;
 
         const hwnd = self.hwnd orelse return;
-        _ = ShowWindow(hwnd, if (visible) SW_SHOW else SW_HIDE);
+        _ = applyChildVisibility(hwnd, &self.placement, visible);
 
-        if (!changed or !self.core_initialized) return;
+        if (!self.core_initialized) return;
+        if (!shouldDispatchOcclusion(self.occlusion_visible, visible)) return;
+        self.occlusion_visible = visible;
         self.core_surface.occlusionCallback(visible) catch |err| {
             log.err("win32 occlusion callback failed err={} visible={}", .{ err, visible });
         };
@@ -11134,7 +11571,7 @@ pub const Surface = struct {
         if (self.scrollbar.eql(value)) return;
         self.scrollbar = value;
         // Refresh status bar to show/update scroll position indicator
-        if (self.host) |host| host.chrome_dirty = true;
+        if (self.host) |host| host.invalidateStatusBarText();
     }
 
     fn setProgressReport(self: *Surface, value: terminal.osc.Command.ProgressReport) !void {
@@ -11586,6 +12023,44 @@ test "win32 shouldShowSurfaceImmediately only for new hosts" {
     try std.testing.expect(shouldShowSurfaceImmediately(null));
     try std.testing.expect(!shouldShowSurfaceImmediately(1));
     try std.testing.expect(!shouldShowSurfaceImmediately(99));
+}
+
+test "win32 shouldDispatchOcclusion dispatches initial hidden state" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try std.testing.expect(shouldDispatchOcclusion(null, false));
+    try std.testing.expect(shouldDispatchOcclusion(null, true));
+    try std.testing.expect(!shouldDispatchOcclusion(false, false));
+    try std.testing.expect(!shouldDispatchOcclusion(true, true));
+    try std.testing.expect(shouldDispatchOcclusion(false, true));
+    try std.testing.expect(shouldDispatchOcclusion(true, false));
+}
+
+test "win32 applyProfileSurfaceConfig replaces shallow-cloned command safely" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    var base = try configpkg.Config.default(std.testing.allocator);
+    defer base.deinit();
+    const base_alloc = base._arena.?.allocator();
+    base.command = .{ .shell = try base_alloc.dupeZ(u8, "pwsh.exe") };
+
+    var clone = base.shallowClone(std.testing.allocator);
+    defer clone.deinit();
+
+    var profile: windows_shell.Profile = .{
+        .kind = .cmd,
+        .key = try std.testing.allocator.dupe(u8, "cmd.exe"),
+        .label = try std.testing.allocator.dupe(u8, "Command Prompt"),
+        .command = .{ .shell = try std.testing.allocator.dupeZ(u8, "cmd.exe") },
+    };
+    defer profile.deinit(std.testing.allocator);
+
+    try applyProfileSurfaceConfig(&clone, &profile);
+
+    try std.testing.expect(clone.command != null);
+    try std.testing.expect(base.command != null);
+    try std.testing.expectEqualStrings("cmd.exe", clone.command.?.shell);
+    try std.testing.expectEqualStrings("pwsh.exe", base.command.?.shell);
 }
 
 test "win32 buildWindowTitle appends active status segments" {
@@ -12185,6 +12660,21 @@ test "win32 buildProfileStatusBadgeText reflects selected profile kind" {
     try std.testing.expectEqualStrings("Git Bash", badge);
 }
 
+test "win32 profileStatusBadgeTextLen matches built text" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const profile: windows_shell.Profile = .{
+        .kind = .git_bash,
+        .key = "git-bash",
+        .label = "Git Bash",
+        .command = .{ .direct = &.{"bash.exe"} },
+    };
+
+    const badge = try buildProfileStatusBadgeText(std.testing.allocator, &profile, 0, 0);
+    defer std.testing.allocator.free(badge);
+    try std.testing.expectEqual(badge.len, profileStatusBadgeTextLen(&profile, 0, 0));
+}
+
 test "win32 rollbackFailedSurfaceAttach removes failed tab and restores active index" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
@@ -12310,6 +12800,25 @@ test "win32 buildProfileQuickSlotChipText reflects ordered quick slot badge" {
     const chip = try buildProfileQuickSlotChipText(std.testing.allocator, &profile, 2, 2);
     defer std.testing.allocator.free(chip);
     try std.testing.expectEqualStrings("*3 WSL", chip);
+}
+
+test "win32 profileQuickSlotChipTextLen matches built text" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const profile: windows_shell.Profile = .{
+        .kind = .wsl_distro,
+        .key = "wsl:Ubuntu",
+        .label = "WSL: Ubuntu",
+        .command = .{ .direct = &.{ "wsl.exe", "-d", "Ubuntu" } },
+    };
+
+    const pinned = try buildProfileQuickSlotChipText(std.testing.allocator, &profile, 2, 2);
+    defer std.testing.allocator.free(pinned);
+    try std.testing.expectEqual(pinned.len, profileQuickSlotChipTextLen(&profile, 2, 2));
+
+    const unpinned = try buildProfileQuickSlotChipText(std.testing.allocator, &profile, 1, null);
+    defer std.testing.allocator.free(unpinned);
+    try std.testing.expectEqual(unpinned.len, profileQuickSlotChipTextLen(&profile, 1, null));
 }
 
 test "win32 quickSlotChipColors follow profile hover accent" {
@@ -12867,6 +13376,35 @@ test "win32 buildInspectorBannerText reflects host inspector context" {
     const single = try buildInspectorBannerText(std.testing.allocator, .{ .index = 0, .total = 1 }, 1, false);
     defer std.testing.allocator.free(single);
     try std.testing.expectEqualStrings("Inspector active | tab 1/1 | toggle Inspect to return", single);
+}
+
+test "win32 buildHostBannerText prefixes info and error banners" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const plain = try buildHostBannerText(std.testing.allocator, .none, "ready");
+    defer std.testing.allocator.free(plain);
+    try std.testing.expectEqualStrings("ready", plain);
+
+    const info = try buildHostBannerText(std.testing.allocator, .info, "ready");
+    defer std.testing.allocator.free(info);
+    try std.testing.expectEqualStrings("Info: ready", info);
+
+    const err = try buildHostBannerText(std.testing.allocator, .err, "ready");
+    defer std.testing.allocator.free(err);
+    try std.testing.expectEqualStrings("Error: ready", err);
+}
+
+test "win32 overlayPaintCacheDirty ignores repaint-only dirtiness" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const cached = std.unicode.utf8ToUtf16LeStringLiteral("ok");
+
+    try std.testing.expect(!overlayPaintCacheDirty(false, .search, cached, cached, null));
+    try std.testing.expect(!overlayPaintCacheDirty(false, .profile, cached, cached, cached));
+
+    try std.testing.expect(overlayPaintCacheDirty(true, .search, cached, cached, null));
+    try std.testing.expect(overlayPaintCacheDirty(false, .search, null, cached, null));
+    try std.testing.expect(overlayPaintCacheDirty(false, .profile, cached, cached, null));
 }
 
 test "win32 buildInspectorPanelTitleText reflects host inspector context" {

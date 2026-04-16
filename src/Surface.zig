@@ -154,6 +154,9 @@ child_exited: bool = false,
 /// to let us know.
 focused: bool = true,
 
+/// Tracks whether the surface is currently visible or fully occluded.
+visible: bool = true,
+
 /// Used to determine whether to continuously scroll.
 selection_scroll_active: bool = false,
 
@@ -3236,9 +3239,18 @@ pub fn occlusionCallback(self: *Surface, visible: bool) !void {
     crash.sentry.thread_state = self.crashThreadState();
     defer crash.sentry.thread_state = null;
 
+    if (self.visible == visible) return;
+    self.visible = visible;
+
     _ = self.renderer_thread.mailbox.push(.{
         .visible = visible,
     }, .{ .forever = {} });
+
+    if (self.search) |*s| {
+        _ = s.state.mailbox.push(.{ .visible = visible }, .forever);
+        s.state.wakeup.notify() catch {};
+    }
+
     try self.queueRender();
 }
 
@@ -3259,6 +3271,11 @@ pub fn focusCallback(self: *Surface, focused: bool) !void {
     _ = self.renderer_thread.mailbox.push(.{
         .focus = focused,
     }, .{ .forever = {} });
+
+    if (self.search) |*s| {
+        _ = s.state.mailbox.push(.{ .focus = focused }, .forever);
+        s.state.wakeup.notify() catch {};
+    }
 
     if (!focused) unfocused: {
         // If we lost focus and we have a keypress, then we want to send a key
@@ -5769,6 +5786,8 @@ pub fn setSearchText(self: *Surface, text: []const u8) !bool {
                 .terminal = self.renderer_state.terminal,
                 .event_cb = &searchCallback,
                 .event_userdata = self,
+                .visible = self.visible,
+                .focused = self.focused,
             }),
             .thread = undefined,
         };

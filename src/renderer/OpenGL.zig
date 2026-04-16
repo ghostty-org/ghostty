@@ -389,7 +389,6 @@ pub fn present(self: *OpenGL, target: Target) !void {
     self.last_target = target;
 
     if (apprt.runtime == apprt.win32) {
-        gl.finish();
         try self.rt_surface.swapGLBuffers();
     }
 }

@@ -331,6 +331,11 @@ fn setQosClass(self: *const Thread) void {
 }
 
 fn syncDrawTimer(self: *Thread) void {
+    if (!self.flags.visible) {
+        self.draw_active = false;
+        return;
+    }
+
     skip: {
         // If our renderer supports animations and has them, then we
         // can apply draw timer based on custom shader animation configuration.
@@ -403,12 +408,8 @@ fn drainMailbox(self: *Thread) !void {
                 // Notify the renderer so it can update any state.
                 self.renderer.setVisible(v);
 
-                // Note that we're explicitly today not stopping any
-                // cursor timers, draw timers, etc. These things have very
-                // little resource cost and properly maintaining their active
-                // state across different transitions is going to be bug-prone,
-                // so its easier to just let them keep firing and have them
-                // check the visible state themselves to control their behavior.
+                // Visibility changes can suppress or restart animation draws.
+                self.syncDrawTimer();
             },
 
             .focus => |v| focus: {

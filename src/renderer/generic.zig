@@ -142,6 +142,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// but we keep this around so that we don't reallocate. Each set of
         /// cells goes into a separate shader.
         cells: cellpkg.Contents,
+        bg_cells_dirty: cellpkg.DirtyRows = .none,
+        fg_cells_dirty_from: ?usize = null,
+        fg_cell_count: usize = 0,
 
         /// Set to true after rebuildCells is called. This can be used
         /// to determine if any possible changes have been made to the
@@ -1568,8 +1571,34 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Setup our frame data
             try frame.uniforms.sync(&.{self.uniforms});
-            try frame.cells_bg.sync(self.cells.bg_cells);
-            const fg_count = try frame.cells.syncFromArrayLists(self.cells.fg_rows.lists);
+            const fg_count = fg: {
+                if (comptime GraphicsAPI.swap_chain_count == 1) {
+                    switch (self.bg_cells_dirty) {
+                        .none => {},
+                        .full => try frame.cells_bg.sync(self.cells.bg_cells),
+                        .range => |range| {
+                            const columns = @as(usize, self.cells.size.columns);
+                            const start = range.start * columns;
+                            const end = range.end * columns;
+                            try frame.cells_bg.syncRange(start, self.cells.bg_cells[start..end]);
+                        },
+                    }
+
+                    if (self.fg_cells_dirty_from) |start| {
+                        self.fg_cell_count = try frame.cells.syncFromArrayListsStart(
+                            self.cells.fg_rows.lists,
+                            start,
+                        );
+                    }
+                } else {
+                    try frame.cells_bg.sync(self.cells.bg_cells);
+                    self.fg_cell_count = try frame.cells.syncFromArrayLists(self.cells.fg_rows.lists);
+                }
+
+                self.bg_cells_dirty.reset();
+                self.fg_cells_dirty_from = null;
+                break :fg self.fg_cell_count;
+            };
             if (apprt.runtime == apprt.win32) log.debug(
                 "drawFrame cell buffers synced fg_count={}",
                 .{fg_count},
@@ -2357,9 +2386,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
 
             const rebuild = state.dirty == .full or grid_size_diff;
+            var bg_cells_dirty = self.bg_cells_dirty;
+            var fg_cells_dirty_from = self.fg_cells_dirty_from;
             if (rebuild) {
                 // If we are doing a full rebuild, then we clear the entire cell buffer.
                 self.cells.reset();
+                fg_cells_dirty_from = 0;
+                bg_cells_dirty.markFull();
 
                 // We also reset our padding extension depending on the screen type
                 switch (self.config.padding_color) {
@@ -2440,6 +2473,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                     // Clear the cells if the row is dirty
                     self.cells.clear(y);
+                    bg_cells_dirty.includeRow(y_usize);
+                    markFgCellsDirtyFrom(&fg_cells_dirty_from, y_usize + 1);
                 }
 
                 // Unmark the dirty state in our render state.
@@ -2462,6 +2497,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     self.cells.clear(y);
                 };
             }
+            self.bg_cells_dirty = bg_cells_dirty;
+            const cursor_end_list = @as(usize, self.cells.size.rows) + 1;
+            const old_cursor_start = self.cells.size.rows > 0 and
+                self.cells.fg_rows.lists[0].items.len > 0;
+            const old_cursor_end = self.cells.size.rows > 0 and
+                self.cells.fg_rows.lists[cursor_end_list].items.len > 0;
+            const old_cursor = self.cells.getCursorGlyph();
 
             // Setup our cursor rendering information.
             cursor: {
@@ -2598,6 +2640,24 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 }
             }
 
+            const new_cursor_start = self.cells.size.rows > 0 and
+                self.cells.fg_rows.lists[0].items.len > 0;
+            const new_cursor_end = self.cells.size.rows > 0 and
+                self.cells.fg_rows.lists[cursor_end_list].items.len > 0;
+            const new_cursor = self.cells.getCursorGlyph();
+            if (!std.meta.eql(old_cursor, new_cursor) or
+                old_cursor_start != new_cursor_start or
+                old_cursor_end != new_cursor_end)
+            {
+                if (old_cursor_start or new_cursor_start) {
+                    markFgCellsDirtyFrom(&fg_cells_dirty_from, 0);
+                }
+                if (old_cursor_end or new_cursor_end) {
+                    markFgCellsDirtyFrom(&fg_cells_dirty_from, cursor_end_list);
+                }
+            }
+            self.fg_cells_dirty_from = fg_cells_dirty_from;
+
             // Setup our preedit text.
             if (preedit) |preedit_v| preedit: {
                 const range = preedit_range orelse break :preedit;
@@ -2626,6 +2686,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // log.debug("rebuildCells complete cached_runs={}", .{
             //     self.font_shaper_cache.count(),
             // });
+        }
+
+        fn markFgCellsDirtyFrom(dirty_from: *?usize, start: usize) void {
+            dirty_from.* = if (dirty_from.*) |current|
+                @min(current, start)
+            else
+                start;
         }
 
         fn rebuildRow(

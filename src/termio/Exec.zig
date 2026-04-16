@@ -42,26 +42,8 @@ const darwin = if (builtin.os.tag.isDarwin()) struct {
 
 /// The termios poll rate in milliseconds.
 const TERMIOS_POLL_MS = 200;
-
-fn formatHexPreview(buf: []const u8, out: []u8) []const u8 {
-    const hex = "0123456789abcdef";
-    const len = @min(buf.len, out.len / 2);
-    for (buf[0..len], 0..) |byte, i| {
-        out[i * 2] = hex[byte >> 4];
-        out[i * 2 + 1] = hex[byte & 0x0F];
-    }
-
-    return out[0 .. len * 2];
-}
-
-fn formatAsciiPreview(buf: []const u8, out: []u8) []const u8 {
-    const len = @min(buf.len, out.len);
-    for (buf[0..len], 0..) |byte, i| {
-        out[i] = if (std.ascii.isPrint(byte) or byte == ' ') byte else '.';
-    }
-
-    return out[0..len];
-}
+const WRITE_BUF_SIZE = 4 * 1024;
+const WINDOWS_READ_BUF_SIZE = 16 * 1024;
 
 /// If we build with flatpak support then we have to keep track of
 /// a potential execution on the host.
@@ -537,7 +519,7 @@ pub const ThreadData = struct {
     write_req_pool: SegmentedPool(xev.WriteRequest, WRITE_REQ_PREALLOC) = .{},
 
     /// The pool of available buffers for writing to the pty.
-    write_buf_pool: SegmentedPool([64]u8, WRITE_REQ_PREALLOC) = .{},
+    write_buf_pool: SegmentedPool([WRITE_BUF_SIZE]u8, WRITE_REQ_PREALLOC) = .{},
 
     /// The write queue for the data stream.
     write_queue: xev.WriteQueue = .{},
@@ -1434,8 +1416,7 @@ pub const ReadThread = struct {
         };
         defer crash.sentry.thread_state = null;
 
-        var buf: [1024]u8 = undefined;
-        var logged_chunks: u8 = 0;
+        var buf: [WINDOWS_READ_BUF_SIZE]u8 = undefined;
         while (true) {
             while (true) {
                 var n: windows.DWORD = 0;
@@ -1450,19 +1431,6 @@ pub const ReadThread = struct {
                             unreachable;
                         },
                     }
-                }
-
-                if (logged_chunks < 8 and n > 0) {
-                    logged_chunks += 1;
-                    const len: usize = @intCast(@min(n, 128));
-                    var hex_buf: [256]u8 = undefined;
-                    var ascii_buf: [128]u8 = undefined;
-                    log.info("windows pty chunk idx={} len={} ascii={s} hex={s}", .{
-                        logged_chunks,
-                        n,
-                        formatAsciiPreview(buf[0..len], &ascii_buf),
-                        formatHexPreview(buf[0..len], &hex_buf),
-                    });
                 }
 
                 @call(.always_inline, termio.Termio.processOutput, .{ io, buf[0..n] });
