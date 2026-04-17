@@ -1,24 +1,70 @@
 name: Sync Upstream
 
 on:
-  schedule:
-    - cron: "0 6 * * *"
   workflow_dispatch:
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.PAT_TOKEN }}
 
-      - name: Sync from upstream
+      - name: Configure git identity
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
           git remote add upstream https://github.com/ghostty-org/ghostty.git
           git fetch upstream main
-          git rebase upstream/main
-          git push --force-with-lease
+
+      - name: Check if sync needed
+        id: check
+        run: |
+          BEHIND=$(git rev-list --count HEAD..upstream/main)
+          echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
+          if [ "$BEHIND" = "0" ]; then
+            echo "main is already up to date with upstream"
+          else
+            echo "main is $BEHIND commit(s) behind upstream"
+          fi
+
+      - name: Create sync branch and merge
+        if: steps.check.outputs.behind != '0'
+        id: merge
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          BRANCH="sync/upstream-$DATE"
+          git checkout -b "$BRANCH"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+          if git merge upstream/main --no-edit; then
+            echo "conflicts=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "conflicts=true" >> "$GITHUB_OUTPUT"
+            git merge --abort
+            exit 1
+          fi
+
+      - name: Push sync branch
+        if: steps.check.outputs.behind != '0' && steps.merge.outputs.conflicts == 'false'
+        run: |
+          git push --set-upstream origin "${{ steps.merge.outputs.branch }}"
+
+      - name: Open pull request
+        if: steps.check.outputs.behind != '0' && steps.merge.outputs.conflicts == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          gh pr create \
+            --base main \
+            --head "${{ steps.merge.outputs.branch }}" \
+            --title "Sync upstream ($(date -u +%Y-%m-%d))" \
+            --body "Automated merge of \`ghostty-org/ghostty@main\` into \`main\`. Review the diff and merge if our customizations still compile and behave correctly. Trigger the Build GhosttyKit workflow on main after merging to refresh the xcframework."
