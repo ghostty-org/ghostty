@@ -2,14 +2,24 @@ import Cocoa
 import GhosttyKit
 
 extension NSTouchBarItem.Identifier {
-    static let touchBarNewTab = NSTouchBarItem.Identifier("com.mitchellh.ghostty.touchbar.newTab")
-    static let touchBarSplitRight = NSTouchBarItem.Identifier("com.mitchellh.ghostty.touchbar.splitRight")
-    static let touchBarSplitDown = NSTouchBarItem.Identifier("com.mitchellh.ghostty.touchbar.splitDown")
-    static let touchBarCloseTab = NSTouchBarItem.Identifier("com.mitchellh.ghostty.touchbar.closeTab")
+    static let touchBarNewTab = NSTouchBarItem.Identifier(
+        "com.mitchellh.ghostty.touchbar.newTab"
+    )
+    static let touchBarSplitRight = NSTouchBarItem.Identifier(
+        "com.mitchellh.ghostty.touchbar.splitRight"
+    )
+    static let touchBarSplitDown = NSTouchBarItem.Identifier(
+        "com.mitchellh.ghostty.touchbar.splitDown"
+    )
+    static let touchBarCloseTab = NSTouchBarItem.Identifier(
+        "com.mitchellh.ghostty.touchbar.closeTab"
+    )
 }
 
 extension NSTouchBar.CustomizationIdentifier {
-    static let ghostty = NSTouchBar.CustomizationIdentifier("com.mitchellh.ghostty.touchbar")
+    static let ghostty = NSTouchBar.CustomizationIdentifier(
+        "com.mitchellh.ghostty.touchbar"
+    )
 }
 
 class TouchBarController: NSObject, NSTouchBarDelegate {
@@ -28,24 +38,35 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
             .touchBarNewTab,
             .touchBarSplitRight,
             .touchBarSplitDown,
-            .touchBarCloseTab
+            .touchBarCloseTab,
         ]
         touchBar.customizationAllowedItemIdentifiers = [
             .touchBarNewTab,
             .touchBarSplitRight,
             .touchBarSplitDown,
-            .touchBarCloseTab
+            .touchBarCloseTab,
         ]
         return touchBar
     }
 
-    func touchBar(_ touchBar: NSTouchBar, makeItemForIdentifier identifier: NSTouchBarItem.Identifier) -> NSTouchBarItem? {
+    func touchBar(
+        _ touchBar: NSTouchBar,
+        makeItemForIdentifier identifier: NSTouchBarItem.Identifier
+    ) -> NSTouchBarItem? {
         guard let target = target else { return nil }
 
         switch identifier {
         case .touchBarNewTab:
             let item = NSCustomTouchBarItem(identifier: identifier)
-            let button = NSButton(title: "", image: NSImage(systemSymbolName: "plus", accessibilityDescription: "New Tab")!, target: target, action: #selector(TerminalController.newTab(_:)))
+            let button = NSButton(
+                title: "",
+                image: NSImage(
+                    systemSymbolName: "plus",
+                    accessibilityDescription: "New Tab"
+                )!,
+                target: target,
+                action: #selector(TerminalController.newTab(_:))
+            )
             button.bezelColor = NSColor.controlColor
             item.view = button
             item.customizationLabel = "New Tab"
@@ -53,7 +74,15 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
 
         case .touchBarSplitRight:
             let item = NSCustomTouchBarItem(identifier: identifier)
-            let button = NSButton(title: "", image: NSImage(systemSymbolName: "rectangle.split.2x1", accessibilityDescription: "Split Right")!, target: target, action: #selector(BaseTerminalController.splitRight(_:)))
+            let button = NSButton(
+                title: "",
+                image: NSImage(
+                    systemSymbolName: "rectangle.split.2x1",
+                    accessibilityDescription: "Split Right"
+                )!,
+                target: target,
+                action: #selector(BaseTerminalController.splitRight(_:))
+            )
             button.bezelColor = NSColor.controlColor
             item.view = button
             item.customizationLabel = "Split Right"
@@ -61,7 +90,15 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
 
         case .touchBarSplitDown:
             let item = NSCustomTouchBarItem(identifier: identifier)
-            let button = NSButton(title: "", image: NSImage(systemSymbolName: "rectangle.split.1x2", accessibilityDescription: "Split Down")!, target: target, action: #selector(BaseTerminalController.splitDown(_:)))
+            let button = NSButton(
+                title: "",
+                image: NSImage(
+                    systemSymbolName: "rectangle.split.1x2",
+                    accessibilityDescription: "Split Down"
+                )!,
+                target: target,
+                action: #selector(BaseTerminalController.splitDown(_:))
+            )
             button.bezelColor = NSColor.controlColor
             item.view = button
             item.customizationLabel = "Split Down"
@@ -69,7 +106,15 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
 
         case .touchBarCloseTab:
             let item = NSCustomTouchBarItem(identifier: identifier)
-            let button = NSButton(title: "", image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Tab")!, target: target, action: #selector(TerminalController.closeTab(_:)))
+            let button = NSButton(
+                title: "",
+                image: NSImage(
+                    systemSymbolName: "xmark",
+                    accessibilityDescription: "Close Tab"
+                )!,
+                target: target,
+                action: #selector(TerminalController.closeTab(_:))
+            )
             button.bezelColor = NSColor.systemRed
             item.view = button
             item.customizationLabel = "Close Tab"
