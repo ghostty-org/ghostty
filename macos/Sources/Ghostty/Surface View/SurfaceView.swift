@@ -130,6 +130,7 @@ extension Ghostty {
                     keyTables: surfaceView.keyTables,
                     keySequence: surfaceView.keySequence
                 )
+                .zIndex(1)
 #endif
 
                 VStack(spacing: 0) {
