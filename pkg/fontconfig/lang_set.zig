@@ -1,6 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const c = @import("c.zig").c;
+const c = @import("c");
 
 pub const LangSet = opaque {
     pub fn create() *LangSet {

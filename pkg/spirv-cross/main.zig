@@ -1,1 +1,1 @@
-pub const c = @import("c.zig").c;
+pub const c = @import("c");

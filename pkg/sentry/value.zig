@@ -1,6 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const c = @import("c.zig").c;
+const c = @import("c");
 const Level = @import("level.zig").Level;
 
 /// sentry_value_t

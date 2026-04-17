@@ -1,6 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const c = @import("c.zig").c;
+const c = @import("c");
 const Error = @import("main.zig").Error;
 const ObjectSet = @import("main.zig").ObjectSet;
 const Property = @import("main.zig").Property;

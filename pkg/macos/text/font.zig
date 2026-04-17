@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const foundation = @import("../foundation.zig");
 const graphics = @import("../graphics.zig");
 const text = @import("../text.zig");
-const c = @import("c.zig").c;
+const c = @import("c");
 
 pub const Font = opaque {
     pub fn createWithFontDescriptor(desc: *const text.FontDescriptor, size: f32) Allocator.Error!*Font {

@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const foundation = @import("../foundation.zig");
 const graphics = @import("../graphics.zig");
-const c = @import("c.zig").c;
+const c = @import("c");
 
 pub const Path = opaque {
     pub fn createWithRect(

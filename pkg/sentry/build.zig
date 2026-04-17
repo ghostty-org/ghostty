@@ -46,6 +46,23 @@ pub fn build(b: *std.Build) !void {
 
     if (b.lazyDependency("sentry", .{})) |upstream| {
         module.addIncludePath(upstream.path("include"));
+
+        const tc = b.addTranslateC(.{
+            .root_source_file = b.path("c_import.h"),
+            .target = target,
+            .optimize = optimize,
+        });
+        if (target.result.os.tag.isDarwin()) {
+            const libc = try std.zig.LibCInstallation.findNative(.{
+                .allocator = b.allocator,
+                .target = &target.result,
+                .verbose = false,
+            });
+            tc.addSystemIncludePath(.{ .cwd_relative = libc.sys_include_dir.? });
+        }
+        tc.addIncludePath(upstream.path("include"));
+        module.addImport("c", tc.createModule());
+
         lib.addIncludePath(upstream.path("include"));
         lib.addIncludePath(upstream.path("src"));
         lib.addCSourceFiles(.{

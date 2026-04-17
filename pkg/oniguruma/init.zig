@@ -1,4 +1,4 @@
-const c = @import("c.zig").c;
+const c = @import("c");
 const Encoding = @import("types.zig").Encoding;
 const errors = @import("errors.zig");
 

@@ -2,7 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const foundation = @import("../foundation.zig");
-const c = @import("c.zig").c;
+const c = @import("c");
 
 pub const CharacterSet = opaque {
     pub fn createWithCharactersInString(

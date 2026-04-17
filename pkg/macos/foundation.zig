@@ -9,7 +9,7 @@ const string = @import("foundation/string.zig");
 const typepkg = @import("foundation/type.zig");
 const url = @import("foundation/url.zig");
 
-pub const c = @import("foundation/c.zig").c;
+pub const c = @import("c");
 pub const Array = array.Array;
 pub const MutableArray = array.MutableArray;
 pub const AttributedString = attributed_string.AttributedString;

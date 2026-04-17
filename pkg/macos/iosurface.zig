@@ -1,6 +1,6 @@
 const iosurface = @import("iosurface/iosurface.zig");
 
-pub const c = @import("iosurface/c.zig").c;
+pub const c = @import("c");
 pub const IOSurface = iosurface.IOSurface;
 
 test {

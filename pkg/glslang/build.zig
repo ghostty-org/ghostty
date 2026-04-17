@@ -17,6 +17,25 @@ pub fn build(b: *std.Build) !void {
     if (upstream) |v| module.addIncludePath(v.path(""));
     module.addIncludePath(b.path("override"));
 
+    {
+        const tc = b.addTranslateC(.{
+            .root_source_file = b.path("c_import.h"),
+            .target = target,
+            .optimize = optimize,
+        });
+        if (target.result.os.tag.isDarwin()) {
+            const libc = try std.zig.LibCInstallation.findNative(.{
+                .allocator = b.allocator,
+                .target = &target.result,
+                .verbose = false,
+            });
+            tc.addSystemIncludePath(.{ .cwd_relative = libc.sys_include_dir.? });
+        }
+        if (upstream) |v| tc.addIncludePath(v.path(""));
+        tc.addIncludePath(b.path("override"));
+        module.addImport("c", tc.createModule());
+    }
+
     if (target.query.isNative()) {
         const test_exe = b.addTest(.{
             .name = "test",

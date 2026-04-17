@@ -11,7 +11,7 @@
 //! WARNING: Lots of performance improvements that we can make with Zig
 //! comptime help. I'm deferring this until later but have some fun ideas.
 
-pub const c = @import("c.zig").c;
+pub const c = @import("c");
 pub const glad = @import("glad.zig");
 pub const ext = @import("extensions.zig");
 pub const Buffer = @import("Buffer.zig");

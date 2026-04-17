@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("c.zig").c;
+const c = @import("c");
 
 pub const Version = struct {
     major: u32,

@@ -1,4 +1,4 @@
-const c = @import("c.zig").c;
+const c = @import("c");
 
 // Thanks to Mach (https://github.com/hexops/mach) for this work, I didn't
 // do this manually. I wrote the other Freetype bindings by hand but this

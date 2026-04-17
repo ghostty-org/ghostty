@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const graphics = @import("../graphics.zig");
 const context = @import("context.zig");
-const c = @import("c.zig").c;
+const c = @import("c");
 
 pub const ImageAlphaInfo = enum(c_uint) {
     none = c.kCGImageAlphaNone,

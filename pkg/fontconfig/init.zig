@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("c.zig").c;
+const c = @import("c");
 const Config = @import("config.zig").Config;
 
 pub fn init() bool {

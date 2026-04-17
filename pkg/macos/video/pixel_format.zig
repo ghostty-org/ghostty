@@ -1,4 +1,4 @@
-const c = @import("c.zig").c;
+const c = @import("c");
 
 pub const PixelFormat = enum(c_int) {
     /// 1 bit indexed

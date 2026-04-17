@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const foundation = @import("../foundation.zig");
-const c = @import("c.zig").c;
+const c = @import("c");
 
 pub const Number = opaque {
     pub fn create(

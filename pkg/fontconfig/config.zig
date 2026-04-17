@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("c.zig").c;
+const c = @import("c");
 const Error = @import("main.zig").Error;
 const CharSet = @import("char_set.zig").CharSet;
 const FontSet = @import("font_set.zig").FontSet;

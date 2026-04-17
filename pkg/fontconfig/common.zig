@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("c.zig").c;
+const c = @import("c");
 const Error = @import("main.zig").Error;
 
 pub const Weight = enum(c_uint) {

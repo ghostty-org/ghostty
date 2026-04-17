@@ -168,6 +168,36 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     if (b.lazyDependency("harfbuzz", .{})) |upstream| {
         lib.addIncludePath(upstream.path("src"));
         module.addIncludePath(upstream.path("src"));
+
+        {
+            const tc = b.addTranslateC(.{
+                .root_source_file = b.path("c_import.h"),
+                .target = target,
+                .optimize = optimize,
+            });
+            tc.addIncludePath(upstream.path("src"));
+            if (freetype_enabled) {
+                tc.defineCMacro("GHOSTTY_HARFBUZZ_FREETYPE", "1");
+                if (!b.systemIntegrationOption("freetype", .{})) {
+                    if (freetype.builder.lazyDependency("freetype", .{})) |freetype_dep| {
+                        tc.addIncludePath(freetype_dep.path("include"));
+                    }
+                }
+            }
+            if (coretext_enabled) {
+                tc.defineCMacro("GHOSTTY_HARFBUZZ_CORETEXT", "1");
+                if (target.result.os.tag.isDarwin()) {
+                    const libc = try std.zig.LibCInstallation.findNative(.{
+                        .allocator = b.allocator,
+                        .target = &target.result,
+                        .verbose = false,
+                    });
+                    tc.addSystemIncludePath(.{ .cwd_relative = libc.sys_include_dir.? });
+                }
+            }
+            module.addImport("c", tc.createModule());
+        }
+
         lib.addCSourceFile(.{
             .file = upstream.path("src/harfbuzz.cc"),
             .flags = flags.items,

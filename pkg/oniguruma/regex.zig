@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("c.zig").c;
+const c = @import("c");
 const types = @import("types.zig");
 const errors = @import("errors.zig");
 const testEnsureInit = @import("testing.zig").ensureInit;

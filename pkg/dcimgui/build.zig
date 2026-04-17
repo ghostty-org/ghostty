@@ -45,6 +45,29 @@ pub fn build(b: *std.Build) !void {
     mod.addOptions("build_options", options);
     mod.linkLibrary(lib);
 
+    {
+        const tc = b.addTranslateC(.{
+            .root_source_file = b.path("c_import.h"),
+            .target = target,
+            .optimize = optimize,
+        });
+        if (target.result.os.tag.isDarwin()) {
+            const libc = try std.zig.LibCInstallation.findNative(.{
+                .allocator = b.allocator,
+                .target = &target.result,
+                .verbose = false,
+            });
+            tc.addSystemIncludePath(.{ .cwd_relative = libc.sys_include_dir.? });
+        }
+        if (b.lazyDependency("bindings", .{})) |bindings| {
+            tc.addIncludePath(bindings.path(""));
+        }
+        if (b.lazyDependency("imgui", .{})) |imgui| {
+            tc.addIncludePath(imgui.path(""));
+        }
+        mod.addImport("c", tc.createModule());
+    }
+
     // We need to add proper Apple SDKs to find stdlib headers
     if (target.result.os.tag.isDarwin()) {
         if (!target.query.isNative()) {
@@ -196,6 +219,20 @@ pub fn build(b: *std.Build) !void {
     });
     test_exe.root_module.addOptions("build_options", options);
     test_exe.linkLibrary(lib);
+    {
+        const tc = b.addTranslateC(.{
+            .root_source_file = b.path("c_import.h"),
+            .target = target,
+            .optimize = optimize,
+        });
+        if (b.lazyDependency("bindings", .{})) |bindings| {
+            tc.addIncludePath(bindings.path(""));
+        }
+        if (b.lazyDependency("imgui", .{})) |imgui| {
+            tc.addIncludePath(imgui.path(""));
+        }
+        test_exe.root_module.addImport("c", tc.createModule());
+    }
     const tests_run = b.addRunArtifact(test_exe);
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&tests_run.step);

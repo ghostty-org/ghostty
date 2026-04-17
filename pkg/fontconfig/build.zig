@@ -242,6 +242,18 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     if (b.lazyDependency("fontconfig", .{})) |upstream| {
         lib.addIncludePath(upstream.path(""));
         module.addIncludePath(upstream.path(""));
+
+        {
+            const tc = b.addTranslateC(.{
+                .root_source_file = b.path("c_import.h"),
+                .target = target,
+                .optimize = optimize,
+            });
+            tc.addIncludePath(b.path("override/include"));
+            tc.addIncludePath(upstream.path(""));
+            module.addImport("c", tc.createModule());
+        }
+
         lib.addCSourceFiles(.{
             .root = upstream.path(""),
             .files = srcs,

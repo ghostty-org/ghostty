@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const foundation = @import("../foundation.zig");
-const c = @import("c.zig").c;
+const c = @import("c");
 
 pub const URL = opaque {
     pub fn createWithString(str: *foundation.String, base: ?*URL) Allocator.Error!*URL {

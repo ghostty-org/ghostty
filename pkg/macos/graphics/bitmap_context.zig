@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const graphics = @import("../graphics.zig");
 const Context = @import("context.zig").Context;
-const c = @import("c.zig").c;
+const c = @import("c");
 
 pub const BitmapContext = opaque {
     pub const context = Context(BitmapContext);

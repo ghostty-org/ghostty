@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const c = @import("c.zig").c;
+const c = @import("c");
 const Error = @import("error.zig").Error;
 const check = @import("error.zig").check;
 const ImageData = @import("main.zig").ImageData;

@@ -1,3 +1,3 @@
-const c = @import("c.zig").c;
+const c = @import("c");
 
 pub const Glyph = c.CGGlyph;

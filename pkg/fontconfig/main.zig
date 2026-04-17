@@ -11,7 +11,7 @@ const pattern = @import("pattern.zig");
 const range = @import("range.zig");
 const value = @import("value.zig");
 
-pub const c = @import("c.zig").c;
+pub const c = @import("c");
 pub const init = initpkg.init;
 pub const fini = initpkg.fini;
 pub const initLoadConfig = initpkg.initLoadConfig;

@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("c.zig").c;
+const c = @import("c");
 const testlib = @import("test.zig");
 
 pub const Shader = opaque {

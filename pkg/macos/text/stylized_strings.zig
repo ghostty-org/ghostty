@@ -1,5 +1,5 @@
 const foundation = @import("../foundation.zig");
-const c = @import("c.zig").c;
+const c = @import("c");
 
 pub const StringAttribute = enum {
     font,

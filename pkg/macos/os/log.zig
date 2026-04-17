@@ -1,7 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const c = @import("c.zig").c;
+const c = @import("c");
 
 pub const Log = opaque {
     pub fn create(

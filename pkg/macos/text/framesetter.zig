@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const foundation = @import("../foundation.zig");
 const graphics = @import("../graphics.zig");
 const text = @import("../text.zig");
-const c = @import("c.zig").c;
+const c = @import("c");
 
 pub const Framesetter = opaque {
     pub fn createWithAttributedString(str: *foundation.AttributedString) Allocator.Error!*Framesetter {

@@ -1,7 +1,7 @@
 const Library = @This();
 
 const std = @import("std");
-const c = @import("c.zig").c;
+const c = @import("c");
 const Face = @import("face.zig").Face;
 const errors = @import("errors.zig");
 const Error = errors.Error;

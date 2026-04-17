@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("c.zig").c;
+const c = @import("c");
 
 /// Compute (a*b)/0x10000 with maximum accuracy. Its main use is to multiply
 /// a given value by a 16.16 fixed-point factor.

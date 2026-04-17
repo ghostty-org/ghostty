@@ -10,7 +10,7 @@ const paragraph_style = @import("text/paragraph_style.zig");
 const run = @import("text/run.zig");
 const stylized_strings = @import("text/stylized_strings.zig");
 
-pub const c = @import("text/c.zig").c;
+pub const c = @import("c");
 pub const Font = font.Font;
 pub const FontTableTag = font.FontTableTag;
 pub const FontCollection = font_collection.FontCollection;

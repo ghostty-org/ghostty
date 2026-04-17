@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const foundation = @import("../foundation.zig");
-const c = @import("c.zig").c;
+const c = @import("c");
 
 pub const FontDescriptor = opaque {
     pub fn createWithNameAndSize(name: *foundation.String, size: f64) Allocator.Error!*FontDescriptor {

@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const c = @import("c.zig").c;
+const c = @import("c");
 const Error = @import("error.zig").Error;
 
 const log = std.log.scoped(.wuffs_swizzler);

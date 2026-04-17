@@ -3,7 +3,7 @@ const errors = @import("errors.zig");
 const face = @import("face.zig");
 const tag = @import("tag.zig");
 
-pub const c = @import("c.zig").c;
+pub const c = @import("c");
 pub const testing = @import("test.zig");
 pub const Library = @import("Library.zig");
 

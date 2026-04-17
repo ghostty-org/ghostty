@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const c = @import("c.zig").c;
+const c = @import("c");
 const errors = @import("errors.zig");
 const Library = @import("Library.zig");
 const Tag = @import("tag.zig").Tag;

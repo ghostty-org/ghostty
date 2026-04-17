@@ -7,7 +7,7 @@ const font = @import("font.zig");
 const shapepkg = @import("shape.zig");
 const versionpkg = @import("version.zig");
 
-pub const c = @import("c.zig").c;
+pub const c = @import("c");
 pub const freetype = @import("freetype.zig");
 pub const coretext = @import("coretext.zig");
 pub const MemoryMode = blob.MemoryMode;

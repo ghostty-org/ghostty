@@ -79,6 +79,15 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     if (b.lazyDependency("oniguruma", .{})) |upstream| {
         lib.addIncludePath(upstream.path("src"));
         module.addIncludePath(upstream.path("src"));
+        {
+            const tc = b.addTranslateC(.{
+                .root_source_file = b.path("c_import.h"),
+                .target = target,
+                .optimize = optimize,
+            });
+            tc.addIncludePath(upstream.path("src"));
+            module.addImport("c", tc.createModule());
+        }
 
         lib.addConfigHeader(b.addConfigHeader(.{
             .style = .{ .cmake = upstream.path("src/config.h.cmake.in") },

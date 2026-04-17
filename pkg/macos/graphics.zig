@@ -6,7 +6,7 @@ const geometry = @import("graphics/geometry.zig");
 const image = @import("graphics/image.zig");
 const path = @import("graphics/path.zig");
 
-pub const c = @import("graphics/c.zig").c;
+pub const c = @import("c");
 pub const AffineTransform = affine_transform.AffineTransform;
 pub const BitmapContext = bitmap_context.BitmapContext;
 pub const ColorSpace = color_space.ColorSpace;

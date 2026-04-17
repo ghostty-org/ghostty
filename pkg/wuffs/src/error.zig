@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const c = @import("c.zig").c;
+const c = @import("c");
 
 pub const Error = std.mem.Allocator.Error || error{ WuffsError, Overflow };
 

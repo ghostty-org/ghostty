@@ -12,6 +12,36 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
+    if (target.result.os.tag.isDarwin()) {
+        const tc = b.addTranslateC(.{
+            .root_source_file = b.path("c_import.h"),
+            .target = target,
+            .optimize = optimize,
+        });
+        const libc = try std.zig.LibCInstallation.findNative(.{
+            .allocator = b.allocator,
+            .target = &target.result,
+            .verbose = false,
+        });
+        tc.addSystemIncludePath(.{ .cwd_relative = libc.sys_include_dir.? });
+
+        // Framework headers (CoreFoundation, CoreGraphics, etc.)
+        const sdk_path = std.fs.path.dirname(std.fs.path.dirname(libc.sys_include_dir.?).?).?;
+        tc.addSystemFrameworkPath(.{
+            .cwd_relative = try std.fs.path.join(b.allocator, &.{
+                sdk_path,
+                "System",
+                "Library",
+                "Frameworks",
+            }),
+        });
+        module.addImport("c", tc.createModule());
+    } else {
+        module.addImport("c", b.createModule(.{
+            .root_source_file = b.path("c_empty.zig"),
+        }));
+    }
+
     const lib = b.addLibrary(.{
         .name = "macos",
         .root_module = b.createModule(.{

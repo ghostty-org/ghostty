@@ -36,6 +36,27 @@ pub fn build(b: *std.Build) !void {
 
     module.addIncludePath(b.path(""));
 
+    {
+        const tc = b.addTranslateC(.{
+            .root_source_file = b.path("c_import.h"),
+            .target = target,
+            .optimize = optimize,
+        });
+        if (target.result.os.tag.isDarwin()) {
+            const libc = try std.zig.LibCInstallation.findNative(.{
+                .allocator = b.allocator,
+                .target = &target.result,
+                .verbose = false,
+            });
+            tc.addSystemIncludePath(.{ .cwd_relative = libc.sys_include_dir.? });
+        }
+        tc.addIncludePath(b.path(""));
+        if (b.lazyDependency("freetype", .{})) |upstream| {
+            tc.addIncludePath(upstream.path("include"));
+        }
+        module.addImport("c", tc.createModule());
+    }
+
     if (b.systemIntegrationOption("freetype", .{})) {
         module.linkSystemLibrary("freetype2", dynamic_link_opts);
         if (test_exe) |exe| {
