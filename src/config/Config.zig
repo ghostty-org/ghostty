@@ -6696,6 +6696,32 @@ pub const Keybinds = struct {
                 .{ .performable = true },
             );
 
+            // Swapping splits (preserves layout, swaps the terminal content)
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .arrow_up }, .mods = .{ .ctrl = true, .alt = true, .shift = true } },
+                .{ .swap_split = .up },
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .arrow_down }, .mods = .{ .ctrl = true, .alt = true, .shift = true } },
+                .{ .swap_split = .down },
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .arrow_left }, .mods = .{ .ctrl = true, .alt = true, .shift = true } },
+                .{ .swap_split = .left },
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .arrow_right }, .mods = .{ .ctrl = true, .alt = true, .shift = true } },
+                .{ .swap_split = .right },
+                .{ .performable = true },
+            );
+
             // Resizing splits
             try self.set.putFlags(
                 alloc,
@@ -7041,6 +7067,33 @@ pub const Keybinds = struct {
                 .{ .key = .{ .physical = .arrow_right }, .mods = .{ .super = true, .alt = true } },
                 .{ .goto_split = .right },
             );
+
+            // Swapping splits (preserves layout, swaps terminal content)
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .arrow_up }, .mods = .{ .super = true, .alt = true, .shift = true } },
+                .{ .swap_split = .up },
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .arrow_down }, .mods = .{ .super = true, .alt = true, .shift = true } },
+                .{ .swap_split = .down },
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .arrow_left }, .mods = .{ .super = true, .alt = true, .shift = true } },
+                .{ .swap_split = .left },
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .arrow_right }, .mods = .{ .super = true, .alt = true, .shift = true } },
+                .{ .swap_split = .right },
+                .{ .performable = true },
+            );
+
             try self.set.put(
                 alloc,
                 .{ .key = .{ .physical = .arrow_up }, .mods = .{ .super = true, .ctrl = true } },

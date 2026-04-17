@@ -515,6 +515,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_GOTO_SPLIT:
                 return gotoSplit(app, target: target, direction: action.action.goto_split)
 
+            case GHOSTTY_ACTION_SWAP_SPLIT:
+                return swapSplit(app, target: target, direction: action.action.swap_split)
+
             case GHOSTTY_ACTION_GOTO_WINDOW:
                 return gotoWindow(app, target: target, direction: action.action.goto_window)
 
@@ -1190,6 +1193,67 @@ extension Ghostty {
                         userInfo: [
                             Notification.SplitDirectionKey: splitDirection as Any,
                         ]
+                    )
+
+                    return true
+
+                default:
+                    assertionFailure()
+                    return false
+                }
+        }
+
+        private static func swapSplit(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            direction: ghostty_action_goto_split_e) -> Bool {
+                switch target.tag {
+                case GHOSTTY_TARGET_APP:
+                    Ghostty.logger.warning("swap split does nothing with an app target")
+                    return false
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface else { return false }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                    guard let controller = surfaceView.window?.windowController as? BaseTerminalController else { return false }
+
+                    guard controller.surfaceTree.isSplit else { return false }
+                    guard let splitDirection = SplitFocusDirection.from(direction: direction) else { return false }
+                    guard let currentNode = controller.surfaceTree.root?.node(view: surfaceView) else { return false }
+
+                    // Find the target view in the given direction. If none
+                    // exists, the action is not performable — let the key
+                    // pass through.
+                    let focusDirection: SplitTree<Ghostty.SurfaceView>.FocusDirection = splitDirection.toSplitTreeFocusDirection()
+                    guard let targetView = controller.surfaceTree.focusTarget(
+                        for: focusDirection,
+                        from: currentNode
+                    ) else {
+                        return false
+                    }
+
+                    // Don't swap with self (can happen with only-one-pane wrap).
+                    guard targetView !== surfaceView else { return false }
+
+                    guard let targetNode = controller.surfaceTree.root?.node(view: targetView) else { return false }
+
+                    let newTree: SplitTree<Ghostty.SurfaceView>
+                    do {
+                        newTree = try controller.surfaceTree.swapping(currentNode, with: targetNode)
+                    } catch {
+                        Ghostty.logger.warning("failed to swap splits: \(error)")
+                        return false
+                    }
+
+                    // Keep focus on the surface the user was on; its view has
+                    // moved to the target's old position, so focus follows
+                    // the content (matching "swap the position of my window"
+                    // mental model).
+                    controller.replaceSurfaceTree(
+                        newTree,
+                        moveFocusTo: surfaceView,
+                        moveFocusFrom: surfaceView,
+                        undoAction: "Swap Split"
                     )
 
                     return true

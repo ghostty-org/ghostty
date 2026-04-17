@@ -322,6 +322,34 @@ pub const SplitTree = extern struct {
         return true;
     }
 
+    /// Swap the currently focused surface with the surface in the given
+    /// direction. The tree layout (structure and split ratios) is
+    /// preserved; only the two terminals trade places. Returns true if a
+    /// swap occurred, false if there is no surface in that direction or
+    /// if no swap is possible.
+    pub fn swap(self: *Self, to: Surface.Tree.Goto) bool {
+        const tree = self.getTree() orelse return false;
+        const active = self.getActiveSurfaceHandle() orelse return false;
+
+        const alloc = Application.default().allocator();
+        const target = if (tree.goto(alloc, active, to)) |handle_|
+            handle_ orelse return false
+        else |err| switch (err) {
+            error.OutOfMemory => return false,
+        };
+
+        // No target, or target is ourself: nothing to do.
+        if (active == target) return false;
+
+        var new_tree = tree.swap(alloc, active, target) catch |err| switch (err) {
+            error.OutOfMemory => return false,
+        };
+        defer new_tree.deinit();
+
+        self.setTree(&new_tree);
+        return true;
+    }
+
     /// Move focus from the currently focused surface to the given
     /// direction. Returns true if focus switched to a new surface.
     pub fn goto(self: *Self, to: Surface.Tree.Goto) bool {

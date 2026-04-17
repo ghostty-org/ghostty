@@ -689,6 +689,8 @@ pub const Application = extern struct {
 
             .goto_split => return Action.gotoSplit(target, value),
 
+            .swap_split => return Action.swapSplit(target, value),
+
             .goto_window => return Action.gotoWindow(value),
 
             .goto_tab => return Action.gotoTab(target, value),
@@ -2011,6 +2013,34 @@ const Action = struct {
                 };
 
                 return tree.goto(switch (to) {
+                    .previous => .previous_wrapped,
+                    .next => .next_wrapped,
+                    .up => .{ .spatial = .up },
+                    .down => .{ .spatial = .down },
+                    .left => .{ .spatial = .left },
+                    .right => .{ .spatial = .right },
+                });
+            },
+        }
+    }
+
+    pub fn swapSplit(
+        target: apprt.Target,
+        to: apprt.action.GotoSplit,
+    ) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const tree = ext.getAncestor(
+                    SplitTree,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a split tree, ignoring swap_split", .{});
+                    return false;
+                };
+
+                return tree.swap(switch (to) {
                     .previous => .previous_wrapped,
                     .next => .next_wrapped,
                     .up => .{ .spatial = .up },

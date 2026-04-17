@@ -473,6 +473,44 @@ pub fn SplitTree(comptime V: type) type {
             );
         }
 
+        /// Swap the views of two leaf nodes. The tree structure and all
+        /// split ratios are preserved; only the view pointers at the two
+        /// leaf positions are exchanged. This is useful for letting the
+        /// user rearrange which terminal occupies which pane without
+        /// reshaping the layout.
+        ///
+        /// Both handles must refer to leaf nodes (asserted).
+        ///
+        /// The zoomed handle (if any) is preserved as-is. Since the zoom
+        /// tracks a node position rather than a view, the zoomed pane
+        /// will show the newly-swapped-in view after this call.
+        pub fn swap(
+            self: *const Self,
+            gpa: Allocator,
+            a: Node.Handle,
+            b: Node.Handle,
+        ) Allocator.Error!Self {
+            assert(a.idx() < self.nodes.len);
+            assert(b.idx() < self.nodes.len);
+            assert(self.nodes[a.idx()] == .leaf);
+            assert(self.nodes[b.idx()] == .leaf);
+
+            var result = try self.clone(gpa);
+            errdefer result.deinit();
+
+            if (a == b) return result;
+
+            // Safe const cast: the cloned tree owns this memory via its
+            // arena. See resizeInPlace for the same pattern.
+            const node_a: *Node = @constCast(&result.nodes[a.idx()]);
+            const node_b: *Node = @constCast(&result.nodes[b.idx()]);
+            const view_a = node_a.leaf;
+            node_a.* = .{ .leaf = node_b.leaf };
+            node_b.* = .{ .leaf = view_a };
+
+            return result;
+        }
+
         /// Resize the given node in place. The node MUST be a split (asserted).
         ///
         /// In general, this is an immutable data structure so this is
@@ -2085,6 +2123,84 @@ test "SplitTree: spatial goto" {
             \\
         );
     }
+}
+
+test "SplitTree: swap leaves preserves layout" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var v1: TestTree.View = .{ .label = "A" };
+    var t1: TestTree = try .init(alloc, &v1);
+    defer t1.deinit();
+    var v2: TestTree.View = .{ .label = "B" };
+    var t2: TestTree = try .init(alloc, &v2);
+    defer t2.deinit();
+
+    // A | B horizontal with an asymmetric ratio so we can verify the
+    // ratio is preserved through the swap.
+    var splitAB = try t1.split(alloc, .root, .right, 0.7, &t2);
+    defer splitAB.deinit();
+
+    // Find handles for A and B.
+    const handle_a: TestTree.Node.Handle = h: {
+        var it = splitAB.iterator();
+        break :h while (it.next()) |entry| {
+            if (std.mem.eql(u8, entry.view.label, "A")) break entry.handle;
+        } else return error.NotFound;
+    };
+    const handle_b: TestTree.Node.Handle = h: {
+        var it = splitAB.iterator();
+        break :h while (it.next()) |entry| {
+            if (std.mem.eql(u8, entry.view.label, "B")) break entry.handle;
+        } else return error.NotFound;
+    };
+
+    // Swap A and B.
+    var swapped = try splitAB.swap(alloc, handle_a, handle_b);
+    defer swapped.deinit();
+
+    // The leaf that was A is now B, and vice versa.
+    try testing.expectEqualStrings("B", swapped.nodes[handle_a.idx()].leaf.label);
+    try testing.expectEqualStrings("A", swapped.nodes[handle_b.idx()].leaf.label);
+
+    // The root split node is unchanged (same layout, same ratio).
+    const root_before = splitAB.nodes[0].split;
+    const root_after = swapped.nodes[0].split;
+    try testing.expectEqual(root_before.layout, root_after.layout);
+    try testing.expectEqual(root_before.ratio, root_after.ratio);
+    try testing.expectEqual(root_before.left, root_after.left);
+    try testing.expectEqual(root_before.right, root_after.right);
+
+    // The original tree is untouched (immutability).
+    try testing.expectEqualStrings("A", splitAB.nodes[handle_a.idx()].leaf.label);
+    try testing.expectEqualStrings("B", splitAB.nodes[handle_b.idx()].leaf.label);
+}
+
+test "SplitTree: swap with self is a no-op clone" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var v1: TestTree.View = .{ .label = "A" };
+    var t1: TestTree = try .init(alloc, &v1);
+    defer t1.deinit();
+    var v2: TestTree.View = .{ .label = "B" };
+    var t2: TestTree = try .init(alloc, &v2);
+    defer t2.deinit();
+
+    var splitAB = try t1.split(alloc, .root, .right, 0.5, &t2);
+    defer splitAB.deinit();
+
+    const handle_a: TestTree.Node.Handle = h: {
+        var it = splitAB.iterator();
+        break :h while (it.next()) |entry| {
+            if (std.mem.eql(u8, entry.view.label, "A")) break entry.handle;
+        } else return error.NotFound;
+    };
+
+    var swapped = try splitAB.swap(alloc, handle_a, handle_a);
+    defer swapped.deinit();
+
+    try testing.expectEqualStrings("A", swapped.nodes[handle_a.idx()].leaf.label);
 }
 
 test "SplitTree: resize" {

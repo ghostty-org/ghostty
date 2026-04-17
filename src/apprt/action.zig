@@ -139,6 +139,12 @@ pub const Action = union(Key) {
     /// Jump to a specific split.
     goto_split: GotoSplit,
 
+    /// Swap the current split with the split in the given direction. The
+    /// tree structure and split ratios are preserved; only the leaf views
+    /// (terminals) are exchanged. If no split exists in the given direction,
+    /// the action is a no-op.
+    swap_split: GotoSplit,
+
     /// Jump to next/previous window.
     goto_window: GotoWindow,
 
@@ -410,6 +416,7 @@ pub const Action = union(Key) {
         search_selected,
         readonly,
         copy_title_to_clipboard,
+        swap_split,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");

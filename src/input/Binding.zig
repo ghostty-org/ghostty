@@ -608,6 +608,13 @@ pub const Action = union(enum) {
     /// (`previous` and `next`).
     goto_split: SplitFocusDirection,
 
+    /// Swap the current split with the split in the specified direction.
+    /// The layout (tree structure and split ratios) is preserved; only the
+    /// terminal content (the leaf views) is exchanged between the two
+    /// positions. If no split exists in the given direction, the action is
+    /// a no-op. Valid arguments are the same as `goto_split`.
+    swap_split: SplitFocusDirection,
+
     /// Focus on either the previous window or the next one ('previous', 'next')
     goto_window: GotoWindow,
 

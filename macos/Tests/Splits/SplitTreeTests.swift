@@ -166,6 +166,52 @@ struct SplitTreeTests {
         #expect(target === view1)
     }
 
+    // MARK: - Swapping
+
+    @Test func swappingExchangesTwoLeaves() throws {
+        let (tree, view1, view2) = try makeHorizontalSplit()
+
+        // Capture the original split's ratio and direction.
+        guard case .split(let originalSplit) = tree.root else {
+            Issue.record("expected split root")
+            return
+        }
+
+        let swapped = try tree.swapping(.leaf(view: view1), with: .leaf(view: view2))
+
+        // Layout must be preserved: same direction and ratio.
+        guard case .split(let newSplit) = swapped.root else {
+            Issue.record("expected split root after swap")
+            return
+        }
+        #expect(newSplit.direction == originalSplit.direction)
+        #expect(newSplit.ratio == originalSplit.ratio)
+
+        // Views must have swapped positions.
+        guard case .leaf(let newLeft) = newSplit.left,
+              case .leaf(let newRight) = newSplit.right else {
+            Issue.record("expected leaf children after swap")
+            return
+        }
+        #expect(newLeft === view2)
+        #expect(newRight === view1)
+    }
+
+    @Test func swappingWithSelfIsNoOp() throws {
+        let (tree, view1, _) = try makeHorizontalSplit()
+        let result = try tree.swapping(.leaf(view: view1), with: .leaf(view: view1))
+
+        // Result should equal the input tree structurally.
+        #expect(result.structuralIdentity == tree.structuralIdentity)
+    }
+
+    @Test func swappingClearsZoomedState() throws {
+        let (treeBase, view1, view2) = try makeHorizontalSplit()
+        let zoomed = SplitTree(root: treeBase.root, zoomed: .leaf(view: view1))
+        let swapped = try zoomed.swapping(.leaf(view: view1), with: .leaf(view: view2))
+        #expect(swapped.zoomed == nil)
+    }
+
     // MARK: - Equalized
 
     @Test func equalizedAdjustsRatioByLeafCount() throws {

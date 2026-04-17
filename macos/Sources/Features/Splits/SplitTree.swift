@@ -231,6 +231,38 @@ extension SplitTree {
         }
     }
 
+    /// Swap two leaf nodes in the tree. The tree structure and all split
+    /// ratios are preserved; only the views at the two leaf positions are
+    /// exchanged. This lets the user rearrange which terminal occupies
+    /// which pane without reshaping the layout.
+    ///
+    /// The zoomed state is cleared by this operation (consistent with
+    /// `resizing` and `inserting`).
+    ///
+    /// Both nodes must be leaves and must exist in the tree. If `a == b`,
+    /// the tree is returned unchanged.
+    func swapping(_ a: Node, with b: Node) throws -> Self {
+        guard let root else { throw SplitError.viewNotFound }
+
+        // No-op fast path.
+        if a == b { return self }
+
+        guard case .leaf(let viewA) = a else { throw SplitError.viewNotFound }
+        guard case .leaf(let viewB) = b else { throw SplitError.viewNotFound }
+
+        guard let pathA = root.path(to: a) else { throw SplitError.viewNotFound }
+        guard let pathB = root.path(to: b) else { throw SplitError.viewNotFound }
+
+        // Replace node at pathA with a leaf containing viewB, then replace
+        // the node at pathB in that tree with a leaf containing viewA.
+        // Paths are structural so pathB is still valid after the first
+        // replacement.
+        let stepOne = try root.replacingNode(at: pathA, with: .leaf(view: viewB))
+        let newRoot = try stepOne.replacingNode(at: pathB, with: .leaf(view: viewA))
+
+        return .init(root: newRoot, zoomed: nil)
+    }
+
     /// Equalize all splits in the tree so that each split's ratio is based on the
     /// relative weight (number of leaves) of its children.
     func equalized() -> Self {
