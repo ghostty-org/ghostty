@@ -61,6 +61,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
 
+    private var touchBarController: TouchBarController?
+
+    override func makeTouchBar() -> NSTouchBar {
+        if touchBarController == nil {
+            touchBarController = TouchBarController(target: self)
+        }
+        return touchBarController!.makeTouchBar()
+    }
+
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
