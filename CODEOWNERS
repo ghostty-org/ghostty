@@ -193,6 +193,7 @@
 /po/vi.po @ghostty-org/vi_VN
 /po/zh_CN.po @ghostty-org/zh_CN
 /po/zh_TW.po @ghostty-org/zh_TW
+/po/is.po @ghostty-org/is_IS
 
 # Packaging - Snap
 /snap/ @ghostty-org/snap
