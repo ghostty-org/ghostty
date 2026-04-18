@@ -170,9 +170,10 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         => try prepareContext(null),
 
         apprt.embedded => {
-            // TODO(mitchellh): this does nothing today to allow libghostty
-            // to compile for OpenGL targets but libghostty is strictly
-            // broken for rendering on this platforms.
+            // Embedded apprt on Linux: the host app (e.g. GTK4) owns the
+            // GL context and ensures it is current before calling
+            // ghostty_surface_new(). Load GL functions globally, same as GTK.
+            try prepareContext(null);
         },
     }
 
@@ -238,14 +239,14 @@ pub fn displayRealized(self: *const OpenGL) void {
     _ = self;
 
     switch (apprt.runtime) {
-        apprt.gtk => prepareContext(null) catch |err| {
+        apprt.gtk, apprt.embedded => prepareContext(null) catch |err| {
             log.warn(
                 "Error preparing GL context in displayRealized, err={}",
                 .{err},
             );
         },
 
-        else => @compileError("only GTK should be calling displayRealized"),
+        else => @compileError("unsupported app runtime for displayRealized"),
     }
 }
 

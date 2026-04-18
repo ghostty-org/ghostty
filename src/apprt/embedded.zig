@@ -26,6 +26,12 @@ const log = std.log.scoped(.embedded_window);
 pub const resourcesDir = internal_os.resourcesDir;
 
 pub const App = struct {
+    /// On Linux, OpenGL contexts can only be used from one thread.
+    /// The host app (GTK4) owns the GL context, so drawing must happen
+    /// on the app/main thread via the render callback, not the renderer thread.
+    /// On macOS, Metal doesn't have this restriction.
+    pub const must_draw_from_app_thread = !builtin.target.os.tag.isDarwin();
+
     /// Because we only expect the embedding API to be used in embedded
     /// environments, the options are extern so that we can expose it
     /// directly to a C callconv and not pay for any translation costs.
@@ -343,6 +349,7 @@ pub const App = struct {
 pub const Platform = union(PlatformTag) {
     macos: MacOS,
     ios: IOS,
+    linux: Linux,
 
     // If our build target for libghostty is not darwin then we do
     // not include macos support at all.
@@ -356,6 +363,16 @@ pub const Platform = union(PlatformTag) {
         uiview: objc.Object,
     } else void;
 
+    // Linux platform for embedded libghostty. The host app (GTK4)
+    // manages the GL context via GtkGLArea, so we don't need a
+    // view pointer — the GL context is already current when
+    // ghostty_surface_draw() is called.
+    pub const Linux = if (builtin.target.os.tag == .linux) struct {
+        /// Reserved for future use (e.g. Wayland wl_surface pointer).
+        /// Currently unused because GtkGLArea manages the GL context.
+        _reserved: ?*anyopaque = null,
+    } else void;
+
     // The C ABI compatible version of this union. The tag is expected
     // to be stored elsewhere.
     pub const C = extern union {
@@ -365,6 +382,10 @@ pub const Platform = union(PlatformTag) {
 
         ios: extern struct {
             uiview: ?*anyopaque,
+        },
+
+        linux: extern struct {
+            _reserved: ?*anyopaque,
         },
     };
 
@@ -385,6 +406,8 @@ pub const Platform = union(PlatformTag) {
                     break :ios error.UIViewMustBeSet);
                 break :ios .{ .ios = .{ .uiview = uiview } };
             } else error.UnsupportedPlatform,
+
+            .linux => if (Linux != void) .{ .linux = .{} } else error.UnsupportedPlatform,
         };
     }
 };
@@ -395,6 +418,7 @@ pub const PlatformTag = enum(c_int) {
 
     macos = 1,
     ios = 2,
+    linux = 3,
 };
 
 pub const EnvVar = extern struct {
@@ -769,7 +793,6 @@ pub const Surface = struct {
     pub fn draw(self: *Surface) void {
         self.core_surface.draw() catch |err| {
             log.err("error in draw err={}", .{err});
-            return;
         };
     }
 
@@ -1682,6 +1705,22 @@ pub const CAPI = struct {
     /// Tell the surface that it needs to schedule a render
     export fn ghostty_surface_refresh(surface: *Surface) void {
         surface.refresh();
+    }
+
+    /// Notify the surface that the GL context has been destroyed
+    /// (e.g. during GtkGLArea reparenting). Deinitializes GPU resources
+    /// while preserving terminal state (PTY, scrollback).
+    export fn ghostty_surface_display_unrealized(surface: *Surface) void {
+        surface.core_surface.renderer.displayUnrealized();
+    }
+
+    /// Notify the surface that a new GL context is available
+    /// (e.g. after GtkGLArea re-realize). Reinitializes GPU resources
+    /// (shaders, textures, framebuffers) against the new context.
+    export fn ghostty_surface_display_realized(surface: *Surface) void {
+        surface.core_surface.renderer.displayRealized() catch |err| {
+            log.err("displayRealized failed err={}", .{err});
+        };
     }
 
     /// Tell the surface that it needs to schedule a render
