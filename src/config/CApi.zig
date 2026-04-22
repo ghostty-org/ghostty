@@ -2,7 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const inputpkg = @import("../input.zig");
 const state = &@import("../global.zig").state;
-const c = @import("../main_c.zig");
+const String = @import("../main_c.zig").String;
 
 const Config = @import("Config.zig");
 const c_get = @import("c_get.zig");
@@ -132,7 +132,7 @@ export fn ghostty_config_get_diagnostic(self: *Config, idx: u32) Diagnostic {
     return .{ .message = message.ptr };
 }
 
-export fn ghostty_config_open_path() c.String {
+export fn ghostty_config_open_path() String {
     const path = edit.openPath(state.alloc) catch |err| {
         log.err("error opening config in editor err={}", .{err});
         return .empty;

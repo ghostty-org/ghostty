@@ -17,32 +17,6 @@ class DockTilePlugin: NSObject, NSDockTilePlugIn {
 
     private var iconChangeObserver: Any?
 
-    /// The URL to the enclosing app bundle, determined from the plugin bundle path.
-    var ghosttyAppURL: URL? {
-        Self.appBundleURL(for: pluginBundle.bundleURL)
-    }
-
-    /// Determine the enclosing app bundle for the dock tile plugin bundle.
-    ///
-    /// We intentionally avoid matching a specific bundle name (such as
-    /// "Ghostty.app") so renaming the app in Finder still works.
-    static func appBundleURL(for pluginBundleURL: URL) -> URL? {
-        var url = pluginBundleURL
-        while true {
-            if url.pathExtension.compare("app", options: .caseInsensitive) == .orderedSame {
-                return url
-            }
-
-            let parent = url.deletingLastPathComponent()
-            if parent.path == url.path {
-                // Safety stop: this should only happen at filesystem root.
-                return nil
-            }
-
-            url = parent
-        }
-    }
-
     /// The primary NSDockTilePlugin function.
     func setDockTile(_ dockTile: NSDockTile?) {
         // If no dock tile or no access to Ghostty defaults, we can't do anything.
@@ -70,25 +44,13 @@ class DockTilePlugin: NSObject, NSDockTilePlugIn {
             return
         }
 
-        if let appBundleURL = self.ghosttyAppURL {
-            let appBundlePath = appBundleURL.path
-            NSWorkspace.shared.setIcon(appIcon, forFile: appBundlePath)
-            NSWorkspace.shared.noteFileSystemChanged(appBundlePath)
-        }
-
         dockTile.setIcon(appIcon)
     }
 
     /// Reset the application icon and dock tile icon to the default.
     private func resetIcon(dockTile: NSDockTile) {
-        let appBundlePath = self.ghosttyAppURL?.path
         let appIcon: NSImage?
         if #available(macOS 26.0, *) {
-            // Reset to the default (glassy) icon.
-            if let appBundlePath {
-                NSWorkspace.shared.setIcon(nil, forFile: appBundlePath)
-            }
-
             #if DEBUG
             // Use the `Blueprint` icon to distinguish Debug from Release builds.
             appIcon = pluginBundle.image(forResource: "BlueprintImage")!
@@ -99,14 +61,6 @@ class DockTilePlugin: NSObject, NSDockTilePlugIn {
         } else {
             // Use the bundled icon to keep the corner radius consistent with pre-Tahoe apps.
             appIcon = pluginBundle.image(forResource: "AppIconImage")!
-            if let appBundlePath {
-                NSWorkspace.shared.setIcon(appIcon, forFile: appBundlePath)
-            }
-        }
-
-        // Notify Finder/Dock so icon caches refresh immediately.
-        if let appBundlePath {
-            NSWorkspace.shared.noteFileSystemChanged(appBundlePath)
         }
         dockTile.setIcon(appIcon)
     }

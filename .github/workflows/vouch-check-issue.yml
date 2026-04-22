@@ -18,5 +18,6 @@ jobs:
         with:
           issue-number: ${{ github.event.issue.number }}
           auto-close: true
+          template-file: .github/issue-unvouched-message
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
