@@ -36,6 +36,16 @@ pub const TextRun = struct {
 
     /// The font index to use for the glyphs of this run.
     font_index: font.Collection.Index,
+
+    /// True if this run contains strong right-to-left characters
+    /// (Hebrew, Arabic, etc.). Used by the renderer to apply UBA-style
+    /// block-level visual ordering across runs on the same row.
+    right_to_left: bool = false,
+
+    /// True if this run is entirely space cells. Used together with
+    /// `right_to_left` so that spaces separating two RTL words are
+    /// considered part of the same RTL visual block.
+    all_spaces: bool = false,
 };
 
 /// RunIterator is an iterator that yields text runs.
@@ -72,6 +82,12 @@ pub const RunIterator = struct {
         // Track the font for our current run
         var current_font: font.Collection.Index = .{};
 
+        // Track direction / spaces for this run so the renderer can do
+        // UBA-style reordering of contiguous RTL blocks. Starts "all spaces"
+        // and gets flipped off as soon as a non-space cell is seen.
+        var run_has_rtl: bool = false;
+        var run_all_spaces: bool = true;
+
         // Allow the hook to prepare
         self.hooks.prepare();
 
@@ -90,6 +106,13 @@ pub const RunIterator = struct {
             // row produce the same hash, enabling cache reuse.
             const cluster = j - self.i;
             const cell: *const terminal.page.Cell = &cells[j];
+
+            if (comptime font.options.backend == .coretext) {
+                if (j > self.i) {
+                    const prev_cell = cells[j - 1];
+                    if (isSpaceCell(&prev_cell) != isSpaceCell(cell)) break;
+                }
+            }
 
             // If we have a selection and we're at a boundary point, then
             // we break the run here.
@@ -254,6 +277,22 @@ pub const RunIterator = struct {
             // If our fonts are not equal, then we're done with our run.
             if (font_info.idx != current_font) break;
 
+            // Track direction / space status for this cell. We do this
+            // here (before the fallback/placeholder early-continue paths)
+            // so a run whose glyphs went through a fallback is still
+            // recognized as RTL by its original codepoints.
+            {
+                const cell_cp = cell.codepoint();
+                if (cell_cp != ' ') run_all_spaces = false;
+                if (isStrongRtl(cell_cp)) run_has_rtl = true;
+                if (cell.hasGrapheme()) {
+                    for (graphemes[j]) |cp| {
+                        if (cp == 0xFE0E or cp == 0xFE0F) continue;
+                        if (isStrongRtl(cp)) run_has_rtl = true;
+                    }
+                }
+            }
+
             // If we're a fallback character, add that and continue; we
             // don't want to add the entire grapheme.
             if (font_info.fallback) |cp| {
@@ -300,6 +339,8 @@ pub const RunIterator = struct {
             .cells = @intCast(j - self.i),
             .grid = self.opts.grid,
             .font_index = current_font,
+            .right_to_left = run_has_rtl,
+            .all_spaces = run_all_spaces and j > self.i,
         };
     }
 
@@ -394,6 +435,29 @@ pub const RunIterator = struct {
         return null;
     }
 };
+
+fn isSpaceCell(cell: *const terminal.page.Cell) bool {
+    return !cell.hasGrapheme() and
+        cell.content_tag == .codepoint and
+        cell.codepoint() == ' ';
+}
+
+/// Returns true for codepoints whose UBA class is R or AL (strong
+/// right-to-left). This intentionally only covers the scripts we want
+/// to treat as RTL in the terminal; it is not a full UBA implementation.
+fn isStrongRtl(cp: u32) bool {
+    return (cp >= 0x0590 and cp <= 0x05FF) or // Hebrew
+        (cp >= 0x0600 and cp <= 0x06FF) or // Arabic
+        (cp >= 0x0700 and cp <= 0x074F) or // Syriac
+        (cp >= 0x0750 and cp <= 0x077F) or // Arabic Supplement
+        (cp >= 0x0780 and cp <= 0x07BF) or // Thaana
+        (cp >= 0x07C0 and cp <= 0x07FF) or // NKo
+        (cp >= 0x0800 and cp <= 0x083F) or // Samaritan
+        (cp >= 0x0840 and cp <= 0x085F) or // Mandaic
+        (cp >= 0xFB1D and cp <= 0xFB4F) or // Hebrew Presentation Forms
+        (cp >= 0xFB50 and cp <= 0xFDFF) or // Arabic Presentation Forms-A
+        (cp >= 0xFE70 and cp <= 0xFEFF); // Arabic Presentation Forms-B
+}
 
 /// Returns a style that when compared must be identical for a run to
 /// continue.

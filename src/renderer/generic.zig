@@ -43,6 +43,72 @@ const DisplayLink = switch (builtin.os.tag) {
 
 const log = std.log.scoped(.generic_renderer);
 
+/// Pairing of a shaped run with a slice of cells in a row-local cells
+/// buffer. Used by `rebuildRow` so that shape results survive beyond the
+/// iterator's lifetime (the iterator resets the shaper's codepoint state
+/// on every call).
+const RowRun = struct {
+    run: font.shape.TextRun,
+    cells_start: u32,
+    cells_len: u32,
+};
+
+/// Reorder contiguous blocks of right-to-left (RTL) runs in-place so that
+/// the renderer consumes them in visual (UBA-style) order.
+///
+/// The run iterator yields runs in logical order: the first Hebrew word
+/// the user typed appears first in `runs`. For terminal rendering we want
+/// the first-typed word to be visually rightmost, matching the VS Code
+/// terminal and Unicode Bidi Algorithm block behavior. Within a block,
+/// intra-run glyph reversal is already handled by the shaper; this
+/// function only reverses the order of the runs themselves and
+/// re-assigns their `offset` fields so their positions sum to the same
+/// span they logically occupied.
+///
+/// A block is a maximal sequence of runs where every non-space run is
+/// RTL and every space run is flanked by RTL runs on both sides. Leading
+/// or trailing spaces next to LTR text are not pulled into the block.
+fn reorderRtlBlocks(runs: []RowRun) void {
+    var i: usize = 0;
+    while (i < runs.len) {
+        if (!runs[i].run.right_to_left) {
+            i += 1;
+            continue;
+        }
+
+        // Walk forward to find the end of the RTL block.
+        var end: usize = i + 1;
+        while (end < runs.len) {
+            if (runs[end].run.right_to_left) {
+                end += 1;
+                continue;
+            }
+            if (!runs[end].run.all_spaces) break;
+
+            // It's a space run — only include it if an RTL run follows
+            // (possibly through more consecutive space runs).
+            var peek: usize = end + 1;
+            while (peek < runs.len and runs[peek].run.all_spaces) peek += 1;
+            if (peek >= runs.len or !runs[peek].run.right_to_left) break;
+            end = peek;
+        }
+
+        // Reverse runs[i..end] and reassign their offsets so the block
+        // still spans the same visual columns.
+        if (end - i > 1) {
+            const start_off = runs[i].run.offset;
+            std.mem.reverse(RowRun, runs[i..end]);
+            var cur_off = start_off;
+            for (runs[i..end]) |*r| {
+                r.run.offset = cur_off;
+                cur_off += r.run.cells;
+            }
+        }
+
+        i = end;
+    }
+}
+
 /// Create a renderer type with the provided graphics API wrapper.
 ///
 /// The graphics API wrapper must provide the interface outlined below.
@@ -2671,8 +2737,59 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             };
             run_iter_opts.applyBreakConfig(self.config.font_shaping_break);
             var run_iter = self.font_shaper.runIterator(run_iter_opts);
-            var shaper_run: ?font.shape.TextRun = try run_iter.next(self.alloc);
-            var shaper_cells: ?[]const font.shape.Cell = null;
+
+            // Collect all runs for this row so we can reorder contiguous
+            // RTL blocks into visual (UBA-style) order before rendering.
+            // This is what turns multi-word Hebrew phrases into the reading
+            // order a VS Code user expects, instead of logical left-to-right
+            // order.
+            //
+            // A TextRun is only valid until the iterator's next call
+            // because `RunIteratorHook.prepare()` resets the shaper's
+            // internal codepoint buffer. So the shape results for a run
+            // must be captured while that run is still the shaper's active
+            // state. We shape each run as it's yielded and copy the cells
+            // into a row-local buffer so they survive later reordering
+            // independently of the bounded shape cache.
+            var row_runs: std.ArrayList(RowRun) = .empty;
+            defer row_runs.deinit(self.alloc);
+            var row_cells: std.ArrayList(font.shape.Cell) = .empty;
+            defer row_cells.deinit(self.alloc);
+            while (try run_iter.next(self.alloc)) |run| {
+                const cached = self.font_shaper_cache.get(run);
+                const src_cells = cached orelse blk: {
+                    const new_cells = try self.font_shaper.shape(run);
+                    self.font_shaper_cache.put(
+                        self.alloc,
+                        run,
+                        new_cells,
+                    ) catch |err| {
+                        log.warn(
+                            "error caching font shaping results err={}",
+                            .{err},
+                        );
+                    };
+                    break :blk new_cells;
+                };
+                const start = row_cells.items.len;
+                try row_cells.appendSlice(self.alloc, src_cells);
+                try row_runs.append(self.alloc, .{
+                    .run = run,
+                    .cells_start = @intCast(start),
+                    .cells_len = @intCast(src_cells.len),
+                });
+            }
+            reorderRtlBlocks(row_runs.items);
+
+            var run_idx: usize = 0;
+            var shaper_run: ?font.shape.TextRun = if (row_runs.items.len > 0)
+                row_runs.items[0].run
+            else
+                null;
+            var shaper_cells: ?[]const font.shape.Cell = if (row_runs.items.len > 0)
+                row_cells.items[row_runs.items[0].cells_start..][0..row_runs.items[0].cells_len]
+            else
+                null;
             var shaper_cells_i: usize = 0;
 
             for (
@@ -2699,8 +2816,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     // that might contain glyphs for our cell.
                     while (shaper_run) |run| {
                         if (run.offset + run.cells > x) break;
-                        shaper_run = try run_iter.next(self.alloc);
-                        shaper_cells = null;
+                        run_idx += 1;
+                        if (run_idx < row_runs.items.len) {
+                            const next = row_runs.items[run_idx];
+                            shaper_run = next.run;
+                            shaper_cells = row_cells.items[next.cells_start..][0..next.cells_len];
+                        } else {
+                            shaper_run = null;
+                            shaper_cells = null;
+                        }
                         shaper_cells_i = 0;
                     }
 
@@ -2969,8 +3093,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // If we're at or past the end of our shaper run then
                 // we need to get the next run from the run iterator.
                 if (shaper_cells != null and shaper_cells_i >= shaper_cells.?.len) {
-                    shaper_run = try run_iter.next(self.alloc);
-                    shaper_cells = null;
+                    run_idx += 1;
+                    if (run_idx < row_runs.items.len) {
+                        const next = row_runs.items[run_idx];
+                        shaper_run = next.run;
+                        shaper_cells = row_cells.items[next.cells_start..][0..next.cells_len];
+                    } else {
+                        shaper_run = null;
+                        shaper_cells = null;
+                    }
                     shaper_cells_i = 0;
                 }
 
@@ -3371,4 +3502,132 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             try texture.replaceRegion(0, 0, atlas.size, atlas.size, atlas.data);
         }
     };
+}
+
+fn testRowRun(hash: u64, offset: u16, cells: u16, flags: struct {
+    rtl: bool = false,
+    spaces: bool = false,
+}) RowRun {
+    return .{
+        .run = .{
+            .hash = hash,
+            .offset = offset,
+            .cells = cells,
+            .grid = undefined,
+            .font_index = .{},
+            .right_to_left = flags.rtl,
+            .all_spaces = flags.spaces,
+        },
+        .cells_start = 0,
+        .cells_len = 0,
+    };
+}
+
+test "reorderRtlBlocks no RTL leaves runs untouched" {
+    const testing = std.testing;
+    var runs = [_]RowRun{
+        testRowRun(0, 0, 6, .{}),
+        testRowRun(0, 6, 1, .{ .spaces = true }),
+        testRowRun(0, 7, 5, .{}),
+    };
+    reorderRtlBlocks(&runs);
+    try testing.expectEqual(@as(u16, 0), runs[0].run.offset);
+    try testing.expectEqual(@as(u16, 6), runs[1].run.offset);
+    try testing.expectEqual(@as(u16, 7), runs[2].run.offset);
+}
+
+test "reorderRtlBlocks reverses two adjacent RTL words" {
+    const testing = std.testing;
+    // Two Hebrew words ("חדש", "שלום") separated by one space.
+    // Logical order: R1(3 cells) @ 0, space @ 3, R2(4 cells) @ 4.
+    // Expected visual: R2 @ 0, space @ 4, R1 @ 5.
+    var runs = [_]RowRun{
+        testRowRun(1, 0, 3, .{ .rtl = true }),
+        testRowRun(2, 3, 1, .{ .spaces = true }),
+        testRowRun(3, 4, 4, .{ .rtl = true }),
+    };
+    reorderRtlBlocks(&runs);
+    try testing.expectEqual(@as(u64, 3), runs[0].run.hash);
+    try testing.expectEqual(@as(u16, 0), runs[0].run.offset);
+    try testing.expectEqual(@as(u16, 4), runs[0].run.cells);
+    try testing.expectEqual(@as(u64, 2), runs[1].run.hash);
+    try testing.expectEqual(@as(u16, 4), runs[1].run.offset);
+    try testing.expectEqual(@as(u64, 1), runs[2].run.hash);
+    try testing.expectEqual(@as(u16, 5), runs[2].run.offset);
+    try testing.expectEqual(@as(u16, 3), runs[2].run.cells);
+}
+
+test "reorderRtlBlocks preserves leading LTR prompt" {
+    const testing = std.testing;
+    // "prompt % חדש שלום" -> LTR runs + RTL block at end.
+    var runs = [_]RowRun{
+        testRowRun(10, 0, 6, .{}),
+        testRowRun(11, 6, 1, .{ .spaces = true }),
+        testRowRun(12, 7, 1, .{}),
+        testRowRun(13, 8, 1, .{ .spaces = true }),
+        testRowRun(14, 9, 3, .{ .rtl = true }),
+        testRowRun(15, 12, 1, .{ .spaces = true }),
+        testRowRun(16, 13, 4, .{ .rtl = true }),
+    };
+    reorderRtlBlocks(&runs);
+    // LTR section unchanged.
+    try testing.expectEqual(@as(u64, 10), runs[0].run.hash);
+    try testing.expectEqual(@as(u16, 0), runs[0].run.offset);
+    try testing.expectEqual(@as(u64, 11), runs[1].run.hash);
+    try testing.expectEqual(@as(u16, 6), runs[1].run.offset);
+    try testing.expectEqual(@as(u64, 12), runs[2].run.hash);
+    try testing.expectEqual(@as(u64, 13), runs[3].run.hash);
+    // RTL block reversed, occupying the same absolute columns 9..16.
+    try testing.expectEqual(@as(u64, 16), runs[4].run.hash);
+    try testing.expectEqual(@as(u16, 9), runs[4].run.offset);
+    try testing.expectEqual(@as(u16, 4), runs[4].run.cells);
+    try testing.expectEqual(@as(u64, 15), runs[5].run.hash);
+    try testing.expectEqual(@as(u16, 13), runs[5].run.offset);
+    try testing.expectEqual(@as(u64, 14), runs[6].run.hash);
+    try testing.expectEqual(@as(u16, 14), runs[6].run.offset);
+    try testing.expectEqual(@as(u16, 3), runs[6].run.cells);
+}
+
+test "reorderRtlBlocks drops trailing space from RTL block" {
+    const testing = std.testing;
+    // "חדש שלום " - trailing space should NOT be pulled into the RTL
+    // block, because no RTL run follows it.
+    var runs = [_]RowRun{
+        testRowRun(1, 0, 3, .{ .rtl = true }),
+        testRowRun(2, 3, 1, .{ .spaces = true }),
+        testRowRun(3, 4, 4, .{ .rtl = true }),
+        testRowRun(4, 8, 1, .{ .spaces = true }),
+    };
+    reorderRtlBlocks(&runs);
+    try testing.expectEqual(@as(u64, 3), runs[0].run.hash);
+    try testing.expectEqual(@as(u16, 0), runs[0].run.offset);
+    try testing.expectEqual(@as(u64, 2), runs[1].run.hash);
+    try testing.expectEqual(@as(u16, 4), runs[1].run.offset);
+    try testing.expectEqual(@as(u64, 1), runs[2].run.hash);
+    try testing.expectEqual(@as(u16, 5), runs[2].run.offset);
+    // Trailing space unchanged.
+    try testing.expectEqual(@as(u64, 4), runs[3].run.hash);
+    try testing.expectEqual(@as(u16, 8), runs[3].run.offset);
+}
+
+test "reorderRtlBlocks LTR between RTL words splits blocks" {
+    const testing = std.testing;
+    // "חדש abc שלום" - LTR run in middle prevents merging.
+    var runs = [_]RowRun{
+        testRowRun(1, 0, 3, .{ .rtl = true }),
+        testRowRun(2, 3, 1, .{ .spaces = true }),
+        testRowRun(3, 4, 3, .{}),
+        testRowRun(4, 7, 1, .{ .spaces = true }),
+        testRowRun(5, 8, 4, .{ .rtl = true }),
+    };
+    reorderRtlBlocks(&runs);
+    // Nothing should move — each RTL word is isolated.
+    for (runs, 0..) |r, i| {
+        try testing.expectEqual(@as(u64, @intCast(i + 1)), r.run.hash);
+    }
+    try testing.expectEqual(@as(u16, 0), runs[0].run.offset);
+    try testing.expectEqual(@as(u16, 3), runs[1].run.offset);
+    try testing.expectEqual(@as(u16, 4), runs[2].run.offset);
+    try testing.expectEqual(@as(u16, 7), runs[3].run.offset);
+    try testing.expectEqual(@as(u16, 8), runs[4].run.offset);
 }

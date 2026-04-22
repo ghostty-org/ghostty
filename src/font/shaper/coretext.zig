@@ -172,33 +172,10 @@ pub const Shaper = struct {
         var run_state = RunState.init();
         errdefer run_state.deinit(alloc);
 
-        // For now we only support LTR text. If we shape RTL text then
-        // rendering will be very wrong so we need to explicitly force
-        // LTR no matter what.
-        //
-        // See: https://github.com/mitchellh/ghostty/issues/1737
-        // See: https://github.com/mitchellh/ghostty/issues/1442
-        //
-        // We used to do this by setting the writing direction attribute
-        // on the attributed string we used, but it seems like that will
-        // still allow some weird results, for example a single space at
-        // the end of a line composed of RTL characters will be cause it
-        // to output a run containing just that space, BEFORE it outputs
-        // the rest of the line as a separate run, very weirdly with the
-        // "right to left" flag set in the single space run's run status...
-        //
-        // So instead what we do is use a CTTypesetter to create our line,
-        // using the kCTTypesetterOptionForcedEmbeddingLevel attribute to
-        // force CoreText not to try doing any sort of BiDi, instead just
-        // treat all text as embedding level 0 (left to right).
-        const typesetter_attr_dict = dict: {
-            const num = try macos.foundation.Number.create(.int, &0);
-            defer num.release();
-            break :dict try macos.foundation.Dictionary.create(
-                &.{macos.c.kCTTypesetterOptionForcedEmbeddingLevel},
-                &.{num},
-            );
-        };
+        const typesetter_attr_dict = try macos.foundation.Dictionary.create(
+            &.{},
+            &.{},
+        );
         errdefer typesetter_attr_dict.release();
 
         // Create the CF release thread.
@@ -382,6 +359,11 @@ pub const Shaper = struct {
         // Create a line from the typesetter
         const line = typesetter.createLine(.{ .location = 0, .length = 0 });
         self.cf_release_pool.appendAssumeCapacity(line);
+        const line_width = line.getTypographicBounds(null, null, null);
+        const visual_cell_width = if (run.cells > 0)
+            line_width / @as(f64, @floatFromInt(run.cells))
+        else
+            0;
 
         // This keeps track of the current x offset (sum of advance.width) and
         // the furthest cluster we've seen so far (max).
@@ -501,10 +483,23 @@ pub const Shaper = struct {
                 // For debugging positions, turn this on:
                 //try self.debugPositions(alloc, run_offset, run_offset_y, cell_offset, cell_offset_y, position, index);
 
-                const x_offset = position.x - cell_offset.x;
+                const cell_x, const x_offset = if (status.right_to_left and
+                    visual_cell_width > 0)
+                rtl: {
+                    const reversed_cluster = (run.cells - 1) - cluster;
+                    const clamped_x: u16 = @intCast(@min(reversed_cluster, run.cells - 1));
+                    const cell_x_pos = @as(f64, @floatFromInt(clamped_x)) * visual_cell_width;
+                    break :rtl .{
+                        clamped_x,
+                        position.x - cell_x_pos,
+                    };
+                } else .{
+                    @as(u16, @intCast(cell_offset.cluster)),
+                    position.x - cell_offset.x,
+                };
 
                 self.cell_buf.appendAssumeCapacity(.{
-                    .x = @intCast(cell_offset.cluster),
+                    .x = cell_x,
                     .x_offset = @intFromFloat(@round(x_offset)),
                     .y_offset = @intFromFloat(@round(position.y)),
                     .glyph_index = glyph,
@@ -533,7 +528,7 @@ pub const Shaper = struct {
                 {},
                 struct {
                     fn lt(_: void, a: font.shape.Cell, b: font.shape.Cell) bool {
-                        return a.x < b.x;
+                        return a.x < b.x or (a.x == b.x and a.x_offset < b.x_offset);
                     }
                 }.lt,
             );
@@ -867,7 +862,7 @@ test "run iterator" {
         try testing.expectEqual(@as(usize, 1), count);
     }
 
-    // Spaces should be part of a run
+    // For CoreText we split around spaces so RTL words keep terminal order.
     {
         var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
         defer t.deinit(alloc);
@@ -887,7 +882,7 @@ test "run iterator" {
         });
         var count: usize = 0;
         while (try it.next(alloc)) |_| count += 1;
-        try testing.expectEqual(@as(usize, 1), count);
+        try testing.expectEqual(@as(usize, 3), count);
     }
 
     {
@@ -1070,7 +1065,9 @@ test "shape nerd fonts" {
         count += 1;
         _ = try shaper.shape(run);
     }
-    try testing.expectEqual(@as(usize, 1), count);
+    // CoreText splits at space/non-space transitions, so " X " yields
+    // three runs: leading space, the nerd-font glyph, trailing space.
+    try testing.expectEqual(@as(usize, 3), count);
 }
 
 test "shape inconsolata ligs" {
@@ -1282,7 +1279,8 @@ test "shape U+3C9 with JB Mono" {
             const cells = try shaper.shape(run);
             cell_count += cells.len;
         }
-        try testing.expectEqual(@as(usize, 1), run_count);
+        // CoreText splits at space boundaries: "ω foo" → ω, space, foo.
+        try testing.expectEqual(@as(usize, 3), run_count);
         try testing.expectEqual(@as(usize, 5), cell_count);
     }
 }
@@ -1909,6 +1907,196 @@ test "shape Bengali ligatures with out of order vowels" {
         try testing.expect(cells[2].x_offset < cells[3].x_offset);
     }
     try testing.expectEqual(@as(usize, 1), count);
+}
+
+test "shape Hebrew string" {
+    if (font.options.backend != .coretext) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Arial Hebrew",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("שלום");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+
+    const run = (try it.next(alloc)).?;
+    try testing.expectEqual(@as(usize, 4), run.cells);
+
+    const cells = try shaper.shape(run);
+    try testing.expectEqual(@as(usize, 4), cells.len);
+    for (cells[1..], cells[0 .. cells.len - 1]) |cell, prev| {
+        try testing.expect(cell.x >= prev.x);
+    }
+
+    var has_leftmost_visual_cell = false;
+    var has_rightmost_visual_cell = false;
+    for (cells) |cell| {
+        if (cell.x == 0) has_leftmost_visual_cell = true;
+        if (cell.x == 3) has_rightmost_visual_cell = true;
+    }
+    try testing.expect(has_leftmost_visual_cell);
+    try testing.expect(has_rightmost_visual_cell);
+}
+
+test "shape mixed Hebrew and latin string" {
+    if (font.options.backend != .coretext) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Arial Hebrew",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 32, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("abc שלום 123");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+
+    const latin_run = (try it.next(alloc)).?;
+    try testing.expectEqual(@as(usize, 3), latin_run.cells);
+    const latin_cells = try shaper.shape(latin_run);
+    try testing.expect(latin_cells.len >= 3);
+
+    const space_run = (try it.next(alloc)).?;
+    try testing.expectEqual(@as(usize, 1), space_run.cells);
+
+    const hebrew_run = (try it.next(alloc)).?;
+    try testing.expectEqual(@as(usize, 4), hebrew_run.cells);
+    const hebrew_cells = try shaper.shape(hebrew_run);
+    try testing.expect(hebrew_cells.len >= 4);
+    for (hebrew_cells[1..], hebrew_cells[0 .. hebrew_cells.len - 1]) |cell, prev| {
+        try testing.expect(cell.x >= prev.x);
+    }
+
+    const second_space_run = (try it.next(alloc)).?;
+    try testing.expectEqual(@as(usize, 1), second_space_run.cells);
+
+    const number_run = (try it.next(alloc)).?;
+    try testing.expectEqual(@as(usize, 3), number_run.cells);
+    _ = try shaper.shape(number_run);
+}
+
+test "shape multiple Hebrew words" {
+    if (font.options.backend != .coretext) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Arial Hebrew",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 32, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("חדש אברהם שלום שתיים אחד");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+
+    const run = (try it.next(alloc)).?;
+    const cells = try shaper.shape(run);
+
+    try testing.expectEqual(@as(usize, 3), run.cells);
+    try testing.expectEqual(@as(usize, 3), cells.len);
+
+    var count: usize = 1;
+    while (try it.next(alloc)) |_| count += 1;
+    try testing.expectEqual(@as(usize, 9), count);
+}
+
+test "run iterator splits prompt from Hebrew phrase" {
+    if (font.options.backend != .coretext) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Arial Hebrew",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 64, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("prompt % חדש אברהם שלום שתיים אחד");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+
+    var count: usize = 0;
+    var rtl_count: usize = 0;
+    var ltr_nonspace_count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        count += 1;
+        if (run.right_to_left) rtl_count += 1;
+        if (!run.right_to_left and !run.all_spaces) ltr_nonspace_count += 1;
+    }
+
+    // Space-splitting produces one run per word and one run per space:
+    // "prompt", " ", "%", " ", then five Hebrew words separated by four
+    // spaces = 4 + 5 + 4 = 13.
+    try testing.expectEqual(@as(usize, 13), count);
+
+    // Of those 13, five are Hebrew words (strong RTL) and two are LTR
+    // non-space runs ("prompt" and "%").
+    try testing.expectEqual(@as(usize, 5), rtl_count);
+    try testing.expectEqual(@as(usize, 2), ltr_nonspace_count);
 }
 
 test "shape box glyphs" {
