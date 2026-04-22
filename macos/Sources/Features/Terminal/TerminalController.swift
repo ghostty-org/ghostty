@@ -63,13 +63,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     private var touchBarController: TouchBarController?
 
-    override func makeTouchBar() -> NSTouchBar {
-        if touchBarController == nil {
-            touchBarController = TouchBarController(target: self)
-        }
-        return touchBarController!.makeTouchBar()
-    }
-
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
@@ -1701,5 +1694,12 @@ extension TerminalController {
         } else {
             return nil
         }
+    }
+
+    override func makeTouchBar() -> NSTouchBar {
+        if touchBarController == nil {
+            touchBarController = TouchBarController(target: self)
+        }
+        return touchBarController!.makeTouchBar()
     }
 }
