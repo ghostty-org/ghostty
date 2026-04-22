@@ -69,17 +69,10 @@ stdenv.mkDerivation (finalAttrs: {
 
   postInstall = ''
     mkdir -p "$dev/lib"
-    mv "$out/lib/libghostty-vt.a" "$dev/lib"
-    rm "$out/lib/libghostty-vt.so"
-    mv "$out/include" "$dev"
-    mv "$out/share" "$dev"
-
-    ln -sf "$out/lib/libghostty-vt.so.${lib.versions.major finalAttrs.version}"  "$dev/lib/libghostty-vt.so"
+    mv "$out/lib/libghostty-vt.a" "$dev/lib/"
   '';
 
   postFixup = ''
-    substituteInPlace "$dev/share/pkgconfig/libghostty-vt.pc" \
-      --replace-fail "$out" "$dev"
     substituteInPlace "$dev/share/pkgconfig/libghostty-vt-static.pc" \
       --replace-fail "$out" "$dev"
   '';
@@ -128,8 +121,7 @@ stdenv.mkDerivation (finalAttrs: {
         runHook preBuildHooks
 
         cc -o test test_libghostty_vt.c \
-          ''$(pkg-config --cflags --libs libghostty-vt) \
-          -Wl,-rpath,"${finalAttrs.finalPackage}/lib"
+          ''$(pkg-config --cflags --libs libghostty-vt)
 
         runHook postBuildHooks
       '';
@@ -207,8 +199,7 @@ stdenv.mkDerivation (finalAttrs: {
         runHook preBuildHooks
 
         cc -o test main.c \
-          ''$(pkg-config --cflags --libs libghostty-vt) \
-          -Wl,-rpath,"${finalAttrs.finalPackage}/lib"
+          ''$(pkg-config --cflags --libs libghostty-vt)
 
         runHook postBuildHooks
       '';

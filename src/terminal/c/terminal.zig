@@ -7,6 +7,7 @@ const ZigTerminal = @import("../Terminal.zig");
 const Stream = @import("../stream_terminal.zig").Stream;
 const ScreenSet = @import("../ScreenSet.zig");
 const PageList = @import("../PageList.zig");
+const apc = @import("../apc.zig");
 const kitty = @import("../kitty/key.zig");
 const kitty_gfx_c = @import("kitty_graphics.zig");
 const modes = @import("../modes.zig");
@@ -310,6 +311,8 @@ pub const Option = enum(c_int) {
     kitty_image_medium_file = 16,
     kitty_image_medium_temp_file = 17,
     kitty_image_medium_shared_mem = 18,
+    apc_max_bytes = 19,
+    apc_max_bytes_kitty = 20,
 
     /// Input type expected for setting the option.
     pub fn InType(comptime self: Option) type {
@@ -331,6 +334,7 @@ pub const Option = enum(c_int) {
             .kitty_image_medium_temp_file,
             .kitty_image_medium_shared_mem,
             => ?*const bool,
+            .apc_max_bytes, .apc_max_bytes_kitty => ?*const usize,
         };
     }
 };
@@ -423,6 +427,19 @@ fn setTyped(
                     .kitty_image_medium_shared_mem => screen.kitty_images.image_limits.shared_memory = val,
                     else => unreachable,
                 }
+            }
+        },
+        .apc_max_bytes => {
+            wrapper.stream.handler.apc_handler.max_bytes = if (value) |ptr|
+                .initFull(ptr.*)
+            else
+                .{};
+        },
+        .apc_max_bytes_kitty => {
+            if (value) |ptr| {
+                wrapper.stream.handler.apc_handler.max_bytes.put(.kitty, ptr.*);
+            } else {
+                wrapper.stream.handler.apc_handler.max_bytes.remove(.kitty);
             }
         },
     }

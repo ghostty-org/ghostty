@@ -118,8 +118,14 @@ extension Ghostty {
             ghostty_app_tick(app)
         }
 
-        static func openConfig() {
-            let str = Ghostty.AllocatedString(ghostty_config_open_path()).string
+        private static func openConfig(_ app: ghostty_app_t) {
+            guard let app_ud = ghostty_app_userdata(app) else { return }
+            let app = Unmanaged<App>.fromOpaque(app_ud).takeUnretainedValue()
+            app.openConfig()
+        }
+
+        func openConfig() {
+            let str = configPath ?? Ghostty.AllocatedString(ghostty_config_open_path()).string
             guard !str.isEmpty else { return }
             #if os(macOS)
             let fileURL = URL(fileURLWithPath: str).absoluteString
@@ -128,7 +134,7 @@ extension Ghostty {
             fileURL.withCString { cStr in
                 action.url = cStr
                 action.len = UInt(fileURL.count)
-                _ = openURL(action)
+                _ = App.openURL(action)
             }
             #else
             fatalError("Unsupported platform for opening config file")
@@ -549,7 +555,7 @@ extension Ghostty {
                 pwdChanged(app, target: target, v: action.action.pwd)
 
             case GHOSTTY_ACTION_OPEN_CONFIG:
-                openConfig()
+                openConfig(app)
 
             case GHOSTTY_ACTION_FLOAT_WINDOW:
                 toggleFloatWindow(app, target: target, mode: action.action.float_window)

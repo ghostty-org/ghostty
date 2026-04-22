@@ -67,6 +67,14 @@ sudo xcode-select --switch /Applications/Xcode.app
 > You do not need to be running on macOS 26 to build Ghostty, you can
 > still use Xcode 26 on macOS 15 stable.
 
+> [!WARNING]
+>
+> Zig 0.15.x has a [known linking issue](https://codeberg.org/ziglang/zig/issues/31658)
+> with **Xcode 26.4**. If you are on Xcode 26.4, you must use a
+> Homebrew-installed Zig (`brew install zig@0.15`) or our Nix flake,
+> both of which contain a patch that works around the issue. Alternatively,
+> you can downgrade to **Xcode 26.3**.
+
 ## AI and Agents
 
 If you're using AI assistance with Ghostty, Ghostty provides an

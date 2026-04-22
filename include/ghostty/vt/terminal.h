@@ -573,6 +573,25 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Input type: bool*
    */
   GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_SHARED_MEM = 18,
+
+  /**
+   * Set the maximum bytes the APC handler will buffer for all protocols.
+   * This prevents malicious input from causing unbounded memory allocation.
+   * A NULL value pointer removes all overrides, reverting to the built-in
+   * defaults.
+   *
+   * Input type: size_t*
+   */
+  GHOSTTY_TERMINAL_OPT_APC_MAX_BYTES = 19,
+
+  /**
+   * Set the maximum bytes the APC handler will buffer for Kitty graphics
+   * protocol data. A NULL value pointer removes the override, reverting
+   * to the built-in default.
+   *
+   * Input type: size_t*
+   */
+  GHOSTTY_TERMINAL_OPT_APC_MAX_BYTES_KITTY = 20,
   GHOSTTY_TERMINAL_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalOption;
 

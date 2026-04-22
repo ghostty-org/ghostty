@@ -90,6 +90,8 @@
         <cocoa key="title"/>
       </property>
       <property name="working directory" code="Gwdr" type="text" access="r" description="Current working directory for the terminal process."/>
+      <property name="pid" code="Gpid" type="integer" access="r" description="PID of the foreground process in this terminal."/>
+      <property name="tty" code="Gtty" type="text" access="r" description="TTY device path for this terminal (e.g. /dev/ttys016)."/>
       <responds-to command="split">
         <cocoa method="handleSplitCommand:"/>
       </responds-to>

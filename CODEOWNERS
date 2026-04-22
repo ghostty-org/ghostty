@@ -162,8 +162,10 @@
 /src/surface_mouse.zig @ghostty-org/terminal
 
 # Localization
-/po/README_TRANSLATORS.md @ghostty-org/localization
-/po/com.mitchellh.ghostty.pot @ghostty-org/localization
+/po/README_TRANSLATORS.md @ghostty-org/manager  # *localization* manager.
+/po/com.mitchellh.ghostty.pot @ghostty-org/manager
+/src/os/i18n_locales.zig @ghostty-org/manager
+/po/be.po @ghostty-org/be_BY
 /po/bg.po @ghostty-org/bg_BG
 /po/ca.po @ghostty-org/ca_ES
 /po/de.po @ghostty-org/de_DE
