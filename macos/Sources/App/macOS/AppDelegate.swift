@@ -670,6 +670,18 @@ class AppDelegate: NSObject,
         newSessionItem.keyEquivalentModifierMask = [.command, .shift]
         newSessionItem.setImageIfDesired(systemSymbolName: "plus.rectangle")
 
+        // "Task View" — Cmd+Shift+V — v0 feature toggle for the task-first
+        // (Concept F) sidebar. Checked when the task-first mode is active.
+        let taskViewItem = NSMenuItem(
+            title: "Task View",
+            action: #selector(TerminalController.toggleTaskView(_:)),
+            keyEquivalent: "v"
+        )
+        taskViewItem.keyEquivalentModifierMask = [.command, .shift]
+        taskViewItem.setImageIfDesired(systemSymbolName: "checklist")
+        let currentMode = UserDefaults.standard.string(forKey: "ghostties.sidebarViewMode") ?? "projectFirst"
+        taskViewItem.state = currentMode == "taskFirst" ? .on : .off
+
         // Insert workspace group at the top of the View menu.
         viewMenu.insertItem(sidebarItem, at: 0)
         viewMenu.insertItem(sidebarItemCmdS, at: 1)
@@ -677,7 +689,8 @@ class AppDelegate: NSObject,
         viewMenu.insertItem(nextItem, at: 3)
         viewMenu.insertItem(prevItem, at: 4)
         viewMenu.insertItem(newSessionItem, at: 5)
-        viewMenu.insertItem(NSMenuItem.separator(), at: 6)
+        viewMenu.insertItem(taskViewItem, at: 6)
+        viewMenu.insertItem(NSMenuItem.separator(), at: 7)
 
     }
 

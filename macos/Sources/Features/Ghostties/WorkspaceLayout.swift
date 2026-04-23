@@ -18,6 +18,11 @@ enum WorkspaceLayout {
     /// Width of the sidebar panel.
     static let sidebarWidth: CGFloat = 220
 
+    /// Width of the task-first sidebar panel (Concept F).
+    /// Wider than `sidebarWidth` to accommodate the hero row's two-line typography.
+    /// v0 feature toggle — selected via the `ghostties.sidebarViewMode` @AppStorage flag.
+    static let taskSidebarWidth: CGFloat = 280
+
     /// Height reserved at top for window traffic light controls.
     static let titlebarSpacerHeight: CGFloat = 28
 
@@ -157,4 +162,9 @@ extension Notification.Name {
     /// userInfo contains "sessionId" (UUID). SessionCoordinators observe this
     /// to focus the tapped session and bring its window to the front.
     static let menuBarFocusSession = Notification.Name("com.seansmithdesign.ghostties.menuBar.focusSession")
+
+    /// Posted when the user toggles the sidebar view mode (project-first ↔ task-first).
+    /// WorkspaceViewContainer instances observe this to swap the hosted SwiftUI view
+    /// and update the sidebar width. v0 feature toggle.
+    static let workspaceSidebarViewModeChanged = Notification.Name("com.seansmithdesign.ghostties.workspace.sidebarViewModeChanged")
 }

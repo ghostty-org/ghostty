@@ -1255,6 +1255,22 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         NotificationCenter.default.post(name: .workspaceNewSession, object: window)
     }
 
+    /// Toggle the sidebar view mode between project-first (legacy) and
+    /// task-first (Concept F). v0 feature toggle. Broadcasts a notification
+    /// so every open WorkspaceViewContainer swaps its hosted sidebar.
+    @IBAction func toggleTaskView(_ sender: Any?) {
+        let key = "ghostties.sidebarViewMode"
+        let current = UserDefaults.standard.string(forKey: key) ?? "projectFirst"
+        let next = current == "taskFirst" ? "projectFirst" : "taskFirst"
+        UserDefaults.standard.set(next, forKey: key)
+        NotificationCenter.default.post(name: .workspaceSidebarViewModeChanged, object: nil)
+
+        // Reflect the new state in the menu item's checkmark.
+        if let menuItem = sender as? NSMenuItem {
+            menuItem.state = next == "taskFirst" ? .on : .off
+        }
+    }
+
     // MARK: First Responder
 
     @IBAction func newWindow(_ sender: Any?) {

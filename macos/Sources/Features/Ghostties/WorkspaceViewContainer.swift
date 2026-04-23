@@ -33,6 +33,30 @@ class WorkspaceViewContainer: NSView {
     private let coordinator: SessionCoordinator
     private let ghostty: Ghostty.App
 
+    /// v0 task-first sidebar store. Loads `.ghostties/tasks/*.md` fixtures once.
+    /// Instantiated lazily on first access (always on the main thread via AppKit
+    /// view lifecycle) so the store survives view-mode toggling.
+    private lazy var taskStore: TaskStore = TaskStore()
+
+    /// UserDefaults key for the v0 sidebar view mode feature toggle. Mirrors the
+    /// `@AppStorage` key used in SwiftUI contexts so both layers observe the
+    /// same value. Values: `"projectFirst"` (default) or `"taskFirst"`.
+    private static let sidebarViewModeDefaultsKey = "ghostties.sidebarViewMode"
+
+    /// Read the current sidebar view mode from UserDefaults. Defaults to
+    /// project-first if the key is missing or holds an unknown value.
+    private var currentSidebarViewMode: String {
+        let raw = UserDefaults.standard.string(forKey: Self.sidebarViewModeDefaultsKey) ?? "projectFirst"
+        return raw == "taskFirst" ? "taskFirst" : "projectFirst"
+    }
+
+    /// Resolved sidebar width for the current view mode.
+    private var currentSidebarWidth: CGFloat {
+        currentSidebarViewMode == "taskFirst"
+            ? WorkspaceLayout.taskSidebarWidth
+            : WorkspaceLayout.sidebarWidth
+    }
+
     /// Shadow host wraps the terminal container so the drop shadow renders
     /// outside `masksToBounds` clipping. The shadow host carries the shadow;
     /// the inner terminal container clips its corners.
@@ -241,10 +265,11 @@ class WorkspaceViewContainer: NSView {
 
         self.coordinator = SessionCoordinator(ghostty: ghostty)
 
-        let sidebarView = WorkspaceSidebarView()
-            .environmentObject(WorkspaceStore.shared)
-            .environmentObject(coordinator)
-        let hostingView = TransparentHostingView(rootView: sidebarView)
+        // Start with a placeholder root; `applySidebarView()` will install the
+        // correct view (project-first vs task-first) during setup. We use
+        // AnyView so the hosting view's generic type is fixed across the
+        // feature-toggle swap.
+        let hostingView = TransparentHostingView(rootView: AnyView(EmptyView()))
         // Auto Layout controls the sidebar width; disable intrinsic size reporting
         // to avoid unnecessary layout computation from the hosting view.
         hostingView.sizingOptions = []
@@ -252,6 +277,16 @@ class WorkspaceViewContainer: NSView {
 
         super.init(frame: .zero)
         setup()
+        applySidebarView()
+
+        // Observe view-mode toggle so the container swaps sidebars without
+        // requiring a window rebuild.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sidebarViewModeChanged),
+            name: .workspaceSidebarViewModeChanged,
+            object: nil
+        )
     }
 
     @available(*, unavailable)
@@ -335,7 +370,7 @@ class WorkspaceViewContainer: NSView {
         case .pinned:
             let inset = WorkspaceLayout.terminalInset
             return NSSize(
-                width: termSize.width + WorkspaceLayout.sidebarWidth + inset * 2,
+                width: termSize.width + currentSidebarWidth + inset * 2,
                 height: termSize.height + inset * 2
             )
         case .closed:
@@ -352,7 +387,7 @@ class WorkspaceViewContainer: NSView {
     /// Total horizontal space available to the terminal + browser combined.
     /// Subtracts sidebar (when pinned) and the three inset gaps (leading, gap, trailing).
     private var resizableWidth: CGFloat {
-        let sidebarWidth = sidebarMode == .pinned ? WorkspaceLayout.sidebarWidth : 0
+        let sidebarWidth = sidebarMode == .pinned ? currentSidebarWidth : 0
         let inset = WorkspaceLayout.terminalInset
         // Three inset slots: leading of terminal, gap between panels, trailing of browser.
         return bounds.width - sidebarWidth - inset * 3
@@ -389,6 +424,58 @@ class WorkspaceViewContainer: NSView {
             rect: sidebarOverlayBackground.bounds,
             transform: nil
         )
+    }
+
+    // MARK: - Sidebar View Mode (v0 feature toggle)
+
+    /// Build the correct sidebar SwiftUI view for the current view mode and
+    /// install it on the hosting view. Called once during setup and again each
+    /// time the view-mode toggle fires a `workspaceSidebarViewModeChanged`
+    /// notification. Both branches share the same titlebar spacer so the
+    /// traffic-light region stays consistent across modes.
+    private func applySidebarView() {
+        guard let hostingView = sidebarHostingView as? NSHostingView<AnyView> else { return }
+
+        let mode = currentSidebarViewMode
+        if mode == "taskFirst" {
+            let view = VStack(spacing: 0) {
+                // Reserve space for the window's traffic lights so the NEEDS YOU
+                // header doesn't render behind them.
+                Color.clear.frame(height: WorkspaceLayout.titlebarSpacerHeight)
+                TaskSidebarView(taskStore: taskStore)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea(.container, edges: .top)
+            hostingView.rootView = AnyView(view)
+        } else {
+            let view = WorkspaceSidebarView()
+                .environmentObject(WorkspaceStore.shared)
+                .environmentObject(coordinator)
+            hostingView.rootView = AnyView(view)
+        }
+    }
+
+    @objc private func sidebarViewModeChanged() {
+        applySidebarView()
+
+        // Update width constraint + intrinsic size to reflect the new mode's
+        // sidebar width. Only animate when the sidebar is actually pinned; in
+        // closed mode the width is 0, in overlay mode the constraint follows
+        // the overlay width which is also driven by currentSidebarWidth.
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = reduceMotion ? 0 : 0.2
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            switch sidebarMode {
+            case .pinned, .overlay:
+                sidebarWidthConstraint.animator().constant = currentSidebarWidth
+            case .closed:
+                break
+            }
+        }
+        updateTrackingAreas()
+        invalidateIntrinsicContentSize()
     }
 
     // MARK: - Traffic Lights
@@ -683,7 +770,7 @@ class WorkspaceViewContainer: NSView {
 
             switch newMode {
             case .pinned:
-                sidebarWidthConstraint.animator().constant = WorkspaceLayout.sidebarWidth
+                sidebarWidthConstraint.animator().constant = currentSidebarWidth
                 sidebarHostingView.animator().alphaValue = 1
                 shadowHostTopConstraint.animator().constant = inset
                 shadowHostLeadingToSidebar.animator().constant = inset
@@ -729,7 +816,7 @@ class WorkspaceViewContainer: NSView {
                     browserToggleButton.contentTintColor = .secondaryLabelColor
                     browserDragHandle.isHidden = true
                 }
-                sidebarWidthConstraint.animator().constant = WorkspaceLayout.sidebarWidth
+                sidebarWidthConstraint.animator().constant = currentSidebarWidth
                 sidebarHostingView.animator().alphaValue = 1
                 // Terminal stays full-width (leading to superview, no insets).
                 shadowHostTopConstraint.animator().constant = 0
@@ -831,7 +918,7 @@ class WorkspaceViewContainer: NSView {
             // Install sidebar zone: covers sidebar width.
             let sidebarRect = CGRect(
                 x: 0, y: 0,
-                width: WorkspaceLayout.sidebarWidth,
+                width: currentSidebarWidth,
                 height: bounds.height
             )
             let area = NSTrackingArea(
@@ -931,7 +1018,7 @@ class WorkspaceViewContainer: NSView {
         let isPinned = initialMode == .pinned
         // Both pinned and closed modes show the floating card with insets.
         let hasCardInset = initialMode != .overlay
-        let initialWidth: CGFloat = isPinned ? WorkspaceLayout.sidebarWidth : 0
+        let initialWidth: CGFloat = isPinned ? currentSidebarWidth : 0
 
         sidebarWidthConstraint = sidebarHostingView.widthAnchor.constraint(equalToConstant: initialWidth)
 
