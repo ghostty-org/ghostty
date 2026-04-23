@@ -12,6 +12,7 @@ import SwiftUI
 /// two-line typography.
 struct TaskSidebarView: View {
     @ObservedObject var taskStore: TaskStore
+    @ObservedObject var sessionDraftStore: SessionDraftStore
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -23,7 +24,10 @@ struct TaskSidebarView: View {
 
                     zoneDivider
 
-                    ActiveZoneView(taskStore: taskStore)
+                    ActiveZoneView(
+                        taskStore: taskStore,
+                        sessionDraftStore: sessionDraftStore
+                    )
 
                     zoneDivider
 
@@ -107,10 +111,16 @@ struct TaskSidebarView: View {
 
 #Preview("Task Sidebar — Light + Dark") {
     HStack(spacing: 24) {
-        TaskSidebarView(taskStore: TaskStore())
-            .preferredColorScheme(.light)
-        TaskSidebarView(taskStore: TaskStore())
-            .preferredColorScheme(.dark)
+        TaskSidebarView(
+            taskStore: TaskStore(),
+            sessionDraftStore: SessionDraftStore()
+        )
+        .preferredColorScheme(.light)
+        TaskSidebarView(
+            taskStore: TaskStore(),
+            sessionDraftStore: SessionDraftStore()
+        )
+        .preferredColorScheme(.dark)
     }
     .padding(24)
     .frame(height: 780)

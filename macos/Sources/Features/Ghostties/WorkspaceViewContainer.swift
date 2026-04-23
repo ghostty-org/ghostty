@@ -38,6 +38,11 @@ class WorkspaceViewContainer: NSView {
     /// view lifecycle) so the store survives view-mode toggling.
     private lazy var taskStore: TaskStore = TaskStore()
 
+    /// Session-hybrid: tracks anonymous terminal sessions that haven't been
+    /// promoted to tasks. Lives alongside `taskStore`; both feed the ACTIVE
+    /// zone. Lazy so it only materializes for task-first mode.
+    private lazy var sessionDraftStore: SessionDraftStore = SessionDraftStore()
+
     /// UserDefaults key for the v0 sidebar view mode feature toggle. Mirrors the
     /// `@AppStorage` key used in SwiftUI contexts so both layers observe the
     /// same value. Values: `"projectFirst"` (default) or `"taskFirst"`.
@@ -276,6 +281,13 @@ class WorkspaceViewContainer: NSView {
         self.sidebarHostingView = hostingView
 
         super.init(frame: .zero)
+
+        // Session-hybrid: give the coordinator a weak handle to the draft store
+        // so spawn/close events can register + GC draft rows in the sidebar.
+        // Touching the lazy here materializes the store before the first spawn
+        // — the coordinator's weak reference takes it from there.
+        self.coordinator.sessionDraftStore = self.sessionDraftStore
+
         setup()
         applySidebarView()
 
@@ -442,8 +454,11 @@ class WorkspaceViewContainer: NSView {
                 // Reserve space for the window's traffic lights so the NEEDS YOU
                 // header doesn't render behind them.
                 Color.clear.frame(height: WorkspaceLayout.titlebarSpacerHeight)
-                TaskSidebarView(taskStore: taskStore)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                TaskSidebarView(
+                    taskStore: taskStore,
+                    sessionDraftStore: sessionDraftStore
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea(.container, edges: .top)
@@ -453,6 +468,7 @@ class WorkspaceViewContainer: NSView {
             .environmentObject(taskStore)
             .environmentObject(coordinator)
             .environmentObject(WorkspaceStore.shared)
+            .environmentObject(sessionDraftStore)
             hostingView.rootView = AnyView(view)
         } else {
             let view = WorkspaceSidebarView()
