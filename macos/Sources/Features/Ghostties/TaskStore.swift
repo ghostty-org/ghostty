@@ -19,11 +19,18 @@ final class TaskStore: ObservableObject {
     /// revision will derive this from `sysctl` or thermal state.
     let machineCap: Int = 5
 
+    private var watcher: TaskFileWatcher?
+    private var watchedDirectory: URL?
+
     init() {
         loadFromDisk()
         #if DEBUG
         print("[TaskStore] Loaded \(tasks.count) task(s) from disk")
         #endif
+    }
+
+    deinit {
+        watcher?.stop()
     }
 
     // MARK: - Grouped accessors
@@ -44,6 +51,12 @@ final class TaskStore: ObservableObject {
             #endif
             tasks = []
             return
+        }
+
+        // If the resolved directory changed since last load (e.g. one directory
+        // was deleted and a different candidate now wins), rewire the watcher.
+        if watchedDirectory != dir {
+            rewireWatcher(to: dir)
         }
 
         let fm = FileManager.default
@@ -81,6 +94,19 @@ final class TaskStore: ObservableObject {
         // is up to the view layer; here we just produce a deterministic list.
         loaded.sort { $0.created > $1.created }
         tasks = loaded
+    }
+
+    // MARK: - Filesystem watching
+
+    private func rewireWatcher(to dir: URL) {
+        watcher?.stop()
+        watchedDirectory = dir
+        let w = TaskFileWatcher(url: dir) { [weak self] in
+            guard let self = self else { return }
+            Task { @MainActor in self.loadFromDisk() }
+        }
+        watcher = w
+        w.start()
     }
 
     // MARK: - Directory discovery
