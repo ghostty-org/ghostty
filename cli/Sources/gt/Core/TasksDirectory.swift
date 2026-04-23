@@ -1,0 +1,58 @@
+import Foundation
+
+/// Locate `.ghostties/tasks/` by walking up from cwd, git-style. Stops at
+/// `$HOME` or `/` — no global fallback, no magic.
+enum TasksDirectory {
+    /// Find an existing tasks directory. Returns nil if none is found up to
+    /// $HOME or filesystem root.
+    static func find(startingAt cwd: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)) -> URL? {
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser.standardizedFileURL
+        var cursor: URL? = cwd.standardizedFileURL
+
+        while let here = cursor {
+            let candidate = here.appendingPathComponent(".ghostties/tasks", isDirectory: true)
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: candidate.path, isDirectory: &isDir), isDir.boolValue {
+                return candidate
+            }
+
+            // Stop once we've checked $HOME itself, to avoid scanning siblings.
+            if here.path == home.path { return nil }
+
+            let parent = here.deletingLastPathComponent()
+            if parent.path == here.path { return nil }
+            cursor = parent
+        }
+        return nil
+    }
+
+    /// Find the directory, or throw a CLIError with the standard message.
+    static func require() throws -> URL {
+        guard let dir = find() else {
+            throw CLIError.notFound("no .ghostties/tasks/ in any ancestor. run 'gt new' to create one")
+        }
+        return dir
+    }
+
+    /// Resolve the directory for `gt new`, creating `./.ghostties/tasks/` in
+    /// cwd if no ancestor already has one.
+    static func findOrCreate() throws -> URL {
+        if let existing = find() { return existing }
+
+        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        let target = cwd.appendingPathComponent(".ghostties/tasks", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: target,
+                                                    withIntermediateDirectories: true)
+        } catch {
+            throw CLIError.io("could not create \(target.path): \(error.localizedDescription)")
+        }
+        return target
+    }
+
+    /// Resolve the `.ghostties/` parent of the tasks directory (for `.focus`).
+    static func stateDirectory(from tasksDir: URL) -> URL {
+        tasksDir.deletingLastPathComponent()
+    }
+}
