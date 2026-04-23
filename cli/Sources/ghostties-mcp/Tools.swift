@@ -179,6 +179,9 @@ func allTools() -> [Tool] {
         listTasksTool(),
         getTaskTool(),
         createTaskTool(),
-        updateTaskStatusTool()
+        updateTaskStatusTool(),
+        getActiveTool(),
+        getNeedsYouTool(),
+        getInboxTool()
     ]
 }
