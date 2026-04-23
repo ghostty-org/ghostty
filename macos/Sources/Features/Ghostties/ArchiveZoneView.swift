@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Archive / queue zone — bottom of the sidebar. Four lane headers stacked
+/// Graveyard / queue zone — bottom of the sidebar. Four lane headers stacked
 /// vertically (Inbox · Backlog · Review · Done), each click-to-expand.
+/// Named "Graveyard" to pair with the ghost theme — retired/resting tasks.
 ///
 /// Rollup dots surface items requiring attention while the lane is collapsed.
 /// In v0 only Inbox carries a (terracotta) dot — and only when it has items.
@@ -28,7 +29,7 @@ struct ArchiveZoneView: View {
 
     private var header: some View {
         HStack {
-            Text("Archive".uppercased())
+            Text("Graveyard".uppercased())
                 .font(.system(size: 10.5, weight: .semibold))
                 .tracking(0.8)
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))

@@ -17,17 +17,20 @@ struct TaskSidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            NeedsYouZoneView(taskStore: taskStore)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    NeedsYouZoneView(taskStore: taskStore)
 
-            zoneDivider
+                    zoneDivider
 
-            ActiveZoneView(taskStore: taskStore)
+                    ActiveZoneView(taskStore: taskStore)
 
-            zoneDivider
+                    zoneDivider
 
-            ArchiveZoneView(taskStore: taskStore)
-
-            Spacer(minLength: 0)
+                    ArchiveZoneView(taskStore: taskStore)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             footer
         }
