@@ -364,7 +364,15 @@ final class SessionCoordinator: ObservableObject {
     /// The `.ghostties/tasks/*.md` file is opened by the caller
     /// (`TaskRowView.handleTap`) before we get here; this method owns only
     /// the terminal side of "click = start working".
-    func startOrFocusSession(forProjectNamed name: String, rootPath: String) {
+    ///
+    /// `templateName` (optional) is matched case-insensitively against
+    /// `WorkspaceStore.templates[*].name`. Unresolved names log to stderr
+    /// and fall back to the project default / built-in Shell.
+    func startOrFocusSession(
+        forProjectNamed name: String,
+        rootPath: String,
+        templateName: String? = nil
+    ) {
         let store = WorkspaceStore.shared
 
         // 1/2. Resolve or register the project. `addProject(at:)` handles
@@ -400,9 +408,13 @@ final class SessionCoordinator: ObservableObject {
             return
         }
 
-        // 4. No live session — spawn a fresh shell. Prefer the project's
-        // configured default template, fall back to the built-in Shell.
-        let template: AgentTemplate? = {
+        // 4. No live session — resolve template, then spawn.
+        //    Resolution chain:
+        //      a. explicit `templateName` arg (from task frontmatter or user pref)
+        //      b. project.defaultTemplateId
+        //      c. built-in Shell
+        //    If (a) is non-nil but no match is found, log and fall through to (b)/(c).
+        let fallbackTemplate: AgentTemplate? = {
             if let defaultId = project.defaultTemplateId,
                let t = store.templates.first(where: { $0.id == defaultId }) {
                 return t
@@ -410,7 +422,26 @@ final class SessionCoordinator: ObservableObject {
             return store.templates.first(where: { $0.id == AgentTemplate.shell.id })
                 ?? store.templates.first(where: { $0.kind == .shell })
         }()
-        guard let template else { return }
+
+        let resolvedTemplate: AgentTemplate? = {
+            guard let requested = templateName?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !requested.isEmpty else {
+                return fallbackTemplate
+            }
+            let needle = requested.lowercased()
+            if let match = store.templates.first(where: {
+                $0.name.lowercased() == needle
+            }) {
+                return match
+            }
+            FileHandle.standardError.write(Data(
+                "⚠️ Ghostties: template '\(requested)' not found; falling back to default\n".utf8
+            ))
+            return fallbackTemplate
+        }()
+
+        guard let template = resolvedTemplate else { return }
 
         Task { @MainActor in
             await self.createQuickSession(for: project, template: template)
