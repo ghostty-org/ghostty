@@ -28,7 +28,8 @@ let package = Package(
         .executableTarget(
             name: "ghostties-mcp",
             dependencies: ["GhosttiesCore"],
-            path: "Sources/ghostties-mcp"
+            path: "Sources/ghostties-mcp",
+            exclude: ["README.md"]
         )
     ]
 )
