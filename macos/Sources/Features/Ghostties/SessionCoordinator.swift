@@ -23,6 +23,12 @@ final class SessionCoordinator: ObservableObject {
     /// Weak reference to the container NSView — used to find the window controller.
     weak var containerView: NSView?
 
+    /// Session-hybrid: set by `WorkspaceViewContainer` after init. When present,
+    /// terminal session lifecycle events (spawn, close) create/GC `SessionDraft`
+    /// rows in the sidebar's ACTIVE zone. Nil during tests or legacy-only code
+    /// paths — guards everywhere tolerate absence.
+    weak var sessionDraftStore: SessionDraftStore?
+
     /// The currently displayed session. Nil before any session is created.
     @Published private(set) var activeSessionId: UUID?
 
@@ -115,7 +121,8 @@ final class SessionCoordinator: ObservableObject {
     func createSession(
         session: AgentSession,
         template: AgentTemplate,
-        project: Project
+        project: Project,
+        sourceTaskId: String? = nil
     ) async -> Bool {
         // Browser sessions bypass the terminal path entirely.
         if template.kind == .browser {
@@ -195,6 +202,16 @@ final class SessionCoordinator: ObservableObject {
         subscribeToOutput(surface: newView, sessionId: session.id)
         activeSessionId = session.id
         lastActiveSessionPerProject[session.projectId] = session.id
+
+        // Session-hybrid: register an anonymous draft row in the sidebar
+        // unless the spawn originated from an existing task (which already
+        // owns its own row). The cwd is captured at spawn time — later cwd
+        // changes inside the shell don't update the draft.
+        if sourceTaskId == nil, let store = sessionDraftStore {
+            let cwd = template.workingDirectory ?? project.rootPath
+            let draft = store.register(cwd: cwd, terminalSessionId: session.id)
+            _ = draft
+        }
         // Stamp creation as activity so the project surfaces in `.recent`
         // (or `.activeNow` once the surface produces output) right away.
         WorkspaceStore.shared.recordActivity(
@@ -218,12 +235,21 @@ final class SessionCoordinator: ObservableObject {
     /// Shared helper used by ProjectDisclosureRow, WorkspaceSidebarView, and TemplatePickerView
     /// to avoid duplicating session-creation logic.
     @discardableResult
-    func createQuickSession(for project: Project, template: AgentTemplate) async -> Bool {
+    func createQuickSession(
+        for project: Project,
+        template: AgentTemplate,
+        sourceTaskId: String? = nil
+    ) async -> Bool {
         let store = WorkspaceStore.shared
         let count = store.sessions(for: project.id).count
         let name = "\(template.name) \(count + 1)"
         let session = store.addSession(name: name, templateId: template.id, projectId: project.id)
-        return await createSession(session: session, template: template, project: project)
+        return await createSession(
+            session: session,
+            template: template,
+            project: project,
+            sourceTaskId: sourceTaskId
+        )
     }
 
     // MARK: - Browser Sessions
@@ -371,7 +397,8 @@ final class SessionCoordinator: ObservableObject {
     func startOrFocusSession(
         forProjectNamed name: String,
         rootPath: String,
-        templateName: String? = nil
+        templateName: String? = nil,
+        sourceTaskId: String? = nil
     ) {
         let store = WorkspaceStore.shared
 
@@ -444,7 +471,11 @@ final class SessionCoordinator: ObservableObject {
         guard let template = resolvedTemplate else { return }
 
         Task { @MainActor in
-            await self.createQuickSession(for: project, template: template)
+            await self.createQuickSession(
+                for: project,
+                template: template,
+                sourceTaskId: sourceTaskId
+            )
         }
     }
 
@@ -496,6 +527,7 @@ final class SessionCoordinator: ObservableObject {
         sessionTrees.removeValue(forKey: id)
         outputSubscriptions.removeValue(forKey: id)
         setStatus(.killed, for: id)
+        gcDraftIfPresent(for: id)
 
         // If this was the active session, switch to another running session.
         if activeSessionId == id {
@@ -658,6 +690,7 @@ final class SessionCoordinator: ObservableObject {
                     sessionTrees.removeValue(forKey: sessionId)
                     outputSubscriptions.removeValue(forKey: sessionId)
                     setStatus(exitStatus, for: sessionId)
+                    gcDraftIfPresent(for: sessionId)
                     switchToNextSession()
                 } else {
                     sessionTrees[sessionId] = liveTree
@@ -672,11 +705,21 @@ final class SessionCoordinator: ObservableObject {
                     sessionTrees.removeValue(forKey: sessionId)
                     outputSubscriptions.removeValue(forKey: sessionId)
                     setStatus(exitStatus, for: sessionId)
+                    gcDraftIfPresent(for: sessionId)
                 } else {
                     sessionTrees[sessionId] = updated
                 }
             }
         }
+    }
+
+    /// Session-hybrid GC: if the terminal that just closed has a matching
+    /// unpromoted `SessionDraft`, drop it from the sidebar. Promoted drafts
+    /// are left alone — the task row that replaced them is what tracks the
+    /// ongoing lifecycle.
+    private func gcDraftIfPresent(for sessionId: UUID) {
+        guard let store = sessionDraftStore else { return }
+        store.detachOrRemove(forTerminalSession: sessionId)
     }
 
     /// Resolve a bare command name to its absolute path using the user's login shell.
