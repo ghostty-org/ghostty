@@ -345,6 +345,78 @@ final class SessionCoordinator: ObservableObject {
         }
     }
 
+    /// Task-row-click entry point: focus the project's last-active session if
+    /// one exists, otherwise spawn a fresh shell session rooted at `rootPath`.
+    ///
+    /// Resolution order:
+    ///   1. If a `Project` already exists in `WorkspaceStore` with `name`,
+    ///      reuse it (its `rootPath` wins — don't clobber the user's setup).
+    ///   2. Otherwise register a new pinned `Project(name:, rootPath:)`.
+    ///   3. If that project already has a live session, focus it (same path as
+    ///      `focusLastSession(forProject:)`).
+    ///   4. Else spawn a new Shell session via `createQuickSession`. The
+    ///      spawn is async — fire and forget. The terminal area flips to the
+    ///      new session when GhosttyKit finishes initializing (~500ms cold).
+    ///
+    /// Silently no-ops on the spawn path if no shell template is available
+    /// (shouldn't happen — `AgentTemplate.shell` ships as a default).
+    ///
+    /// The `.ghostties/tasks/*.md` file is opened by the caller
+    /// (`TaskRowView.handleTap`) before we get here; this method owns only
+    /// the terminal side of "click = start working".
+    func startOrFocusSession(forProjectNamed name: String, rootPath: String) {
+        let store = WorkspaceStore.shared
+
+        // 1/2. Resolve or register the project. `addProject(at:)` handles
+        // duplicate-path detection and promotes an existing record's pin
+        // status without clobbering its `rootPath` or ghost character.
+        let project: Project = {
+            if let existing = store.projects.first(where: { $0.name == name }) {
+                return existing
+            }
+            // Register as a pinned project so it shows up in the legacy
+            // sidebar too. `addProject(at:)` does the standardization.
+            let url = URL(fileURLWithPath: rootPath, isDirectory: true)
+            store.addProject(at: url)
+            // Re-fetch by path (name may diverge — URL.lastPathComponent
+            // becomes the display name on fresh register).
+            let stdPath = url.standardizedFileURL.path
+            return store.projects.first(where: { $0.rootPath == stdPath })
+                ?? store.projects.last!   // addProject guarantees at least one match
+        }()
+
+        // 3. Focus the existing live session if there is one.
+        if let lastId = lastActiveSessionPerProject[project.id],
+           sessionTrees[lastId] != nil || browserManagers[lastId] != nil {
+            focusSession(id: lastId)
+            return
+        }
+        // Fall back to any running session in this project before spawning.
+        let projectSessions = store.sessions(for: project.id)
+        if let running = projectSessions.first(where: {
+            sessionTrees[$0.id] != nil || browserManagers[$0.id] != nil
+        }) {
+            focusSession(id: running.id)
+            return
+        }
+
+        // 4. No live session — spawn a fresh shell. Prefer the project's
+        // configured default template, fall back to the built-in Shell.
+        let template: AgentTemplate? = {
+            if let defaultId = project.defaultTemplateId,
+               let t = store.templates.first(where: { $0.id == defaultId }) {
+                return t
+            }
+            return store.templates.first(where: { $0.id == AgentTemplate.shell.id })
+                ?? store.templates.first(where: { $0.kind == .shell })
+        }()
+        guard let template else { return }
+
+        Task { @MainActor in
+            await self.createQuickSession(for: project, template: template)
+        }
+    }
+
     /// Focus the last active session for a given project, or the first running session if none.
     ///
     /// Called when the user clicks a project in the icon rail to auto-switch the terminal
