@@ -13,16 +13,43 @@ struct ArchiveZoneView: View {
     /// Per-lane expand/collapse state. Collapsed by default.
     @State private var expanded: Set<TaskStatus> = []
 
+    /// True when all four graveyard lanes are empty. Drives a single muted
+    /// "nothing here yet" line so the zone doesn't read as broken.
+    private var isFullyEmpty: Bool {
+        taskStore.inbox.isEmpty
+            && taskStore.backlog.isEmpty
+            && taskStore.review.isEmpty
+            && taskStore.done.isEmpty
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
 
-            lane(.inbox,   label: "Inbox",   tasks: taskStore.inbox,   rollup: .terracotta)
-            lane(.backlog, label: "Backlog", tasks: taskStore.backlog, rollup: .none)
-            lane(.review,  label: "Review",  tasks: taskStore.review,  rollup: .none)
-            lane(.done,    label: "Done",    tasks: taskStore.done,    rollup: .none)
+            if isFullyEmpty {
+                emptyState
+            } else {
+                lane(.inbox,   label: "Inbox",   tasks: taskStore.inbox,   rollup: .terracotta)
+                lane(.backlog, label: "Backlog", tasks: taskStore.backlog, rollup: .none)
+                lane(.review,  label: "Review",  tasks: taskStore.review,  rollup: .none)
+                lane(.done,    label: "Done",    tasks: taskStore.done,    rollup: .none)
+            }
         }
         .padding(.vertical, 4)
+    }
+
+    // MARK: - Empty state
+
+    private var emptyState: some View {
+        HStack {
+            Text("No tasks in the graveyard.")
+                .font(.caption)
+                .foregroundStyle(Color.secondary)
+                .opacity(0.6)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, TaskRowMetrics.horizontalPadding)
+        .padding(.vertical, 8)
     }
 
     // MARK: - Zone header
