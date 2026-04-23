@@ -1,5 +1,99 @@
 # Session Notes — Ghostties
 
+## Apr 23, 2026 (Overnight Phase 1–3 + Polish + Testing)
+
+### Shipped four backbone branches in one orchestrator session
+
+Sean handed off "everything you can do on your own, at least phase 1" and went to bed. Orchestrator delegated to 6 subagents across 4 new branches.
+
+**Phase 1 — Make v0 feel real** (`feat/task-first-sidebar-v0`, 2 commits on top of prior state)
+
+- `84793d765` — `TaskFileWatcher.swift` with `DispatchSourceFileSystemObject`, 150ms debounce, handles dir recreation. `TaskStore` auto-reloads on any .md create/modify/delete/rename in `.ghostties/tasks/`.
+- `68963ece4` — `TaskRowView.onTapGesture` opens the task's .md via `NSWorkspace.shared.open(_:)` and switches the terminal via `SessionCoordinator.focusLastSession(forProject:)`. Pointer cursor on hover, VoiceOver `.isButton` trait. Env-objects threaded through `WorkspaceViewContainer`.
+
+**Phase 2 — `gt` CLI** (`feat/gt-cli-v0`, 5 commits)
+
+- Self-contained Swift Package at `cli/` with `swift-argument-parser` dep.
+- 5 subcommands: `new`, `list`, `focus`, `done`, `notes append`.
+- Git-style tasks-dir discovery (walk up from cwd, stop at `$HOME`).
+- Prefix-id resolution with ambiguity detection.
+- TTY-aware colorized lane column.
+- Smoke-tested end-to-end in `/tmp` — all 6 operations exit 0.
+
+**Phase 3 — Ghostties MCP server** (`feat/ghostties-mcp-server-v0`, 7 commits)
+
+- **Refactor first:** extracted `cli/Sources/GhosttiesCore/` as a shared library target. Made Task, Frontmatter, TasksDirectory, TaskStore, CLIError all `public`. `gt` now imports the library. Zero code duplication between gt and MCP.
+- Second executable target `ghostties-mcp`, stdio JSON-RPC 2.0 transport, hand-rolled argv parsing.
+- **9 tools:** `list_tasks`, `get_task`, `create_task`, `update_task_status`, `get_active`, `get_needs_you`, `read_task_notes`, `append_task_notes`, `get_inbox`.
+- `cli/scripts/smoke-mcp.sh` — rerunnable end-to-end smoke, all 9 assertions pass.
+- Claude Code `.mcp.json` example in README.
+- Strict stderr-only logging — stdout reserved for JSON-RPC.
+
+**Phase 6 — Sidebar polish** (`feat/sidebar-polish-v0`, 4 commits, off Phase 1 tip)
+
+- `5dd19f530` — row metadata tail-truncation + conditional `filesStaged` drop when `project + branch > 20` chars
+- `09f066271` — project glyph desaturated `#7cb342` → `#8aa96a` (muted sage) across 3 inline sites
+- `57a0fefbd` — NEEDS YOU zone header flanked by horizontal rules
+- `90a6338dc` — empty-state line "No tasks in the graveyard." when all 4 lanes empty
+
+**Automated testing** (`feat/automated-testing-v0`, in flight as of session-notes write)
+
+- Delegated: XCTest targets for `GhosttiesCore` + MCP server + macOS `TaskStore`/`TaskFileWatcher`, cross-surface schema coherence test, GitHub Actions CI workflow
+
+### Key decisions
+
+- **GhosttiesCore library pattern over duplication.** Refactored mid-flight at Phase 3 start. Gt regression passed, no fallout. Now gt + MCP share types.
+- **MCP tool results = JSON-in-text-content-block.** Most portable across MCP clients today. One-line swap if structured content gets reliable client support.
+- **No file locking across surfaces.** Last-write-wins acceptable for v0.
+- **`gt focus` writes `.ghostties/.focus` file, no IPC.** App can watch this file later.
+- **`status: done` on disk, "graveyard" only as CLI/MCP input alias + display.** Do not let "graveyard" leak into on-disk state — breaks round-trip.
+- **Git-town `gt` name conflict documented in README**, not resolved. Alias `ghostties-gt` offered.
+
+### Files created
+
+- `macos/Sources/Features/Ghostties/TaskFileWatcher.swift`
+- `cli/Package.swift`, `cli/.gitignore`, `cli/README.md`
+- `cli/Sources/GhosttiesCore/{Task,CLIError,Frontmatter,TasksDirectory,TaskStore}.swift`
+- `cli/Sources/gt/main.swift`, `cli/Sources/gt/Commands/{New,List,Focus,Done,Notes}Command.swift`
+- `cli/Sources/ghostties-mcp/{main,Server,JsonRpc,Log,TasksDirectoryResolver,Tools}.swift`
+- `cli/Sources/ghostties-mcp/Tools/{ListTasks,GetTask,CreateTask,UpdateTaskStatus,LaneShortcuts,Notes}.swift`
+- `cli/Sources/ghostties-mcp/README.md`
+- `cli/scripts/smoke-mcp.sh`
+
+### Key commands
+
+```bash
+# Build the cli binaries
+cd cli && swift build -c release
+
+# Run the gt smoke
+cd /tmp/smoke && /path/to/cli/.build/release/gt new "..." --project x --lane backlog
+
+# MCP smoke end-to-end
+cli/scripts/smoke-mcp.sh
+
+# macOS app build (arm64-only xcframework)
+cd macos && xcodebuild -scheme Ghostties -configuration Debug ONLY_ACTIVE_ARCH=YES ARCHS=arm64 build
+```
+
+### Branches pushed to origin
+
+| Branch                         | Tip         | Commits tonight               |
+| ------------------------------ | ----------- | ----------------------------- |
+| `feat/task-first-sidebar-v0`   | `68963ece4` | 2                             |
+| `feat/gt-cli-v0`               | `352eff41a` | 5 (stacked on Phase 1)        |
+| `feat/ghostties-mcp-server-v0` | `3099b9385` | 7 (stacked on Phase 2)        |
+| `feat/sidebar-polish-v0`       | `90a6338dc` | 4 (off Phase 1 tip, parallel) |
+| `feat/automated-testing-v0`    | in flight   | —                             |
+
+### Notes for next session
+
+- **Merge strategy to decide:** phases 1→2→3 stack linearly. Polish branch is parallel. Sean decides merge order to `main`.
+- **Fragile Area #14 (schema drift) is now real:** sidebar parser (`TaskFixtureParser`), `gt` CLI, and MCP server all parse the same frontmatter. Changes to any key must land in all three. Testing branch adds the coherence test.
+- **Fragile Area #15 (graveyard/done aliasing):** do not let "graveyard" leak into on-disk `status:`. `done` is canonical.
+- **Untouched tonight:** Phase 4 distribution (still blocked on 9 GitHub secrets), Phase 5 external sources (Linear).
+- **One observation from polish subagent:** `WorkspaceLayout.swift` has no semantic token for "project/running green" — the hue is copy-pasted across 3 sites. Lift into `WorkspaceLayout.projectSage` (light + dark variants) next time tokens get a refresh.
+
 ## Apr 16, 2026 (Session 18)
 
 ### v0.1.0 Distribution Pipeline — Planning + CI Setup
