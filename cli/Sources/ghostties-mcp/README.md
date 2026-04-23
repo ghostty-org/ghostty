@@ -37,17 +37,17 @@ If `--tasks-dir` is omitted the server walks up from its cwd looking for
 
 ## Tools
 
-| Tool                 | Input                                                                     | Returns                        |
-| -------------------- | ------------------------------------------------------------------------- | ------------------------------ |
-| `list_tasks`         | `lane?`, `project?`, `source?`                                            | Array of task summaries        |
-| `get_task`           | `id`                                                                      | Full task + parsed `## Notes`  |
-| `create_task`        | `title`, `source?`, `branch?`, `project?`, `lane?`, `priority?`, `notes?` | The created task               |
-| `update_task_status` | `id`, `status`                                                            | The updated task               |
-| `get_active`         | —                                                                         | Tasks in `running` lane        |
-| `get_needs_you`      | —                                                                         | Tasks in `needs-you` lane      |
-| `get_inbox`          | —                                                                         | Tasks in `inbox` lane          |
-| `read_task_notes`    | `id`                                                                      | `{id, notes}`                  |
-| `append_task_notes`  | `id`, `text`                                                              | `{id, notes}` after the append |
+| Tool                 | Input                                                                                                   | Returns                        |
+| -------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| `list_tasks`         | `lane?`, `project?`, `source?`                                                                          | Array of task summaries        |
+| `get_task`           | `id`                                                                                                    | Full task + parsed `## Notes`  |
+| `create_task`        | `title`, `source?`, `branch?`, `project?`, `project_path?`, `template?`, `lane?`, `priority?`, `notes?` | The created task               |
+| `update_task_status` | `id`, `status`                                                                                          | The updated task               |
+| `get_active`         | —                                                                                                       | Tasks in `running` lane        |
+| `get_needs_you`      | —                                                                                                       | Tasks in `needs-you` lane      |
+| `get_inbox`          | —                                                                                                       | Tasks in `inbox` lane          |
+| `read_task_notes`    | `id`                                                                                                    | `{id, notes}`                  |
+| `append_task_notes`  | `id`, `text`                                                                                            | `{id, notes}` after the append |
 
 `id` accepts a unique prefix. Status values accept `graveyard` as an alias for
 `done` (matches the `gt` CLI).
