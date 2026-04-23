@@ -307,6 +307,62 @@ final class MCPProtocolTests: XCTestCase {
         }
     }
 
+    func testCreateTaskAcceptsProjectPathAndTemplate() throws {
+        let responses = try driveServer([
+            ["jsonrpc": "2.0", "id": 1, "method": "initialize",
+             "params": ["protocolVersion": "2024-11-05", "capabilities": [:],
+                        "clientInfo": ["name": "t", "version": "0"]]],
+            ["jsonrpc": "2.0", "id": 2, "method": "tools/call",
+             "params": ["name": "create_task",
+                        "arguments": ["title": "Project path + template",
+                                      "project_path": "~/Code/ghostties",
+                                      "template": "Orchestrator"]]],
+            ["jsonrpc": "2.0", "id": 3, "method": "tools/call",
+             "params": ["name": "get_task",
+                        "arguments": ["id": "project-path-template"]]]
+        ])
+        guard let createResp = responses[2] else {
+            XCTFail("no response to create_task")
+            return
+        }
+        XCTAssertFalse(toolIsError(createResp), "create_task returned error")
+
+        // Assert round-trip through get_task — the returned JSON body must
+        // carry the kebab-case keys we persisted.
+        guard let getResp = responses[3] else {
+            XCTFail("no response to get_task")
+            return
+        }
+        XCTAssertFalse(toolIsError(getResp))
+        let detailText = toolResultText(getResp) ?? ""
+
+        // The MCP response JSON uses snake_case (mirrors source_id convention).
+        // Parse it so we can assert values structurally rather than via substring.
+        guard let detailData = detailText.data(using: .utf8),
+              let detailObj = try? JSONSerialization.jsonObject(with: detailData) as? [String: Any]
+        else {
+            XCTFail("get_task did not return JSON: \(detailText)")
+            return
+        }
+        XCTAssertEqual(detailObj["project_path"] as? String, "~/Code/ghostties",
+                       "get_task must echo projectPath via 'project_path' key")
+        XCTAssertEqual(detailObj["template"] as? String, "Orchestrator",
+                       "get_task must echo template verbatim")
+
+        // And verify the file on disk uses kebab-case directly.
+        let files = try FileManager.default.contentsOfDirectory(atPath: tasksDir.path)
+        guard let file = files.first(where: { $0.hasPrefix("project-path-template") }) else {
+            XCTFail("task file missing: \(files)")
+            return
+        }
+        let raw = try String(contentsOf: tasksDir.appendingPathComponent(file),
+                             encoding: .utf8)
+        XCTAssertTrue(raw.contains("project-path: ~/Code/ghostties"),
+                      "on-disk 'project-path' missing; got:\n\(raw)")
+        XCTAssertTrue(raw.contains("template: Orchestrator"),
+                      "on-disk 'template' missing; got:\n\(raw)")
+    }
+
     func testCreateTaskMissingTitleReturnsError() throws {
         let responses = try driveServer([
             ["jsonrpc": "2.0", "id": 1, "method": "initialize",

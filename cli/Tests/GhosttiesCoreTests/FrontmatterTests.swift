@@ -165,4 +165,71 @@ final class FrontmatterTests: XCTestCase {
         XCTAssertEqual(updated.count, 2)
         XCTAssertEqual(updated.last?.0, "updated")
     }
+
+    // MARK: - project-path + template round-trip
+
+    /// Create a task with both new fields, write via TaskStore, read back
+    /// via loadFile, and assert the fields survive round-trip.
+    func testProjectPathAndTemplateRoundTrip() throws {
+        let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("gt-roundtrip-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let store = TaskStore(directory: tmpDir)
+        let pairs: [(String, String)] = [
+            ("title", "Round-trip task"),
+            ("source", "shell"),
+            ("source-id", "round-trip"),
+            ("branch", "null"),
+            ("project", "ghostties"),
+            ("created", "2026-04-23T10:00:00Z"),
+            ("status", "backlog"),
+            ("project-path", "~/Code/ghostties"),
+            ("template", "Orchestrator")
+        ]
+        let url = try store.create(id: "round-trip", pairs: pairs, body: "\n## Goal\n\n")
+
+        guard let reloaded = store.loadFile(at: url) else {
+            XCTFail("failed to reload task from disk")
+            return
+        }
+        XCTAssertEqual(reloaded.projectPath, "~/Code/ghostties")
+        XCTAssertEqual(reloaded.template, "Orchestrator")
+    }
+
+    /// A file with none of the new keys must still load cleanly — old fixtures
+    /// pre-date the project-path/template additions and must continue to work.
+    func testFileWithoutNewFieldsStillLoads() throws {
+        let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("gt-legacy-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let raw = """
+        ---
+        title: Legacy task
+        source: shell
+        source-id: legacy-one
+        branch: null
+        project: ghostties
+        created: 2026-04-22T22:35:00Z
+        status: backlog
+        ---
+
+        ## Goal
+
+        """
+        let url = tmpDir.appendingPathComponent("legacy-one.md")
+        try raw.write(to: url, atomically: true, encoding: .utf8)
+
+        let store = TaskStore(directory: tmpDir)
+        guard let task = store.loadFile(at: url) else {
+            XCTFail("legacy task without new fields failed to load")
+            return
+        }
+        XCTAssertNil(task.projectPath)
+        XCTAssertNil(task.template)
+        XCTAssertEqual(task.title, "Legacy task")
+    }
 }

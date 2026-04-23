@@ -43,7 +43,9 @@ final class CrossSurfaceCoherenceTests: XCTestCase {
         "ci",
         "completed",
         "updated",          // not read by macOS parser today but written by CLI + MCP
-        "priority"          // not read by macOS parser today but written by MCP
+        "priority",         // not read by macOS parser today but written by MCP
+        "project-path",     // NOT projectPath; macOS uses kebab-case for parity
+        "template"
     ]
 
     /// The on-disk `status:` values the macOS TaskStatus enum accepts. Mirrors
@@ -204,6 +206,39 @@ final class CrossSurfaceCoherenceTests: XCTestCase {
                              encoding: .utf8)
         XCTAssertTrue(raw.contains("status: done"))
         XCTAssertFalse(raw.contains("status: graveyard"))
+    }
+
+    /// Schema contract: the `projectPath` and `template` fields must serialize
+    /// on disk as kebab-case `project-path:` and `template:`, never camelCase
+    /// or snake_case. The macOS `TaskFixtureParser` reads kebab-case — drift
+    /// here means Fragile Area #14 has tripped.
+    func testNewFieldsOnDiskUseKebabCase() throws {
+        let store = TaskStore(directory: tmpDir)
+        let pairs: [(String, String)] = [
+            ("title", "Project-path + template"),
+            ("source", "shell"),
+            ("source-id", "new-fields"),
+            ("branch", "null"),
+            ("project", "ghostties"),
+            ("created", "2026-04-23T10:00:00Z"),
+            ("status", "backlog"),
+            ("project-path", "~/Code/foo"),
+            ("template", "Orchestrator")
+        ]
+        _ = try store.create(id: "new-fields", pairs: pairs, body: "\n")
+
+        let raw = try String(contentsOf: tmpDir.appendingPathComponent("new-fields.md"),
+                             encoding: .utf8)
+
+        // Kebab-case literal strings must appear.
+        XCTAssertTrue(raw.contains("project-path: ~/Code/foo"),
+                      "on-disk key must be 'project-path' (kebab-case) with value intact")
+        XCTAssertTrue(raw.contains("template: Orchestrator"),
+                      "on-disk key must be 'template' with verbatim value")
+
+        // Negative assertions — no camelCase / snake_case leakage.
+        XCTAssertFalse(raw.contains("projectPath:"), "no camelCase 'projectPath' key allowed")
+        XCTAssertFalse(raw.contains("project_path:"), "no snake_case 'project_path' key allowed")
     }
 
     /// All six lanes the sidebar reads have matching raw values in `TaskLane`.

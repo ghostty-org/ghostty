@@ -66,7 +66,9 @@ func taskSummary(_ t: Task) -> JSONValue {
         "project": t.project.map(JSONValue.string) ?? .null,
         "source": t.source.map(JSONValue.string) ?? .null,
         "source_id": t.sourceID.map(JSONValue.string) ?? .null,
-        "branch": t.branch.map(JSONValue.string) ?? .null
+        "branch": t.branch.map(JSONValue.string) ?? .null,
+        "project_path": t.projectPath.map(JSONValue.string) ?? .null,
+        "template": t.template.map(JSONValue.string) ?? .null
     ]
     if let priority = Frontmatter.value(for: "priority", in: t.frontmatter) {
         out["priority"] = .string(priority)
