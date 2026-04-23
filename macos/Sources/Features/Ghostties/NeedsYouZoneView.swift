@@ -36,30 +36,29 @@ struct NeedsYouZoneView: View {
 
     // MARK: - Header
 
-    /// Uppercase "NEEDS YOU" caption centered between two low-opacity rules,
-    /// tinted terracotta per the mock. The right side carries a monospaced
-    /// count so scanning is quick.
+    /// Uppercase "NEEDS YOU" caption flanked by two low-opacity rules,
+    /// tinted terracotta per the mock — reads as `————— NEEDS YOU —————`.
+    /// The far right carries a monospaced count so scanning is quick.
     private var header: some View {
         HStack(spacing: 8) {
+            Rectangle()
+                .fill(WorkspaceLayout.waitingTerracotta.opacity(0.22))
+                .frame(maxWidth: .infinity, maxHeight: 1)
+
             Text("Needs you".uppercased())
                 .font(.system(size: 10.5, weight: .semibold))
                 .tracking(0.8)
                 .foregroundStyle(WorkspaceLayout.waitingTerracotta)
+                .fixedSize()
 
             Rectangle()
                 .fill(WorkspaceLayout.waitingTerracotta.opacity(0.22))
-                .frame(height: 0.5)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: 1)
 
-            if !taskStore.needsYou.isEmpty {
-                Text("\(taskStore.needsYou.count)")
-                    .font(.system(size: 10.5, design: .monospaced))
-                    .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
-            } else {
-                Text("0")
-                    .font(.system(size: 10.5, design: .monospaced))
-                    .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
-            }
+            Text("\(taskStore.needsYou.count)")
+                .font(.system(size: 10.5, design: .monospaced))
+                .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+                .fixedSize()
         }
         .padding(.horizontal, TaskRowMetrics.horizontalPadding)
         .padding(.vertical, 6)
