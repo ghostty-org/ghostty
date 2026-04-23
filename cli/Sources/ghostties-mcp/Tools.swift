@@ -186,6 +186,7 @@ func allTools() -> [Tool] {
         getNeedsYouTool(),
         readTaskNotesTool(),
         appendTaskNotesTool(),
+        writeSessionNotesTool(),
         getInboxTool()
     ]
 }
