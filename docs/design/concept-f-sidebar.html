@@ -1,0 +1,893 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ghostties — Concept F sidebar (design mock)</title>
+    <meta name="viewport" content="width=1600" />
+    <style>
+      /* =====================================================================
+         Tokens — sourced from macos/Sources/Features/Ghostties/WorkspaceLayout.swift
+         Dark-mode values only. Nothing is bound to the terminal theme.
+         ===================================================================== */
+      :root {
+        /* chrome / canvas — two-layer background model (dark) */
+        --chrome-bg: #242424;          /* NSColor(white: 0.14) */
+        --canvas-bg: #2e2e2e;          /* NSColor(white: 0.18) */
+        --card-bg: #1a1a1a;            /* NSColor(white: 0.10) */
+        --expanded-container: #292929; /* Color(white: 0.16)  */
+        --active-row: rgba(255,255,255,0.06);
+
+        /* Accents */
+        --terracotta: #c97350;         /* waitingTerracotta */
+        --terracotta-dim: rgba(201,115,80,0.18);
+        --needs-purple: #a855f7;       /* needsAttentionPurple — unused here */
+
+        /* Status dots (Shiki-ish, feel of-a-piece w/ terminal output) */
+        --dot-green: #7cb342;
+        --dot-blue:  #6fa8ff;
+        --dot-amber: #e0a94a;
+
+        /* Text */
+        --text-primary: rgba(255,255,255,0.92);
+        --text-secondary: rgba(255,255,255,0.60);
+        --text-tertiary: rgba(255,255,255,0.40); /* ~ tertiaryLabelColor equivalent */
+        --text-quaternary: rgba(255,255,255,0.28);
+
+        /* Lines */
+        --row-divider: rgba(255,255,255,0.06);   /* 0.5px, subtle */
+        --zone-divider: rgba(255,255,255,0.12);  /* 1px, stronger */
+        --placeholder-stroke: rgba(255,255,255,0.14);
+
+        /* Typography */
+        --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+        --font-mono: "SF Mono", ui-monospace, "Menlo", monospace;
+
+        /* Page */
+        --page-bg: #141414;
+      }
+
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: var(--page-bg);
+        color: var(--text-primary);
+        font-family: var(--font-ui);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      /* -------------------------------------------------------------------- */
+      /* Page layout                                                          */
+      /* -------------------------------------------------------------------- */
+      .page {
+        min-height: 100vh;
+        padding: 56px 64px 80px;
+      }
+      .page-header {
+        margin-bottom: 48px;
+        max-width: 1400px;
+      }
+      .page-title {
+        font-size: 14px;
+        font-weight: 500;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+        margin: 0 0 8px;
+      }
+      .page-sub {
+        font-size: 22px;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+        color: var(--text-primary);
+        margin: 0;
+      }
+      .page-meta {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--text-tertiary);
+        margin-top: 10px;
+      }
+
+      .board {
+        display: flex;
+        align-items: flex-start;
+        gap: 48px;
+        flex-wrap: wrap;
+      }
+
+      .board-col {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .board-col .label {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+        margin: 0 0 14px 2px;
+      }
+
+      /* -------------------------------------------------------------------- */
+      /* Sidebar shell                                                        */
+      /* -------------------------------------------------------------------- */
+      .sidebar {
+        width: 300px;
+        height: 720px;
+        background: var(--chrome-bg);
+        border-radius: 10px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        box-shadow:
+          0 0 0 1px rgba(255,255,255,0.04),
+          0 20px 40px -20px rgba(0,0,0,0.55);
+      }
+
+      /* Traffic-light / titlebar strip (purely decorative in mock) */
+      .titlebar {
+        height: 38px;
+        display: flex;
+        align-items: center;
+        padding: 0 14px;
+        gap: 8px;
+        border-bottom: 1px solid var(--zone-divider);
+      }
+      .tl {
+        width: 12px; height: 12px; border-radius: 50%;
+        background: rgba(255,255,255,0.10);
+      }
+      .tl.r { background: #ff5f57; }
+      .tl.y { background: #febc2e; }
+      .tl.g { background: #28c840; }
+
+      /* Footer */
+      .sidebar-footer {
+        height: 30px;
+        border-top: 1px solid var(--zone-divider);
+        display: flex;
+        align-items: center;
+        padding: 0 14px;
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        color: var(--text-tertiary);
+        gap: 8px;
+      }
+      .sidebar-footer .gear {
+        margin-left: auto;
+        color: var(--text-tertiary);
+      }
+      .sidebar-footer .dot {
+        width: 5px; height: 5px; border-radius: 50%;
+        background: var(--dot-green);
+        display: inline-block;
+      }
+
+      /* -------------------------------------------------------------------- */
+      /* Zones                                                                */
+      /* -------------------------------------------------------------------- */
+      .zones {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .zone {
+        padding: 10px 0 6px;
+      }
+      .zone + .zone {
+        border-top: 1px solid var(--zone-divider);
+      }
+
+      .zone-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 14px 8px;
+        font-size: 10.5px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+      }
+      .zone-header .spacer { flex: 1; }
+      .zone-header .meta {
+        font-family: var(--font-mono);
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        text-transform: none;
+        color: var(--text-tertiary);
+      }
+      .zone-header.needs { color: var(--terracotta); }
+
+      .zone-active { flex: 1; }
+
+      /* ARCHIVE anchored to bottom */
+      .zone-archive { margin-top: auto; padding-bottom: 4px; }
+
+      /* -------------------------------------------------------------------- */
+      /* Rows                                                                 */
+      /* -------------------------------------------------------------------- */
+      .row {
+        display: grid;
+        grid-template-columns: 14px 1fr auto;
+        column-gap: 10px;
+        align-items: start;
+        padding: 10px 14px;
+        border-bottom: 0.5px solid var(--row-divider);
+      }
+      .row:last-child { border-bottom: 0; }
+
+      .dot {
+        width: 7px; height: 7px; border-radius: 50%;
+        margin-top: 6px;
+        justify-self: center;
+      }
+      .dot.green    { background: var(--dot-green); }
+      .dot.blue     { background: var(--dot-blue);  }
+      .dot.amber    { background: var(--dot-amber); }
+      .dot.terra    { background: var(--terracotta); box-shadow: 0 0 0 3px var(--terracotta-dim); }
+
+      /* Needs-you row: oversized, 2-line */
+      .row-needs {
+        min-height: 56px;
+        padding: 10px 14px 12px;
+      }
+      .row-needs .title {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-primary);
+        letter-spacing: -0.005em;
+        line-height: 1.25;
+      }
+      .row-needs .sub {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-top: 2px;
+        line-height: 1.3;
+      }
+      .row-needs .meta {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        color: var(--text-tertiary);
+        margin-top: 5px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .row-needs .meta .sep { opacity: 0.5; }
+
+      /* Active row: 2-line, compact */
+      .row-active {
+        min-height: 48px;
+        grid-template-columns: 12px 14px 1fr auto;
+        gap: 8px;
+      }
+      .row-active .chev {
+        width: 10px;
+        color: var(--text-quaternary);
+        font-size: 10px;
+        margin-top: 4px;
+        font-family: var(--font-mono);
+      }
+      .row-active .dot { margin-top: 6px; }
+      .row-active .body { min-width: 0; }
+      .row-active .title {
+        font-size: 12.5px;
+        font-weight: 500;
+        color: var(--text-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 1.25;
+      }
+      .row-active .meta {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        color: var(--text-tertiary);
+        margin-top: 3px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .row-active .meta .sep { opacity: 0.5; }
+      .row-active .when {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        color: var(--text-tertiary);
+        align-self: start;
+        margin-top: 1px;
+      }
+
+      /* Empty slot placeholder */
+      .row-slot {
+        height: 48px;
+        margin: 6px 14px;
+        border: 1px dashed var(--placeholder-stroke);
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        color: var(--text-quaternary);
+        letter-spacing: 0.02em;
+      }
+
+      /* Calm-day needs-you collapsed state */
+      .row-needs-calm {
+        min-height: 56px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 14px;
+        font-size: 12.5px;
+        color: var(--text-secondary);
+        letter-spacing: -0.005em;
+      }
+      .row-needs-calm .check {
+        width: 14px; height: 14px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.04);
+        color: var(--text-tertiary);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 10px;
+      }
+
+      /* Archive lane header (collapsed) */
+      .lane-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 14px;
+        height: 32px;
+        font-size: 12px;
+        color: var(--text-secondary);
+        border-top: 0.5px solid var(--row-divider);
+      }
+      .lane-head:first-child { border-top: 0; }
+      .lane-head .chev {
+        color: var(--text-quaternary);
+        font-size: 10px;
+        width: 10px;
+        font-family: var(--font-mono);
+      }
+      .lane-head .label {
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        letter-spacing: -0.005em;
+      }
+      .lane-head .count {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        color: var(--text-tertiary);
+        margin-left: auto;
+      }
+      .lane-head .rollup {
+        width: 6px; height: 6px; border-radius: 50%;
+        background: var(--terracotta);
+        margin-left: 8px;
+      }
+
+      /* -------------------------------------------------------------------- */
+      /* Anatomy column (State 3)                                             */
+      /* -------------------------------------------------------------------- */
+      .anatomy {
+        display: flex;
+        gap: 0;
+        align-items: flex-start;
+      }
+      .anatomy .sidebar {
+        height: auto;
+        min-height: 520px;
+      }
+      .anatomy-rail {
+        position: relative;
+        margin-left: 0;
+        width: 360px;
+        padding-left: 0;
+      }
+
+      .callout {
+        position: absolute;
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+      }
+      .callout .leader {
+        width: 48px;
+        height: 1px;
+        background: rgba(255,255,255,0.18);
+        margin-top: 10px;
+        flex-shrink: 0;
+        position: relative;
+      }
+      .callout .leader::before {
+        content: "";
+        position: absolute;
+        left: -4px; top: -3px;
+        width: 7px; height: 7px; border-radius: 50%;
+        background: var(--terracotta);
+        box-shadow: 0 0 0 3px rgba(201,115,80,0.15);
+      }
+      .callout .note {
+        font-size: 11.5px;
+        line-height: 1.55;
+        color: var(--text-secondary);
+        max-width: 260px;
+      }
+      .callout .note strong {
+        color: var(--text-primary);
+        font-weight: 600;
+        font-size: 12px;
+        display: block;
+        margin-bottom: 3px;
+      }
+      .callout .note code {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        color: var(--text-tertiary);
+        background: rgba(255,255,255,0.04);
+        padding: 1px 5px;
+        border-radius: 3px;
+      }
+
+      /* Anatomy sidebar simplified — stack items with labels */
+      .anatomy-sidebar {
+        width: 300px;
+        background: var(--chrome-bg);
+        border-radius: 10px;
+        padding: 10px 0;
+        box-shadow:
+          0 0 0 1px rgba(255,255,255,0.04),
+          0 20px 40px -20px rgba(0,0,0,0.55);
+      }
+
+      .legend {
+        margin-top: 48px;
+        max-width: 1400px;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 24px;
+        padding: 24px;
+        background: rgba(255,255,255,0.02);
+        border: 1px solid var(--zone-divider);
+        border-radius: 8px;
+      }
+      .legend h4 {
+        margin: 0 0 8px;
+        font-size: 10.5px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+      }
+      .legend p {
+        margin: 0;
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        color: var(--text-secondary);
+        line-height: 1.55;
+      }
+      .swatch {
+        display: inline-block;
+        width: 10px; height: 10px; border-radius: 2px;
+        vertical-align: -1px;
+        margin-right: 6px;
+        border: 1px solid rgba(255,255,255,0.08);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header class="page-header">
+        <p class="page-title">Ghostties · sidebar · Concept F</p>
+        <h1 class="page-sub">Three-zone vertical stack — Needs you, Active, Archive</h1>
+        <p class="page-meta">300pt · dark mode · static mock · not shippable code</p>
+      </header>
+
+      <div class="board">
+        <!-- =============================================================== -->
+        <!-- STATE 1 — Normal Day                                             -->
+        <!-- =============================================================== -->
+        <div class="board-col">
+          <p class="label">Normal Day</p>
+          <div class="sidebar">
+            <div class="titlebar">
+              <span class="tl r"></span>
+              <span class="tl y"></span>
+              <span class="tl g"></span>
+            </div>
+
+            <div class="zones">
+              <!-- NEEDS YOU -->
+              <section class="zone zone-needs">
+                <div class="zone-header needs">
+                  <span>Needs you</span>
+                  <span class="spacer"></span>
+                  <span class="meta">1</span>
+                </div>
+                <div class="row row-needs">
+                  <span class="dot terra"></span>
+                  <div>
+                    <div class="title">Approve Row.swift edit</div>
+                    <div class="sub">Change row height 32 → 28?</div>
+                    <div class="meta">
+                      <span>⎇ sidebar-refactor</span>
+                      <span class="sep">·</span>
+                      <span>10m ago</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- ACTIVE -->
+              <section class="zone zone-active">
+                <div class="zone-header">
+                  <span>Active</span>
+                  <span class="spacer"></span>
+                  <span class="meta">3 of ~5 · machine ok</span>
+                </div>
+
+                <div class="row row-active">
+                  <span class="chev">▸</span>
+                  <span class="dot green"></span>
+                  <div class="body">
+                    <div class="title">Refactor sidebar row</div>
+                    <div class="meta">
+                      <span>⎇ sidebar-refactor</span>
+                      <span class="sep">·</span>
+                      <span>7 files</span>
+                    </div>
+                  </div>
+                  <span class="when">2m</span>
+                </div>
+
+                <div class="row row-active">
+                  <span class="chev">▸</span>
+                  <span class="dot green"></span>
+                  <div class="body">
+                    <div class="title">Fix CEF build on arm64</div>
+                    <div class="meta">
+                      <span>⎇ cef-build</span>
+                      <span class="sep">·</span>
+                      <span>2 files</span>
+                    </div>
+                  </div>
+                  <span class="when">12m</span>
+                </div>
+
+                <div class="row row-active">
+                  <span class="chev">▸</span>
+                  <span class="dot blue"></span>
+                  <div class="body">
+                    <div class="title">tail -f build.log</div>
+                    <div class="meta">
+                      <span>ghostties</span>
+                    </div>
+                  </div>
+                  <span class="when">1m</span>
+                </div>
+
+                <div class="row-slot">empty slot</div>
+                <div class="row-slot">empty slot</div>
+              </section>
+
+              <!-- ARCHIVE -->
+              <section class="zone zone-archive">
+                <div class="zone-header">
+                  <span>Archive</span>
+                </div>
+                <div class="lane-head">
+                  <span class="chev">▸</span>
+                  <span class="label">Inbox</span>
+                  <span class="count">4</span>
+                  <span class="rollup" title="1 needs-you rollup"></span>
+                </div>
+                <div class="lane-head">
+                  <span class="chev">▸</span>
+                  <span class="label">Backlog</span>
+                  <span class="count">2</span>
+                </div>
+                <div class="lane-head">
+                  <span class="chev">▸</span>
+                  <span class="label">Review</span>
+                  <span class="count">3</span>
+                </div>
+                <div class="lane-head">
+                  <span class="chev">▸</span>
+                  <span class="label">Done</span>
+                  <span class="count">12</span>
+                </div>
+              </section>
+            </div>
+
+            <div class="sidebar-footer">
+              <span class="dot"></span>
+              <span>3 sources</span>
+              <span style="opacity:0.5">·</span>
+              <span>linear</span>
+              <span style="opacity:0.5">·</span>
+              <span>gh</span>
+              <span style="opacity:0.5">·</span>
+              <span>sentry</span>
+              <span class="gear">⚙</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- =============================================================== -->
+        <!-- STATE 2 — Calm Day                                               -->
+        <!-- =============================================================== -->
+        <div class="board-col">
+          <p class="label">Calm Day</p>
+          <div class="sidebar">
+            <div class="titlebar">
+              <span class="tl r"></span>
+              <span class="tl y"></span>
+              <span class="tl g"></span>
+            </div>
+
+            <div class="zones">
+              <!-- NEEDS YOU (collapsed to 1 line but reserved height) -->
+              <section class="zone zone-needs">
+                <div class="zone-header">
+                  <span>Needs you</span>
+                  <span class="spacer"></span>
+                  <span class="meta">0</span>
+                </div>
+                <div class="row-needs-calm">
+                  <span class="check">✓</span>
+                  <span>Nothing needs you right now.</span>
+                </div>
+              </section>
+
+              <!-- ACTIVE -->
+              <section class="zone zone-active">
+                <div class="zone-header">
+                  <span>Active</span>
+                  <span class="spacer"></span>
+                  <span class="meta">2 of ~5 · machine ok</span>
+                </div>
+
+                <div class="row row-active">
+                  <span class="chev">▸</span>
+                  <span class="dot green"></span>
+                  <div class="body">
+                    <div class="title">Appcast release notes</div>
+                    <div class="meta">
+                      <span>⎇ v0.1.0-beta</span>
+                      <span class="sep">·</span>
+                      <span>1 file</span>
+                    </div>
+                  </div>
+                  <span class="when">5m</span>
+                </div>
+
+                <div class="row row-active">
+                  <span class="chev">▸</span>
+                  <span class="dot blue"></span>
+                  <div class="body">
+                    <div class="title">zig build — release</div>
+                    <div class="meta">
+                      <span>ghostties</span>
+                    </div>
+                  </div>
+                  <span class="when">3m</span>
+                </div>
+
+                <div class="row-slot">empty slot</div>
+                <div class="row-slot">empty slot</div>
+                <div class="row-slot">empty slot</div>
+              </section>
+
+              <!-- ARCHIVE -->
+              <section class="zone zone-archive">
+                <div class="zone-header">
+                  <span>Archive</span>
+                </div>
+                <div class="lane-head">
+                  <span class="chev">▸</span>
+                  <span class="label">Inbox</span>
+                  <span class="count">3</span>
+                </div>
+                <div class="lane-head">
+                  <span class="chev">▸</span>
+                  <span class="label">Backlog</span>
+                  <span class="count">2</span>
+                </div>
+                <div class="lane-head">
+                  <span class="chev">▸</span>
+                  <span class="label">Review</span>
+                  <span class="count">3</span>
+                </div>
+                <div class="lane-head">
+                  <span class="chev">▸</span>
+                  <span class="label">Done</span>
+                  <span class="count">12</span>
+                </div>
+              </section>
+            </div>
+
+            <div class="sidebar-footer">
+              <span class="dot"></span>
+              <span>3 sources</span>
+              <span style="opacity:0.5">·</span>
+              <span>linear</span>
+              <span style="opacity:0.5">·</span>
+              <span>gh</span>
+              <span style="opacity:0.5">·</span>
+              <span>sentry</span>
+              <span class="gear">⚙</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- =============================================================== -->
+        <!-- STATE 3 — Row Anatomy                                            -->
+        <!-- =============================================================== -->
+        <div class="board-col">
+          <p class="label">Row Anatomy</p>
+          <div class="anatomy">
+            <div class="anatomy-sidebar" style="position:relative;">
+              <!-- Needs-you -->
+              <div class="zone-header needs" style="padding: 6px 14px 8px;">
+                <span>Needs you</span>
+              </div>
+              <div class="row row-needs" id="a-needs">
+                <span class="dot terra"></span>
+                <div>
+                  <div class="title">Approve Row.swift edit</div>
+                  <div class="sub">Change row height 32 → 28?</div>
+                  <div class="meta">
+                    <span>⎇ sidebar-refactor</span>
+                    <span class="sep">·</span>
+                    <span>10m ago</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Active -->
+              <div class="zone-header" style="padding: 14px 14px 8px; border-top: 1px solid var(--zone-divider); margin-top: 4px;">
+                <span>Active</span>
+              </div>
+              <div class="row row-active" id="a-active">
+                <span class="chev">▸</span>
+                <span class="dot green"></span>
+                <div class="body">
+                  <div class="title">Refactor sidebar row</div>
+                  <div class="meta">
+                    <span>⎇ sidebar-refactor</span>
+                    <span class="sep">·</span>
+                    <span>7 files</span>
+                  </div>
+                </div>
+                <span class="when">2m</span>
+              </div>
+
+              <!-- Empty slot -->
+              <div class="row-slot" id="a-slot">empty slot</div>
+
+              <!-- Archive lane header -->
+              <div class="zone-header" style="padding: 14px 14px 8px; border-top: 1px solid var(--zone-divider); margin-top: 4px;">
+                <span>Archive</span>
+              </div>
+              <div class="lane-head" id="a-lane">
+                <span class="chev">▸</span>
+                <span class="label">Inbox</span>
+                <span class="count">4</span>
+                <span class="rollup"></span>
+              </div>
+
+              <!-- ================================================ -->
+              <!-- Callouts — absolute positioned to the right        -->
+              <!-- ================================================ -->
+              <div class="anatomy-rail">
+                <div class="callout" style="top: 52px; left: 300px;">
+                  <div class="leader"></div>
+                  <div class="note">
+                    <strong>Needs-you row · 56px</strong>
+                    Title 13pt / 600 — <code>#FFFFFFeb</code><br>
+                    Sub 12pt / 400 — <code>#FFFFFF99</code><br>
+                    Meta SF Mono 10.5pt — <code>#FFFFFF66</code><br>
+                    Dot terracotta <code>#c97350</code> w/ 18% halo<br>
+                    Padding 10/14/12/14
+                  </div>
+                </div>
+
+                <div class="callout" style="top: 164px; left: 300px;">
+                  <div class="leader"></div>
+                  <div class="note">
+                    <strong>Active row · 48px</strong>
+                    Title 12.5pt / 500 — <code>#FFFFFFeb</code><br>
+                    Meta SF Mono 10.5pt — <code>#FFFFFF66</code><br>
+                    Status dot 7px — green <code>#7cb342</code><br>
+                    Chevron + dot + body + time<br>
+                    Padding 10/14
+                  </div>
+                </div>
+
+                <div class="callout" style="top: 250px; left: 300px;">
+                  <div class="leader"></div>
+                  <div class="note">
+                    <strong>Empty slot · 48px</strong>
+                    Same height as active row — no jump<br>
+                    Dashed 1px <code>#FFFFFF24</code><br>
+                    Radius 6px · inset 6px/14px<br>
+                    Label 10.5pt SF Mono <code>#FFFFFF47</code>
+                  </div>
+                </div>
+
+                <div class="callout" style="top: 360px; left: 300px;">
+                  <div class="leader"></div>
+                  <div class="note">
+                    <strong>Archive lane header · 32px</strong>
+                    Chevron + label + count + rollup<br>
+                    Label 12pt / 500 — <code>#FFFFFF99</code><br>
+                    Count SF Mono 10.5pt — <code>#FFFFFF66</code><br>
+                    Rollup dot 6px terracotta — surfaces<br>
+                    any needs-you inside a collapsed lane
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================================================================= -->
+      <!-- Token legend                                                      -->
+      <!-- ================================================================= -->
+      <div class="legend">
+        <div>
+          <h4>Chrome / Canvas</h4>
+          <p>
+            <span class="swatch" style="background:#242424"></span>chrome #242424<br>
+            <span class="swatch" style="background:#2e2e2e"></span>canvas #2e2e2e<br>
+            <span class="swatch" style="background:#1a1a1a"></span>card   #1a1a1a
+          </p>
+        </div>
+        <div>
+          <h4>Accent</h4>
+          <p>
+            <span class="swatch" style="background:#c97350"></span>terracotta #c97350<br>
+            Reserved — Needs-you only.
+          </p>
+        </div>
+        <div>
+          <h4>Status dots</h4>
+          <p>
+            <span class="swatch" style="background:#7cb342"></span>running #7cb342<br>
+            <span class="swatch" style="background:#6fa8ff"></span>watcher #6fa8ff<br>
+            <span class="swatch" style="background:#e0a94a"></span>warn    #e0a94a
+          </p>
+        </div>
+        <div>
+          <h4>Text</h4>
+          <p>
+            primary #FFFFFFeb (92%)<br>
+            secondary #FFFFFF99 (60%)<br>
+            tertiary #FFFFFF66 (40%)<br>
+            quaternary #FFFFFF47 (28%)
+          </p>
+        </div>
+        <div>
+          <h4>Lines</h4>
+          <p>
+            row divider 0.5px #FFFFFF0f<br>
+            zone divider 1px #FFFFFF1f<br>
+            slot dashed 1px #FFFFFF24
+          </p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

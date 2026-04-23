@@ -15,7 +15,7 @@
 ### Wave 2 — Implementation (pending)
 
 - [x] TaskModel + TaskStore (reads fixtures)
-- [ ] Concept F SwiftUI views (Row, Zones, Sidebar)
+- [x] Concept F SwiftUI views (Row, Zones, Sidebar)
 - [ ] WorkspaceLayout integration behind feature toggle
 
 ### Wave 3 — Polish (pending)
@@ -46,3 +46,4 @@
 - 2026-04-23T06:03:00Z — Fixtures created (12 files in `.ghostties/tasks/`)
 - 2026-04-23T06:05:00Z — Status tracker created
 - 2026-04-22T23:15:00Z — Wave 2: TaskModel + TaskStore landed; build green
+- 2026-04-22T23:20:00Z — Wave 2: Concept F SwiftUI views landed (TaskRowView, SlotPlaceholderView, NeedsYouZoneView, ActiveZoneView, ArchiveZoneView, TaskSidebarView); Release build green (commit fc832e012)
