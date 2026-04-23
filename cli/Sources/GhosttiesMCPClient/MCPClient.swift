@@ -1,6 +1,10 @@
 import Foundation
 import GhosttiesCore
 
+/// Closure invoked for every JSON-RPC notification (message with no `id`) the
+/// server sends. Pass `nil` to `MCPClient.init` to silently drop notifications.
+public typealias MCPNotificationHandler = @Sendable (MCPNotification) async -> Void
+
 /// A generic MCP client. Speaks JSON-RPC 2.0 over any `MCPTransport`. Not
 /// Linear-specific, not Sentry-specific — vendor behavior lives outside this
 /// type, in whatever logic walks the `tools/list` result.
@@ -14,6 +18,7 @@ public actor MCPClient {
     public nonisolated let sourceId: String
 
     private let transport: MCPTransport
+    private let onNotification: MCPNotificationHandler?
 
     private var nextId: Int = 1
     private var pending: [Int: CheckedContinuation<JSONValue, Error>] = [:]
@@ -24,9 +29,17 @@ public actor MCPClient {
     ///   - transport: A configured transport. Stdio transports must have
     ///     already had `start()` called.
     ///   - sourceId: Logical id (e.g. "linear", "sentry"). Surface-level.
-    public init(transport: MCPTransport, sourceId: String) {
+    ///   - onNotification: Optional handler invoked for every server
+    ///     notification (JSON-RPC message with no `id`). If `nil`,
+    ///     notifications are parsed then dropped — preserves prior behavior.
+    public init(
+        transport: MCPTransport,
+        sourceId: String,
+        onNotification: MCPNotificationHandler? = nil
+    ) {
         self.transport = transport
         self.sourceId = sourceId
+        self.onNotification = onNotification
     }
 
     /// Perform the MCP handshake: send `initialize`, wait for the response,
@@ -135,13 +148,21 @@ public actor MCPClient {
         }
     }
 
-    private func handleIncoming(_ data: Data) {
-        // Try response first (id + result/error). If no id, treat as a
-        // notification — the client currently ignores server notifications
-        // but parses them so the stream doesn't stall on malformed frames.
-        if let response = try? MCPResponse.decode(data) {
+    private func handleIncoming(_ data: Data) async {
+        // Peek at the raw shape: a notification is a message with no `id`
+        // field at all. A response carries `result` or `error`. Checking the
+        // raw dictionary avoids MCPResponse.decode succeeding on a
+        // notification (which it does, because id defaults to .null).
+        let hasId: Bool = {
+            guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return false
+            }
+            return obj["id"] != nil
+        }()
+
+        if hasId, let response = try? MCPResponse.decode(data) {
             guard case .int(let id) = response.id else {
-                // Null or string ids aren't something we issue; ignore.
+                // String / null ids aren't something we issue; ignore.
                 return
             }
             guard let cont = pending.removeValue(forKey: id) else {
@@ -155,8 +176,12 @@ public actor MCPClient {
             return
         }
 
-        // Fall through: notifications, or unparseable. Nothing to do for now.
-        _ = try? MCPNotification.decode(data)
+        // No id → notification. Decode and route to the caller's handler.
+        if let notification = try? MCPNotification.decode(data) {
+            if let onNotification {
+                await onNotification(notification)
+            }
+        }
     }
 
     private func handleStreamClosed() {
