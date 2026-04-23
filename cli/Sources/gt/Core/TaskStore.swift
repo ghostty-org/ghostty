@@ -50,6 +50,8 @@ struct TaskStore {
             source: Frontmatter.value(for: "source", in: pairs),
             sourceID: Frontmatter.value(for: "source-id", in: pairs),
             branch: Frontmatter.value(for: "branch", in: pairs),
+            projectPath: Frontmatter.value(for: "project-path", in: pairs),
+            template: Frontmatter.value(for: "template", in: pairs),
             frontmatter: pairs,
             body: body
         )
