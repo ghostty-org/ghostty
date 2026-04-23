@@ -33,6 +33,16 @@ final class TaskStore: ObservableObject {
         watcher?.stop()
     }
 
+    // MARK: - URL lookup
+
+    /// Resolve the on-disk `.md` URL for a task. Uses the currently watched
+    /// tasks directory (the one `loadFromDisk` resolved on the last pass).
+    /// Returns nil if the directory hasn't been discovered yet.
+    func fileURL(for task: TaskItem) -> URL? {
+        guard let dir = watchedDirectory else { return nil }
+        return dir.appendingPathComponent("\(task.id).md")
+    }
+
     // MARK: - Grouped accessors
 
     var needsYou: [TaskItem] { tasks.filter { $0.status == .needsYou } }

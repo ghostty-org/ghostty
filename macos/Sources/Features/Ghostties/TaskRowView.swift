@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Visual row style for the task-first sidebar.
@@ -27,13 +28,17 @@ enum TaskRowMetrics {
 
 /// One task row. See `TaskRowStyle` for the two visual variants.
 ///
-/// No click handler is wired in Wave 2 — Wave 3 will attach `onTapGesture` to
-/// route the click into the shell/session coordinator.
+/// Clicking a row opens the task's `.md` file in the user's default markdown
+/// editor and, if the task's `project` name matches a `WorkspaceStore`
+/// project, switches the terminal to that project's last active session.
 struct TaskRowView: View {
     let task: TaskItem
     let style: TaskRowStyle
 
     @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var taskStore: TaskStore
+    @EnvironmentObject private var coordinator: SessionCoordinator
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
     @State private var isHovered = false
 
     var body: some View {
@@ -54,13 +59,35 @@ struct TaskRowView: View {
         .contentShape(Rectangle())
         .onHover { hovering in
             isHovered = hovering
+            // Pointer cursor on hover — the row is a handle to a real thing.
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
         }
         .onTapGesture {
-            // TODO: wire in Wave 3 — route click to SessionCoordinator /
-            // shell pane for this task's canonical session.
+            handleTap()
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(task.title). \(statusPhrase)")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    // MARK: - Tap handler
+
+    /// Single click: open the task's `.md` note in the user's default editor
+    /// and, when possible, switch the terminal to the task's project. Missing
+    /// file / unknown project is tolerated silently — the row is still a
+    /// handle to whatever part of the system is currently real.
+    private func handleTap() {
+        if let url = taskStore.fileURL(for: task) {
+            NSWorkspace.shared.open(url)
+        }
+
+        if let project = workspaceStore.projects.first(where: { $0.name == task.project }) {
+            coordinator.focusLastSession(forProject: project.id)
+        }
     }
 
     // MARK: - Hero body

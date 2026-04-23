@@ -447,6 +447,12 @@ class WorkspaceViewContainer: NSView {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea(.container, edges: .top)
+            // Row clicks in TaskRowView reach back into the terminal via the
+            // coordinator and look up a matching project via WorkspaceStore.
+            // The store is observed so the row sees a current projects list.
+            .environmentObject(taskStore)
+            .environmentObject(coordinator)
+            .environmentObject(WorkspaceStore.shared)
             hostingView.rootView = AnyView(view)
         } else {
             let view = WorkspaceSidebarView()
