@@ -77,17 +77,45 @@ struct TaskRowView: View {
     // MARK: - Tap handler
 
     /// Single click: open the task's `.md` note in the user's default editor
-    /// and, when possible, switch the terminal to the task's project. Missing
-    /// file / unknown project is tolerated silently — the row is still a
-    /// handle to whatever part of the system is currently real.
+    /// and, when possible, start-or-focus a terminal session for the task's
+    /// project. The two sides are independent — a missing file or an
+    /// unresolvable project is tolerated silently.
+    ///
+    /// Path resolution order for the terminal spawn:
+    ///   1. Explicit `project-path` frontmatter (authoritative; tilde-expanded)
+    ///   2. `WorkspaceStore.projects` lookup by `name == task.project`
+    ///   3. Give up on the terminal side — keep the `.md` open as the useful
+    ///      half of the action.
     private func handleTap() {
+        // Always: open the .md file.
         if let url = taskStore.fileURL(for: task) {
             NSWorkspace.shared.open(url)
         }
 
-        if let project = workspaceStore.projects.first(where: { $0.name == task.project }) {
-            coordinator.focusLastSession(forProject: project.id)
+        // Terminal side: resolve the project cwd path.
+        let resolvedPath: String? = {
+            if let raw = task.projectPath, !raw.isEmpty {
+                return (raw as NSString).expandingTildeInPath
+            }
+            if let storeProject = workspaceStore.projects
+                .first(where: { $0.name == task.project }) {
+                return storeProject.rootPath
+            }
+            return nil
+        }()
+
+        if let path = resolvedPath {
+            coordinator.startOrFocusSession(
+                forProjectNamed: task.project,
+                rootPath: path
+            )
+        } else if let storeProject = workspaceStore.projects
+            .first(where: { $0.name == task.project }) {
+            // Fallback: no path resolvable, but a project with this name
+            // exists — focus whatever live session it has, don't spawn.
+            coordinator.focusLastSession(forProject: storeProject.id)
         }
+        // else: silent skip; the .md was already opened.
     }
 
     // MARK: - Hero body
