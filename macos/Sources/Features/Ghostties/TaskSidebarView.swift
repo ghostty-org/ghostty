@@ -34,7 +34,6 @@ struct TaskSidebarView: View {
 
             footer
         }
-        .frame(width: 280)
         .frame(maxHeight: .infinity)
         .background(backgroundColor)
     }
