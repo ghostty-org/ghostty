@@ -39,6 +39,12 @@ struct TaskRowView: View {
     @EnvironmentObject private var taskStore: TaskStore
     @EnvironmentObject private var coordinator: SessionCoordinator
     @EnvironmentObject private var workspaceStore: WorkspaceStore
+    /// User preference: which `AgentTemplate` to launch when a task row is
+    /// clicked and the task itself doesn't specify one. Empty string = use
+    /// the built-in default (whatever `startOrFocusSession` falls back to).
+    /// No Settings UI in v0 — set via
+    /// `defaults write com.mitchellh.ghostty ghostties.defaultTaskTemplate "Orchestrator"`.
+    @AppStorage("ghostties.defaultTaskTemplate") private var defaultTaskTemplate: String = ""
     @State private var isHovered = false
 
     var body: some View {
@@ -104,10 +110,16 @@ struct TaskRowView: View {
             return nil
         }()
 
+        // Template resolution: task frontmatter wins over user preference.
+        // A nil result lets `startOrFocusSession` use its own fallback.
+        let resolvedTemplateName: String? = task.template
+            ?? (defaultTaskTemplate.isEmpty ? nil : defaultTaskTemplate)
+
         if let path = resolvedPath {
             coordinator.startOrFocusSession(
                 forProjectNamed: task.project,
-                rootPath: path
+                rootPath: path,
+                templateName: resolvedTemplateName
             )
         } else if let storeProject = workspaceStore.projects
             .first(where: { $0.name == task.project }) {
