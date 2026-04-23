@@ -31,8 +31,8 @@ pub const Entry = struct {
 };
 
 /// Get the passwd entry for the currently executing user.
-pub fn get(alloc: Allocator) !Entry {
-    if (builtin.os.tag == .windows) @compileError("passwd is not available on windows");
+pub fn get(alloc: Allocator, io: std.Io) !Entry {
+    if (comptime builtin.os.tag == .windows) @compileError("passwd is not available on windows");
 
     var buf: [1024]u8 = undefined;
     var pw: c.struct_passwd = undefined;
@@ -54,7 +54,7 @@ pub fn get(alloc: Allocator) !Entry {
     // If we're in flatpak then our entry is always empty so we grab it
     // by shelling out to the host. note that we do HAVE an entry in the
     // sandbox but only the username is correct.
-    if (internal_os.isFlatpak()) flatpak: {
+    if (internal_os.isFlatpak(io)) flatpak: {
         if (comptime !build_config.flatpak) {
             log.warn("flatpak detected, but this build doesn't contain flatpak support", .{});
             break :flatpak;
@@ -89,11 +89,11 @@ pub fn get(alloc: Allocator) !Entry {
         // Once started, we can close the child side. We do this after
         // wait right now but that is fine too. This lets us read the
         // parent and detect EOF.
-        _ = posix.close(pty.slave);
+        _ = std.c.close(pty.slave);
 
         // Read all of our output
         const output = output: {
-            var output: std.ArrayListUnmanaged(u8) = .{};
+            var output: std.ArrayList(u8) = .{};
             while (true) {
                 const n = posix.read(pty.master, &buf) catch |err| {
                     switch (err) {

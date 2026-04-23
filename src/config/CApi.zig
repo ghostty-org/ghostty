@@ -7,6 +7,7 @@ const String = @import("../main_c.zig").String;
 const Config = @import("Config.zig");
 const c_get = @import("c_get.zig");
 const edit = @import("edit.zig");
+const internal_os = @import("../os/main.zig");
 const Key = @import("key.zig").Key;
 
 const log = std.log.scoped(.config);
@@ -52,7 +53,7 @@ export fn ghostty_config_clone(self: *Config) ?*Config {
 
 /// Load the configuration from the CLI args.
 export fn ghostty_config_load_cli_args(self: *Config) void {
-    self.loadCliArgs(state.alloc) catch |err| {
+    self.loadCliArgs(state.alloc, state.io(), state.args, &state.environ_map) catch |err| {
         log.err("error loading config err={}", .{err});
     };
 }
@@ -61,7 +62,7 @@ export fn ghostty_config_load_cli_args(self: *Config) void {
 /// is usually done first. The default file locations are locations
 /// such as the home directory.
 export fn ghostty_config_load_default_files(self: *Config) void {
-    self.loadDefaultFiles(state.alloc) catch |err| {
+    self.loadDefaultFiles(state.alloc, state.io(), &state.environ_map) catch |err| {
         log.err("error loading config err={}", .{err});
     };
 }
@@ -70,7 +71,7 @@ export fn ghostty_config_load_default_files(self: *Config) void {
 /// The path must be null-terminated.
 export fn ghostty_config_load_file(self: *Config, path: [*:0]const u8) void {
     const path_slice = std.mem.span(path);
-    self.loadFile(state.alloc, path_slice) catch |err| {
+    self.loadFile(state.alloc, state.io(), &state.environ_map, path_slice) catch |err| {
         log.err("error loading config from file path={s} err={}", .{ path_slice, err });
     };
 }
@@ -79,13 +80,13 @@ export fn ghostty_config_load_file(self: *Config, path: [*:0]const u8) void {
 /// file locations in the previously loaded configuration. This will
 /// recursively continue to load up to a built-in limit.
 export fn ghostty_config_load_recursive_files(self: *Config) void {
-    self.loadRecursiveFiles(state.alloc) catch |err| {
+    self.loadRecursiveFiles(state.alloc, state.io(), &state.environ_map) catch |err| {
         log.err("error loading config err={}", .{err});
     };
 }
 
 export fn ghostty_config_finalize(self: *Config) void {
-    self.finalize() catch |err| {
+    self.finalize(state.io(), state.args, &state.environ_map) catch |err| {
         log.err("error finalizing config err={}", .{err});
     };
 }
@@ -133,7 +134,11 @@ export fn ghostty_config_get_diagnostic(self: *Config, idx: u32) Diagnostic {
 }
 
 export fn ghostty_config_open_path() String {
-    const path = edit.openPath(state.alloc) catch |err| {
+    const path = edit.openPath(
+        state.alloc,
+        state.io(),
+        &state.environ_map,
+    ) catch |err| {
         log.err("error opening config in editor err={}", .{err});
         return .empty;
     };

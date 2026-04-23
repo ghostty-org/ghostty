@@ -50,7 +50,7 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
     switch (cfg.target.result.os.tag) {
         .windows => {
             exe.subsystem = .Windows;
-            exe.addWin32ResourceFile(.{
+            exe.root_module.addWin32ResourceFile(.{
                 .file = b.path("dist/windows/ghostty.rc"),
             });
         },
@@ -75,6 +75,8 @@ pub fn install(self: *const Ghostty) void {
 /// our build in any way but addresses a common build-from-source issue
 /// for a subset of users.
 fn checkNixShell(exe: *std.Build.Step.Compile, cfg: *const Config) !void {
+    const b = exe.step.owner;
+
     // Non-Linux doesn't have rpath issues.
     if (cfg.target.result.os.tag != .linux) return;
 
@@ -85,10 +87,10 @@ fn checkNixShell(exe: *std.Build.Step.Compile, cfg: *const Config) !void {
     if (!cfg.target.query.isNativeOs()) return;
 
     // Verify we're in NixOS
-    std.fs.accessAbsolute("/etc/NIXOS", .{}) catch return;
+    std.Io.Dir.accessAbsolute(b.graph.io, "/etc/NIXOS", .{}) catch return;
 
     // If we're in a nix shell, not a problem
-    if (cfg.env.get("IN_NIX_SHELL") != null) return;
+    if (b.graph.environ_map.contains("IN_NIX_SHELL")) return;
 
     try exe.step.addError(
         "\x1b[" ++ color_map.get("yellow").? ++

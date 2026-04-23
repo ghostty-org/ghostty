@@ -23,7 +23,6 @@ const xev = @import("../../../global.zig").xev;
 const Binding = @import("../../../input.zig").Binding;
 const CoreConfig = configpkg.Config;
 const CoreSurface = @import("../../../Surface.zig");
-const lib = @import("../../../lib/main.zig");
 
 const ext = @import("../ext.zig");
 const key = @import("../key.zig");
@@ -209,7 +208,7 @@ pub const Application = extern struct {
         css_provider: *gtk.CssProvider,
 
         /// Providers for loading custom stylesheets defined by user
-        custom_css_providers: std.ArrayListUnmanaged(*gtk.CssProvider) = .empty,
+        custom_css_providers: std.ArrayList(*gtk.CssProvider) = .empty,
 
         /// A copy of the LANG environment variable that was provided to Ghostty
         /// by the system. If this is null, the LANG environment variable did
@@ -273,8 +272,8 @@ pub const Application = extern struct {
 
         const saved_language: ?[:0]const u8 = saved_language: {
             const old_language = old_language: {
-                const result = (internal_os.getenv(alloc, "LANG") catch break :old_language null) orelse break :old_language null;
-                defer result.deinit(alloc);
+                const env = core_app.environ;
+                const result = env.get("LANG") orelse break :old_language null;
                 break :old_language alloc.dupeZ(u8, result.value) catch break :old_language null;
             };
 
@@ -1060,7 +1059,7 @@ pub const Application = extern struct {
         }
     }
 
-    fn loadCustomCss(self: *Self) (std.fs.File.ReadError || Allocator.Error)!void {
+    fn loadCustomCss(self: *Self) (std.Io.File.ReadError || Allocator.Error)!void {
         const priv: *Private = self.private();
         const alloc = self.allocator();
         const display = gdk.Display.getDefault() orelse {
@@ -1084,7 +1083,8 @@ pub const Application = extern struct {
                 .optional => |path| .{ path, true },
                 .required => |path| .{ path, false },
             };
-            const file = std.fs.openFileAbsolute(path, .{}) catch |err| {
+            const io = Application.default().core().io;
+            const file = std.Io.Dir.openFileAbsolute(io, path, .{}) catch |err| {
                 if (err != error.FileNotFound or !optional) {
                     log.warn(
                         "error opening gtk-custom-css file {s}: {}",
@@ -1752,7 +1752,7 @@ pub const Application = extern struct {
                     continue;
                 }
 
-                if (lib.cutPrefix(u8, str, "--command=")) |v| {
+                if (std.mem.cutPrefix(u8, str, "--command=")) |v| {
                     var cmd: configpkg.Command = undefined;
                     cmd.parseCLI(alloc, v) catch |err| {
                         log.warn("unable to parse command: {t}", .{err});
@@ -1761,14 +1761,14 @@ pub const Application = extern struct {
                     command = cmd;
                     continue;
                 }
-                if (lib.cutPrefix(u8, str, "--working-directory=")) |v| {
+                if (std.mem.cutPrefix(u8, str, "--working-directory=")) |v| {
                     working_directory = alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| wd: {
                         log.warn("unable to duplicate working directory: {t}", .{err});
                         break :wd null;
                     };
                     continue;
                 }
-                if (lib.cutPrefix(u8, str, "--title=")) |v| {
+                if (std.mem.cutPrefix(u8, str, "--title=")) |v| {
                     title = alloc.dupeZ(u8, std.mem.trim(u8, v, &std.ascii.whitespace)) catch |err| t: {
                         log.warn("unable to duplicate title: {t}", .{err});
                         break :t null;

@@ -48,6 +48,7 @@ pub fn loadFromFiles(
     alloc_gpa: Allocator,
     paths: configpkg.RepeatablePath,
     target: Target,
+    io: std.Io,
 ) ![]const [:0]const u8 {
     var list: std.ArrayList([:0]const u8) = .empty;
     defer list.deinit(alloc_gpa);
@@ -59,7 +60,7 @@ pub fn loadFromFiles(
             .required => |path| .{ path, false },
         };
 
-        const shader = loadFromFile(alloc_gpa, path, target) catch |err| {
+        const shader = loadFromFile(alloc_gpa, path, target, io) catch |err| {
             if (err == error.FileNotFound and optional) {
                 continue;
             }
@@ -79,6 +80,7 @@ pub fn loadFromFile(
     alloc_gpa: Allocator,
     path: []const u8,
     target: Target,
+    io: std.Io,
 ) ![:0]const u8 {
     var arena = ArenaAllocator.init(alloc_gpa);
     defer arena.deinit();
@@ -87,14 +89,13 @@ pub fn loadFromFile(
     // Read it all into memory -- we don't expect shaders to be large.
     const src = src: {
         // Load the shader file
-        const cwd = std.fs.cwd();
-        const file = try cwd.openFile(path, .{});
-        defer file.close();
+        const cwd: std.Io.Dir = .cwd();
+        const file = try cwd.openFile(io, path, .{});
+        defer file.close(io);
 
-        break :src try file.readToEndAlloc(
-            alloc,
-            4 * 1024 * 1024, // 4MB
-        );
+        var read_buf: [4096]u8 = undefined;
+        var r = file.reader(io, &read_buf);
+        break :src try r.interface.allocRemaining(alloc, .limited(4 * 1024 * 1024));
     };
 
     // Convert to full GLSL

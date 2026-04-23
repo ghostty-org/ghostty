@@ -1,5 +1,4 @@
 const std = @import("std");
-const fs = std.fs;
 const Allocator = std.mem.Allocator;
 const args = @import("args.zig");
 const Action = @import("ghostty.zig").Action;
@@ -46,7 +45,12 @@ pub const Options = struct {
 ///   ghostty +ssh-cache --remove=example.com     # Remove host from cache
 ///   ghostty +ssh-cache --clear                  # Clear entire cache
 ///   ghostty +ssh-cache --expire-days=30         # Set custom expiration period
-pub fn run(alloc_gpa: Allocator) !u8 {
+pub fn run(
+    alloc_gpa: Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
+    proc_args: std.process.Args,
+) !u8 {
     var arena = std.heap.ArenaAllocator.init(alloc_gpa);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -55,22 +59,22 @@ pub fn run(alloc_gpa: Allocator) !u8 {
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc_gpa);
+        var iter = try args.argsIterator(proc_args, alloc_gpa);
         defer iter.deinit();
         try args.parse(Options, alloc_gpa, &opts, &iter);
     }
 
     var stdout_buffer: [1024]u8 = undefined;
-    var stdout_file: std.fs.File = .stdout();
-    var stdout_writer = stdout_file.writer(&stdout_buffer);
+    var stdout_file: std.Io.File = .stdout();
+    var stdout_writer = stdout_file.writer(io, &stdout_buffer);
     const stdout = &stdout_writer.interface;
 
     var stderr_buffer: [1024]u8 = undefined;
-    var stderr_file: std.fs.File = .stderr();
-    var stderr_writer = stderr_file.writer(&stderr_buffer);
+    var stderr_file: std.Io.File = .stderr();
+    var stderr_writer = stderr_file.writer(io, &stderr_buffer);
     const stderr = &stderr_writer.interface;
 
-    const result = runInner(alloc, opts, stdout, stderr);
+    const result = runInner(alloc, io, env, opts, stdout, stderr);
 
     // Flushing *shouldn't* fail but...
     stdout.flush() catch {};
@@ -80,13 +84,20 @@ pub fn run(alloc_gpa: Allocator) !u8 {
 
 pub fn runInner(
     alloc: Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
     opts: Options,
     stdout: *std.Io.Writer,
     stderr: *std.Io.Writer,
 ) !u8 {
     // Setup our disk cache to the standard location
-    const cache_path = try DiskCache.defaultPath(alloc, "ghostty");
-    const cache: DiskCache = .{ .path = cache_path };
+    const cache_path = try DiskCache.defaultPath(
+        alloc,
+        io,
+        env,
+        "ghostty",
+    );
+    const cache: DiskCache = .{ .io = io, .path = cache_path };
 
     if (opts.clear) {
         try cache.clear();
@@ -178,12 +189,13 @@ pub fn runInner(
     // Default action: list all hosts
     var entries = try cache.list(alloc);
     defer DiskCache.deinitEntries(alloc, &entries);
-    try listEntries(alloc, &entries, stdout);
+    try listEntries(alloc, io, &entries, stdout);
     return 0;
 }
 
 fn listEntries(
     alloc: Allocator,
+    io: std.Io,
     entries: *const std.StringHashMap(Entry),
     writer: *std.Io.Writer,
 ) !void {
@@ -208,7 +220,7 @@ fn listEntries(
     }.lessThan);
 
     try writer.print("Cached hosts ({d}):\n", .{items.items.len});
-    const now = std.time.timestamp();
+    const now = std.Io.Timestamp.now(io, .real).toSeconds();
 
     for (items.items) |entry| {
         const age_days = @divTrunc(now - entry.timestamp, std.time.s_per_day);

@@ -8,9 +8,9 @@ const glib = @import("glib");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 
-pub fn fromFilename(path: [:0]const u8) ?*gtk.MediaFile {
-    assert(std.fs.path.isAbsolute(path));
-    std.fs.accessAbsolute(path, .{ .mode = .read_only }) catch |err| {
+pub fn fromFilename(io: std.Io, path: [:0]const u8) ?*gtk.MediaFile {
+    assert(std.Io.Dir.path.isAbsolute(path));
+    std.Io.Dir.accessAbsolute(io, path, .{ .mode = .read_only }) catch |err| {
         log.warn("unable to access {s}: {t}", .{ path, err });
         return null;
     };
@@ -18,7 +18,7 @@ pub fn fromFilename(path: [:0]const u8) ?*gtk.MediaFile {
 }
 
 pub fn fromResource(path: [:0]const u8) ?*gtk.MediaFile {
-    assert(std.fs.path.isAbsolute(path));
+    assert(std.Io.Dir.path.isAbsolute(path));
     var gerr: ?*glib.Error = null;
 
     const found = gio.resourcesGetInfo(path, .{}, null, null, &gerr);

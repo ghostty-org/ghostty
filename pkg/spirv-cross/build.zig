@@ -34,12 +34,12 @@ pub fn build(b: *std.Build) !void {
     if (b.systemIntegrationOption("spirv-cross", .{})) {
         module.linkSystemLibrary("spirv-cross-c-shared", dynamic_link_opts);
         if (test_exe) |exe| {
-            exe.linkSystemLibrary2("spirv-cross-c-shared", dynamic_link_opts);
+            exe.root_module.linkSystemLibrary("spirv-cross-c-shared", dynamic_link_opts);
         }
     } else {
         const lib = try buildSpirvCross(b, module, target, optimize);
         b.installArtifact(lib);
-        if (test_exe) |exe| exe.linkLibrary(lib);
+        if (test_exe) |exe| exe.root_module.linkLibrary(lib);
     }
 }
 
@@ -54,17 +54,17 @@ fn buildSpirvCross(
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
         .linkage = .static,
     });
-    lib.linkLibC();
     // On MSVC, we must not use linkLibCpp because Zig unconditionally
     // passes -nostdinc++ and then adds its bundled libc++/libc++abi
     // include paths, which conflict with MSVC's own C++ runtime headers.
     // The MSVC SDK include directories (added via linkLibC) contain
     // both C and C++ headers, so linkLibCpp is not needed.
     if (target.result.abi != .msvc) {
-        lib.linkLibCpp();
+        lib.root_module.link_libcpp = true;
     }
     if (target.result.os.tag.isDarwin()) {
         const apple_sdk = @import("apple_sdk");
@@ -86,9 +86,9 @@ fn buildSpirvCross(
     }
 
     if (b.lazyDependency("spirv_cross", .{})) |upstream| {
-        lib.addIncludePath(upstream.path(""));
+        lib.root_module.addIncludePath(upstream.path(""));
         module.addIncludePath(upstream.path(""));
-        lib.addCSourceFiles(.{
+        lib.root_module.addCSourceFiles(.{
             .root = upstream.path(""),
             .flags = flags.items,
             .files = &.{

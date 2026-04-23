@@ -122,18 +122,17 @@ pub fn blueprint(comptime bp: Blueprint) [:0]const u8 {
     }
 }
 
-pub fn main() !void {
-    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
-    defer _ = debug_allocator.deinit();
-    const alloc = debug_allocator.allocator();
+pub fn main(init: std.process.Init) !void {
+    const alloc = init.arena.allocator();
 
     // Collect the UI files that are passed in as arguments.
-    var ui_files: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ui_files: std.ArrayList([]const u8) = .empty;
     defer {
         for (ui_files.items) |item| alloc.free(item);
         ui_files.deinit(alloc);
     }
-    var it = try std.process.argsWithAllocator(alloc);
+
+    var it = try init.minimal.args.iterateAllocator(alloc);
     defer it.deinit();
     while (it.next()) |arg| {
         if (!std.mem.endsWith(u8, arg, ".ui")) continue;
@@ -144,7 +143,7 @@ pub fn main() !void {
     }
 
     var buf: [4096]u8 = undefined;
-    var stdout = std.fs.File.stdout().writer(&buf);
+    var stdout = std.Io.File.stdout().writer(init.io, &buf);
     const writer = &stdout.interface;
     try writer.writeAll(
         \\<?xml version="1.0" encoding="UTF-8"?>
@@ -152,8 +151,8 @@ pub fn main() !void {
         \\
     );
 
-    try genRoot(writer);
-    try genIcons(writer);
+    try genRoot(init.io, writer);
+    try genIcons(init.io, writer);
     try genUi(alloc, writer, &ui_files);
 
     try writer.writeAll(
@@ -167,19 +166,19 @@ pub fn main() !void {
 /// Generate the icon resources. This works by looking up all the icons
 /// specified by `icon_sizes` in `images/icons/`. They are asserted to exist
 /// by trying to access the file.
-fn genIcons(writer: *std.Io.Writer) !void {
+fn genIcons(io: std.Io, writer: *std.Io.Writer) !void {
     try writer.print(
         \\  <gresource prefix="{s}/icons">
         \\
     , .{build_info.resource_path});
 
-    const cwd = std.fs.cwd();
+    const cwd: std.Io.Dir = .cwd();
     inline for (icon_sizes) |size| {
         // 1x
         {
             const alias = std.fmt.comptimePrint("{d}x{d}", .{ size, size });
             const source = std.fmt.comptimePrint("images/gnome/{d}.png", .{size});
-            try cwd.access(source, .{});
+            try cwd.access(io, source, .{});
             try writer.print(
                 \\    <file alias="{s}/apps/{s}.png">{s}</file>
                 \\
@@ -192,7 +191,7 @@ fn genIcons(writer: *std.Io.Writer) !void {
         {
             const alias = std.fmt.comptimePrint("{d}x{d}@2", .{ size, size });
             const source = std.fmt.comptimePrint("images/gnome/{d}.png", .{size * 2});
-            try cwd.access(source, .{});
+            try cwd.access(io, source, .{});
             try writer.print(
                 \\    <file alias="{s}/apps/{s}.png">{s}</file>
                 \\
@@ -209,19 +208,19 @@ fn genIcons(writer: *std.Io.Writer) !void {
 }
 
 /// Generate the resources at the root prefix.
-fn genRoot(writer: *std.Io.Writer) !void {
+fn genRoot(io: std.Io, writer: *std.Io.Writer) !void {
     try writer.print(
         \\  <gresource prefix="{s}">
         \\
     , .{build_info.resource_path});
 
-    const cwd = std.fs.cwd();
+    const cwd: std.Io.Dir = .cwd();
     inline for (css) |name| {
         const source = std.fmt.comptimePrint(
             "{s}/{s}",
             .{ css_path, name },
         );
-        try cwd.access(source, .{});
+        try cwd.access(io, source, .{});
         try writer.print(
             \\    <file compressed="true" alias="{s}">{s}</file>
             \\
@@ -242,7 +241,7 @@ fn genRoot(writer: *std.Io.Writer) !void {
 fn genUi(
     alloc: Allocator,
     writer: *std.Io.Writer,
-    files: *const std.ArrayListUnmanaged([]const u8),
+    files: *const std.ArrayList([]const u8),
 ) !void {
     try writer.print(
         \\  <gresource prefix="{s}/ui">

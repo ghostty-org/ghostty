@@ -21,7 +21,7 @@ pub const State = struct {
     images: ImageMap,
 
     /// The placements for the Kitty image protocol.
-    kitty_placements: std.ArrayListUnmanaged(Placement),
+    kitty_placements: std.ArrayList(Placement),
 
     /// The end index (exclusive) for placements that should be
     /// drawn below the background, below the text, etc.
@@ -34,7 +34,7 @@ pub const State = struct {
     kitty_virtual: bool,
 
     /// Overlays
-    overlay_placements: std.ArrayListUnmanaged(Placement),
+    overlay_placements: std.ArrayList(Placement),
 
     pub const empty: State = .{
         .images = .empty,
@@ -183,6 +183,7 @@ pub const State = struct {
         self: *State,
         alloc: Allocator,
         overlay_: ?Overlay,
+        io: std.Io,
     ) !void {
         const overlay = overlay_ orelse {
             // If we don't have an overlay, remove any existing one.
@@ -194,7 +195,7 @@ pub const State = struct {
 
         // For transmit time we always just use the current time
         // and overwrite the overlay.
-        const transmit_time = try std.time.Instant.now();
+        const transmit_time: std.Io.Timestamp = .now(io, .awake);
 
         // Ensure we have space for our overlay placement. Do this before
         // we upload our image so we don't have to deal with cleaning
@@ -525,14 +526,15 @@ pub const State = struct {
         self: *State,
         alloc: Allocator,
         id: Id,
-        transmit_time: std.time.Instant,
+        transmit_time: std.Io.Timestamp,
         pending: Image.Pending,
     ) PrepImageError!void {
         // If this image exists and its transmit time is the same we assume
         // it is the identical image so we don't need to send it to the GPU.
         const gop = try self.images.getOrPut(alloc, id);
         if (gop.found_existing and
-            gop.value_ptr.transmit_time.order(transmit_time) == .eq)
+            gop.value_ptr.transmit_time.nanoseconds ==
+                transmit_time.nanoseconds)
         {
             return;
         }
@@ -688,7 +690,7 @@ pub const Id = union(enum) {
 /// The map used for storing images.
 pub const ImageMap = std.AutoHashMapUnmanaged(Id, struct {
     image: Image,
-    transmit_time: std.time.Instant,
+    transmit_time: std.Io.Timestamp,
 });
 
 /// The state for a single image that is to be rendered.

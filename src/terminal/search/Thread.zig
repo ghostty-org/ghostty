@@ -13,7 +13,7 @@ const builtin = @import("builtin");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const Mutex = std.Thread.Mutex;
+const Mutex = std.Io.Mutex;
 const xev = @import("../../global.zig").xev;
 const internal_os = @import("../../os/main.zig");
 const BlockingQueue = @import("../../datastruct/main.zig").BlockingQueue;
@@ -45,6 +45,8 @@ const REFRESH_INTERVAL = 24; // 40 FPS
 
 /// Allocator used for some state
 alloc: std.mem.Allocator,
+
+io: std.Io,
 
 /// The mailbox that can be used to send this thread messages. Note
 /// this is a blocking queue so if it is full you will get errors (or block).
@@ -79,7 +81,7 @@ opts: Options,
 /// Initialize the thread. This does not START the thread. This only sets
 /// up all the internal state necessary prior to starting the thread. It
 /// is up to the caller to start the thread with the threadMain entrypoint.
-pub fn init(alloc: Allocator, opts: Options) !Thread {
+pub fn init(alloc: Allocator, io: std.Io, opts: Options) !Thread {
     // The mailbox for messaging this thread
     var mailbox = try Mailbox.create(alloc);
     errdefer mailbox.destroy(alloc);
@@ -102,6 +104,7 @@ pub fn init(alloc: Allocator, opts: Options) !Thread {
 
     return .{
         .alloc = alloc,
+        .io = io,
         .mailbox = mailbox,
         .loop = loop,
         .wakeup = wakeup_h,
@@ -178,7 +181,7 @@ fn threadMain_(self: *Thread) !void {
     while (true) {
         // If our loop is canceled then we drain our messages and quit.
         if (self.loop.stopped()) {
-            while (self.mailbox.pop()) |message| {
+            while (self.mailbox.pop(self.io)) |message| {
                 log.debug("mailbox message ignored during shutdown={}", .{message});
             }
 
@@ -221,8 +224,8 @@ fn threadMain_(self: *Thread) !void {
 
             // All searches are blocked. Let's grab the lock and feed data.
             .blocked => {
-                self.opts.mutex.lock();
-                defer self.opts.mutex.unlock();
+                self.opts.mutex.lockUncancelable(self.io);
+                defer self.opts.mutex.unlock(self.io);
                 s.feed(self.alloc, self.opts.terminal);
             },
         }
@@ -238,7 +241,7 @@ fn threadMain_(self: *Thread) !void {
 
 /// Drain the mailbox.
 fn drainMailbox(self: *Thread) !void {
-    while (self.mailbox.pop()) |message| {
+    while (self.mailbox.pop(self.io)) |message| {
         log.debug("mailbox message={}", .{message});
         switch (message) {
             .change_needle => |v| {
@@ -254,8 +257,8 @@ fn select(self: *Thread, sel: ScreenSearch.Select) !void {
     const s = if (self.search) |*s| s else return;
     const screen_search = s.screens.getPtr(s.last_screen.key) orelse return;
 
-    self.opts.mutex.lock();
-    defer self.opts.mutex.unlock();
+    self.opts.mutex.lockUncancelable(self.io);
+    defer self.opts.mutex.unlock(self.io);
 
     // Make the selection. Ignore the result because we don't
     // care if the selection didn't change.
@@ -335,8 +338,8 @@ fn changeNeedle(self: *Thread, needle: []const u8) !void {
     self.search = try .init(self.alloc, needle);
 
     // We need to grab the terminal lock and do an initial feed.
-    self.opts.mutex.lock();
-    defer self.opts.mutex.unlock();
+    self.opts.mutex.lockUncancelable(self.io);
+    defer self.opts.mutex.unlock(self.io);
     self.search.?.feed(self.alloc, self.opts.terminal);
 }
 
@@ -411,8 +414,8 @@ fn refreshCallback(
 
     // Run our feed if we have a search active.
     if (self.search) |*s| {
-        self.opts.mutex.lock();
-        defer self.opts.mutex.unlock();
+        self.opts.mutex.lockUncancelable(self.io);
+        defer self.opts.mutex.unlock(self.io);
         s.feed(self.alloc, self.opts.terminal);
     }
 
@@ -812,7 +815,7 @@ const Search = struct {
 
 const TestUserData = struct {
     const Self = @This();
-    reset: std.Thread.ResetEvent = .{},
+    reset: std.Io.Event = .{},
     total: usize = 0,
     selected: ?Event.SelectedMatch = null,
     viewport: []FlattenedHighlight = &.{},

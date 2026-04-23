@@ -8,7 +8,7 @@ const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const EnvMap = std.process.EnvMap;
+const EnvMap = std.process.Environ.Map;
 const posix = std.posix;
 const termio = @import("../termio.zig");
 const StreamHandler = @import("stream_handler.zig").StreamHandler;
@@ -65,7 +65,7 @@ terminal_stream: StreamHandler.Stream,
 
 /// Last time the cursor was reset. This is used to prevent message
 /// flooding with cursor resets.
-last_cursor_reset: ?std.time.Instant = null,
+last_cursor_reset: ?std.Io.Timestamp = null,
 
 /// State we have for thread enter. This may be null if we don't need
 /// to keep track of any state or if its already been freed.
@@ -114,6 +114,7 @@ const ThreadEnterState = struct {
     /// Prepare the inputs for use. Allocations happen on the arena.
     pub fn prepareInput(
         self: *ThreadEnterState,
+        io: std.Io,
     ) (Allocator.Error || error{InputNotFound})![]const Input {
         const alloc = self.arena.allocator();
 
@@ -125,7 +126,8 @@ const ThreadEnterState = struct {
             input[i] = switch (item) {
                 .raw => |v| .{ .string = try alloc.dupe(u8, v) },
                 .path => |path| file: {
-                    const f = std.fs.cwd().openFile(
+                    const f = std.Io.Dir.cwd().openFile(
+                        io,
                         path,
                         .{},
                     ) catch |err| {
@@ -146,7 +148,7 @@ const ThreadEnterState = struct {
 
     const Input = union(enum) {
         string: []const u8,
-        file: std.fs.File,
+        file: std.Io.File,
     };
 };
 
@@ -219,7 +221,7 @@ pub const DerivedConfig = struct {
 ///
 /// This will also start the child process if the termio is configured
 /// to run a child process.
-pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
+pub fn init(self: *Termio, alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map, opts: termio.Options) !void {
     // The default terminal modes based on our config.
     const default_modes: terminalpkg.ModePacked = modes: {
         var modes: terminalpkg.ModePacked = .{};
@@ -238,7 +240,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
     };
 
     // Create our terminal
-    var term = try terminalpkg.Terminal.init(alloc, opts: {
+    var term = try terminalpkg.Terminal.init(alloc, io, env, opts: {
         const grid_size = opts.size.grid();
         break :opts .{
             .cols = grid_size.columns,
@@ -364,12 +366,23 @@ pub fn threadEnter(
         },
         .file => |f| self.queueWrite(
             data,
-            f.readToEndAlloc(
-                self.alloc,
-                10 * 1024 * 1024, // 10 MiB max
-            ) catch |err| {
-                log.warn("failed to read input file err={}", .{err});
-                return error.InputFailed;
+            read_file: {
+                var read_buf: [4096]u8 = undefined;
+                var reader = f.reader(
+                    self.terminal.io,
+                    &read_buf,
+                );
+                break :read_file reader
+                    .interface.allocRemaining(
+                    self.alloc,
+                    .limited(10 * 1024 * 1024),
+                ) catch |err| {
+                    log.warn(
+                        "failed to read input file err={}",
+                        .{err},
+                    );
+                    return error.InputFailed;
+                };
             },
             false,
         ) catch |err| {
@@ -391,13 +404,14 @@ pub fn threadExit(self: *Termio, data: *ThreadData) void {
 /// the mailbox directly and then call notify separately.
 pub fn queueMessage(
     self: *Termio,
+    io: std.Io,
     msg: termio.Message,
     mutex: MutexState,
 ) void {
     self.mailbox.send(msg, switch (mutex) {
         .locked => self.renderer_state.mutex,
         .unlocked => null,
-    });
+    }, io);
     self.mailbox.notify();
 }
 
@@ -418,12 +432,12 @@ pub inline fn queueWrite(
 }
 
 /// Update the configuration.
-pub fn changeConfig(self: *Termio, td: *ThreadData, config: *DerivedConfig) !void {
+pub fn changeConfig(self: *Termio, io: std.Io, td: *ThreadData, config: *DerivedConfig) !void {
     // The remainder of this function is modifying terminal state or
     // the read thread data, all of which requires holding the renderer
     // state lock.
-    self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
+    self.renderer_state.mutex.lockUncancelable(io);
+    defer self.renderer_state.mutex.unlock(io);
 
     // Deinit our old config. We do this in the lock because the
     // stream handler may be referencing the old config (i.e. enquiry resp)
@@ -462,6 +476,7 @@ pub fn changeConfig(self: *Termio, td: *ThreadData, config: *DerivedConfig) !voi
 /// Resize the terminal.
 pub fn resize(
     self: *Termio,
+    io: std.Io,
     td: *ThreadData,
     size: renderer.Size,
 ) !void {
@@ -473,8 +488,8 @@ pub fn resize(
 
     // Enter the critical area that we want to keep small
     {
-        self.renderer_state.mutex.lock();
-        defer self.renderer_state.mutex.unlock();
+        self.renderer_state.mutex.lockUncancelable(io);
+        defer self.renderer_state.mutex.unlock(io);
 
         // Update the size of our terminal state
         try self.terminal.resize(
@@ -498,14 +513,14 @@ pub fn resize(
     }
 
     // Mail the renderer so that it can update the GPU and re-render
-    _ = self.renderer_mailbox.push(.{ .resize = size }, .{ .forever = {} });
+    _ = self.renderer_mailbox.push(.{ .resize = size }, .{ .forever = {} }, io);
     self.renderer_wakeup.notify() catch {};
 }
 
 /// Make a size report.
-pub fn sizeReport(self: *Termio, td: *ThreadData, style: termio.Message.SizeReport) !void {
-    self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
+pub fn sizeReport(self: *Termio, io: std.Io, td: *ThreadData, style: termio.Message.SizeReport) !void {
+    self.renderer_state.mutex.lockUncancelable(io);
+    defer self.renderer_state.mutex.unlock(io);
     try self.sizeReportLocked(td, style);
 }
 
@@ -533,18 +548,18 @@ fn sizeReportLocked(self: *Termio, td: *ThreadData, style: termio.Message.SizeRe
 
 /// Reset the synchronized output mode. This is usually called by timer
 /// expiration from the termio thread.
-pub fn resetSynchronizedOutput(self: *Termio) void {
-    self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
+pub fn resetSynchronizedOutput(self: *Termio, io: std.Io) void {
+    self.renderer_state.mutex.lockUncancelable(io);
+    defer self.renderer_state.mutex.unlock(io);
     self.terminal.modes.set(.synchronized_output, false);
     self.renderer_wakeup.notify() catch {};
 }
 
 /// Clear the screen.
-pub fn clearScreen(self: *Termio, td: *ThreadData, history: bool) !void {
+pub fn clearScreen(self: *Termio, io: std.Io, td: *ThreadData, history: bool) !void {
     {
-        self.renderer_state.mutex.lock();
-        defer self.renderer_state.mutex.unlock();
+        self.renderer_state.mutex.lockUncancelable(io);
+        defer self.renderer_state.mutex.unlock(io);
 
         // If we're on the alternate screen, we do not clear. Since this is an
         // emulator-level screen clear, this messes up the running programs
@@ -598,18 +613,19 @@ pub fn clearScreen(self: *Termio, td: *ThreadData, history: bool) !void {
 /// Scroll the viewport
 pub fn scrollViewport(
     self: *Termio,
+    io: std.Io,
     scroll: terminalpkg.Terminal.ScrollViewport,
 ) void {
-    self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
+    self.renderer_state.mutex.lockUncancelable(io);
+    defer self.renderer_state.mutex.unlock(io);
     self.terminal.scrollViewport(scroll);
 }
 
 /// Jump the viewport to the prompt.
-pub fn jumpToPrompt(self: *Termio, delta: isize) !void {
+pub fn jumpToPrompt(self: *Termio, io: std.Io, delta: isize) !void {
     {
-        self.renderer_state.mutex.lock();
-        defer self.renderer_state.mutex.unlock();
+        self.renderer_state.mutex.lockUncancelable(io);
+        defer self.renderer_state.mutex.unlock(io);
         self.terminal.screens.active.scroll(.{ .delta_prompt = delta });
     }
 
@@ -617,10 +633,10 @@ pub fn jumpToPrompt(self: *Termio, delta: isize) !void {
 }
 
 /// Called when focus is gained or lost (when focus events are enabled)
-pub fn focusGained(self: *Termio, td: *ThreadData, focused: bool) !void {
-    self.renderer_state.mutex.lock();
+pub fn focusGained(self: *Termio, io: std.Io, td: *ThreadData, focused: bool) !void {
+    self.renderer_state.mutex.lockUncancelable(io);
     const focus_event = self.renderer_state.terminal.modes.get(.focus_event);
-    self.renderer_state.mutex.unlock();
+    self.renderer_state.mutex.unlock(io);
 
     // If we have focus events enabled, we send the focus event.
     if (focus_event) {
@@ -640,16 +656,16 @@ pub fn focusGained(self: *Termio, td: *ThreadData, focused: bool) !void {
 /// Process output from the pty. This is the manual API that users can
 /// call with pty data but it is also called by the read thread when using
 /// an exec subprocess.
-pub fn processOutput(self: *Termio, buf: []const u8) void {
+pub fn processOutput(self: *Termio, io: std.Io, buf: []const u8) void {
     // We are modifying terminal state from here on out and we need
     // the lock to grab our read data.
-    self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
+    self.renderer_state.mutex.lockUncancelable(io);
+    defer self.renderer_state.mutex.unlock(io);
     self.processOutputLocked(buf);
 }
 
 /// Process output from readdata but the lock is already held.
-fn processOutputLocked(self: *Termio, buf: []const u8) void {
+fn processOutputLocked(self: *Termio, io: std.Io, buf: []const u8) void {
     // Schedule a render. We can call this first because we have the lock.
     self.terminal_stream.handler.queueRender() catch unreachable;
 
@@ -657,9 +673,10 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
     // non-blink state so it is rendered if visible. If we're under
     // HEAVY read load, we don't want to send a ton of these so we
     // use a timer under the covers
-    if (std.time.Instant.now()) |now| cursor_reset: {
+    cursor_reset: {
+        const now = std.Io.Timestamp.now(io, .awake);
         if (self.last_cursor_reset) |last| {
-            if (now.since(last) <= (500 * std.time.ns_per_ms)) {
+            if (last.durationTo(now).toNanoseconds() <= (500 * std.time.ns_per_ms)) {
                 break :cursor_reset;
             }
         }
@@ -667,9 +684,7 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
         self.last_cursor_reset = now;
         _ = self.renderer_mailbox.push(.{
             .reset_cursor_blink = {},
-        }, .{ .instant = {} });
-    } else |err| {
-        log.warn("failed to get current time err={}", .{err});
+        }, .{ .instant = {} }, io);
     }
 
     // If we have an inspector, we enter SLOW MODE because we need to
@@ -701,9 +716,9 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
 }
 
 /// Sends a DSR response for the current color scheme to the pty.
-pub fn colorSchemeReport(self: *Termio, td: *ThreadData, force: bool) !void {
-    self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
+pub fn colorSchemeReport(self: *Termio, io: std.Io, td: *ThreadData, force: bool) !void {
+    self.renderer_state.mutex.lockUncancelable(io);
+    defer self.renderer_state.mutex.unlock(io);
 
     try self.colorSchemeReportLocked(td, force);
 }
@@ -728,6 +743,7 @@ pub fn colorSchemeReportLocked(self: *Termio, td: *ThreadData, force: bool) !voi
 pub const ThreadData = struct {
     /// Allocator used for the event data
     alloc: Allocator,
+    io: std.Io,
 
     /// The event loop associated with this thread. This is owned by
     /// the Thread but we have a pointer so we can queue new work to it.

@@ -61,16 +61,27 @@ pub const Options = struct {
 ///   * `--presentation`: If set, force searching for a specific presentation
 ///     style. Valid options are `text` and `emoji`. If unset, the presentation
 ///     style of a codepoint will be inferred from the Unicode standard.
-pub fn run(alloc: Allocator) !u8 {
-    var iter = try args.argsIterator(alloc);
+pub fn run(
+    alloc: Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
+    proc_args: std.process.Args,
+) !u8 {
+    var iter = try args.argsIterator(proc_args, alloc);
     defer iter.deinit();
 
     var stdout_buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = std.Io.File.stdout().writer(
+        io,
+        &stdout_buffer,
+    );
     const stdout = &stdout_writer.interface;
 
     var stderr_buffer: [1024]u8 = undefined;
-    var stderr_writer = std.fs.File.stdout().writer(&stderr_buffer);
+    var stderr_writer = std.Io.File.stderr().writer(
+        io,
+        &stderr_buffer,
+    );
     const stderr = &stderr_writer.interface;
 
     const result = runArgs(
@@ -78,6 +89,9 @@ pub fn run(alloc: Allocator) !u8 {
         &iter,
         stdout,
         stderr,
+        io,
+        env,
+        proc_args,
     );
     stdout.flush() catch {};
     stderr.flush() catch {};
@@ -89,6 +103,9 @@ fn runArgs(
     argsIter: anytype,
     stdout: *std.Io.Writer,
     stderr: *std.Io.Writer,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
+    proc_args: std.process.Args,
 ) !u8 {
     // Its possible to build Ghostty without font discovery!
     if (comptime font.Discover == void) {
@@ -140,7 +157,12 @@ fn runArgs(
         return 1;
     }
 
-    var config = Config.load(alloc) catch |err| {
+    var config = Config.load(
+        alloc,
+        io,
+        proc_args,
+        env,
+    ) catch |err| {
         try stderr.print("Unable to load config: {}", .{err});
         return 1;
     };

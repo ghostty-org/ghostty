@@ -1,17 +1,36 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const global_state = &@import("../global.zig").state;
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
 const isFlatpak = @import("flatpak.zig").isFlatpak;
 
 pub const Error = Allocator.Error;
 
-/// Get the environment map.
-pub fn getEnvMap(alloc: Allocator) !std.process.EnvMap {
-    return if (isFlatpak())
-        std.process.EnvMap.init(alloc)
+/// Create the environment map for a new surface.
+pub fn getSurfaceEnvMap(
+    alloc: Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
+) !std.process.Environ.Map {
+    return if (isFlatpak(io))
+        .init(alloc)
     else
-        try std.process.getEnvMap(alloc);
+        env.clone(alloc);
+}
+
+/// Create an environment map from to the current libc `std.c.environ` variable.
+///
+/// This should only be used in the C API. Zig code should always accept an
+/// environment map as a parameter. Returns an empty map if reading from
+/// `std.c.environ` fails.
+pub fn getEnvMapC(alloc: Allocator) std.process.Environ.Map {
+    var env: std.process.Environ.Map = .init(alloc);
+    const posix_block: std.process.Environ.PosixBlock = .{
+        .slice = std.mem.sliceTo(std.c.environ, null),
+    };
+    env.putPosixBlock(posix_block.view()) catch {};
+    return env;
 }
 
 /// Append a value to an environment variable such as PATH.
@@ -40,7 +59,7 @@ pub fn appendEnvAlways(
 ) Error![]u8 {
     return try std.fmt.allocPrint(alloc, "{s}{c}{s}", .{
         current,
-        std.fs.path.delimiter,
+        std.Io.Dir.path.delimiter,
         value,
     });
 }
@@ -57,57 +76,9 @@ pub fn prependEnv(
 
     return try std.fmt.allocPrint(alloc, "{s}{c}{s}", .{
         value,
-        std.fs.path.delimiter,
+        std.Io.Dir.path.delimiter,
         current,
     });
-}
-
-/// The result of getenv, with a shared deinit to properly handle allocation
-/// on Windows.
-pub const GetEnvResult = struct {
-    value: []const u8,
-
-    pub fn deinit(self: GetEnvResult, alloc: Allocator) void {
-        switch (builtin.os.tag) {
-            .windows => alloc.free(self.value),
-            else => {},
-        }
-    }
-};
-
-/// Gets the value of an environment variable, or null if not found.
-/// This will allocate on Windows but not on other platforms. The returned
-/// value should have deinit called to do the proper cleanup no matter what
-/// platform you are on.
-pub fn getenv(alloc: Allocator, key: []const u8) Error!?GetEnvResult {
-    return switch (builtin.os.tag) {
-        // Non-Windows doesn't need to allocate
-        else => if (posix.getenv(key)) |v| .{ .value = v } else null,
-
-        // Windows needs to allocate
-        .windows => if (std.process.getEnvVarOwned(alloc, key)) |v| .{
-            .value = v,
-        } else |err| switch (err) {
-            error.EnvironmentVariableNotFound => null,
-            error.InvalidWtf8 => null,
-            else => |e| e,
-        },
-    };
-}
-
-/// Gets the value of an environment variable. Returns null if not found or the
-/// value is empty. This will allocate on Windows but not on other platforms.
-/// The returned value should have deinit called to do the proper cleanup no
-/// matter what platform you are on.
-pub fn getenvNotEmpty(alloc: Allocator, key: []const u8) !?GetEnvResult {
-    const result_ = try getenv(alloc, key);
-    if (result_) |result| {
-        if (result.value.len == 0) {
-            result.deinit(alloc);
-            return null;
-        }
-    }
-    return result_;
 }
 
 pub fn setenv(key: [:0]const u8, value: [:0]const u8) c_int {

@@ -94,7 +94,7 @@ pub const Path = union(enum) {
 
     /// Used by formatter.
     pub fn formatEntry(self: *const Path, formatter: formatterpkg.EntryFormatter) !void {
-        var buf: [std.fs.max_path_bytes + 1]u8 = undefined;
+        var buf: [std.Io.Dir.max_path_bytes + 1]u8 = undefined;
         const value = switch (self.*) {
             .optional => |path| std.fmt.bufPrint(
                 &buf,
@@ -137,24 +137,27 @@ pub const Path = union(enum) {
         /// This must be an arena allocator because we rely on the arena to
         /// clean up our allocations.
         arena_alloc: Allocator,
+        /// The IO interface to use for filesystem operations.
+        io: std.Io,
+        env: *const std.process.Environ.Map,
         /// The base directory to expand relative paths. It must be an absolute
         /// path.
         base: []const u8,
         /// Errors will be added to the list of diagnostics if they occur.
         diags: *cli.DiagnosticList,
     ) !void {
-        assert(std.fs.path.isAbsolute(base));
+        assert(std.Io.Dir.path.isAbsolute(base));
 
         const path = switch (self.*) {
             .optional, .required => |path| path,
         };
 
         // If it is already absolute we can ignore it.
-        if (path.len == 0 or std.fs.path.isAbsolute(path)) return;
+        if (path.len == 0 or std.Io.Dir.path.isAbsolute(path)) return;
 
         // If it isn't absolute, we need to make it absolute relative
         // to the base.
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
 
         // Check if the path starts with a tilde and expand it to the
         // home directory on Linux/macOS. We explicitly look for "~/"
@@ -166,6 +169,8 @@ pub const Path = union(enum) {
             const expanded: []const u8 = internal_os.expandHome(
                 path,
                 &buf,
+                io,
+                env,
             ) catch |err| {
                 try diags.append(arena_alloc, .{
                     .message = try std.fmt.allocPrintSentinel(
@@ -195,17 +200,17 @@ pub const Path = union(enum) {
             return;
         }
 
-        var dir = try std.fs.openDirAbsolute(base, .{});
-        defer dir.close();
+        var dir = try std.Io.Dir.openDirAbsolute(io, base, .{});
+        defer dir.close(io);
 
-        const abs = dir.realpath(path, &buf) catch |err| abs: {
+        const abs_len = dir.realPathFile(io, path, &buf) catch |err| abs_len: {
             if (err == error.FileNotFound) {
                 // The file doesn't exist. Try to resolve the relative path
                 // another way.
-                const resolved = try std.fs.path.resolve(arena_alloc, &.{ base, path });
+                const resolved = try std.Io.Dir.path.resolve(arena_alloc, &.{ base, path });
                 defer arena_alloc.free(resolved);
                 @memcpy(buf[0..resolved.len], resolved);
-                break :abs buf[0..resolved.len];
+                break :abs_len resolved.len;
             }
 
             try diags.append(arena_alloc, .{
@@ -222,6 +227,7 @@ pub const Path = union(enum) {
 
             return;
         };
+        const abs = buf[0..abs_len];
 
         log.debug(
             "expanding file path relative={s} abs={s}",
@@ -357,7 +363,7 @@ pub const Path = union(enum) {
 /// be automatically expanded relative to the path of the config file (or the home
 /// directory).
 pub const RepeatablePath = struct {
-    value: std.ArrayListUnmanaged(Path) = .{},
+    value: std.ArrayList(Path) = .{},
 
     pub fn parseCLI(self: *RepeatablePath, alloc: Allocator, input: ?[]const u8) ParseError!void {
         const item = try Path.parse(alloc, input) orelse {
@@ -404,7 +410,7 @@ pub const RepeatablePath = struct {
             return;
         }
 
-        var buf: [std.fs.max_path_bytes + 1]u8 = undefined;
+        var buf: [std.Io.Dir.max_path_bytes + 1]u8 = undefined;
         for (self.value.items) |item| {
             const value = switch (item) {
                 .optional => |path| std.fmt.bufPrint(
@@ -427,11 +433,13 @@ pub const RepeatablePath = struct {
     pub fn expand(
         self: *RepeatablePath,
         alloc: Allocator,
+        io: std.Io,
+        env: *const std.process.Environ.Map,
         base: []const u8,
         diags: *cli.DiagnosticList,
     ) !void {
         for (self.value.items) |*path| {
-            try path.expand(alloc, base, diags);
+            try path.expand(alloc, io, env, base, diags);
         }
     }
     test "parseCLI" {

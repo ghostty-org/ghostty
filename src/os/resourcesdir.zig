@@ -37,7 +37,7 @@ pub const ResourcesDir = struct {
 ///
 /// This is highly Ghostty-specific and can likely be generalized at
 /// some point but we can cross that bridge if we ever need to.
-pub fn resourcesDir(alloc: Allocator) !ResourcesDir {
+pub fn resourcesDir(alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map) !ResourcesDir {
     // Use the GHOSTTY_RESOURCES_DIR environment variable in release builds.
     //
     // In debug builds we try using terminfo detection first instead, since
@@ -48,11 +48,8 @@ pub fn resourcesDir(alloc: Allocator) !ResourcesDir {
     // Note: we ALWAYS want to allocate here because the result is always
     // freed, do not try to use internal_os.getenv or posix getenv.
     if (comptime builtin.mode != .Debug) {
-        if (std.process.getEnvVarOwned(alloc, "GHOSTTY_RESOURCES_DIR")) |dir| {
+        if (env.get("GHOSTTY_RESOURCES_DIR")) |dir| {
             if (dir.len > 0) return .{ .app_path = dir };
-        } else |err| switch (err) {
-            error.EnvironmentVariableNotFound => {},
-            else => return err,
         }
     }
 
@@ -66,20 +63,21 @@ pub fn resourcesDir(alloc: Allocator) !ResourcesDir {
     };
 
     // Get the path to our running binary
-    var exe_buf: [std.fs.max_path_bytes]u8 = undefined;
-    var exe: []const u8 = std.fs.selfExePath(&exe_buf) catch return .{};
+    var exe_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const exe_len = std.process.executablePath(io, &exe_buf) catch return .{};
+    var exe: []const u8 = exe_buf[0..exe_len];
 
     // We have an exe path! Climb the tree looking for the terminfo
     // bundle as we expect it.
-    var dir_buf: [std.fs.max_path_bytes]u8 = undefined;
-    while (std.fs.path.dirname(exe)) |dir| {
+    var dir_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    while (std.Io.Dir.path.dirname(exe)) |dir| {
         exe = dir;
 
         // On MacOS, we look for the app bundle path.
         if (comptime builtin.target.os.tag.isDarwin()) {
             inline for (sentinels) |sentinel| {
-                if (try maybeDir(&dir_buf, dir, "Contents/Resources", sentinel)) |v| {
-                    return .{ .app_path = try std.fs.path.join(alloc, &.{ v, "ghostty" }) };
+                if (try maybeDir(io, &dir_buf, dir, "Contents/Resources", sentinel)) |v| {
+                    return .{ .app_path = try std.Io.Dir.path.join(alloc, &.{ v, "ghostty" }) };
                 }
             }
         }
@@ -89,12 +87,13 @@ pub fn resourcesDir(alloc: Allocator) !ResourcesDir {
         // Ghostty to be in an app bundle.
         inline for (sentinels) |sentinel| {
             if (try maybeDir(
+                io,
                 &dir_buf,
                 dir,
                 if (builtin.target.os.tag == .freebsd) "local/share" else "share",
                 sentinel,
             )) |v| {
-                return .{ .app_path = try std.fs.path.join(alloc, &.{ v, "ghostty" }) };
+                return .{ .app_path = try std.Io.Dir.path.join(alloc, &.{ v, "ghostty" }) };
             }
         }
     }
@@ -102,11 +101,8 @@ pub fn resourcesDir(alloc: Allocator) !ResourcesDir {
     // If terminfo detection failed in debug builds (somehow),
     // fallback and use the provided resources dir.
     if (comptime builtin.mode == .Debug) {
-        if (std.process.getEnvVarOwned(alloc, "GHOSTTY_RESOURCES_DIR")) |dir| {
+        if (env.get("GHOSTTY_RESOURCES_DIR")) |dir| {
             if (dir.len > 0) return .{ .app_path = dir };
-        } else |err| switch (err) {
-            error.EnvironmentVariableNotFound => {},
-            else => return err,
         }
     }
 
@@ -120,6 +116,7 @@ pub fn resourcesDir(alloc: Allocator) !ResourcesDir {
 /// "buf" must be large enough to fit base + sub + suffix. This is generally
 /// max_path_bytes so its not a big deal.
 pub fn maybeDir(
+    io: std.Io,
     buf: []u8,
     base: []const u8,
     sub: []const u8,
@@ -127,7 +124,7 @@ pub fn maybeDir(
 ) !?[]const u8 {
     const path = try std.fmt.bufPrint(buf, "{s}/{s}/{s}", .{ base, sub, suffix });
 
-    if (std.fs.accessAbsolute(path, .{})) {
+    if (std.Io.Dir.accessAbsolute(io, path, .{})) {
         const len = path.len - suffix.len - 1;
         return buf[0..len];
     } else |_| {

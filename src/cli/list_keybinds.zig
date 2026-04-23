@@ -51,12 +51,18 @@ pub const Options = struct {
 ///
 ///   * `--plain`: will disable formatting and make the output more
 ///     friendly for Unix tooling. This is default when not printing to a tty.
-pub fn run(alloc: Allocator) !u8 {
+pub fn run(
+    alloc: Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
+    proc_args: std.process.Args,
+) !u8 {
+    _ = env;
     var opts: Options = .{};
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc);
+        var iter = try args.argsIterator(proc_args, alloc);
         defer iter.deinit();
         try args.parse(Options, alloc, &opts, &iter);
     }
@@ -65,8 +71,8 @@ pub fn run(alloc: Allocator) !u8 {
     defer config.deinit();
 
     var buffer: [1024]u8 = undefined;
-    const stdout: std.fs.File = .stdout();
-    var stdout_writer = stdout.writer(&buffer);
+    const stdout: std.Io.File = .stdout();
+    var stdout_writer = stdout.writer(io, &buffer);
     const writer = &stdout_writer.interface;
 
     if (tui.can_pretty_print and !opts.plain and stdout.isTty()) {

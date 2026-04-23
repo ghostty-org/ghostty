@@ -60,7 +60,7 @@ metrics: Metrics,
 /// this directly if they need to i.e. access the atlas directly. Because
 /// callers can use this lock directly, maintainers need to be extra careful
 /// to review call sites to ensure they are using the lock correctly.
-lock: std.Thread.RwLock,
+lock: std.Io.RwLock,
 
 pub const init_tw = tripwire.module(enum {
     codepoints_capacity,
@@ -95,7 +95,7 @@ pub fn init(
         .resolver = resolver,
         .atlas_grayscale = atlas_grayscale,
         .atlas_color = atlas_color,
-        .lock = .{},
+        .lock = .init,
         .metrics = undefined, // Loaded below
     };
 
@@ -153,6 +153,7 @@ pub fn cellSize(self: *SharedGrid) renderer.CellSize {
 pub fn getIndex(
     self: *SharedGrid,
     alloc: Allocator,
+    io: std.Io,
     cp: u32,
     style: Style,
     p: ?Presentation,
@@ -162,14 +163,14 @@ pub fn getIndex(
     // Fast path: the cache has the value. This is almost always true and
     // only requires a read lock.
     {
-        self.lock.lockShared();
-        defer self.lock.unlockShared();
+        self.lock.lockSharedUncancelable(io);
+        defer self.lock.unlockShared(io);
         if (self.codepoints.get(key)) |v| return v;
     }
 
     // Slow path: we need to search this codepoint
-    self.lock.lock();
-    defer self.lock.unlock();
+    self.lock.lockUncancelable(io);
+    defer self.lock.unlock(io);
 
     // Try to get it, if it is now in the cache another thread beat us to it.
     const gop = try self.codepoints.getOrPut(alloc, key);
@@ -197,12 +198,13 @@ pub fn getIndex(
 /// Returns true if the given font index has the codepoint and presentation.
 pub fn hasCodepoint(
     self: *SharedGrid,
+    io: std.Io,
     idx: Collection.Index,
     cp: u32,
     p: ?Presentation,
 ) bool {
-    self.lock.lockShared();
-    defer self.lock.unlockShared();
+    self.lock.lockSharedUncancelable(io);
+    defer self.lock.unlockShared(io);
     return self.resolver.collection.hasCodepoint(
         idx,
         cp,
@@ -221,6 +223,7 @@ pub const Render = struct {
 pub fn renderCodepoint(
     self: *SharedGrid,
     alloc: Allocator,
+    io: std.Io,
     cp: u32,
     style: Style,
     p: ?Presentation,
@@ -236,8 +239,8 @@ pub fn renderCodepoint(
 
     // Get the glyph for the font
     const glyph_index = glyph_index: {
-        self.lock.lockShared();
-        defer self.lock.unlockShared();
+        self.lock.lockSharedUncancelable(io);
+        defer self.lock.unlockShared(io);
         const face = try self.resolver.collection.getFace(index);
         break :glyph_index face.glyphIndex(cp) orelse return null;
     };
@@ -255,6 +258,7 @@ pub const renderGlyph_tw = tripwire.module(enum {
 pub fn renderGlyph(
     self: *SharedGrid,
     alloc: Allocator,
+    io: std.Io,
     index: Collection.Index,
     glyph_index: u32,
     opts: RenderOptions,
@@ -266,14 +270,14 @@ pub fn renderGlyph(
     // Fast path: the cache has the value. This is almost always true and
     // only requires a read lock.
     {
-        self.lock.lockShared();
-        defer self.lock.unlockShared();
+        self.lock.lockSharedUncancelable(io);
+        defer self.lock.unlockShared(io);
         if (self.glyphs.get(key)) |v| return v;
     }
 
     // Slow path: we need to search this codepoint
-    self.lock.lock();
-    defer self.lock.unlock();
+    self.lock.lockUncancelable(io);
+    defer self.lock.unlock(io);
 
     const gop = try self.glyphs.getOrPut(alloc, key);
     if (gop.found_existing) return gop.value_ptr.*;

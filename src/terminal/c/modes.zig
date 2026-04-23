@@ -8,10 +8,10 @@ pub const ReportState = enum(c_int) {
     _,
 
     fn toZig(self: ReportState) ?modes.Report.State {
-        return std.meta.intToEnum(
+        return std.enums.fromInt(
             modes.Report.State,
             @intFromEnum(self),
-        ) catch null;
+        );
     }
 };
 

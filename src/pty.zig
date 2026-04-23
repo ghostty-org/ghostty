@@ -122,7 +122,7 @@ const PosixPty = struct {
 
     /// Buffer for storage of slave tty name so that we don't have to recompute
     /// it every time we need it.
-    tty_name_buf: [std.fs.max_path_bytes:0]u8 = undefined,
+    tty_name_buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined,
     /// The name of slave tty. If `null` it has not yet been computed or
     /// may not be available. Should not be accessed directly, but through
     /// `self.getProcessInfo(.tty_name)`
@@ -137,7 +137,7 @@ const PosixPty = struct {
 
         var master_fd: Fd = undefined;
         var slave_fd: Fd = undefined;
-        if (c.openpty(
+        if (posix.system.openpty(
             &master_fd,
             &slave_fd,
             null,
@@ -153,28 +153,40 @@ const PosixPty = struct {
         // Set CLOEXEC on the master fd, only the slave fd should be inherited
         // by the child process (shell/command).
         cloexec: {
-            const flags = posix.fcntl(master_fd, posix.F.GETFD, 0) catch |err| {
-                log.warn("error getting flags for master fd err={}", .{err});
+            const flags = posix.system.fcntl(master_fd, posix.F.GETFD);
+            if (flags < 0) {
+                log.warn(
+                    "error getting flags for master fd err={}",
+                    .{flags},
+                );
                 break :cloexec;
-            };
-
-            _ = posix.fcntl(
+            }
+            const rc = posix.system.fcntl(
                 master_fd,
                 posix.F.SETFD,
-                flags | posix.FD_CLOEXEC,
-            ) catch |err| {
-                log.warn("error setting CLOEXEC on master fd err={}", .{err});
+                @as(c_uint, @intCast(flags)) |
+                    posix.FD_CLOEXEC,
+            );
+            if (rc < 0) {
+                log.warn(
+                    "error setting CLOEXEC on master fd err={}",
+                    .{rc},
+                );
                 break :cloexec;
-            };
+            }
         }
 
         // Enable UTF-8 mode. I think this is on by default on Linux but it
         // is NOT on by default on macOS so we ensure that it is always set.
         var attrs: c.termios = undefined;
-        if (c.tcgetattr(master_fd, &attrs) != 0)
+        if (posix.system.tcgetattr(master_fd, &attrs) != 0)
             return error.OpenptyFailed;
         attrs.c_iflag |= c.IUTF8;
-        if (c.tcsetattr(master_fd, c.TCSANOW, &attrs) != 0)
+        if (posix.system.tcsetattr(
+            master_fd,
+            @intFromEnum(posix.TCSA.NOW),
+            &attrs,
+        ) != 0)
             return error.OpenptyFailed;
 
         return .{
@@ -186,7 +198,7 @@ const PosixPty = struct {
     }
 
     pub fn deinit(self: *Pty) void {
-        _ = posix.system.close(self.master);
+        _ = std.c.close(self.master);
         self.* = undefined;
     }
 
@@ -260,8 +272,8 @@ const PosixPty = struct {
         }
 
         // Can close master/slave pair now
-        posix.close(self.slave);
-        posix.close(self.master);
+        _ = std.c.close(self.slave);
+        _ = std.c.close(self.master);
     }
 
     /// Get information about the process(es) attached to the PTY. Returns

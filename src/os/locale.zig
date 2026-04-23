@@ -9,13 +9,12 @@ const i18n = internal_os.i18n;
 const log = std.log.scoped(.os_locale);
 
 /// Ensure that the locale is set.
-pub fn ensureLocale(alloc: std.mem.Allocator) !void {
+pub fn ensureLocale(env: *const std.process.Environ.Map) !void {
     assert(builtin.link_libc);
 
     // Get our LANG env var. We use this many times but we also need
     // the original value later.
-    const lang = try internal_os.getenv(alloc, "LANG");
-    defer if (lang) |v| v.deinit(alloc);
+    const lang = env.get("LANG");
 
     // On macOS, pre-populate the LANG env var with system preferences.
     // When launching the .app, LANG is not set so we must query it from the
@@ -37,9 +36,8 @@ pub fn ensureLocale(alloc: std.mem.Allocator) !void {
     // setlocale failed. This is probably because the LANG env var is
     // invalid. Try to set it without the LANG var set to use the system
     // default.
-    if ((try internal_os.getenv(alloc, "LANG"))) |old_lang| {
-        defer old_lang.deinit(alloc);
-        if (old_lang.value.len > 0) {
+    if (lang) |old_lang| {
+        if (old_lang.len > 0) {
             // We don't need to do both of these things but we do them
             // both to be sure that lang is either empty or unset completely.
             _ = internal_os.setenv("LANG", "");
@@ -51,7 +49,7 @@ pub fn ensureLocale(alloc: std.mem.Allocator) !void {
                 // If we try to setlocale to an unsupported locale it'll return "C"
                 // as the POSIX/C fallback, if that's the case we want to not use
                 // it and move to our fallback of en_US.UTF-8
-                if (!std.mem.eql(u8, std.mem.sliceTo(v, 0), "C")) return;
+                if (!std.mem.eql(u8, std.mem.span(v), "C")) return;
             }
         }
     }

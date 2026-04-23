@@ -232,9 +232,10 @@ pub const Command = union(Key) {
     };
 
     comptime {
+        // @compileLog(@sizeOf(Command));
         assert(@sizeOf(Command) == switch (@sizeOf(usize)) {
-            4 => 44,
-            8 => 64,
+            4 => 36,
+            8 => 48,
             else => unreachable,
         });
     }

@@ -14,10 +14,11 @@ const uucode = @import("uucode");
 
 const log = std.log.scoped(.@"terminal-stream-bench");
 
+io: std.Io,
 opts: Options,
 
 /// The file, opened in the setup function.
-data_f: ?std.fs.File = null,
+data_f: ?std.Io.File = null,
 
 pub const Options = struct {
     /// The type of codepoint width calculation to use.
@@ -44,11 +45,14 @@ pub const Mode = enum {
 /// Create a new terminal stream handler for the given arguments.
 pub fn create(
     alloc: Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
     opts: Options,
 ) !*GraphemeBreak {
+    _ = env;
     const ptr = try alloc.create(GraphemeBreak);
     errdefer alloc.destroy(ptr);
-    ptr.* = .{ .opts = opts };
+    ptr.* = .{ .io = io, .opts = opts };
     return ptr;
 }
 
@@ -73,7 +77,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
     // Open our data file to prepare for reading. We can do more
     // validation here eventually.
     assert(self.data_f == null);
-    self.data_f = options.dataFile(self.opts.data) catch |err| {
+    self.data_f = options.dataFile(self.io, self.opts.data) catch |err| {
         log.warn("error opening data file err={}", .{err});
         return error.BenchmarkFailed;
     };
@@ -82,7 +86,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
 fn teardown(ptr: *anyopaque) void {
     const self: *GraphemeBreak = @ptrCast(@alignCast(ptr));
     if (self.data_f) |f| {
-        f.close();
+        f.close(self.io);
         self.data_f = null;
     }
 }
@@ -92,7 +96,7 @@ fn stepNoop(ptr: *anyopaque) Benchmark.Error!void {
 
     const f = self.data_f orelse return;
     var read_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
-    var f_reader = f.reader(&read_buf);
+    var f_reader = f.reader(self.io, &read_buf);
     var r = &f_reader.interface;
 
     var d: UTF8Decoder = .{};
@@ -115,7 +119,7 @@ fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
 
     const f = self.data_f orelse return;
     var read_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
-    var f_reader = f.reader(&read_buf);
+    var f_reader = f.reader(self.io, &read_buf);
     var r = &f_reader.interface;
 
     var d: UTF8Decoder = .{};

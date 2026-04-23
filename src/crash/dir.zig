@@ -1,17 +1,19 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const global_state = &@import("../global.zig").state;
 const Allocator = std.mem.Allocator;
 const internal_os = @import("../os/main.zig");
 
 /// Returns a Dir for the default directory. The Dir.path field must be
 /// freed with the given allocator.
-pub fn defaultDir(alloc: Allocator) !Dir {
-    const crash_dir = try internal_os.xdg.state(alloc, .{ .subdir = "ghostty/crash" });
+pub fn defaultDir(io: std.Io, alloc: Allocator) !Dir {
+    const crash_dir = try internal_os.xdg.state(alloc, io, &global_state.environ_map, .{ .subdir = "ghostty/crash" });
     errdefer alloc.free(crash_dir);
-    return .{ .path = crash_dir };
+    return .{ .io = io, .path = crash_dir };
 }
 
 pub const Dir = struct {
+    io: std.Io,
     /// The directory where crash reports are stored. This memory is owned
     /// by the caller.
     path: []const u8,
@@ -20,13 +22,15 @@ pub const Dir = struct {
     /// iterator must be freed with `ReportIterator.deinit`. The iterator
     /// may have no reports.
     pub fn iterator(self: *const Dir) !ReportIterator {
-        var dir = std.fs.openDirAbsolute(
+        var dir = std.Io.Dir.openDirAbsolute(
+            self.io,
             self.path,
             .{ .iterate = true },
-        ) catch return .{};
-        errdefer dir.close();
+        ) catch return .{ .io = self.io };
+        errdefer dir.close(self.io);
 
         return .{
+            .io = self.io,
             .dir = dir,
             .it = dir.iterate(),
         };
@@ -34,11 +38,12 @@ pub const Dir = struct {
 };
 
 pub const ReportIterator = struct {
-    dir: ?std.fs.Dir = null,
-    it: std.fs.Dir.Iterator = undefined,
+    io: std.Io,
+    dir: ?std.Io.Dir = null,
+    it: std.Io.Dir.Iterator = undefined,
 
     pub fn deinit(self: *ReportIterator) void {
-        if (self.dir) |dir| dir.close();
+        if (self.dir) |dir| dir.close(self.io);
     }
 
     pub fn next(self: *ReportIterator) !?Report {
@@ -47,15 +52,15 @@ pub const ReportIterator = struct {
 
         // Get the next file entry, if any.
         const entry = entry: while (true) {
-            const entry = try self.it.next() orelse return null;
+            const entry = try self.it.next(self.io) orelse return null;
             if (entry.kind != .file) continue;
             break :entry entry;
         };
 
-        const stat = try dir.statFile(entry.name);
+        const stat = try dir.statFile(self.io, entry.name, .{});
         return .{
             .name = entry.name,
-            .mtime = stat.mtime,
+            .mtime = stat.mtime.toNanoseconds(),
         };
     }
 };

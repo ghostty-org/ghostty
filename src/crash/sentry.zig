@@ -47,16 +47,16 @@ pub threadlocal var thread_state: ?ThreadState = null;
 /// crash reports and logs, but we only store them locally (see Transport).
 /// It is up to the user to grab the logs and manually send them to us
 /// (or they own Sentry instance) if they want to.
-pub fn init(gpa: Allocator) !void {
+pub fn init(gpa: Allocator, env: *const std.process.Environ.Map) !void {
     if (comptime !build_options.sentry) return;
 
     // Not supported on Windows currently, doesn't build.
     if (comptime builtin.os.tag == .windows) return;
 
-    // const start = try std.time.Instant.now();
+    // const start = try std.Io.Timestamp.now();
     // const start_micro = std.time.microTimestamp();
     // defer {
-    //     const end = std.time.Instant.now() catch unreachable;
+    //     const end = std.Io.Timestamp.now() catch unreachable;
     //     // "[updateFrame critical time] <START us>\t<TIME_TAKEN us>"
     //     std.log.err("[sentry init time] start={}us duration={}ns", .{ start_micro, end.since(start) / std.time.ns_per_us });
     // }
@@ -72,13 +72,13 @@ pub fn init(gpa: Allocator) !void {
     const thr = try std.Thread.spawn(
         .{},
         initThread,
-        .{gpa},
+        .{ gpa, env },
     );
     thr.setName("sentry-init") catch {};
     init_thread = thr;
 }
 
-fn initThread(gpa: Allocator) !void {
+fn initThread(gpa: Allocator, env: *const std.process.Environ.Map) !void {
     if (comptime !build_options.sentry) return;
 
     // Right now, on Darwin, `std.Thread.setName` can only name the current
@@ -118,7 +118,7 @@ fn initThread(gpa: Allocator) !void {
         // a more idiomatic macOS application. But if XDG env vars are set
         // we will respect them.
         if (comptime builtin.os.tag == .macos) macos: {
-            if (std.posix.getenv("XDG_CACHE_HOME") != null) break :macos;
+            if (env.get("XDG_CACHE_HOME") != null) break :macos;
             break :cache_dir try internal_os.macos.cacheDir(
                 alloc,
                 "sentry",
@@ -261,6 +261,9 @@ pub const Transport = struct {
         defer arena.deinit();
         const alloc = arena.allocator();
 
+        var io_threaded: std.Io.Threaded = .init_single_threaded;
+        const io = io_threaded.io();
+
         // Parse into an envelope structure
         const json = envelope.serialize();
         defer sentry.free(@ptrCast(json.ptr));
@@ -288,16 +291,16 @@ pub const Transport = struct {
 
         // Get our XDG state directory where we'll store the crash reports.
         // This directory must exist for writing to work.
-        const dir = try crash.defaultDir(alloc);
-        try std.fs.cwd().makePath(dir.path);
+        const dir = try crash.defaultDir(io, alloc);
+        try std.Io.Dir.cwd().createDirPath(io, dir.path);
 
         // Build our final path and write to it.
-        const path = try std.fs.path.join(alloc, &.{
+        const path = try std.Io.Dir.path.join(alloc, &.{
             dir.path,
             try std.fmt.allocPrint(alloc, "{s}.ghosttycrash", .{uuid.string()}),
         });
-        const file = try std.fs.cwd().createFile(path, .{});
-        defer file.close();
+        const file = try std.Io.Dir.cwd().createFile(io, path, .{});
+        defer file.close(io);
         var buf: [4096]u8 = undefined;
         var file_writer = file.writer(&buf);
         try file_writer.interface.writeAll(json);

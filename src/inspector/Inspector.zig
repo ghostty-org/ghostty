@@ -92,8 +92,6 @@ pub fn recordKeyEvent(
             events.deleteOldest(1);
             try events.append(ev);
         },
-
-        else => return err,
     };
 }
 

@@ -48,21 +48,20 @@ pub fn init(
         },
     };
 
-    const env = try std.process.getEnvMap(b.allocator);
     const app_path = b.fmt("macos/build/{s}/Ghostty.app", .{xc_config});
 
     // Our step to build the Ghostty macOS app.
     const build = build: {
-        // External environment variables can mess up xcodebuild, so
-        // we create a new empty environment.
-        const env_map = try b.allocator.create(std.process.EnvMap);
-        env_map.* = .init(b.allocator);
-        if (env.get("PATH")) |v| try env_map.put("PATH", v);
-
         const step = RunStep.create(b, "xcodebuild");
         step.has_side_effects = true;
         step.cwd = b.path("macos");
-        step.env_map = env_map;
+
+        // External environment variables can mess up xcodebuild, so
+        // we create a new empty environment.
+        const path = step.getEnvMap().get("PATH");
+        step.clearEnvironment();
+        if (path) |p| step.addPathDir(p);
+
         step.addArgs(&.{
             "xcodebuild",
             "-target",
@@ -91,14 +90,15 @@ pub fn init(
     };
 
     const xctest = xctest: {
-        const env_map = try b.allocator.create(std.process.EnvMap);
-        env_map.* = .init(b.allocator);
-        if (env.get("PATH")) |v| try env_map.put("PATH", v);
-
         const step = RunStep.create(b, "xcodebuild test");
         step.has_side_effects = true;
         step.cwd = b.path("macos");
-        step.env_map = env_map;
+
+        // External environment variables can mess up xcodebuild, so
+        // we create a new empty environment.
+        const path = step.getEnvMap().get("PATH");
+        step.clearEnvironment();
+        if (path) |p| step.addPathDir(p);
         step.addArgs(&.{
             "xcodebuild",
             "test",

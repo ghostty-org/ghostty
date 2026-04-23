@@ -23,7 +23,11 @@ pub const Options = struct {
 ///
 /// This command currently only supports listing crash reports. Viewing
 /// and sending crash reports is unimplemented and will be added in the future.
-pub fn run(alloc_gpa: Allocator) !u8 {
+pub fn run(
+    alloc_gpa: Allocator,
+    io: std.Io,
+    proc_args: std.process.Args,
+) !u8 {
     // Use an arena for the whole command to avoid manual memory management.
     var arena = std.heap.ArenaAllocator.init(alloc_gpa);
     defer arena.deinit();
@@ -33,27 +37,28 @@ pub fn run(alloc_gpa: Allocator) !u8 {
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc_gpa);
+        var iter = try args.argsIterator(proc_args, alloc_gpa);
         defer iter.deinit();
         try args.parse(Options, alloc_gpa, &opts, &iter);
     }
 
     var buffer: [1024]u8 = undefined;
-    var stdout_file: std.fs.File = .stdout();
-    var stdout_writer = stdout_file.writer(&buffer);
+    var stdout_file: std.Io.File = .stdout();
+    var stdout_writer = stdout_file.writer(io, &buffer);
     const stdout = &stdout_writer.interface;
 
-    const result = runInner(alloc, &stdout_file, stdout);
+    const result = runInner(io, alloc, &stdout_file, stdout);
     stdout.flush() catch {};
     return result;
 }
 
 fn runInner(
+    io: std.Io,
     alloc: Allocator,
-    stdout_file: *std.fs.File,
+    stdout_file: *std.Io.File,
     stdout: *std.Io.Writer,
 ) !u8 {
-    const crash_dir = try crash.defaultDir(alloc);
+    const crash_dir = try crash.defaultDir(io, alloc);
     var reports: std.ArrayList(crash.Report) = .empty;
     errdefer reports.deinit(alloc);
 
@@ -66,7 +71,7 @@ fn runInner(
     // If we have no reports, then we're done. If we have a tty then we
     // print a message, otherwise we do nothing.
     if (reports.items.len == 0) {
-        if (std.posix.isatty(stdout_file.handle)) {
+        if (stdout_file.isTty(io) catch false) {
             try stdout.writeAll("No crash reports! 👻\n");
         }
         return 0;
@@ -76,7 +81,7 @@ fn runInner(
 
     for (reports.items) |report| {
         var buf: [128]u8 = undefined;
-        const now = std.time.nanoTimestamp();
+        const now = std.Io.Timestamp.now(io, .real).toNanoseconds();
         const diff = now - report.mtime;
         const since = if (diff <= 0) "now" else s: {
             const d = Config.Duration{ .duration = @intCast(diff) };

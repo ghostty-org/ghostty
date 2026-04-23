@@ -36,14 +36,14 @@ pub const Shaper = struct {
     /// The codepoints added to the buffer before shaping. We need to keep
     /// these separately because after shaping, HarfBuzz replaces codepoints
     /// with glyph indices in the buffer.
-    codepoints: std.ArrayListUnmanaged(Codepoint) = .{},
+    codepoints: std.ArrayList(Codepoint) = .{},
 
     const Codepoint = struct {
         cluster: u32,
         codepoint: u32,
     };
 
-    const CellBuf = std.ArrayListUnmanaged(font.shape.Cell);
+    const CellBuf = std.ArrayList(font.shape.Cell);
 
     const RunOffset = struct {
         cluster: u32 = 0,
@@ -127,15 +127,15 @@ pub const Shaper = struct {
     /// The return value is only valid until the next shape call is called.
     ///
     /// If there is not enough space in the cell buffer, an error is returned.
-    pub fn shape(self: *Shaper, run: font.shape.TextRun) ![]const font.shape.Cell {
+    pub fn shape(self: *Shaper, io: std.Io, run: font.shape.TextRun) ![]const font.shape.Cell {
         // We only do shaping if the font is not a special-case. For special-case
         // fonts, the codepoint == glyph_index so we don't need to run any shaping.
         if (run.font_index.special() == null) {
             // We have to lock the grid to get the face and unfortunately
             // freetype faces (typically used with harfbuzz) are not thread
             // safe so this has to be an exclusive lock.
-            run.grid.lock.lock();
-            defer run.grid.lock.unlock();
+            run.grid.lock.lockUncancelable(io);
+            defer run.grid.lock.unlock(io);
 
             const face = try run.grid.resolver.collection.getFace(run.font_index);
             const i = if (!face.quirks_disable_default_font_features) 0 else i: {

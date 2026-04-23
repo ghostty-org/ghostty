@@ -23,14 +23,14 @@ const MainReturn = switch (build_config.artifact) {
     else => void,
 };
 
-pub fn main() !MainReturn {
+pub fn main(init: std.process.Init.Minimal) !MainReturn {
     // We first start by initializing our global state. This will setup
     // process-level state we need to run the terminal. The reason we use
     // a global is because the C API needs to be able to access this state;
     // no other Zig code should EVER access the global state.
-    state.init() catch |err| {
+    state.init(init) catch |err| {
         var buffer: [1024]u8 = undefined;
-        var stderr_writer = std.fs.File.stderr().writer(&buffer);
+        var stderr_writer = std.Io.File.stderr().writer(init.io, &buffer);
         const stderr = &stderr_writer.interface;
         defer posix.exit(1);
         const ErrSet = @TypeOf(err) || error{Unknown};
@@ -54,6 +54,7 @@ pub fn main() !MainReturn {
     };
     defer state.deinit();
     const alloc = state.alloc;
+    const io = state.io_threaded.io();
 
     if (comptime builtin.mode == .Debug) {
         std.log.warn("This is a debug build. Performance will be very poor.", .{});
@@ -64,7 +65,7 @@ pub fn main() !MainReturn {
     // Execute our action if we have one
     if (state.action) |action| {
         std.log.info("executing CLI action={}", .{action});
-        posix.exit(action.run(alloc) catch |err| err: {
+        std.process.exit(action.run(alloc, init.io, &state.environ_map, init.args) catch |err| err: {
             std.log.err("CLI action failed error={}", .{err});
             break :err 1;
         });
@@ -72,7 +73,8 @@ pub fn main() !MainReturn {
     }
 
     if (comptime build_config.app_runtime == .none) {
-        const stdout = std.io.getStdOut().writer();
+        var buf: [1024]u8 = undefined;
+        const stdout = std.Io.File.stdout().writerStreaming(init.io, &buf);
         try stdout.print("Usage: ghostty +<action> [flags]\n\n", .{});
         try stdout.print(
             \\This is the Ghostty helper CLI that accompanies the graphical Ghostty app.
@@ -89,12 +91,13 @@ pub fn main() !MainReturn {
         ,
             .{},
         );
+        try stdout.flush();
 
         posix.exit(0);
     }
 
     // Create our app state
-    const app: *App = try App.create(alloc);
+    const app: *App = try App.create(alloc, io, init.environ);
     defer app.destroy();
 
     // Create our runtime app
@@ -153,13 +156,14 @@ fn logFn(
 
         // Lock so we are thread-safe
         var buf: [64]u8 = undefined;
-        const stderr = std.debug.lockStderrWriter(&buf);
-        defer std.debug.unlockStderrWriter();
+        const stderr = std.debug.lockStderr(&buf);
+        defer std.debug.unlockStderr();
+        const writer = &stderr.file_writer.interface;
 
         const level_txt = comptime level.asText();
         const prefix = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-        nosuspend stderr.print(level_txt ++ prefix ++ format ++ "\n", args) catch break :stderr;
-        nosuspend stderr.flush() catch break :stderr;
+        nosuspend writer.print(level_txt ++ prefix ++ format ++ "\n", args) catch break :stderr;
+        nosuspend writer.flush() catch break :stderr;
     }
 }
 

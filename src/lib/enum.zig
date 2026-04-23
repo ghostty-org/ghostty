@@ -21,9 +21,10 @@ pub fn Enum(
     target: Target,
     keys: []const ?[:0]const u8,
 ) type {
-    var fields: [keys.len]std.builtin.Type.EnumField = undefined;
-    var fields_i: usize = 0;
-    var holes: usize = 0;
+    var names: [keys.len][]const u8 = undefined;
+    var raw_values: [keys.len]comptime_int = undefined;
+    var fields_i: comptime_int = 0;
+    var holes: comptime_int = 0;
     for (keys) |key_| {
         const key: [:0]const u8 = key_ orelse {
             switch (target) {
@@ -39,23 +40,22 @@ pub fn Enum(
             continue;
         };
 
-        fields[fields_i] = .{
-            .name = key,
-            .value = fields_i + holes,
-        };
+        names[fields_i] = key;
+        raw_values[fields_i] = fields_i + holes;
         fields_i += 1;
     }
 
+    const TagInt = switch (target) {
+        .c => c_int,
+        .zig => std.math.IntFittingRange(0, fields_i - 1),
+    };
+    var values: [fields_i]TagInt = undefined;
+    for (raw_values, &values) |raw, *val| {
+        val.* = raw;
+    }
+
     // Assigned to var so that the type name is nicer in stack traces.
-    const Result = @Type(.{ .@"enum" = .{
-        .tag_type = switch (target) {
-            .c => c_int,
-            .zig => std.math.IntFittingRange(0, fields_i - 1),
-        },
-        .fields = fields[0..fields_i],
-        .decls = &.{},
-        .is_exhaustive = true,
-    } });
+    const Result = @Enum(TagInt, .exhaustive, names[0..fields_i], &values);
     return Result;
 }
 

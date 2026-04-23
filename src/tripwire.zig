@@ -32,19 +32,19 @@
 //! ```
 //! const tw = tripwire.module(enum { alloc_buf, open_file }, myFunction);
 //!
-//! fn myFunction() tw.Error!void {
+//! fn myFunction(io: std.Io) tw.Error!void {
 //!     try tw.check(.alloc_buf);
 //!     const buf = try allocator.alloc(u8, 1024);
 //!     errdefer allocator.free(buf);
 //!
 //!     try tw.check(.open_file);
-//!     const file = try std.fs.cwd().openFile("foo.txt", .{});
+//!     const file = try std.Io.Dir.cwd().openFile(io, "foo.txt", .{});
 //!     // ...
 //! }
 //!
 //! test "myFunction fails on alloc" {
 //!     tw.errorAlways(.alloc_buf, error.OutOfMemory);
-//!     try std.testing.expectError(error.OutOfMemory, myFunction());
+//!     try std.testing.expectError(error.OutOfMemory, myFunction(std.testing.io));
 //!     try tw.end(.reset);
 //! }
 //! ```

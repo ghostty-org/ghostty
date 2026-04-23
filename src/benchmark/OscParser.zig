@@ -10,10 +10,11 @@ const options = @import("options.zig");
 const Parser = @import("../terminal/osc.zig").Parser;
 const log = std.log.scoped(.@"osc-parser-bench");
 
+io: std.Io,
 opts: Options,
 
 /// The file, opened in the setup function.
-data_f: ?std.fs.File = null,
+data_f: ?std.Io.File = null,
 
 parser: Parser,
 
@@ -29,11 +30,15 @@ pub const Options = struct {
 /// Create a new terminal stream handler for the given arguments.
 pub fn create(
     alloc: Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
     opts: Options,
 ) !*OscParser {
+    _ = env;
     const ptr = try alloc.create(OscParser);
     errdefer alloc.destroy(ptr);
     ptr.* = .{
+        .io = io,
         .opts = opts,
         .data_f = null,
         .parser = .init(alloc),
@@ -60,7 +65,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
     // Open our data file to prepare for reading. We can do more
     // validation here eventually.
     assert(self.data_f == null);
-    self.data_f = options.dataFile(self.opts.data) catch |err| {
+    self.data_f = options.dataFile(self.io, self.opts.data) catch |err| {
         log.warn("error opening data file err={}", .{err});
         return error.BenchmarkFailed;
     };
@@ -70,7 +75,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
 fn teardown(ptr: *anyopaque) void {
     const self: *OscParser = @ptrCast(@alignCast(ptr));
     if (self.data_f) |f| {
-        f.close();
+        f.close(self.io);
         self.data_f = null;
     }
 }
@@ -80,7 +85,7 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
 
     const f = self.data_f orelse return;
     var read_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
-    var r = f.reader(&read_buf);
+    var r = f.reader(self.io, &read_buf);
 
     var osc_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     while (true) {

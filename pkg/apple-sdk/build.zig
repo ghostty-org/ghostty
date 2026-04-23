@@ -44,14 +44,14 @@ pub fn addPaths(
         // Detect our SDK using the "findNative" Zig stdlib function.
         // This is really important because it forces using `xcrun` to
         // find the SDK path.
-        const libc = try std.zig.LibCInstallation.findNative(.{
-            .allocator = b.allocator,
+        const libc = try std.zig.LibCInstallation.findNative(b.allocator, b.graph.io, .{
             .target = &step.rootModuleTarget(),
+            .environ_map = &b.graph.environ_map,
             .verbose = false,
         });
 
         // Render the file compatible with the `--libc` Zig flag.
-        var stream: std.io.Writer.Allocating = .init(b.allocator);
+        var stream: std.Io.Writer.Allocating = .init(b.allocator);
         defer stream.deinit();
         try libc.render(&stream.writer);
 
@@ -64,9 +64,9 @@ pub fn addPaths(
         // parse this from the libc txt file for `-framework` flags:
         // https://github.com/ziglang/zig/issues/24024
         const framework_path = framework: {
-            const down1 = std.fs.path.dirname(libc.sys_include_dir.?).?;
-            const down2 = std.fs.path.dirname(down1).?;
-            break :framework try std.fs.path.join(b.allocator, &.{
+            const down1 = std.Io.Dir.path.dirname(libc.sys_include_dir.?).?;
+            const down2 = std.Io.Dir.path.dirname(down1).?;
+            break :framework try std.Io.Dir.path.join(b.allocator, &.{
                 down2,
                 "System",
                 "Library",
@@ -75,8 +75,8 @@ pub fn addPaths(
         };
 
         const library_path = library: {
-            const down1 = std.fs.path.dirname(libc.sys_include_dir.?).?;
-            break :library try std.fs.path.join(b.allocator, &.{
+            const down1 = std.Io.Dir.path.dirname(libc.sys_include_dir.?).?;
+            break :library try std.Io.Dir.path.join(b.allocator, &.{
                 down1,
                 "lib",
             });

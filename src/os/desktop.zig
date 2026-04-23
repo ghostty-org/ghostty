@@ -16,7 +16,7 @@ const c = @cImport({
 /// can't find a way to distinguish the two scenarios.
 ///
 /// For other platforms and app runtimes, this returns false.
-pub fn launchedFromDesktop() bool {
+pub fn launchedFromDesktop(env: *const std.process.Environ.Map) bool {
     return switch (builtin.os.tag) {
         // macOS apps launched from finder or `open` always have the init
         // process as their parent.
@@ -25,8 +25,7 @@ pub fn launchedFromDesktop() bool {
             // app bundle (i.e. via open) then we still treat it as if it
             // was launched from the desktop.
             if (build_config.artifact == .lib) lib: {
-                const env = "GHOSTTY_MAC_LAUNCH_SOURCE";
-                const source = posix.getenv(env) orelse break :lib;
+                const source = env.get("GHOSTTY_MAC_LAUNCH_SOURCE") orelse break :lib;
 
                 // Source can be "app", "cli", or "zig_run". We assume
                 // its the desktop only if its "app". We may want to do
@@ -44,7 +43,7 @@ pub fn launchedFromDesktop() bool {
         // another terminal was launched from a desktop file and then launches
         // Ghostty and Ghostty inherits the env.
         .linux, .freebsd => ul: {
-            const gio_pid_str = posix.getenv("GIO_LAUNCHED_DESKTOP_FILE_PID") orelse
+            const gio_pid_str = env.get("GIO_LAUNCHED_DESKTOP_FILE_PID") orelse
                 break :ul false;
 
             const pid = c.getpid();
@@ -80,7 +79,7 @@ pub const DesktopEnvironment = enum {
 /// Detect what desktop environment we are running under. This is mainly used
 /// on Linux and BSD to enable or disable certain features but there may be more uses in
 /// the future.
-pub fn desktopEnvironment() DesktopEnvironment {
+pub fn desktopEnvironment(env: *const std.process.Environ.Map) DesktopEnvironment {
     return switch (comptime builtin.os.tag) {
         .macos => .macos,
         .windows => .windows,
@@ -89,7 +88,7 @@ pub fn desktopEnvironment() DesktopEnvironment {
 
             // Use $XDG_SESSION_DESKTOP to determine what DE we are using on Linux
             // https://www.freedesktop.org/software/systemd/man/latest/pam_systemd.html#desktop=
-            if (posix.getenv("XDG_SESSION_DESKTOP")) |sd| {
+            if (env.get("XDG_SESSION_DESKTOP")) |sd| {
                 if (std.ascii.eqlIgnoreCase("gnome", sd)) break :de .gnome;
                 if (std.ascii.eqlIgnoreCase("gnome-xorg", sd)) break :de .gnome;
             }
@@ -99,7 +98,7 @@ pub fn desktopEnvironment() DesktopEnvironment {
             // colon-separated list of up to three desktop names, although we
             // only look at the first.
             // https://specifications.freedesktop.org/desktop-entry-spec/latest/recognized-keys.html
-            if (posix.getenv("XDG_CURRENT_DESKTOP")) |cd| {
+            if (env.get("XDG_CURRENT_DESKTOP")) |cd| {
                 var cd_it = std.mem.splitScalar(u8, cd, ':');
                 const cd_first = cd_it.first();
                 if (std.ascii.eqlIgnoreCase(cd_first, "gnome")) break :de .gnome;
@@ -115,8 +114,8 @@ test "desktop environment" {
     const testing = std.testing;
 
     switch (builtin.os.tag) {
-        .macos => try testing.expectEqual(.macos, desktopEnvironment()),
-        .windows => try testing.expectEqual(.windows, desktopEnvironment()),
+        .macos => try testing.expectEqual(.macos, desktopEnvironment(std.testing.environ)),
+        .windows => try testing.expectEqual(.windows, desktopEnvironment(std.testing.environ)),
         .linux, .freebsd => {
             const getenv = std.posix.getenv;
             const setenv = @import("env.zig").setenv;

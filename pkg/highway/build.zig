@@ -17,12 +17,12 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
         .linkage = .static,
     });
-    lib.linkLibC();
     if (upstream_) |upstream| {
-        lib.addIncludePath(upstream.path(""));
+        lib.root_module.addIncludePath(upstream.path(""));
         module.addIncludePath(upstream.path(""));
     }
 
@@ -93,9 +93,9 @@ pub fn build(b: *std.Build) !void {
         });
     }
 
-    lib.addCSourceFiles(.{ .flags = flags.items, .files = &.{"bridge.cpp"} });
+    lib.root_module.addCSourceFiles(.{ .flags = flags.items, .files = &.{"bridge.cpp"} });
     if (upstream_) |upstream| {
-        lib.addCSourceFiles(.{
+        lib.root_module.addCSourceFiles(.{
             .root = upstream.path(""),
             .flags = flags.items,
             .files = &.{
@@ -124,7 +124,7 @@ pub fn build(b: *std.Build) !void {
                 .optimize = optimize,
             }),
         });
-        test_exe.linkLibrary(lib);
+        test_exe.root_module.linkLibrary(lib);
 
         var it = module.import_table.iterator();
         while (it.next()) |entry| test_exe.root_module.addImport(entry.key_ptr.*, entry.value_ptr.*);

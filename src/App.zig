@@ -18,10 +18,14 @@ const font = @import("font/main.zig");
 
 const log = std.log.scoped(.app);
 
-const SurfaceList = std.ArrayListUnmanaged(*apprt.Surface);
+const SurfaceList = std.ArrayList(*apprt.Surface);
+
+io: std.Io,
 
 /// General purpose allocator
 alloc: Allocator,
+
+environ: *const std.process.Environ.Map,
 
 /// The list of surfaces that are currently active.
 surfaces: SurfaceList,
@@ -56,7 +60,7 @@ font_grid_set: font.SharedGridSet,
 // Used to rate limit desktop notifications. Some platforms (notably macOS) will
 // run out of resources if desktop notifications are sent too fast and the OS
 // will kill Ghostty.
-last_notification_time: ?std.time.Instant = null,
+last_notification_time: ?std.Io.Timestamp = null,
 last_notification_digest: u64 = 0,
 
 /// The conditional state of the configuration. See the equivalent field
@@ -73,10 +77,10 @@ pub const CreateError = Allocator.Error || font.SharedGridSet.InitError;
 
 /// Create a new app instance. This returns a stable pointer to the app
 /// instance which is required for callbacks.
-pub fn create(alloc: Allocator) CreateError!*App {
+pub fn create(alloc: Allocator, io: std.Io, env: *const std.process.Environ.Map) CreateError!*App {
     var app = try alloc.create(App);
     errdefer alloc.destroy(app);
-    try app.init(alloc);
+    try app.init(alloc, io, env);
     return app;
 }
 
@@ -89,12 +93,16 @@ pub fn create(alloc: Allocator) CreateError!*App {
 pub fn init(
     self: *App,
     alloc: Allocator,
+    io: std.Io,
+    env: *const std.process.Environ.Map,
 ) CreateError!void {
     var font_grid_set = try font.SharedGridSet.init(alloc);
     errdefer font_grid_set.deinit();
 
     self.* = .{
         .alloc = alloc,
+        .io = io,
+        .environ = env,
         .surfaces = .{},
         .mailbox = .{},
         .font_grid_set = font_grid_set,
@@ -146,6 +154,8 @@ pub fn updateConfig(self: *App, rt_app: *apprt.App, config: *const Config) !void
     // config applies its own conditional state.
     var applied_: ?configpkg.Config = config.changeConditionalState(
         self.config_conditional_state,
+        self.io,
+        self.environ,
     ) catch |err| err: {
         log.warn("failed to apply conditional state to config err={}", .{err});
         break :err null;
@@ -236,7 +246,7 @@ pub fn needsConfirmQuit(self: *const App) bool {
 
 /// Drain the mailbox.
 fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
-    while (self.mailbox.pop()) |message| {
+    while (self.mailbox.pop(self.io)) |message| {
         if (comptime std.log.logEnabled(.debug, .app)) {
             switch (message) {
                 // these tend to be way too verbose for normal debugging
@@ -582,10 +592,11 @@ pub const Mailbox = struct {
 
     rt_app: *apprt.App,
     mailbox: *Queue,
+    io: std.Io,
 
     /// Send a message to the surface.
     pub fn push(self: Mailbox, msg: Message, timeout: Queue.Timeout) Queue.Size {
-        const result = self.mailbox.push(msg, timeout);
+        const result = self.mailbox.push(msg, timeout, self.io);
 
         // Wake up our app loop
         self.rt_app.wakeup();

@@ -31,7 +31,7 @@ parameters_builder: *glib.VariantBuilder,
 /// Initialize the helper.
 pub fn init(alloc: Allocator, target: apprt.ipc.Target, action: [:0]const u8) (Allocator.Error || std.Io.Writer.Error || apprt.ipc.Errors)!Self {
     var buf: [256]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&buf);
+    var stderr_writer = std.Io.File.stderr().writer(&buf);
     const stderr = &stderr_writer.interface;
 
     // Get the appropriate bus name and object path for contacting the
@@ -133,7 +133,7 @@ pub fn addParameter(self: *Self, variant: *glib.Variant) void {
 /// should be done with this object other than call `deinit`.
 pub fn send(self: *Self) (std.Io.Writer.Error || apprt.ipc.Errors)!void {
     var buf: [256]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&buf);
+    var stderr_writer = std.Io.File.stderr().writer(&buf);
     const stderr = &stderr_writer.interface;
 
     // finish building the parameters

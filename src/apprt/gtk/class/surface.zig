@@ -678,8 +678,8 @@ pub const Surface = extern struct {
         vadj_signal_group: ?*gobject.SignalGroup = null,
 
         // Key state tracking for key sequences and tables
-        key_sequence: std.ArrayListUnmanaged([:0]const u8) = .empty,
-        key_tables: std.ArrayListUnmanaged([:0]const u8) = .empty,
+        key_sequence: std.ArrayList([:0]const u8) = .empty,
+        key_tables: std.ArrayList([:0]const u8) = .empty,
 
         // Template binds
         child_exited_overlay: *ChildExited,
@@ -1561,7 +1561,7 @@ pub const Surface = extern struct {
         return self.private().cursor_pos;
     }
 
-    pub fn defaultTermioEnv(self: *Self) !std.process.EnvMap {
+    pub fn defaultTermioEnv(self: *Self) !std.process.Environ.Map {
         const app = Application.default();
         const alloc = app.allocator();
         var env = try internal_os.getEnvMap(alloc);
@@ -1613,7 +1613,7 @@ pub const Surface = extern struct {
     }
 
     /// Filter out environment variables that start with forbidden prefixes.
-    fn filterSnapPaths(gpa: std.mem.Allocator, env_map: *std.process.EnvMap) !void {
+    fn filterSnapPaths(gpa: std.mem.Allocator, env_map: *std.process.Environ.Map) !void {
         comptime assert(build_config.snap);
 
         const snap_vars = [_][]const u8{
