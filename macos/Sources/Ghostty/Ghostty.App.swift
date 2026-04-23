@@ -63,7 +63,15 @@ extension Ghostty {
                 wakeup_cb: { userdata in App.wakeup(userdata) },
                 action_cb: { app, target, action in App.action(app!, target: target, action: action) },
                 read_clipboard_cb: { userdata, loc, state in App.readClipboard(userdata, location: loc, state: state) },
-                confirm_read_clipboard_cb: { userdata, str, state, request in App.confirmReadClipboard(userdata, string: str, state: state, request: request ) },
+                confirm_read_clipboard_cb: { userdata, str, state, request, reason, homoglyphReport in
+                    App.confirmReadClipboard(
+                        userdata,
+                        string: str,
+                        state: state,
+                        request: request,
+                        reason: reason,
+                        homoglyphReport: homoglyphReport)
+                },
                 write_clipboard_cb: { userdata, loc, content, len, confirm in
                     App.writeClipboard(userdata, location: loc, content: content, len: len, confirm: confirm) },
                 close_surface_cb: { userdata, processAlive in App.closeSurface(userdata, processAlive: processAlive) }
@@ -283,7 +291,9 @@ extension Ghostty {
             _ userdata: UnsafeMutableRawPointer?,
             string: UnsafePointer<CChar>?,
             state: UnsafeMutableRawPointer?,
-            request: ghostty_clipboard_request_e
+            request: ghostty_clipboard_request_e,
+            reason: ghostty_clipboard_confirm_reason_e,
+            homoglyphReport: UnsafePointer<ghostty_paste_homoglyph_report_t>?
         ) {}
 
         static func writeClipboard(
@@ -352,19 +362,31 @@ extension Ghostty {
             _ userdata: UnsafeMutableRawPointer?,
             string: UnsafePointer<CChar>?,
             state: UnsafeMutableRawPointer?,
-            request: ghostty_clipboard_request_e
+            request: ghostty_clipboard_request_e,
+            reason: ghostty_clipboard_confirm_reason_e,
+            homoglyphReport: UnsafePointer<ghostty_paste_homoglyph_report_t>?
         ) {
             let surface = self.surfaceUserdata(from: userdata)
             guard let valueStr = String(cString: string!, encoding: .utf8) else { return }
             guard let request = Ghostty.ClipboardRequest.from(request: request) else { return }
+            let confirmReason = Ghostty.ClipboardConfirmReason.from(reason)
+            var homoglyphPayload: Ghostty.PasteHomoglyphURLHighlight?
+            if reason == GHOSTTY_CLIPBOARD_CONFIRM_REASON_MIXED_SCRIPT_URL, let rep = homoglyphReport {
+                homoglyphPayload = Ghostty.PasteHomoglyphURLHighlight.make(fullPaste: valueStr, report: rep.pointee)
+            }
+            var userInfo: [AnyHashable: Any] = [
+                Notification.ConfirmClipboardStrKey: valueStr,
+                Notification.ConfirmClipboardStateKey: state as Any,
+                Notification.ConfirmClipboardRequestKey: request,
+                Notification.ConfirmClipboardConfirmReasonKey: confirmReason.rawValue,
+            ]
+            if let homoglyphPayload {
+                userInfo[Notification.ConfirmClipboardHomoglyphPayloadKey] = homoglyphPayload
+            }
             NotificationCenter.default.post(
                 name: Notification.confirmClipboard,
                 object: surface,
-                userInfo: [
-                    Notification.ConfirmClipboardStrKey: valueStr,
-                    Notification.ConfirmClipboardStateKey: state as Any,
-                    Notification.ConfirmClipboardRequestKey: request,
-                ]
+                userInfo: userInfo
             )
         }
 

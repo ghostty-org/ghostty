@@ -140,6 +140,9 @@ pub const mouse_encoder_encode = mouse_encode.encode;
 
 pub const paste_is_safe = paste.is_safe;
 pub const paste_encode = paste.encode;
+pub const paste_homoglyph_suspicious_spans = paste.homoglyph_suspicious_spans;
+pub const paste_homoglyph_first_url_range = paste.homoglyph_first_url_range;
+pub const paste_homoglyph_first_url_report = paste.homoglyph_first_url_report;
 
 pub const alloc_alloc = allocator.alloc;
 pub const alloc_free = allocator.free;

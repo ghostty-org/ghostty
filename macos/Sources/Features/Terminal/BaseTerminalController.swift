@@ -1086,6 +1086,10 @@ class BaseTerminalController: NSWindowController,
         guard let str = notification.userInfo?[Ghostty.Notification.ConfirmClipboardStrKey] as? String else { return }
         guard let state = notification.userInfo?[Ghostty.Notification.ConfirmClipboardStateKey] as? UnsafeMutableRawPointer? else { return }
         guard let request = notification.userInfo?[Ghostty.Notification.ConfirmClipboardRequestKey] as? Ghostty.ClipboardRequest else { return }
+        let rawReason = notification.userInfo?[Ghostty.Notification.ConfirmClipboardConfirmReasonKey] as? Int
+        let confirmReason = Ghostty.ClipboardConfirmReason(rawValue: rawReason ?? 0) ?? .none
+        let homoglyphHighlight =
+            notification.userInfo?[Ghostty.Notification.ConfirmClipboardHomoglyphPayloadKey] as? Ghostty.PasteHomoglyphURLHighlight
 
         // If we already have a clipboard confirmation view up, we ignore this request.
         // This shouldn't be possible...
@@ -1099,6 +1103,8 @@ class BaseTerminalController: NSWindowController,
             surface: surface,
             contents: str,
             request: request,
+            confirmReason: confirmReason,
+            homoglyphHighlight: homoglyphHighlight,
             state: state,
             delegate: self
         )

@@ -3765,6 +3765,7 @@ const Clipboard = struct {
             self,
             .{ .osc_52_write = clipboard_type },
             text,
+            .none,
         );
     }
 
@@ -3839,6 +3840,16 @@ const Clipboard = struct {
                     self,
                     .paste,
                     text,
+                    .none,
+                );
+                return;
+            },
+            error.SuspiciousHomoglyphPaste => {
+                showClipboardConfirmation(
+                    self,
+                    .paste,
+                    text,
+                    .mixed_script_url,
                 );
                 return;
             },
@@ -3868,6 +3879,7 @@ const Clipboard = struct {
         self: *Surface,
         req: apprt.ClipboardRequest,
         str: [:0]const u8,
+        confirm_reason: apprt.ClipboardConfirmReason,
     ) void {
         // Build a text buffer for our contents
         const contents_buf: *gtk.TextBuffer = .new(null);
@@ -3884,8 +3896,13 @@ const Clipboard = struct {
                     .paste => false,
                 },
                 .@"clipboard-contents" = contents_buf,
+                .@"confirm-reason" = confirm_reason,
             },
         );
+
+        if (confirm_reason == .mixed_script_url) {
+            dialog.applyMixedScriptHomoglyphHighlights(str);
+        }
 
         _ = ClipboardConfirmationDialog.signals.confirm.connect(
             dialog,
@@ -4005,6 +4022,16 @@ const Clipboard = struct {
                     self,
                     req.state,
                     str,
+                    .none,
+                );
+                return;
+            },
+            error.SuspiciousHomoglyphPaste => {
+                showClipboardConfirmation(
+                    self,
+                    req.state,
+                    str,
+                    .mixed_script_url,
                 );
                 return;
             },

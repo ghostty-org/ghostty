@@ -69,6 +69,23 @@ pub const ClipboardRequestType = enum(u8) {
     osc_52_write,
 };
 
+/// Why clipboard confirmation UI may vary (paste confirmation only for now).
+///
+/// If this is changed, you must also update ghostty.h
+pub const ClipboardConfirmReason = enum(c_int) {
+    none = 0,
+    mixed_script_url = 1,
+
+    pub const getGObjectType = switch (build_config.app_runtime) {
+        .gtk => @import("gobject").ext.defineEnum(
+            ClipboardConfirmReason,
+            .{ .name = "GhosttyClipboardConfirmReason" },
+        ),
+
+        .none => void,
+    };
+};
+
 /// Clipboard request. This is used to request clipboard contents and must
 /// be sent as a response to a ClipboardRequest event.
 pub const ClipboardRequest = union(ClipboardRequestType) {
