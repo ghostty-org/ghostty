@@ -460,7 +460,13 @@ class WorkspaceViewContainer: NSView {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Pin the outer VStack to a concrete width so the nested LazyStacks
+            // inside the three zones receive a definite cross-axis proposal.
+            // Without this the hosting view proposed .infinity, which sent
+            // LazyVStack.sizeThatFits into an infinite measurement recursion
+            // (see fix/sidebar-layout-hang-v0).
+            .frame(width: WorkspaceLayout.taskSidebarWidth)
+            .frame(maxHeight: .infinity)
             .ignoresSafeArea(.container, edges: .top)
             // Row clicks in TaskRowView reach back into the terminal via the
             // coordinator and look up a matching project via WorkspaceStore.
