@@ -131,14 +131,15 @@ private:
     CefString(&settings.browser_subprocess_path) = [helperPath UTF8String];
 
     // Cache directory — required by CEF for subprocess data exchange.
-    // Use ~/Library/Application Support/com.seansmithdesign.ghostties/CEF/
-    // instead of /tmp so data persists and isn't world-readable.
+    // Use ~/Library/Application Support/<bundleIdentifier>/CEF/ so dev and
+    // release builds don't share a cache (bundle IDs differ by `.dev` suffix).
     NSArray<NSString *> *appSupportPaths = NSSearchPathForDirectoriesInDomains(
         NSApplicationSupportDirectory, NSUserDomainMask, YES);
     NSString *appSupportBase = appSupportPaths.firstObject
         ?: [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support"];
+    NSString *bundleId = [[NSBundle mainBundle] bundleIdentifier] ?: @"com.seansmithdesign.ghostties";
     NSString *cacheDir = [[appSupportBase
-        stringByAppendingPathComponent:@"com.seansmithdesign.ghostties"]
+        stringByAppendingPathComponent:bundleId]
         stringByAppendingPathComponent:@"CEF"];
     NSError *cacheDirError = nil;
     if (![[NSFileManager defaultManager] createDirectoryAtPath:cacheDir

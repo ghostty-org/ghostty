@@ -2,17 +2,30 @@ import Foundation
 import OSLog
 
 /// Reads and writes workspace state (projects) to a JSON file
-/// at ~/Library/Application Support/Ghostties/workspace.json.
+/// at ~/Library/Application Support/Ghostties/workspace.json (release) or
+/// ~/Library/Application Support/Ghostties Dev/workspace.json (dev build).
+/// Partitioning by bundle-ID suffix keeps dev and release state separate so
+/// they can coexist on the same machine.
 struct WorkspacePersistence {
     private static let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "com.seansmithdesign.ghostties",
         category: "WorkspacePersistence"
     )
 
+    /// The directory name for workspace data. `Ghostties Dev` for debug/dev
+    /// builds (bundle ID ends in `.dev` or `.debug`), `Ghostties` otherwise.
+    private static var directoryName: String {
+        let bundleId = Bundle.main.bundleIdentifier ?? ""
+        if bundleId.hasSuffix(".dev") || bundleId.hasSuffix(".debug") {
+            return "Ghostties Dev"
+        }
+        return "Ghostties"
+    }
+
     /// The directory where workspace data is stored.
     private static var directory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Ghostties", isDirectory: true)
+            .appendingPathComponent(directoryName, isDirectory: true)
     }
 
     private static var fileURL: URL {
