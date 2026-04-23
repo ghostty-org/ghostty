@@ -98,6 +98,12 @@
                                     <action selector="openConfig:" target="bbz-4X-AYv" id="X65-fg-iWU"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="MCP Sources…" id="mcp-sources-menu-item">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="showMCPSources:" target="bbz-4X-AYv" id="mcp-sources-menu-action"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Reload Configuration" id="KKH-XX-5py">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
