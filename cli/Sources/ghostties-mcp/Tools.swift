@@ -177,6 +177,8 @@ let priorityEnum = ["low", "normal", "high"]
 func allTools() -> [Tool] {
     [
         listTasksTool(),
-        getTaskTool()
+        getTaskTool(),
+        createTaskTool(),
+        updateTaskStatusTool()
     ]
 }
