@@ -51,7 +51,9 @@ public struct TaskStore {
             sourceID: Frontmatter.value(for: "source-id", in: pairs),
             branch: Frontmatter.value(for: "branch", in: pairs),
             frontmatter: pairs,
-            body: body
+            body: body,
+            projectPath: Frontmatter.value(for: "project-path", in: pairs),
+            template: Frontmatter.value(for: "template", in: pairs)
         )
     }
 

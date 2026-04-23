@@ -20,6 +20,12 @@ struct NewCommand: ParsableCommand {
     @Option(name: .long, help: "Project tag (defaults to containing directory name).")
     var project: String?
 
+    @Option(name: .long, help: "Path to the project's root directory (e.g. ~/Code/ghostties). Stored raw — tildes are not expanded.")
+    var projectPath: String?
+
+    @Option(name: .long, help: "Launch template name (e.g. \"Orchestrator\").")
+    var template: String?
+
     @Option(name: .long, help: "Status lane: inbox, backlog, running, needs-you, review, done/graveyard.")
     var lane: String?
 
@@ -41,7 +47,7 @@ struct NewCommand: ParsableCommand {
         let projectValue = project ?? defaultProject(from: dir)
         let nowISO = isoFormatter.string(from: Date())
 
-        let pairs: [(String, String)] = [
+        var pairs: [(String, String)] = [
             ("title", title),
             ("source", source ?? "shell"),
             ("source-id", id),
@@ -50,6 +56,12 @@ struct NewCommand: ParsableCommand {
             ("created", nowISO),
             ("status", laneValue.rawValue)
         ]
+        if let projectPath, !projectPath.isEmpty {
+            pairs.append(("project-path", projectPath))
+        }
+        if let template, !template.isEmpty {
+            pairs.append(("template", template))
+        }
 
         let body = "\n## Goal\n\n\n## Notes\n\n\n## Activity\n\n- \(nowISO) — Task created via gt new\n"
 
