@@ -53,6 +53,17 @@ struct TaskItem: Identifiable, Codable, Equatable {
     let sourceID: String?
     let branch: String?
     let project: String
+    /// Optional explicit filesystem root for the task's project (e.g.
+    /// `~/Code/ghostties`). When present, used as the cwd when the row-click
+    /// spawns a terminal. Authoritative over `WorkspaceStore` name-lookup.
+    /// Stored tilde-raw — expand via `NSString(string:).expandingTildeInPath`
+    /// at the call site, never on write.
+    let projectPath: String?
+    /// Optional `AgentTemplate` name override (e.g. `orchestrator`,
+    /// `claude code`). Resolved case-insensitively at spawn time against
+    /// `WorkspaceStore.templates`; a non-nil value that fails to resolve logs
+    /// to stderr and falls back to the user-preference / built-in default.
+    let template: String?
     let created: Date
     let status: TaskStatus
     let filesStaged: Int?
@@ -73,6 +84,8 @@ struct TaskItem: Identifiable, Codable, Equatable {
         case sourceID = "source-id"
         case branch
         case project
+        case projectPath = "project-path"
+        case template
         case created
         case status
         case filesStaged = "files-staged"

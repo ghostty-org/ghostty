@@ -4,6 +4,7 @@ source: sentry
 source-id: SNT-9
 branch: null
 project: ghostties
+project-path: ~/Code/ghostties
 created: 2026-04-22T09:12:00Z
 status: inbox
 severity: error

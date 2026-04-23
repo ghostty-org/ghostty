@@ -197,6 +197,26 @@ enum TaskFixtureParser {
         let notes = sections["Notes"]?.trimmed()
         let events = sections["Activity"].map(parseActivity)
 
+        // `project-path` is optional — drives the click-spawns-terminal cwd.
+        // Stored tilde-raw; consumers expand. Empty string ≡ unset.
+        let projectPath: String? = {
+            guard let raw = yaml["project-path"]?
+                .trimmingCharacters(in: .whitespaces), !raw.isEmpty else {
+                return nil
+            }
+            return raw
+        }()
+
+        // `template` is optional — resolved by name (case-insensitive) at
+        // session-spawn time. Empty string ≡ unset.
+        let template: String? = {
+            guard let raw = yaml["template"]?
+                .trimmingCharacters(in: .whitespaces), !raw.isEmpty else {
+                return nil
+            }
+            return raw
+        }()
+
         return TaskItem(
             id: id,
             title: title,
@@ -204,6 +224,8 @@ enum TaskFixtureParser {
             sourceID: sourceID,
             branch: yaml["branch"].flatMap { $0 == "null" ? nil : $0 },
             project: project,
+            projectPath: projectPath,
+            template: template,
             created: created,
             status: status,
             filesStaged: yaml["files-staged"].flatMap(Int.init),
