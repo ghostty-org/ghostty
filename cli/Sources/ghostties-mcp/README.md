@@ -64,4 +64,6 @@ JSON-RPC error.
   launches the server with a working directory you don't control.
 - Smoke test: `cli/scripts/smoke-mcp.sh` pipes a scripted sequence of JSON-RPC
   calls through the binary and asserts on the responses.
+- XCTest suite: `cd cli && swift test --filter GhosttiesMCPTests` runs the
+  same protocol coverage under CI and fails loudly on regressions.
 - `--version` prints the server version and exits.

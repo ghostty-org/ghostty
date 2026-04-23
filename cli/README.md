@@ -72,6 +72,26 @@ Six lanes match the sidebar IA: `inbox`, `backlog`, `running`, `needs-you`, `rev
 - `2` — task or directory not found
 - `3` — ambiguous id
 
+## Testing
+
+Run the full test suite:
+
+```sh
+cd cli
+swift test
+```
+
+Individual test targets:
+
+```sh
+swift test --filter GhosttiesCoreTests   # parser, store, directory discovery, cross-surface schema
+swift test --filter GhosttiesMCPTests    # JSON-RPC protocol + all 9 MCP tool handlers
+```
+
+`GhosttiesCoreTests/CrossSurfaceCoherenceTests.swift` asserts that task files written by this CLI (and the MCP server) match the exact frontmatter schema the macOS sidebar's `TaskFixtureParser` reads. If that test fails, do not commit — the three-surface architecture has drifted.
+
+CI runs both test targets plus a scoped macOS app test pass on every push. See `.github/workflows/test-ghostties.yml`.
+
 ## File format
 
 Each task is a single markdown file with YAML-ish frontmatter. Example:

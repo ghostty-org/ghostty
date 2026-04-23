@@ -30,6 +30,16 @@ let package = Package(
             dependencies: ["GhosttiesCore"],
             path: "Sources/ghostties-mcp",
             exclude: ["README.md"]
+        ),
+        .testTarget(
+            name: "GhosttiesCoreTests",
+            dependencies: ["GhosttiesCore"],
+            path: "Tests/GhosttiesCoreTests"
+        ),
+        .testTarget(
+            name: "GhosttiesMCPTests",
+            dependencies: ["GhosttiesCore"],
+            path: "Tests/GhosttiesMCPTests"
         )
     ]
 )

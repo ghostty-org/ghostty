@@ -1,0 +1,92 @@
+# Test workflow for the Ghostties fork.
+#
+# The upstream `test.yml` workflow is gated on `github.repository ==
+# 'ghostty-org/ghostty'` and runs on Namespace Labs runners we don't have
+# access to. This workflow covers the fork-only surfaces:
+#
+#   - Swift Package at `cli/` (gt CLI + ghostties-mcp server + GhosttiesCore)
+#   - macOS app tests for TaskStore + TaskFileWatcher + TaskFixtureParser
+#
+# Runs on macos-latest (Apple Silicon) because GhosttyKit.xcframework is
+# arm64-only. `zig` is NOT required for tests — the vendored xcframework
+# is checked in. Signing / notarization happens in the separate release
+# workflow (`ghostties-release.yml`).
+
+name: Test (Ghostties fork)
+
+on:
+  push:
+    branches:
+      - main
+      - "feat/**"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Swift Package — GhosttiesCore + gt + ghostties-mcp
+  # ---------------------------------------------------------------------------
+  swift-package:
+    name: Swift Package (cli/)
+    # Skip on the upstream repo; upstream test.yml covers upstream code.
+    if: github.repository != 'ghostty-org/ghostty'
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: swift --version
+        run: swift --version
+
+      - name: swift test
+        working-directory: cli
+        run: swift test --parallel
+
+  # ---------------------------------------------------------------------------
+  # macOS App — Ghostties Xcode project tests
+  # ---------------------------------------------------------------------------
+  macos-app:
+    name: macOS App (xcodebuild test)
+    if: github.repository != 'ghostty-org/ghostty'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Xcode version
+        run: xcodebuild -version
+
+      # Pin arm64 — GhosttyKit.xcframework is arm64-only. Without this the
+      # Xcode CLI will try to build universal and fail on linker misses.
+      # (Xcode GUI masks this by defaulting ONLY_ACTIVE_ARCH=YES for Debug.)
+      # Scope to the task-layer tests added in feat/automated-testing-v0.
+      # The rest of the GhosttyTests bundle covers legacy + upstream fixtures
+      # we do not gate CI on here.
+      - name: Build + test Ghostties
+        working-directory: macos
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -scheme Ghostties \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            ONLY_ACTIVE_ARCH=YES \
+            ARCHS=arm64 \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            -only-testing:GhosttyTests/TaskModelTests \
+            -only-testing:GhosttyTests/TaskFileWatcherTests
