@@ -67,6 +67,11 @@ public enum JSONValue: Equatable {
         return nil
     }
 
+    public var bool: Bool? {
+        if case .bool(let b) = self { return b }
+        return nil
+    }
+
     public var int: Int? {
         switch self {
         case .int(let i): return i

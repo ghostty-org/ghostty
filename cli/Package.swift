@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .executable(name: "gt", targets: ["gt"]),
         .executable(name: "ghostties-mcp", targets: ["ghostties-mcp"]),
+        .executable(name: "probe-linear", targets: ["probe-linear"]),
         .library(name: "GhosttiesCore", targets: ["GhosttiesCore"]),
         .library(name: "GhosttiesMCPClient", targets: ["GhosttiesMCPClient"])
     ],
@@ -36,6 +37,11 @@ let package = Package(
             dependencies: ["GhosttiesCore"],
             path: "Sources/ghostties-mcp",
             exclude: ["README.md"]
+        ),
+        .executableTarget(
+            name: "probe-linear",
+            dependencies: ["GhosttiesCore", "GhosttiesMCPClient"],
+            path: "Sources/probe-linear"
         ),
         .testTarget(
             name: "GhosttiesCoreTests",

@@ -25,6 +25,12 @@ public actor MCPClient {
     private var receiveTask: _Concurrency.Task<Void, Never>?
     private var connected = false
 
+    /// Raw result of the most recent `initialize` exchange, or `nil` if the
+    /// client hasn't connected yet. Additive accessor for diagnostic callers
+    /// (e.g. the Linear capability probe) — the normal request/response path
+    /// still lives in `sendRequest`.
+    private var lastInitializeResult: JSONValue?
+
     /// - Parameters:
     ///   - transport: A configured transport. Stdio transports must have
     ///     already had `start()` called.
@@ -69,7 +75,8 @@ public actor MCPClient {
 
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
-                _ = try await self.sendRequest(method: "initialize", params: params)
+                let result = try await self.sendRequest(method: "initialize", params: params)
+                await self.recordInitializeResult(result)
             }
             group.addTask {
                 try await _Concurrency.Task.sleep(for: timeout)
@@ -94,6 +101,34 @@ public actor MCPClient {
         try await transport.send(try initialized.encode())
 
         connected = true
+    }
+
+    /// The raw `result` object returned by the server's `initialize` response
+    /// on the most recent `connect()`, or `nil` if the client hasn't connected
+    /// yet. Exposes the server's full advertised `capabilities`, `serverInfo`,
+    /// and `protocolVersion` so diagnostic tools can inspect what a given
+    /// server supports (e.g. `resources.subscribe`). Not used by the normal
+    /// request/response path.
+    public func initializeResult() -> JSONValue? {
+        lastInitializeResult
+    }
+
+    /// Convenience accessor for the `capabilities` sub-object of the most
+    /// recent `initialize` response. Returns `.object([:])` when unavailable
+    /// so callers can uniformly probe keys without unwrapping.
+    public func serverCapabilities() -> JSONValue {
+        guard let result = lastInitializeResult else { return .object([:]) }
+        return result["capabilities"] ?? .object([:])
+    }
+
+    /// Fetch the raw result of an arbitrary JSON-RPC method. Used by the
+    /// capability probe to call protocol methods the client doesn't otherwise
+    /// expose (e.g. `resources/list`). Returns `.null` if the server returned
+    /// a null result; throws `MCPError.protocolError` for JSON-RPC errors
+    /// (including "method not supported") so callers can classify them.
+    public func sendRawRequest(method: String, params: JSONValue? = nil) async throws -> JSONValue {
+        try ensureConnected()
+        return try await sendRequest(method: method, params: params)
     }
 
     /// List all tools exposed by the remote server.
@@ -135,6 +170,12 @@ public actor MCPClient {
         if !connected {
             throw MCPError.notConnected
         }
+    }
+
+    /// Stash the raw `initialize` result so diagnostic callers can inspect
+    /// the server's advertised capabilities after the handshake completes.
+    private func recordInitializeResult(_ result: JSONValue) {
+        lastInitializeResult = result
     }
 
     /// Fail any outstanding initialize continuation so the caller doesn't hang
