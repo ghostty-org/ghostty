@@ -119,7 +119,8 @@ struct TaskRowView: View {
             coordinator.startOrFocusSession(
                 forProjectNamed: task.project,
                 rootPath: path,
-                templateName: resolvedTemplateName
+                templateName: resolvedTemplateName,
+                sourceTaskId: task.id
             )
         } else if let storeProject = workspaceStore.projects
             .first(where: { $0.name == task.project }) {
