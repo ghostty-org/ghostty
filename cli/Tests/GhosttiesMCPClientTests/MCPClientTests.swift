@@ -4,11 +4,11 @@ import GhosttiesCore
 
 /// Tests for `MCPClient` — notification routing and connect-timeout behavior.
 ///
-/// Uses a local mock transport; not promoted to shared code (YAGNI) — if a
-/// second test file needs it, lift then.
+/// Uses local mock transports; not promoted to shared code (YAGNI) — if a
+/// second test file needs them, lift then.
 final class MCPClientTests: XCTestCase {
 
-    // MARK: - Notification handler
+    // MARK: - Fix 2: notification handler
 
     func testNotificationHandlerFiresOnIncomingNotification() async throws {
         let transport = MockTransport()
@@ -24,7 +24,7 @@ final class MCPClientTests: XCTestCase {
 
         // Drive the handshake in the background so we can answer it.
         let connectTask = _Concurrency.Task {
-            try await client.connect()
+            try await client.connect(timeout: .seconds(2))
         }
 
         // Answer the initialize request so connect() returns.
@@ -48,6 +48,29 @@ final class MCPClientTests: XCTestCase {
         let first = await received.first()
         XCTAssertEqual(first?.method, "notifications/resources/updated")
         XCTAssertEqual(first?.params?["uri"]?.string, "task://abc")
+
+        await client.disconnect()
+    }
+
+    // MARK: - Fix 3: connect timeout
+
+    func testConnectThrowsTimeoutWhenServerNeverResponds() async throws {
+        let transport = MockTransport()  // never injects a response
+        let client = MCPClient(transport: transport, sourceId: "test")
+
+        let start = ContinuousClock.now
+        do {
+            try await client.connect(timeout: .milliseconds(50))
+            XCTFail("connect should have timed out")
+        } catch let error as MCPError {
+            guard case .connectionTimeout = error else {
+                XCTFail("expected .connectionTimeout, got \(error)")
+                return
+            }
+        }
+        let elapsed = ContinuousClock.now - start
+        XCTAssertLessThan(elapsed, .milliseconds(500),
+                          "timeout should fire promptly, not wait for the default")
 
         await client.disconnect()
     }

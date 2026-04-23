@@ -18,6 +18,10 @@ public enum MCPError: Error, Equatable {
 
     /// Malformed JSON on disk or over the wire.
     case decodingFailed(String)
+
+    /// The MCP handshake did not complete before the caller-supplied timeout.
+    /// Carries the timeout value for logging.
+    case connectionTimeout(Duration)
 }
 
 extension MCPError: CustomStringConvertible {
@@ -33,6 +37,8 @@ extension MCPError: CustomStringConvertible {
             return "client is not connected"
         case .decodingFailed(let msg):
             return "decoding failed: \(msg)"
+        case .connectionTimeout(let duration):
+            return "connection timed out after \(duration)"
         }
     }
 }

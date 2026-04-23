@@ -44,8 +44,14 @@ public actor MCPClient {
 
     /// Perform the MCP handshake: send `initialize`, wait for the response,
     /// then fire the `notifications/initialized` notification. Throws if the
-    /// server returns a protocol error.
+    /// server returns a protocol error, or `MCPError.connectionTimeout` if the
+    /// handshake doesn't complete within `timeout`.
+    ///
+    /// - Parameter timeout: Maximum time to wait for the `initialize` response.
+    ///   Default is 10 seconds — chosen to feel human-impatient without being
+    ///   flaky over slow SSE-initiating servers.
     public func connect(
+        timeout: Duration = .seconds(10),
         clientName: String = "ghostties",
         clientVersion: String = "0.1.0",
         protocolVersion: String = "2024-11-05"
@@ -61,7 +67,27 @@ public actor MCPClient {
             ])
         ])
 
-        _ = try await sendRequest(method: "initialize", params: params)
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                _ = try await self.sendRequest(method: "initialize", params: params)
+            }
+            group.addTask {
+                try await _Concurrency.Task.sleep(for: timeout)
+                throw MCPError.connectionTimeout(timeout)
+            }
+
+            // Wait for whichever finishes first; cancel the loser.
+            do {
+                try await group.next()
+                group.cancelAll()
+            } catch {
+                group.cancelAll()
+                // If the handshake is still in flight, fail its continuation
+                // so the caller isn't left holding a zombie request.
+                self.failPendingInitialize(error: error)
+                throw error
+            }
+        }
 
         // Notify the server we're ready. No response expected.
         let initialized = MCPNotification(method: "notifications/initialized")
@@ -109,6 +135,17 @@ public actor MCPClient {
         if !connected {
             throw MCPError.notConnected
         }
+    }
+
+    /// Fail any outstanding initialize continuation so the caller doesn't hang
+    /// after a timeout. In practice `initialize` is always id=1 when `connect`
+    /// is called on a fresh client, but we fail every pending request to be
+    /// safe — nothing legitimate should be in flight during handshake.
+    private func failPendingInitialize(error: Error) {
+        for (_, cont) in pending {
+            cont.resume(throwing: error)
+        }
+        pending.removeAll()
     }
 
     private func sendRequest(method: String, params: JSONValue?) async throws -> JSONValue {
