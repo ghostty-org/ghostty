@@ -33,3 +33,7 @@ default.profraw
 .kiro/
 .windsurf/
 .claude/worktrees/
+
+# Session-hybrid: anonymous terminal session state; ephemeral, per-machine.
+.ghostties/sessions.json
+.ghostties/sessions.json.tmp
