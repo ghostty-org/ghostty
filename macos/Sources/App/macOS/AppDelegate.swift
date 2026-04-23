@@ -1174,6 +1174,10 @@ class AppDelegate: NSObject,
         Ghostty.App.openConfig()
     }
 
+    @IBAction func showMCPSources(_ sender: Any?) {
+        MCPSourceSettingsWindowController.shared.show()
+    }
+
     @IBAction func reloadConfig(_ sender: Any?) {
         ghostty.reloadConfig()
     }

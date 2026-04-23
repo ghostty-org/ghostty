@@ -18,21 +18,20 @@
 		A53D0C8E2B53B0EA00305CE6 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5D495A1299BEC7E00DD1313 /* GhosttyKit.xcframework */; };
 		A53D0C952B53B4D800305CE6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5B30538299BEAAB0047F10C /* Assets.xcassets */; };
 		A546F1142D7B68D7003B11A0 /* locale in Resources */ = {isa = PBXBuildFile; fileRef = A546F1132D7B68D7003B11A0 /* locale */; };
-		A553F4132E06EB1600257779 /* Ghostties.icon in Resources */ = {isa = PBXBuildFile; fileRef = A553F4122E06EB1600257779 /* Ghostties.icon */; };
-		A553F4142E06EB1600257779 /* Ghostties.icon in Resources */ = {isa = PBXBuildFile; fileRef = A553F4122E06EB1600257779 /* Ghostties.icon */; };
 		A56B880B2A840447007A0E29 /* Carbon.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A56B880A2A840447007A0E29 /* Carbon.framework */; };
 		A571AB1D2A206FCF00248498 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5D495A1299BEC7E00DD1313 /* GhosttyKit.xcframework */; };
 		A586167C2B7703CC009BDB1D /* fish in Resources */ = {isa = PBXBuildFile; fileRef = A586167B2B7703CC009BDB1D /* fish */; };
 		A5985CE62C33060F00C57AD3 /* man in Resources */ = {isa = PBXBuildFile; fileRef = A5985CE52C33060F00C57AD3 /* man */; };
 		A5A1F8852A489D6800D1E8BC /* terminfo in Resources */ = {isa = PBXBuildFile; fileRef = A5A1F8842A489D6800D1E8BC /* terminfo */; };
 		A5B30539299BEAAB0047F10C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5B30538299BEAAB0047F10C /* Assets.xcassets */; };
+		AA1BFC302B30F1B800E92F16 /* GhosttiesMCPClient in Frameworks */ = {isa = PBXBuildFile; productRef = AA1BFC312B30F1B800E92F16 /* GhosttiesMCPClient */; };
+		AA1BFC322B30F1B800E92F16 /* GhosttiesCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA1BFC332B30F1B800E92F16 /* GhosttiesCore */; };
 		B0A55ABE2F72F4C100018CBF /* debugger.md in Resources */ = {isa = PBXBuildFile; fileRef = B0A55AB92F72F4C100018CBF /* debugger.md */; };
 		B0A55ABF2F72F4C100018CBF /* code-reviewer.md in Resources */ = {isa = PBXBuildFile; fileRef = B0A55AB82F72F4C100018CBF /* code-reviewer.md */; };
 		B0A55AC02F72F4C100018CBF /* test-writer.md in Resources */ = {isa = PBXBuildFile; fileRef = B0A55ABC2F72F4C100018CBF /* test-writer.md */; };
 		B0A55AC12F72F4C100018CBF /* architect.md in Resources */ = {isa = PBXBuildFile; fileRef = B0A55AB72F72F4C100018CBF /* architect.md */; };
 		B0A55AC22F72F4C100018CBF /* pair-programmer.md in Resources */ = {isa = PBXBuildFile; fileRef = B0A55ABB2F72F4C100018CBF /* pair-programmer.md */; };
 		B0A55AC32F72F4C100018CBF /* orchestrator.md in Resources */ = {isa = PBXBuildFile; fileRef = B0A55ABA2F72F4C100018CBF /* orchestrator.md */; };
-		B0A55ADC2F7313F500018CBF /* Chromium Embedded Framework.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B0A55ADB2F7313F500018CBF /* Chromium Embedded Framework.framework */; };
 		FC5218FA2D10FFCE004C93E0 /* zsh in Resources */ = {isa = PBXBuildFile; fileRef = FC5218F92D10FFC7004C93E0 /* zsh */; };
 		FC9ABA9C2D0F53F80020D4C8 /* bash-completion in Resources */ = {isa = PBXBuildFile; fileRef = FC9ABA9B2D0F538D0020D4C8 /* bash-completion */; };
 /* End PBXBuildFile section */
@@ -93,7 +92,7 @@
 		A586167B2B7703CC009BDB1D /* fish */ = {isa = PBXFileReference; lastKnownFileType = folder; name = fish; path = "../zig-out/share/fish"; sourceTree = "<group>"; };
 		A5985CE52C33060F00C57AD3 /* man */ = {isa = PBXFileReference; lastKnownFileType = folder; name = man; path = "../zig-out/share/man"; sourceTree = "<group>"; };
 		A5A1F8842A489D6800D1E8BC /* terminfo */ = {isa = PBXFileReference; lastKnownFileType = folder; name = terminfo; path = "../zig-out/share/terminfo"; sourceTree = "<group>"; };
-		A5B30531299BEAAA0047F10C /* Ghostties.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Ghostties.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A5B30531299BEAAA0047F10C /* Ghostties Dev.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ghostties Dev.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5B30538299BEAAB0047F10C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A5B3053D299BEAAB0047F10C /* Ghostties.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Ghostties.entitlements; sourceTree = "<group>"; };
 		A5D4499D2B53AE7B000F5B83 /* Ghostty-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ghostty-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -313,7 +312,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				A51BFC272B30F1B800E92F16 /* Sparkle in Frameworks */,
-				/* CEF is loaded dynamically at runtime via CefScopedLibraryLoader — no link needed */
+				AA1BFC302B30F1B800E92F16 /* GhosttiesMCPClient in Frameworks */,
+				AA1BFC322B30F1B800E92F16 /* GhosttiesCore in Frameworks */,
 				A56B880B2A840447007A0E29 /* Carbon.framework in Frameworks */,
 				A571AB1D2A206FCF00248498 /* GhosttyKit.xcframework in Frameworks */,
 			);
@@ -370,7 +370,7 @@
 		A5B30532299BEAAA0047F10C /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A5B30531299BEAAA0047F10C /* Ghostties.app */,
+				A5B30531299BEAAA0047F10C /* Ghostties Dev.app */,
 				A5D4499D2B53AE7B000F5B83 /* Ghostty-iOS.app */,
 				A54F45F32E1F047A0046BD5C /* GhosttyTests.xctest */,
 				810ACC9F2E9D3301004F8F92 /* GhosttyUITests.xctest */,
@@ -494,9 +494,11 @@
 			name = Ghostties;
 			packageProductDependencies = (
 				A51BFC262B30F1B800E92F16 /* Sparkle */,
+				AA1BFC312B30F1B800E92F16 /* GhosttiesMCPClient */,
+				AA1BFC332B30F1B800E92F16 /* GhosttiesCore */,
 			);
 			productName = Ghostties;
-			productReference = A5B30531299BEAAA0047F10C /* Ghostties.app */;
+			productReference = A5B30531299BEAAA0047F10C /* Ghostties Dev.app */;
 			productType = "com.apple.product-type.application";
 		};
 		A5D4499C2B53AE7B000F5B83 /* Ghostty-iOS */ = {
@@ -560,6 +562,7 @@
 			mainGroup = A5B30528299BEAAA0047F10C;
 			packageReferences = (
 				A51BFC252B30F1B700E92F16 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				AA1BFC282B30F1B700E92F16 /* XCLocalSwiftPackageReference "../cli" */,
 			);
 			productRefGroup = A5B30532299BEAAA0047F10C /* Products */;
 			projectDirPath = "";
@@ -633,25 +636,24 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		B0CEF0022F8A000200018CBF /* Build CEF Wrapper */ = {
+		55E1BED12F00000000000001 /* Embed Ghostty Resources */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
 			inputPaths = (
-				"$(PROJECT_DIR)/../vendor/cef/libcef_dll/wrapper/libcef_dll_wrapper.cc",
 			);
-			name = "Build CEF Wrapper";
+			name = "Embed Ghostty Resources";
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(PROJECT_DIR)/../vendor/cef-build/libcef_dll_wrapper.a",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
-			shellScript = "\"${PROJECT_DIR}/../scripts/build-cef-wrapper.sh\"\n";
+			shellScript = "\"${PROJECT_DIR}/../scripts/embed-ghostty-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
 		B0CEF0012F8A000100018CBF /* Embed CEF */ = {
@@ -676,24 +678,25 @@
 			shellScript = "\"${PROJECT_DIR}/../scripts/embed-cef.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		55E1BED12F00000000000001 /* Embed Ghostty Resources */ = {
+		B0CEF0022F8A000200018CBF /* Build CEF Wrapper */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
 			inputPaths = (
+				"$(PROJECT_DIR)/../vendor/cef/libcef_dll/wrapper/libcef_dll_wrapper.cc",
 			);
-			name = "Embed Ghostty Resources";
+			name = "Build CEF Wrapper";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(PROJECT_DIR)/../vendor/cef-build/libcef_dll_wrapper.a",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
-			shellScript = "\"${PROJECT_DIR}/../scripts/embed-ghostty-resources.sh\"\n";
+			shellScript = "\"${PROJECT_DIR}/../scripts/build-cef-wrapper.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
 		FC501E0B2F46B410007AE49D /* Run SwiftLint */ = {
@@ -1158,7 +1161,6 @@
 				"FRAMEWORK_SEARCH_PATHS[arch=*]" = "$(PROJECT_DIR)/../vendor/cef/Release";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
-				"HEADER_SEARCH_PATHS[arch=*]" = "$(PROJECT_DIR)/../vendor/cef";
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = (
@@ -1171,6 +1173,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				"HEADER_SEARCH_PATHS[arch=*]" = "$(PROJECT_DIR)/../vendor/cef";
 				MACOSX_DEPLOYMENT_TARGET = 13.1;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -1223,13 +1226,13 @@
 				"FRAMEWORK_SEARCH_PATHS[arch=*]" = "$(PROJECT_DIR)/../vendor/cef/Release";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
-				"HEADER_SEARCH_PATHS[arch=*]" = "$(PROJECT_DIR)/../vendor/cef";
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
 				GCC_WARN_UNDECLARED_SELECTOR = YES;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				"HEADER_SEARCH_PATHS[arch=*]" = "$(PROJECT_DIR)/../vendor/cef";
 				MACOSX_DEPLOYMENT_TARGET = 13.1;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -1541,6 +1544,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		AA1BFC282B30F1B700E92F16 /* XCLocalSwiftPackageReference "../cli" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../cli;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		A51BFC252B30F1B700E92F16 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -1557,6 +1567,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A51BFC252B30F1B700E92F16 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		AA1BFC312B30F1B800E92F16 /* GhosttiesMCPClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA1BFC282B30F1B700E92F16 /* XCLocalSwiftPackageReference "../cli" */;
+			productName = GhosttiesMCPClient;
+		};
+		AA1BFC332B30F1B800E92F16 /* GhosttiesCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA1BFC282B30F1B700E92F16 /* XCLocalSwiftPackageReference "../cli" */;
+			productName = GhosttiesCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
