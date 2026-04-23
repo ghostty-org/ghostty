@@ -1,5 +1,79 @@
 # Session Notes — Ghostties
 
+## Apr 23, 2026 (Continuation — crash fix + Phase 5 scaffold + 4.2 secrets)
+
+Post-overnight session: fixed a release-build main-thread hang, stood up the Phase 5 MCP client scaffold, and walked through all 9 Phase 4.2 distribution secrets with Sean live.
+
+### Shipped
+
+**Crash fix** (`fix/sidebar-layout-hang-v0` tip `b02dcba6d`)
+
+- Root-caused a 652s main-thread hang in `/Applications/Ghostties.app v0.1` via Explore agent. Stack signature: nested LazyStack `sizeThatFits` recursion under `NSHostingView.beginTransaction`.
+- Fix: pinned `TaskSidebarView`'s outer VStack in `WorkspaceViewContainer.applySidebarView()` to `WorkspaceLayout.taskSidebarWidth` (280pt). Removed redundant inner `.frame(width: 280)` from `TaskSidebarView.swift:37`. Split into two chained `.frame()` modifiers (SwiftUI rejected the combined `width:maxHeight:` overload).
+- 342 XCTests pass. Must merge before tagging `v0.1.0-beta.1`.
+
+**Phase 5 Wave 1 — MCP client scaffold** (`feat/external-mcp-sources-v0`, commits `a3b69838f` + `146b08469`)
+
+- New `GhosttiesMCPClient` library target in `cli/` Swift Package
+- JSON-RPC 2.0 protocol, stdio transport, `MCPClient` actor, `MCPSource` + `MCPSourceStore` persistence
+- 13 tests covering protocol round-trips + source store
+
+**Phase 5 Wave 2a — scaffold cleanup** (same branch, commits `e11d973b4` + `530058efe` + `a7b72d69c`)
+
+- Promoted `JSONValue` into `GhosttiesCore` — eliminated client/server duplication (Fragile Area #14)
+- Added `onNotification` handler closure to `MCPClient.init` — prepares for Linear MCP subscriptions
+- Added `connect(timeout:)` with 10s default + `MCPError.connectionTimeout(Duration)`
+- Subagent caught pre-existing bug: `handleIncoming` dropped notifications because `id: .null` parsed as present. Fixed via raw-JSON id peek. Would have silently broken Wave 2 push-over-MCP.
+- Tests: 13 → 15
+
+**Phase 4.2 — Distribution secrets** (owned by Sean, walked through live)
+
+- All 9 GitHub Actions secrets configured:
+  - Sparkle: public + private (EdDSA keys from Sparkle's `generate_keys`)
+  - Signing: `PROD_MACOS_CERTIFICATE` (base64 .p12), `PROD_MACOS_CERTIFICATE_PWD`, `PROD_MACOS_CERTIFICATE_NAME`, `PROD_MACOS_CI_KEYCHAIN_PWD`
+  - Notarization: `APPLE_NOTARIZATION_KEY` (.p8 contents), `APPLE_NOTARIZATION_KEY_ID` (`8536232TJ5`), `APPLE_NOTARIZATION_ISSUER` (`6058235f-bab7-4174-b880-977d9e502a74`)
+- New App Store Connect API key created specifically for Ghostties CI (Developer role, Team Keys tab)
+- Workflow audit: all 9 secret names match `.github/workflows/ghostties-release.yml`; no stale bundle IDs in release workflow; entitlements present; appcast URLs correct
+
+**Architectural decisions**
+
+- Sync strategy for Linear (decided with Sean): probe Linear MCP server for resource subscriptions → push if supported, lazy refresh (launch + focus + manual ⌘R) otherwise. No polling timer by default.
+- v0 Linear filter: `assigned to me, status != Done, status != Cancelled`. Future Settings pane offers presets.
+- INBOX lane placement TBD — experiment in-app once real data is rendering.
+
+### Gotchas (hit live)
+
+- **TCC blocks Terminal access to `~/Desktop` and `~/Downloads`** (modern macOS). Workaround: drag file to home folder via Finder, operate there.
+- **Ghostty terminal pasting wraps long lines** at column width; pasted multi-line commands split at the wrap and become broken shell invocations. Workaround: assign long paths to shell variables first.
+- **Sparkle `generate_keys` doesn't take `--account`** — my instruction had it wrong. Bare invocation finds existing key; `-x <file>` exports private key.
+- **Keychain Export is hidden unless the private key is visible** — must click the disclosure triangle first, then right-click the cert row (not the key row) → Export gets the `.p12` that bundles both.
+
+### New global memory
+
+- `~/.claude/projects/-Users-seansmith-Code/memory/reference_apple-developer-account.md` — Team IDs (primary `5P7G79U672`, legacy `Y746FDVZQK`), cert names, quick recall commands. Available from any `~/Code/` project.
+
+### Commits
+
+- `b02dcba6d` fix: constrain task sidebar outer VStack (crash fix branch)
+- `a3b69838f` feat(mcp-client): JSON-RPC 2.0 protocol + stdio transport scaffold
+- `146b08469` feat(mcp-client): MCPSource config + store + protocol/store tests
+- `e11d973b4` refactor(core): promote JSONValue into GhosttiesCore
+- `530058efe` feat(mcp-client): notification handler closure
+- `a7b72d69c` feat(mcp-client): connection handshake timeout
+
+### Deferred / heads-up
+
+- `docs/Crash report/21Apr2026 - crash report mac.md` — 6.3 MB hang sampling artifact. Not committed (too large). On disk at repo root if needed.
+- Redundant `SPARKLE_PUBLIC_KEY` GitHub secret (workflow hardcodes value — harmless)
+- `.github/workflows/flatpak.yml` still references `com.mitchellh.ghostty` (Linux packaging, unused)
+- `TEST_TARGET_NAME = Ghostty` stale in `GhosttyUITests` configs (should be `Ghostties`)
+
+### Next session pickup
+
+Sean's direction at wrap: **do not merge or tag until UX is live-testable with real Linear data.** Phase 5 Wave 2b (capability probe) + Wave 2c (auth UI) + Wave 3 (Inbox population with one real Linear ticket rendered) is the path. Merge posture: `fix/sidebar-layout-hang-v0` + `feat/task-first-sidebar-v0` + `feat/external-mcp-sources-v0` once Wave 3 is enough to feel.
+
+---
+
 ## Apr 16, 2026 (Session 18)
 
 ### v0.1.0 Distribution Pipeline — Planning + CI Setup
