@@ -49,6 +49,12 @@ public struct Task {
     public var source: String?
     public var sourceID: String?
     public var branch: String?
+    /// Absolute path (tilde preserved raw on disk) to the project root. Used
+    /// by the macOS sidebar to launch a terminal in the right working dir.
+    public var projectPath: String?
+    /// Launch template name (e.g. "Orchestrator"). Resolved at session-spawn
+    /// time by the macOS app. Stored verbatim — no case-folding.
+    public var template: String?
     /// Raw frontmatter key order + values. Preserved so round-trips don't
     /// reshuffle unrelated fields.
     public var frontmatter: [(String, String)]
@@ -64,7 +70,9 @@ public struct Task {
         sourceID: String?,
         branch: String?,
         frontmatter: [(String, String)],
-        body: String
+        body: String,
+        projectPath: String? = nil,
+        template: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -75,5 +83,7 @@ public struct Task {
         self.branch = branch
         self.frontmatter = frontmatter
         self.body = body
+        self.projectPath = projectPath
+        self.template = template
     }
 }

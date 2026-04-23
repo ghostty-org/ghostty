@@ -11,6 +11,8 @@ func createTaskTool() -> Tool {
                 ("source", S.string("Task source (e.g. linear, github, shell, sentry). Defaults to 'shell'.")),
                 ("branch", S.string("Branch name to associate with the task.")),
                 ("project", S.string("Project tag. Defaults to the tasks-dir's repo name.")),
+                ("project_path", S.string("Absolute path to the project's root directory (e.g. ~/Code/ghostties). Stored raw — tildes are not expanded.")),
+                ("template", S.string("Launch template name (e.g. \"Orchestrator\"). Stored verbatim.")),
                 ("lane", S.string("Status lane.", enum: laneEnum)),
                 ("priority", S.string("Task priority.", enum: priorityEnum)),
                 ("notes", S.string("Initial note body to seed the ## Notes section."))
@@ -38,6 +40,8 @@ func createTaskTool() -> Tool {
             let source = args["source"]?.string ?? "shell"
             let branch = args["branch"]?.string ?? "null"
             let project = args["project"]?.string ?? defaultProject(from: dir)
+            let projectPath = args["project_path"]?.string
+            let template = args["template"]?.string
             let priority = args["priority"]?.string
             let seedNotes = args["notes"]?.string
 
@@ -55,6 +59,12 @@ func createTaskTool() -> Tool {
             ]
             if let priority {
                 pairs.append(("priority", priority))
+            }
+            if let projectPath, !projectPath.isEmpty {
+                pairs.append(("project-path", projectPath))
+            }
+            if let template, !template.isEmpty {
+                pairs.append(("template", template))
             }
 
             let notesSeed: String
