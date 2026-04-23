@@ -242,11 +242,16 @@ struct TaskRowView: View {
     }
 
     /// Compact-row meta line: branch · N files · source OR just source for
-    /// shell tasks without a branch.
+    /// shell tasks without a branch. When project+branch is already long
+    /// (>20 chars combined), drop the lower-priority files count so the more
+    /// valuable fields survive tail-truncation at 280pt sidebar width.
     private var compactMetaLine: String {
         var parts: [String] = []
         if let b = task.branch { parts.append("⎇ \(b)") }
-        if let n = task.filesStaged { parts.append("\(n) file\(n == 1 ? "" : "s")") }
+        let cramped = (task.project.count + (task.branch?.count ?? 0)) > 20
+        if let n = task.filesStaged, !cramped {
+            parts.append("\(n) file\(n == 1 ? "" : "s")")
+        }
         if parts.isEmpty { parts.append(task.project) }
         return parts.joined(separator: " · ")
     }
