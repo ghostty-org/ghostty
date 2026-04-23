@@ -39,7 +39,7 @@ let package = Package(
         ),
         .testTarget(
             name: "GhosttiesMCPClientTests",
-            dependencies: ["GhosttiesMCPClient"],
+            dependencies: ["GhosttiesMCPClient", "GhosttiesCore"],
             path: "Tests/GhosttiesMCPClientTests"
         )
     ]

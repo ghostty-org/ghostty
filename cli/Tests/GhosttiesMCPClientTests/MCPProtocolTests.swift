@@ -1,4 +1,5 @@
 import XCTest
+import GhosttiesCore
 @testable import GhosttiesMCPClient
 
 final class MCPProtocolTests: XCTestCase {

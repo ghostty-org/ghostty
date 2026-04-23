@@ -1,4 +1,5 @@
 import Foundation
+import GhosttiesCore
 
 /// A generic MCP client. Speaks JSON-RPC 2.0 over any `MCPTransport`. Not
 /// Linear-specific, not Sentry-specific — vendor behavior lives outside this
@@ -16,7 +17,7 @@ public actor MCPClient {
 
     private var nextId: Int = 1
     private var pending: [Int: CheckedContinuation<JSONValue, Error>] = [:]
-    private var receiveTask: Task<Void, Never>?
+    private var receiveTask: _Concurrency.Task<Void, Never>?
     private var connected = false
 
     /// - Parameters:
@@ -109,9 +110,9 @@ public actor MCPClient {
             throw MCPError.decodingFailed("encode \(method): \(error.localizedDescription)")
         }
 
-        return try await withCheckedThrowingContinuation { cont in
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<JSONValue, Error>) in
             pending[id] = cont
-            Task {
+            _Concurrency.Task {
                 do {
                     try await transport.send(data)
                 } catch {
@@ -126,7 +127,7 @@ public actor MCPClient {
     private func startReceiveLoop() {
         guard receiveTask == nil else { return }
         let stream = transport.receive()
-        receiveTask = Task { [weak self] in
+        receiveTask = _Concurrency.Task { [weak self] in
             for await chunk in stream {
                 await self?.handleIncoming(chunk)
             }
