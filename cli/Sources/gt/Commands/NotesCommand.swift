@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import GhosttiesCore
 
 struct NotesCommand: ParsableCommand {
     static let configuration = CommandConfiguration(

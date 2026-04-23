@@ -2,10 +2,10 @@ import Foundation
 
 /// Locate `.ghostties/tasks/` by walking up from cwd, git-style. Stops at
 /// `$HOME` or `/` — no global fallback, no magic.
-enum TasksDirectory {
+public enum TasksDirectory {
     /// Find an existing tasks directory. Returns nil if none is found up to
     /// $HOME or filesystem root.
-    static func find(startingAt cwd: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)) -> URL? {
+    public static func find(startingAt cwd: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)) -> URL? {
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser.standardizedFileURL
         var cursor: URL? = cwd.standardizedFileURL
@@ -28,7 +28,7 @@ enum TasksDirectory {
     }
 
     /// Find the directory, or throw a CLIError with the standard message.
-    static func require() throws -> URL {
+    public static func require() throws -> URL {
         guard let dir = find() else {
             throw CLIError.notFound("no .ghostties/tasks/ in any ancestor. run 'gt new' to create one")
         }
@@ -37,7 +37,7 @@ enum TasksDirectory {
 
     /// Resolve the directory for `gt new`, creating `./.ghostties/tasks/` in
     /// cwd if no ancestor already has one.
-    static func findOrCreate() throws -> URL {
+    public static func findOrCreate() throws -> URL {
         if let existing = find() { return existing }
 
         let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
@@ -52,7 +52,7 @@ enum TasksDirectory {
     }
 
     /// Resolve the `.ghostties/` parent of the tasks directory (for `.focus`).
-    static func stateDirectory(from tasksDir: URL) -> URL {
+    public static func stateDirectory(from tasksDir: URL) -> URL {
         tasksDir.deletingLastPathComponent()
     }
 }
