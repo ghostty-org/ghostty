@@ -181,12 +181,13 @@ struct TaskRowView: View {
         }
     }
 
-    /// v0: all fixtures use `project: ghostties` — render a single green dot
-    /// matching the HTML mock (`--dot-green: #7cb342`). Future revisions
-    /// will map project → color.
+    /// v0: all fixtures use `project: ghostties` — render a single sage dot
+    /// (`#8aa96a`, muted olive/sage). Desaturated from the original lime
+    /// `#7cb342` to sit more quietly against the warm chrome. Future
+    /// revisions will map project → color.
     private var projectGlyph: some View {
         Circle()
-            .fill(Color(red: 0.486, green: 0.702, blue: 0.259))
+            .fill(Color(red: 0.541, green: 0.663, blue: 0.416))
     }
 
     private var statusSymbolName: String {
@@ -202,7 +203,7 @@ struct TaskRowView: View {
 
     private var statusSymbolColor: Color {
         switch task.status {
-        case .running:  return Color(red: 0.486, green: 0.702, blue: 0.259) // green
+        case .running:  return Color(red: 0.541, green: 0.663, blue: 0.416) // sage
         case .done:     return Color(nsColor: .tertiaryLabelColor)
         default:        return Color(nsColor: .secondaryLabelColor)
         }

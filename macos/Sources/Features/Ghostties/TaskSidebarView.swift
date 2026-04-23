@@ -54,7 +54,7 @@ struct TaskSidebarView: View {
     private var footer: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(Color(red: 0.486, green: 0.702, blue: 0.259))
+                .fill(Color(red: 0.541, green: 0.663, blue: 0.416))
                 .frame(width: 5, height: 5)
 
             Text("3 sources")
