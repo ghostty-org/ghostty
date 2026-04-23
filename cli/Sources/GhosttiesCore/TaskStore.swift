@@ -1,10 +1,10 @@
 import Foundation
 
 /// Read/write `.md` task files in a resolved tasks directory.
-struct TaskStore {
-    let directory: URL
+public struct TaskStore {
+    public let directory: URL
 
-    init(directory: URL) {
+    public init(directory: URL) {
         self.directory = directory
     }
 
@@ -12,7 +12,7 @@ struct TaskStore {
 
     /// Load all tasks in the directory. Silently skips files that don't parse;
     /// a malformed fixture should never take down `gt list`.
-    func loadAll() -> [Task] {
+    public func loadAll() -> [Task] {
         let fm = FileManager.default
         guard let entries = try? fm.contentsOfDirectory(at: directory,
                                                        includingPropertiesForKeys: nil,
@@ -29,7 +29,7 @@ struct TaskStore {
     }
 
     /// Load a single file by URL. Returns nil if missing or unparseable.
-    func loadFile(at url: URL) -> Task? {
+    public func loadFile(at url: URL) -> Task? {
         guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return nil }
         guard let (pairs, body) = Frontmatter.split(raw) else { return nil }
 
@@ -50,17 +50,17 @@ struct TaskStore {
             source: Frontmatter.value(for: "source", in: pairs),
             sourceID: Frontmatter.value(for: "source-id", in: pairs),
             branch: Frontmatter.value(for: "branch", in: pairs),
-            projectPath: Frontmatter.value(for: "project-path", in: pairs),
-            template: Frontmatter.value(for: "template", in: pairs),
             frontmatter: pairs,
-            body: body
+            body: body,
+            projectPath: Frontmatter.value(for: "project-path", in: pairs),
+            template: Frontmatter.value(for: "template", in: pairs)
         )
     }
 
     /// Resolve a task by full id or unambiguous prefix. Matches file stems
     /// first (the authoritative filename), falling back to `source-id` or the
     /// `id` we return from `loadFile`.
-    func resolve(idOrPrefix needle: String) throws -> (task: Task, url: URL) {
+    public func resolve(idOrPrefix needle: String) throws -> (task: Task, url: URL) {
         let fm = FileManager.default
         guard let entries = try? fm.contentsOfDirectory(at: directory,
                                                        includingPropertiesForKeys: nil,
@@ -101,7 +101,7 @@ struct TaskStore {
     // MARK: - Write
 
     /// Overwrite a task's file with the given frontmatter pairs + body.
-    func write(pairs: [(String, String)], body: String, to url: URL) throws {
+    public func write(pairs: [(String, String)], body: String, to url: URL) throws {
         let out = Frontmatter.assemble(pairs: pairs, body: body)
         do {
             try out.write(to: url, atomically: true, encoding: .utf8)
@@ -111,7 +111,7 @@ struct TaskStore {
     }
 
     /// Write a brand-new file. Errors if a file with the same id already exists.
-    func create(id: String, pairs: [(String, String)], body: String) throws -> URL {
+    public func create(id: String, pairs: [(String, String)], body: String) throws -> URL {
         let url = directory.appendingPathComponent("\(id).md")
         if FileManager.default.fileExists(atPath: url.path) {
             throw CLIError.io("file already exists: \(url.path)")

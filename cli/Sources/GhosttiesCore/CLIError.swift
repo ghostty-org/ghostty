@@ -2,13 +2,13 @@ import Foundation
 
 /// Single error type for the CLI. Maps to the exit codes defined in the spec:
 ///   0 success  · 1 usage  · 2 not found  · 3 ambiguous
-enum CLIError: LocalizedError {
+public enum CLIError: LocalizedError {
     case usage(String)
     case notFound(String)
     case ambiguousID(prefix: String, matches: [String])
     case io(String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .usage(let m):
             return "error: \(m)"
@@ -22,7 +22,7 @@ enum CLIError: LocalizedError {
         }
     }
 
-    var exitCode: Int32 {
+    public var exitCode: Int32 {
         switch self {
         case .usage: return 1
         case .notFound: return 2

@@ -3,7 +3,7 @@ import Foundation
 /// Status lanes — raw values match what the macOS app writes and reads in
 /// `status:` frontmatter. "graveyard" is the UI name for `done` but the
 /// on-disk value must stay `done` so the app parses it.
-enum TaskLane: String, CaseIterable {
+public enum TaskLane: String, CaseIterable, Sendable {
     case inbox
     case backlog
     case running
@@ -12,14 +12,14 @@ enum TaskLane: String, CaseIterable {
     case done
 
     /// Accept "graveyard" as an alias for "done" on input only. Never written.
-    static func parse(_ s: String) -> TaskLane? {
+    public static func parse(_ s: String) -> TaskLane? {
         let lower = s.lowercased()
         if lower == "graveyard" { return .done }
         return TaskLane(rawValue: lower)
     }
 
     /// Display name. "done" shows as "graveyard" to match sidebar UI.
-    var display: String {
+    public var display: String {
         switch self {
         case .done: return "graveyard"
         default: return rawValue
@@ -27,7 +27,7 @@ enum TaskLane: String, CaseIterable {
     }
 
     /// Lane priority for sorted listing. Lower = higher priority.
-    var priority: Int {
+    public var priority: Int {
         switch self {
         case .needsYou: return 0
         case .running:  return 1
@@ -41,23 +41,49 @@ enum TaskLane: String, CaseIterable {
 
 /// On-disk task view. Only the fields we need for CLI operations — the sidebar
 /// parses more detail but the CLI just shuffles lanes, titles, and notes.
-struct Task {
-    var id: String
-    var title: String
-    var lane: TaskLane
-    var project: String?
-    var source: String?
-    var sourceID: String?
-    var branch: String?
+public struct Task {
+    public var id: String
+    public var title: String
+    public var lane: TaskLane
+    public var project: String?
+    public var source: String?
+    public var sourceID: String?
+    public var branch: String?
     /// Absolute path (tilde preserved raw on disk) to the project root. Used
     /// by the macOS sidebar to launch a terminal in the right working dir.
-    var projectPath: String?
+    public var projectPath: String?
     /// Launch template name (e.g. "Orchestrator"). Resolved at session-spawn
     /// time by the macOS app. Stored verbatim — no case-folding.
-    var template: String?
+    public var template: String?
     /// Raw frontmatter key order + values. Preserved so round-trips don't
     /// reshuffle unrelated fields.
-    var frontmatter: [(String, String)]
+    public var frontmatter: [(String, String)]
     /// Full body (everything after the second `---`). Preserved verbatim.
-    var body: String
+    public var body: String
+
+    public init(
+        id: String,
+        title: String,
+        lane: TaskLane,
+        project: String?,
+        source: String?,
+        sourceID: String?,
+        branch: String?,
+        frontmatter: [(String, String)],
+        body: String,
+        projectPath: String? = nil,
+        template: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.lane = lane
+        self.project = project
+        self.source = source
+        self.sourceID = sourceID
+        self.branch = branch
+        self.frontmatter = frontmatter
+        self.body = body
+        self.projectPath = projectPath
+        self.template = template
+    }
 }

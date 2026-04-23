@@ -10,10 +10,10 @@ import Foundation
 ///   - Values may be quoted with `'` or `"`; quotes are stripped on read
 ///   - No nested maps, no arrays, no comments
 ///   - Closing `---\n` ends frontmatter; body follows
-enum Frontmatter {
+public enum Frontmatter {
     /// Split raw file contents into (orderedPairs, body). Returns nil if the
     /// file does not start with a frontmatter block.
-    static func split(_ raw: String) -> (pairs: [(String, String)], body: String)? {
+    public static func split(_ raw: String) -> (pairs: [(String, String)], body: String)? {
         var lines = raw.components(separatedBy: "\n")
         guard lines.first?.trimmingCharacters(in: .whitespaces) == "---" else { return nil }
         lines.removeFirst()
@@ -54,7 +54,7 @@ enum Frontmatter {
     }
 
     /// Serialize ordered pairs + body back into a full file string.
-    static func assemble(pairs: [(String, String)], body: String) -> String {
+    public static func assemble(pairs: [(String, String)], body: String) -> String {
         var out = "---\n"
         for (k, v) in pairs {
             out += "\(k): \(v)\n"
@@ -72,13 +72,13 @@ enum Frontmatter {
     }
 
     /// Look up a value by key in an ordered pair list.
-    static func value(for key: String, in pairs: [(String, String)]) -> String? {
+    public static func value(for key: String, in pairs: [(String, String)]) -> String? {
         pairs.first(where: { $0.0 == key })?.1
     }
 
     /// Return a new pair list with `key` set to `value`. Overwrites in place
     /// if the key exists; otherwise appends.
-    static func set(_ key: String, _ value: String, in pairs: [(String, String)]) -> [(String, String)] {
+    public static func set(_ key: String, _ value: String, in pairs: [(String, String)]) -> [(String, String)] {
         var copy = pairs
         if let idx = copy.firstIndex(where: { $0.0 == key }) {
             copy[idx] = (key, value)
