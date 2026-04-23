@@ -42,6 +42,8 @@ OUTPUT="$(cd "$WORKDIR" && "$BIN" --tasks-dir "$WORKDIR/.ghostties/tasks" <<'EOF
 {"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"read_task_notes","arguments":{"id":"mcp-smoke"}}}
 {"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"update_task_status","arguments":{"id":"mcp-smoke","status":"running"}}}
 {"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"get_active","arguments":{}}}
+{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"write_session_notes","arguments":{"task_id":"mcp-smoke","header":"Session smoke-header","summary":"First paragraph of the session summary.\n\nSecond paragraph with more detail.\n\nThird paragraph wrapping up."}}}
+{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"read_task_notes","arguments":{"id":"mcp-smoke"}}}
 EOF
 )"
 
@@ -79,11 +81,11 @@ echo "$init_resp" | grep -q '"protocolVersion"' || fail "initialize missing prot
 echo "$init_resp" | grep -q '"serverInfo"' || fail "initialize missing serverInfo"
 echo "[smoke] ok  initialize"
 
-# 2. tools/list → 9 tools
+# 2. tools/list → 10 tools
 tools_resp="$(jq_id 2)"
 count="$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); print(len(d['result']['tools']))" "$tools_resp")"
-[[ "$count" == "9" ]] || fail "expected 9 tools, got $count"
-echo "[smoke] ok  tools/list (9 tools)"
+[[ "$count" == "10" ]] || fail "expected 10 tools, got $count"
+echo "[smoke] ok  tools/list (10 tools)"
 
 # 3. create_task → success, not isError
 create_resp="$(jq_id 3)"
@@ -169,5 +171,38 @@ titles = [t["title"] for t in arr]
 assert "MCP smoke" in titles, titles
 PY
 echo "[smoke] ok  get_active"
+
+# 10. write_session_notes → response contains the header + all three paragraphs
+session_resp="$(jq_id 10)"
+python3 - "$session_resp" <<'PY' || fail "write_session_notes returned unexpected payload: $session_resp"
+import json, sys
+d = json.loads(sys.argv[1])
+res = d["result"]
+assert res.get("isError") is False, res
+payload = json.loads(res["content"][0]["text"])
+notes = payload["notes"]
+assert "### Session smoke-header" in notes, notes
+assert "First paragraph of the session summary." in notes, notes
+assert "Second paragraph with more detail." in notes, notes
+assert "Third paragraph wrapping up." in notes, notes
+# Earlier single-bullet note must survive — session block appends, not replaces.
+assert "a note from the smoke test" in notes, notes
+PY
+# Verify on disk too.
+grep -q "### Session smoke-header" "$smoke_file" || fail "session header not persisted to $smoke_file"
+grep -q "Third paragraph wrapping up." "$smoke_file" || fail "session summary not persisted to $smoke_file"
+echo "[smoke] ok  write_session_notes"
+
+# 11. read_task_notes sees the session block after the append
+read2_resp="$(jq_id 11)"
+python3 - "$read2_resp" <<'PY' || fail "read_task_notes (post-session) failed: $read2_resp"
+import json, sys
+d = json.loads(sys.argv[1])
+payload = json.loads(d["result"]["content"][0]["text"])
+notes = payload["notes"]
+assert "### Session smoke-header" in notes, notes
+assert "a note from the smoke test" in notes, notes
+PY
+echo "[smoke] ok  read_task_notes (post-session)"
 
 echo "[smoke] PASS"
