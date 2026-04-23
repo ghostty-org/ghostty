@@ -207,6 +207,16 @@ enum TaskFixtureParser {
             return raw
         }()
 
+        // `template` is optional — resolved by name (case-insensitive) at
+        // session-spawn time. Empty string ≡ unset.
+        let template: String? = {
+            guard let raw = yaml["template"]?
+                .trimmingCharacters(in: .whitespaces), !raw.isEmpty else {
+                return nil
+            }
+            return raw
+        }()
+
         return TaskItem(
             id: id,
             title: title,
@@ -215,6 +225,7 @@ enum TaskFixtureParser {
             branch: yaml["branch"].flatMap { $0 == "null" ? nil : $0 },
             project: project,
             projectPath: projectPath,
+            template: template,
             created: created,
             status: status,
             filesStaged: yaml["files-staged"].flatMap(Int.init),
