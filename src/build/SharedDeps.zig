@@ -881,16 +881,25 @@ pub fn addSimd(
     }
 
     // SIMD C++ files
+    //
+    // We use addLibrary (static) instead of addObject here because Zig's
+    // build-obj does not add C++ standard library include paths even when
+    // link_libcpp is set. addLibrary (build-lib) handles this correctly,
+    // and the runtime dependency is stripped because we consume the archive
+    // as a plain linker input via addObjectFile below.
     if (simd_libc == .no_libc) {
-        const simd_cpp = b.addObject(.{
+        const simd_cpp = b.addLibrary(.{
             .name = "ghostty-simd",
             .root_module = b.createModule(.{
                 .target = target,
                 .optimize = optimize,
-                .link_libc = false,
-                .link_libcpp = false,
+                // We need libc + libcpp headers at compile time
+                // (simdutf.h unconditionally includes <cstring> etc.).
+                .link_libc = true,
+                .link_libcpp = true,
                 .pic = true,
             }),
+            .linkage = .static,
         });
         if (system_simdutf) {
             simd_cpp.root_module.linkSystemLibrary("simdutf", dynamic_link_opts);
