@@ -901,6 +901,17 @@ pub fn addSimd(
             }),
             .linkage = .static,
         });
+
+        // The vendored simdutf/highway headers (e.g. <cstring>, <cstdlib>)
+        // pull in platform C headers that live inside the Android NDK or
+        // Apple SDK sysroot.
+        if (target.result.abi.isAndroid()) {
+            try @import("android_ndk").addPaths(b, simd_cpp);
+        }
+        if (target.result.os.tag.isDarwin()) {
+            try @import("apple_sdk").addPaths(b, simd_cpp);
+        }
+
         if (system_simdutf) {
             simd_cpp.root_module.linkSystemLibrary("simdutf", dynamic_link_opts);
         } else if (simdutf_lib) |lib| {
