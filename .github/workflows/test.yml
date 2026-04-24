@@ -429,6 +429,10 @@ jobs:
           ldd zig-out/lib/libghostty-vt.so.0.1.0
           ! ldd zig-out/lib/libghostty-vt.so.0.1.0 2>/dev/null | grep -qE 'libc\+\+|libc\+\+abi'
 
+      - name: Verify shared library has no libc dependency
+        run: |
+          ! nm --dynamic zig-out/lib/libghostty-vt.so.0.1.0 | grep -qE ' U .*(memcpy|memmove|memset|memcmp|strlen)@'
+
       - name: Verify static archive contains SIMD deps
         run: |
           nm -g zig-out/lib/libghostty-vt.a | grep -q ' T .*simdutf'
