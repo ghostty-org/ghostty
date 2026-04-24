@@ -63,8 +63,11 @@ compile_one() {
     local obj_dir="${WRAPPER_OBJ_DIR}"
     local cef_dir="${CEF_DIR}"
     local rel="${src#${cef_dir}/libcef_dll/}"
-    local obj="${obj_dir}/${rel%.cc}.o"
-    obj="${obj%.mm}.o"
+    # Strip any extension (.cc or .mm) and append .o exactly once.
+    # The prior two-step strip+append produced .o.o on files that didn't
+    # match the first pattern, and the odd-length member names broke
+    # 8-byte alignment inside libcef_dll_wrapper.a on some `ar` versions.
+    local obj="${obj_dir}/${rel%.*}.o"
     mkdir -p "$(dirname "${obj}")"
     clang++ -std=c++20 -arch arm64 -O2 \
         -mmacosx-version-min=13.0 \
