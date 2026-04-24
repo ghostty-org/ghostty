@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "linear": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://mcp.linear.app/mcp"
+      ]
+    },
+    "ghostties": {
+      "command": "ghostties-mcp",
+      "args": [
+        "--tasks-dir",
+        "${HOME}/.ghostties/tasks"
+      ]
+    }
+  }
+}
