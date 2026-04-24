@@ -2,6 +2,7 @@
 //! Uses libtool on Darwin and a cross-platform MRI-script build tool
 //! on all other platforms (including Windows).
 const std = @import("std");
+const builtin = @import("builtin");
 const LibtoolStep = @import("LibtoolStep.zig");
 
 /// Combine multiple static archives into a single fat archive.
@@ -15,7 +16,9 @@ pub fn create(
     name: []const u8,
     sources: []const std.Build.LazyPath,
 ) struct { step: *std.Build.Step, output: std.Build.LazyPath } {
-    if (target.result.os.tag.isDarwin()) {
+    if (target.result.os.tag.isDarwin() and
+        comptime builtin.os.tag.isDarwin())
+    {
         const libtool = LibtoolStep.create(b, .{
             .name = name,
             .out_name = b.fmt("lib{s}-fat.a", .{name}),
