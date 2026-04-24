@@ -4,6 +4,7 @@
 const Self = @This();
 
 const std = @import("std");
+const win32 = @import("win32").everything;
 const Allocator = std.mem.Allocator;
 const apprt = @import("../../apprt.zig");
 const configpkg = @import("../../config.zig");
@@ -12,71 +13,17 @@ const CoreApp = @import("../../App.zig");
 
 const log = std.log.scoped(.win32_surface);
 
-// Win32 types
-const HWND = std.os.windows.HWND;
-const HINSTANCE = std.os.windows.HINSTANCE;
-const BOOL = i32;
-const HDC = ?*anyopaque;
-const HGLRC = ?*anyopaque;
-
-const PIXELFORMATDESCRIPTOR = extern struct {
-    nSize: u16,
-    nVersion: u16,
-    dwFlags: u32,
-    iPixelType: u8,
-    cColorBits: u8,
-    cRedBits: u8,
-    cRedShift: u8,
-    cGreenBits: u8,
-    cGreenShift: u8,
-    cBlueBits: u8,
-    cBlueShift: u8,
-    cAlphaBits: u8,
-    cAlphaShift: u8,
-    cAccumBits: u8,
-    cAccumRedBits: u8,
-    cAccumGreenBits: u8,
-    cAccumBlueBits: u8,
-    cAccumAlphaBits: u8,
-    cDepthBits: u8,
-    cStencilBits: u8,
-    cAuxBuffers: u8,
-    iLayerType: u8,
-    bReserved: u8,
-    dwLayerMask: u32,
-    dwVisibleMask: u32,
-    dwDamageMask: u32,
-};
-
-// WGL / GDI constants
-const PFD_DRAW_TO_WINDOW = 0x00000004;
-const PFD_SUPPORT_OPENGL = 0x00000020;
-const PFD_DOUBLEBUFFER = 0x00000001;
-const PFD_TYPE_RGBA = 0;
-const PFD_MAIN_PLANE = 0;
-
-// WGL / GDI extern declarations
-extern "user32" fn GetDC(hWnd: ?HWND) callconv(.winapi) HDC;
-extern "user32" fn ReleaseDC(hWnd: ?HWND, hDC: HDC) callconv(.winapi) c_int;
-extern "gdi32" fn ChoosePixelFormat(hdc: HDC, ppfd: *const PIXELFORMATDESCRIPTOR) callconv(.winapi) c_int;
-extern "gdi32" fn SetPixelFormat(hdc: HDC, format: c_int, ppfd: *const PIXELFORMATDESCRIPTOR) callconv(.winapi) BOOL;
-extern "gdi32" fn SwapBuffers(hdc: HDC) callconv(.winapi) BOOL;
-extern "opengl32" fn wglCreateContext(hdc: HDC) callconv(.winapi) HGLRC;
-extern "opengl32" fn wglDeleteContext(hglrc: HGLRC) callconv(.winapi) BOOL;
-extern "opengl32" fn wglMakeCurrent(hdc: HDC, hglrc: HGLRC) callconv(.winapi) BOOL;
-extern "kernel32" fn GetLastError() callconv(.winapi) u32;
-
 /// The window this surface belongs to.
-hwnd: HWND,
+hwnd: win32.HWND,
 
 /// Pointer back to the App.
 app: ?*App = null,
 
 /// GDI device context.
-hdc: HDC = null,
+hdc: ?win32.HDC = null,
 
 /// OpenGL rendering context.
-hglrc: HGLRC = null,
+hglrc: ?win32.HGLRC = null,
 
 /// The core surface, if initialized.
 core_surface: ?*CoreSurface = null,
@@ -95,7 +42,7 @@ pub fn rtApp(self: *Self) *App {
     return self.app.?;
 }
 
-pub fn init(self: *Self, hwnd: HWND) !void {
+pub fn init(self: *Self, hwnd: win32.HWND) !void {
     self.* = .{ .hwnd = hwnd };
     try self.initOpenGL();
 }
@@ -105,51 +52,49 @@ pub fn deinit(self: *Self) void {
         surface.deinit();
         // core_surface is allocated by CoreApp, freed there
     }
-    if (self.hglrc != null) {
-        _ = wglMakeCurrent(null, null);
-        _ = wglDeleteContext(self.hglrc);
+    if (self.hglrc) |hglrc| {
+        _ = win32.wglMakeCurrent(null, null);
+        _ = win32.wglDeleteContext(hglrc);
     }
-    if (self.hdc != null) {
-        _ = ReleaseDC(self.hwnd, self.hdc);
+    if (self.hdc) |hdc| {
+        _ = win32.ReleaseDC(self.hwnd, hdc);
     }
 }
 
 fn initOpenGL(self: *Self) !void {
-    self.hdc = GetDC(self.hwnd);
-    if (self.hdc == null) {
-        log.err("GetDC failed", .{});
+    self.hdc = win32.GetDC(self.hwnd) orelse {
+        log.err("GetDC failed: err={d}", .{@intFromEnum(win32.GetLastError())});
         return error.Win32Error;
-    }
+    };
 
-    var pfd: PIXELFORMATDESCRIPTOR = std.mem.zeroes(PIXELFORMATDESCRIPTOR);
-    pfd.nSize = @sizeOf(PIXELFORMATDESCRIPTOR);
+    var pfd: win32.PIXELFORMATDESCRIPTOR = std.mem.zeroes(win32.PIXELFORMATDESCRIPTOR);
+    pfd.nSize = @sizeOf(win32.PIXELFORMATDESCRIPTOR);
     pfd.nVersion = 1;
-    pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
-    pfd.iPixelType = PFD_TYPE_RGBA;
+    pfd.dwFlags = .{ .DRAW_TO_WINDOW = 1, .SUPPORT_OPENGL = 1, .DOUBLEBUFFER = 1 };
+    pfd.iPixelType = .RGBA;
     pfd.cColorBits = 32;
     pfd.cDepthBits = 24;
     pfd.cStencilBits = 8;
-    pfd.iLayerType = PFD_MAIN_PLANE;
+    pfd.iLayerType = .MAIN_PLANE;
 
-    const pixel_format = ChoosePixelFormat(self.hdc, &pfd);
+    const pixel_format = win32.ChoosePixelFormat(self.hdc, &pfd);
     if (pixel_format == 0) {
-        log.err("ChoosePixelFormat failed", .{});
+        log.err("ChoosePixelFormat failed: err={d}", .{@intFromEnum(win32.GetLastError())});
         return error.Win32Error;
     }
 
-    if (SetPixelFormat(self.hdc, pixel_format, &pfd) == 0) {
-        log.err("SetPixelFormat failed", .{});
+    if (win32.SetPixelFormat(self.hdc, pixel_format, &pfd) == 0) {
+        log.err("SetPixelFormat failed: err={d}", .{@intFromEnum(win32.GetLastError())});
         return error.Win32Error;
     }
 
-    self.hglrc = wglCreateContext(self.hdc);
-    if (self.hglrc == null) {
-        log.err("wglCreateContext failed", .{});
+    self.hglrc = win32.wglCreateContext(self.hdc) orelse {
+        log.err("wglCreateContext failed: err={d}", .{@intFromEnum(win32.GetLastError())});
         return error.Win32Error;
-    }
+    };
 
-    if (wglMakeCurrent(self.hdc, self.hglrc) == 0) {
-        log.err("wglMakeCurrent failed", .{});
+    if (win32.wglMakeCurrent(self.hdc, self.hglrc) == 0) {
+        log.err("wglMakeCurrent failed: err={d}", .{@intFromEnum(win32.GetLastError())});
         return error.Win32Error;
     }
 
@@ -157,34 +102,36 @@ fn initOpenGL(self: *Self) !void {
 }
 
 pub fn swapBuffers(self: *Self) void {
-    if (self.hdc != null) {
-        if (SwapBuffers(self.hdc) == 0) {
-            log.warn("SwapBuffers failed: err={d}", .{GetLastError()});
+    if (self.hdc) |hdc| {
+        if (win32.SwapBuffers(hdc) == 0) {
+            log.warn("SwapBuffers failed: err={d}", .{@intFromEnum(win32.GetLastError())});
         }
     }
 }
 
 /// Make the WGL context current on the calling thread.
 pub fn makeContextCurrent(self: *Self) void {
-    if (self.hdc != null and self.hglrc != null) {
-        if (wglMakeCurrent(self.hdc, self.hglrc) == 0) {
-            log.warn("wglMakeCurrent failed: err={d}", .{GetLastError()});
+    if (self.hdc) |hdc| {
+        if (self.hglrc) |hglrc| {
+            if (win32.wglMakeCurrent(hdc, hglrc) == 0) {
+                log.warn("wglMakeCurrent failed: err={d}", .{@intFromEnum(win32.GetLastError())});
+            }
         }
     }
 }
 
 /// Release the WGL context from the calling thread.
 pub fn releaseContext() void {
-    if (wglMakeCurrent(null, null) == 0) {
-        log.warn("wglMakeCurrent(null) failed: err={d}", .{GetLastError()});
+    if (win32.wglMakeCurrent(null, null) == 0) {
+        log.warn("wglMakeCurrent(null) failed: err={d}", .{@intFromEnum(win32.GetLastError())});
     }
 }
 
 /// Release context from the main thread before handing off to renderer thread.
 pub fn releaseMainThreadContext(self: *Self) void {
     _ = self;
-    if (wglMakeCurrent(null, null) == 0) {
-        log.warn("wglMakeCurrent(null) failed: err={d}", .{GetLastError()});
+    if (win32.wglMakeCurrent(null, null) == 0) {
+        log.warn("wglMakeCurrent(null) failed: err={d}", .{@intFromEnum(win32.GetLastError())});
     }
 }
 
