@@ -869,14 +869,16 @@ pub fn addSimd(
         (b.lazyImport(@import("../../build.zig"), "simdutf") orelse unreachable).noLibcFlags(),
     );
 
-    // Disable ubsan for Windows C/C++ objects to avoid undefined
-    // __ubsan_handle_* references. The Zig libraries on Windows don't
-    // currently bundle a matching UBSan runtime for these objects in
-    // our build configurations (this affects both MSVC and GNU ABIs).
-    if (target.result.os.tag == .windows) try flags.appendSlice(b.allocator, &.{
-        "-fno-sanitize=undefined",
-        "-fno-sanitize-trap=undefined",
-    });
+    // Disable ubsan for C/C++ objects when there is no libc (or on
+    // Windows) to avoid undefined __ubsan_handle_* references.  Debug-
+    // mode compiles emit these calls and there is no matching UBSan
+    // runtime available in these configurations.
+    if (simd_libc == .no_libc or target.result.os.tag == .windows) {
+        try flags.appendSlice(b.allocator, &.{
+            "-fno-sanitize=undefined",
+            "-fno-sanitize-trap=undefined",
+        });
+    }
 
     // SIMD C++ files
     if (simd_libc == .no_libc) {
