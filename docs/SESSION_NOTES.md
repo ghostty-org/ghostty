@@ -1,5 +1,65 @@
 # Session Notes — Ghostties
 
+## Apr 24, 2026 (Phase 5 Streamlined Wave + CI Resurrection)
+
+### Headline
+
+Four streamlined Phase 5 items shipped in parallel via 4 isolated worktree subagents (Inbox lane, linear-sync preset, `gt mcp install`, hide MCP Sources menu). Then a multi-step CI rescue: every CI run on the fork has been failing since the workflow was created, masked by error layers — peeled them back one at a time until macOS app made it past every blocking step.
+
+### Phase 5 streamlined wave
+
+All four landed clean, merged to main with `--no-ff`:
+
+1. **Hide dormant MCP Sources menu** (`5514c1ca4`) — xib `hidden="YES"`. Settings code stays as dormant infrastructure per the agent-as-middleman pivot.
+2. **First preset — `linear-sync`** (`75169fc49`) — `system.md`, `mcp-servers.json`, `defaults.json`, `README.md` in `macos/Resources/presets/linear-sync/`. Linear `Todo`→Ghostties `inbox`, `In Progress`→`running`, `In Review`→`review`. Default filter: assigned to me, exclude Done/Canceled.
+3. **`gt mcp install`** (`25df294d4`) — Option A (delegates to `claude mcp add` subprocess; doesn't touch Claude config files). Default scope `user`. `--dry-run` / `--force` / `--scope` / `--binary`. Stubs `codex`/`cursor`/`aider` with friendly errors.
+4. **Inbox lane filter** (`d417e32ee`) — `InboxZoneView` at top of sidebar, filters `source != .shell` (TaskSource has no `.local`; `.shell` is the local terminal-spawned case). Hides when empty per brief ("zero is not a problem"). `.unknown` included so misconfigured fixtures surface visibly.
+
+Subagent-pattern lessons captured as Fragile Areas #18 and #19 (pbxproj for `macos/Resources/` is not synchronized — preset files don't bundle yet; subagents using absolute paths leak into the parent worktree on `isolation: "worktree"` runs).
+
+### CI rescue — three layers peeled
+
+The fork's `test-ghostties.yml` had **never had a green run** (20+ consecutive failures). Each fix uncovered the next:
+
+1. **Debug TEST_HOST mismatch** (`558a3b0dd` → merged `bff925675`) — Phase 4 split made Debug build `Ghostties Dev.app` (with space) but `GhosttyTests` Debug `TEST_HOST` was hardcoded to `Ghostties.app`. Fixed pbxproj line 1073. Locally verified `** TEST SUCCEEDED **`.
+2. **Missing `GhosttyKit.xcframework`** (in `fix/ci-build-xcframework-with-zig`) — workflow comments claimed "vendored / checked in" but `macos/.gitignore` excludes `*.xcframework` (135MB). Added `mlugg/setup-zig@v2` (Zig 0.15.2 matching `build.zig.zon`), `actions/cache@v4`, `zig build -Demit-macos-app=false`. Same fix to `ghostties-release.yml`.
+3. **Missing CEF + linker error** (same branch) — macOS app hard-links `cef_dll_wrapper`. Added cached `scripts/download-cef.sh` + `scripts/build-cef-wrapper.sh` steps before xcodebuild.
+4. **`xargs: command line cannot be assembled, too long`** (same branch) — `scripts/build-cef-wrapper.sh` used `xargs -I{}` which hits a per-template length cap on long CI paths. Switched to `xargs -n 1 bash -c '... ' _` with exported env vars. Verified locally with incremental rebuild.
+
+All four merged to main as `d83b7b6a5`. Final CI run at merge time: macOS app job past every previous failure point, into "Build + test Ghostties" step (the actual test execution). Validation in flight at wrap time.
+
+### Other CI hygiene
+
+- Cancelled 5 zombie queued runs (1h+ stuck) targeting upstream's `Test` workflow which needs Namespace runners we don't have.
+- Disabling 4 upstream workflows (`Test`, `Nix`, `Flatpak`, `Snap`) is queued for Sean's confirmation — they'll queue forever on every push otherwise.
+
+### Commits this session
+
+- `5514c1ca4` chore(macos): hide dormant "MCP Sources…" menu item
+- `75169fc49` feat(presets): linear-sync — first agent-driven source integration
+- `25df294d4` feat(cli): gt mcp install — register Ghostties MCP server with agents
+- `d417e32ee` feat(macos): inbox zone for external-source tasks
+- `fe5461122` merge: chore/hide-mcp-sources-menu
+- `fbd6677a6` merge: feat/preset-linear-sync
+- `aeb2c20bd` merge: feat/gt-mcp-install
+- `4f3c55161` merge: feat/inbox-lane-filter
+- `558a3b0dd` fix(ci): point GhosttyTests Debug TEST_HOST at "Ghostties Dev.app"
+- `bff925675` merge: fix/ci-test-host-debug-bundle-name
+- `45b38d18b` fix(ci): build GhosttyKit.xcframework from source via Zig
+- `c46e43d3d` fix(ci): download + build CEF before xcodebuild
+- `eef9168d5` fix(scripts): build-cef-wrapper xargs handles long paths
+- `d83b7b6a5` merge: fix/ci-build-xcframework-with-zig
+
+### Notes for next session
+
+- **Verify final CI result** for run `24873651041` — was in `Build + test Ghostties` step at wrap time. If it failed in the actual test phase, that's a different category of issue (test code, not CI infra) — investigate failures specifically.
+- **Pending: disable 4 upstream workflows** on the fork (`Test`, `Nix`, `Flatpak`, `Snap`). They queue forever and clutter the dashboard on every push. `gh workflow disable <name>` per workflow.
+- **Pending: bundle `macos/Resources/presets/linear-sync/*` into the .app** (Fragile Area #18). Files are on disk but pbxproj doesn't reference them. Recommend converting `macos/Resources/` to a `PBXFileSystemSynchronizedRootGroup`.
+- **Pending: live Linear sync end-to-end test** — paste linear-sync `system.md` into Claude Code, ensure Linear MCP + Ghostties MCP both registered, sync, confirm tasks land in Inbox zone.
+- **Pending: re-order sidebar zones** to fully match brief order (Inbox · Backlog · Running · Needs you · Review · Graveyard). Today Inbox is above NeedsYou; remaining zones not yet shuffled.
+- **Pending: drop stash** `stash@{0}` "pre-merge-cascade pbxproj drift" — almost certainly obsolete after Wave 2c's intentional pbxproj work + this session's CI fixes.
+- **Pending: tag `v0.1.0-beta.1`** — gate ("Phase 5 streamlined work makes sidebar live-testable with real Linear data") is conditional on the live Linear sync test above. Distribution workflow now also has the same Zig + CEF + xargs fixes baked in, so tagging should work.
+
 ## Apr 23, 2026 (Late — Big Merge + Phase 5 Pivot)
 
 ### Headline
