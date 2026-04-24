@@ -97,6 +97,27 @@ jobs:
       - name: Build GhosttyKit.xcframework
         run: zig build -Demit-macos-app=false
 
+      # CEF (Chromium Embedded Framework) for the embedded browser feature.
+      # ~700MB unpacked. Cache aggressively — the version doesn't change often.
+      # Bump the cache key suffix when scripts/download-cef.sh changes (its
+      # version-resolution logic).
+      - name: Cache CEF
+        id: cache-cef
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/cef
+            vendor/cef-build
+          key: cef-${{ runner.os }}-${{ hashFiles('scripts/download-cef.sh', 'scripts/build-cef-wrapper.sh') }}-v1
+
+      - name: Download CEF
+        if: steps.cache-cef.outputs.cache-hit != 'true'
+        run: bash scripts/download-cef.sh
+
+      - name: Build CEF wrapper
+        if: steps.cache-cef.outputs.cache-hit != 'true'
+        run: bash scripts/build-cef-wrapper.sh
+
       # Pin arm64 — GhosttyKit.xcframework is arm64-only. Without this the
       # Xcode CLI will try to build universal and fail on linker misses.
       # (Xcode GUI masks this by defaulting ONLY_ACTIVE_ARCH=YES for Debug.)
