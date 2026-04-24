@@ -124,6 +124,9 @@ jobs:
       # Scope to the task-layer tests added in feat/automated-testing-v0.
       # The rest of the GhosttyTests bundle covers legacy + upstream fixtures
       # we do not gate CI on here.
+      # Skip GhosttyUITests entirely — the XCUITest runner hangs ~6 min on CI
+      # runners (no screen-recording permission / test-user setup required for
+      # UI automation). UI tests remain IDE-runnable via Cmd+U locally.
       - name: Build + test Ghostties
         working-directory: macos
         run: |
@@ -136,5 +139,6 @@ jobs:
             ARCHS=arm64 \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
+            -skip-testing:GhosttyUITests \
             -only-testing:GhosttyTests/TaskModelTests \
             -only-testing:GhosttyTests/TaskFileWatcherTests
