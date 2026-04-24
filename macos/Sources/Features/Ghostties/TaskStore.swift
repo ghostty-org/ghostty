@@ -52,6 +52,23 @@ final class TaskStore: ObservableObject {
     var review: [TaskItem] { tasks.filter { $0.status == .review } }
     var done: [TaskItem] { tasks.filter { $0.status == .done } }
 
+    /// Tasks that arrived from an external MCP source (Linear, GitHub, Sentry,
+    /// etc.) — i.e. anything whose `source` is not the local `.shell` case.
+    /// `.unknown` is treated as external too: a fixture with a missing/garbled
+    /// source field is more likely to be an upstream sync row than a local
+    /// shell session, and surfacing it in the Inbox makes the bad data visible
+    /// instead of hiding it.
+    ///
+    /// Drives `InboxZoneView` (Phase 5: agent-as-middleman). The lane is the
+    /// first user-visible payoff of the external-source pivot — sync 8 Linear
+    /// tickets via the user's agent and they land here.
+    ///
+    /// Sort: newest-first by `created`, matching the global sort `tasks`
+    /// already uses (set in `loadFromDisk`). The filter preserves that order.
+    var externalInbox: [TaskItem] {
+        tasks.filter { $0.source != .shell }
+    }
+
     // MARK: - Loading
 
     func loadFromDisk() {
