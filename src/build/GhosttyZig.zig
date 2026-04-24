@@ -123,7 +123,12 @@ fn initVt(
         // Vendored C++ dependencies are built with no-libcxx and
         // no-libc modes so we don't need libc or libcpp. System-provided
         // simdutf requires both libc and libcpp at runtime.
-        .link_libc = if (system_simdutf) true else false,
+        //
+        // MSVC is an exception: its C and C++ runtimes are tightly
+        // coupled, and the vendored C++ objects (simdutf, highway)
+        // unconditionally reference MSVC runtime symbols such as
+        // __security_cookie, __CxxFrameHandler3, and _purecall.
+        .link_libc = if (system_simdutf or cfg.target.result.abi == .msvc) true else false,
         .link_libcpp = libcpp: {
             // MSVC is tightly coupled with the C++ standard library, so we
             // need to link it even if we don't use it directly.
