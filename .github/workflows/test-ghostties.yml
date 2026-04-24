@@ -48,9 +48,14 @@ jobs:
       - name: swift --version
         run: swift --version
 
+      # Serial, not --parallel. TasksDirectoryTests mutate process-global cwd
+      # via FileManager.changeCurrentDirectoryPath; under --parallel other
+      # concurrent tests' tempdir cleanup can leave cwd pointing at a deleted
+      # path, hanging filesystem syscalls until the job timeout. Serial runs
+      # the full suite in ~1s locally vs ~6s parallel, so there's nothing lost.
       - name: swift test
         working-directory: cli
-        run: swift test --parallel
+        run: swift test
 
   # ---------------------------------------------------------------------------
   # macOS App — Ghostties Xcode project tests
