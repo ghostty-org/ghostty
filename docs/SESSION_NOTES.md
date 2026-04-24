@@ -1,5 +1,148 @@
 # Session Notes — Ghostties
 
+## Apr 23, 2026 (Late — Big Merge + Phase 5 Pivot)
+
+### Headline
+
+Twelve feature branches merged to `main` and pushed in one cascade. Phase 5 Waves 2b + 2c shipped, then the entire Phase 5 plan was rewritten when Sean caught the architectural drift: the brief had locked "agent as middleman" weeks ago, but the Phase 5 plan still said "app-side MCP client connects to Linear." The drift produced real (now dormant) infrastructure. Plan now matches the brief.
+
+### Big merge cascade — 12 branches → main
+
+Followed `docs/MERGE_STRATEGY.md` (Sean's overnight cheatsheet). Order, all merged with `--no-ff` for traceable history:
+
+1. `feat/task-first-sidebar-v0` (Phase 1) — fast-forward
+2. `feat/sidebar-polish-v0` — fast-forward
+3. `feat/gt-cli-v0` (Phase 2)
+4. `feat/ghostties-mcp-server-v0` (Phase 3, 10 MCP tools after write_session_notes)
+5. `feat/automated-testing-v0` (43 CLI tests + 13 macOS XCTests + CI workflow)
+6. `feat/ui-automation-v0` (XCUITest smoke, IDE-only)
+7. `feat/task-start-terminal` (click-to-spawn + templates)
+8. `feat/dev-environments-v0` (Phase 4 Part 1 — Debug bundle ID split)
+9. `worktree-agent-a9a9e97f` (MCP write_session_notes tool)
+10. `worktree-agent-a9f89284` (session-hybrid — SessionDraft + mixed stream)
+11. `fix/sidebar-layout-hang-v0` (crash fix)
+12. `feat/external-mcp-sources-v0` (Phase 5 Wave 1+2a — MCP client scaffold)
+
+**Conflicts resolved (2):**
+
+- `WorkspaceViewContainer.swift` — TaskSidebarView signature divergence between session-hybrid (added `sessionDraftStore` param) and crash fix (modified frame chain). Took session-hybrid's call shape; crash fix's outer-VStack width pin already applied cleanly elsewhere.
+- `docs/SESSION_NOTES.md` — both branches added a top entry. Kept both, chronological order.
+
+**Test fix:** MCPProtocolTests asserted exactly 9 tools but `write_session_notes` made it 10. Renamed test, bumped count, added tool name. 62/62 cli tests pass on the merged main.
+
+### Phase 5 Wave 2b shipped — Linear capability probe
+
+`feat/linear-capability-probe` tip `001146b36`, merged. Subagent did thorough research:
+
+- Linear's hosted MCP server: `https://mcp.linear.app/mcp`
+- Transport: Streamable HTTP (MCP spec 2025-11-25). Legacy `/sse` deprecated.
+- Auth: OAuth 2.1 dynamic registration OR `Authorization: Bearer <Linear Personal API Key>`.
+- Subscriptions: docs don't advertise `resources/subscribe` — probe answers empirically.
+
+**Scope choice:** stdio bridge via `npx mcp-remote` rather than building HTTP+SSE in our client lib. Diagnostic, not shipped into app.
+
+**Subagent didn't commit** — left work uncommitted in shared worktree (it ran for 11 min, then notification fired). Orchestrator picked up the uncommitted work, deleted hanging async-deadlock tests, ran mock-mode probe (works, prints subscribe=false on the mock), committed and pushed.
+
+### Phase 5 Wave 2c shipped — MCP source auth UI
+
+`feat/mcp-source-auth-ui` tip `3e3947daf`, merged. Built clean by single subagent:
+
+- `Keychain.swift` — Security.framework wrapper, set/get/delete under `com.seansmithdesign.ghostties.mcp`
+- `MCPSourceSettingsStore.swift` — `@MainActor` ObservableObject wrapping disk store + Keychain + per-session status dots
+- `MCPSourceSettingsView.swift` — list pane, empty state, hover-revealed actions
+- `AddMCPSourceSheet.swift` — modal with stdio/HTTP+SSE picker, SecureField API key, non-blocking Test Connection button with friendly error mapping
+- `MCPSourceSettingsWindowController.swift` — single-instance NSWindowController
+- `AppDelegate.showMCPSources(_:)` + MainMenu.xib entry below Preferences
+
+**Xcode pbxproj surgery (flagged):** Added `XCLocalSwiftPackageReference` to `../cli` and wired `GhosttiesCore` + `GhosttiesMCPClient` into the macOS target's package product dependencies + Frameworks build phase. AA1BFC30… ID prefix for future identification. Full Debug build succeeded.
+
+### Linear MCP exploration via Claude
+
+Loaded `mcp__claude_ai_Linear__list_issues` from this session's deferred tools. Pulled real Linear data — 22 of Sean's tickets, 19 active after filtering Done/Canceled. Surfaced the v0 Inbox shape with real data: id, title, status, priority, project, milestone, labels, dueDate. This conversation became the proof that the agent-as-middleman path works without any app-side Linear code.
+
+### Architectural pivot — "agent as middleman"
+
+Sean caught the drift mid-conversation. The brief (`brief-sidebar-task-view.md`) had locked weeks ago:
+
+- "MCP is the task-source protocol. **No Linear-specific code paths.**"
+- "Ghostties will NOT ship an agentic layer for inbox triage."
+- The user's agent is the orchestrator; Ghostties is the switchboard.
+
+But Phase 5 plan said "MCP client integration for Linear + auth UI + bidirectional sync" — written before the brief was locked, never updated. We built Wave 2b + 2c following the stale plan.
+
+**Decision (option 2):** Keep the off-path infrastructure as dormant — they compile, they're additive, they unlock a later scenario if needed. Update the plan to match the brief.
+
+**Phase 5 rewritten** in `phases-plan.md`:
+
+- Goal: external sources reach the Inbox lane via the user's agent (Claude Code, Codex, etc.) writing to our MCP server. Each "source integration" is a prompt preset (text + config), not code.
+- Scope: preset directory layout, Linear preset as first example, `source:` frontmatter end-to-end verification, Inbox lane filter (`source != local`), `ghostties mcp install` command.
+- Cut: app-side Linear OAuth, polling timer, update-Linear-ticket flow, HTTP+SSE transport in GhosttiesMCPClient.
+- Dormant infra (kept in main, off critical path): `GhosttiesMCPClient`, `probe-linear`, `MCPSource*` settings UI.
+
+Cross-phase principle #5 also updated: "MCP is the integration boundary — and it's two-sided. External sources reach Ghostties by the user's agent writing to our MCP server, not by app-side code connecting out."
+
+### Files changed (highlights, not exhaustive — merge cascade is in `git log`)
+
+- `cli/Sources/probe-linear/main.swift` — capability probe (works in `--mock`)
+- `cli/Sources/GhosttiesCore/JSONValue.swift` — `.bool` accessor (additive)
+- `cli/Sources/GhosttiesMCPClient/MCPClient.swift` — `initializeResult()`, `serverCapabilities()`, `sendRawRequest(method:params:)` (all additive)
+- `docs/linear-mcp-probe-findings.md` — Linear MCP research write-up
+- `~/.claude/projects/-Users-seansmith-Code-ghostties/memory/phases-plan.md` — Phase 5 rewrite (lives in memory dir, not in repo)
+- `~/.claude/projects/-Users-seansmith-Code-ghostties/memory/ORCHESTRATOR.md` — to be updated next
+
+### Key commands used / discovered
+
+```bash
+# Run the Linear probe in mock mode (offline protocol verification)
+cd cli && swift run probe-linear --mock
+
+# Run with real Linear key
+export LINEAR_API_KEY='lin_api_...'
+cd cli && swift run -c release probe-linear
+
+# Direct Linear access from this session via the Claude.ai Linear MCP integration
+# (mcp__claude_ai_Linear__list_issues etc. — loadable via ToolSearch)
+```
+
+### Commits this session
+
+- `bf5a5c22d` merge: feat/mcp-source-auth-ui (Wave 2c)
+- `48fcd31c4` merge: feat/linear-capability-probe (Wave 2b)
+- `001146b36` feat(cli): probe-linear — Linear MCP capability probe via mcp-remote bridge
+- `3e3947daf` feat(macos): MCP source settings UI + Keychain storage (subagent)
+- `6b982cc4d` test: update tools-list assertion to 10 tools
+- `f434f8e64` merge: external-mcp-sources-v0 (Phase 5 Wave 1+2a)
+- `11530667b` merge: fix/sidebar-layout-hang-v0
+- `4d8cb6880` merge: session-hybrid
+- `7e9cc9606` merge: worktree-agent-a9a9e97f (MCP write_session_notes)
+- `7528dbcba` merge: dev-environments-v0 (Phase 4 Part 1)
+- `c04d91a1c` merge: task-start-terminal
+- `f0c2b95c8` merge: ui-automation-v0
+- `175cf1cf7` merge: automated-testing-v0
+- `34fe5b91c` merge: ghostties-mcp-server-v0
+- `b7ac65d93` merge: gt-cli-v0
+
+### Heads-up / pending
+
+- **Stash on main**: `stash@{0}` "pre-merge-cascade pbxproj drift" — created when an unexpected pbxproj diff appeared mid-cascade (probably a background Xcode sync). 2c later did its own intentional pbxproj surgery, so this stash is almost certainly obsolete. Drop it next session unless Sean wants to inspect.
+- **`docs/Crash report/`** — still untracked, Sean's file (6.3 MB hang sampling artifact from Apr 21).
+- **MCP Sources… menu item** is live in MainMenu but is now a dead-end UI surface per the architectural pivot. Hide it next session until there's a use case.
+- **Stale TEST_TARGET_NAME = Ghostty** in GhosttyUITests configs (one-line fix, deferred from earlier session).
+
+### Notes for next session
+
+Phase 5 is much smaller than originally scoped. Concrete next moves:
+
+1. **Hide the "MCP Sources…" menu item** so it doesn't dangle.
+2. **Wire the Inbox lane filter** in `TaskSidebarView` — `source != local` per the brief.
+3. **Write the first preset** at `macos/Resources/presets/linear-sync/` — system.md + mcp-servers.json + defaults.json + README.md. Linear status → Ghostties lane mapping, priority → ordering.
+4. **`ghostties mcp install`** — drop a Ghostties MCP block into `~/.mcp.json` (Claude Code first; flag-gate other agents).
+5. **Drop the stash** if Sean confirms.
+
+Demo path: open a terminal in Ghostties with the Linear preset loaded → tell Claude Code "pull my current work" → tasks appear in the sidebar with `source: linear` frontmatter → Inbox lane renders them.
+
+---
+
 ## Apr 23, 2026 (Overnight Phase 1–3 + Polish + Testing)
 
 ### Shipped four backbone branches in one orchestrator session
