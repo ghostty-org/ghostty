@@ -1,19 +1,5 @@
 const std = @import("std");
 
-const no_libc_flags = [_][]const u8{
-    "-DSIMDUTF_NO_LIBC=1",
-    "-DSIMDUTF_LIBC_MEMCPY=simdutf_memcpy",
-    "-DSIMDUTF_LIBC_MEMMOVE=simdutf_memmove",
-    "-DSIMDUTF_LIBC_MEMSET=simdutf_memset",
-    "-DSIMDUTF_LIBC_MEMCMP=simdutf_memcmp",
-    "-DSIMDUTF_LIBC_STRLEN=simdutf_strlen",
-    "-DSIMDUTF_LIBC_GETENV=simdutf_getenv",
-};
-
-pub fn noLibcFlags() []const []const u8 {
-    return &no_libc_flags;
-}
-
 pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
@@ -83,10 +69,10 @@ pub fn build(b: *std.Build) !void {
     }
 
     if (no_libc) {
+        lib.root_module.addCMacro("SIMDUTF_NO_LIBC", "1");
         try flags.appendSlice(b.allocator, noLibcFlags());
 
-        lib.root_module.addCMacro("SIMDUTF_NO_LIBC", "1");
-
+        // Build our object that has the libc replacement functions.
         const no_libc_obj = b.addObject(.{
             .name = "simdutf_no_libc",
             .root_module = b.createModule(.{
@@ -140,3 +126,20 @@ pub fn build(b: *std.Build) !void {
     //     test_step.dependOn(&tests_run.step);
     // }
 }
+
+/// These flags must be passed to any builds including simdutf headers
+/// when no_libc is set, to provide the necessary macros to avoid libc
+/// usage and to redirect libc calls to our Zig stdlib replacements.
+pub fn noLibcFlags() []const []const u8 {
+    return &no_libc_flags;
+}
+
+const no_libc_flags = [_][]const u8{
+    "-DSIMDUTF_NO_LIBC=1",
+    "-DSIMDUTF_LIBC_MEMCPY=simdutf_memcpy",
+    "-DSIMDUTF_LIBC_MEMMOVE=simdutf_memmove",
+    "-DSIMDUTF_LIBC_MEMSET=simdutf_memset",
+    "-DSIMDUTF_LIBC_MEMCMP=simdutf_memcmp",
+    "-DSIMDUTF_LIBC_STRLEN=simdutf_strlen",
+    "-DSIMDUTF_LIBC_GETENV=simdutf_getenv",
+};

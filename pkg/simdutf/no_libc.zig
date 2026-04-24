@@ -1,5 +1,6 @@
 const std = @import("std");
 
+/// Copies `n` bytes from `src` to `dest`. The memory areas must not overlap.
 export fn simdutf_memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) ?[*]u8 {
     const d = dest orelse return dest;
     const s = src orelse return dest;
@@ -7,6 +8,8 @@ export fn simdutf_memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usi
     return dest;
 }
 
+/// Copies `n` bytes from `src` to `dest`, correctly handling overlapping
+/// memory regions.
 export fn simdutf_memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) ?[*]u8 {
     const d = dest orelse return dest;
     const s = src orelse return dest;
@@ -20,12 +23,14 @@ export fn simdutf_memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) ?[*]u8 {
     return dest;
 }
 
+/// Fills the first `n` bytes of `dest` with the byte value `c`.
 export fn simdutf_memset(dest: ?[*]u8, c: c_int, n: usize) ?[*]u8 {
     const d = dest orelse return dest;
     @memset(d[0..n], @as(u8, @intCast(c & 0xff)));
     return dest;
 }
 
+/// Compares the first `n` bytes of `lhs` and `rhs`, returning -1, 0, or 1.
 export fn simdutf_memcmp(lhs: ?[*]const u8, rhs: ?[*]const u8, n: usize) c_int {
     const l = lhs orelse return 0;
     const r = rhs orelse return 0;
@@ -37,11 +42,15 @@ export fn simdutf_memcmp(lhs: ?[*]const u8, rhs: ?[*]const u8, n: usize) c_int {
     };
 }
 
+/// Returns the length of the null-terminated string `s`, not including the
+/// null byte.
 export fn simdutf_strlen(s: ?[*:0]const u8) usize {
     const str = s orelse return 0;
     return std.mem.len(str);
 }
 
+/// Stub for `getenv` that always returns null, since there is no environment
+/// in freestanding builds.
 export fn simdutf_getenv(_: ?[*:0]const u8) ?[*:0]const u8 {
     return null;
 }
