@@ -20,26 +20,35 @@ struct TaskSidebarView: View {
         VStack(spacing: 0) {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    // Inbox is source-based (Phase 5: external MCP arrivals).
-                    // Hides itself entirely when empty — most days it will not
-                    // render at all, so we only emit the trailing divider when
-                    // it has rows. Order is provisional: a follow-up pass will
-                    // re-shuffle the other zones to match the brief's full
-                    // lane order (Inbox · Backlog · Running · Needs you ·
-                    // Review · Graveyard).
+                    // Zone order follows the brief's locked lane order:
+                    // Inbox · Backlog · Running · Needs you · Review · Graveyard.
+                    //
+                    // Only four of the six lanes have a dedicated top-level
+                    // zone view today — Backlog and Review currently live as
+                    // sub-lanes inside the Graveyard (ArchiveZoneView) and are
+                    // not rendered as standalone zones. The order below is the
+                    // brief's order with those two skipped:
+                    //
+                    //   Inbox (source-based) → Running (Active) →
+                    //   Needs you → Graveyard (which internally holds
+                    //   Backlog · Review · Done).
+                    //
+                    // Inbox hides itself entirely when empty — most days it
+                    // will not render at all, so we only emit the trailing
+                    // divider when it has rows.
                     if !taskStore.externalInbox.isEmpty {
                         InboxZoneView(taskStore: taskStore)
                         zoneDivider
                     }
 
-                    NeedsYouZoneView(taskStore: taskStore)
-
-                    zoneDivider
-
                     ActiveZoneView(
                         taskStore: taskStore,
                         sessionDraftStore: sessionDraftStore
                     )
+
+                    zoneDivider
+
+                    NeedsYouZoneView(taskStore: taskStore)
 
                     zoneDivider
 
