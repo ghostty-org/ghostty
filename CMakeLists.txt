@@ -178,8 +178,8 @@ add_dependencies(ghostty-vt zig_build_lib_vt)
 # Static
 #
 # On Linux and macOS, the static library is a fat archive that bundles
-# the vendored SIMD dependencies (highway, simdutf). Consumers
-# only need to link libc.
+# the vendored SIMD dependencies (highway, simdutf) with no libc or
+# libc++ runtime requirements.
 #
 # On Windows, the SIMD dependencies are not bundled and must be linked
 # separately.
