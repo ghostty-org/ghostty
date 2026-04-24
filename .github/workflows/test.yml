@@ -420,9 +420,23 @@ jobs:
           echo "Libs:   $(pkg-config --libs libghostty-vt)"
           echo "Static: $(pkg-config --libs --static libghostty-vt)"
 
-          # Libs.private must NOT include the C++ runtime libraries (all
-          # vendored C++ deps are built in no-libcxx mode).
-          ! pkg-config --libs --static libghostty-vt | grep -qE -- '-lc\+\+|-lc\+\+abi'
+      - name: Verify pkg-config shared link stays minimal
+        run: |
+          export PKG_CONFIG_PATH="$PWD/zig-out/share/pkgconfig"
+          libs="$(pkg-config --libs libghostty-vt)"
+          echo "$libs"
+
+          # The shared library should not advertise libc or C++ runtime deps.
+          ! grep -qE -- '(^| )-(lc|lc\+\+|lc\+\+abi|ldl|lm|lpthread|lrt|lutil)( |$)' <<< "$libs"
+
+      - name: Verify pkg-config static link stays minimal
+        run: |
+          export PKG_CONFIG_PATH="$PWD/zig-out/share/pkgconfig"
+          libs="$(pkg-config --libs --static libghostty-vt)"
+          echo "$libs"
+
+          # Libs.private must not reintroduce libc or C++ runtime deps.
+          ! grep -qE -- '(^| )-(lc|lc\+\+|lc\+\+abi|ldl|lm|lpthread|lrt|lutil)( |$)' <<< "$libs"
 
       - name: Verify shared library has no libc++ dependency
         run: |
@@ -431,7 +445,8 @@ jobs:
 
       - name: Verify shared library has no libc dependency
         run: |
-          ! nm --dynamic zig-out/lib/libghostty-vt.so.0.1.0 | grep -qE ' U .*(memcpy|memmove|memset|memcmp|strlen)@'
+          readelf -d zig-out/lib/libghostty-vt.so.0.1.0
+          ! readelf -d zig-out/lib/libghostty-vt.so.0.1.0 | grep -qE 'NEEDED.*libc\.so'
 
       - name: Verify static archive contains SIMD deps
         run: |
