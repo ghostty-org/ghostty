@@ -1,5 +1,64 @@
 # Session Notes — Ghostties
 
+## Apr 24, 2026 (Late — CI Misdiagnosis Corrected + 3 Side-Quest PRs)
+
+### Headline
+
+Orchestrator session, picked up autonomously per Sean's "do what you can solo" directive. Rehydrated from ORCHESTRATOR.md (7-hour-old snapshot said "CI just needs UI-test exclusion to go green"), fanned out 3 parallel worktree subagents against the "Next concrete work" list, then spent the session discovering that the prior CI diagnosis was wrong. No merges; 3 PRs left open for Sean's review.
+
+### What shipped (confirmed working, orchestrator-level, no repo changes)
+
+- Disabled 4 upstream workflows on origin: `Test`, `Nix`, `Flatpak`, `Snap` → `disabled_manually`. Stops them queueing forever on every push. Reversible.
+
+### What's in PRs, awaiting Sean's review
+
+- **PR #3** — `fix/ci-skip-ui-tests` — `.github/workflows/test-ghostties.yml` adds `-skip-testing:GhosttyUITests`. Spawned assuming UI tests were the CI blocker. **Confirmed no-op** after the run failed with the same error. Commented on the PR; leaving open for Sean to close or repurpose.
+- **PR #4** — `feat/sidebar-zone-order` — reorders `TaskSidebarView.swift` zones to brief order: Inbox → Running → Needs you → Graveyard. Backlog/Review zones don't exist as top-level views in Concept F v0 (they're sub-lanes inside Graveyard), so those are noted as skipped-not-invented. Build + unit tests green in the subagent worktree. **Visual check pending Sean.**
+- **PR #5** — `fix/bundle-presets-sync-folder` — fixes Fragile Area #18. Adds a `PBXFileReference` folder entry for `macos/Resources/presets/` in `macos/Ghostties.xcodeproj/project.pbxproj`. Chose single-folder reference over converting full `macos/Resources/` to a synchronized group because the Resources group mixes `../zig-out/share/*` external paths that'd need untangling. Build + bundle contents verified in subagent worktree: all 4 linear-sync files present in built `.app`, no regression on terminfo or existing `Presets/*.md`. Safe to merge after quick review.
+
+### CI misdiagnosis corrected
+
+Prior ORCHESTRATOR.md state: "UI tests hang on CI → skip them → first-ever green run." Wrong. Details:
+
+1. `test-ghostties.yml` already scoped tests via `-only-testing:GhosttyTests/TaskModelTests` + `TaskFileWatcherTests`. UI tests weren't running anyway. PR #3 is a confirmed no-op.
+2. The real macOS job failure: `Ghostties Dev.app` hangs on launch in the CI runner before the XCTest runner establishes connection. The "test runner hung before establishing connection" error message is misleading — it's actually a host-app hang, not a test-runner hang. Happens regardless of test scope.
+3. New failure surfaced: `Swift Package (cli/)` job has 4 of 62 tests deadlocking under `swift test --parallel` until the job's 10-min timeout cancels. Never seen before because prior runs got cancelled by fail-fast on the macOS job before cli could finish.
+4. Captured the corrected analysis in `~/.claude/projects/-Users-seansmith-Code-ghostties/memory/project-ci-host-app-hang.md`. MEMORY.md updated with pointer.
+
+### Subagent worktree setup friction
+
+Three of three subagents had to manually symlink `macos/GhosttyKit.xcframework`, `zig-out/share/*`, and `vendor/cef/` from main's checkout to build in their isolated worktree. One (PR #5) had to copy `vendor/cef/libcef_dll/` instead of symlink because `scripts/build-cef-wrapper.sh` uses `find` without `-L` and `set -u` trips on the empty `WRAPPER_SOURCES` array when the symlink isn't traversed.
+
+Quick follow-up: add `-L` to the `find` invocation OR guard `${WRAPPER_SOURCES[@]}` against empty. Not urgent; worktree users can keep symlinking manually until fixed.
+
+### Commits (origin, all on feature branches — none merged)
+
+- `fix/ci-skip-ui-tests` — `.github/workflows/test-ghostties.yml`
+- `feat/sidebar-zone-order` — `macos/Sources/Features/Ghostties/TaskSidebarView.swift`
+- `fix/bundle-presets-sync-folder` — `macos/Ghostties.xcodeproj/project.pbxproj`
+
+### Key commands
+
+```bash
+# Check CI status across multiple PRs
+for pr in 3 4 5; do echo "=== PR #$pr ==="; gh pr checks $pr --repo SeanSmithDesign/ghostties; done
+
+# Tail a failing CI job log
+gh run view --repo SeanSmithDesign/ghostties --job <job-id> --log-failed | tail -60
+
+# Disable an upstream workflow on the fork (reversible)
+gh workflow disable "Flatpak" --repo SeanSmithDesign/ghostties
+```
+
+### Notes for next session
+
+- Sean to visually verify PR #4, decide on PR #3, merge PR #5 after review.
+- Once PR #5 merged, do the live Linear sync end-to-end test (item #4 on next-work list).
+- Real CI fix requires headless-friendly app launch — not a skip flag. Candidates: Sparkle auto-update check, workspace restore, TCC prompt path. See `project-ci-host-app-hang.md`.
+- Three orphan worktrees remain under `.claude/worktrees/agent-*` — safe to `rm -rf` once PRs are merged or closed.
+
+---
+
 ## Apr 24, 2026 (Phase 5 Streamlined Wave + CI Resurrection)
 
 ### Headline
