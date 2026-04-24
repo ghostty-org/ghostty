@@ -1,4 +1,4 @@
-/* auto-generated on 2026-04-23 21:18:04 -0700. Do not edit! */
+/* auto-generated on 2026-04-24 10:19:35 -0700. Do not edit! */
 /* begin file src/simdutf.cpp */
 #include "simdutf.h"
 
@@ -15914,12 +15914,22 @@ size_t implementation::binary_to_base64_with_lines(
 
 const char *implementation::find(const char *start, const char *end,
                                  char character) const noexcept {
-  return std::find(start, end, character);
+  for (; start < end; ++start) {
+    if (*start == character) {
+      return start;
+    }
+  }
+  return end;
 }
 
 const char16_t *implementation::find(const char16_t *start, const char16_t *end,
                                      char16_t character) const noexcept {
-  return std::find(start, end, character);
+  for (; start < end; ++start) {
+    if (*start == character) {
+      return start;
+    }
+  }
+  return end;
 }
 
 } // namespace fallback
@@ -23833,7 +23843,13 @@ simdutf_really_inline const char *find(const char *start, const char *end,
       return start + index;
     }
   }
-  return std::find(start, end, character);
+  // Scalar tail — avoids std::find which may call memchr internally.
+  for (; start < end; ++start) {
+    if (*start == character) {
+      return start;
+    }
+  }
+  return end;
 }
 
 simdutf_really_inline const char16_t *
@@ -23866,7 +23882,13 @@ find(const char16_t *start, const char16_t *end, char16_t character) noexcept {
       return start + index;
     }
   }
-  return std::find(start, end, character);
+  // Scalar tail — avoids std::find which may call memchr internally.
+  for (; start < end; ++start) {
+    if (*start == character) {
+      return start;
+    }
+  }
+  return end;
 }
 
 } // namespace util
@@ -28649,7 +28671,13 @@ simdutf_really_inline const char *find(const char *start, const char *end,
       return start + index;
     }
   }
-  return std::find(start, end, character);
+  // Scalar tail — avoids std::find which may call memchr internally.
+  for (; start < end; ++start) {
+    if (*start == character) {
+      return start;
+    }
+  }
+  return end;
 }
 
 simdutf_really_inline const char16_t *
@@ -28682,7 +28710,13 @@ find(const char16_t *start, const char16_t *end, char16_t character) noexcept {
       return start + index;
     }
   }
-  return std::find(start, end, character);
+  // Scalar tail — avoids std::find which may call memchr internally.
+  for (; start < end; ++start) {
+    if (*start == character) {
+      return start;
+    }
+  }
+  return end;
 }
 
 } // namespace util
@@ -33734,7 +33768,13 @@ simdutf_really_inline const char *find(const char *start, const char *end,
       return start + index;
     }
   }
-  return std::find(start, end, character);
+  // Scalar tail — avoids std::find which may call memchr internally.
+  for (; start < end; ++start) {
+    if (*start == character) {
+      return start;
+    }
+  }
+  return end;
 }
 
 simdutf_really_inline const char16_t *
@@ -33767,7 +33807,13 @@ find(const char16_t *start, const char16_t *end, char16_t character) noexcept {
       return start + index;
     }
   }
-  return std::find(start, end, character);
+  // Scalar tail — avoids std::find which may call memchr internally.
+  for (; start < end; ++start) {
+    if (*start == character) {
+      return start;
+    }
+  }
+  return end;
 }
 
 } // namespace util
