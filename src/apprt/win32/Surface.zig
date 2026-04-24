@@ -64,6 +64,7 @@ extern "gdi32" fn SwapBuffers(hdc: HDC) callconv(.winapi) BOOL;
 extern "opengl32" fn wglCreateContext(hdc: HDC) callconv(.winapi) HGLRC;
 extern "opengl32" fn wglDeleteContext(hglrc: HGLRC) callconv(.winapi) BOOL;
 extern "opengl32" fn wglMakeCurrent(hdc: HDC, hglrc: HGLRC) callconv(.winapi) BOOL;
+extern "kernel32" fn GetLastError() callconv(.winapi) u32;
 
 /// The window this surface belongs to.
 hwnd: HWND,
@@ -157,26 +158,34 @@ fn initOpenGL(self: *Self) !void {
 
 pub fn swapBuffers(self: *Self) void {
     if (self.hdc != null) {
-        _ = SwapBuffers(self.hdc);
+        if (SwapBuffers(self.hdc) == 0) {
+            log.warn("SwapBuffers failed: err={d}", .{GetLastError()});
+        }
     }
 }
 
 /// Make the WGL context current on the calling thread.
 pub fn makeContextCurrent(self: *Self) void {
     if (self.hdc != null and self.hglrc != null) {
-        _ = wglMakeCurrent(self.hdc, self.hglrc);
+        if (wglMakeCurrent(self.hdc, self.hglrc) == 0) {
+            log.warn("wglMakeCurrent failed: err={d}", .{GetLastError()});
+        }
     }
 }
 
 /// Release the WGL context from the calling thread.
 pub fn releaseContext() void {
-    _ = wglMakeCurrent(null, null);
+    if (wglMakeCurrent(null, null) == 0) {
+        log.warn("wglMakeCurrent(null) failed: err={d}", .{GetLastError()});
+    }
 }
 
 /// Release context from the main thread before handing off to renderer thread.
 pub fn releaseMainThreadContext(self: *Self) void {
     _ = self;
-    _ = wglMakeCurrent(null, null);
+    if (wglMakeCurrent(null, null) == 0) {
+        log.warn("wglMakeCurrent(null) failed: err={d}", .{GetLastError()});
+    }
 }
 
 // --- Interface methods required by CoreSurface ---

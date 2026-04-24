@@ -117,6 +117,7 @@ extern "user32" fn GetWindowLongPtrW(hWnd: HWND, nIndex: c_int) callconv(.winapi
 extern "user32" fn GetClientRect(hWnd: HWND, lpRect: *RECT) callconv(.winapi) BOOL;
 extern "user32" fn InvalidateRect(hWnd: ?HWND, lpRect: ?*const RECT, bErase: BOOL) callconv(.winapi) BOOL;
 extern "kernel32" fn GetModuleHandleW(lpModuleName: ?[*:0]const u16) callconv(.winapi) ?HINSTANCE;
+extern "kernel32" fn GetLastError() callconv(.winapi) DWORD;
 
 /// The core app instance.
 core_app: *CoreApp,
@@ -194,7 +195,9 @@ pub fn run(self: *App) !void {
 pub fn terminate(self: *App) void {
     self.surface.deinit();
     if (self.hwnd) |hwnd| {
-        _ = DestroyWindow(hwnd);
+        if (DestroyWindow(hwnd) == 0) {
+            log.warn("DestroyWindow failed: err={d}", .{GetLastError()});
+        }
         self.hwnd = null;
     }
     self.config.deinit();
@@ -203,7 +206,9 @@ pub fn terminate(self: *App) void {
 
 pub fn wakeup(self: *App) void {
     if (self.hwnd) |hwnd| {
-        _ = PostMessageW(hwnd, WM_WAKEUP, 0, 0);
+        if (PostMessageW(hwnd, WM_WAKEUP, 0, 0) == 0) {
+            log.warn("PostMessage(WM_WAKEUP) failed: err={d}", .{GetLastError()});
+        }
     }
 }
 
