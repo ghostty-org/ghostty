@@ -85,6 +85,7 @@ pub fn build(b: *std.Build) !void {
                 .target = target,
                 .optimize = optimize,
                 .link_libc = false,
+                .pic = true,
             }),
         });
         lib.addObject(no_libc_obj);

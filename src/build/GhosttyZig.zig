@@ -119,11 +119,11 @@ fn initVt(
         .target = cfg.target,
         .optimize = cfg.optimize,
 
-        // SIMD requires libc. Vendored C++ dependencies are built with
-        // no-libcxx mode (HWY_NO_LIBCXX / SIMDUTF_NO_LIBCXX) so we
-        // don't need libcpp. System-provided simdutf headers still
-        // use C++ stdlib headers, so we need libcpp in that case.
-        .link_libc = if (cfg.simd) true else null,
+        // Vendored C++ dependencies are built with no-libcxx and
+        // no-libc modes so we don't need libc or libcpp. System-provided
+        // simdutf requires both libc and libcpp at runtime.
+        .link_libc = if (cfg.simd and
+            b.systemIntegrationOption("simdutf", .{})) true else null,
         .link_libcpp = if (cfg.simd and
             b.systemIntegrationOption("simdutf", .{}) and
             cfg.target.result.abi != .msvc) true else null,
@@ -138,9 +138,12 @@ fn initVt(
     deps.addUucode(b, vt, cfg.target, cfg.optimize);
 
     // If SIMD is enabled, add all our SIMD dependencies.
-    if (cfg.simd) {
-        try SharedDeps.addSimd(b, vt, simd_libs);
-    }
+    if (cfg.simd) try SharedDeps.addSimd(
+        b,
+        vt,
+        simd_libs,
+        if (cfg.emit_lib_vt) .no_libc else .libc,
+    );
 
     return vt;
 }

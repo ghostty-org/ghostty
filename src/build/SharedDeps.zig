@@ -381,6 +381,7 @@ pub fn add(
         b,
         step.root_module,
         &static_libs,
+        .libc,
     );
 
     // Wasm we do manually since it is such a different build.
@@ -755,10 +756,13 @@ fn addGtkNg(
 
 /// Add only the dependencies required for `Config.simd` enabled. This also
 /// adds all the simd source files for compilation.
+const SimdLibc = enum { libc, no_libc };
+
 pub fn addSimd(
     b: *std.Build,
     m: *std.Build.Module,
     static_libs: ?*LazyPathList,
+    simd_libc: SimdLibc,
 ) !void {
     const target = m.resolved_target.?;
     const optimize = m.optimize.?;
@@ -772,6 +776,7 @@ pub fn addSimd(
             .target = target,
             .optimize = optimize,
             .no_libcxx = true,
+            .no_libc = simd_libc == .no_libc,
         })) |simdutf_dep| {
             m.linkLibrary(simdutf_dep.artifact("simdutf"));
             if (static_libs) |v| try v.append(
