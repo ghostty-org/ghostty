@@ -1,5 +1,82 @@
 # Session Notes — Ghostties
 
+## Apr 24, 2026 (Post-Merge Polish + Paper Icon Kit + Ghost Replacement Exploration)
+
+### Headline
+
+Picked up from the wrap of the earlier session. Four PRs all merged cleanly (#3 no-op CI skip, #4 sidebar zone order, #5 preset bundling, #6 CEF `.o.o` fix, #7 cosmetic warning sweep + CEF warning silencing). Then went into design/Paper work: built out two icon-design reference artboards in the Ghostties Paper file, and explored replacing the custom ghost mask. Ended inconclusive on the ghost direction — pixel-art language doesn't fit the refined custom-icon pipeline.
+
+### Merged to main this session
+
+- `14f352206` PR #4 — sidebar zone reorder (Inbox → Running → Needs → Graveyard)
+- `3d7e3b709` PR #5 — `macos/Resources/presets/` bundled via folder reference (fixes Fragile Area #18)
+- `ad107478d` PR #6 — `build-cef-wrapper.sh` `.o.o` double-extension bug (archive 8-byte alignment)
+- `ce59aaab7` PR #7 — SwiftLint cosmetic sweep (10 files) + CEF warning silencing (`-Wno-undefined-var-template`, `-Wno-comma`, `ranlib -no_warning_for_no_symbols`)
+- `775ed4362` — `build-cef-wrapper.sh` follow-up: `find -L` + empty-array guard so subagent worktree symlinks work
+
+### CEF build fix cascade (notable)
+
+Sean hit `64-bit mach-o member 'shutdown_checker.o.o' not 8-byte aligned` building main. Root cause in `scripts/build-cef-wrapper.sh` lines 66–67: two-step suffix strip+append produced `.o.o` for `.cc` sources because `obj%.mm` didn't match the `.o` result of the first step. Odd member name lengths tripped `ar` alignment. Fixed with `${rel%.*}.o` single strip. Stale archive deleted locally; script fixed in PR #6. A follow-up commit added `find -L` + empty-array guard so worktree symlinks also work.
+
+### Paper file — two new artboards on the "Ghostties app icon" page
+
+Used the Paper MCP to build two icon-design reference artboards:
+
+- **Custom Icon Kit** (`2ZU-0`) — all 9 upstream Ghostty custom-icon layer PNGs at `macos/Assets.xcassets/Custom Icon/*` placed as labeled tiles: 4 base materials (Aluminum, Beige, Chrome, Plastic), Ghost · Screen · Screen Mask, CRT · Gloss. Raw ingredients for composing custom icons.
+- **Ghostties Character Kit** (`31I-0`) — all 24 pixel-art ghost characters from `animation/src/data/ghosts.ts` rendered as native Paper rectangles (not embedded images) on 192×192 tiles. Characters are editable in-canvas. 4 rows × 6 columns.
+
+### Ghost mask replacement — explored, inconclusive
+
+Sean replaced `CustomIconGhost.imageset/ghosty.png` with his own 4-ghost pixel-art composition. Kept original as `ghosty-og.png` sibling (untracked, for reference).
+
+The pipeline flow-through worked (template rendering intent preserved, tinting + composite via `ColorizedGhosttyIcon.swift` verified by a direct Swift CoreGraphics renderer at `/tmp/render-ghost-icon.swift`).
+
+**Problem surfaced:** 4-ghost composition collapses below ~128px. Each 48×48 ghost is only ~10px tall at Dock size — below pixel-art legibility threshold. Direct visual comparison at 1024/256/128/64/32/16 captured at `/tmp/ghost-size-comparison.png`.
+
+**Iterations tried** (all in `/tmp/ghost-variant-*.png`):
+
+- A: single large pixel-ghost
+- B: single ghost with `:_` prompt tell cut out
+- C: two overlapping pixel-ghosts
+
+**Sean's read:** even the best pixel-art variant is too brutal for the refined icon frame. Upstream's original ghost is soft anti-aliased, not hard pixel-art. Visual language mismatch.
+
+**Decision:** parked. Not committed. Sean's `ghosty.png` replacement stays as a working-tree modification pending direction. Next direction if revived: either use upstream's ghost doubled (plural via duplication, preserves the soft-edge language) or something entirely off-pixel-art.
+
+### Commits
+
+- `775ed4362` fix(scripts): build-cef-wrapper handles symlinked vendor/cef
+- (plus the 5 merge commits above from PRs #3–#7)
+
+### Uncommitted working-tree state
+
+- `macos/Assets.xcassets/Custom Icon/CustomIconGhost.imageset/ghosty.png` — modified (Sean's 4-ghost experiment, not confirmed final)
+- `macos/Assets.xcassets/Custom Icon/CustomIconGhost.imageset/ghosty-og.png` — untracked (upstream backup)
+- `docs/Crash report/` — untracked (unchanged from prior)
+
+### Key commands / scripts captured
+
+```bash
+# Render the ColorizedGhosttyIcon composite standalone (no Xcode):
+swift /tmp/render-ghost-icon.swift          # → /tmp/ghost-icon-composite.png
+
+# Size comparison grid (upstream vs variants at 1024/256/128/64/32/16):
+swift /tmp/render-variants-comparison.swift # → /tmp/ghost-variants-comparison.png
+
+# Inspect a ghost mask's bbox to match upstream positioning:
+python3 -c "from PIL import Image; print(Image.open('...').getbbox())"
+```
+
+### Notes for next session
+
+- Ghost mask direction: come back with a concrete picture reference (not pixel art) if pursuing unique icon.
+- The upstream ghost in `CustomIconGhost.imageset/ghosty-og.png` is 394×440 positioned at bbox (154,163)-(548,603) on 1024×1024. Any replacement mask should target that envelope.
+- `ColorizedGhosttyIcon.swift` pipeline (already verified): `[base, screen, gradient(screenColors), ghost, tint(ghostColor), crt, gloss]` with modes `[normal, normal, color, normal, color, overlay, normal]`.
+- PR #7's warning sweep deferred the `SessionCoordinator.swift:56` `nonisolated(unsafe)` on NSLock — removing it cascades 6 new Swift 6 MainActor warnings inside `resolveCommand()`. Keep for now.
+- Orphan worktrees under `.claude/worktrees/` continue to accumulate (~25 by now). Safe to sweep once merged branches confirmed.
+
+---
+
 ## Apr 24, 2026 (Late — CI Misdiagnosis Corrected + 3 Side-Quest PRs)
 
 ### Headline
