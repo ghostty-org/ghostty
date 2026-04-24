@@ -802,7 +802,6 @@ pub fn addSimd(
     } else if (b.lazyDependency("highway", .{
         .target = target,
         .optimize = optimize,
-        .no_libc = simd_libc == .no_libc,
     })) |highway_dep| lib: {
         const lib = highway_dep.artifact("highway");
         if (simd_libc == .no_libc) {

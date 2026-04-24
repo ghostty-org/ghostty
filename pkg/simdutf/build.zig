@@ -29,15 +29,18 @@ pub fn build(b: *std.Build) !void {
         .linkage = .static,
     });
     lib.addIncludePath(b.path("vendor"));
-    if (!no_libc) lib.linkLibC();
-    libcpp: {
+    libc: {
+        // We always link libc because we require the headers even with
+        // no_libc set.
+        lib.linkLibC();
+
         if (target.result.abi == .msvc) {
             // On MSVC, we must not use linkLibCpp because Zig unconditionally
             // passes -nostdinc++ and then adds its bundled libc++/libc++abi
             // include paths, which conflict with MSVC's own C++ runtime headers.
             // The MSVC SDK include directories (added via linkLibC) contain
             // both C and C++ headers, so linkLibCpp is not needed.
-            break :libcpp;
+            break :libc;
         }
 
         // We link libcpp even with no_libcxx because simdutf requires
