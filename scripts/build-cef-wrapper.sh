@@ -60,8 +60,8 @@ mkdir -p "${WRAPPER_OBJ_DIR}"
 
 compile_one() {
     local src="$1"
-    local obj_dir="$2"
-    local cef_dir="$3"
+    local obj_dir="${WRAPPER_OBJ_DIR}"
+    local cef_dir="${CEF_DIR}"
     local rel="${src#${cef_dir}/libcef_dll/}"
     local obj="${obj_dir}/${rel%.cc}.o"
     obj="${obj%.mm}.o"
@@ -74,9 +74,14 @@ compile_one() {
         -c "${src}" -o "${obj}"
 }
 export -f compile_one
+export WRAPPER_OBJ_DIR CEF_DIR
 
+# Use `bash -c '...' _` instead of `xargs -I{}`. The -I form assembles a
+# template per input and hits xargs's per-template length cap on long
+# absolute paths (e.g. CI runners). Passing the source path as a positional
+# argument has no such limit.
 printf '%s\n' "${WRAPPER_SOURCES[@]}" | \
-    xargs -P "${JOBS}" -I{} bash -c "compile_one '{}' '${WRAPPER_OBJ_DIR}' '${CEF_DIR}'"
+    xargs -P "${JOBS}" -n 1 bash -c 'compile_one "$1"' _
 
 # --- Archive into static library ---
 
