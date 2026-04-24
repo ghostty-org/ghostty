@@ -30,9 +30,16 @@ mkdir -p "${WRAPPER_OBJ_DIR}"
 # --- Collect sources ---
 
 WRAPPER_SOURCES=()
+# -L follows symlinks; subagent worktrees symlink vendor/cef/ from main and
+# `find` without -L silently returns nothing, tripping `set -u` below.
 while IFS= read -r -d '' f; do
     WRAPPER_SOURCES+=("$f")
-done < <(find "${CEF_DIR}/libcef_dll" \( -name "*.cc" -o -name "*.mm" \) -print0)
+done < <(find -L "${CEF_DIR}/libcef_dll" \( -name "*.cc" -o -name "*.mm" \) -print0)
+
+if [ "${#WRAPPER_SOURCES[@]}" -eq 0 ]; then
+    echo "error: no CEF wrapper sources found under ${CEF_DIR}/libcef_dll" >&2
+    exit 1
+fi
 
 # --- Check if rebuild needed ---
 
