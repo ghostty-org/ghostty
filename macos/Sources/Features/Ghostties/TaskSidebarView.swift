@@ -20,6 +20,18 @@ struct TaskSidebarView: View {
         VStack(spacing: 0) {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
+                    // Inbox is source-based (Phase 5: external MCP arrivals).
+                    // Hides itself entirely when empty — most days it will not
+                    // render at all, so we only emit the trailing divider when
+                    // it has rows. Order is provisional: a follow-up pass will
+                    // re-shuffle the other zones to match the brief's full
+                    // lane order (Inbox · Backlog · Running · Needs you ·
+                    // Review · Graveyard).
+                    if !taskStore.externalInbox.isEmpty {
+                        InboxZoneView(taskStore: taskStore)
+                        zoneDivider
+                    }
+
                     NeedsYouZoneView(taskStore: taskStore)
 
                     zoneDivider
