@@ -123,7 +123,7 @@ fn initVt(
         // Vendored C++ dependencies are built with no-libcxx and
         // no-libc modes so we don't need libc or libcpp. System-provided
         // simdutf requires both libc and libcpp at runtime.
-        .link_libc = if (system_simdutf) true else if (cfg.emit_lib_vt) false else null,
+        .link_libc = if (system_simdutf) true else false,
         .link_libcpp = libcpp: {
             // MSVC is tightly coupled with the C++ standard library, so we
             // need to link it even if we don't use it directly.
@@ -134,7 +134,7 @@ fn initVt(
             // it.
             if (system_simdutf) break :libcpp true;
 
-            break :libcpp if (cfg.emit_lib_vt) false else null;
+            break :libcpp false;
         },
     });
     vt.addOptions("build_options", general_options);
@@ -151,7 +151,7 @@ fn initVt(
         b,
         vt,
         simd_libs,
-        if (cfg.emit_lib_vt) .no_libc else .libc,
+        .no_libc,
     );
 
     return vt;
