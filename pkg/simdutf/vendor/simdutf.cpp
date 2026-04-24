@@ -1,4 +1,4 @@
-/* auto-generated on 2026-04-21 21:46:47 -0400. Do not edit! */
+/* auto-generated on 2026-04-23 21:18:04 -0700. Do not edit! */
 /* begin file src/simdutf.cpp */
 #include "simdutf.h"
 
@@ -7,19 +7,23 @@ namespace simdutf {
 std::string_view to_string(encoding_type bom) {
   switch (bom) {
   case UTF16_LE:
-    return "UTF16 little-endian";
+    return std::string_view("UTF16 little-endian",
+                            sizeof("UTF16 little-endian") - 1);
   case UTF16_BE:
-    return "UTF16 big-endian";
+    return std::string_view("UTF16 big-endian",
+                            sizeof("UTF16 big-endian") - 1);
   case UTF32_LE:
-    return "UTF32 little-endian";
+    return std::string_view("UTF32 little-endian",
+                            sizeof("UTF32 little-endian") - 1);
   case UTF32_BE:
-    return "UTF32 big-endian";
+    return std::string_view("UTF32 big-endian",
+                            sizeof("UTF32 big-endian") - 1);
   case UTF8:
-    return "UTF8";
+    return std::string_view("UTF8", sizeof("UTF8") - 1);
   case unspecified:
-    return "unknown";
+    return std::string_view("unknown", sizeof("unknown") - 1);
   default:
-    return "error";
+    return std::string_view("error", sizeof("error") - 1);
   }
 }
 
@@ -11308,7 +11312,8 @@ detect_best_supported_implementation_on_first_use::set_best() const noexcept {
   SIMDUTF_PUSH_DISABLE_WARNINGS
   SIMDUTF_DISABLE_DEPRECATED_WARNING // Disable CRT_SECURE warning on MSVC:
                                      // manually verified this is safe
-      char *force_implementation_name = getenv("SIMDUTF_FORCE_IMPLEMENTATION");
+      const char *force_implementation_name =
+          simdutf::internal::getenv("SIMDUTF_FORCE_IMPLEMENTATION");
   SIMDUTF_POP_DISABLE_WARNINGS
 
   if (force_implementation_name) {
@@ -12500,7 +12505,7 @@ size_t encode_base64_impl(char *dst, const char *src, size_t srclen,
         if (offset + 64 > line_length) {
           size_t location_end = line_length - offset;
           size_t to_move = 64 - location_end;
-          std::memmove(out + location_end + 1, out + location_end, to_move);
+          simdutf::internal::memmove(out + location_end + 1, out + location_end, to_move);
           out[location_end] = '\n';
           offset = to_move;
           out += 64 + 1;
@@ -12550,7 +12555,7 @@ size_t encode_base64_impl(char *dst, const char *src, size_t srclen,
         if (offset + 32 > line_length) {
           size_t location_end = line_length - offset;
           size_t to_move = 32 - location_end;
-          std::memmove(out + location_end + 1, out + location_end, to_move);
+          simdutf::internal::memmove(out + location_end + 1, out + location_end, to_move);
           out[location_end] = '\n';
           offset = to_move;
           out += 32 + 1;
@@ -13010,7 +13015,7 @@ compress_decode_base64(char *dst, const char_type *src, size_t srclen,
           base64_decode_block(dst, buffer + i * 64);
           dst += 48;
         }
-        std::memcpy(buffer, buffer + (block_size - 1) * 64,
+        simdutf::internal::memcpy(buffer, buffer + (block_size - 1) * 64,
                     64); // 64 might be too much
         bufferptr -= (block_size - 1) * 64;
       }
@@ -13048,7 +13053,7 @@ compress_decode_base64(char *dst, const char_type *src, size_t srclen,
 #if !SIMDUTF_IS_BIG_ENDIAN
       triple = scalar::u32_swap_bytes(triple);
 #endif
-      std::memcpy(dst, &triple, 4);
+      simdutf::internal::memcpy(dst, &triple, 4);
 
       dst += 3;
       buffer_start += 4;
@@ -13062,7 +13067,7 @@ compress_decode_base64(char *dst, const char_type *src, size_t srclen,
 #if !SIMDUTF_IS_BIG_ENDIAN
       triple = scalar::u32_swap_bytes(triple);
 #endif
-      std::memcpy(dst, &triple, 3);
+      simdutf::internal::memcpy(dst, &triple, 3);
 
       dst += 3;
       buffer_start += 4;
@@ -13956,11 +13961,11 @@ simdutf_really_inline size_t
 buf_block_reader<STEP_SIZE>::get_remainder(uint8_t *dst) const {
   if (len == idx) {
     return 0;
-  } // memcpy(dst, null, 0) will trigger an error with some sanitizers
-  std::memset(dst, 0x20,
+  } // simdutf::internal::memcpy(dst, null, 0) will trigger an error with some sanitizers
+  simdutf::internal::memset(dst, 0x20,
               STEP_SIZE); // std::memset STEP_SIZE because it is more efficient
                           // to write out 8 or 16 bytes at once.
-  std::memcpy(dst, buf + idx, len - idx);
+  simdutf::internal::memcpy(dst, buf + idx, len - idx);
   return len - idx;
 }
 
@@ -17091,7 +17096,7 @@ valid_utf8_to_fixed_length(const char *str, size_t len, OUTPUT *dwords) {
     int valid_count2;
     __m512i vec2 = expand_and_identify(lane2, lane3, valid_count2);
     uint32_t tmp1;
-    ::memcpy(&tmp1, ptr + 64, sizeof(tmp1));
+    simdutf::internal::memcpy(&tmp1, ptr + 64, sizeof(tmp1));
     const __m512i lane4 = _mm512_set1_epi32(tmp1);
     int valid_count3;
     __m512i vec3 = expand_and_identify(lane3, lane4, valid_count3);
@@ -17213,7 +17218,7 @@ validating_utf8_to_fixed_length(const char *str, size_t len, OUTPUT *dwords) {
     int valid_count2;
     __m512i vec2 = expand_and_identify(lane2, lane3, valid_count2);
     uint32_t tmp1;
-    ::memcpy(&tmp1, ptr + 64, sizeof(tmp1));
+    simdutf::internal::memcpy(&tmp1, ptr + 64, sizeof(tmp1));
     const __m512i lane4 = _mm512_set1_epi32(tmp1);
     int valid_count3;
     __m512i vec3 = expand_and_identify(lane3, lane4, valid_count3);
@@ -17345,7 +17350,7 @@ validating_utf8_to_fixed_length_with_constant_checks(const char *str,
     int valid_count2;
     __m512i vec2 = expand_and_identify(lane2, lane3, valid_count2);
     uint32_t tmp1;
-    ::memcpy(&tmp1, ptr + 64, sizeof(tmp1));
+    simdutf::internal::memcpy(&tmp1, ptr + 64, sizeof(tmp1));
     const __m512i lane4 = _mm512_set1_epi32(tmp1);
     int valid_count3;
     __m512i vec3 = expand_and_identify(lane3, lane4, valid_count3);
@@ -18856,7 +18861,7 @@ compress_decode_base64(char *dst, const chartype *src, size_t srclen,
           base64_decode_block(dst, buffer + i * 64);
           dst += 48;
         }
-        std::memcpy(buffer, buffer + (block_size - 1) * 64,
+        simdutf::internal::memcpy(buffer, buffer + (block_size - 1) * 64,
                     64); // 64 might be too much
         bufferptr -= (block_size - 1) * 64;
       }
@@ -21541,7 +21546,7 @@ avx2_encode_base64_impl(char *dst, const char *src, size_t srclen,
         if (offset + 32 > line_length) {
           size_t location_end = line_length - offset;
           size_t to_move = 32 - location_end;
-          std::memmove(out + location_end + 1, out + location_end, to_move);
+          simdutf::internal::memmove(out + location_end + 1, out + location_end, to_move);
           out[location_end] = '\n';
           offset = to_move;
           out += 32 + 1;
@@ -21554,7 +21559,7 @@ avx2_encode_base64_impl(char *dst, const char *src, size_t srclen,
         alignas(32) uint8_t buffer[32];
         _mm256_storeu_si256(reinterpret_cast<__m256i *>(buffer),
                             lookup_pshufb_improved<isbase64url>(indices));
-        std::memcpy(out, buffer, 32);
+        simdutf::internal::memcpy(out, buffer, 32);
         size_t out_pos = 0;
         size_t local_offset = offset;
         for (size_t j = 0; j < 32;) {
@@ -21664,7 +21669,7 @@ simdutf_really_inline void base64_decode_block_safe(char *out,
   alignas(32) char buffer[32]; // We enforce safety with a buffer.
   base64_decode(
       buffer, _mm256_loadu_si256(reinterpret_cast<const __m256i *>(src + 32)));
-  std::memcpy(out + 24, buffer, 24);
+  simdutf::internal::memcpy(out + 24, buffer, 24);
 }
 
 // --- decoding - base64 class --------------------------------
@@ -21715,7 +21720,7 @@ public:
     base64_decode(out, chunks[0]);
     alignas(32) char buffer[32]; // We enforce safety with a buffer.
     base64_decode(buffer, chunks[1]);
-    std::memcpy(out + 24, buffer, 24);
+    simdutf::internal::memcpy(out + 24, buffer, 24);
   }
 
   template <bool base64_url, bool ignore_garbage, bool default_or_url>
@@ -22072,11 +22077,11 @@ simdutf_really_inline size_t
 buf_block_reader<STEP_SIZE>::get_remainder(uint8_t *dst) const {
   if (len == idx) {
     return 0;
-  } // memcpy(dst, null, 0) will trigger an error with some sanitizers
-  std::memset(dst, 0x20,
+  } // simdutf::internal::memcpy(dst, null, 0) will trigger an error with some sanitizers
+  simdutf::internal::memset(dst, 0x20,
               STEP_SIZE); // std::memset STEP_SIZE because it is more efficient
                           // to write out 8 or 16 bytes at once.
-  std::memcpy(dst, buf + idx, len - idx);
+  simdutf::internal::memcpy(dst, buf + idx, len - idx);
   return len - idx;
 }
 
@@ -23669,7 +23674,7 @@ compress_decode_base64(char *dst, const chartype *src, size_t srclen,
           base64_decode_block(dst, buffer + (block_size - 2) * 64);
         }
         dst += 48;
-        std::memcpy(buffer, buffer + (block_size - 1) * 64,
+        simdutf::internal::memcpy(buffer, buffer + (block_size - 1) * 64,
                     64); // 64 might be too much
         bufferptr -= (block_size - 1) * 64;
       }
@@ -23713,7 +23718,7 @@ compress_decode_base64(char *dst, const chartype *src, size_t srclen,
 #if !SIMDUTF_IS_BIG_ENDIAN
       triple = scalar::u32_swap_bytes(triple);
 #endif
-      std::memcpy(dst, &triple, 3);
+      simdutf::internal::memcpy(dst, &triple, 3);
 
       dst += 3;
       buffer_start += 4;
@@ -23727,7 +23732,7 @@ compress_decode_base64(char *dst, const chartype *src, size_t srclen,
 #if !SIMDUTF_IS_BIG_ENDIAN
       triple = scalar::u32_swap_bytes(triple);
 #endif
-      std::memcpy(dst, &triple, 3);
+      simdutf::internal::memcpy(dst, &triple, 3);
 
       dst += 3;
       buffer_start += 4;
@@ -25607,11 +25612,11 @@ size_t convert_masked_utf8_to_latin1(const char *input,
 #if defined(__clang__)
   __attribute__((aligned(16))) char buf[16];
   latin1_packed.store(buf);
-  memcpy(latin1_output, buf, 6);
+  simdutf::internal::memcpy(latin1_output, buf, 6);
 #else
   // writing 8 bytes even though we only care about the first 6 bytes.
   const auto tmp = vec_u64_t(latin1_packed.value);
-  memcpy(latin1_output, &tmp[0], 8);
+  simdutf::internal::memcpy(latin1_output, &tmp[0], 8);
 #endif
   latin1_output += 6; // We wrote 6 bytes.
   return consumed;
@@ -26661,7 +26666,7 @@ static simdutf_really_inline void base64_decode_block_safe(char *out,
 
   char buffer[16];
   base64_decode(buffer, vector_u8::load(src + 3 * 16));
-  std::memcpy(out + 36, buffer, 12);
+  simdutf::internal::memcpy(out + 36, buffer, 12);
 }
 
 // ---base64 decoding::block64 class --------------------------
@@ -26822,7 +26827,7 @@ public:
     base64_decode(out + 12 * 2, b.chunks[2]);
     char buffer[16];
     base64_decode(buffer, b.chunks[3]);
-    std::memcpy(out + 12 * 3, buffer, 12);
+    simdutf::internal::memcpy(out + 12 * 3, buffer, 12);
   }
 };
 /* end file src/ppc64/ppc64_base64.cpp */
@@ -26891,11 +26896,11 @@ simdutf_really_inline size_t
 buf_block_reader<STEP_SIZE>::get_remainder(uint8_t *dst) const {
   if (len == idx) {
     return 0;
-  } // memcpy(dst, null, 0) will trigger an error with some sanitizers
-  std::memset(dst, 0x20,
+  } // simdutf::internal::memcpy(dst, null, 0) will trigger an error with some sanitizers
+  simdutf::internal::memset(dst, 0x20,
               STEP_SIZE); // std::memset STEP_SIZE because it is more efficient
                           // to write out 8 or 16 bytes at once.
-  std::memcpy(dst, buf + idx, len - idx);
+  simdutf::internal::memcpy(dst, buf + idx, len - idx);
   return len - idx;
 }
 
@@ -28485,7 +28490,7 @@ compress_decode_base64(char *dst, const chartype *src, size_t srclen,
           base64_decode_block(dst, buffer + (block_size - 2) * 64);
         }
         dst += 48;
-        std::memcpy(buffer, buffer + (block_size - 1) * 64,
+        simdutf::internal::memcpy(buffer, buffer + (block_size - 1) * 64,
                     64); // 64 might be too much
         bufferptr -= (block_size - 1) * 64;
       }
@@ -28529,7 +28534,7 @@ compress_decode_base64(char *dst, const chartype *src, size_t srclen,
 #if !SIMDUTF_IS_BIG_ENDIAN
       triple = scalar::u32_swap_bytes(triple);
 #endif
-      std::memcpy(dst, &triple, 3);
+      simdutf::internal::memcpy(dst, &triple, 3);
 
       dst += 3;
       buffer_start += 4;
@@ -28543,7 +28548,7 @@ compress_decode_base64(char *dst, const chartype *src, size_t srclen,
 #if !SIMDUTF_IS_BIG_ENDIAN
       triple = scalar::u32_swap_bytes(triple);
 #endif
-      std::memcpy(dst, &triple, 3);
+      simdutf::internal::memcpy(dst, &triple, 3);
 
       dst += 3;
       buffer_start += 4;
@@ -31461,7 +31466,7 @@ size_t encode_base64_impl(char *dst, const char *src, size_t srclen,
         _mm_storeu_si128(reinterpret_cast<__m128i *>(buffer + 16), t1);
         _mm_storeu_si128(reinterpret_cast<__m128i *>(buffer + 32), t2);
         _mm_storeu_si128(reinterpret_cast<__m128i *>(buffer + 48), t3);
-        std::memcpy(out, buffer, 64);
+        simdutf::internal::memcpy(out, buffer, 64);
         size_t out_pos = 0;
         size_t local_offset = offset;
         for (size_t j = 0; j < 64;) {
@@ -31529,7 +31534,7 @@ size_t encode_base64_impl(char *dst, const char *src, size_t srclen,
         if (offset + 16 > line_length) {
           size_t location_end = line_length - offset;
           size_t to_move = 16 - location_end;
-          std::memmove(out + location_end + 1, out + location_end, to_move);
+          simdutf::internal::memmove(out + location_end + 1, out + location_end, to_move);
           out[location_end] = '\n';
           offset = to_move;
           out += 16 + 1;
@@ -31641,7 +31646,7 @@ static inline void base64_decode_block_safe(char *out, const char *src) {
   char buffer[16];
   base64_decode(buffer,
                 _mm_loadu_si128(reinterpret_cast<const __m128i *>(src + 48)));
-  std::memcpy(out + 36, buffer, 12);
+  simdutf::internal::memcpy(out + 36, buffer, 12);
 }
 
 // --- decoding - base64 class --------------------------------
@@ -31909,7 +31914,7 @@ public:
     base64_decode(out + 24, chunks[2]);
     char buffer[16];
     base64_decode(buffer, chunks[3]);
-    std::memcpy(out + 36, buffer, 12);
+    simdutf::internal::memcpy(out + 36, buffer, 12);
   }
 };
 /* end file src/westmere/sse_base64.cpp */
@@ -31978,11 +31983,11 @@ simdutf_really_inline size_t
 buf_block_reader<STEP_SIZE>::get_remainder(uint8_t *dst) const {
   if (len == idx) {
     return 0;
-  } // memcpy(dst, null, 0) will trigger an error with some sanitizers
-  std::memset(dst, 0x20,
+  } // simdutf::internal::memcpy(dst, null, 0) will trigger an error with some sanitizers
+  simdutf::internal::memset(dst, 0x20,
               STEP_SIZE); // std::memset STEP_SIZE because it is more efficient
                           // to write out 8 or 16 bytes at once.
-  std::memcpy(dst, buf + idx, len - idx);
+  simdutf::internal::memcpy(dst, buf + idx, len - idx);
   return len - idx;
 }
 
@@ -33570,7 +33575,7 @@ compress_decode_base64(char *dst, const chartype *src, size_t srclen,
           base64_decode_block(dst, buffer + (block_size - 2) * 64);
         }
         dst += 48;
-        std::memcpy(buffer, buffer + (block_size - 1) * 64,
+        simdutf::internal::memcpy(buffer, buffer + (block_size - 1) * 64,
                     64); // 64 might be too much
         bufferptr -= (block_size - 1) * 64;
       }
@@ -33614,7 +33619,7 @@ compress_decode_base64(char *dst, const chartype *src, size_t srclen,
 #if !SIMDUTF_IS_BIG_ENDIAN
       triple = scalar::u32_swap_bytes(triple);
 #endif
-      std::memcpy(dst, &triple, 3);
+      simdutf::internal::memcpy(dst, &triple, 3);
 
       dst += 3;
       buffer_start += 4;
@@ -33628,7 +33633,7 @@ compress_decode_base64(char *dst, const chartype *src, size_t srclen,
 #if !SIMDUTF_IS_BIG_ENDIAN
       triple = scalar::u32_swap_bytes(triple);
 #endif
-      std::memcpy(dst, &triple, 3);
+      simdutf::internal::memcpy(dst, &triple, 3);
 
       dst += 3;
       buffer_start += 4;
@@ -36050,7 +36055,7 @@ static inline void base64_decode_block_safe(char *out, const char *src) {
   alignas(32) char buffer[32];
   base64_decode(buffer,
                 __lasx_xvld(reinterpret_cast<const __m256i *>(src), 32));
-  std::memcpy(out + 24, buffer, 24);
+  simdutf::internal::memcpy(out + 24, buffer, 24);
 }
 
 static inline void base64_decode_block(char *out, block64 *b) {
@@ -36061,7 +36066,7 @@ static inline void base64_decode_block_safe(char *out, block64 *b) {
   base64_decode(out, b->chunks[0]);
   alignas(32) char buffer[32];
   base64_decode(buffer, b->chunks[1]);
-  std::memcpy(out + 24, buffer, 24);
+  simdutf::internal::memcpy(out + 24, buffer, 24);
 }
 
 template <bool base64_url, bool ignore_garbage, bool default_or_url,
@@ -36142,7 +36147,7 @@ compress_decode_base64(char *dst, const chartype *src, size_t srclen,
           base64_decode_block(dst, buffer + (block_size - 2) * 64);
         }
         dst += 48;
-        std::memcpy(buffer, buffer + (block_size - 1) * 64,
+        simdutf::internal::memcpy(buffer, buffer + (block_size - 1) * 64,
                     64); // 64 might be too much
         bufferptr -= (block_size - 1) * 64;
       }
@@ -36185,7 +36190,7 @@ compress_decode_base64(char *dst, const chartype *src, size_t srclen,
                         << 8;
       // lasx is little-endian
       triple = scalar::u32_swap_bytes(triple);
-      std::memcpy(dst, &triple, 4);
+      simdutf::internal::memcpy(dst, &triple, 4);
 
       dst += 3;
       buffer_start += 4;
@@ -36198,7 +36203,7 @@ compress_decode_base64(char *dst, const chartype *src, size_t srclen,
                         << 8;
       // lasx is little-endian
       triple = scalar::u32_swap_bytes(triple);
-      std::memcpy(dst, &triple, 3);
+      simdutf::internal::memcpy(dst, &triple, 3);
 
       dst += 3;
       buffer_start += 4;
@@ -36388,11 +36393,11 @@ simdutf_really_inline size_t
 buf_block_reader<STEP_SIZE>::get_remainder(uint8_t *dst) const {
   if (len == idx) {
     return 0;
-  } // memcpy(dst, null, 0) will trigger an error with some sanitizers
-  std::memset(dst, 0x20,
+  } // simdutf::internal::memcpy(dst, null, 0) will trigger an error with some sanitizers
+  simdutf::internal::memset(dst, 0x20,
               STEP_SIZE); // std::memset STEP_SIZE because it is more efficient
                           // to write out 8 or 16 bytes at once.
-  std::memcpy(dst, buf + idx, len - idx);
+  simdutf::internal::memcpy(dst, buf + idx, len - idx);
   return len - idx;
 }
 
@@ -38908,7 +38913,7 @@ size_t convert_masked_utf8_to_latin1(const char *input,
   uint64_t buffer[2];
   // __lsx_vst(latin1_packed, reinterpret_cast<uint8_t *>(latin1_output), 0);
   __lsx_vst(latin1_packed, reinterpret_cast<uint8_t *>(buffer), 0);
-  std::memcpy(latin1_output, buffer, 6);
+  simdutf::internal::memcpy(latin1_output, buffer, 6);
   latin1_output += 6; // We wrote 6 bytes.
   return consumed;
 }
@@ -40011,7 +40016,7 @@ compress_decode_base64(char *dst, const char_type *src, size_t srclen,
           base64_decode_block(dst, buffer + i * 64);
           dst += 48;
         }
-        std::memcpy(buffer, buffer + (block_size - 1) * 64,
+        simdutf::internal::memcpy(buffer, buffer + (block_size - 1) * 64,
                     64); // 64 might be too much
         bufferptr -= (block_size - 1) * 64;
       }
@@ -40048,7 +40053,7 @@ compress_decode_base64(char *dst, const char_type *src, size_t srclen,
                         << 8;
       // lsx is little-endian
       triple = scalar::u32_swap_bytes(triple);
-      std::memcpy(dst, &triple, 4);
+      simdutf::internal::memcpy(dst, &triple, 4);
 
       dst += 3;
       buffer_start += 4;
@@ -40061,7 +40066,7 @@ compress_decode_base64(char *dst, const char_type *src, size_t srclen,
                         << 8;
       // lsx is little-endian
       triple = scalar::u32_swap_bytes(triple);
-      std::memcpy(dst, &triple, 3);
+      simdutf::internal::memcpy(dst, &triple, 3);
 
       dst += 3;
       buffer_start += 4;
@@ -40247,11 +40252,11 @@ simdutf_really_inline size_t
 buf_block_reader<STEP_SIZE>::get_remainder(uint8_t *dst) const {
   if (len == idx) {
     return 0;
-  } // memcpy(dst, null, 0) will trigger an error with some sanitizers
-  std::memset(dst, 0x20,
+  } // simdutf::internal::memcpy(dst, null, 0) will trigger an error with some sanitizers
+  simdutf::internal::memset(dst, 0x20,
               STEP_SIZE); // std::memset STEP_SIZE because it is more efficient
                           // to write out 8 or 16 bytes at once.
-  std::memcpy(dst, buf + idx, len - idx);
+  simdutf::internal::memcpy(dst, buf + idx, len - idx);
   return len - idx;
 }
 

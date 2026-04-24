@@ -4,6 +4,7 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
     const no_libcxx = b.option(bool, "no_libcxx", "Set SIMDUTF_NO_LIBCXX to avoid libc++ dependency") orelse false;
+    const no_libc = b.option(bool, "no_libc", "Set SIMDUTF_NO_LIBC and provide Zig stdlib replacements") orelse false;
 
     const lib = b.addLibrary(.{
         .name = "simdutf",
@@ -62,6 +63,31 @@ pub fn build(b: *std.Build) !void {
         }
 
         lib.root_module.addCMacro("SIMDUTF_NO_LIBCXX", "1");
+    }
+
+    if (no_libc) {
+        try flags.appendSlice(b.allocator, &.{
+            "-DSIMDUTF_NO_LIBC=1",
+            "-DSIMDUTF_LIBC_MEMCPY=simdutf_memcpy",
+            "-DSIMDUTF_LIBC_MEMMOVE=simdutf_memmove",
+            "-DSIMDUTF_LIBC_MEMSET=simdutf_memset",
+            "-DSIMDUTF_LIBC_MEMCMP=simdutf_memcmp",
+            "-DSIMDUTF_LIBC_STRLEN=simdutf_strlen",
+            "-DSIMDUTF_LIBC_GETENV=simdutf_getenv",
+        });
+
+        lib.root_module.addCMacro("SIMDUTF_NO_LIBC", "1");
+
+        const no_libc_obj = b.addObject(.{
+            .name = "simdutf_no_libc",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("no_libc.zig"),
+                .target = target,
+                .optimize = optimize,
+                .link_libc = false,
+            }),
+        });
+        lib.addObject(no_libc_obj);
     }
 
     if (target.result.abi == .msvc) {

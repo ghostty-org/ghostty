@@ -1,4 +1,4 @@
-/* auto-generated on 2026-04-21 21:46:47 -0400. Do not edit! */
+/* auto-generated on 2026-04-23 21:18:04 -0700. Do not edit! */
 /* begin file include/simdutf.h */
 #ifndef SIMDUTF_H
 #define SIMDUTF_H
@@ -556,6 +556,188 @@
   #define simdutf_constexpr23
 #endif
 
+/* begin file include/simdutf/libc.h */
+#ifndef SIMDUTF_LIBC_H
+#define SIMDUTF_LIBC_H
+
+#include <cstddef>
+#include <cstdlib>
+#include <cstring>
+
+#ifndef SIMDUTF_NO_LIBC
+  #define SIMDUTF_NO_LIBC 0
+#endif
+
+#if SIMDUTF_NO_LIBC
+  #ifdef SIMDUTF_LIBC_MEMCPY
+extern "C" void *SIMDUTF_LIBC_MEMCPY(void *, const void *, size_t) noexcept;
+  #endif
+  #ifdef SIMDUTF_LIBC_MEMMOVE
+extern "C" void *SIMDUTF_LIBC_MEMMOVE(void *, const void *, size_t) noexcept;
+  #endif
+  #ifdef SIMDUTF_LIBC_MEMSET
+extern "C" void *SIMDUTF_LIBC_MEMSET(void *, int, size_t) noexcept;
+  #endif
+  #ifdef SIMDUTF_LIBC_MEMCMP
+extern "C" int SIMDUTF_LIBC_MEMCMP(const void *, const void *, size_t) noexcept;
+  #endif
+  #ifdef SIMDUTF_LIBC_STRLEN
+extern "C" size_t SIMDUTF_LIBC_STRLEN(const char *) noexcept;
+  #endif
+  #ifdef SIMDUTF_LIBC_GETENV
+extern "C" const char *SIMDUTF_LIBC_GETENV(const char *) noexcept;
+  #endif
+#endif
+
+namespace simdutf {
+namespace internal {
+
+simdutf_really_inline void *builtin_memcpy(void *dst, const void *src,
+                                           size_t count) noexcept {
+  auto *output = reinterpret_cast<unsigned char *>(dst);
+  const auto *input = reinterpret_cast<const unsigned char *>(src);
+  for (size_t i = 0; i < count; i++) {
+    output[i] = input[i];
+  }
+  return dst;
+}
+
+simdutf_really_inline void *builtin_memmove(void *dst, const void *src,
+                                            size_t count) noexcept {
+  auto *output = reinterpret_cast<unsigned char *>(dst);
+  const auto *input = reinterpret_cast<const unsigned char *>(src);
+  if (output == input || count == 0) {
+    return dst;
+  }
+  if (output < input || output >= input + count) {
+    for (size_t i = 0; i < count; i++) {
+      output[i] = input[i];
+    }
+    return dst;
+  }
+  for (size_t i = count; i != 0; i--) {
+    output[i - 1] = input[i - 1];
+  }
+  return dst;
+}
+
+simdutf_really_inline void *builtin_memset(void *dst, int value,
+                                           size_t count) noexcept {
+  auto *output = reinterpret_cast<unsigned char *>(dst);
+  const auto byte = static_cast<unsigned char>(value);
+  for (size_t i = 0; i < count; i++) {
+    output[i] = byte;
+  }
+  return dst;
+}
+
+simdutf_really_inline int builtin_memcmp(const void *lhs, const void *rhs,
+                                         size_t count) noexcept {
+  const auto *left = reinterpret_cast<volatile const unsigned char *>(lhs);
+  const auto *right = reinterpret_cast<volatile const unsigned char *>(rhs);
+  for (size_t i = 0; i < count; i++) {
+    if (left[i] != right[i]) {
+      return int(left[i]) - int(right[i]);
+    }
+  }
+  return 0;
+}
+
+simdutf_really_inline size_t builtin_strlen(const char *input) noexcept {
+  const auto *bytes = reinterpret_cast<volatile const unsigned char *>(input);
+  size_t length = 0;
+  while (bytes[length] != '\0') {
+    length++;
+  }
+  return length;
+}
+
+simdutf_really_inline void *memcpy(void *dst, const void *src,
+                                   size_t count) noexcept {
+#if SIMDUTF_NO_LIBC
+  #ifdef SIMDUTF_LIBC_MEMCPY
+  return SIMDUTF_LIBC_MEMCPY(dst, src, count);
+  #else
+  return builtin_memcpy(dst, src, count);
+  #endif
+#else
+  return std::memcpy(dst, src, count);
+#endif
+}
+
+simdutf_really_inline void *memmove(void *dst, const void *src,
+                                    size_t count) noexcept {
+#if SIMDUTF_NO_LIBC
+  #ifdef SIMDUTF_LIBC_MEMMOVE
+  return SIMDUTF_LIBC_MEMMOVE(dst, src, count);
+  #else
+  return builtin_memmove(dst, src, count);
+  #endif
+#else
+  return std::memmove(dst, src, count);
+#endif
+}
+
+simdutf_really_inline void *memset(void *dst, int value,
+                                   size_t count) noexcept {
+#if SIMDUTF_NO_LIBC
+  #ifdef SIMDUTF_LIBC_MEMSET
+  return SIMDUTF_LIBC_MEMSET(dst, value, count);
+  #else
+  return builtin_memset(dst, value, count);
+  #endif
+#else
+  return std::memset(dst, value, count);
+#endif
+}
+
+simdutf_really_inline int memcmp(const void *lhs, const void *rhs,
+                                 size_t count) noexcept {
+#if SIMDUTF_NO_LIBC
+  #ifdef SIMDUTF_LIBC_MEMCMP
+  return SIMDUTF_LIBC_MEMCMP(lhs, rhs, count);
+  #else
+  return builtin_memcmp(lhs, rhs, count);
+  #endif
+#else
+  return std::memcmp(lhs, rhs, count);
+#endif
+}
+
+simdutf_really_inline size_t strlen(const char *input) noexcept {
+#if SIMDUTF_NO_LIBC
+  #ifdef SIMDUTF_LIBC_STRLEN
+  return SIMDUTF_LIBC_STRLEN(input);
+  #else
+  return builtin_strlen(input);
+  #endif
+#else
+  return std::strlen(input);
+#endif
+}
+
+simdutf_really_inline const char *getenv(const char *name) noexcept {
+#if SIMDUTF_NO_LIBC
+  #ifdef SIMDUTF_LIBC_GETENV
+  return SIMDUTF_LIBC_GETENV(name);
+  #else
+  (void)name;
+  return nullptr;
+  #endif
+#else
+  SIMDUTF_PUSH_DISABLE_WARNINGS
+  SIMDUTF_DISABLE_DEPRECATED_WARNING
+  return std::getenv(name);
+  SIMDUTF_POP_DISABLE_WARNINGS
+#endif
+}
+
+} // namespace internal
+} // namespace simdutf
+
+#endif // SIMDUTF_LIBC_H
+/* end file include/simdutf/libc.h */
+
 #ifndef SIMDUTF_DLLIMPORTEXPORT
   #if defined(SIMDUTF_VISUAL_STUDIO) // Visual Studio
                                      /**
@@ -842,29 +1024,33 @@ enum error_code {
 inline std::string_view error_to_string(error_code code) noexcept {
   switch (code) {
   case SUCCESS:
-    return "SUCCESS";
+    return std::string_view("SUCCESS", sizeof("SUCCESS") - 1);
   case HEADER_BITS:
-    return "HEADER_BITS";
+    return std::string_view("HEADER_BITS", sizeof("HEADER_BITS") - 1);
   case TOO_SHORT:
-    return "TOO_SHORT";
+    return std::string_view("TOO_SHORT", sizeof("TOO_SHORT") - 1);
   case TOO_LONG:
-    return "TOO_LONG";
+    return std::string_view("TOO_LONG", sizeof("TOO_LONG") - 1);
   case OVERLONG:
-    return "OVERLONG";
+    return std::string_view("OVERLONG", sizeof("OVERLONG") - 1);
   case TOO_LARGE:
-    return "TOO_LARGE";
+    return std::string_view("TOO_LARGE", sizeof("TOO_LARGE") - 1);
   case SURROGATE:
-    return "SURROGATE";
+    return std::string_view("SURROGATE", sizeof("SURROGATE") - 1);
   case INVALID_BASE64_CHARACTER:
-    return "INVALID_BASE64_CHARACTER";
+    return std::string_view("INVALID_BASE64_CHARACTER",
+                            sizeof("INVALID_BASE64_CHARACTER") - 1);
   case BASE64_INPUT_REMAINDER:
-    return "BASE64_INPUT_REMAINDER";
+    return std::string_view("BASE64_INPUT_REMAINDER",
+                            sizeof("BASE64_INPUT_REMAINDER") - 1);
   case BASE64_EXTRA_BITS:
-    return "BASE64_EXTRA_BITS";
+    return std::string_view("BASE64_EXTRA_BITS",
+                            sizeof("BASE64_EXTRA_BITS") - 1);
   case OUTPUT_BUFFER_TOO_SMALL:
-    return "OUTPUT_BUFFER_TOO_SMALL";
+    return std::string_view("OUTPUT_BUFFER_TOO_SMALL",
+                            sizeof("OUTPUT_BUFFER_TOO_SMALL") - 1);
   default:
-    return "OTHER";
+    return std::string_view("OTHER", sizeof("OTHER") - 1);
   }
 }
 
@@ -1604,9 +1790,9 @@ simdutf_warn_unused simdutf_constexpr23 bool validate(InputPtr data,
   {
     for (; pos + 16 <= len; pos += 16) {
       uint64_t v1;
-      std::memcpy(&v1, data + pos, sizeof(uint64_t));
+      simdutf::internal::memcpy(&v1, data + pos, sizeof(uint64_t));
       uint64_t v2;
-      std::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
+      simdutf::internal::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
       uint64_t v{v1 | v2};
       if ((v & 0x8080808080808080) != 0) {
         return false;
@@ -1637,9 +1823,9 @@ validate_with_errors(InputPtr data, size_t len) noexcept {
     // process in blocks of 16 bytes when possible
     for (; pos + 16 <= len; pos += 16) {
       uint64_t v1;
-      std::memcpy(&v1, data + pos, sizeof(uint64_t));
+      simdutf::internal::memcpy(&v1, data + pos, sizeof(uint64_t));
       uint64_t v2;
-      std::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
+      simdutf::internal::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
       uint64_t v{v1 | v2};
       if ((v & 0x8080808080808080) != 0) {
         for (; pos < len; pos++) {
@@ -1710,7 +1896,7 @@ inline void memcpy_atomic_read(char *dst, const char *src, size_t len) {
     auto *src_aligned = reinterpret_cast<uint64_t *>(const_cast<char *>(src));
     const auto dst_value =
         std::atomic_ref<uint64_t>(*src_aligned).load(std::memory_order_relaxed);
-    std::memcpy(dst, &dst_value, sizeof(uint64_t));
+    simdutf::internal::memcpy(dst, &dst_value, sizeof(uint64_t));
     src += alignment;
     dst += alignment;
     len -= alignment;
@@ -1756,7 +1942,7 @@ inline void memcpy_atomic_write(char *dst, const char *src, size_t len) {
   while (len >= alignment) {
     auto *dst_aligned = reinterpret_cast<uint64_t *>(dst);
     uint64_t src_val;
-    std::memcpy(&src_val, src, sizeof(uint64_t)); // Non-atomic read from src
+    simdutf::internal::memcpy(&src_val, src, sizeof(uint64_t)); // Non-atomic read from src
     std::atomic_ref<uint64_t>(*dst_aligned)
         .store(src_val, std::memory_order_relaxed);
     dst += alignment;
@@ -1914,9 +2100,9 @@ simdutf_constexpr23 size_t convert(InputPtr data, size_t len,
       if (pos + 16 <= len) { // if it is safe to read 16 more bytes, check that
                              // they are ascii
         uint64_t v1;
-        ::memcpy(&v1, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v1, data + pos, sizeof(uint64_t));
         uint64_t v2;
-        ::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
+        simdutf::internal::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
         uint64_t v{v1 |
                    v2}; // We are only interested in these bits: 1000 1000 1000
                         // 1000, so it makes sense to concatenate everything
@@ -1966,16 +2152,16 @@ inline size_t convert_safe(const char *buf, size_t len, char *utf8_output,
         utf8_pos + 16 <= utf8_len) { // if it is safe to read 16 more bytes,
                                      // check that they are ascii
       uint64_t v1;
-      ::memcpy(&v1, data + pos, sizeof(uint64_t));
+      simdutf::internal::memcpy(&v1, data + pos, sizeof(uint64_t));
       uint64_t v2;
-      ::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
+      simdutf::internal::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
       uint64_t v{v1 |
                  v2}; // We are only interested in these bits: 1000 1000 1000
                       // 1000, so it makes sense to concatenate everything
       if ((v & 0x8080808080808080) ==
           0) { // if NONE of these are set, e.g. all of them are zero, then
                // everything is ASCII
-        ::memcpy(utf8_output + utf8_pos, buf + pos, 16);
+        simdutf::internal::memcpy(utf8_output + utf8_pos, buf + pos, 16);
         utf8_pos += 16;
         pos += 16;
       } else {
@@ -2050,18 +2236,18 @@ utf8_length_from_latin1(InputPtr input, size_t length) noexcept {
     };
     for (; i + 32 <= length; i += 32) {
       uint64_t v;
-      memcpy(&v, input + i, 8);
+      simdutf::internal::memcpy(&v, input + i, 8);
       answer += pop(v);
-      memcpy(&v, input + i + 8, sizeof(v));
+      simdutf::internal::memcpy(&v, input + i + 8, sizeof(v));
       answer += pop(v);
-      memcpy(&v, input + i + 16, sizeof(v));
+      simdutf::internal::memcpy(&v, input + i + 16, sizeof(v));
       answer += pop(v);
-      memcpy(&v, input + i + 24, sizeof(v));
+      simdutf::internal::memcpy(&v, input + i + 24, sizeof(v));
       answer += pop(v);
     }
     for (; i + 8 <= length; i += 8) {
       uint64_t v;
-      memcpy(&v, input + i, sizeof(v));
+      simdutf::internal::memcpy(&v, input + i, sizeof(v));
       answer += pop(v);
     }
   } // !consteval scope
@@ -2365,10 +2551,10 @@ simdutf_constexpr23 result convert_with_errors(InputPtr data, size_t len,
       if (pos + 16 <= len) { // if it is safe to read 32 more bytes, check that
                              // they are Latin1
         uint64_t v1, v2, v3, v4;
-        ::memcpy(&v1, data + pos, sizeof(uint64_t));
-        ::memcpy(&v2, data + pos + 4, sizeof(uint64_t));
-        ::memcpy(&v3, data + pos + 8, sizeof(uint64_t));
-        ::memcpy(&v4, data + pos + 12, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v1, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v2, data + pos + 4, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v3, data + pos + 8, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v4, data + pos + 12, sizeof(uint64_t));
 
         if constexpr (!match_system(big_endian)) {
           v1 = (v1 >> 8) | (v1 << (64 - 8));
@@ -2617,7 +2803,7 @@ simdutf_constexpr23 size_t convert(InputPtr data, size_t len,
       if (pos + 4 <= len) { // if it is safe to read 8 more bytes, check that
                             // they are ascii
         uint64_t v;
-        ::memcpy(&v, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v, data + pos, sizeof(uint64_t));
         if constexpr (!match_system(big_endian)) {
           v = (v >> 8) | (v << (64 - 8));
         }
@@ -2707,7 +2893,7 @@ simdutf_constexpr23 full_result convert_with_errors(InputPtr data, size_t len,
       if (pos + 4 <= len) { // if it is safe to read 8 more bytes, check that
                             // they are ascii
         uint64_t v;
-        ::memcpy(&v, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v, data + pos, sizeof(uint64_t));
         if constexpr (!match_system(big_endian))
           v = (v >> 8) | (v << (64 - 8));
         if ((v & 0xFF80FF80FF80FF80) == 0) {
@@ -2814,7 +3000,7 @@ simdutf_constexpr23 size_t convert_with_replacement(const char16_t *data,
       if (pos + 4 <= len) { // if it is safe to read 8 more bytes, check that
                             // they are ascii
         uint64_t v;
-        ::memcpy(&v, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v, data + pos, sizeof(uint64_t));
         if constexpr (!match_system(big_endian)) {
           v = (v >> 8) | (v << (64 - 8));
         }
@@ -2914,7 +3100,7 @@ simdutf_constexpr23 size_t convert_valid(InputPtr data, size_t len,
       if (pos + 4 <= len) { // if it is safe to read 8 more bytes, check that
                             // they are ascii
         uint64_t v;
-        ::memcpy(&v, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v, data + pos, sizeof(uint64_t));
         if constexpr (!match_system(big_endian)) {
           v = (v >> 8) | (v << (64 - 8));
         }
@@ -3105,7 +3291,7 @@ inline simdutf_constexpr23 result convert_with_errors(const char32_t *data,
       if (pos + 2 <= len) { // if it is safe to read 8 more bytes, check that
                             // they are Latin1
         uint64_t v;
-        ::memcpy(&v, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v, data + pos, sizeof(uint64_t));
         if ((v & 0xFFFFFF00FFFFFF00) == 0) {
           *latin1_output++ = char(data[pos]);
           *latin1_output++ = char(data[pos + 1]);
@@ -3165,7 +3351,7 @@ simdutf_constexpr23 size_t convert_valid(ReadPtr data, size_t len,
       if (pos + 2 <= len) {
         // if it is safe to read 8 more bytes, check that they are Latin1
         uint64_t v;
-        std::memcpy(&v, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v, data + pos, sizeof(uint64_t));
         if ((v & 0xFFFFFF00FFFFFF00) == 0) {
           *latin1_output++ = char(data[pos]);
           *latin1_output++ = char(data[pos + 1]);
@@ -3361,7 +3547,7 @@ simdutf_constexpr23 size_t convert(InputPtr data, size_t len,
       if (pos + 2 <= len) { // if it is safe to read 8 more bytes, check that
                             // they are ascii
         uint64_t v;
-        ::memcpy(&v, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v, data + pos, sizeof(uint64_t));
         if ((v & 0xFFFFFF80FFFFFF80) == 0) {
           *utf8_output++ = char(data[pos]);
           *utf8_output++ = char(data[pos + 1]);
@@ -3425,7 +3611,7 @@ simdutf_constexpr23 result convert_with_errors(InputPtr data, size_t len,
       if (pos + 2 <= len) { // if it is safe to read 8 more bytes, check that
                             // they are ascii
         uint64_t v;
-        ::memcpy(&v, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v, data + pos, sizeof(uint64_t));
         if ((v & 0xFFFFFF80FFFFFF80) == 0) {
           *utf8_output++ = char(data[pos]);
           *utf8_output++ = char(data[pos + 1]);
@@ -3505,7 +3691,7 @@ simdutf_constexpr23 size_t convert_valid(InputPtr data, size_t len,
       if (pos + 2 <= len) { // if it is safe to read 8 more bytes, check that
                             // they are ascii
         uint64_t v;
-        ::memcpy(&v, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v, data + pos, sizeof(uint64_t));
         if ((v & 0xFFFFFF80FFFFFF80) == 0) {
           *utf8_output++ = char(data[pos]);
           *utf8_output++ = char(data[pos + 1]);
@@ -3581,9 +3767,9 @@ simdutf_constexpr23 simdutf_warn_unused bool validate(BytePtr data,
       if (next_pos <= len) { // if it is safe to read 16 more bytes, check
                              // that they are ascii
         uint64_t v1{};
-        std::memcpy(&v1, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v1, data + pos, sizeof(uint64_t));
         uint64_t v2{};
-        std::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
+        simdutf::internal::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
         uint64_t v{v1 | v2};
         if ((v & 0x8080808080808080) == 0) {
           pos = next_pos;
@@ -3682,9 +3868,9 @@ validate_with_errors(BytePtr data, size_t len) noexcept {
     if (next_pos <=
         len) { // if it is safe to read 16 more bytes, check that they are ascii
       uint64_t v1;
-      std::memcpy(&v1, data + pos, sizeof(uint64_t));
+      simdutf::internal::memcpy(&v1, data + pos, sizeof(uint64_t));
       uint64_t v2;
-      std::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
+      simdutf::internal::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
       uint64_t v{v1 | v2};
       if ((v & 0x8080808080808080) == 0) {
         pos = next_pos;
@@ -3909,9 +4095,9 @@ simdutf_constexpr23 size_t convert(InputPtr data, size_t len,
       if (pos + 16 <= len) { // if it is safe to read 16 more bytes, check that
                              // they are ascii
         uint64_t v1;
-        ::memcpy(&v1, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v1, data + pos, sizeof(uint64_t));
         uint64_t v2;
-        ::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
+        simdutf::internal::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
         uint64_t v{v1 | v2}; // We are only interested in these bits: 1000 1000
                              // 1000 1000 .... etc
         if ((v & 0x8080808080808080) ==
@@ -3984,9 +4170,9 @@ simdutf_constexpr23 result convert_with_errors(InputPtr data, size_t len,
       if (pos + 16 <= len) { // if it is safe to read 16 more bytes, check that
                              // they are ascii
         uint64_t v1;
-        ::memcpy(&v1, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v1, data + pos, sizeof(uint64_t));
         uint64_t v2;
-        ::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
+        simdutf::internal::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
         uint64_t v{v1 | v2}; // We are only interested in these bits: 1000 1000
                              // 1000 1000...etc
         if ((v & 0x8080808080808080) ==
@@ -4136,9 +4322,9 @@ simdutf_constexpr23 size_t convert_valid(InputPtr data, size_t len,
       if (pos + 16 <= len) { // if it is safe to read 16 more bytes, check that
                              // they are ascii
         uint64_t v1;
-        ::memcpy(&v1, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v1, data + pos, sizeof(uint64_t));
         uint64_t v2;
-        ::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
+        simdutf::internal::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
         uint64_t v{v1 |
                    v2}; // We are only interested in these bits: 1000 1000 1000
                         // 1000, so it makes sense to concatenate everything
@@ -4223,9 +4409,9 @@ simdutf_constexpr23 size_t convert(InputPtr data, size_t len,
       if (pos + 16 <= len) { // if it is safe to read 16 more bytes, check that
                              // they are ascii
         uint64_t v1;
-        ::memcpy(&v1, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v1, data + pos, sizeof(uint64_t));
         uint64_t v2;
-        ::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
+        simdutf::internal::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
         uint64_t v{v1 | v2};
         if ((v & 0x8080808080808080) == 0) {
           size_t final_pos = pos + 16;
@@ -4350,9 +4536,9 @@ simdutf_constexpr23 result convert_with_errors(InputPtr data, size_t len,
       if (pos + 16 <= len) { // if it is safe to read 16 more bytes, check that
                              // they are ascii
         uint64_t v1;
-        ::memcpy(&v1, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v1, data + pos, sizeof(uint64_t));
         uint64_t v2;
-        ::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
+        simdutf::internal::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
         uint64_t v{v1 | v2};
         if ((v & 0x8080808080808080) == 0) {
           size_t final_pos = pos + 16;
@@ -4566,7 +4752,7 @@ simdutf_constexpr23 size_t convert_valid(InputPtr data, size_t len,
       if (pos + 8 <= len) { // if it is safe to read 8 more bytes, check that
                             // they are ascii
         uint64_t v;
-        ::memcpy(&v, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v, data + pos, sizeof(uint64_t));
         if ((v & 0x8080808080808080) == 0) {
           size_t final_pos = pos + 8;
           while (pos < final_pos) {
@@ -4675,9 +4861,9 @@ simdutf_constexpr23 size_t convert(InputPtr data, size_t len,
       if (pos + 16 <= len) { // if it is safe to read 16 more bytes, check that
                              // they are ascii
         uint64_t v1;
-        ::memcpy(&v1, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v1, data + pos, sizeof(uint64_t));
         uint64_t v2;
-        ::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
+        simdutf::internal::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
         uint64_t v{v1 | v2};
         if ((v & 0x8080808080808080) == 0) {
           size_t final_pos = pos + 16;
@@ -4781,9 +4967,9 @@ simdutf_constexpr23 result convert_with_errors(InputPtr data, size_t len,
       if (pos + 16 <= len) { // if it is safe to read 16 more bytes, check that
                              // they are ascii
         uint64_t v1;
-        ::memcpy(&v1, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v1, data + pos, sizeof(uint64_t));
         uint64_t v2;
-        ::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
+        simdutf::internal::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
         uint64_t v{v1 | v2};
         if ((v & 0x8080808080808080) == 0) {
           size_t final_pos = pos + 16;
@@ -4976,7 +5162,7 @@ simdutf_constexpr23 size_t convert_valid(InputPtr data, size_t len,
       if (pos + 8 <= len) { // if it is safe to read 8 more bytes, check that
                             // they are ascii
         uint64_t v;
-        ::memcpy(&v, data + pos, sizeof(uint64_t));
+        simdutf::internal::memcpy(&v, data + pos, sizeof(uint64_t));
         if ((v & 0x8080808080808080) == 0) {
           size_t final_pos = pos + 8;
           while (pos < final_pos) {
@@ -7884,37 +8070,45 @@ namespace simdutf {
 inline std::string_view to_string(base64_options options) {
   switch (options) {
   case base64_default:
-    return "base64_default";
+    return std::string_view("base64_default", sizeof("base64_default") - 1);
   case base64_url:
-    return "base64_url";
+    return std::string_view("base64_url", sizeof("base64_url") - 1);
   case base64_reverse_padding:
-    return "base64_reverse_padding";
+    return std::string_view("base64_reverse_padding",
+                            sizeof("base64_reverse_padding") - 1);
   case base64_url_with_padding:
-    return "base64_url_with_padding";
+    return std::string_view("base64_url_with_padding",
+                            sizeof("base64_url_with_padding") - 1);
   case base64_default_accept_garbage:
-    return "base64_default_accept_garbage";
+    return std::string_view("base64_default_accept_garbage",
+                            sizeof("base64_default_accept_garbage") - 1);
   case base64_url_accept_garbage:
-    return "base64_url_accept_garbage";
+    return std::string_view("base64_url_accept_garbage",
+                            sizeof("base64_url_accept_garbage") - 1);
   case base64_default_or_url:
-    return "base64_default_or_url";
+    return std::string_view("base64_default_or_url",
+                            sizeof("base64_default_or_url") - 1);
   case base64_default_or_url_accept_garbage:
-    return "base64_default_or_url_accept_garbage";
+    return std::string_view("base64_default_or_url_accept_garbage",
+                            sizeof("base64_default_or_url_accept_garbage") -
+                                1);
   }
-  return "<unknown>";
+  return std::string_view("<unknown>", sizeof("<unknown>") - 1);
 }
 
 inline std::string_view to_string(last_chunk_handling_options options) {
   switch (options) {
   case loose:
-    return "loose";
+    return std::string_view("loose", sizeof("loose") - 1);
   case strict:
-    return "strict";
+    return std::string_view("strict", sizeof("strict") - 1);
   case stop_before_partial:
-    return "stop_before_partial";
+    return std::string_view("stop_before_partial",
+                            sizeof("stop_before_partial") - 1);
   case only_full_chunks:
-    return "only_full_chunks";
+    return std::string_view("only_full_chunks", sizeof("only_full_chunks") - 1);
   }
-  return "<unknown>";
+  return std::string_view("<unknown>", sizeof("<unknown>") - 1);
 }
 
 /**
@@ -8789,7 +8983,9 @@ public:
    *
    * @return the name of the implementation, e.g. "haswell", "westmere", "arm64"
    */
-  virtual std::string_view name() const noexcept { return _name; }
+  virtual std::string_view name() const noexcept {
+    return std::string_view(_name, _name_length);
+  }
 
   /**
    * The description of this implementation.
@@ -8800,7 +8996,9 @@ public:
    *
    * @return the name of the implementation, e.g. "haswell", "westmere", "arm64"
    */
-  virtual std::string_view description() const noexcept { return _description; }
+  virtual std::string_view description() const noexcept {
+    return std::string_view(_description, _description_length);
+  }
 
   /**
    * The instruction sets this implementation is compiled against
@@ -9594,10 +9792,21 @@ public:
 protected:
   /** @private Construct an implementation with the given name and description.
    * For subclasses. */
+  template <size_t NameLength, size_t DescriptionLength>
+  simdutf_really_inline implementation(
+      const char (&name)[NameLength],
+      const char (&description)[DescriptionLength],
+      uint32_t required_instruction_sets)
+      : _name(name), _name_length(NameLength - 1), _description(description),
+        _description_length(DescriptionLength - 1),
+        _required_instruction_sets(required_instruction_sets) {}
+
   simdutf_really_inline implementation(const char *name,
                                        const char *description,
                                        uint32_t required_instruction_sets)
-      : _name(name), _description(description),
+      : _name(name), _name_length(simdutf::internal::strlen(name)),
+        _description(description),
+        _description_length(simdutf::internal::strlen(description)),
         _required_instruction_sets(required_instruction_sets) {}
 
 protected:
@@ -9608,11 +9817,13 @@ private:
    * The name of this implementation.
    */
   const char *_name;
+  const size_t _name_length;
 
   /**
    * The description of this implementation.
    */
   const char *_description;
+  const size_t _description_length;
 
   /**
    * Instruction sets required for this implementation.
@@ -9622,6 +9833,19 @@ private:
 
 /** @private */
 namespace internal {
+
+simdutf_really_inline bool string_view_equal(std::string_view lhs,
+                                             std::string_view rhs) noexcept {
+  if (lhs.size() != rhs.size()) {
+    return false;
+  }
+  for (size_t i = 0; i < lhs.size(); i++) {
+    if (lhs[i] != rhs[i]) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /**
  * The list of available implementations compiled into simdutf.
@@ -9652,7 +9876,24 @@ public:
    */
   const implementation *operator[](std::string_view name) const noexcept {
     for (const implementation *impl : *this) {
-      if (impl->name() == name) {
+      if (string_view_equal(impl->name(), name)) {
+        return impl;
+      }
+    }
+    return nullptr;
+  }
+
+  const implementation *operator[](const char *name) const noexcept {
+    if (name == nullptr) {
+      return nullptr;
+    }
+    for (const implementation *impl : *this) {
+      const std::string_view impl_name = impl->name();
+      size_t i = 0;
+      while (i < impl_name.size() && name[i] != '\0' && impl_name[i] == name[i]) {
+        i++;
+      }
+      if (i == impl_name.size() && name[i] == '\0') {
         return impl;
       }
     }
