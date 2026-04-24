@@ -256,6 +256,11 @@ pub const Window = extern struct {
         /// setup by `setup-menu`.
         context_menu_page: ?*adw.TabPage = null,
 
+        /// The 1-based window slot assigned to this window for indexed
+        /// `goto_window:N` navigation. Null means unassigned (either
+        /// before init, after dispose, or when slot allocation failed).
+        window_slot: ?usize = null,
+
         // Template bindings
         tab_overview: *adw.TabOverview,
         tab_bar: *adw.TabBar,
@@ -303,6 +308,11 @@ pub const Window = extern struct {
             priv.config = config;
             break :config config.get();
         };
+
+        // Claim a window slot for indexed goto_window navigation. This
+        // is best-effort: if allocation fails the window simply can't
+        // be targeted by index.
+        priv.window_slot = Application.default().claimWindowSlot(self);
 
         // We initialize our windowing protocol to none because we can't
         // actually initialize this until we get realized.
@@ -1211,6 +1221,13 @@ pub const Window = extern struct {
 
     fn dispose(self: *Self) callconv(.c) void {
         const priv = self.private();
+
+        // Release our window slot back to the pool so a future window
+        // can claim it.
+        if (priv.window_slot) |slot| {
+            Application.default().releaseWindowSlot(slot, self);
+            priv.window_slot = null;
+        }
 
         priv.command_palette.set(null);
 

@@ -218,6 +218,13 @@ pub const Application = extern struct {
 
         open_uri: OpenURI = undefined,
 
+        /// Window slot registry. Maps a 1-based slot index to the Window
+        /// currently occupying it. Slots enable indexed `goto_window:N`
+        /// navigation. A window's slot is stable for its lifetime; the
+        /// lowest free slot is always reused for new windows. See
+        /// `claimWindowSlot` / `releaseWindowSlot`.
+        window_slots: std.AutoHashMapUnmanaged(usize, *Window) = .empty,
+
         pub var offset: c_int = 0;
     };
 
@@ -456,6 +463,7 @@ pub const Application = extern struct {
         priv.css_provider.unref();
         for (priv.custom_css_providers.items) |provider| provider.unref();
         priv.custom_css_providers.deinit(alloc);
+        priv.window_slots.deinit(alloc);
     }
 
     /// The global allocator that all other classes should use by
@@ -469,6 +477,48 @@ pub const Application = extern struct {
     /// pointer to internal memory so it must be copied by callers.
     pub fn savedLanguage(self: *Self) ?[:0]const u8 {
         return self.private().saved_language;
+    }
+
+    /// Claim the lowest free 1-based window slot for the given window.
+    /// The slot stays assigned to this window until `releaseWindowSlot`
+    /// is called (typically from the window's dispose).
+    ///
+    /// Returns `null` on allocation failure; the window simply won't be
+    /// addressable by index in that case. If the window is already
+    /// registered, its existing slot is returned.
+    pub fn claimWindowSlot(self: *Self, window: *Window) ?usize {
+        const priv = self.private();
+        const alloc = self.allocator();
+
+        // If this window already holds a slot, return it.
+        var it = priv.window_slots.iterator();
+        while (it.next()) |entry| {
+            if (entry.value_ptr.* == window) return entry.key_ptr.*;
+        }
+
+        // Find the lowest free slot starting at 1.
+        var slot: usize = 1;
+        while (priv.window_slots.contains(slot)) : (slot += 1) {}
+
+        priv.window_slots.put(alloc, slot, window) catch {
+            log.warn("failed to allocate window slot", .{});
+            return null;
+        };
+        return slot;
+    }
+
+    /// Release the given slot if it is currently held by the given window.
+    /// No-op if the slot is empty or held by a different window.
+    pub fn releaseWindowSlot(self: *Self, slot: usize, window: *Window) void {
+        const priv = self.private();
+        if (priv.window_slots.get(slot)) |w| {
+            if (w == window) _ = priv.window_slots.remove(slot);
+        }
+    }
+
+    /// Look up the window in a given slot, or null if the slot is empty.
+    pub fn windowForSlot(self: *Self, slot: usize) ?*Window {
+        return self.private().window_slots.get(slot);
     }
 
     /// Run the application. This is a replacement for `gio.Application.run`
@@ -689,7 +739,7 @@ pub const Application = extern struct {
 
             .goto_split => return Action.gotoSplit(target, value),
 
-            .goto_window => return Action.gotoWindow(value),
+            .goto_window => return Action.gotoWindow(self, value),
 
             .goto_tab => return Action.gotoTab(target, value),
 
@@ -2048,7 +2098,29 @@ const Action = struct {
         }
     }
 
-    pub fn gotoWindow(direction: apprt.action.GotoWindow) bool {
+    pub fn gotoWindow(app: *Application, direction: apprt.action.GotoWindow) bool {
+        // A positive integer value is a 1-based slot index — jump directly
+        // to the window in that slot, if any. Negative values are named
+        // sentinels (previous, next) handled below.
+        const raw = @intFromEnum(direction);
+        if (raw > 0) {
+            const slot: usize = @intCast(raw);
+            const window = app.windowForSlot(slot) orelse return false;
+            const gtk_window = window.as(gtk.Window);
+            if (gtk_window.as(gtk.Widget).isVisible() == 0) return false;
+            gtk.Window.present(gtk_window);
+            if (window.getActiveSurface()) |surface| surface.grabFocus();
+            return true;
+        }
+
+        // Only relative-navigation sentinels get past here. Unknown values
+        // (e.g. 0 or other negatives) are a no-op.
+        const step: enum { prev, next } = switch (direction) {
+            .previous => .prev,
+            .next => .next,
+            else => return false,
+        };
+
         const glist = gtk.Window.listToplevels();
         defer glist.free();
 
@@ -2061,9 +2133,9 @@ const Action = struct {
         // Go forward or backwards in the list until we find a valid
         // window that is visible.
         var current_: ?*glib.List = starting;
-        while (current_) |node| : (current_ = switch (direction) {
+        while (current_) |node| : (current_ = switch (step) {
             .next => node.f_next,
-            .previous => node.f_prev,
+            .prev => node.f_prev,
         }) {
             const data = node.f_data orelse continue;
             const gtk_window: *gtk.Window = @ptrCast(@alignCast(data));
@@ -2072,17 +2144,17 @@ const Action = struct {
 
         // If we reached here, we didn't find a valid window to focus.
         // Wrap around.
-        current_ = switch (direction) {
+        current_ = switch (step) {
             .next => glist,
-            .previous => last: {
+            .prev => last: {
                 var end: *glib.List = glist;
                 while (end.f_next) |next| end = next;
                 break :last end;
             },
         };
-        while (current_) |node| : (current_ = switch (direction) {
+        while (current_) |node| : (current_ = switch (step) {
             .next => node.f_next,
-            .previous => node.f_prev,
+            .prev => node.f_prev,
         }) {
             if (current_ == starting) break;
             const data = node.f_data orelse continue;

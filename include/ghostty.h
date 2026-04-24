@@ -586,9 +586,12 @@ typedef enum {
 } ghostty_action_goto_split_e;
 
 // apprt.action.GotoWindow
+//
+// Positive values represent a 1-based window slot index. Negative values
+// are special sentinels for relative navigation.
 typedef enum {
-  GHOSTTY_GOTO_WINDOW_PREVIOUS,
-  GHOSTTY_GOTO_WINDOW_NEXT,
+  GHOSTTY_GOTO_WINDOW_PREVIOUS = -1,
+  GHOSTTY_GOTO_WINDOW_NEXT = -2,
 } ghostty_action_goto_window_e;
 
 // apprt.action.ResizeSplit.Direction

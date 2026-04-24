@@ -608,7 +608,35 @@ pub const Action = union(enum) {
     /// (`previous` and `next`).
     goto_split: SplitFocusDirection,
 
-    /// Focus on either the previous window or the next one ('previous', 'next')
+    /// Focus a window. Accepts `previous` or `next` to move relative to
+    /// the currently focused window, or a positive integer to jump to a
+    /// specific window by its 1-based slot index.
+    ///
+    /// Each window is assigned a stable slot number when it is created.
+    /// Slots start at 1 and the lowest free slot is reused when a new
+    /// window opens, so a window's slot stays the same for its entire
+    /// lifetime — only closing a window can free its slot for a future
+    /// window to take.
+    ///
+    /// If the slot index refers to a window that does not exist, this
+    /// action is a no-op. For example, `goto_window:3` with only two
+    /// open windows does nothing.
+    ///
+    /// ## Overriding default cmd+N tab shortcuts on macOS
+    ///
+    /// On macOS, cmd+1..8 are bound by default to `goto_tab:N` and
+    /// cmd+9 to `last_tab`. To make cmd+N jump to windows instead of
+    /// tabs, bind the physical digit keys explicitly — the default
+    /// binds are against the physical keys so a unicode-only bind
+    /// would not win:
+    ///
+    ///     keybind = cmd+physical:one=goto_window:1
+    ///     keybind = cmd+physical:two=goto_window:2
+    ///     # ...through nine
+    ///
+    /// Slot numbering is stable within a session. Numbering across app
+    /// restarts is not currently preserved; restored windows claim slots
+    /// in whatever order the OS restores them.
     goto_window: GotoWindow,
 
     /// Zoom in or out of the current split.
@@ -1052,9 +1080,40 @@ pub const Action = union(enum) {
         right,
     };
 
-    pub const GotoWindow = enum {
+    pub const GotoWindow = union(enum) {
         previous,
         next,
+        /// Jump to the window in the given 1-based slot.
+        index: usize,
+
+        pub fn parse(param: []const u8) !GotoWindow {
+            if (std.mem.eql(u8, param, "previous")) return .previous;
+            if (std.mem.eql(u8, param, "next")) return .next;
+            const n = std.fmt.parseInt(usize, param, 10) catch
+                return Error.InvalidFormat;
+            // A slot index of 0 is meaningless (slots are 1-based).
+            if (n == 0) return Error.InvalidFormat;
+            return .{ .index = n };
+        }
+
+        pub fn clone(
+            self: GotoWindow,
+            alloc: Allocator,
+        ) Allocator.Error!GotoWindow {
+            _ = alloc;
+            return self;
+        }
+
+        pub fn format(
+            self: GotoWindow,
+            writer: *std.Io.Writer,
+        ) std.Io.Writer.Error!void {
+            switch (self) {
+                .previous => try writer.writeAll("previous"),
+                .next => try writer.writeAll("next"),
+                .index => |n| try writer.print("{d}", .{n}),
+            }
+        }
     };
 
     pub const SplitResizeParameter = struct {
@@ -1503,6 +1562,13 @@ pub const Action = union(enum) {
                         }
                     }
                 },
+                .@"union" => {
+                    if (@hasDecl(Value, "format")) {
+                        try value.format(writer);
+                    } else {
+                        @compileError("union type must provide format: " ++ @typeName(Value));
+                    }
+                },
                 else => @compileError("unhandled type: " ++ @typeName(Value)),
             },
         }
@@ -1544,6 +1610,11 @@ pub const Action = union(enum) {
                 value
             else
                 try value.clone(alloc),
+
+            .@"union" => if (@hasDecl(@TypeOf(value), "clone"))
+                try value.clone(alloc)
+            else
+                @compileError("union type must provide clone: " ++ @typeName(@TypeOf(value))),
 
             else => {
                 @compileLog(@TypeOf(value));
@@ -3351,6 +3422,59 @@ test "parse: action with int" {
         const binding = try parseSingle("a=jump_to_prompt:10");
         try testing.expect(binding.action == .jump_to_prompt);
         try testing.expectEqual(@as(i16, 10), binding.action.jump_to_prompt);
+    }
+}
+
+test "parse: goto_window previous/next" {
+    const testing = std.testing;
+
+    {
+        const binding = try parseSingle("a=goto_window:previous");
+        try testing.expect(binding.action == .goto_window);
+        try testing.expect(binding.action.goto_window == .previous);
+    }
+    {
+        const binding = try parseSingle("a=goto_window:next");
+        try testing.expect(binding.action == .goto_window);
+        try testing.expect(binding.action.goto_window == .next);
+    }
+}
+
+test "parse: goto_window index" {
+    const testing = std.testing;
+
+    {
+        const binding = try parseSingle("a=goto_window:1");
+        try testing.expect(binding.action == .goto_window);
+        try testing.expect(binding.action.goto_window == .index);
+        try testing.expectEqual(@as(usize, 1), binding.action.goto_window.index);
+    }
+    {
+        const binding = try parseSingle("a=goto_window:42");
+        try testing.expect(binding.action == .goto_window);
+        try testing.expect(binding.action.goto_window == .index);
+        try testing.expectEqual(@as(usize, 42), binding.action.goto_window.index);
+    }
+    // index 0 is not a valid slot (slots are 1-based)
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_window:0"));
+    // Non-integer garbage
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_window:banana"));
+}
+
+test "format: goto_window round-trips" {
+    const testing = std.testing;
+
+    var buf: [64]u8 = undefined;
+    inline for (.{
+        "goto_window:previous",
+        "goto_window:next",
+        "goto_window:1",
+        "goto_window:10",
+    }) |input| {
+        const parsed = try Action.parse(input);
+        var w: std.Io.Writer = .fixed(&buf);
+        try parsed.format(&w);
+        try testing.expectEqualStrings(input, w.buffered());
     }
 }
 

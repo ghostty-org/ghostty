@@ -68,6 +68,15 @@ class BaseTerminalController: NSWindowController,
     /// Fullscreen state management.
     private(set) var fullscreenStyle: FullscreenStyle?
 
+    /// The 1-based window slot assigned to this controller for indexed
+    /// `goto_window:N` navigation. Slots are assigned when a window loads
+    /// and released when it closes. The lowest free slot is always reused,
+    /// so a window's slot is stable for its lifetime. `nil` before the
+    /// window loads.
+    ///
+    /// See `WindowSlotRegistry` for the registry itself.
+    private(set) var windowSlot: Int?
+
     /// Event monitor (see individual events for why)
     private var eventMonitor: Any?
 
@@ -1145,6 +1154,11 @@ class BaseTerminalController: NSWindowController,
         // Everything beyond here is setting up the window
         guard let window else { return }
 
+        // Claim a window slot for indexed goto_window navigation.
+        if windowSlot == nil {
+            windowSlot = WindowSlotRegistry.shared.claim(self)
+        }
+
         // We always initialize our fullscreen style to native if we can because
         // initialization sets up some state (i.e. observers). If its set already
         // somehow we don't do this.
@@ -1207,6 +1221,12 @@ class BaseTerminalController: NSWindowController,
 
     func windowWillClose(_ notification: Notification) {
         guard let window else { return }
+
+        // Release the window slot so it can be claimed by a future window.
+        if let slot = windowSlot {
+            WindowSlotRegistry.shared.release(slot, from: self)
+            windowSlot = nil
+        }
 
         // Emit a final bell-state transition so any observers can clear state
         // without separately tracking NSWindow lifecycle events.

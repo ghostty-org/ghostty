@@ -1211,6 +1211,26 @@ extension Ghostty {
             target: ghostty_target_s,
             direction: ghostty_action_goto_window_e
         ) -> Bool {
+            Ghostty.logger.debug("gotoWindow action received: direction.rawValue=\(direction.rawValue)")
+
+            // A positive value is a 1-based slot index. Jump directly to
+            // the window in that slot, if one exists. If the slot is empty
+            // the action is a no-op (no wrap-around, no fallback).
+            if direction.rawValue > 0 {
+                let slot = Int(direction.rawValue)
+                guard let controller = WindowSlotRegistry.shared.controller(forSlot: slot) else {
+                    return false
+                }
+                guard let window = controller.window else { return false }
+                // Minimized windows should still come to front; AppKit
+                // handles deminiaturization via makeKeyAndOrderFront.
+                window.makeKeyAndOrderFront(nil)
+                if let surface = controller.focusedSurface {
+                    Ghostty.moveFocus(to: surface)
+                }
+                return true
+            }
+
             // Collect candidate windows: visible terminal windows that are either
             // standalone or the currently selected tab in their tab group. This
             // treats each native tab group as a single "window" for navigation

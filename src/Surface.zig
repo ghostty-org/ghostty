@@ -5523,12 +5523,23 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             },
         ),
 
-        .goto_window => |direction| return try self.rt_app.performAction(
+        .goto_window => |target| return try self.rt_app.performAction(
             .{ .surface = self },
             .goto_window,
-            switch (direction) {
+            switch (target) {
                 .previous => .previous,
                 .next => .next,
+                .index => |n| idx: {
+                    // Slot indices are passed through as positive integer
+                    // values on the non-exhaustive apprt enum. In practice
+                    // slot numbers come from keybinds (tiny integers) and
+                    // can never realistically approach c_int's max, but
+                    // we clamp as a belt-and-suspenders measure so an
+                    // absurdly large value degrades to a no-op rather
+                    // than UB from an out-of-range @enumFromInt.
+                    const clamped: c_int = std.math.cast(c_int, n) orelse std.math.maxInt(c_int);
+                    break :idx @enumFromInt(clamped);
+                },
             },
         ),
 
