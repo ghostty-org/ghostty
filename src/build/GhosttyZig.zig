@@ -124,7 +124,18 @@ fn initVt(
         // no-libc modes so we don't need libc or libcpp. System-provided
         // simdutf requires both libc and libcpp at runtime.
         .link_libc = if (system_simdutf) true else if (cfg.emit_lib_vt) false else null,
-        .link_libcpp = if (system_simdutf and cfg.target.result.abi != .msvc) true else if (cfg.emit_lib_vt and cfg.target.result.abi != .msvc) false else null,
+        .link_libcpp = libcpp: {
+            // MSVC is tightly coupled with the C++ standard library, so we
+            // need to link it even if we don't use it directly.
+            if (cfg.target.result.abi == .msvc) break :libcpp null;
+
+            // System provided simdutf always requires libcpp because
+            // we can't specify the macro required during build to disable
+            // it.
+            if (system_simdutf) break :libcpp true;
+
+            break :libcpp if (cfg.emit_lib_vt) false else null;
+        },
     });
     vt.addOptions("build_options", general_options);
     vt_options.add(b, vt);
