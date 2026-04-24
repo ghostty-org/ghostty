@@ -766,45 +766,84 @@ pub fn addSimd(
 ) !void {
     const target = m.resolved_target.?;
     const optimize = m.optimize.?;
+    const system_simdutf = b.systemIntegrationOption("simdutf", .{});
     const system_highway = b.systemIntegrationOption("highway", .{ .default = false });
 
     // Simdutf
-    if (b.systemIntegrationOption("simdutf", .{})) {
+    const simdutf_lib: ?*std.Build.Step.Compile = if (system_simdutf) lib: {
         m.linkSystemLibrary("simdutf", dynamic_link_opts);
-    } else {
-        if (b.lazyDependency("simdutf", .{
-            .target = target,
-            .optimize = optimize,
-            .no_libcxx = true,
-            .no_libc = simd_libc == .no_libc,
-        })) |simdutf_dep| {
-            m.linkLibrary(simdutf_dep.artifact("simdutf"));
-            if (static_libs) |v| try v.append(
-                b.allocator,
-                simdutf_dep.artifact("simdutf").getEmittedBin(),
-            );
+        break :lib null;
+    } else if (b.lazyDependency("simdutf", .{
+        .target = target,
+        .optimize = optimize,
+        .no_libcxx = true,
+        .no_libc = simd_libc == .no_libc,
+    })) |simdutf_dep| lib: {
+        const lib = simdutf_dep.artifact("simdutf");
+        if (simd_libc == .no_libc) {
+            // Use the archive as a plain linker input so Zig doesn't carry
+            // simdutf's libc/libcpp linkage metadata into libghostty-vt.
+            m.addObjectFile(lib.getEmittedBin());
+        } else {
+            m.linkLibrary(lib);
         }
-    }
+        if (static_libs) |v| try v.append(
+            b.allocator,
+            lib.getEmittedBin(),
+        );
+
+        break :lib lib;
+    } else null;
 
     // Highway
-    if (system_highway) {
+    const highway_lib: ?*std.Build.Step.Compile = if (system_highway) lib: {
         m.linkSystemLibrary("libhwy", dynamic_link_opts);
-    } else {
-        if (b.lazyDependency("highway", .{
-            .target = target,
-            .optimize = optimize,
-        })) |highway_dep| {
-            m.linkLibrary(highway_dep.artifact("highway"));
-            if (static_libs) |v| try v.append(
-                b.allocator,
-                highway_dep.artifact("highway").getEmittedBin(),
-            );
+        break :lib null;
+    } else if (b.lazyDependency("highway", .{
+        .target = target,
+        .optimize = optimize,
+        .no_libc = simd_libc == .no_libc,
+    })) |highway_dep| lib: {
+        const lib = highway_dep.artifact("highway");
+        if (simd_libc == .no_libc) {
+            // Same as simdutf above: keep Highway as a plain archive input for
+            // the no-libc VT build instead of propagating compile-step linkage.
+            m.addObjectFile(lib.getEmittedBin());
+        } else {
+            m.linkLibrary(lib);
         }
-    }
+        if (static_libs) |v| try v.append(
+            b.allocator,
+            lib.getEmittedBin(),
+        );
+
+        break :lib lib;
+    } else null;
 
     // SIMD C++ files
-    m.addIncludePath(b.path("src"));
     {
+        const simd_cpp = b.addObject(.{
+            .name = "ghostty-simd",
+            .root_module = b.createModule(.{
+                .target = target,
+                .optimize = optimize,
+                .link_libc = simd_libc == .libc,
+                .link_libcpp = target.result.abi != .msvc,
+                .pic = true,
+            }),
+        });
+        if (system_simdutf) {
+            simd_cpp.root_module.linkSystemLibrary("simdutf", dynamic_link_opts);
+        } else if (simdutf_lib) |lib| {
+            simd_cpp.root_module.linkLibrary(lib);
+        }
+        if (system_highway) {
+            simd_cpp.root_module.linkSystemLibrary("libhwy", dynamic_link_opts);
+        } else if (highway_lib) |lib| {
+            simd_cpp.root_module.linkLibrary(lib);
+        }
+        simd_cpp.root_module.addIncludePath(b.path("src"));
+
         // From hwy/detect_targets.h
         const HWY_AVX10_2: c_int = 1 << 3;
         const HWY_AVX3_SPR: c_int = 1 << 4;
@@ -850,6 +889,11 @@ pub fn addSimd(
             "-DSIMDUTF_NO_LIBCXX",
         );
 
+        if (simd_libc == .no_libc) try flags.appendSlice(
+            b.allocator,
+            (b.lazyImport(@import("../../build.zig"), "simdutf") orelse unreachable).noLibcFlags(),
+        );
+
         // Disable ubsan for Windows C/C++ objects to avoid undefined
         // __ubsan_handle_* references. The Zig libraries on Windows don't
         // currently bundle a matching UBSan runtime for these objects in
@@ -859,7 +903,7 @@ pub fn addSimd(
             "-fno-sanitize-trap=undefined",
         });
 
-        m.addCSourceFiles(.{
+        simd_cpp.root_module.addCSourceFiles(.{
             .files = &.{
                 "src/simd/base64.cpp",
                 "src/simd/codepoint_width.cpp",
@@ -868,6 +912,11 @@ pub fn addSimd(
             },
             .flags = flags.items,
         });
+
+        // Treat Ghostty's own SIMD object the same way as the vendored
+        // archives above so the no-libc VT link stays free of transitive C++
+        // runtime metadata.
+        m.addObjectFile(simd_cpp.getEmittedBin());
     }
 }
 

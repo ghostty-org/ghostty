@@ -59,11 +59,11 @@ fn scalarInput(input: []const u8) []const u8 {
 }
 
 // base64.cpp
-extern "c" fn ghostty_simd_base64_max_length(
+extern fn ghostty_simd_base64_max_length(
     input: [*]const u8,
     len: usize,
 ) usize;
-extern "c" fn ghostty_simd_base64_decode(
+extern fn ghostty_simd_base64_decode(
     input: [*]const u8,
     len: usize,
     output: [*]u8,

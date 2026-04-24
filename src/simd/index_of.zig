@@ -1,7 +1,7 @@
 const std = @import("std");
 const options = @import("build_options");
 
-extern "c" fn ghostty_simd_index_of(
+extern fn ghostty_simd_index_of(
     needle: u8,
     input: [*]const u8,
     count: usize,

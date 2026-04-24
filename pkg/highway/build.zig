@@ -3,6 +3,7 @@ const std = @import("std");
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const no_libc = b.option(bool, "no_libc", "Avoid linking libc when embedding Highway into no-libc builds") orelse false;
 
     const upstream_ = b.lazyDependency("highway", .{});
 
@@ -22,9 +23,9 @@ pub fn build(b: *std.Build) !void {
         .linkage = .static,
     });
 
-    // Our highway package is free of libc at runtime (uses no symbols)
-    // but does require libc headers at compile time.
-    lib.linkLibC();
+    // Our highway package is free of libc at runtime, so only libc-backed
+    // consumers should request it explicitly.
+    if (!no_libc) lib.linkLibC();
 
     lib.addIncludePath(b.path("src/cpp"));
     if (upstream_) |upstream| {

@@ -113,6 +113,7 @@ fn initVt(
     // General build options
     const general_options = b.addOptions();
     try cfg.addOptions(general_options);
+    const system_simdutf = cfg.simd and b.systemIntegrationOption("simdutf", .{});
 
     const vt = b.addModule(name, .{
         .root_source_file = b.path("src/lib_vt.zig"),
@@ -122,11 +123,8 @@ fn initVt(
         // Vendored C++ dependencies are built with no-libcxx and
         // no-libc modes so we don't need libc or libcpp. System-provided
         // simdutf requires both libc and libcpp at runtime.
-        .link_libc = if (cfg.simd and
-            b.systemIntegrationOption("simdutf", .{})) true else null,
-        .link_libcpp = if (cfg.simd and
-            b.systemIntegrationOption("simdutf", .{}) and
-            cfg.target.result.abi != .msvc) true else null,
+        .link_libc = if (system_simdutf) true else if (cfg.emit_lib_vt) false else null,
+        .link_libcpp = if (system_simdutf and cfg.target.result.abi != .msvc) true else if (cfg.emit_lib_vt and cfg.target.result.abi != .msvc) false else null,
     });
     vt.addOptions("build_options", general_options);
     vt_options.add(b, vt);

@@ -4,7 +4,7 @@ const assert = @import("../quirks.zig").inlineAssert;
 const indexOf = @import("index_of.zig").indexOf;
 
 // vt.cpp
-extern "c" fn ghostty_simd_decode_utf8_until_control_seq(
+extern fn ghostty_simd_decode_utf8_until_control_seq(
     input: [*]const u8,
     count: usize,
     output: [*]u32,

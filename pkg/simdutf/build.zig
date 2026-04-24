@@ -1,5 +1,19 @@
 const std = @import("std");
 
+const no_libc_flags = [_][]const u8{
+    "-DSIMDUTF_NO_LIBC=1",
+    "-DSIMDUTF_LIBC_MEMCPY=simdutf_memcpy",
+    "-DSIMDUTF_LIBC_MEMMOVE=simdutf_memmove",
+    "-DSIMDUTF_LIBC_MEMSET=simdutf_memset",
+    "-DSIMDUTF_LIBC_MEMCMP=simdutf_memcmp",
+    "-DSIMDUTF_LIBC_STRLEN=simdutf_strlen",
+    "-DSIMDUTF_LIBC_GETENV=simdutf_getenv",
+};
+
+pub fn noLibcFlags() []const []const u8 {
+    return &no_libc_flags;
+}
+
 pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
@@ -15,7 +29,7 @@ pub fn build(b: *std.Build) !void {
         .linkage = .static,
     });
     lib.addIncludePath(b.path("vendor"));
-    lib.linkLibC();
+    if (!no_libc) lib.linkLibC();
     libcpp: {
         if (target.result.abi == .msvc) {
             // On MSVC, we must not use linkLibCpp because Zig unconditionally
@@ -66,15 +80,7 @@ pub fn build(b: *std.Build) !void {
     }
 
     if (no_libc) {
-        try flags.appendSlice(b.allocator, &.{
-            "-DSIMDUTF_NO_LIBC=1",
-            "-DSIMDUTF_LIBC_MEMCPY=simdutf_memcpy",
-            "-DSIMDUTF_LIBC_MEMMOVE=simdutf_memmove",
-            "-DSIMDUTF_LIBC_MEMSET=simdutf_memset",
-            "-DSIMDUTF_LIBC_MEMCMP=simdutf_memcmp",
-            "-DSIMDUTF_LIBC_STRLEN=simdutf_strlen",
-            "-DSIMDUTF_LIBC_GETENV=simdutf_getenv",
-        });
+        try flags.appendSlice(b.allocator, noLibcFlags());
 
         lib.root_module.addCMacro("SIMDUTF_NO_LIBC", "1");
 
