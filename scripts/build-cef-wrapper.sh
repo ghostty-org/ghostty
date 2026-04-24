@@ -74,6 +74,7 @@ compile_one() {
         -I"${cef_dir}" \
         -DWRAPPING_CEF_SHARED \
         -fno-exceptions \
+        -Wno-undefined-var-template -Wno-comma \
         -c "${src}" -o "${obj}"
 }
 export -f compile_one
@@ -89,5 +90,6 @@ printf '%s\n' "${WRAPPER_SOURCES[@]}" | \
 # --- Archive into static library ---
 
 find "${WRAPPER_OBJ_DIR}" -name "*.o" -print0 | xargs -0 ar rcs "${WRAPPER_LIB}"
+ranlib -no_warning_for_no_symbols "${WRAPPER_LIB}"
 
 echo "  libcef_dll_wrapper.a built ($(du -h "${WRAPPER_LIB}" | cut -f1))"

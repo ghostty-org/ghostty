@@ -24,7 +24,7 @@ import XCTest
 /// To run locally from Xcode: ⌘U on the Ghostties scheme, or right-click the
 /// test method in the gutter.
 final class TaskSidebarSmokeUITests: XCTestCase {
-    override class var defaultTestSuite: XCTestSuite {
+    override static var defaultTestSuite: XCTestSuite {
         // Same guard `GhosttyCustomConfigCase` uses: Xcode IDE launches set
         // IDE_DISABLED_OS_ACTIVITY_DT_MODE, CLI-driven xcodebuild invocations
         // do not. See https://lldb.llvm.org/cpp_reference/PlatformDarwin_8cpp_source.html

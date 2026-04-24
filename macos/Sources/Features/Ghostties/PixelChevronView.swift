@@ -9,14 +9,22 @@ struct PixelChevronView: View {
     var color: Color = Color(.tertiaryLabelColor)
     var isExpanded: Bool = false
 
+    /// A single pixel rectangle on the chevron grid.
+    private struct Pixel {
+        let x: Int
+        let y: Int
+        let w: Int
+        let h: Int
+    }
+
     /// 7×5 pixel grid defining the chevron shape (points downward).
     /// Rotated -90° (270°) to point right when collapsed.
-    private static let grid: [(x: Int, y: Int, w: Int, h: Int)] = [
-        (0, 0, 1, 1), (6, 0, 1, 1),
-        (0, 1, 2, 1), (5, 1, 2, 1),
-        (1, 2, 2, 1), (4, 2, 2, 1),
-        (2, 3, 3, 1),
-        (3, 4, 1, 1),
+    private static let grid: [Pixel] = [
+        Pixel(x: 0, y: 0, w: 1, h: 1), Pixel(x: 6, y: 0, w: 1, h: 1),
+        Pixel(x: 0, y: 1, w: 2, h: 1), Pixel(x: 5, y: 1, w: 2, h: 1),
+        Pixel(x: 1, y: 2, w: 2, h: 1), Pixel(x: 4, y: 2, w: 2, h: 1),
+        Pixel(x: 2, y: 3, w: 3, h: 1),
+        Pixel(x: 3, y: 4, w: 1, h: 1),
     ]
 
     var body: some View {

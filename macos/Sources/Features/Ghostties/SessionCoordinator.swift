@@ -838,8 +838,7 @@ final class SessionCoordinator: ObservableObject {
                 // current with real terminal output. The store handles the
                 // active-vs-idle indicator-state check internally.
                 if let projectId = WorkspaceStore.shared.sessions
-                    .first(where: { $0.id == sessionId })?.projectId
-                {
+                    .first(where: { $0.id == sessionId })?.projectId {
                     WorkspaceStore.shared.recordActivity(
                         sessionId: sessionId,
                         projectId: projectId

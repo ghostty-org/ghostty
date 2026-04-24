@@ -59,14 +59,14 @@ struct AgentTemplate: Identifiable, Codable, Hashable {
     ///
     /// All fields are optional — a minimal agent template needs only a command.
     struct AgentConfig: Codable, Hashable {
-        var systemPromptFile: String? = nil
+        var systemPromptFile: String?
         /// Inline system prompt content (used by presets instead of a file reference).
-        var systemPrompt: String? = nil
-        var model: String? = nil
-        var permissionMode: String? = nil
-        var effort: String? = nil
-        var allowedTools: [String]? = nil
-        var additionalFlags: [String]? = nil
+        var systemPrompt: String?
+        var model: String?
+        var permissionMode: String?
+        var effort: String?
+        var allowedTools: [String]?
+        var additionalFlags: [String]?
     }
 
     // MARK: - Initializer

@@ -143,7 +143,7 @@ struct TemplatePickerView: View {
     ///   - isPreset: Whether this is a file-based preset (uses preview-or-launch tap behavior).
     @ViewBuilder
     private func templateRow(_ template: AgentTemplate, isPreset: Bool = false) -> some View {
-        Button(action: { isPreset ? handlePresetTap(template) : createSession(from: template) }) {
+        Button(action: { isPreset ? handlePresetTap(template) : createSession(from: template) }, label: {
             HStack(spacing: 8) {
                 Image(systemName: resolvedIcon(for: template))
                     .font(.system(size: 12))
@@ -172,7 +172,7 @@ struct TemplatePickerView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .contentShape(Rectangle())
-        }
+        })
         .buttonStyle(.plain)
         .contextMenu {
             if isPreset {
