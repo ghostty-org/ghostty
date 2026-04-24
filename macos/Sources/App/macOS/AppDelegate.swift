@@ -170,7 +170,27 @@ class AppDelegate: NSObject,
 
     // MARK: - NSApplicationDelegate
 
+    /// True when the process was launched as an XCTest host. Set once in
+    /// `applicationWillFinishLaunching` so both launch hooks agree.
+    ///
+    /// When true we short-circuit all app startup work (Sparkle, GhosttyKit init,
+    /// menu setup, AppKit event monitors, color-scheme observer, notifications).
+    /// Our app-hosted unit tests (`TaskModelTests`, `TaskFileWatcherTests`) only
+    /// exercise `@testable import Ghostty` types — `TaskFixtureParser`, `TaskStore`,
+    /// `TaskFileWatcher` — none of which touch `NSApp`, `ghostty.app`, menus, or
+    /// update machinery. Skipping startup lets headless CI runners launch the test
+    /// host fast enough to establish the xctest connection. Without this guard
+    /// Sparkle's appcast fetch (or one of the other AppKit observers) blocks the
+    /// main thread long enough for xcodebuild to give up with "test runner hung
+    /// before establishing connection."
+    private var isRunningUnderXCTest: Bool = false
+
     func applicationWillFinishLaunching(_ notification: Notification) {
+        isRunningUnderXCTest = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+        if isRunningUnderXCTest {
+            return
+        }
+
         // Ensures Ghostty finds vendored themes even when terminfo sentinel is missing from the bundle.
         if getenv("GHOSTTY_RESOURCES_DIR") == nil,
            let resourcePath = Bundle.main.resourcePath {
@@ -196,6 +216,10 @@ class AppDelegate: NSObject,
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if isRunningUnderXCTest {
+            return
+        }
+
         // System settings overrides
         UserDefaults.standard.register(defaults: [
             // Disable this so that repeated key events make it through to our terminal views.
