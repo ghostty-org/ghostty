@@ -36,7 +36,12 @@ extension UpdateDriver: SPUUpdaterDelegate {
         // When the updater is relaunching the application we want to get macOS
         // to invalidate and re-encode all of our restorable state so that when
         // we relaunch it uses it.
+
+        // Invalidate quick terminal's state
         NSApp.invalidateRestorableState()
-        for window in NSApp.windows { window.invalidateRestorableState() }
+        // Invalidate all other terminals' state
+        TerminalController.all.forEach {
+            $0.window?.invalidateRestorableState()
+        }
     }
 }
