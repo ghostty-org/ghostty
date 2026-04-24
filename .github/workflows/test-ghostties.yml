@@ -8,9 +8,9 @@
 #   - macOS app tests for TaskStore + TaskFileWatcher + TaskFixtureParser
 #
 # Runs on macos-latest (Apple Silicon) because GhosttyKit.xcframework is
-# arm64-only. `zig` is NOT required for tests — the vendored xcframework
-# is checked in. Signing / notarization happens in the separate release
-# workflow (`ghostties-release.yml`).
+# arm64-only. The xcframework is built fresh from source via Zig
+# (gitignored — not committed to the repo). Signing / notarization
+# happens in the separate release workflow (`ghostties-release.yml`).
 
 name: Test (Ghostties fork)
 
@@ -69,6 +69,33 @@ jobs:
 
       - name: Xcode version
         run: xcodebuild -version
+
+      # Install Zig 0.15.2 (matches build.zig.zon minimum_zig_version).
+      # Required to build GhosttyKit.xcframework from source — the
+      # xcframework is gitignored, not vendored.
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      # Cache Zig package downloads + build artifacts. Keyed on the lock
+      # file so deps changes invalidate the cache; falls back to any prior
+      # cache for incremental rebuilds.
+      - name: Cache Zig
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/zig
+            zig-out
+            .zig-cache
+          key: zig-${{ runner.os }}-${{ hashFiles('build.zig.zon') }}
+          restore-keys: |
+            zig-${{ runner.os }}-
+
+      # Build the xcframework only — skip the macOS app build, Xcode does
+      # that. Produces macos/GhosttyKit.xcframework which the Xcode project
+      # links against.
+      - name: Build GhosttyKit.xcframework
+        run: zig build -Demit-macos-app=false
 
       # Pin arm64 — GhosttyKit.xcframework is arm64-only. Without this the
       # Xcode CLI will try to build universal and fail on linker misses.

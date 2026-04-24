@@ -4,7 +4,7 @@
 # Triggered by version tags (e.g. v0.1.0, v0.1.0-beta.1).
 #
 # Key differences from upstream release-tag.yml:
-#   - Skips zig build — GhosttyKit.xcframework is committed directly to the repo
+#   - Builds GhosttyKit.xcframework from source via Zig (gitignored — not committed)
 #   - Uses standard macos-latest runners instead of Namespace Labs runners
 #   - Uploads to GitHub Releases instead of Cloudflare R2
 #   - Produces separate stable and beta appcast files for Sparkle auto-updates
@@ -91,8 +91,27 @@ jobs:
       - name: Xcode version
         run: xcodebuild -version
 
+      # Install Zig 0.15.2 (matches build.zig.zon minimum_zig_version).
+      # Required to build GhosttyKit.xcframework from source.
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Cache Zig
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/zig
+            zig-out
+            .zig-cache
+          key: zig-${{ runner.os }}-${{ hashFiles('build.zig.zon') }}
+          restore-keys: |
+            zig-${{ runner.os }}-
+
+      - name: Build GhosttyKit.xcframework
+        run: zig build -Demit-macos-app=false
+
       # Build the Ghostties Xcode target in Release config.
-      # We do NOT run zig build — GhosttyKit.xcframework is committed to the repo.
       # ONLY_ACTIVE_ARCH=YES ARCHS=arm64 is required because GhosttyKit.xcframework
       # is arm64-only (see build gotcha: reference-xcframework-arm64-only.md).
       - name: Build Ghostties.app
