@@ -98,7 +98,7 @@
                                     <action selector="openConfig:" target="bbz-4X-AYv" id="X65-fg-iWU"/>
                                 </connections>
                             </menuItem>
-                            <menuItem title="MCP Sources…" id="mcp-sources-menu-item">
+                            <menuItem title="MCP Sources…" hidden="YES" id="mcp-sources-menu-item">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="showMCPSources:" target="bbz-4X-AYv" id="mcp-sources-menu-action"/>
