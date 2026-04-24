@@ -70,7 +70,7 @@ struct MenuBarDropdownView: View {
         let state = store.globalIndicatorStates[session.id] ?? .inactive
         let templateName = store.templates.first(where: { $0.id == session.templateId })?.name
 
-        Button(action: { focusSession(session.id) }) {
+        Button(action: { focusSession(session.id) }, label: {
             HStack(spacing: 8) {
                 // Status dot.
                 Circle()
@@ -95,7 +95,7 @@ struct MenuBarDropdownView: View {
             .padding(.vertical, 4)
             .padding(.horizontal, 6)
             .contentShape(Rectangle())
-        }
+        })
         .buttonStyle(.plain)
         .background(
             RoundedRectangle(cornerRadius: 4)

@@ -261,7 +261,6 @@ class WorkspaceViewContainer: NSView {
         chromePaletteNSColor.cgColor
     }
 
-
     init<ViewModel: TerminalViewModel>(ghostty: Ghostty.App, viewModel: ViewModel, delegate: (any TerminalViewDelegate)? = nil) {
         self.ghostty = ghostty
         self.terminalContainer = TerminalViewContainer {
@@ -656,7 +655,7 @@ class WorkspaceViewContainer: NSView {
 
         // Embed the active tab's browser view.
         if let activeTabId = manager.activeTabId,
-           let browserView = manager.browserViews[activeTabId] as? NSView {
+           let browserView = manager.browserViews[activeTabId] {
             browserView.translatesAutoresizingMaskIntoConstraints = false
             browserPanelView.contentArea.addSubview(browserView)
             NSLayoutConstraint.activate([

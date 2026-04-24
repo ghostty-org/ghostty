@@ -29,10 +29,10 @@ struct ArchiveZoneView: View {
             if isFullyEmpty {
                 emptyState
             } else {
-                lane(.inbox,   label: "Inbox",   tasks: taskStore.inbox,   rollup: .terracotta)
+                lane(.inbox, label: "Inbox", tasks: taskStore.inbox, rollup: .terracotta)
                 lane(.backlog, label: "Backlog", tasks: taskStore.backlog, rollup: .none)
-                lane(.review,  label: "Review",  tasks: taskStore.review,  rollup: .none)
-                lane(.done,    label: "Done",    tasks: taskStore.done,    rollup: .none)
+                lane(.review, label: "Review", tasks: taskStore.review, rollup: .none)
+                lane(.done, label: "Done", tasks: taskStore.done, rollup: .none)
             }
         }
         .padding(.vertical, 4)
@@ -78,7 +78,7 @@ struct ArchiveZoneView: View {
     ) -> some View {
         let isExpanded = expanded.contains(status)
         return VStack(alignment: .leading, spacing: 0) {
-            Button(action: { toggle(status) }) {
+            Button(action: { toggle(status) }, label: {
                 HStack(spacing: 8) {
                     Text(isExpanded ? "▾" : "▸")
                         .font(.system(size: 10, design: .monospaced))
@@ -104,7 +104,7 @@ struct ArchiveZoneView: View {
                 .padding(.horizontal, TaskRowMetrics.horizontalPadding)
                 .frame(height: 32)
                 .contentShape(Rectangle())
-            }
+            })
             .buttonStyle(.plain)
 
             if isExpanded, !tasks.isEmpty {

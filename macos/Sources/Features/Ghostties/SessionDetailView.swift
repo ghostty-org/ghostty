@@ -8,11 +8,11 @@ import SwiftUI
 struct SessionRow: View {
     let session: AgentSession
     let indicatorState: SessionIndicatorState
-    var ghostCharacter: GhostCharacter? = nil
+    var ghostCharacter: GhostCharacter?
     var isActive: Bool = false
     var isEditing: Bool = false
     /// Template name shown as a subtle badge when the session was launched with agent config.
-    var agentTemplateName: String? = nil
+    var agentTemplateName: String?
     @Binding var editingName: String
     var isRenameFocused: FocusState<Bool>.Binding
     var onCommitRename: () -> Void
