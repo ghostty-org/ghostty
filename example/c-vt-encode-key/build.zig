@@ -9,6 +9,7 @@ pub fn build(b: *std.Build) void {
     const exe_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
     exe_mod.addCSourceFiles(.{
         .root = b.path("src"),
