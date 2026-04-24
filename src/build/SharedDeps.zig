@@ -937,6 +937,7 @@ pub fn addSimd(
         // archives above so the no-libc VT link stays free of transitive C++
         // runtime metadata.
         m.addObjectFile(simd_cpp.getEmittedBin());
+        if (static_libs) |v| try v.append(b.allocator, simd_cpp.getEmittedBin());
     } else {
         m.addIncludePath(b.path("src"));
         m.addCSourceFiles(.{
