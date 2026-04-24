@@ -1,0 +1,32 @@
+{
+  "source": "linear",
+  "filters": {
+    "assignee": "me",
+    "exclude_states": ["done", "canceled"]
+  },
+  "mapping": {
+    "status": {
+      "backlog": "backlog",
+      "todo": "inbox",
+      "unstarted": "inbox",
+      "in_progress": "running",
+      "started": "running",
+      "in_review": "review",
+      "done": null,
+      "completed": null,
+      "canceled": null
+    },
+    "priority": {
+      "urgent": "high",
+      "high": "high",
+      "medium": "normal",
+      "low": "low",
+      "no_priority": "normal"
+    }
+  },
+  "sync": {
+    "default_lane": "inbox",
+    "dedupe_by": "source_id",
+    "flow_back": false
+  }
+}
