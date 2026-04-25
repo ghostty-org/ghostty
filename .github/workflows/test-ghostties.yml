@@ -48,9 +48,13 @@ jobs:
       - name: swift --version
         run: swift --version
 
+      # Serial. Locally `swift test --parallel` runs in ~4s but on macos-latest
+      # GH Actions runners the parallel worker scheduler hangs after running
+      # ~54 of 62 tests — never tracked down which worker stalls. Serial still
+      # runs the full suite in ~1s locally and reliably finishes on CI.
       - name: swift test
         working-directory: cli
-        run: swift test --parallel
+        run: swift test
 
   # ---------------------------------------------------------------------------
   # macOS App — Ghostties Xcode project tests
