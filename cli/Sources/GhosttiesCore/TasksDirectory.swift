@@ -29,7 +29,13 @@ public enum TasksDirectory {
 
     /// Find the directory, or throw a CLIError with the standard message.
     public static func require() throws -> URL {
-        guard let dir = find() else {
+        try require(startingAt: URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true))
+    }
+
+    /// Same as `require()` but takes an explicit starting directory. Use this
+    /// from tests so they don't have to mutate process-global cwd.
+    public static func require(startingAt cwd: URL) throws -> URL {
+        guard let dir = find(startingAt: cwd) else {
             throw CLIError.notFound("no .ghostties/tasks/ in any ancestor. run 'gt new' to create one")
         }
         return dir
@@ -38,9 +44,14 @@ public enum TasksDirectory {
     /// Resolve the directory for `gt new`, creating `./.ghostties/tasks/` in
     /// cwd if no ancestor already has one.
     public static func findOrCreate() throws -> URL {
-        if let existing = find() { return existing }
+        try findOrCreate(startingAt: URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true))
+    }
 
-        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+    /// Same as `findOrCreate()` but takes an explicit starting directory. Use
+    /// this from tests so they don't have to mutate process-global cwd.
+    public static func findOrCreate(startingAt cwd: URL) throws -> URL {
+        if let existing = find(startingAt: cwd) { return existing }
+
         let target = cwd.appendingPathComponent(".ghostties/tasks", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: target,

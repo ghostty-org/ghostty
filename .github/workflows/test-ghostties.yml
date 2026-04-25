@@ -48,16 +48,9 @@ jobs:
       - name: swift --version
         run: swift --version
 
-      # Skip TasksDirectoryTests + testStatusUpdatePersistsAcrossReload —
-      # they mutate process-global cwd via FileManager.changeCurrentDirectoryPath
-      # and silently hang the CI test process (runs cleanly locally; never
-      # reproduced what specifically hangs on macos-latest runners).
-      # Also serial, not --parallel — the cwd race makes parallel even worse.
-      # Local full suite runs in ~1s; CI subset is ~similar. Real fix is to
-      # add a findOrCreate(startingAt:) overload so tests don't touch global cwd.
       - name: swift test
         working-directory: cli
-        run: swift test --skip TasksDirectoryTests --skip testStatusUpdatePersistsAcrossReload
+        run: swift test --parallel
 
   # ---------------------------------------------------------------------------
   # macOS App — Ghostties Xcode project tests
