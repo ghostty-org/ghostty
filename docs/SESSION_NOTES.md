@@ -1,5 +1,75 @@
 # Session Notes — Ghostties
 
+## Apr 25, 2026 (CE Workflow — Row-click Ideation → Brainstorm → Doc Review + AppDelegate Lazy-Init)
+
+### Headline
+
+Spent the session driving the full compound-engineering ideation workflow on **row-click behavior in the task-first sidebar** — produced an ideation doc, a v0 requirements doc, ran the multi-persona doc review, and walked through the highest-impact findings. Doc is at `docs/brainstorms/2026-04-25-row-click-behavior-requirements.md` and is **ready for `/ce-plan`** in the next session. In parallel, a background subagent shipped **PR #10** (AppDelegate lazy-init for CI), unblocking real `xcodebuild test` runs on the macOS CI job.
+
+### Workflow run (ce skills, in order)
+
+1. **`/ce-ideate`** on "row-click behavior" — 6 generative frames × ~8 raw ideas each (pain/friction, inversion, reframing, leverage, cross-domain analogy, constraint-flipping). 48 raw candidates synthesized down to **7 survivors**, 33 rejected with reasons. Output: `docs/ideation/2026-04-24-row-click-behavior-ideation.md`. Sean picked **#1 "Lane-aware Promote"** as the v0 direction (with #5 orphan-triage modal baked in, #4 MCP-mirror as discipline, #3 soft-claim deferred to v1).
+2. **`/ce-brainstorm`** on the chosen idea — 5 structured-discovery questions (orphan-triage scope, new-task-trigger shape, per-lane click spec, Graveyard read-mode shape, accept-defaults check) drove a 14-requirement doc with 7 key flows and 6 acceptance examples. The brainstorm surfaced Sean's **column model constraint** (col 1 = nav, col 2 = terminal, col 3 = browser/auxiliary) — col 2 stays terminal-shaped; no in-app md viewer. Empty-Inbox-as-canvas requirement was added when Sean noted "I won't always have tasks premade."
+3. **`/ce-doc-review`** — 6 reviewer personas (coherence, feasibility, product-lens, design-lens, scope-guardian, adversarial) returned **52 findings**. Walked through items 1–9 (4 factual corrections + 5 strategic pushbacks); appended items 10–20 + 9 FYI items to Outstanding Questions under `### From 2026-04-25 review` for the planner.
+
+### Decisions captured during the doc-review walkthrough
+
+- **R1 reframed**: dropped "single internal verb `promote(taskId)`" (rhetorical). Replaced with a router → 5 named lane-specific handlers (`startInboxTask`, `triageOrphanTask`, `focusRunningTask`, `focusNeedsYouTask`, `expandGraveyardTask`). What the code actually is.
+- **R8 corrected**: `TaskRowView` has no existing disclosure triangle (feasibility verified). The Graveyard inline-expansion UI is **net-new** — flagged as planning work.
+- **R7/F4 corrected**: `isLikelyPromptingForInput` does **not** drive Needs-you lane membership (the doc claimed it did). Lane membership is purely `task.status == .needsYou` from frontmatter. Heuristic continues to drive the per-session indicator dot only.
+- **R12 downgraded**: MCP-mirror discipline went from MUST to design intent. UI-only gestures (Graveyard expansion, hover affordances) explicitly exempt. Added concrete per-handler MCP/CLI mapping table including a v0-required `task.create` MCP tool and `task.set_project` MCP tool. `update_task_status` already covers Inbox-promote.
+- **R15 added**: minimal priority slice. Frontmatter `priority: high|medium|low|none`, Inbox sorts by `priority desc, created desc`, linear-sync preset extended to map Linear's native priority. Composer has no priority picker in v0 (manual edits only).
+- **Success criterion rewritten** to honestly scope to v0. Was overpromising "prioritized tasks" while prioritization was deferred — now invokes the R15 slice as the meaningful priority signal; richer prioritization brainstorm stays queued.
+- **Auto-pilot scope boundary rewritten**: acknowledged the capability already exists today via MCP `update_task_status`. The real deferral is the soft-claim safety primitive (#3 from ideation), pickup when audience >1.
+- **⌘Z deferral rewritten**: was internally contradictory (claimed re-click was the undo; R6 explicitly said re-click is focus-only). Now honest about no row-click undo in v0; recovery via `exit` / edit .md / `gt done`.
+- **macOS `TaskStore` writeback path** added to Deferred-to-Planning: planner picks (a) build write APIs into macOS TaskStore directly, or (b) link `cli/Sources/GhosttiesCore` into the app target. CLI side has the APIs; macOS doesn't import the package.
+
+### Subagent: AppDelegate lazy-init for CI
+
+Background subagent (`isolation: worktree`, `run_in_background: true`) shipped **PR #10** (`fix/ci-appdelegate-lazy-init`) — hybrid fix at both layers:
+
+- `macos/Sources/App/macOS/main.swift` — skip `ghostty_init` and `ghostty_cli_try_action` when `XCTestConfigurationFilePath` env var is set. `NSApplicationMain` still runs so XCTest can attach.
+- `macos/Sources/App/macOS/AppDelegate.swift` — `ghostty: Ghostty.App` and `updateController` converted from property init to `lazy var`. Removed `override init()`; `ghostty.delegate = self` wire-up moved into the lazy block. Pre-existing `applicationWillFinishLaunching`/`applicationDidFinishLaunching` XCTest guards stay as defense-in-depth.
+- `.github/workflows/test-ghostties.yml` — flipped macos job from `xcodebuild build` back to `xcodebuild test` with the same `-only-testing` scope.
+
+Both layers are needed: pure XCTest detection in main.swift wasn't enough because `Ghostty.App.init` calls `Config(at:)` which hits libghostty without `ghostty_init`; pure lazy-init wasn't enough because `ghostty_init` itself does heavy work before AppDelegate exists.
+
+**Local XCTest runtime: 31.6s total / ~11s test phase, 13/13 pass.** Versus the prior 6-minute hang, this is the goal. PR is awaiting Sean's review. Diff is 3 files, +85/-49.
+
+**New fragility flagged**: the lazy `ghostty` fires the first time anything reads `AppDelegate.ghostty`. Today that's `applicationDidFinishLaunching` (post-XCTest-gate). If a future XCTest reads `(NSApp.delegate as! AppDelegate).ghostty` directly, it would force eager evaluation and we'd be back at 6-minute hangs.
+
+### Tactical asks resolved during the session
+
+- **Configuration Errors dialog** in the running Ghostties Dev (`unknown field` near "Titlebar & Tabs"): identified as upstream Ghostty's config validator complaining about a renamed/removed field in `~/.config/ghostty/config`. Did not fix — Sean's call.
+- **Xcode "Update to recommended settings" dialog** (Localization + String Catalog Symbol Generation): recommended **Cancel** — these would dirty `project.pbxproj` and make future upstream-Ghostty merges harder, with no v0 value (no String Catalogs in this fork).
+- **Several pre-existing Xcode warnings** explained as known noise (umbrella header gaps in `GhosttyKit.xcframework`, ImGui linker errors, two AppKit conflicting-constraint runtime warnings from the live sidebar).
+
+### New files
+
+- `docs/ideation/2026-04-24-row-click-behavior-ideation.md` — 7 ranked survivors + 33 rejected ideas with reasons, full grounding context.
+- `docs/brainstorms/2026-04-25-row-click-behavior-requirements.md` — v0 requirements doc, post-review, ready for `/ce-plan`.
+
+### Commits
+
+- `bacf16bc3` — docs: row-click behavior — ideation + reviewed v0 requirements
+
+### PRs
+
+- **#10** (`fix/ci-appdelegate-lazy-init`) — AppDelegate lazy-init for CI. Awaiting Sean's review. https://github.com/SeanSmithDesign/ghostties/pull/10
+
+### Notes for next session — picking up clean
+
+The next thread should rehydrate from the orchestrator state (this thread updates `ORCHESTRATOR.md` before exit) and pick up at one of:
+
+1. **Run `/ce-plan`** against `docs/brainstorms/2026-04-25-row-click-behavior-requirements.md` — Resolve Before Planning is empty; doc is review-clean; the 11 deferred-to-planning items + 9 FYI items in `### From 2026-04-25 review` are the planner's punch list.
+2. **Review and merge PR #10** (AppDelegate lazy-init for CI). Sean wanted to look at this before merging.
+3. **Run the live Linear sync e2e test** (top-of-queue from prior session, requires Sean in a Claude Code session with the `linear-sync` preset loaded; first real validation of agent-as-middleman).
+4. **Several queued sub-brainstorms** are ready when v0 ships: "Richer Inbox prioritization," "How should archived task notes render?", "Soft-claim with TTL" (#3 from this session's ideation).
+
+If picking up #1, the planner should be aware: the requirements doc is **post-doc-review**, so it's accurate against the codebase as of `bacf16bc3`. Planner can skip independent feasibility verification of the cited claims (TaskStore is read-only, TaskRowView has no disclosure, isLikelyPromptingForInput is per-session).
+
+---
+
 ## Apr 24, 2026 (Late⁴ — CI Goes Green + TasksDirectory cwd-free Refactor)
 
 ### Headline
