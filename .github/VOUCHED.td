@@ -114,6 +114,7 @@ jcollie
 jesusvazquez
 jguthmiller
 jmcgover
+jmr
 johnslavik
 jordandm
 josephmart
