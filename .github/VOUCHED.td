@@ -19,6 +19,7 @@
 # discussion by the author. Maintainers can denounce users by commenting
 # "!denounce" or "!denounce [username]" on a discussion.
 00-kat
+007hacky007
 04cb
 0xdvc
 aalhendi
