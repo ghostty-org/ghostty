@@ -3,18 +3,15 @@ import XCTest
 
 final class TasksDirectoryTests: XCTestCase {
     var sandbox: URL!
-    var previousCWD: String!
 
     override func setUpWithError() throws {
         sandbox = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("ghostties-dir-tests-\(UUID().uuidString)", isDirectory: true)
             .standardizedFileURL
         try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
-        previousCWD = FileManager.default.currentDirectoryPath
     }
 
     override func tearDownWithError() throws {
-        FileManager.default.changeCurrentDirectoryPath(previousCWD)
         try? FileManager.default.removeItem(at: sandbox)
     }
 
@@ -52,13 +49,8 @@ final class TasksDirectoryTests: XCTestCase {
     // MARK: - require
 
     func testRequireThrowsWhenNoTasksDirFound() throws {
-        // Use a dir we control and know has no .ghostties/ up its ancestry past $HOME.
-        // Since `require()` uses the process cwd internally, we can't safely cover
-        // the positive path here without polluting global state; the negative path
-        // is the important one for error-message regression.
         let nowhereURL = sandbox.appendingPathComponent("nowhere", isDirectory: true)
         try FileManager.default.createDirectory(at: nowhereURL, withIntermediateDirectories: true)
-        FileManager.default.changeCurrentDirectoryPath(nowhereURL.path)
 
         // Only run this assertion if sandbox is outside $HOME so the walk-up
         // doesn't incidentally find a real .ghostties dir. NSTemporaryDirectory()
@@ -68,7 +60,7 @@ final class TasksDirectoryTests: XCTestCase {
             throw XCTSkip("tmp dir unexpectedly under $HOME; skipping")
         }
 
-        XCTAssertThrowsError(try TasksDirectory.require()) { error in
+        XCTAssertThrowsError(try TasksDirectory.require(startingAt: nowhereURL)) { error in
             guard case CLIError.notFound = error else {
                 XCTFail("expected notFound, got \(error)")
                 return
@@ -87,10 +79,11 @@ final class TasksDirectoryTests: XCTestCase {
             throw XCTSkip("tmp dir unexpectedly under $HOME; skipping")
         }
 
-        FileManager.default.changeCurrentDirectoryPath(workDir.path)
-        let created = try TasksDirectory.findOrCreate()
+        let created = try TasksDirectory.findOrCreate(startingAt: workDir)
         XCTAssertTrue(FileManager.default.fileExists(atPath: created.path))
         XCTAssertEqual(created.lastPathComponent, "tasks")
+        XCTAssertEqual(created.standardizedFileURL.path,
+                       workDir.appendingPathComponent(".ghostties/tasks").standardizedFileURL.path)
     }
 
     // MARK: - stateDirectory
