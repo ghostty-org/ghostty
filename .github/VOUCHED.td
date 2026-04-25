@@ -175,6 +175,7 @@ nicholas-ochoa
 nicosuave
 nmggithub
 noib3
+nouritsu
 nwehg
 ocean6954
 oshdubh
