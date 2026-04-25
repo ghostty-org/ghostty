@@ -719,7 +719,7 @@ pub const Application = extern struct {
                 .none,
             ),
 
-            .open_config => return Action.openConfig(self),
+            .open_config => return Action.openConfig(self, value),
 
             .open_url => Action.openUrl(self, value),
 
@@ -1138,7 +1138,8 @@ pub const Application = extern struct {
 
     fn syncActionAccelerators(self: *Self) void {
         self.syncActionAccelerator("app.quit", .{ .quit = {} });
-        self.syncActionAccelerator("app.open-config", .{ .open_config = {} });
+        self.syncActionAccelerator("app.open-config::os-open", .{ .open_config = .os_open });
+        self.syncActionAccelerator("app.open-config::new-window", .{ .open_config = .new_window });
         self.syncActionAccelerator("app.reload-config", .{ .reload_config = {} });
         self.syncActionAccelerator("win.toggle-inspector", .{ .inspector = .toggle });
         self.syncActionAccelerator("app.show-gtk-inspector", .show_gtk_inspector);
@@ -1412,10 +1413,13 @@ pub const Application = extern struct {
         const as_variant_type = glib.VariantType.new("as");
         defer as_variant_type.free();
 
+        const s_variant_type = glib.ext.VariantType.newFor([:0]const u8);
+        defer s_variant_type.free();
+
         const actions = [_]ext.actions.Action(Self){
             .init("new-window", actionNewWindow, null),
             .init("new-window-command", actionNewWindow, as_variant_type),
-            .init("open-config", actionOpenConfig, null),
+            .init("open-config", actionOpenConfig, s_variant_type),
             .init("present-surface", actionPresentSurface, t_variant_type),
             .init("quit", actionQuit, null),
             .init("reload-config", actionReloadConfig, null),
@@ -1795,10 +1799,42 @@ pub const Application = extern struct {
 
     pub fn actionOpenConfig(
         _: *gio.SimpleAction,
-        _: ?*glib.Variant,
+        parameter_: ?*glib.Variant,
         self: *Self,
     ) callconv(.c) void {
-        _ = self.core().mailbox.push(.open_config, .forever);
+        const target: CoreApp.Message.OpenConfig = target: {
+            const target_map: std.StaticStringMap(CoreApp.Message.OpenConfig) = .initComptime([_]std.meta.Tuple(&.{ []const u8, CoreApp.Message.OpenConfig }){
+                .{ "os-open", .os_open },
+                .{ "new-window", .new_window },
+            });
+
+            const parameter = parameter_ orelse {
+                log.warn("no parameter provided to app.open-config action", .{});
+                break :target .os_open;
+            };
+
+            const s_variant_type = glib.ext.VariantType.newFor([:0]const u8);
+            defer s_variant_type.free();
+
+            if (parameter.isOfType(s_variant_type) == 0) {
+                log.warn("parameter to app.open-config action is of type '{s}' not '{s}'", .{
+                    parameter.getTypeString(),
+                    s_variant_type.peekString()[0..s_variant_type.getStringLength()],
+                });
+                break :target .os_open;
+            }
+
+            var len: usize = undefined;
+            const buf = parameter.getString(&len);
+            const str = buf[0..len];
+
+            break :target target_map.get(str) orelse {
+                log.warn("'{s}' is not configured as a target for the app.open-config action", .{str});
+                break :target .os_open;
+            };
+        };
+
+        _ = self.core().mailbox.push(.{ .open_config = target }, .forever);
     }
 
     fn actionPresentSurface(
@@ -2313,18 +2349,55 @@ const Action = struct {
         gtk.Window.present(win.as(gtk.Window));
     }
 
-    pub fn openConfig(self: *Application) bool {
-        // Get the config file path
+    pub fn openConfig(self: *Application, value: apprt.action.OpenConfig) bool {
         const alloc = self.allocator();
+
+        // Get the config file path
         const path = configpkg.edit.openPath(alloc) catch |err| {
-            log.warn("error getting config file path: {}", .{err});
+            log.warn("error getting config file path: {t}", .{err});
             return false;
         };
         defer alloc.free(path);
 
-        // Open it using openURL. "path" isn't actually a URL but
-        // at the time of writing that works just fine for GTK.
-        openUrl(self, .{ .kind = .text, .url = path });
+        switch (value) {
+            .os_open => {
+                // Open it using openUrl. "path" isn't actually a URL but
+                // at the time of writing that works just fine for GTK.
+                openUrl(self, .{ .kind = .text, .url = path });
+            },
+
+            .new_window => {
+                const cmd = internal_os.getConfigEditCommand(alloc, path, .default) catch |err| {
+                    log.warn("unable to get command to edit the config: {t}", .{err});
+                    return false;
+                };
+                defer alloc.free(cmd);
+
+                const command: configpkg.Command = .{
+                    .direct = &.{ "/bin/sh", "-c", cmd },
+                };
+
+                const title = std.fmt.allocPrintSentinel(
+                    alloc,
+                    "{s} {s}",
+                    .{ i18n._("Editing configuration file"), path },
+                    0,
+                ) catch |err| t: {
+                    log.warn("unable to format title: {t}", .{err});
+                    break :t null;
+                };
+                defer if (title) |t| alloc.free(t);
+
+                Action.newWindow(self, null, .{
+                    .command = command,
+                    .title = title,
+                }) catch |err| {
+                    log.warn("unable to create new window: {t}", .{err});
+                    return false;
+                };
+            },
+        }
+
         return true;
     }
 

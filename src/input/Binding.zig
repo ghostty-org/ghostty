@@ -661,12 +661,14 @@ pub const Action = union(enum) {
     /// untested.
     show_on_screen_keyboard,
 
-    /// Open the configuration file in the default OS editor.
+    /// Open the configuration file in an editor.
     ///
-    /// If your default OS editor isn't configured then this will fail.
-    /// Currently, any failures to open the configuration will show up only in
-    /// the logs.
-    open_config,
+    /// * `os_open`: Use the OS's default editor to edit the configuration file.
+    ///   This is the default action. (Available since 1.4.0)
+    /// * `new_window`: Launch the editor specified in `$EDITOR` or `$VISUAL` in
+    ///   a new Ghostty window to edit the configuration file. GTK only. (Available
+    ///   since 1.4.0.)
+    open_config: OpenConfig,
 
     /// Reload the configuration.
     ///
@@ -1148,6 +1150,16 @@ pub const Action = union(enum) {
         right,
 
         pub const default: CloseTabMode = .this;
+    };
+
+    pub const OpenConfig = enum {
+        /// Open the config in the OS default editor.
+        os_open,
+
+        /// Open the config in a new window using $EDITOR or $VISUAL
+        new_window,
+
+        pub const default: OpenConfig = .os_open;
     };
 
     fn parseEnum(comptime T: type, value: []const u8) !T {

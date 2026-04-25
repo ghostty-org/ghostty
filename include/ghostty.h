@@ -680,6 +680,14 @@ typedef struct {
   const char* pwd;
 } ghostty_action_pwd_s;
 
+// apprt.action.OpenConfig
+typedef enum {
+  // Open the config in the OS default editor.
+  GHOSTTY_ACTION_OPEN_CONFIG_OS_OPEN,
+  // Open the config in a new window using $EDITOR or $VISUAL
+  GHOSTTY_ACTION_OPEN_CONFIG_NEW_WINDOW,
+} ghostty_action_open_config_e;
+
 // terminal.MouseShape
 typedef enum {
   GHOSTTY_MOUSE_SHAPE_DEFAULT,
@@ -990,6 +998,7 @@ typedef union {
   ghostty_action_search_total_s search_total;
   ghostty_action_search_selected_s search_selected;
   ghostty_action_readonly_e readonly;
+  ghostty_action_open_config_e open_config;
 } ghostty_action_u;
 
 typedef struct {

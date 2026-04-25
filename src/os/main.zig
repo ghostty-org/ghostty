@@ -21,6 +21,7 @@ const kernel_info = @import("kernel_info.zig");
 // Namespaces
 pub const args = @import("args.zig");
 pub const cgroup = @import("cgroup.zig");
+pub const edit = @import("edit.zig");
 pub const hostname = @import("hostname.zig");
 pub const i18n = @import("i18n.zig");
 pub const mach = @import("mach.zig");
@@ -65,8 +66,10 @@ pub const resourcesDir = resourcesdir.resourcesDir;
 pub const ResourcesDir = resourcesdir.ResourcesDir;
 pub const ShellEscapeWriter = shell.ShellEscapeWriter;
 pub const getKernelInfo = kernel_info.getKernelInfo;
+pub const getConfigEditCommand = edit.getConfigEditCommand;
 
 test {
+    _ = edit;
     _ = i18n;
     _ = path;
     _ = uri;
