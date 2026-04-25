@@ -252,7 +252,28 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
                     app_version.patch,
                 });
 
-                if (!std.mem.eql(u8, tag, expected)) {
+                // Accept vX.Y.Z (exact) or vX.Y.Z-PRERELEASE (SemVer pre-release).
+                // PRERELEASE must be one or more dot-separated alphanumeric identifiers,
+                // e.g. "beta.1", "rc.2", "alpha", "dev.20260425".
+                const valid = valid: {
+                    if (std.mem.eql(u8, tag, expected)) break :valid true;
+                    if (std.mem.startsWith(u8, tag, expected) and
+                        tag.len > expected.len and
+                        tag[expected.len] == '-')
+                    {
+                        const pre = tag[expected.len + 1 ..];
+                        var ok = pre.len > 0;
+                        for (pre) |c| {
+                            if (!std.ascii.isAlphanumeric(c) and c != '.') {
+                                ok = false;
+                                break;
+                            }
+                        }
+                        break :valid ok;
+                    }
+                    break :valid false;
+                };
+                if (!valid) {
                     @panic("tagged releases must be in vX.Y.Z format matching build.zig");
                 }
 
