@@ -129,17 +129,23 @@ jobs:
         if: steps.cache-cef.outputs.cache-hit != 'true'
         run: bash scripts/build-cef-wrapper.sh
 
-      # Build the Ghostties Xcode target in Release config.
+      # Build the Ghostties Xcode scheme in Release config.
+      # -scheme Ghostties builds DockTilePlugin as a dependency automatically.
       # ONLY_ACTIVE_ARCH=YES ARCHS=arm64 is required because GhosttyKit.xcframework
       # is arm64-only (see build gotcha: reference-xcframework-arm64-only.md).
+      # CODE_SIGNING_ALLOWED=NO skips signing during build; the dedicated
+      # "Codesign app bundle" step below handles all signing with the CI keychain.
       - name: Build Ghostties.app
         run: |
           cd macos
           xcodebuild \
-            -target Ghostties \
+            -scheme Ghostties \
             -configuration Release \
             ONLY_ACTIVE_ARCH=YES \
-            ARCHS=arm64
+            ARCHS=arm64 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_ENTITLEMENTS=
 
       # Inject version metadata and Sparkle public key into Info.plist.
       # SUPublicEDKey is NOT secret — it's the public half of the EdDSA keypair.
