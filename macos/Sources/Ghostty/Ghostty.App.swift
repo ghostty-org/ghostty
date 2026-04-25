@@ -471,13 +471,16 @@ extension Ghostty {
             return Unmanaged<SurfaceView>.fromOpaque(userdata!).takeUnretainedValue()
         }
 
+        @MainActor
         static private func surfaceView(from surface: ghostty_surface_t) -> SurfaceView? {
+            guard Surface.isSurfaceValid(surface) else { return nil }
             guard let surface_ud = ghostty_surface_userdata(surface) else { return nil }
             return Unmanaged<SurfaceView>.fromOpaque(surface_ud).takeUnretainedValue()
         }
 
         // MARK: Actions (macOS)
 
+        @MainActor
         static func action(_ app: ghostty_app_t, target: ghostty_target_s, action: ghostty_action_s) -> Bool {
             // Make sure it a target we understand so all our action handlers can assert
             switch target.tag {
@@ -681,6 +684,7 @@ extension Ghostty {
             return true
         }
 
+        @MainActor
         private static func quit(_ app: ghostty_app_t) {
             // On iOS, applications do not terminate programmatically like they do
             // on macOS. On iOS, applications are only terminated when a user physically
@@ -696,6 +700,7 @@ extension Ghostty {
             #endif
         }
 
+        @MainActor
         private static func checkForUpdates(
             _ app: ghostty_app_t
         ) {
@@ -745,6 +750,7 @@ extension Ghostty {
             return true
         }
 
+        @MainActor
         private static func undo(_ app: ghostty_app_t, target: ghostty_target_s) -> Bool {
             let undoManager: UndoManager?
             switch target.tag {
@@ -766,6 +772,7 @@ extension Ghostty {
             return true
         }
 
+        @MainActor
         private static func redo(_ app: ghostty_app_t, target: ghostty_target_s) -> Bool {
             let undoManager: UndoManager?
             switch target.tag {
@@ -787,6 +794,7 @@ extension Ghostty {
             return true
         }
 
+        @MainActor
         private static func newWindow(_ app: ghostty_app_t, target: ghostty_target_s) {
             switch target.tag {
             case GHOSTTY_TARGET_APP:
@@ -812,6 +820,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func newTab(_ app: ghostty_app_t, target: ghostty_target_s) {
             switch target.tag {
             case GHOSTTY_TARGET_APP:
@@ -848,6 +857,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func newSplit(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -876,6 +886,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func presentTerminal(
             _ app: ghostty_app_t,
             target: ghostty_target_s
@@ -900,6 +911,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func closeTab(_ app: ghostty_app_t, target: ghostty_target_s, mode: ghostty_action_close_tab_mode_e) {
             switch target.tag {
             case GHOSTTY_TARGET_APP:
@@ -941,6 +953,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func closeWindow(_ app: ghostty_app_t, target: ghostty_target_s) {
             switch target.tag {
             case GHOSTTY_TARGET_APP:
@@ -966,6 +979,7 @@ extension Ghostty {
             appDelegate.closeAllWindows(nil)
         }
 
+        @MainActor
         private static func toggleFullscreen(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -995,6 +1009,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func toggleCommandPalette(
             _ app: ghostty_app_t,
             target: ghostty_target_s) {
@@ -1016,6 +1031,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func toggleMaximize(
             _ app: ghostty_app_t,
             target: ghostty_target_s
@@ -1046,6 +1062,7 @@ extension Ghostty {
             appDelegate.toggleVisibility(self)
         }
 
+        @MainActor
         private static func ringBell(
             _ app: ghostty_app_t,
             target: ghostty_target_s) {
@@ -1070,6 +1087,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func setReadonly(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1095,6 +1113,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func moveTab(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1126,6 +1145,7 @@ extension Ghostty {
                 return true
         }
 
+        @MainActor
         private static func gotoTab(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1158,6 +1178,7 @@ extension Ghostty {
                 return true
         }
 
+        @MainActor
         private static func gotoSplit(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1206,6 +1227,7 @@ extension Ghostty {
                 }
         }
 
+        @MainActor
         private static func gotoWindow(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1264,6 +1286,7 @@ extension Ghostty {
             return false
         }
 
+        @MainActor
         private static func resizeSplit(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1298,6 +1321,7 @@ extension Ghostty {
                 }
         }
 
+        @MainActor
         private static func equalizeSplits(
             _ app: ghostty_app_t,
             target: ghostty_target_s) {
@@ -1319,6 +1343,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func toggleSplitZoom(
             _ app: ghostty_app_t,
             target: ghostty_target_s) -> Bool {
@@ -1347,6 +1372,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func controlInspector(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1370,6 +1396,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func showDesktopNotification(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1413,6 +1440,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func commandFinished(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1490,6 +1518,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func toggleFloatWindow(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1527,6 +1556,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func toggleBackgroundOpacity(
             _ app: ghostty_app_t,
             target: ghostty_target_s
@@ -1548,6 +1578,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func toggleSecureInput(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1590,6 +1621,7 @@ extension Ghostty {
             appDelegate.toggleQuickTerminal(self)
         }
 
+        @MainActor
         private static func setTitle(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1610,6 +1642,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func setTabTitle(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1637,6 +1670,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func showChildExited(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1657,6 +1691,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func copyTitleToClipboard(
             _ app: ghostty_app_t,
             target: ghostty_target_s) -> Bool {
@@ -1676,6 +1711,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func promptTitle(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1724,6 +1760,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func pwdChanged(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1744,6 +1781,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func setMouseShape(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1763,6 +1801,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func setMouseVisibility(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1791,6 +1830,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func setMouseOverLink(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1816,6 +1856,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func setInitialSize(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1835,6 +1876,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func resetWindowSize(
             _ app: ghostty_app_t,
             target: ghostty_target_s) {
@@ -1856,6 +1898,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func setCellSize(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1879,6 +1922,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func renderInspector(
             _ app: ghostty_app_t,
             target: ghostty_target_s) {
@@ -1900,6 +1944,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func rendererHealth(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1925,6 +1970,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func keySequence(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1957,6 +2003,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func keyTable(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1982,6 +2029,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func progressReport(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -2018,6 +2066,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func scrollbar(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -2045,6 +2094,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func startSearch(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -2076,6 +2126,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func endSearch(
             _ app: ghostty_app_t,
             target: ghostty_target_s) {
@@ -2097,6 +2148,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func searchTotal(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -2120,6 +2172,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func searchSelected(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -2143,6 +2196,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func configReload(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -2166,6 +2220,7 @@ extension Ghostty {
             }
         }
 
+        @MainActor
         private static func configChange(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -2214,6 +2269,7 @@ extension Ghostty {
                 }
             }
 
+        @MainActor
         private static func colorChange(
             _ app: ghostty_app_t,
             target: ghostty_target_s,

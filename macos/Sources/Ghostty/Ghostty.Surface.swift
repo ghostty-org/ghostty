@@ -10,6 +10,10 @@ extension Ghostty {
     ///
     /// Wraps a `ghostty_surface_t`
     final class Surface: Sendable {
+        /// Surfaces that's being deallocated
+        ///
+        /// We need to track this to prevent accessing deallocating surface during window restoration error or other cases.
+        private static var invalidSurfaces = Set<ghostty_surface_t>()
         private let surface: ghostty_surface_t
 
         /// Read the underlying C value for this surface. This is unsafe because the value will be
@@ -30,9 +34,16 @@ extension Ghostty {
             // We can't wait for the task to succeed so this will happen sometime
             // but that's okay.
             let surface = self.surface
+            Self.invalidSurfaces.insert(surface)
             Task.detached { @MainActor in
                 ghostty_surface_free(surface)
+                Self.invalidSurfaces.remove(surface)
             }
+        }
+
+        /// Check whether a surface is being deallocated
+        @MainActor static func isSurfaceValid(_ surface: ghostty_surface_t) -> Bool {
+            !Self.invalidSurfaces.contains(surface)
         }
 
         /// Send text to the terminal as if it was typed. This doesn't send the key events so keyboard
