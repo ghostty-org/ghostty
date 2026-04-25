@@ -2507,12 +2507,18 @@ pub fn selectionString(
 }
 
 pub const SelectLine = struct {
+    const default_whitespace: []const u21 = &.{ 0, ' ', '\t' };
+
     /// The pin of some part of the line to select.
     pin: Pin,
 
-    /// These are the codepoints to consider whitespace to trim
-    /// from the ends of the selection.
-    whitespace: ?[]const u21 = &.{ 0, ' ', '\t' },
+    /// Codepoints to trim from the start of the selection.
+    /// Set to null to preserve leading whitespace, e.g. for
+    /// triple-click line selection.
+    leading_whitespace: ?[]const u21 = default_whitespace,
+
+    /// Codepoints to trim from the end of the selection.
+    trailing_whitespace: ?[]const u21 = default_whitespace,
 
     /// If true, line selection will consider semantic prompt
     /// state changing a boundary. State changing is ANY state
@@ -2641,7 +2647,7 @@ pub fn selectLine(self: *const Screen, opts: SelectLine) ?Selection {
 
     // Go forward from the start to find the first non-whitespace character.
     const start: Pin = start: {
-        const whitespace = opts.whitespace orelse break :start start_pin;
+        const whitespace = opts.leading_whitespace orelse break :start start_pin;
         var it = start_pin.cellIterator(.right_down, end_pin);
         while (it.next()) |p| {
             const cell = p.rowAndCell().cell;
@@ -2663,7 +2669,7 @@ pub fn selectLine(self: *const Screen, opts: SelectLine) ?Selection {
 
     // Go backward from the end to find the first non-whitespace character.
     const end: Pin = end: {
-        const whitespace = opts.whitespace orelse break :end end_pin;
+        const whitespace = opts.trailing_whitespace orelse break :end end_pin;
         var it = end_pin.cellIterator(.left_up, start_pin);
         while (it.next()) |p| {
             const cell = p.rowAndCell().cell;
@@ -2933,7 +2939,8 @@ pub const LineIterator = struct {
         const current = self.current orelse return null;
         const result = self.screen.selectLine(.{
             .pin = current,
-            .whitespace = null,
+            .leading_whitespace = null,
+            .trailing_whitespace = null,
             .semantic_prompt_boundary = false,
         }) orelse {
             self.current = null;
@@ -7729,6 +7736,87 @@ test "Screen: selectLine" {
     }
 }
 
+test "Screen: selectLine optionally preserves whitespaces" {
+    // Regression test for https://github.com/ghostty-org/ghostty/issues/11463
+    //
+    // selectLine can optionally keep leading or trailing whitespaces.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 10 });
+    defer s.deinit();
+    // "   indented line  " (3 leading, 2 trailing spaces)
+    try s.testWriteString("   indented line  ");
+
+    // default: leading trimmed, trailing trimmed
+    {
+        var sel = s.selectLine(.{
+            .pin = s.pages.pin(.{ .active = .{ .x = 5, .y = 0 } }).?,
+        }).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 15,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+
+    // leading_whitespace = null: leading preserved, trailing trimmed
+    {
+        var sel = s.selectLine(.{
+            .pin = s.pages.pin(.{ .active = .{ .x = 5, .y = 0 } }).?,
+            .leading_whitespace = null,
+        }).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 15,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+
+    // trailing_whitespace = null: leading trimmed, trailing preserved
+    {
+        var sel = s.selectLine(.{
+            .pin = s.pages.pin(.{ .active = .{ .x = 5, .y = 0 } }).?,
+            .trailing_whitespace = null,
+        }).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 19,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+
+    // both leading preserved and trailing preserved
+    {
+        var sel = s.selectLine(.{
+            .pin = s.pages.pin(.{ .active = .{ .x = 5, .y = 0 } }).?,
+            .leading_whitespace = null,
+            .trailing_whitespace = null,
+        }).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 19,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+}
+
 test "Screen: selectLine across soft-wrap" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -7855,7 +7943,8 @@ test "Screen: selectLine disabled whitespace trimming" {
                 .x = 1,
                 .y = 0,
             } }).?,
-            .whitespace = null,
+            .leading_whitespace = null,
+            .trailing_whitespace = null,
         }).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
@@ -7875,7 +7964,8 @@ test "Screen: selectLine disabled whitespace trimming" {
                 .x = 1,
                 .y = 3,
             } }).?,
-            .whitespace = null,
+            .leading_whitespace = null,
+            .trailing_whitespace = null,
         }).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
