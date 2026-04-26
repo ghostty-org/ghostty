@@ -53,15 +53,15 @@ For each `create_task` call:
 
 ## Priority mapping (Linear → Ghostties)
 
-Ghostties priorities are `low`, `normal`, `high`.
+Ghostties priorities are `high`, `medium`, `low`, `none`.
 
 | Linear priority    | Ghostties priority |
 | ------------------ | ------------------ |
 | `Urgent` (1)       | `high`             |
 | `High` (2)         | `high`             |
-| `Medium` (3)       | `normal`           |
+| `Medium` (3)       | `medium`           |
 | `Low` (4)          | `low`              |
-| `No priority` (0)  | `normal`           |
+| `No priority` (0)  | `none`             |
 
 ## Deduplication rule
 
