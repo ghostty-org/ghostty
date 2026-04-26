@@ -108,13 +108,13 @@ struct RowClickHandlers {
 
     // MARK: - Graveyard lane (done)
 
-    /// Open the task's `.md` file only. Inline expansion is U7.
+    /// Toggle inline expansion for the given Graveyard (done) row.
     ///
-    /// Real impl (U7) will add: in-sidebar expansion to show the task's goal,
-    /// activity log, and a re-open button.
+    /// D4 / D11: single-expansion within the Graveyard lane. Opening a row
+    /// auto-collapses any previously-open row. Re-clicking an open row (D10)
+    /// collapses it. Column 2 is never touched — no `SessionCoordinator` call.
     func expandGraveyardTask(_ task: TaskItem) {
-        // v0 stub: open .md only; inline expansion is U7.
-        openMarkdownFile(for: task)
+        taskStore.toggleGraveyardExpansion(for: task.id)
     }
 
     // MARK: - Private helpers

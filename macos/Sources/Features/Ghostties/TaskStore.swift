@@ -15,6 +15,30 @@ import SwiftUI
 final class TaskStore: ObservableObject {
     @Published private(set) var tasks: [TaskItem] = []
 
+    // MARK: - Graveyard expansion state (U7)
+
+    /// The id of the single Graveyard row that is currently expanded, if any.
+    /// Single-expansion per lane (D4 / D11). Nil = all collapsed.
+    @Published private(set) var expandedGraveyardTaskId: String? = nil
+
+    /// Toggle Graveyard row expansion for the given task id.
+    /// D10: re-click collapses. D11: opening a new row closes the previous.
+    func toggleGraveyardExpansion(for taskId: String) {
+        if expandedGraveyardTaskId == taskId {
+            expandedGraveyardTaskId = nil
+        } else {
+            expandedGraveyardTaskId = taskId
+        }
+    }
+
+    /// Collapse any open Graveyard row. Called when a task migrates out of the
+    /// done lane so stale expansion state doesn't linger.
+    func collapseGraveyardExpansionIfNeeded(for taskId: String) {
+        if expandedGraveyardTaskId == taskId {
+            expandedGraveyardTaskId = nil
+        }
+    }
+
     /// Hardcoded machine-capacity placeholder for v0. Drives the "ACTIVE · N of ~5"
     /// header in the sidebar and the number of empty slots rendered. A later
     /// revision will derive this from `sysctl` or thermal state.
@@ -250,6 +274,15 @@ final class TaskStore: ObservableObject {
         // is up to the view layer; here we just produce a deterministic list.
         loaded.sort { $0.created > $1.created }
         tasks = loaded
+
+        // Collapse Graveyard expansion if the previously-expanded task is no
+        // longer in the done lane (e.g. agent re-opened it).
+        if let expandedId = expandedGraveyardTaskId {
+            let stillDone = loaded.contains { $0.id == expandedId && $0.status == .done }
+            if !stillDone {
+                expandedGraveyardTaskId = nil
+            }
+        }
     }
 
     // MARK: - Filesystem watching
