@@ -142,26 +142,28 @@ struct RowClickHandlers {
 
     // MARK: - Running lane
 
-    /// Open the task's `.md` file and focus the existing session if any.
+    /// Route column 2 to the task's existing terminal session and focus the cursor.
     ///
-    /// Real impl (U5) will add: smarter session lookup via `sourceTaskId`,
-    /// visual focus indicator, and fallback spawn if the session has been GC'd.
-    func focusRunningTask(_ task: TaskItem) {
-        // v0 stub: open .md and focus existing session.
+    /// No status flip, no respawn — except D8: if no live SurfaceView exists for
+    /// this task (the process exited but `surface-close` hasn't fired yet),
+    /// respawn at `project-path` so the user always gets a terminal. Status stays
+    /// `running`; auto-migration to Graveyard remains the surface-close handler's job.
+    func focusRunningTask(_ task: TaskItem) async {
         openMarkdownFile(for: task)
-        focusExistingSession(for: task)
+        await routeToExistingSession(task)
     }
 
     // MARK: - Needs-you lane
 
-    /// Open the task's `.md` file and focus the existing session if any.
+    /// Route column 2 to the task's existing terminal session and focus the cursor.
     ///
-    /// Real impl (U5) will add: scroll-to-prompt, input-focus on the needs-you
-    /// pane, and visual indicator that input is expected.
-    func focusNeedsYouTask(_ task: TaskItem) {
-        // v0 stub: same as focusRunningTask — open .md and focus session.
+    /// Identical to `focusRunningTask` in v0 — both lanes share the same
+    /// routing logic. Lane membership for Needs-you is `task.status == .needsYou`
+    /// from frontmatter only (R7); the live `isLikelyPromptingForInput` heuristic
+    /// continues to drive the per-session indicator dot — no change to that wiring.
+    func focusNeedsYouTask(_ task: TaskItem) async {
         openMarkdownFile(for: task)
-        focusExistingSession(for: task)
+        await routeToExistingSession(task)
     }
 
     // MARK: - Graveyard lane (done)
@@ -185,14 +187,74 @@ struct RowClickHandlers {
         }
     }
 
-    /// Focus the last active session associated with the task's project.
+    /// Route column 2 to the task's existing terminal session (D8/D9 aware).
     ///
-    /// Resolves the project from `WorkspaceStore` by name, then delegates to
-    /// `SessionCoordinator.focusLastSession(forProject:)`. No-ops silently if
-    /// no matching project or session is found.
-    private func focusExistingSession(for task: TaskItem) {
+    /// Decision tree:
+    ///   1. This window's coordinator has a live session for the project → focus it.
+    ///   2. No live session in this window, but one is running globally (in another
+    ///      window) → D9 silent no-op. Cross-window routing + "running in another
+    ///      window" affordance are deferred to v1+.
+    ///   3. No live session anywhere (process exited/crashed but surface-close hasn't
+    ///      fired yet) → D8 respawn at `project-path`. Status stays `running`;
+    ///      auto-migration to Graveyard is the surface-close handler's responsibility.
+    private func routeToExistingSession(_ task: TaskItem) async {
+        // Resolve the project record by name.
         guard let storeProject = workspaceStore.projects
             .first(where: { $0.name == task.project }) else { return }
-        coordinator.focusLastSession(forProject: storeProject.id)
+
+        // Check whether this coordinator (this window) owns a live session.
+        let hasLocalSession: Bool = {
+            if let lastId = coordinator.lastActiveSessionPerProject[storeProject.id],
+               coordinator.sessionTrees[lastId] != nil || coordinator.browserManagers[lastId] != nil {
+                return true
+            }
+            let sessions = workspaceStore.sessions(for: storeProject.id)
+            return sessions.contains {
+                coordinator.sessionTrees[$0.id] != nil || coordinator.browserManagers[$0.id] != nil
+            }
+        }()
+
+        if hasLocalSession {
+            // Path 1: live session in this window — focus it.
+            coordinator.focusLastSession(forProject: storeProject.id)
+            return
+        }
+
+        // No live session in this window. Check if one is alive in another window
+        // via the global status registry.
+        let sessions = workspaceStore.sessions(for: storeProject.id)
+        let isAliveGlobally = sessions.contains {
+            workspaceStore.globalStatuses[$0.id]?.isAlive == true
+        }
+
+        if isAliveGlobally {
+            // D9: The session is running in a different window. In v0, we silently
+            // no-op here. Cross-window IPC and a "running in another window"
+            // affordance (e.g. a toast or badge) are deferred to v1+.
+            return
+        }
+
+        // D8: No live session anywhere — the process exited or crashed but the
+        // surface-close handler hasn't fired yet (or the session was GC'd). Respawn
+        // at project-path so the user always lands in a terminal. Status stays
+        // `running`; migrating to Graveyard is the surface-close handler's job.
+        let rootPath: String? = {
+            if let raw = task.projectPath, !raw.isEmpty {
+                return (raw as NSString).expandingTildeInPath
+            }
+            return storeProject.rootPath.isEmpty ? nil : storeProject.rootPath
+        }()
+
+        guard let path = rootPath else { return }
+
+        let resolvedTemplateName: String? = task.template
+            ?? (defaultTaskTemplate.isEmpty ? nil : defaultTaskTemplate)
+
+        coordinator.startOrFocusSession(
+            forProjectNamed: task.project,
+            rootPath: path,
+            templateName: resolvedTemplateName,
+            sourceTaskId: task.id
+        )
     }
 }
