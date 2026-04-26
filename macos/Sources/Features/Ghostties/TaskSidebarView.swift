@@ -10,15 +10,24 @@ import SwiftUI
 /// Width is 280pt (slightly wider than the 220pt legacy sidebar) — Concept F
 /// is denser vertically but needs more horizontal room for the hero row's
 /// two-line typography.
+///
+/// U8 (SEA-164): adds the persistent `[+ Start]` button in the header strip
+/// (D22) and the inline composer slot driven by `NewTaskComposerStore.shared`.
 struct TaskSidebarView: View {
     @ObservedObject var taskStore: TaskStore
     @ObservedObject var sessionDraftStore: SessionDraftStore
+
+    /// U8: composer store — drives [+ Start] button state and the composer card.
+    @ObservedObject private var composerStore: NewTaskComposerStore = .shared
 
     @EnvironmentObject private var workspaceStore: WorkspaceStore
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 0) {
+            // D22: header strip with [+ Start] button at top-right.
+            sidebarHeader
+
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     // Zone order follows the brief's locked lane order:
@@ -37,8 +46,14 @@ struct TaskSidebarView: View {
                     // Inbox hides itself entirely when empty — most days it
                     // will not render at all, so we only emit the trailing
                     // divider when it has rows.
-                    if !taskStore.externalInbox.isEmpty {
-                        InboxZoneView(taskStore: taskStore, workspaceStore: workspaceStore)
+                    InboxZoneView(
+                        taskStore: taskStore,
+                        workspaceStore: workspaceStore,
+                        composerStore: composerStore
+                    )
+                    // Only emit the trailing divider when the inbox actually
+                    // rendered rows (or is empty with the composer open).
+                    if !taskStore.externalInbox.isEmpty || composerStore.isOpen {
                         zoneDivider
                     }
 
@@ -62,6 +77,49 @@ struct TaskSidebarView: View {
         }
         .frame(maxHeight: .infinity)
         .background(backgroundColor)
+        // U8: Observe the notification that AppDelegate's ⌘⇧N monitor posts.
+        .onReceive(NotificationCenter.default.publisher(for: .openNewTaskComposer)) { _ in
+            composerStore.open(workspaceStore: workspaceStore)
+        }
+    }
+
+    // MARK: - Header strip (D22)
+
+    /// Sticky header with a low-contrast `[+ Start]` button at top-right.
+    /// Stays outside the ScrollView so it doesn't scroll away.
+    private var sidebarHeader: some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+
+            // D22: low-contrast chrome button — NOT terracotta.
+            Button {
+                composerStore.open(workspaceStore: workspaceStore)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("Start")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundStyle(Color.primary.opacity(0.60))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                // D20: rgba(255,255,255,0.08) background — no terracotta.
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.white.opacity(0.08))
+                )
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, TaskRowMetrics.horizontalPadding)
+        }
+        .frame(height: 28)
+        .background(backgroundColor)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.10))
+                .frame(height: 1)
+        }
     }
 
     // MARK: - Zone divider

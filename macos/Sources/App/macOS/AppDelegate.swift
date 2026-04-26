@@ -332,6 +332,14 @@ class AppDelegate: NSObject,
         setupMenuImages()
         setupWorkspaceMenuItems()
 
+        // U8 (SEA-164): ⌘⇧N new-task composer shortcut.
+        // Uses a separate local monitor so it never touches MainMenu.xib —
+        // adding ⌘N to the menu would collide with Ghostty's `new_window`
+        // binding via syncMenuShortcut (D17 / F-004).
+        // The monitor returns nil to swallow the event so it does NOT
+        // propagate to Ghostty's new_window handler.
+        setupNewTaskComposerShortcut()
+
         // Setup signal handlers
         setupSignals()
 
@@ -716,6 +724,48 @@ class AppDelegate: NSObject,
         viewMenu.insertItem(taskViewItem, at: 6)
         viewMenu.insertItem(NSMenuItem.separator(), at: 7)
 
+    }
+
+    // MARK: - U8 (SEA-164): ⌘⇧N new-task composer shortcut
+
+    /// Registers an `NSEvent` local monitor for ⌘⇧N.
+    ///
+    /// This is intentionally NOT a MainMenu.xib item — ⌘N is bound to
+    /// Ghostty's `new_window` via `syncMenuShortcut` and that binding must
+    /// not be shadowed. We use ⌘⇧N and a local monitor instead (D17).
+    ///
+    /// Scope: only fires when the task-first sidebar is the active mode
+    /// (checked via the `ghostties.sidebarViewMode` defaults key). In
+    /// project-first mode the event falls through unchanged.
+    ///
+    /// The monitor returns `nil` to swallow the event so it never reaches
+    /// Ghostty's `new_window` handler (D17 requirement).
+    ///
+    /// **U11 collision note:** U11's AppDelegate additions are for ⌘O and
+    /// Return key items in the menu. This block is entirely separate — it
+    /// observes different key modifiers and touches no menu items.
+    private func setupNewTaskComposerShortcut() {
+        _ = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Guard: must be ⌘⇧N (case-insensitive).
+            guard event.modifierFlags.intersection([.command, .shift, .control, .option])
+                    == [.command, .shift],
+                  event.charactersIgnoringModifiers?.lowercased() == "n"
+            else { return event }
+
+            // Guard: only in task-first sidebar mode (where the composer lives).
+            let mode = UserDefaults.standard.string(forKey: "ghostties.sidebarViewMode") ?? "projectFirst"
+            guard mode == "taskFirst" else { return event }
+
+            // Post the notification — TaskSidebarView observes it and calls
+            // `composerStore.open(workspaceStore:)`.
+            NotificationCenter.default.post(
+                name: .openNewTaskComposer,
+                object: NSApp.keyWindow
+            )
+
+            // D17: return nil to swallow — must not propagate to new_window.
+            return nil
+        }
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
