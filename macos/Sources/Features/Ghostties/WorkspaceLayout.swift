@@ -167,4 +167,11 @@ extension Notification.Name {
     /// WorkspaceViewContainer instances observe this to swap the hosted SwiftUI view
     /// and update the sidebar width. v0 feature toggle.
     static let workspaceSidebarViewModeChanged = Notification.Name("com.seansmithdesign.ghostties.workspace.sidebarViewModeChanged")
+
+    /// Posted by AppDelegate when the `Return` menu item fires (U11).
+    /// The notification object is the focused task's id `String`.
+    /// `TaskRowView` instances that own the focused task observe this and call
+    /// `RowClickRouter.shared.handleRowClick` through their existing SwiftUI
+    /// environment, preserving correct window-scoped coordinator references.
+    static let ghosttiesActivateFocusedTaskRow = Notification.Name("com.seansmithdesign.ghostties.activateFocusedTaskRow")
 }

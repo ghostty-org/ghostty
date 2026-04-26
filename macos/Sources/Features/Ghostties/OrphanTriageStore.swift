@@ -209,7 +209,7 @@ final class OrphanTriageStore: ObservableObject {
                     completed: task.completed,
                     events: task.events
                 )
-                handlers.startInboxTask(patchedTask)
+                try await handlers.startInboxTask(patchedTask)
 
             } catch {
                 // D13: write failed — persist error chip, card stays open.
