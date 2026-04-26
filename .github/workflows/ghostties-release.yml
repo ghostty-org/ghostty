@@ -78,7 +78,11 @@ jobs:
   # ---------------------------------------------------------------------------
   build-macos:
     needs: [setup]
-    runs-on: macos-latest
+    # macos-26 (Tahoe) is required for the macOS 26 SDK — Backport.swift
+    # references NSGlassEffectView and SurfaceView.swift references
+    # ConcentricRectangle, both gated by @available(macOS 26, *) but still
+    # needing the type to exist at compile time.
+    runs-on: macos-26
     timeout-minutes: 60
     env:
       GHOSTTIES_VERSION: ${{ needs.setup.outputs.version }}
@@ -254,7 +258,7 @@ jobs:
   # ---------------------------------------------------------------------------
   appcast:
     needs: [setup, build-macos]
-    runs-on: macos-latest
+    runs-on: macos-26
     env:
       GHOSTTIES_VERSION: ${{ needs.setup.outputs.version }}
       GHOSTTIES_BUILD: ${{ needs.setup.outputs.build }}
