@@ -15,17 +15,18 @@ struct ActiveZoneView: View {
     @ObservedObject var sessionDraftStore: SessionDraftStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
+        let rows = mergedRows  // snapshot once — see hang report 26Apr2026
+        return VStack(alignment: .leading, spacing: 0) {
+            header(rowCount: rows.count)
 
             VStack(spacing: 0) {
-                ForEach(mergedRows, id: \.id) { row in
+                ForEach(rows, id: \.id) { row in
                     rowView(for: row)
                     Divider()
                         .overlay(Color.primary.opacity(0.06))
                 }
 
-                let placeholderCount = max(0, taskStore.machineCap - mergedRows.count)
+                let placeholderCount = max(0, taskStore.machineCap - rows.count)
                 if placeholderCount > 0 {
                     ForEach(0..<placeholderCount, id: \.self) { _ in
                         SlotPlaceholderView()
@@ -82,14 +83,14 @@ struct ActiveZoneView: View {
 
     // MARK: - Header
 
-    private var header: some View {
+    private func header(rowCount: Int) -> some View {
         HStack(spacing: 6) {
             Text("Active".uppercased())
                 .font(.system(size: 10.5, weight: .semibold))
                 .tracking(0.8)
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
 
-            Text("· \(mergedRows.count) of ~\(taskStore.machineCap)")
+            Text("· \(rowCount) of ~\(taskStore.machineCap)")
                 .font(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
 
