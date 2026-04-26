@@ -18,8 +18,21 @@ import SwiftUI
 /// triaged-but-not-yet-actioned items; the two are intentionally distinct.
 /// Source-based Inbox = external arrivals; status-based Inbox = local
 /// triage state.
+///
+/// U6: inline orphan triage card rendered below the anchor row (D4 push
+/// mechanic). The `triageStore` is observed so the card appears/disappears
+/// reactively when `OrphanTriageStore.shared.activeTaskId` changes.
 struct InboxZoneView: View {
     @ObservedObject var taskStore: TaskStore
+    @ObservedObject var workspaceStore: WorkspaceStore
+
+    /// U6: triage store drives the inline card slot.
+    @ObservedObject private var triageStore: OrphanTriageStore = .shared
+
+    @EnvironmentObject private var coordinator: SessionCoordinator
+    @AppStorage("ghostties.defaultTaskTemplate") private var defaultTaskTemplate: String = ""
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Cached once per render so the header count and the `ForEach` agree
     /// on what they're showing.
@@ -36,14 +49,93 @@ struct InboxZoneView: View {
 
                 VStack(spacing: 0) {
                     ForEach(rows) { task in
-                        TaskRowView(task: task, style: .compact)
-                        Divider()
-                            .overlay(Color.primary.opacity(0.06))
+                        rowWithTriageSlot(task: task)
                     }
                 }
             }
             .padding(.vertical, 4)
         }
+    }
+
+    // MARK: - Row + inline triage card slot (D4)
+
+    /// Renders the task row and, if this task is the active orphan, the triage
+    /// card immediately below it. Rows below shift down (intra-zone reflow).
+    @ViewBuilder
+    private func rowWithTriageSlot(task: TaskItem) -> some View {
+        let isAnchor = triageStore.activeTaskId == task.id
+
+        // Anchor row with optional 2px terracotta left-rule (D20).
+        TaskRowView(task: task, style: .compact)
+            .overlay(alignment: .leading) {
+                if isAnchor {
+                    Rectangle()
+                        .fill(WorkspaceLayout.waitingTerracotta)
+                        .frame(width: 2)
+                        .allowsHitTesting(false)
+                }
+            }
+            // D14: disable hit testing on the anchor row for 180ms while
+            // the card reveals or collapses.
+            .allowsHitTesting(!triageStore.isAnimating || !isAnchor)
+
+        // D4: push rows below down by inserting the card here.
+        // D11: only one card at a time — guarded by `isAnchor`.
+        if isAnchor {
+            let handlersBox = makeHandlersBox()
+            OrphanTriageCardView(
+                task: task,
+                triageStore: triageStore,
+                taskStore: taskStore,
+                workspaceStore: workspaceStore,
+                handlers: handlersBox
+            )
+            // Click-outside cancels (D25). Background tap cancels the card.
+            .background(
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { triageStore.cancel() }
+            )
+            // D18/D19: animated reveal driven by `triageStore.activeTaskId`.
+            .transition(cardTransition)
+            .animation(cardAnimation, value: triageStore.activeTaskId)
+        }
+
+        Divider()
+            .overlay(Color.primary.opacity(0.06))
+    }
+
+    // MARK: - RowClickHandlersBox factory
+
+    /// Build a fresh `RowClickHandlersBox` with the current environment objects.
+    /// Called at render time so the box always captures the latest coordinator
+    /// and store references.
+    private func makeHandlersBox() -> RowClickHandlersBox {
+        RowClickHandlersBox(
+            RowClickHandlers(
+                taskStore: taskStore,
+                coordinator: coordinator,
+                workspaceStore: workspaceStore,
+                defaultTaskTemplate: defaultTaskTemplate
+            )
+        )
+    }
+
+    // MARK: - Animations (D18, D19)
+
+    private var cardAnimation: Animation {
+        reduceMotion
+            ? .easeInOut(duration: 0.2)
+            : .easeOut(duration: 0.18)
+    }
+
+    private var cardTransition: AnyTransition {
+        reduceMotion
+            ? AnyTransition.opacity.animation(.easeInOut(duration: 0.2))
+            : AnyTransition.asymmetric(
+                insertion: .opacity.combined(with: .move(edge: .top)),
+                removal: .opacity.combined(with: .move(edge: .top))
+            ).animation(.easeOut(duration: 0.14))
     }
 
     // MARK: - Header

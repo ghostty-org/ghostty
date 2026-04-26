@@ -107,6 +107,27 @@ final class TaskStore: ObservableObject {
         try coreStore.write(pairs: updatedPairs, body: task.body, to: url)
     }
 
+    /// Update the `template:` frontmatter key for the task with the given id.
+    /// Pass an empty string to clear the field.
+    /// - Throws: `CLIError.io` / `CLIError.notFound`.
+    func writeTemplate(_ templateName: String, for taskId: String) async throws {
+        let coreStore = try requireCoreStore()
+        let (task, url) = try coreStore.resolve(idOrPrefix: taskId)
+        let updatedPairs = GhosttiesCore.Frontmatter.set(
+            "template", templateName, in: task.frontmatter)
+        try coreStore.write(pairs: updatedPairs, body: task.body, to: url)
+    }
+
+    /// Update the `title:` frontmatter key for the task with the given id.
+    /// - Throws: `CLIError.io` / `CLIError.notFound`.
+    func writeTitle(_ title: String, for taskId: String) async throws {
+        let coreStore = try requireCoreStore()
+        let (task, url) = try coreStore.resolve(idOrPrefix: taskId)
+        let updatedPairs = GhosttiesCore.Frontmatter.set(
+            "title", title, in: task.frontmatter)
+        try coreStore.write(pairs: updatedPairs, body: task.body, to: url)
+    }
+
     /// Create a new task `.md` file and return the parsed `TaskItem`.
     ///
     /// - Parameters:
