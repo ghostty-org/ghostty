@@ -1,6 +1,26 @@
 import AppKit
 import SwiftUI
 
+// MARK: - ReturnKeyActivationModifier
+
+/// Applies `.onKeyPress(.return)` only on macOS 14+.
+/// On macOS 13 the handler is a no-op — the AppDelegate menu path
+/// (`ghosttiesActivateFocusedTaskRow` notification) provides Return coverage.
+private struct ReturnKeyActivationModifier: ViewModifier {
+    let action: () -> Void
+
+    func body(content: Content) -> some View {
+        if #available(macOS 14, *) {
+            content.onKeyPress(.return) {
+                action()
+                return .handled
+            }
+        } else {
+            content
+        }
+    }
+}
+
 /// Visual row style for the task-first sidebar.
 ///
 /// - `hero`:    oversized 2-line row used by the "Needs you" zone. Title on
@@ -73,6 +93,14 @@ struct TaskRowView: View {
     /// Observed so that D14 hit-test guard and D13 error chip react to router state.
     @ObservedObject private var router = RowClickRouter.shared
 
+    // MARK: - U11 — Row focus model
+
+    /// When true this row is the active keyboard target within the sidebar list.
+    /// `Return` activates the row; `⌘O` opens the `.md` file.
+    /// One row at a time holds focus (SwiftUI enforces mutual exclusion across
+    /// the same `FocusState` scope when rows are in a shared `List` or `VStack`).
+    @FocusState private var isFocused: Bool
+
     var body: some View {
         VStack(spacing: 0) {
             Group {
@@ -140,6 +168,55 @@ struct TaskRowView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityRowLabel)
         .accessibilityAddTraits(.isButton)
+        // U11 — Row focus model
+        .focusable()
+        .focused($isFocused)
+        .overlay(alignment: .leading) {
+            // Subtle 1px leading rule visible when this row has keyboard focus.
+            // Uses chrome-system white at low opacity (matches WorkspaceLayout chrome tones).
+            if isFocused {
+                Rectangle()
+                    .fill(Color.white.opacity(0.55))
+                    .frame(width: 1)
+                    .allowsHitTesting(false)
+            }
+        }
+        .onChange(of: isFocused) { focused in
+            if focused {
+                RowFocusStore.shared.setFocused(task, taskStore: taskStore)
+            } else {
+                RowFocusStore.shared.clearFocus(for: task.id)
+            }
+        }
+        // U11: direct Return key press when this row has SwiftUI focus.
+        // Requires macOS 14+; on macOS 13 the Return menu-item path (below) provides coverage.
+        .modifier(ReturnKeyActivationModifier {
+            RowClickRouter.shared.handleRowClick(
+                task,
+                taskStore: taskStore,
+                coordinator: coordinator,
+                workspaceStore: workspaceStore,
+                defaultTaskTemplate: defaultTaskTemplate
+            )
+        })
+        // U11: observe the Return menu-item notification fired by AppDelegate.
+        // This path activates the row when the menu shortcut fires (rather than
+        // direct key press), using this view's own SwiftUI environment objects
+        // so window-scoped coordinator references stay correct.
+        .onReceive(NotificationCenter.default.publisher(
+            for: .ghosttiesActivateFocusedTaskRow
+        )) { notification in
+            guard isFocused,
+                  let taskId = notification.object as? String,
+                  taskId == task.id else { return }
+            RowClickRouter.shared.handleRowClick(
+                task,
+                taskStore: taskStore,
+                coordinator: coordinator,
+                workspaceStore: workspaceStore,
+                defaultTaskTemplate: defaultTaskTemplate
+            )
+        }
     }
 
     private var accessibilityRowLabel: String {
@@ -172,6 +249,11 @@ struct TaskRowView: View {
             }
 
             Spacer(minLength: 6)
+
+            // U11: 📝 chip visible on hover. Same code path as ⌘O.
+            if isHovered {
+                notesChip
+            }
 
             Text(statusPhrase)
                 .font(.system(size: 11))
@@ -216,6 +298,12 @@ struct TaskRowView: View {
 
             Spacer(minLength: 6)
 
+            // U11: 📝 chip visible on hover. Same code path as ⌘O.
+            if isHovered {
+                notesChip
+                    .padding(.top, 2)
+            }
+
             Text(trailingTime)
                 .font(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
@@ -241,6 +329,26 @@ struct TaskRowView: View {
                     : .timingCurve(0.2, 0.0, 0.2, 1.0, duration: 0.16),
                 value: isExpanded
             )
+    }
+
+    // MARK: - Notes chip (U11, R13)
+
+    /// Pencil-note chip shown on hover. Tapping opens the task's `.md` file in
+    /// the user's default editor — the same action as `⌘O` from the menu.
+    ///
+    /// Tooltip reads "Open notes — ⌘O" so the keyboard shortcut is discoverable
+    /// from the pointer surface (FYI item 3 from the U11 design brief).
+    private var notesChip: some View {
+        Button {
+            if let url = taskStore.fileURL(for: task) {
+                NSWorkspace.shared.open(url)
+            }
+        } label: {
+            Text("📝")
+                .font(.system(size: 10))
+        }
+        .buttonStyle(.plain)
+        .help("Open notes — ⌘O")
     }
 
     // MARK: - Glyphs

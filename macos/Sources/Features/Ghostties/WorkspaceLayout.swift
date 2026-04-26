@@ -175,4 +175,11 @@ extension Notification.Name {
     /// The notification object is the originating `NSWindow` (may be nil when
     /// the monitor fires with no key window).
     static let openNewTaskComposer = Notification.Name("com.seansmithdesign.ghostties.workspace.openNewTaskComposer")
+
+    /// Posted by AppDelegate when the `Return` menu item fires (U11).
+    /// The notification object is the focused task's id `String`.
+    /// `TaskRowView` instances that own the focused task observe this and call
+    /// `RowClickRouter.shared.handleRowClick` through their existing SwiftUI
+    /// environment, preserving correct window-scoped coordinator references.
+    static let ghosttiesActivateFocusedTaskRow = Notification.Name("com.seansmithdesign.ghostties.activateFocusedTaskRow")
 }
