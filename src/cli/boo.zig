@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_config = @import("../build_config.zig");
 const builtin = @import("builtin");
 const args = @import("args.zig");
 const Action = @import("ghostty.zig").Action;
@@ -173,6 +174,8 @@ const Boo = struct {
 
 /// The `boo` command is used to display the animation from the Ghostty website in the terminal
 pub fn run(gpa: Allocator) !u8 {
+    if (comptime !build_config.vaxis) return 1;
+
     // Disable on non-desktop systems.
     switch (builtin.os.tag) {
         .windows, .macos, .linux, .freebsd => {},

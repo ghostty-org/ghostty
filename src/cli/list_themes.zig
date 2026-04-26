@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_config = @import("../build_config.zig");
 const args = @import("args.zig");
 const Action = @import("ghostty.zig").Action;
 const Config = @import("../config/Config.zig");
@@ -182,7 +183,11 @@ pub fn run(
 
     std.mem.sortUnstable(ThemeListElement, themes.items, {}, ThemeListElement.lessThan);
 
-    if (tui.can_pretty_print and !opts.plain and stdout_file.isTty()) {
+    if (comptime build_config.vaxis and
+        tui.can_pretty_print and
+        !opts.plain and
+        stdout.isTty(io))
+    {
         try preview(io, gpa_alloc, themes.items, opts.color);
         return 0;
     }

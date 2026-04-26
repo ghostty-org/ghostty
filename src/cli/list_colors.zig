@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_config = @import("../build_config.zig");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const Action = @import("ghostty.zig").Action;
@@ -59,7 +60,11 @@ pub fn run(
 
     // Despite being under the posix namespace, this also works on Windows as of zig 0.13.0
     var stdout: std.Io.File = .stdout();
-    if (tui.can_pretty_print and !opts.plain and std.posix.isatty(stdout.handle)) {
+    if (comptime build_config.vaxis and
+        tui.can_pretty_print and
+        !opts.plain and
+        stdout.isTty(io))
+    {
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();
         return prettyPrint(arena.allocator(), keys.items);

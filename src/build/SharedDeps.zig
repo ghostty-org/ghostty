@@ -443,8 +443,10 @@ pub fn add(
     if (b.lazyDependency("opengl", .{})) |dep| {
         step.root_module.addImport("opengl", dep.module("opengl"));
     }
-    if (b.lazyDependency("vaxis", .{})) |dep| {
-        step.root_module.addImport("vaxis", dep.module("vaxis"));
+    if (self.config.vaxis) {
+        if (b.lazyDependency("vaxis", .{})) |dep| {
+            step.root_module.addImport("vaxis", dep.module("vaxis"));
+        }
     }
     if (b.lazyDependency("wuffs", .{
         .target = target,

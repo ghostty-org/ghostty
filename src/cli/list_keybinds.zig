@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_config = @import("../build_config.zig");
 const builtin = @import("builtin");
 const args = @import("args.zig");
 const Action = @import("ghostty.zig").Action;
@@ -75,7 +76,11 @@ pub fn run(
     var stdout_writer = stdout.writer(io, &buffer);
     const writer = &stdout_writer.interface;
 
-    if (tui.can_pretty_print and !opts.plain and stdout.isTty()) {
+    if (comptime build_config.vaxis and
+        tui.can_pretty_print and
+        !opts.plain and
+        stdout.isTty(io))
+    {
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();
         return prettyPrint(arena.allocator(), config.keybind);
