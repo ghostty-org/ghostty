@@ -234,6 +234,12 @@ enum TaskFixtureParser {
             return raw
         }()
 
+        // Parse priority with strict-with-skip: unknown value → .none, never crash.
+        let priority: TaskPriority = {
+            guard let raw = yaml["priority"], !raw.isEmpty else { return .none }
+            return TaskPriority(rawValue: raw) ?? .none
+        }()
+
         return TaskItem(
             id: id,
             title: title,
@@ -245,6 +251,7 @@ enum TaskFixtureParser {
             template: template,
             created: created,
             status: status,
+            priority: priority,
             filesStaged: yaml["files-staged"].flatMap(Int.init),
             goal: goal?.isEmpty == true ? nil : goal,
             notes: notes?.isEmpty == true ? nil : notes,

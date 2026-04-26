@@ -130,7 +130,7 @@ final class CrossSurfaceCoherenceTests: XCTestCase {
             ("project", "ghostties"),
             ("created", "2026-04-22T22:35:00Z"),
             ("status", "running"),
-            ("priority", "normal"),
+            ("priority", "high"),
             ("updated", "2026-04-22T23:00:00Z"),
             ("completed", "2026-04-22T23:30:00Z")
         ]
@@ -239,6 +239,69 @@ final class CrossSurfaceCoherenceTests: XCTestCase {
         // Negative assertions — no camelCase / snake_case leakage.
         XCTAssertFalse(raw.contains("projectPath:"), "no camelCase 'projectPath' key allowed")
         XCTAssertFalse(raw.contains("project_path:"), "no snake_case 'project_path' key allowed")
+    }
+
+    // MARK: - Priority cross-surface contract
+
+    /// The four `TaskPriority` raw values that the CLI writes must match the
+    /// strings the MCP `priorityEnum` advertises and the macOS parser reads.
+    /// If this test fails, a surface has drifted from the contract.
+    func testPriorityEnumRawValuesMatchContractStrings() {
+        // Canonical set agreed across all three surfaces (CLI, MCP, macOS):
+        let contractValues: Set<String> = ["high", "medium", "low", "none"]
+
+        // CLI-side: TaskPriority enum raw values must exactly match.
+        let cliRawValues = Set(TaskPriority.allCases.map(\.rawValue))
+        XCTAssertEqual(cliRawValues, contractValues,
+                       "CLI TaskPriority raw values must be exactly \(contractValues). " +
+                       "Got: \(cliRawValues)")
+
+        // Spot-check each value parses correctly.
+        XCTAssertEqual(TaskPriority.parse("high"),   .high)
+        XCTAssertEqual(TaskPriority.parse("medium"), .medium)
+        XCTAssertEqual(TaskPriority.parse("low"),    .low)
+        XCTAssertEqual(TaskPriority.parse("none"),   .none)
+
+        // Unknown value must fall back to .none without crashing.
+        XCTAssertEqual(TaskPriority.parse("urgent"), .none,
+                       "unknown priority value must default to .none (strict-with-skip)")
+        XCTAssertEqual(TaskPriority.parse(""),       .none,
+                       "empty priority string must default to .none")
+
+        // Legacy value `normal` (old MCP enum) must fall back gracefully.
+        XCTAssertEqual(TaskPriority.parse("normal"), .none,
+                       "old 'normal' priority value must default to .none after F-002 migration")
+    }
+
+    /// Write a task with priority=high via TaskStore, read it back, confirm the
+    /// on-disk key is `priority: high` (not `priority: normal` or absent).
+    func testPriorityOnDiskUsesCorrectRawValue() throws {
+        let store = TaskStore(directory: tmpDir)
+        let pairs: [(String, String)] = [
+            ("title", "Priority contract"),
+            ("source", "linear"),
+            ("source-id", "SEA-priority"),
+            ("project", "ghostties"),
+            ("created", "2026-04-25T10:00:00Z"),
+            ("status", "running"),
+            ("priority", "high")
+        ]
+        _ = try store.create(id: "priority-contract", pairs: pairs, body: "\n")
+
+        let url = tmpDir.appendingPathComponent("priority-contract.md")
+        let raw = try String(contentsOf: url, encoding: .utf8)
+
+        XCTAssertTrue(raw.contains("priority: high"),
+                      "on-disk priority must be 'high'; got:\n\(raw)")
+        XCTAssertFalse(raw.contains("priority: normal"),
+                       "legacy 'normal' must never appear on disk after F-002 migration")
+
+        // Re-parse and confirm round-trip.
+        guard let task = store.loadFile(at: url) else {
+            XCTFail("failed to reload priority-contract task")
+            return
+        }
+        XCTAssertEqual(task.priority, .high)
     }
 
     /// All six lanes the sidebar reads have matching raw values in `TaskLane`.

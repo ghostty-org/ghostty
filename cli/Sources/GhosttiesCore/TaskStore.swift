@@ -42,10 +42,18 @@ public struct TaskStore {
         let id = Frontmatter.value(for: "source-id", in: pairs)
             ?? url.deletingPathExtension().lastPathComponent
 
+        // Parse priority with strict-with-skip: unknown value → .none, never crash.
+        let priority: TaskPriority = {
+            guard let raw = Frontmatter.value(for: "priority", in: pairs),
+                  !raw.isEmpty else { return .none }
+            return TaskPriority(rawValue: raw) ?? .none
+        }()
+
         return Task(
             id: id,
             title: title,
             lane: lane,
+            priority: priority,
             project: Frontmatter.value(for: "project", in: pairs),
             source: Frontmatter.value(for: "source", in: pairs),
             sourceID: Frontmatter.value(for: "source-id", in: pairs),

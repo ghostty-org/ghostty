@@ -1,5 +1,21 @@
 import Foundation
 
+/// Task priority levels. Raw values are the strings written in `priority:`
+/// frontmatter and match across all three surfaces (CLI, MCP, macOS sidebar).
+/// Default when the field is absent or unrecognised is `.none`.
+public enum TaskPriority: String, Codable, CaseIterable, Sendable {
+    case high
+    case medium
+    case low
+    case none
+
+    /// Parse a raw frontmatter string, falling back to `.none` for any unknown
+    /// or empty value. Never crashes on bad input.
+    public static func parse(_ s: String) -> TaskPriority {
+        return TaskPriority(rawValue: s.lowercased()) ?? .none
+    }
+}
+
 /// Status lanes — raw values match what the macOS app writes and reads in
 /// `status:` frontmatter. "graveyard" is the UI name for `done` but the
 /// on-disk value must stay `done` so the app parses it.
@@ -45,6 +61,9 @@ public struct Task {
     public var id: String
     public var title: String
     public var lane: TaskLane
+    /// Task priority. Defaults to `.none` when the `priority:` frontmatter key
+    /// is absent or contains an unrecognised value — never crashes.
+    public var priority: TaskPriority
     public var project: String?
     public var source: String?
     public var sourceID: String?
@@ -65,6 +84,7 @@ public struct Task {
         id: String,
         title: String,
         lane: TaskLane,
+        priority: TaskPriority = .none,
         project: String?,
         source: String?,
         sourceID: String?,
@@ -77,6 +97,7 @@ public struct Task {
         self.id = id
         self.title = title
         self.lane = lane
+        self.priority = priority
         self.project = project
         self.source = source
         self.sourceID = sourceID

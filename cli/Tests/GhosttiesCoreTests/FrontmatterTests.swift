@@ -198,6 +198,110 @@ final class FrontmatterTests: XCTestCase {
         XCTAssertEqual(reloaded.template, "Orchestrator")
     }
 
+    // MARK: - priority round-trip
+
+    /// All four priority values round-trip through TaskStore write → load.
+    func testPriorityRoundTrip() throws {
+        let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("gt-priority-rt-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let store = TaskStore(directory: tmpDir)
+        let values: [(String, TaskPriority)] = [
+            ("high",   .high),
+            ("medium", .medium),
+            ("low",    .low),
+            ("none",   .none)
+        ]
+        for (rawValue, expected) in values {
+            let id = "priority-\(rawValue)"
+            let pairs: [(String, String)] = [
+                ("title", "Priority \(rawValue)"),
+                ("source", "shell"),
+                ("source-id", id),
+                ("branch", "null"),
+                ("project", "ghostties"),
+                ("created", "2026-04-25T10:00:00Z"),
+                ("status", "backlog"),
+                ("priority", rawValue)
+            ]
+            let url = try store.create(id: id, pairs: pairs, body: "\n## Goal\n\n")
+            guard let reloaded = store.loadFile(at: url) else {
+                XCTFail("failed to reload task with priority=\(rawValue)")
+                continue
+            }
+            XCTAssertEqual(reloaded.priority, expected,
+                           "priority '\(rawValue)' did not round-trip correctly")
+        }
+    }
+
+    /// A file with no `priority:` key defaults to `.none` — legacy files keep loading.
+    func testMissingPriorityDefaultsToNone() throws {
+        let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("gt-priority-missing-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let raw = """
+        ---
+        title: Legacy no-priority
+        source: shell
+        source-id: no-priority
+        branch: null
+        project: ghostties
+        created: 2026-04-25T10:00:00Z
+        status: backlog
+        ---
+
+        ## Goal
+
+        """
+        let url = tmpDir.appendingPathComponent("no-priority.md")
+        try raw.write(to: url, atomically: true, encoding: .utf8)
+
+        let store = TaskStore(directory: tmpDir)
+        guard let task = store.loadFile(at: url) else {
+            XCTFail("legacy task without priority key failed to load")
+            return
+        }
+        XCTAssertEqual(task.priority, .none, "missing priority key must default to .none")
+    }
+
+    /// An unknown priority value (e.g. `urgent`) must NOT crash — falls back to `.none`.
+    func testUnknownPriorityValueDefaultsToNone() throws {
+        let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("gt-priority-unknown-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let raw = """
+        ---
+        title: Unknown priority
+        source: shell
+        source-id: unknown-priority
+        branch: null
+        project: ghostties
+        created: 2026-04-25T10:00:00Z
+        status: backlog
+        priority: urgent
+        ---
+
+        ## Goal
+
+        """
+        let url = tmpDir.appendingPathComponent("unknown-priority.md")
+        try raw.write(to: url, atomically: true, encoding: .utf8)
+
+        let store = TaskStore(directory: tmpDir)
+        guard let task = store.loadFile(at: url) else {
+            XCTFail("task with unknown priority value failed to load (should not crash)")
+            return
+        }
+        XCTAssertEqual(task.priority, .none,
+                       "unknown priority value 'urgent' must fall back to .none")
+    }
+
     /// A file with none of the new keys must still load cleanly — old fixtures
     /// pre-date the project-path/template additions and must continue to work.
     func testFileWithoutNewFieldsStillLoads() throws {
