@@ -136,7 +136,7 @@ final class TaskStore: ObservableObject {
     ) async throws -> TaskItem {
         let coreStore = try requireCoreStore()
         let id = makeTaskID(title: title)
-        let nowISO = isoFormatter.string(from: Date())
+        let nowISO = Self.isoFormatter.string(from: Date())
 
         var pairs: [(String, String)] = [
             ("title", title),
@@ -259,7 +259,7 @@ final class TaskStore: ObservableObject {
         watchedDirectory = dir
         let w = TaskFileWatcher(url: dir) { [weak self] in
             guard let self = self else { return }
-            Task { @MainActor in self.loadFromDisk() }
+            Swift.Task { @MainActor in self.loadFromDisk() }
         }
         watcher = w
         w.start()
