@@ -167,4 +167,12 @@ extension Notification.Name {
     /// WorkspaceViewContainer instances observe this to swap the hosted SwiftUI view
     /// and update the sidebar width. v0 feature toggle.
     static let workspaceSidebarViewModeChanged = Notification.Name("com.seansmithdesign.ghostties.workspace.sidebarViewModeChanged")
+
+    /// Posted by `AppDelegate`'s ⌘⇧N local-event monitor and by any code path
+    /// that wants to open the new-task composer. `NewTaskComposerStore.shared`
+    /// observes this to call `open(workspaceStore:)`.
+    ///
+    /// The notification object is the originating `NSWindow` (may be nil when
+    /// the monitor fires with no key window).
+    static let openNewTaskComposer = Notification.Name("com.seansmithdesign.ghostties.workspace.openNewTaskComposer")
 }

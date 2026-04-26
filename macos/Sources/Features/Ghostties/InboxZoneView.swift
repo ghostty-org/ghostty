@@ -14,6 +14,16 @@ import SwiftUI
 /// zone won't render at all, so collapsing it keeps the sidebar quiet
 /// (mission posture: tool, not companion).
 ///
+/// **U8 exception to hide-when-empty:** when the new-task composer is open
+/// the Inbox zone renders even when `rows` is empty:
+///   • If empty: composer replaces the empty canvas in place (D5).
+///   • If non-empty: composer renders at the top of the lane, rows push down.
+///
+/// **U8 empty-area click target (D5, trigger b):** when Inbox is empty and
+/// the composer is NOT open, the whole empty-inbox area is a tap target that
+/// opens the composer. Copy: "Nothing in the inbox." / "Click anywhere here
+/// to start a new task." (D23 — locked strings).
+///
 /// The Graveyard zone still has its own status-based `.inbox` lane for
 /// triaged-but-not-yet-actioned items; the two are intentionally distinct.
 /// Source-based Inbox = external arrivals; status-based Inbox = local
@@ -25,6 +35,9 @@ import SwiftUI
 struct InboxZoneView: View {
     @ObservedObject var taskStore: TaskStore
     @ObservedObject var workspaceStore: WorkspaceStore
+
+    /// U8: composer store — drives the empty-area click target + composer slot.
+    @ObservedObject var composerStore: NewTaskComposerStore
 
     /// U6: triage store drives the inline card slot.
     @ObservedObject private var triageStore: OrphanTriageStore = .shared
@@ -49,13 +62,26 @@ struct InboxZoneView: View {
     }
 
     var body: some View {
-        // Empty: render nothing (no header, no divider, no reserved height).
-        // The parent's `zoneDivider` is what would otherwise be visible.
-        if rows.isEmpty {
-            EmptyView()
+        if rows.isEmpty && !composerStore.isOpen {
+            // U8 trigger b: the whole empty-inbox area is a tap target.
+            // "Nothing in the inbox. / Click anywhere here to start a new task."
+            emptyInboxClickTarget
+        } else if rows.isEmpty && composerStore.isOpen {
+            // D5: composer replaces the empty-Inbox canvas in place.
+            VStack(alignment: .leading, spacing: 0) {
+                composerSlot
+            }
+            .padding(.vertical, 4)
         } else {
+            // Inbox has rows — render header + optional composer at top + rows.
             VStack(alignment: .leading, spacing: 0) {
                 header
+
+                // D5: composer at the top of the lane when Inbox has rows.
+                if composerStore.isOpen {
+                    composerSlot
+                    Divider().overlay(Color.primary.opacity(0.06))
+                }
 
                 VStack(spacing: 0) {
                     ForEach(rows) { task in
@@ -65,6 +91,40 @@ struct InboxZoneView: View {
             }
             .padding(.vertical, 4)
         }
+    }
+
+    // MARK: - U8 composer slot
+
+    /// Renders `NewTaskComposerView` when open (D5). The view owns its own
+    /// animation, so we just insert/remove it from the hierarchy here.
+    @ViewBuilder
+    private var composerSlot: some View {
+        if composerStore.isOpen {
+            NewTaskComposerView(
+                store: composerStore,
+                taskStore: taskStore
+            )
+            .environmentObject(workspaceStore)
+            .transition(composerTransition)
+            .animation(composerAnimation, value: composerStore.isOpen)
+        }
+    }
+
+    // MARK: - Animations (D18, D19)
+
+    private var composerAnimation: Animation {
+        reduceMotion
+            ? .easeInOut(duration: 0.2)
+            : .timingCurve(0.2, 0.7, 0.2, 1, duration: 0.18)
+    }
+
+    private var composerTransition: AnyTransition {
+        reduceMotion
+            ? AnyTransition.opacity.animation(.easeInOut(duration: 0.2))
+            : AnyTransition.asymmetric(
+                insertion: .opacity.combined(with: .move(edge: .top)),
+                removal:   .opacity.combined(with: .move(edge: .top))
+            ).animation(.timingCurve(0.2, 0.7, 0.2, 1, duration: 0.18))
     }
 
     // MARK: - Row + inline triage card slot (D4)
@@ -146,6 +206,32 @@ struct InboxZoneView: View {
                 insertion: .opacity.combined(with: .move(edge: .top)),
                 removal: .opacity.combined(with: .move(edge: .top))
             ).animation(.easeOut(duration: 0.14))
+    }
+
+    // MARK: - U8 empty-inbox click target (trigger b, D5, D23)
+
+    /// Renders the empty-inbox dead-end state with locked copy and a full-area
+    /// tap target. Only shown when Inbox has no rows AND the composer is closed.
+    /// Clicking anywhere opens the composer (D11 guard lives in composerStore.open).
+    private var emptyInboxClickTarget: some View {
+        VStack(spacing: 4) {
+            Text("Nothing in the inbox.")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                .multilineTextAlignment(.center)
+
+            Text("Click anywhere here to start a new task.")
+                .font(.system(size: 10.5))
+                .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, TaskRowMetrics.horizontalPadding)
+        .padding(.vertical, 20)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            composerStore.open(workspaceStore: workspaceStore)
+        }
     }
 
     // MARK: - Header
