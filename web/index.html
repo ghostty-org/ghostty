@@ -29,7 +29,7 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     html, body {
-      height: 100%;
+      min-height: 100%;
       background: #1a1a2e;
     }
 
@@ -38,17 +38,13 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 24px;
+      padding: 24px 24px 64px;
     }
 
     /* --- Scene container --- */
     .scene {
       width: 100%;
-      max-width: 720px;
-      background: #1a1a2e;
-      border-radius: 16px;
       cursor: pointer;
-      overflow: hidden;
       padding: 48px 32px 40px;
       user-select: none;
     }
@@ -58,14 +54,14 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 10px;
+      gap: 16px;
       margin-bottom: 48px;
     }
 
     .ghost-row {
       display: flex;
       justify-content: center;
-      gap: 10px;
+      gap: 16px;
     }
 
     .ghost {
@@ -85,14 +81,14 @@
       animation: float 2.5s ease-in-out infinite alternate;
     }
 
-    .animate .g0 { animation: entrance-g0 0.8s ease-out forwards, float-g0 2.4s ease-in-out 3.2s infinite alternate; }
-    .animate .g1 { animation: entrance-g1 0.8s 0.2s ease-out forwards, float-g1 2.8s ease-in-out 3.4s infinite alternate; }
-    .animate .g2 { animation: entrance-g2 0.8s 0.4s ease-out forwards, float-g2 3.1s ease-in-out 3.6s infinite alternate; }
-    .animate .g3 { animation: entrance-g3 0.8s 0.6s ease-out forwards, float-g3 2.6s ease-in-out 3.8s infinite alternate; }
-    .animate .g4 { animation: entrance-g4 0.8s 0.8s ease-out forwards, float-g4 3.3s ease-in-out 4.0s infinite alternate; }
-    .animate .g5 { animation: entrance-g5 0.8s 1.0s ease-out forwards, float-g5 2.9s ease-in-out 4.2s infinite alternate; }
-    .animate .g6 { animation: entrance-g6 0.8s 1.2s ease-out forwards, float-g6 3.5s ease-in-out 4.4s infinite alternate; }
-    .animate .g7 { animation: entrance-g7 0.8s 1.4s ease-out forwards, float-g7 2.7s ease-in-out 4.6s infinite alternate; }
+    .animate .g0 { animation: entrance-g0 0.8s ease-out forwards, float-g0 2.4s ease-in-out 1.5s infinite alternate; }
+    .animate .g1 { animation: entrance-g1 0.8s 1.8s ease-out forwards, float-g1 2.8s ease-in-out 3.0s infinite alternate; }
+    .animate .g2 { animation: entrance-g2 0.8s 2.0s ease-out forwards, float-g2 3.1s ease-in-out 3.2s infinite alternate; }
+    .animate .g3 { animation: entrance-g3 0.8s 2.2s ease-out forwards, float-g3 2.6s ease-in-out 3.4s infinite alternate; }
+    .animate .g4 { animation: entrance-g4 0.8s 2.4s ease-out forwards, float-g4 3.3s ease-in-out 3.6s infinite alternate; }
+    .animate .g5 { animation: entrance-g5 0.8s 2.6s ease-out forwards, float-g5 2.9s ease-in-out 3.8s infinite alternate; }
+    .animate .g6 { animation: entrance-g6 0.8s 2.8s ease-out forwards, float-g6 3.5s ease-in-out 4.0s infinite alternate; }
+    .animate .g7 { animation: entrance-g7 0.8s 3.0s ease-out forwards, float-g7 2.7s ease-in-out 4.2s infinite alternate; }
 
     @keyframes entrance-g0 { from { transform: translateY(-300px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     @keyframes entrance-g1 { from { transform: translate(-300px, -150px); opacity: 0; } to { transform: translate(0, 0); opacity: 1; } }
@@ -115,11 +111,12 @@
     /* --- Terminal text --- */
     .terminal {
       font-family: 'SFMono-Regular', 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
-      font-size: 20px;
+      font-size: 14px;
       font-weight: 600;
       line-height: 2;
       color: #E0E0E0;
-      padding-left: 8px;
+      width: fit-content;
+      margin: 0 auto;
     }
 
     .line {
@@ -131,12 +128,16 @@
 
     /* Typing animation per line */
     .animate .line-1 {
-      animation: type-line1 0.6s steps(16) 3.0s forwards, blink-caret 0.6s step-end 3.0s 1;
+      animation: type-line1 0.6s steps(16) 1.0s forwards, blink-caret 0.6s step-end 1.0s 1;
+      border-right-color: transparent;
+    }
+
+    .animate .line-1.caret-visible {
       border-right-color: #E0E0E0;
     }
 
     .animate .line-2 {
-      animation: type-line2 0.9s steps(25) 4.0s forwards, blink-caret 0.6s step-end 4.0s 1;
+      animation: type-line2 0.9s steps(25) 4.2s forwards, blink-caret 0.6s step-end 4.2s 1;
       border-right-color: transparent;
     }
 
@@ -145,7 +146,7 @@
     }
 
     .animate .line-3 {
-      animation: type-line3 1.5s steps(52) 5.3s forwards, blink-caret 0.53s step-end 5.3s infinite;
+      animation: type-line3 1.5s steps(52) 5.5s forwards, blink-caret 0.53s step-end 5.5s infinite;
       border-right-color: transparent;
     }
 
@@ -232,15 +233,62 @@
       display: block;
     }
 
+    /* --- Download CTA --- */
+    .cta {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding-top: 32px;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    .cta-download {
+      display: inline-block;
+      background: #ffffff;
+      color: #1a1a2e;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 15px;
+      font-weight: 600;
+      text-decoration: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      letter-spacing: -0.01em;
+      transition: opacity 0.15s;
+    }
+
+    .cta-download:hover {
+      opacity: 0.85;
+    }
+
+    .cta-meta {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.4);
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    .cta-meta a {
+      color: rgba(255, 255, 255, 0.4);
+      text-decoration: underline;
+      transition: color 0.2s;
+    }
+
+    .cta-meta a:hover {
+      color: rgba(255, 255, 255, 0.65);
+    }
+
     /* --- Mobile --- */
     @media (max-width: 480px) {
       body { padding: 16px; }
-      .scene { border-radius: 12px; padding: 32px 20px 28px; }
+      .scene { padding: 32px 20px 28px; }
       .ghost { width: 64px; height: 64px; }
-      .ghost-row { gap: 6px; }
-      .ghosts { gap: 6px; margin-bottom: 28px; }
+      .ghost-row { gap: 10px; }
+      .ghosts { gap: 10px; margin-bottom: 28px; }
       .terminal { font-size: 13px; }
       footer { padding: 12px 16px; font-size: 12px; }
+      .cta { padding-top: 24px; }
+      .cta-download { font-size: 14px; padding: 11px 20px; }
     }
   </style>
 </head>
@@ -308,6 +356,17 @@
     </div>
   </div>
 
+  <div class="cta">
+    <a class="cta-download" href="https://github.com/SeanSmithDesign/ghostties/releases/latest/download/Ghostties.dmg" download>
+      Download for macOS (Apple Silicon)
+    </a>
+    <div class="cta-meta">
+      v0.1.0-beta.9 · April 26, 2026<br>
+      macOS 14+, Apple Silicon. Beta — auto-updates via Sparkle.<br>
+      <a href="https://github.com/SeanSmithDesign/ghostties/releases/tag/v0.1.0-beta.9" target="_blank" rel="noopener">View release notes</a>
+    </div>
+  </div>
+
   <footer>
     <span>&copy; 2026</span>
     <a href="https://x.com/seansmithbuilds" target="_blank" rel="noopener" aria-label="Twitter">
@@ -330,15 +389,20 @@
 
     // Activate caret visibility at the right times
     function activateCarets() {
+      const line1 = document.querySelector('.line-1');
       const line2 = document.querySelector('.line-2');
       const line3 = document.querySelector('.line-3');
 
-      // Line 2 caret appears when it starts typing (4s), disappears when line 3 starts (5.3s)
-      setTimeout(() => { line2.classList.add('caret-visible'); }, 4000);
-      setTimeout(() => { line2.classList.remove('caret-visible'); }, 5300);
+      // Line 1 caret appears when it starts typing (1s), disappears when line 2 starts (4.2s)
+      setTimeout(() => { line1.classList.add('caret-visible'); }, 1000);
+      setTimeout(() => { line1.classList.remove('caret-visible'); }, 4200);
+
+      // Line 2 caret appears when it starts typing (4.2s), disappears when line 3 starts (5.5s)
+      setTimeout(() => { line2.classList.add('caret-visible'); }, 4200);
+      setTimeout(() => { line2.classList.remove('caret-visible'); }, 5500);
 
       // Line 3 caret appears when it starts typing and stays (blinking)
-      setTimeout(() => { line3.classList.add('caret-visible'); }, 5300);
+      setTimeout(() => { line3.classList.add('caret-visible'); }, 5500);
     }
 
     // Initial caret activation
@@ -361,6 +425,7 @@
       scene.classList.remove('scatter');
 
       // Clear caret classes
+      document.querySelector('.line-1').classList.remove('caret-visible');
       document.querySelector('.line-2').classList.remove('caret-visible');
       document.querySelector('.line-3').classList.remove('caret-visible');
 
