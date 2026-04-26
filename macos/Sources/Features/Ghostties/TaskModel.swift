@@ -1,14 +1,11 @@
 import Foundation
+import GhosttiesCore
 
-/// Task priority levels. Raw values match the `priority:` frontmatter key and
-/// are shared across CLI, MCP, and macOS surfaces. Default is `.none`.
-/// Unknown values decoded from disk fall back to `.none` — never crash.
-enum TaskPriority: String, Codable, CaseIterable {
-    case high
-    case medium
-    case low
-    case none
-}
+/// Task priority levels. Bridged directly from `GhosttiesCore.TaskPriority`
+/// so the raw values, `Codable` conformance, and `CaseIterable` conformance
+/// stay in sync across CLI, MCP, and macOS surfaces automatically.
+/// Default is `.none`. Unknown values decoded from disk fall back to `.none`.
+typealias TaskPriority = GhosttiesCore.TaskPriority
 
 /// Status lanes for a task, matching the six-lane IA from the task-first sidebar brief.
 ///
