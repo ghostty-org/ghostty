@@ -113,6 +113,9 @@ struct NewTaskComposerView: View {
             .onSubmit {
                 triggerConfirm()
             }
+            // FYI-2: VoiceOver label for the title field.
+            .accessibilityLabel("Task title")
+            .accessibilityHint("Enter a description of the task you are starting")
     }
 
     // MARK: - Project row (D6, D7)
@@ -263,6 +266,9 @@ struct NewTaskComposerView: View {
             }
             .buttonStyle(.plain)
             .disabled(!store.canConfirm || !workspaceStore.projects.isEmpty ? !store.canConfirm : true)
+            // FYI-2: VoiceOver label for the Start/confirm button.
+            .accessibilityLabel("Start task")
+            .accessibilityHint("Creates and starts the new task. Keyboard shortcut: Return")
 
             // Cancel hint: small esc keychip + "cancel" at 32% white opacity (D23).
             HStack(spacing: 4) {
@@ -304,21 +310,19 @@ struct NewTaskComposerView: View {
         .opacity(0.0)   // transparent — inherits from sidebar chrome
     }
 
-    // MARK: - Animation (D18, D19)
+    // MARK: - Animation (D18, D19) — tokens from WorkspaceLayout.Animation
 
     private var revealAnimation: Animation {
-        reduceMotion
-            ? .easeInOut(duration: 0.2)
-            : .timingCurve(0.2, 0.7, 0.2, 1, duration: 0.18)
+        reduceMotion ? .sidebarReducedMotion : .sidebarPush
     }
 
     private var revealTransition: AnyTransition {
         reduceMotion
-            ? AnyTransition.opacity.animation(.easeInOut(duration: 0.2))
+            ? AnyTransition.opacity.animation(.sidebarReducedMotion)
             : AnyTransition.asymmetric(
                 insertion: .opacity.combined(with: .move(edge: .top)),
                 removal:   .opacity.combined(with: .move(edge: .top))
-            ).animation(.timingCurve(0.2, 0.7, 0.2, 1, duration: 0.18))
+            ).animation(.sidebarPush)
     }
 }
 

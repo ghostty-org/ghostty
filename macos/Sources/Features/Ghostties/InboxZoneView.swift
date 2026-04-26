@@ -61,6 +61,17 @@ struct InboxZoneView: View {
         }
     }
 
+    /// True when every lane is empty — triggers the first-run hint (SG-03).
+    private var isAllEmpty: Bool {
+        taskStore.externalInbox.isEmpty
+            && taskStore.active.isEmpty
+            && taskStore.needsYou.isEmpty
+            && taskStore.inbox.isEmpty
+            && taskStore.backlog.isEmpty
+            && taskStore.review.isEmpty
+            && taskStore.done.isEmpty
+    }
+
     var body: some View {
         if rows.isEmpty && !composerStore.isOpen {
             // U8 trigger b: the whole empty-inbox area is a tap target.
@@ -110,21 +121,19 @@ struct InboxZoneView: View {
         }
     }
 
-    // MARK: - Animations (D18, D19)
+    // MARK: - Animations (D18, D19) — tokens from WorkspaceLayout.Animation
 
     private var composerAnimation: Animation {
-        reduceMotion
-            ? .easeInOut(duration: 0.2)
-            : .timingCurve(0.2, 0.7, 0.2, 1, duration: 0.18)
+        reduceMotion ? .sidebarReducedMotion : .sidebarPush
     }
 
     private var composerTransition: AnyTransition {
         reduceMotion
-            ? AnyTransition.opacity.animation(.easeInOut(duration: 0.2))
+            ? AnyTransition.opacity.animation(.sidebarReducedMotion)
             : AnyTransition.asymmetric(
                 insertion: .opacity.combined(with: .move(edge: .top)),
                 removal:   .opacity.combined(with: .move(edge: .top))
-            ).animation(.timingCurve(0.2, 0.7, 0.2, 1, duration: 0.18))
+            ).animation(.sidebarPush)
     }
 
     // MARK: - Row + inline triage card slot (D4)
@@ -191,21 +200,19 @@ struct InboxZoneView: View {
         )
     }
 
-    // MARK: - Animations (D18, D19)
+    // MARK: - Triage card animations (D18, D19) — tokens from WorkspaceLayout.Animation
 
     private var cardAnimation: Animation {
-        reduceMotion
-            ? .easeInOut(duration: 0.2)
-            : .easeOut(duration: 0.18)
+        reduceMotion ? .sidebarReducedMotion : .sidebarPush
     }
 
     private var cardTransition: AnyTransition {
         reduceMotion
-            ? AnyTransition.opacity.animation(.easeInOut(duration: 0.2))
+            ? AnyTransition.opacity.animation(.sidebarReducedMotion)
             : AnyTransition.asymmetric(
                 insertion: .opacity.combined(with: .move(edge: .top)),
                 removal: .opacity.combined(with: .move(edge: .top))
-            ).animation(.easeOut(duration: 0.14))
+            ).animation(.sidebarCollapse)
     }
 
     // MARK: - U8 empty-inbox click target (trigger b, D5, D23)
@@ -213,6 +220,9 @@ struct InboxZoneView: View {
     /// Renders the empty-inbox dead-end state with locked copy and a full-area
     /// tap target. Only shown when Inbox has no rows AND the composer is closed.
     /// Clicking anywhere opens the composer (D11 guard lives in composerStore.open).
+    ///
+    /// SG-03: when ALL lanes are empty, appends a first-run hint pointing at
+    /// the [+ Start] button so new users understand the entry point.
     private var emptyInboxClickTarget: some View {
         VStack(spacing: 4) {
             Text("Nothing in the inbox.")
@@ -224,6 +234,15 @@ struct InboxZoneView: View {
                 .font(.system(size: 10.5))
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                 .multilineTextAlignment(.center)
+
+            // SG-03: first-run hint — shown only when every lane is empty.
+            if isAllEmpty {
+                Text("Press ⌘⇧N or click [+ Start] to begin.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.white.opacity(0.32))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 6)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, TaskRowMetrics.horizontalPadding)
@@ -232,6 +251,14 @@ struct InboxZoneView: View {
         .onTapGesture {
             composerStore.open(workspaceStore: workspaceStore)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            isAllEmpty
+                ? "Inbox empty. Press Command Shift N or click Start to begin."
+                : "Nothing in the inbox. Tap to start a new task."
+        )
+        .accessibilityHint("Opens the new task composer")
+        .accessibilityAddTraits(.isButton)
     }
 
     // MARK: - Header

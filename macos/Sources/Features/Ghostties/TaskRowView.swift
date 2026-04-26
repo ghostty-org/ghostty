@@ -167,6 +167,7 @@ struct TaskRowView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityRowLabel)
+        .accessibilityHint("Opens in editor and switches terminal to this task's project")
         .accessibilityAddTraits(.isButton)
         // U11 — Row focus model
         .focusable()
@@ -220,10 +221,11 @@ struct TaskRowView: View {
     }
 
     private var accessibilityRowLabel: String {
+        // FYI-2: include action verb "Open task" so VoiceOver announces intent.
         if let err = router.taskRowErrors[task.id] {
-            return "\(task.title). \(statusPhrase). Write error: \(err)"
+            return "Open task: \(task.title). \(statusPhrase). Write error: \(err)"
         }
-        return "\(task.title). \(statusPhrase)"
+        return "Open task: \(task.title). \(statusPhrase)"
     }
 
     // MARK: - Hero body
@@ -274,7 +276,9 @@ struct TaskRowView: View {
                     .padding(.top, 3)
             }
 
-            statusGlyph(isHero: false)
+            // D21: priority glyph for Inbox rows; status glyph for all others.
+            // Both occupy the same 12px monospaced slot so column width is stable.
+            leadingSlotGlyph
                 .frame(width: 12, alignment: .center)
                 .padding(.top, 3)
 
@@ -329,6 +333,9 @@ struct TaskRowView: View {
                     : .timingCurve(0.2, 0.0, 0.2, 1.0, duration: 0.16),
                 value: isExpanded
             )
+            // FYI-2: announce expansion state so VoiceOver users know the affordance.
+            .accessibilityLabel(isExpanded ? "Collapse task notes" : "Expand task notes")
+            .accessibilityAddTraits(.isButton)
     }
 
     // MARK: - Notes chip (U11, R13)
@@ -349,9 +356,56 @@ struct TaskRowView: View {
         }
         .buttonStyle(.plain)
         .help("Open notes — ⌘O")
+        // FYI-2: VoiceOver label includes task title so it's unambiguous.
+        .accessibilityLabel("Open notes for \(task.title)")
+        .accessibilityHint("Keyboard shortcut: Command O")
     }
 
     // MARK: - Glyphs
+
+    /// D21: leading 12px slot dispatcher for compact rows.
+    ///
+    /// Inbox rows show the priority glyph (▲/►/▼/·). All other rows show the
+    /// standard status glyph. The slot width is 12px in both cases so the
+    /// column layout is stable regardless of which glyph occupies it.
+    @ViewBuilder
+    private var leadingSlotGlyph: some View {
+        if task.status == .inbox {
+            priorityGlyph
+        } else {
+            statusGlyph(isHero: false)
+        }
+    }
+
+    /// D21 priority glyph — Inbox rows only, compact style.
+    ///
+    /// Four glyphs, monospaced 12px:
+    ///  - `.high`   → ▲  muted foreground (rgba 255,255,255,0.55)
+    ///  - `.medium` → ►  same
+    ///  - `.low`    → ▼  same
+    ///  - `.none`   → ·  quieter foreground (rgba 255,255,255,0.30)
+    ///
+    /// Intentionally no color — priority is conveyed through shape only.
+    private var priorityGlyph: some View {
+        Text(priorityGlyphCharacter)
+            .font(.system(size: 9, design: .monospaced))
+            .foregroundStyle(priorityGlyphColor)
+    }
+
+    private var priorityGlyphCharacter: String {
+        switch task.priority {
+        case .high:   return "▲"
+        case .medium: return "►"
+        case .low:    return "▼"
+        case .none:   return "·"
+        }
+    }
+
+    private var priorityGlyphColor: Color {
+        task.priority == .none
+            ? Color.white.opacity(0.30)
+            : Color.white.opacity(0.55)
+    }
 
     /// Leading status glyph. Terracotta only when the row represents a
     /// needs-you item (hero style); every other row tone is neutral.

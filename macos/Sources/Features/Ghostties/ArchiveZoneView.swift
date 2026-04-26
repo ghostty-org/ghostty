@@ -196,10 +196,9 @@ struct ArchiveZoneView: View {
                                 )
                             }
                         }
+                        // D18/D19 — token-based animation for row expansion.
                         .animation(
-                            reduceMotion
-                                ? .linear(duration: 0)
-                                : .timingCurve(0.2, 0.7, 0.2, 1.0, duration: 0.18),
+                            reduceMotion ? .sidebarReducedMotion : .sidebarPush,
                             value: isRowExpanded
                         )
 
@@ -214,28 +213,22 @@ struct ArchiveZoneView: View {
         }
     }
 
-    // MARK: - Animation transitions (D18 / D19)
+    // MARK: - Animation transitions (D18 / D19) — tokens from WorkspaceLayout.Animation
 
-    /// Panel reveal — 180ms cubic-bezier(0.2, 0.7, 0.2, 1) (D18).
-    /// Reduced-motion: opacity-only at 80ms (D19).
+    /// Panel reveal — uses `.sidebarPush` token (D18).
+    /// Reduced-motion: opacity-only at 200ms (D19).
     private var revealTransition: AnyTransition {
-        if reduceMotion {
-            return .opacity.animation(.linear(duration: 0.08))
-        }
-        return .opacity
-            .combined(with: .move(edge: .top))
-            .animation(.timingCurve(0.2, 0.7, 0.2, 1.0, duration: 0.18))
+        reduceMotion
+            ? .opacity.animation(.sidebarReducedMotion)
+            : .opacity.combined(with: .move(edge: .top)).animation(.sidebarPush)
     }
 
-    /// Panel collapse — 140ms ease-in (D18).
-    /// Reduced-motion: opacity-only at 80ms (D19).
+    /// Panel collapse — uses `.sidebarCollapse` token (D18).
+    /// Reduced-motion: opacity-only at 200ms (D19).
     private var collapseTransition: AnyTransition {
-        if reduceMotion {
-            return .opacity.animation(.linear(duration: 0.08))
-        }
-        return .opacity
-            .combined(with: .move(edge: .top))
-            .animation(.easeIn(duration: 0.14))
+        reduceMotion
+            ? .opacity.animation(.sidebarReducedMotion)
+            : .opacity.combined(with: .move(edge: .top)).animation(.sidebarCollapse)
     }
 
     // MARK: - Rollup

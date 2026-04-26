@@ -165,7 +165,7 @@ struct OrphanTriageCardView: View {
 
             // Disabled when no project selected (D7: title and template stay
             // inert until a project is added).
-            Picker("", selection: $triageStore.selectedTemplateName) {
+            Picker("Agent template (optional)", selection: $triageStore.selectedTemplateName) {
                 Text("None")
                     .tag(Optional<String>.none)
                 ForEach(relevantTemplates, id: \.id) { template in
@@ -173,7 +173,6 @@ struct OrphanTriageCardView: View {
                         .tag(Optional(template.name))
                 }
             }
-            .labelsHidden()
             .pickerStyle(.menu)
             .frame(maxWidth: .infinity, alignment: .leading)
             .disabled(!hasSelectedProject && !hasProjects)
@@ -213,6 +212,9 @@ struct OrphanTriageCardView: View {
                 )
                 .disabled(!hasSelectedProject && !hasProjects)
                 .opacity((!hasSelectedProject && !hasProjects) ? 0.4 : 1)
+                // FYI-2: VoiceOver label for the title edit field.
+                .accessibilityLabel("Task title (optional)")
+                .accessibilityHint("Override the task title before assigning it to a project")
         }
     }
 
@@ -245,6 +247,9 @@ struct OrphanTriageCardView: View {
             .font(.system(size: 11, weight: .semibold))
             .disabled(!triageStore.canConfirm)
             .keyboardShortcut(.defaultAction)
+            // FYI-2: VoiceOver label for the confirm button.
+            .accessibilityLabel("Assign task to project")
+            .accessibilityHint("Assigns the task to the selected project and starts it")
         }
     }
 
@@ -265,25 +270,23 @@ struct OrphanTriageCardView: View {
             : WorkspaceLayout.canvasBackgroundLight)
     }
 
-    // MARK: - Animation (D18, D19)
+    // MARK: - Animation (D18, D19) — tokens from WorkspaceLayout.Animation
 
-    /// Card reveal: 180ms `easeOut` approximating the cubic-bezier(0.2, 0.7, 0.2, 1)
-    /// spec (D18). Reduced-motion: 200ms opacity crossfade only (D19).
+    /// Card reveal: uses `.sidebarPush` token (D18).
+    /// Reduced-motion: `.sidebarReducedMotion` opacity crossfade only (D19).
     private var revealAnimation: Animation {
-        reduceMotion
-            ? .easeInOut(duration: 0.2)
-            : .easeOut(duration: 0.18)
+        reduceMotion ? .sidebarReducedMotion : .sidebarPush
     }
 
     /// Transition: slide+opacity in full-motion mode; opacity-only in
     /// reduced-motion mode (D19).
     private var revealTransition: AnyTransition {
         reduceMotion
-            ? AnyTransition.opacity.animation(.easeInOut(duration: 0.2))
+            ? AnyTransition.opacity.animation(.sidebarReducedMotion)
             : AnyTransition.asymmetric(
                 insertion: .opacity.combined(with: .move(edge: .top)),
                 removal: .opacity.combined(with: .move(edge: .top))
-            ).animation(.easeOut(duration: 0.14))
+            ).animation(.sidebarCollapse)
     }
 }
 
