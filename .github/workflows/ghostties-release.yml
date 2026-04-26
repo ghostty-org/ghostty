@@ -231,10 +231,29 @@ jobs:
             --issuer "$APPLE_NOTARIZATION_ISSUER"
           rm notarization_key.p8
 
-          # Submit and wait for Apple's notarization service
+          # Submit and wait for Apple's notarization service.
+          # Capture submission ID so we can fetch the detailed log if it fails.
+          # --wait exits non-zero on Invalid, so we tee output and parse the ID.
+          set -o pipefail
           xcrun notarytool submit "Ghostties.dmg" \
             --keychain-profile "notarytool-profile" \
-            --wait
+            --wait | tee notarytool-submit.log
+          NOTARIZE_EXIT=${PIPESTATUS[0]}
+
+          # Always fetch the detailed log — Apple's per-file rejection reasons
+          # only appear via `notarytool log`, never in the submit output.
+          SUBMISSION_ID=$(grep -m1 "id:" notarytool-submit.log | head -1 | awk '{print $2}')
+          if [ -n "$SUBMISSION_ID" ]; then
+            echo "::group::Notarization detailed log (submission $SUBMISSION_ID)"
+            xcrun notarytool log "$SUBMISSION_ID" \
+              --keychain-profile "notarytool-profile" || true
+            echo "::endgroup::"
+          fi
+
+          if [ "$NOTARIZE_EXIT" != "0" ]; then
+            echo "::error::Notarization failed (exit $NOTARIZE_EXIT). See log above."
+            exit "$NOTARIZE_EXIT"
+          fi
 
           # Staple the ticket so Gatekeeper validates the app offline
           xcrun stapler staple "Ghostties.dmg"
