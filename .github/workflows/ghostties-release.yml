@@ -142,9 +142,14 @@ jobs:
       - name: Build Ghostties.app
         run: |
           cd macos
+          # SYMROOT pins the build output to macos/build/ so downstream steps
+          # (Update Info.plist, codesign, DMG, notarize) find the .app at the
+          # expected macos/build/Release/Ghostties.app path. Without this,
+          # xcodebuild writes to ~/Library/Developer/Xcode/DerivedData/.
           xcodebuild \
             -scheme Ghostties \
             -configuration Release \
+            SYMROOT="$(pwd)/build" \
             ONLY_ACTIVE_ARCH=YES \
             ARCHS=arm64 \
             CODE_SIGNING_ALLOWED=NO \
