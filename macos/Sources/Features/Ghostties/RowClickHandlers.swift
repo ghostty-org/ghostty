@@ -131,13 +131,14 @@ struct RowClickHandlers {
 
     // MARK: - Inbox lane (orphan — no project context)
 
-    /// Open the task's `.md` file only. No terminal spawn — orphan has no
-    /// project context to attach to.
+    /// Open the inline triage card for the orphan row.
     ///
-    /// Real impl (U6) will add the triage card UI for assigning a project.
+    /// Delegates to `OrphanTriageStore.shared.open(for:)` which opens the card
+    /// inline below the anchor row. One card at a time (D11 — auto-collapses
+    /// any previously open card). The .md file is NOT opened here; U6's card
+    /// collects a project first, then chains into `startInboxTask` on confirm.
     func triageOrphanTask(_ task: TaskItem) {
-        // v0 stub: open .md only; triage card UI is U6.
-        openMarkdownFile(for: task)
+        OrphanTriageStore.shared.open(for: task)
     }
 
     // MARK: - Running lane

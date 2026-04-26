@@ -14,6 +14,7 @@ struct TaskSidebarView: View {
     @ObservedObject var taskStore: TaskStore
     @ObservedObject var sessionDraftStore: SessionDraftStore
 
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -37,7 +38,7 @@ struct TaskSidebarView: View {
                     // will not render at all, so we only emit the trailing
                     // divider when it has rows.
                     if !taskStore.externalInbox.isEmpty {
-                        InboxZoneView(taskStore: taskStore)
+                        InboxZoneView(taskStore: taskStore, workspaceStore: workspaceStore)
                         zoneDivider
                     }
 
@@ -130,16 +131,19 @@ struct TaskSidebarView: View {
 // MARK: - Preview
 
 #Preview("Task Sidebar — Light + Dark") {
+    let ws = WorkspaceStore(testingProjects: [])
     HStack(spacing: 24) {
         TaskSidebarView(
             taskStore: TaskStore(),
             sessionDraftStore: SessionDraftStore()
         )
+        .environmentObject(ws)
         .preferredColorScheme(.light)
         TaskSidebarView(
             taskStore: TaskStore(),
             sessionDraftStore: SessionDraftStore()
         )
+        .environmentObject(ws)
         .preferredColorScheme(.dark)
     }
     .padding(24)
