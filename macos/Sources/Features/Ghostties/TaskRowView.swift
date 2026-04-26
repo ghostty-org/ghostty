@@ -45,9 +45,18 @@ enum TaskRowMetrics {
 /// error message in `taskRowErrors`. This view renders a compact red label
 /// below the row content while the error is present. The chip clears on the
 /// next successful write.
+///
+/// For Graveyard rows, pass `showChevron: true` and bind `isExpanded` to the
+/// store's expansion state. The 14px chevron column is Graveyard-only (D24);
+/// all other lanes pass the defaults (both false) and the column is absent.
 struct TaskRowView: View {
     let task: TaskItem
     let style: TaskRowStyle
+    /// D24: show the 14pt leading chevron slot. Graveyard rows pass `true`.
+    /// Inbox / Running / Needs-you rows omit this (default false).
+    var showChevron: Bool = false
+    /// D24: current expansion state for this row. Used to rotate the chevron.
+    var isExpanded: Bool = false
 
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var taskStore: TaskStore
@@ -93,9 +102,19 @@ struct TaskRowView: View {
             }
         }
         .background(
-            Rectangle()
-                .fill(hoverFill)
-                .allowsHitTesting(false)
+            ZStack(alignment: .leading) {
+                // Hover / expanded anchor background
+                Rectangle()
+                    .fill(anchorFill)
+                    .allowsHitTesting(false)
+                // D20: neutral left-rule when expanded (no terracotta on Graveyard)
+                if isExpanded {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.18))
+                        .frame(width: 2)
+                        .allowsHitTesting(false)
+                }
+            }
         )
         .contentShape(Rectangle())
         // D14-a — Disable hit-testing during the 180ms animation window.
@@ -165,6 +184,14 @@ struct TaskRowView: View {
 
     private var compactBody: some View {
         HStack(alignment: .top, spacing: 8) {
+            // D24: 14px chevron leading slot, Graveyard-only.
+            // Inbox / Running / Needs-you rows don't render this column at all.
+            if showChevron {
+                chevronGlyph
+                    .frame(width: 14, alignment: .center)
+                    .padding(.top, 3)
+            }
+
             statusGlyph(isHero: false)
                 .frame(width: 12, alignment: .center)
                 .padding(.top, 3)
@@ -195,6 +222,25 @@ struct TaskRowView: View {
                 .lineLimit(1)
                 .padding(.top, 2)
         }
+    }
+
+    // MARK: - Chevron glyph (Graveyard-only, D24)
+
+    /// Animated chevron. 0° (pointing right) when collapsed; 90° when expanded.
+    /// 11pt SF Mono. Opacity 0.45 collapsed → 1.0 expanded.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var chevronGlyph: some View {
+        Text("›")
+            .font(.system(size: 11, design: .monospaced))
+            .foregroundStyle(Color.primary.opacity(isExpanded ? 1.0 : 0.45))
+            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            .animation(
+                reduceMotion
+                    ? .linear(duration: 0)
+                    : .timingCurve(0.2, 0.0, 0.2, 1.0, duration: 0.16),
+                value: isExpanded
+            )
     }
 
     // MARK: - Glyphs
@@ -302,14 +348,27 @@ struct TaskRowView: View {
         return relativeTime(from: task.created)
     }
 
-    // MARK: - Hover
+    // MARK: - Hover / anchor fill
 
-    private var hoverFill: Color {
+    /// Background fill for the anchor row.
+    ///
+    /// Precedence:
+    /// 1. Expanded: rgba(255,255,255,0.04) — anchored-open state (D spec).
+    /// 2. Hovered: standard hover color.
+    /// 3. Default: clear.
+    private var anchorFill: Color {
+        if isExpanded {
+            return Color.white.opacity(0.04)
+        }
         guard isHovered else { return .clear }
         return colorScheme == .dark
             ? WorkspaceLayout.activeRowDark
             : WorkspaceLayout.activeRowLight
     }
+
+    // Keep the old name as an alias so future callers that read the property
+    // directly still compile without change.
+    private var hoverFill: Color { anchorFill }
 
     // MARK: - Helpers
 
