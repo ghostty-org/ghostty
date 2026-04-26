@@ -31,6 +31,20 @@ enum TaskRowMetrics {
 /// Clicking a row opens the task's `.md` file in the user's default markdown
 /// editor and, if the task's `project` name matches a `WorkspaceStore`
 /// project, switches the terminal to that project's last active session.
+///
+/// ### D14 — Hit-test guard
+///
+/// The row observes `RowClickRouter.shared` to apply `.allowsHitTesting(false)`
+/// for 180ms after a click fires. This swallows in-animation re-taps without
+/// requiring a separate state variable on the view. The router publishes
+/// `hitTestingBlockedTaskIds` on the main actor.
+///
+/// ### D13 — Error chip
+///
+/// When a write to disk fails in `startInboxTask`, `RowClickRouter` stores the
+/// error message in `taskRowErrors`. This view renders a compact red label
+/// below the row content while the error is present. The chip clears on the
+/// next successful write.
 struct TaskRowView: View {
     let task: TaskItem
     let style: TaskRowStyle
@@ -47,22 +61,45 @@ struct TaskRowView: View {
     @AppStorage("ghostties.defaultTaskTemplate") private var defaultTaskTemplate: String = ""
     @State private var isHovered = false
 
+    /// Observed so that D14 hit-test guard and D13 error chip react to router state.
+    @ObservedObject private var router = RowClickRouter.shared
+
     var body: some View {
-        Group {
-            switch style {
-            case .hero:    heroBody
-            case .compact: compactBody
+        VStack(spacing: 0) {
+            Group {
+                switch style {
+                case .hero:    heroBody
+                case .compact: compactBody
+                }
+            }
+            .padding(.horizontal, TaskRowMetrics.horizontalPadding)
+            .frame(height: style == .hero ? TaskRowMetrics.heroHeight : TaskRowMetrics.compactHeight)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // D13 — Error chip: shown when a write to disk fails.
+            // Persists until the next successful write clears the entry in the router.
+            if let errorMessage = router.taskRowErrors[task.id] {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                    Text(errorMessage)
+                        .font(.system(size: 10))
+                        .lineLimit(2)
+                }
+                .foregroundStyle(Color(nsColor: .systemRed))
+                .padding(.horizontal, TaskRowMetrics.horizontalPadding)
+                .padding(.bottom, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.horizontal, TaskRowMetrics.horizontalPadding)
-        .frame(height: style == .hero ? TaskRowMetrics.heroHeight : TaskRowMetrics.compactHeight)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             Rectangle()
                 .fill(hoverFill)
                 .allowsHitTesting(false)
         )
         .contentShape(Rectangle())
+        // D14-a — Disable hit-testing during the 180ms animation window.
+        .allowsHitTesting(!router.hitTestingBlockedTaskIds.contains(task.id))
         .onHover { hovering in
             isHovered = hovering
             // Pointer cursor on hover — the row is a handle to a real thing.
@@ -82,8 +119,15 @@ struct TaskRowView: View {
             )
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(task.title). \(statusPhrase)")
+        .accessibilityLabel(accessibilityRowLabel)
         .accessibilityAddTraits(.isButton)
+    }
+
+    private var accessibilityRowLabel: String {
+        if let err = router.taskRowErrors[task.id] {
+            return "\(task.title). \(statusPhrase). Write error: \(err)"
+        }
+        return "\(task.title). \(statusPhrase)"
     }
 
     // MARK: - Hero body
