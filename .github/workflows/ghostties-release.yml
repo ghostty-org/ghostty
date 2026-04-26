@@ -130,7 +130,7 @@ jobs:
             zig-${{ runner.os }}-
 
       - name: Build GhosttyKit.xcframework
-        run: zig build -Demit-macos-app=false
+        run: zig build -Demit-macos-app=false -Doptimize=ReleaseFast
 
       # CEF (Chromium Embedded Framework) for the embedded browser feature.
       - name: Cache CEF
