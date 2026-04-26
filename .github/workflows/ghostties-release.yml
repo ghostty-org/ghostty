@@ -203,6 +203,43 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CI_KEYCHAIN_PWD" build.keychain
 
           APP="macos/build/Release/Ghostties.app"
+          FRAMEWORKS="$APP/Contents/Frameworks"
+          CEF_FRAMEWORK="$FRAMEWORKS/Chromium Embedded Framework.framework"
+
+          # --- CEF inside-out signing ---
+          # Apple's notarization requires all nested binaries to be signed before
+          # the outer bundle. CEF helper apps each need per-variant entitlements:
+          # Renderer + GPU need allow-jit (V8/WebGL JIT), Plugin needs
+          # disable-library-validation, Base + Alerts need minimal hardened runtime.
+
+          # 1. Sign nested dylibs/binaries inside the CEF framework first.
+          if [ -d "$CEF_FRAMEWORK" ]; then
+            find "$CEF_FRAMEWORK" -type f \( -name "*.dylib" -o -name "*.so" \) -print0 \
+              | while IFS= read -r -d '' f; do
+                /usr/bin/codesign --force --timestamp --options runtime \
+                  --sign "$MACOS_CERTIFICATE_NAME" "$f"
+              done
+
+            # 2. Sign the CEF framework bundle itself.
+            /usr/bin/codesign --force --timestamp --options runtime \
+              --sign "$MACOS_CERTIFICATE_NAME" "$CEF_FRAMEWORK"
+
+            # 3. Sign each helper app with per-variant entitlements.
+            for HELPER in "$FRAMEWORKS"/Ghostties\ Helper*.app; do
+              case "$HELPER" in
+                *"Renderer"*|*"GPU"*)
+                  ENT="macos/Helper-Renderer.entitlements" ;;
+                *"Plugin"*)
+                  ENT="macos/Helper-Plugin.entitlements" ;;
+                *)
+                  ENT="macos/Helper.entitlements" ;;
+              esac
+              /usr/bin/codesign --force --timestamp --options runtime \
+                --entitlements "$ENT" \
+                --sign "$MACOS_CERTIFICATE_NAME" "$HELPER"
+            done
+          fi
+          # --- end CEF inside-out signing ---
 
           # Sign Sparkle XPC services (required even though we don't sandbox Ghostties;
           # the binaries in Versions/ must be real files, not symlinks)
