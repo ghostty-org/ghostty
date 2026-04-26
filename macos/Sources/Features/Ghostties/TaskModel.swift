@@ -7,6 +7,20 @@ import GhosttiesCore
 /// Default is `.none`. Unknown values decoded from disk fall back to `.none`.
 typealias TaskPriority = GhosttiesCore.TaskPriority
 
+extension TaskPriority {
+    /// Numeric rank for descending sort: higher value = higher priority.
+    /// `.high` = 3, `.medium` = 2, `.low` = 1, `.none` = 0.
+    /// Used by `InboxZoneView` to sort rows by priority desc, created desc.
+    var sortRank: Int {
+        switch self {
+        case .high:   return 3
+        case .medium: return 2
+        case .low:    return 1
+        case .none:   return 0
+        }
+    }
+}
+
 /// Status lanes for a task, matching the six-lane IA from the task-first sidebar brief.
 ///
 /// Raw values are the snake/kebab-case strings used in `.ghostties/tasks/*.md`

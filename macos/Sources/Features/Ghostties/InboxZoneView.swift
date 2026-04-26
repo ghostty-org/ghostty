@@ -23,7 +23,17 @@ struct InboxZoneView: View {
 
     /// Cached once per render so the header count and the `ForEach` agree
     /// on what they're showing.
-    private var rows: [TaskItem] { taskStore.externalInbox }
+    ///
+    /// Sort order: primary `priority` descending (high → none), secondary
+    /// `created` descending (newest first). Matches R15 from the U1 spec.
+    private var rows: [TaskItem] {
+        taskStore.externalInbox.sorted {
+            if $0.priority.sortRank != $1.priority.sortRank {
+                return $0.priority.sortRank > $1.priority.sortRank
+            }
+            return $0.created > $1.created
+        }
+    }
 
     var body: some View {
         // Empty: render nothing (no header, no divider, no reserved height).
