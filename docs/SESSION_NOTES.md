@@ -1,5 +1,59 @@
 # Session Notes — Ghostties
 
+## Apr 26, 2026 (Sidebar SwiftUI Hang Fix Pre-DMG)
+
+### Headline
+
+Diagnosed and shipped a fix for a 1.19-second SwiftUI main-thread hang in the task-first sidebar before the v0.1.0-beta DMG goes out. Root cause: `TaskStore` exposed lane lists as computed properties that re-allocated `[TaskItem]` on every access; `ArchiveZoneView` read those filters 8+ times per body evaluation. Fix landed on `main` as `f48935713`. Build verified.
+
+### What shipped
+
+**Branch `fix/sidebar-perf-pre-dmg` → fast-forward merged into `main` (`f48935713`):**
+
+- **`TaskStore.swift`** — Seven computed lane filters (`needsYou`, `active`, `inbox`, `backlog`, `review`, `done`, `externalInbox`) converted to stored `@Published private(set) var` arrays. Single-pass `recomputeLanes()` switch on `status` runs only when `tasks` is mutated (called at all three `tasks =` assignment sites in `loadFromDisk()`).
+- **`ActiveZoneView.swift`** — `mergedRows` snapshotted once via `let rows = mergedRows` at top of `body` (was being read 3× — `ForEach`, placeholder count, header). `header` refactored from computed-var to `func header(rowCount:)` to take the snapshot count.
+- **Fix C (TaskFileWatcher debounce) skipped** — already implemented as `scheduleDebouncedFire()` with 150ms `cancel-and-reschedule` `DispatchWorkItem`. Subagent verified existing implementation matches the intent. Commit message slightly overstates this; not amending.
+
+### Diagnosis path
+
+1. Sean shared a 6.2 MB Apple `.ips`-style hang report pulled from `/Applications/Ghostties.app` (outdated build, but smell exists at HEAD).
+2. Saved as `docs/Crash report/26Apr2026 - hang report mac.md` (untracked, kept locally).
+3. **Thread 0 stack signature** (13/13 samples, 1.190s): `GraphHost.flushTransactions → AG::Subgraph::update → LazySubviewPlacements.placeSubviews → LazyStack.place → ForEachList.applyNodes (zones) → DynamicViewList.WrappedList → ForEachList.applyNodes (rows) → ForEachState.forEachItem`. No Ghostties symbols — pure SwiftUI list/placement bookkeeping.
+4. Spawned `ce-swift-ios-reviewer` (Opus) for hypothesis-driven static analysis. Returned medium-high confidence: per-body filter recomputation reading the same filter several times in the same view, with no caching, against a stable-id but container-changing array — textbook `ForEachList.applyNodes` thrash.
+5. Spawned single Sonnet subagent on `fix/sidebar-perf-pre-dmg` to implement A+B+C. `xcodebuild ... ONLY_ACTIVE_ARCH=YES ARCHS=arm64 build` → BUILD SUCCEEDED.
+
+### Multi-session git race surfaced
+
+A parallel Claude session committed `af485635e` ("fix(release): pin xcodebuild SYMROOT…") on top of `main` in the minute between this session's `git push` and Sean's next message. No conflict, but only by ordering luck — orchestrator merged on a stale view of origin/main. Sean confirmed he routinely runs **2–7 parallel Claude sessions** (2 more on ghostties, 4 on other projects this session).
+
+**New rule captured** in `feedback-multi-session-git-coordination.md` (indexed in MEMORY.md): always `git fetch origin && git pull --ff-only origin main` before any merge to main; never `--force` a rejected push (it's a real concurrency signal, not a flake); worktrees showing `locked` likely belong to other live sessions — confirm before removing.
+
+### Unfixed P2 follow-ups (deferred)
+
+Surfaced by the analysis subagent, not in this session's scope:
+
+- `TaskRowView.onHover` pushes/pops `NSCursor` per-row each layout pass. Move to `.pointerStyle(.link)` (macOS 15) or guard with isHovered transition equality.
+- `@AppStorage("ghostties.defaultTaskTemplate")` instantiated on every `TaskRowView` — 12+ KVO observers on the same key. Hoist into `TaskStore` or parent.
+
+### Surprises / gotchas
+
+- `TaskStatus.needsYou` raw value is hyphenated `"needs-you"` while the Swift case name is camelCase. The `recomputeLanes()` switch uses case names, so safe — but worth knowing for any future serialization-touching work.
+- `externalInbox` predicate is `source != .shell` (existing semantics — includes `.unknown` as external). Preserved exactly.
+- No view code wrote directly to `taskStore.tasks` — all 11 external call sites were reads only. Confirmed during the refactor.
+- SourceKit threw a wall of "Cannot find type 'TaskItem' in scope" + a bogus `[Character]` type error on `ActiveZoneView.swift:71` after the edits. All ghosts — the actual `xcodebuild` succeeded clean. SourceKit lost its index after the `@Published`-shape change. Re-ran the build to confirm.
+
+### Commits
+
+- `f48935713` — `fix(sidebar): eliminate 1.2s SwiftUI hang from per-body filter thrash` (on main, FF from `fix/sidebar-perf-pre-dmg`)
+
+### Notes for next session
+
+- Local branch `fix/sidebar-perf-pre-dmg` still exists — safe to delete (`git branch -d fix/sidebar-perf-pre-dmg`) once confirmed merged.
+- Consider whether to land the two P2 follow-ups (`onHover` cursor, `@AppStorage` per-row) before tagging `v0.1.0-beta.1`. Neither is blocking; both are easy wins.
+- Working tree on main is dirty with icon + pbxproj changes — those belong to Sean's parallel sessions, NOT this one. Don't stage them.
+
+---
+
 ## Apr 25, 2026 (CE Workflow — Row-click Ideation → Brainstorm → Doc Review + AppDelegate Lazy-Init)
 
 ### Headline
