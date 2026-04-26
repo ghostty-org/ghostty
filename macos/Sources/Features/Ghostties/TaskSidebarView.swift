@@ -57,18 +57,31 @@ struct TaskSidebarView: View {
                         zoneDivider
                     }
 
-                    ActiveZoneView(
-                        taskStore: taskStore,
-                        sessionDraftStore: sessionDraftStore
-                    )
+                    // SG-03: Active / Running zone — fully hidden when empty.
+                    // "Empty" means no running tasks AND no unpromoted session drafts.
+                    let activeIsEmpty = taskStore.active.isEmpty && sessionDraftStore.drafts.filter { $0.promotedToTaskId == nil }.isEmpty
+                    if !activeIsEmpty {
+                        ActiveZoneView(
+                            taskStore: taskStore,
+                            sessionDraftStore: sessionDraftStore
+                        )
+                        zoneDivider
+                    }
 
-                    zoneDivider
+                    // SG-03: Needs-you zone — fully hidden when empty.
+                    if !taskStore.needsYou.isEmpty {
+                        NeedsYouZoneView(taskStore: taskStore)
+                        zoneDivider
+                    }
 
-                    NeedsYouZoneView(taskStore: taskStore)
-
-                    zoneDivider
-
-                    ArchiveZoneView(taskStore: taskStore)
+                    // SG-03: Graveyard / Archive zone — fully hidden when all sub-lanes empty.
+                    let graveyardIsEmpty = taskStore.inbox.isEmpty
+                        && taskStore.backlog.isEmpty
+                        && taskStore.review.isEmpty
+                        && taskStore.done.isEmpty
+                    if !graveyardIsEmpty {
+                        ArchiveZoneView(taskStore: taskStore)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -111,6 +124,9 @@ struct TaskSidebarView: View {
                 )
             }
             .buttonStyle(.plain)
+            .help("New task — ⌘⇧N")
+            .accessibilityLabel("Start a new task")
+            .accessibilityHint("Opens the new task composer. Keyboard shortcut: Command Shift N")
             .padding(.trailing, TaskRowMetrics.horizontalPadding)
         }
         .frame(height: 28)
