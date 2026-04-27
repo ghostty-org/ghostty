@@ -1,61 +1,56 @@
 import SwiftUI
 
 struct AddSessionSheet: View {
+    let cardId: String
+    @ObservedObject var viewModel: SidePanelViewModel
     @Environment(\.dismiss) private var dismiss
 
-    @State private var name: String = ""
-    @State private var cwd: String = ""
-    @State private var command: String = ""
-    @State private var splitId: String = ""
-    @State private var isWorktree: Bool = false
-    @State private var worktreeName: String = ""
-
-    var onAdd: (Session) -> Void
+    @State private var sessionName = ""
+    @State private var cwd = ""
+    @State private var command = ""
+    @State private var isWorktree = false
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(alignment: .leading, spacing: 16) {
             Text("Add Session")
                 .font(.headline)
 
             Form {
-                TextField("Name", text: $name)
+                TextField("Session Name", text: $sessionName)
                 TextField("Working Directory", text: $cwd)
                 TextField("Command", text: $command)
-                TextField("Split ID (optional)", text: $splitId)
-
-                Toggle("Worktree", isOn: $isWorktree)
-
-                if isWorktree {
-                    TextField("Worktree Name", text: $worktreeName)
-                }
             }
 
+            Toggle("Create Worktree", isOn: $isWorktree)
+                .toggleStyle(.switch)
+
             HStack {
+                Spacer()
                 Button("Cancel") {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Spacer()
-
                 Button("Add") {
-                    let session = Session(
-                        id: UUID().uuidString,
-                        name: name,
-                        cwd: cwd,
-                        command: command,
-                        splitId: splitId.isEmpty ? nil : splitId,
-                        isWorktree: isWorktree,
-                        worktreeName: isWorktree && !worktreeName.isEmpty ? worktreeName : nil
-                    )
-                    onAdd(session)
+                    addSession()
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(name.isEmpty || command.isEmpty)
+                .disabled(sessionName.isEmpty)
             }
         }
-        .padding()
-        .frame(width: 400, height: 350)
+        .padding(20)
+        .frame(width: 400)
+    }
+
+    private func addSession() {
+        let session = Session(
+            name: sessionName,
+            cwd: cwd.isEmpty ? "~" : cwd,
+            command: command.isEmpty ? "" : command,
+            isWorktree: isWorktree,
+            worktreeName: isWorktree ? sessionName.lowercased().replacingOccurrences(of: " ", with: "-") : nil
+        )
+        viewModel.addSession(to: cardId, session: session)
     }
 }
