@@ -1,4 +1,5 @@
 import Foundation
+import GhosttiesCore
 import SwiftUI
 
 /// Observable store that loads task fixtures from `.ghostties/tasks/*.md`
@@ -14,6 +15,30 @@ import SwiftUI
 final class TaskStore: ObservableObject {
     @Published private(set) var tasks: [TaskItem] = []
 
+    // MARK: - Graveyard expansion state (U7)
+
+    /// The id of the single Graveyard row that is currently expanded, if any.
+    /// Single-expansion per lane (D4 / D11). Nil = all collapsed.
+    @Published private(set) var expandedGraveyardTaskId: String? = nil
+
+    /// Toggle Graveyard row expansion for the given task id.
+    /// D10: re-click collapses. D11: opening a new row closes the previous.
+    func toggleGraveyardExpansion(for taskId: String) {
+        if expandedGraveyardTaskId == taskId {
+            expandedGraveyardTaskId = nil
+        } else {
+            expandedGraveyardTaskId = taskId
+        }
+    }
+
+    /// Collapse any open Graveyard row. Called when a task migrates out of the
+    /// done lane so stale expansion state doesn't linger.
+    func collapseGraveyardExpansionIfNeeded(for taskId: String) {
+        if expandedGraveyardTaskId == taskId {
+            expandedGraveyardTaskId = nil
+        }
+    }
+
     /// Hardcoded machine-capacity placeholder for v0. Drives the "ACTIVE · N of ~5"
     /// header in the sidebar and the number of empty slots rendered. A later
     /// revision will derive this from `sysctl` or thermal state.
@@ -21,6 +46,12 @@ final class TaskStore: ObservableObject {
 
     private var watcher: TaskFileWatcher?
     private var watchedDirectory: URL?
+
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
 
     init() {
         loadFromDisk()
@@ -91,6 +122,149 @@ final class TaskStore: ObservableObject {
         review = rev; done = dn; externalInbox = ext
     }
 
+    // MARK: - Write wrappers
+    //
+    // These methods delegate to GhosttiesCore.TaskStore for all disk I/O.
+    // They intentionally contain no business logic — that belongs in U3+.
+    //
+    // After a successful write the TaskFileWatcher will detect the change and
+    // call loadFromDisk automatically; we do NOT manually mutate `tasks` here.
+
+    /// Update the `status:` frontmatter key for the task with the given id.
+    /// - Throws: `CLIError.io` if the file can't be read or written, or
+    ///   `CLIError.notFound` if no task matches the id.
+    func writeStatus(_ status: TaskStatus, for taskId: String) async throws {
+        let coreStore = try requireCoreStore()
+        let (task, url) = try coreStore.resolve(idOrPrefix: taskId)
+        let updatedPairs = GhosttiesCore.Frontmatter.set(
+            "status", status.rawValue, in: task.frontmatter)
+        try coreStore.write(pairs: updatedPairs, body: task.body, to: url)
+    }
+
+    /// Update the `project-path:` frontmatter key for the task with the given id.
+    /// Pass an empty string to clear the field.
+    /// - Throws: `CLIError.io` if the file can't be read or written, or
+    ///   `CLIError.notFound` if no task matches the id.
+    func writeProjectPath(_ path: String, for taskId: String) async throws {
+        let coreStore = try requireCoreStore()
+        let (task, url) = try coreStore.resolve(idOrPrefix: taskId)
+        let updatedPairs = GhosttiesCore.Frontmatter.set(
+            "project-path", path, in: task.frontmatter)
+        try coreStore.write(pairs: updatedPairs, body: task.body, to: url)
+    }
+
+    /// Update the `template:` frontmatter key for the task with the given id.
+    /// Pass an empty string to clear the field.
+    /// - Throws: `CLIError.io` / `CLIError.notFound`.
+    func writeTemplate(_ templateName: String, for taskId: String) async throws {
+        let coreStore = try requireCoreStore()
+        let (task, url) = try coreStore.resolve(idOrPrefix: taskId)
+        let updatedPairs = GhosttiesCore.Frontmatter.set(
+            "template", templateName, in: task.frontmatter)
+        try coreStore.write(pairs: updatedPairs, body: task.body, to: url)
+    }
+
+    /// Update the `title:` frontmatter key for the task with the given id.
+    /// - Throws: `CLIError.io` / `CLIError.notFound`.
+    func writeTitle(_ title: String, for taskId: String) async throws {
+        let coreStore = try requireCoreStore()
+        let (task, url) = try coreStore.resolve(idOrPrefix: taskId)
+        let updatedPairs = GhosttiesCore.Frontmatter.set(
+            "title", title, in: task.frontmatter)
+        try coreStore.write(pairs: updatedPairs, body: task.body, to: url)
+    }
+
+    /// Create a new task `.md` file and return the parsed `TaskItem`.
+    ///
+    /// - Parameters:
+    ///   - title: Human-readable task title (written to `title:` key).
+    ///   - project: Project tag (written to `project:` key).
+    ///   - status: Initial lane; defaults to `.backlog`.
+    ///   - priority: Initial priority; defaults to `.none`.
+    ///   - projectPath: Optional filesystem root for the task's project (tilde-raw).
+    ///   - template: Optional launch template name.
+    ///   - source: Source tag (defaults to `"shell"`).
+    ///   - sourceID: Optional external source ID.
+    ///
+    /// - Returns: The newly created `TaskItem` parsed from the written file.
+    /// - Throws: `CLIError.io` if the tasks directory isn't available or the
+    ///   file can't be written, or if a file with the generated id already
+    ///   exists.
+    @discardableResult
+    func createTask(
+        title: String,
+        project: String,
+        status: TaskStatus = .backlog,
+        priority: TaskPriority = .none,
+        projectPath: String? = nil,
+        template: String? = nil,
+        source: String = "shell",
+        sourceID: String? = nil
+    ) async throws -> TaskItem {
+        let coreStore = try requireCoreStore()
+        let id = makeTaskID(title: title)
+        let nowISO = Self.isoFormatter.string(from: Date())
+
+        var pairs: [(String, String)] = [
+            ("title", title),
+            ("source", source),
+            ("source-id", sourceID ?? id),
+            ("project", project),
+            ("created", nowISO),
+            ("status", status.rawValue),
+            ("priority", priority.rawValue)
+        ]
+        if let projectPath, !projectPath.isEmpty {
+            pairs.append(("project-path", projectPath))
+        }
+        if let template, !template.isEmpty {
+            pairs.append(("template", template))
+        }
+
+        let body = "\n## Goal\n\n\n## Notes\n\n\n## Activity\n\n- \(nowISO) — Task created\n"
+        let url = try coreStore.create(id: id, pairs: pairs, body: body)
+
+        // Parse the written file back into a TaskItem so the caller gets a
+        // typed value. Fail loudly if the round-trip breaks.
+        guard let raw = try? String(contentsOf: url, encoding: .utf8),
+              let item = TaskFixtureParser.parse(
+                markdown: raw, filename: url.deletingPathExtension().lastPathComponent)
+        else {
+            throw CLIError.io("created task at \(url.path) but could not re-parse it")
+        }
+        return item
+    }
+
+    // MARK: - Write helpers
+
+    /// Return a `GhosttiesCore.TaskStore` pointed at the current `watchedDirectory`.
+    /// Throws `CLIError.io` if the directory hasn't been resolved yet.
+    private func requireCoreStore() throws -> GhosttiesCore.TaskStore {
+        guard let dir = watchedDirectory else {
+            throw CLIError.io("tasks directory not yet resolved — call loadFromDisk first")
+        }
+        return GhosttiesCore.TaskStore(directory: dir)
+    }
+
+    /// Kebab-slug `title` with a 6-char UUID suffix to avoid collisions.
+    private func makeTaskID(title: String) -> String {
+        let slug: String = {
+            let lowered = title.lowercased()
+            var out = ""
+            var lastDash = false
+            for ch in lowered {
+                if ch.isLetter || ch.isNumber {
+                    out.append(ch); lastDash = false
+                } else if !lastDash {
+                    out.append("-"); lastDash = true
+                }
+            }
+            return out.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        }()
+        let suffix = String(UUID().uuidString.prefix(6)).lowercased()
+        return slug.isEmpty ? "task-\(suffix)" : "\(slug)-\(suffix)"
+    }
+
     // MARK: - Loading
 
     func loadFromDisk() {
@@ -145,6 +319,16 @@ final class TaskStore: ObservableObject {
         // is up to the view layer; here we just produce a deterministic list.
         loaded.sort { $0.created > $1.created }
         tasks = loaded
+
+        // Collapse Graveyard expansion if the previously-expanded task is no
+        // longer in the done lane (e.g. agent re-opened it).
+        if let expandedId = expandedGraveyardTaskId {
+            let stillDone = loaded.contains { $0.id == expandedId && $0.status == .done }
+            if !stillDone {
+                expandedGraveyardTaskId = nil
+            }
+        }
+
         recomputeLanes()
     }
 
@@ -155,7 +339,7 @@ final class TaskStore: ObservableObject {
         watchedDirectory = dir
         let w = TaskFileWatcher(url: dir) { [weak self] in
             guard let self = self else { return }
-            Task { @MainActor in self.loadFromDisk() }
+            Swift.Task { @MainActor in self.loadFromDisk() }
         }
         watcher = w
         w.start()
@@ -259,6 +443,12 @@ enum TaskFixtureParser {
             return raw
         }()
 
+        // Parse priority with strict-with-skip: unknown value → .none, never crash.
+        let priority: TaskPriority = {
+            guard let raw = yaml["priority"], !raw.isEmpty else { return .none }
+            return TaskPriority(rawValue: raw) ?? .none
+        }()
+
         return TaskItem(
             id: id,
             title: title,
@@ -270,6 +460,7 @@ enum TaskFixtureParser {
             template: template,
             created: created,
             status: status,
+            priority: priority,
             filesStaged: yaml["files-staged"].flatMap(Int.init),
             goal: goal?.isEmpty == true ? nil : goal,
             notes: notes?.isEmpty == true ? nil : notes,

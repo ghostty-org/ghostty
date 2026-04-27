@@ -138,6 +138,38 @@ enum WorkspaceLayout {
     static let sidebarRowLeadingPadding: CGFloat = 8
 }
 
+// MARK: - Animation Tokens (D18)
+
+extension Animation {
+    /// 180ms cubic-bezier(0.2, 0.7, 0.2, 1) — inline panel reveals
+    /// (composer, triage card, graveyard expansion).
+    /// Use as the `value:` animation on the enclosing container,
+    /// or pair with `AnyTransition` for asymmetric entry/exit.
+    static var sidebarPush: Animation {
+        .timingCurve(0.2, 0.7, 0.2, 1, duration: 0.18)
+    }
+
+    /// 140ms ease-in — inline panel collapses.
+    /// Matches the removal side of every asymmetric push transition in D18.
+    static var sidebarCollapse: Animation {
+        .easeIn(duration: 0.14)
+    }
+
+    /// Spatial-stability row migration (D18 grammar).
+    /// Same curve as `sidebarPush` — used on `withAnimation` wrappers
+    /// when a task migrates between lanes.
+    static var sidebarRowMigration: Animation {
+        .timingCurve(0.2, 0.7, 0.2, 1, duration: 0.18)
+    }
+
+    /// Reduced-motion fallback — opacity crossfade at 200ms (D19).
+    /// Replace any spatial animation with this when
+    /// `@Environment(\.accessibilityReduceMotion)` is true.
+    static var sidebarReducedMotion: Animation {
+        .easeInOut(duration: 0.2)
+    }
+}
+
 // MARK: - Workspace Notifications
 
 extension Notification.Name {
@@ -167,4 +199,19 @@ extension Notification.Name {
     /// WorkspaceViewContainer instances observe this to swap the hosted SwiftUI view
     /// and update the sidebar width. v0 feature toggle.
     static let workspaceSidebarViewModeChanged = Notification.Name("com.seansmithdesign.ghostties.workspace.sidebarViewModeChanged")
+
+    /// Posted by `AppDelegate`'s ⌘⇧N local-event monitor and by any code path
+    /// that wants to open the new-task composer. `NewTaskComposerStore.shared`
+    /// observes this to call `open(workspaceStore:)`.
+    ///
+    /// The notification object is the originating `NSWindow` (may be nil when
+    /// the monitor fires with no key window).
+    static let openNewTaskComposer = Notification.Name("com.seansmithdesign.ghostties.workspace.openNewTaskComposer")
+
+    /// Posted by AppDelegate when the `Return` menu item fires (U11).
+    /// The notification object is the focused task's id `String`.
+    /// `TaskRowView` instances that own the focused task observe this and call
+    /// `RowClickRouter.shared.handleRowClick` through their existing SwiftUI
+    /// environment, preserving correct window-scoped coordinator references.
+    static let ghosttiesActivateFocusedTaskRow = Notification.Name("com.seansmithdesign.ghostties.activateFocusedTaskRow")
 }

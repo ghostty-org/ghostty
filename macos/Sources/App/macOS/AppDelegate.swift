@@ -343,6 +343,15 @@ class AppDelegate: NSObject,
         // Setup our menu
         setupMenuImages()
         setupWorkspaceMenuItems()
+        setupTaskRowMenuItems()
+
+        // U8 (SEA-164): ⌘⇧N new-task composer shortcut.
+        // Uses a separate local monitor so it never touches MainMenu.xib —
+        // adding ⌘N to the menu would collide with Ghostty's `new_window`
+        // binding via syncMenuShortcut (D17 / F-004).
+        // The monitor returns nil to swallow the event so it does NOT
+        // propagate to Ghostty's new_window handler.
+        setupNewTaskComposerShortcut()
 
         // Setup signal handlers
         setupSignals()
@@ -729,6 +738,139 @@ class AppDelegate: NSObject,
         viewMenu.insertItem(NSMenuItem.separator(), at: 7)
 
     }
+
+    // MARK: - U8 (SEA-164): ⌘⇧N new-task composer shortcut
+
+    /// Registers an `NSEvent` local monitor for ⌘⇧N.
+    ///
+    /// This is intentionally NOT a MainMenu.xib item — ⌘N is bound to
+    /// Ghostty's `new_window` via `syncMenuShortcut` and that binding must
+    /// not be shadowed. We use ⌘⇧N and a local monitor instead (D17).
+    ///
+    /// Scope: only fires when the task-first sidebar is the active mode
+    /// (checked via the `ghostties.sidebarViewMode` defaults key). In
+    /// project-first mode the event falls through unchanged.
+    ///
+    /// The monitor returns `nil` to swallow the event so it never reaches
+    /// Ghostty's `new_window` handler (D17 requirement).
+    ///
+    /// **U11 collision note:** U11's AppDelegate additions are for ⌘O and
+    /// Return key items in the menu. This block is entirely separate — it
+    /// observes different key modifiers and touches no menu items.
+    private func setupNewTaskComposerShortcut() {
+        _ = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Guard: must be ⌘⇧N (case-insensitive).
+            guard event.modifierFlags.intersection([.command, .shift, .control, .option])
+                    == [.command, .shift],
+                  event.charactersIgnoringModifiers?.lowercased() == "n"
+            else { return event }
+
+            // Guard: only in task-first sidebar mode (where the composer lives).
+            let mode = UserDefaults.standard.string(forKey: "ghostties.sidebarViewMode") ?? "projectFirst"
+            guard mode == "taskFirst" else { return event }
+
+            // Post the notification — TaskSidebarView observes it and calls
+            // `composerStore.open(workspaceStore:)`.
+            NotificationCenter.default.post(
+                name: .openNewTaskComposer,
+                object: NSApp.keyWindow
+            )
+
+            // D17: return nil to swallow — must not propagate to new_window.
+            return nil
+        }
+    }
+
+    // MARK: - U11 — Task-row keyboard shortcuts (⌘O, Return)
+    //
+    // These items live in the View menu alongside the other workspace items.
+    // ⌘⇧N is intentionally NOT wired here (D17) — it is registered via
+    // NSEvent.addLocalMonitorForEvents in U8 to avoid colliding with Ghostty's
+    // `new_window` binding, which syncMenuShortcuts may assign to ⌘N.
+    //
+    // Collision note for U8 merge: this method only touches `⌘O` and `Return`.
+    // Any U8 additions to setupWorkspaceMenuItems or the local event monitor
+    // are in a different code path and will not conflict.
+
+    /// Injects `⌘O` (Open Notes) and `Return` (Activate Row) items into the
+    /// View menu. Both are hidden-but-active so they fire silently without
+    /// cluttering the visible menu. The actions are no-ops when no row is focused.
+    private func setupTaskRowMenuItems() {
+        guard let viewMenu = menuToggleFullScreen?.menu else { return }
+
+        // "Open Task Notes" — ⌘O
+        // Opens the focused row's .md file in the user's default editor.
+        // Same NSWorkspace.shared.open(url) code path as the 📝 chip on hover.
+        let openNotesItem = NSMenuItem(
+            title: "Open Task Notes",
+            action: #selector(openFocusedTaskNotes(_:)),
+            keyEquivalent: "o"
+        )
+        openNotesItem.keyEquivalentModifierMask = [.command]
+        openNotesItem.isHidden = true
+        openNotesItem.allowsKeyEquivalentWhenHidden = true
+
+        // "Activate Focused Task" — Return
+        // Fires RowClickRouter.handleRowClick for the focused row.
+        // The system suppresses this when a text field is first responder.
+        let activateRowItem = NSMenuItem(
+            title: "Activate Focused Task",
+            action: #selector(activateFocusedTaskRow(_:)),
+            keyEquivalent: "\r"
+        )
+        activateRowItem.keyEquivalentModifierMask = []
+        activateRowItem.isHidden = true
+        activateRowItem.allowsKeyEquivalentWhenHidden = true
+
+        // Append after the last workspace separator (index 8 onwards is safe).
+        viewMenu.addItem(openNotesItem)
+        viewMenu.addItem(activateRowItem)
+    }
+
+    /// ⌘O action: open the focused row's `.md` in the user's default editor.
+    /// Silent no-op when no row is focused or the file URL cannot be resolved.
+    @objc private func openFocusedTaskNotes(_ sender: Any?) {
+        // Menu actions arrive on the main thread; hop to MainActor for RowFocusStore.
+        Task { @MainActor in
+            guard let task = RowFocusStore.shared.focusedTask,
+                  let taskStore = RowFocusStore.shared.focusedTaskStore,
+                  let url = taskStore.fileURL(for: task) else { return }
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// Return action: activate the focused row via `RowClickRouter`.
+    /// Silent no-op when no row is focused.
+    /// Guard: if a text field is first responder the system will consume Return
+    /// before it reaches the menu, so this action is inherently text-field safe.
+    @objc private func activateFocusedTaskRow(_ sender: Any?) {
+        // Extra safety: skip if the first responder is a text input.
+        if let firstResponder = NSApp.keyWindow?.firstResponder,
+           firstResponder is NSTextField || firstResponder is NSTextView {
+            return
+        }
+        // Menu actions arrive on the main thread; hop to MainActor for RowFocusStore.
+        Task { @MainActor in
+        guard let task = RowFocusStore.shared.focusedTask else { return }
+        // SessionCoordinator and WorkspaceStore are window-scoped; look them up
+        // from the key window's TerminalController via the notification-based
+        // singleton pattern used by other AppDelegate workspace actions.
+        // For v0 the action falls through to the no-arg router path:
+        // RowClickRouter.handleRowClick needs coordinator + workspaceStore.
+        // Since AppDelegate doesn't hold per-window SwiftUI stores, we fire the
+        // action via NotificationCenter so the focused TaskRowView's own
+        // handleRowClick call path is used.
+        //
+        // Implementation: post a notification that TaskRowView observes to
+        // self-activate. This keeps window scoping correct without AppDelegate
+        // needing direct references to SwiftUI environment objects.
+        NotificationCenter.default.post(
+            name: .ghosttiesActivateFocusedTaskRow,
+            object: task.id
+        )
+        } // end Task @MainActor
+    }
+
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
     private func syncMenuShortcuts(_ config: Ghostty.Config) {

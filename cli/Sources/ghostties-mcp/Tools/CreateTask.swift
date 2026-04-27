@@ -42,7 +42,11 @@ func createTaskTool() -> Tool {
             let project = args["project"]?.string ?? defaultProject(from: dir)
             let projectPath = args["project_path"]?.string
             let template = args["template"]?.string
-            let priority = args["priority"]?.string
+            // Validate priority against the typed enum; unknown values default to .none.
+            let priorityValue: TaskPriority = {
+                guard let raw = args["priority"]?.string, !raw.isEmpty else { return .none }
+                return TaskPriority(rawValue: raw) ?? .none
+            }()
             let seedNotes = args["notes"]?.string
 
             let id = makeID(title: title)
@@ -57,8 +61,10 @@ func createTaskTool() -> Tool {
                 ("created", created),
                 ("status", laneValue.rawValue)
             ]
-            if let priority {
-                pairs.append(("priority", priority))
+            // Only write priority to disk when it is explicitly set (non-.none).
+            // Omitting the key for .none keeps legacy fixtures clean.
+            if priorityValue != .none {
+                pairs.append(("priority", priorityValue.rawValue))
             }
             if let projectPath, !projectPath.isEmpty {
                 pairs.append(("project-path", projectPath))

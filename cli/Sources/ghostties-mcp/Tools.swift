@@ -70,11 +70,9 @@ func taskSummary(_ t: Task) -> JSONValue {
         "project_path": t.projectPath.map(JSONValue.string) ?? .null,
         "template": t.template.map(JSONValue.string) ?? .null
     ]
-    if let priority = Frontmatter.value(for: "priority", in: t.frontmatter) {
-        out["priority"] = .string(priority)
-    } else {
-        out["priority"] = .null
-    }
+    // Emit priority as a string using the typed field. `.none` serialises as
+    // "none" (not null) so consumers can distinguish "unset" from "no value".
+    out["priority"] = .string(t.priority.rawValue)
     // Prefer `updated` frontmatter if set; else `completed`; else `created`.
     let updated = Frontmatter.value(for: "updated", in: t.frontmatter)
         ?? Frontmatter.value(for: "completed", in: t.frontmatter)
@@ -172,7 +170,7 @@ enum S {
 /// All 9 lanes accepted as status-ish strings. Spec says `graveyard` is an
 /// alias for `done`.
 let laneEnum = ["inbox", "backlog", "running", "needs-you", "review", "done", "graveyard"]
-let priorityEnum = ["low", "normal", "high"]
+let priorityEnum = ["high", "medium", "low", "none"]
 
 // MARK: - Tools
 
@@ -187,6 +185,7 @@ func allTools() -> [Tool] {
         readTaskNotesTool(),
         appendTaskNotesTool(),
         writeSessionNotesTool(),
-        getInboxTool()
+        getInboxTool(),
+        setTaskProjectTool()
     ]
 }

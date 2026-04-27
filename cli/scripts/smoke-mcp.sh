@@ -44,6 +44,8 @@ OUTPUT="$(cd "$WORKDIR" && "$BIN" --tasks-dir "$WORKDIR/.ghostties/tasks" <<'EOF
 {"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"get_active","arguments":{}}}
 {"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"write_session_notes","arguments":{"task_id":"mcp-smoke","header":"Session smoke-header","summary":"First paragraph of the session summary.\n\nSecond paragraph with more detail.\n\nThird paragraph wrapping up."}}}
 {"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"read_task_notes","arguments":{"id":"mcp-smoke"}}}
+{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"set_task_project","arguments":{"id":"mcp-smoke","project_path":"~/Code/ghostties","template":"Orchestrator"}}}
+{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"get_task","arguments":{"id":"mcp-smoke"}}}
 EOF
 )"
 
@@ -81,11 +83,11 @@ echo "$init_resp" | grep -q '"protocolVersion"' || fail "initialize missing prot
 echo "$init_resp" | grep -q '"serverInfo"' || fail "initialize missing serverInfo"
 echo "[smoke] ok  initialize"
 
-# 2. tools/list → 10 tools
+# 2. tools/list → 11 tools
 tools_resp="$(jq_id 2)"
 count="$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); print(len(d['result']['tools']))" "$tools_resp")"
-[[ "$count" == "10" ]] || fail "expected 10 tools, got $count"
-echo "[smoke] ok  tools/list (10 tools)"
+[[ "$count" == "11" ]] || fail "expected 11 tools, got $count"
+echo "[smoke] ok  tools/list (11 tools)"
 
 # 3. create_task → success, not isError
 create_resp="$(jq_id 3)"
@@ -204,5 +206,31 @@ assert "### Session smoke-header" in notes, notes
 assert "a note from the smoke test" in notes, notes
 PY
 echo "[smoke] ok  read_task_notes (post-session)"
+
+# 12. set_task_project → project-path updated
+set_proj_resp="$(jq_id 12)"
+python3 - "$set_proj_resp" <<'PY' || fail "set_task_project failed: $set_proj_resp"
+import json, sys
+d = json.loads(sys.argv[1])
+res = d["result"]
+assert res.get("isError") is False, res
+payload = json.loads(res["content"][0]["text"])
+assert payload["project_path"] == "~/Code/ghostties", payload
+assert payload["template"] == "Orchestrator", payload
+PY
+# Verify on disk.
+grep -q "project-path: ~/Code/ghostties" "$smoke_file" || fail "project-path not persisted to $smoke_file"
+grep -q "template: Orchestrator" "$smoke_file" || fail "template not persisted to $smoke_file"
+echo "[smoke] ok  set_task_project"
+
+# 13. get_task after set_task_project echoes the new project_path
+get2_resp="$(jq_id 13)"
+python3 - "$get2_resp" <<'PY' || fail "get_task post-set_task_project failed: $get2_resp"
+import json, sys
+d = json.loads(sys.argv[1])
+payload = json.loads(d["result"]["content"][0]["text"])
+assert payload["project_path"] == "~/Code/ghostties", payload
+PY
+echo "[smoke] ok  get_task (post-set_task_project)"
 
 echo "[smoke] PASS"

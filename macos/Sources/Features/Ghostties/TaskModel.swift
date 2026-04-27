@@ -1,4 +1,25 @@
 import Foundation
+import GhosttiesCore
+
+/// Task priority levels. Bridged directly from `GhosttiesCore.TaskPriority`
+/// so the raw values, `Codable` conformance, and `CaseIterable` conformance
+/// stay in sync across CLI, MCP, and macOS surfaces automatically.
+/// Default is `.none`. Unknown values decoded from disk fall back to `.none`.
+typealias TaskPriority = GhosttiesCore.TaskPriority
+
+extension TaskPriority {
+    /// Numeric rank for descending sort: higher value = higher priority.
+    /// `.high` = 3, `.medium` = 2, `.low` = 1, `.none` = 0.
+    /// Used by `InboxZoneView` to sort rows by priority desc, created desc.
+    var sortRank: Int {
+        switch self {
+        case .high:   return 3
+        case .medium: return 2
+        case .low:    return 1
+        case .none:   return 0
+        }
+    }
+}
 
 /// Status lanes for a task, matching the six-lane IA from the task-first sidebar brief.
 ///
@@ -66,6 +87,9 @@ struct TaskItem: Identifiable, Codable, Equatable {
     let template: String?
     let created: Date
     let status: TaskStatus
+    /// Task priority parsed from the `priority:` frontmatter key.
+    /// Defaults to `.none` when the key is absent or contains an unknown value.
+    let priority: TaskPriority
     let filesStaged: Int?
     let goal: String?
     let notes: String?
@@ -88,6 +112,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
         case template
         case created
         case status
+        case priority
         case filesStaged = "files-staged"
         case goal
         case notes
@@ -98,5 +123,85 @@ struct TaskItem: Identifiable, Codable, Equatable {
         case ci
         case completed
         case events
+    }
+
+    // Custom Decodable init so that:
+    //   1. Old fixture files without a `priority:` key default to `.none` (backward compat).
+    //   2. Unknown priority strings (e.g. `urgent`) also default to `.none` (strict-with-skip).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        source = try c.decode(TaskSource.self, forKey: .source)
+        sourceID = try c.decodeIfPresent(String.self, forKey: .sourceID)
+        branch = try c.decodeIfPresent(String.self, forKey: .branch)
+        project = try c.decode(String.self, forKey: .project)
+        projectPath = try c.decodeIfPresent(String.self, forKey: .projectPath)
+        template = try c.decodeIfPresent(String.self, forKey: .template)
+        created = try c.decode(Date.self, forKey: .created)
+        status = try c.decode(TaskStatus.self, forKey: .status)
+        // priority: missing key → .none; unknown raw value → .none (strict-with-skip).
+        if let raw = try c.decodeIfPresent(String.self, forKey: .priority) {
+            priority = TaskPriority(rawValue: raw) ?? .none
+        } else {
+            priority = .none
+        }
+        filesStaged = try c.decodeIfPresent(Int.self, forKey: .filesStaged)
+        goal = try c.decodeIfPresent(String.self, forKey: .goal)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes)
+        needs = try c.decodeIfPresent(String.self, forKey: .needs)
+        severity = try c.decodeIfPresent(String.self, forKey: .severity)
+        pr = try c.decodeIfPresent(Int.self, forKey: .pr)
+        prState = try c.decodeIfPresent(String.self, forKey: .prState)
+        ci = try c.decodeIfPresent(String.self, forKey: .ci)
+        completed = try c.decodeIfPresent(Date.self, forKey: .completed)
+        events = try c.decodeIfPresent([TaskEvent].self, forKey: .events)
+    }
+
+    // Explicit memberwise init used by TaskFixtureParser (not Codable-based).
+    init(
+        id: String,
+        title: String,
+        source: TaskSource,
+        sourceID: String?,
+        branch: String?,
+        project: String,
+        projectPath: String?,
+        template: String?,
+        created: Date,
+        status: TaskStatus,
+        priority: TaskPriority = .none,
+        filesStaged: Int?,
+        goal: String?,
+        notes: String?,
+        needs: String?,
+        severity: String?,
+        pr: Int?,
+        prState: String?,
+        ci: String?,
+        completed: Date?,
+        events: [TaskEvent]?
+    ) {
+        self.id = id
+        self.title = title
+        self.source = source
+        self.sourceID = sourceID
+        self.branch = branch
+        self.project = project
+        self.projectPath = projectPath
+        self.template = template
+        self.created = created
+        self.status = status
+        self.priority = priority
+        self.filesStaged = filesStaged
+        self.goal = goal
+        self.notes = notes
+        self.needs = needs
+        self.severity = severity
+        self.pr = pr
+        self.prState = prState
+        self.ci = ci
+        self.completed = completed
+        self.events = events
     }
 }

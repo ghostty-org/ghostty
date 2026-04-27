@@ -29,6 +29,9 @@ struct NewCommand: ParsableCommand {
     @Option(name: .long, help: "Status lane: inbox, backlog, running, needs-you, review, done/graveyard.")
     var lane: String?
 
+    @Option(name: .long, help: "Task priority: high, medium, low, none. Defaults to none (field omitted).")
+    var priority: String?
+
     func run() throws {
         let dir = try TasksDirectory.findOrCreate()
         let store = TaskStore(directory: dir)
@@ -41,6 +44,21 @@ struct NewCommand: ParsableCommand {
             laneValue = parsed
         } else {
             laneValue = .backlog
+        }
+
+        // Parse priority strictly — unknown values error at the CLI layer rather
+        // than silently falling back to .none. This matches the three-surface
+        // contract (D27) and is intentionally stricter than the MCP tool's
+        // permissive fallback, which handles agent-generated free-text.
+        let priorityValue: TaskPriority
+        if let priority {
+            guard let parsed = TaskPriority(rawValue: priority.lowercased()) else {
+                let valid = TaskPriority.allCases.map(\.rawValue).joined(separator: ", ")
+                throw CLIError.usage("unknown priority \"\(priority)\" — valid values: \(valid)")
+            }
+            priorityValue = parsed
+        } else {
+            priorityValue = .none
         }
 
         let id = makeID(title: title)
@@ -56,6 +74,12 @@ struct NewCommand: ParsableCommand {
             ("created", nowISO),
             ("status", laneValue.rawValue)
         ]
+        // Per U1 / three-surface contract: .none is not written to disk so that
+        // legacy fixtures without a priority: field are treated as .none on load.
+        // This keeps round-trips clean and avoids polluting existing task files.
+        if priorityValue != .none {
+            pairs.append(("priority", priorityValue.rawValue))
+        }
         if let projectPath, !projectPath.isEmpty {
             pairs.append(("project-path", projectPath))
         }
