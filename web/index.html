@@ -107,12 +107,14 @@
     /* --- Terminal text --- */
     .terminal {
       font-family: 'SFMono-Regular', 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
-      font-size: 14px;
+      font-size: 18px;
       font-weight: 600;
       line-height: 2;
       color: #E0E0E0;
-      width: fit-content;
+      width: 46ch;
+      max-width: calc(100vw - 48px);
       margin: 0 auto;
+      text-align: left;
     }
 
     .line {
@@ -122,23 +124,25 @@
       border-right: 2px solid transparent;
     }
 
-    /* Diff line colors */
-    .line-3 {
-      color: rgba(255, 100, 100, 0.7);
+    /* Diff line colors + hanging indent */
+    .line-1, .line-2 {
+      margin-left: 2ch;
     }
 
-    .line-4 {
-      color: rgba(100, 220, 120, 0.9);
+    .line-3, .line-4, .line-5, .line-6 {
+      color: transparent;
+      background: transparent;
+      padding-left: 2ch;
+      text-indent: -2ch;
     }
 
-    /* line-4 wraps the full content in an anchor */
-    .line-4 a {
+    .line-6 a {
       color: inherit;
       text-decoration: none;
       cursor: pointer;
     }
 
-    .line-4 a:hover {
+    .line-6 a:hover {
       text-decoration: underline;
     }
 
@@ -151,12 +155,8 @@
       border-right-color: #E0E0E0;
     }
 
-    .animate .line-4.caret-visible {
-      border-right-color: rgba(100, 220, 120, 0.9);
-    }
-
-    .animate .line-4.caret-blink {
-      animation: blink-caret-green 0.53s step-end infinite !important;
+    .animate .line-6.caret-blink {
+      animation: blink-caret-green 0.53s step-end infinite;
     }
 
     /* Typing animations */
@@ -172,18 +172,46 @@
 
     /* line-3: "- ghostties % install soon" = 26 chars */
     .animate .line-3 {
-      animation: type-line3 0.65s steps(26) 5.5s forwards;
+      animation:
+        type-line3 0.65s steps(26) 5.5s forwards,
+        reveal-line3 0s 5.5s forwards;
     }
 
-    /* line-4: "+ ghostties % v0.1.0-beta.12 · April 27, 2026 · [download now]" = 62 chars */
+    /* line-4: "+ ghostties % v0.1.0-beta.12" = 28 chars */
     .animate .line-4 {
-      animation: type-line4 1.55s steps(62) 7.5s forwards;
+      animation:
+        type-line4 0.7s steps(28) 7.0s forwards,
+        reveal-line-green 0s 7.0s forwards;
+    }
+
+    /* line-5: "+ 27Apr2026 · macOS 13+ · Apple Silicon" = 39 chars */
+    .animate .line-5 {
+      animation:
+        type-line5 1.0s steps(39) 8.2s forwards,
+        reveal-line-green 0s 8.2s forwards;
+    }
+
+    /* line-6: "+ [download now]" = 16 chars */
+    .animate .line-6 {
+      animation:
+        type-line6 0.4s steps(16) 9.7s forwards,
+        reveal-line-green 0s 9.7s forwards;
     }
 
     @keyframes type-line1 { from { width: 0; } to { width: 14ch; } }
     @keyframes type-line2 { from { width: 0; } to { width: 44ch; } }
     @keyframes type-line3 { from { width: 0; } to { width: 26ch; } }
-    @keyframes type-line4 { from { width: 0; } to { width: 62ch; } }
+    @keyframes type-line4 { from { width: 0; } to { width: 28ch; } }
+    @keyframes type-line5 { from { width: 0; } to { width: 39ch; } }
+    @keyframes type-line6 { from { width: 0; } to { width: 16ch; } }
+
+    @keyframes reveal-line3 {
+      to { color: rgba(255, 100, 100, 0.7); background: rgba(255, 80, 80, 0.13); }
+    }
+
+    @keyframes reveal-line-green {
+      to { color: rgba(100, 220, 120, 0.9); background: rgba(80, 210, 100, 0.13); }
+    }
 
     @keyframes blink-caret-green {
       0%, 100% { border-right-color: rgba(100, 220, 120, 0.9); }
@@ -220,18 +248,6 @@
       opacity: 0;
     }
 
-    /* --- Letter plate (bottom-left fixed) --- */
-    .letter-plate {
-      position: fixed;
-      bottom: 16px;
-      left: 24px;
-      font-family: 'SFMono-Regular', 'SF Mono', monospace;
-      font-size: 11px;
-      color: rgba(255, 255, 255, 0.3);
-      line-height: 1.7;
-      pointer-events: none;
-    }
-
     /* --- Footer --- */
     footer {
       position: fixed;
@@ -241,9 +257,9 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 16px 24px;
-      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-      font-size: 13px;
+      padding: 14px 24px;
+      font-family: 'SFMono-Regular', 'SF Mono', monospace;
+      font-size: 11px;
       color: rgba(255, 255, 255, 0.25);
     }
 
@@ -257,9 +273,15 @@
       color: rgba(255, 255, 255, 0.5);
     }
 
+    .footer-icons {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
     footer svg {
-      width: 16px;
-      height: 16px;
+      width: 14px;
+      height: 14px;
       display: block;
     }
 
@@ -270,9 +292,8 @@
       .ghost { width: 64px; height: 64px; }
       .ghost-row { gap: 10px; }
       .ghosts { gap: 10px; margin-bottom: 28px; }
-      .terminal { font-size: 11px; }
-      footer { padding: 12px 16px; font-size: 12px; }
-      .letter-plate { font-size: 10px; bottom: 12px; left: 16px; }
+      .terminal { font-size: 16px; }
+      footer { padding: 12px 16px; font-size: 10px; }
     }
   </style>
 </head>
@@ -340,25 +361,28 @@
       <div class="line line-2"><a class="gh-link" href="https://github.com/SeanSmithDesign/ghostties" target="_blank" rel="noopener">https://github.com/SeanSmithDesign/ghostties</a></div>
       <!-- line-3: 26 chars: - ghostties % install soon -->
       <div class="line line-3">- ghostties % install soon</div>
-      <!-- line-4: 62 chars: + ghostties % v0.1.0-beta.12 · April 27, 2026 · [download now] -->
-      <div class="line line-4"><a href="https://github.com/SeanSmithDesign/ghostties/releases/download/v0.1.0-beta.12/Ghostties.dmg" download>+ ghostties % v0.1.0-beta.12 &middot; April 27, 2026 &middot; [download now]</a></div>
+      <!-- line-4: 28 chars: + ghostties % v0.1.0-beta.12 -->
+      <div class="line line-4">+ ghostties % v0.1.0-beta.12</div>
+      <!-- line-5: 39 chars: + 27Apr2026 · macOS 13+ · Apple Silicon -->
+      <div class="line line-5">+ 27Apr2026 &middot; macOS 13+ &middot; Apple Silicon</div>
+      <!-- line-6: 16 chars: + [download now] (clickable) -->
+      <div class="line line-6"><a href="/download">+ [download now]</a></div>
     </div>
   </div>
 
-  <!-- Bottom-left letter plate -->
-  <div class="letter-plate">
-    v0.1.0-beta.12 &middot; April 27, 2026<br>
-    macOS 13+ &middot; Apple Silicon &middot; Beta<br>
-    auto-updates via Sparkle
-  </div>
-
   <footer>
-    <span>&copy; 2026 &nbsp;&middot;&nbsp; <a href="/privacy">Privacy</a> &nbsp;&middot;&nbsp; <a href="/support">Support</a> &nbsp;&middot;&nbsp; <a href="/licenses">Licenses</a></span>
-    <a href="https://x.com/seansmithbuilds" target="_blank" rel="noopener" aria-label="Twitter">
-      <svg viewBox="0 0 24 24" fill="currentColor">
-        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-      </svg>
-    </a>
+    <span class="footer-icons">
+      <a href="https://x.com/seansmithbuilds" target="_blank" rel="noopener" aria-label="X / Twitter">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+      </a>
+      <a href="https://github.com/SeanSmithDesign/ghostties" target="_blank" rel="noopener" aria-label="GitHub">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+      </a>
+      <a href="/download" aria-label="Download">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z"/></svg>
+      </a>
+    </span>
+    <span>&copy; 2026 &nbsp;&middot;&nbsp; <a href="/privacy">Privacy</a> &nbsp;&middot;&nbsp; <a href="/support">Support</a></span>
   </footer>
 
   <script>
@@ -369,13 +393,13 @@
   <script>
     const scene = document.querySelector('.scene');
     const ghLink = document.querySelector('.gh-link');
-    const dlLink = document.querySelector('.line-4 a');
+    const dlLink = document.querySelector('.line-6 a');
     let animating = false;
 
     function activateCarets() {
       const line1 = document.querySelector('.line-1');
       const line2 = document.querySelector('.line-2');
-      const line4 = document.querySelector('.line-4');
+      const line6 = document.querySelector('.line-6');
 
       // Line 1: caret appears at 1.0s, disappears when line 2 starts at 4.2s
       setTimeout(() => { line1.classList.add('caret-visible'); }, 1000);
@@ -385,10 +409,13 @@
       setTimeout(() => { line2.classList.add('caret-visible'); }, 4200);
       setTimeout(() => { line2.classList.remove('caret-visible'); }, 5500);
 
-      // Line 4: caret appears at 7.5s when typing starts
-      // Typing duration: 1.55s → typing ends at 9.05s, then blink stays on
-      setTimeout(() => { line4.classList.add('caret-visible'); }, 7500);
-      setTimeout(() => { line4.classList.add('caret-blink'); }, 9100);
+      // Line 6: caret + inline locks when typing ends (9.7s delay + 0.4s duration = 10.1s)
+      setTimeout(() => {
+        line6.classList.add('caret-blink');
+        line6.style.width = '16ch';
+        line6.style.color = 'rgba(100, 220, 120, 0.9)';
+        line6.style.background = 'rgba(80, 210, 100, 0.13)';
+      }, 10100);
     }
 
     activateCarets();
@@ -410,10 +437,13 @@
       // Clear caret state
       const line1 = document.querySelector('.line-1');
       const line2 = document.querySelector('.line-2');
-      const line4 = document.querySelector('.line-4');
+      const line6 = document.querySelector('.line-6');
       line1.classList.remove('caret-visible');
       line2.classList.remove('caret-visible');
-      line4.classList.remove('caret-visible', 'caret-blink');
+      line6.classList.remove('caret-blink');
+      line6.style.width = '';
+      line6.style.color = '';
+      line6.style.background = '';
 
       // Reset animations
       scene.classList.remove('animate');
