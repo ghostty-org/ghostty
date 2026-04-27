@@ -1,5 +1,5 @@
-blank_issues_enabled: false
+blank_issues_enabled: true
 contact_links:
-  - name: Features, Bug Reports, Questions
+  - name: Upstream Ghostty terminal questions
     url: https://github.com/ghostty-org/ghostty/discussions/new/choose
-    about: Our preferred starting point if you have any questions or suggestions about configuration, features or behavior.
+    about: For questions about the core Ghostty terminal — rendering, config syntax, shell integration, keybindings. NOT for Ghostties sidebar, CLI, or MCP issues (file those as a regular issue here).
