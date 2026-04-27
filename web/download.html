@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Support — ghostties</title>
+  <title>Download — ghostties</title>
   <link rel="icon" type="image/svg+xml" href="">
   <script>
     (function() {
@@ -20,7 +20,7 @@
       link.href = 'data:image/svg+xml;base64,' + btoa(svg);
     })();
   </script>
-  <meta name="description" content="Support for Ghostties — system requirements, known issues, and how to report bugs.">
+  <meta name="description" content="Download Ghostties — a multi-agent workspace terminal for macOS.">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -88,27 +88,6 @@
       margin-bottom: 12px;
     }
 
-    ul {
-      list-style: none;
-      margin-bottom: 12px;
-    }
-
-    ul li {
-      font-size: 15px;
-      line-height: 1.65;
-      color: rgba(255, 255, 255, 0.65);
-      padding-left: 16px;
-      position: relative;
-      margin-bottom: 4px;
-    }
-
-    ul li::before {
-      content: "–";
-      position: absolute;
-      left: 0;
-      color: rgba(255, 255, 255, 0.25);
-    }
-
     code {
       font-family: 'SFMono-Regular', 'SF Mono', 'Fira Code', monospace;
       font-size: 13px;
@@ -128,16 +107,65 @@
       color: rgba(255, 255, 255, 0.9);
     }
 
-    .known-issue {
-      font-size: 15px;
-      line-height: 1.65;
-      color: rgba(255, 255, 255, 0.65);
-      margin-bottom: 4px;
+    .download-block {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin: 32px 0;
     }
 
-    .known-issue .note {
+    .download-btn {
+      display: inline-block;
+      background: #ffffff;
+      color: #1a1a2e;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 15px;
+      font-weight: 600;
+      text-decoration: none;
+      padding: 14px 28px;
+      border-radius: 8px;
+      letter-spacing: -0.01em;
+      transition: opacity 0.15s;
+      align-self: flex-start;
+    }
+
+    .download-btn:hover {
+      opacity: 0.85;
+      color: #1a1a2e;
+    }
+
+    .download-meta {
       font-size: 13px;
-      color: rgba(255, 255, 255, 0.35);
+      color: rgba(255, 255, 255, 0.4);
+      line-height: 1.6;
+    }
+
+    .all-releases {
+      display: inline-block;
+      margin-top: 24px;
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.4);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      transition: color 0.2s;
+    }
+
+    .all-releases:hover {
+      color: rgba(255, 255, 255, 0.65);
+    }
+
+    .note {
+      margin-top: 36px;
+      padding: 16px 20px;
+      background: rgba(255, 255, 255, 0.04);
+      border-left: 2px solid rgba(255, 255, 255, 0.12);
+      border-radius: 4px;
+    }
+
+    .note p {
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.45);
+      margin-bottom: 0;
     }
 
     .updated {
@@ -180,6 +208,7 @@
       body { padding: 48px 16px 88px; }
       h1 { font-size: 22px; }
       footer { padding: 12px 16px; font-size: 12px; }
+      .download-btn { font-size: 14px; padding: 12px 22px; }
     }
   </style>
 </head>
@@ -187,28 +216,29 @@
   <div class="content">
     <a class="back" href="/">&larr; ghostties</a>
 
-    <h1>Support</h1>
-    <p class="lead">Ghostties is in beta. If something breaks or feels wrong, we'd like to know.</p>
+    <h1>Download</h1>
+    <p class="lead">Ghostties is a multi-agent workspace terminal for macOS. Currently in beta.</p>
 
-    <h2>Found a bug?</h2>
-    <p><a href="https://github.com/SeanSmithDesign/ghostties/issues" target="_blank" rel="noopener">Open an issue on GitHub.</a> Include your macOS version (Apple menu &rarr; About This Mac), Ghostties version (Ghostties menu &rarr; About Ghostties), and what you were doing when it broke.</p>
+    <h2>Current release</h2>
+    <div class="download-block">
+      <a class="download-btn" href="https://github.com/SeanSmithDesign/ghostties/releases/download/v0.1.0-beta.12/Ghostties.dmg" download>
+        Download v0.1.0-beta.12 for macOS
+      </a>
+      <div class="download-meta">
+        v0.1.0-beta.12 &middot; April 27, 2026 &middot; 156 MB<br>
+        macOS 13 (Ventura) or later &middot; Apple Silicon
+      </div>
+    </div>
 
-    <h2>System requirements</h2>
-    <ul>
-      <li>macOS 13 (Ventura) or later</li>
-      <li>Apple Silicon Mac (M1, M2, M3, M4) — universal binary not available yet</li>
-    </ul>
+    <p>Beta release &mdash; auto-updates via Sparkle once installed.</p>
 
-    <h2>Updates</h2>
-    <p>Ghostties auto-updates via Sparkle. You'll get a prompt when a new release is ready. To disable updates, add <code>auto-update = off</code> to your config.</p>
+    <a class="all-releases" href="https://github.com/SeanSmithDesign/ghostties/releases" target="_blank" rel="noopener">View all releases on GitHub &rarr;</a>
 
-    <h2>Reset to factory state</h2>
-    <p>Quit the app, delete <code>~/Library/Application Support/com.seansmithdesign.ghostties/</code>, then relaunch. This wipes workspaces and preferences but leaves your project-local task notes (<code>.ghostties/tasks/</code>) alone.</p>
+    <div class="note">
+      <p><strong style="color:rgba(255,255,255,0.6)">Beta.10 and earlier users:</strong> Sparkle in those builds pointed at a now-fixed URL. Install this release manually &mdash; beta.12 and later auto-update from there.</p>
+    </div>
 
-    <h2>Contact</h2>
-    <p>For now, <a href="https://github.com/SeanSmithDesign/ghostties/issues" target="_blank" rel="noopener">GitHub Issues</a> is the best path. Email and Discord support coming once we're out of beta.</p>
-
-    <p class="updated">Last updated April 26, 2026</p>
+    <p class="updated">Last updated April 27, 2026</p>
   </div>
 
   <footer>
