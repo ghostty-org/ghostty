@@ -1,4 +1,5 @@
 import SwiftUI
+import Ghostty
 
 struct KanbanColumn: View {
     let status: CardStatus

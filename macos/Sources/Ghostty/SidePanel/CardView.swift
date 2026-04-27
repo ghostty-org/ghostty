@@ -1,4 +1,5 @@
 import SwiftUI
+import Ghostty
 
 struct CardView: View {
     let card: Card

@@ -1,4 +1,5 @@
 import SwiftUI
+import Ghostty
 
 struct SessionRowView: View {
     let session: Session

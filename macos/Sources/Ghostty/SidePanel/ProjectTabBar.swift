@@ -1,4 +1,5 @@
 import SwiftUI
+import Ghostty
 
 struct ProjectTabBar: View {
     @ObservedObject var viewModel: SidePanelViewModel

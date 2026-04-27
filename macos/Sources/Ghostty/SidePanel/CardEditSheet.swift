@@ -1,4 +1,5 @@
 import SwiftUI
+import Ghostty
 
 struct CardEditSheet: View {
     @Binding var card: Card

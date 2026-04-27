@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import Ghostty
 
 @MainActor
 final class SidePanelViewModel: ObservableObject {

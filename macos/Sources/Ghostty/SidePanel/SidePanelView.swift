@@ -1,4 +1,5 @@
 import SwiftUI
+import Ghostty
 
 struct SidePanelView: View {
     @StateObject var viewModel = SidePanelViewModel()

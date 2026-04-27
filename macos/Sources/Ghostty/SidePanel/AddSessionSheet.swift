@@ -1,4 +1,5 @@
 import SwiftUI
+import Ghostty
 
 struct AddSessionSheet: View {
     let cardId: String
