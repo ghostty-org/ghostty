@@ -300,20 +300,26 @@ fn parseProjects(content: []const u8, allocator: std.mem.Allocator) ![]const typ
                 const is_worktree_node = session_obj.get("is_worktree");
                 const worktree_name_node = session_obj.get("worktree_name");
 
+                const split_id = if (split_id_node) |n|
+                    if (n == .string) try allocator.dupe(u8, n.string) else null
+                else
+                    null;
+                errdefer if (split_id) |s| allocator.free(s);
+
+                const worktree_name = if (worktree_name_node) |n|
+                    if (n == .string) try allocator.dupe(u8, n.string) else null
+                else
+                    null;
+                errdefer if (worktree_name) |s| allocator.free(s);
+
                 sessions[si] = .{
                     .id = sess_id,
                     .name = sess_name,
                     .cwd = sess_cwd,
                     .command = sess_cmd,
-                    .split_id = if (split_id_node) |n|
-                        if (n == .string) try allocator.dupe(u8, n.string) else null
-                    else
-                        null,
+                    .split_id = split_id,
                     .is_worktree = if (is_worktree_node) |n| n == .bool and n.bool else false,
-                    .worktree_name = if (worktree_name_node) |n|
-                        if (n == .string) try allocator.dupe(u8, n.string) else null
-                    else
-                        null,
+                    .worktree_name = worktree_name,
                 };
             }
 
@@ -480,4 +486,50 @@ test "all priorities serialize correctly" {
 
         try std.testing.expectEqual(priority, loaded[0].cards[0].priority);
     }
+}
+
+test "special characters in strings survive roundtrip" {
+    const session = types.Session{
+        .id = "s1\"quotes\"",
+        .name = "Test\nSession\twith\\backslash",
+        .cwd = "/path/with\"quotes\\",
+        .command = "echo \"hello\\nworld\"",
+        .split_id = null,
+        .is_worktree = false,
+        .worktree_name = null,
+    };
+
+    const card = types.Card{
+        .id = "c1",
+        .title = "Card with \"special\" chars\\and\nnewlines",
+        .description = "Description with\nnewline\tand\\backslash\"quotes\"",
+        .status = .in_progress,
+        .priority = .p1,
+        .sessions = &.{session},
+    };
+
+    const project = types.Project{
+        .id = "p1\"id",
+        .name = "Test\"Project\\name",
+        .cards = &.{card},
+    };
+
+    const path = "test_special.json";
+    const io = getIo();
+    const dir = std.Io.Dir.cwd();
+    dir.deleteFile(io, path) catch {};
+
+    try save(&.{project}, path);
+
+    const loaded = try loadAlloc(path, std.heap.page_allocator);
+    defer freeProjects(loaded, std.heap.page_allocator);
+
+    try std.testing.expectEqualStrings("p1\"id", loaded[0].id);
+    try std.testing.expectEqualStrings("Test\"Project\\name", loaded[0].name);
+    try std.testing.expectEqualStrings("Card with \"special\" chars\\and\nnewlines", loaded[0].cards[0].title);
+    try std.testing.expectEqualStrings("Description with\nnewline\tand\\backslash\"quotes\"", loaded[0].cards[0].description);
+    try std.testing.expectEqualStrings("s1\"quotes\"", loaded[0].cards[0].sessions[0].id);
+    try std.testing.expectEqualStrings("Test\nSession\twith\\backslash", loaded[0].cards[0].sessions[0].name);
+    try std.testing.expectEqualStrings("/path/with\"quotes\\", loaded[0].cards[0].sessions[0].cwd);
+    try std.testing.expectEqualStrings("echo \"hello\\nworld\"", loaded[0].cards[0].sessions[0].command);
 }
