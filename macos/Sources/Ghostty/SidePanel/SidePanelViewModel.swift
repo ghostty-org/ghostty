@@ -125,13 +125,15 @@ final class SidePanelViewModel: ObservableObject {
     // MARK: - Terminal Bridge
 
     func activate(_ session: Session) {
-        print("[Kanban] activate() - terminal integration pending Ghostty API")
+        print("[Kanban] activate session: \(session.name) (status: \(session.status.rawValue))")
         if let splitId = session.splitId, splitExists(splitId) {
+            print("[Kanban] focusing existing split: \(splitId)")
             focusSplit(splitId)
             return
         }
 
         let newSplitId = createSplit()
+        print("[Kanban] created new split: \(newSplitId)")
         if session.isWorktree {
             createWorktree(name: session.worktreeName ?? "wt-\(session.id)")
         }
@@ -146,22 +148,22 @@ final class SidePanelViewModel: ObservableObject {
 
     private func focusSplit(_ id: String) {
         // TODO: Call into Ghostty API to focus split
-        print("[Kanban] focusSplit() - PENDING Ghostty API integration")
+        print("[Kanban] focusSplit(id: \(id)) - PENDING Ghostty API integration")
     }
 
     private func splitExists(_ id: String) -> Bool {
         // TODO: Check if split exists
-        print("[Kanban] splitExists() - PENDING Ghostty API integration")
+        print("[Kanban] splitExists(id: \(id)) - PENDING Ghostty API integration")
         return false
     }
 
     private func runCommand(split: String, cwd: String, command: String) {
         // TODO: Run command in split
-        print("[Kanban] runCommand() - PENDING Ghostty API integration")
+        print("[Kanban] runCommand(split: \(split), cwd: \(cwd), command: \(command)) - PENDING Ghostty API integration")
     }
 
     private func createWorktree(name: String) {
         // TODO: Execute git worktree add
-        print("[Kanban] createWorktree() - PENDING Ghostty API integration")
+        print("[Kanban] createWorktree(name: \(name)) - PENDING Ghostty API integration")
     }
 }
