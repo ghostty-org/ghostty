@@ -2,7 +2,17 @@ import Foundation
 import Cocoa
 import SwiftUI
 import Combine
-import GhosttyKit
+import Ghostty
+
+/// Observable state for sidebar visibility controlled by Cmd+Shift+S
+@MainActor
+final class SidebarState: ObservableObject {
+    @Published var isVisible: Bool = true
+
+    func toggle() {
+        isVisible.toggle()
+    }
+}
 
 /// A classic, tabbed terminal experience.
 class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Controller {
@@ -60,6 +70,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
+
+    /// Sidebar state for kanban panel visibility toggled via Cmd+Shift+S
+    let sidebarState = SidebarState()
+
+    /// Sidebar view model for kanban panel
+    let sidebarViewModel = SidePanelViewModel()
 
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
@@ -143,6 +159,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Remove all of our notificationcenter subscriptions
         let center = NotificationCenter.default
         center.removeObserver(self)
+        // Clean up sidebar keyboard shortcut monitor
+        if let sidebarEventMonitor {
+            NSEvent.removeMonitor(sidebarEventMonitor)
+        }
     }
 
     private func cancelPendingInitialPresentation() {
@@ -1067,12 +1087,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Initialize our content view to the SwiftUI root
         let container = TerminalViewContainer {
-            NavigationSplitView {
-                SidePanelView()
-            } detail: {
-                TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
-            }
+            SidebarContainerView(
+                sidebarState: sidebarState,
+                sidebarViewModel: sidebarViewModel,
+                terminalView: TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
+            )
         }
+
+        // Set up keyboard shortcut monitor for Cmd+Shift+S to toggle sidebar
+        setupSidebarKeyboardShortcut()
 
         // Set the initial content size on the container so that
         // intrinsicContentSize returns the correct value immediately,
@@ -1695,6 +1718,49 @@ extension TerminalController {
             return .contentIntrinsicSize
         } else {
             return nil
+        }
+    }
+
+    // MARK: - Sidebar Keyboard Shortcut
+
+    private var sidebarEventMonitor: Any?
+
+    private func setupSidebarKeyboardShortcut() {
+        sidebarEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+
+            // Check for Cmd+Shift+S
+            if event.modifierFlags.contains([.command, .shift]) &&
+               event.charactersIgnoringModifiers?.lowercased() == "s" {
+                Task { @MainActor in
+                    self.sidebarState.toggle()
+                }
+                return nil // Consume the event
+            }
+
+            return event
+        }
+    }
+}
+
+// MARK: - Sidebar Container View
+
+/// SwiftUI view that wraps NavigationSplitView with sidebar visibility control
+private struct SidebarContainerView: View {
+    @ObservedObject var sidebarState: SidebarState
+    let sidebarViewModel: SidePanelViewModel
+    let terminalView: TerminalView
+
+    var body: some View {
+        NavigationSplitView(columnVisibility: Binding(
+            get: { sidebarState.isVisible ? .all : .detailOnly },
+            set: { newValue in
+                sidebarState.isVisible = (newValue != .detailOnly)
+            }
+        )) {
+            SidePanelView(viewModel: sidebarViewModel)
+        } detail: {
+            terminalView
         }
     }
 }
