@@ -2233,6 +2233,12 @@ keybind: Keybinds = .{},
 /// only supported on macOS.
 @"window-step-resize": bool = false,
 
+/// Whether to show the kanban sidebar.
+@"sidebar-kanban-enabled": bool = false,
+
+/// The width of the kanban sidebar in pixels.
+@"sidebar-kanban-width": u32 = 280,
+
 /// The position where new tabs are created. Valid values:
 ///
 ///   * `current` - Insert the new tab after the currently focused tab,
