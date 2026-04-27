@@ -1,5 +1,5 @@
 import SwiftUI
-import Ghostty
+import GhosttyKit
 
 struct KanbanColumn: View {
     let status: CardStatus
@@ -29,8 +29,12 @@ struct KanbanColumn: View {
 
             ScrollView {
                 LazyVStack(spacing: 8) {
-                    ForEach(cards) { card in
-                        CardView(card: card, viewModel: viewModel)
+                    if cards.isEmpty {
+                        emptyState
+                    } else {
+                        ForEach(cards) { card in
+                            CardView(card: card, viewModel: viewModel)
+                        }
                     }
                 }
                 .padding(.horizontal, 8)
@@ -55,5 +59,22 @@ struct KanbanColumn: View {
         case .review: return .purple
         case .done: return .green
         }
+    }
+
+    private var emptyState: some View {
+        VStack {
+            Spacer()
+            Text("Drop tasks here")
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+                .padding(.vertical, 20)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, minHeight: 80)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(style: StrokeStyle(lineWidth: 1, dash: [4]))
+                .foregroundColor(.secondary.opacity(0.3))
+        )
     }
 }
