@@ -1,5 +1,5 @@
 import SwiftUI
-import Ghostty
+import GhosttyKit
 
 struct CardEditSheet: View {
     @Binding var card: Card
@@ -23,7 +23,7 @@ struct CardEditSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Edit Card")
+            Text(card.title.isEmpty ? "New Task" : "Edit Task")
                 .font(.headline)
 
             Form {
@@ -68,10 +68,11 @@ struct CardEditSheet: View {
             }
 
             HStack {
-                Spacer()
-                Button("Delete", role: .destructive) {
-                    viewModel.deleteCard(id: card.id)
-                    dismiss()
+                if !card.title.isEmpty {
+                    Button("Delete", role: .destructive) {
+                        viewModel.deleteCard(id: card.id)
+                        dismiss()
+                    }
                 }
                 Spacer()
                 Button("Cancel") {
