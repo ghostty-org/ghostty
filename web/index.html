@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ghostties</title>
+  <link rel="icon" type="image/svg+xml" href="">
+  <script>
+    (function() {
+      var colors = ['#e84855','#8b5cf6','#22d3ee','#f472b6','#f59e0b','#eab308','#38bdf8','#7c6f9c'];
+      var c = colors[Math.floor(Math.random() * colors.length)];
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+        + '<path d="M4 2h8v1h2v1h1v10h-1v-1h-1v-1h-1v2h-1v-2h-1v1h-1v1h-1v-2h-1v2h-1v-1h-1v1H4v-1H3V3h1z" fill="' + c + '"/>'
+        + '<rect x="5" y="5" width="2" height="3" fill="white"/>'
+        + '<rect x="9" y="5" width="2" height="3" fill="white"/>'
+        + '<rect x="6" y="6" width="1" height="2" fill="#1a1a2e"/>'
+        + '<rect x="10" y="6" width="1" height="2" fill="#1a1a2e"/>'
+        + '</svg>';
+      var link = document.querySelector('link[rel="icon"]');
+      link.href = 'data:image/svg+xml;base64,' + btoa(svg);
+    })();
+  </script>
+  <meta name="description" content="Ghostties — a multi-agent workspace terminal. Coming soon.">
+  <meta property="og:title" content="ghostties">
+  <meta property="og:description" content="A multi-agent workspace terminal. Coming soon.">
+  <meta property="og:image" content="/assets/poster.png">
+  <meta property="og:type" content="website">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
+      background: #1a1a2e;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    video {
+      width: 100%;
+      max-width: 720px;
+      height: auto;
+      border-radius: 16px;
+      cursor: pointer;
+    }
+
+    footer {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.25);
+    }
+
+    footer a {
+      color: rgba(255, 255, 255, 0.25);
+      transition: color 0.2s;
+    }
+
+    footer a:hover {
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    footer svg {
+      width: 16px;
+      height: 16px;
+      display: block;
+    }
+
+    @media (max-width: 480px) {
+      body { padding: 16px; }
+      video { border-radius: 12px; }
+      footer { padding: 12px 16px; font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <video autoplay muted playsinline poster="assets/poster.png">
+    <source src="assets/GhostiesAnimation.mp4" type="video/mp4">
+  </video>
+
+  <footer>
+    <span>&copy; 2026</span>
+    <a href="https://x.com/seansmithbuilds" target="_blank" rel="noopener" aria-label="Twitter">
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+      </svg>
+    </a>
+  </footer>
+
+  <script>
+    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+  </script>
+  <script defer src="/_vercel/insights/script.js"></script>
+
+  <script>
+    const video = document.querySelector('video');
+    const PAUSE_AT = 12.0; // Frame 144 at 12fps — URL done, well before scatter at 150
+    let paused = false;
+    let scattering = false;
+
+    video.addEventListener('timeupdate', () => {
+      if (!paused && !scattering && video.currentTime >= PAUSE_AT) {
+        video.pause();
+        paused = true;
+      }
+    });
+
+    video.addEventListener('click', () => {
+      if (paused) {
+        // Let the scatter animation play out
+        paused = false;
+        scattering = true;
+        video.play();
+      }
+    });
+
+    video.addEventListener('ended', () => {
+      // After scatter finishes, restart
+      scattering = false;
+      video.currentTime = 0;
+      video.play();
+    });
+  </script>
+</body>
+</html>
