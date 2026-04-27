@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Support — ghostties</title>
+  <link rel="icon" type="image/svg+xml" href="">
+  <script>
+    (function() {
+      var colors = ['#e84855','#8b5cf6','#22d3ee','#f472b6','#f59e0b','#eab308','#38bdf8','#7c6f9c'];
+      var c = colors[Math.floor(Math.random() * colors.length)];
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+        + '<path d="M4 2h8v1h2v1h1v10h-1v-1h-1v-1h-1v2h-1v-2h-1v1h-1v1h-1v-2h-1v2h-1v-1h-1v1H4v-1H3V3h1z" fill="' + c + '"/>'
+        + '<rect x="5" y="5" width="2" height="3" fill="white"/>'
+        + '<rect x="9" y="5" width="2" height="3" fill="white"/>'
+        + '<rect x="6" y="6" width="1" height="2" fill="#1a1a2e"/>'
+        + '<rect x="10" y="6" width="1" height="2" fill="#1a1a2e"/>'
+        + '</svg>';
+      var link = document.querySelector('link[rel="icon"]');
+      link.href = 'data:image/svg+xml;base64,' + btoa(svg);
+    })();
+  </script>
+  <meta name="description" content="Support for Ghostties — system requirements, known issues, and how to report bugs.">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      min-height: 100%;
+      background: #1a1a2e;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 64px 24px 96px;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      color: rgba(255, 255, 255, 0.85);
+    }
+
+    .content {
+      width: 100%;
+      max-width: 600px;
+    }
+
+    .back {
+      display: inline-block;
+      margin-bottom: 40px;
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.35);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .back:hover {
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+      color: #fff;
+    }
+
+    .lead {
+      font-size: 16px;
+      line-height: 1.6;
+      color: rgba(255, 255, 255, 0.65);
+      margin-bottom: 40px;
+    }
+
+    h2 {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: rgba(255, 255, 255, 0.35);
+      margin-bottom: 10px;
+      margin-top: 36px;
+    }
+
+    p {
+      font-size: 15px;
+      line-height: 1.65;
+      color: rgba(255, 255, 255, 0.65);
+      margin-bottom: 12px;
+    }
+
+    ul {
+      list-style: none;
+      margin-bottom: 12px;
+    }
+
+    ul li {
+      font-size: 15px;
+      line-height: 1.65;
+      color: rgba(255, 255, 255, 0.65);
+      padding-left: 16px;
+      position: relative;
+      margin-bottom: 4px;
+    }
+
+    ul li::before {
+      content: "–";
+      position: absolute;
+      left: 0;
+      color: rgba(255, 255, 255, 0.25);
+    }
+
+    code {
+      font-family: 'SFMono-Regular', 'SF Mono', 'Fira Code', monospace;
+      font-size: 13px;
+      background: rgba(255, 255, 255, 0.07);
+      padding: 1px 5px;
+      border-radius: 4px;
+      color: rgba(255, 255, 255, 0.75);
+    }
+
+    a {
+      color: rgba(255, 255, 255, 0.65);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    a:hover {
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    .known-issue {
+      font-size: 15px;
+      line-height: 1.65;
+      color: rgba(255, 255, 255, 0.65);
+      margin-bottom: 4px;
+    }
+
+    .known-issue .note {
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.35);
+    }
+
+    .updated {
+      margin-top: 48px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.25);
+    }
+
+    footer {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.25);
+    }
+
+    footer a {
+      color: rgba(255, 255, 255, 0.25);
+      transition: color 0.2s;
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    footer svg {
+      width: 16px;
+      height: 16px;
+      display: block;
+    }
+
+    @media (max-width: 480px) {
+      body { padding: 48px 16px 88px; }
+      h1 { font-size: 22px; }
+      footer { padding: 12px 16px; font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="content">
+    <a class="back" href="/">&larr; ghostties</a>
+
+    <h1>Support</h1>
+    <p class="lead">Ghostties is in beta. If something breaks or feels wrong, we'd like to know.</p>
+
+    <h2>Found a bug?</h2>
+    <p><a href="https://github.com/SeanSmithDesign/ghostties/issues" target="_blank" rel="noopener">Open an issue on GitHub.</a> Include your macOS version (Apple menu &rarr; About This Mac), Ghostties version (Ghostties menu &rarr; About Ghostties), and what you were doing when it broke.</p>
+
+    <h2>System requirements</h2>
+    <ul>
+      <li>macOS 14 (Sonoma) or later</li>
+      <li>Apple Silicon Mac (M1, M2, M3, M4) — universal binary not available yet</li>
+    </ul>
+
+    <h2>Updates</h2>
+    <p>Ghostties auto-updates via Sparkle. You'll get a prompt when a new release is ready. To disable updates, add <code>auto-update = off</code> to your config.</p>
+
+    <h2>Reset to factory state</h2>
+    <p>Quit the app, delete <code>~/Library/Application Support/com.seansmithdesign.ghostties/</code>, then relaunch. This wipes workspaces and preferences but leaves your project-local task notes (<code>.ghostties/tasks/</code>) alone.</p>
+
+    <h2>Known issues</h2>
+    <p class="known-issue">macOS permission dialogs say "Ghostty" instead of "Ghostties" — cosmetic, fix coming. <span class="note">No data implication.</span></p>
+
+    <h2>Contact</h2>
+    <p>For now, <a href="https://github.com/SeanSmithDesign/ghostties/issues" target="_blank" rel="noopener">GitHub Issues</a> is the best path. Email and Discord support coming once we're out of beta.</p>
+
+    <p class="updated">Last updated April 26, 2026</p>
+  </div>
+
+  <footer>
+    <span>&copy; 2026 &nbsp;&middot;&nbsp; <a href="/privacy.html">Privacy</a> &nbsp;&middot;&nbsp; <a href="/support.html">Support</a></span>
+    <a href="https://x.com/seansmithbuilds" target="_blank" rel="noopener" aria-label="Twitter">
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+      </svg>
+    </a>
+  </footer>
+</body>
+</html>
