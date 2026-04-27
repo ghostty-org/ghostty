@@ -20,16 +20,16 @@
       link.href = 'data:image/svg+xml;base64,' + btoa(svg);
     })();
   </script>
-  <meta name="description" content="Ghostties — a multi-agent workspace terminal. Coming soon.">
+  <meta name="description" content="Ghostties — a multi-agent workspace terminal. Now in beta.">
   <meta property="og:title" content="ghostties">
-  <meta property="og:description" content="A multi-agent workspace terminal. Coming soon.">
+  <meta property="og:description" content="A multi-agent workspace terminal. Now in beta.">
   <meta property="og:image" content="/assets/poster.png">
   <meta property="og:type" content="website">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     html, body {
-      min-height: 100%;
+      height: 100%;
       background: #1a1a2e;
     }
 
@@ -38,7 +38,7 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 24px 24px 64px;
+      padding: 24px;
     }
 
     /* --- Scene container --- */
@@ -77,10 +77,6 @@
     }
 
     /* --- Entrance: each ghost flies in from a unique direction --- */
-    .animate .ghost {
-      animation: float 2.5s ease-in-out infinite alternate;
-    }
-
     .animate .g0 { animation: entrance-g0 0.8s ease-out forwards, float-g0 2.4s ease-in-out 1.5s infinite alternate; }
     .animate .g1 { animation: entrance-g1 0.8s 1.8s ease-out forwards, float-g1 2.8s ease-in-out 3.0s infinite alternate; }
     .animate .g2 { animation: entrance-g2 0.8s 2.0s ease-out forwards, float-g2 3.1s ease-in-out 3.2s infinite alternate; }
@@ -126,60 +122,81 @@
       border-right: 2px solid transparent;
     }
 
-    /* Typing animation per line */
-    .animate .line-1 {
-      animation: type-line1 0.6s steps(16) 1.0s forwards, blink-caret 0.6s step-end 1.0s 1;
-      border-right-color: transparent;
+    /* Diff line colors */
+    .line-3 {
+      color: rgba(255, 100, 100, 0.7);
     }
 
+    .line-4 {
+      color: rgba(100, 220, 120, 0.9);
+    }
+
+    /* line-4 wraps the full content in an anchor */
+    .line-4 a {
+      color: inherit;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .line-4 a:hover {
+      text-decoration: underline;
+    }
+
+    /* Caret blink states */
     .animate .line-1.caret-visible {
       border-right-color: #E0E0E0;
-    }
-
-    .animate .line-2 {
-      animation: type-line2 0.9s steps(25) 4.2s forwards, blink-caret 0.6s step-end 4.2s 1;
-      border-right-color: transparent;
     }
 
     .animate .line-2.caret-visible {
       border-right-color: #E0E0E0;
     }
 
+    .animate .line-4.caret-visible {
+      border-right-color: rgba(100, 220, 120, 0.9);
+    }
+
+    .animate .line-4.caret-blink {
+      animation: blink-caret-green 0.53s step-end infinite !important;
+    }
+
+    /* Typing animations */
+    /* line-1: "cd ~/ghostties" = 14 chars */
+    .animate .line-1 {
+      animation: type-line1 0.56s steps(14) 1.0s forwards;
+    }
+
+    /* line-2: "https://github.com/SeanSmithDesign/ghostties" = 44 chars */
+    .animate .line-2 {
+      animation: type-line2 1.1s steps(44) 4.2s forwards;
+    }
+
+    /* line-3: "- ghostties % install soon" = 26 chars */
     .animate .line-3 {
-      animation: type-line3 1.5s steps(52) 5.5s forwards, blink-caret 0.53s step-end 5.5s infinite;
-      border-right-color: transparent;
+      animation: type-line3 0.65s steps(26) 5.5s forwards;
     }
 
-    .animate .line-3.caret-visible {
-      border-right-color: #E0E0E0;
+    /* line-4: "+ ghostties % v0.1.0-beta.12 · April 27, 2026 · [download now]" = 62 chars */
+    .animate .line-4 {
+      animation: type-line4 1.55s steps(62) 7.5s forwards;
     }
 
-    @keyframes type-line1 {
-      from { width: 0; }
-      to   { width: 16ch; }
+    @keyframes type-line1 { from { width: 0; } to { width: 14ch; } }
+    @keyframes type-line2 { from { width: 0; } to { width: 44ch; } }
+    @keyframes type-line3 { from { width: 0; } to { width: 26ch; } }
+    @keyframes type-line4 { from { width: 0; } to { width: 62ch; } }
+
+    @keyframes blink-caret-green {
+      0%, 100% { border-right-color: rgba(100, 220, 120, 0.9); }
+      50%       { border-right-color: transparent; }
     }
 
-    @keyframes type-line2 {
-      from { width: 0; }
-      to   { width: 25ch; }
-    }
-
-    @keyframes type-line3 {
-      from { width: 0; }
-      to   { width: 52ch; }
-    }
-
-    @keyframes blink-caret {
-      50% { border-color: transparent; }
-    }
-
-    .terminal a {
+    .terminal a.gh-link {
       color: #E0E0E0;
       text-decoration: none;
       cursor: pointer;
     }
 
-    .terminal a:hover {
+    .terminal a.gh-link:hover {
       text-decoration: underline;
     }
 
@@ -203,6 +220,18 @@
       opacity: 0;
     }
 
+    /* --- Letter plate (bottom-left fixed) --- */
+    .letter-plate {
+      position: fixed;
+      bottom: 16px;
+      left: 24px;
+      font-family: 'SFMono-Regular', 'SF Mono', monospace;
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.3);
+      line-height: 1.7;
+      pointer-events: none;
+    }
+
     /* --- Footer --- */
     footer {
       position: fixed;
@@ -220,6 +249,7 @@
 
     footer a {
       color: rgba(255, 255, 255, 0.25);
+      text-decoration: none;
       transition: color 0.2s;
     }
 
@@ -233,51 +263,6 @@
       display: block;
     }
 
-    /* --- Download CTA --- */
-    .cta {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-      padding-top: 32px;
-      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    }
-
-    .cta-download {
-      display: inline-block;
-      background: #ffffff;
-      color: #1a1a2e;
-      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-      font-size: 15px;
-      font-weight: 600;
-      text-decoration: none;
-      padding: 12px 24px;
-      border-radius: 8px;
-      letter-spacing: -0.01em;
-      transition: opacity 0.15s;
-    }
-
-    .cta-download:hover {
-      opacity: 0.85;
-    }
-
-    .cta-meta {
-      font-size: 12px;
-      color: rgba(255, 255, 255, 0.4);
-      text-align: center;
-      line-height: 1.6;
-    }
-
-    .cta-meta a {
-      color: rgba(255, 255, 255, 0.4);
-      text-decoration: underline;
-      transition: color 0.2s;
-    }
-
-    .cta-meta a:hover {
-      color: rgba(255, 255, 255, 0.65);
-    }
-
     /* --- Mobile --- */
     @media (max-width: 480px) {
       body { padding: 16px; }
@@ -285,10 +270,9 @@
       .ghost { width: 64px; height: 64px; }
       .ghost-row { gap: 10px; }
       .ghosts { gap: 10px; margin-bottom: 28px; }
-      .terminal { font-size: 13px; }
+      .terminal { font-size: 11px; }
       footer { padding: 12px 16px; font-size: 12px; }
-      .cta { padding-top: 24px; }
-      .cta-download { font-size: 14px; padding: 11px 20px; }
+      .letter-plate { font-size: 10px; bottom: 12px; left: 16px; }
     }
   </style>
 </head>
@@ -350,25 +334,26 @@
     </div>
 
     <div class="terminal">
+      <!-- line-1: 14 chars: cd ~/ghostties -->
       <div class="line line-1">cd ~/ghostties</div>
-      <div class="line line-2">ghostties % install soon</div>
-      <div class="line line-3"><a class="gh-link" href="https://github.com/SeanSmithDesign/ghostties" target="_blank" rel="noopener">https://github.com/SeanSmithDesign/ghostties</a></div>
+      <!-- line-2: 44 chars: https://github.com/SeanSmithDesign/ghostties -->
+      <div class="line line-2"><a class="gh-link" href="https://github.com/SeanSmithDesign/ghostties" target="_blank" rel="noopener">https://github.com/SeanSmithDesign/ghostties</a></div>
+      <!-- line-3: 26 chars: - ghostties % install soon -->
+      <div class="line line-3">- ghostties % install soon</div>
+      <!-- line-4: 62 chars: + ghostties % v0.1.0-beta.12 · April 27, 2026 · [download now] -->
+      <div class="line line-4"><a href="https://github.com/SeanSmithDesign/ghostties/releases/download/v0.1.0-beta.12/Ghostties.dmg" download>+ ghostties % v0.1.0-beta.12 &middot; April 27, 2026 &middot; [download now]</a></div>
     </div>
   </div>
 
-  <div class="cta">
-    <a class="cta-download" href="https://github.com/SeanSmithDesign/ghostties/releases/download/v0.1.0-beta.12/Ghostties.dmg" download>
-      Download for macOS (Apple Silicon)
-    </a>
-    <div class="cta-meta">
-      v0.1.0-beta.12 · April 27, 2026<br>
-      macOS 14+, Apple Silicon. Beta — auto-updates via Sparkle.<br>
-      <a href="https://github.com/SeanSmithDesign/ghostties/releases/tag/v0.1.0-beta.12" target="_blank" rel="noopener">View release notes</a>
-    </div>
+  <!-- Bottom-left letter plate -->
+  <div class="letter-plate">
+    v0.1.0-beta.12 &middot; April 27, 2026<br>
+    macOS 13+ &middot; Apple Silicon &middot; Beta<br>
+    auto-updates via Sparkle
   </div>
 
   <footer>
-    <span>&copy; 2026 &nbsp;&middot;&nbsp; <a href="/privacy.html">Privacy</a> &nbsp;&middot;&nbsp; <a href="/support.html">Support</a></span>
+    <span>&copy; 2026 &nbsp;&middot;&nbsp; <a href="/privacy">Privacy</a> &nbsp;&middot;&nbsp; <a href="/support">Support</a> &nbsp;&middot;&nbsp; <a href="/licenses">Licenses</a></span>
     <a href="https://x.com/seansmithbuilds" target="_blank" rel="noopener" aria-label="Twitter">
       <svg viewBox="0 0 24 24" fill="currentColor">
         <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
@@ -384,28 +369,28 @@
   <script>
     const scene = document.querySelector('.scene');
     const ghLink = document.querySelector('.gh-link');
-    const lines = document.querySelectorAll('.line');
+    const dlLink = document.querySelector('.line-4 a');
     let animating = false;
 
-    // Activate caret visibility at the right times
     function activateCarets() {
       const line1 = document.querySelector('.line-1');
       const line2 = document.querySelector('.line-2');
-      const line3 = document.querySelector('.line-3');
+      const line4 = document.querySelector('.line-4');
 
-      // Line 1 caret appears when it starts typing (1s), disappears when line 2 starts (4.2s)
+      // Line 1: caret appears at 1.0s, disappears when line 2 starts at 4.2s
       setTimeout(() => { line1.classList.add('caret-visible'); }, 1000);
       setTimeout(() => { line1.classList.remove('caret-visible'); }, 4200);
 
-      // Line 2 caret appears when it starts typing (4.2s), disappears when line 3 starts (5.5s)
+      // Line 2: caret appears at 4.2s, disappears when line 3 starts at 5.5s
       setTimeout(() => { line2.classList.add('caret-visible'); }, 4200);
       setTimeout(() => { line2.classList.remove('caret-visible'); }, 5500);
 
-      // Line 3 caret appears when it starts typing and stays (blinking)
-      setTimeout(() => { line3.classList.add('caret-visible'); }, 5500);
+      // Line 4: caret appears at 7.5s when typing starts
+      // Typing duration: 1.55s → typing ends at 9.05s, then blink stays on
+      setTimeout(() => { line4.classList.add('caret-visible'); }, 7500);
+      setTimeout(() => { line4.classList.add('caret-blink'); }, 9100);
     }
 
-    // Initial caret activation
     activateCarets();
 
     // Click to scatter
@@ -415,33 +400,33 @@
       scene.classList.add('scatter');
     });
 
-    // After scatter transition ends → restart the whole sequence
+    // After scatter → restart
     scene.addEventListener('transitionend', (e) => {
       if (!scene.classList.contains('scatter')) return;
-      // Only react to ghost transitions (not terminal opacity)
       if (!e.target.classList.contains('ghost')) return;
 
-      // Remove scatter
       scene.classList.remove('scatter');
 
-      // Clear caret classes
-      document.querySelector('.line-1').classList.remove('caret-visible');
-      document.querySelector('.line-2').classList.remove('caret-visible');
-      document.querySelector('.line-3').classList.remove('caret-visible');
+      // Clear caret state
+      const line1 = document.querySelector('.line-1');
+      const line2 = document.querySelector('.line-2');
+      const line4 = document.querySelector('.line-4');
+      line1.classList.remove('caret-visible');
+      line2.classList.remove('caret-visible');
+      line4.classList.remove('caret-visible', 'caret-blink');
 
-      // Reset animations: remove animate, force reflow, re-add
+      // Reset animations
       scene.classList.remove('animate');
       void scene.offsetWidth;
       scene.classList.add('animate');
 
-      // Re-activate carets for the new cycle
       activateCarets();
-
       animating = false;
     });
 
-    // Prevent scatter when clicking the GitHub link
+    // Don't scatter when clicking links
     ghLink.addEventListener('click', (e) => e.stopPropagation());
+    dlLink.addEventListener('click', (e) => e.stopPropagation());
   </script>
 </body>
 </html>
