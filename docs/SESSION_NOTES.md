@@ -2023,6 +2023,58 @@ Issues discovered during manual verification:
 
 ---
 
+## Apr 27, 2026 (Full Cleanup + beta.12 Release)
+
+### Headline
+
+Executed a 4-wave plan to clean up all accumulated debt and ship `v0.1.0-beta.12`. Migrated Sparkle auto-update to a self-hosted appcast on ghostties.org, fixed TCC dialog name (SEA-184), merged row-click v0 (12 units, SEA-156–168) and all open web branches, purged 14 agent worktrees + 49 stale branches, then tagged beta.12 — the first release with working auto-update discovery.
+
+### What shipped to main
+
+**Wave 1 — release prep (commits `037b1f018`, `f7f0c5092` via PR #15):**
+
+- Sparkle feed URLs migrated to `https://ghostties.org/appcast-{beta,stable}.xml` (`UpdateDelegate.swift:15-16`)
+- `INFOPLIST_KEY_CFBundleName = Ghostties` in pbxproj Release config only (SEA-184 — TCC dialog name fix)
+- `web/appcast-beta.xml` + `web/appcast-stable.xml` seed placeholders
+- Release workflow extended: "Commit appcast to web/" step auto-commits XMLs to `web/` on main after each tag (`permissions: contents: write` added to appcast job)
+- `.gitignore` updated: `.claude/scheduled_tasks.lock`, `docs/Crash report/`
+
+**Wave 2 — open PR merges:**
+
+- PR #10 (`fix/ci-appdelegate-lazy-init`) — merged
+- PR #14 (`feat/row-click-v0`) — conflict resolved (TaskStore perf-fix vs row-click stored lanes), promoted draft, merged (`7ab704226`)
+- PR #16 (`web/feat/privacy-support-pages`) — opened + merged (SEA-186)
+- PR #17 (`web/feat/dmg-cta-beta10`) — bumped copy from beta.9 → beta.11, merged (SEA-185)
+- PRs #11, #12, #13 (superseded row-click unit branches) — closed
+
+**Wave 3 — cleanup:**
+
+- All 14 locked `.claude/worktrees/agent-*` worktrees removed
+- ~49 stale local branches deleted + remote branches pruned
+- Obsolete stash dropped
+
+**Wave 4 + CI fix:**
+
+- Release pause lifted; `v0.1.0-beta.11` tagged — but pipeline failed at build step (`Swift.Task` disambiguation failure: `GhosttiesCore` exports a `Task` type, breaking `Swift.Task` on CI)
+- Fix: `_Concurrency.Task` in 3 files (TaskStore.swift:342, NewTaskComposerView.swift:299, RowClickRouter.swift:121) → `a7d7d7553`
+- `v0.1.0-beta.12` tagged at `a7d7d7553`, pipeline in_progress (run `25017363734`)
+- beta.11 tag stays pointing at broken commit (tag protection prevents moving it)
+
+### Key decisions
+
+- **`_Concurrency.Task` convention locked** — `GhosttiesCore.Task` (data model) causes `Swift.Task` to fail disambiguation on CI's Swift version. All async task spawns in macOS target must use `_Concurrency.Task`. Added to Active Conventions + Fragile Areas.
+- **Sparkle self-hosted migration** — beta.10 binary points at dead `releases/latest/download/...` URL (GitHub `latest` skips prereleases, pre-existing since beta.9). Fix: self-hosted on ghostties.org, auto-maintained by release workflow. Beta.10 users cannot auto-update — manual install of beta.12 required.
+- **Tag protection consequence** — cannot retag; beta.11 tag is permanently broken. Next-number convention confirmed.
+
+### Open
+
+- beta.12 pipeline in_progress — watch with `gh run watch 25017363734 --repo SeanSmithDesign/ghostties`
+- After DMG publishes: install + verify (SEA-138, TCC dialog says "Ghostties", Sparkle hits ghostties.org, debug banner gone, both sidebars)
+- Archive standalone `ghostties-web` repo on GitHub
+- Update Linear tickets Done: SEA-184, SEA-185, SEA-186, SEA-156–168
+
+---
+
 ## Apr 27, 2026 (Grounding Layer — v2.2 Scaffold)
 
 ### Headline
