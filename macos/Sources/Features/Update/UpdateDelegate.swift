@@ -8,12 +8,12 @@ extension UpdateDriver: SPUUpdaterDelegate {
         }
 
         // Ghostties-specific appcast feeds (not upstream Ghostty).
-        // Hosted on GitHub Releases — each tagged release uploads both files.
+        // Hosted on ghostties.org (Vercel) — updated by release workflow after each tag.
         // Stable channel: only receives non-beta releases.
         // Tip/beta channel: receives all releases including betas.
         switch appDelegate.ghostty.config.autoUpdateChannel {
-        case .tip: return "https://github.com/SeanSmithDesign/ghostties/releases/latest/download/appcast-beta.xml"
-        case .stable: return "https://github.com/SeanSmithDesign/ghostties/releases/latest/download/appcast-stable.xml"
+        case .tip: return "https://ghostties.org/appcast-beta.xml"
+        case .stable: return "https://ghostties.org/appcast-stable.xml"
         }
     }
 
