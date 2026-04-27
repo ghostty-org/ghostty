@@ -38,3 +38,7 @@ default.profraw
 .ghostties/sessions.json
 .ghostties/sessions.json.tmp
 .vercel
+
+# Local session artifacts
+.claude/scheduled_tasks.lock
+docs/Crash\ report/

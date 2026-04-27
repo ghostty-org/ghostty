@@ -336,6 +336,8 @@ jobs:
   # ---------------------------------------------------------------------------
   appcast:
     needs: [setup, build-macos]
+    permissions:
+      contents: write
     # Skip appcast generation on dry-run — we're not publishing.
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run != true }}
     runs-on: macos-26
@@ -473,6 +475,33 @@ jobs:
           path: |
             appcast-stable.xml
             appcast-beta.xml
+
+      - name: Commit appcast to web/
+        run: |
+          # Save generated appcasts before switching to main branch
+          cp appcast-beta.xml /tmp/appcast-beta.xml
+          cp appcast-stable.xml /tmp/appcast-stable.xml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin main:main
+          git switch main
+
+          cp /tmp/appcast-beta.xml web/appcast-beta.xml
+          if [[ "$IS_BETA" != "true" ]]; then
+            cp /tmp/appcast-stable.xml web/appcast-stable.xml
+          fi
+
+          git add web/appcast-beta.xml web/appcast-stable.xml
+          if git diff --cached --quiet; then
+            echo "No appcast changes to commit."
+          else
+            git commit -m "chore(appcast): update from ${GITHUB_REF_NAME} [skip ci]"
+            git push origin main
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ---------------------------------------------------------------------------
   # release: Create the GitHub Release with all artifacts attached
