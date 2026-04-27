@@ -204,6 +204,7 @@ struct TaskSidebarView: View {
 
 // MARK: - Preview
 
+#if DEBUG
 #Preview("Task Sidebar — Light + Dark") {
     let ws = WorkspaceStore(testingProjects: [])
     HStack(spacing: 24) {
@@ -223,3 +224,4 @@ struct TaskSidebarView: View {
     .padding(24)
     .frame(height: 780)
 }
+#endif

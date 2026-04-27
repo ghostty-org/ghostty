@@ -328,6 +328,7 @@ struct NewTaskComposerView: View {
 
 // MARK: - Preview
 
+#if DEBUG
 #Preview("New Task Composer — Dark") {
     let ws = WorkspaceStore(testingProjects: [
         Project(name: "ghostties", rootPath: "/Users/sean/Code/ghostties", isPinned: true)
@@ -335,7 +336,7 @@ struct NewTaskComposerView: View {
     let composerStore = NewTaskComposerStore(isolatedForTesting: ())
     composerStore.open(workspaceStore: ws)
 
-    return NewTaskComposerView(
+    NewTaskComposerView(
         store: composerStore,
         taskStore: TaskStore()
     )
@@ -345,3 +346,4 @@ struct NewTaskComposerView: View {
     .padding(16)
     .background(Color(white: 0.14))
 }
+#endif
