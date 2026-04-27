@@ -63,71 +63,77 @@ fn getIo() std.Io {
 pub fn save(projects: []const types.Project, path: []const u8) !void {
     const io = getIo();
     const dir = std.Io.Dir.cwd();
-    const gpa = std.heap.page_allocator;
 
-    var json_bytes: std.ArrayList(u8) = .empty;
-    defer json_bytes.deinit(std.heap.page_allocator);
+    var json_bytes: std.Io.Writer.Allocating = .init(std.heap.page_allocator);
+    defer json_bytes.deinit();
 
-    try json_bytes.appendSlice(gpa, "[");
-    for (projects, 0..) |project, pi| {
-        try json_bytes.appendSlice(gpa, "{\"id\":\"");
-        try json_bytes.appendSlice(gpa, project.id);
-        try json_bytes.appendSlice(gpa, "\",\"name\":\"");
-        try json_bytes.appendSlice(gpa, project.name);
-        try json_bytes.appendSlice(gpa, "\",\"cards\":[");
+    var str = std.json.Stringify{
+        .writer = &json_bytes.writer,
+        .options = .{},
+    };
 
-        for (project.cards, 0..) |card, ci| {
-            try json_bytes.appendSlice(gpa, "{\"id\":\"");
-            try json_bytes.appendSlice(gpa, card.id);
-            try json_bytes.appendSlice(gpa, "\",\"title\":\"");
-            try json_bytes.appendSlice(gpa, card.title);
-            try json_bytes.appendSlice(gpa, "\",\"description\":\"");
-            try json_bytes.appendSlice(gpa, card.description);
-            try json_bytes.appendSlice(gpa, "\",\"status\":\"");
-            try json_bytes.appendSlice(gpa, cardStatusToString(card.status));
-            try json_bytes.appendSlice(gpa, "\",\"priority\":\"");
-            try json_bytes.appendSlice(gpa, priorityToString(card.priority));
-            try json_bytes.appendSlice(gpa, "\",\"sessions\":[");
+    try str.beginArray();
+    for (projects) |project| {
+        try str.beginObject();
+        try str.objectField("id");
+        try str.write(project.id);
+        try str.objectField("name");
+        try str.write(project.name);
+        try str.objectField("cards");
+        try str.beginArray();
 
-            for (card.sessions, 0..) |session, si| {
-                try json_bytes.appendSlice(gpa, "{\"id\":\"");
-                try json_bytes.appendSlice(gpa, session.id);
-                try json_bytes.appendSlice(gpa, "\",\"name\":\"");
-                try json_bytes.appendSlice(gpa, session.name);
-                try json_bytes.appendSlice(gpa, "\",\"cwd\":\"");
-                try json_bytes.appendSlice(gpa, session.cwd);
-                try json_bytes.appendSlice(gpa, "\",\"command\":\"");
-                try json_bytes.appendSlice(gpa, session.command);
-                try json_bytes.appendSlice(gpa, "\"");
+        for (project.cards) |card| {
+            try str.beginObject();
+            try str.objectField("id");
+            try str.write(card.id);
+            try str.objectField("title");
+            try str.write(card.title);
+            try str.objectField("description");
+            try str.write(card.description);
+            try str.objectField("status");
+            try str.write(cardStatusToString(card.status));
+            try str.objectField("priority");
+            try str.write(priorityToString(card.priority));
+            try str.objectField("sessions");
+            try str.beginArray();
+
+            for (card.sessions) |session| {
+                try str.beginObject();
+                try str.objectField("id");
+                try str.write(session.id);
+                try str.objectField("name");
+                try str.write(session.name);
+                try str.objectField("cwd");
+                try str.write(session.cwd);
+                try str.objectField("command");
+                try str.write(session.command);
                 if (session.split_id) |sid| {
-                    try json_bytes.appendSlice(gpa, ",\"split_id\":\"");
-                    try json_bytes.appendSlice(gpa, sid);
-                    try json_bytes.appendSlice(gpa, "\"");
+                    try str.objectField("split_id");
+                    try str.write(sid);
                 }
                 if (session.is_worktree) {
-                    try json_bytes.appendSlice(gpa, ",\"is_worktree\":true");
+                    try str.objectField("is_worktree");
+                    try str.write(true);
                 }
                 if (session.worktree_name) |wn| {
-                    try json_bytes.appendSlice(gpa, ",\"worktree_name\":\"");
-                    try json_bytes.appendSlice(gpa, wn);
-                    try json_bytes.appendSlice(gpa, "\"");
+                    try str.objectField("worktree_name");
+                    try str.write(wn);
                 }
-                try json_bytes.appendSlice(gpa, "}");
-                if (si < card.sessions.len - 1) try json_bytes.appendSlice(gpa, ",");
+                try str.endObject();
             }
 
-            try json_bytes.appendSlice(gpa, "]}");
-            if (ci < project.cards.len - 1) try json_bytes.appendSlice(gpa, ",");
+            try str.endArray();
+            try str.endObject();
         }
 
-        try json_bytes.appendSlice(gpa, "]}");
-        if (pi < projects.len - 1) try json_bytes.appendSlice(gpa, ",");
+        try str.endArray();
+        try str.endObject();
     }
-    try json_bytes.appendSlice(gpa, "]");
+    try str.endArray();
 
     try dir.writeFile(io, .{
         .sub_path = path,
-        .data = json_bytes.items,
+        .data = json_bytes.written(),
     });
 }
 
@@ -199,6 +205,7 @@ fn parseProjects(content: []const u8, allocator: std.mem.Allocator) ![]const typ
     const arr = value.array;
 
     const projects = try allocator.alloc(types.Project, arr.items.len);
+    errdefer allocator.free(projects);
 
     for (arr.items, 0..) |project_node, pi| {
         if (project_node != .object) return ProjectParseError.InvalidProject;
@@ -252,6 +259,9 @@ fn parseProjects(content: []const u8, allocator: std.mem.Allocator) ![]const typ
                 if (n == .string) try allocator.dupe(u8, n.string) else ""
             else
                 "";
+            if (card_desc_node != null and card_desc_node.? == .string) {
+                errdefer allocator.free(card_desc);
+            }
 
             const status = parseCardStatus(card_status_node.string) catch return ProjectParseError.InvalidCard;
             const priority = parsePriority(card_priority_node.string) catch return ProjectParseError.InvalidCard;
