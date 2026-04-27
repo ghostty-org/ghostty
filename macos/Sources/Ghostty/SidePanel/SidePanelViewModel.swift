@@ -120,4 +120,41 @@ final class SidePanelViewModel: ObservableObject {
             projects[currentProjectIndex].cards[idx].isExpanded.toggle()
         }
     }
+
+    // MARK: - Terminal Bridge
+
+    func activate(_ session: Session) {
+        if let splitId = session.splitId, splitExists(splitId) {
+            focusSplit(splitId)
+            return
+        }
+
+        let newSplitId = createSplit()
+        if session.isWorktree {
+            createWorktree(name: session.worktreeName ?? "wt-\(session.id)")
+        }
+        runCommand(split: newSplitId, cwd: session.cwd, command: session.command)
+    }
+
+    private func createSplit() -> String {
+        // TODO: Call into Ghostty API to create split
+        return UUID().uuidString
+    }
+
+    private func focusSplit(_ id: String) {
+        // TODO: Call into Ghostty API to focus split
+    }
+
+    private func splitExists(_ id: String) -> Bool {
+        // TODO: Check if split exists
+        return false
+    }
+
+    private func runCommand(split: String, cwd: String, command: String) {
+        // TODO: Run command in split
+    }
+
+    private func createWorktree(name: String) {
+        // TODO: Execute git worktree add
+    }
 }
