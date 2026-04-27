@@ -107,12 +107,14 @@
     /* --- Terminal text --- */
     .terminal {
       font-family: 'SFMono-Regular', 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
-      font-size: 14px;
+      font-size: 16px;
       font-weight: 600;
       line-height: 2;
       color: #E0E0E0;
-      width: fit-content;
+      width: 62ch;
+      max-width: calc(100vw - 48px);
       margin: 0 auto;
+      text-align: left;
     }
 
     .line {
@@ -122,13 +124,23 @@
       border-right: 2px solid transparent;
     }
 
-    /* Diff line colors */
+    /* Diff line colors + hanging indent */
+    .line-1, .line-2 {
+      margin-left: 2ch;
+    }
+
     .line-3 {
       color: rgba(255, 100, 100, 0.7);
+      background: rgba(255, 80, 80, 0.13);
+      padding-left: 2ch;
+      text-indent: -2ch;
     }
 
     .line-4 {
       color: rgba(100, 220, 120, 0.9);
+      background: rgba(80, 210, 100, 0.13);
+      padding-left: 2ch;
+      text-indent: -2ch;
     }
 
     /* line-4 wraps the full content in an anchor */
@@ -156,7 +168,7 @@
     }
 
     .animate .line-4.caret-blink {
-      animation: blink-caret-green 0.53s step-end infinite !important;
+      animation: blink-caret-green 0.53s step-end infinite;
     }
 
     /* Typing animations */
@@ -223,7 +235,7 @@
     /* --- Letter plate (bottom-left fixed) --- */
     .letter-plate {
       position: fixed;
-      bottom: 16px;
+      bottom: 60px;
       left: 24px;
       font-family: 'SFMono-Regular', 'SF Mono', monospace;
       font-size: 11px;
@@ -270,9 +282,9 @@
       .ghost { width: 64px; height: 64px; }
       .ghost-row { gap: 10px; }
       .ghosts { gap: 10px; margin-bottom: 28px; }
-      .terminal { font-size: 11px; }
+      .terminal { font-size: 14px; }
       footer { padding: 12px 16px; font-size: 12px; }
-      .letter-plate { font-size: 10px; bottom: 12px; left: 16px; }
+      .letter-plate { font-size: 10px; bottom: 52px; left: 16px; }
     }
   </style>
 </head>
@@ -388,7 +400,10 @@
       // Line 4: caret appears at 7.5s when typing starts
       // Typing duration: 1.55s → typing ends at 9.05s, then blink stays on
       setTimeout(() => { line4.classList.add('caret-visible'); }, 7500);
-      setTimeout(() => { line4.classList.add('caret-blink'); }, 9100);
+      setTimeout(() => {
+        line4.classList.add('caret-blink');
+        line4.style.width = '62ch';  // lock width so animation doesn't collapse it
+      }, 9100);
     }
 
     activateCarets();
@@ -414,6 +429,7 @@
       line1.classList.remove('caret-visible');
       line2.classList.remove('caret-visible');
       line4.classList.remove('caret-visible', 'caret-blink');
+      line4.style.width = '';  // clear inline lock so animation restarts from 0
 
       // Reset animations
       scene.classList.remove('animate');
