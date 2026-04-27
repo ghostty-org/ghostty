@@ -44,13 +44,13 @@
     /* --- Scene container --- */
     .scene {
       width: 100%;
-      cursor: pointer;
       padding: 48px 32px 40px;
       user-select: none;
     }
 
     /* --- Ghost grid (pyramid) --- */
     .ghosts {
+      cursor: pointer;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -420,8 +420,9 @@
 
     activateCarets();
 
-    // Click to scatter
-    scene.addEventListener('click', () => {
+    // Click ghosts to scatter
+    const ghosts = document.querySelector('.ghosts');
+    ghosts.addEventListener('click', () => {
       if (animating) return;
       animating = true;
       scene.classList.add('scatter');
