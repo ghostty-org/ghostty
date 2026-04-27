@@ -130,25 +130,31 @@ jobs:
       # Xcode CLI will try to build universal and fail on linker misses.
       # (Xcode GUI masks this by defaulting ONLY_ACTIVE_ARCH=YES for Debug.)
       #
-      # Build-only on CI. The full `xcodebuild test` invocation hangs the
-      # XCTest host (`Ghostties Dev.app`) ~6 min before xcodebuild gives up
-      # with "test runner hung before establishing connection". Root cause is
-      # heavy `ghostty_init` / `Ghostty.App(configPath:)` work that runs in
-      # main.swift + AppDelegate property init — _before_ XCTest can load —
-      # in a headless GH Actions runner without a window-server session. The
-      # AppDelegate XCTest guard (skips startup work post-launch) is in place
-      # for the eventual fix; the proper fix is to either lazy-init those or
-      # make the test target not require the app as host. Until then, build-
-      # only here catches build breaks; Sean runs the tests locally with Cmd+U.
-      - name: Build Ghostties (build-only)
+      # The host app (`Ghostties Dev.app`) used to hang ~6 min in headless CI
+      # before XCTest could establish a connection because `ghostty_init` ran
+      # in main.swift and `Ghostty.App(configPath:)` ran in AppDelegate
+      # property init — both before any launch hook could short-circuit. The
+      # fix is in three layers: main.swift skips `ghostty_init` under
+      # XCTest, AppDelegate's `ghostty` / `updateController` are now `lazy`
+      # so they aren't constructed during property init, and the launch hooks
+      # short-circuit when `XCTestConfigurationFilePath` is set. Together
+      # those keep the test host from touching libghostty / Sparkle in a
+      # headless CI runner.
+      #
+      # Test scope is intentionally narrow: only the lightweight test classes
+      # that exercise pure-Swift fixture types. The broader suites need a
+      # window server / additional setup we don't have in headless CI yet.
+      - name: Test Ghostties
         working-directory: macos
         run: |
           set -o pipefail
-          xcodebuild build \
+          xcodebuild test \
             -scheme Ghostties \
             -configuration Debug \
             -destination 'platform=macOS' \
             ONLY_ACTIVE_ARCH=YES \
             ARCHS=arm64 \
             -skipPackagePluginValidation \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            -only-testing:GhosttyTests/TaskModelTests \
+            -only-testing:GhosttyTests/TaskFileWatcherTests

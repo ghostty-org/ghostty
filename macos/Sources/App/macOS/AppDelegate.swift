@@ -96,7 +96,23 @@ class AppDelegate: NSObject,
     private var derivedConfig: DerivedConfig = DerivedConfig()
 
     /// The ghostty global state. Only one per process.
-    let ghostty: Ghostty.App
+    ///
+    /// Lazy so it isn't constructed during AppDelegate property init (which
+    /// fires before any `applicationWillFinishLaunching` hook can run). Under
+    /// XCTest the launch hooks short-circuit before anyone reads `ghostty`,
+    /// so the heavy `Ghostty.App(configPath:)` work — which in turn touches
+    /// libghostty global state — never runs in headless CI test hosts. The
+    /// `applicationDidFinishLaunching` hook wires the delegate after first
+    /// access on real launches.
+    lazy var ghostty: Ghostty.App = {
+#if DEBUG
+        let app = Ghostty.App(configPath: ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"])
+#else
+        let app = Ghostty.App()
+#endif
+        app.delegate = self
+        return app
+    }()
 
     /// The global undo manager for app-level state such as window restoration.
     lazy var undoManager = ExpiringUndoManager()
@@ -132,7 +148,14 @@ class AppDelegate: NSObject,
     }
 
     /// Manages updates
-    let updateController = UpdateController()
+    ///
+    /// Lazy so Sparkle's `SPUUpdater` isn't constructed during property init.
+    /// Under XCTest the launch hooks short-circuit before anyone reads
+    /// `updateController`; without the lazy guard, Sparkle's init touches
+    /// `Bundle.main` / appcast machinery that blocks the main thread long
+    /// enough to make headless XCTest hosts hang waiting for the test
+    /// connection.
+    lazy var updateController = UpdateController()
     var updateViewModel: UpdateViewModel {
         updateController.viewModel
     }
@@ -156,17 +179,6 @@ class AppDelegate: NSObject,
 
     /// The custom app icon image that is currently in use.
     @Published private(set) var appIcon: NSImage?
-
-    override init() {
-#if DEBUG
-        ghostty = Ghostty.App(configPath: ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"])
-#else
-        ghostty = Ghostty.App()
-#endif
-        super.init()
-
-        ghostty.delegate = self
-    }
 
     // MARK: - NSApplicationDelegate
 
