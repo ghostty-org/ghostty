@@ -2020,3 +2020,34 @@ Issues discovered during manual verification:
 - Consider whether `zig build test` xcodebuild step needs the same SYMROOT/config fixes
 - Re-enable `testWindowStaysOpenWhenLastSurfaceExits` after P1-002 fix
 - Add accessibility identifiers to sidebar views for better UI test assertions
+
+---
+
+## Apr 27, 2026 (Grounding Layer — v2.2 Scaffold)
+
+### Headline
+
+Short session. Added the v2.2 grounding layer to the repo — three identity files (mission, brand, principles) plus a Ghostties-specific DESIGN.md. Committed and pushed. No code changes.
+
+### What shipped to main
+
+- `913bb2d98` — `add v2.2 grounding layer (mission, brand, principles, design system)`
+  - `mission.md` — product purpose, audience, "for now not never" scope framing
+  - `brand.md` — voice (direct, dry, moves fast), character (fun but focused, "lfg"), tone calibration (empty → get to value fast; in flow → gone; error → womp womp then practical), anti-tone (not overly friendly)
+  - `principles.md` — always (front-load setup then disappear, light terminal footprint, honor macOS conventions), resist (IDE drift — named tension, not a hard ban), when-in-doubt (simpler, native, does this serve the agent runner)
+  - `DESIGN.md` — Stitch-compatible YAML frontmatter with Ghostties-specific tokens: two-layer chrome/canvas model, terracotta `#C97350` accent, SF Pro Text 11pt, 12pt continuous radius, 4pt spacing scale, macOS-only device target, full agent prompt guide
+
+### Decisions
+
+- Anti-goals reframed as "for now, not never" — subagents won't treat them as hard architectural limits
+- brand.md explicitly does NOT target "overly friendly" tone — ghost mascot is personality, interface is not a companion
+- IDE drift named as a tension (resistance) not a ban — honest given where the product is heading
+- DESIGN.md tokens sourced from `agent-craft.md` — no new values, just a machine-readable / agent-readable artifact of what was already settled
+
+### Open
+
+- Task #1: scrub and rewrite `mission.md` before any public publication — written as internal decision tool, not suitable for public repo
+- Row-click v0 (SEA-156 → SEA-168) is now unblocked — DMG parallel session cleared
+- Two ghostties-web PRs still need Sean's review: `web/feat/dmg-cta-beta10` (SEA-185), `web/feat/privacy-support-pages` (SEA-186)
+- Beta.10 install + smoke test still pending Sean (SEA-138)
+- Release pause still in effect — no `v*` tags until Sean lifts
