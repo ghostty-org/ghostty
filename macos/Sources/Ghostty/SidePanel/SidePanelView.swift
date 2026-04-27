@@ -2,7 +2,7 @@ import SwiftUI
 import Ghostty
 
 struct SidePanelView: View {
-    @StateObject var viewModel = SidePanelViewModel()
+    @ObservedObject var viewModel: SidePanelViewModel
 
     var body: some View {
         VStack(spacing: 0) {
