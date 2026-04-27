@@ -107,7 +107,7 @@
     /* --- Terminal text --- */
     .terminal {
       font-family: 'SFMono-Regular', 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
-      font-size: 16px;
+      font-size: 18px;
       font-weight: 600;
       line-height: 2;
       color: #E0E0E0;
@@ -130,15 +130,15 @@
     }
 
     .line-3 {
-      color: rgba(255, 100, 100, 0.7);
-      background: rgba(255, 80, 80, 0.13);
+      color: transparent;
+      background: transparent;
       padding-left: 2ch;
       text-indent: -2ch;
     }
 
     .line-4 {
-      color: rgba(100, 220, 120, 0.9);
-      background: rgba(80, 210, 100, 0.13);
+      color: transparent;
+      background: transparent;
       padding-left: 2ch;
       text-indent: -2ch;
     }
@@ -184,18 +184,30 @@
 
     /* line-3: "- ghostties % install soon" = 26 chars */
     .animate .line-3 {
-      animation: type-line3 0.65s steps(26) 5.5s forwards;
+      animation:
+        type-line3 0.65s steps(26) 5.5s forwards,
+        reveal-line3 0s 5.5s forwards;
     }
 
-    /* line-4: "+ ghostties % v0.1.0-beta.12 · April 27, 2026 · [download now]" = 62 chars */
+    /* line-4: "+ ghostties % v0.1.0-beta.12 · [download now]" = 45 chars */
     .animate .line-4 {
-      animation: type-line4 1.55s steps(62) 7.5s forwards;
+      animation:
+        type-line4 1.1s steps(45) 7.5s forwards,
+        reveal-line4 0s 7.5s forwards;
     }
 
     @keyframes type-line1 { from { width: 0; } to { width: 14ch; } }
     @keyframes type-line2 { from { width: 0; } to { width: 44ch; } }
     @keyframes type-line3 { from { width: 0; } to { width: 26ch; } }
-    @keyframes type-line4 { from { width: 0; } to { width: 62ch; } }
+    @keyframes type-line4 { from { width: 0; } to { width: 45ch; } }
+
+    @keyframes reveal-line3 {
+      to { color: rgba(255, 100, 100, 0.7); background: rgba(255, 80, 80, 0.13); }
+    }
+
+    @keyframes reveal-line4 {
+      to { color: rgba(100, 220, 120, 0.9); background: rgba(80, 210, 100, 0.13); }
+    }
 
     @keyframes blink-caret-green {
       0%, 100% { border-right-color: rgba(100, 220, 120, 0.9); }
@@ -232,11 +244,11 @@
       opacity: 0;
     }
 
-    /* --- Letter plate (bottom-left fixed) --- */
+    /* --- Letter plate (bottom-right fixed) --- */
     .letter-plate {
       position: fixed;
       bottom: 60px;
-      left: 24px;
+      right: 24px;
       font-family: 'SFMono-Regular', 'SF Mono', monospace;
       font-size: 11px;
       color: rgba(255, 255, 255, 0.3);
@@ -282,9 +294,9 @@
       .ghost { width: 64px; height: 64px; }
       .ghost-row { gap: 10px; }
       .ghosts { gap: 10px; margin-bottom: 28px; }
-      .terminal { font-size: 14px; }
+      .terminal { font-size: 16px; }
       footer { padding: 12px 16px; font-size: 12px; }
-      .letter-plate { font-size: 10px; bottom: 52px; left: 16px; }
+      .letter-plate { font-size: 10px; bottom: 52px; right: 16px; }
     }
   </style>
 </head>
@@ -352,8 +364,8 @@
       <div class="line line-2"><a class="gh-link" href="https://github.com/SeanSmithDesign/ghostties" target="_blank" rel="noopener">https://github.com/SeanSmithDesign/ghostties</a></div>
       <!-- line-3: 26 chars: - ghostties % install soon -->
       <div class="line line-3">- ghostties % install soon</div>
-      <!-- line-4: 62 chars: + ghostties % v0.1.0-beta.12 · April 27, 2026 · [download now] -->
-      <div class="line line-4"><a href="https://github.com/SeanSmithDesign/ghostties/releases/download/v0.1.0-beta.12/Ghostties.dmg" download>+ ghostties % v0.1.0-beta.12 &middot; April 27, 2026 &middot; [download now]</a></div>
+      <!-- line-4: 45 chars: + ghostties % v0.1.0-beta.12 · [download now] -->
+      <div class="line line-4"><a href="https://github.com/SeanSmithDesign/ghostties/releases/download/v0.1.0-beta.12/Ghostties.dmg" download>+ ghostties % v0.1.0-beta.12 &middot; [download now]</a></div>
     </div>
   </div>
 
@@ -365,12 +377,12 @@
   </div>
 
   <footer>
-    <span>&copy; 2026 &nbsp;&middot;&nbsp; <a href="/privacy">Privacy</a> &nbsp;&middot;&nbsp; <a href="/support">Support</a> &nbsp;&middot;&nbsp; <a href="/licenses">Licenses</a></span>
     <a href="https://x.com/seansmithbuilds" target="_blank" rel="noopener" aria-label="Twitter">
       <svg viewBox="0 0 24 24" fill="currentColor">
         <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
       </svg>
     </a>
+    <span>&copy; 2026 &nbsp;&middot;&nbsp; <a href="/privacy">Privacy</a> &nbsp;&middot;&nbsp; <a href="/support">Support</a> &nbsp;&middot;&nbsp; <a href="/licenses">Licenses</a></span>
   </footer>
 
   <script>
@@ -398,12 +410,12 @@
       setTimeout(() => { line2.classList.remove('caret-visible'); }, 5500);
 
       // Line 4: caret appears at 7.5s when typing starts
-      // Typing duration: 1.55s → typing ends at 9.05s, then blink stays on
+      // Typing duration: 1.1s → typing ends at 8.6s, then blink stays on
       setTimeout(() => { line4.classList.add('caret-visible'); }, 7500);
       setTimeout(() => {
         line4.classList.add('caret-blink');
-        line4.style.width = '62ch';  // lock width so animation doesn't collapse it
-      }, 9100);
+        line4.style.width = '45ch';  // lock width so animation doesn't collapse it
+      }, 8600);
     }
 
     activateCarets();

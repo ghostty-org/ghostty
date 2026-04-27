@@ -493,7 +493,10 @@ jobs:
             cp /tmp/appcast-stable.xml web/appcast-stable.xml
           fi
 
-          git add web/appcast-beta.xml web/appcast-stable.xml
+          # Update version strings in web HTML files
+          python3 scripts/update-web-version.py "${{ github.ref_name }}"
+
+          git add web/appcast-beta.xml web/appcast-stable.xml scripts/update-web-version.py web/index.html web/download.html
           if git diff --cached --quiet; then
             echo "No appcast changes to commit."
           else
