@@ -1,5 +1,5 @@
 import SwiftUI
-import Ghostty
+import GhosttyKit
 
 struct AddSessionSheet: View {
     let cardId: String
@@ -50,7 +50,10 @@ struct AddSessionSheet: View {
             cwd: cwd.isEmpty ? "~" : cwd,
             command: command.isEmpty ? "" : command,
             isWorktree: isWorktree,
-            worktreeName: isWorktree ? sessionName.lowercased().replacingOccurrences(of: " ", with: "-") : nil
+            worktreeName: isWorktree ? sessionName.lowercased().replacingOccurrences(of: " ", with: "-") : nil,
+            status: .running,
+            timestamp: Date(),
+            branch: isWorktree ? "main" : nil
         )
         viewModel.addSession(to: cardId, session: session)
     }
