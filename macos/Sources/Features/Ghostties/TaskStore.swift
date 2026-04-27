@@ -339,7 +339,7 @@ final class TaskStore: ObservableObject {
         watchedDirectory = dir
         let w = TaskFileWatcher(url: dir) { [weak self] in
             guard let self = self else { return }
-            Swift.Task { @MainActor in self.loadFromDisk() }
+            _Concurrency.Task { @MainActor in self.loadFromDisk() }
         }
         watcher = w
         w.start()

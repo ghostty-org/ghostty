@@ -118,7 +118,7 @@ final class RowClickRouter: ObservableObject {
 
             // Dispatch the async write + spawn on the main actor. The debounce
             // timer is armed inside the handler AFTER the write succeeds (D14-b).
-            Swift.Task { @MainActor [weak self] in
+            _Concurrency.Task { @MainActor [weak self] in
                 guard let self else { return }
                 do {
                     try await handlers.startInboxTask(task)

@@ -296,7 +296,7 @@ struct NewTaskComposerView: View {
 
     private func triggerConfirm() {
         guard store.canConfirm else { return }
-        Swift.Task { @MainActor in
+        _Concurrency.Task { @MainActor in
             await store.confirm(taskStore: taskStore, workspaceStore: workspaceStore)
         }
     }
