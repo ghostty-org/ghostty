@@ -244,18 +244,6 @@
       opacity: 0;
     }
 
-    /* --- Letter plate (bottom-right fixed) --- */
-    .letter-plate {
-      position: fixed;
-      bottom: 60px;
-      right: 24px;
-      font-family: 'SFMono-Regular', 'SF Mono', monospace;
-      font-size: 11px;
-      color: rgba(255, 255, 255, 0.3);
-      line-height: 1.7;
-      pointer-events: none;
-    }
-
     /* --- Footer --- */
     footer {
       position: fixed;
@@ -265,10 +253,20 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 16px 24px;
-      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-      font-size: 13px;
+      padding: 14px 24px;
+      font-family: 'SFMono-Regular', 'SF Mono', monospace;
+      font-size: 11px;
       color: rgba(255, 255, 255, 0.25);
+    }
+
+    .footer-left {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .footer-right {
+      text-align: right;
     }
 
     footer a {
@@ -282,8 +280,8 @@
     }
 
     footer svg {
-      width: 16px;
-      height: 16px;
+      width: 13px;
+      height: 13px;
       display: block;
     }
 
@@ -295,8 +293,7 @@
       .ghost-row { gap: 10px; }
       .ghosts { gap: 10px; margin-bottom: 28px; }
       .terminal { font-size: 16px; }
-      footer { padding: 12px 16px; font-size: 12px; }
-      .letter-plate { font-size: 10px; bottom: 52px; right: 16px; }
+      footer { padding: 12px 16px; font-size: 10px; }
     }
   </style>
 </head>
@@ -369,20 +366,17 @@
     </div>
   </div>
 
-  <!-- Bottom-left letter plate -->
-  <div class="letter-plate">
-    v0.1.0-beta.12 &middot; April 27, 2026<br>
-    macOS 13+ &middot; Apple Silicon &middot; Beta<br>
-    auto-updates via Sparkle
-  </div>
-
   <footer>
-    <a href="https://x.com/seansmithbuilds" target="_blank" rel="noopener" aria-label="Twitter">
-      <svg viewBox="0 0 24 24" fill="currentColor">
-        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-      </svg>
-    </a>
-    <span>&copy; 2026 &nbsp;&middot;&nbsp; <a href="/privacy">Privacy</a> &nbsp;&middot;&nbsp; <a href="/support">Support</a> &nbsp;&middot;&nbsp; <a href="/licenses">Licenses</a></span>
+    <span class="footer-left">
+      <a href="https://x.com/seansmithbuilds" target="_blank" rel="noopener" aria-label="Twitter">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" style="display:inline-block;vertical-align:middle;margin-right:6px"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+      </a>
+      &copy; 2026
+    </span>
+    <span class="footer-right">
+      v0.1.0-beta.12 &middot; April 27, 2026 &nbsp;&middot;&nbsp; macOS 13+ &middot; Apple Silicon &middot; Beta
+      <span class="footer-nav">&nbsp;&middot;&nbsp; <a href="/privacy">Privacy</a> &middot; <a href="/support">Support</a> &middot; <a href="/licenses">Licenses</a></span>
+    </span>
   </footer>
 
   <script>
@@ -415,6 +409,8 @@
       setTimeout(() => {
         line4.classList.add('caret-blink');
         line4.style.width = '45ch';  // lock width so animation doesn't collapse it
+        line4.style.color = 'rgba(100, 220, 120, 0.9)';
+        line4.style.background = 'rgba(80, 210, 100, 0.13)';
       }, 8600);
     }
 
@@ -442,6 +438,8 @@
       line2.classList.remove('caret-visible');
       line4.classList.remove('caret-visible', 'caret-blink');
       line4.style.width = '';  // clear inline lock so animation restarts from 0
+      line4.style.color = '';
+      line4.style.background = '';
 
       // Reset animations
       scene.classList.remove('animate');

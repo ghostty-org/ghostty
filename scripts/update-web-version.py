@@ -9,12 +9,14 @@ Usage: python3 scripts/update-web-version.py <tag>
 
 import re
 import sys
+from datetime import datetime
 
 if len(sys.argv) != 2:
     print(f"Usage: {sys.argv[0]} <version-tag>", file=sys.stderr)
     sys.exit(1)
 
 version = sys.argv[1]  # e.g. "v0.1.0-beta.12"
+date = datetime.now().strftime("%B %-d, %Y")  # e.g. "April 27, 2026"
 
 # Update DMG download URLs in both files
 for fname in ['web/index.html', 'web/download.html']:
@@ -37,3 +39,13 @@ content = re.sub(
 )
 open('web/index.html', 'w').write(content)
 print(f"Updated terminal line 4 version in web/index.html")
+
+# Update footer version string
+content = open('web/index.html').read()
+content = re.sub(
+    r'v[\d]\.\d\.\d[^ &]+ &middot; [A-Z][a-z]+ \d+, \d{4}',
+    f'{version} &middot; {date}',
+    content
+)
+open('web/index.html', 'w').write(content)
+print(f"Updated footer version string in web/index.html")
