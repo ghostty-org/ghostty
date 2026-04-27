@@ -75,13 +75,15 @@ final class TaskStore: ObservableObject {
     }
 
     // MARK: - Grouped accessors
+    // Stored @Published so SwiftUI sees stable array identity across transactions.
+    // Recomputed in a single pass by recomputeLanes() — see hang report 26Apr2026.
 
-    var needsYou: [TaskItem] { tasks.filter { $0.status == .needsYou } }
-    var active: [TaskItem] { tasks.filter { $0.status == .running } }
-    var inbox: [TaskItem] { tasks.filter { $0.status == .inbox } }
-    var backlog: [TaskItem] { tasks.filter { $0.status == .backlog } }
-    var review: [TaskItem] { tasks.filter { $0.status == .review } }
-    var done: [TaskItem] { tasks.filter { $0.status == .done } }
+    @Published private(set) var needsYou: [TaskItem] = []
+    @Published private(set) var active:   [TaskItem] = []
+    @Published private(set) var inbox:    [TaskItem] = []
+    @Published private(set) var backlog:  [TaskItem] = []
+    @Published private(set) var review:   [TaskItem] = []
+    @Published private(set) var done:     [TaskItem] = []
 
     /// Tasks that arrived from an external MCP source (Linear, GitHub, Sentry,
     /// etc.) — i.e. anything whose `source` is not the local `.shell` case.
@@ -96,8 +98,28 @@ final class TaskStore: ObservableObject {
     ///
     /// Sort: newest-first by `created`, matching the global sort `tasks`
     /// already uses (set in `loadFromDisk`). The filter preserves that order.
-    var externalInbox: [TaskItem] {
-        tasks.filter { $0.source != .shell }
+    @Published private(set) var externalInbox: [TaskItem] = []
+
+    /// Recomputes all lane arrays in a single pass over `tasks`. Call this
+    /// everywhere `tasks` is mutated so the stored arrays stay in sync.
+    private func recomputeLanes() {
+        var needs: [TaskItem] = [], act: [TaskItem] = []
+        var inb: [TaskItem] = [], bl: [TaskItem] = []
+        var rev: [TaskItem] = [], dn: [TaskItem] = []
+        var ext: [TaskItem] = []
+        for t in tasks {
+            switch t.status {
+            case .needsYou: needs.append(t)
+            case .running:  act.append(t)
+            case .inbox:    inb.append(t)
+            case .backlog:  bl.append(t)
+            case .review:   rev.append(t)
+            case .done:     dn.append(t)
+            }
+            if t.source != .shell { ext.append(t) }
+        }
+        needsYou = needs; active = act; inbox = inb; backlog = bl
+        review = rev; done = dn; externalInbox = ext
     }
 
     // MARK: - Write wrappers
@@ -251,6 +273,7 @@ final class TaskStore: ObservableObject {
             print("[TaskStore] No tasks directory found; tasks=[]")
             #endif
             tasks = []
+            recomputeLanes()
             return
         }
 
@@ -268,6 +291,7 @@ final class TaskStore: ObservableObject {
             print("[TaskStore] Could not enumerate \(dir.path); tasks=[]")
             #endif
             tasks = []
+            recomputeLanes()
             return
         }
 
@@ -304,6 +328,8 @@ final class TaskStore: ObservableObject {
                 expandedGraveyardTaskId = nil
             }
         }
+
+        recomputeLanes()
     }
 
     // MARK: - Filesystem watching

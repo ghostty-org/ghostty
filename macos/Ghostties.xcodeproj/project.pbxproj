@@ -23,7 +23,6 @@
 		A586167C2B7703CC009BDB1D /* fish in Resources */ = {isa = PBXBuildFile; fileRef = A586167B2B7703CC009BDB1D /* fish */; };
 		A5985CE62C33060F00C57AD3 /* man in Resources */ = {isa = PBXBuildFile; fileRef = A5985CE52C33060F00C57AD3 /* man */; };
 		A5A1F8852A489D6800D1E8BC /* terminfo in Resources */ = {isa = PBXBuildFile; fileRef = A5A1F8842A489D6800D1E8BC /* terminfo */; };
-		B0E55A022F80000000000002 /* presets in Resources */ = {isa = PBXBuildFile; fileRef = B0E55A012F80000000000001 /* presets */; };
 		A5B30539299BEAAB0047F10C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5B30538299BEAAB0047F10C /* Assets.xcassets */; };
 		AA1BFC302B30F1B800E92F16 /* GhosttiesMCPClient in Frameworks */ = {isa = PBXBuildFile; productRef = AA1BFC312B30F1B800E92F16 /* GhosttiesMCPClient */; };
 		AA1BFC322B30F1B800E92F16 /* GhosttiesCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA1BFC332B30F1B800E92F16 /* GhosttiesCore */; };
@@ -33,6 +32,7 @@
 		B0A55AC12F72F4C100018CBF /* architect.md in Resources */ = {isa = PBXBuildFile; fileRef = B0A55AB72F72F4C100018CBF /* architect.md */; };
 		B0A55AC22F72F4C100018CBF /* pair-programmer.md in Resources */ = {isa = PBXBuildFile; fileRef = B0A55ABB2F72F4C100018CBF /* pair-programmer.md */; };
 		B0A55AC32F72F4C100018CBF /* orchestrator.md in Resources */ = {isa = PBXBuildFile; fileRef = B0A55ABA2F72F4C100018CBF /* orchestrator.md */; };
+		B0E55A022F80000000000002 /* presets in Resources */ = {isa = PBXBuildFile; fileRef = B0E55A012F80000000000001 /* presets */; };
 		FC5218FA2D10FFCE004C93E0 /* zsh in Resources */ = {isa = PBXBuildFile; fileRef = FC5218F92D10FFC7004C93E0 /* zsh */; };
 		FC9ABA9C2D0F53F80020D4C8 /* bash-completion in Resources */ = {isa = PBXBuildFile; fileRef = FC9ABA9B2D0F538D0020D4C8 /* bash-completion */; };
 /* End PBXBuildFile section */
@@ -93,7 +93,6 @@
 		A586167B2B7703CC009BDB1D /* fish */ = {isa = PBXFileReference; lastKnownFileType = folder; name = fish; path = "../zig-out/share/fish"; sourceTree = "<group>"; };
 		A5985CE52C33060F00C57AD3 /* man */ = {isa = PBXFileReference; lastKnownFileType = folder; name = man; path = "../zig-out/share/man"; sourceTree = "<group>"; };
 		A5A1F8842A489D6800D1E8BC /* terminfo */ = {isa = PBXFileReference; lastKnownFileType = folder; name = terminfo; path = "../zig-out/share/terminfo"; sourceTree = "<group>"; };
-		B0E55A012F80000000000001 /* presets */ = {isa = PBXFileReference; lastKnownFileType = folder; name = presets; path = Resources/presets; sourceTree = "<group>"; };
 		A5B30531299BEAAA0047F10C /* Ghostties Dev.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ghostties Dev.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5B30538299BEAAB0047F10C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A5B3053D299BEAAB0047F10C /* Ghostties.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Ghostties.entitlements; sourceTree = "<group>"; };
@@ -106,6 +105,7 @@
 		B0A55ABB2F72F4C100018CBF /* pair-programmer.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "pair-programmer.md"; sourceTree = "<group>"; };
 		B0A55ABC2F72F4C100018CBF /* test-writer.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "test-writer.md"; sourceTree = "<group>"; };
 		B0A55ADB2F7313F500018CBF /* Chromium Embedded Framework.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "Chromium Embedded Framework.framework"; path = "../vendor/cef/Release/Chromium Embedded Framework.framework"; sourceTree = SOURCE_ROOT; };
+		B0E55A012F80000000000001 /* presets */ = {isa = PBXFileReference; lastKnownFileType = folder; name = presets; path = Resources/presets; sourceTree = "<group>"; };
 		FC5218F92D10FFC7004C93E0 /* zsh */ = {isa = PBXFileReference; lastKnownFileType = folder; name = zsh; path = "../zig-out/share/zsh"; sourceTree = "<group>"; };
 		FC9ABA9B2D0F538D0020D4C8 /* bash-completion */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "bash-completion"; path = "../zig-out/share/bash-completion"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -1332,6 +1332,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Ghostties-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Ghostties;
+				INFOPLIST_KEY_CFBundleName = Ghostties;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "A program running within Ghostty would like to use AppleScript.";
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "A program running within Ghostty would like to use Bluetooth.";

@@ -37,3 +37,8 @@ default.profraw
 # Session-hybrid: anonymous terminal session state; ephemeral, per-machine.
 .ghostties/sessions.json
 .ghostties/sessions.json.tmp
+.vercel
+
+# Local session artifacts
+.claude/scheduled_tasks.lock
+docs/Crash\ report/

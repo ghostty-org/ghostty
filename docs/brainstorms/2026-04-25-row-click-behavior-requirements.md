@@ -251,6 +251,147 @@ Appended after the Q1–Q5 walkthrough resolved the highest-impact correctness a
 
 ---
 
+## Design Decisions — 2026-04-26 row-click v0 design pass
+
+Captured from a three-track parallel design pass (Subagent A: composer + empty-Inbox; Subagent B: inline-attach mechanics; Subagent C: priority visual treatment). These decisions resolve most of the operational gaps under `### From 2026-04-25 review` and refine the requirements above. Where a decision below **conflicts** with a requirement above, the decision below wins — the planner should treat this section as the authoritative final word for v0.
+
+### Inline-attach grammar (resolves R4/R5, R8, R10 spatial questions)
+
+**Mechanic:** Push, single-expansion-per-lane, intra-zone reflow only. Lane zone heights are sacred (Needs you / Active / Inbox / Archive); row positions **within** a zone are not. Pushing rows below the anchor inside one lane is the same shape of intra-zone change Inbox already absorbs when MCP rows arrive.
+
+**Applies to:**
+
+- Composer in **empty Inbox** → effectively a replace (no rows below to push; the empty-canvas zone fills with the composer in place).
+- Composer in **populated Inbox** → push at the top of the Inbox lane; Inbox scrolls internally if needed. The lane's Backlog/Review/Graveyard headers below stay anchored.
+- **Triage card (R4/R5)** → push, single-per-lane (auto-collapses any sibling expansion in same lane).
+- **Graveyard expansion (R8)** → push, single-per-lane.
+
+**Cross-lane:** allowed. A Graveyard row may be open while an Inbox triage card is also open (different scroll viewports).
+
+**Click-outside-to-close:** triage = yes (cancel without write); Graveyard = no (peek rewards lingering).
+
+**Click-during-animation guard:** rows are `pointer-events: none` for the 180ms reveal/collapse window with `aria-busy="true"`; after that the file-watcher state is authoritative.
+
+### Animation grammar (shared by composer, triage, Graveyard)
+
+| Phase                          | Property                               | Duration | Easing                                  |
+| ------------------------------ | -------------------------------------- | -------- | --------------------------------------- |
+| Anchor row settle              | bg-opacity, left-rule fade-in          | 120ms    | ease-out                                |
+| Panel reveal (height)          | height 0 → measured                    | 180ms    | cubic-bezier(0.2, 0.7, 0.2, 1)          |
+| Panel content fade-in          | opacity 0 → 1, starts 60ms into reveal | 140ms    | ease-out                                |
+| Rows-below push                | y-translate (parent height-driven)     | 180ms    | same curve as panel reveal — must share |
+| Graveyard chevron rotation     | 0 → 90deg                              | 160ms    | ease-out                                |
+| Collapse (close, all surfaces) | reverse, no content fade               | 140ms    | ease-in                                 |
+
+**Reduced-motion fallback:** height/translate/rotate animations short-circuit to instant; opacity fades remain at 80ms. Final positions snap; never freeze mid-state.
+
+**No pulse, no glow, no spring overshoot.** Calm settle.
+
+### Terracotta budget rule
+
+The brief reserves terracotta for "Needs you state and active-task emphasis." v0 expands this minimally to mark **active write in progress on a row**, but only via a single rule and only on the most load-bearing surface:
+
+- **Allowed:** 2px terracotta left-rule on the **anchor row** of an open triage card (R4/R5). The rule marks the row, which is the load-bearing object the user is acting on — reads as a small extension of "active-task emphasis."
+- **Allowed:** terracotta-tinted text on the `[+ Add project…]` chip inside the composer's project picker, **only** when `WorkspaceStore.projects` is empty. First-run unblock moment; defensible single use.
+- **Not allowed:** terracotta focus ring on the composer's title input. Use `rgba(255,255,255,0.40)` chrome border instead — focus rings on text inputs are a forms convention, not a Ghostties signal.
+- **Not allowed:** terracotta on the composer's Start button. Solid `rgba(255,255,255,0.92)` background, near-black text — the focused field already claims the active-edit signal.
+- **Not allowed:** terracotta on the Graveyard expansion's anchor row (read-only, historical — neutral `rgba(255,255,255,0.18)` left-rule).
+- **Not allowed:** terracotta on the priority glyph slot (see priority decisions below).
+
+### Priority visual treatment (R15)
+
+**Treatment:** Glyph-only, monospaced, fixed 12px leading slot. Single visual idea (a triangle pointing up/down/collapsed) expressed via mass + opacity. **No color.**
+
+| Priority | Glyph | Weight                | Opacity (dark) | Opacity (light) |
+| -------- | ----- | --------------------- | -------------- | --------------- |
+| High     | `▲`   | SF Mono Semibold 11pt | 85%            | 78%             |
+| Medium   | `▴`   | SF Mono Semibold 11pt | 55%            | 50%             |
+| Low      | `▾`   | SF Mono Semibold 11pt | 40%            | 38%             |
+| None     | `·`   | SF Mono Regular 11pt  | 22%            | 25%             |
+
+All four states occupy the same 12px slot — flipping a task's priority never reflows the row. `none` gets a real glyph (·) so default rows look quiet by design, not broken.
+
+**Lane scope:** Inbox-only in v0. Running / Needs-you / Graveyard rows do not render the priority glyph (priority data still exists on every row; the v0 visual just doesn't surface it elsewhere). Lane scope is the cheapest knob to expand later.
+
+**Composer:** confirms R10 — does not surface priority. Manually-created tasks default to `priority: none` and sit at the bottom of the Inbox sort.
+
+**Urgent → High:** Linear's `Urgent` collapses into `High` (per R15 mapping). Urgent in Linear is a workflow signal — Ghostties' actual urgency channel is the Needs-you lane + terracotta accent, not a 5th priority tier. A Linear `Urgent` ticket that genuinely needs attention will get pulled to Needs-you when an agent flags it.
+
+**Sort-tie behavior:** R15's `priority desc, created desc` is unchanged. With 30 mostly-`none` rows, the visual reads "newest first" most of the time — by design.
+
+### Composer surface (R9, R10, R11)
+
+**Project picker:** required (R10 unchanged) but smart-defaulted to: cwd of frontmost terminal session → most-recently-used project → most-recently-touched project in `WorkspaceStore.projects`. One-keystroke confirm for the common case.
+
+**`[+ Start]` placement:** top-right of sidebar header strip, sticky/non-scrolling, always visible. Low-contrast chrome (`rgba(255,255,255,0.08)` background, no terracotta). Opposite the wordmark — the canonical "primary action lives top-right" macOS pattern.
+
+**Spatial relationship:** composer **replaces** the empty-Inbox canvas in place when Inbox is empty (no rows below to push). When Inbox has rows, composer renders at the top of the Inbox lane and pushes Inbox rows below — Inbox scrolls internally if it overflows. Lane zone height is preserved either way (see Inline-attach grammar above).
+
+**Empty `WorkspaceStore.projects`:** the composer is the onboarding. Project picker shows `Add a project to begin   [+ Add project…]` as its only valid value; clicking the chip triggers `NSOpenPanel`, inserts the result, auto-selects it, and the composer continues into task creation. Title and template fields stay inert until a project is added (cannot Tab past project picker; Return is no-op with subtle shake on the project field). No separate first-run modal.
+
+**Keyboard:**
+
+- On open: focus lands in the title input.
+- Tab: title → project → template → Start → cancel link → wraps to title.
+- Return: in title or project field, advances if empty; on the final required field (or any field with valid content), submits.
+- `⌘↵`: anywhere, force-submit (skip empty optional fields).
+- Esc: cancel, no confirm prompt. Composer collapses; typed content is discarded.
+- Esc when project picker dropdown is open: closes only the dropdown, leaves composer open.
+- `⌘⇧N` while composer already open: focuses the title field (no second composer).
+
+**Composer copy:**
+
+- Title placeholder: "What are you starting?"
+- Project field micro-label: "in" (lowercase, all-caps treatment via styling)
+- Template field micro-label: "via"
+- Primary action button: `Start` with `↵` keychip (no play-triangle — implies media playback, wrong metaphor for a CLI spawn)
+- Cancel: small `esc` keychip + "cancel" hint at 32% white (escape hatch, not a button)
+- Empty-Inbox primary copy: "Nothing in the inbox."
+- Empty-Inbox secondary: "Click anywhere here to start a new task."
+- No emojis. Calm, terminal-honest voice.
+
+### Graveyard expansion (R8)
+
+**New affordance:** SF Mono `›` chevron in a fixed 14px leading slot, **Graveyard-only column** (does not waste a column on Inbox/Running/Needs-you rows). Closed = `›` (0deg, opacity 0.45); open = rotated 90deg (`⌄`).
+
+**Open state:**
+
+- Anchor row: chevron rotated, bg `rgba(255,255,255,0.04)`, neutral `rgba(255,255,255,0.18)` left-rule (no terracotta).
+- Chip row: three SF Mono pills at 9pt, `padding: 2px 6px`, `rgba(255,255,255,0.06)` bg, `rgba(255,255,255,0.7)` text — `linear · SEA-142`, `ghostties`, `done 2d`. 6px gap, wraps if needed.
+- 1px divider, 8px above and below.
+- Body preview: first ~8 lines of `.md` body, SF Pro Text 10.5pt, line-height 16px, color `rgba(255,255,255,0.6)`, hard-clip at 8 lines (no fade-out gradient — gradients read as web-app polish; hard clip is more terminal-honest). Empty body shows muted `No notes.`
+- No buttons inside. Read-only. Re-click toggles closed.
+
+### Multiple-open behavior
+
+**One expansion per lane.** Clicking row B while row A is already expanded auto-collapses A first; collapse and B's reveal share the 180ms window so the user sees a single coordinated swap, not two sequential animations.
+
+### Paper artboards (verification only — not load-bearing for ce-plan)
+
+| Artboard                               | Paper ID | State                                             |
+| -------------------------------------- | -------- | ------------------------------------------------- |
+| Composer — Empty Inbox v1              | `4DB-0`  | complete                                          |
+| Composer — Open State v1               | `4ET-0`  | partial (interior block specced in writing above) |
+| Composer — Trigger States v1           | —        | not created                                       |
+| Inline-Attach — Mechanic Study         | `4E5-0`  | complete                                          |
+| Triage Card — R4 R5 v1                 | `4E6-0`  | partial (closed state only)                       |
+| Graveyard Expansion — R8 v1            | `4E7-0`  | empty frame                                       |
+| Priority Treatment — Row v1 Dark       | `4F7-0`  | complete                                          |
+| Priority Treatment — Row v1 Light      | `4F8-0`  | empty frame                                       |
+| Priority Treatment — 30-row density v1 | —        | not created                                       |
+
+Paper MCP weekly quota was hit during the design pass. The decisions in this section are the load-bearing deliverable; remaining artboards are visual verification, not invention. Build can proceed from this spec or wait ~6 days for Paper quota to reset.
+
+### Open questions deferred to implementation
+
+1. **Triage panel attached to last row in lane** — visual relationship between panel and the lane divider below. Quick spike during SwiftUI work.
+2. **Light-mode glyph mass** — `▾` at 38% on `#F0E9E6` may read muddy; bump to 42% if it disappears in real density.
+3. **Body-preview line-clamp** — 8 lines is brief-spec, but a single very-long wrapping line gets tall. Consider `max-height: 128px` belt-and-suspenders.
+4. **Source-glyph rendering** — Linear's "L" / GitHub's "G" letterforms are placeholders; real implementation swaps to brand SVG marks. 12px slot is already aligned, no layout change.
+5. **Single-expansion-per-lane vs. globally** — chose per-lane to allow Graveyard browsing while triage is in progress. Tighten to global if real usage shows confusion.
+
+---
+
 ## Next Steps
 
 → `/ce-plan` for structured implementation planning.
