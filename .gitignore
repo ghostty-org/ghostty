@@ -27,5 +27,6 @@ glad.zip
 /Box_test_diff.ppm
 /ghostty.qcow2
 
+.worktrees/
 vgcore.*
 
