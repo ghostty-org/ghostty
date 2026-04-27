@@ -4,6 +4,86 @@ import SwiftUI
 import Combine
 import GhosttyKit
 
+// MARK: - Kanban Sidebar State
+
+/// Manages the kanban sidebar visibility state
+@MainActor
+final class SidebarState: ObservableObject {
+    static let shared = SidebarState()
+
+    @Published var isVisible: Bool = false
+
+    /// Toggle sidebar visibility
+    func toggle() {
+        isVisible.toggle()
+    }
+
+    /// Keyboard shortcut identifier for toggling sidebar
+    static let toggleShortcut = "toggle_kanban_sidebar"
+}
+
+/// A container view that combines the kanban sidebar with the terminal view
+struct KanbanSidebarContainer<Content: View>: View {
+    @ObservedObject var sidebarState: SidebarState
+    @ObservedObject var viewModel: SidePanelViewModel
+    let content: () -> Content
+
+    /// Minimum sidebar width in points
+    private let minSidebarWidth: CGFloat = 120
+    /// Maximum sidebar width as fraction of total width
+    private let maxSidebarFraction: CGFloat = 0.7
+
+    /// Current sidebar width
+    @State private var sidebarWidth: CGFloat = 240
+
+    var body: some View {
+        GeometryReader { geometry in
+            if sidebarState.isVisible {
+                let totalWidth = geometry.size.width
+                let maxWidth = totalWidth * maxSidebarFraction
+
+                ZStack(alignment: .leading) {
+                    // Base layout: sidebar + terminal directly adjacent
+                    HStack(spacing: 0) {
+                        SidePanelView(viewModel: viewModel)
+                            .frame(width: sidebarWidth, height: geometry.size.height)
+
+                        content()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+
+                    // Drag zone overlay - 8pt wide invisible hit area centered on boundary
+                    Color.clear
+                        .frame(width: 8, height: geometry.size.height)
+                        .contentShape(Rectangle())
+                        .offset(x: sidebarWidth - 4) // center on boundary
+                        .gesture(
+                            DragGesture()
+                                .onChanged { value in
+                                    let newWidth = value.location.x
+                                    sidebarWidth = min(max(minSidebarWidth, newWidth), maxWidth)
+                                }
+                                .onEnded { _ in
+                                    UserDefaults.standard.set(sidebarWidth, forKey: "kanban_sidebar_width")
+                                }
+                        )
+                        .backport.pointerStyle(.resizeLeftRight)
+                }
+                .onAppear {
+                    // Initialize to 1:3 ratio (sidebar = 1/4 of total)
+                    if UserDefaults.standard.object(forKey: "kanban_sidebar_width") == nil {
+                        sidebarWidth = totalWidth / 4
+                    } else if let saved = UserDefaults.standard.object(forKey: "kanban_sidebar_width") as? CGFloat {
+                        sidebarWidth = saved
+                    }
+                }
+            } else {
+                content()
+            }
+        }
+    }
+}
+
 /// A classic, tabbed terminal experience.
 class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Controller {
     override var windowNibName: NSNib.Name? {
@@ -1066,8 +1146,17 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Initialize our content view to the SwiftUI root
-        let container = TerminalViewContainer {
-            TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
+        // Create the sidebar view model for kanban integration
+        let sidebarViewModel = SidePanelViewModel()
+        let sidebarState = SidebarState.shared
+
+        let container = TerminalViewContainer { [weak self] in
+            guard let self else { return AnyView(EmptyView()) }
+            return AnyView(
+                KanbanSidebarContainer(sidebarState: sidebarState, viewModel: sidebarViewModel) {
+                    TerminalView(ghostty: self.ghostty, viewModel: self, delegate: self)
+                }
+            )
         }
 
         // Set the initial content size on the container so that

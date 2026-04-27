@@ -217,7 +217,7 @@ class BaseTerminalController: NSWindowController,
         // Listen for local events that we need to know of outside of
         // single surface handlers.
         self.eventMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.flagsChanged]
+            matching: [.flagsChanged, .keyDown]
         ) { [weak self] event in self?.localEventHandler(event) }
     }
 
@@ -772,13 +772,38 @@ class BaseTerminalController: NSWindowController,
     // MARK: Local Events
 
     private func localEventHandler(_ event: NSEvent) -> NSEvent? {
-        return switch event.type {
+        switch event.type {
         case .flagsChanged:
-            localEventFlagsChanged(event)
+            return localEventFlagsChanged(event)
+
+        case .keyDown:
+            if handleKanbanSidebarShortcut(event) {
+                return nil  // consume the event
+            }
+            return event
 
         default:
-            event
+            return event
         }
+    }
+
+    /// Handle Cmd+Shift+S keyboard shortcut for kanban sidebar toggle
+    private func handleKanbanSidebarShortcut(_ event: NSEvent) -> Bool {
+        // Check for Cmd+Shift+S (lowercase 's')
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let expectedModifiers: NSEvent.ModifierFlags = [.command, .shift]
+        let expectedKey = "s"
+
+        guard modifiers == expectedModifiers,
+              event.charactersIgnoringModifiers?.lowercased() == expectedKey else {
+            return false
+        }
+
+        // Toggle the sidebar visibility
+        Task { @MainActor in
+            SidebarState.shared.toggle()
+        }
+        return true
     }
 
     private func localEventFlagsChanged(_ event: NSEvent) -> NSEvent? {
