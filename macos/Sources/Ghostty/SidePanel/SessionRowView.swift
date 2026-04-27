@@ -1,5 +1,5 @@
 import SwiftUI
-import Ghostty
+import GhosttyKit
 
 struct SessionRowView: View {
     let session: Session
@@ -9,20 +9,26 @@ struct SessionRowView: View {
     var body: some View {
         HStack(spacing: 10) {
             Circle()
-                .fill(sessionColor)
+                .fill(statusColor)
                 .frame(width: 8, height: 8)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(session.name)
                     .font(.system(size: 12))
                     .foregroundColor(.primary)
+
+                if let timestamp = session.timestamp {
+                    Text(formatTimestamp(timestamp))
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
             }
 
             if session.isWorktree {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.branch")
                         .font(.system(size: 9))
-                    Text(session.worktreeName ?? "worktree")
+                    Text(session.branch ?? "main")
                         .font(.system(size: 10))
                 }
                 .foregroundColor(.purple)
@@ -52,14 +58,27 @@ struct SessionRowView: View {
         }
     }
 
-    private var sessionColor: Color {
-        if session.splitId != nil {
-            return .green
+    private var statusColor: Color {
+        switch session.status {
+        case .running: return .green
+        case .idle: return .gray
+        case .needInput: return .orange
         }
-        return .gray
+    }
+
+    private func formatTimestamp(_ date: Date) -> String {
+        let interval = Date().timeIntervalSince(date)
+        let minutes = Int(interval / 60)
+        let hours = Int(interval / 3600)
+        let days = Int(interval / 86400)
+
+        if minutes < 1 { return "Just now" }
+        if minutes < 60 { return "\(minutes)m ago" }
+        if hours < 24 { return "\(hours)h ago" }
+        return "\(days)d ago"
     }
 
     private func activateSession() {
-        // TODO: Terminal bridge - focus or create split
+        viewModel.activate(session)
     }
 }
