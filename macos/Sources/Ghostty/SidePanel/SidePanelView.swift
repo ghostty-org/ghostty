@@ -1,11 +1,15 @@
 import SwiftUI
-import Ghostty
+import GhosttyKit
 
 struct SidePanelView: View {
     @ObservedObject var viewModel: SidePanelViewModel
 
     var body: some View {
         VStack(spacing: 0) {
+            KanbanToolbar(viewModel: viewModel)
+
+            Divider()
+
             ProjectTabBar(viewModel: viewModel)
 
             Divider()
