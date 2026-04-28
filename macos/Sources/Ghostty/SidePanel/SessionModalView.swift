@@ -122,8 +122,11 @@ struct SessionModalView: View {
     }
 
     private func saveSession() {
-        guard !title.isEmpty else { return }
-        let session = Session(title: title, isWorkTree: isWorkTree)
+        let session = SessionManager.shared.createSession(
+            cwd: FileManager.default.homeDirectoryForCurrentUser.path,
+            isWorktree: isWorkTree,
+            worktreeName: nil
+        )
         boardState.addSession(to: taskId, session: session)
         isPresented = false
     }

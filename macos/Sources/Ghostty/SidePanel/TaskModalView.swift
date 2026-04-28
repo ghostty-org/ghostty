@@ -237,8 +237,12 @@ struct TaskModalView: View {
     }
 
     private func addSession() {
-        guard !newSessionTitle.isEmpty else { return }
-        sessions.append(Session(title: newSessionTitle))
+        let session = SessionManager.shared.createSession(
+            cwd: FileManager.default.homeDirectoryForCurrentUser.path,
+            isWorktree: false,
+            worktreeName: nil
+        )
+        sessions.append(session)
         newSessionTitle = ""
     }
 

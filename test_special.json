@@ -1,0 +1,1 @@
+[{"id":"p1\"id","name":"Test\"Project\\name","cards":[{"id":"c1","title":"Card with \"special\" chars\\and\nnewlines","description":"Description with\nnewline\tand\\backslash\"quotes\"","status":"in_progress","priority":"p1","sessions":[{"id":"s1\"quotes\"","name":"Test\nSession\twith\\backslash","cwd":"/path/with\"quotes\\","command":"echo \"hello\\nworld\""}]}]}]

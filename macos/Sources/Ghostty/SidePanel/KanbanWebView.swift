@@ -37,7 +37,6 @@ struct KanbanWebView: NSViewRepresentable {
         context.coordinator.viewModel = viewModel
         context.coordinator.isNarrow = isNarrow
         context.coordinator.containerWidth = containerWidth
-        context.coordinator.sendBoardState()
         context.coordinator.updateLayout()
     }
 
@@ -55,6 +54,32 @@ struct KanbanWebView: NSViewRepresentable {
 
         init(_ parent: KanbanWebView) {
             self.parent = parent
+        }
+
+        private func createAndAttachSession(
+            taskUUID: UUID,
+            cwd: String,
+            isWorkTree: Bool,
+            worktreeName: String?,
+            boardState: BoardState
+        ) {
+            let session: Session
+
+            if let viewModel = self.viewModel {
+                session = viewModel.createSessionAndOpenSplit(
+                    cwd: cwd,
+                    isWorkTree: isWorkTree,
+                    worktreeName: worktreeName
+                )
+            } else {
+                session = SessionManager.shared.createSession(
+                    cwd: cwd,
+                    isWorktree: isWorkTree,
+                    worktreeName: worktreeName
+                )
+            }
+
+            boardState.addSession(to: taskUUID, session: session)
         }
 
         // MARK: - Layout Update
@@ -158,12 +183,13 @@ struct KanbanWebView: NSViewRepresentable {
                 case "addSession":
                     if let taskId = body["taskId"] as? String,
                        let taskUUID = UUID(uuidString: taskId) {
-                        let session = SessionManager.shared.createSession(
+                        createAndAttachSession(
+                            taskUUID: taskUUID,
                             cwd: FileManager.default.homeDirectoryForCurrentUser.path,
-                            isWorktree: false,
-                            worktreeName: nil
+                            isWorkTree: false,
+                            worktreeName: nil,
+                            boardState: boardState
                         )
-                        boardState.addSession(to: taskUUID, session: session)
                         self.sendBoardState()
                     }
 
@@ -180,24 +206,13 @@ struct KanbanWebView: NSViewRepresentable {
                        let taskUUID = UUID(uuidString: taskId) {
                         let worktreeName = body["worktreeName"] as? String
 
-                        // Use viewModel if available, otherwise fallback to SessionManager only
-                        if let viewModel = self.viewModel {
-                            let session = viewModel.createSessionAndOpenSplit(
-                                cwd: cwd,
-                                isWorkTree: isWorkTree,
-                                worktreeName: worktreeName
-                            )
-                            // Add session to task
-                            boardState.addSession(to: taskUUID, session: session)
-                        } else {
-                            // Fallback: just create session without opening split
-                            let session = SessionManager.shared.createSession(
-                                cwd: cwd,
-                                isWorktree: isWorkTree,
-                                worktreeName: worktreeName
-                            )
-                            boardState.addSession(to: taskUUID, session: session)
-                        }
+                        createAndAttachSession(
+                            taskUUID: taskUUID,
+                            cwd: cwd,
+                            isWorkTree: isWorkTree,
+                            worktreeName: worktreeName,
+                            boardState: boardState
+                        )
                         self.sendBoardState()
                     }
 

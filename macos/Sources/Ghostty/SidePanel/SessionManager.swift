@@ -4,7 +4,7 @@ class SessionManager: ObservableObject {
     static let shared = SessionManager()
 
     @Published var sessions: [Session] = []
-    private let pendingSessionMatchWindow: TimeInterval = 30
+    private var fileWatcher: SessionFileWatcher?
 
     private let sessionsFileName = "sessions.json"
 
@@ -18,6 +18,7 @@ class SessionManager: ObservableObject {
 
     private init() {
         loadSessions()
+        fileWatcher = SessionFileWatcher(sessionManager: self)
     }
 
     func loadSessions() {
@@ -53,14 +54,15 @@ class SessionManager: ObservableObject {
     }
 
     func createSession(cwd: String, isWorktree: Bool, worktreeName: String?) -> Session {
+        let id = UUID()
         let session = Session(
-            id: UUID(),
+            id: id,
             title: "New Session",
             status: .running,
             timestamp: Date(),
             isWorkTree: isWorktree,
             branch: isWorktree ? (worktreeName ?? "main") : "main",
-            sessionId: nil,
+            sessionId: id.uuidString.uppercased(),
             surfaceId: nil,
             cwd: cwd
         )
@@ -143,16 +145,19 @@ class SessionManager: ObservableObject {
             return
         }
 
-        guard let pending = bestPendingSessionMatch(for: parsed) else { return }
-        updateSession(
-            localId: pending.id,
-            title: parsed.title,
-            status: parsed.status,
-            timestamp: parsed.timestamp,
-            sessionId: parsed.sessionId,
-            branch: parsed.branch,
-            isWorkTree: parsed.isWorkTree
-        )
+        if let existing = sessions.first(where: { $0.id.uuidString.uppercased() == parsed.sessionId.uppercased() }) {
+            updateSession(
+                localId: existing.id,
+                title: parsed.title,
+                status: parsed.status,
+                timestamp: parsed.timestamp,
+                sessionId: parsed.sessionId,
+                branch: parsed.branch,
+                isWorkTree: parsed.isWorkTree
+            )
+            return
+        }
+
     }
 
     func session(forSurfaceId surfaceId: UInt64) -> Session? {
@@ -189,19 +194,6 @@ class SessionManager: ObservableObject {
         guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
         sessions[index].surfaceId = nil
         saveSessions()
-    }
-
-    private func bestPendingSessionMatch(for parsed: ParsedSession) -> Session? {
-        let cutoff = Date().addingTimeInterval(-pendingSessionMatchWindow)
-
-        return sessions
-            .filter {
-                $0.sessionId == nil &&
-                $0.timestamp >= cutoff &&
-                ($0.isWorkTree == parsed.isWorkTree || !$0.isWorkTree || !parsed.isWorkTree)
-            }
-            .sorted { $0.timestamp > $1.timestamp }
-            .first
     }
 }
 

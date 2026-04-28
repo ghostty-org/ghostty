@@ -1,0 +1,1 @@
+[{"id":"p1","name":"Test Project","cards":[{"id":"c1","title":"Test Card","description":"A test description","status":"in_progress","priority":"p1","sessions":[{"id":"s1","name":"Test Session","cwd":"/tmp","command":"echo hello"}]}]}]
