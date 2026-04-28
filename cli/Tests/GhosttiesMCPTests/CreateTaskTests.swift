@@ -262,4 +262,82 @@ final class CreateTaskTests: XCTestCase {
         XCTAssertTrue(raw.contains("source: linear"),
                       "explicit source not persisted; got:\n\(raw)")
     }
+
+    // MARK: - Template + project_path
+
+    func test_createTask_withTemplate_roundTrips() throws {
+        let responses = try driveServer([
+            initRequest(),
+            ["jsonrpc": "2.0", "id": 2, "method": "tools/call",
+             "params": ["name": "create_task",
+                        "arguments": ["title": "Template round trip task",
+                                      "source": "linear",
+                                      "template": "Claude Code",
+                                      "project_path": "~/Code/ghostties"]]]
+        ])
+        guard let resp = responses[2] else { XCTFail("no response"); return }
+        XCTAssertFalse(toolIsError(resp), "create_task returned error")
+
+        let files = try FileManager.default.contentsOfDirectory(atPath: tasksDir.path)
+        guard let file = files.first(where: { $0.hasPrefix("template-round-trip-task") }) else {
+            XCTFail("task file missing; saw \(files)"); return
+        }
+        let raw = try String(contentsOf: tasksDir.appendingPathComponent(file), encoding: .utf8)
+        XCTAssertTrue(raw.contains("template: Claude Code"),
+                      "on-disk 'template' missing or wrong; got:\n\(raw)")
+        XCTAssertTrue(raw.contains("project-path: ~/Code/ghostties"),
+                      "on-disk 'project-path' missing or wrong; got:\n\(raw)")
+    }
+
+    func test_createTask_withoutTemplate_doesNotWriteTemplateField() throws {
+        let responses = try driveServer([
+            initRequest(),
+            ["jsonrpc": "2.0", "id": 2, "method": "tools/call",
+             "params": ["name": "create_task",
+                        "arguments": ["title": "No template task"]]]
+        ])
+        guard let resp = responses[2] else { XCTFail("no response"); return }
+        XCTAssertFalse(toolIsError(resp))
+
+        let files = try FileManager.default.contentsOfDirectory(atPath: tasksDir.path)
+        guard let file = files.first(where: { $0.hasPrefix("no-template-task") }) else {
+            XCTFail("task file missing; saw \(files)"); return
+        }
+        let raw = try String(contentsOf: tasksDir.appendingPathComponent(file), encoding: .utf8)
+        // The field must be absent entirely — an omitted template is not written as blank.
+        XCTAssertFalse(raw.contains("template:"),
+                       "template: must not appear in frontmatter when argument was not supplied; got:\n\(raw)")
+    }
+
+    func test_createTask_linearStylePayload_writesAllFields() throws {
+        let responses = try driveServer([
+            initRequest(),
+            ["jsonrpc": "2.0", "id": 2, "method": "tools/call",
+             "params": ["name": "create_task",
+                        "arguments": ["title": "Fix memory leak",
+                                      "source": "linear",
+                                      "priority": "high",
+                                      "lane": "inbox",
+                                      "project": "ghostties",
+                                      "project_path": "~/Code/ghostties",
+                                      "template": "Claude Code",
+                                      "notes": "Leak in BrowserTabManager on close."]]]
+        ])
+        guard let resp = responses[2] else { XCTFail("no response"); return }
+        XCTAssertFalse(toolIsError(resp), "create_task returned error")
+
+        let files = try FileManager.default.contentsOfDirectory(atPath: tasksDir.path)
+        guard let file = files.first(where: { $0.hasPrefix("fix-memory-leak") }) else {
+            XCTFail("task file missing; saw \(files)"); return
+        }
+        let raw = try String(contentsOf: tasksDir.appendingPathComponent(file), encoding: .utf8)
+        XCTAssertTrue(raw.contains("source: linear"),        "source missing; got:\n\(raw)")
+        XCTAssertTrue(raw.contains("priority: high"),        "priority missing; got:\n\(raw)")
+        XCTAssertTrue(raw.contains("status: inbox"),         "status missing; got:\n\(raw)")
+        XCTAssertTrue(raw.contains("project: ghostties"),    "project missing; got:\n\(raw)")
+        XCTAssertTrue(raw.contains("project-path: ~/Code/ghostties"), "project-path missing; got:\n\(raw)")
+        XCTAssertTrue(raw.contains("template: Claude Code"), "template missing; got:\n\(raw)")
+        XCTAssertTrue(raw.contains("Leak in BrowserTabManager on close."),
+                      "seeded notes body missing; got:\n\(raw)")
+    }
 }

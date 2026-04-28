@@ -317,4 +317,76 @@ final class CrossSurfaceCoherenceTests: XCTestCase {
                             "macOS status '\(raw)' is not representable as a TaskLane")
         }
     }
+
+    // MARK: - New field schema coherence
+
+    /// Write a fixture with `template` and `project-path`, reload it via
+    /// `TaskStore.loadFile`, and assert both fields survive the round-trip
+    /// at the GhosttiesCore layer (the sidebar surface contract).
+    func test_coherence_templateAndProjectPath_allSurfaces() throws {
+        let store = TaskStore(directory: tmpDir)
+        let pairs: [(String, String)] = [
+            ("title", "Template coherence task"),
+            ("source", "linear"),
+            ("source-id", "SEA-COHERENCE-1"),
+            ("project", "ghostties"),
+            ("created", "2026-04-27T10:00:00Z"),
+            ("status", "inbox"),
+            ("project-path", "~/Code/ghostties"),
+            ("template", "Claude Code")
+        ]
+        let url = try store.create(id: "template-coherence", pairs: pairs, body: "\n")
+
+        // Surface (a): GhosttiesCore TaskStore — the sidebar uses this model.
+        guard let task = store.loadFile(at: url) else {
+            XCTFail("TaskStore.loadFile returned nil for a file we just created"); return
+        }
+        XCTAssertEqual(task.template, "Claude Code",
+                       "task.template must survive the TaskStore round-trip")
+        XCTAssertEqual(task.projectPath, "~/Code/ghostties",
+                       "task.projectPath must survive the TaskStore round-trip")
+
+        // Surface (b): raw frontmatter — the on-disk contract the macOS parser reads.
+        let raw = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(raw.contains("template: Claude Code"),
+                      "on-disk frontmatter must contain 'template: Claude Code'")
+        XCTAssertTrue(raw.contains("project-path: ~/Code/ghostties"),
+                      "on-disk frontmatter must contain 'project-path: ~/Code/ghostties'")
+
+        // Surface (c): Frontmatter key round-trip — confirm no casing drift.
+        let parsed = Frontmatter.split(raw)
+        XCTAssertNotNil(parsed)
+        let readTemplate = Frontmatter.value(for: "template", in: parsed!.pairs)
+        let readProjectPath = Frontmatter.value(for: "project-path", in: parsed!.pairs)
+        XCTAssertEqual(readTemplate, "Claude Code",
+                       "Frontmatter.value(for: 'template') must return the verbatim value")
+        XCTAssertEqual(readProjectPath, "~/Code/ghostties",
+                       "Frontmatter.value(for: 'project-path') must return the verbatim value")
+    }
+
+    /// Write a fixture with Linear source fields, reload via `TaskStore.loadFile`,
+    /// and assert `source`, `sourceID`, and `priority` all parse correctly.
+    func test_coherence_sourceLinearFields_parseCorrectly() throws {
+        let store = TaskStore(directory: tmpDir)
+        let pairs: [(String, String)] = [
+            ("title", "Linear field coherence"),
+            ("source", "linear"),
+            ("source-id", "SEA-TEST-99"),
+            ("project", "ghostties"),
+            ("created", "2026-04-27T10:00:00Z"),
+            ("status", "backlog"),
+            ("priority", "high")
+        ]
+        let url = try store.create(id: "linear-coherence", pairs: pairs, body: "\n")
+
+        guard let task = store.loadFile(at: url) else {
+            XCTFail("TaskStore.loadFile returned nil"); return
+        }
+        XCTAssertEqual(task.source, "linear",
+                       "task.source must be 'linear'")
+        XCTAssertEqual(task.sourceID, "SEA-TEST-99",
+                       "task.sourceID must be 'SEA-TEST-99' (read from 'source-id' kebab key)")
+        XCTAssertEqual(task.priority, .high,
+                       "task.priority must be .high")
+    }
 }
