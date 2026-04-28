@@ -6,7 +6,7 @@ import GhosttyKit
 
 // MARK: - Kanban Sidebar State
 
-/// Manages the kanban sidebar toggle — opens a titlebar accessory shared across tabs.
+/// Manages the kanban sidebar toggle.
 @MainActor
 final class SidebarState: ObservableObject {
     static let shared = SidebarState()
@@ -14,7 +14,7 @@ final class SidebarState: ObservableObject {
     static let toggleShortcut = "toggle_kanban_sidebar"
 }
 
-/// Terminal-only view — sidebar is a titlebar accessory (single instance).
+/// Terminal container — sidebar is a shared theme-frame overlay (not per-tab).
 struct KanbanSidebarContainer<Content: View>: View {
     let content: () -> Content
     var body: some View { content() }
