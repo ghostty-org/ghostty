@@ -176,14 +176,6 @@ struct RowClickHandlers {
 
     // MARK: - Private helpers
 
-    /// Open the task's `.md` file in the user's default editor.
-    /// Tolerates a nil `fileURL` silently — callers don't need to guard.
-    private func openMarkdownFile(for task: TaskItem) {
-        if let url = taskStore.fileURL(for: task) {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
     /// Route column 2 to the task's existing terminal session (D8/D9 aware).
     ///
     /// Decision tree:

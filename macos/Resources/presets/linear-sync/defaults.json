@@ -21,9 +21,9 @@
     "priority": {
       "urgent": "high",
       "high": "high",
-      "medium": "normal",
+      "medium": "medium",
       "low": "low",
-      "no_priority": "normal"
+      "no_priority": "none"
     }
   },
   "sync": {

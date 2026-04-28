@@ -51,7 +51,10 @@ func createTaskTool() -> Tool {
             let seedNotes = args["notes"]?.string
 
             let id: String = {
-                if let sid = args["source_id"]?.string, !sid.isEmpty { return sid }
+                if let sid = args["source_id"]?.string, !sid.isEmpty {
+                    let safe = sid.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" })
+                    if safe { return sid }
+                }
                 return makeID(title: title)
             }()
             let created = isoTimestamp()

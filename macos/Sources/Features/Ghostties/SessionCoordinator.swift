@@ -179,7 +179,7 @@ final class SessionCoordinator: ObservableObject {
                 ])
             }
             let scriptPath = (scriptDir as NSString).appendingPathComponent("\(session.id.uuidString).sh")
-            let script = "#!/bin/zsh -l\n. ~/.zshrc 2>/dev/null\n\(banner)\n\(cmd)\n"
+            let script = "#!/bin/zsh -l\n. ~/.zshrc 2>/dev/null\n\(banner)\nexec \(cmd)\n"
             if (try? script.write(toFile: scriptPath, atomically: true, encoding: .utf8)) != nil {
                 try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptPath)
                 return scriptPath
