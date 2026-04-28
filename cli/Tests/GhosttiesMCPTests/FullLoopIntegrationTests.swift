@@ -94,10 +94,7 @@ final class FullLoopIntegrationTests: XCTestCase {
     // MARK: - Full loop: create → list → inbox→running→done
 
     func test_fullLoop_createRunComplete() throws {
-        // Step 1 — Create task with full Linear-style payload.
-        // NOTE: create_task has no `source_id` input parameter; it generates its
-        // own id from the title slug. The `source_id` in list/get responses
-        // reflects that generated id, not a caller-supplied value.
+        // Step 1 — Create task with full Linear-style payload including source_id.
         let createResponses = try driveServer([
             initRequest(),
             ["jsonrpc": "2.0", "id": 2, "method": "tools/call",
@@ -105,6 +102,7 @@ final class FullLoopIntegrationTests: XCTestCase {
                         "arguments": [
                             "title": "Generate hello.md in docs/",
                             "source": "linear",
+                            "source_id": "SEA-TEST-HELLO",
                             "priority": "high",
                             "lane": "inbox",
                             "project": "ghostties",
@@ -181,7 +179,7 @@ final class FullLoopIntegrationTests: XCTestCase {
 
         // Assert on-disk frontmatter.
         let runningFiles = try FileManager.default.contentsOfDirectory(atPath: tasksDir.path)
-        guard let runningFile = runningFiles.first(where: { $0.hasPrefix("generate-hello-md") }) else {
+        guard let runningFile = runningFiles.first(where: { $0.hasPrefix("SEA-TEST-HELLO") }) else {
             XCTFail("task file missing after running update; saw \(runningFiles)"); return
         }
         let runningRaw = try String(contentsOf: tasksDir.appendingPathComponent(runningFile),
@@ -214,7 +212,7 @@ final class FullLoopIntegrationTests: XCTestCase {
 
         // Assert on-disk frontmatter after completing.
         let doneFiles = try FileManager.default.contentsOfDirectory(atPath: tasksDir.path)
-        guard let doneFile = doneFiles.first(where: { $0.hasPrefix("generate-hello-md") }) else {
+        guard let doneFile = doneFiles.first(where: { $0.hasPrefix("SEA-TEST-HELLO") }) else {
             XCTFail("task file missing after done update; saw \(doneFiles)"); return
         }
         let doneRaw = try String(contentsOf: tasksDir.appendingPathComponent(doneFile),
@@ -230,12 +228,10 @@ final class FullLoopIntegrationTests: XCTestCase {
     // MARK: - Deduplication contract
 
     func test_fullLoop_deduplicate_doesNotCreateDuplicate() throws {
-        // FIXME: dedup is the agent's responsibility, not the server's.
-        // The MCP server has no server-side deduplication. Calling create_task
-        // twice with the same logical intent (same source_id in the Linear sense)
-        // always produces two distinct files. This test documents that behavior
-        // and asserts the count correctly so future dedup logic will surface as
-        // a test change.
+        // When create_task is called twice with the same source_id, the server
+        // returns an error on the second call (TaskStore.create throws on collision).
+        // This is the dedup contract the agent relies on: pass source_id, catch the
+        // error, and skip the create — the task already exists.
 
         // Create first task.
         let firstResponses = try driveServer([
@@ -243,8 +239,9 @@ final class FullLoopIntegrationTests: XCTestCase {
             ["jsonrpc": "2.0", "id": 2, "method": "tools/call",
              "params": ["name": "create_task",
                         "arguments": [
-                            "title": "Dedup test SEA-DEDUP-1",
-                            "source": "linear"
+                            "title": "Dedup test",
+                            "source": "linear",
+                            "source_id": "SEA-DEDUP-1"
                         ]]]
         ])
         guard let firstResp = firstResponses[2] else {
@@ -252,29 +249,29 @@ final class FullLoopIntegrationTests: XCTestCase {
         }
         XCTAssertFalse(toolIsError(firstResp), "first create_task returned error")
 
-        // Capture count after first create.
         let countAfterFirst = try FileManager.default.contentsOfDirectory(atPath: tasksDir.path).count
 
-        // Create second task with a different title but logically the same Linear issue.
+        // Second call with same source_id — server must reject it.
         let secondResponses = try driveServer([
             initRequest(),
             ["jsonrpc": "2.0", "id": 2, "method": "tools/call",
              "params": ["name": "create_task",
                         "arguments": [
-                            "title": "Dedup test SEA-DEDUP-1 (duplicate attempt)",
-                            "source": "linear"
+                            "title": "Dedup test (duplicate attempt)",
+                            "source": "linear",
+                            "source_id": "SEA-DEDUP-1"
                         ]]]
         ])
         guard let secondResp = secondResponses[2] else {
             XCTFail("no response to second create_task"); return
         }
-        XCTAssertFalse(toolIsError(secondResp), "second create_task returned error")
+        XCTAssertTrue(toolIsError(secondResp),
+                      "second create_task with same source_id must return an error")
 
-        // FIXME: dedup is the agent's responsibility, not the server's.
-        // The server creates a second file — count increases by 1.
+        // File count must not increase — only one file created.
         let countAfterSecond = try FileManager.default.contentsOfDirectory(atPath: tasksDir.path).count
-        XCTAssertEqual(countAfterSecond, countAfterFirst + 1,
-                       "server creates a new file on each create_task call (no server-side dedup)")
+        XCTAssertEqual(countAfterSecond, countAfterFirst,
+                       "duplicate source_id must not produce a second file")
 
         // Verify via list_tasks that two distinct tasks exist.
         let listResponses = try driveServer([
@@ -293,7 +290,7 @@ final class FullLoopIntegrationTests: XCTestCase {
         else {
             XCTFail("list_tasks did not return a JSON array: \(listText)"); return
         }
-        XCTAssertEqual(listArray.count, 2,
-                       "list_tasks(source:linear) must return 2 tasks (server has no dedup)")
+        XCTAssertEqual(listArray.count, 1,
+                       "duplicate source_id must not produce a second task — server dedup via file collision")
     }
 }

@@ -9,6 +9,7 @@ func createTaskTool() -> Tool {
             properties: [
                 ("title", S.string("Task title (required).")),
                 ("source", S.string("Task source (e.g. linear, github, shell, sentry). Defaults to 'shell'.")),
+                ("source_id", S.string("Canonical source identifier (e.g. SEA-135). Used as the task's id and source-id frontmatter key, enabling deduplication across sync runs. If omitted, a slug+UUID is generated.")),
                 ("branch", S.string("Branch name to associate with the task.")),
                 ("project", S.string("Project tag. Defaults to the tasks-dir's repo name.")),
                 ("project_path", S.string("Absolute path to the project's root directory (e.g. ~/Code/ghostties). Stored raw — tildes are not expanded.")),
@@ -49,7 +50,10 @@ func createTaskTool() -> Tool {
             }()
             let seedNotes = args["notes"]?.string
 
-            let id = makeID(title: title)
+            let id: String = {
+                if let sid = args["source_id"]?.string, !sid.isEmpty { return sid }
+                return makeID(title: title)
+            }()
             let created = isoTimestamp()
 
             var pairs: [(String, String)] = [
