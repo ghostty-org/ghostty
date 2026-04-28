@@ -6,18 +6,69 @@ import GhosttyKit
 
 // MARK: - Kanban Sidebar State
 
-/// Manages the kanban sidebar toggle.
+/// Manages the kanban sidebar visibility + titlebar spacer.
 @MainActor
 final class SidebarState: ObservableObject {
     static let shared = SidebarState()
-    func toggle() { KanbanSidebarController.shared.toggle() }
+    @Published var isVisible: Bool = true
+    func toggle() { isVisible.toggle() }
     static let toggleShortcut = "toggle_kanban_sidebar"
 }
 
-/// Terminal container — sidebar is a shared theme-frame overlay (not per-tab).
+/// Sidebar + terminal side-by-side inside the content area.
+/// The sidebar extends behind the titlebar via `.ignoresSafeArea(.all)`,
+/// and a titlebar spacer pushes the native tab bar to the right so the
+/// sidebar is visible at the same level as the tabs.
 struct KanbanSidebarContainer<Content: View>: View {
+    @ObservedObject var sidebarState: SidebarState
+    var viewModel: SidePanelViewModel?
     let content: () -> Content
-    var body: some View { content() }
+
+    private let minSidebarWidth: CGFloat = 85
+    private let maxSidebarFraction: CGFloat = 0.5
+
+    @State private var sidebarWidth: CGFloat = 85
+
+    var body: some View {
+        GeometryReader { geometry in
+            if sidebarState.isVisible {
+                let totalWidth = geometry.size.width
+                let maxWidth = totalWidth * maxSidebarFraction
+                ZStack(alignment: .leading) {
+                    HStack(spacing: 0) {
+                        SidePanelView(viewModel: viewModel)
+                            .frame(width: sidebarWidth)
+                            .ignoresSafeArea(.all)
+                        content()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    // Drag handle between sidebar and terminal
+                    Color.clear
+                        .frame(width: 8, height: geometry.size.height)
+                        .contentShape(Rectangle())
+                        .offset(x: sidebarWidth - 4)
+                        .gesture(DragGesture()
+                            .onChanged { v in
+                                let w = min(max(minSidebarWidth, v.location.x), maxWidth)
+                                sidebarWidth = w
+                                UserDefaults.standard.set(w, forKey: "kanban_sidebar_width")
+                            }
+                        )
+                        .backport.pointerStyle(.resizeLeftRight)
+                }
+                .onAppear {
+                    if let saved = UserDefaults.standard.object(forKey: "kanban_sidebar_width") as? CGFloat {
+                        sidebarWidth = max(minSidebarWidth, saved)
+                    } else {
+                        sidebarWidth = 85
+                    }
+                    UserDefaults.standard.set(sidebarWidth, forKey: "kanban_sidebar_width")
+                }
+            } else {
+                content()
+            }
+        }
+    }
 }
 
 /// A classic, tabbed terminal experience.
@@ -1153,18 +1204,30 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             TerminalController.sharedSidebarViewModel = SidePanelViewModel()
             TerminalController.sharedSidebarViewModel?.setGhosttyApp(ghostty)
         }
+        let sidebarViewModel = TerminalController.sharedSidebarViewModel!
+        let sidebarState = SidebarState.shared
 
-        // Auto-show the shared titlebar-accessory sidebar on first launch
-        KanbanSidebarController.showOnceIfNeeded()
+        // Extend content behind the titlebar so the sidebar
+        // (with `.ignoresSafeArea(.all)`) is visible there.
+        window.styleMask.insert(.fullSizeContentView)
+        window.titlebarAppearsTransparent = true
 
         let container = TerminalViewContainer { [weak self] in
             guard let self else { return AnyView(EmptyView()) }
             return AnyView(
-                KanbanSidebarContainer {
+                KanbanSidebarContainer(sidebarState: sidebarState, viewModel: sidebarViewModel) {
                     TerminalView(ghostty: self.ghostty, viewModel: self, delegate: self)
                 }
             )
         }
+
+        // Install a titlebar spacer so the native tab bar shifts
+        // right, leaving the left titlebar area free for the sidebar.
+        KanbanSidebarController.installSpacer(
+            in: window,
+            width: UserDefaults.standard.double(forKey: "kanban_sidebar_width") > 0
+                ? UserDefaults.standard.double(forKey: "kanban_sidebar_width") : 85
+        )
 
         // Set the initial content size on the container so that
         // intrinsicContentSize returns the correct value immediately,
