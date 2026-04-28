@@ -3,19 +3,19 @@ import SwiftUI
 import Combine
 
 final class BoardState: ObservableObject {
+    static let shared = BoardState()
+
     @Published var tasks: [KanbanTask] = []
     @Published var isDarkMode: Bool = false
 
     private let persistence = Persistence.shared
-    private var sessionWatcher: SessionFileWatcher?
     private var cancellables: Set<AnyCancellable> = []
 
-    init() {
+    private init() {
         load()
         reconcileSessionStoreFromTasks()
         bindSessionStore()
         loadTheme()
-        sessionWatcher = SessionFileWatcher(sessionManager: SessionManager.shared)
     }
 
     // MARK: - Persistence
@@ -154,6 +154,7 @@ final class BoardState: ObservableObject {
     private func bindSessionStore() {
         SessionManager.shared.$sessions
             .receive(on: DispatchQueue.main)
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.refreshSessionsFromManager()
             }

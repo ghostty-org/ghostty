@@ -2,8 +2,8 @@ import SwiftUI
 import GhosttyKit
 
 struct SidePanelView: View {
-    @ObservedObject var viewModel: SidePanelViewModel
-    @StateObject private var boardState = BoardState()
+    var viewModel: SidePanelViewModel?
+    @StateObject private var boardState = BoardState.shared
     @State private var showTaskModal = false
     @State private var containerWidth: CGFloat = 0
     @State private var isNarrow: Bool = false
@@ -14,6 +14,7 @@ struct SidePanelView: View {
         GeometryReader { geometry in
             KanbanWebView(
                 boardState: boardState,
+                viewModel: viewModel,
                 showTaskModal: $showTaskModal,
                 containerWidth: containerWidth,
                 isNarrow: isNarrow
