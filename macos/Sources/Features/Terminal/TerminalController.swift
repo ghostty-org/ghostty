@@ -25,7 +25,7 @@ final class SidebarState: ObservableObject {
 /// A container view that combines the kanban sidebar with the terminal view
 struct KanbanSidebarContainer<Content: View>: View {
     @ObservedObject var sidebarState: SidebarState
-    @ObservedObject var viewModel: SidePanelViewModel
+    var viewModel: SidePanelViewModel?
     let content: () -> Content
 
     /// Minimum sidebar width in points
@@ -141,6 +141,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
 
+    /// The sidebar view model for kanban integration.
+    var sidebarViewModel: SidePanelViewModel?
+
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
@@ -211,6 +214,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             self,
             selector: #selector(onCloseWindow),
             name: .ghosttyCloseWindow,
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(onKanbanCreateSplit(_:)),
+            name: .kanbanCreateSplit,
             object: nil
         )
     }
@@ -293,6 +302,20 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         return NSApplication.shared.windows.compactMap {
             $0.windowController as? TerminalController
         }
+    }
+
+    /// Find a SurfaceView by its underlying surface ID.
+    /// - Parameter surfaceId: The UInt64 surface ID to search for
+    /// - Returns: The matching Ghostty.SurfaceView if found
+    private func findSurfaceView(by surfaceId: UInt64) -> Ghostty.SurfaceView? {
+        for surfaceView in surfaceTree {
+            guard let surface = surfaceView.surface else { continue }
+            let id = unsafeBitCast(surface, to: UInt64.self)
+            if id == surfaceId {
+                return surfaceView
+            }
+        }
+        return nil
     }
 
     // Keep track of the last point that our window was launched at so that new
@@ -1147,13 +1170,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Initialize our content view to the SwiftUI root
         // Create the sidebar view model for kanban integration
-        let sidebarViewModel = SidePanelViewModel()
+        sidebarViewModel = SidePanelViewModel()
+        sidebarViewModel?.setGhosttyApp(ghostty)
         let sidebarState = SidebarState.shared
 
         let container = TerminalViewContainer { [weak self] in
             guard let self else { return AnyView(EmptyView()) }
             return AnyView(
-                KanbanSidebarContainer(sidebarState: sidebarState, viewModel: sidebarViewModel) {
+                KanbanSidebarContainer(sidebarState: sidebarState, viewModel: self.sidebarViewModel) {
                     TerminalView(ghostty: self.ghostty, viewModel: self, delegate: self)
                 }
             )
@@ -1643,6 +1667,46 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard surfaceTree.contains(target) else { return }
         closeWindow(self)
+    }
+
+    @objc private func onKanbanCreateSplit(_ notification: Notification) {
+        guard let sessionId = notification.userInfo?["sessionId"] as? UUID,
+              let surface = self.focusedSurface?.surface else {
+            print("[Kanban] onKanbanCreateSplit: no source surface")
+            return
+        }
+
+        // Get session info from SessionManager
+        guard let session = SessionManager.shared.session(for: sessionId) else {
+            print("[Kanban] onKanbanCreateSplit: session not found for \(sessionId)")
+            return
+        }
+
+        // Create a split to the right - after this, the new surface becomes focused
+        ghostty.split(surface: surface, direction: GHOSTTY_SPLIT_DIRECTION_RIGHT)
+
+        // After split, the new surface should be focused - get it and send the command
+        // We need to do this asynchronously because the focused surface updates after the split
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self = self,
+                  let newSurface = self.focusedSurface?.surface else {
+                print("[Kanban] onKanbanCreateSplit: could not get new focused surface")
+                return
+            }
+
+            // Build the claude command
+            let sessionIdArg = "--session-id=\(sessionId.uuidString)"
+            var command = "claude \(sessionIdArg)"
+            if session.isWorkTree {
+                command += " --worktree \(session.branch)"
+            }
+            command += "\r"
+
+            // Send the command to the new surface
+            let ghosttySurface = Ghostty.Surface(cSurface: newSurface)
+            ghosttySurface.sendText(command)
+            print("[Kanban] onKanbanCreateSplit: sent '\(command)' to new surface")
+        }
     }
 
     @objc private func onResetWindowSize(notification: SwiftUI.Notification) {
