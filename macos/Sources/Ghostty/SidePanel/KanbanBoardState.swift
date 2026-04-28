@@ -6,10 +6,12 @@ final class BoardState: ObservableObject {
     @Published var isDarkMode: Bool = false
 
     private let persistence = Persistence.shared
+    private var sessionWatcher: SessionFileWatcher?
 
     init() {
         load()
         loadTheme()
+        sessionWatcher = SessionFileWatcher(sessionManager: SessionManager.shared)
     }
 
     // MARK: - Persistence
