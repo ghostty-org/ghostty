@@ -35,6 +35,9 @@ import SwiftUI
 struct InboxZoneView: View {
     @ObservedObject var taskStore: TaskStore
     @ObservedObject var workspaceStore: WorkspaceStore
+    /// SEA-213: observe at zone level so individual TaskRowViews don't each
+    /// hold an independent @ObservedObject on the singleton.
+    @ObservedObject private var router = RowClickRouter.shared
 
     /// U8: composer store — drives the empty-area click target + composer slot.
     @ObservedObject var composerStore: NewTaskComposerStore
@@ -47,18 +50,14 @@ struct InboxZoneView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Cached once per render so the header count and the `ForEach` agree
-    /// on what they're showing.
+    /// SEA-215: Read the pre-sorted array from the store instead of sorting
+    /// inline. `TaskStore.recomputeLanes()` performs the O(n log n) sort once
+    /// when the task list changes; this computed var is now O(1).
     ///
     /// Sort order: primary `priority` descending (high → none), secondary
     /// `created` descending (newest first). Matches R15 from the U1 spec.
     private var rows: [TaskItem] {
-        taskStore.externalInbox.sorted {
-            if $0.priority.sortRank != $1.priority.sortRank {
-                return $0.priority.sortRank > $1.priority.sortRank
-            }
-            return $0.created > $1.created
-        }
+        taskStore.sortedExternalInbox
     }
 
     /// True when every lane is empty — triggers the first-run hint (SG-03).
@@ -145,8 +144,13 @@ struct InboxZoneView: View {
         let isAnchor = triageStore.activeTaskId == task.id
 
         // Anchor row with optional 2px terracotta left-rule (D20).
-        TaskRowView(task: task, style: .compact)
-            .overlay(alignment: .leading) {
+        TaskRowView(
+            task: task,
+            style: .compact,
+            isHitTestBlocked: router.hitTestingBlockedTaskIds.contains(task.id),
+            rowError: router.taskRowErrors[task.id]
+        )
+        .overlay(alignment: .leading) {
                 if isAnchor {
                     Rectangle()
                         .fill(WorkspaceLayout.waitingTerracotta)

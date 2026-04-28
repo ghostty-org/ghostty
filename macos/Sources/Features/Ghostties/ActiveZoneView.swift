@@ -13,9 +13,18 @@ import SwiftUI
 struct ActiveZoneView: View {
     @ObservedObject var taskStore: TaskStore
     @ObservedObject var sessionDraftStore: SessionDraftStore
+    /// SEA-213: observe at zone level so individual TaskRowViews don't each
+    /// hold an independent @ObservedObject on the singleton.
+    @ObservedObject private var router = RowClickRouter.shared
+
+    /// SEA-216: Cache the merged+sorted rows in state so `body` never rebuilds
+    /// the array. Populated on appear and updated via `.onChange` whenever either
+    /// source store changes. This avoids re-running the map+concat+sort on every
+    /// body call (which previously fired on every user interaction across the sidebar).
+    @State private var cachedMergedRows: [ActiveRow] = []
 
     var body: some View {
-        let rows = mergedRows  // snapshot once — see hang report 26Apr2026
+        let rows = cachedMergedRows
         return VStack(alignment: .leading, spacing: 0) {
             header(rowCount: rows.count)
 
@@ -35,6 +44,11 @@ struct ActiveZoneView: View {
             }
         }
         .padding(.vertical, 4)
+        .onAppear { cachedMergedRows = buildMergedRows() }
+        .onChange(of: taskStore.active) { _ in cachedMergedRows = buildMergedRows() }
+        // SessionDraft is a reference type so its array isn't Equatable.
+        // Receive the store's own change signal instead.
+        .onReceive(sessionDraftStore.objectWillChange) { cachedMergedRows = buildMergedRows() }
     }
 
     // MARK: - Merged stream
@@ -60,10 +74,14 @@ struct ActiveZoneView: View {
         }
     }
 
+    /// SEA-216: Build the merged+sorted rows. Called once on appear and on every
+    /// change to `taskStore.active` or `sessionDraftStore.drafts`. The result is
+    /// cached in `cachedMergedRows` so `body` never re-runs this computation.
+    ///
     /// Union of running tasks and drafts, sorted newest-first. Promoted drafts
     /// (`promotedToTaskId != nil`) are filtered out — they're represented by
     /// the new task row instead.
-    private var mergedRows: [ActiveRow] {
+    private func buildMergedRows() -> [ActiveRow] {
         let taskRows = taskStore.active.map(ActiveRow.task)
         let draftRows = sessionDraftStore.drafts
             .filter { $0.promotedToTaskId == nil }
@@ -75,7 +93,12 @@ struct ActiveZoneView: View {
     private func rowView(for row: ActiveRow) -> some View {
         switch row {
         case .task(let task):
-            TaskRowView(task: task, style: .compact)
+            TaskRowView(
+                task: task,
+                style: .compact,
+                isHitTestBlocked: router.hitTestingBlockedTaskIds.contains(task.id),
+                rowError: router.taskRowErrors[task.id]
+            )
         case .draft(let draft):
             SessionDraftRowView(draft: draft)
         }

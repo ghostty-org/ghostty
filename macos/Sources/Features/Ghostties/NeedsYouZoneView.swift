@@ -10,6 +10,9 @@ import SwiftUI
 /// each row's leading status dot. Nowhere else in the sidebar.
 struct NeedsYouZoneView: View {
     @ObservedObject var taskStore: TaskStore
+    /// SEA-213: observe at zone level so individual TaskRowViews don't each
+    /// hold an independent @ObservedObject on the singleton.
+    @ObservedObject private var router = RowClickRouter.shared
 
     /// Reserved minimum height when the zone is empty. Keeps the divider
     /// below from walking up the sidebar when the list clears out.
@@ -24,7 +27,12 @@ struct NeedsYouZoneView: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(taskStore.needsYou) { task in
-                        TaskRowView(task: task, style: .hero)
+                        TaskRowView(
+                            task: task,
+                            style: .hero,
+                            isHitTestBlocked: router.hitTestingBlockedTaskIds.contains(task.id),
+                            rowError: router.taskRowErrors[task.id]
+                        )
                         Divider()
                             .overlay(Color.primary.opacity(0.06))
                     }

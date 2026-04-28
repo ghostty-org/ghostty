@@ -77,6 +77,14 @@ struct TaskRowView: View {
     var showChevron: Bool = false
     /// D24: current expansion state for this row. Used to rotate the chevron.
     var isExpanded: Bool = false
+    /// SEA-213: D14 hit-test guard — passed down from the zone view that
+    /// observes `RowClickRouter.shared` at the zone level. Avoids each visible
+    /// row independently observing the singleton (which caused 10–15 body
+    /// re-renders on every router `@Published` change).
+    var isHitTestBlocked: Bool = false
+    /// SEA-213: D13 error chip message — passed down from the zone view.
+    /// Non-nil while a write to disk has failed for this task id.
+    var rowError: String? = nil
 
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var taskStore: TaskStore
@@ -89,9 +97,6 @@ struct TaskRowView: View {
     /// `defaults write com.mitchellh.ghostty ghostties.defaultTaskTemplate "Orchestrator"`.
     @AppStorage("ghostties.defaultTaskTemplate") private var defaultTaskTemplate: String = ""
     @State private var isHovered = false
-
-    /// Observed so that D14 hit-test guard and D13 error chip react to router state.
-    @ObservedObject private var router = RowClickRouter.shared
 
     // MARK: - U11 — Row focus model
 
@@ -115,7 +120,7 @@ struct TaskRowView: View {
 
             // D13 — Error chip: shown when a write to disk fails.
             // Persists until the next successful write clears the entry in the router.
-            if let errorMessage = router.taskRowErrors[task.id] {
+            if let errorMessage = rowError {
                 HStack(spacing: 4) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 9, weight: .semibold))
@@ -146,7 +151,8 @@ struct TaskRowView: View {
         )
         .contentShape(Rectangle())
         // D14-a — Disable hit-testing during the 180ms animation window.
-        .allowsHitTesting(!router.hitTestingBlockedTaskIds.contains(task.id))
+        // Value is pre-computed at the zone level (SEA-213).
+        .allowsHitTesting(!isHitTestBlocked)
         .onHover { hovering in
             isHovered = hovering
             // Pointer cursor on hover — the row is a handle to a real thing.
@@ -222,7 +228,7 @@ struct TaskRowView: View {
 
     private var accessibilityRowLabel: String {
         // FYI-2: include action verb "Open task" so VoiceOver announces intent.
-        if let err = router.taskRowErrors[task.id] {
+        if let err = rowError {
             return "Open task: \(task.title). \(statusPhrase). Write error: \(err)"
         }
         return "Open task: \(task.title). \(statusPhrase)"
@@ -257,10 +263,15 @@ struct TaskRowView: View {
                 notesChip
             }
 
-            Text(statusPhrase)
-                .font(.system(size: 11))
-                .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
-                .lineLimit(1)
+            // SEA-214: TimelineView drives the timestamp refresh (60s cadence)
+            // so parent re-renders from the SessionCoordinator 1Hz timer don't
+            // cause a new string diff for this static text on every tick.
+            TimelineView(.periodic(from: .now, by: 60)) { _ in
+                Text(statusPhrase)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+                    .lineLimit(1)
+            }
         }
     }
 
@@ -308,11 +319,14 @@ struct TaskRowView: View {
                     .padding(.top, 2)
             }
 
-            Text(trailingTime)
-                .font(.system(size: 10.5, design: .monospaced))
-                .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
-                .lineLimit(1)
-                .padding(.top, 2)
+            // SEA-214: TimelineView drives the timestamp refresh (60s cadence).
+            TimelineView(.periodic(from: .now, by: 60)) { _ in
+                Text(trailingTime)
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+                    .lineLimit(1)
+                    .padding(.top, 2)
+            }
         }
     }
 

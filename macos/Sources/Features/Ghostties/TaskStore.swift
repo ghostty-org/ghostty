@@ -100,6 +100,11 @@ final class TaskStore: ObservableObject {
     /// already uses (set in `loadFromDisk`). The filter preserves that order.
     @Published private(set) var externalInbox: [TaskItem] = []
 
+    /// SEA-215: Pre-sorted external inbox for `InboxZoneView`. Sorted by
+    /// priority descending then created descending — matches R15 from the U1 spec.
+    /// Computed once in `recomputeLanes()` so the view never re-sorts on every body call.
+    @Published private(set) var sortedExternalInbox: [TaskItem] = []
+
     /// Recomputes all lane arrays in a single pass over `tasks`. Call this
     /// everywhere `tasks` is mutated so the stored arrays stay in sync.
     private func recomputeLanes() {
@@ -120,6 +125,14 @@ final class TaskStore: ObservableObject {
         }
         needsYou = needs; active = act; inbox = inb; backlog = bl
         review = rev; done = dn; externalInbox = ext
+
+        // SEA-215: sort once here so InboxZoneView.body never re-sorts.
+        sortedExternalInbox = ext.sorted {
+            if $0.priority.sortRank != $1.priority.sortRank {
+                return $0.priority.sortRank > $1.priority.sortRank
+            }
+            return $0.created > $1.created
+        }
     }
 
     // MARK: - Write wrappers

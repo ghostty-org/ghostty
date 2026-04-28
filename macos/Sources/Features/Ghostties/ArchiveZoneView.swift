@@ -13,6 +13,9 @@ import SwiftUI
 /// within this lane (D11 / D4). Tap outside leaves it open (D25).
 struct ArchiveZoneView: View {
     @ObservedObject var taskStore: TaskStore
+    /// SEA-213: observe at zone level so individual TaskRowViews don't each
+    /// hold an independent @ObservedObject on the singleton.
+    @ObservedObject private var router = RowClickRouter.shared
 
     /// Per-lane expand/collapse state. Collapsed by default.
     @State private var expanded: Set<TaskStatus> = []
@@ -118,7 +121,12 @@ struct ArchiveZoneView: View {
             if isExpanded, !tasks.isEmpty {
                 VStack(spacing: 0) {
                     ForEach(tasks) { task in
-                        TaskRowView(task: task, style: .compact)
+                        TaskRowView(
+                            task: task,
+                            style: .compact,
+                            isHitTestBlocked: router.hitTestingBlockedTaskIds.contains(task.id),
+                            rowError: router.taskRowErrors[task.id]
+                        )
                         Divider()
                             .overlay(Color.primary.opacity(0.06))
                     }
@@ -180,7 +188,9 @@ struct ArchiveZoneView: View {
                                 task: task,
                                 style: .compact,
                                 showChevron: true,
-                                isExpanded: isRowExpanded
+                                isExpanded: isRowExpanded,
+                                isHitTestBlocked: router.hitTestingBlockedTaskIds.contains(task.id),
+                                rowError: router.taskRowErrors[task.id]
                             )
 
                             // Inline expansion panel (D4 push — rows below shift down)
