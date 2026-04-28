@@ -135,6 +135,13 @@ struct KanbanWebView: NSViewRepresentable {
                         self.sendBoardState()
                     }
 
+                case "deleteTask":
+                    if let taskId = body["taskId"] as? String,
+                       let uuid = UUID(uuidString: taskId) {
+                        boardState.deleteTask(uuid)
+                        self.sendBoardState()
+                    }
+
                 case "removeSession":
                     if let taskId = body["taskId"] as? String,
                        let sessionId = body["sessionId"] as? String,

@@ -616,6 +616,41 @@
 
     .btn-small { padding: 5px 12px; font-size: 12px; }
 
+    .btn-danger {
+      background: linear-gradient(180deg, var(--danger) 0%, #cc2f26 100%);
+      color: #fff;
+      box-shadow: 0 1px 3px rgba(255,59,48,0.3);
+    }
+
+    .btn-danger:hover {
+      background: linear-gradient(180deg, #ff4d3d 0%, var(--danger) 100%);
+    }
+
+    .modal-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-footer-left {
+      display: flex;
+      gap: 10px;
+    }
+
+    .modal-footer-right {
+      display: flex;
+      gap: 10px;
+      margin-left: auto;
+    }
+
+    #deleteTaskBtn {
+      display: none;
+    }
+
+    #deleteTaskBtn.visible {
+      display: block;
+    }
+
     .resize-handle {
       width: 6px;
       cursor: col-resize;
@@ -674,8 +709,13 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" id="modalCancel">Cancel</button>
-        <button class="btn btn-primary" id="modalSave">Save</button>
+        <div class="modal-footer-left">
+          <button class="btn btn-danger btn-small" id="deleteTaskBtn">Delete</button>
+        </div>
+        <div class="modal-footer-right">
+          <button class="btn btn-secondary" id="modalCancel">Cancel</button>
+          <button class="btn btn-primary" id="modalSave">Save</button>
+        </div>
       </div>
     </div>
   </div>
@@ -925,6 +965,7 @@
       document.getElementById('taskTitle').value = '';
       document.getElementById('taskDesc').value = '';
       document.getElementById('taskPriority').value = 'p2';
+      document.getElementById('deleteTaskBtn').classList.remove('visible');
       document.getElementById('taskModal').classList.add('active');
     }
 
@@ -937,6 +978,7 @@
       document.getElementById('taskTitle').value = task.title;
       document.getElementById('taskDesc').value = task.description || '';
       document.getElementById('taskPriority').value = task.priority;
+      document.getElementById('deleteTaskBtn').classList.add('visible');
       document.getElementById('taskModal').classList.add('active');
     }
 
@@ -964,11 +1006,24 @@
       closeModal();
     }
 
+    function deleteTask() {
+      if (!editingTaskId) return;
+
+      if (confirm('Are you sure you want to delete this task?')) {
+        window.webkit.messageHandlers.kanbanBridge.postMessage({
+          type: 'deleteTask',
+          taskId: editingTaskId
+        });
+        closeModal();
+      }
+    }
+
     // Event Listeners
     document.getElementById('newTaskBtn').addEventListener('click', openNewTaskModal);
     document.getElementById('modalClose').addEventListener('click', closeModal);
     document.getElementById('modalCancel').addEventListener('click', closeModal);
     document.getElementById('modalSave').addEventListener('click', saveTask);
+    document.getElementById('deleteTaskBtn').addEventListener('click', deleteTask);
 
     document.getElementById('taskModal').addEventListener('click', function(e) {
       if (e.target === this) closeModal();
