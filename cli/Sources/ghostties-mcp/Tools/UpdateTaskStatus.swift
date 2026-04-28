@@ -34,7 +34,7 @@ func updateTaskStatusTool() -> Tool {
                 var pairs = Frontmatter.set("status", laneValue.rawValue, in: task.frontmatter)
                 let now = isoTimestamp()
                 pairs = Frontmatter.set("updated", now, in: pairs)
-                if laneValue == .done {
+                if laneValue == .done && Frontmatter.value(for: "completed", in: pairs) == nil {
                     pairs = Frontmatter.set("completed", now, in: pairs)
                 }
 

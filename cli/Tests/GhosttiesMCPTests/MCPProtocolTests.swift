@@ -466,15 +466,7 @@ final class MCPProtocolTests: XCTestCase {
         let raw = try String(contentsOf: fileURL, encoding: .utf8)
         XCTAssertTrue(raw.contains("status: done"), "status must be done; got:\n\(raw)")
 
-        // FIXME: UpdateTaskStatus.swift always overwrites `completed` when transitioning
-        // to done (Frontmatter.set is unconditional). The field should only be written
-        // if it wasn't already set, to preserve the original Linear-sourced timestamp.
-        // Until that is fixed, assert the current (overwrite) behavior so the test documents
-        // the gap rather than producing a false pass.
-        XCTAssertTrue(raw.contains("completed: "),
-                      "completed: field must be present; got:\n\(raw)")
-        XCTAssertFalse(raw.contains("completed: \(existingCompleted)"),
-                       "KNOWN GAP: UpdateTaskStatus overwrites existing completed timestamp. " +
-                       "See FIXME in UpdateTaskStatus.swift — completed should be preserved if already set.")
+        XCTAssertTrue(raw.contains("completed: \(existingCompleted)"),
+                      "completed: must preserve original timestamp; got:\n\(raw)")
     }
 }
