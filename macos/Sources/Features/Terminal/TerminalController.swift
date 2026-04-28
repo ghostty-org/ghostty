@@ -6,12 +6,12 @@ import GhosttyKit
 
 // MARK: - Kanban Sidebar State
 
-/// Manages the kanban sidebar toggle — opens a shared floating panel.
+/// Manages the kanban sidebar toggle — opens a shared theme-frame overlay.
 @MainActor
 final class SidebarState: ObservableObject {
     static let shared = SidebarState()
     func toggle() {
-        KanbanPanelController.shared.toggle()
+        KanbanSidebarController.shared.toggle()
     }
     static let toggleShortcut = "toggle_kanban_sidebar"
 }
@@ -1169,7 +1169,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Auto-show the shared sidebar panel once on first launch
-        KanbanPanelController.showOnceIfNeeded()
+        KanbanSidebarController.showOnceIfNeeded()
 
         // Set the initial content size on the container so that
         // intrinsicContentSize returns the correct value immediately,

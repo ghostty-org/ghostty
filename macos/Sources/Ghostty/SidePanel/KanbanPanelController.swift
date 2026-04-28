@@ -1,111 +1,138 @@
 import Cocoa
 import SwiftUI
 
-/// A borderless panel that looks like part of the window.
-/// Single instance shared across all tabs — not per-tab.
+/// A single sidebar NSView added to the window's theme frame layer.
+/// Persists across tab switches because the theme frame (contentView.superview)
+/// is stable — only contentView changes when tabs switch.
+/// NOT a separate window — no title bar, no move, no resize by drag.
 @MainActor
-class KanbanPanelController: NSWindowController {
-    static let shared = KanbanPanelController()
+class KanbanSidebarController {
+    static let shared = KanbanSidebarController()
 
     private static var hasAutoShown = false
-    private var windowFrameObserver: Any?
-    private weak var parentWindow: NSWindow?
+    private var sidebarView: NSHostingView<SidePanelView>?
+    private var width: CGFloat = 300
+
+    private var contentViewObserver: NSKeyValueObservation?
 
     private init() {
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 400),
-            styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        panel.isMovableByWindowBackground = false
-        panel.isReleasedWhenClosed = false
-        panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .transient]
-        panel.level = .floating
-        panel.hasShadow = false
-
-        // Make it flush against parent
-        panel.styleMask.remove(.closable)
-        panel.styleMask.remove(.miniaturizable)
-
-        let content = NSHostingView(
-            rootView: SidePanelView(viewModel: TerminalController.sharedSidebarViewModel)
-        )
-        panel.contentView = content
-
-        // Persist width
-        let savedWidth = UserDefaults.standard.double(forKey: "kanban_panel_width")
-        let width = savedWidth > 0 ? savedWidth : 320.0
-        panel.setContentSize(NSSize(width: width, height: 400))
-        panel.minSize = NSSize(width: 240, height: 200)
-
-        super.init(window: panel)
+        let saved = UserDefaults.standard.double(forKey: "kanban_panel_width")
+        if saved > 0 { width = saved }
     }
 
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+    /// Returns the theme frame (contentView.superview) which is the only
+    /// view that persists across tab switches in native tabbed windows.
+    private func themeFrame(for window: NSWindow) -> NSView? {
+        window.contentView?.superview
     }
 
-    private func rebuildContent() {
-        let content = NSHostingView(
+    /// Install the sidebar into the window's theme frame.
+    private func install(into window: NSWindow) {
+        guard let tf = themeFrame(for: window) else { return }
+        ensureSidebarView()
+        guard let sidebarView else { return }
+
+        if sidebarView.superview !== tf {
+            tf.addSubview(sidebarView)
+        }
+
+        // Observe subview changes (contentView swaps on tab switch)
+        contentViewObserver = tf.observe(\.subviews, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let w = tf.window else { return }
+                self.position(in: w)
+            }
+        }
+
+        position(in: window)
+    }
+
+    private func ensureSidebarView() {
+        guard sidebarView == nil else { return }
+        let view = NSHostingView(
             rootView: SidePanelView(viewModel: TerminalController.sharedSidebarViewModel)
         )
-        window?.contentView = content
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        sidebarView = view
+    }
+
+    private func position(in window: NSWindow) {
+        guard let cv = window.contentView,
+              let tf = themeFrame(for: window),
+              let sidebarView else { return }
+
+        // contentView's frame in theme frame coordinates = the content
+        // area below the title bar / toolbar.
+        let contentFrame = cv.convert(cv.bounds, to: tf)
+        sidebarView.frame = NSRect(
+            x: contentFrame.minX,
+            y: contentFrame.minY,
+            width: width,
+            height: contentFrame.height
+        )
+        sidebarView.isHidden = false
     }
 
     func show() {
-        rebuildContent()
-        guard let panel = window else { return }
+        // Rebuild to pick up the latest viewModel
+        let view = NSHostingView(
+            rootView: SidePanelView(viewModel: TerminalController.sharedSidebarViewModel)
+        )
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        sidebarView = view
 
-        // Find the frontmost Ghostty window
-        if let front = NSApp.keyWindow ?? NSApp.mainWindow,
-           front.windowController is TerminalController {
-            attach(to: front)
+        // Attach to the frontmost terminal window
+        if let w = NSApp.keyWindow ?? NSApp.mainWindow {
+            install(into: w)
         }
 
-        panel.orderFront(nil)
+        // Track key-window changes to follow tab switches
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyWindowChanged),
+            name: NSWindow.didBecomeKeyNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowResized),
+            name: NSWindow.didResizeNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowResized),
+            name: NSWindow.didMoveNotification,
+            object: nil
+        )
     }
 
-    private func attach(to window: NSWindow) {
-        parentWindow = window
-        positionBeside(window)
-
-        // Observe frame changes to follow parent
-        if let obs = windowFrameObserver {
-            NotificationCenter.default.removeObserver(obs)
+    @objc private func keyWindowChanged(_ n: Notification) {
+        guard let w = n.object as? NSWindow,
+              w.windowController is TerminalController else {
+            sidebarView?.removeFromSuperview()
+            return
         }
-        windowFrameObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didMoveNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            self?.positionBeside(window)
-        }
-        windowFrameObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didResizeNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            self?.positionBeside(window)
-        }
+        install(into: w)
     }
 
-    private func positionBeside(_ window: NSWindow) {
-        guard let panel = self.window else { return }
-        let wf = window.frame
-        let pw = panel.frame.width
-        // Flush against left edge, same height as window
-        let panelRect = NSRect(x: wf.minX, y: wf.minY, width: pw, height: wf.height)
-        panel.setFrame(panelRect, display: true)
+    @objc private func windowResized(_ n: Notification) {
+        guard let w = n.object as? NSWindow,
+              w.windowController is TerminalController else { return }
+        position(in: w)
+    }
+
+    func hide() {
+        sidebarView?.removeFromSuperview()
+        sidebarView = nil
+        contentViewObserver = nil
     }
 
     func toggle() {
-        guard let panel = window else { return }
-        if panel.isVisible {
-            panel.close()
+        if sidebarView?.superview != nil {
+            hide()
         } else {
             show()
         }
