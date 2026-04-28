@@ -138,10 +138,10 @@ final class RowClickRouter: ObservableObject {
             handlers.triageOrphanTask(task)
 
         case .running:
-            Task { @MainActor in await handlers.focusRunningTask(task) }
+            _Concurrency.Task { @MainActor in await handlers.focusRunningTask(task) }
 
         case .needsYou:
-            Task { @MainActor in await handlers.focusNeedsYouTask(task) }
+            _Concurrency.Task { @MainActor in await handlers.focusNeedsYouTask(task) }
 
         case .graveyard:
             handlers.expandGraveyardTask(task)
