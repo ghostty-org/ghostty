@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		29C15B1D2CDC3B2900520DD4 /* bat in Resources */ = {isa = PBXBuildFile; fileRef = 29C15B1C2CDC3B2000520DD4 /* bat */; };
+		KA1BAN812345678901234567 /* Kanban in Resources */ = {isa = PBXBuildFile; fileRef = KA1BAN012345678901234567 /* Kanban */; };
 		55154BE02B33911F001622DC /* ghostty in Resources */ = {isa = PBXBuildFile; fileRef = 55154BDF2B33911F001622DC /* ghostty */; };
 		552964E62B34A9B400030505 /* vim in Resources */ = {isa = PBXBuildFile; fileRef = 552964E52B34A9B400030505 /* vim */; };
 		819324582F24E78800A9ED8F /* DockTilePlugin.plugin in Copy DockTilePlugin */ = {isa = PBXBuildFile; fileRef = 8193244D2F24E6C000A9ED8F /* DockTilePlugin.plugin */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -93,7 +94,8 @@
 		A5D495A1299BEC7E00DD1313 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
 		FC5218F92D10FFC7004C93E0 /* zsh */ = {isa = PBXFileReference; lastKnownFileType = folder; name = zsh; path = "../zig-out/share/zsh"; sourceTree = "<group>"; };
 		FC9ABA9B2D0F538D0020D4C8 /* bash-completion */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "bash-completion"; path = "../zig-out/share/bash-completion"; sourceTree = "<group>"; };
-/* End PBXFileReference section */
+		KA1BAN012345678901234567 /* Kanban */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Kanban; path = Resources/Kanban; sourceTree = "<group>"; };
+	/* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
 		8193245D2F24E80800A9ED8F /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
@@ -330,6 +332,7 @@
 				A5A1F8842A489D6800D1E8BC /* terminfo */,
 				552964E52B34A9B400030505 /* vim */,
 				FC5218F92D10FFC7004C93E0 /* zsh */,
+				KA1BAN012345678901234567 /* Kanban */,
 			);
 			name = Resources;
 			sourceTree = "<group>";
@@ -583,6 +586,7 @@
 				552964E62B34A9B400030505 /* vim in Resources */,
 				FC5218FA2D10FFCE004C93E0 /* zsh in Resources */,
 				A5B30539299BEAAB0047F10C /* Assets.xcassets in Resources */,
+				KA1BAN812345678901234567 /* Kanban in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
