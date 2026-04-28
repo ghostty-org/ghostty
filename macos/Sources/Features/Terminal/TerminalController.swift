@@ -6,22 +6,74 @@ import GhosttyKit
 
 // MARK: - Kanban Sidebar State
 
-/// Manages the kanban floating panel toggle.
+/// Manages the kanban sidebar visibility state
 @MainActor
 final class SidebarState: ObservableObject {
     static let shared = SidebarState()
+
+    @Published var isVisible: Bool = true
+
     func toggle() {
-        KanbanPanelController.shared.toggle()
+        isVisible.toggle()
     }
+
     static let toggleShortcut = "toggle_kanban_sidebar"
 }
 
-/// Simplified container — the sidebar is now an independent floating panel.
+/// Container that shows the kanban sidebar inline alongside the terminal.
+/// Data is shared across all tabs via BoardState.shared (singleton).
 struct KanbanSidebarContainer<Content: View>: View {
+    @ObservedObject var sidebarState: SidebarState
+    var viewModel: SidePanelViewModel?
     let content: () -> Content
 
+    private let minSidebarWidth: CGFloat = 120
+    private let maxSidebarFraction: CGFloat = 0.7
+
+    @State private var sidebarWidth: CGFloat = 240
+
     var body: some View {
-        content()
+        GeometryReader { geometry in
+            if sidebarState.isVisible {
+                let totalWidth = geometry.size.width
+                let maxWidth = totalWidth * maxSidebarFraction
+
+                ZStack(alignment: .leading) {
+                    HStack(spacing: 0) {
+                        SidePanelView(viewModel: viewModel)
+                            .frame(width: sidebarWidth, height: geometry.size.height)
+
+                        content()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+
+                    Color.clear
+                        .frame(width: 8, height: geometry.size.height)
+                        .contentShape(Rectangle())
+                        .offset(x: sidebarWidth - 4)
+                        .gesture(
+                            DragGesture()
+                                .onChanged { value in
+                                    let newWidth = value.location.x
+                                    sidebarWidth = min(max(minSidebarWidth, newWidth), maxWidth)
+                                }
+                                .onEnded { _ in
+                                    UserDefaults.standard.set(sidebarWidth, forKey: "kanban_sidebar_width")
+                                }
+                        )
+                        .backport.pointerStyle(.resizeLeftRight)
+                }
+                .onAppear {
+                    if UserDefaults.standard.object(forKey: "kanban_sidebar_width") == nil {
+                        sidebarWidth = totalWidth / 4
+                    } else if let saved = UserDefaults.standard.object(forKey: "kanban_sidebar_width") as? CGFloat {
+                        sidebarWidth = saved
+                    }
+                }
+            } else {
+                content()
+            }
+        }
     }
 }
 
@@ -1159,18 +1211,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             TerminalController.sharedSidebarViewModel?.setGhosttyApp(ghostty)
         }
         let sidebarViewModel = TerminalController.sharedSidebarViewModel!
+        let sidebarState = SidebarState.shared
 
         let container = TerminalViewContainer { [weak self] in
             guard let self else { return AnyView(EmptyView()) }
             return AnyView(
-                KanbanSidebarContainer {
+                KanbanSidebarContainer(sidebarState: sidebarState, viewModel: sidebarViewModel) {
                     TerminalView(ghostty: self.ghostty, viewModel: self, delegate: self)
                 }
             )
         }
-
-        // Auto-show the floating kanban panel once on first launch
-        KanbanPanelController.showOnceIfNeeded()
 
         // Set the initial content size on the container so that
         // intrinsicContentSize returns the correct value immediately,
