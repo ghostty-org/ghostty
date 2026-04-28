@@ -31,9 +31,44 @@
     p.desc { font-size: 14px; color: var(--muted); margin-bottom: 16px; line-height: 1.6; }
 
     /* Diagrams */
-    .diagram { background: var(--surface); border: 1px solid var(--border);
-               border-radius: 12px; padding: 24px 16px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    .diagram svg { max-width: none; height: auto; }
+    .diagram {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px 16px; overflow-x: auto;
+      -webkit-overflow-scrolling: touch; cursor: pointer; position: relative;
+    }
+    .diagram svg { max-width: none; height: auto; pointer-events: none; }
+    .diagram::after {
+      content: "Tap to zoom";
+      position: absolute; bottom: 10px; right: 12px;
+      font-size: 10px; color: var(--muted); pointer-events: none;
+      opacity: 0.7;
+    }
+
+    /* Lightbox */
+    .lb-overlay {
+      position: fixed; inset: 0; z-index: 1000;
+      background: rgba(0,0,0,0.94);
+      display: flex; align-items: flex-start; justify-content: center;
+      padding-top: 52px;
+    }
+    .lb-scroll {
+      overflow: auto; -webkit-overflow-scrolling: touch;
+      width: 100%; height: calc(100dvh - 52px);
+      padding: 24px; touch-action: pan-x pan-y pinch-zoom;
+    }
+    .lb-scroll svg { max-width: none; display: block; }
+    .lb-close {
+      position: fixed; top: 10px; right: 14px;
+      background: rgba(255,255,255,0.12); border: none; color: #fff;
+      font-size: 22px; line-height: 1; width: 40px; height: 40px;
+      border-radius: 50%; cursor: pointer; z-index: 1001;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .lb-hint {
+      position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+      font-size: 11px; color: rgba(255,255,255,0.4); pointer-events: none;
+      white-space: nowrap;
+    }
 
     /* Lane grid */
     .lanes {
@@ -365,7 +400,7 @@ flowchart LR
 
   <script>
     mermaid.initialize({
-      startOnLoad: true,
+      startOnLoad: false,
       theme: 'dark',
       themeVariables: {
         primaryColor: '#1a1a1a',
@@ -377,6 +412,51 @@ flowchart LR
         edgeLabelBackground: '#0f0f0f',
         fontSize: '13px',
       }
+    });
+
+    mermaid.run().then(() => {
+      document.querySelectorAll('.diagram').forEach(diagram => {
+        diagram.addEventListener('click', () => {
+          const svg = diagram.querySelector('svg');
+          if (!svg) return;
+
+          const overlay = document.createElement('div');
+          overlay.className = 'lb-overlay';
+
+          const close = document.createElement('button');
+          close.className = 'lb-close';
+          close.textContent = '×';
+          close.setAttribute('aria-label', 'Close');
+
+          const hint = document.createElement('div');
+          hint.className = 'lb-hint';
+          hint.textContent = 'Pinch to zoom · Scroll to pan';
+
+          const scroll = document.createElement('div');
+          scroll.className = 'lb-scroll';
+
+          const clone = svg.cloneNode(true);
+          // Use the SVG's natural width but at least 800px so there's room to zoom
+          const naturalW = svg.getBoundingClientRect().width;
+          clone.style.width = Math.max(naturalW, 800) + 'px';
+          clone.style.height = 'auto';
+          clone.removeAttribute('style'); // reset inline styles from mermaid
+          clone.style.width = Math.max(naturalW, 800) + 'px';
+
+          scroll.appendChild(clone);
+          overlay.appendChild(close);
+          overlay.appendChild(hint);
+          overlay.appendChild(scroll);
+          document.body.appendChild(overlay);
+
+          const dismiss = () => overlay.remove();
+          close.addEventListener('click', dismiss);
+          overlay.addEventListener('click', e => { if (e.target === overlay) dismiss(); });
+          document.addEventListener('keydown', function esc(e) {
+            if (e.key === 'Escape') { dismiss(); document.removeEventListener('keydown', esc); }
+          });
+        });
+      });
     });
   </script>
 </body>
