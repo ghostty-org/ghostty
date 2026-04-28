@@ -159,6 +159,39 @@ struct KanbanWebView: NSViewRepresentable {
                         self.sendBoardState()
                     }
 
+                case "openSession":
+                    if let sessionId = body["sessionId"] as? String,
+                       let uuid = UUID(uuidString: sessionId) {
+                        SessionManager.shared.navigateToSession(id: uuid)
+                    }
+
+                case "createSessionAndLink":
+                    if let taskId = body["taskId"] as? String,
+                       let cwd = body["cwd"] as? String,
+                       let isWorkTree = body["isWorkTree"] as? Bool,
+                       let taskUUID = UUID(uuidString: taskId) {
+                        let worktreeName = body["worktreeName"] as? String
+                        let session = SessionManager.shared.createSession(
+                            cwd: cwd,
+                            isWorktree: isWorkTree,
+                            worktreeName: worktreeName
+                        )
+                        // Add session to task
+                        boardState.addSession(to: taskUUID, session: session)
+                        self.sendBoardState()
+                    }
+
+                case "unlinkSession":
+                    if let sessionId = body["sessionId"] as? String,
+                       let uuid = UUID(uuidString: sessionId) {
+                        SessionManager.shared.unlinkSession(id: uuid)
+                        self.sendBoardState()
+                    }
+
+                case "refreshSessions":
+                    SessionManager.shared.loadSessions()
+                    self.sendBoardState()
+
                 default:
                     break
                 }

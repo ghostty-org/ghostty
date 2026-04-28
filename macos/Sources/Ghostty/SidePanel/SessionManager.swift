@@ -79,6 +79,18 @@ class SessionManager: ObservableObject {
     func session(for sessionId: UUID) -> Session? {
         sessions.first { $0.id == sessionId }
     }
+
+    func navigateToSession(id: UUID) {
+        guard let session = sessions.first(where: { $0.id == id }) else { return }
+        // Phase 4 will implement actual Ghostty surface creation
+        print("[SessionManager] Navigate to session: \(session.title)")
+    }
+
+    func unlinkSession(id: UUID) {
+        guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
+        sessions[index].surfaceId = nil
+        saveSessions()
+    }
 }
 
 private struct SessionsWrapper: Codable {
