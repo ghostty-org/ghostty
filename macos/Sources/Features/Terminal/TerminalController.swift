@@ -322,7 +322,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private func findSurfaceView(by surfaceId: UInt64) -> Ghostty.SurfaceView? {
         for surfaceView in surfaceTree {
             guard let surface = surfaceView.surface else { continue }
-            let id = unsafeBitCast(surface, to: UInt64.self)
+            let id = UInt64(Int(bitPattern: surface))
             if id == surfaceId {
                 return surfaceView
             }
@@ -1682,88 +1682,75 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     @objc private func onKanbanCreateSplit(_ notification: Notification) {
-        guard let sessionId = notification.userInfo?["sessionId"] as? UUID,
-              let surface = self.focusedSurface?.surface else {
-            print("[Kanban] onKanbanCreateSplit: no source surface")
-            return
-        }
+        guard let sessionId = notification.userInfo?["sessionId"] as? UUID else { return }
+        guard let surface = self.focusedSurface?.surface else { return }
+        guard let session = SessionManager.shared.session(for: sessionId) else { return }
 
-        // Get session info from SessionManager
-        guard let session = SessionManager.shared.session(for: sessionId) else {
-            print("[Kanban] onKanbanCreateSplit: session not found for \(sessionId)")
-            return
+        // Build command
+        var command = "claude"
+        if session.isWorkTree {
+            command += " --worktree \(session.branch)"
         }
+        command += " --permission-mode bypassPermissions"
 
-        // Create a split to the right - after this, the new surface becomes focused
+        print("[Kanban] Creating split...")
         ghostty.split(surface: surface, direction: GHOSTTY_SPLIT_DIRECTION_RIGHT)
+        print("[Kanban] Split created, sending command...")
 
-        // After split, the new surface should be focused - get it and send the command
-        // We need to do this asynchronously because the focused surface updates after the split
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self = self,
-                  let newSurface = self.focusedSurface?.surface else {
-                print("[Kanban] onKanbanCreateSplit: could not get new focused surface")
+        // Use the surfaceModel from focusedSurface
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let surfaceModel = self?.focusedSurface?.surfaceModel else {
+                print("[Kanban] No surfaceModel available")
                 return
             }
+            print("[Kanban] Sending text via surfaceModel...")
+            surfaceModel.sendText(command)
 
-            // Build the claude command
-            let sessionIdArg = "--session-id=\(sessionId.uuidString)"
-            var command = "claude \(sessionIdArg)"
-            if session.isWorkTree {
-                command += " --worktree \(session.branch)"
-            }
-            command += "\r"
-
-            // Send the command to the new surface
-            let ghosttySurface = Ghostty.Surface(cSurface: newSurface)
-            ghosttySurface.sendText(command)
-            print("[Kanban] onKanbanCreateSplit: sent '\(command)' to new surface")
-
-            // Link session to new surface
-            SessionManager.shared.linkSessionToSurface(
-                sessionId: sessionId,
-                surfaceId: UInt64(newSurface)
-            )
+            // Send Enter key to execute the command
+            let enterKey = Ghostty.Input.KeyEvent(key: .enter, action: .press)
+            surfaceModel.sendKeyEvent(enterKey)
+            print("[Kanban] Done")
         }
     }
 
     @objc private func onKanbanCloseSurface(_ notification: Notification) {
         guard let surfaceId = notification.userInfo?["surfaceId"] as? UInt64 else { return }
 
-        if let surfaceView = findSurfaceView(by: surfaceId) {
-            ghostty.requestClose(surface: surfaceView.surface)
+        if let surfaceView = findSurfaceView(by: surfaceId),
+           let surface = surfaceView.surface {
+            ghostty.requestClose(surface: surface)
         }
 
         SessionManager.shared.unlinkSurface(surfaceId: surfaceId)
     }
 
     @objc private func onKanbanResumeSession(_ notification: Notification) {
-        guard let sessionId = notification.userInfo?["sessionId"] as? UUID,
-              let session = SessionManager.shared.session(for: sessionId) else { return }
-
+        guard let sessionId = notification.userInfo?["sessionId"] as? UUID else { return }
+        guard let session = SessionManager.shared.session(for: sessionId) else { return }
         guard let sourceSurface = focusedSurface?.surface else { return }
 
-        // 1. Create split
+        // Build resume command (use --resume, NOT --session-id)
+        var command = "claude --resume \(session.sessionId ?? sessionId.uuidString)"
+        if session.isWorkTree {
+            command += " --worktree \(session.branch)"
+        }
+        command += " --permission-mode bypassPermissions"
+
+        // Create split
         ghostty.split(surface: sourceSurface, direction: GHOSTTY_SPLIT_DIRECTION_RIGHT)
 
-        // 2. Wait for split creation
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let newSurface = self?.focusedSurface?.surface else { return }
+        // Send command after split using surfaceModel
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let surfaceModel = self?.focusedSurface?.surfaceModel else { return }
+            surfaceModel.sendText(command)
 
-            // 3. Build resume command (use --resume, NOT --session-id)
-            var command = "claude --resume \(session.sessionId ?? sessionId.uuidString)"
-            if session.isWorkTree {
-                command += " --worktree \(session.branch)"
-            }
-            command += " --permission-mode bypassPermissions\r"
+            // Send Enter key to execute
+            let enterKey = Ghostty.Input.KeyEvent(key: .enter, action: .press)
+            surfaceModel.sendKeyEvent(enterKey)
 
-            // 4. Send command
-            Ghostty.Surface(cSurface: newSurface).sendText(command)
-
-            // 5. Update surfaceId association
             SessionManager.shared.linkSessionToSurface(
                 sessionId: sessionId,
-                surfaceId: UInt64(newSurface)
+                surfaceId: UInt64(Int(bitPattern: sourceSurface))
             )
         }
     }
