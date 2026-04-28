@@ -228,23 +228,27 @@
       text-decoration: underline;
     }
 
-    /* --- Scatter (click to explode) --- */
-    .scatter .ghost {
-      animation: none !important;
-      transition: transform 0.6s ease-in, opacity 0.4s ease-in;
-    }
+    /* --- Scatter (click ghosts to burst apart, then reassemble) --- */
+    @keyframes scatter-g0 { 0% { opacity:1; transform:translate(0,0); }   100% { opacity:0; transform:translate(0,-600px) scale(0.4); } }
+    @keyframes scatter-g1 { 0% { opacity:1; transform:translate(0,0); }   100% { opacity:0; transform:translate(-500px,-400px) scale(0.4); } }
+    @keyframes scatter-g2 { 0% { opacity:1; transform:translate(0,0); }   100% { opacity:0; transform:translate(500px,-400px) scale(0.4); } }
+    @keyframes scatter-g3 { 0% { opacity:1; transform:translate(0,0); }   100% { opacity:0; transform:translate(-600px,0) scale(0.4); } }
+    @keyframes scatter-g4 { 0% { opacity:1; transform:translate(0,0); }   100% { opacity:0; transform:translate(0,-550px) scale(0.4); } }
+    @keyframes scatter-g5 { 0% { opacity:1; transform:translate(0,0); }   100% { opacity:0; transform:translate(600px,0) scale(0.4); } }
+    @keyframes scatter-g6 { 0% { opacity:1; transform:translate(0,0); }   100% { opacity:0; transform:translate(-400px,500px) scale(0.4); } }
+    @keyframes scatter-g7 { 0% { opacity:1; transform:translate(0,0); }   100% { opacity:0; transform:translate(400px,500px) scale(0.4); } }
 
-    .scatter .g0 { transform: translate(0, -600px) scale(0.5); opacity: 0; }
-    .scatter .g1 { transform: translate(-500px, -400px) scale(0.5); opacity: 0; }
-    .scatter .g2 { transform: translate(500px, -400px) scale(0.5); opacity: 0; }
-    .scatter .g3 { transform: translate(-600px, 0) scale(0.5); opacity: 0; }
-    .scatter .g4 { transform: translate(0, -550px) scale(0.5); opacity: 0; }
-    .scatter .g5 { transform: translate(600px, 0) scale(0.5); opacity: 0; }
-    .scatter .g6 { transform: translate(-400px, 500px) scale(0.5); opacity: 0; }
-    .scatter .g7 { transform: translate(400px, 500px) scale(0.5); opacity: 0; }
+    .scatter .g0 { animation: scatter-g0 0.55s ease-in forwards !important; }
+    .scatter .g1 { animation: scatter-g1 0.55s ease-in forwards !important; }
+    .scatter .g2 { animation: scatter-g2 0.55s ease-in forwards !important; }
+    .scatter .g3 { animation: scatter-g3 0.55s ease-in forwards !important; }
+    .scatter .g4 { animation: scatter-g4 0.55s ease-in forwards !important; }
+    .scatter .g5 { animation: scatter-g5 0.55s ease-in forwards !important; }
+    .scatter .g6 { animation: scatter-g6 0.55s ease-in forwards !important; }
+    .scatter .g7 { animation: scatter-g7 0.55s ease-in forwards !important; }
 
     .scatter .terminal {
-      transition: opacity 0.4s ease-in;
+      transition: opacity 0.3s ease-in;
       opacity: 0;
     }
 
@@ -420,39 +424,35 @@
 
     activateCarets();
 
-    // Click ghosts to scatter
+    // Click ghosts to scatter, then reassemble after a pause
     const ghosts = document.querySelector('.ghosts');
     ghosts.addEventListener('click', () => {
       if (animating) return;
       animating = true;
       scene.classList.add('scatter');
-    });
 
-    // After scatter → restart
-    scene.addEventListener('transitionend', (e) => {
-      if (!scene.classList.contains('scatter')) return;
-      if (!e.target.classList.contains('ghost')) return;
+      setTimeout(() => {
+        scene.classList.remove('scatter');
 
-      scene.classList.remove('scatter');
+        // Clear caret state
+        const line1 = document.querySelector('.line-1');
+        const line2 = document.querySelector('.line-2');
+        const line6 = document.querySelector('.line-6');
+        line1.classList.remove('caret-visible');
+        line2.classList.remove('caret-visible');
+        line6.classList.remove('caret-blink');
+        line6.style.width = '';
+        line6.style.color = '';
+        line6.style.background = '';
 
-      // Clear caret state
-      const line1 = document.querySelector('.line-1');
-      const line2 = document.querySelector('.line-2');
-      const line6 = document.querySelector('.line-6');
-      line1.classList.remove('caret-visible');
-      line2.classList.remove('caret-visible');
-      line6.classList.remove('caret-blink');
-      line6.style.width = '';
-      line6.style.color = '';
-      line6.style.background = '';
+        // Restart entrance animations
+        scene.classList.remove('animate');
+        void scene.offsetWidth;
+        scene.classList.add('animate');
 
-      // Reset animations
-      scene.classList.remove('animate');
-      void scene.offsetWidth;
-      scene.classList.add('animate');
-
-      activateCarets();
-      animating = false;
+        activateCarets();
+        animating = false;
+      }, 1400); // 0.55s scatter + ~0.85s pause before ghosts fly back in
     });
 
     // Don't scatter when clicking links
