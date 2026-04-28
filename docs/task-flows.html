@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ghostties — Task Flows</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f0f0f;
+      --surface: #1a1a1a;
+      --border: #2a2a2a;
+      --text: #e5e5e5;
+      --muted: #666;
+      --accent: #c97350;
+      --green: #4caf7d;
+      --blue: #5b9cf6;
+      --yellow: #e5c76b;
+      --red: #e56b6b;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); padding: 48px 32px; }
+    h1 { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
+    .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 48px; }
+    section { margin-bottom: 56px; }
+    h2 { font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+         color: var(--accent); margin-bottom: 6px; }
+    p.desc { font-size: 14px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
+    .diagram { background: var(--surface); border: 1px solid var(--border);
+               border-radius: 12px; padding: 32px; overflow-x: auto; }
+    .diagram svg { max-width: 100%; }
+    .lanes {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+    .lane {
+      background: var(--surface);
+      padding: 16px 12px;
+      font-size: 12px;
+    }
+    .lane-name { font-weight: 600; margin-bottom: 4px; }
+    .lane-desc { color: var(--muted); font-size: 11px; line-height: 1.4; }
+    .lane.active .lane-name { color: var(--green); }
+    .lane.inbox .lane-name { color: var(--blue); }
+    .lane.needs .lane-name { color: var(--yellow); }
+    .lane.done .lane-name { color: var(--muted); }
+    .lane.backlog .lane-name { color: var(--muted); }
+    .lane.review .lane-name { color: var(--accent); }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .status-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .status-card h3 { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+    .status-card .trigger { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
+    .status-card ul { list-style: none; padding: 0; }
+    .status-card li { font-size: 12px; color: var(--muted); padding: 3px 0;
+                      padding-left: 14px; position: relative; }
+    .status-card li::before { content: "→"; position: absolute; left: 0; color: var(--accent); }
+    .status-card li.gap { color: var(--red); }
+    .status-card li.gap::before { content: "?"; color: var(--red); }
+    .tag { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 6px;
+           border-radius: 4px; margin-bottom: 8px; }
+    .tag.built { background: #1a3320; color: var(--green); }
+    .tag.gap { background: #331a1a; color: var(--red); }
+    .tag.future { background: #1a1a33; color: var(--blue); }
+  </style>
+</head>
+<body>
+
+  <h1>Ghostties — Task Flows</h1>
+  <p class="subtitle">Use cases, row-click behaviors, and open gaps. Review before building further.</p>
+
+  <!-- ─── Lane Overview ─── -->
+  <section>
+    <h2>Lane Structure</h2>
+    <p class="desc">Six lanes. Tasks move left-to-right. Backlog and Review are defined but not yet routed on click.</p>
+    <div class="lanes">
+      <div class="lane inbox">
+        <div class="lane-name">Inbox</div>
+        <div class="lane-desc">status: inbox<br>Unstarted, ready to pick up</div>
+      </div>
+      <div class="lane backlog">
+        <div class="lane-name">Backlog</div>
+        <div class="lane-desc">status: backlog<br>Parked, not urgent</div>
+      </div>
+      <div class="lane active">
+        <div class="lane-name">Running</div>
+        <div class="lane-desc">status: running<br>Claude is working on it</div>
+      </div>
+      <div class="lane needs">
+        <div class="lane-name">Needs You</div>
+        <div class="lane-desc">status: needs-you<br>Blocked on human input</div>
+      </div>
+      <div class="lane review">
+        <div class="lane-name">Review</div>
+        <div class="lane-desc">status: review<br>PR open, awaiting review</div>
+      </div>
+      <div class="lane done">
+        <div class="lane-name">Graveyard</div>
+        <div class="lane-desc">status: done<br>Completed tasks</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Flow 1: Standard Task ─── -->
+  <section>
+    <h2>Flow 1 — Inbox task with project context</h2>
+    <p class="desc">The primary happy path. Task arrives from Linear with a known project, user clicks, Claude spawns.</p>
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart LR
+    A([Linear issue]) -->|linear-sync preset| B[Inbox lane\nstatus: inbox\ntemplate: Claude Code\nproject-path: set]
+    B -->|row click| C{Has project\npath?}
+    C -->|yes| D[Write status: running\nto disk]
+    D --> E[File-watcher\npromotes row\nto Running lane]
+    D --> F[Spawn terminal\nGHOSTTIES_TASK_FILE exported\norchestrator template]
+    F --> G[Claude reads task\nstarts working]
+    G -->|user runs gt done| H[Write status: done\nto disk]
+    H --> I[File-watcher\npromotes row\nto Graveyard]
+    H -->|next linear-sync| J([Linear: Done])
+
+    style A fill:#1a2433,stroke:#5b9cf6,color:#e5e5e5
+    style J fill:#1a2433,stroke:#5b9cf6,color:#e5e5e5
+    style F fill:#1a3320,stroke:#4caf7d,color:#e5e5e5
+    style G fill:#1a3320,stroke:#4caf7d,color:#e5e5e5
+      </pre>
+    </div>
+  </section>
+
+  <!-- ─── Flow 2: Orphan Task ─── -->
+  <section>
+    <h2>Flow 2 — Inbox task without project context (orphan)</h2>
+    <p class="desc">Task has no project-path. User must assign one before Claude can spawn.</p>
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart LR
+    A([Linear issue\nno project]) -->|linear-sync| B[Inbox lane\nno project-path]
+    B -->|row click| C{Has project\npath?}
+    C -->|no| D[Orphan triage card\nappears in sidebar]
+    D -->|user picks project| E[Writes project-path\nto task .md]
+    E -->|chains to Flow 1| F[Write status: running]
+    F --> G[Spawn terminal\nClaude starts]
+
+    D -->|user dismisses| H[Card closes\nstatus unchanged]
+
+    style A fill:#1a2433,stroke:#5b9cf6,color:#e5e5e5
+    style D fill:#33280a,stroke:#e5c76b,color:#e5e5e5
+    style G fill:#1a3320,stroke:#4caf7d,color:#e5e5e5
+      </pre>
+    </div>
+  </section>
+
+  <!-- ─── Flow 3: New Task ─── -->
+  <section>
+    <h2>Flow 3 — Create new task (⌘⇧N)</h2>
+    <p class="desc">User creates a task manually inside Ghostties. No Linear source required.</p>
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart LR
+    A([⌘⇧N]) --> B[NewTaskComposerView\nTitle + project]
+    B -->|confirm| C[Creates .md file\nin .ghostties/tasks/\nstatus: inbox]
+    C --> D[File-watcher\npicks up new file]
+    D --> E[Task appears\nin Inbox lane]
+    E -->|row click| F[Flow 1 or Flow 2]
+
+    B -->|cancel| G[Dismissed\nno file written]
+
+    style A fill:#1a2433,stroke:#5b9cf6,color:#e5e5e5
+    style F fill:#1a2433,stroke:#5b9cf6,color:#e5e5e5
+      </pre>
+    </div>
+  </section>
+
+  <!-- ─── Flow 4: Running Task ─── -->
+  <section>
+    <h2>Flow 4 — Click a running task</h2>
+    <p class="desc">Task is already in Running lane. Click focuses or respawns the session.</p>
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart LR
+    A[Running lane\nrow click] --> B{Live terminal\nsession exists?}
+    B -->|yes| C[Focus existing\nClaude session]
+    B -->|no — session died| D[Respawn terminal\nat project-path\nD8 dead-session rule]
+    D --> E[Status stays running\nno lane change]
+
+    style C fill:#1a3320,stroke:#4caf7d,color:#e5e5e5
+    style D fill:#1a3320,stroke:#4caf7d,color:#e5e5e5
+      </pre>
+    </div>
+  </section>
+
+  <!-- ─── Flow 5: Needs You ─── -->
+  <section>
+    <h2>Flow 5 — Needs You task</h2>
+    <p class="desc">Claude is blocked and has flagged the task for human input.</p>
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart LR
+    A[Running] -->|Claude sets\nstatus: needs-you| B[Needs You lane]
+    B -->|row click| C[Focus or respawn\nClaude session\nsame as Flow 4]
+    C -->|human responds,\nClaude continues| D[Claude sets\nstatus: running]
+    D --> E[Running lane]
+    E -->|done| F[Graveyard]
+
+    style B fill:#33280a,stroke:#e5c76b,color:#e5e5e5
+    style C fill:#1a3320,stroke:#4caf7d,color:#e5e5e5
+      </pre>
+    </div>
+  </section>
+
+  <!-- ─── Flow 6: Graveyard ─── -->
+  <section>
+    <h2>Flow 6 — Graveyard task</h2>
+    <p class="desc">Completed task. Click expands to show details — no respawn.</p>
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart LR
+    A[Graveyard row click] --> B[GraveyardRowExpansion\nshows task details]
+    B -->|click again| C[Collapses]
+
+    style B fill:#1a1a2a,stroke:#5b9cf6,color:#e5e5e5
+      </pre>
+    </div>
+  </section>
+
+  <!-- ─── Gap Analysis ─── -->
+  <section>
+    <h2>Current State + Gaps</h2>
+    <p class="desc">What's built, what's missing, what's future.</p>
+    <div class="status-grid">
+
+      <div class="status-card">
+        <span class="tag built">Built</span>
+        <h3>Flow 1 — Standard inbox task</h3>
+        <div class="trigger">Click inbox row with project-path</div>
+        <ul>
+          <li>Status written to disk</li>
+          <li>File-watcher promotes row</li>
+          <li>Terminal spawns with GHOSTTIES_TASK_FILE</li>
+          <li>Orchestrator prompt reads task</li>
+          <li>gt done → Graveyard</li>
+          <li>Linear flow-back on next sync</li>
+        </ul>
+      </div>
+
+      <div class="status-card">
+        <span class="tag built">Built</span>
+        <h3>Flow 2 — Orphan triage</h3>
+        <div class="trigger">Click inbox row without project-path</div>
+        <ul>
+          <li>Triage card appears</li>
+          <li>User assigns project</li>
+          <li>Chains to Flow 1 on confirm</li>
+          <li class="gap">No dismiss → backlog shortcut</li>
+        </ul>
+      </div>
+
+      <div class="status-card">
+        <span class="tag built">Built</span>
+        <h3>Flow 3 — New task (⌘⇧N)</h3>
+        <div class="trigger">Keyboard shortcut in sidebar</div>
+        <ul>
+          <li>Composer opens</li>
+          <li>File written on confirm</li>
+          <li>File-watcher picks it up</li>
+          <li class="gap">No template selection in composer</li>
+          <li class="gap">No project picker UI (types path)</li>
+        </ul>
+      </div>
+
+      <div class="status-card">
+        <span class="tag built">Built</span>
+        <h3>Flow 4 — Running task re-click</h3>
+        <div class="trigger">Click running row</div>
+        <ul>
+          <li>Focuses live session</li>
+          <li>Respawns dead session (D8)</li>
+          <li class="gap">No indication which window has the session</li>
+        </ul>
+      </div>
+
+      <div class="status-card">
+        <span class="tag built">Built</span>
+        <h3>Flow 5 — Needs You</h3>
+        <div class="trigger">Click needs-you row</div>
+        <ul>
+          <li>Focus/respawn same as running</li>
+          <li class="gap">Claude can't set needs-you automatically yet</li>
+          <li class="gap">No notification when task needs you</li>
+        </ul>
+      </div>
+
+      <div class="status-card">
+        <span class="tag built">Built</span>
+        <h3>Flow 6 — Graveyard expansion</h3>
+        <div class="trigger">Click graveyard row</div>
+        <ul>
+          <li>Expands to show details</li>
+          <li>Collapses on re-click</li>
+          <li class="gap">No restore/reopen action</li>
+        </ul>
+      </div>
+
+      <div class="status-card">
+        <span class="tag gap">Gap</span>
+        <h3>Backlog lane routing</h3>
+        <div class="trigger">Click backlog row (TODO: SG-04)</div>
+        <ul>
+          <li class="gap">No handler — click does nothing</li>
+          <li class="gap">No promote-to-inbox action</li>
+        </ul>
+      </div>
+
+      <div class="status-card">
+        <span class="tag gap">Gap</span>
+        <h3>Review lane routing</h3>
+        <div class="trigger">Click review row (TODO: SG-04)</div>
+        <ul>
+          <li class="gap">No handler — click does nothing</li>
+          <li class="gap">Should open PR or focus session</li>
+        </ul>
+      </div>
+
+      <div class="status-card">
+        <span class="tag future">Future</span>
+        <h3>In-app preview spawn</h3>
+        <div class="trigger">Click any task row (future)</div>
+        <ul>
+          <li>Spawn Claude in embedded panel</li>
+          <li>No separate terminal window</li>
+          <li>Terminal stays for shell work</li>
+        </ul>
+      </div>
+
+    </div>
+  </section>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        primaryColor: '#1a1a1a',
+        primaryTextColor: '#e5e5e5',
+        primaryBorderColor: '#2a2a2a',
+        lineColor: '#666',
+        secondaryColor: '#222',
+        tertiaryColor: '#1a1a1a',
+        edgeLabelBackground: '#0f0f0f',
+        fontSize: '13px',
+      }
+    });
+  </script>
+</body>
+</html>

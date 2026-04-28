@@ -6,6 +6,7 @@
     { "source": "/privacy", "destination": "/privacy.html" },
     { "source": "/support", "destination": "/support.html" },
     { "source": "/download", "destination": "/download.html" },
-    { "source": "/licenses", "destination": "/licenses.html" }
+    { "source": "/licenses", "destination": "/licenses.html" },
+    { "source": "/flows", "destination": "/task-flows.html" }
   ]
 }
