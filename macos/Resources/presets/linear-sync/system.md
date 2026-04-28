@@ -50,6 +50,8 @@ For each `create_task` call:
 - `project`: the Linear project name, if the issue is in a project. Omit otherwise.
 - `branch`: if the Linear issue has a `branchName` attribute, use it. Otherwise omit.
 - `notes`: the Linear issue description, lightly trimmed (drop empty headers, keep code blocks intact).
+- `template`: use `default_template` from `defaults.json` (default: `"Claude Code"`). This determines which Ghostties terminal template spawns when the user clicks the task row. Always set this — rows without a template fall back to Shell, which won't launch Claude.
+- `project_path`: look up the Linear project name in `project_paths` from `defaults.json`. If found, use the path value verbatim. If the map is empty or the project name isn't present, omit the field. Example entry: `"ghostties": "~/Code/ghostties"`.
 
 ## Priority mapping (Linear → Ghostties)
 
@@ -67,13 +69,21 @@ Ghostties priorities are `high`, `medium`, `low`, `none`.
 
 Always call `list_tasks` with `source: "linear"` first and build an in-memory map of `source_id → ghostties_id`. Never call `create_task` for a `source_id` you've already seen — call `update_task_status` instead if the lane needs to change.
 
-## Status flow-back (stretch — not v0)
+## Status flow-back
 
-If a Ghostties task has `source: linear` and the user moves it to `done` (e.g. via `gt done`), you may also call the Linear MCP server to mark the corresponding Linear issue as Done. Do this only when the user explicitly asks ("push my Ghostties statuses back to Linear"). Do not do it automatically in v0 — last-write-wins between two systems is fragile.
+On every sync run, after creating/updating Inbox tasks, reconcile completed work back to Linear:
+
+1. Call `ghostties` MCP `list_tasks` filtered to `source: linear` and `status: done`.
+2. For each such task, call the `linear` MCP server to mark the corresponding issue as Done (use the task's `source_id` to look up the Linear issue, then call the state-update tool with the "Done" state id for that team).
+3. Report flow-back changes alongside the forward-sync summary. Example: `Synced 3 new, 1 lane change, 2 marked Done in Linear.`
+
+**Idempotency:** Linear issues already in Done state will be no-ops. The Linear MCP will not error on re-marking a Done issue.
+
+**Opt out:** If the user says "don't push back to Linear" or `flow_back` in `defaults.json` is `false`, skip step 2.
 
 ## Cadence
 
-There is no built-in scheduler. Run this sync when the user asks: "sync my Linear inbox", "pull new Linear tickets", "refresh Linear". A reasonable manual cadence is once at the start of each work session. If the user wants every-N-minutes refresh, suggest they wire it via cron or their agent's loop tooling — not Ghostties.
+There is no built-in scheduler. Run this sync when the user asks: "sync my Linear inbox", "pull new Linear tickets", "refresh Linear". Each sync run does both forward (Linear → Ghostties) and reverse (Ghostties done → Linear) in one pass. A reasonable manual cadence is once at the start of each work session. If the user wants every-N-minutes refresh, suggest they wire it via cron or their agent's loop tooling — not Ghostties.
 
 ## Tone and brevity
 

@@ -1,5 +1,7 @@
 {
   "source": "linear",
+  "default_template": "Claude Code",
+  "project_paths": {},
   "filters": {
     "assignee": "me",
     "exclude_states": ["done", "canceled"]
@@ -27,6 +29,6 @@
   "sync": {
     "default_lane": "inbox",
     "dedupe_by": "source_id",
-    "flow_back": false
+    "flow_back": true
   }
 }
