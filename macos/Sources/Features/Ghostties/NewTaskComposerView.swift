@@ -330,20 +330,23 @@ struct NewTaskComposerView: View {
 
 #if DEBUG
 #Preview("New Task Composer — Dark") {
-    let ws = WorkspaceStore(testingProjects: [
-        Project(name: "ghostties", rootPath: "/Users/sean/Code/ghostties", isPinned: true)
-    ])
-    let composerStore = NewTaskComposerStore(isolatedForTesting: ())
-    composerStore.open(workspaceStore: ws)
-
-    NewTaskComposerView(
-        store: composerStore,
-        taskStore: TaskStore()
-    )
-    .environmentObject(ws)
-    .preferredColorScheme(.dark)
-    .frame(width: 280)
-    .padding(16)
-    .background(Color(white: 0.14))
+    @MainActor
+    func makePreview() -> some View {
+        let ws = WorkspaceStore(testingProjects: [
+            Project(name: "ghostties", rootPath: "/Users/sean/Code/ghostties", isPinned: true)
+        ])
+        let composerStore = NewTaskComposerStore(isolatedForTesting: ())
+        composerStore.open(workspaceStore: ws)
+        return NewTaskComposerView(
+            store: composerStore,
+            taskStore: TaskStore()
+        )
+        .environmentObject(ws)
+        .preferredColorScheme(.dark)
+        .frame(width: 280)
+        .padding(16)
+        .background(Color(white: 0.14))
+    }
+    return makePreview()
 }
 #endif
