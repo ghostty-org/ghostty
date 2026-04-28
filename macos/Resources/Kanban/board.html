@@ -857,7 +857,7 @@
           <div class="task-sessions">
             <div class="sessions-header">
               <span class="sessions-title">Sessions</span>
-              <button class="add-session-btn" onclick="addSession('${task.id}')">
+              <button class="add-session-btn" onclick="promptForNewSession('${task.id}')">
                 <svg viewBox="0 0 16 16" fill="currentColor">
                   <path d="M8 2a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 8 2Z"/>
                 </svg>
@@ -867,7 +867,7 @@
             ${sessions.length === 0 ?
               '<div class="empty-sessions">No sessions yet</div>' :
               sessions.map(session => `
-                <div class="session-item">
+                <div class="session-item" onclick="openSession('${task.id}', '${session.id}')" style="cursor: pointer;">
                   <div class="session-indicator ${session.status} ${session.isWorkTree ? 'worktree' : ''}"></div>
                   <div class="session-info">
                     <div class="session-title">${escapeHtml(session.title)}</div>
@@ -879,7 +879,7 @@
                     </svg>
                     ${session.isWorkTree ? (session.branch || 'main') : 'main'}
                   </span>
-                  <button class="remove-session-btn" onclick="removeSession('${task.id}', '${session.id}')" title="Remove">
+                  <button class="remove-session-btn" onclick="unlinkSession('${task.id}', '${session.id}')" title="Unlink">
                     <svg viewBox="0 0 16 16" fill="currentColor">
                       <path d="M4.3 4.3L3 5.6l4.7 4.7-4.7 4.7 1.3 1.3 4.7-4.7 4.7 4.7 1.3-1.3-4.7-4.7 4.7-4.7-1.3-1.3-4.7 4.7-4.7-4.7z"/>
                     </svg>
@@ -951,11 +951,50 @@
 
     function removeSession(taskId, sessionId) {
       event.stopPropagation();
+      if (confirm('Remove this session from task?')) {
+        window.webkit.messageHandlers.kanbanBridge.postMessage({
+          type: 'removeSession',
+          taskId: taskId,
+          sessionId: sessionId
+        });
+      }
+    }
+
+    function openSession(taskId, sessionId) {
       window.webkit.messageHandlers.kanbanBridge.postMessage({
-        type: 'removeSession',
+        type: 'openSession',
         taskId: taskId,
         sessionId: sessionId
       });
+    }
+
+    function createSessionAndLink(taskId, cwd, isWorkTree, worktreeName) {
+      window.webkit.messageHandlers.kanbanBridge.postMessage({
+        type: 'createSessionAndLink',
+        taskId: taskId,
+        cwd: cwd,
+        isWorkTree: isWorkTree,
+        worktreeName: worktreeName
+      });
+    }
+
+    function unlinkSession(taskId, sessionId) {
+      event.stopPropagation();
+      window.webkit.messageHandlers.kanbanBridge.postMessage({
+        type: 'unlinkSession',
+        taskId: taskId,
+        sessionId: sessionId
+      });
+    }
+
+    function promptForNewSession(taskId) {
+      const cwd = prompt("Enter working directory:", "/Users/hue");
+      if (!cwd) return;
+
+      const isWorkTree = confirm("Is this a worktree?");
+      const worktreeName = isWorkTree ? prompt("Worktree name:") : null;
+
+      createSessionAndLink(taskId, cwd, isWorkTree, worktreeName);
     }
 
     // Modal
