@@ -222,6 +222,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             name: .kanbanCreateSplit,
             object: nil
         )
+        center.addObserver(
+            self,
+            selector: #selector(onKanbanCloseSurface(_:)),
+            name: .kanbanCloseSurface,
+            object: nil
+        )
     }
 
     required init?(coder: NSCoder) {
@@ -1707,6 +1713,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             ghosttySurface.sendText(command)
             print("[Kanban] onKanbanCreateSplit: sent '\(command)' to new surface")
         }
+    }
+
+    @objc private func onKanbanCloseSurface(_ notification: Notification) {
+        guard let surfaceId = notification.userInfo?["surfaceId"] as? UInt64 else { return }
+
+        if let surfaceView = findSurfaceView(by: surfaceId) {
+            ghostty.requestClose(surface: surfaceView.surface)
+        }
+
+        SessionManager.shared.unlinkSurface(surfaceId: surfaceId)
     }
 
     @objc private func onResetWindowSize(notification: SwiftUI.Notification) {
