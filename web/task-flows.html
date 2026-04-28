@@ -414,49 +414,89 @@ flowchart LR
       }
     });
 
-    mermaid.run().then(() => {
-      document.querySelectorAll('.diagram').forEach(diagram => {
-        diagram.addEventListener('click', () => {
-          const svg = diagram.querySelector('svg');
-          if (!svg) return;
+    const BREAKPOINT = 600;
+    const sources = new Map();
 
-          const overlay = document.createElement('div');
-          overlay.className = 'lb-overlay';
+    // Store original source from each diagram before Mermaid touches it
+    document.querySelectorAll('.diagram').forEach(wrapper => {
+      const pre = wrapper.querySelector('pre.mermaid');
+      if (pre) sources.set(wrapper, pre.textContent.trim());
+    });
 
-          const close = document.createElement('button');
-          close.className = 'lb-close';
-          close.textContent = '×';
-          close.setAttribute('aria-label', 'Close');
+    function direction() {
+      return window.innerWidth < BREAKPOINT ? 'TD' : 'LR';
+    }
 
-          const hint = document.createElement('div');
-          hint.className = 'lb-hint';
-          hint.textContent = 'Pinch to zoom · Scroll to pan';
+    function openLightbox(wrapper) {
+      const svg = wrapper.querySelector('svg');
+      if (!svg) return;
 
-          const scroll = document.createElement('div');
-          scroll.className = 'lb-scroll';
+      const overlay = document.createElement('div');
+      overlay.className = 'lb-overlay';
 
-          const clone = svg.cloneNode(true);
-          // Use the SVG's natural width but at least 800px so there's room to zoom
-          const naturalW = svg.getBoundingClientRect().width;
-          clone.style.width = Math.max(naturalW, 800) + 'px';
-          clone.style.height = 'auto';
-          clone.removeAttribute('style'); // reset inline styles from mermaid
-          clone.style.width = Math.max(naturalW, 800) + 'px';
+      const close = document.createElement('button');
+      close.className = 'lb-close';
+      close.textContent = '×';
+      close.setAttribute('aria-label', 'Close');
 
-          scroll.appendChild(clone);
-          overlay.appendChild(close);
-          overlay.appendChild(hint);
-          overlay.appendChild(scroll);
-          document.body.appendChild(overlay);
+      const hint = document.createElement('div');
+      hint.className = 'lb-hint';
+      hint.textContent = 'Pinch to zoom · Scroll to pan';
 
-          const dismiss = () => overlay.remove();
-          close.addEventListener('click', dismiss);
-          overlay.addEventListener('click', e => { if (e.target === overlay) dismiss(); });
-          document.addEventListener('keydown', function esc(e) {
-            if (e.key === 'Escape') { dismiss(); document.removeEventListener('keydown', esc); }
-          });
-        });
+      const scroll = document.createElement('div');
+      scroll.className = 'lb-scroll';
+
+      const clone = svg.cloneNode(true);
+      const naturalW = svg.getBoundingClientRect().width;
+      clone.style.width = Math.max(naturalW, 800) + 'px';
+      clone.style.height = 'auto';
+
+      scroll.appendChild(clone);
+      overlay.appendChild(close);
+      overlay.appendChild(hint);
+      overlay.appendChild(scroll);
+      document.body.appendChild(overlay);
+
+      const dismiss = () => overlay.remove();
+      close.addEventListener('click', dismiss);
+      overlay.addEventListener('click', e => { if (e.target === overlay) dismiss(); });
+      document.addEventListener('keydown', function esc(e) {
+        if (e.key === 'Escape') { dismiss(); document.removeEventListener('keydown', esc); }
       });
+    }
+
+    async function renderAll() {
+      const dir = direction();
+      const nodes = [];
+
+      sources.forEach((src, wrapper) => {
+        const updated = src.replace(/^flowchart\s+\w+/m, 'flowchart ' + dir);
+        wrapper.innerHTML = `<pre class="mermaid">${updated}</pre>`;
+        nodes.push(wrapper.querySelector('pre.mermaid'));
+      });
+
+      await mermaid.run({ nodes });
+
+      // Attach lightbox to each diagram after render
+      sources.forEach((_, wrapper) => {
+        wrapper.addEventListener('click', () => openLightbox(wrapper), { once: true });
+      });
+    }
+
+    renderAll();
+
+    // Re-render when crossing the breakpoint (e.g. rotation)
+    let lastDir = direction();
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        const newDir = direction();
+        if (newDir !== lastDir) {
+          lastDir = newDir;
+          renderAll();
+        }
+      }, 200);
     });
   </script>
 </body>
