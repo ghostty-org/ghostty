@@ -61,11 +61,7 @@ struct RowClickHandlers {
     ///   Caller (`RowClickRouter`) stores the error in `taskRowErrors` for the
     ///   row-level error chip (D13). No toast in v0.
     func startInboxTask(_ task: TaskItem) async throws {
-        // 1. Always: open the .md file so the user has context while the
-        //    terminal session warms up.
-        openMarkdownFile(for: task)
-
-        // 2. Write status: running to disk BEFORE spawning the session.
+        // 1. Write status: running to disk BEFORE spawning the session.
         //    This is the single source of truth for lane membership (R3):
         //    the file-watcher picks up the change and migrates the row to the
         //    Running zone without any manual UIstate mutation here.
