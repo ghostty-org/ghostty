@@ -87,6 +87,14 @@ class SessionManager: ObservableObject {
     }
 
     func deleteSession(sessionId: UUID) {
+        // Close surface if linked
+        if let surfaceId = sessions.first(where: { $0.id == sessionId })?.surfaceId {
+            NotificationCenter.default.post(
+                name: .kanbanCloseSurface,
+                object: nil,
+                userInfo: ["surfaceId": surfaceId]
+            )
+        }
         sessions.removeAll { $0.id == sessionId }
         saveSessions()
     }
@@ -96,9 +104,12 @@ class SessionManager: ObservableObject {
     }
 
     func navigateToSession(id: UUID) {
-        guard let session = sessions.first(where: { $0.id == id }) else { return }
-        // Phase 4 will implement actual Ghostty surface creation
-        print("[SessionManager] Navigate to session: \(session.title)")
+        guard sessions.first(where: { $0.id == id }) != nil else { return }
+        NotificationCenter.default.post(
+            name: .kanbanResumeSession,
+            object: nil,
+            userInfo: ["sessionId": id]
+        )
     }
 
     func unlinkSession(id: UUID) {
