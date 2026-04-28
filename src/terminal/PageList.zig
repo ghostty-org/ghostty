@@ -33,6 +33,13 @@ const log = std.log.scoped(.page_list);
 /// window to scroll into quickly.
 const page_preheat = 4;
 
+/// The number of most-recent rows to keep "hot" (always in physical RAM).
+/// Pages whose entire content is older than this threshold are hinted cold
+/// via madvise/MEM_RESET so the OS may reclaim their physical frames under
+/// memory pressure. They remain logically valid and are transparently
+/// restored by a page fault if the user scrolls back to them.
+const scrollback_hot_rows: usize = 10_000;
+
 /// The list of pages in the screen. These are expected to be in order
 /// where the first page is the topmost page (scrollback) and the last is
 /// the bottommost page (the current active page).
@@ -156,6 +163,12 @@ min_max_size: usize,
 /// The total number of rows represented by this PageList. This is used
 /// specifically for scrollbar information so we can have the total size.
 total_rows: usize,
+
+/// Cached pointer to the last node that received a hintCold() call.
+/// hintColdBoundary advances this pointer forward (toward older pages) as
+/// new rows are added, issuing madvise only when the boundary actually moves.
+/// Null means no hint has been issued yet.
+cold_boundary: ?*List.Node = null,
 
 /// The list of tracked pins. These are kept up to date automatically.
 tracked_pins: PinSet,
@@ -3094,6 +3107,35 @@ pub fn maxSize(self: *const PageList) usize {
     return @max(self.explicit_max_size, self.min_max_size);
 }
 
+/// Hint the oldest page that just crossed the cold boundary cold, if any.
+/// Called after each new page allocation in grow(). Walks backward from the
+/// newest page counting rows; the first page whose trailing edge exceeds
+/// scrollback_hot_rows is hinted cold. This is O(pages from the hot window
+/// edge) per call, which is O(1) amortized since only one page crosses the
+/// boundary per grow() invocation.
+fn hintColdBoundary(self: *PageList) void {
+    // Walk from the newest page backward until we've counted scrollback_hot_rows.
+    // The first node whose accumulated rows would push us past the hot window is
+    // the boundary; the page immediately before it (older) is cold.
+    var warm_rows: usize = 0;
+    var it = self.pages.last;
+    while (it) |node| : (it = node.prev) {
+        const node_rows = node.data.size.rows;
+        if (warm_rows + node_rows > scrollback_hot_rows) {
+            // node straddles the boundary; the page before it is cold.
+            const cold_node = node.prev orelse return;
+            // Only issue madvise when the cold boundary actually moves to a
+            // new (older) node. This avoids a syscall on every grow() call
+            // when the boundary is stable (the common case).
+            if (cold_node == self.cold_boundary) return;
+            self.cold_boundary = cold_node;
+            cold_node.data.hintCold();
+            return;
+        }
+        warm_rows += node_rows;
+    }
+}
+
 /// Grow the active area by exactly one row.
 ///
 /// This may allocate, but also may not if our current page has more
@@ -3223,6 +3265,10 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
 
     // Record the increased row count
     self.total_rows += 1;
+
+    // Hint any page that just fell outside the hot window cold so the
+    // OS may reclaim its physical frames under memory pressure.
+    self.hintColdBoundary();
 
     return next_node;
 }

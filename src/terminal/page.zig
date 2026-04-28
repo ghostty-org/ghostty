@@ -53,6 +53,21 @@ const AllocPosix = struct {
     pub fn free(mem: []align(std.heap.page_size_min) u8) void {
         posix.munmap(mem);
     }
+
+    /// Hint to the OS that this memory is cold and may be reclaimed under
+    /// memory pressure. The data remains valid and will be restored via page
+    /// fault if accessed again. Errors are silently ignored; hints are
+    /// best-effort.
+    pub fn hint(mem: []align(std.heap.page_size_min) u8) void {
+        // MADV_COLD (Linux 5.4+) marks pages as low-priority for reclaim.
+        // On older kernels and macOS, fall back to MADV_FREE which signals
+        // that the pages are reusable (contents may be discarded).
+        const advice: u32 = if (@hasDecl(posix.MADV, "COLD"))
+            @intCast(posix.MADV.COLD)
+        else
+            @intCast(posix.MADV.FREE);
+        posix.madvise(mem.ptr, mem.len, advice) catch {};
+    }
 };
 
 /// Allocate page-aligned, zeroed backing memory using VirtualAlloc with
@@ -78,6 +93,19 @@ const AllocWindows = struct {
             0,
             windows.MEM_RELEASE,
         );
+    }
+
+    /// Hint to the OS that this memory is cold and may be reclaimed under
+    /// memory pressure. Uses MEM_RESET which discards the physical frames
+    /// immediately; they are zero-filled on next access. Errors are silently
+    /// ignored; hints are best-effort.
+    pub fn hint(mem: []align(std.heap.page_size_min) u8) void {
+        _ = windows.VirtualAlloc(
+            mem.ptr,
+            mem.len,
+            windows.MEM_RESET,
+            windows.PAGE_READWRITE,
+        ) catch {};
     }
 };
 
@@ -295,6 +323,15 @@ pub const Page = struct {
     pub inline fn deinit(self: *Page) void {
         PageAlloc.free(self.memory);
         self.* = undefined;
+    }
+
+    /// Hint to the OS that this page is cold and its physical frames may be
+    /// reclaimed under memory pressure. The page data remains logically valid
+    /// and is restored via a transparent page fault when accessed again.
+    /// This is a no-op in test builds where the test allocator is used.
+    pub inline fn hintCold(self: *const Page) void {
+        if (builtin.is_test) return;
+        PageAlloc.hint(self.memory);
     }
 
     /// Reinitialize the page with the same capacity.
