@@ -2,7 +2,7 @@ const std = @import("std");
 const build_options = @import("terminal_options");
 const Allocator = std.mem.Allocator;
 
-const glyph = @import("apc/glyph.zig");
+pub const glyph = @import("apc/glyph.zig");
 const kitty_gfx = @import("kitty/graphics.zig");
 
 const log = std.log.scoped(.terminal_apc);

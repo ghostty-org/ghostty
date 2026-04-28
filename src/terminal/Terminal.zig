@@ -18,6 +18,7 @@ const charsets = @import("charsets.zig");
 const csi = @import("csi.zig");
 const hyperlink = @import("hyperlink.zig");
 const kitty = @import("kitty.zig");
+const glyph = @import("apc/glyph.zig");
 const osc = @import("osc.zig");
 const point = @import("point.zig");
 const sgr = @import("sgr.zig");
@@ -77,6 +78,10 @@ previous_char: ?u21 = null,
 
 /// The modes that this terminal currently has active.
 modes: modespkg.ModeState = .{},
+
+/// Glyph Protocol session glossary. Owns every live registration for
+/// this session; isolated per-terminal per spec §4.
+glyph_glossary: glyph.Glossary = .{},
 
 /// The most recently set mouse shape for the terminal.
 mouse_shape: mouse.Shape = .text,
@@ -252,6 +257,7 @@ pub fn init(
 }
 
 pub fn deinit(self: *Terminal, alloc: Allocator) void {
+    self.glyph_glossary.deinit(alloc);
     self.tabstops.deinit(alloc);
     self.screens.deinit(alloc);
     self.pwd.deinit(alloc);

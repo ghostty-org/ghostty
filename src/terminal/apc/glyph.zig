@@ -125,7 +125,10 @@ const std = @import("std");
 
 pub const request = @import("glyph/request.zig");
 pub const response = @import("glyph/response.zig");
+pub const handler = @import("glyph/handler.zig");
 
 pub const CommandParser = request.CommandParser;
 pub const Request = request.Request;
 pub const Response = response.Response;
+pub const Glossary = @import("glyph/glossary.zig").Glossary;
+pub const glyf = request.glyf;

@@ -25,6 +25,7 @@ pub const SharedGridSet = @import("SharedGridSet.zig");
 pub const sprite = @import("sprite.zig");
 pub const Sprite = sprite.Sprite;
 pub const SpriteFace = sprite.Face;
+pub const glyph_protocol_raster = @import("glyph_protocol_raster.zig");
 pub const Descriptor = discovery.Descriptor;
 pub const Discover = discovery.Discover;
 pub const Library = library.Library;

@@ -28,6 +28,7 @@ const Terminal = terminal.Terminal;
 const Health = renderer.Health;
 
 const getConstraint = @import("../font/nerd_font_attributes.zig").getConstraint;
+const glyph_protocol = @import("glyph_protocol.zig");
 
 const FileType = @import("../file_type.zig").FileType;
 
@@ -230,6 +231,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         /// Our overlay state, if any.
         overlay: ?Overlay = null,
+
+        /// Glyph Protocol renderer-side state. Snapshots the terminal's
+        /// session glossary each frame and rasterizes registered
+        /// outlines into the grayscale atlas on first use.
+        glyph_protocol: glyph_protocol.State,
 
         const HighlightTag = enum(u8) {
             search_match,
@@ -784,6 +790,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .api = api,
                 .swap_chain = swap_chain,
                 .display_link = display_link,
+
+                .glyph_protocol = .init(alloc),
             };
 
             try result.initShaders();
@@ -819,6 +827,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self.config.deinit();
 
             self.images.deinit(self.alloc);
+
+            self.glyph_protocol.deinit();
 
             if (self.bg_image) |img| img.deinit(self.alloc);
 
@@ -1198,6 +1208,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     // Scroll
                     state.terminal.scrollViewport(.bottom);
                 }
+
+                // Snapshot the glyph-protocol glossary while we still
+                // hold the terminal mutex. `syncFrom` no-ops when the
+                // glossary hasn't mutated since the last frame.
+                try self.glyph_protocol.syncFrom(&state.terminal.glyph_glossary);
 
                 // Update our terminal state
                 try self.terminal_state.update(self.alloc, state.terminal);
@@ -3172,6 +3187,55 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         ) !void {
             const cell = cell_raws[x];
             const cp = cell.codepoint();
+
+            // Glyph Protocol: if this codepoint has a session glossary
+            // registration, bypass the normal font path and draw from
+            // our rasterized outline. `glyf` registrations land in the
+            // grayscale atlas and inherit the cell's foreground colour;
+            // `colrv0`/`colrv1` registrations land in the colour atlas
+            // and carry their own fill, so the foreground colour below
+            // only matters for CPAL palette index `0xFFFF`.
+            if (std.math.cast(u21, cp)) |cp21| gp: {
+                const resolved = self.glyph_protocol.resolve(
+                    cp21,
+                    @intCast(self.grid_metrics.cell_width),
+                    @intCast(self.grid_metrics.cell_height),
+                    .{ .r = color.r, .g = color.g, .b = color.b, .a = 255 },
+                    &self.font_grid.atlas_grayscale,
+                    &self.font_grid.atlas_color,
+                    &self.font_grid.lock,
+                ) catch |err| {
+                    log.warn("glyph protocol rasterize failed cp={x} err={}", .{ cp, err });
+                    break :gp;
+                } orelse break :gp;
+
+                const gp_glyph = resolved.glyph;
+                if (gp_glyph.width == 0 or gp_glyph.height == 0) return;
+
+                // Colour payloads carry their own RGB from CPAL/v1
+                // paints; neutralise the shader's per-cell tint by
+                // passing opaque white so the atlas pixels land intact.
+                const cell_color: [4]u8 = switch (resolved.atlas) {
+                    .grayscale => .{ color.r, color.g, color.b, alpha },
+                    .color => .{ 255, 255, 255, alpha },
+                };
+                try self.cells.add(self.alloc, .text, .{
+                    .atlas = switch (resolved.atlas) {
+                        .grayscale => .grayscale,
+                        .color => .color,
+                    },
+                    .bools = .{ .no_min_contrast = noMinContrast(cp) },
+                    .grid_pos = .{ @intCast(x), @intCast(y) },
+                    .color = cell_color,
+                    .glyph_pos = .{ gp_glyph.atlas_x, gp_glyph.atlas_y },
+                    .glyph_size = .{ gp_glyph.width, gp_glyph.height },
+                    .bearings = .{
+                        @intCast(gp_glyph.offset_x + shaper_cell.x_offset),
+                        @intCast(gp_glyph.offset_y + shaper_cell.y_offset),
+                    },
+                });
+                return;
+            }
 
             // Render
             const render = try self.font_grid.renderGlyph(
