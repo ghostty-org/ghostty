@@ -228,6 +228,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             name: .kanbanCloseSurface,
             object: nil
         )
+        center.addObserver(
+            self,
+            selector: #selector(onKanbanResumeSession(_:)),
+            name: .kanbanResumeSession,
+            object: nil
+        )
     }
 
     required init?(coder: NSCoder) {
@@ -1723,6 +1729,37 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         SessionManager.shared.unlinkSurface(surfaceId: surfaceId)
+    }
+
+    @objc private func onKanbanResumeSession(_ notification: Notification) {
+        guard let sessionId = notification.userInfo?["sessionId"] as? UUID,
+              let session = SessionManager.shared.session(for: sessionId) else { return }
+
+        guard let sourceSurface = focusedSurface?.surface else { return }
+
+        // 1. Create split
+        ghostty.split(surface: sourceSurface, direction: GHOSTTY_SPLIT_DIRECTION_RIGHT)
+
+        // 2. Wait for split creation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let newSurface = self?.focusedSurface?.surface else { return }
+
+            // 3. Build resume command (use --resume, NOT --session-id)
+            var command = "claude --resume \(session.sessionId ?? sessionId.uuidString)"
+            if session.isWorkTree {
+                command += " --worktree \(session.branch)"
+            }
+            command += " --permission-mode bypassPermissions\r"
+
+            // 4. Send command
+            Ghostty.Surface(cSurface: newSurface).sendText(command)
+
+            // 5. Update surfaceId association
+            SessionManager.shared.linkSessionToSurface(
+                sessionId: sessionId,
+                surfaceId: UInt64(newSurface)
+            )
+        }
     }
 
     @objc private func onResetWindowSize(notification: SwiftUI.Notification) {
