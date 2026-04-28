@@ -6,81 +6,22 @@ import GhosttyKit
 
 // MARK: - Kanban Sidebar State
 
-/// Manages the kanban sidebar visibility state
+/// Manages the kanban floating panel toggle.
 @MainActor
 final class SidebarState: ObservableObject {
     static let shared = SidebarState()
-
-    @Published var isVisible: Bool = false
-
-    /// Toggle sidebar visibility
     func toggle() {
-        isVisible.toggle()
+        KanbanPanelController.shared.toggle()
     }
-
-    /// Keyboard shortcut identifier for toggling sidebar
     static let toggleShortcut = "toggle_kanban_sidebar"
 }
 
-/// A container view that combines the kanban sidebar with the terminal view
+/// Simplified container — the sidebar is now an independent floating panel.
 struct KanbanSidebarContainer<Content: View>: View {
-    @ObservedObject var sidebarState: SidebarState
-    var viewModel: SidePanelViewModel?
     let content: () -> Content
 
-    /// Minimum sidebar width in points
-    private let minSidebarWidth: CGFloat = 120
-    /// Maximum sidebar width as fraction of total width
-    private let maxSidebarFraction: CGFloat = 0.7
-
-    /// Current sidebar width
-    @State private var sidebarWidth: CGFloat = 240
-
     var body: some View {
-        GeometryReader { geometry in
-            if sidebarState.isVisible {
-                let totalWidth = geometry.size.width
-                let maxWidth = totalWidth * maxSidebarFraction
-
-                ZStack(alignment: .leading) {
-                    // Base layout: sidebar + terminal directly adjacent
-                    HStack(spacing: 0) {
-                        SidePanelView(viewModel: viewModel)
-                            .frame(width: sidebarWidth, height: geometry.size.height)
-
-                        content()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-
-                    // Drag zone overlay - 8pt wide invisible hit area centered on boundary
-                    Color.clear
-                        .frame(width: 8, height: geometry.size.height)
-                        .contentShape(Rectangle())
-                        .offset(x: sidebarWidth - 4) // center on boundary
-                        .gesture(
-                            DragGesture()
-                                .onChanged { value in
-                                    let newWidth = value.location.x
-                                    sidebarWidth = min(max(minSidebarWidth, newWidth), maxWidth)
-                                }
-                                .onEnded { _ in
-                                    UserDefaults.standard.set(sidebarWidth, forKey: "kanban_sidebar_width")
-                                }
-                        )
-                        .backport.pointerStyle(.resizeLeftRight)
-                }
-                .onAppear {
-                    // Initialize to 1:3 ratio (sidebar = 1/4 of total)
-                    if UserDefaults.standard.object(forKey: "kanban_sidebar_width") == nil {
-                        sidebarWidth = totalWidth / 4
-                    } else if let saved = UserDefaults.standard.object(forKey: "kanban_sidebar_width") as? CGFloat {
-                        sidebarWidth = saved
-                    }
-                }
-            } else {
-                content()
-            }
-        }
+        content()
     }
 }
 
@@ -1218,16 +1159,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             TerminalController.sharedSidebarViewModel?.setGhosttyApp(ghostty)
         }
         let sidebarViewModel = TerminalController.sharedSidebarViewModel!
-        let sidebarState = SidebarState.shared
 
         let container = TerminalViewContainer { [weak self] in
             guard let self else { return AnyView(EmptyView()) }
             return AnyView(
-                KanbanSidebarContainer(sidebarState: sidebarState, viewModel: sidebarViewModel) {
+                KanbanSidebarContainer {
                     TerminalView(ghostty: self.ghostty, viewModel: self, delegate: self)
                 }
             )
         }
+
+        // Auto-show the floating kanban panel once on first launch
+        KanbanPanelController.showOnceIfNeeded()
 
         // Set the initial content size on the container so that
         // intrinsicContentSize returns the correct value immediately,
@@ -1722,7 +1665,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let session = SessionManager.shared.session(for: sessionId) else { return }
 
         // Build command
-        var command = "claude"
+        let claudeSessionId = (session.sessionId?.isEmpty == false ? session.sessionId! : session.id.uuidString).uppercased()
+
+        var command = "claude --session-id \(claudeSessionId)"
         if session.isWorkTree {
             command += " --worktree \(session.branch)"
         }
@@ -1845,6 +1790,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let sessionId = notification.userInfo?["sessionId"] as? UUID else { return }
         guard let session = SessionManager.shared.session(for: sessionId) else { return }
 
+        guard let claudeSessionId = session.sessionId, !claudeSessionId.isEmpty else {
+            print("[Kanban] Cannot resume session without Claude session_id: \(sessionId)")
+            return
+        }
+
         if let linkedSurfaceId = session.surfaceId {
             if let existing = Self.findControllerAndSurface(for: linkedSurfaceId) {
                 existing.controller.focusSurface(existing.surfaceView)
@@ -1859,7 +1809,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let sourceSurface = focusedSurface?.surface else { return }
 
         // Build resume command
-        var command = "claude --resume \(session.sessionId ?? sessionId.uuidString)"
+        var command = "claude --resume \(claudeSessionId)"
         if session.isWorkTree {
             command += " --worktree \(session.branch)"
         }
