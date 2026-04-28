@@ -720,6 +720,42 @@
     </div>
   </div>
 
+  <!-- Session Modal (Add Session) -->
+  <div class="modal-overlay" id="sessionModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="sessionModalTitle">Add Session</h2>
+        <button class="modal-close" id="sessionModalClose">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Working Directory</label>
+          <input type="text" id="sessionCwd" placeholder="/Users/hue/project">
+        </div>
+        <div class="form-group">
+          <label>Session Type</label>
+          <select id="sessionType">
+            <option value="regular">Regular Session</option>
+            <option value="worktree">Git Worktree</option>
+          </select>
+        </div>
+        <div class="form-group" id="worktreeNameGroup" style="display: none;">
+          <label>Worktree Name</label>
+          <input type="text" id="sessionWorktreeName" placeholder="feature/my-feature">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-footer-left">
+          <button class="btn btn-danger btn-small" id="removeSessionBtn" style="display: none;">Remove</button>
+        </div>
+        <div class="modal-footer-right">
+          <button class="btn btn-secondary" id="sessionModalCancel">Cancel</button>
+          <button class="btn btn-primary" id="sessionModalSave">Add</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const columns = [
       { id: 'todo', title: 'Todo', status: 'todo' },
@@ -873,12 +909,14 @@
                     <div class="session-title">${escapeHtml(session.title)}</div>
                     <div class="session-meta">${session.relativeTimestamp || 'Just now'}</div>
                   </div>
-                  <span class="session-branch">
-                    <svg viewBox="0 0 16 16" fill="currentColor">
-                      <path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25z"/>
-                    </svg>
-                    ${session.isWorkTree ? (session.branch || 'main') : 'main'}
-                  </span>
+                  ${session.isWorkTree ? `
+                    <span class="session-branch">
+                      <svg viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25z"/>
+                      </svg>
+                      ${session.branch || 'main'}
+                    </span>
+                  ` : ''}
                   <button class="remove-session-btn" onclick="unlinkSession('${task.id}', '${session.id}')" title="Unlink">
                     <svg viewBox="0 0 16 16" fill="currentColor">
                       <path d="M4.3 4.3L3 5.6l4.7 4.7-4.7 4.7 1.3 1.3 4.7-4.7 4.7 4.7 1.3-1.3-4.7-4.7 4.7-4.7-1.3-1.3-4.7 4.7-4.7-4.7z"/>
@@ -941,6 +979,60 @@
       });
     }
 
+    // Session Modal State
+    let sessionModalTaskId = null;
+    let sessionModalSessionId = null;
+    let sessionModalMode = 'add'; // 'add' or 'remove'
+
+    function openSessionModal(taskId, sessionId, mode) {
+      sessionModalTaskId = taskId;
+      sessionModalSessionId = sessionId;
+      sessionModalMode = mode;
+
+      const modal = document.getElementById('sessionModal');
+      const title = document.getElementById('sessionModalTitle');
+      const saveBtn = document.getElementById('sessionModalSave');
+      const removeBtn = document.getElementById('removeSessionBtn');
+      const worktreeGroup = document.getElementById('worktreeNameGroup');
+
+      if (mode === 'add') {
+        title.textContent = 'Add Session';
+        saveBtn.textContent = 'Add';
+        removeBtn.style.display = 'none';
+        worktreeGroup.style.display = 'none';
+        document.getElementById('sessionCwd').value = '/Users/hue';
+        document.getElementById('sessionType').value = 'regular';
+        document.getElementById('sessionWorktreeName').value = '';
+      } else if (mode === 'remove') {
+        title.textContent = 'Remove Session';
+        saveBtn.textContent = 'Remove';
+        removeBtn.style.display = 'block';
+      }
+
+      modal.classList.add('active');
+    }
+
+    function closeSessionModal() {
+      document.getElementById('sessionModal').classList.remove('active');
+      sessionModalTaskId = null;
+      sessionModalSessionId = null;
+    }
+
+    function submitSessionModal() {
+      if (sessionModalMode === 'add') {
+        const cwd = document.getElementById('sessionCwd').value.trim();
+        if (!cwd) return;
+
+        const isWorkTree = document.getElementById('sessionType').value === 'worktree';
+        const worktreeName = isWorkTree ? document.getElementById('sessionWorktreeName').value.trim() : null;
+
+        createSessionAndLink(sessionModalTaskId, cwd, isWorkTree, worktreeName);
+      } else if (sessionModalMode === 'remove') {
+        removeSession(sessionModalTaskId, sessionModalSessionId);
+      }
+      closeSessionModal();
+    }
+
     // Sessions
     function addSession(taskId) {
       window.webkit.messageHandlers.kanbanBridge.postMessage({
@@ -950,14 +1042,11 @@
     }
 
     function removeSession(taskId, sessionId) {
-      event.stopPropagation();
-      if (confirm('Remove this session from task?')) {
-        window.webkit.messageHandlers.kanbanBridge.postMessage({
-          type: 'removeSession',
-          taskId: taskId,
-          sessionId: sessionId
-        });
-      }
+      window.webkit.messageHandlers.kanbanBridge.postMessage({
+        type: 'removeSession',
+        taskId: taskId,
+        sessionId: sessionId
+      });
     }
 
     function openSession(taskId, sessionId) {
@@ -980,22 +1069,27 @@
 
     function unlinkSession(taskId, sessionId) {
       event.stopPropagation();
-      window.webkit.messageHandlers.kanbanBridge.postMessage({
-        type: 'unlinkSession',
-        taskId: taskId,
-        sessionId: sessionId
-      });
+      openSessionModal(taskId, sessionId, 'remove');
     }
 
     function promptForNewSession(taskId) {
-      const cwd = prompt("Enter working directory:", "/Users/hue");
-      if (!cwd) return;
-
-      const isWorkTree = confirm("Is this a worktree?");
-      const worktreeName = isWorkTree ? prompt("Worktree name:") : null;
-
-      createSessionAndLink(taskId, cwd, isWorkTree, worktreeName);
+      openSessionModal(taskId, null, 'add');
     }
+
+    // Session Modal Event Listeners
+    document.getElementById('sessionModalClose').addEventListener('click', closeSessionModal);
+    document.getElementById('sessionModalCancel').addEventListener('click', closeSessionModal);
+    document.getElementById('sessionModalSave').addEventListener('click', submitSessionModal);
+    document.getElementById('removeSessionBtn').addEventListener('click', submitSessionModal);
+    document.getElementById('sessionModal').addEventListener('click', function(e) {
+      if (e.target === this) closeSessionModal();
+    });
+
+    // Show/hide worktree name based on session type
+    document.getElementById('sessionType').addEventListener('change', function() {
+      const worktreeGroup = document.getElementById('worktreeNameGroup');
+      worktreeGroup.style.display = this.value === 'worktree' ? 'block' : 'none';
+    });
 
     // Modal
     function openNewTaskModal() {

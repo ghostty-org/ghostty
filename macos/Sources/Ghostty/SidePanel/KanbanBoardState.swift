@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Combine
 
 final class BoardState: ObservableObject {
     @Published var tasks: [KanbanTask] = []
@@ -7,9 +8,12 @@ final class BoardState: ObservableObject {
 
     private let persistence = Persistence.shared
     private var sessionWatcher: SessionFileWatcher?
+    private var cancellables: Set<AnyCancellable> = []
 
     init() {
         load()
+        reconcileSessionStoreFromTasks()
+        bindSessionStore()
         loadTheme()
         sessionWatcher = SessionFileWatcher(sessionManager: SessionManager.shared)
     }
@@ -97,6 +101,8 @@ final class BoardState: ObservableObject {
     }
 
     func removeSession(from taskId: UUID, sessionId: UUID) {
+        SessionManager.shared.deleteSession(sessionId: sessionId)
+
         if let taskIndex = tasks.firstIndex(where: { $0.id == taskId }) {
             tasks[taskIndex].sessions.removeAll { $0.id == sessionId }
             save()
@@ -115,5 +121,42 @@ final class BoardState: ObservableObject {
 
     func tasks(for status: Status) -> [KanbanTask] {
         tasks.filter { $0.status == status }
+    }
+
+    func refreshSessionsFromManager() {
+        let sessionsById = Dictionary(uniqueKeysWithValues: SessionManager.shared.sessions.map { ($0.id, $0) })
+        var changed = false
+
+        for taskIndex in tasks.indices {
+            let syncedSessions = tasks[taskIndex].sessions.compactMap { session in
+                sessionsById[session.id] ?? session
+            }
+
+            if syncedSessions != tasks[taskIndex].sessions {
+                tasks[taskIndex].sessions = syncedSessions
+                changed = true
+            }
+        }
+
+        if changed {
+            save()
+        }
+    }
+
+    private func reconcileSessionStoreFromTasks() {
+        for task in tasks {
+            for session in task.sessions {
+                SessionManager.shared.upsertSession(session)
+            }
+        }
+    }
+
+    private func bindSessionStore() {
+        SessionManager.shared.$sessions
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.refreshSessionsFromManager()
+            }
+            .store(in: &cancellables)
     }
 }

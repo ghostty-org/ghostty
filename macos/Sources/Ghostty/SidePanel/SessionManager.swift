@@ -4,6 +4,7 @@ class SessionManager: ObservableObject {
     static let shared = SessionManager()
 
     @Published var sessions: [Session] = []
+    private let pendingSessionMatchWindow: TimeInterval = 30
 
     private let sessionsFileName = "sessions.json"
 
@@ -68,6 +69,15 @@ class SessionManager: ObservableObject {
         return session
     }
 
+    func upsertSession(_ session: Session) {
+        if let index = sessions.firstIndex(where: { $0.id == session.id }) {
+            sessions[index] = session
+        } else {
+            sessions.append(session)
+        }
+        saveSessions()
+    }
+
     func linkSessionToSurface(sessionId: UUID, surfaceId: UInt64) {
         guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
         sessions[index].surfaceId = surfaceId
@@ -84,6 +94,69 @@ class SessionManager: ObservableObject {
         guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
         sessions[index].status = status
         saveSessions()
+    }
+
+    func updateSession(
+        localId: UUID,
+        title: String? = nil,
+        status: SessionStatus? = nil,
+        timestamp: Date? = nil,
+        sessionId: String? = nil,
+        branch: String? = nil,
+        isWorkTree: Bool? = nil
+    ) {
+        guard let index = sessions.firstIndex(where: { $0.id == localId }) else { return }
+
+        if let title, !title.isEmpty {
+            sessions[index].title = title
+        }
+        if let status {
+            sessions[index].status = status
+        }
+        if let timestamp {
+            sessions[index].timestamp = timestamp
+        }
+        if let sessionId, !sessionId.isEmpty {
+            sessions[index].sessionId = sessionId
+        }
+        if let branch, !branch.isEmpty {
+            sessions[index].branch = branch
+        }
+        if let isWorkTree {
+            sessions[index].isWorkTree = isWorkTree
+        }
+
+        saveSessions()
+    }
+
+    func updateSession(from parsed: ParsedSession) {
+        if let existing = sessions.first(where: { $0.sessionId == parsed.sessionId }) {
+            updateSession(
+                localId: existing.id,
+                title: parsed.title,
+                status: parsed.status,
+                timestamp: parsed.timestamp,
+                sessionId: parsed.sessionId,
+                branch: parsed.branch,
+                isWorkTree: parsed.isWorkTree
+            )
+            return
+        }
+
+        guard let pending = bestPendingSessionMatch(for: parsed) else { return }
+        updateSession(
+            localId: pending.id,
+            title: parsed.title,
+            status: parsed.status,
+            timestamp: parsed.timestamp,
+            sessionId: parsed.sessionId,
+            branch: parsed.branch,
+            isWorkTree: parsed.isWorkTree
+        )
+    }
+
+    func session(forSurfaceId surfaceId: UInt64) -> Session? {
+        sessions.first { $0.surfaceId == surfaceId }
     }
 
     func deleteSession(sessionId: UUID) {
@@ -116,6 +189,19 @@ class SessionManager: ObservableObject {
         guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
         sessions[index].surfaceId = nil
         saveSessions()
+    }
+
+    private func bestPendingSessionMatch(for parsed: ParsedSession) -> Session? {
+        let cutoff = Date().addingTimeInterval(-pendingSessionMatchWindow)
+
+        return sessions
+            .filter {
+                $0.sessionId == nil &&
+                $0.timestamp >= cutoff &&
+                ($0.isWorkTree == parsed.isWorkTree || !$0.isWorkTree || !parsed.isWorkTree)
+            }
+            .sorted { $0.timestamp > $1.timestamp }
+            .first
     }
 }
 

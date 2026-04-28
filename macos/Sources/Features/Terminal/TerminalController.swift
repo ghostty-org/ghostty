@@ -141,8 +141,21 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
 
-    /// The sidebar view model for kanban integration.
-    var sidebarViewModel: SidePanelViewModel?
+    /// The sidebar view model for kanban integration (shared across all tabs)
+    static var sharedSidebarViewModel: SidePanelViewModel?
+
+    /// Pending session creations - maps sessionId to (command, createdController)
+    /// When a new tab is created for a session, we store the mapping here
+    /// and the ghosttyNewTab handler uses it to find the right controller
+    private static var pendingCreations: [UUID: (command: String, isWorkTree: Bool, sourceController: TerminalController)] = [:]
+    private static let pendingLock = NSLock()
+
+    /// Kanban sidebar actions are broadcast via NotificationCenter. Only one
+    /// terminal controller should consume creation/resume requests, otherwise
+    /// every tab in the window will create another tab.
+    private var isPrimaryKanbanNotificationHandler: Bool {
+        self === Self.preferredParent
+    }
 
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
@@ -232,6 +245,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             self,
             selector: #selector(onKanbanResumeSession(_:)),
             name: .kanbanResumeSession,
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(onGhosttyNewTab(_:)),
+            name: Ghostty.Notification.ghosttyNewTab,
             object: nil
         )
     }
@@ -327,6 +346,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 return surfaceView
             }
         }
+        return nil
+    }
+
+    private static func findControllerAndSurface(
+        for surfaceId: UInt64
+    ) -> (controller: TerminalController, surfaceView: Ghostty.SurfaceView)? {
+        for controller in all {
+            if let surfaceView = controller.findSurfaceView(by: surfaceId) {
+                return (controller, surfaceView)
+            }
+        }
+
         return nil
     }
 
@@ -1181,15 +1212,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Initialize our content view to the SwiftUI root
-        // Create the sidebar view model for kanban integration
-        sidebarViewModel = SidePanelViewModel()
-        sidebarViewModel?.setGhosttyApp(ghostty)
+        // Use shared sidebar view model (singleton across all tabs)
+        if TerminalController.sharedSidebarViewModel == nil {
+            TerminalController.sharedSidebarViewModel = SidePanelViewModel()
+            TerminalController.sharedSidebarViewModel?.setGhosttyApp(ghostty)
+        }
+        let sidebarViewModel = TerminalController.sharedSidebarViewModel!
         let sidebarState = SidebarState.shared
 
         let container = TerminalViewContainer { [weak self] in
             guard let self else { return AnyView(EmptyView()) }
             return AnyView(
-                KanbanSidebarContainer(sidebarState: sidebarState, viewModel: self.sidebarViewModel) {
+                KanbanSidebarContainer(sidebarState: sidebarState, viewModel: sidebarViewModel) {
                     TerminalView(ghostty: self.ghostty, viewModel: self, delegate: self)
                 }
             )
@@ -1682,6 +1716,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     @objc private func onKanbanCreateSplit(_ notification: Notification) {
+        guard isPrimaryKanbanNotificationHandler else { return }
         guard let sessionId = notification.userInfo?["sessionId"] as? UUID else { return }
         guard let surface = self.focusedSurface?.surface else { return }
         guard let session = SessionManager.shared.session(for: sessionId) else { return }
@@ -1693,20 +1728,93 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
         command += " --permission-mode bypassPermissions"
 
-        print("[Kanban] Creating split...")
-        ghostty.split(surface: surface, direction: GHOSTTY_SPLIT_DIRECTION_RIGHT)
-        print("[Kanban] Split created, sending command...")
+        print("[Kanban] onKanbanCreateSplit: sessionId=\(sessionId), self=\(ObjectIdentifier(self))")
 
-        // Use the surfaceModel from focusedSurface
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let surfaceModel = self?.focusedSurface?.surfaceModel else {
-                print("[Kanban] No surfaceModel available")
+        // Store pending creation with sessionId as key
+        TerminalController.pendingLock.lock()
+        TerminalController.pendingCreations[sessionId] = (
+            command: command,
+            isWorkTree: session.isWorkTree,
+            sourceController: self
+        )
+        print("[Kanban] pendingCreations count: \(TerminalController.pendingCreations.count)")
+        TerminalController.pendingLock.unlock()
+
+        // Trigger tab creation
+        ghostty.newTab(surface: surface)
+
+        // Activate app
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func onGhosttyNewTab(_ notification: Notification) {
+        guard let sourceSurfaceView = notification.object as? Ghostty.SurfaceView else {
+            print("[Kanban] onGhosttyNewTab: missing source surface view")
+            return
+        }
+        guard surfaceTree.contains(sourceSurfaceView) else {
+            return
+        }
+
+        print("[Kanban] onGhosttyNewTab: self=\(ObjectIdentifier(self)), tabGroup=\(self.window?.tabGroup?.windows.count ?? 0)")
+
+        // Find the newest tab's controller
+        guard let tabGroup = self.window?.tabGroup,
+              let newWindow = tabGroup.windows.last,
+              let newController = newWindow.windowController as? TerminalController else {
+            print("[Kanban] onGhosttyNewTab: could not find new tab controller")
+            return
+        }
+
+        // Find a pending creation that was created by a controller in the same window
+        // (i.e., one of our tabs created a new tab)
+        TerminalController.pendingLock.lock()
+        print("[Kanban] onGhosttyNewTab: pendingCreations count: \(TerminalController.pendingCreations.count)")
+        var matchedSessionId: UUID?
+        var matchedCommand: String?
+
+        for (sessionId, pending) in TerminalController.pendingCreations {
+            if pending.sourceController === self {
+                matchedSessionId = sessionId
+                matchedCommand = pending.command
+                TerminalController.pendingCreations.removeValue(forKey: sessionId)
+                print("[Kanban] onGhosttyNewTab: matched sessionId=\(sessionId)")
+                break
+            }
+        }
+        TerminalController.pendingLock.unlock()
+
+        guard let sessionId = matchedSessionId, let command = matchedCommand else {
+            // Not a kanban-created tab, ignore
+            print("[Kanban] onGhosttyNewTab: no matching session, ignoring")
+            return
+        }
+
+        print("[Kanban] New tab created for session: \(sessionId)")
+
+        // Send command to the new tab
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            guard let surface = newController.focusedSurface,
+                  let surfaceModel = surface.surfaceModel else {
+                print("[Kanban] No surfaceModel on new tab")
                 return
             }
-            print("[Kanban] Sending text via surfaceModel...")
+
+            if let rawSurface = surface.surface {
+                let createdSurfaceId = UInt64(Int(bitPattern: rawSurface))
+                SessionManager.shared.linkSessionToSurface(
+                    sessionId: sessionId,
+                    surfaceId: createdSurfaceId
+                )
+            }
+
+            // Focus the new window
+            newWindow.makeKeyAndOrderFront(nil)
+
+            print("[Kanban] Sending command to new tab...")
             surfaceModel.sendText(command)
 
-            // Send Enter key to execute the command
+            // Send Enter key
             let enterKey = Ghostty.Input.KeyEvent(key: .enter, action: .press)
             surfaceModel.sendKeyEvent(enterKey)
             print("[Kanban] Done")
@@ -1718,6 +1826,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         if let surfaceView = findSurfaceView(by: surfaceId),
            let surface = surfaceView.surface {
+            let isCurrentTab = surfaceView == focusedSurface &&
+                ((window?.tabGroup?.selectedWindow == window) || (window?.tabGroup == nil && window?.isKeyWindow == true))
+
+            if isCurrentTab {
+                SessionManager.shared.unlinkSurface(surfaceId: surfaceId)
+                return
+            }
+
             ghostty.requestClose(surface: surface)
         }
 
@@ -1725,34 +1841,46 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     @objc private func onKanbanResumeSession(_ notification: Notification) {
+        guard isPrimaryKanbanNotificationHandler else { return }
         guard let sessionId = notification.userInfo?["sessionId"] as? UUID else { return }
         guard let session = SessionManager.shared.session(for: sessionId) else { return }
+
+        if let linkedSurfaceId = session.surfaceId {
+            if let existing = Self.findControllerAndSurface(for: linkedSurfaceId) {
+                existing.controller.focusSurface(existing.surfaceView)
+                existing.controller.window?.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+                return
+            }
+
+            SessionManager.shared.unlinkSurface(surfaceId: linkedSurfaceId)
+        }
+
         guard let sourceSurface = focusedSurface?.surface else { return }
 
-        // Build resume command (use --resume, NOT --session-id)
+        // Build resume command
         var command = "claude --resume \(session.sessionId ?? sessionId.uuidString)"
         if session.isWorkTree {
             command += " --worktree \(session.branch)"
         }
         command += " --permission-mode bypassPermissions"
 
-        // Create split
-        ghostty.split(surface: sourceSurface, direction: GHOSTTY_SPLIT_DIRECTION_RIGHT)
+        print("[Kanban] Resuming session: \(sessionId)")
 
-        // Send command after split using surfaceModel
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let surfaceModel = self?.focusedSurface?.surfaceModel else { return }
-            surfaceModel.sendText(command)
+        // Store pending creation
+        TerminalController.pendingLock.lock()
+        TerminalController.pendingCreations[sessionId] = (
+            command: command,
+            isWorkTree: session.isWorkTree,
+            sourceController: self
+        )
+        TerminalController.pendingLock.unlock()
 
-            // Send Enter key to execute
-            let enterKey = Ghostty.Input.KeyEvent(key: .enter, action: .press)
-            surfaceModel.sendKeyEvent(enterKey)
+        // Create new tab
+        ghostty.newTab(surface: sourceSurface)
 
-            SessionManager.shared.linkSessionToSurface(
-                sessionId: sessionId,
-                surfaceId: UInt64(Int(bitPattern: sourceSurface))
-            )
-        }
+        // Activate app
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc private func onResetWindowSize(notification: SwiftUI.Notification) {

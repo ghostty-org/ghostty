@@ -3,6 +3,7 @@ import WebKit
 
 struct KanbanWebView: NSViewRepresentable {
     @ObservedObject var boardState: BoardState
+    var viewModel: SidePanelViewModel?
     @Binding var showTaskModal: Bool
     var containerWidth: CGFloat
     var isNarrow: Bool
@@ -18,6 +19,7 @@ struct KanbanWebView: NSViewRepresentable {
 
         context.coordinator.webView = webView
         context.coordinator.boardState = boardState
+        context.coordinator.viewModel = viewModel
         context.coordinator.isNarrow = isNarrow
         context.coordinator.containerWidth = containerWidth
 
@@ -32,6 +34,7 @@ struct KanbanWebView: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.boardState = boardState
+        context.coordinator.viewModel = viewModel
         context.coordinator.isNarrow = isNarrow
         context.coordinator.containerWidth = containerWidth
         context.coordinator.sendBoardState()
@@ -45,6 +48,7 @@ struct KanbanWebView: NSViewRepresentable {
     class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         weak var webView: WKWebView?
         var boardState: BoardState?
+        weak var viewModel: SidePanelViewModel?
         var isNarrow: Bool = false
         var containerWidth: CGFloat = 0
         let parent: KanbanWebView
@@ -154,7 +158,11 @@ struct KanbanWebView: NSViewRepresentable {
                 case "addSession":
                     if let taskId = body["taskId"] as? String,
                        let taskUUID = UUID(uuidString: taskId) {
-                        let session = Session(title: "New Session")
+                        let session = SessionManager.shared.createSession(
+                            cwd: FileManager.default.homeDirectoryForCurrentUser.path,
+                            isWorktree: false,
+                            worktreeName: nil
+                        )
                         boardState.addSession(to: taskUUID, session: session)
                         self.sendBoardState()
                     }
@@ -171,13 +179,25 @@ struct KanbanWebView: NSViewRepresentable {
                        let isWorkTree = body["isWorkTree"] as? Bool,
                        let taskUUID = UUID(uuidString: taskId) {
                         let worktreeName = body["worktreeName"] as? String
-                        let session = SessionManager.shared.createSession(
-                            cwd: cwd,
-                            isWorktree: isWorkTree,
-                            worktreeName: worktreeName
-                        )
-                        // Add session to task
-                        boardState.addSession(to: taskUUID, session: session)
+
+                        // Use viewModel if available, otherwise fallback to SessionManager only
+                        if let viewModel = self.viewModel {
+                            let session = viewModel.createSessionAndOpenSplit(
+                                cwd: cwd,
+                                isWorkTree: isWorkTree,
+                                worktreeName: worktreeName
+                            )
+                            // Add session to task
+                            boardState.addSession(to: taskUUID, session: session)
+                        } else {
+                            // Fallback: just create session without opening split
+                            let session = SessionManager.shared.createSession(
+                                cwd: cwd,
+                                isWorktree: isWorkTree,
+                                worktreeName: worktreeName
+                            )
+                            boardState.addSession(to: taskUUID, session: session)
+                        }
                         self.sendBoardState()
                     }
 
@@ -209,6 +229,8 @@ struct KanbanWebView: NSViewRepresentable {
         func sendBoardState() {
             guard let webView = webView,
                   let boardState = boardState else { return }
+
+            boardState.refreshSessionsFromManager()
 
             let tasks = boardState.tasks.map { task -> [String: Any] in
                 return [
