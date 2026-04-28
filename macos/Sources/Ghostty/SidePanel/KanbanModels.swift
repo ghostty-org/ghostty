@@ -49,14 +49,20 @@ struct Session: Identifiable, Codable, Equatable {
     var timestamp: Date
     var isWorkTree: Bool
     var branch: String
+    var sessionId: String?      // Claude session UUID from JSONL
+    var surfaceId: UInt64?      // Ghostty surface ID (nil if split closed)
+    var cwd: String?
 
-    init(id: UUID = UUID(), title: String, status: SessionStatus = .running, timestamp: Date = Date(), isWorkTree: Bool = false, branch: String = "main") {
+    init(id: UUID = UUID(), title: String, status: SessionStatus = .running, timestamp: Date = Date(), isWorkTree: Bool = false, branch: String = "main", sessionId: String? = nil, surfaceId: UInt64? = nil, cwd: String? = nil) {
         self.id = id
         self.title = title
         self.status = status
         self.timestamp = timestamp
         self.isWorkTree = isWorkTree
         self.branch = branch
+        self.sessionId = sessionId
+        self.surfaceId = surfaceId
+        self.cwd = cwd
     }
 
     var relativeTimestamp: String {
