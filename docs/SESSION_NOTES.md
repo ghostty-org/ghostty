@@ -2132,3 +2132,54 @@ Ran `ce-code-review` against `v0.1.0-beta.12..HEAD` (3 commits: row-click spawn 
 - Archive standalone `ghostties-web` GitHub repo
 - Linear ticket cleanup: SEA-184, SEA-185, SEA-186, SEA-156–168 → Done
 - CE review sweep (3 passes) slated for next build session
+
+---
+
+## Apr 28, 2026 (Memory hygiene — strategy + MEMORY.md prune)
+
+### Headline
+
+Strategy session on long-term memory hygiene. Established a clear framework for what lives where. Pruned MEMORY.md from 149 → 125 lines (16% reduction). Researched sleep-inspired memory consolidation.
+
+### No code commits this session
+
+Meta/strategy only. MEMORY.md update was committed by a parallel session.
+
+### What changed
+
+- **MEMORY.md pruned** — removed: "Row-click v0 — SHIPPED" section (folded to 1 line), "Session 11 Plans (2026-03-24)" (stale), standalone "LibGhostty / Ghostling" section (moved to Reference Files). Trimmed: Distribution section (cut beta.10 detail), Sidebar Redesign collapsed from 8 lines to 3.
+
+### Framework established — what lives where
+
+| Layer | Content | Cadence |
+|---|---|---|
+| MEMORY.md | Stable facts, hard rules, gotchas, agent file pointers | Slow-changing |
+| Linear | In-flight issues, milestones, "remaining before X" lists | Live state |
+| Agent files | Rich domain context (arch, UX, craft) | On-demand, slow |
+| SESSION_NOTES.md | Detailed session log | Per-session |
+| Second Brain | Searchable narrative; deep memory | Per-milestone |
+
+### Key decisions
+
+- **Wrap skill scope**: Its job is token maintenance (keep context windows small before clearing), not memory curation. Don't expand it to prune MEMORY.md.
+- **Prune trigger**: Linear milestone close, not session-end. When a milestone closes, clear the corresponding MEMORY.md section.
+- **No temp MEMORY.md needed**: Linear IS the ephemeral layer. Anything with an expiry belongs there.
+- **CLAUDE.md vs MEMORY.md**: CLAUDE.md = instructions/conventions. MEMORY.md = project history and state. Don't blur them.
+- **Ghostties Second Brain thread**: Doesn't exist yet. Session notes are git-committed but not QMD-searchable. Creating the thread is the missing piece for deep-memory retrieval.
+- **Distribution section**: "Remaining before stable" inline list should be replaced with a Linear milestone pointer — flagged but not yet done.
+
+### Memory dreaming research
+
+Found the concept: **sleep-inspired memory consolidation** (proactive interference + targeted forgetting).
+
+- [Learning to Forget: Sleep-Inspired Memory Consolidation (SleepGate)](https://arxiv.org/html/2603.14517v1) — 2026 paper; augments LLMs with a learned sleep cycle (synaptic downscaling, selective replay, targeted forgetting)
+- [SimpleMem](https://arxiv.org/html/2601.02553v1) — three-stage: compress → consolidate → query-aware retrieval
+
+Key insight: **consolidation > deletion**. Don't just remove stale entries — merge related ones into higher-level abstractions. "Row-click v0 shipped + beta.12 shipped + Phase 1 next" → one line.
+
+### Open
+
+- Create Ghostties Second Brain thread (threads/ghostties.md) — makes older decisions QMD-searchable
+- Swap Distribution "Remaining before stable" list → Linear milestone pointer
+- CE review sweep (3 passes) still queued for next build session
+- beta.12 install + smoke test still pending Sean
