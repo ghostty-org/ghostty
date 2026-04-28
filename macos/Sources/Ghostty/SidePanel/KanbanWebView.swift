@@ -4,6 +4,8 @@ import WebKit
 struct KanbanWebView: NSViewRepresentable {
     @ObservedObject var boardState: BoardState
     @Binding var showTaskModal: Bool
+    var containerWidth: CGFloat
+    var isNarrow: Bool
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -16,6 +18,8 @@ struct KanbanWebView: NSViewRepresentable {
 
         context.coordinator.webView = webView
         context.coordinator.boardState = boardState
+        context.coordinator.isNarrow = isNarrow
+        context.coordinator.containerWidth = containerWidth
 
         webView.loadHTMLString(context.coordinator.htmlContent, baseURL: nil)
 
@@ -24,7 +28,10 @@ struct KanbanWebView: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.boardState = boardState
+        context.coordinator.isNarrow = isNarrow
+        context.coordinator.containerWidth = containerWidth
         context.coordinator.sendBoardState()
+        context.coordinator.updateLayout()
     }
 
     func makeCoordinator() -> Coordinator {
@@ -34,10 +41,25 @@ struct KanbanWebView: NSViewRepresentable {
     class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         weak var webView: WKWebView?
         var boardState: BoardState?
+        var isNarrow: Bool = false
+        var containerWidth: CGFloat = 0
         let parent: KanbanWebView
 
         init(_ parent: KanbanWebView) {
             self.parent = parent
+        }
+
+        // MARK: - Layout Update
+
+        func updateLayout() {
+            guard let webView = webView else { return }
+
+            let script = "updateLayout(\(containerWidth), \(isNarrow ? "true" : "false"));"
+            webView.evaluateJavaScript(script) { _, error in
+                if let error = error {
+                    print("[KanbanWebView] Layout update error: \(error)")
+                }
+            }
         }
 
         // MARK: - HTML Content
@@ -196,12 +218,28 @@ struct KanbanWebView: NSViewRepresentable {
       align-items: flex-start;
       height: calc(100vh - 53px);
       overflow-x: auto;
+      transition: flex-direction 0.3s;
     }
 
-    .column {
+    .kanban-board.narrow {
+      flex-direction: column;
+      overflow-x: visible;
+    }
+
+    .kanban-board.narrow .column {
+      flex: none;
+      width: 100%;
+      max-width: 100%;
+      min-width: 100%;
+    }
+
+    .kanban-board:not(.narrow) .column {
       flex: 1;
       min-width: 240px;
       max-width: 300px;
+    }
+
+    .column {
       background: var(--column-bg);
       border-radius: 8px;
       border: 1px solid var(--border-color);
@@ -751,6 +789,21 @@ struct KanbanWebView: NSViewRepresentable {
     function setDarkMode(dark) {
       isDarkMode = dark;
       setTheme(dark);
+    }
+
+    // Layout
+    let currentIsNarrow = false;
+
+    function updateLayout(width, isNarrow) {
+      currentIsNarrow = isNarrow;
+      const board = document.getElementById('board');
+      if (board) {
+        if (isNarrow) {
+          board.classList.add('narrow');
+        } else {
+          board.classList.remove('narrow');
+        }
+      }
     }
 
     // Render

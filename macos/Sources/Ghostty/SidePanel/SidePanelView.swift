@@ -6,8 +6,17 @@ struct SidePanelView: View {
     @StateObject private var boardState = BoardState()
     @State private var showTaskModal = false
 
+    private let narrowWidth: CGFloat = 600
+
     var body: some View {
-        KanbanWebView(boardState: boardState, showTaskModal: $showTaskModal)
-            .background(Color(nsColor: .windowBackgroundColor))
+        GeometryReader { geometry in
+            KanbanWebView(
+                boardState: boardState,
+                showTaskModal: $showTaskModal,
+                containerWidth: geometry.size.width,
+                isNarrow: geometry.size.width < narrowWidth
+            )
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
