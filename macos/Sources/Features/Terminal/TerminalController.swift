@@ -6,61 +6,18 @@ import GhosttyKit
 
 // MARK: - Kanban Sidebar State
 
-/// Manages the kanban sidebar visibility state — inline with shared data.
+/// Manages the kanban sidebar toggle — opens a titlebar accessory shared across tabs.
 @MainActor
 final class SidebarState: ObservableObject {
     static let shared = SidebarState()
-    @Published var isVisible: Bool = true
-    func toggle() { isVisible.toggle() }
+    func toggle() { KanbanSidebarController.shared.toggle() }
     static let toggleShortcut = "toggle_kanban_sidebar"
 }
 
-/// Sidebar + terminal side-by-side. Data shared across all tabs via BoardState.shared.
+/// Terminal-only view — sidebar is a titlebar accessory (single instance).
 struct KanbanSidebarContainer<Content: View>: View {
-    @ObservedObject var sidebarState: SidebarState
-    var viewModel: SidePanelViewModel?
     let content: () -> Content
-
-    private let minSidebarWidth: CGFloat = 120
-    private let maxSidebarFraction: CGFloat = 0.7
-    @State private var sidebarWidth: CGFloat = 240
-
-    var body: some View {
-        GeometryReader { geometry in
-            if sidebarState.isVisible {
-                let totalWidth = geometry.size.width
-                let maxWidth = totalWidth * maxSidebarFraction
-                ZStack(alignment: .leading) {
-                    HStack(spacing: 0) {
-                        SidePanelView(viewModel: viewModel)
-                            .frame(width: sidebarWidth)
-                            .ignoresSafeArea(.all) // extend behind titlebar
-                        content()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                    // Drag handle
-                    Color.clear
-                        .frame(width: 8, height: geometry.size.height)
-                        .contentShape(Rectangle())
-                        .offset(x: sidebarWidth - 4)
-                        .gesture(DragGesture()
-                            .onChanged { v in sidebarWidth = min(max(minSidebarWidth, v.location.x), maxWidth) }
-                            .onEnded { _ in UserDefaults.standard.set(sidebarWidth, forKey: "kanban_sidebar_width") }
-                        )
-                        .backport.pointerStyle(.resizeLeftRight)
-                }
-                .onAppear {
-                    if let saved = UserDefaults.standard.object(forKey: "kanban_sidebar_width") as? CGFloat {
-                        sidebarWidth = saved
-                    } else {
-                        sidebarWidth = totalWidth / 4
-                    }
-                }
-            } else {
-                content()
-            }
-        }
-    }
+    var body: some View { content() }
 }
 
 /// A classic, tabbed terminal experience.
@@ -1196,17 +1153,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             TerminalController.sharedSidebarViewModel = SidePanelViewModel()
             TerminalController.sharedSidebarViewModel?.setGhosttyApp(ghostty)
         }
-        let sidebarViewModel = TerminalController.sharedSidebarViewModel!
-        let sidebarState = SidebarState.shared
 
-        // Extend the sidebar into the titlebar area so it sits beside the tab bar
-        window.styleMask.insert(.fullSizeContentView)
-        window.titlebarAppearsTransparent = true
+        // Auto-show the shared titlebar-accessory sidebar on first launch
+        KanbanSidebarController.showOnceIfNeeded()
 
         let container = TerminalViewContainer { [weak self] in
             guard let self else { return AnyView(EmptyView()) }
             return AnyView(
-                KanbanSidebarContainer(sidebarState: sidebarState, viewModel: sidebarViewModel) {
+                KanbanSidebarContainer {
                     TerminalView(ghostty: self.ghostty, viewModel: self, delegate: self)
                 }
             )
