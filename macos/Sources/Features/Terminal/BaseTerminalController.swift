@@ -585,9 +585,16 @@ class BaseTerminalController: NSWindowController,
     @objc private func ghosttyDidCloseSurface(_ notification: Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard let node = surfaceTree.root?.node(view: target) else { return }
+
+        // Extract surfaceId before closing to unlink any associated session
+        let surfaceId = unsafeBitCast(target.surface, to: UInt64.self)
+
         closeSurface(
             node,
             withConfirmation: (notification.userInfo?["process_alive"] as? Bool) ?? false)
+
+        // Auto-unlink session when surface is closed by user
+        SessionManager.shared.unlinkSurface(surfaceId: surfaceId)
     }
 
     @objc private func ghosttyDidNewSplit(_ notification: Notification) {
