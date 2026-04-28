@@ -1009,13 +1009,11 @@
     function deleteTask() {
       if (!editingTaskId) return;
 
-      if (confirm('Are you sure you want to delete this task?')) {
-        window.webkit.messageHandlers.kanbanBridge.postMessage({
-          type: 'deleteTask',
-          taskId: editingTaskId
-        });
-        closeModal();
-      }
+      window.webkit.messageHandlers.kanbanBridge.postMessage({
+        type: 'deleteTask',
+        taskId: editingTaskId
+      });
+      closeModal();
     }
 
     // Event Listeners
