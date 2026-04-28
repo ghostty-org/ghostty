@@ -2103,3 +2103,32 @@ Short session. Added the v2.2 grounding layer to the repo — three identity fil
 - Two ghostties-web PRs still need Sean's review: `web/feat/dmg-cta-beta10` (SEA-185), `web/feat/privacy-support-pages` (SEA-186)
 - Beta.10 install + smoke test still pending Sean (SEA-138)
 - Release pause still in effect — no `v*` tags until Sean lifts
+
+---
+
+## Apr 28, 2026 (CE code review — row-click v0 post-tag)
+
+### Headline
+
+Ran `ce-code-review` against `v0.1.0-beta.12..HEAD` (3 commits: row-click spawn debugging + exec fix + launcher path fix). 10 reviewer agents. Four findings fixed and committed. Beta.12 pipeline confirmed shipped successfully.
+
+### What shipped to main
+
+- `e8dbf6ed7` — `fix(review): restore exec in launcher, sanitize source_id, fix priority mapping`
+  - **SessionCoordinator.swift** — restored `exec` before command in launcher script; without it zsh stayed alive after Claude exit, sessions remained `.running` permanently (P1 reliability)
+  - **CreateTask.swift** — `source_id` now validated to alphanumeric + hyphen + underscore before use as filename; rejects path traversal attempts (P0 security)
+  - **linear-sync/defaults.json** — priority mapping `"normal"` → `"medium"` / `"none"` to match actual `TaskPriority` rawValues (P2 data)
+  - **RowClickHandlers.swift** — deleted dead `openMarkdownFile(for:)` method (no callers after this PR's editor-open removal)
+- `3cb5eef4f` — `chore: gitignore .context/` — CE review artifacts directory
+
+### Decisions
+
+- CE review sweep plan for next session: `ce-swift-ios-reviewer` → `ce-performance-oracle` → `ce-code-simplicity-reviewer`, all targeting Mac app (SessionCoordinator, RowClickHandlers, sidebar SwiftUI layer). Mac app first; MCP CLI security audit deferred.
+- `.context/` added to `.gitignore` — ephemeral review output, not repo artifact
+
+### Open
+
+- beta.12 install + smoke test (steps 3–6) still pending Sean — DMG is published and ready
+- Archive standalone `ghostties-web` GitHub repo
+- Linear ticket cleanup: SEA-184, SEA-185, SEA-186, SEA-156–168 → Done
+- CE review sweep (3 passes) slated for next build session
