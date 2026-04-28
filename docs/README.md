@@ -148,36 +148,30 @@ enum SessionStatus: String, Codable {
 
 ```
 macos/Sources/Ghostty/SidePanel/
-├── KanbanWebView.swift         # WebView bridge + HTML/CSS/JS
+├── KanbanWebView.swift         # WebView bridge
 ├── SidePanelView.swift         # Sidebar container
 ├── SidePanelViewModel.swift    # Terminal bridge
 ├── KanbanBoardState.swift      # State management
 ├── KanbanModels.swift          # Data types
 ├── KanbanPersistence.swift     # JSON persistence
-├── KanbanTheme.swift           # Theme colors
-├── ThemeToggleButton.swift     # Theme toggle (SwiftUI, unused)
-├── ColumnView.swift            # Column component (SwiftUI, unused)
-├── TaskCardView.swift          # Task card (SwiftUI, unused)
-├── TaskModalView.swift         # Task modal (SwiftUI, unused)
-├── SessionPanelView.swift      # Session panel (SwiftUI, unused)
-├── SessionModalView.swift      # Session modal (SwiftUI, unused)
-└── PriorityBadge.swift         # Priority badge (SwiftUI, unused)
+└── KanbanTheme.swift           # Theme colors
+
+macos/Resources/Kanban/
+└── board.html                  # Web UI (HTML/CSS/JS)
 
 docs/
 ├── README.md                   # This file
-├── old/                       # Historical documentation
-│   ├── ghostty-kanban-full.md
-│   ├── PLAN.md
-│   ├── 2026-04-27-sidebar-kanban.md
-│   └── 2026-04-27-session-surface-integration.md
-└── superpowers/               # Agent guidance (if applicable)
-```
-
-> **Note**: SwiftUI components (ColumnView, TaskCardView, etc.) are retained for reference but replaced by the WebView implementation.
+└── old/                        # Historical documentation
+    ├── ghostty-kanban-full.md
+    ├── PLAN.md
+    ├── 2026-04-27-sidebar-kanban.md
+    └── 2026-04-27-session-surface-integration.md
 
 ## UI Layout
 
 ### WebView HTML Structure
+
+The Web UI is loaded from `macos/Resources/Kanban/board.html` via WKWebView:
 
 ```html
 <body>
@@ -195,6 +189,8 @@ docs/
   <div class="modal-overlay" id="taskModal">...</div>
 </body>
 ```
+
+> **Note**: Edit `macos/Resources/Kanban/board.html` directly for UI changes. No Swift recompilation required.
 
 ### Responsive Behavior
 
@@ -318,12 +314,19 @@ From JSONL parsing:
 
 ## Building
 
+### Full App (Xcode)
+
 ```bash
 cd macos
 xcodebuild -scheme Ghostty -configuration Debug build
 ```
 
-Or via Zig (for core only):
+The built app is at:
+```
+~/Library/Developer/Xcode/DerivedData/Ghostty-*/Build/Products/Debug/Ghostty.app
+```
+
+### Core Only (Zig)
 
 ```bash
 zig build
@@ -345,6 +348,7 @@ zig build
 - WebView console logs to Xcode console via `print()` in Swift
 - BoardState changes trigger automatic WebView sync
 - Use Safari Web Inspector for JS debugging
+- UI changes: Edit `macos/Resources/Kanban/board.html` directly, then rebuild
 
 ## Roadmap
 
