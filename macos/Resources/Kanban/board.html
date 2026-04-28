@@ -156,13 +156,20 @@
     .kanban-board.narrow {
       flex-direction: column;
       overflow-x: visible;
+      overflow-y: auto;
+      align-items: stretch !important;
     }
 
     .kanban-board.narrow .column {
-      flex: none;
-      width: 100%;
-      max-width: 100%;
-      min-width: 100%;
+      flex: none !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      min-width: 100% !important;
+      align-self: stretch !important;
+    }
+
+    .kanban-board.narrow .resize-handle {
+      display: none;
     }
 
     .kanban-board:not(.narrow) .column {
