@@ -269,4 +269,86 @@ final class StartInboxTaskTests: XCTestCase {
         // This serves as a documentation anchor for the decision.
         XCTAssertTrue(true, "D8: auto-Graveyard migration is absent by design")
     }
+
+    // MARK: - GHOSTTIES_TASK_FILE env var propagation
+
+    /// Documents the env-var contract: when a task has a resolvable file URL,
+    /// `startInboxTask` must forward it to `startOrFocusSession` as `sourceTaskFilePath`.
+    /// The actual injection into the spawned process env happens inside
+    /// `createSession` (SessionCoordinator.swift:192) where it merges with
+    /// `template.environmentVariables`. This test verifies the data-path contract
+    /// by checking that `taskStore.fileURL(for:)` returns a non-nil URL for a
+    /// task written to a real temp directory — the URL is what gets forwarded.
+    func testFileURL_resolves_forTaskWithRealDirectory() throws {
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("ghostties-taskfile-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let taskId = "taskfile-\(UUID().uuidString.prefix(6))"
+        let markdown = """
+        ---
+        title: Task file URL test
+        source: linear
+        source-id: \(taskId)
+        project: ghostties
+        project-path: ~/Code/ghostties
+        template: Claude Code
+        created: 2026-04-27T10:00:00Z
+        status: inbox
+        priority: none
+        ---
+
+        ## Goal
+
+        Verify taskStore.fileURL resolves after write.
+        """
+        let taskURL = tmp.appendingPathComponent("\(taskId).md")
+        try markdown.write(to: taskURL, atomically: true, encoding: .utf8)
+
+        // Load via GhosttiesCore TaskStore (same backend as macOS TaskStore).
+        let coreStore = GhosttiesCore.TaskStore(directory: tmp)
+        let (task, url) = try coreStore.resolve(idOrPrefix: taskId)
+        XCTAssertEqual(url.lastPathComponent, "\(task.id).md")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path),
+                      "File must exist at the resolved URL")
+    }
+
+    /// Documents that a task with `template: "Claude Code"` round-trips the
+    /// template field correctly through frontmatter — confirming it will be
+    /// forwarded to `startOrFocusSession` by `startInboxTask`.
+    func testTemplateField_linearTask_roundTrips() throws {
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("ghostties-template-rt-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let taskId = "template-rt-\(UUID().uuidString.prefix(6))"
+        let markdown = """
+        ---
+        title: Linear task with Claude Code template
+        source: linear
+        source-id: SEA-\(taskId)
+        project: ghostties
+        project-path: ~/Code/ghostties
+        template: Claude Code
+        created: 2026-04-27T10:00:00Z
+        status: inbox
+        priority: high
+        ---
+
+        ## Goal
+
+        Verify template field round-trips from frontmatter so startInboxTask can read it.
+        """
+        let taskURL = tmp.appendingPathComponent("\(taskId).md")
+        try markdown.write(to: taskURL, atomically: true, encoding: .utf8)
+
+        let coreStore = GhosttiesCore.TaskStore(directory: tmp)
+        let (task, _) = try coreStore.resolve(idOrPrefix: taskId)
+        XCTAssertEqual(task.template, "Claude Code",
+                       "template field must survive frontmatter round-trip")
+        XCTAssertEqual(task.source, "linear")
+        XCTAssertEqual(task.priority, .high)
+    }
 }

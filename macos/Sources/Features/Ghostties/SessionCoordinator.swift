@@ -122,7 +122,8 @@ final class SessionCoordinator: ObservableObject {
         session: AgentSession,
         template: AgentTemplate,
         project: Project,
-        sourceTaskId: String? = nil
+        sourceTaskId: String? = nil,
+        sourceTaskFilePath: String? = nil
     ) async -> Bool {
         // Browser sessions bypass the terminal path entirely.
         if template.kind == .browser {
@@ -190,6 +191,9 @@ final class SessionCoordinator: ObservableObject {
         config.workingDirectory = template.workingDirectory ?? project.rootPath
         config.command = finalCommand
         config.environmentVariables = template.environmentVariables
+        if let taskFilePath = sourceTaskFilePath {
+            config.environmentVariables["GHOSTTIES_TASK_FILE"] = taskFilePath
+        }
 
         let newView = Ghostty.SurfaceView(ghosttyApp, baseConfig: config)
         let newTree = SplitTree(view: newView)
@@ -238,7 +242,8 @@ final class SessionCoordinator: ObservableObject {
     func createQuickSession(
         for project: Project,
         template: AgentTemplate,
-        sourceTaskId: String? = nil
+        sourceTaskId: String? = nil,
+        sourceTaskFilePath: String? = nil
     ) async -> Bool {
         let store = WorkspaceStore.shared
         let count = store.sessions(for: project.id).count
@@ -248,7 +253,8 @@ final class SessionCoordinator: ObservableObject {
             session: session,
             template: template,
             project: project,
-            sourceTaskId: sourceTaskId
+            sourceTaskId: sourceTaskId,
+            sourceTaskFilePath: sourceTaskFilePath
         )
     }
 
@@ -398,7 +404,8 @@ final class SessionCoordinator: ObservableObject {
         forProjectNamed name: String,
         rootPath: String,
         templateName: String? = nil,
-        sourceTaskId: String? = nil
+        sourceTaskId: String? = nil,
+        sourceTaskFilePath: String? = nil
     ) {
         let store = WorkspaceStore.shared
 
@@ -470,11 +477,12 @@ final class SessionCoordinator: ObservableObject {
 
         guard let template = resolvedTemplate else { return }
 
-        Task { @MainActor in
+        _Concurrency.Task { @MainActor in
             await self.createQuickSession(
                 for: project,
                 template: template,
-                sourceTaskId: sourceTaskId
+                sourceTaskId: sourceTaskId,
+                sourceTaskFilePath: sourceTaskFilePath
             )
         }
     }

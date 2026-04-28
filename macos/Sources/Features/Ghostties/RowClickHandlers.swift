@@ -116,7 +116,8 @@ struct RowClickHandlers {
                 forProjectNamed: task.project,
                 rootPath: path,
                 templateName: resolvedTemplateName,
-                sourceTaskId: task.id
+                sourceTaskId: task.id,
+                sourceTaskFilePath: taskStore.fileURL(for: task)?.path
             )
         } else if let storeProject = workspaceStore.projects
             .first(where: { $0.name == task.project }) {
@@ -255,7 +256,8 @@ struct RowClickHandlers {
             forProjectNamed: task.project,
             rootPath: path,
             templateName: resolvedTemplateName,
-            sourceTaskId: task.id
+            sourceTaskId: task.id,
+            sourceTaskFilePath: taskStore.fileURL(for: task)?.path
         )
     }
 }
