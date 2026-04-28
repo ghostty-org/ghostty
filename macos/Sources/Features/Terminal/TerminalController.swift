@@ -1718,6 +1718,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             let ghosttySurface = Ghostty.Surface(cSurface: newSurface)
             ghosttySurface.sendText(command)
             print("[Kanban] onKanbanCreateSplit: sent '\(command)' to new surface")
+
+            // Link session to new surface
+            SessionManager.shared.linkSessionToSurface(
+                sessionId: sessionId,
+                surfaceId: UInt64(newSurface)
+            )
         }
     }
 
