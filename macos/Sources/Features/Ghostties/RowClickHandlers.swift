@@ -147,7 +147,6 @@ struct RowClickHandlers {
     /// respawn at `project-path` so the user always gets a terminal. Status stays
     /// `running`; auto-migration to Graveyard remains the surface-close handler's job.
     func focusRunningTask(_ task: TaskItem) async {
-        openMarkdownFile(for: task)
         await routeToExistingSession(task)
     }
 
@@ -160,7 +159,6 @@ struct RowClickHandlers {
     /// from frontmatter only (R7); the live `isLikelyPromptingForInput` heuristic
     /// continues to drive the per-session indicator dot — no change to that wiring.
     func focusNeedsYouTask(_ task: TaskItem) async {
-        openMarkdownFile(for: task)
         await routeToExistingSession(task)
     }
 
