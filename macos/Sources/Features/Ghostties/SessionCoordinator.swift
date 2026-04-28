@@ -405,7 +405,8 @@ final class SessionCoordinator: ObservableObject {
         rootPath: String,
         templateName: String? = nil,
         sourceTaskId: String? = nil,
-        sourceTaskFilePath: String? = nil
+        sourceTaskFilePath: String? = nil,
+        forceSpawn: Bool = false
     ) {
         let store = WorkspaceStore.shared
 
@@ -427,19 +428,22 @@ final class SessionCoordinator: ObservableObject {
                 ?? store.projects.last!   // addProject guarantees at least one match
         }()
 
-        // 3. Focus the existing live session if there is one.
-        if let lastId = lastActiveSessionPerProject[project.id],
-           sessionTrees[lastId] != nil || browserManagers[lastId] != nil {
-            focusSession(id: lastId)
-            return
-        }
-        // Fall back to any running session in this project before spawning.
-        let projectSessions = store.sessions(for: project.id)
-        if let running = projectSessions.first(where: {
-            sessionTrees[$0.id] != nil || browserManagers[$0.id] != nil
-        }) {
-            focusSession(id: running.id)
-            return
+        // 3. Focus the existing live session if there is one — unless the caller
+        //    explicitly wants a fresh spawn (e.g. task row click always creates a
+        //    new Claude session rather than recycling an existing shell).
+        if !forceSpawn {
+            if let lastId = lastActiveSessionPerProject[project.id],
+               sessionTrees[lastId] != nil || browserManagers[lastId] != nil {
+                focusSession(id: lastId)
+                return
+            }
+            let projectSessions = store.sessions(for: project.id)
+            if let running = projectSessions.first(where: {
+                sessionTrees[$0.id] != nil || browserManagers[$0.id] != nil
+            }) {
+                focusSession(id: running.id)
+                return
+            }
         }
 
         // 4. No live session — resolve template, then spawn.
