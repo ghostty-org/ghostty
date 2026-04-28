@@ -58,11 +58,26 @@ class SessionManager: ObservableObject {
             status: .running,
             timestamp: Date(),
             isWorkTree: isWorktree,
-            branch: isWorktree ? (worktreeName ?? "main") : "main"
+            branch: isWorktree ? (worktreeName ?? "main") : "main",
+            sessionId: nil,
+            surfaceId: nil,
+            cwd: cwd
         )
         sessions.append(session)
         saveSessions()
         return session
+    }
+
+    func linkSessionToSurface(sessionId: UUID, surfaceId: UInt64) {
+        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+        sessions[index].surfaceId = surfaceId
+        saveSessions()
+    }
+
+    func unlinkSurface(surfaceId: UInt64) {
+        guard let index = sessions.firstIndex(where: { $0.surfaceId == surfaceId }) else { return }
+        sessions[index].surfaceId = nil
+        saveSessions()
     }
 
     func updateSessionStatus(sessionId: UUID, status: SessionStatus) {
