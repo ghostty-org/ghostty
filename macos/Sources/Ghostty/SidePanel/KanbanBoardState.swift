@@ -101,6 +101,14 @@ final class BoardState: ObservableObject {
         }
     }
 
+    func updateSessionStatus(taskId: UUID, sessionId: UUID, status: SessionStatus) {
+        if let taskIndex = tasks.firstIndex(where: { $0.id == taskId }),
+           let sessionIndex = tasks[taskIndex].sessions.firstIndex(where: { $0.id == sessionId }) {
+            tasks[taskIndex].sessions[sessionIndex].status = status
+            save()
+        }
+    }
+
     // MARK: - Helpers
 
     func tasks(for status: Status) -> [KanbanTask] {
