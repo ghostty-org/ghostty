@@ -386,6 +386,11 @@ extension Ghostty.Notification {
     /// userdata has one key "direction" with the direction to split to.
     static let ghosttyNewSplit = Notification.Name("com.mitchellh.ghostty.newSplit")
 
+    /// Posted when the focused surface should be moved from its current tab into an adjacent tab
+    /// as a split pane. The sending object is the source SurfaceView. userInfo key "direction"
+    /// carries the ghostty_action_split_direction_e value for the split placement in the target tab.
+    static let ghosttyMoveTabToSplit = Notification.Name("com.mitchellh.ghostty.moveTabToSplit")
+
     /// Close the calling surface.
     static let ghosttyCloseSurface = Notification.Name("com.mitchellh.ghostty.closeSurface")
 

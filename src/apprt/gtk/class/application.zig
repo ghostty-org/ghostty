@@ -706,6 +706,8 @@ pub const Application = extern struct {
 
             .move_tab => return Action.moveTab(target, value),
 
+            .move_tab_to_split => return Action.moveTabToSplit(target, value),
+
             .new_split => return Action.newSplit(target, value),
 
             .new_tab => return Action.newTab(target),
@@ -2185,6 +2187,19 @@ const Action = struct {
                 );
             },
         }
+    }
+
+    pub fn moveTabToSplit(
+        target: apprt.Target,
+        direction: apprt.action.SplitDirection,
+    ) bool {
+        _ = target;
+        _ = direction;
+        // TODO: implement cross-tab surface movement for GTK.
+        // This requires reparenting GTK Surface widgets across SplitTree widgets,
+        // which is non-trivial. Tracked as a follow-up.
+        log.warn("move_tab_to_split is not yet implemented on GTK", .{});
+        return false;
     }
 
     pub fn newSplit(

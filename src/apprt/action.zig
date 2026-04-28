@@ -96,6 +96,11 @@ pub const Action = union(Key) {
     /// relative to the target.
     new_split: SplitDirection,
 
+    /// Move the focused surface from the current tab into an adjacent tab as
+    /// a split pane in the given direction. Previous tab is preferred; falls
+    /// back to next. No-op when only one tab exists.
+    move_tab_to_split: SplitDirection,
+
     /// Close all open windows.
     close_all_windows,
 
@@ -350,6 +355,7 @@ pub const Action = union(Key) {
         new_tab,
         close_tab,
         new_split,
+        move_tab_to_split,
         close_all_windows,
         toggle_maximize,
         toggle_fullscreen,

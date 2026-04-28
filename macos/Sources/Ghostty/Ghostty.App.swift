@@ -503,6 +503,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_NEW_SPLIT:
                 newSplit(app, target: target, direction: action.action.new_split)
 
+            case GHOSTTY_ACTION_MOVE_TAB_TO_SPLIT:
+                moveTabToSplit(app, target: target, direction: action.action.move_tab_to_split)
+
             case GHOSTTY_ACTION_CLOSE_TAB:
                 closeTab(app, target: target, mode: action.action.close_tab_mode)
 
@@ -840,6 +843,32 @@ extension Ghostty {
                     object: surfaceView,
                     userInfo: [
                         Notification.NewSurfaceConfigKey: SurfaceConfiguration(from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_TAB)),
+                    ]
+                )
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func moveTabToSplit(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            direction: ghostty_action_split_direction_e) {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("move tab to split does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+
+                NotificationCenter.default.post(
+                    name: Ghostty.Notification.ghosttyMoveTabToSplit,
+                    object: surfaceView,
+                    userInfo: [
+                        "direction": direction,
                     ]
                 )
 

@@ -888,6 +888,7 @@ typedef enum {
   GHOSTTY_ACTION_NEW_TAB,
   GHOSTTY_ACTION_CLOSE_TAB,
   GHOSTTY_ACTION_NEW_SPLIT,
+  GHOSTTY_ACTION_MOVE_TAB_TO_SPLIT,
   GHOSTTY_ACTION_CLOSE_ALL_WINDOWS,
   GHOSTTY_ACTION_TOGGLE_MAXIMIZE,
   GHOSTTY_ACTION_TOGGLE_FULLSCREEN,
@@ -952,6 +953,7 @@ typedef enum {
 
 typedef union {
   ghostty_action_split_direction_e new_split;
+  ghostty_action_split_direction_e move_tab_to_split;
   ghostty_action_fullscreen_e toggle_fullscreen;
   ghostty_action_move_tab_s move_tab;
   ghostty_action_goto_tab_e goto_tab;

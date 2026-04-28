@@ -5532,6 +5532,21 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             },
         ),
 
+        .move_tab_to_split => |direction| return try self.rt_app.performAction(
+            .{ .surface = self },
+            .move_tab_to_split,
+            switch (direction) {
+                .right => .right,
+                .left => .left,
+                .down => .down,
+                .up => .up,
+                .auto => if (self.size.screen.width > self.size.screen.height)
+                    .right
+                else
+                    .down,
+            },
+        ),
+
         .goto_split => |direction| return try self.rt_app.performAction(
             .{ .surface = self },
             .goto_split,

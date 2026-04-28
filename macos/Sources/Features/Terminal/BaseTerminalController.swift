@@ -185,6 +185,11 @@ class BaseTerminalController: NSWindowController,
             object: nil)
         center.addObserver(
             self,
+            selector: #selector(ghosttyDidMoveTabToSplit(_:)),
+            name: Ghostty.Notification.ghosttyMoveTabToSplit,
+            object: nil)
+        center.addObserver(
+            self,
             selector: #selector(ghosttyDidEqualizeSplits(_:)),
             name: Ghostty.Notification.didEqualizeSplits,
             object: nil)
@@ -614,6 +619,41 @@ class BaseTerminalController: NSWindowController,
         newSplit(at: oldView, direction: splitDirection, baseConfig: config)
     }
 
+    @objc private func ghosttyDidMoveTabToSplit(_ notification: Notification) {
+        // The source surface must be within our tree.
+        guard let sourceView = notification.object as? Ghostty.SurfaceView else { return }
+        guard surfaceTree.root?.node(view: sourceView) != nil else { return }
+
+        // Map the direction to a drop zone.
+        guard let directionAny = notification.userInfo?["direction"] else { return }
+        guard let direction = directionAny as? ghostty_action_split_direction_e else { return }
+        let zone: TerminalSplitDropZone
+        switch direction {
+        case GHOSTTY_SPLIT_DIRECTION_RIGHT: zone = .right
+        case GHOSTTY_SPLIT_DIRECTION_LEFT:  zone = .left
+        case GHOSTTY_SPLIT_DIRECTION_DOWN:  zone = .bottom
+        case GHOSTTY_SPLIT_DIRECTION_UP:    zone = .top
+        default: return
+        }
+
+        // Require a tab group with at least two tabs.
+        guard let window = self.window else { return }
+        guard let tabGroup = window.tabGroup else { return }
+        let tabbedWindows = tabGroup.windows
+        guard tabbedWindows.count > 1 else { return }
+        guard let currentIndex = tabbedWindows.firstIndex(where: { $0 == window }) else { return }
+
+        // Prefer the previous tab; fall back to the next tab.
+        let targetIndex = currentIndex > 0 ? currentIndex - 1 : currentIndex + 1
+        let targetWindow = tabbedWindows[targetIndex]
+
+        // Delegate to splitDidDrop on the target controller — the same cross-window
+        // path used by the grab-handle drag. destination: nil uses focusedSurface.
+        guard let targetController = targetWindow.windowController as? BaseTerminalController else { return }
+        targetController.splitDidDrop(source: sourceView, zone: zone)
+        targetWindow.makeKeyAndOrderFront(nil)
+    }
+
     @objc private func ghosttyDidEqualizeSplits(_ notification: Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
 
@@ -890,11 +930,17 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
-    private func splitDidDrop(
+    /// Move `source` into this window's split tree beside `destination` in `zone`.
+    /// If `destination` is nil the focused surface of this controller is used.
+    /// The source may live in this tree (same-window rearrange) or in another
+    /// window's tree (cross-window/tab move).
+    func splitDidDrop(
         source: Ghostty.SurfaceView,
-        destination: Ghostty.SurfaceView,
+        destination: Ghostty.SurfaceView? = nil,
         zone: TerminalSplitDropZone
     ) {
+        guard let destination = destination ?? focusedSurface else { return }
+
         // Map drop zone to split direction
         let direction: SplitTree<Ghostty.SurfaceView>.NewDirection = switch zone {
         case .top: .up

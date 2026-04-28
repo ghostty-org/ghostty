@@ -1,17 +1,19 @@
 //! A binding maps some input trigger to an action. When the trigger
 //! occurs, the action is performed.
-const Binding = @This();
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = @import("../quirks.zig").inlineAssert;
-const build_config = @import("../build_config.zig");
+
 const uucode = @import("uucode");
+
+const build_config = @import("../build_config.zig");
 const EntryFormatter = @import("../config/formatter.zig").EntryFormatter;
 const deepEqual = @import("../datastruct/comparison.zig").deepEqual;
+const assert = @import("../quirks.zig").inlineAssert;
 const key = @import("key.zig");
-const key_mods = @import("key_mods.zig");
 const KeyEvent = key.KeyEvent;
+const key_mods = @import("key_mods.zig");
+
+const Binding = @This();
 
 /// The trigger that needs to be performed to execute the action.
 trigger: Trigger,
@@ -602,6 +604,19 @@ pub const Action = union(enum) {
     ///     then a left-right split would be created, and vice versa.
     ///
     new_split: SplitDirection,
+
+    /// Move the focused surface from the current tab into an adjacent tab as
+    /// a split pane. The argument specifies the direction of the split within
+    /// the target tab.
+    ///
+    /// The target tab is the previous tab; if no previous tab exists, the next
+    /// tab is used. If only one tab exists this action is a no-op.
+    ///
+    /// If the source tab had only one surface, it is closed after the move.
+    ///
+    /// Valid arguments: `right`, `down`, `left`, `up`
+    ///
+    move_tab_to_split: SplitDirection,
 
     /// Focus on a split either in the specified direction (`right`, `down`,
     /// `left` and `up`), or in the adjacent split in the order of creation
@@ -1384,6 +1399,7 @@ pub const Action = union(enum) {
             .move_tab,
             .toggle_tab_overview,
             .new_split,
+            .move_tab_to_split,
             .goto_split,
             .goto_window,
             .toggle_split_zoom,
@@ -3324,6 +3340,12 @@ test "parse: action with enum" {
         try testing.expect(binding.action == .new_split);
         try testing.expectEqual(Action.SplitDirection.right, binding.action.new_split);
     }
+
+    {
+        const binding = try parseSingle("a=move_tab_to_split:right");
+        try testing.expect(binding.action == .move_tab_to_split);
+        try testing.expectEqual(Action.SplitDirection.right, binding.action.move_tab_to_split);
+    }
 }
 
 test "parse: action with enum with default" {
@@ -3334,6 +3356,12 @@ test "parse: action with enum with default" {
         const binding = try parseSingle("a=new_split");
         try testing.expect(binding.action == .new_split);
         try testing.expectEqual(Action.SplitDirection.auto, binding.action.new_split);
+    }
+
+    {
+        const binding = try parseSingle("a=move_tab_to_split");
+        try testing.expect(binding.action == .move_tab_to_split);
+        try testing.expectEqual(Action.SplitDirection.auto, binding.action.move_tab_to_split);
     }
 }
 
