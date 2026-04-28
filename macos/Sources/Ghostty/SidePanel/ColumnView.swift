@@ -67,6 +67,7 @@ struct ColumnView: View {
                 return true
             }
         }
+        .frame(minWidth: 240, maxWidth: 300)
         .background(colors.columnBg)
         .cornerRadius(8)
         .overlay(

@@ -5,7 +5,7 @@ struct SidePanelView: View {
     @ObservedObject var viewModel: SidePanelViewModel
     @StateObject private var boardState = BoardState()
 
-    private let narrowWidth: CGFloat = 300
+    private let narrowWidth: CGFloat = 600
 
     var body: some View {
         GeometryReader { geometry in
@@ -32,7 +32,6 @@ struct SidePanelView: View {
                                 tasks: boardState.tasks(for: status),
                                 boardState: boardState
                             )
-                            .frame(maxWidth: .infinity)
 
                             if status != Status.allCases.last {
                                 Divider()
