@@ -769,16 +769,20 @@ extension Ghostty {
         override func becomeFirstResponder() -> Bool {
             let result = super.becomeFirstResponder()
             if result { focusDidChange(true) }
+            (NSApp.delegate as? AppDelegate)?
+                .restoreShortcutsRequest
+                .send()
             return result
         }
 
         override func resignFirstResponder() -> Bool {
             let result = super.resignFirstResponder()
-
             // We sometimes call this manually (see SplitView) as a way to force us to
             // yield our focus state.
             if result { focusDidChange(false) }
-
+            (NSApp.delegate as? AppDelegate)?
+                .restoreShortcutsRequest
+                .send()
             return result
         }
 
