@@ -2183,3 +2183,48 @@ Key insight: **consolidation > deletion**. Don't just remove stale entries — m
 - Swap Distribution "Remaining before stable" list → Linear milestone pointer
 - CE review sweep (3 passes) still queued for next build session
 - beta.12 install + smoke test still pending Sean
+
+## Apr 29, 2026 (Full-Loop Smoke Test + Workflow JTBD Clarification)
+
+### Headline
+
+First real end-to-end smoke test of the task workflow. All 5 core steps pass. Loop is proven: Inbox → row-click → Claude Code session with correct template → `gt done` → Graveyard. Six bugs identified for follow-up. Theming fix attempted and found to be wrong approach.
+
+### What shipped to main
+
+- `553e911a5` — fix(theme): unify window background with sidebar chrome in workspace mode — **confirmed non-functional** post-rebuild; wrong approach (window.backgroundColor doesn't affect Metal renderer)
+
+### Smoke test results (full-loop-smoke.md)
+
+| Step | Result | Notes |
+|------|--------|-------|
+| 1 — Launch | ✅ | App launches clean, sidebar populated |
+| 2 — Tasks load | ✅ | Project-relative path: `<project>/.ghostties/tasks/` (NOT `~/.ghostties/tasks/`) |
+| 3 — Click → spawn | ✅ | Terminal opens at project root, `$GHOSTTIES_TASK_FILE` injected, correct template launched |
+| 4 — Agent writes artifact | ✅ | Claude Code wrote `docs/hello.md` (removed after test) |
+| 5 — `gt done` → Graveyard | ✅ | File written, file-watcher fired, row moved |
+| 6 — Linear write-back | ✅ | Works with Sonnet/Opus; Haiku too weak for MCP tool reasoning |
+
+### Bugs discovered
+
+1. **Inbox shows done tasks** — done tasks stay in Inbox lane with checkmark but aren't filtered out
+2. **Active zone duplicate rows** — task rows appear twice in Active section
+3. **`gt done` slow + silent** — hangs several seconds with no output when run natively
+4. **Smoke test doc wrong path** — `full-loop-smoke.md` references `~/.ghostties/tasks/` (incorrect)
+5. **`gt` not in PATH** — must use full path `cli/.build/arm64-apple-macosx/release/gt`
+6. **Template mismatch in seed data** — `template: Orchestrator` on execution tasks causes agent to refuse direct file writes
+
+### Workflow JTBD clarified
+
+Full loop defined: Linear task (with `project-path` + `goal` fields) → Ghostties Inbox → row-click → terminal at project root with `$GHOSTTIES_TASK_FILE` → Claude Code session → `gt done <id>` → Graveyard + Linear Done. Context injection and completion mechanism both working.
+
+### Theming (deferred)
+
+`window.backgroundColor` override in `TerminalController.syncAppearance()` has no visible effect — Ghostty's Metal renderer paints its own background. Correct fix: match terminal `background` config color to sidebar chrome token (`#242424`). Needs different implementation approach next session.
+
+### Key discoveries
+
+- Task files are project-relative, not home-relative
+- All seed data had `status: running` — no genuine inbox tasks existed for testing
+- `template:` field in task frontmatter drives which Claude Code profile launches on row-click
+- Model matters for step 6: Haiku intercepted `gt done` as a chat message instead of running it; Sonnet/Opus reason correctly about MCP tools
