@@ -223,27 +223,23 @@
                     <modifierMask key="keyEquivalentModifierMask"/>
                     <menu key="submenu" title="Edit" id="iU4-OB-ccf">
                         <items>
-                            <menuItem title="Undo" id="r83-CV-syt">
-                                <modifierMask key="keyEquivalentModifierMask"/>
+                            <menuItem title="Undo" keyEquivalent="z" id="r83-CV-syt">
                                 <connections>
                                     <action selector="undo:" target="-1" id="jrW-j3-OZj"/>
                                 </connections>
                             </menuItem>
-                            <menuItem title="Redo" id="EX8-lB-4s7">
-                                <modifierMask key="keyEquivalentModifierMask"/>
+                            <menuItem title="Redo" keyEquivalent="Z" id="EX8-lB-4s7">
                                 <connections>
                                     <action selector="redo:" target="-1" id="7UK-Hj-s4O"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="4O9-zO-zB9"/>
-                            <menuItem title="Copy" id="Jqf-pv-Zcu">
-                                <modifierMask key="keyEquivalentModifierMask"/>
+                            <menuItem title="Copy" keyEquivalent="c" id="Jqf-pv-Zcu">
                                 <connections>
                                     <action selector="copy:" target="-1" id="B4F-hg-R4T"/>
                                 </connections>
                             </menuItem>
-                            <menuItem title="Paste" id="i27-pK-umN">
-                                <modifierMask key="keyEquivalentModifierMask"/>
+                            <menuItem title="Paste" keyEquivalent="v" id="i27-pK-umN">
                                 <connections>
                                     <action selector="paste:" target="-1" id="ZKe-2B-mel"/>
                                 </connections>
@@ -254,8 +250,7 @@
                                     <action selector="pasteSelection:" target="-1" id="vo3-Rf-Udb"/>
                                 </connections>
                             </menuItem>
-                            <menuItem title="Select All" id="q2h-lq-e4r">
-                                <modifierMask key="keyEquivalentModifierMask"/>
+                            <menuItem title="Select All" keyEquivalent="a" id="q2h-lq-e4r">
                                 <connections>
                                     <action selector="selectAll:" target="-1" id="0CH-Tp-7Ud"/>
                                 </connections>
