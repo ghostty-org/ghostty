@@ -1141,6 +1141,18 @@ extension AppDelegate {
         self.menuFindParent?.setImageIfDesired(systemSymbolName: "text.page.badge.magnifyingglass")
     }
 
+    /// Save restorable menu items for later
+    ///
+    /// If you plan to add more items here, make sure you add the default shortcut in MainMenu.xib
+    @MainActor private func saveRestorableMenuItems() {
+        [
+            menuUndo, menuRedo,
+            menuCopy, menuPaste, menuSelectAll,
+        ]
+            .compactMap { $0 }
+            .forEach(menuShortcutManager.saveRestorableMenuItem(_:))
+    }
+
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
     @MainActor private func syncMenuShortcuts(_ config: Ghostty.Config) {
         guard ghostty.readiness == .ready else { return }

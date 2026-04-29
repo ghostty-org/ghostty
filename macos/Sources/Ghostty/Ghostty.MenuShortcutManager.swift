@@ -13,6 +13,29 @@ extension Ghostty {
         /// If multiple items map to the same shortcut, the most recent one wins.
         private var menuItemsByShortcut: [MenuShortcutKey: Weak<NSMenuItem>] = [:]
 
+        /// Original shortcut configured in xib indexed by their action
+        private var restorableMenuItemsByOriginalShortcut: [MenuShortcutKey: Weak<NSMenuItem>] = [:]
+
+        func saveRestorableMenuItem(_ item: NSMenuItem) {
+            guard
+                let key = MenuShortcutKey(item)
+            else {
+                return
+            }
+            // Later registrations intentionally override earlier ones for the same key.
+            restorableMenuItemsByOriginalShortcut[key] = .init(item)
+        }
+
+        /// Restore shortcuts for the items that are registered
+        ///
+        /// - Important: the item is only restored when the current shortcut is empty
+        func restoreMenuShortcuts() {
+            for (key, item) in restorableMenuItemsByOriginalShortcut where item.value?.keyEquivalent.isEmpty == true {
+                item.value?.keyEquivalent = key.keyEquivalent
+                item.value?.keyEquivalentModifierMask = key.modifierFlags
+            }
+        }
+
         /// Reset our shortcut index since we're about to rebuild all menu bindings.
         func reset() {
             menuItemsByShortcut.removeAll(keepingCapacity: true)
