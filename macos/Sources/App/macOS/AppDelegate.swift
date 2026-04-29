@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import UserNotifications
 import OSLog
@@ -154,6 +155,10 @@ class AppDelegate: NSObject,
     private let appIconUpdater = AppIconUpdater()
 
     @MainActor private lazy var menuShortcutManager = Ghostty.MenuShortcutManager()
+    /// A signal to trigger restoration for shortcuts of registered menus, like copy and paste
+    let restoreShortcutsRequest = PassthroughSubject<Void, Never>()
+    /// A throttle observer for the signal above
+    private var resetMenuObserver: Any?
 
     override init() {
 #if DEBUG
@@ -208,6 +213,8 @@ class AppDelegate: NSObject,
         if UserDefaults.ghostty.bool(forKey: "SecureInput") != SecureInput.shared.enabled {
             toggleSecureInput(self)
         }
+
+        saveRestorableMenuItems()
 
         // Initial config loading
         ghosttyConfigDidChange(config: ghostty.config)
@@ -627,8 +634,11 @@ class AppDelegate: NSObject,
         return event
     }
 
+    @MainActor
     @objc private func windowDidBecomeKey(_ notification: Notification) {
-        syncFloatOnTopMenu(notification.object as? NSWindow)
+        let window = notification.object as? NSWindow
+        syncFloatOnTopMenu(window)
+        restoreRegisteredMenusIfNeeded(for: window)
     }
 
     @objc private func quickTerminalDidChangeVisibility(_ notification: Notification) {
@@ -1151,6 +1161,17 @@ extension AppDelegate {
         ]
             .compactMap { $0 }
             .forEach(menuShortcutManager.saveRestorableMenuItem(_:))
+
+        resetMenuObserver = restoreShortcutsRequest
+            .throttle(for: .seconds(0.5), scheduler: DispatchQueue.main, latest: false)
+            .sink { [weak self] in
+                guard let self else { return }
+                // We need to check the first responder again,
+                // because a request could be fired multiple time in a short time.
+                // It's hard for us to filter them out,
+                // but firstResponder will be updated correctly
+                restoreRegisteredMenusIfNeeded(for: nil)
+            }
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
@@ -1227,6 +1248,34 @@ extension AppDelegate {
 
     @MainActor private func syncMenuShortcut(_ config: Ghostty.Config, action: String, menuItem: NSMenuItem?) {
         menuShortcutManager.syncMenuShortcut(config, action: action, menuItem: menuItem)
+    }
+
+    @MainActor private func restoreRegisteredMenusIfNeeded(for window: NSWindow?) {
+        guard let window = window ?? NSApp.keyWindow else {
+            return
+        }
+        guard
+            window is TerminalWindow || window is QuickTerminalWindow,
+            window.firstResponder is Ghostty.SurfaceView
+        else {
+            // Restore for:
+            // 1. About Window
+            // 2. Alert modal
+            // 3. ConfigurationErrors
+            // 4. InlineTitleEditor
+            // 5. SearchOverlay
+            // 6. CommandPalette
+            // 7. Help search
+            menuShortcutManager.restoreMenuShortcuts()
+            return
+        }
+        // If it's a terminal window with surface focused,
+        // then we re-sync the menu shortcuts
+        syncMenuShortcuts(ghostty.config)
+
+        // For cases like after closing About which is the last window,
+        // the restore shortcuts will stays there and most of them should be disabled or no-op.
+        // The next time a terminal window is open, the shortcuts will be updated
     }
 
     @MainActor func performGhosttyBindingMenuKeyEquivalent(with event: NSEvent) -> Bool {
