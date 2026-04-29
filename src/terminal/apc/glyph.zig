@@ -39,8 +39,6 @@
 //!
 //! `fmt` bits:
 //!   - bit 0 (`1`): `glyf`   — TrueType simple glyphs (required in v1)
-//!   - bit 1 (`2`): `colrv0` — COLR v0 layered flat-colour glyphs
-//!   - bit 2 (`4`): `colrv1` — COLR v1 paint-graph glyphs
 //!
 //! Any reply confirms support; no reply within a timeout means the
 //! terminal does not implement the protocol.
@@ -74,8 +72,7 @@
 //!   - `cp`    — target codepoint (hex). Must be in a PUA range:
 //!               U+E000–U+F8FF, U+F0000–U+FFFFD, or U+100000–U+10FFFD.
 //!               Non-PUA values are rejected with `reason=out_of_namespace`.
-//!   - `fmt`   — payload format. Default `glyf`; `colrv0` and `colrv1`
-//!               are optional and advertised via the `s` reply.
+//!   - `fmt`   — payload format. Only `glyf` is currently supported.
 //!   - `upm`   — units-per-em for the coordinate space. Default 1000.
 //!   - `reply` — response verbosity:
 //!               `1` (default) = success + failure replies

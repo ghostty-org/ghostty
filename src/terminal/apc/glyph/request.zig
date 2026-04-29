@@ -3,7 +3,6 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
 pub const glyf = @import("glyf.zig");
-pub const colr = @import("colr.zig");
 
 /// Maximum bytes a single register payload may occupy post-base64-decode.
 /// Matches the spec §6.2 `payload_too_large` threshold.
@@ -242,19 +241,6 @@ pub const Request = union(enum) {
 
             return switch (fmt) {
                 .glyf => .{ .glyf = try glyf.decode(alloc, raw) },
-                .colrv0 => .{
-                    .colrv0 = try colr.parseContainer(alloc, raw, .{
-                        // Spec §8.6: CPAL is required for colrv0.
-                        .cpal_required = true,
-                    }),
-                },
-                .colrv1 => .{
-                    .colrv1 = try colr.parseContainer(alloc, raw, .{
-                        // Spec §8.7: v1 paints may carry sRGBA directly,
-                        // so CPAL is optional.
-                        .cpal_required = false,
-                    }),
-                },
             };
         }
     };
@@ -346,42 +332,25 @@ pub const Format = enum {
     /// TrueType simple glyph outline data.
     glyf,
 
-    /// OpenType COLR version 0 layered color glyph data.
-    colrv0,
-
-    /// OpenType COLR version 1 paint graph glyph data.
-    colrv1,
-
     /// Parse a glyph payload format name.
     pub fn init(value: []const u8) ?Format {
         return std.meta.stringToEnum(Format, value);
     }
 };
 
-/// Decoded register payload. Tagged by the request's `fmt`. Monochrome
-/// `glyf` carries a decoded outline; `colrv0`/`colrv1` carry the
-/// sidecar container (outlines + OpenType COLR + CPAL bytes) and
-/// leave COLR/CPAL parsing to the renderer, which has to walk them
-/// anyway at rasterization time.
+/// Decoded register payload. Tagged by the request's `fmt`.
 pub const DecodedPayload = union(Format) {
     glyf: glyf.Outline,
-    colrv0: colr.Container,
-    colrv1: colr.Container,
 
     pub fn deinit(self: *DecodedPayload, alloc: Allocator) void {
         switch (self.*) {
             .glyf => |*o| o.deinit(alloc),
-            .colrv0, .colrv1 => |*c| c.deinit(alloc),
         }
     }
 };
 
 /// Errors produced while decoding a register payload. The non-OOM
 /// variants each map to a spec `reason=` code via `reasonString`.
-///
-/// Note: the colr parser shares the `Malformed` error with the glyf
-/// parser, so container and table errors collapse to the same
-/// `reason=malformed_payload` response.
 pub const DecodeError = error{
     /// Payload failed base64 decoding (invalid padding or characters).
     InvalidBase64,
@@ -691,117 +660,6 @@ test "decodePayload propagates glyf errors" {
         error.Composite,
         cmd.register.decodePayload(testing.allocator),
     );
-}
-
-test "decodePayload colrv0 parses a valid container" {
-    const testing = std.testing;
-
-    // Hand-build a minimal v0 container: one outline (1 byte), a 14-byte
-    // dummy COLR v0 header, and a 14-byte minimal CPAL (header + 1 entry).
-    var raw: std.ArrayList(u8) = .empty;
-    defer raw.deinit(testing.allocator);
-    // n_glyphs = 1
-    try raw.appendSlice(testing.allocator, &[_]u8{ 0x00, 0x01 });
-    // outline: len=1, bytes=[0xAA]
-    try raw.appendSlice(testing.allocator, &[_]u8{ 0x00, 0x01, 0xAA });
-    // colr_len = 14
-    try raw.appendSlice(testing.allocator, &[_]u8{ 0x00, 0x0E });
-    // COLR v0 minimal header: version=0, 0 base, 14 base_offset, 14
-    // layer_offset, 0 layers. Offsets point at end-of-table which is
-    // empty — valid because counts are zero.
-    try raw.appendSlice(testing.allocator, &[_]u8{
-        0x00, 0x00, // version
-        0x00, 0x00, // numBase
-        0x00, 0x00, 0x00, 0x0E, // baseOffset
-        0x00, 0x00, 0x00, 0x0E, // layerOffset
-        0x00, 0x00, // numLayer
-    });
-    // cpal_len = 18 (12-byte header + 2-byte palette index + 4-byte colour)
-    try raw.appendSlice(testing.allocator, &[_]u8{ 0x00, 0x12 });
-    try raw.appendSlice(testing.allocator, &[_]u8{
-        0x00, 0x00, // version
-        0x00, 0x01, // numPaletteEntries
-        0x00, 0x01, // numPalettes
-        0x00, 0x01, // numColorRecords
-        0x00, 0x00, 0x00, 0x0E, // offsetFirstColorRecord
-        0x00, 0x00, // colorRecordIndices[0]
-        0x11, 0x22, 0x33, 0xFF, // BGRA
-    });
-
-    const enc = std.base64.standard.Encoder;
-    const b64 = try testing.allocator.alloc(u8, enc.calcSize(raw.items.len));
-    defer testing.allocator.free(b64);
-    _ = enc.encode(b64, raw.items);
-
-    var body: std.ArrayList(u8) = .empty;
-    defer body.deinit(testing.allocator);
-    try body.appendSlice(testing.allocator, "r;cp=e0a0;fmt=colrv0;");
-    try body.appendSlice(testing.allocator, b64);
-
-    var cmd = try testParse(testing.allocator, body.items);
-    defer cmd.deinit(testing.allocator);
-
-    var decoded = try cmd.register.decodePayload(testing.allocator);
-    defer decoded.deinit(testing.allocator);
-    try testing.expect(decoded == .colrv0);
-    try testing.expectEqual(@as(usize, 1), decoded.colrv0.outlines.len);
-}
-
-test "decodePayload colrv0 requires CPAL" {
-    const testing = std.testing;
-    // Same as above but cpal_len=0 — must be rejected for colrv0.
-    var raw: std.ArrayList(u8) = .empty;
-    defer raw.deinit(testing.allocator);
-    try raw.appendSlice(testing.allocator, &[_]u8{ 0x00, 0x01 }); // n=1
-    try raw.appendSlice(testing.allocator, &[_]u8{ 0x00, 0x00 }); // glyf len 0
-    try raw.appendSlice(testing.allocator, &[_]u8{ 0x00, 0x01, 0xAA }); // colr len 1
-    try raw.appendSlice(testing.allocator, &[_]u8{ 0x00, 0x00 }); // cpal len 0
-
-    const enc = std.base64.standard.Encoder;
-    const b64 = try testing.allocator.alloc(u8, enc.calcSize(raw.items.len));
-    defer testing.allocator.free(b64);
-    _ = enc.encode(b64, raw.items);
-
-    var body: std.ArrayList(u8) = .empty;
-    defer body.deinit(testing.allocator);
-    try body.appendSlice(testing.allocator, "r;cp=e0a0;fmt=colrv0;");
-    try body.appendSlice(testing.allocator, b64);
-
-    var cmd = try testParse(testing.allocator, body.items);
-    defer cmd.deinit(testing.allocator);
-
-    try testing.expectError(
-        error.Malformed,
-        cmd.register.decodePayload(testing.allocator),
-    );
-}
-
-test "decodePayload colrv1 accepts empty CPAL" {
-    const testing = std.testing;
-    var raw: std.ArrayList(u8) = .empty;
-    defer raw.deinit(testing.allocator);
-    try raw.appendSlice(testing.allocator, &[_]u8{ 0x00, 0x01 }); // n=1
-    try raw.appendSlice(testing.allocator, &[_]u8{ 0x00, 0x00 }); // glyf len 0
-    try raw.appendSlice(testing.allocator, &[_]u8{ 0x00, 0x01, 0xAA }); // colr len 1
-    try raw.appendSlice(testing.allocator, &[_]u8{ 0x00, 0x00 }); // cpal len 0
-
-    const enc = std.base64.standard.Encoder;
-    const b64 = try testing.allocator.alloc(u8, enc.calcSize(raw.items.len));
-    defer testing.allocator.free(b64);
-    _ = enc.encode(b64, raw.items);
-
-    var body: std.ArrayList(u8) = .empty;
-    defer body.deinit(testing.allocator);
-    try body.appendSlice(testing.allocator, "r;cp=e0a0;fmt=colrv1;");
-    try body.appendSlice(testing.allocator, b64);
-
-    var cmd = try testParse(testing.allocator, body.items);
-    defer cmd.deinit(testing.allocator);
-
-    var decoded = try cmd.register.decodePayload(testing.allocator);
-    defer decoded.deinit(testing.allocator);
-    try testing.expect(decoded == .colrv1);
-    try testing.expectEqual(@as(usize, 0), decoded.colrv1.cpal.len);
 }
 
 test "reasonString maps every DecodeError" {

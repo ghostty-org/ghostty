@@ -44,13 +44,7 @@ pub const Response = union(enum) {
             /// TrueType simple glyph outlines (required in v1).
             glyf: bool = false,
 
-            /// COLR v0 layered flat-colour glyphs.
-            colrv0: bool = false,
-
-            /// COLR v1 paint-graph glyphs.
-            colrv1: bool = false,
-
-            _padding: u5 = 0,
+            _padding: u7 = 0,
         };
     };
 
@@ -135,9 +129,7 @@ test "support formats bit layout" {
     const Formats = Response.Support.Formats;
 
     try testing.expectEqual(@as(u8, 1), @as(u8, @bitCast(Formats{ .glyf = true })));
-    try testing.expectEqual(@as(u8, 2), @as(u8, @bitCast(Formats{ .colrv0 = true })));
-    try testing.expectEqual(@as(u8, 4), @as(u8, @bitCast(Formats{ .colrv1 = true })));
-    try testing.expectEqual(@as(u8, 7), @as(u8, @bitCast(Formats{ .glyf = true, .colrv0 = true, .colrv1 = true })));
+    try testing.expectEqual(@as(u8, 0), @as(u8, @bitCast(Formats{})));
 }
 
 test "response support formatWire" {
@@ -146,9 +138,9 @@ test "response support formatWire" {
     var buf: [256]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buf);
 
-    const resp: Response = .{ .support = .{ .fmt = .{ .glyf = true, .colrv0 = true } } };
+    const resp: Response = .{ .support = .{ .fmt = .{ .glyf = true } } };
     try resp.formatWire(&writer);
-    try testing.expectEqualStrings("\x1b_25a1;s;fmt=3\x1b\\", writer.buffered());
+    try testing.expectEqualStrings("\x1b_25a1;s;fmt=1\x1b\\", writer.buffered());
 }
 
 test "response query formatWire" {

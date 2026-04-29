@@ -25,7 +25,7 @@ pub const capacity: usize = 1024;
 /// A single registered glyph.
 pub const Entry = struct {
     /// Decoded payload. Owned by the glossary — monochrome outline for
-    /// glyf, or the sidecar container for colrv0/colrv1.
+    /// glyf.
     payload: Payload,
     /// Units-per-em the outline was authored in.
     upm: u16,

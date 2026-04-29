@@ -3191,42 +3191,26 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Glyph Protocol: if this codepoint has a session glossary
             // registration, bypass the normal font path and draw from
             // our rasterized outline. `glyf` registrations land in the
-            // grayscale atlas and inherit the cell's foreground colour;
-            // `colrv0`/`colrv1` registrations land in the colour atlas
-            // and carry their own fill, so the foreground colour below
-            // only matters for CPAL palette index `0xFFFF`.
+            // grayscale atlas and inherit the cell's foreground colour.
             if (std.math.cast(u21, cp)) |cp21| gp: {
-                const resolved = self.glyph_protocol.resolve(
+                const gp_glyph = self.glyph_protocol.resolve(
                     cp21,
                     @intCast(self.grid_metrics.cell_width),
                     @intCast(self.grid_metrics.cell_height),
-                    .{ .r = color.r, .g = color.g, .b = color.b, .a = 255 },
                     &self.font_grid.atlas_grayscale,
-                    &self.font_grid.atlas_color,
                     &self.font_grid.lock,
                 ) catch |err| {
                     log.warn("glyph protocol rasterize failed cp={x} err={}", .{ cp, err });
                     break :gp;
                 } orelse break :gp;
 
-                const gp_glyph = resolved.glyph;
                 if (gp_glyph.width == 0 or gp_glyph.height == 0) return;
 
-                // Colour payloads carry their own RGB from CPAL/v1
-                // paints; neutralise the shader's per-cell tint by
-                // passing opaque white so the atlas pixels land intact.
-                const cell_color: [4]u8 = switch (resolved.atlas) {
-                    .grayscale => .{ color.r, color.g, color.b, alpha },
-                    .color => .{ 255, 255, 255, alpha },
-                };
                 try self.cells.add(self.alloc, .text, .{
-                    .atlas = switch (resolved.atlas) {
-                        .grayscale => .grayscale,
-                        .color => .color,
-                    },
+                    .atlas = .grayscale,
                     .bools = .{ .no_min_contrast = noMinContrast(cp) },
                     .grid_pos = .{ @intCast(x), @intCast(y) },
-                    .color = cell_color,
+                    .color = .{ color.r, color.g, color.b, alpha },
                     .glyph_pos = .{ gp_glyph.atlas_x, gp_glyph.atlas_y },
                     .glyph_size = .{ gp_glyph.width, gp_glyph.height },
                     .bearings = .{

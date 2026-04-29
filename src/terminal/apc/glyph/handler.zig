@@ -18,15 +18,9 @@ const Glossary = @import("glossary.zig").Glossary;
 
 const log = std.log.scoped(.glyph_protocol);
 
-/// Payload formats this build advertises in the `s` reply. `colrv1`
-/// is reported as supported even though the current rasterizer
-/// implements only a degraded fallback — spec §11 permits partial
-/// paint-graph support, and clients that prefer v0 can still detect
-/// richer support via the bit and adapt.
+/// Payload formats this build advertises in the `s` reply.
 pub const supported_formats: response.Response.Support.Formats = .{
     .glyf = true,
-    .colrv0 = true,
-    .colrv1 = true,
 };
 
 /// Dispatch a parsed request. Returns the response the caller should
@@ -155,7 +149,7 @@ fn parseRequest(alloc: Allocator, body: []const u8) !request.Request {
     return parser.complete(alloc);
 }
 
-test "support reply advertises glyf, colrv0, colrv1" {
+test "support reply advertises glyf" {
     var g: Glossary = .{};
     defer g.deinit(testing.allocator);
     var req = try parseRequest(testing.allocator, "s");
@@ -164,8 +158,6 @@ test "support reply advertises glyf, colrv0, colrv1" {
     const resp = (try handle(testing.allocator, &g, req)).?;
     try testing.expect(resp == .support);
     try testing.expect(resp.support.fmt.glyf);
-    try testing.expect(resp.support.fmt.colrv0);
-    try testing.expect(resp.support.fmt.colrv1);
 }
 
 test "query returns free when unregistered" {
@@ -289,38 +281,6 @@ test "register malformed glyf emits error reason" {
     const resp = (try handle(testing.allocator, &g, req)).?;
     try testing.expectEqualStrings("malformed_payload", resp.register.reason.?);
     try testing.expect(g.len() == 0);
-}
-
-test "register colrv1 empty CPAL succeeds and stores in glossary" {
-    var g: Glossary = .{};
-    defer g.deinit(testing.allocator);
-
-    // Minimal valid colrv1 container: 1 outline (empty), 1-byte COLR
-    // (not actually parsed at register time), 0-byte CPAL.
-    var raw: std.ArrayList(u8) = .empty;
-    defer raw.deinit(testing.allocator);
-    try raw.appendSlice(testing.allocator, &[_]u8{ 0x00, 0x01 }); // n=1
-    try raw.appendSlice(testing.allocator, &[_]u8{ 0x00, 0x00 }); // glyf len 0
-    try raw.appendSlice(testing.allocator, &[_]u8{ 0x00, 0x01, 0xAA }); // colr len 1
-    try raw.appendSlice(testing.allocator, &[_]u8{ 0x00, 0x00 }); // cpal len 0
-
-    const enc = std.base64.standard.Encoder;
-    const b64 = try testing.allocator.alloc(u8, enc.calcSize(raw.items.len));
-    defer testing.allocator.free(b64);
-    _ = enc.encode(b64, raw.items);
-
-    var body: std.ArrayList(u8) = .empty;
-    defer body.deinit(testing.allocator);
-    try body.appendSlice(testing.allocator, "r;cp=e0a0;fmt=colrv1;");
-    try body.appendSlice(testing.allocator, b64);
-
-    var req = try parseRequest(testing.allocator, body.items);
-    defer req.deinit(testing.allocator);
-
-    const resp = (try handle(testing.allocator, &g, req)).?;
-    try testing.expect(resp.register.status == .ok);
-    try testing.expect(g.contains(0xE0A0));
-    try testing.expect(g.get(0xE0A0).?.payload == .colrv1);
 }
 
 test "clear all acks" {
