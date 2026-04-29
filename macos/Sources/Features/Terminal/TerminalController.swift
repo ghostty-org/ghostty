@@ -583,6 +583,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Call this last in case it uses any of the properties above.
         window.syncAppearance(surfaceConfig)
+
+        // In workspace mode the window floor (the strip below the terminal card)
+        // is chrome, not terminal content. Override window.backgroundColor so the
+        // bottom gutter matches the sidebar chrome instead of bleeding the terminal
+        // theme's pure black.
+        if window.contentView is WorkspaceViewContainer {
+            let isLight = window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua
+            window.backgroundColor = isLight
+                ? WorkspaceLayout.chromeBackgroundLight
+                : WorkspaceLayout.chromeBackgroundDark
+        }
+
         terminalViewContainer?.ghosttyConfigDidChange(ghostty.config, preferredBackgroundColor: window.preferredBackgroundColor)
     }
 
