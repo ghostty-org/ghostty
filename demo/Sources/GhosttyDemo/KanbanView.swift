@@ -27,10 +27,10 @@ final class DragDropState: ObservableObject {
         updateTargetHitTest()
     }
 
-    func updateGhost(translation: CGSize) {
+    func updateGhostPosition(at location: CGPoint) {
         ghostRect.origin = CGPoint(
-            x: cardOrigin.x + translation.width,
-            y: cardOrigin.y + translation.height
+            x: location.x - ghostRect.width / 2,
+            y: location.y - ghostRect.height / 2
         )
         updateTargetHitTest()
     }
@@ -125,7 +125,6 @@ struct KanbanView: View {
                     } else {
                         verticalContent
                     }
-                    // drag ghost overlay
                     if dragState.isDragging, let task = dragState.draggedTask {
                         dragGhostView(for: task)
                     }
@@ -168,12 +167,10 @@ struct KanbanView: View {
             dragState.setTasks(tasks)
         }
     }
-
     // MARK: - Drag Ghost
 
     private func dragGhostView(for task: KanbanTask) -> some View {
-        let w = max(dragState.ghostRect.width, 260)
-        return VStack(spacing: 0) {
+        VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 0) {
                 Rectangle()
                     .fill(priorityColor(task.priority))
@@ -201,19 +198,14 @@ struct KanbanView: View {
                     }
                 }
                 .padding(8)
+                Spacer(minLength: 0)
             }
         }
         .fixedSize(horizontal: false, vertical: true)
-        .frame(width: w)
+        .frame(width: dragState.ghostRect.width)
         .background(colors.taskBg)
         .cornerRadius(8)
-        .shadow(color: Color.black.opacity(0.3), radius: 12, y: 4)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(colors.accent.opacity(0.4), lineWidth: 1.5)
-        )
-        .rotationEffect(.degrees(2.5))
-        .scaleEffect(1.03)
+        .shadow(color: Color.black.opacity(0.25), radius: 8, y: 3)
         .position(x: dragState.ghostRect.midX, y: dragState.ghostRect.midY)
         .allowsHitTesting(false)
         .zIndex(9999)

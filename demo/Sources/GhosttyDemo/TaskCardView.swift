@@ -119,7 +119,7 @@ struct TaskCardView: View {
                     if !dragState.isDragging {
                         dragState.start(task: task, cardFrame: cardFrame)
                     }
-                    dragState.updateGhost(translation: value.translation)
+                    dragState.updateGhostPosition(at: value.location)
                 }
                 .onEnded { _ in
                     dragState.endDrag()
@@ -253,7 +253,7 @@ struct SessionPanelView: View {
                         _ = sessionManager.createSession(
                             for: taskId,
                             worktree: createWorktree,
-                            branch: "main",
+                            branch: "",
                             cwd: boardState.workspacePath,
                             boardState: boardState
                         )
