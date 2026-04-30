@@ -4,13 +4,9 @@
 //! rather than being single-use.
 
 const std = @import("std");
-const assert = @import("../../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 
-const z2d = @import("z2d");
-
 const font = @import("../../main.zig");
-const Sprite = @import("../../sprite.zig").Sprite;
 
 const log = std.log.scoped(.sprite_font);
 

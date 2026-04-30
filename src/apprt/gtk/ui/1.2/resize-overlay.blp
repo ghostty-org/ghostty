@@ -4,6 +4,10 @@ using Adw 1;
 // type in zig-gobject.
 template $GhosttyResizeOverlay: Adw.Bin {
   visible: false;
+  can-focus: false;
+  can-target: false;
+  focusable: false;
+  focus-on-click: false;
   duration: 750;
   first-delay: 250;
   overlay-halign: center;
@@ -16,10 +20,12 @@ template $GhosttyResizeOverlay: Adw.Bin {
         "resize-overlay",
       ]
 
+      can-focus: false;
+      can-target: false;
       focusable: false;
       focus-on-click: false;
-      justify: center;
       selectable: false;
+      justify: center;
       halign: bind template.overlay-halign;
       valign: bind template.overlay-valign;
     }

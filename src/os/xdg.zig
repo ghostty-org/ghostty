@@ -3,7 +3,6 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
 const homedir = @import("homedir.zig");
@@ -133,7 +132,7 @@ test {
 test "cache directory paths" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    const mock_home = "/Users/test";
+    const mock_home = if (builtin.os.tag == .windows) "C:\\Users\\test" else "/Users/test";
 
     // Test when XDG_CACHE_HOME is not set
     {
@@ -141,7 +140,9 @@ test "cache directory paths" {
         {
             const cache_path = try cache(alloc, .{ .home = mock_home });
             defer alloc.free(cache_path);
-            try testing.expectEqualStrings("/Users/test/.cache", cache_path);
+            const expected = try std.fs.path.join(alloc, &.{ mock_home, ".cache" });
+            defer alloc.free(expected);
+            try testing.expectEqualStrings(expected, cache_path);
         }
 
         // Test with subdir
@@ -151,7 +152,9 @@ test "cache directory paths" {
                 .subdir = "ghostty",
             });
             defer alloc.free(cache_path);
-            try testing.expectEqualStrings("/Users/test/.cache/ghostty", cache_path);
+            const expected = try std.fs.path.join(alloc, &.{ mock_home, ".cache", "ghostty" });
+            defer alloc.free(expected);
+            try testing.expectEqualStrings(expected, cache_path);
         }
     }
 }

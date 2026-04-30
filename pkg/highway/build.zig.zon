@@ -11,6 +11,6 @@
             .lazy = true,
         },
 
-        .apple_sdk = .{ .path = "../apple-sdk" },
+        .android_ndk = .{ .path = "../android-ndk" },
     },
 }

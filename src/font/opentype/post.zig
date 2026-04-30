@@ -1,5 +1,4 @@
 const std = @import("std");
-const assert = @import("../../quirks.zig").inlineAssert;
 const sfnt = @import("sfnt.zig");
 
 /// PostScript Table

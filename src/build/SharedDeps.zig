@@ -121,7 +121,7 @@ pub fn add(
     // We don't support cross-compiling to Darwin but due to the way
     // lazy dependencies work with Zig, we call this function. So we just
     // bail. The build will fail but the build would've failed anyways.
-    // And this lets other non-platform-specific targets like `lib-vt`
+    // And this lets other non-platform-specific targets like `-Demit-lib-vt`
     // cross-compile properly.
     if (!builtin.target.os.tag.isDarwin() and
         self.config.target.result.os.tag.isDarwin())
@@ -133,31 +133,75 @@ pub fn add(
     step.root_module.addOptions("build_options", self.options);
 
     // Every exe needs the terminal options
-    self.config.terminalOptions().add(b, step.root_module);
+    self.config.terminalOptions(.ghostty).add(b, step.root_module);
 
-    // Freetype
-    _ = b.systemIntegrationOption("freetype", .{}); // Shows it in help
-    if (self.config.font_backend.hasFreetype()) {
-        if (b.lazyDependency("freetype", .{
+    // C imports for locale constants and functions
+    {
+        const c = b.addTranslateC(.{
+            .root_source_file = b.path("src/os/locale.c"),
             .target = target,
             .optimize = optimize,
-            .@"enable-libpng" = true,
-        })) |freetype_dep| {
-            step.root_module.addImport(
-                "freetype",
-                freetype_dep.module("freetype"),
-            );
+        });
+        if (target.result.os.tag.isDarwin()) {
+            const libc = try std.zig.LibCInstallation.findNative(.{
+                .allocator = b.allocator,
+                .target = &target.result,
+                .verbose = false,
+            });
+            c.addSystemIncludePath(.{ .cwd_relative = libc.sys_include_dir.? });
+        }
+        step.root_module.addImport("locale-c", c.createModule());
+    }
 
-            if (b.systemIntegrationOption("freetype", .{})) {
-                step.linkSystemLibrary2("bzip2", dynamic_link_opts);
-                step.linkSystemLibrary2("freetype2", dynamic_link_opts);
-            } else {
-                step.linkLibrary(freetype_dep.artifact("freetype"));
-                try static_libs.append(
-                    b.allocator,
-                    freetype_dep.artifact("freetype").getEmittedBin(),
-                );
+    // C imports needed to manage/create PTYs
+    switch (target.result.os.tag) {
+        .freebsd,
+        .linux,
+        .macos,
+        => {
+            const c = b.addTranslateC(.{
+                .root_source_file = b.path("src/pty.c"),
+                .target = target,
+                .optimize = optimize,
+            });
+            switch (target.result.os.tag) {
+                .macos => {
+                    const libc = try std.zig.LibCInstallation.findNative(.{
+                        .allocator = b.allocator,
+                        .target = &target.result,
+                        .verbose = false,
+                    });
+                    c.addSystemIncludePath(.{ .cwd_relative = libc.sys_include_dir.? });
+                },
+                else => {},
             }
+            step.root_module.addImport("pty-c", c.createModule());
+        },
+        else => {},
+    }
+
+    // Freetype. We always include this even if our font backend doesn't
+    // use it because Dear Imgui uses Freetype.
+    _ = b.systemIntegrationOption("freetype", .{}); // Shows it in help
+    if (b.lazyDependency("freetype", .{
+        .target = target,
+        .optimize = optimize,
+        .@"enable-libpng" = true,
+    })) |freetype_dep| {
+        step.root_module.addImport(
+            "freetype",
+            freetype_dep.module("freetype"),
+        );
+
+        if (b.systemIntegrationOption("freetype", .{})) {
+            step.linkSystemLibrary2("bzip2", dynamic_link_opts);
+            step.linkSystemLibrary2("freetype2", dynamic_link_opts);
+        } else {
+            step.linkLibrary(freetype_dep.artifact("freetype"));
+            try static_libs.append(
+                b.allocator,
+                freetype_dep.artifact("freetype").getEmittedBin(),
+            );
         }
     }
 
@@ -368,13 +412,29 @@ pub fn add(
     // C files
     step.linkLibC();
     step.addIncludePath(b.path("src/stb"));
-    step.addCSourceFiles(.{ .files = &.{"src/stb/stb.c"} });
+    // Disable ubsan for MSVC: Zig's ubsan runtime cannot be bundled
+    // on Windows (LNK4229), leaving __ubsan_handle_* unresolved when
+    // the static archive is consumed by an external linker.
+    step.addCSourceFiles(.{
+        .files = &.{"src/stb/stb.c"},
+        .flags = if (step.rootModuleTarget().abi == .msvc)
+            &.{ "-fno-sanitize=undefined", "-fno-sanitize-trap=undefined" }
+        else
+            &.{},
+    });
     if (step.rootModuleTarget().os.tag == .linux) {
         step.addIncludePath(b.path("src/apprt/gtk"));
     }
 
-    // libcpp is required for various dependencies
-    step.linkLibCpp();
+    // libcpp is required for various dependencies. On MSVC, we must
+    // not use linkLibCpp because Zig unconditionally passes -nostdinc++
+    // and then adds its bundled libc++/libc++abi include paths, which
+    // conflict with MSVC's own C++ runtime headers. The MSVC SDK
+    // include directories (already added via linkLibC above) contain
+    // both C and C++ headers, so linkLibCpp is not needed.
+    if (step.rootModuleTarget().abi != .msvc) {
+        step.linkLibCpp();
+    }
 
     // We always require the system SDK so that our system headers are available.
     // This makes things like `os/log.h` available for cross-compiling.
@@ -413,14 +473,7 @@ pub fn add(
     })) |dep| {
         step.root_module.addImport("z2d", dep.module("z2d"));
     }
-    if (b.lazyDependency("uucode", .{
-        .target = target,
-        .optimize = optimize,
-        .tables_path = self.uucode_tables,
-        .build_config_path = b.path("src/build/uucode_config.zig"),
-    })) |dep| {
-        step.root_module.addImport("uucode", dep.module("uucode"));
-    }
+    self.addUucode(b, step.root_module, target, optimize);
     if (b.lazyDependency("zf", .{
         .target = target,
         .optimize = optimize,
@@ -479,15 +532,21 @@ pub fn add(
     }
 
     // cimgui
-    if (b.lazyDependency("cimgui", .{
+    if (b.lazyDependency("dcimgui", .{
         .target = target,
         .optimize = optimize,
-    })) |cimgui_dep| {
-        step.root_module.addImport("cimgui", cimgui_dep.module("cimgui"));
-        step.linkLibrary(cimgui_dep.artifact("cimgui"));
+        .freetype = true,
+        .@"backend-metal" = target.result.os.tag.isDarwin(),
+        .@"backend-osx" = target.result.os.tag == .macos,
+        // OpenGL3 backend should only be built on non-Apple targets.
+        // Apple platforms use Metal (and macOS may also use the OSX backend).
+        .@"backend-opengl3" = !target.result.os.tag.isDarwin(),
+    })) |dep| {
+        step.root_module.addImport("dcimgui", dep.module("dcimgui"));
+        step.linkLibrary(dep.artifact("dcimgui"));
         try static_libs.append(
             b.allocator,
-            cimgui_dep.artifact("cimgui").getEmittedBin(),
+            dep.artifact("dcimgui").getEmittedBin(),
         );
     }
 
@@ -628,9 +687,6 @@ fn addGtkNg(
             .wayland_protocols = wayland_protocols_dep.path(""),
         });
 
-        scanner.addCustomProtocol(
-            plasma_wayland_protocols_dep.path("src/protocols/blur.xml"),
-        );
         // FIXME: replace with `zxdg_decoration_v1` once GTK merges https://gitlab.gnome.org/GNOME/gtk/-/merge_requests/6398
         scanner.addCustomProtocol(
             plasma_wayland_protocols_dep.path("src/protocols/server-decoration.xml"),
@@ -638,13 +694,18 @@ fn addGtkNg(
         scanner.addCustomProtocol(
             plasma_wayland_protocols_dep.path("src/protocols/slide.xml"),
         );
+        scanner.addCustomProtocol(
+            plasma_wayland_protocols_dep.path("src/protocols/kde-output-order-v1.xml"),
+        );
         scanner.addSystemProtocol("staging/xdg-activation/xdg-activation-v1.xml");
+        scanner.addSystemProtocol("staging/ext-background-effect/ext-background-effect-v1.xml");
 
         scanner.generate("wl_compositor", 1);
-        scanner.generate("org_kde_kwin_blur_manager", 1);
         scanner.generate("org_kde_kwin_server_decoration_manager", 1);
         scanner.generate("org_kde_kwin_slide_manager", 1);
+        scanner.generate("kde_output_order_v1", 1);
         scanner.generate("xdg_activation_v1", 1);
+        scanner.generate("ext_background_effect_manager_v1", 1);
 
         step.root_module.addImport("wayland", b.createModule(.{
             .root_source_file = scanner.result,
@@ -659,10 +720,10 @@ fn addGtkNg(
             .optimize = optimize,
         })) |gtk4_layer_shell| {
             const layer_shell_module = gtk4_layer_shell.module("gtk4-layer-shell");
-            if (gobject_) |gobject| layer_shell_module.addImport(
-                "gtk",
-                gobject.module("gtk4"),
-            );
+            if (gobject_) |gobject| {
+                layer_shell_module.addImport("gtk", gobject.module("gtk4"));
+                layer_shell_module.addImport("gdk", gobject.module("gdk4"));
+            }
             step.root_module.addImport(
                 "gtk4-layer-shell",
                 layer_shell_module,
@@ -701,6 +762,7 @@ pub fn addSimd(
 ) !void {
     const target = m.resolved_target.?;
     const optimize = m.optimize.?;
+    const system_highway = b.systemIntegrationOption("highway", .{ .default = false });
 
     // Simdutf
     if (b.systemIntegrationOption("simdutf", .{})) {
@@ -709,6 +771,7 @@ pub fn addSimd(
         if (b.lazyDependency("simdutf", .{
             .target = target,
             .optimize = optimize,
+            .no_libcxx = true,
         })) |simdutf_dep| {
             m.linkLibrary(simdutf_dep.artifact("simdutf"));
             if (static_libs) |v| try v.append(
@@ -719,44 +782,77 @@ pub fn addSimd(
     }
 
     // Highway
-    if (b.lazyDependency("highway", .{
-        .target = target,
-        .optimize = optimize,
-    })) |highway_dep| {
-        m.linkLibrary(highway_dep.artifact("highway"));
-        if (static_libs) |v| try v.append(
-            b.allocator,
-            highway_dep.artifact("highway").getEmittedBin(),
-        );
-    }
-
-    // utfcpp - This is used as a dependency on our hand-written C++ code
-    if (b.lazyDependency("utfcpp", .{
-        .target = target,
-        .optimize = optimize,
-    })) |utfcpp_dep| {
-        m.linkLibrary(utfcpp_dep.artifact("utfcpp"));
-        if (static_libs) |v| try v.append(
-            b.allocator,
-            utfcpp_dep.artifact("utfcpp").getEmittedBin(),
-        );
+    if (system_highway) {
+        m.linkSystemLibrary("libhwy", dynamic_link_opts);
+    } else {
+        if (b.lazyDependency("highway", .{
+            .target = target,
+            .optimize = optimize,
+        })) |highway_dep| {
+            m.linkLibrary(highway_dep.artifact("highway"));
+            if (static_libs) |v| try v.append(
+                b.allocator,
+                highway_dep.artifact("highway").getEmittedBin(),
+            );
+        }
     }
 
     // SIMD C++ files
     m.addIncludePath(b.path("src"));
     {
         // From hwy/detect_targets.h
+        const HWY_AVX10_2: c_int = 1 << 3;
         const HWY_AVX3_SPR: c_int = 1 << 4;
         const HWY_AVX3_ZEN4: c_int = 1 << 6;
         const HWY_AVX3_DL: c_int = 1 << 7;
         const HWY_AVX3: c_int = 1 << 8;
+
+        var flags: std.ArrayListUnmanaged([]const u8) = .empty;
 
         // Zig 0.13 bug: https://github.com/ziglang/zig/issues/20414
         // To workaround this we just disable AVX512 support completely.
         // The performance difference between AVX2 and AVX512 is not
         // significant for our use case and AVX512 is very rare on consumer
         // hardware anyways.
-        const HWY_DISABLED_TARGETS: c_int = HWY_AVX3_SPR | HWY_AVX3_ZEN4 | HWY_AVX3_DL | HWY_AVX3;
+        const HWY_DISABLED_TARGETS: c_int = HWY_AVX10_2 | HWY_AVX3_SPR | HWY_AVX3_ZEN4 | HWY_AVX3_DL | HWY_AVX3;
+        if (target.result.cpu.arch == .x86_64) try flags.append(
+            b.allocator,
+            b.fmt("-DHWY_DISABLED_TARGETS={}", .{HWY_DISABLED_TARGETS}),
+        );
+
+        // MSVC requires explicit std specification otherwise these
+        // are guarded, at least on Windows 2025. Doing it unconditionally
+        // doesn't cause any issues on other platforms and ensures we get
+        // C++17 support on MSVC.
+        try flags.append(
+            b.allocator,
+            "-std=c++17",
+        );
+
+        // Keep our SIMD sources in the same Highway header mode as the
+        // vendored package build so HWY's inline dispatch/runtime helpers
+        // have a consistent ABI.
+        if (!system_highway) try flags.append(
+            b.allocator,
+            "-DHWY_NO_LIBCXX",
+        );
+
+        // When using the vendored simdutf, build its headers in no-libcxx
+        // mode so we don't need C++ standard library headers at all.
+        // System simdutf headers may not support this define.
+        if (!b.systemIntegrationOption("simdutf", .{})) try flags.append(
+            b.allocator,
+            "-DSIMDUTF_NO_LIBCXX",
+        );
+
+        // Disable ubsan for Windows C/C++ objects to avoid undefined
+        // __ubsan_handle_* references. The Zig libraries on Windows don't
+        // currently bundle a matching UBSan runtime for these objects in
+        // our build configurations (this affects both MSVC and GNU ABIs).
+        if (target.result.os.tag == .windows) try flags.appendSlice(b.allocator, &.{
+            "-fno-sanitize=undefined",
+            "-fno-sanitize-trap=undefined",
+        });
 
         m.addCSourceFiles(.{
             .files = &.{
@@ -765,9 +861,7 @@ pub fn addSimd(
                 "src/simd/index_of.cpp",
                 "src/simd/vt.cpp",
             },
-            .flags = if (target.result.cpu.arch == .x86_64) &.{
-                b.fmt("-DHWY_DISABLED_TARGETS={}", .{HWY_DISABLED_TARGETS}),
-            } else &.{},
+            .flags = flags.items,
         });
     }
 }
@@ -868,6 +962,23 @@ pub fn gtkNgDistResources(
             .generated = resources_h,
         },
     };
+}
+
+pub fn addUucode(
+    self: *const SharedDeps,
+    b: *std.Build,
+    module: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) void {
+    if (b.lazyDependency("uucode", .{
+        .target = target,
+        .optimize = optimize,
+        .tables_path = self.uucode_tables,
+        .build_config_path = b.path("src/build/uucode_config.zig"),
+    })) |dep| {
+        module.addImport("uucode", dep.module("uucode"));
+    }
 }
 
 // For dynamic linking, we prefer dynamic linking and to search by

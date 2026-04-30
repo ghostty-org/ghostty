@@ -31,7 +31,7 @@ struct GetTerminalDetailsIntent: AppIntent {
         guard await requestIntentPermission() else {
             throw GhosttyIntentError.permissionDenied
         }
-        
+
         switch detail {
         case .title: return .result(value: terminal.title)
         case .workingDirectory: return .result(value: terminal.workingDirectory)

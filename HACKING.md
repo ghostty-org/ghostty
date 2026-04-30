@@ -67,6 +67,14 @@ sudo xcode-select --switch /Applications/Xcode.app
 > You do not need to be running on macOS 26 to build Ghostty, you can
 > still use Xcode 26 on macOS 15 stable.
 
+> [!WARNING]
+>
+> Zig 0.15.x has a [known linking issue](https://codeberg.org/ziglang/zig/issues/31658)
+> with **Xcode 26.4**. If you are on Xcode 26.4, you must use a
+> Homebrew-installed Zig (`brew install zig@0.15`) or our Nix flake,
+> both of which contain a patch that works around the issue. Alternatively,
+> you can downgrade to **Xcode 26.3**.
+
 ## AI and Agents
 
 If you're using AI assistance with Ghostty, Ghostty provides an
@@ -92,6 +100,36 @@ produced.
 > code produced, feel free to disclose that, but if it has problems, we
 > may ask you to fix it and close the issue. It isn't a maintainers job to
 > review a PR so broken that it requires significant rework to be acceptable.
+
+## Logging
+
+Ghostty can write logs to a number of destinations. On all platforms, logging to
+`stderr` is available. Depending on the platform and how Ghostty was launched,
+logs sent to `stderr` may be stored by the system and made available for later
+retrieval.
+
+On Linux if Ghostty is launched by the default `systemd` user service, you can use
+`journald` to see Ghostty's logs: `journalctl --user --unit app-com.mitchellh.ghostty.service`.
+
+On macOS logging to the macOS unified log is available and enabled by default.
+Use the system `log` CLI to view Ghostty's logs: `sudo log stream --level debug --predicate 'subsystem=="com.mitchellh.ghostty"'`.
+
+Ghostty's logging can be configured in two ways. The first is by what
+optimization level Ghostty is compiled with. If Ghostty is compiled with `Debug`
+optimizations debug logs will be output to `stderr`. If Ghostty is compiled with
+any other optimization the debug logs will not be output to `stderr`.
+
+Ghostty also checks the `GHOSTTY_LOG` environment variable. It can be used
+to control which destinations receive logs. Ghostty currently defines two
+destinations:
+
+- `stderr` - logging to `stderr`.
+- `macos` - logging to macOS's unified log (has no effect on non-macOS platforms).
+
+Combine values with a comma to enable multiple destinations. Prefix a
+destination with `no-` to disable it. Enabling and disabling destinations
+can be done at the same time. Setting `GHOSTTY_LOG` to `true` will enable all
+destinations. Setting `GHOSTTY_LOG` to `false` will disable all destinations.
 
 ## Linting
 
@@ -133,6 +171,53 @@ alejandra .
 ```
 
 Make sure your Alejandra version matches the version of Alejandra in [devShell.nix](https://github.com/ghostty-org/ghostty/blob/main/nix/devShell.nix).
+
+### ShellCheck
+
+Bash scripts are checked with [ShellCheck](https://www.shellcheck.net/) in CI.
+
+Nix users can use the following command to run ShellCheck over all of our scripts:
+
+```
+nix develop -c shellcheck \
+    --check-sourced \
+    --severity=warning \
+    $(find . \( -name "*.sh" -o -name "*.bash" \) -type f ! -path "./zig-out/*" ! -path "./macos/build/*" ! -path "./.git/*" | sort)
+```
+
+Non-Nix users can [install ShellCheck](https://github.com/koalaman/shellcheck#user-content-installing) and then run:
+
+```
+shellcheck \
+    --check-sourced \
+    --severity=warning \
+    $(find . \( -name "*.sh" -o -name "*.bash" \) -type f ! -path "./zig-out/*" ! -path "./macos/build/*" ! -path "./.git/*" | sort)
+```
+
+### SwiftLint
+
+Swift code is linted using [SwiftLint](https://github.com/realm/SwiftLint). A
+SwiftLint CI check will fail builds with improper formatting. Therefore, if you
+are modifying Swift code, you may want to install it locally and run this from
+the repo root before you commit:
+
+```
+swiftlint lint --fix
+```
+
+Make sure your SwiftLint version matches the version in [devShell.nix](https://github.com/ghostty-org/ghostty/blob/main/nix/devShell.nix).
+
+Nix users can use the following command to format with SwiftLint:
+
+```
+nix develop -c swiftlint lint --fix
+```
+
+To check for violations without auto-fixing:
+
+```
+nix develop -c swiftlint lint --strict
+```
 
 ### Updating the Zig Cache Fixed-Output Derivation Hash
 
@@ -351,3 +436,60 @@ We welcome the contribution of new VM definitions, as long as they meet the foll
 2. VMs should not expose any services to the network, or run any remote access
    software like SSH daemons, VNC or RDP.
 3. VMs should auto-login using the "ghostty" user.
+
+## Nix VM Integration Tests
+
+Several Nix VM tests are provided by the project for testing Ghostty in a "live"
+environment rather than just unit tests.
+
+Running these requires a working Nix installation, either Nix on your
+favorite Linux distribution, NixOS, or macOS with nix-darwin installed. Further
+requirements for macOS are detailed below.
+
+### Linux
+
+1. Check out the Ghostty source and change to the directory.
+2. Run `nix run .#checks.<system>.<test-name>.driver`. `<system>` should be
+   `x86_64-linux` or `aarch64-linux` (even on macOS, this launches a Linux
+   VM, not a macOS one). `<test-name>` should be one of the tests defined in
+   `nix/tests.nix`. The test will build and then launch. Depending on the speed
+   of your system, this can take a while. Eventually though the test should
+   complete. Hopefully successfully, but if not error messages should be printed
+   out that can be used to diagnose the issue.
+3. To run _all_ of the tests, run `nix flake check`.
+
+### macOS
+
+1. To run the VMs on macOS you will need to enable the Linux builder in your `nix-darwin`
+   config. This _should_ be as simple as adding `nix.linux-builder.enable=true` to your
+   configuration and then rebuilding. See [this](https://nixcademy.com/posts/macos-linux-builder/)
+   blog post for more information about the Linux builder and how to tune the performance.
+2. Once the Linux builder has been enabled, you should be able to follow the Linux instructions
+   above to launch a test.
+
+### Interactively Running Test VMs
+
+To run a test interactively, run `nix run
+.#check.<system>.<test-name>.driverInteractive`. This will load a Python console
+that can be used to manage the test VMs. In this console run `start_all()` to
+start the VM(s). The VMs should boot up and a window should appear showing the
+VM's console.
+
+For more information about the Nix test console, see [the NixOS manual](https://nixos.org/manual/nixos/stable/index.html#sec-call-nixos-test-outside-nixos)
+
+### SSH Access to Test VMs
+
+Some test VMs are configured to allow outside SSH access for debugging. To
+access the VM, use a command like the following:
+
+```
+ssh -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -p 2222 root@192.168.122.1
+ssh -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -p 2222 ghostty@192.168.122.1
+```
+
+The SSH options are important because the SSH host keys will be regenerated
+every time the test is started. Without them, your personal SSH known hosts file
+will become difficult to manage. The port that is needed to access the VM may
+change depending on the test.
+
+None of the users in the VM have passwords so do not expose these VMs to the Internet.

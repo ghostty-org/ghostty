@@ -1,8 +1,16 @@
 import SwiftUI
+import GhosttyKit
 
 @main
 struct Ghostty_iOSApp: App {
-    @StateObject private var ghostty_app = Ghostty.App()
+    @StateObject private var ghostty_app: Ghostty.App
+
+    init() {
+        if ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) != GHOSTTY_SUCCESS {
+            preconditionFailure("Initialize ghostty backend failed")
+        }
+        _ghostty_app = StateObject(wrappedValue: Ghostty.App())
+    }
 
     var body: some Scene {
         WindowGroup {

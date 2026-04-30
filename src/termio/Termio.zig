@@ -5,29 +5,26 @@
 pub const Termio = @This();
 
 const std = @import("std");
-const builtin = @import("builtin");
-const build_config = @import("../build_config.zig");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const EnvMap = std.process.EnvMap;
 const posix = std.posix;
 const termio = @import("../termio.zig");
-const Command = @import("../Command.zig");
-const Pty = @import("../pty.zig").Pty;
 const StreamHandler = @import("stream_handler.zig").StreamHandler;
 const terminalpkg = @import("../terminal/main.zig");
-const terminfo = @import("../terminfo/main.zig");
 const xev = @import("../global.zig").xev;
 const renderer = @import("../renderer.zig");
 const apprt = @import("../apprt.zig");
-const fastmem = @import("../fastmem.zig");
 const internal_os = @import("../os/main.zig");
 const windows = internal_os.windows;
 const configpkg = @import("../config.zig");
-const shell_integration = @import("shell_integration.zig");
+const ProcessInfo = @import("../pty.zig").ProcessInfo;
 
 const log = std.log.scoped(.io_exec);
+
+/// Mutex state argument for queueMessage.
+pub const MutexState = enum { locked, unlocked };
 
 /// Allocator
 alloc: Allocator,
@@ -46,7 +43,7 @@ terminal: terminalpkg.Terminal,
 /// The shared render state
 renderer_state: *renderer.State,
 
-/// A handle to wake up the renderer. This hints to the renderer that that
+/// A handle to wake up the renderer. This hints to the renderer that
 /// a repaint should happen.
 renderer_wakeup: xev.Async,
 
@@ -169,6 +166,7 @@ pub const DerivedConfig = struct {
     osc_color_report_format: configpkg.Config.OSCColorReportFormat,
     clipboard_write: configpkg.ClipboardAccess,
     enquiry_response: []const u8,
+    conditional_state: configpkg.ConditionalState,
 
     pub fn init(
         alloc_gpa: Allocator,
@@ -178,8 +176,23 @@ pub const DerivedConfig = struct {
         errdefer arena.deinit();
         const alloc = arena.allocator();
 
+        const palette: terminalpkg.color.Palette = palette: {
+            if (config.@"palette-generate") generate: {
+                if (config.palette.mask.findFirstSet() == null) {
+                    // If the user didn't set any values manually, then
+                    // we're using the default palette and we don't need
+                    // to apply the generation code to it.
+                    break :generate;
+                }
+
+                break :palette terminalpkg.color.generate256Color(config.palette.value, config.palette.mask, config.background.toTerminalRGB(), config.foreground.toTerminalRGB(), config.@"palette-harmonious");
+            }
+
+            break :palette config.palette.value;
+        };
+
         return .{
-            .palette = config.palette.value,
+            .palette = palette,
             .image_storage_limit = config.@"image-storage-limit",
             .cursor_style = config.@"cursor-style",
             .cursor_blink = config.@"cursor-style-blink",
@@ -189,6 +202,7 @@ pub const DerivedConfig = struct {
             .osc_color_report_format = config.@"osc-color-report-format",
             .clipboard_write = config.@"clipboard-write",
             .enquiry_response = try alloc.dupe(u8, config.@"enquiry-response"),
+            .conditional_state = config._conditional_state,
 
             // This has to be last so that we copy AFTER the arena allocations
             // above happen (Zig assigns in order).
@@ -241,20 +255,11 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
                 },
                 .palette = .init(opts.config.palette),
             },
+            .kitty_image_storage_limit = opts.config.image_storage_limit,
+            .kitty_image_loading_limits = .all,
         };
     });
     errdefer term.deinit(alloc);
-
-    // Set the image size limits
-    var it = term.screens.all.iterator();
-    while (it.next()) |entry| {
-        const screen: *terminalpkg.Screen = entry.value.*;
-        try screen.kitty_images.setLimit(
-            alloc,
-            screen,
-            opts.config.image_storage_limit,
-        );
-    }
 
     // Set our default cursor style
     term.screens.active.cursor.cursor_style = opts.config.cursor_style;
@@ -378,8 +383,8 @@ pub fn threadExit(self: *Termio, data: *ThreadData) void {
     self.backend.threadExit(data);
 }
 
-/// Send a message to the the mailbox. Depending on the mailbox type in
-/// use this may process now or it may just enqueue and process later.
+/// Send a message to the mailbox. Depending on the mailbox type in use
+/// this may process now or it may just enqueue and process later.
 ///
 /// This will also notify the mailbox thread to process the message. If
 /// you're sending a lot of messages, it may be more efficient to use
@@ -387,7 +392,7 @@ pub fn threadExit(self: *Termio, data: *ThreadData) void {
 pub fn queueMessage(
     self: *Termio,
     msg: termio.Message,
-    mutex: enum { locked, unlocked },
+    mutex: MutexState,
 ) void {
     self.mailbox.send(msg, switch (mutex) {
         .locked => self.renderer_state.mutex,
@@ -449,16 +454,9 @@ pub fn changeConfig(self: *Termio, td: *ThreadData, config: *DerivedConfig) !voi
         break :cursor color.toTerminalRGB() orelse break :cursor null;
     };
 
-    // Set the image size limits
-    var it = self.terminal.screens.all.iterator();
-    while (it.next()) |entry| {
-        const screen: *terminalpkg.Screen = entry.value.*;
-        try screen.kitty_images.setLimit(
-            self.alloc,
-            screen,
-            config.image_storage_limit,
-        );
-    }
+    // Set the image limits
+    try self.terminal.setKittyGraphicsSizeLimit(self.alloc, config.image_storage_limit);
+    self.terminal.setKittyGraphicsLoadingLimits(.all);
 }
 
 /// Resize the terminal.
@@ -513,48 +511,24 @@ pub fn sizeReport(self: *Termio, td: *ThreadData, style: termio.Message.SizeRepo
 
 fn sizeReportLocked(self: *Termio, td: *ThreadData, style: termio.Message.SizeReport) !void {
     const grid_size = self.size.grid();
+    const report_size: terminalpkg.size_report.Size = .{
+        .rows = grid_size.rows,
+        .columns = grid_size.columns,
+        .cell_width = self.size.cell.width,
+        .cell_height = self.size.cell.height,
+    };
 
     // 1024 bytes should be enough for size report since report
     // in columns and pixels.
     var buf: [1024]u8 = undefined;
-    const message = switch (style) {
-        .mode_2048 => try std.fmt.bufPrint(
-            &buf,
-            "\x1B[48;{};{};{};{}t",
-            .{
-                grid_size.rows,
-                grid_size.columns,
-                grid_size.rows * self.size.cell.height,
-                grid_size.columns * self.size.cell.width,
-            },
-        ),
-        .csi_14_t => try std.fmt.bufPrint(
-            &buf,
-            "\x1b[4;{};{}t",
-            .{
-                grid_size.rows * self.size.cell.height,
-                grid_size.columns * self.size.cell.width,
-            },
-        ),
-        .csi_16_t => try std.fmt.bufPrint(
-            &buf,
-            "\x1b[6;{};{}t",
-            .{
-                self.size.cell.height,
-                self.size.cell.width,
-            },
-        ),
-        .csi_18_t => try std.fmt.bufPrint(
-            &buf,
-            "\x1b[8;{};{}t",
-            .{
-                grid_size.rows,
-                grid_size.columns,
-            },
-        ),
-    };
+    var writer: std.Io.Writer = .fixed(&buf);
+    try terminalpkg.size_report.encode(
+        &writer,
+        style,
+        report_size,
+    );
 
-    try self.queueWrite(td, message, false);
+    try self.queueWrite(td, writer.buffered(), false);
 }
 
 /// Reset the synchronized output mode. This is usually called by timer
@@ -587,16 +561,15 @@ pub fn clearScreen(self: *Termio, td: *ThreadData, history: bool) !void {
         // If we're not at a prompt, we just delete above the cursor.
         if (!self.terminal.cursorIsAtPrompt()) {
             if (self.terminal.screens.active.cursor.y > 0) {
-                self.terminal.screens.active.eraseRows(
-                    .{ .active = .{ .y = 0 } },
-                    .{ .active = .{ .y = self.terminal.screens.active.cursor.y - 1 } },
+                self.terminal.screens.active.eraseActive(
+                    self.terminal.screens.active.cursor.y - 1,
                 );
             }
 
             // Clear all Kitty graphics state for this screen. This copies
             // Kitty's behavior when Cmd+K deletes all Kitty graphics. I
             // didn't spend time researching whether it only deletes Kitty
-            // graphics that are placed baove the cursor or if it deletes
+            // graphics that are placed above the cursor or if it deletes
             // all of them. We delete all of them for now but if this behavior
             // isn't fully correct we should fix this later.
             self.terminal.screens.active.kitty_images.delete(
@@ -612,8 +585,9 @@ pub fn clearScreen(self: *Termio, td: *ThreadData, history: bool) !void {
         // send a FF (0x0C) to the shell so that it can repaint the screen.
         // Mark the current row as a not a prompt so we can properly
         // clear the full screen in the next eraseDisplay call.
-        self.terminal.markSemanticPrompt(.command);
-        assert(!self.terminal.cursorIsAtPrompt());
+        // TODO: fix this
+        // self.terminal.markSemanticPrompt(.command);
+        // assert(!self.terminal.cursorIsAtPrompt());
         self.terminal.eraseDisplay(.complete, false);
     }
 
@@ -622,10 +596,13 @@ pub fn clearScreen(self: *Termio, td: *ThreadData, history: bool) !void {
 }
 
 /// Scroll the viewport
-pub fn scrollViewport(self: *Termio, scroll: terminalpkg.Terminal.ScrollViewport) !void {
+pub fn scrollViewport(
+    self: *Termio,
+    scroll: terminalpkg.Terminal.ScrollViewport,
+) void {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
-    try self.terminal.scrollViewport(scroll);
+    self.terminal.scrollViewport(scroll);
 }
 
 /// Jump the viewport to the prompt.
@@ -647,8 +624,13 @@ pub fn focusGained(self: *Termio, td: *ThreadData, focused: bool) !void {
 
     // If we have focus events enabled, we send the focus event.
     if (focus_event) {
-        const seq = if (focused) "\x1b[I" else "\x1b[O";
-        try self.queueWrite(td, seq, false);
+        var buf: [terminalpkg.focus.max_encode_size]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buf);
+        terminalpkg.focus.encode(&writer, if (focused) .gained else .lost) catch |err| {
+            log.err("error encoding focus event err={}", .{err});
+            return;
+        };
+        try self.queueWrite(td, writer.buffered(), false);
     }
 
     // We always notify our backend of focus changes.
@@ -696,16 +678,18 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
     // below but at least users only pay for it if they're using the inspector.
     if (self.renderer_state.inspector) |insp| {
         for (buf, 0..) |byte, i| {
-            insp.recordPtyRead(buf[i .. i + 1]) catch |err| {
+            insp.recordPtyRead(
+                self.alloc,
+                &self.terminal,
+                buf[i .. i + 1],
+            ) catch |err| {
                 log.err("error recording pty read in inspector err={}", .{err});
             };
 
-            self.terminal_stream.next(byte) catch |err|
-                log.err("error processing terminal data: {}", .{err});
+            self.terminal_stream.next(byte);
         }
     } else {
-        self.terminal_stream.nextSlice(buf) catch |err|
-            log.err("error processing terminal data: {}", .{err});
+        self.terminal_stream.nextSlice(buf);
     }
 
     // If our stream handling caused messages to be sent to the mailbox
@@ -714,6 +698,25 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
         self.terminal_stream.handler.termio_messaged = false;
         self.mailbox.notify();
     }
+}
+
+/// Sends a DSR response for the current color scheme to the pty.
+pub fn colorSchemeReport(self: *Termio, td: *ThreadData, force: bool) !void {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+
+    try self.colorSchemeReportLocked(td, force);
+}
+
+pub fn colorSchemeReportLocked(self: *Termio, td: *ThreadData, force: bool) !void {
+    if (!force and !self.renderer_state.terminal.modes.get(.report_color_scheme)) {
+        return;
+    }
+    const output = switch (self.config.conditional_state.theme) {
+        .light => "\x1B[?997;2n",
+        .dark => "\x1B[?997;1n",
+    };
+    try self.queueWrite(td, output, false);
 }
 
 /// ThreadData is the data created and stored in the termio thread
@@ -745,3 +748,10 @@ pub const ThreadData = struct {
         self.* = undefined;
     }
 };
+
+/// Get information about the process(es) attached to the backend. Returns
+/// `null` if there was an error getting the information or the information is
+/// not available on a particular platform.
+pub fn getProcessInfo(self: *Termio, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
+    return self.backend.getProcessInfo(info);
+}

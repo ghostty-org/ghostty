@@ -7,9 +7,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-/// Prefix/appid for the gresource file.
-pub const prefix = "/com/mitchellh/ghostty";
-pub const app_id = "com.mitchellh.ghostty";
+const build_info = @import("info.zig");
 
 /// The path to the Blueprint files. The folder structure is expected to be
 /// `{version}/{name}.blp` where `version` is the major and minor
@@ -43,13 +41,15 @@ pub const blueprints: []const Blueprint = &.{
     .{ .major = 1, .minor = 5, .name = "inspector-widget" },
     .{ .major = 1, .minor = 5, .name = "inspector-window" },
     .{ .major = 1, .minor = 2, .name = "resize-overlay" },
+    .{ .major = 1, .minor = 2, .name = "search-overlay" },
+    .{ .major = 1, .minor = 2, .name = "key-state-overlay" },
     .{ .major = 1, .minor = 5, .name = "split-tree" },
     .{ .major = 1, .minor = 5, .name = "split-tree-split" },
     .{ .major = 1, .minor = 2, .name = "surface" },
     .{ .major = 1, .minor = 5, .name = "surface-scrolled-window" },
-    .{ .major = 1, .minor = 5, .name = "surface-title-dialog" },
     .{ .major = 1, .minor = 3, .name = "surface-child-exited" },
     .{ .major = 1, .minor = 5, .name = "tab" },
+    .{ .major = 1, .minor = 5, .name = "title-dialog" },
     .{ .major = 1, .minor = 5, .name = "window" },
     .{ .major = 1, .minor = 5, .name = "command-palette" },
 };
@@ -110,7 +110,7 @@ pub fn blueprint(comptime bp: Blueprint) [:0]const u8 {
                 std.mem.eql(u8, candidate.name, bp.name))
             {
                 return std.fmt.comptimePrint("{s}/ui/{d}.{d}/{s}.ui", .{
-                    prefix,
+                    build_info.resource_path,
                     candidate.major,
                     candidate.minor,
                     candidate.name,
@@ -171,7 +171,7 @@ fn genIcons(writer: *std.Io.Writer) !void {
     try writer.print(
         \\  <gresource prefix="{s}/icons">
         \\
-    , .{prefix});
+    , .{build_info.resource_path});
 
     const cwd = std.fs.cwd();
     inline for (icon_sizes) |size| {
@@ -184,7 +184,7 @@ fn genIcons(writer: *std.Io.Writer) !void {
                 \\    <file alias="{s}/apps/{s}.png">{s}</file>
                 \\
             ,
-                .{ alias, app_id, source },
+                .{ alias, build_info.base_application_id, source },
             );
         }
 
@@ -197,7 +197,7 @@ fn genIcons(writer: *std.Io.Writer) !void {
                 \\    <file alias="{s}/apps/{s}.png">{s}</file>
                 \\
             ,
-                .{ alias, app_id, source },
+                .{ alias, build_info.base_application_id, source },
             );
         }
     }
@@ -213,7 +213,7 @@ fn genRoot(writer: *std.Io.Writer) !void {
     try writer.print(
         \\  <gresource prefix="{s}">
         \\
-    , .{prefix});
+    , .{build_info.resource_path});
 
     const cwd = std.fs.cwd();
     inline for (css) |name| {
@@ -247,7 +247,7 @@ fn genUi(
     try writer.print(
         \\  <gresource prefix="{s}/ui">
         \\
-    , .{prefix});
+    , .{build_info.resource_path});
 
     for (files.items) |ui_file| {
         for (blueprints) |bp| {

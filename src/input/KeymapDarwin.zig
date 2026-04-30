@@ -17,7 +17,6 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const macos = @import("macos");
 const codes = @import("keycodes.zig").entries;
-const Key = @import("key.zig").Key;
 const Mods = @import("key.zig").Mods;
 
 /// The current input source that is selected for the keyboard. This can

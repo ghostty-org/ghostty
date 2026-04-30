@@ -1,8 +1,8 @@
 const std = @import("std");
-const assert = @import("../../../quirks.zig").inlineAssert;
 const adw = @import("adw");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
+const gtk_version = @import("../gtk_version.zig");
 
 const gresource = @import("../build/gresource.zig");
 const Common = @import("../class.zig").Common;
@@ -60,11 +60,29 @@ pub const SurfaceScrolledWindow = extern struct {
         config: ?*Config = null,
         config_binding: ?*gobject.Binding = null,
         surface: ?*Surface = null,
+        scrolled_window: *gtk.ScrolledWindow,
         pub var offset: c_int = 0;
     };
 
     fn init(self: *Self, _: *Class) callconv(.c) void {
         gtk.Widget.initTemplate(self.as(gtk.Widget));
+        if (gtk_version.runtimeUntil(4, 20, 1)) self.disableKineticScroll();
+    }
+
+    fn disableKineticScroll(self: *Self) void {
+        // Until gtk 4.20.1 trackpads have kinetic scrolling behavior regardless
+        // of `Gtk.ScrolledWindow.kinetic_scrolling`. As a workaround, disable
+        // EventControllerScroll.kinetic
+        const controllers = self.private().scrolled_window.as(gtk.Widget).observeControllers();
+        defer controllers.unref();
+        var i: c_uint = 0;
+        while (controllers.getObject(i)) |obj| : (i += 1) {
+            defer obj.unref();
+            const controller = gobject.ext.cast(gtk.EventControllerScroll, obj) orelse continue;
+            var flags = controller.getFlags();
+            flags.kinetic = false;
+            controller.setFlags(flags);
+        }
     }
 
     fn dispose(self: *Self) callconv(.c) void {
@@ -145,8 +163,7 @@ pub const SurfaceScrolledWindow = extern struct {
         _: ?*anyopaque,
     ) callconv(.c) void {
         const priv = self.private();
-        const child: *gtk.Widget = self.as(Parent).getChild().?;
-        const scrolled_window = gobject.ext.cast(gtk.ScrolledWindow, child).?;
+        const scrolled_window = self.private().scrolled_window.as(gtk.ScrolledWindow);
         scrolled_window.setChild(if (priv.surface) |s| s.as(gtk.Widget) else null);
 
         // Unbind old config binding if it exists
@@ -190,6 +207,7 @@ pub const SurfaceScrolledWindow = extern struct {
             // Bindings
             class.bindTemplateCallback("scrollbar_policy", &closureScrollbarPolicy);
             class.bindTemplateCallback("notify_surface", &propSurface);
+            class.bindTemplateChildPrivate("scrolled_window", .{});
 
             // Properties
             gobject.ext.registerProperties(class, &.{

@@ -2,10 +2,12 @@
 {
   lib,
   linkFarm,
+  fetchzip,
   fetchurl,
   fetchgit,
   runCommandLocal,
   zig_0_15,
+  zstd,
   name ? "zig-packages",
 }: let
   unpackZigArtifact = {
@@ -17,7 +19,7 @@
       nativeBuildInputs = [zig_0_15];
     }
     ''
-      hash="$(zig fetch --global-cache-dir "$TMPDIR" ${artifact})"
+      hash="$(cd "$TMPDIR" && zig fetch --global-cache-dir "$TMPDIR" ${artifact})"
       mv "$TMPDIR/p/$hash" "$out"
       chmod 755 "$out"
     '';
@@ -26,8 +28,16 @@
     name,
     url,
     hash,
+    unpack,
   }: let
-    artifact = fetchurl {inherit url hash;};
+    artifact =
+      if unpack
+      then
+        fetchzip {
+          inherit url hash;
+          nativeBuildInputs = [zstd];
+        }
+      else fetchurl {inherit url hash;};
   in
     unpackZigArtifact {inherit name artifact;};
 
@@ -56,6 +66,7 @@
     name,
     url,
     hash,
+    unpack,
   }: let
     parts = lib.splitString "://" url;
     proto = builtins.elemAt parts 0;
@@ -70,11 +81,11 @@
         url = "https://${path}";
       };
       http = fetchZig {
-        inherit name hash;
+        inherit name hash unpack;
         url = "http://${path}";
       };
       https = fetchZig {
-        inherit name hash;
+        inherit name hash unpack;
         url = "https://${path}";
       };
     };
@@ -83,11 +94,21 @@
 in
   linkFarm name [
     {
+      name = "N-V-__8AANT61wB--nJ95Gj_ctmzAtcjloZ__hRqNw5lC1Kr";
+      path = fetchZigArtifact {
+        name = "bindings";
+        url = "https://deps.files.ghostty.org/DearBindings_v0.17_ImGui_v1.92.5-docking.tar.gz";
+        hash = "sha256-i/7FAOAJJvZ5hT7iPWfMOS08MYFzPKRwRzhlHT9wuqM=";
+        unpack = false;
+      };
+    }
+    {
       name = "N-V-__8AALw2uwF_03u4JRkZwRLc3Y9hakkYV7NKRR9-RIZJ";
       path = fetchZigArtifact {
         name = "breakpad";
         url = "https://deps.files.ghostty.org/breakpad-b99f444ba5f6b98cac261cbb391d8766b34a5918.tar.gz";
         hash = "sha256-bMqYlD0amQdmzvYQd8Ca/1k4Bj/heh7+EijlQSttatk=";
+        unpack = false;
       };
     }
     {
@@ -96,6 +117,7 @@ in
         name = "fontconfig";
         url = "https://deps.files.ghostty.org/fontconfig-2.14.2.tar.gz";
         hash = "sha256-O6LdkhWHGKzsXKrxpxYEO1qgVcJ7CB2RSvPMtA3OilU=";
+        unpack = false;
       };
     }
     {
@@ -104,6 +126,7 @@ in
         name = "freetype";
         url = "https://deps.files.ghostty.org/freetype-1220b81f6ecfb3fd222f76cf9106fecfa6554ab07ec7fdc4124b9bb063ae2adf969d.tar.gz";
         hash = "sha256-QnIB9dUVFnDQXB9bRb713aHy592XHvVPD+qqf/0quQw=";
+        unpack = false;
       };
     }
     {
@@ -112,6 +135,7 @@ in
         name = "gettext";
         url = "https://deps.files.ghostty.org/gettext-0.24.tar.gz";
         hash = "sha256-yRhQPVk9cNr0hE0XWhPYFq+stmfAb7oeydzVACwVGLc=";
+        unpack = false;
       };
     }
     {
@@ -120,14 +144,16 @@ in
         name = "glslang";
         url = "https://deps.files.ghostty.org/glslang-12201278a1a05c0ce0b6eb6026c65cd3e9247aa041b1c260324bf29cee559dd23ba1.tar.gz";
         hash = "sha256-FKLtu1Ccs+UamlPj9eQ12/WXFgS0uDPmPmB26MCpl7U=";
+        unpack = false;
       };
     }
     {
-      name = "gobject-0.3.0-Skun7ET3nQCqJhDL0KnF_X7M4L7o7JePsJBbrYpEr7UV";
+      name = "gobject-0.3.0-Skun7ANLnwDvEfIpVmohcppXgOvg_I6YOJFmPIsKfXk-";
       path = fetchZigArtifact {
         name = "gobject";
-        url = "https://deps.files.ghostty.org/gobject-2025-09-20-20-1.tar.zst";
-        hash = "sha256-SXiqGm81aUn6yq1wFXgNTAULdKOHS/Rzkp5OgNkkcXo=";
+        url = "https://deps.files.ghostty.org/gobject-2025-11-08-23-1.tar.zst";
+        hash = "sha256-OxS9/XC5aMJj1KhOcFP1ZZN7PI4ADw4f7ocx6V64mOc=";
+        unpack = true;
       };
     }
     {
@@ -136,6 +162,7 @@ in
         name = "gtk4_layer_shell";
         url = "https://deps.files.ghostty.org/gtk4-layer-shell-1.1.0.tar.gz";
         hash = "sha256-mChCgSYKXu9bT2OlXxbEv2p4ihAgptsDfssPcfozaYg=";
+        unpack = false;
       };
     }
     {
@@ -144,6 +171,7 @@ in
         name = "harfbuzz";
         url = "https://deps.files.ghostty.org/harfbuzz-11.0.0.tar.xz";
         hash = "sha256-8WNRuv4hRyX+LB1bWfDZPkmQWkskeJn7kNcM/5U6K5s=";
+        unpack = false;
       };
     }
     {
@@ -152,22 +180,25 @@ in
         name = "highway";
         url = "https://deps.files.ghostty.org/highway-66486a10623fa0d72fe91260f96c892e41aceb06.tar.gz";
         hash = "sha256-h9T4iT704I8iSXNgj/6/lCaKgTgLp5wS6IQZaMgKohI=";
+        unpack = false;
       };
     }
     {
-      name = "N-V-__8AAH0GaQC8a52s6vfIxg88OZgFgEW6DFxfSK4lX_l3";
+      name = "N-V-__8AAEbOfQBnvcFcCX2W5z7tDaN8vaNZGamEQtNOe0UI";
       path = fetchZigArtifact {
         name = "imgui";
-        url = "https://deps.files.ghostty.org/imgui-1220bc6b9daceaf7c8c60f3c3998058045ba0c5c5f48ae255ff97776d9cd8bfc6402.tar.gz";
-        hash = "sha256-oF/QHgTPEat4Hig4fGIdLkIPHmBEyOJ6JeYD6pnveGA=";
+        url = "https://github.com/ocornut/imgui/archive/refs/tags/v1.92.5-docking.tar.gz";
+        hash = "sha256-yBbCDox18+Fa6Gc1DnmSVQLRpqhZOLsac7iSfl8x+cs=";
+        unpack = false;
       };
     }
     {
-      name = "N-V-__8AAPZCAwDJ0OsIn2nbr3FMvBw68oiv-hC2pFuY1eLN";
+      name = "N-V-__8AAL6FAwBDPampKgDjoxlJYDIn2jv0VaINS4W6CXJN";
       path = fetchZigArtifact {
         name = "iterm2_themes";
-        url = "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251110-150531-d5f3d53/ghostty-themes.tgz";
-        hash = "sha256-VZq3L/cAAu7kLA5oqJYNjAZApoblfBtAzfdKVOuJPQI=";
+        url = "https://deps.files.ghostty.org/ghostty-themes-release-20260323-152405-a2c7b60.tgz";
+        hash = "sha256-fWgXdUXh2/dNZqERzEu9hz4xyy4nl+GUjLMpUMrsRnA=";
+        unpack = false;
       };
     }
     {
@@ -176,6 +207,7 @@ in
         name = "jetbrains_mono";
         url = "https://deps.files.ghostty.org/JetBrainsMono-2.304.tar.gz";
         hash = "sha256-xXppHouCrQmLWWPzlZAy5AOPORCHr3cViFulkEYQXMQ=";
+        unpack = false;
       };
     }
     {
@@ -184,6 +216,7 @@ in
         name = "libpng";
         url = "https://deps.files.ghostty.org/libpng-1220aa013f0c83da3fb64ea6d327f9173fa008d10e28bc9349eac3463457723b1c66.tar.gz";
         hash = "sha256-/syVtGzwXo4/yKQUdQ4LparQDYnp/fF16U/wQcrxoDo=";
+        unpack = false;
       };
     }
     {
@@ -191,7 +224,8 @@ in
       path = fetchZigArtifact {
         name = "libxev";
         url = "https://deps.files.ghostty.org/libxev-34fa50878aec6e5fa8f532867001ab3c36fae23e.tar.gz";
-        hash = "sha256-YAPqa5bkpRihKPkyMn15oRvTCZaxO3O66ymRY3lIfdc=";
+        hash = "sha256-1B9oJExVyOWRj+Y9d9eHkOBTlOYuEkcwGBUKdlgRhkg=";
+        unpack = true;
       };
     }
     {
@@ -200,6 +234,7 @@ in
         name = "libxml2";
         url = "https://deps.files.ghostty.org/libxml2-2.11.5.tar.gz";
         hash = "sha256-bCgFni4+60K1tLFkieORamNGwQladP7jvGXNxdiaYhU=";
+        unpack = false;
       };
     }
     {
@@ -208,6 +243,7 @@ in
         name = "nerd_fonts_symbols_only";
         url = "https://deps.files.ghostty.org/NerdFontsSymbolsOnly-3.4.0.tar.gz";
         hash = "sha256-EWTRuVbUveJI17LwmYxDzJT1ICQxoVZKeTiVsec7DQQ=";
+        unpack = false;
       };
     }
     {
@@ -216,6 +252,7 @@ in
         name = "oniguruma";
         url = "https://deps.files.ghostty.org/oniguruma-1220c15e72eadd0d9085a8af134904d9a0f5dfcbed5f606ad60edc60ebeccd9706bb.tar.gz";
         hash = "sha256-ABqhIC54RI9MC/GkjHblVodrNvFtks4yB+zP1h2Z8qA=";
+        unpack = false;
       };
     }
     {
@@ -224,6 +261,7 @@ in
         name = "pixels";
         url = "https://deps.files.ghostty.org/pixels-12207ff340169c7d40c570b4b6a97db614fe47e0d83b5801a932dcd44917424c8806.tar.gz";
         hash = "sha256-Veg7FtCRCCUCvxSb9FfzH0IJLFmCZQ4/+657SIcb8Ro=";
+        unpack = false;
       };
     }
     {
@@ -232,6 +270,7 @@ in
         name = "plasma_wayland_protocols";
         url = "https://deps.files.ghostty.org/plasma_wayland_protocols-12207e0851c12acdeee0991e893e0132fc87bb763969a585dc16ecca33e88334c566.tar.gz";
         hash = "sha256-XFi6IUrNjmvKNCbcCLAixGqN2Zeymhs+KLrfccIN9EE=";
+        unpack = false;
       };
     }
     {
@@ -240,6 +279,7 @@ in
         name = "sentry";
         url = "https://deps.files.ghostty.org/sentry-1220446be831adcca918167647c06c7b825849fa3fba5f22da394667974537a9c77e.tar.gz";
         hash = "sha256-KsZJfMjWGo0xCT5HrduMmyxFsWsHBbszSoNbZCPDGN8=";
+        unpack = false;
       };
     }
     {
@@ -248,14 +288,7 @@ in
         name = "spirv_cross";
         url = "https://deps.files.ghostty.org/spirv_cross-1220fb3b5586e8be67bc3feb34cbe749cf42a60d628d2953632c2f8141302748c8da.tar.gz";
         hash = "sha256-tStvz8Ref6abHwahNiwVVHNETizAmZVVaxVsU7pmV+M=";
-      };
-    }
-    {
-      name = "N-V-__8AAHffAgDU0YQmynL8K35WzkcnMUmBVQHQ0jlcKpjH";
-      path = fetchZigArtifact {
-        name = "utfcpp";
-        url = "https://deps.files.ghostty.org/utfcpp-1220d4d18426ca72fc2b7e56ce47273149815501d0d2395c2a98c726b31ba931e641.tar.gz";
-        hash = "sha256-/8ZooxDndgfTk/PBizJxXyI9oerExNbgV5oR345rWc8=";
+        unpack = false;
       };
     }
     {
@@ -264,22 +297,25 @@ in
         name = "uucode";
         url = "git+https://github.com/jacobsandlund/uucode#5f05f8f83a75caea201f12cc8ea32a2d82ea9732";
         hash = "sha256-sHPh+TQSdUGus/QTbj7KSJJkTuNTrK4VNmQDjS30Lf8=";
+        unpack = true;
       };
     }
     {
-      name = "uucode-0.1.0-ZZjBPicPTQDlG6OClzn2bPu7ICkkkyWrTB6aRsBr-A1E";
+      name = "uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9";
       path = fetchZigArtifact {
         name = "uucode";
-        url = "https://github.com/jacobsandlund/uucode/archive/31655fba3c638229989cc524363ef5e3c7b580c1.tar.gz";
-        hash = "sha256-SzpYGhgG4B6Luf8eT35sKLobCxjmwEuo1Twk0jeu9g4=";
+        url = "https://deps.files.ghostty.org/uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9.tar.gz";
+        hash = "sha256-jLrhrmCXQ1T+LQP1JTBBB3Jn+1hCZfODbC4SdlfNdKg=";
+        unpack = true;
       };
     }
     {
       name = "vaxis-0.5.1-BWNV_LosCQAGmCCNOLljCIw6j6-yt53tji6n6rwJ2BhS";
       path = fetchZigArtifact {
         name = "vaxis";
-        url = "https://github.com/rockorager/libvaxis/archive/7dbb9fd3122e4ffad262dd7c151d80d863b68558.tar.gz";
-        hash = "sha256-LnIzK8icW1Qexua9SHaeHz+3V8QAbz0a+UC1T5sIjvY=";
+        url = "https://deps.files.ghostty.org/vaxis-7dbb9fd3122e4ffad262dd7c151d80d863b68558.tar.gz";
+        hash = "sha256-zTyrZrIffM+GJIt973tKDeWHmOCwbn7KLDdQxSiK00Y=";
+        unpack = true;
       };
     }
     {
@@ -288,6 +324,7 @@ in
         name = "wayland";
         url = "https://deps.files.ghostty.org/wayland-9cb3d7aa9dc995ffafdbdef7ab86a949d0fb0e7d.tar.gz";
         hash = "sha256-6kGR1o5DdnflHzqs3ieCmBAUTpMdOXoyfcYDXiw5xQ0=";
+        unpack = false;
       };
     }
     {
@@ -296,6 +333,16 @@ in
         name = "wayland_protocols";
         url = "https://deps.files.ghostty.org/wayland-protocols-258d8f88f2c8c25a830c6316f87d23ce1a0f12d9.tar.gz";
         hash = "sha256-XO3K3egbdeYPI+XoO13SuOtO+5+Peb16NH0UiusFMPg=";
+        unpack = false;
+      };
+    }
+    {
+      name = "N-V-__8AAFdWDwA0ktbNUi9pFBHCRN4weXIgIfCrVjfGxqgA";
+      path = fetchZigArtifact {
+        name = "wayland_protocols";
+        url = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/archive/1.47/wayland-protocols-1.47.tar.gz";
+        hash = "sha256-3S3xSrX0EDgleq7cxLX7msDuAY8/D5SvkJcCjmDTMiM=";
+        unpack = false;
       };
     }
     {
@@ -304,22 +351,25 @@ in
         name = "wuffs";
         url = "https://deps.files.ghostty.org/wuffs-122037b39d577ec2db3fd7b2130e7b69ef6cc1807d68607a7c232c958315d381b5cd.tar.gz";
         hash = "sha256-nkzSCr6W5sTG7enDBXEIhgEm574uLD41UVR2wlC+HBM=";
+        unpack = false;
       };
     }
     {
-      name = "z2d-0.9.0-j5P_Hu-WFgA_JEfRpiFss6gdvcvS47cgOc0Via2eKD_T";
+      name = "z2d-0.10.0-j5P_Hu-6FgBsZNgwphIqh17jDnj8_yPtD8yzjO6PpHRQ";
       path = fetchZigArtifact {
         name = "z2d";
-        url = "https://github.com/vancluever/z2d/archive/refs/tags/v0.9.0.tar.gz";
-        hash = "sha256-+QqCRoXwrFA1/l+oWvYVyAVebGQitAFQNhi9U3EVrxA=";
+        url = "https://deps.files.ghostty.org/z2d-0.10.0-j5P_Hu-6FgBsZNgwphIqh17jDnj8_yPtD8yzjO6PpHRQ.tar.gz";
+        hash = "sha256-qD+XexnAjSanRAwr5ZIaPY1aQhNW5DFVJ4PYLwhIr2E=";
+        unpack = true;
       };
     }
     {
       name = "zf-0.10.3-OIRy8RuJAACKA3Lohoumrt85nRbHwbpMcUaLES8vxDnh";
       path = fetchZigArtifact {
         name = "zf";
-        url = "https://github.com/natecraddock/zf/archive/3c52637b7e937c5ae61fd679717da3e276765b23.tar.gz";
-        hash = "sha256-OwFdkorwTp4mJyvBXrTbtNmp1GnrbSkKDdrmc7d8RWg=";
+        url = "https://deps.files.ghostty.org/zf-3c52637b7e937c5ae61fd679717da3e276765b23.tar.gz";
+        hash = "sha256-BfAZILill3I/nBf1oWwol77N34Jcpm4hudC+XSeMgZY=";
+        unpack = true;
       };
     }
     {
@@ -327,7 +377,8 @@ in
       path = fetchZigArtifact {
         name = "zig_js";
         url = "https://deps.files.ghostty.org/zig_js-04db83c617da1956ac5adc1cb9ba1e434c1cb6fd.tar.gz";
-        hash = "sha256-TCAY5WAV05UEuAkDhq2c6Tk/ODgAhdnDI3O/flb8c6M=";
+        hash = "sha256-r6GdXwrv+jTu0AkTlyN/FuO+N4X+l20gsbS59wrE7V4=";
+        unpack = true;
       };
     }
     {
@@ -335,7 +386,8 @@ in
       path = fetchZigArtifact {
         name = "zig_objc";
         url = "https://deps.files.ghostty.org/zig_objc-f356ed02833f0f1b8e84d50bed9e807bf7cdc0ae.tar.gz";
-        hash = "sha256-3YSvc3YlNW/NciyzCQnzsujXAmZ89XlxSqfqvArAjsw=";
+        hash = "sha256-jWFQ5BrV880qqa9KypltWuRLqNSh21rDxt6Jxp0EoMM=";
+        unpack = true;
       };
     }
     {
@@ -343,7 +395,8 @@ in
       path = fetchZigArtifact {
         name = "zig_wayland";
         url = "https://deps.files.ghostty.org/zig_wayland-1b5c038ec10da20ed3a15b0b2a6db1c21383e8ea.tar.gz";
-        hash = "sha256-TxRrc17Q1Sf1IOO/cdPpP3LD0PpYOujt06SFH3B5Ek4=";
+        hash = "sha256-1wRkixysjdFMyrATxlXdukAc34MwfNj0B6ydYVn+UKw=";
+        unpack = true;
       };
     }
     {
@@ -351,7 +404,8 @@ in
       path = fetchZigArtifact {
         name = "zigimg";
         url = "https://github.com/ivanstepanovftw/zigimg/archive/d7b7ab0ba0899643831ef042bd73289510b39906.tar.gz";
-        hash = "sha256-LB7Xa6KzVRRUSwwnyWM+y6fDG+kIDjfnoBDJO1obxVM=";
+        hash = "sha256-vkcTloGX+vRw7e6GYJLO9eocYaEOYjXYE0dT7jscZ4A=";
+        unpack = true;
       };
     }
     {
@@ -360,6 +414,7 @@ in
         name = "zlib";
         url = "https://deps.files.ghostty.org/zlib-1220fed0c74e1019b3ee29edae2051788b080cd96e90d56836eea857b0b966742efb.tar.gz";
         hash = "sha256-F+iIY/NgBnKrSRgvIXKBtvxNPHYr3jYZNeQ2qVIU0Fw=";
+        unpack = false;
       };
     }
   ]

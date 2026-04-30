@@ -1,6 +1,5 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = @import("../quirks.zig").inlineAssert;
 const hash_map = @import("hash_map.zig");
 const AutoOffsetHashMap = hash_map.AutoOffsetHashMap;
 const pagepkg = @import("page.zig");
@@ -14,8 +13,9 @@ const autoHash = std.hash.autoHash;
 const autoHashStrat = std.hash.autoHashStrat;
 
 /// The unique identifier for a hyperlink. This is at most the number of cells
-/// that can fit in a single terminal page.
-pub const Id = size.CellCountInt;
+/// that can fit in a single terminal page, since each cell can only contain
+/// at most one hyperlink.
+pub const Id = size.HyperlinkCountInt;
 
 // The mapping of cell to hyperlink. We use an offset hash map to save space
 // since its very unlikely a cell is a hyperlink, so its a waste to store

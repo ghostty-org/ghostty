@@ -136,19 +136,31 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
         return 1;
     }
 
+    const command = command: {
+        var buffer: std.io.Writer.Allocating = .init(alloc);
+        defer buffer.deinit();
+        const writer = &buffer.writer;
+        try writer.writeAll(editor);
+        try writer.writeByte(' ');
+        {
+            var sh: internal_os.ShellEscapeWriter = .init(writer);
+            try sh.writer.writeAll(path);
+            try sh.writer.flush();
+        }
+        try writer.flush();
+        break :command try buffer.toOwnedSliceSentinel(0);
+    };
+    defer alloc.free(command);
+
     // We require libc because we want to use std.c.environ for envp
     // and not have to build that ourselves. We can remove this
     // limitation later but Ghostty already heavily requires libc
     // so this is not a big deal.
     comptime assert(builtin.link_libc);
 
-    const editorZ = try alloc.dupeZ(u8, editor);
-    defer alloc.free(editorZ);
-    const pathZ = try alloc.dupeZ(u8, path);
-    defer alloc.free(pathZ);
     const err = std.posix.execvpeZ(
-        editorZ,
-        &.{ editorZ, pathZ },
+        "/bin/sh",
+        &.{ "/bin/sh", "-c", command },
         std.c.environ,
     );
 

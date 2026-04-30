@@ -16,7 +16,6 @@
 //!
 
 const std = @import("std");
-const assert = @import("../../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 
 const common = @import("common.zig");

@@ -20,6 +20,10 @@ pub fn build(b: *std.Build) !void {
     var flags: std.ArrayList([]const u8) = .empty;
     defer flags.deinit(b.allocator);
     try flags.append(b.allocator, "-DWUFFS_IMPLEMENTATION");
+    if (target.result.abi == .msvc) {
+        try flags.append(b.allocator, "-fno-sanitize=undefined");
+        try flags.append(b.allocator, "-fno-sanitize-trap=undefined");
+    }
     inline for (@import("src/c.zig").defines) |key| {
         try flags.append(b.allocator, "-D" ++ key);
     }

@@ -1,14 +1,11 @@
 //! SGR (Select Graphic Rendition) attrinvbute parsing and types.
 
 const std = @import("std");
-const build_options = @import("terminal_options");
 const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
-const lib = @import("../lib/main.zig");
+const lib = @import("lib.zig");
 const color = @import("color.zig");
 const SepList = @import("Parser.zig").Action.CSI.SepList;
-
-const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
 
 /// Attribute type for SGR
 pub const Attribute = union(Tag) {
@@ -81,7 +78,7 @@ pub const Attribute = union(Tag) {
     @"256_fg": u8,
 
     pub const Tag = lib.Enum(
-        lib_target,
+        lib.target,
         &.{
             "unset",
             "unknown",
@@ -158,7 +155,7 @@ pub const Attribute = union(Tag) {
 
     /// C ABI functions.
     const c_union = lib.TaggedUnion(
-        lib_target,
+        lib.target,
         @This(),
         // Padding size for C ABI compatibility.
         // Largest variant is Unknown.C: 2 pointers + 2 usize = 32 bytes on 64-bit.
@@ -249,7 +246,16 @@ pub const Parser = struct {
                     // Colons are fairly rare in the wild.
                     @branchHint(.unlikely);
 
-                    assert(slice.len >= 2);
+                    // A trailing colon with no following sub-param
+                    // (e.g. "ESC[58:4:m") leaves the colon separator
+                    // bit set on the last param without adding another
+                    // entry, so we can see param 4 with a colon but
+                    // nothing after it.
+                    if (slice.len < 2) {
+                        @branchHint(.cold);
+                        break :underline;
+                    }
+
                     if (self.isColon()) {
                         // Invalid/unknown SGRs are just not very likely.
                         @branchHint(.cold);
@@ -1065,6 +1071,33 @@ test "sgr: kakoune input issue underline, fg, and bg" {
         try testing.expectEqual(@as(u8, 97), v.underline_color.g);
         try testing.expectEqual(@as(u8, 136), v.underline_color.b);
     }
+
+    try testing.expect(p.next() == null);
+}
+
+// Fuzz crash: afl-out/stream/default/crashes/id:000021
+// Input "ESC [ 5 8 : 4 : m" produces params [58, 4] with colon
+// separator bits set at indices 0 and 1. The trailing colon causes
+// the second iteration to see param 4 (underline) with a colon,
+// triggering assert(slice.len >= 2) with slice.len == 1.
+test "sgr: underline colon with trailing separator and short slice" {
+    var p: Parser = .{
+        .params = &[_]u16{ 58, 4 },
+        .params_sep = sep: {
+            var list = SepList.initEmpty();
+            list.set(0);
+            list.set(1);
+            break :sep list;
+        },
+    };
+
+    // 58:4 is not a valid underline color (sub-param 4 is not 2 or 5),
+    // so it falls through as unknown.
+    try testing.expect(p.next().? == .unknown);
+
+    // Param 4 with a trailing colon but no sub-param is malformed,
+    // so it also falls through as unknown rather than panicking.
+    try testing.expect(p.next().? == .unknown);
 
     try testing.expect(p.next() == null);
 }

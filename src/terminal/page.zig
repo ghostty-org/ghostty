@@ -6,11 +6,11 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
 const posix = std.posix;
+const windows = std.os.windows;
 const fastmem = @import("../fastmem.zig");
 const color = @import("color.zig");
 const hyperlink = @import("hyperlink.zig");
 const kitty = @import("kitty.zig");
-const sgr = @import("sgr.zig");
 const stylepkg = @import("style.zig");
 const Style = stylepkg.Style;
 const StyleId = stylepkg.Id;
@@ -26,6 +26,60 @@ const alignForward = std.mem.alignForward;
 const alignBackward = std.mem.alignBackward;
 
 const log = std.log.scoped(.page);
+
+/// Page-aligned allocator used for terminal page backing memory. Pages
+/// require page-aligned, zeroed memory obtained directly from the OS
+/// (not the Zig allocator) because the allocation fast-path is
+/// performance-critical and the OS guarantees zeroed pages.
+const PageAlloc = switch (builtin.os.tag) {
+    .windows => AllocWindows,
+    else => AllocPosix,
+};
+
+/// Allocate page-aligned, zeroed backing memory using mmap with
+/// MAP_PRIVATE | MAP_ANONYMOUS which guarantees zeroed pages.
+const AllocPosix = struct {
+    pub fn alloc(n: usize) ![]align(std.heap.page_size_min) u8 {
+        return try posix.mmap(
+            null,
+            n,
+            posix.PROT.READ | posix.PROT.WRITE,
+            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
+            -1,
+            0,
+        );
+    }
+
+    pub fn free(mem: []align(std.heap.page_size_min) u8) void {
+        posix.munmap(mem);
+    }
+};
+
+/// Allocate page-aligned, zeroed backing memory using VirtualAlloc with
+/// MEM_COMMIT | MEM_RESERVE which guarantees zeroed pages.
+const AllocWindows = struct {
+    pub fn alloc(n: usize) error{OutOfMemory}![]align(std.heap.page_size_min) u8 {
+        const addr = windows.VirtualAlloc(
+            null,
+            n,
+            windows.MEM_COMMIT | windows.MEM_RESERVE,
+            windows.PAGE_READWRITE,
+        ) catch return error.OutOfMemory;
+
+        return @as(
+            [*]align(std.heap.page_size_min) u8,
+            @ptrCast(@alignCast(addr)),
+        )[0..n];
+    }
+
+    pub fn free(mem: []align(std.heap.page_size_min) u8) void {
+        windows.VirtualFree(
+            @ptrCast(@alignCast(mem.ptr)),
+            0,
+            windows.MEM_RELEASE,
+        );
+    }
+};
 
 /// The allocator to use for multi-codepoint grapheme data. We use
 /// a chunk size of 4 codepoints. It'd be best to set this empirically
@@ -168,20 +222,13 @@ pub const Page = struct {
     pub inline fn init(cap: Capacity) !Page {
         const l = layout(cap);
 
-        // We use mmap directly to avoid Zig allocator overhead
-        // (small but meaningful for this path) and because a private
-        // anonymous mmap is guaranteed on Linux and macOS to be zeroed,
+        // We allocate page-aligned zeroed memory directly to avoid Zig
+        // allocator overhead (small but meaningful for this path). Both
+        // mmap (POSIX) and VirtualAlloc (Windows) guarantee zeroed pages,
         // which is a critical property for us.
         assert(l.total_size % std.heap.page_size_min == 0);
-        const backing = try posix.mmap(
-            null,
-            l.total_size,
-            posix.PROT.READ | posix.PROT.WRITE,
-            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
-            -1,
-            0,
-        );
-        errdefer posix.munmap(backing);
+        const backing = try PageAlloc.alloc(l.total_size);
+        errdefer PageAlloc.free(backing);
 
         const buf = OffsetBuf.init(backing);
         return initBuf(buf, l);
@@ -197,7 +244,8 @@ pub const Page = struct {
         // We need to go through and initialize all the rows so that
         // they point to a valid offset into the cells, since the rows
         // zero-initialized aren't valid.
-        const cells_ptr = cells.ptr(buf)[0 .. cap.cols * cap.rows];
+        const cells_len = @as(usize, cap.cols) * @as(usize, cap.rows);
+        const cells_ptr = cells.ptr(buf)[0..cells_len];
         for (rows.ptr(buf)[0..cap.rows], 0..) |*row, y| {
             const start = y * cap.cols;
             row.* = .{
@@ -245,7 +293,7 @@ pub const Page = struct {
     /// this if you allocated the backing memory yourself (i.e. you used
     /// initBuf).
     pub inline fn deinit(self: *Page) void {
-        posix.munmap(self.memory);
+        PageAlloc.free(self.memory);
         self.* = undefined;
     }
 
@@ -578,15 +626,8 @@ pub const Page = struct {
     /// using the page allocator. If you want to manage memory manually,
     /// use cloneBuf.
     pub inline fn clone(self: *const Page) !Page {
-        const backing = try posix.mmap(
-            null,
-            self.memory.len,
-            posix.PROT.READ | posix.PROT.WRITE,
-            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
-            -1,
-            0,
-        );
-        errdefer posix.munmap(backing);
+        const backing = try PageAlloc.alloc(self.memory.len);
+        errdefer PageAlloc.free(backing);
         return self.cloneBuf(backing);
     }
 
@@ -632,6 +673,114 @@ pub const Page = struct {
         StyleSetError ||
         HyperlinkError ||
         GraphemeError;
+
+    /// Compute the exact capacity required to store a range of rows from
+    /// this page.
+    ///
+    /// The returned capacity will have the same number of columns as this
+    /// page and the number of rows equal to the range given. The returned
+    /// capacity is by definition strictly less than or equal to this
+    /// page's capacity, so the layout is guaranteed to succeed.
+    ///
+    /// Preconditions:
+    /// - Range must be at least 1 row
+    /// - Start and end must be valid for this page
+    pub fn exactRowCapacity(
+        self: *const Page,
+        y_start: usize,
+        y_end: usize,
+    ) Capacity {
+        assert(y_start < y_end);
+        assert(y_end <= self.size.rows);
+
+        // Track unique IDs using a bitset. Both style IDs and hyperlink IDs
+        // are CellCountInt (u16), so we reuse this set for both to save
+        // stack memory (~8KB instead of ~16KB).
+        const CellCountSet = std.StaticBitSet(std.math.maxInt(size.CellCountInt) + 1);
+        comptime assert(size.StyleCountInt == size.CellCountInt);
+        comptime assert(size.HyperlinkCountInt == size.CellCountInt);
+
+        // Accumulators
+        var id_set: CellCountSet = .initEmpty();
+        var grapheme_bytes: usize = 0;
+        var string_bytes: usize = 0;
+
+        // First pass: count styles and grapheme bytes
+        const rows = self.rows.ptr(self.memory)[y_start..y_end];
+        for (rows) |*row| {
+            const cells = row.cells.ptr(self.memory)[0..self.size.cols];
+            for (cells) |*cell| {
+                if (cell.style_id != stylepkg.default_id) {
+                    id_set.set(cell.style_id);
+                }
+
+                if (cell.hasGrapheme()) {
+                    if (self.lookupGrapheme(cell)) |cps| {
+                        grapheme_bytes += GraphemeAlloc.bytesRequired(u21, cps.len);
+                    }
+                }
+            }
+        }
+        const styles_cap = StyleSet.capacityForCount(id_set.count());
+
+        // Second pass: count hyperlinks and string bytes
+        // We count both unique hyperlinks (for hyperlink_set) and total
+        // hyperlink cells (for hyperlink_map capacity).
+        id_set = .initEmpty();
+        var hyperlink_cells: usize = 0;
+        for (rows) |*row| {
+            const cells = row.cells.ptr(self.memory)[0..self.size.cols];
+            for (cells) |*cell| {
+                if (cell.hyperlink) {
+                    hyperlink_cells += 1;
+                    if (self.lookupHyperlink(cell)) |id| {
+                        // Only count each unique hyperlink once for set sizing
+                        if (!id_set.isSet(id)) {
+                            id_set.set(id);
+
+                            // Get the hyperlink entry to compute string bytes
+                            const entry = self.hyperlink_set.get(self.memory, id);
+                            string_bytes += StringAlloc.bytesRequired(u8, entry.uri.len);
+
+                            switch (entry.id) {
+                                .implicit => {},
+                                .explicit => |slice| {
+                                    string_bytes += StringAlloc.bytesRequired(u8, slice.len);
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // The hyperlink_map capacity in layout() is computed as:
+        //   hyperlink_count * hyperlink_cell_multiplier (rounded to power of 2)
+        // We need enough hyperlink_bytes so that when layout() computes
+        // the map capacity, it can accommodate all hyperlink cells. This
+        // is unit tested.
+        const hyperlink_cap = cap: {
+            const hyperlink_count = id_set.count();
+            const hyperlink_set_cap = hyperlink.Set.capacityForCount(hyperlink_count);
+            const hyperlink_map_min = std.math.divCeil(
+                usize,
+                hyperlink_cells,
+                hyperlink_cell_multiplier,
+            ) catch 0;
+            break :cap @max(hyperlink_set_cap, hyperlink_map_min);
+        };
+
+        // All the intCasts below are safe because we should have a
+        // capacity strictly less than or equal to this page's capacity.
+        return .{
+            .cols = self.size.cols,
+            .rows = @intCast(y_end - y_start),
+            .styles = @intCast(styles_cap),
+            .grapheme_bytes = @intCast(grapheme_bytes),
+            .hyperlink_bytes = @intCast(hyperlink_cap * @sizeOf(hyperlink.Set.Item)),
+            .string_bytes = @intCast(string_bytes),
+        };
+    }
 
     /// Clone the contents of another page into this page. The capacities
     /// can be different, but the size of the other page must fit into
@@ -1448,7 +1597,7 @@ pub const Page = struct {
     /// WARNING: This will NOT change the content_tag on the cells because
     /// there are scenarios where we want to move graphemes without changing
     /// the content tag. Callers beware but assertIntegrity should catch this.
-    inline fn moveGrapheme(self: *Page, src: *Cell, dst: *Cell) void {
+    pub inline fn moveGrapheme(self: *Page, src: *Cell, dst: *Cell) void {
         if (build_options.slow_runtime_safety) {
             assert(src.hasGrapheme());
             assert(!dst.hasGrapheme());
@@ -1557,7 +1706,7 @@ pub const Page = struct {
         const rows_start = 0;
         const rows_end: usize = rows_start + (rows_count * @sizeOf(Row));
 
-        const cells_count: usize = @intCast(cap.cols * cap.rows);
+        const cells_count: usize = @as(usize, cap.cols) * @as(usize, cap.rows);
         const cells_start = alignForward(usize, rows_end, @alignOf(Cell));
         const cells_end = cells_start + (cells_count * @sizeOf(Cell));
 
@@ -1569,7 +1718,13 @@ pub const Page = struct {
         const grapheme_alloc_start = alignForward(usize, styles_end, GraphemeAlloc.base_align.toByteUnits());
         const grapheme_alloc_end = grapheme_alloc_start + grapheme_alloc_layout.total_size;
 
-        const grapheme_count = @divFloor(cap.grapheme_bytes, grapheme_chunk);
+        const grapheme_count: usize = count: {
+            if (cap.grapheme_bytes == 0) break :count 0;
+            // Use divCeil to match GraphemeAlloc.layout() which uses alignForward,
+            // ensuring grapheme_map has capacity when grapheme_alloc has chunks.
+            const base = std.math.divCeil(usize, cap.grapheme_bytes, grapheme_chunk) catch unreachable;
+            break :count std.math.ceilPowerOfTwo(usize, base) catch unreachable;
+        };
         const grapheme_map_layout = GraphemeMap.layout(@intCast(grapheme_count));
         const grapheme_map_start = alignForward(usize, grapheme_alloc_end, GraphemeMap.base_align.toByteUnits());
         const grapheme_map_end = grapheme_map_start + grapheme_map_layout.total_size;
@@ -1639,67 +1794,74 @@ pub const Size = struct {
 };
 
 /// Capacity of this page.
+///
+/// This capacity can be maxed out (every field max) and still fit
+/// within a 64-bit memory space. If you need more than this, you will
+/// need to split data across separate pages.
+///
+/// For 32-bit systems, it is possible to overflow the addressable
+/// space and this is something we still need to address in the future
+/// likely by limiting the maximum capacity on 32-bit systems further.
 pub const Capacity = struct {
     /// Number of columns and rows we can know about.
     cols: size.CellCountInt,
     rows: size.CellCountInt,
 
     /// Number of unique styles that can be used on this page.
-    styles: usize = 16,
+    styles: size.StyleCountInt = 16,
 
     /// Number of bytes to allocate for hyperlink data. Note that the
     /// amount of data used for hyperlinks in total is more than this because
     /// hyperlinks use string data as well as a small amount of lookup metadata.
     /// This number is a rough approximation.
-    hyperlink_bytes: usize = hyperlink_bytes_default,
+    hyperlink_bytes: size.HyperlinkCountInt = hyperlink_bytes_default,
 
     /// Number of bytes to allocate for grapheme data.
-    grapheme_bytes: usize = grapheme_bytes_default,
+    grapheme_bytes: size.GraphemeBytesInt = grapheme_bytes_default,
 
     /// Number of bytes to allocate for strings.
-    string_bytes: usize = string_bytes_default,
+    string_bytes: size.StringBytesInt = string_bytes_default,
 
     pub const Adjustment = struct {
         cols: ?size.CellCountInt = null,
     };
 
+    /// Returns the maximum number of columns that can be used with this
+    /// capacity while still fitting at least one row. Returns null if even
+    /// a single column cannot fit (which would indicate an unusable capacity).
+    ///
+    /// Note that this is the maximum number of columns that never increases
+    /// the amount of memory the original capacity will take. If you modify
+    /// the original capacity to add rows, then you can fit more columns.
+    pub fn maxCols(self: Capacity) ?size.CellCountInt {
+        const available_bits = self.availableBitsForGrid();
+
+        // If we can't even fit the row metadata, return null
+        if (available_bits <= @bitSizeOf(Row)) return null;
+
+        // We do the math of how many columns we can fit in the remaining
+        // bits ignoring the metadata of a row.
+        const remaining_bits = available_bits - @bitSizeOf(Row);
+        const max_cols = remaining_bits / @bitSizeOf(Cell);
+
+        // Clamp to CellCountInt max
+        return @min(std.math.maxInt(size.CellCountInt), max_cols);
+    }
+
     /// Adjust the capacity parameters while retaining the same total size.
+    ///
     /// Adjustments always happen by limiting the rows in the page. Everything
     /// else can grow. If it is impossible to achieve the desired adjustment,
     /// OutOfMemory is returned.
     pub fn adjust(self: Capacity, req: Adjustment) Allocator.Error!Capacity {
         var adjusted = self;
         if (req.cols) |cols| {
-            // The math below only works if there is no alignment gap between
-            // the end of the rows array and the start of the cells array.
-            //
-            // To guarantee this, we assert that Row's size is a multiple of
-            // Cell's alignment, so that any length array of Rows will end on
-            // a valid alignment for the start of the Cell array.
-            assert(@sizeOf(Row) % @alignOf(Cell) == 0);
-
-            const layout = Page.layout(self);
-
-            // In order to determine the amount of space in the page available
-            // for rows & cells (which will allow us to calculate the number of
-            // rows we can fit at a certain column width) we need to layout the
-            // "meta" members of the page (i.e. everything else) from the end.
-            const hyperlink_map_start = alignBackward(usize, layout.total_size - layout.hyperlink_map_layout.total_size, hyperlink.Map.base_align.toByteUnits());
-            const hyperlink_set_start = alignBackward(usize, hyperlink_map_start - layout.hyperlink_set_layout.total_size, hyperlink.Set.base_align.toByteUnits());
-            const string_alloc_start = alignBackward(usize, hyperlink_set_start - layout.string_alloc_layout.total_size, StringAlloc.base_align.toByteUnits());
-            const grapheme_map_start = alignBackward(usize, string_alloc_start - layout.grapheme_map_layout.total_size, GraphemeMap.base_align.toByteUnits());
-            const grapheme_alloc_start = alignBackward(usize, grapheme_map_start - layout.grapheme_alloc_layout.total_size, GraphemeAlloc.base_align.toByteUnits());
-            const styles_start = alignBackward(usize, grapheme_alloc_start - layout.styles_layout.total_size, StyleSet.base_align.toByteUnits());
+            const available_bits = self.availableBitsForGrid();
 
             // The size per row is:
             //   - The row metadata itself
             //   - The cells per row (n=cols)
-            const bits_per_row: usize = size: {
-                var bits: usize = @bitSizeOf(Row); // Row metadata
-                bits += @bitSizeOf(Cell) * @as(usize, @intCast(cols)); // Cells (n=cols)
-                break :size bits;
-            };
-            const available_bits: usize = styles_start * 8;
+            const bits_per_row: usize = @bitSizeOf(Row) + @bitSizeOf(Cell) * @as(usize, @intCast(cols));
             const new_rows: usize = @divFloor(available_bits, bits_per_row);
 
             // If our rows go to zero then we can't fit any row metadata
@@ -1711,6 +1873,34 @@ pub const Capacity = struct {
         }
 
         return adjusted;
+    }
+
+    /// Computes the number of bits available for rows and cells in the page.
+    ///
+    /// This is done by laying out the "meta" members (styles, graphemes,
+    /// hyperlinks, strings) from the end of the page and finding where they
+    /// start, which gives us the space available for rows and cells.
+    fn availableBitsForGrid(self: Capacity) usize {
+        // The math below only works if there is no alignment gap between
+        // the end of the rows array and the start of the cells array.
+        //
+        // To guarantee this, we assert that Row's size is a multiple of
+        // Cell's alignment, so that any length array of Rows will end on
+        // a valid alignment for the start of the Cell array.
+        assert(@sizeOf(Row) % @alignOf(Cell) == 0);
+
+        const l = Page.layout(self);
+
+        // Layout meta members from the end to find styles_start
+        const hyperlink_map_start = alignBackward(usize, l.total_size - l.hyperlink_map_layout.total_size, hyperlink.Map.base_align.toByteUnits());
+        const hyperlink_set_start = alignBackward(usize, hyperlink_map_start - l.hyperlink_set_layout.total_size, hyperlink.Set.base_align.toByteUnits());
+        const string_alloc_start = alignBackward(usize, hyperlink_set_start - l.string_alloc_layout.total_size, StringAlloc.base_align.toByteUnits());
+        const grapheme_map_start = alignBackward(usize, string_alloc_start - l.grapheme_map_layout.total_size, GraphemeMap.base_align.toByteUnits());
+        const grapheme_alloc_start = alignBackward(usize, grapheme_map_start - l.grapheme_alloc_layout.total_size, GraphemeAlloc.base_align.toByteUnits());
+        const styles_start = alignBackward(usize, grapheme_alloc_start - l.styles_layout.total_size, StyleSet.base_align.toByteUnits());
+
+        // Multiply by 8 to convert bytes to bits
+        return styles_start * 8;
     }
 };
 
@@ -1749,9 +1939,16 @@ pub const Row = packed struct(u64) {
     /// false negatives. This is used to optimize hyperlink operations.
     hyperlink: bool = false,
 
-    /// The semantic prompt type for this row as specified by the
-    /// running program, or "unknown" if it was never set.
-    semantic_prompt: SemanticPrompt = .unknown,
+    /// The semantic prompt state for this row.
+    ///
+    /// This is ONLY meant to note if there are ANY cells in this
+    /// row that are part of a prompt. This is an optimization for more
+    /// efficiently implementing jump-to-prompt operations.
+    ///
+    /// This may contain false positives but never false negatives. If
+    /// this is set, you should still check individual cells to see if they
+    /// have prompt semantics.
+    semantic_prompt: SemanticPrompt = .none,
 
     /// True if this row contains a virtual placeholder for the Kitty
     /// graphics protocol. (U+10EEEE)
@@ -1773,30 +1970,31 @@ pub const Row = packed struct(u64) {
     /// screen.
     dirty: bool = false,
 
-    _padding: u22 = 0,
+    _padding: u23 = 0,
 
-    /// Semantic prompt type.
-    pub const SemanticPrompt = enum(u3) {
-        /// Unknown, the running application didn't tell us for this line.
-        unknown = 0,
-
-        /// This is a prompt line, meaning it only contains the shell prompt.
-        /// For poorly behaving shells, this may also be the input.
+    /// The semantic prompt state of the row. See `semantic_prompt`.
+    pub const SemanticPrompt = enum(u2) {
+        /// No prompt cells in this row.
+        none = 0,
+        /// Prompt cells exist in this row and this is a primary prompt
+        /// line. A primary prompt line is one that is not a continuation
+        /// and is the beginning of a prompt.
         prompt = 1,
+        /// Prompt cells exist in this row that had k=c set (continuation)
+        /// line. This is used as a way to detect when a line should
+        /// be considered part of some prior prompt. If no prior prompt
+        /// is found, the last (most historical) prompt continuation line is
+        /// considered the prompt.
         prompt_continuation = 2,
-
-        /// This line contains the input area. We don't currently track
-        /// where this actually is in the line, so we just assume it is somewhere.
-        input = 3,
-
-        /// This line is the start of command output.
-        command = 4,
-
-        /// True if this is a prompt or input line.
-        pub fn promptOrInput(self: SemanticPrompt) bool {
-            return self == .prompt or self == .prompt_continuation or self == .input;
-        }
     };
+
+    /// C ABI type.
+    pub const C = u64;
+
+    /// Returns this row as a C ABI value.
+    pub fn cval(self: Row) C {
+        return @bitCast(self);
+    }
 
     /// Returns true if this row has any managed memory outside of the
     /// row structure (graphemes, styles, etc.)
@@ -1845,7 +2043,12 @@ pub const Cell = packed struct(u64) {
     /// the hyperlink_set to get the actual hyperlink data.
     hyperlink: bool = false,
 
-    _padding: u18 = 0,
+    /// The semantic type of the content of this cell. This is used
+    /// by the semantic prompt (OSC 133) set of sequences to understand
+    /// boundary points for content.
+    semantic_content: SemanticContent = .output,
+
+    _padding: u16 = 0,
 
     pub const ContentTag = enum(u2) {
         /// A single codepoint, could be zero to be empty cell.
@@ -1883,6 +2086,27 @@ pub const Cell = packed struct(u64) {
         /// character is continued on the next line.
         spacer_head = 3,
     };
+
+    pub const SemanticContent = enum(u2) {
+        /// Regular output content, such as command output.
+        output = 0,
+
+        /// Content that is part of user input, such as the command
+        /// to execute at a prompt.
+        input = 1,
+
+        /// Content that is part of prompt emitted by the interactive
+        /// application, such as "user@host >"
+        prompt = 2,
+    };
+
+    /// C ABI type.
+    pub const C = u64;
+
+    /// Returns this cell as a C ABI value.
+    pub fn cval(self: Cell) C {
+        return @bitCast(self);
+    }
 
     /// Helper to make a cell that just has a codepoint.
     pub fn init(cp: u21) Cell {
@@ -1998,10 +2222,29 @@ pub const Cell = packed struct(u64) {
 //     //const pages = total_size / std.heap.page_size_min;
 // }
 
+test "Page.layout can take a maxed capacity" {
+    // Our intention is for a maxed-out capacity to always fit
+    // within a page layout without triggering runtime safety on any
+    // overflow. This simplifies some of our handling downstream of the
+    // call (relevant to: https://github.com/ghostty-org/ghostty/issues/10258)
+    var cap: Capacity = undefined;
+    inline for (@typeInfo(Capacity).@"struct".fields) |field| {
+        @field(cap, field.name) = std.math.maxInt(field.type);
+    }
+
+    // Note that a max capacity will exceed our max_page_size so we
+    // can't init a page with it, but it should layout.
+    _ = Page.layout(cap);
+}
+
 test "Cell is zero by default" {
     const cell = Cell.init(0);
     const cell_int: u64 = @bitCast(cell);
     try std.testing.expectEqual(@as(u64, 0), cell_int);
+
+    // The zero value should be output type for semantic content.
+    // This is very important for our assumptions elsewhere.
+    try std.testing.expectEqual(Cell.SemanticContent.output, cell.semantic_content);
 }
 
 test "Page capacity adjust cols down" {
@@ -2069,6 +2312,40 @@ test "Page capacity adjust cols too high" {
         error.OutOfMemory,
         original.adjust(.{ .cols = std.math.maxInt(size.CellCountInt) }),
     );
+}
+
+test "Capacity maxCols basic" {
+    const cap = std_capacity;
+    const max = cap.maxCols().?;
+
+    // maxCols should be >= current cols (since current capacity is valid)
+    try testing.expect(max >= cap.cols);
+
+    // Adjusting to maxCols should succeed with at least 1 row
+    const adjusted = try cap.adjust(.{ .cols = max });
+    try testing.expect(adjusted.rows >= 1);
+
+    // Adjusting to maxCols + 1 should fail
+    try testing.expectError(
+        error.OutOfMemory,
+        cap.adjust(.{ .cols = max + 1 }),
+    );
+}
+
+test "Capacity maxCols preserves total size" {
+    const cap = std_capacity;
+    const original_size = Page.layout(cap).total_size;
+    const max = cap.maxCols().?;
+    const adjusted = try cap.adjust(.{ .cols = max });
+    const adjusted_size = Page.layout(adjusted).total_size;
+    try testing.expectEqual(original_size, adjusted_size);
+}
+
+test "Capacity maxCols with 1 row exactly" {
+    const cap = std_capacity;
+    const max = cap.maxCols().?;
+    const adjusted = try cap.adjust(.{ .cols = max });
+    try testing.expectEqual(@as(size.CellCountInt, 1), adjusted.rows);
 }
 
 test "Page init" {
@@ -3129,4 +3406,513 @@ test "Page verifyIntegrity zero cols" {
         Page.IntegrityError.ZeroColCount,
         page.verifyIntegrity(testing.allocator),
     );
+}
+
+test "Page exactRowCapacity empty rows" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+        .hyperlink_bytes = 32 * @sizeOf(hyperlink.Set.Item),
+        .string_bytes = 512,
+    });
+    defer page.deinit();
+
+    // Empty page: all capacity fields should be 0 (except cols/rows)
+    const cap = page.exactRowCapacity(0, 5);
+    try testing.expectEqual(10, cap.cols);
+    try testing.expectEqual(5, cap.rows);
+    try testing.expectEqual(0, cap.styles);
+    try testing.expectEqual(0, cap.grapheme_bytes);
+    try testing.expectEqual(0, cap.hyperlink_bytes);
+    try testing.expectEqual(0, cap.string_bytes);
+}
+
+test "Page exactRowCapacity styles" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // No styles: capacity should be 0
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        try testing.expectEqual(0, cap.styles);
+    }
+
+    // Add one style to a cell
+    const style1_id = try page.styles.add(page.memory, .{ .flags = .{ .bold = true } });
+    {
+        const rac = page.getRowAndCell(0, 0);
+        rac.row.styled = true;
+        rac.cell.style_id = style1_id;
+    }
+
+    // One unique style - capacity accounts for load factor
+    const cap_one_style = page.exactRowCapacity(0, 5);
+    {
+        try testing.expectEqual(StyleSet.capacityForCount(1), cap_one_style.styles);
+    }
+
+    // Add same style to another cell (duplicate) - capacity unchanged
+    {
+        const rac = page.getRowAndCell(1, 0);
+        rac.cell.style_id = style1_id;
+    }
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        try testing.expectEqual(cap_one_style.styles, cap.styles);
+    }
+
+    // Add a different style
+    const style2_id = try page.styles.add(page.memory, .{ .flags = .{ .italic = true } });
+    {
+        const rac = page.getRowAndCell(2, 0);
+        rac.cell.style_id = style2_id;
+    }
+
+    // Two unique styles - capacity accounts for load factor
+    const cap_two_styles = page.exactRowCapacity(0, 5);
+    {
+        try testing.expectEqual(StyleSet.capacityForCount(2), cap_two_styles.styles);
+        try testing.expect(cap_two_styles.styles > cap_one_style.styles);
+    }
+
+    // Style outside the row range should not be counted
+    {
+        const rac = page.getRowAndCell(0, 7);
+        rac.row.styled = true;
+        rac.cell.style_id = try page.styles.add(page.memory, .{ .flags = .{ .underline = .single } });
+    }
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        try testing.expectEqual(cap_two_styles.styles, cap.styles);
+    }
+
+    // Full range includes the new style
+    {
+        const cap = page.exactRowCapacity(0, 10);
+        try testing.expectEqual(StyleSet.capacityForCount(3), cap.styles);
+    }
+
+    // Verify clone works with exact capacity and produces same result
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        var cloned = try Page.init(cap);
+        defer cloned.deinit();
+        for (0..5) |y| {
+            const src_row = &page.rows.ptr(page.memory)[y];
+            const dst_row = &cloned.rows.ptr(cloned.memory)[y];
+            try cloned.cloneRowFrom(&page, dst_row, src_row);
+        }
+        const cloned_cap = cloned.exactRowCapacity(0, 5);
+        try testing.expectEqual(cap, cloned_cap);
+    }
+}
+
+test "Page exactRowCapacity single style clone" {
+    // Regression test: verify a single style can be cloned with exact capacity.
+    // This tests that capacityForCount properly accounts for ID 0 being reserved.
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 2,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // Add exactly one style to row 0
+    const style_id = try page.styles.add(page.memory, .{ .flags = .{ .bold = true } });
+    {
+        const rac = page.getRowAndCell(0, 0);
+        rac.row.styled = true;
+        rac.cell.style_id = style_id;
+    }
+
+    // exactRowCapacity for just row 0 should give capacity for 1 style
+    const cap = page.exactRowCapacity(0, 1);
+    try testing.expectEqual(StyleSet.capacityForCount(1), cap.styles);
+
+    // Create a new page with exact capacity and clone
+    var cloned = try Page.init(cap);
+    defer cloned.deinit();
+
+    const src_row = &page.rows.ptr(page.memory)[0];
+    const dst_row = &cloned.rows.ptr(cloned.memory)[0];
+
+    // This must not fail with StyleSetOutOfMemory
+    try cloned.cloneRowFrom(&page, dst_row, src_row);
+
+    // Verify the style was cloned correctly
+    const cloned_cell = &cloned.rows.ptr(cloned.memory)[0].cells.ptr(cloned.memory)[0];
+    try testing.expect(cloned_cell.style_id != stylepkg.default_id);
+}
+
+test "Page exactRowCapacity styles max single row" {
+    var page = try Page.init(.{
+        .cols = std.math.maxInt(size.CellCountInt),
+        .rows = 1,
+        .styles = std.math.maxInt(size.StyleCountInt),
+    });
+    defer page.deinit();
+
+    // Style our first row
+    const row = &page.rows.ptr(page.memory)[0];
+    row.styled = true;
+
+    // Fill cells with styles until we get OOM, but limit to a reasonable count
+    // to avoid overflow when computing capacityForCount near maxInt
+    const cells = row.cells.ptr(page.memory)[0..page.size.cols];
+    var count: usize = 0;
+    const max_count: usize = 1000; // Limit to avoid overflow in capacity calculation
+    for (cells, 0..) |*cell, i| {
+        if (count >= max_count) break;
+        const style_id = page.styles.add(page.memory, .{
+            .fg_color = .{ .rgb = .{
+                .r = @intCast(i & 0xFF),
+                .g = @intCast((i >> 8) & 0xFF),
+                .b = 0,
+            } },
+        }) catch break;
+        cell.style_id = style_id;
+        count += 1;
+    }
+
+    // Verify we added a meaningful number of styles
+    try testing.expect(count > 0);
+
+    // Capacity should be at least count (adjusted for load factor)
+    const cap = page.exactRowCapacity(0, 1);
+    try testing.expectEqual(StyleSet.capacityForCount(count), cap.styles);
+}
+
+test "Page exactRowCapacity grapheme_bytes" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // No graphemes: capacity should be 0
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        try testing.expectEqual(0, cap.grapheme_bytes);
+    }
+
+    // Add one grapheme (1 codepoint) to a cell - rounds up to grapheme_chunk
+    {
+        const rac = page.getRowAndCell(0, 0);
+        rac.cell.* = .init('a');
+        try page.appendGrapheme(rac.row, rac.cell, 0x0301); // combining acute accent
+    }
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        // 1 codepoint = 4 bytes, rounds up to grapheme_chunk (16)
+        try testing.expectEqual(grapheme_chunk, cap.grapheme_bytes);
+    }
+
+    // Add another grapheme to a different cell - should sum
+    {
+        const rac = page.getRowAndCell(1, 0);
+        rac.cell.* = .init('e');
+        try page.appendGrapheme(rac.row, rac.cell, 0x0300); // combining grave accent
+    }
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        // 2 graphemes, each 1 codepoint = 2 * grapheme_chunk
+        try testing.expectEqual(grapheme_chunk * 2, cap.grapheme_bytes);
+    }
+
+    // Add a larger grapheme (multiple codepoints) that fits in one chunk
+    {
+        const rac = page.getRowAndCell(2, 0);
+        rac.cell.* = .init('o');
+        try page.appendGrapheme(rac.row, rac.cell, 0x0301);
+        try page.appendGrapheme(rac.row, rac.cell, 0x0302);
+        try page.appendGrapheme(rac.row, rac.cell, 0x0303);
+    }
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        // First two cells: 2 * grapheme_chunk
+        // Third cell: 3 codepoints = 12 bytes, rounds up to grapheme_chunk
+        try testing.expectEqual(grapheme_chunk * 3, cap.grapheme_bytes);
+    }
+
+    // Grapheme outside the row range should not be counted
+    {
+        const rac = page.getRowAndCell(0, 7);
+        rac.cell.* = .init('x');
+        try page.appendGrapheme(rac.row, rac.cell, 0x0304);
+    }
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        try testing.expectEqual(grapheme_chunk * 3, cap.grapheme_bytes);
+    }
+
+    // Full range includes the new grapheme
+    {
+        const cap = page.exactRowCapacity(0, 10);
+        try testing.expectEqual(grapheme_chunk * 4, cap.grapheme_bytes);
+    }
+
+    // Verify clone works with exact capacity and produces same result
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        var cloned = try Page.init(cap);
+        defer cloned.deinit();
+        for (0..5) |y| {
+            const src_row = &page.rows.ptr(page.memory)[y];
+            const dst_row = &cloned.rows.ptr(cloned.memory)[y];
+            try cloned.cloneRowFrom(&page, dst_row, src_row);
+        }
+        const cloned_cap = cloned.exactRowCapacity(0, 5);
+        try testing.expectEqual(cap, cloned_cap);
+    }
+}
+
+test "Page exactRowCapacity grapheme_bytes larger than chunk" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // Add a grapheme larger than one chunk (grapheme_chunk_len = 4 codepoints)
+    const rac = page.getRowAndCell(0, 0);
+    rac.cell.* = .init('a');
+
+    // Add 6 codepoints - requires 2 chunks (6 * 4 = 24 bytes, rounds up to 32)
+    for (0..6) |i| {
+        try page.appendGrapheme(rac.row, rac.cell, @intCast(0x0300 + i));
+    }
+
+    const cap = page.exactRowCapacity(0, 1);
+    // 6 codepoints = 24 bytes, alignForward(24, 16) = 32
+    try testing.expectEqual(32, cap.grapheme_bytes);
+
+    // Verify clone works with exact capacity and produces same result
+    var cloned = try Page.init(cap);
+    defer cloned.deinit();
+    const src_row = &page.rows.ptr(page.memory)[0];
+    const dst_row = &cloned.rows.ptr(cloned.memory)[0];
+    try cloned.cloneRowFrom(&page, dst_row, src_row);
+    const cloned_cap = cloned.exactRowCapacity(0, 1);
+    try testing.expectEqual(cap, cloned_cap);
+}
+
+test "Page exactRowCapacity hyperlinks" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+        .hyperlink_bytes = 32 * @sizeOf(hyperlink.Set.Item),
+        .string_bytes = 512,
+    });
+    defer page.deinit();
+
+    // No hyperlinks: capacity should be 0
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        try testing.expectEqual(0, cap.hyperlink_bytes);
+        try testing.expectEqual(0, cap.string_bytes);
+    }
+
+    // Add one hyperlink with implicit ID
+    const uri1 = "https://example.com";
+    const id1 = blk: {
+        const rac = page.getRowAndCell(0, 0);
+
+        // Create and add hyperlink entry
+        const id = try page.insertHyperlink(.{
+            .id = .{ .implicit = 1 },
+            .uri = uri1,
+        });
+        try page.setHyperlink(rac.row, rac.cell, id);
+        break :blk id;
+    };
+    // 1 hyperlink - capacity accounts for load factor
+    const cap_one_link = page.exactRowCapacity(0, 5);
+    {
+        try testing.expectEqual(hyperlink.Set.capacityForCount(1) * @sizeOf(hyperlink.Set.Item), cap_one_link.hyperlink_bytes);
+        // URI "https://example.com" = 19 bytes, rounds up to string_chunk (32)
+        try testing.expectEqual(string_chunk, cap_one_link.string_bytes);
+    }
+
+    // Add same hyperlink to another cell (duplicate ID) - capacity unchanged
+    {
+        const rac = page.getRowAndCell(1, 0);
+
+        // Use the same hyperlink ID for another cell
+        page.hyperlink_set.use(page.memory, id1);
+        try page.setHyperlink(rac.row, rac.cell, id1);
+    }
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        try testing.expectEqual(cap_one_link.hyperlink_bytes, cap.hyperlink_bytes);
+        try testing.expectEqual(cap_one_link.string_bytes, cap.string_bytes);
+    }
+
+    // Add a different hyperlink with explicit ID
+    const uri2 = "https://other.example.org/path";
+    const explicit_id = "my-link-id";
+    {
+        const rac = page.getRowAndCell(2, 0);
+
+        const id = try page.insertHyperlink(.{
+            .id = .{ .explicit = explicit_id },
+            .uri = uri2,
+        });
+        try page.setHyperlink(rac.row, rac.cell, id);
+    }
+    // 2 hyperlinks - capacity accounts for load factor
+    const cap_two_links = page.exactRowCapacity(0, 5);
+    {
+        try testing.expectEqual(hyperlink.Set.capacityForCount(2) * @sizeOf(hyperlink.Set.Item), cap_two_links.hyperlink_bytes);
+        // First URI: 19 bytes -> 32, Second URI: 30 bytes -> 32, Explicit ID: 10 bytes -> 32
+        try testing.expectEqual(string_chunk * 3, cap_two_links.string_bytes);
+    }
+
+    // Hyperlink outside the row range should not be counted
+    {
+        const rac = page.getRowAndCell(0, 7); // row 7 is outside range [0, 5)
+
+        const id = try page.insertHyperlink(.{
+            .id = .{ .implicit = 99 },
+            .uri = "https://outside.example.com",
+        });
+        try page.setHyperlink(rac.row, rac.cell, id);
+    }
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        try testing.expectEqual(cap_two_links.hyperlink_bytes, cap.hyperlink_bytes);
+        try testing.expectEqual(cap_two_links.string_bytes, cap.string_bytes);
+    }
+
+    // Full range includes the new hyperlink
+    {
+        const cap = page.exactRowCapacity(0, 10);
+        try testing.expectEqual(hyperlink.Set.capacityForCount(3) * @sizeOf(hyperlink.Set.Item), cap.hyperlink_bytes);
+        // Third URI: 27 bytes -> 32
+        try testing.expectEqual(string_chunk * 4, cap.string_bytes);
+    }
+
+    // Verify clone works with exact capacity and produces same result
+    {
+        const cap = page.exactRowCapacity(0, 5);
+        var cloned = try Page.init(cap);
+        defer cloned.deinit();
+        for (0..5) |y| {
+            const src_row = &page.rows.ptr(page.memory)[y];
+            const dst_row = &cloned.rows.ptr(cloned.memory)[y];
+            try cloned.cloneRowFrom(&page, dst_row, src_row);
+        }
+        const cloned_cap = cloned.exactRowCapacity(0, 5);
+        try testing.expectEqual(cap, cloned_cap);
+    }
+}
+
+test "Page exactRowCapacity single hyperlink clone" {
+    // Regression test: verify a single hyperlink can be cloned with exact capacity.
+    // This tests that capacityForCount properly accounts for ID 0 being reserved.
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 2,
+        .styles = 8,
+        .hyperlink_bytes = 32 * @sizeOf(hyperlink.Set.Item),
+        .string_bytes = 512,
+    });
+    defer page.deinit();
+
+    // Add exactly one hyperlink to row 0
+    const uri = "https://example.com";
+    const id = blk: {
+        const rac = page.getRowAndCell(0, 0);
+        const link_id = try page.insertHyperlink(.{
+            .id = .{ .implicit = 1 },
+            .uri = uri,
+        });
+        try page.setHyperlink(rac.row, rac.cell, link_id);
+        break :blk link_id;
+    };
+    _ = id;
+
+    // exactRowCapacity for just row 0 should give capacity for 1 hyperlink
+    const cap = page.exactRowCapacity(0, 1);
+    try testing.expectEqual(hyperlink.Set.capacityForCount(1) * @sizeOf(hyperlink.Set.Item), cap.hyperlink_bytes);
+
+    // Create a new page with exact capacity and clone
+    var cloned = try Page.init(cap);
+    defer cloned.deinit();
+
+    const src_row = &page.rows.ptr(page.memory)[0];
+    const dst_row = &cloned.rows.ptr(cloned.memory)[0];
+
+    // This must not fail with HyperlinkSetOutOfMemory
+    try cloned.cloneRowFrom(&page, dst_row, src_row);
+
+    // Verify the hyperlink was cloned correctly
+    const cloned_cell = &cloned.rows.ptr(cloned.memory)[0].cells.ptr(cloned.memory)[0];
+    try testing.expect(cloned_cell.hyperlink);
+}
+
+test "Page exactRowCapacity hyperlink map capacity for many cells" {
+    // A single hyperlink spanning many cells requires hyperlink_map capacity
+    // based on cell count, not unique hyperlink count.
+    const cols = 50;
+    var page = try Page.init(.{
+        .cols = cols,
+        .rows = 2,
+        .styles = 8,
+        .hyperlink_bytes = 32 * @sizeOf(hyperlink.Set.Item),
+        .string_bytes = 512,
+    });
+    defer page.deinit();
+
+    // Add one hyperlink spanning all 50 columns in row 0
+    const uri = "https://example.com";
+    const id = blk: {
+        const rac = page.getRowAndCell(0, 0);
+        const link_id = try page.insertHyperlink(.{
+            .id = .{ .implicit = 1 },
+            .uri = uri,
+        });
+        try page.setHyperlink(rac.row, rac.cell, link_id);
+        break :blk link_id;
+    };
+
+    // Apply same hyperlink to remaining cells in row 0
+    for (1..cols) |x| {
+        const rac = page.getRowAndCell(@intCast(x), 0);
+        page.hyperlink_set.use(page.memory, id);
+        try page.setHyperlink(rac.row, rac.cell, id);
+    }
+
+    // exactRowCapacity must account for 50 hyperlink cells, not just 1 unique hyperlink
+    const cap = page.exactRowCapacity(0, 1);
+
+    // The hyperlink_bytes must be large enough that layout() computes sufficient
+    // hyperlink_map capacity. With hyperlink_cell_multiplier=16, we need at least
+    // ceil(50/16) = 4 hyperlink entries worth of bytes for the map.
+    const min_for_map = std.math.divCeil(usize, cols, hyperlink_cell_multiplier) catch 0;
+    const min_hyperlink_bytes = min_for_map * @sizeOf(hyperlink.Set.Item);
+    try testing.expect(cap.hyperlink_bytes >= min_hyperlink_bytes);
+
+    // Create a new page with exact capacity and clone - must not fail
+    var cloned = try Page.init(cap);
+    defer cloned.deinit();
+
+    const src_row = &page.rows.ptr(page.memory)[0];
+    const dst_row = &cloned.rows.ptr(cloned.memory)[0];
+
+    // This must not fail with HyperlinkMapOutOfMemory
+    try cloned.cloneRowFrom(&page, dst_row, src_row);
+
+    // Verify all hyperlinks were cloned correctly
+    for (0..cols) |x| {
+        const cloned_cell = &cloned.rows.ptr(cloned.memory)[0].cells.ptr(cloned.memory)[x];
+        try testing.expect(cloned_cell.hyperlink);
+    }
 }

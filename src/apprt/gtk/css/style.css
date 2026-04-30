@@ -35,6 +35,30 @@ label.url-overlay.right {
 }
 
 /*
+ * GhosttySurface search overlay
+ */
+.search-overlay {
+  padding: 6px 8px;
+  margin: 8px;
+  border-radius: 8px;
+  outline-style: solid;
+  outline-color: #555555;
+  outline-width: 1px;
+}
+
+/*
+ * GhosttySurface key state overlay
+ */
+.key-state-overlay {
+  padding: 6px 10px;
+  margin: 8px;
+  border-radius: 8px;
+  outline-style: solid;
+  outline-color: #555555;
+  outline-width: 1px;
+}
+
+/*
  * GhosttySurface resize overlay
  */
 label.resize-overlay {
@@ -110,6 +134,16 @@ label.resize-overlay {
   border-style: solid;
 }
 
+.surface .readonly_overlay {
+  /* Should be the equivalent of the following SwiftUI color: */
+  /* Color(hue: 0.08, saturation: 0.5, brightness: 0.8) */
+  color: hsl(25 50 75);
+  padding: 8px 8px 8px 8px;
+  margin: 8px 8px 8px 8px;
+  border-radius: 6px 6px 6px 6px;
+  outline-style: solid;
+  outline-width: 1px;
+}
 /*
  * Command Palette
  */

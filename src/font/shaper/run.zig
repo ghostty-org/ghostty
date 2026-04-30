@@ -73,7 +73,7 @@ pub const RunIterator = struct {
         var current_font: font.Collection.Index = .{};
 
         // Allow the hook to prepare
-        try self.hooks.prepare();
+        self.hooks.prepare();
 
         // Initialize our hash for this run.
         var hasher = Hasher.init(0);
@@ -283,7 +283,7 @@ pub const RunIterator = struct {
         }
 
         // Finalize our buffer
-        try self.hooks.finalize();
+        self.hooks.finalize();
 
         // Add our length to the hash as an additional mechanism to avoid collisions
         autoHash(&hasher, j - self.i);

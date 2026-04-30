@@ -3,8 +3,6 @@ const Self = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = @import("../../quirks.zig").inlineAssert;
-const builtin = @import("builtin");
 const objc = @import("objc");
 
 const mtl = @import("api.zig");
@@ -12,8 +10,6 @@ const Pipeline = @import("Pipeline.zig");
 const Sampler = @import("Sampler.zig");
 const Texture = @import("Texture.zig");
 const Target = @import("Target.zig");
-const Metal = @import("../Metal.zig");
-const Buffer = @import("buffer.zig").Buffer;
 
 const log = std.log.scoped(.metal);
 

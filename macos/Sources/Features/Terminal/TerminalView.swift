@@ -1,5 +1,6 @@
 import SwiftUI
 import GhosttyKit
+import os
 
 /// This delegate is notified of actions and property changes regarding the terminal view. This
 /// delegate is optional and can be used by a TerminalView caller to react to changes such as
@@ -17,8 +18,8 @@ protocol TerminalViewDelegate: AnyObject {
     /// Perform an action. At the time of writing this is only triggered by the command palette.
     func performAction(_ action: String, on: Ghostty.SurfaceView)
 
-    /// A split is resizing to a given value.
-    func splitDidResize(node: SplitTree<Ghostty.SurfaceView>.Node, to newRatio: Double)
+    /// A split tree operation
+    func performSplitAction(_ action: TerminalSplitOperation)
 }
 
 /// The view model is a required implementation for TerminalView callers. This contains
@@ -31,7 +32,7 @@ protocol TerminalViewModel: ObservableObject {
 
     /// The command palette state.
     var commandPaletteIsShowing: Bool { get set }
-    
+
     /// The update overlay should be visible.
     var updateOverlayIsVisible: Bool { get }
 }
@@ -44,11 +45,10 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
     @ObservedObject var viewModel: ViewModel
 
     // An optional delegate to receive information about terminal changes.
-    weak var delegate: (any TerminalViewDelegate)? = nil
+    weak var delegate: (any TerminalViewDelegate)?
 
-    // The most recently focused surface, equal to focusedSurface when
-    // it is non-nil.
-    @State private var lastFocusedSurface: Weak<Ghostty.SurfaceView> = .init()
+    /// The most recently focused surface, equal to `focusedSurface` when it is non-nil.
+    @State private var lastFocusedSurface: Weak<Ghostty.SurfaceView>?
 
     // This seems like a crutch after switching from SwiftUI to AppKit lifecycle.
     @FocusState private var focused: Bool
@@ -75,14 +75,15 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                 VStack(spacing: 0) {
                     // If we're running in debug mode we show a warning so that users
                     // know that performance will be degraded.
-                    if (Ghostty.info.mode == GHOSTTY_BUILD_MODE_DEBUG || Ghostty.info.mode == GHOSTTY_BUILD_MODE_RELEASE_SAFE) {
+                    if Ghostty.info.mode == GHOSTTY_BUILD_MODE_DEBUG || Ghostty.info.mode == GHOSTTY_BUILD_MODE_RELEASE_SAFE {
                         DebugBuildWarningView()
                     }
 
                     TerminalSplitTreeView(
                         tree: viewModel.surfaceTree,
-                        onResize: { delegate?.splitDidResize(node: $0, to: $1) })
+                        action: { delegate?.performSplitAction($0) })
                         .environmentObject(ghostty)
+                        .ghosttyLastFocusedSurface(lastFocusedSurface)
                         .focused($focused)
                         .onAppear { self.focused = true }
                         .onChange(of: focusedSurface) { newValue in
@@ -100,11 +101,13 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                             guard let size = newValue else { return }
                             self.delegate?.cellSizeDidChange(to: size)
                         }
+                        .frame(idealWidth: lastFocusedSurface?.value?.initialSize?.width,
+                               idealHeight: lastFocusedSurface?.value?.initialSize?.height)
                 }
                 // Ignore safe area to extend up in to the titlebar region if we have the "hidden" titlebar style
-                .ignoresSafeArea(.container, edges: ghostty.config.macosTitlebarStyle == "hidden" ? .top : [])
+                .ignoresSafeArea(.container, edges: ghostty.config.macosTitlebarStyle == .hidden ? .top : [])
 
-                if let surfaceView = lastFocusedSurface.value {
+                if let surfaceView = lastFocusedSurface?.value {
                     TerminalCommandPaletteView(
                         surfaceView: surfaceView,
                         isPresented: $viewModel.commandPaletteIsShowing,
@@ -113,7 +116,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         self.delegate?.performAction(action, on: surfaceView)
                     }
                 }
-                
+
                 // Show update information above all else.
                 if viewModel.updateOverlayIsVisible {
                     UpdateOverlay()
@@ -124,12 +127,12 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
     }
 }
 
-fileprivate struct UpdateOverlay: View {
+private struct UpdateOverlay: View {
     var body: some View {
         if let appDelegate = NSApp.delegate as? AppDelegate {
             VStack {
                 Spacer()
-                
+
                 HStack {
                     Spacer()
                     UpdatePill(model: appDelegate.updateViewModel)

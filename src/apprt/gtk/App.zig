@@ -5,18 +5,13 @@ const App = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
-const adw = @import("adw");
-const gio = @import("gio");
 const apprt = @import("../../apprt.zig");
 const configpkg = @import("../../config.zig");
-const internal_os = @import("../../os/main.zig");
 const Config = configpkg.Config;
 const CoreApp = @import("../../App.zig");
 
 const Application = @import("class/application.zig").Application;
 const Surface = @import("Surface.zig");
-const gtk_version = @import("gtk_version.zig");
-const adw_version = @import("adw_version.zig");
 const ipcNewWindow = @import("ipc/new_window.zig").newWindow;
 
 const log = std.log.scoped(.gtk);
@@ -27,16 +22,10 @@ const log = std.log.scoped(.gtk);
 pub const must_draw_from_app_thread = true;
 
 /// GTK application ID
-pub const application_id = switch (builtin.mode) {
-    .Debug, .ReleaseSafe => "com.mitchellh.ghostty-debug",
-    .ReleaseFast, .ReleaseSmall => "com.mitchellh.ghostty",
-};
+pub const application_id = @import("build/info.zig").application_id;
 
 /// GTK object path
-pub const object_path = switch (builtin.mode) {
-    .Debug, .ReleaseSafe => "/com/mitchellh/ghostty_debug",
-    .ReleaseFast, .ReleaseSmall => "/com/mitchellh/ghostty",
-};
+pub const object_path = @import("build/info.zig").object_path;
 
 /// The GObject Application instance
 app: *Application,

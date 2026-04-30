@@ -7,7 +7,7 @@ extension String {
         return self.prefix(maxLength) + trailing
     }
 
-    #if canImport(AppKit)
+#if canImport(AppKit)
     func temporaryFile(_ filename: String = "temp") -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(filename)
@@ -16,5 +16,24 @@ extension String {
         try? string.write(to: url, atomically: true, encoding: .utf8)
         return url
     }
-    #endif
+
+    /// Returns the path with the home directory abbreviated as ~.
+    var abbreviatedPath: String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        if hasPrefix(home) {
+            return "~" + dropFirst(home.count)
+        }
+        return self
+    }
+#endif
+
+    /// Converts a four-character ASCII string to its `FourCharCode` (`UInt32`) value.
+    var fourCharCode: UInt32 {
+        assert(count <= 4, "FourCharCode string must be at most 4 characters")
+        var result: UInt32 = 0
+        for byte in utf8.prefix(4) {
+            result = (result << 8) | UInt32(byte)
+        }
+        return result
+    }
 }

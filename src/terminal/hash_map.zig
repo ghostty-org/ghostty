@@ -31,7 +31,6 @@
 //! bottleneck.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
 const autoHash = std.hash.autoHash;
 const math = std.math;
@@ -105,8 +104,8 @@ pub fn OffsetHashMap(
     };
 }
 
-/// Fork of stdlib.HashMap as of Zig 0.12 modified to to use offsets
-/// for the key/values pointer. The metadata is still a pointer to limit
+/// Fork of stdlib.HashMap as of Zig 0.12 modified to use offsets for
+/// the key/values pointer. The metadata is still a pointer to limit
 /// the amount of arithmetic required to access it. See the file comment
 /// for full details.
 fn HashMapUnmanaged(
@@ -856,13 +855,17 @@ fn HashMapUnmanaged(
         pub fn layoutForCapacity(new_capacity: Size) Layout {
             assert(new_capacity == 0 or std.math.isPowerOfTwo(new_capacity));
 
+            // Cast to usize to prevent overflow in size calculations.
+            // See: https://github.com/ziglang/zig/pull/19048
+            const cap: usize = new_capacity;
+
             // Pack our metadata, keys, and values.
             const meta_start = @sizeOf(Header);
-            const meta_end = @sizeOf(Header) + new_capacity * @sizeOf(Metadata);
+            const meta_end = @sizeOf(Header) + cap * @sizeOf(Metadata);
             const keys_start = std.mem.alignForward(usize, meta_end, key_align);
-            const keys_end = keys_start + new_capacity * @sizeOf(K);
+            const keys_end = keys_start + cap * @sizeOf(K);
             const vals_start = std.mem.alignForward(usize, keys_end, val_align);
-            const vals_end = vals_start + new_capacity * @sizeOf(V);
+            const vals_end = vals_start + cap * @sizeOf(V);
 
             // Our total memory size required is the end of our values
             // aligned to the base required alignment.
@@ -1511,4 +1514,27 @@ test "OffsetHashMap remake map" {
         var map = offset_map.map(buf.ptr);
         try expectEqual(5, map.get(5).?);
     }
+}
+
+test "layoutForCapacity no overflow for large capacity" {
+    // Test that layoutForCapacity correctly handles large capacities without overflow.
+    // Prior to the fix, new_capacity (u32) was multiplied before widening to usize,
+    // causing overflow when new_capacity * @sizeOf(K) exceeded 2^32.
+    // See: https://github.com/ghostty-org/ghostty/issues/9862
+    const Map = AutoHashMapUnmanaged(u64, u64);
+
+    // Use 2^30 capacity - this would overflow in u32 when multiplied by @sizeOf(u64)=8
+    // 0x40000000 * 8 = 0x2_0000_0000 which wraps to 0 in u32
+    const large_cap: Map.Size = 1 << 30;
+    const layout = Map.layoutForCapacity(large_cap);
+
+    // With the fix, total_size should be at least cap * (sizeof(K) + sizeof(V))
+    // = 2^30 * 16 = 2^34 bytes = 16 GiB
+    // Without the fix, this would wrap and produce a much smaller value.
+    const min_expected: usize = @as(usize, large_cap) * (@sizeOf(u64) + @sizeOf(u64));
+    try expect(layout.total_size >= min_expected);
+
+    // Also verify the individual offsets don't wrap
+    try expect(layout.keys_start > 0);
+    try expect(layout.vals_start > layout.keys_start);
 }

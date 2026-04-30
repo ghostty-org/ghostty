@@ -26,8 +26,13 @@
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      shouldUseLaunchSchemeArgsEnv = "YES"
-      shouldAutocreateTestPlan = "YES">
+      shouldUseLaunchSchemeArgsEnv = "YES">
+      <TestPlans>
+         <TestPlanReference
+            reference = "container:Ghostty.xctestplan"
+            default = "YES">
+         </TestPlanReference>
+      </TestPlans>
       <Testables>
          <TestableReference
             skipped = "NO"
@@ -37,6 +42,17 @@
                BlueprintIdentifier = "A54F45F22E1F047A0046BD5C"
                BuildableName = "GhosttyTests.xctest"
                BlueprintName = "GhosttyTests"
+               ReferencedContainer = "container:Ghostty.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "810ACC9E2E9D3301004F8F92"
+               BuildableName = "GhosttyUITests.xctest"
+               BlueprintName = "GhosttyUITests"
                ReferencedContainer = "container:Ghostty.xcodeproj">
             </BuildableReference>
          </TestableReference>

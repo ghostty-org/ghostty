@@ -8,7 +8,9 @@ const assert = @import("../quirks.zig").inlineAssert;
 const build_config = @import("../build_config.zig");
 const uucode = @import("uucode");
 const EntryFormatter = @import("../config/formatter.zig").EntryFormatter;
+const deepEqual = @import("../datastruct/comparison.zig").deepEqual;
 const key = @import("key.zig");
+const key_mods = @import("key_mods.zig");
 const KeyEvent = key.KeyEvent;
 
 /// The trigger that needs to be performed to execute the action.
@@ -44,6 +46,27 @@ pub const Flags = packed struct {
     /// performed. If the action can't be performed then the binding acts as
     /// if it doesn't exist.
     performable: bool = false,
+
+    /// C type
+    pub const C = u8;
+
+    /// Converts this to a C-compatible value.
+    ///
+    /// Sync with ghostty.h for enums.
+    pub fn cval(self: Flags) C {
+        const Backing = @typeInfo(Flags).@"struct".backing_integer.?;
+        return @as(Backing, @bitCast(self));
+    }
+
+    test "cval" {
+        const testing = std.testing;
+        try testing.expectEqual(@as(u8, 0b0001), (Flags{}).cval());
+        try testing.expectEqual(@as(u8, 0b0000), (Flags{ .consumed = false }).cval());
+        try testing.expectEqual(@as(u8, 0b0011), (Flags{ .all = true }).cval());
+        try testing.expectEqual(@as(u8, 0b0101), (Flags{ .global = true }).cval());
+        try testing.expectEqual(@as(u8, 0b1001), (Flags{ .performable = true }).cval());
+        try testing.expectEqual(@as(u8, 0b1111), (Flags{ .consumed = true, .all = true, .global = true, .performable = true }).cval());
+    }
 };
 
 /// Full binding parser. The binding parser is implemented as an iterator
@@ -52,6 +75,7 @@ pub const Parser = struct {
     trigger_it: SequenceIterator,
     action: Action,
     flags: Flags = .{},
+    chain: bool,
 
     pub const Elem = union(enum) {
         /// A leader trigger in a sequence.
@@ -59,6 +83,12 @@ pub const Parser = struct {
 
         /// The final trigger and action in a sequence.
         binding: Binding,
+
+        /// A chained action `chain=<action>` that should be appended
+        /// to the previous binding. Note that any action is parsed, including
+        /// invalid actions for chains such as `unbind`. We expect downstream
+        /// consumers to validate that the action is valid for chaining.
+        chain: Action,
     };
 
     pub fn init(raw_input: []const u8) Error!Parser {
@@ -95,12 +125,23 @@ pub const Parser = struct {
             return Error.InvalidFormat;
         };
 
+        // Detect chains. Chains must not have flags.
+        const chain = std.mem.eql(u8, input[0..eql_idx], "chain");
+        if (chain and start_idx > 0) return Error.InvalidFormat;
+
         // Sequence iterator goes up to the equal, action is after. We can
         // parse the action now.
         return .{
-            .trigger_it = .{ .input = input[0..eql_idx] },
+            .trigger_it = .{
+                // This is kind of hacky but we put a dummy trigger
+                // for chained inputs. The `next` will never yield this
+                // because we have chain set. When we find a nicer way to
+                // do this we can remove it, the e2e is tested.
+                .input = if (chain) "a" else input[0..eql_idx],
+            },
             .action = try .parse(input[eql_idx + 1 ..]),
             .flags = flags,
+            .chain = chain,
         };
     }
 
@@ -156,6 +197,9 @@ pub const Parser = struct {
             return .{ .leader = trigger };
         }
 
+        // If we're a chain then return it as-is.
+        if (self.chain) return .{ .chain = self.action };
+
         // Out of triggers, yield the final action.
         return .{ .binding = .{
             .trigger = trigger,
@@ -198,12 +242,19 @@ const SequenceIterator = struct {
 /// Parse a single, non-sequenced binding. To support sequences you must
 /// use parse. This is a convenience function for single bindings aimed
 /// primarily at tests.
-fn parseSingle(raw_input: []const u8) (Error || error{UnexpectedSequence})!Binding {
+///
+/// This doesn't support `chain` either, since chaining requires some
+/// stateful concept of a prior binding.
+fn parseSingle(raw_input: []const u8) (Error || error{
+    UnexpectedChain,
+    UnexpectedSequence,
+})!Binding {
     var p = try Parser.init(raw_input);
     const elem = (try p.next()) orelse return Error.InvalidFormat;
     return switch (elem) {
         .leader => error.UnexpectedSequence,
         .binding => elem.binding,
+        .chain => error.UnexpectedChain,
     };
 }
 
@@ -339,6 +390,11 @@ pub const Action = union(enum) {
     ///
     /// If a previous search is active, it is replaced.
     search: []const u8,
+
+    /// Start a search for the current text selection. If there is no
+    /// selection, this does nothing. If a search is already active, this
+    /// changes the search terms.
+    search_selection,
 
     /// Navigate the search results. If there is no active search, this
     /// is not performed.
@@ -514,10 +570,22 @@ pub const Action = union(enum) {
     toggle_tab_overview,
 
     /// Change the title of the current focused surface via a pop-up prompt.
-    ///
-    /// This requires libadwaita 1.5 or newer on Linux. The current libadwaita
-    /// version can be found by running `ghostty +version`.
     prompt_surface_title,
+
+    /// Change the title of the current tab via a pop-up prompt. The
+    /// title set via this prompt overrides any title set by the terminal
+    /// and persists across focus changes within the tab.
+    prompt_tab_title,
+
+    /// Set the title for the current focused surface.
+    ///
+    /// If the title is empty, the surface title is reset to an empty title.
+    set_surface_title: []const u8,
+
+    /// Set the title for the current focused tab.
+    ///
+    /// If the title is empty, the tab title override is cleared.
+    set_tab_title: []const u8,
 
     /// Create a new split in the specified direction.
     ///
@@ -540,12 +608,25 @@ pub const Action = union(enum) {
     /// (`previous` and `next`), or the most recently used split (`recent`).
     goto_split: SplitFocusDirection,
 
+    /// Focus on either the previous window or the next one ('previous', 'next')
+    goto_window: GotoWindow,
+
     /// Zoom in or out of the current split.
     ///
     /// When a split is zoomed into, it will take up the entire space in
     /// the current tab, hiding other splits. The tab or tab bar would also
     /// reflect this by displaying an icon indicating the zoomed state.
     toggle_split_zoom,
+
+    /// Toggle read-only mode for the current surface.
+    ///
+    /// When a surface is in read-only mode:
+    ///   - No input is sent to the PTY (mouse events, key encoding)
+    ///   - Input can still be used at the terminal level to make selections,
+    ///     copy/paste (keybinds), scroll, etc.
+    ///   - Warn before quit is always enabled in this state even if an active
+    ///     process is not running
+    toggle_readonly,
 
     /// Resize the current split in the specified direction and amount in
     /// pixels. The two arguments should be joined with a comma (`,`),
@@ -600,9 +681,8 @@ pub const Action = union(enum) {
     /// of the `confirm-close-surface` configuration setting.
     close_surface,
 
-    /// Close the current tab and all splits therein _or_ close all tabs and
-    /// splits thein of tabs _other_ than the current tab, depending on the
-    /// mode.
+    /// Close the current tab and all splits therein, close all other tabs, or
+    /// close every tab to the right of the current one depending on the mode.
     ///
     /// If the mode is not specified, defaults to closing the current tab.
     ///
@@ -738,6 +818,16 @@ pub const Action = union(enum) {
     /// Only implemented on macOS.
     toggle_visibility,
 
+    /// Toggle the window background opacity between transparent and opaque.
+    ///
+    /// This does nothing when `background-opacity` is set to 1 or above.
+    ///
+    /// When `background-opacity` is less than 1, this action will either make
+    /// the window transparent or not depending on its current transparency state.
+    ///
+    /// Only implemented on macOS.
+    toggle_background_opacity,
+
     /// Check for updates.
     ///
     /// Only implemented on macOS.
@@ -771,6 +861,51 @@ pub const Action = union(enum) {
     /// if possible. See "undo" for more details on what can and cannot
     /// be undone or redone.
     redo,
+
+    /// End the currently active key sequence, if any, and flush the
+    /// keys up to this point to the terminal, excluding the key that
+    /// triggered this action.
+    ///
+    /// For example: `ctrl+w>escape=end_key_sequence` would encode
+    /// `ctrl+w` to the terminal and exit the key sequence.
+    ///
+    /// Normally, an invalid sequence will reset the key sequence and
+    /// flush all data including the invalid key. This action allows
+    /// you to flush only the prior keys, which is useful when you want
+    /// to bind something like a control key (`ctrl+w`) but not send
+    /// additional inputs.
+    end_key_sequence,
+
+    /// Activate a named key table (see `keybind` configuration documentation).
+    /// The named key table will remain active until `deactivate_key_table`
+    /// is called. If you want a one-shot key table activation, use the
+    /// `activate_key_table_once` action instead.
+    ///
+    /// If the named key table does not exist, this action has no effect
+    /// and performable will report false.
+    ///
+    /// If the named key table is already the currently active key table,
+    /// this action has no effect and performable will report false.
+    activate_key_table: []const u8,
+
+    /// Same as activate_key_table, but the key table will only be active
+    /// until the first valid keybinding from that table is used (including
+    /// any defined `catch_all` bindings).
+    ///
+    /// The "once" check is only done if this is the currently active
+    /// key table. If another key table is activated later, then this
+    /// table will remain active until it pops back out to being the
+    /// active key table.
+    activate_key_table_once: []const u8,
+
+    /// Deactivate the currently active key table, if any. The next most
+    /// recently activated key table (if any) will become active again.
+    /// If no key table is active, this action has no effect.
+    deactivate_key_table,
+
+    /// Deactivate all active key tables. If no active key table exists,
+    /// this will report performable as false.
+    deactivate_all_key_tables,
 
     /// Quit Ghostty.
     quit,
@@ -919,6 +1054,11 @@ pub const Action = union(enum) {
         right,
     };
 
+    pub const GotoWindow = enum {
+        previous,
+        next,
+    };
+
     pub const SplitResizeParameter = struct {
         SplitResizeDirection,
         u16,
@@ -1007,6 +1147,7 @@ pub const Action = union(enum) {
     pub const CloseTabMode = enum {
         this,
         other,
+        right,
 
         pub const default: CloseTabMode = .this;
     };
@@ -1180,6 +1321,7 @@ pub const Action = union(enum) {
             .cursor_key,
             .search,
             .navigate_search,
+            .search_selection,
             .start_search,
             .end_search,
             .reset,
@@ -1193,6 +1335,9 @@ pub const Action = union(enum) {
             .reset_font_size,
             .set_font_size,
             .prompt_surface_title,
+            .prompt_tab_title,
+            .set_surface_title,
+            .set_tab_title,
             .clear_screen,
             .select_all,
             .scroll_to_top,
@@ -1218,8 +1363,14 @@ pub const Action = union(enum) {
             .toggle_secure_input,
             .toggle_mouse_reporting,
             .toggle_command_palette,
+            .toggle_background_opacity,
             .show_on_screen_keyboard,
             .reset_window_size,
+            .activate_key_table,
+            .activate_key_table_once,
+            .deactivate_key_table,
+            .deactivate_all_key_tables,
+            .end_key_sequence,
             .crash,
             => .surface,
 
@@ -1236,7 +1387,9 @@ pub const Action = union(enum) {
             .toggle_tab_overview,
             .new_split,
             .goto_split,
+            .goto_window,
             .toggle_split_zoom,
+            .toggle_readonly,
             .resize_split,
             .equalize_splits,
             .inspector,
@@ -1446,6 +1599,24 @@ pub const Action = union(enum) {
             },
         }
     }
+
+    /// Compares two actions for equality.
+    pub fn equal(self: Action, other: Action) bool {
+        if (std.meta.activeTag(self) != std.meta.activeTag(other)) return false;
+        return switch (self) {
+            inline else => |field_self, tag| {
+                const field_other = @field(other, @tagName(tag));
+                return deepEqual(
+                    @TypeOf(field_self),
+                    field_self,
+                    field_other,
+                );
+            },
+        };
+    }
+
+    /// For the Set.Context
+    const bindingSetEqual = equal;
 };
 
 /// Trigger is the associated key state that can trigger an action.
@@ -1470,6 +1641,10 @@ pub const Trigger = struct {
         /// codepoint. This is useful for binding to keys that don't have a
         /// registered keycode with Ghostty.
         unicode: u21,
+
+        /// A catch-all key that matches any key press that is otherwise
+        /// unbound.
+        catch_all,
     };
 
     /// The extern struct used for triggers in the C API.
@@ -1481,6 +1656,7 @@ pub const Trigger = struct {
         pub const Tag = enum(c_int) {
             physical,
             unicode,
+            catch_all,
         };
 
         pub const Key = extern union {
@@ -1516,18 +1692,12 @@ pub const Trigger = struct {
             }
 
             // Alias modifiers
-            const alias_mods = .{
-                .{ "cmd", "super" },
-                .{ "command", "super" },
-                .{ "opt", "alt" },
-                .{ "option", "alt" },
-                .{ "control", "ctrl" },
-            };
-            inline for (alias_mods) |pair| {
+            inline for (key_mods.alias) |pair| {
                 if (std.mem.eql(u8, part, pair[0])) {
                     // Repeat not allowed
-                    if (@field(result.mods, pair[1])) return Error.InvalidFormat;
-                    @field(result.mods, pair[1]) = true;
+                    const field = @tagName(pair[1]);
+                    if (@field(result.mods, field)) return Error.InvalidFormat;
+                    @field(result.mods, field) = true;
                     continue :loop;
                 }
             }
@@ -1573,6 +1743,13 @@ pub const Trigger = struct {
             // Look for a matching w3c name next.
             if (key.Key.fromW3C(part)) |w3c_key| {
                 result.key = .{ .physical = w3c_key };
+                continue :loop;
+            }
+
+            // Check for catch_all. We do this near the end since its unlikely
+            // in most cases that we're setting a catch-all key.
+            if (std.mem.eql(u8, part, "catch_all")) {
+                result.key = .catch_all;
                 continue :loop;
             }
 
@@ -1716,7 +1893,7 @@ pub const Trigger = struct {
     pub fn isKeyUnset(self: Trigger) bool {
         return switch (self.key) {
             .physical => |v| v == .unidentified,
-            else => false,
+            .unicode, .catch_all => false,
         };
     }
 
@@ -1736,6 +1913,7 @@ pub const Trigger = struct {
                 hasher,
                 foldedCodepoint(cp),
             ),
+            .catch_all => {},
         }
         std.hash.autoHash(hasher, self.mods.binding());
     }
@@ -1759,6 +1937,39 @@ pub const Trigger = struct {
         return array;
     }
 
+    /// Returns true if two triggers are equal.
+    pub fn equal(self: Trigger, other: Trigger) bool {
+        if (self.mods != other.mods) return false;
+        const self_tag = std.meta.activeTag(self.key);
+        const other_tag = std.meta.activeTag(other.key);
+        if (self_tag != other_tag) return false;
+        return switch (self.key) {
+            .physical => |v| v == other.key.physical,
+            .unicode => |v| v == other.key.unicode,
+            .catch_all => true,
+        };
+    }
+
+    /// Returns true if two triggers are equal using folded codepoints.
+    pub fn foldedEqual(self: Trigger, other: Trigger) bool {
+        if (self.mods != other.mods) return false;
+        const self_tag = std.meta.activeTag(self.key);
+        const other_tag = std.meta.activeTag(other.key);
+        if (self_tag != other_tag) return false;
+        return switch (self.key) {
+            .physical => |v| v == other.key.physical,
+            .unicode => |v| deepEqual(
+                [3]u21,
+                foldedCodepoint(v),
+                foldedCodepoint(other.key.unicode),
+            ),
+            .catch_all => true,
+        };
+    }
+
+    /// For the Set.Context
+    const bindingSetEqual = foldedEqual;
+
     /// Convert the trigger to a C API compatible trigger.
     pub fn cval(self: Trigger) C {
         return .{
@@ -1766,6 +1977,9 @@ pub const Trigger = struct {
             .key = switch (self.key) {
                 .physical => |v| .{ .physical = v },
                 .unicode => |v| .{ .unicode = @intCast(v) },
+                // catch_all has no associated value so its an error
+                // for a C consumer to look at it.
+                .catch_all => undefined,
             },
             .mods = self.mods,
         };
@@ -1786,6 +2000,7 @@ pub const Trigger = struct {
         switch (self.key) {
             .physical => |k| try writer.print("{t}", .{k}),
             .unicode => |c| try writer.print("{u}", .{c}),
+            .catch_all => try writer.writeAll("catch_all"),
         }
     }
 };
@@ -1794,18 +2009,18 @@ pub const Trigger = struct {
 /// The use case is that this will be called on EVERY key input to look
 /// for an associated action so it must be fast.
 pub const Set = struct {
-    const HashMap = std.HashMapUnmanaged(
+    const HashMap = std.ArrayHashMapUnmanaged(
         Trigger,
         Value,
         Context(Trigger),
-        std.hash_map.default_max_load_percentage,
+        true,
     );
 
-    const ReverseMap = std.HashMapUnmanaged(
+    const ReverseMap = std.ArrayHashMapUnmanaged(
         Action,
         Trigger,
         Context(Action),
-        std.hash_map.default_max_load_percentage,
+        true,
     );
 
     /// The set of bindings.
@@ -1828,6 +2043,23 @@ pub const Set = struct {
     /// integration with GUI toolkits.
     reverse: ReverseMap = .{},
 
+    /// The chain parent is the information necessary to attach a chained
+    /// action to the proper location in our mapping. It tracks both the
+    /// entry in the hashmap and the set it belongs to, which is needed
+    /// to properly update reverse mappings when converting a leaf to
+    /// a chained action.
+    chain_parent: ?ChainParent = null,
+
+    /// Information about a chain parent entry, including which set it
+    /// belongs to. This is needed because reverse mappings are only
+    /// maintained in the root set, but the chain parent entry may be
+    /// in a nested set (for leader key sequences).
+    const ChainParent = struct {
+        key_ptr: *Trigger,
+        value_ptr: *Value,
+        set: *Set,
+    };
+
     /// The entry type for the forward mapping of trigger to action.
     pub const Value = union(enum) {
         /// This key is a leader key in a sequence. You must follow the given
@@ -1837,6 +2069,9 @@ pub const Set = struct {
         /// This trigger completes a sequence and the value is the action
         /// to take along with the flags that may define binding behavior.
         leaf: Leaf,
+
+        /// A set of actions to take in response to a trigger.
+        leaf_chained: LeafChained,
 
         /// Implements the formatter for the fmt package. This encodes the
         /// action back into the format used by parse.
@@ -1872,7 +2107,7 @@ pub const Set = struct {
         ///
         /// `buffer_stream` is a FixedBufferStream used for temporary storage
         /// that is shared between calls to nested levels of the set.
-        /// For example, 'a>b>c=x' and 'a>b>d=y' will re-use the 'a>b' written
+        /// For example, 'a>b>c=x' and 'a>b>d=y' will reuse the 'a>b' written
         /// to the buffer before flushing it to the formatter with 'c=x' and 'd=y'.
         pub fn formatEntries(
             self: Value,
@@ -1903,6 +2138,20 @@ pub const Set = struct {
                     buffer.print("={f}", .{leaf.action}) catch return error.OutOfMemory;
                     try formatter.formatEntry([]const u8, buffer.buffer[0..buffer.end]);
                 },
+
+                .leaf_chained => |leaf| {
+                    const pos = buffer.end;
+                    for (leaf.actions.items, 0..) |action, i| {
+                        if (i == 0) {
+                            buffer.print("={f}", .{action}) catch return error.OutOfMemory;
+                        } else {
+                            buffer.end = 0;
+                            buffer.print("chain={f}", .{action}) catch return error.OutOfMemory;
+                        }
+                        try formatter.formatEntry([]const u8, buffer.buffer[0..buffer.end]);
+                        buffer.end = pos;
+                    }
+                },
             }
         }
     };
@@ -1929,6 +2178,62 @@ pub const Set = struct {
             std.hash.autoHash(&hasher, self.flags);
             return hasher.final();
         }
+
+        pub fn generic(self: *const Leaf) GenericLeaf {
+            return .{
+                .flags = self.flags,
+                .actions = .{ .single = .{self.action} },
+            };
+        }
+    };
+
+    /// Leaf node of a set that triggers multiple actions in sequence.
+    pub const LeafChained = struct {
+        actions: std.ArrayList(Action),
+        flags: Flags,
+
+        pub fn clone(
+            self: LeafChained,
+            alloc: Allocator,
+        ) Allocator.Error!LeafChained {
+            var cloned_actions = try self.actions.clone(alloc);
+            errdefer cloned_actions.deinit(alloc);
+            for (cloned_actions.items) |*action| {
+                action.* = try action.clone(alloc);
+            }
+            return .{
+                .actions = cloned_actions,
+                .flags = self.flags,
+            };
+        }
+
+        pub fn deinit(self: *LeafChained, alloc: Allocator) void {
+            self.actions.deinit(alloc);
+        }
+
+        pub fn generic(self: *const LeafChained) GenericLeaf {
+            return .{
+                .flags = self.flags,
+                .actions = .{ .many = self.actions.items },
+            };
+        }
+    };
+
+    /// A generic leaf node that can be used to unify the handling of
+    /// leaf and leaf_chained.
+    pub const GenericLeaf = struct {
+        flags: Flags,
+        actions: union(enum) {
+            single: [1]Action,
+            many: []const Action,
+        },
+
+        pub fn actionsSlice(self: *const GenericLeaf) []const Action {
+            return switch (self.actions) {
+                .single => |*arr| arr,
+                .many => |slice| slice,
+            };
+        }
     };
 
     /// A full key-value entry for the set.
@@ -1942,6 +2247,9 @@ pub const Set = struct {
                 s.deinit(alloc);
                 alloc.destroy(s);
             },
+
+            .leaf_chained => |*l| l.deinit(alloc),
+
             .leaf => {},
         };
 
@@ -1971,26 +2279,65 @@ pub const Set = struct {
 
         // We use recursion so that we can utilize the stack as our state
         // for cleanup.
-        self.parseAndPutRecurse(alloc, &it) catch |err| switch (err) {
-            // If this gets sent up to the root then we've unbound
-            // all the way up and this put was a success.
-            error.SequenceUnbind => {},
+        const updated_set_ = self.parseAndPutRecurse(
+            self,
+            alloc,
+            &it,
+        ) catch |err| err: {
+            switch (err) {
+                // If this gets sent up to the root then we've unbound
+                // all the way up and this put was a success.
+                error.SequenceUnbind => break :err null,
 
-            // Unrecoverable
-            error.OutOfMemory => return error.OutOfMemory,
+                // If our parser input was too short then the format
+                // is invalid because we handle all valid cases.
+                error.UnexpectedEndOfInput => return error.InvalidFormat,
+
+                // If we had a chain without a parent then the format is wrong.
+                error.NoChainParent => return error.InvalidFormat,
+
+                // If we had an invalid action for a chain (e.g. unbind).
+                error.InvalidChainAction => return error.InvalidFormat,
+
+                // Unrecoverable
+                error.OutOfMemory => return error.OutOfMemory,
+            }
+
+            // Errors must never fall through.
+            unreachable;
         };
+
+        // If we have an updated set (a binding was added) then we store
+        // it for our chain parent. If we didn't update a set then we clear
+        // our chain parent since chaining is no longer valid until a
+        // valid binding is saved.
+        if (updated_set_) |updated_set| {
+            // A successful addition must have recorded a chain parent.
+            assert(updated_set.chain_parent != null);
+            if (updated_set != self) self.chain_parent = updated_set.chain_parent;
+            assert(self.chain_parent != null);
+        } else {
+            self.chain_parent = null;
+        }
     }
 
     const ParseAndPutRecurseError = Allocator.Error || error{
         SequenceUnbind,
+        NoChainParent,
+        UnexpectedEndOfInput,
+        InvalidChainAction,
     };
 
+    /// Returns the set that was ultimately updated if a binding was
+    /// added. Unbind does not return a set since nothing was added.
     fn parseAndPutRecurse(
+        root: *Set,
         set: *Set,
         alloc: Allocator,
         it: *Parser,
-    ) ParseAndPutRecurseError!void {
-        const elem = (it.next() catch unreachable) orelse return;
+    ) ParseAndPutRecurseError!?*Set {
+        const elem = (it.next() catch unreachable) orelse
+            return error.UnexpectedEndOfInput;
         switch (elem) {
             .leader => |t| {
                 // If we have a leader, we need to upsert a set for it.
@@ -2002,7 +2349,7 @@ pub const Set = struct {
                 if (old) |entry| switch (entry) {
                     // We have an existing leader for this key already
                     // so recurse into this set.
-                    .leader => |s| return parseAndPutRecurse(
+                    .leader => |s| return root.parseAndPutRecurse(
                         s,
                         alloc,
                         it,
@@ -2013,12 +2360,16 @@ pub const Set = struct {
                         error.SequenceUnbind => if (s.bindings.count() == 0) {
                             set.remove(alloc, t);
                             return error.SequenceUnbind;
-                        },
+                        } else null,
 
-                        error.OutOfMemory => return error.OutOfMemory,
+                        error.NoChainParent,
+                        error.UnexpectedEndOfInput,
+                        error.InvalidChainAction,
+                        error.OutOfMemory,
+                        => err,
                     },
 
-                    .leaf => {
+                    .leaf, .leaf_chained => {
                         // Remove the existing action. Fallthrough as if
                         // we don't have a leader.
                         set.remove(alloc, t);
@@ -2035,7 +2386,7 @@ pub const Set = struct {
                 try set.bindings.put(alloc, t, .{ .leader = next });
 
                 // Recurse
-                parseAndPutRecurse(next, alloc, it) catch |err| switch (err) {
+                return root.parseAndPutRecurse(next, alloc, it) catch |err| switch (err) {
                     // If our action was to unbind, we restore the old
                     // action if we have it.
                     error.SequenceUnbind => {
@@ -2048,10 +2399,35 @@ pub const Set = struct {
                                 leaf.action,
                                 leaf.flags,
                             ) catch {},
+
+                            .leaf_chained => |leaf| chain: {
+                                // Rebuild our chain
+                                set.putFlags(
+                                    alloc,
+                                    t,
+                                    leaf.actions.items[0],
+                                    leaf.flags,
+                                ) catch break :chain;
+                                for (leaf.actions.items[1..]) |action| {
+                                    set.appendChain(
+                                        alloc,
+                                        action,
+                                    ) catch {
+                                        set.remove(alloc, t);
+                                        break :chain;
+                                    };
+                                }
+                            },
                         };
+
+                        return null;
                     },
 
-                    error.OutOfMemory => return error.OutOfMemory,
+                    error.NoChainParent,
+                    error.UnexpectedEndOfInput,
+                    error.InvalidChainAction,
+                    error.OutOfMemory,
+                    => return err,
                 };
             },
 
@@ -2061,12 +2437,24 @@ pub const Set = struct {
                     return error.SequenceUnbind;
                 },
 
-                else => try set.putFlags(
-                    alloc,
-                    b.trigger,
-                    b.action,
-                    b.flags,
-                ),
+                else => {
+                    try set.putFlags(
+                        alloc,
+                        b.trigger,
+                        b.action,
+                        b.flags,
+                    );
+                    return set;
+                },
+            },
+
+            .chain => |action| {
+                // Chains can only happen on the root.
+                assert(set == root);
+                // Unbind is not valid for chains.
+                if (action == .unbind) return error.InvalidChainAction;
+                try set.appendChain(alloc, action);
+                return set;
             },
         }
     }
@@ -2098,7 +2486,22 @@ pub const Set = struct {
         // See the reverse map docs for more information.
         const track_reverse: bool = !flags.performable;
 
+        // No matter what our chained parent becomes invalid because
+        // getOrPut invalidates pointers.
+        self.chain_parent = null;
+
         const gop = try self.bindings.getOrPut(alloc, t);
+        self.chain_parent = .{
+            .key_ptr = gop.key_ptr,
+            .value_ptr = gop.value_ptr,
+            .set = self,
+        };
+        errdefer {
+            // If we have any errors we can't trust our values here. And
+            // we can't restore the old values because they're also invalidated
+            // by getOrPut so we just disable chaining.
+            self.chain_parent = null;
+        }
 
         if (gop.found_existing) switch (gop.value_ptr.*) {
             // If we have a leader we need to clean up the memory
@@ -2111,13 +2514,18 @@ pub const Set = struct {
             // update the reverse mapping to remove the old action.
             .leaf => if (track_reverse) {
                 const t_hash = t.hash();
-                var it = self.reverse.iterator();
-                while (it.next()) |reverse_entry| it: {
-                    if (t_hash == reverse_entry.value_ptr.hash()) {
-                        self.reverse.removeByPtr(reverse_entry.key_ptr);
-                        break :it;
+                for (0.., self.reverse.values()) |i, *value| {
+                    if (t_hash == value.hash()) {
+                        self.reverse.swapRemoveAt(i);
+                        break;
                     }
                 }
+            },
+
+            // Chained leaves aren't in the reverse mapping so we just
+            // clear it out.
+            .leaf_chained => |*l| {
+                l.deinit(alloc);
             },
         };
 
@@ -2125,10 +2533,74 @@ pub const Set = struct {
             .action = action,
             .flags = flags,
         } };
-        errdefer _ = self.bindings.remove(t);
+        errdefer _ = self.bindings.swapRemove(t);
 
         if (track_reverse) try self.reverse.put(alloc, action, t);
         errdefer if (track_reverse) self.reverse.remove(action);
+
+        // Invariant: after successful put, chain_parent must be valid and point
+        // to the entry we just added/updated.
+        assert(self.chain_parent != null);
+        assert(self.chain_parent.?.key_ptr == gop.key_ptr);
+        assert(self.chain_parent.?.value_ptr == gop.value_ptr);
+        assert(self.chain_parent.?.value_ptr.* == .leaf);
+    }
+
+    /// Append a chained action to the prior set action.
+    ///
+    /// It is an error if there is no valid prior chain parent.
+    pub fn appendChain(
+        self: *Set,
+        alloc: Allocator,
+        action: Action,
+    ) (Allocator.Error || error{NoChainParent})!void {
+        // Unbind is not a valid chain action; callers must check this.
+        assert(action != .unbind);
+
+        const parent = self.chain_parent orelse return error.NoChainParent;
+        switch (parent.value_ptr.*) {
+            // Leader can never be a chain parent. Verified through various
+            // assertions and unit tests.
+            .leader => unreachable,
+
+            // If it is already a chained action, we just append the
+            // action. Easy!
+            .leaf_chained => |*leaf| try leaf.actions.append(
+                alloc,
+                action,
+            ),
+
+            // If it is a leaf, we need to convert it to a leaf_chained.
+            // We also need to be careful to remove any prior reverse
+            // mappings for this action since chained actions are not
+            // part of the reverse mapping.
+            .leaf => |leaf| {
+                // Setup our failable actions list first.
+                var actions: std.ArrayList(Action) = .empty;
+                try actions.ensureTotalCapacity(alloc, 2);
+                errdefer actions.deinit(alloc);
+                actions.appendAssumeCapacity(leaf.action);
+                actions.appendAssumeCapacity(action);
+
+                // Convert to leaf_chained first, before fixing up reverse
+                // mapping. This is important because fixupReverseForAction
+                // searches for other bindings with the same action, and we
+                // don't want to find this entry (which is now chained).
+                parent.value_ptr.* = .{ .leaf_chained = .{
+                    .actions = actions,
+                    .flags = leaf.flags,
+                } };
+
+                // Clean up our reverse mapping. Chained actions are not
+                // part of the reverse mapping, so we need to fix up the
+                // reverse map (possibly restoring another trigger for the
+                // same action).
+                parent.set.fixupReverseForAction(
+                    leaf.action,
+                    parent.key_ptr.*,
+                );
+            },
+        }
     }
 
     /// Get a binding for a given trigger.
@@ -2145,9 +2617,8 @@ pub const Set = struct {
     /// Get an entry for the given key event. This will attempt to find
     /// a binding using multiple parts of the event in the following order:
     ///
-    ///   1. Translated key (event.key)
-    ///   2. Physical key (event.physical_key)
-    ///   3. Unshifted Unicode codepoint (event.unshifted_codepoint)
+    ///   1. Physical key (event.physical_key)
+    ///   2. Unshifted Unicode codepoint (event.unshifted_codepoint)
     ///
     pub fn getEvent(self: *const Set, event: KeyEvent) ?Entry {
         var trigger: Trigger = .{
@@ -2178,6 +2649,14 @@ pub const Set = struct {
             if (self.get(trigger)) |v| return v;
         }
 
+        // Fallback to catch_all with modifiers first, then without modifiers.
+        trigger.key = .catch_all;
+        if (self.get(trigger)) |v| return v;
+        if (!trigger.mods.empty()) {
+            trigger.mods = .{};
+            if (self.get(trigger)) |v| return v;
+        }
+
         return null;
     }
 
@@ -2187,8 +2666,13 @@ pub const Set = struct {
     }
 
     fn removeExact(self: *Set, alloc: Allocator, t: Trigger) void {
-        const entry = self.bindings.get(t) orelse return;
-        _ = self.bindings.remove(t);
+        // Removal always resets our chain parent. We could make this
+        // finer grained but the way it is documented is that chaining
+        // must happen directly after sets so this works.
+        self.chain_parent = null;
+
+        var entry = self.bindings.get(t) orelse return;
+        _ = self.bindings.swapRemove(t);
 
         switch (entry) {
             // For a leader removal, we need to deallocate our child set.
@@ -2200,30 +2684,65 @@ pub const Set = struct {
             },
 
             // For an action we need to fix up the reverse mapping.
-            // Note: we'd LIKE to replace this with the most recent binding but
-            // our hash map obviously has no concept of ordering so we have to
-            // choose whatever. Maybe a switch to an array hash map here.
-            .leaf => |leaf| {
-                const action_hash = leaf.action.hash();
+            .leaf => |leaf| self.fixupReverseForAction(
+                leaf.action,
+                t,
+            ),
 
-                var it = self.bindings.iterator();
-                while (it.next()) |it_entry| {
-                    switch (it_entry.value_ptr.*) {
-                        .leader => {},
-                        .leaf => |leaf_search| {
-                            if (leaf_search.action.hash() == action_hash) {
-                                self.reverse.putAssumeCapacity(leaf.action, it_entry.key_ptr.*);
-                                break;
-                            }
-                        },
-                    }
-                } else {
-                    // No other trigger points to this action so we remove
-                    // the reverse mapping completely.
-                    _ = self.reverse.remove(leaf.action);
-                }
+            // Chained leaves are never in our reverse mapping so no
+            // cleanup is required.
+            .leaf_chained => |*l| {
+                l.deinit(alloc);
             },
         }
+    }
+
+    /// Fix up the reverse mapping after removing an action.
+    ///
+    /// When an action is removed from a binding (either by removal or by
+    /// converting to a chained action), we need to update the reverse mapping.
+    /// If another binding has the same action, we update the reverse mapping
+    /// to point to that binding. Otherwise, we remove the action from the
+    /// reverse mapping entirely.
+    ///
+    /// The `old` parameter is the trigger that was previously bound to this
+    /// action. It is used to check if the reverse mapping still points to
+    /// this trigger; if not, no fixup is needed since the reverse map already
+    /// points to a different trigger for this action.
+    ///
+    /// Note: we'd LIKE to replace this with the most recent binding but
+    /// our hash map obviously has no concept of ordering so we have to
+    /// choose whatever. Maybe a switch to an array hash map here.
+    fn fixupReverseForAction(
+        self: *Set,
+        action: Action,
+        old: Trigger,
+    ) void {
+        const entry = self.reverse.getEntry(action) orelse return;
+
+        // If our value is not the same as the old trigger, we can
+        // ignore it because our reverse mapping points somewhere else.
+        if (!entry.value_ptr.equal(old)) return;
+
+        // It is the same trigger, so let's now go through our bindings
+        // and try to find another trigger that maps to the same action.
+        const action_hash = action.hash();
+        var it = self.bindings.iterator();
+        while (it.next()) |it_entry| {
+            switch (it_entry.value_ptr.*) {
+                .leader, .leaf_chained => {},
+                .leaf => |leaf_search| {
+                    if (leaf_search.action.hash() == action_hash) {
+                        entry.value_ptr.* = it_entry.key_ptr.*;
+                        return;
+                    }
+                },
+            }
+        }
+
+        // No other trigger points to this action so we remove
+        // the reverse mapping completely.
+        _ = self.reverse.swapRemove(action);
     }
 
     /// Deep clone the set.
@@ -2241,6 +2760,8 @@ pub const Set = struct {
                 // contain allocated strings).
                 .leaf => |*s| s.* = try s.clone(alloc),
 
+                .leaf_chained => |*s| s.* = try s.clone(alloc),
+
                 // Must be deep cloned.
                 .leader => |*s| {
                     const ptr = try alloc.create(Set);
@@ -2254,9 +2775,8 @@ pub const Set = struct {
 
         // We need to clone the action keys in the reverse map since
         // they may contain allocated values.
-        {
-            var it = result.reverse.keyIterator();
-            while (it.next()) |action| action.* = try action.clone(alloc);
+        for (result.reverse.keys()) |*action| {
+            action.* = try action.clone(alloc);
         }
 
         return result;
@@ -2266,13 +2786,23 @@ pub const Set = struct {
     /// gets the hash key and checks for equality.
     fn Context(comptime KeyType: type) type {
         return struct {
-            pub fn hash(ctx: @This(), k: KeyType) u64 {
+            pub fn hash(ctx: @This(), k: KeyType) u32 {
                 _ = ctx;
-                return k.hash();
+                // This seems crazy at first glance but this is also how
+                // the Zig standard library handles hashing for array
+                // hash maps!
+                return @truncate(k.hash());
             }
 
-            pub fn eql(ctx: @This(), a: KeyType, b: KeyType) bool {
-                return ctx.hash(a) == ctx.hash(b);
+            pub fn eql(
+                ctx: @This(),
+                a: KeyType,
+                b: KeyType,
+                b_index: usize,
+            ) bool {
+                _ = ctx;
+                _ = b_index;
+                return a.bindingSetEqual(b);
             }
         };
     }
@@ -2396,6 +2926,31 @@ test "parse: w3c key names" {
 
     // Case-sensitive
     try testing.expectError(Error.InvalidFormat, parseSingle("Keya=ignore"));
+}
+
+test "parse: catch_all" {
+    const testing = std.testing;
+
+    // Basic catch_all
+    try testing.expectEqual(
+        Binding{
+            .trigger = .{ .key = .catch_all },
+            .action = .{ .ignore = {} },
+        },
+        try parseSingle("catch_all=ignore"),
+    );
+
+    // catch_all with modifiers
+    try testing.expectEqual(
+        Binding{
+            .trigger = .{
+                .mods = .{ .ctrl = true },
+                .key = .catch_all,
+            },
+            .action = .{ .ignore = {} },
+        },
+        try parseSingle("ctrl+catch_all=ignore"),
+    );
 }
 
 test "parse: plus sign" {
@@ -2612,6 +3167,66 @@ test "parse: all triggers" {
     }
 }
 
+test "Trigger: equal" {
+    const testing = std.testing;
+
+    // Equal physical keys
+    {
+        const t1: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .ctrl = true } };
+        const t2: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .ctrl = true } };
+        try testing.expect(t1.equal(t2));
+    }
+
+    // Different physical keys
+    {
+        const t1: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .ctrl = true } };
+        const t2: Trigger = .{ .key = .{ .physical = .arrow_down }, .mods = .{ .ctrl = true } };
+        try testing.expect(!t1.equal(t2));
+    }
+
+    // Different mods
+    {
+        const t1: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .ctrl = true } };
+        const t2: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .shift = true } };
+        try testing.expect(!t1.equal(t2));
+    }
+
+    // Equal unicode keys
+    {
+        const t1: Trigger = .{ .key = .{ .unicode = 'a' }, .mods = .{} };
+        const t2: Trigger = .{ .key = .{ .unicode = 'a' }, .mods = .{} };
+        try testing.expect(t1.equal(t2));
+    }
+
+    // Different unicode keys
+    {
+        const t1: Trigger = .{ .key = .{ .unicode = 'a' }, .mods = .{} };
+        const t2: Trigger = .{ .key = .{ .unicode = 'b' }, .mods = .{} };
+        try testing.expect(!t1.equal(t2));
+    }
+
+    // Different key types
+    {
+        const t1: Trigger = .{ .key = .{ .unicode = 'a' }, .mods = .{} };
+        const t2: Trigger = .{ .key = .{ .physical = .key_a }, .mods = .{} };
+        try testing.expect(!t1.equal(t2));
+    }
+
+    // catch_all
+    {
+        const t1: Trigger = .{ .key = .catch_all, .mods = .{} };
+        const t2: Trigger = .{ .key = .catch_all, .mods = .{} };
+        try testing.expect(t1.equal(t2));
+    }
+
+    // catch_all with different mods
+    {
+        const t1: Trigger = .{ .key = .catch_all, .mods = .{} };
+        const t2: Trigger = .{ .key = .catch_all, .mods = .{ .alt = true } };
+        try testing.expect(!t1.equal(t2));
+    }
+}
+
 test "parse: modifier aliases" {
     const testing = std.testing;
 
@@ -2690,6 +3305,16 @@ test "parse: action with string" {
         try testing.expect(binding.action == .esc);
         try testing.expectEqualStrings("A", binding.action.esc);
     }
+    {
+        const binding = try parseSingle("a=set_surface_title:surface");
+        try testing.expect(binding.action == .set_surface_title);
+        try testing.expectEqualStrings("surface", binding.action.set_surface_title);
+    }
+    {
+        const binding = try parseSingle("a=set_tab_title:tab");
+        try testing.expect(binding.action == .set_tab_title);
+        try testing.expectEqualStrings("tab", binding.action.set_tab_title);
+    }
 }
 
 test "parse: action with enum" {
@@ -2765,6 +3390,29 @@ test "parse: action with a tuple" {
 
     // invalid type
     try testing.expectError(Error.InvalidFormat, parseSingle("a=resize_split:up,four"));
+}
+
+test "parse: chain" {
+    const testing = std.testing;
+
+    // Valid
+    {
+        var p = try Parser.init("chain=new_tab");
+        try testing.expectEqual(Parser.Elem{
+            .chain = .new_tab,
+        }, try p.next());
+        try testing.expect(try p.next() == null);
+    }
+
+    // Chain can't have flags
+    try testing.expectError(error.InvalidFormat, Parser.init("global:chain=ignore"));
+
+    // Chain can't be part of a sequence
+    {
+        var p = try Parser.init("a>chain=ignore");
+        _ = try p.next();
+        try testing.expectError(error.InvalidFormat, p.next());
+    }
 }
 
 test "sequence iterator" {
@@ -2858,6 +3506,15 @@ test "set: parseAndPut typical binding" {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
         try testing.expect(trigger.key.unicode == 'a');
     }
+
+    // Sets up the chain parent properly
+    try testing.expect(s.chain_parent != null);
+    {
+        var buf: std.Io.Writer.Allocating = .init(alloc);
+        defer buf.deinit();
+        try s.chain_parent.?.key_ptr.format(&buf.writer);
+        try testing.expectEqualStrings("a", buf.written());
+    }
 }
 
 test "set: parseAndPut unconsumed binding" {
@@ -2882,6 +3539,15 @@ test "set: parseAndPut unconsumed binding" {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
         try testing.expect(trigger.key.unicode == 'a');
     }
+
+    // Sets up the chain parent properly
+    try testing.expect(s.chain_parent != null);
+    {
+        var buf: std.Io.Writer.Allocating = .init(alloc);
+        defer buf.deinit();
+        try s.chain_parent.?.key_ptr.format(&buf.writer);
+        try testing.expectEqualStrings("a", buf.written());
+    }
 }
 
 test "set: parseAndPut removed binding" {
@@ -2900,6 +3566,264 @@ test "set: parseAndPut removed binding" {
         try testing.expect(s.get(trigger) == null);
     }
     try testing.expect(s.getTrigger(.{ .new_window = {} }) == null);
+
+    // Sets up the chain parent properly
+    try testing.expect(s.chain_parent == null);
+}
+
+test "set: put sets chain_parent" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.put(alloc, .{ .key = .{ .unicode = 'a' } }, .{ .new_window = {} });
+
+    // chain_parent should be set
+    try testing.expect(s.chain_parent != null);
+    {
+        var buf: std.Io.Writer.Allocating = .init(alloc);
+        defer buf.deinit();
+        try s.chain_parent.?.key_ptr.format(&buf.writer);
+        try testing.expectEqualStrings("a", buf.written());
+    }
+
+    // chain_parent value should be a leaf
+    try testing.expect(s.chain_parent.?.value_ptr.* == .leaf);
+}
+
+test "set: putFlags sets chain_parent" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.putFlags(
+        alloc,
+        .{ .key = .{ .unicode = 'a' } },
+        .{ .new_window = {} },
+        .{ .consumed = false },
+    );
+
+    // chain_parent should be set
+    try testing.expect(s.chain_parent != null);
+    {
+        var buf: std.Io.Writer.Allocating = .init(alloc);
+        defer buf.deinit();
+        try s.chain_parent.?.key_ptr.format(&buf.writer);
+        try testing.expectEqualStrings("a", buf.written());
+    }
+
+    // chain_parent value should be a leaf with correct flags
+    try testing.expect(s.chain_parent.?.value_ptr.* == .leaf);
+    try testing.expect(!s.chain_parent.?.value_ptr.*.leaf.flags.consumed);
+}
+
+test "set: sequence sets chain_parent to final leaf" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "a>b=new_window");
+
+    // chain_parent should be set and point to 'b' (the final leaf)
+    try testing.expect(s.chain_parent != null);
+    {
+        var buf: std.Io.Writer.Allocating = .init(alloc);
+        defer buf.deinit();
+        try s.chain_parent.?.key_ptr.format(&buf.writer);
+        try testing.expectEqualStrings("b", buf.written());
+    }
+
+    // chain_parent value should be a leaf
+    try testing.expect(s.chain_parent.?.value_ptr.* == .leaf);
+    try testing.expect(s.chain_parent.?.value_ptr.*.leaf.action == .new_window);
+}
+
+test "set: multiple leaves under leader updates chain_parent" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "a>b=new_window");
+
+    // After first binding, chain_parent should be 'b'
+    try testing.expect(s.chain_parent != null);
+    {
+        var buf: std.Io.Writer.Allocating = .init(alloc);
+        defer buf.deinit();
+        try s.chain_parent.?.key_ptr.format(&buf.writer);
+        try testing.expectEqualStrings("b", buf.written());
+    }
+
+    try s.parseAndPut(alloc, "a>c=new_tab");
+
+    // After second binding, chain_parent should be updated to 'c'
+    try testing.expect(s.chain_parent != null);
+    {
+        var buf: std.Io.Writer.Allocating = .init(alloc);
+        defer buf.deinit();
+        try s.chain_parent.?.key_ptr.format(&buf.writer);
+        try testing.expectEqualStrings("c", buf.written());
+    }
+    try testing.expect(s.chain_parent.?.value_ptr.*.leaf.action == .new_tab);
+}
+
+test "set: sequence unbind clears chain_parent" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "a>b=new_window");
+    try testing.expect(s.chain_parent != null);
+
+    try s.parseAndPut(alloc, "a>b=unbind");
+
+    // After unbind, chain_parent should be cleared
+    try testing.expect(s.chain_parent == null);
+}
+
+test "set: sequence unbind with remaining leaves clears chain_parent" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "a>b=new_window");
+    try s.parseAndPut(alloc, "a>c=new_tab");
+    try s.parseAndPut(alloc, "a>b=unbind");
+
+    // After unbind, chain_parent should be cleared even though 'c' remains
+    try testing.expect(s.chain_parent == null);
+
+    // But 'c' should still exist
+    const a_entry = s.get(.{ .key = .{ .unicode = 'a' } }).?;
+    try testing.expect(a_entry.value_ptr.* == .leader);
+    const inner_set = a_entry.value_ptr.*.leader;
+    try testing.expect(inner_set.get(.{ .key = .{ .unicode = 'c' } }) != null);
+}
+
+test "set: direct remove clears chain_parent" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.put(alloc, .{ .key = .{ .unicode = 'a' } }, .{ .new_window = {} });
+    try testing.expect(s.chain_parent != null);
+
+    s.remove(alloc, .{ .key = .{ .unicode = 'a' } });
+
+    // After removal, chain_parent should be cleared
+    try testing.expect(s.chain_parent == null);
+}
+
+test "set: invalid format preserves chain_parent" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "a=new_window");
+    const before_key = s.chain_parent.?.key_ptr;
+    const before_value = s.chain_parent.?.value_ptr;
+
+    // Try an invalid parse - should fail
+    try testing.expectError(error.InvalidAction, s.parseAndPut(alloc, "a=invalid_action_xyz"));
+
+    // chain_parent should be unchanged
+    try testing.expect(s.chain_parent != null);
+    try testing.expect(s.chain_parent.?.key_ptr == before_key);
+    try testing.expect(s.chain_parent.?.value_ptr == before_value);
+}
+
+test "set: clone produces null chain_parent" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "a=new_window");
+    try testing.expect(s.chain_parent != null);
+
+    var cloned = try s.clone(alloc);
+    defer cloned.deinit(alloc);
+
+    // Clone should have null chain_parent
+    try testing.expect(cloned.chain_parent == null);
+
+    // But should have the binding
+    try testing.expect(cloned.get(.{ .key = .{ .unicode = 'a' } }) != null);
+}
+
+test "set: clone with leaf_chained" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Create a chained binding using parseAndPut with chain=
+    try s.parseAndPut(alloc, "a=new_window");
+    try s.parseAndPut(alloc, "chain=new_tab");
+
+    // Verify we have a leaf_chained
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?;
+    try testing.expect(entry.value_ptr.* == .leaf_chained);
+    try testing.expectEqual(@as(usize, 2), entry.value_ptr.leaf_chained.actions.items.len);
+
+    // Clone the set
+    var cloned = try s.clone(alloc);
+    defer cloned.deinit(alloc);
+
+    // Verify the cloned set has the leaf_chained with same actions
+    const cloned_entry = cloned.get(.{ .key = .{ .unicode = 'a' } }).?;
+    try testing.expect(cloned_entry.value_ptr.* == .leaf_chained);
+    try testing.expectEqual(@as(usize, 2), cloned_entry.value_ptr.leaf_chained.actions.items.len);
+    try testing.expect(cloned_entry.value_ptr.leaf_chained.actions.items[0] == .new_window);
+    try testing.expect(cloned_entry.value_ptr.leaf_chained.actions.items[1] == .new_tab);
+}
+
+test "set: clone with leaf_chained containing allocated data" {
+    const testing = std.testing;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var s: Set = .{};
+
+    // Create a chained binding with text actions (which have allocated strings)
+    try s.parseAndPut(alloc, "a=text:hello");
+    try s.parseAndPut(alloc, "chain=text:world");
+
+    // Verify we have a leaf_chained
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?;
+    try testing.expect(entry.value_ptr.* == .leaf_chained);
+
+    // Clone the set
+    const cloned = try s.clone(alloc);
+
+    // Verify the cloned set has independent copies of the text
+    const cloned_entry = cloned.get(.{ .key = .{ .unicode = 'a' } }).?;
+    try testing.expect(cloned_entry.value_ptr.* == .leaf_chained);
+    try testing.expectEqualStrings("hello", cloned_entry.value_ptr.leaf_chained.actions.items[0].text);
+    try testing.expectEqualStrings("world", cloned_entry.value_ptr.leaf_chained.actions.items[1].text);
+
+    // Verify the pointers are different (truly cloned, not shared)
+    try testing.expect(entry.value_ptr.leaf_chained.actions.items[0].text.ptr !=
+        cloned_entry.value_ptr.leaf_chained.actions.items[0].text.ptr);
 }
 
 test "set: parseAndPut sequence" {
@@ -3183,6 +4107,143 @@ test "set: consumed state" {
     try testing.expect(s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*.leaf.flags.consumed);
 }
 
+test "set: parseAndPut chain" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "a=new_window");
+    try s.parseAndPut(alloc, "chain=new_tab");
+
+    // Creates forward mapping as leaf_chained
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf_chained);
+        const chained = entry.leaf_chained;
+        try testing.expectEqual(@as(usize, 2), chained.actions.items.len);
+        try testing.expect(chained.actions.items[0] == .new_window);
+        try testing.expect(chained.actions.items[1] == .new_tab);
+    }
+
+    // Does not create reverse mapping, because reverse mappings are only for
+    // non-chained actions.
+    {
+        try testing.expect(s.getTrigger(.{ .new_window = {} }) == null);
+    }
+}
+
+test "set: parseAndPut chain without parent is error" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Chain without a prior binding should fail
+    try testing.expectError(error.InvalidFormat, s.parseAndPut(alloc, "chain=new_tab"));
+}
+
+test "set: parseAndPut chain multiple times" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "a=new_window");
+    try s.parseAndPut(alloc, "chain=new_tab");
+    try s.parseAndPut(alloc, "chain=close_surface");
+
+    // Should have 3 actions chained
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf_chained);
+        const chained = entry.leaf_chained;
+        try testing.expectEqual(@as(usize, 3), chained.actions.items.len);
+        try testing.expect(chained.actions.items[0] == .new_window);
+        try testing.expect(chained.actions.items[1] == .new_tab);
+        try testing.expect(chained.actions.items[2] == .close_surface);
+    }
+}
+
+test "set: parseAndPut chain preserves flags" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "unconsumed:a=new_window");
+    try s.parseAndPut(alloc, "chain=new_tab");
+
+    // Should preserve unconsumed flag
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf_chained);
+        const chained = entry.leaf_chained;
+        try testing.expect(!chained.flags.consumed);
+        try testing.expectEqual(@as(usize, 2), chained.actions.items.len);
+    }
+}
+
+test "set: parseAndPut chain after unbind is error" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "a=new_window");
+    try s.parseAndPut(alloc, "a=unbind");
+
+    // Chain after unbind should fail because chain_parent is cleared
+    try testing.expectError(error.InvalidFormat, s.parseAndPut(alloc, "chain=new_tab"));
+}
+
+test "set: parseAndPut chain on sequence" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "a>b=new_window");
+    try s.parseAndPut(alloc, "chain=new_tab");
+
+    // Navigate to the inner set
+    const a_entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+    try testing.expect(a_entry == .leader);
+    const inner_set = a_entry.leader;
+
+    // Check the chained binding
+    const b_entry = inner_set.get(.{ .key = .{ .unicode = 'b' } }).?.value_ptr.*;
+    try testing.expect(b_entry == .leaf_chained);
+    const chained = b_entry.leaf_chained;
+    try testing.expectEqual(@as(usize, 2), chained.actions.items.len);
+    try testing.expect(chained.actions.items[0] == .new_window);
+    try testing.expect(chained.actions.items[1] == .new_tab);
+}
+
+test "set: parseAndPut chain with unbind is error" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "a=new_window");
+
+    // chain=unbind is not valid
+    try testing.expectError(error.InvalidFormat, s.parseAndPut(alloc, "chain=unbind"));
+
+    // Original binding should still exist
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+    try testing.expect(entry == .leaf);
+    try testing.expect(entry.leaf.action == .new_window);
+}
+
 test "set: getEvent physical" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -3291,6 +4352,83 @@ test "set: getEvent codepoint case folding" {
             .mods = .{ .ctrl = true },
         });
         try testing.expect(action == null);
+    }
+}
+
+test "set: getEvent catch_all fallback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "catch_all=ignore");
+
+    // Matches unbound key without modifiers
+    {
+        const action = s.getEvent(.{
+            .key = .key_a,
+            .mods = .{},
+        }).?.value_ptr.*.leaf;
+        try testing.expect(action.action == .ignore);
+    }
+
+    // Matches unbound key with modifiers (falls back to catch_all without mods)
+    {
+        const action = s.getEvent(.{
+            .key = .key_a,
+            .mods = .{ .ctrl = true },
+        }).?.value_ptr.*.leaf;
+        try testing.expect(action.action == .ignore);
+    }
+
+    // Specific binding takes precedence over catch_all
+    try s.parseAndPut(alloc, "ctrl+b=new_window");
+    {
+        const action = s.getEvent(.{
+            .key = .key_b,
+            .mods = .{ .ctrl = true },
+            .unshifted_codepoint = 'b',
+        }).?.value_ptr.*.leaf;
+        try testing.expect(action.action == .new_window);
+    }
+}
+
+test "set: getEvent catch_all with modifiers" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "ctrl+catch_all=close_surface");
+    try s.parseAndPut(alloc, "catch_all=ignore");
+
+    // Key with ctrl matches catch_all with ctrl modifier
+    {
+        const action = s.getEvent(.{
+            .key = .key_a,
+            .mods = .{ .ctrl = true },
+        }).?.value_ptr.*.leaf;
+        try testing.expect(action.action == .close_surface);
+    }
+
+    // Key without mods matches catch_all without mods
+    {
+        const action = s.getEvent(.{
+            .key = .key_a,
+            .mods = .{},
+        }).?.value_ptr.*.leaf;
+        try testing.expect(action.action == .ignore);
+    }
+
+    // Key with different mods falls back to catch_all without mods
+    {
+        const action = s.getEvent(.{
+            .key = .key_a,
+            .mods = .{ .alt = true },
+        }).?.value_ptr.*.leaf;
+        try testing.expect(action.action == .ignore);
     }
 }
 
@@ -3440,4 +4578,271 @@ test "action: format" {
     defer buf.deinit();
     try a.format(&buf.writer);
     try testing.expectEqualStrings("text:\\xf0\\x9f\\x91\\xbb", buf.written());
+}
+
+test "action: format set title" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const a: Action = .{ .set_tab_title = "foo bar" };
+
+    var buf: std.Io.Writer.Allocating = .init(alloc);
+    defer buf.deinit();
+    try a.format(&buf.writer);
+    try testing.expectEqualStrings("set_tab_title:foo bar", buf.written());
+}
+
+test "set: appendChain with no parent returns error" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try testing.expectError(error.NoChainParent, s.appendChain(alloc, .{ .new_tab = {} }));
+}
+
+test "set: appendChain after put converts to leaf_chained" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.put(alloc, .{ .key = .{ .unicode = 'a' } }, .{ .new_window = {} });
+
+    // First appendChain converts leaf to leaf_chained and appends the new action
+    try s.appendChain(alloc, .{ .new_tab = {} });
+
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?;
+    try testing.expect(entry.value_ptr.* == .leaf_chained);
+
+    const chained = entry.value_ptr.*.leaf_chained;
+    try testing.expectEqual(@as(usize, 2), chained.actions.items.len);
+    try testing.expect(chained.actions.items[0] == .new_window);
+    try testing.expect(chained.actions.items[1] == .new_tab);
+}
+
+test "set: appendChain after putFlags preserves flags" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.putFlags(
+        alloc,
+        .{ .key = .{ .unicode = 'a' } },
+        .{ .new_window = {} },
+        .{ .consumed = false },
+    );
+    try s.appendChain(alloc, .{ .new_tab = {} });
+
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?;
+    try testing.expect(entry.value_ptr.* == .leaf_chained);
+
+    const chained = entry.value_ptr.*.leaf_chained;
+    try testing.expect(!chained.flags.consumed);
+    try testing.expectEqual(@as(usize, 2), chained.actions.items.len);
+    try testing.expect(chained.actions.items[0] == .new_window);
+    try testing.expect(chained.actions.items[1] == .new_tab);
+}
+
+test "set: appendChain multiple times" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.put(alloc, .{ .key = .{ .unicode = 'a' } }, .{ .new_window = {} });
+    try s.appendChain(alloc, .{ .new_tab = {} });
+    try s.appendChain(alloc, .{ .close_surface = {} });
+
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?;
+    try testing.expect(entry.value_ptr.* == .leaf_chained);
+
+    const chained = entry.value_ptr.*.leaf_chained;
+    try testing.expectEqual(@as(usize, 3), chained.actions.items.len);
+    try testing.expect(chained.actions.items[0] == .new_window);
+    try testing.expect(chained.actions.items[1] == .new_tab);
+    try testing.expect(chained.actions.items[2] == .close_surface);
+}
+
+test "set: appendChain removes reverse mapping" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.put(alloc, .{ .key = .{ .unicode = 'a' } }, .{ .new_window = {} });
+
+    // Verify reverse mapping exists before chaining
+    try testing.expect(s.getTrigger(.{ .new_window = {} }) != null);
+
+    // Chaining should remove the reverse mapping
+    try s.appendChain(alloc, .{ .new_tab = {} });
+
+    // Reverse mapping should be gone since chained actions are not in reverse map
+    try testing.expect(s.getTrigger(.{ .new_window = {} }) == null);
+}
+
+test "set: appendChain with performable does not affect reverse mapping" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Add a non-performable binding first
+    try s.put(alloc, .{ .key = .{ .unicode = 'b' } }, .{ .new_window = {} });
+    try testing.expect(s.getTrigger(.{ .new_window = {} }) != null);
+
+    // Add a performable binding (not in reverse map) and chain it
+    try s.putFlags(
+        alloc,
+        .{ .key = .{ .unicode = 'a' } },
+        .{ .close_surface = {} },
+        .{ .performable = true },
+    );
+
+    // close_surface was performable, so not in reverse map
+    try testing.expect(s.getTrigger(.{ .close_surface = {} }) == null);
+
+    // Chaining the performable binding should not crash or affect anything
+    try s.appendChain(alloc, .{ .new_tab = {} });
+
+    // The non-performable new_window binding should still be in reverse map
+    try testing.expect(s.getTrigger(.{ .new_window = {} }) != null);
+}
+
+test "set: appendChain restores next valid reverse mapping" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Add two bindings for the same action
+    try s.put(alloc, .{ .key = .{ .unicode = 'a' } }, .{ .new_window = {} });
+    try s.put(alloc, .{ .key = .{ .unicode = 'b' } }, .{ .new_window = {} });
+
+    // Reverse mapping should point to 'b' (most recent)
+    {
+        const trigger = s.getTrigger(.{ .new_window = {} }).?;
+        try testing.expect(trigger.key.unicode == 'b');
+    }
+
+    // Chain an action to 'b', which should restore 'a' in the reverse map
+    try s.appendChain(alloc, .{ .new_tab = {} });
+
+    // Now reverse mapping should point to 'a'
+    {
+        const trigger = s.getTrigger(.{ .new_window = {} }).?;
+        try testing.expect(trigger.key.unicode == 'a');
+    }
+}
+
+test "set: formatEntries leaf_chained" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const formatterpkg = @import("../config/formatter.zig");
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Create a chained binding
+    try s.parseAndPut(alloc, "a=new_window");
+    try s.parseAndPut(alloc, "chain=new_tab");
+
+    // Verify it's a leaf_chained
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?;
+    try testing.expect(entry.value_ptr.* == .leaf_chained);
+
+    // Format the entries
+    var output: std.Io.Writer.Allocating = .init(alloc);
+    defer output.deinit();
+
+    var buf: [1024]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+
+    // Write the trigger first (as formatEntry in Config.zig does)
+    try entry.key_ptr.format(&writer);
+    try entry.value_ptr.formatEntries(&writer, formatterpkg.entryFormatter("keybind", &output.writer));
+
+    const expected =
+        \\keybind = a=new_window
+        \\keybind = chain=new_tab
+        \\
+    ;
+    try testing.expectEqualStrings(expected, output.written());
+}
+
+test "set: formatEntries leaf_chained multiple chains" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const formatterpkg = @import("../config/formatter.zig");
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Create a chained binding with 3 actions
+    try s.parseAndPut(alloc, "ctrl+a=new_window");
+    try s.parseAndPut(alloc, "chain=new_tab");
+    try s.parseAndPut(alloc, "chain=close_surface");
+
+    // Verify it's a leaf_chained with 3 actions
+    const entry = s.get(.{ .key = .{ .unicode = 'a' }, .mods = .{ .ctrl = true } }).?;
+    try testing.expect(entry.value_ptr.* == .leaf_chained);
+    try testing.expectEqual(@as(usize, 3), entry.value_ptr.leaf_chained.actions.items.len);
+
+    // Format the entries
+    var output: std.Io.Writer.Allocating = .init(alloc);
+    defer output.deinit();
+
+    var buf: [1024]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+
+    try entry.key_ptr.format(&writer);
+    try entry.value_ptr.formatEntries(&writer, formatterpkg.entryFormatter("keybind", &output.writer));
+
+    const expected =
+        \\keybind = ctrl+a=new_window
+        \\keybind = chain=new_tab
+        \\keybind = chain=close_surface
+        \\
+    ;
+    try testing.expectEqualStrings(expected, output.written());
+}
+
+test "set: formatEntries leaf_chained with text action" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const formatterpkg = @import("../config/formatter.zig");
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Create a chained binding with text actions
+    try s.parseAndPut(alloc, "a=text:hello");
+    try s.parseAndPut(alloc, "chain=text:world");
+
+    // Format the entries
+    var output: std.Io.Writer.Allocating = .init(alloc);
+    defer output.deinit();
+
+    var buf: [1024]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?;
+    try entry.key_ptr.format(&writer);
+    try entry.value_ptr.formatEntries(&writer, formatterpkg.entryFormatter("keybind", &output.writer));
+
+    const expected =
+        \\keybind = a=text:hello
+        \\keybind = chain=text:world
+        \\
+    ;
+    try testing.expectEqualStrings(expected, output.written());
 }

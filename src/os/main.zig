@@ -23,6 +23,7 @@ pub const args = @import("args.zig");
 pub const cgroup = @import("cgroup.zig");
 pub const hostname = @import("hostname.zig");
 pub const i18n = @import("i18n.zig");
+pub const mach = @import("mach.zig");
 pub const path = @import("path.zig");
 pub const passwd = @import("passwd.zig");
 pub const xdg = @import("xdg.zig");
@@ -51,6 +52,7 @@ pub const fixMaxFiles = file.fixMaxFiles;
 pub const restoreMaxFiles = file.restoreMaxFiles;
 pub const allocTmpDir = file.allocTmpDir;
 pub const freeTmpDir = file.freeTmpDir;
+pub const randomTmpPath = file.randomTmpPath;
 pub const isFlatpak = flatpak.isFlatpak;
 pub const FlatpakHostCommand = flatpak.FlatpakHostCommand;
 pub const home = homedir.home;
@@ -66,11 +68,16 @@ pub const ShellEscapeWriter = shell.ShellEscapeWriter;
 pub const getKernelInfo = kernel_info.getKernelInfo;
 
 test {
+    _ = file;
     _ = i18n;
     _ = path;
     _ = uri;
+    _ = shell;
 
     if (comptime builtin.os.tag == .linux) {
         _ = kernel_info;
+    } else if (comptime builtin.os.tag.isDarwin()) {
+        _ = mach;
+        _ = macos;
     }
 }

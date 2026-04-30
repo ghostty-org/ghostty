@@ -1,7 +1,6 @@
 const UnicodeTables = @This();
 
 const std = @import("std");
-const Config = @import("Config.zig");
 
 /// The exe.
 props_exe: *std.Build.Step.Compile,

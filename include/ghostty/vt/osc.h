@@ -10,28 +10,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <ghostty/vt/result.h>
+#include <ghostty/vt/types.h>
 #include <ghostty/vt/allocator.h>
-
-/**
- * Opaque handle to an OSC parser instance.
- * 
- * This handle represents an OSC (Operating System Command) parser that can
- * be used to parse the contents of OSC sequences.
- *
- * @ingroup osc
- */
-typedef struct GhosttyOscParser *GhosttyOscParser;
-
-/**
- * Opaque handle to a single OSC command.
- * 
- * This handle represents a parsed OSC (Operating System Command) command.
- * The command can be queried for its type and associated data.
- *
- * @ingroup osc
- */
-typedef struct GhosttyOscCommand *GhosttyOscCommand;
 
 /** @defgroup osc OSC Parser
  *
@@ -59,28 +39,31 @@ typedef struct GhosttyOscCommand *GhosttyOscCommand;
  *
  * @ingroup osc
  */
-typedef enum {
+typedef enum GHOSTTY_ENUM_TYPED {
   GHOSTTY_OSC_COMMAND_INVALID = 0,
   GHOSTTY_OSC_COMMAND_CHANGE_WINDOW_TITLE = 1,
   GHOSTTY_OSC_COMMAND_CHANGE_WINDOW_ICON = 2,
-  GHOSTTY_OSC_COMMAND_PROMPT_START = 3,
-  GHOSTTY_OSC_COMMAND_PROMPT_END = 4,
-  GHOSTTY_OSC_COMMAND_END_OF_INPUT = 5,
-  GHOSTTY_OSC_COMMAND_END_OF_COMMAND = 6,
-  GHOSTTY_OSC_COMMAND_CLIPBOARD_CONTENTS = 7,
-  GHOSTTY_OSC_COMMAND_REPORT_PWD = 8,
-  GHOSTTY_OSC_COMMAND_MOUSE_SHAPE = 9,
-  GHOSTTY_OSC_COMMAND_COLOR_OPERATION = 10,
-  GHOSTTY_OSC_COMMAND_KITTY_COLOR_PROTOCOL = 11,
-  GHOSTTY_OSC_COMMAND_SHOW_DESKTOP_NOTIFICATION = 12,
-  GHOSTTY_OSC_COMMAND_HYPERLINK_START = 13,
-  GHOSTTY_OSC_COMMAND_HYPERLINK_END = 14,
-  GHOSTTY_OSC_COMMAND_CONEMU_SLEEP = 15,
-  GHOSTTY_OSC_COMMAND_CONEMU_SHOW_MESSAGE_BOX = 16,
-  GHOSTTY_OSC_COMMAND_CONEMU_CHANGE_TAB_TITLE = 17,
-  GHOSTTY_OSC_COMMAND_CONEMU_PROGRESS_REPORT = 18,
-  GHOSTTY_OSC_COMMAND_CONEMU_WAIT_INPUT = 19,
-  GHOSTTY_OSC_COMMAND_CONEMU_GUIMACRO = 20,
+  GHOSTTY_OSC_COMMAND_SEMANTIC_PROMPT = 3,
+  GHOSTTY_OSC_COMMAND_CLIPBOARD_CONTENTS = 4,
+  GHOSTTY_OSC_COMMAND_REPORT_PWD = 5,
+  GHOSTTY_OSC_COMMAND_MOUSE_SHAPE = 6,
+  GHOSTTY_OSC_COMMAND_COLOR_OPERATION = 7,
+  GHOSTTY_OSC_COMMAND_KITTY_COLOR_PROTOCOL = 8,
+  GHOSTTY_OSC_COMMAND_SHOW_DESKTOP_NOTIFICATION = 9,
+  GHOSTTY_OSC_COMMAND_HYPERLINK_START = 10,
+  GHOSTTY_OSC_COMMAND_HYPERLINK_END = 11,
+  GHOSTTY_OSC_COMMAND_CONEMU_SLEEP = 12,
+  GHOSTTY_OSC_COMMAND_CONEMU_SHOW_MESSAGE_BOX = 13,
+  GHOSTTY_OSC_COMMAND_CONEMU_CHANGE_TAB_TITLE = 14,
+  GHOSTTY_OSC_COMMAND_CONEMU_PROGRESS_REPORT = 15,
+  GHOSTTY_OSC_COMMAND_CONEMU_WAIT_INPUT = 16,
+  GHOSTTY_OSC_COMMAND_CONEMU_GUIMACRO = 17,
+  GHOSTTY_OSC_COMMAND_CONEMU_RUN_PROCESS = 18,
+  GHOSTTY_OSC_COMMAND_CONEMU_OUTPUT_ENVIRONMENT_VARIABLE = 19,
+  GHOSTTY_OSC_COMMAND_CONEMU_XTERM_EMULATION = 20,
+  GHOSTTY_OSC_COMMAND_CONEMU_COMMENT = 21,
+  GHOSTTY_OSC_COMMAND_KITTY_TEXT_SIZING = 22,
+  GHOSTTY_OSC_COMMAND_TYPE_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyOscCommandType;
 
 /**
@@ -91,7 +74,7 @@ typedef enum {
  *
  * @ingroup osc
  */
-typedef enum {
+typedef enum GHOSTTY_ENUM_TYPED {
   /** Invalid data type. Never results in any data extraction. */
   GHOSTTY_OSC_DATA_INVALID = 0,
   
@@ -106,6 +89,7 @@ typedef enum {
    * the same parser instance. Memory is owned by the parser.
    */
   GHOSTTY_OSC_DATA_CHANGE_WINDOW_TITLE_STR = 1,
+  GHOSTTY_OSC_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyOscCommandData;
 
 /**
@@ -121,7 +105,7 @@ typedef enum {
  * 
  * @ingroup osc
  */
-GhosttyResult ghostty_osc_new(const GhosttyAllocator *allocator, GhosttyOscParser *parser);
+GHOSTTY_API GhosttyResult ghostty_osc_new(const GhosttyAllocator *allocator, GhosttyOscParser *parser);
 
 /**
  * Free an OSC parser instance.
@@ -133,7 +117,7 @@ GhosttyResult ghostty_osc_new(const GhosttyAllocator *allocator, GhosttyOscParse
  * 
  * @ingroup osc
  */
-void ghostty_osc_free(GhosttyOscParser parser);
+GHOSTTY_API void ghostty_osc_free(GhosttyOscParser parser);
 
 /**
  * Reset an OSC parser instance to its initial state.
@@ -146,7 +130,7 @@ void ghostty_osc_free(GhosttyOscParser parser);
  * 
  * @ingroup osc
  */
-void ghostty_osc_reset(GhosttyOscParser parser);
+GHOSTTY_API void ghostty_osc_reset(GhosttyOscParser parser);
 
 /**
  * Parse the next byte in an OSC sequence.
@@ -163,7 +147,7 @@ void ghostty_osc_reset(GhosttyOscParser parser);
  * 
  * @ingroup osc
  */
-void ghostty_osc_next(GhosttyOscParser parser, uint8_t byte);
+GHOSTTY_API void ghostty_osc_next(GhosttyOscParser parser, uint8_t byte);
 
 /**
  * Finalize OSC parsing and retrieve the parsed command.
@@ -193,7 +177,7 @@ void ghostty_osc_next(GhosttyOscParser parser, uint8_t byte);
  * 
  * @ingroup osc
  */
-GhosttyOscCommand ghostty_osc_end(GhosttyOscParser parser, uint8_t terminator);
+GHOSTTY_API GhosttyOscCommand ghostty_osc_end(GhosttyOscParser parser, uint8_t terminator);
 
 /**
  * Get the type of an OSC command.
@@ -207,7 +191,7 @@ GhosttyOscCommand ghostty_osc_end(GhosttyOscParser parser, uint8_t terminator);
  * 
  * @ingroup osc
  */
-GhosttyOscCommandType ghostty_osc_command_type(GhosttyOscCommand command);
+GHOSTTY_API GhosttyOscCommandType ghostty_osc_command_type(GhosttyOscCommand command);
 
 /**
  * Extract data from an OSC command.
@@ -224,7 +208,7 @@ GhosttyOscCommandType ghostty_osc_command_type(GhosttyOscCommand command);
  * 
  * @ingroup osc
  */
-bool ghostty_osc_command_data(GhosttyOscCommand command, GhosttyOscCommandData data, void *out);
+GHOSTTY_API bool ghostty_osc_command_data(GhosttyOscCommand command, GhosttyOscCommandData data, void *out);
 
 /** @} */
 

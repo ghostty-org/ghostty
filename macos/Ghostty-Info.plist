@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac</key>
+	<true/>
+	<key>NSDockTilePlugIn</key>
+	<string>DockTilePlugin.plugin</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -53,8 +57,12 @@
 	</dict>
 	<key>MDItemKeywords</key>
 	<string>Terminal</string>
+	<key>NSAppleScriptEnabled</key>
+	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>OSAScriptingDefinition</key>
+	<string>Ghostty.sdef</string>
 	<key>NSServices</key>
 	<array>
 		<dict>
@@ -100,5 +108,20 @@
 	<false/>
 	<key>SUPublicEDKey</key>
 	<string>wsNcGf5hirwtdXMVnYoxRIX/SqZQLMOsYlD3q3imeok=</string>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.mitchellh.ghosttySurfaceId</string>
+			<key>UTTypeDescription</key>
+			<string>Ghostty Surface Identifier</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict/>
+		</dict>
+	</array>
 </dict>
 </plist>

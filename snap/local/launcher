@@ -14,7 +14,14 @@ if [ -z "$XDG_DATA_HOME" ]; then
   export XDG_DATA_HOME="$SNAP_REAL_HOME/.local/share"
 fi
 
-source "$SNAP_USER_DATA/.last_revision" 2>/dev/null || true
+if [ -f "$SNAP_USER_DATA/.last_revision" ]; then
+  if ! source "$SNAP_USER_DATA/.last_revision" 2>/dev/null; then
+    # file exist but sourcing it fails, so it's likely
+    # not good anyway
+    rm -f "$SNAP_USER_DATA/.last_revision"
+  fi
+fi
+
 if [ "$LAST_REVISION" = "$SNAP_REVISION" ]; then
   needs_update=false
 else
@@ -34,13 +41,15 @@ fi
 export LD_LIBRARY_PATH=${SNAP}/usr/lib/${ARCH}:${SNAP}/usr/lib/${ARCH}/vdpau:${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}
 export LIBGL_DRIVERS_PATH=${LIBGL_DRIVERS_PATH:+$LIBGL_DRIVERS_PATH:}${SNAP}/usr/lib/${ARCH}/dri/
 export LIBVA_DRIVERS_PATH=${LIBVA_DRIVERS_PATH:+$LIBVA_DRIVERS_PATH:}${SNAP}/usr/lib/${ARCH}/dri/
-export __EGL_VENDOR_LIBRARY_DIRS=${__EGL_VENDOR_LIBRARY_DIRS:+$__EGL_VENDOR_LIBRARY_DIRS:}${SNAP}/usr/share/glvnd/egl_vendor.d
+export __EGL_VENDOR_LIBRARY_DIRS=${__EGL_VENDOR_LIBRARY_DIRS:+$__EGL_VENDOR_LIBRARY_DIRS:}/etc/glvnd/egl_vendor.d:/usr/share/glvnd/egl_vendor.d:${SNAP}/usr/share/glvnd/egl_vendor.d
 export __EGL_EXTERNAL_PLATFORM_CONFIG_DIRS=${__EGL_EXTERNAL_PLATFORM_CONFIG_DIRS:+$__EGL_EXTERNAL_PLATFORM_CONFIG_DIRS:}${SNAP}/usr/share/egl/egl_external_platform.d
 export DRIRC_CONFIGDIR=${SNAP}/usr/share/drirc.d
 export VK_LAYER_PATH=${VK_LAYER_PATH:+$VK_LAYER_PATH:}${SNAP}/usr/share/vulkan/implicit_layer.d/:${SNAP}/usr/share/vulkan/explicit_layer.d/
-export XDG_DATA_DIRS=${XDG_DATA_DIRS:+$XDG_DATA_DIRS:}${SNAP}/usr/share
+export XDG_DATA_DIRS=${SNAP}/usr/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}
 export XLOCALEDIR="${SNAP}/usr/share/X11/locale"
 export GTK_PATH="$SNAP/usr/lib/$ARCH/gtk-4.0"
+export GIO_MODULE_DIR="$SNAP/usr/lib/$ARCH/gio/modules"
+unset GIO_EXTRA_MODULES
 
 # Gdk-pixbuf loaders
 mkdir -p "$SNAP_USER_COMMON/.cache"

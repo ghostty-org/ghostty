@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const internal_os = @import("../os/main.zig");
 const file_load = @import("file_load.zig");
 
 /// The path to the configuration that should be opened for editing.

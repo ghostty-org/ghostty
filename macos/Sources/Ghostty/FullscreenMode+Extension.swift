@@ -7,13 +7,13 @@ extension FullscreenMode {
         case GHOSTTY_FULLSCREEN_NATIVE:
                 .native
 
-        case GHOSTTY_FULLSCREEN_NON_NATIVE:
+        case GHOSTTY_FULLSCREEN_MACOS_NON_NATIVE:
                 .nonNative
 
-        case GHOSTTY_FULLSCREEN_NON_NATIVE_VISIBLE_MENU:
+        case GHOSTTY_FULLSCREEN_MACOS_NON_NATIVE_VISIBLE_MENU:
                 .nonNativeVisibleMenu
 
-        case GHOSTTY_FULLSCREEN_NON_NATIVE_PADDED_NOTCH:
+        case GHOSTTY_FULLSCREEN_MACOS_NON_NATIVE_PADDED_NOTCH:
                 .nonNativePaddedNotch
 
         default:

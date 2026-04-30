@@ -29,9 +29,11 @@ extension Ghostty {
         /// configuration (i.e. font size) from the previously focused window. This would override this.
         @Published private(set) var config: Config
 
+        /// Preferred config file than the default ones
+        private var configPath: String?
         /// The ghostty app instance. We only have one of these for the entire app, although I guess
         /// in theory you can have multiple... I don't know why you would...
-        @Published var app: ghostty_app_t? = nil {
+        @Published var app: ghostty_app_t? {
             didSet {
                 guard let old = oldValue else { return }
                 ghostty_app_free(old)
@@ -44,9 +46,10 @@ extension Ghostty {
             return ghostty_app_needs_confirm_quit(app)
         }
 
-        init() {
+        init(configPath: String? = nil) {
+            self.configPath = configPath
             // Initialize the global configuration.
-            self.config = Config()
+            self.config = Config(at: configPath)
             if self.config.config == nil {
                 readiness = .error
                 return
@@ -115,8 +118,14 @@ extension Ghostty {
             ghostty_app_tick(app)
         }
 
-        static func openConfig() {
-            let str = Ghostty.AllocatedString(ghostty_config_open_path()).string
+        private static func openConfig(_ app: ghostty_app_t) {
+            guard let app_ud = ghostty_app_userdata(app) else { return }
+            let app = Unmanaged<App>.fromOpaque(app_ud).takeUnretainedValue()
+            app.openConfig()
+        }
+
+        func openConfig() {
+            let str = configPath ?? Ghostty.AllocatedString(ghostty_config_open_path()).string
             guard !str.isEmpty else { return }
             #if os(macOS)
             let fileURL = URL(fileURLWithPath: str).absoluteString
@@ -125,7 +134,7 @@ extension Ghostty {
             fileURL.withCString { cStr in
                 action.url = cStr
                 action.len = UInt(fileURL.count)
-                _ = openURL(action)
+                _ = App.openURL(action)
             }
             #else
             fatalError("Unsupported platform for opening config file")
@@ -137,13 +146,13 @@ extension Ghostty {
             guard let app = self.app else { return }
 
             // Soft updates just call with our existing config
-            if (soft) {
+            if soft {
                 ghostty_app_update_config(app, config.config!)
                 return
             }
 
             // Hard or full updates have to reload the full configuration
-            let newConfig = Config()
+            let newConfig = Config(at: configPath)
             guard newConfig.loaded else {
                 Ghostty.logger.warning("failed to reload configuration")
                 return
@@ -155,7 +164,7 @@ extension Ghostty {
 
         func reloadConfig(surface: ghostty_surface_t, soft: Bool = false) {
             // Soft updates just call with our existing config
-            if (soft) {
+            if soft {
                 ghostty_surface_update_config(surface, config.config!)
                 return
             }
@@ -163,7 +172,7 @@ extension Ghostty {
             // Hard or full updates have to reload the full configuration.
             // NOTE: We never set this on self.config because this is a surface-only
             // config. We free it after the call.
-            let newConfig = Config()
+            let newConfig = Config(at: configPath)
             guard newConfig.loaded else {
                 Ghostty.logger.warning("failed to reload configuration")
                 return
@@ -180,14 +189,14 @@ extension Ghostty {
 
         func newTab(surface: ghostty_surface_t) {
             let action = "new_tab"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 logger.warning("action failed action=\(action)")
             }
         }
 
         func newWindow(surface: ghostty_surface_t) {
             let action = "new_window"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 logger.warning("action failed action=\(action)")
             }
         }
@@ -210,14 +219,14 @@ extension Ghostty {
 
         func splitToggleZoom(surface: ghostty_surface_t) {
             let action = "toggle_split_zoom"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 logger.warning("action failed action=\(action)")
             }
         }
 
         func toggleFullscreen(surface: ghostty_surface_t) {
             let action = "toggle_fullscreen"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 logger.warning("action failed action=\(action)")
             }
         }
@@ -238,21 +247,21 @@ extension Ghostty {
             case .reset:
                 action = "reset_font_size"
             }
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 logger.warning("action failed action=\(action)")
             }
         }
 
         func toggleTerminalInspector(surface: ghostty_surface_t) {
             let action = "inspector:toggle"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 logger.warning("action failed action=\(action)")
             }
         }
 
         func resetTerminal(surface: ghostty_surface_t) {
             let action = "reset"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 logger.warning("action failed action=\(action)")
             }
         }
@@ -266,7 +275,9 @@ extension Ghostty {
             _ userdata: UnsafeMutableRawPointer?,
             location: ghostty_clipboard_e,
             state: UnsafeMutableRawPointer?
-        ) {}
+        ) -> Bool {
+            return false
+        }
 
         static func confirmReadClipboard(
             _ userdata: UnsafeMutableRawPointer?,
@@ -309,7 +320,6 @@ extension Ghostty {
             ghostty_app_set_focus(app, false)
         }
 
-
         // MARK: Ghostty Callbacks (macOS)
 
         static func closeSurface(_ userdata: UnsafeMutableRawPointer?, processAlive: Bool) {
@@ -319,20 +329,23 @@ extension Ghostty {
             ])
         }
 
-        static func readClipboard(_ userdata: UnsafeMutableRawPointer?, location: ghostty_clipboard_e, state: UnsafeMutableRawPointer?) {
-            // If we don't even have a surface, something went terrible wrong so we have
-            // to leak "state".
+        static func readClipboard(
+            _ userdata: UnsafeMutableRawPointer?,
+            location: ghostty_clipboard_e,
+            state: UnsafeMutableRawPointer?
+        ) -> Bool {
             let surfaceView = self.surfaceUserdata(from: userdata)
-            guard let surface = surfaceView.surface else { return }
+            guard let surface = surfaceView.surface else { return false }
 
             // Get our pasteboard
-            guard let pasteboard = NSPasteboard.ghostty(location) else {
-                return completeClipboardRequest(surface, data: "", state: state)
-            }
+            guard let pasteboard = NSPasteboard.ghostty(location) else { return false }
 
-            // Get our string
-            let str = pasteboard.getOpinionatedStringContents() ?? ""
+            // Return false if there is no text-like clipboard content so
+            // performable paste bindings can pass through to the terminal.
+            guard let str = pasteboard.getOpinionatedStringContents() else { return false }
+
             completeClipboardRequest(surface, data: str, state: state)
+            return true
         }
 
         static func confirmReadClipboard(
@@ -376,25 +389,25 @@ extension Ghostty {
             let surface = self.surfaceUserdata(from: userdata)
             guard let pasteboard = NSPasteboard.ghostty(location) else { return }
             guard let content = content, len > 0 else { return }
-            
+
             // Convert the C array to Swift array
             let contentArray = (0..<len).compactMap { i in
                 Ghostty.ClipboardContent.from(content: content[i])
             }
             guard !contentArray.isEmpty else { return }
-            
+
             // Assert there is only one text/plain entry. For security reasons we need
             // to guarantee this for now since our confirmation dialog only shows one.
             assert(contentArray.filter({ $0.mime == "text/plain" }).count <= 1,
                    "clipboard contents should have at most one text/plain entry")
-            
+
             if !confirm {
                 // Declare all types
                 let types = contentArray.compactMap { item in
                     NSPasteboard.PasteboardType(mimeType: item.mime)
                 }
                 pasteboard.declareTypes(types, owner: nil)
-                
+
                 // Set data for each type
                 for item in contentArray {
                     guard let type = NSPasteboard.PasteboardType(mimeType: item.mime) else { continue }
@@ -407,7 +420,7 @@ extension Ghostty {
             guard let textPlainContent = contentArray.first(where: { $0.mime == "text/plain" }) else {
                 return
             }
-            
+
             NotificationCenter.default.post(
                 name: Notification.confirmClipboard,
                 object: surface,
@@ -431,10 +444,17 @@ extension Ghostty {
         /// Determine if a given notification should be presented to the user when Ghostty is running in the foreground.
         func shouldPresentNotification(notification: UNNotification) -> Bool {
             let userInfo = notification.request.content.userInfo
+
+            // We always require the notification to be attached to a surface.
             guard let uuidString = userInfo["surface"] as? String,
                   let uuid = UUID(uuidString: uuidString),
                   let surface = delegate?.findSurface(forUUID: uuid),
                   let window = surface.window else { return false }
+
+            // If we don't require focus then we're good!
+            let requireFocus = userInfo["requireFocus"] as? Bool ?? true
+            if !requireFocus { return true }
+
             return !window.isKeyWindow || !surface.focused
         }
 
@@ -460,7 +480,7 @@ extension Ghostty {
 
         static func action(_ app: ghostty_app_t, target: ghostty_target_s, action: ghostty_action_s) -> Bool {
             // Make sure it a target we understand so all our action handlers can assert
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP, GHOSTTY_TARGET_SURFACE:
                 break
 
@@ -470,7 +490,7 @@ extension Ghostty {
             }
 
             // Action dispatch
-            switch (action.tag) {
+            switch action.tag {
             case GHOSTTY_ACTION_QUIT:
                 quit(app)
 
@@ -501,14 +521,17 @@ extension Ghostty {
             case GHOSTTY_ACTION_GOTO_SPLIT:
                 return gotoSplit(app, target: target, direction: action.action.goto_split)
 
+            case GHOSTTY_ACTION_GOTO_WINDOW:
+                return gotoWindow(app, target: target, direction: action.action.goto_window)
+
             case GHOSTTY_ACTION_RESIZE_SPLIT:
-                resizeSplit(app, target: target, resize: action.action.resize_split)
+                return resizeSplit(app, target: target, resize: action.action.resize_split)
 
             case GHOSTTY_ACTION_EQUALIZE_SPLITS:
                 equalizeSplits(app, target: target)
 
             case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
-                toggleSplitZoom(app, target: target)
+                return toggleSplitZoom(app, target: target)
 
             case GHOSTTY_ACTION_INSPECTOR:
                 controlInspector(app, target: target, mode: action.action.inspector)
@@ -522,14 +545,17 @@ extension Ghostty {
             case GHOSTTY_ACTION_SET_TITLE:
                 setTitle(app, target: target, v: action.action.set_title)
 
+            case GHOSTTY_ACTION_SET_TAB_TITLE:
+                return setTabTitle(app, target: target, v: action.action.set_tab_title)
+
             case GHOSTTY_ACTION_PROMPT_TITLE:
-                return promptTitle(app, target: target)
+                return promptTitle(app, target: target, v: action.action.prompt_title)
 
             case GHOSTTY_ACTION_PWD:
                 pwdChanged(app, target: target, v: action.action.pwd)
 
             case GHOSTTY_ACTION_OPEN_CONFIG:
-                openConfig()
+                openConfig(app)
 
             case GHOSTTY_ACTION_FLOAT_WINDOW:
                 toggleFloatWindow(app, target: target, mode: action.action.float_window)
@@ -570,9 +596,15 @@ extension Ghostty {
             case GHOSTTY_ACTION_TOGGLE_VISIBILITY:
                 toggleVisibility(app, target: target)
 
+            case GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY:
+                toggleBackgroundOpacity(app, target: target)
+
             case GHOSTTY_ACTION_KEY_SEQUENCE:
                 keySequence(app, target: target, v: action.action.key_sequence)
-                
+
+            case GHOSTTY_ACTION_KEY_TABLE:
+                keyTable(app, target: target, v: action.action.key_table)
+
             case GHOSTTY_ACTION_PROGRESS_REPORT:
                 progressReport(app, target: target, v: action.action.progress_report)
 
@@ -588,9 +620,12 @@ extension Ghostty {
             case GHOSTTY_ACTION_RING_BELL:
                 ringBell(app, target: target)
 
+            case GHOSTTY_ACTION_READONLY:
+                setReadonly(app, target: target, v: action.action.readonly)
+
             case GHOSTTY_ACTION_CHECK_FOR_UPDATES:
                 checkForUpdates(app)
-                
+
             case GHOSTTY_ACTION_OPEN_URL:
                 return openURL(action.action.open_url)
 
@@ -610,7 +645,7 @@ extension Ghostty {
                 startSearch(app, target: target, v: action.action.start_search)
 
             case GHOSTTY_ACTION_END_SEARCH:
-                endSearch(app, target: target)
+                return endSearch(app, target: target)
 
             case GHOSTTY_ACTION_SEARCH_TOTAL:
                 searchTotal(app, target: target, v: action.action.search_total)
@@ -618,19 +653,24 @@ extension Ghostty {
             case GHOSTTY_ACTION_SEARCH_SELECTED:
                 searchSelected(app, target: target, v: action.action.search_selected)
 
+            case GHOSTTY_ACTION_COMMAND_FINISHED:
+                commandFinished(app, target: target, v: action.action.command_finished)
+
+            case GHOSTTY_ACTION_PRESENT_TERMINAL:
+                return presentTerminal(app, target: target)
+
             case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:
                 fallthrough
             case GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS:
-                fallthrough
-            case GHOSTTY_ACTION_PRESENT_TERMINAL:
                 fallthrough
             case GHOSTTY_ACTION_SIZE_LIMIT:
                 fallthrough
             case GHOSTTY_ACTION_QUIT_TIMER:
                 fallthrough
             case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
-                Ghostty.logger.info("known but unimplemented action action=\(action.tag.rawValue)")
-                return false
+                return showChildExited(app, target: target, v: action.action.child_exited)
+            case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
+                return copyTitleToClipboard(app, target: target)
             default:
                 Ghostty.logger.warning("unknown action action=\(action.tag.rawValue)")
                 return false
@@ -663,12 +703,12 @@ extension Ghostty {
                 appDelegate.checkForUpdates(nil)
             }
         }
-        
+
         private static func openURL(
             _ v: ghostty_action_open_url_s
         ) -> Bool {
             let action = Ghostty.Action.OpenURL(c: v)
-            
+
             // If the URL doesn't have a valid scheme we assume its a file path. The URL
             // initializer will gladly take invalid URLs (e.g. plain file paths) and turn
             // them into schema-less URLs, but these won't open properly in text editors.
@@ -677,9 +717,12 @@ extension Ghostty {
             if let candidate = URL(string: action.url), candidate.scheme != nil {
                 url = candidate
             } else {
-                url = URL(filePath: action.url)
+                // Expand ~ to the user's home directory so that file paths
+                // like ~/Documents/file.txt resolve correctly.
+                let expandedPath = NSString(string: action.url).standardizingPath
+                url = URL(filePath: expandedPath)
             }
-            
+
             switch action.kind {
             case .text:
                 // Open with the default editor for `*.ghostty` file or just system text editor
@@ -688,15 +731,15 @@ extension Ghostty {
                     NSWorkspace.shared.open([url], withApplicationAt: textEditor, configuration: NSWorkspace.OpenConfiguration())
                     return true
                 }
-                
+
             case .html:
                 // The extension will be HTML and we do the right thing automatically.
                 break
-                
+
             case .unknown:
                 break
             }
-            
+
             // Open with the default application for the URL
             NSWorkspace.shared.open(url)
             return true
@@ -704,7 +747,7 @@ extension Ghostty {
 
         private static func undo(_ app: ghostty_app_t, target: ghostty_target_s) -> Bool {
             let undoManager: UndoManager?
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 undoManager = (NSApp.delegate as? AppDelegate)?.undoManager
 
@@ -725,7 +768,7 @@ extension Ghostty {
 
         private static func redo(_ app: ghostty_app_t, target: ghostty_target_s) -> Bool {
             let undoManager: UndoManager?
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 undoManager = (NSApp.delegate as? AppDelegate)?.undoManager
 
@@ -745,7 +788,7 @@ extension Ghostty {
         }
 
         private static func newWindow(_ app: ghostty_app_t, target: ghostty_target_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 NotificationCenter.default.post(
                     name: Notification.ghosttyNewWindow,
@@ -760,10 +803,9 @@ extension Ghostty {
                     name: Notification.ghosttyNewWindow,
                     object: surfaceView,
                     userInfo: [
-                        Notification.NewSurfaceConfigKey: SurfaceConfiguration(from: ghostty_surface_inherited_config(surface)),
+                        Notification.NewSurfaceConfigKey: SurfaceConfiguration(from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_WINDOW)),
                     ]
                 )
-
 
             default:
                 assertionFailure()
@@ -771,7 +813,7 @@ extension Ghostty {
         }
 
         private static func newTab(_ app: ghostty_app_t, target: ghostty_target_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 NotificationCenter.default.post(
                     name: Notification.ghosttyNewTab,
@@ -797,10 +839,9 @@ extension Ghostty {
                     name: Notification.ghosttyNewTab,
                     object: surfaceView,
                     userInfo: [
-                        Notification.NewSurfaceConfigKey: SurfaceConfiguration(from: ghostty_surface_inherited_config(surface)),
+                        Notification.NewSurfaceConfigKey: SurfaceConfiguration(from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_TAB)),
                     ]
                 )
-
 
             default:
                 assertionFailure()
@@ -811,7 +852,7 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             direction: ghostty_action_split_direction_e) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 // New split does nothing with an app target
                 Ghostty.logger.warning("new split does nothing with an app target")
@@ -826,18 +867,41 @@ extension Ghostty {
                     object: surfaceView,
                     userInfo: [
                         "direction": direction,
-                        Notification.NewSurfaceConfigKey: SurfaceConfiguration(from: ghostty_surface_inherited_config(surface)),
+                        Notification.NewSurfaceConfigKey: SurfaceConfiguration(from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_SPLIT)),
                     ]
                 )
-
 
             default:
                 assertionFailure()
             }
         }
 
+        private static func presentTerminal(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s
+        ) -> Bool {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                return false
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+
+                NotificationCenter.default.post(
+                    name: Notification.ghosttyPresentTerminal,
+                    object: surfaceView
+                )
+                return true
+
+            default:
+                assertionFailure()
+                return false
+            }
+        }
+
         private static func closeTab(_ app: ghostty_app_t, target: ghostty_target_s, mode: ghostty_action_close_tab_mode_e) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("close tabs does nothing with an app target")
                 return
@@ -846,7 +910,7 @@ extension Ghostty {
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
 
-                switch (mode) {
+                switch mode {
                 case GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS:
                     NotificationCenter.default.post(
                         name: .ghosttyCloseTab,
@@ -861,10 +925,16 @@ extension Ghostty {
                     )
                     return
 
+                case GHOSTTY_ACTION_CLOSE_TAB_MODE_RIGHT:
+                    NotificationCenter.default.post(
+                        name: .ghosttyCloseTabsOnTheRight,
+                        object: surfaceView
+                    )
+                    return
+
                 default:
                     assertionFailure()
                 }
-
 
             default:
                 assertionFailure()
@@ -872,7 +942,7 @@ extension Ghostty {
         }
 
         private static func closeWindow(_ app: ghostty_app_t, target: ghostty_target_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("close window does nothing with an app target")
                 return
@@ -900,7 +970,7 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             mode raw: ghostty_action_fullscreen_e) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("toggle fullscreen does nothing with an app target")
                 return
@@ -920,7 +990,6 @@ extension Ghostty {
                     ]
                 )
 
-
             default:
                 assertionFailure()
             }
@@ -929,7 +998,7 @@ extension Ghostty {
         private static func toggleCommandPalette(
             _ app: ghostty_app_t,
             target: ghostty_target_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("toggle command palette does nothing with an app target")
                 return
@@ -942,7 +1011,6 @@ extension Ghostty {
                     object: surfaceView
                 )
 
-
             default:
                 assertionFailure()
             }
@@ -952,7 +1020,7 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s
         ) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("toggle maximize does nothing with an app target")
                 return
@@ -964,7 +1032,6 @@ extension Ghostty {
                     name: .ghosttyMaximizeDidToggle,
                     object: surfaceView
                 )
-
 
             default:
                 assertionFailure()
@@ -982,7 +1049,7 @@ extension Ghostty {
         private static func ringBell(
             _ app: ghostty_app_t,
             target: ghostty_target_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 // Technically we could still request app attention here but there
                 // are no known cases where the bell is rang with an app target so
@@ -1003,11 +1070,36 @@ extension Ghostty {
             }
         }
 
+        private static func setReadonly(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_readonly_e) {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("set readonly does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                NotificationCenter.default.post(
+                    name: .ghosttyDidChangeReadonly,
+                    object: surfaceView,
+                    userInfo: [
+                        SwiftUI.Notification.Name.ReadonlyKey: v == GHOSTTY_READONLY_ON,
+                    ]
+                )
+
+            default:
+                assertionFailure()
+            }
+        }
+
         private static func moveTab(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             move: ghostty_action_move_tab_s) -> Bool {
-                switch (target.tag) {
+                switch target.tag {
                 case GHOSTTY_TARGET_APP:
                     Ghostty.logger.warning("move tab does nothing with an app target")
                     return false
@@ -1038,7 +1130,7 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             tab: ghostty_action_goto_tab_e) -> Bool {
-                switch (target.tag) {
+                switch target.tag {
                 case GHOSTTY_TARGET_APP:
                     Ghostty.logger.warning("goto tab does nothing with an app target")
                     return false
@@ -1070,7 +1162,7 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             direction: ghostty_action_goto_split_e) -> Bool {
-                switch (target.tag) {
+                switch target.tag {
                 case GHOSTTY_TARGET_APP:
                     Ghostty.logger.warning("goto split does nothing with an app target")
                     return false
@@ -1106,19 +1198,82 @@ extension Ghostty {
                 }
         }
 
+        private static func gotoWindow(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            direction: ghostty_action_goto_window_e
+        ) -> Bool {
+            // Collect candidate windows: visible terminal windows that are either
+            // standalone or the currently selected tab in their tab group. This
+            // treats each native tab group as a single "window" for navigation
+            // purposes, since goto_tab handles per-tab navigation.
+            let candidates: [NSWindow] = NSApplication.shared.windows.filter { window in
+                guard window.windowController is BaseTerminalController else { return false }
+                guard window.isVisible, !window.isMiniaturized else { return false }
+                // For native tabs, only include the selected tab in each group
+                if let group = window.tabGroup, group.selectedWindow !== window {
+                    return false
+                }
+                return true
+            }
+
+            // Need at least two windows to navigate between
+            guard candidates.count > 1 else { return false }
+
+            // Find starting index from the current key/main window
+            let startIndex = candidates.firstIndex(where: { $0.isKeyWindow })
+                ?? candidates.firstIndex(where: { $0.isMainWindow })
+                ?? 0
+
+            let step: Int
+            switch direction {
+            case GHOSTTY_GOTO_WINDOW_NEXT:
+                step = 1
+            case GHOSTTY_GOTO_WINDOW_PREVIOUS:
+                step = -1
+            default:
+                return false
+            }
+
+            // Iterate with wrap-around until we find a valid window or return to start
+            let count = candidates.count
+            var index = (startIndex + step + count) % count
+
+            while index != startIndex {
+                let candidate = candidates[index]
+                if candidate.isVisible, !candidate.isMiniaturized {
+                    candidate.makeKeyAndOrderFront(nil)
+                    // Also focus the terminal surface within the window
+                    if let controller = candidate.windowController as? BaseTerminalController,
+                       let surface = controller.focusedSurface {
+                        Ghostty.moveFocus(to: surface)
+                    }
+                    return true
+                }
+                index = (index + step + count) % count
+            }
+
+            return false
+        }
+
         private static func resizeSplit(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
-            resize: ghostty_action_resize_split_s) {
-                switch (target.tag) {
+            resize: ghostty_action_resize_split_s) -> Bool {
+                switch target.tag {
                 case GHOSTTY_TARGET_APP:
                     Ghostty.logger.warning("resize split does nothing with an app target")
-                    return
+                    return false
 
                 case GHOSTTY_TARGET_SURFACE:
-                    guard let surface = target.target.surface else { return }
-                    guard let surfaceView = self.surfaceView(from: surface) else { return }
-                    guard let resizeDirection = SplitResizeDirection.from(direction: resize.direction) else { return }
+                    guard let surface = target.target.surface else { return false }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                    guard let controller = surfaceView.window?.windowController as? BaseTerminalController else { return false }
+
+                    // If the window has no splits, the action is not performable
+                    guard controller.surfaceTree.isSplit else { return false }
+
+                    guard let resizeDirection = SplitResizeDirection.from(direction: resize.direction) else { return false }
                     NotificationCenter.default.post(
                         name: Notification.didResizeSplit,
                         object: surfaceView,
@@ -1127,16 +1282,18 @@ extension Ghostty {
                             Notification.ResizeSplitAmountKey: resize.amount,
                         ]
                     )
+                    return true
 
                 default:
                     assertionFailure()
+                    return false
                 }
         }
 
         private static func equalizeSplits(
             _ app: ghostty_app_t,
             target: ghostty_target_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("equalize splits does nothing with an app target")
                 return
@@ -1149,7 +1306,6 @@ extension Ghostty {
                     object: surfaceView
                 )
 
-
             default:
                 assertionFailure()
             }
@@ -1157,23 +1313,29 @@ extension Ghostty {
 
         private static func toggleSplitZoom(
             _ app: ghostty_app_t,
-            target: ghostty_target_s) {
-            switch (target.tag) {
+            target: ghostty_target_s) -> Bool {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("toggle split zoom does nothing with an app target")
-                return
+                return false
 
             case GHOSTTY_TARGET_SURFACE:
-                guard let surface = target.target.surface else { return }
-                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                guard let controller = surfaceView.window?.windowController as? BaseTerminalController else { return false }
+
+                // If the window has no splits, the action is not performable
+                guard controller.surfaceTree.isSplit else { return false }
+
                 NotificationCenter.default.post(
                     name: Notification.didToggleSplitZoom,
                     object: surfaceView
                 )
-
+                return true
 
             default:
                 assertionFailure()
+                return false
             }
         }
 
@@ -1181,9 +1343,9 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             mode: ghostty_action_inspector_e) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("toggle split zoom does nothing with an app target")
+                Ghostty.logger.warning("toggle inspector does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -1195,7 +1357,6 @@ extension Ghostty {
                     userInfo: ["mode": mode]
                 )
 
-
             default:
                 assertionFailure()
             }
@@ -1205,9 +1366,9 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             n: ghostty_action_desktop_notification_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("toggle split zoom does nothing with an app target")
+                Ghostty.logger.warning("desktop notification does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -1215,19 +1376,106 @@ extension Ghostty {
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
                 guard let title = String(cString: n.title!, encoding: .utf8) else { return }
                 guard let body = String(cString: n.body!, encoding: .utf8) else { return }
+                showDesktopNotification(surfaceView, title: title, body: body)
 
-                let center = UNUserNotificationCenter.current()
-                center.requestAuthorization(options: [.alert, .sound]) { _, error in
-                    if let error = error {
-                        Ghostty.logger.error("Error while requesting notification authorization: \(error)")
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func showDesktopNotification(
+            _ surfaceView: SurfaceView,
+            title: String,
+            body: String,
+            requireFocus: Bool = true) {
+            let center = UNUserNotificationCenter.current()
+            center.requestAuthorization(options: [.alert, .sound]) { _, error in
+                if let error = error {
+                    Ghostty.logger.error("Error while requesting notification authorization: \(error)")
+                }
+            }
+
+            center.getNotificationSettings { settings in
+                guard settings.authorizationStatus == .authorized else { return }
+                surfaceView.showUserNotification(
+                    title: title,
+                    body: body,
+                    requireFocus: requireFocus
+                )
+            }
+        }
+
+        private static func commandFinished(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_command_finished_s
+        ) {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("command finished does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+
+                // Determine if we even care about command finish notifications
+                guard let config = (NSApplication.shared.delegate as? AppDelegate)?.ghostty.config else { return }
+                switch config.notifyOnCommandFinish {
+                case .never:
+                    return
+
+                case .unfocused:
+                    if surfaceView.focused { return }
+
+                case .always:
+                    break
+                }
+
+                // Determine if the command was slow enough
+                let duration = Duration.nanoseconds(v.duration)
+                guard Duration.nanoseconds(v.duration) >= config.notifyOnCommandFinishAfter else { return }
+
+                let actions = config.notifyOnCommandFinishAction
+
+                if actions.contains(.bell) {
+                    NotificationCenter.default.post(
+                        name: .ghosttyBellDidRing,
+                        object: surfaceView
+                    )
+                }
+
+                if actions.contains(.notify) {
+                    let title: String
+                    if v.exit_code < 0 {
+                        title = "Command Finished"
+                    } else if v.exit_code == 0 {
+                        title = "Command Succeeded"
+                    } else {
+                        title = "Command Failed"
                     }
-                }
 
-                center.getNotificationSettings() { settings in
-                    guard settings.authorizationStatus == .authorized else { return }
-                    surfaceView.showUserNotification(title: title, body: body)
-                }
+                    let body: String
+                    let formattedDuration = duration.formatted(
+                        .units(
+                            allowed: [.hours, .minutes, .seconds, .milliseconds],
+                            width: .abbreviated,
+                            fractionalPart: .hide
+                        )
+                    )
+                    if v.exit_code < 0 {
+                        body = "Command took \(formattedDuration)."
+                    } else {
+                        body = "Command took \(formattedDuration) and exited with code \(v.exit_code)."
+                    }
 
+                    showDesktopNotification(
+                        surfaceView,
+                        title: title,
+                        body: body,
+                        requireFocus: false
+                    )
+                }
 
             default:
                 assertionFailure()
@@ -1241,7 +1489,7 @@ extension Ghostty {
         ) {
             guard let mode = SetFloatWIndow.from(mode_raw) else { return }
 
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("toggle float window does nothing with an app target")
                 return
@@ -1251,7 +1499,7 @@ extension Ghostty {
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
                 guard let window = surfaceView.window as? TerminalWindow else { return }
 
-                switch (mode) {
+                switch mode {
                 case .on:
                     window.level = .floating
 
@@ -1271,6 +1519,27 @@ extension Ghostty {
             }
         }
 
+        private static func toggleBackgroundOpacity(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s
+        ) {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("toggle background opacity does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface,
+                    let surfaceView = self.surfaceView(from: surface),
+                    let controller = surfaceView.window?.windowController as? BaseTerminalController else { return }
+
+                controller.toggleBackgroundOpacity()
+
+            default:
+                assertionFailure()
+            }
+        }
+
         private static func toggleSecureInput(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1278,7 +1547,7 @@ extension Ghostty {
         ) {
             guard let mode = SetSecureInput.from(mode_raw) else { return }
 
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return }
                 appDelegate.setSecureInput(mode)
@@ -1289,7 +1558,7 @@ extension Ghostty {
                 guard let appState = self.appState(fromView: surfaceView) else { return }
                 guard appState.config.autoSecureInput else { return }
 
-                switch (mode) {
+                switch mode {
                 case .on:
                     surfaceView.passwordInput = true
 
@@ -1317,7 +1586,7 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             v: ghostty_action_set_title_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("set title does nothing with an app target")
                 return
@@ -1333,31 +1602,125 @@ extension Ghostty {
             }
         }
 
-        private static func promptTitle(
+        private static func setTabTitle(
             _ app: ghostty_app_t,
-            target: ghostty_target_s) -> Bool {
-            switch (target.tag) {
+            target: ghostty_target_s,
+            v: ghostty_action_set_title_s
+        ) -> Bool {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("set title prompt does nothing with an app target")
+                Ghostty.logger.warning("set tab title does nothing with an app target")
                 return false
 
             case GHOSTTY_TARGET_SURFACE:
+                guard let title = String(cString: v.title!, encoding: .utf8) else { return false }
+                let titleOverride = title.isEmpty ? nil : title
                 guard let surface = target.target.surface else { return false }
                 guard let surfaceView = self.surfaceView(from: surface) else { return false }
-                surfaceView.promptTitle()
+                guard let window = surfaceView.window,
+                      let controller = window.windowController as? BaseTerminalController
+                else { return false }
+                controller.titleOverride = titleOverride
+                return true
 
             default:
                 assertionFailure()
+                return false
             }
+        }
 
-            return true
+        private static func showChildExited(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_surface_message_childexited_s,
+        ) -> Bool {
+            switch target.tag {
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                // We handle this when the window is visible and timetime_ms is greater than 0,
+                // which will rule out exit codes on launch
+                guard surfaceView.window != nil, v.timetime_ms > 0 else { return false }
+                guard let config = (NSApplication.shared.delegate as? AppDelegate)?.ghostty.config else { return false }
+                surfaceView.setChildExitedMessage(.init(v, threshold: config.abnormalCommandExitRuntime))
+                return true
+            default:
+                return false
+            }
+        }
+
+        private static func copyTitleToClipboard(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s) -> Bool {
+            switch target.tag {
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                let title = surfaceView.title
+                if title.isEmpty { return false }
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(title, forType: .string)
+                return true
+
+            default:
+                return false
+            }
+        }
+
+        private static func promptTitle(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_prompt_title_e) -> Bool {
+            let promptTitle = Action.PromptTitle(v)
+            switch promptTitle {
+            case .surface:
+                switch target.tag {
+                case GHOSTTY_TARGET_APP:
+                    Ghostty.logger.warning("set title prompt does nothing with an app target")
+                    return false
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface else { return false }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                    surfaceView.promptTitle()
+                    return true
+
+                default:
+                    assertionFailure()
+                    return false
+                }
+
+            case .tab:
+                switch target.tag {
+                case GHOSTTY_TARGET_APP:
+                    guard let window = NSApp.mainWindow ?? NSApp.keyWindow,
+                          let controller = window.windowController as? BaseTerminalController
+                    else { return false }
+                    controller.promptTabTitle()
+                    return true
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface else { return false }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                    guard let window = surfaceView.window,
+                          let controller = window.windowController as? BaseTerminalController
+                    else { return false }
+                    controller.promptTabTitle()
+                    return true
+
+                default:
+                    assertionFailure()
+                    return false
+                }
+            }
         }
 
         private static func pwdChanged(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             v: ghostty_action_pwd_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("pwd change does nothing with an app target")
                 return
@@ -1377,7 +1740,7 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             shape: ghostty_action_mouse_shape_e) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("set mouse shapes nothing with an app target")
                 return
@@ -1386,7 +1749,6 @@ extension Ghostty {
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
                 surfaceView.setCursorShape(shape)
-
 
             default:
                 assertionFailure()
@@ -1397,7 +1759,7 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             v: ghostty_action_mouse_visibility_e) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("set mouse shapes nothing with an app target")
                 return
@@ -1405,7 +1767,7 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
-                switch (v) {
+                switch v {
                 case GHOSTTY_MOUSE_VISIBLE:
                     surfaceView.setCursorVisibility(true)
 
@@ -1416,7 +1778,6 @@ extension Ghostty {
                     return
                 }
 
-
             default:
                 assertionFailure()
             }
@@ -1426,7 +1787,7 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             v: ghostty_action_mouse_over_link_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("mouse over link does nothing with an app target")
                 return
@@ -1442,7 +1803,6 @@ extension Ghostty {
                 let buffer = Data(bytes: v.url!, count: v.len)
                 surfaceView.hoverUrl = String(data: buffer, encoding: .utf8)
 
-
             default:
                 assertionFailure()
             }
@@ -1452,7 +1812,7 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             v: ghostty_action_initial_size_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("initial size does nothing with an app target")
                 return
@@ -1460,8 +1820,7 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
-                surfaceView.initialSize = NSMakeSize(Double(v.width), Double(v.height))
-
+                surfaceView.initialSize = NSSize(width: Double(v.width), height: Double(v.height))
 
             default:
                 assertionFailure()
@@ -1471,7 +1830,7 @@ extension Ghostty {
         private static func resetWindowSize(
             _ app: ghostty_app_t,
             target: ghostty_target_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("reset window size does nothing with an app target")
                 return
@@ -1484,7 +1843,6 @@ extension Ghostty {
                     object: surfaceView
                 )
 
-
             default:
                 assertionFailure()
             }
@@ -1494,7 +1852,7 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             v: ghostty_action_cell_size_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("mouse over link does nothing with an app target")
                 return
@@ -1516,7 +1874,7 @@ extension Ghostty {
         private static func renderInspector(
             _ app: ghostty_app_t,
             target: ghostty_target_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("mouse over link does nothing with an app target")
                 return
@@ -1538,7 +1896,7 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             v: ghostty_action_renderer_health_e) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("mouse over link does nothing with an app target")
                 return
@@ -1563,7 +1921,7 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             v: ghostty_action_key_sequence_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("key sequence does nothing with an app target")
                 return
@@ -1590,12 +1948,37 @@ extension Ghostty {
                 assertionFailure()
             }
         }
-        
+
+        private static func keyTable(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_key_table_s) {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("key table does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let action = Ghostty.Action.KeyTable(c: v) else { return }
+
+                NotificationCenter.default.post(
+                    name: Notification.didChangeKeyTable,
+                    object: surfaceView,
+                    userInfo: [Notification.KeyTableKey: action]
+                )
+
+            default:
+                assertionFailure()
+            }
+        }
+
         private static func progressReport(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             v: ghostty_action_progress_report_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("progress report does nothing with an app target")
                 return
@@ -1603,7 +1986,16 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
-                
+                guard let config = (NSApplication.shared.delegate as? AppDelegate)?.ghostty.config else { return }
+
+                guard config.progressStyle else {
+                    Ghostty.logger.debug("progress_report action blocked by config")
+                    DispatchQueue.main.async {
+                        surfaceView.progressReport = nil
+                    }
+                    return
+                }
+
                 let progressReport = Ghostty.Action.ProgressReport(c: v)
                 DispatchQueue.main.async {
                     if progressReport.state == .remove {
@@ -1622,7 +2014,7 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             v: ghostty_action_scrollbar_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("scrollbar does nothing with an app target")
                 return
@@ -1630,7 +2022,7 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
-                
+
                 let scrollbar = Ghostty.Action.Scrollbar(c: v)
                 NotificationCenter.default.post(
                     name: .ghosttyDidUpdateScrollbar,
@@ -1649,7 +2041,7 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             v: ghostty_action_start_search_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("start_search does nothing with an app target")
                 return
@@ -1660,11 +2052,15 @@ extension Ghostty {
 
                 let startSearch = Ghostty.Action.StartSearch(c: v)
                 DispatchQueue.main.async {
-                    if surfaceView.searchState != nil {
-                        NotificationCenter.default.post(name: .ghosttySearchFocus, object: surfaceView)
+                    if let searchState = surfaceView.searchState {
+                        if let needle = startSearch.needle, !needle.isEmpty {
+                            searchState.needle = needle
+                        }
                     } else {
                         surfaceView.searchState = Ghostty.SurfaceView.SearchState(from: startSearch)
                     }
+
+                    NotificationCenter.default.post(name: .ghosttySearchFocus, object: surfaceView)
                 }
 
             default:
@@ -1674,22 +2070,23 @@ extension Ghostty {
 
         private static func endSearch(
             _ app: ghostty_app_t,
-            target: ghostty_target_s) {
-            switch (target.tag) {
+            target: ghostty_target_s) -> Bool {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("end_search does nothing with an app target")
-                return
+                return false
 
             case GHOSTTY_TARGET_SURFACE:
-                guard let surface = target.target.surface else { return }
-                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
 
                 DispatchQueue.main.async {
-                    surfaceView.searchState = nil
+                    surfaceView.endSearch()
                 }
-
+                return true
             default:
                 assertionFailure()
+                return false
             }
         }
 
@@ -1697,7 +2094,7 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             v: ghostty_action_search_total_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("search_total does nothing with an app target")
                 return
@@ -1720,7 +2117,7 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             v: ghostty_action_search_selected_s) {
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("search_selected does nothing with an app target")
                 return
@@ -1742,14 +2139,13 @@ extension Ghostty {
         private static func configReload(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
-            v: ghostty_action_reload_config_s)
-        {
+            v: ghostty_action_reload_config_s) {
             logger.info("config reload notification")
 
             guard let app_ud = ghostty_app_userdata(app) else { return }
             let ghostty = Unmanaged<App>.fromOpaque(app_ud).takeUnretainedValue()
 
-            switch (target.tag) {
+            switch target.tag {
             case GHOSTTY_TARGET_APP:
                 ghostty.reloadConfig(soft: v.soft)
                 return
@@ -1775,7 +2171,7 @@ extension Ghostty {
                 // something so apprt's do not have to do this.
                 let config = Config(clone: v.config)
 
-                switch (target.tag) {
+                switch target.tag {
                 case GHOSTTY_TARGET_APP:
                     // Notify the world that the app config changed
                     NotificationCenter.default.post(
@@ -1815,7 +2211,7 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             change: ghostty_action_color_change_s) {
-                switch (target.tag) {
+                switch target.tag {
                 case GHOSTTY_TARGET_APP:
                     Ghostty.logger.warning("color change does nothing with an app target")
                     return
@@ -1836,7 +2232,6 @@ extension Ghostty {
                 }
         }
 
-
         // MARK: User Notifications
 
         /// Handle a received user notification. This is called when a user notification is clicked or dismissed by the user
@@ -1846,7 +2241,7 @@ extension Ghostty {
                   let uuid = UUID(uuidString: uuidString),
                   let surface = delegate?.findSurface(forUUID: uuid) else { return }
 
-            switch (response.actionIdentifier) {
+            switch response.actionIdentifier {
             case UNNotificationDefaultActionIdentifier, Ghostty.userNotificationActionShow:
                 // The user clicked on a notification
                 surface.handleUserNotification(notification: response.notification, focus: true)

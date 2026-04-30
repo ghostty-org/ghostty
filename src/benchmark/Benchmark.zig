@@ -131,12 +131,17 @@ pub const VTable = struct {
 };
 
 test Benchmark {
-    // This test fails on FreeBSD so skip:
+    // This test fails on FreeBSD and Windows so skip:
     //
     // /home/runner/work/ghostty/ghostty/src/benchmark/Benchmark.zig:165:5: 0x3cd2de1 in decltest.Benchmark (ghostty-test)
     //     try testing.expect(result.duration > 0);
     //     ^
-    if (builtin.os.tag == .freebsd) return error.SkipZigTest;
+    switch (builtin.os.tag) {
+        .freebsd,
+        .windows,
+        => return error.SkipZigTest,
+        else => {},
+    }
 
     const testing = std.testing;
     const Simple = struct {

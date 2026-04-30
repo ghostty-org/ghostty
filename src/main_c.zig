@@ -156,6 +156,56 @@ pub export fn ghostty_string_free(str: String) void {
     str.deinit();
 }
 
+// On Windows, Zig's _DllMainCRTStartup does not initialize the MSVC C
+// runtime when targeting MSVC ABI. Without initialization, any C library
+// function that depends on CRT internal state (setlocale, malloc from C
+// dependencies, C++ constructors in glslang) crashes with null pointer
+// dereferences. Declaring DllMain causes Zig's start.zig to call it
+// during DLL_PROCESS_ATTACH/DETACH, and for MSVC we forward to the CRT
+// bootstrap functions from libvcruntime and libucrt (already linked).
+// For other ABIs (MinGW) the handler is a no-op since dllcrt2.obj already
+// handles CRT init; we still need `DllMain` declared so that Zig's
+// start.zig does not fall back to calling a non-function value.
+//
+// This is a workaround. Zig handles MinGW DLLs correctly (via dllcrt2.obj)
+// but not MSVC. No upstream issue tracks this exact gap as of 2026-03-26.
+// Closest: Codeberg ziglang/zig #30936 (reimplement crt0 code).
+// Remove this DllMain when Zig handles MSVC DLL CRT init natively.
+pub const DllMain = if (builtin.os.tag == .windows) struct {
+    const BOOL = std.os.windows.BOOL;
+    const HINSTANCE = std.os.windows.HINSTANCE;
+    const DWORD = std.os.windows.DWORD;
+    const LPVOID = std.os.windows.LPVOID;
+    const TRUE = std.os.windows.TRUE;
+    const FALSE = std.os.windows.FALSE;
+
+    const DLL_PROCESS_ATTACH: DWORD = 1;
+    const DLL_PROCESS_DETACH: DWORD = 0;
+
+    const __vcrt_initialize = @extern(*const fn () callconv(.c) c_int, .{ .name = "__vcrt_initialize" });
+    const __vcrt_uninitialize = @extern(*const fn (c_int) callconv(.c) c_int, .{ .name = "__vcrt_uninitialize" });
+    const __acrt_initialize = @extern(*const fn () callconv(.c) c_int, .{ .name = "__acrt_initialize" });
+    const __acrt_uninitialize = @extern(*const fn (c_int) callconv(.c) c_int, .{ .name = "__acrt_uninitialize" });
+
+    pub fn handler(_: HINSTANCE, fdwReason: DWORD, _: LPVOID) callconv(.winapi) BOOL {
+        // Only MSVC needs to bootstrap the CRT; MinGW handles it via dllcrt2.obj.
+        if (builtin.abi != .msvc) return TRUE;
+        switch (fdwReason) {
+            DLL_PROCESS_ATTACH => {
+                if (__vcrt_initialize() < 0) return FALSE;
+                if (__acrt_initialize() < 0) return FALSE;
+                return TRUE;
+            },
+            DLL_PROCESS_DETACH => {
+                _ = __acrt_uninitialize(1);
+                _ = __vcrt_uninitialize(1);
+                return TRUE;
+            },
+            else => return TRUE,
+        }
+    }
+}.handler else void;
+
 test "ghostty_string_s empty string" {
     const testing = std.testing;
     const empty_string = String.empty;

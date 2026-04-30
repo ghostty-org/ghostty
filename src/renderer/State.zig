@@ -112,7 +112,7 @@ pub const Preedit = struct {
 
         // If our preedit goes off the end of the screen, we adjust it so
         // that it shifts left.
-        const end = start + w;
+        const end = if (w > 0) start + (w - 1) else start;
         const start_offset = if (end > max) end - max else 0;
         return .{
             .start = start -| start_offset,
@@ -121,3 +121,41 @@ pub const Preedit = struct {
         };
     }
 };
+
+const test_hangul_ga: u21 = 0xAC00; // U+AC00 HANGUL SYLLABLE GA
+
+test "preedit range covers exact cell width" {
+    const testing = std.testing;
+
+    {
+        const p: Preedit = .{
+            .codepoints = &.{.{ .codepoint = 'a' }},
+        };
+        const range = p.range(2, 9);
+        try testing.expectEqual(@as(terminalpkg.size.CellCountInt, 2), range.start);
+        try testing.expectEqual(@as(terminalpkg.size.CellCountInt, 2), range.end);
+        try testing.expectEqual(@as(usize, 0), range.cp_offset);
+    }
+
+    {
+        const p: Preedit = .{
+            .codepoints = &.{.{ .codepoint = test_hangul_ga, .wide = true }},
+        };
+        const range = p.range(2, 9);
+        try testing.expectEqual(@as(terminalpkg.size.CellCountInt, 2), range.start);
+        try testing.expectEqual(@as(terminalpkg.size.CellCountInt, 3), range.end);
+        try testing.expectEqual(@as(usize, 0), range.cp_offset);
+    }
+}
+
+test "preedit range shifts left at right edge" {
+    const testing = std.testing;
+
+    const p: Preedit = .{
+        .codepoints = &.{.{ .codepoint = test_hangul_ga, .wide = true }},
+    };
+    const range = p.range(9, 9);
+    try testing.expectEqual(@as(terminalpkg.size.CellCountInt, 8), range.start);
+    try testing.expectEqual(@as(terminalpkg.size.CellCountInt, 9), range.end);
+    try testing.expectEqual(@as(usize, 0), range.cp_offset);
+}

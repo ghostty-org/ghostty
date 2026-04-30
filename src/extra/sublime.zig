@@ -1,4 +1,3 @@
-const std = @import("std");
 const Config = @import("../config/Config.zig");
 
 const Template = struct {

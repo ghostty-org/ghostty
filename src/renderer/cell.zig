@@ -90,7 +90,6 @@ pub const Contents = struct {
 
         const bg_cells = try alloc.alloc(shaderpkg.CellBg, cell_count);
         errdefer alloc.free(bg_cells);
-
         @memset(bg_cells, .{ 0, 0, 0, 0 });
 
         // The foreground lists can hold 3 types of items:
@@ -106,32 +105,28 @@ pub const Contents = struct {
         // We have size.rows + 2 lists because indexes 0 and size.rows - 1 are
         // used for special lists containing the cursor cell which need to
         // be first and last in the buffer, respectively.
-        var fg_rows = try ArrayListCollection(shaderpkg.CellText).init(
+        var fg_rows: ArrayListCollection(shaderpkg.CellText) = try .init(
             alloc,
             size.rows + 2,
             size.columns * 3,
         );
         errdefer fg_rows.deinit(alloc);
 
-        alloc.free(self.bg_cells);
-        self.fg_rows.deinit(alloc);
-
-        self.bg_cells = bg_cells;
-        self.fg_rows = fg_rows;
-
         // We don't need 3*cols worth of cells for the cursor lists, so we can
         // replace them with smaller lists. This is technically a tiny bit of
         // extra work but resize is not a hot function so it's worth it to not
         // waste the memory.
-        self.fg_rows.lists[0].deinit(alloc);
-        self.fg_rows.lists[0] = try std.ArrayListUnmanaged(
-            shaderpkg.CellText,
-        ).initCapacity(alloc, 1);
+        fg_rows.lists[0].deinit(alloc);
+        fg_rows.lists[0] = try .initCapacity(alloc, 1);
+        fg_rows.lists[size.rows + 1].deinit(alloc);
+        fg_rows.lists[size.rows + 1] = try .initCapacity(alloc, 1);
 
-        self.fg_rows.lists[size.rows + 1].deinit(alloc);
-        self.fg_rows.lists[size.rows + 1] = try std.ArrayListUnmanaged(
-            shaderpkg.CellText,
-        ).initCapacity(alloc, 1);
+        // Perform the swap, no going back from here.
+        errdefer comptime unreachable;
+        alloc.free(self.bg_cells);
+        self.fg_rows.deinit(alloc);
+        self.bg_cells = bg_cells;
+        self.fg_rows = fg_rows;
     }
 
     /// Reset the cell contents to an empty state without resizing.
@@ -533,7 +528,7 @@ test "Cell constraint widths" {
     // symbol->nothing: 2
     {
         t.fullReset();
-        try s.nextSlice("");
+        s.nextSlice("");
         try state.update(alloc, &t);
         try testing.expectEqual(2, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -545,7 +540,7 @@ test "Cell constraint widths" {
     // symbol->character: 1
     {
         t.fullReset();
-        try s.nextSlice("z");
+        s.nextSlice("z");
         try state.update(alloc, &t);
         try testing.expectEqual(1, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -557,7 +552,7 @@ test "Cell constraint widths" {
     // symbol->space: 2
     {
         t.fullReset();
-        try s.nextSlice(" z");
+        s.nextSlice(" z");
         try state.update(alloc, &t);
         try testing.expectEqual(2, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -568,7 +563,7 @@ test "Cell constraint widths" {
     // symbol->no-break space: 1
     {
         t.fullReset();
-        try s.nextSlice("\u{00a0}z");
+        s.nextSlice("\u{00a0}z");
         try state.update(alloc, &t);
         try testing.expectEqual(1, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -580,7 +575,7 @@ test "Cell constraint widths" {
     // symbol->end of row: 1
     {
         t.fullReset();
-        try s.nextSlice("   ");
+        s.nextSlice("   ");
         try state.update(alloc, &t);
         try testing.expectEqual(1, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -592,7 +587,7 @@ test "Cell constraint widths" {
     // character->symbol: 2
     {
         t.fullReset();
-        try s.nextSlice("z");
+        s.nextSlice("z");
         try state.update(alloc, &t);
         try testing.expectEqual(2, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -604,7 +599,7 @@ test "Cell constraint widths" {
     // symbol->symbol: 1,1
     {
         t.fullReset();
-        try s.nextSlice("");
+        s.nextSlice("");
         try state.update(alloc, &t);
         try testing.expectEqual(1, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -621,7 +616,7 @@ test "Cell constraint widths" {
     // symbol->space->symbol: 2,2
     {
         t.fullReset();
-        try s.nextSlice(" ");
+        s.nextSlice(" ");
         try state.update(alloc, &t);
         try testing.expectEqual(2, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -638,7 +633,7 @@ test "Cell constraint widths" {
     // symbol->powerline: 1  (dedicated test because powerline is special-cased in cellpkg)
     {
         t.fullReset();
-        try s.nextSlice("");
+        s.nextSlice("");
         try state.update(alloc, &t);
         try testing.expectEqual(1, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -650,7 +645,7 @@ test "Cell constraint widths" {
     // powerline->symbol: 2  (dedicated test because powerline is special-cased in cellpkg)
     {
         t.fullReset();
-        try s.nextSlice("");
+        s.nextSlice("");
         try state.update(alloc, &t);
         try testing.expectEqual(2, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -662,7 +657,7 @@ test "Cell constraint widths" {
     // powerline->nothing: 2  (dedicated test because powerline is special-cased in cellpkg)
     {
         t.fullReset();
-        try s.nextSlice("");
+        s.nextSlice("");
         try state.update(alloc, &t);
         try testing.expectEqual(2, constraintWidth(
             state.row_data.get(0).cells.items(.raw),
@@ -674,7 +669,7 @@ test "Cell constraint widths" {
     // powerline->space: 2  (dedicated test because powerline is special-cased in cellpkg)
     {
         t.fullReset();
-        try s.nextSlice(" z");
+        s.nextSlice(" z");
         try state.update(alloc, &t);
         try testing.expectEqual(2, constraintWidth(
             state.row_data.get(0).cells.items(.raw),

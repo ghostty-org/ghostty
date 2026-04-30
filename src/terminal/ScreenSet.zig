@@ -9,15 +9,16 @@ const ScreenSet = @This();
 
 const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
+const lib = @import("lib.zig");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const Screen = @import("Screen.zig");
 
 /// The possible keys for screens in the screen set.
-pub const Key = enum(u1) {
-    primary,
-    alternate,
-};
+pub const Key = lib.Enum(lib.target, &.{
+    "primary",
+    "alternate",
+});
 
 /// The key value of the currently active screen. Useful for simple
 /// comparisons, e.g. "is this screen the primary screen".
@@ -32,7 +33,7 @@ all: std.EnumMap(Key, *Screen),
 pub fn init(
     alloc: Allocator,
     opts: Screen.Options,
-) !ScreenSet {
+) Allocator.Error!ScreenSet {
     // We need to initialize our initial primary screen
     const screen = try alloc.create(Screen);
     errdefer alloc.destroy(screen);
@@ -64,7 +65,7 @@ pub fn getInit(
     alloc: Allocator,
     key: Key,
     opts: Screen.Options,
-) !*Screen {
+) Allocator.Error!*Screen {
     if (self.get(key)) |screen| return screen;
     const screen = try alloc.create(Screen);
     errdefer alloc.destroy(screen);

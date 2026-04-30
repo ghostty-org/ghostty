@@ -7,8 +7,6 @@
 //! APIs. The renderers in this package assume that the renderer is already
 //! setup (OpenGL has a context, Vulkan has a surface, etc.)
 
-const std = @import("std");
-const builtin = @import("builtin");
 const build_config = @import("build_config.zig");
 
 const cursor = @import("renderer/cursor.zig");
@@ -21,6 +19,7 @@ pub const Metal = @import("renderer/Metal.zig");
 pub const OpenGL = @import("renderer/OpenGL.zig");
 pub const WebGL = @import("renderer/WebGL.zig");
 pub const Options = @import("renderer/Options.zig");
+pub const Overlay = @import("renderer/Overlay.zig");
 pub const Thread = @import("renderer/Thread.zig");
 pub const State = @import("renderer/State.zig");
 pub const CursorStyle = cursor.Style;
@@ -32,6 +31,7 @@ pub const ScreenSize = size.ScreenSize;
 pub const GridSize = size.GridSize;
 pub const Padding = size.Padding;
 pub const cursorStyle = cursor.style;
+pub const lib = @import("lib/main.zig");
 
 /// The implementation to use for the renderer. This is comptime chosen
 /// so that every build has exactly one renderer implementation.
@@ -45,8 +45,12 @@ pub const Renderer = switch (build_config.renderer) {
 /// renderers even if some states aren't reachable so that our API users
 /// can use the same enum for all renderers.
 pub const Health = enum(c_int) {
-    healthy = 0,
-    unhealthy = 1,
+    healthy,
+    unhealthy,
+
+    test "ghostty.h Health" {
+        try lib.checkGhosttyHEnum(Health, "GHOSTTY_RENDERER_HEALTH_");
+    }
 };
 
 test {

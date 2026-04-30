@@ -11,6 +11,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <ghostty/vt/types.h>
 
 /** @defgroup wasm WebAssembly Utilities
  *
@@ -74,7 +75,7 @@
  * @return Pointer to allocated opaque pointer, or NULL if allocation failed
  * @ingroup wasm
  */
-void** ghostty_wasm_alloc_opaque(void);
+GHOSTTY_API void** ghostty_wasm_alloc_opaque(void);
 
 /**
  * Free an opaque pointer allocated by ghostty_wasm_alloc_opaque().
@@ -82,7 +83,7 @@ void** ghostty_wasm_alloc_opaque(void);
  * @param ptr Pointer to free, or NULL (NULL is safely ignored)
  * @ingroup wasm
  */
-void ghostty_wasm_free_opaque(void **ptr);
+GHOSTTY_API void ghostty_wasm_free_opaque(void **ptr);
 
 /**
  * Allocate an array of uint8_t values.
@@ -91,7 +92,7 @@ void ghostty_wasm_free_opaque(void **ptr);
  * @return Pointer to allocated array, or NULL if allocation failed
  * @ingroup wasm
  */
-uint8_t* ghostty_wasm_alloc_u8_array(size_t len);
+GHOSTTY_API uint8_t* ghostty_wasm_alloc_u8_array(size_t len);
 
 /**
  * Free an array allocated by ghostty_wasm_alloc_u8_array().
@@ -100,7 +101,7 @@ uint8_t* ghostty_wasm_alloc_u8_array(size_t len);
  * @param len Length of the array (must match the length passed to alloc)
  * @ingroup wasm
  */
-void ghostty_wasm_free_u8_array(uint8_t *ptr, size_t len);
+GHOSTTY_API void ghostty_wasm_free_u8_array(uint8_t *ptr, size_t len);
 
 /**
  * Allocate an array of uint16_t values.
@@ -109,7 +110,7 @@ void ghostty_wasm_free_u8_array(uint8_t *ptr, size_t len);
  * @return Pointer to allocated array, or NULL if allocation failed
  * @ingroup wasm
  */
-uint16_t* ghostty_wasm_alloc_u16_array(size_t len);
+GHOSTTY_API uint16_t* ghostty_wasm_alloc_u16_array(size_t len);
 
 /**
  * Free an array allocated by ghostty_wasm_alloc_u16_array().
@@ -118,7 +119,7 @@ uint16_t* ghostty_wasm_alloc_u16_array(size_t len);
  * @param len Length of the array (must match the length passed to alloc)
  * @ingroup wasm
  */
-void ghostty_wasm_free_u16_array(uint16_t *ptr, size_t len);
+GHOSTTY_API void ghostty_wasm_free_u16_array(uint16_t *ptr, size_t len);
 
 /**
  * Allocate a single uint8_t value.
@@ -126,7 +127,7 @@ void ghostty_wasm_free_u16_array(uint16_t *ptr, size_t len);
  * @return Pointer to allocated uint8_t, or NULL if allocation failed
  * @ingroup wasm
  */
-uint8_t* ghostty_wasm_alloc_u8(void);
+GHOSTTY_API uint8_t* ghostty_wasm_alloc_u8(void);
 
 /**
  * Free a uint8_t allocated by ghostty_wasm_alloc_u8().
@@ -134,7 +135,7 @@ uint8_t* ghostty_wasm_alloc_u8(void);
  * @param ptr Pointer to free, or NULL (NULL is safely ignored)
  * @ingroup wasm
  */
-void ghostty_wasm_free_u8(uint8_t *ptr);
+GHOSTTY_API void ghostty_wasm_free_u8(uint8_t *ptr);
 
 /**
  * Allocate a single size_t value.
@@ -142,7 +143,7 @@ void ghostty_wasm_free_u8(uint8_t *ptr);
  * @return Pointer to allocated size_t, or NULL if allocation failed
  * @ingroup wasm
  */
-size_t* ghostty_wasm_alloc_usize(void);
+GHOSTTY_API size_t* ghostty_wasm_alloc_usize(void);
 
 /**
  * Free a size_t allocated by ghostty_wasm_alloc_usize().
@@ -150,7 +151,7 @@ size_t* ghostty_wasm_alloc_usize(void);
  * @param ptr Pointer to free, or NULL (NULL is safely ignored)
  * @ingroup wasm
  */
-void ghostty_wasm_free_usize(size_t *ptr);
+GHOSTTY_API void ghostty_wasm_free_usize(size_t *ptr);
 
 /** @} */
 

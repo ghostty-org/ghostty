@@ -1,0 +1,75 @@
+#!/usr/bin/env nu
+
+# A command to review the changes made in the current Git branch.
+#
+# IMPORTANT: This command is prompted to NOT write any code and to ONLY
+# produce a review summary. You should still be vigilant when running this
+# but that is the expected behavior.
+#
+# The optional `<issue>` parameter can be an issue number, PR number,
+# or a full GitHub URL to provide additional context.
+def main [
+  issue?: any, # Optional GitHub issue/PR number or URL for context
+] {
+  let issueContext = if $issue != null {
+    let data = gh issue view $issue --json author,title,number,body,comments | from json
+    let comments = if ($data.comments? != null) {
+      $data.comments | each { |comment|
+        let author = if ($comment.author?.login? != null) { $comment.author.login } else { "unknown" }
+        $"
+### Comment by ($author)
+($comment.body)
+" | str trim
+      } | str join "\n\n"
+    } else {
+      ""
+    }
+
+    $"
+## Source Issue: ($data.title) \(#($data.number)\)
+
+### Description
+($data.body)
+
+### Comments
+($comments)
+"
+  } else {
+    ""
+  }
+
+  $"
+# Branch Review
+
+Inspect the changes made in this Git branch. Identify any possible issues
+and suggest improvements. Do not write code. Explain the problems clearly
+and propose a brief plan for addressing them.
+($issueContext)
+## Your Tasks
+
+You are an experienced software developer with expertise in code review.
+
+Review the change history between the current branch and its
+base branch. Analyze all relevant code for possible issues, including but
+not limited to:
+
+- Code quality and readability
+- Code style that matches or mimics the rest of the codebase
+- Potential bugs or logical errors
+- Edge cases that may not be handled
+- Performance considerations
+- Security vulnerabilities
+- Backwards compatibility \(if applicable\)
+- Test coverage and effectiveness
+
+For test coverage, consider if the changes are in an area of the codebase
+that is testable. If so, check if there are appropriate tests added or
+modified. Consider if the code itself should be modified to be more
+testable.
+
+Think deeply about the implications of the changes here and proposed.
+Consult the oracle if you have access to it.
+
+**ONLY CREATE A SUMMARY. DO NOT WRITE ANY CODE.**
+" | str trim
+}

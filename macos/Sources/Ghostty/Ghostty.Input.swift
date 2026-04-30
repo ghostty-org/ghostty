@@ -18,7 +18,7 @@ extension Ghostty {
     /// be used for things like NSMenu that only support keyboard shortcuts anyways.
     static func keyboardShortcut(for trigger: ghostty_input_trigger_s) -> KeyboardShortcut? {
         let key: KeyEquivalent
-        switch (trigger.tag) {
+        switch trigger.tag {
         case GHOSTTY_TRIGGER_PHYSICAL:
             // Only functional keys can be converted to a KeyboardShortcut. Other physical
             // mappings cannot because KeyboardShortcut in Swift is inherently layout-dependent.
@@ -29,8 +29,15 @@ extension Ghostty {
             }
 
         case GHOSTTY_TRIGGER_UNICODE:
-            guard let scalar = UnicodeScalar(trigger.key.unicode) else { return nil }
-            key = KeyEquivalent(Character(scalar))
+            guard
+                let scalar = UnicodeScalar(trigger.key.unicode),
+                let normalized = Character(scalar).lowercased().first
+            else { return nil }
+            key = KeyEquivalent(normalized)
+
+        case GHOSTTY_TRIGGER_CATCH_ALL:
+            // catch_all matches any key, so it can't be represented as a KeyboardShortcut
+            return nil
 
         default:
             return nil
@@ -45,11 +52,11 @@ extension Ghostty {
 
     /// Returns the event modifier flags set for the Ghostty mods enum.
     static func eventModifierFlags(mods: ghostty_input_mods_e) -> NSEvent.ModifierFlags {
-        var flags = NSEvent.ModifierFlags(rawValue: 0);
-        if (mods.rawValue & GHOSTTY_MODS_SHIFT.rawValue != 0) { flags.insert(.shift) }
-        if (mods.rawValue & GHOSTTY_MODS_CTRL.rawValue != 0) { flags.insert(.control) }
-        if (mods.rawValue & GHOSTTY_MODS_ALT.rawValue != 0) { flags.insert(.option) }
-        if (mods.rawValue & GHOSTTY_MODS_SUPER.rawValue != 0) { flags.insert(.command) }
+        var flags = NSEvent.ModifierFlags(rawValue: 0)
+        if mods.rawValue & GHOSTTY_MODS_SHIFT.rawValue != 0 { flags.insert(.shift) }
+        if mods.rawValue & GHOSTTY_MODS_CTRL.rawValue != 0 { flags.insert(.control) }
+        if mods.rawValue & GHOSTTY_MODS_ALT.rawValue != 0 { flags.insert(.option) }
+        if mods.rawValue & GHOSTTY_MODS_SUPER.rawValue != 0 { flags.insert(.command) }
         return flags
     }
 
@@ -57,19 +64,19 @@ extension Ghostty {
     static func ghosttyMods(_ flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
         var mods: UInt32 = GHOSTTY_MODS_NONE.rawValue
 
-        if (flags.contains(.shift)) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
-        if (flags.contains(.control)) { mods |= GHOSTTY_MODS_CTRL.rawValue }
-        if (flags.contains(.option)) { mods |= GHOSTTY_MODS_ALT.rawValue }
-        if (flags.contains(.command)) { mods |= GHOSTTY_MODS_SUPER.rawValue }
-        if (flags.contains(.capsLock)) { mods |= GHOSTTY_MODS_CAPS.rawValue }
+        if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
+        if flags.contains(.control) { mods |= GHOSTTY_MODS_CTRL.rawValue }
+        if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
+        if flags.contains(.command) { mods |= GHOSTTY_MODS_SUPER.rawValue }
+        if flags.contains(.capsLock) { mods |= GHOSTTY_MODS_CAPS.rawValue }
 
         // Handle sided input. We can't tell that both are pressed in the
-        // Ghostty structure but thats okay -- we don't use that information.
+        // Ghostty structure but that's okay -- we don't use that information.
         let rawFlags = flags.rawValue
-        if (rawFlags & UInt(NX_DEVICERSHIFTKEYMASK) != 0) { mods |= GHOSTTY_MODS_SHIFT_RIGHT.rawValue }
-        if (rawFlags & UInt(NX_DEVICERCTLKEYMASK) != 0) { mods |= GHOSTTY_MODS_CTRL_RIGHT.rawValue }
-        if (rawFlags & UInt(NX_DEVICERALTKEYMASK) != 0) { mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue }
-        if (rawFlags & UInt(NX_DEVICERCMDKEYMASK) != 0) { mods |= GHOSTTY_MODS_SUPER_RIGHT.rawValue }
+        if rawFlags & UInt(NX_DEVICERSHIFTKEYMASK) != 0 { mods |= GHOSTTY_MODS_SHIFT_RIGHT.rawValue }
+        if rawFlags & UInt(NX_DEVICERCTLKEYMASK) != 0 { mods |= GHOSTTY_MODS_CTRL_RIGHT.rawValue }
+        if rawFlags & UInt(NX_DEVICERALTKEYMASK) != 0 { mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue }
+        if rawFlags & UInt(NX_DEVICERCMDKEYMASK) != 0 { mods |= GHOSTTY_MODS_SUPER_RIGHT.rawValue }
 
         return ghostty_input_mods_e(mods)
     }
@@ -77,7 +84,7 @@ extension Ghostty {
     /// A map from the Ghostty key enum to the keyEquivalent string for shortcuts. Note that
     /// not all ghostty key enum values are represented here because not all of them can be
     /// mapped to a KeyEquivalent.
-    static let keyToEquivalent: [ghostty_input_key_e : KeyEquivalent] = [
+    static let keyToEquivalent: [ghostty_input_key_e: KeyEquivalent] = [
         // Function keys
         GHOSTTY_KEY_ARROW_UP: .upArrow,
         GHOSTTY_KEY_ARROW_DOWN: .downArrow,
@@ -85,7 +92,7 @@ extension Ghostty {
         GHOSTTY_KEY_ARROW_RIGHT: .rightArrow,
         GHOSTTY_KEY_HOME: .home,
         GHOSTTY_KEY_END: .end,
-        GHOSTTY_KEY_DELETE: .delete,
+        GHOSTTY_KEY_DELETE: .deleteForward,
         GHOSTTY_KEY_PAGE_UP: .pageUp,
         GHOSTTY_KEY_PAGE_DOWN: .pageDown,
         GHOSTTY_KEY_ESCAPE: .escape,
@@ -94,6 +101,32 @@ extension Ghostty {
         GHOSTTY_KEY_BACKSPACE: .delete,
         GHOSTTY_KEY_SPACE: .space,
     ]
+}
+
+// MARK: Ghostty.Input.BindingFlags
+
+extension Ghostty.Input {
+    /// `ghostty_binding_flags_e`
+    struct BindingFlags: OptionSet, Sendable {
+        let rawValue: UInt32
+
+        static let consumed = BindingFlags(rawValue: GHOSTTY_BINDING_FLAGS_CONSUMED.rawValue)
+        static let all = BindingFlags(rawValue: GHOSTTY_BINDING_FLAGS_ALL.rawValue)
+        static let global = BindingFlags(rawValue: GHOSTTY_BINDING_FLAGS_GLOBAL.rawValue)
+        static let performable = BindingFlags(rawValue: GHOSTTY_BINDING_FLAGS_PERFORMABLE.rawValue)
+
+        init(rawValue: UInt32) {
+            self.rawValue = rawValue
+        }
+
+        init(cFlags: ghostty_binding_flags_e) {
+            self.rawValue = cFlags.rawValue
+        }
+
+        var cFlags: ghostty_binding_flags_e {
+            ghostty_binding_flags_e(rawValue)
+        }
+    }
 }
 
 // MARK: Ghostty.Input.KeyEvent
@@ -135,7 +168,7 @@ extension Ghostty.Input {
             case GHOSTTY_ACTION_REPEAT: self.action = .repeat
             default: self.action = .press
             }
-            
+
             // Convert key from keycode
             guard let key = Key(keyCode: UInt16(cValue.keycode)) else { return nil }
             self.key = key
@@ -146,18 +179,18 @@ extension Ghostty.Input {
             } else {
                 self.text = nil
             }
-            
+
             // Set composing state
             self.composing = cValue.composing
-            
+
             // Convert modifiers
             self.mods = Mods(cMods: cValue.mods)
             self.consumedMods = Mods(cMods: cValue.consumed_mods)
-            
+
             // Set unshifted codepoint
             self.unshiftedCodepoint = cValue.unshifted_codepoint
         }
-        
+
         /// Executes a closure with a temporary C representation of this KeyEvent.
         ///
         /// This method safely converts the Swift KeyEntity to a C `ghostty_input_key_s` struct
@@ -176,7 +209,7 @@ extension Ghostty.Input {
             keyEvent.mods = mods.cMods
             keyEvent.consumed_mods = consumedMods.cMods
             keyEvent.unshifted_codepoint = unshiftedCodepoint
-            
+
             // Handle text with proper memory management
             if let text = text {
                 return text.withCString { textPtr in
@@ -199,7 +232,7 @@ extension Ghostty.Input {
         case release
         case press
         case `repeat`
-        
+
         var cAction: ghostty_input_action_e {
             switch self {
             case .release: GHOSTTY_ACTION_RELEASE
@@ -213,7 +246,7 @@ extension Ghostty.Input {
 extension Ghostty.Input.Action: AppEnum {
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Key Action")
 
-    static var caseDisplayRepresentations: [Ghostty.Input.Action : DisplayRepresentation] = [
+    static var caseDisplayRepresentations: [Ghostty.Input.Action: DisplayRepresentation] = [
         .release: "Release",
         .press: "Press",
         .repeat: "Repeat"
@@ -228,7 +261,7 @@ extension Ghostty.Input {
         let action: MouseState
         let button: MouseButton
         let mods: Mods
-        
+
         init(
             action: MouseState,
             button: MouseButton,
@@ -238,7 +271,7 @@ extension Ghostty.Input {
             self.button = button
             self.mods = mods
         }
-        
+
         /// Creates a MouseEvent from C enum values.
         ///
         /// This initializer converts C-style mouse input enums to Swift types.
@@ -255,7 +288,7 @@ extension Ghostty.Input {
             case GHOSTTY_MOUSE_PRESS: self.action = .press
             default: return nil
             }
-            
+
             // Convert button
             switch button {
             case GHOSTTY_MOUSE_UNKNOWN: self.button = .unknown
@@ -264,7 +297,7 @@ extension Ghostty.Input {
             case GHOSTTY_MOUSE_MIDDLE: self.button = .middle
             default: return nil
             }
-            
+
             // Convert modifiers
             self.mods = Mods(cMods: mods)
         }
@@ -275,7 +308,7 @@ extension Ghostty.Input {
         let x: Double
         let y: Double
         let mods: Mods
-        
+
         init(
             x: Double,
             y: Double,
@@ -312,7 +345,7 @@ extension Ghostty.Input {
     enum MouseState: String, CaseIterable {
         case release
         case press
-        
+
         var cMouseState: ghostty_input_mouse_state_e {
             switch self {
             case .release: GHOSTTY_MOUSE_RELEASE
@@ -325,7 +358,7 @@ extension Ghostty.Input {
 extension Ghostty.Input.MouseState: AppEnum {
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Mouse State")
 
-    static var caseDisplayRepresentations: [Ghostty.Input.MouseState : DisplayRepresentation] = [
+    static var caseDisplayRepresentations: [Ghostty.Input.MouseState: DisplayRepresentation] = [
         .release: "Release",
         .press: "Press"
     ]
@@ -340,13 +373,48 @@ extension Ghostty.Input {
         case left
         case right
         case middle
-        
+        case four
+        case five
+        case six
+        case seven
+        case eight
+        case nine
+        case ten
+        case eleven
+
         var cMouseButton: ghostty_input_mouse_button_e {
             switch self {
             case .unknown: GHOSTTY_MOUSE_UNKNOWN
             case .left: GHOSTTY_MOUSE_LEFT
             case .right: GHOSTTY_MOUSE_RIGHT
             case .middle: GHOSTTY_MOUSE_MIDDLE
+            case .four: GHOSTTY_MOUSE_FOUR
+            case .five: GHOSTTY_MOUSE_FIVE
+            case .six: GHOSTTY_MOUSE_SIX
+            case .seven: GHOSTTY_MOUSE_SEVEN
+            case .eight: GHOSTTY_MOUSE_EIGHT
+            case .nine: GHOSTTY_MOUSE_NINE
+            case .ten: GHOSTTY_MOUSE_TEN
+            case .eleven: GHOSTTY_MOUSE_ELEVEN
+            }
+        }
+
+        /// Initialize from NSEvent.buttonNumber
+        /// NSEvent buttonNumber: 0=left, 1=right, 2=middle, 3=back (button 8), 4=forward (button 9), etc.
+        init(fromNSEventButtonNumber buttonNumber: Int) {
+            switch buttonNumber {
+            case 0: self = .left
+            case 1: self = .right
+            case 2: self = .middle
+            case 3: self = .eight   // Back button
+            case 4: self = .nine    // Forward button
+            case 5: self = .six
+            case 6: self = .seven
+            case 7: self = .four
+            case 8: self = .five
+            case 9: self = .ten
+            case 10: self = .eleven
+            default: self = .unknown
             }
         }
     }
@@ -355,7 +423,7 @@ extension Ghostty.Input {
 extension Ghostty.Input.MouseButton: AppEnum {
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Mouse Button")
 
-    static var caseDisplayRepresentations: [Ghostty.Input.MouseButton : DisplayRepresentation] = [
+    static var caseDisplayRepresentations: [Ghostty.Input.MouseButton: DisplayRepresentation] = [
         .unknown: "Unknown",
         .left: "Left",
         .right: "Right",
@@ -378,18 +446,18 @@ extension Ghostty.Input {
     /// for scroll events, matching the Zig `ScrollMods` packed struct.
     struct ScrollMods {
         let rawValue: Int32
-        
+
         /// True if this is a high-precision scroll event (e.g., trackpad, Magic Mouse)
         var precision: Bool {
             rawValue & 0b0000_0001 != 0
         }
-        
+
         /// The momentum phase of the scroll event for inertial scrolling
         var momentum: Momentum {
             let momentumBits = (rawValue >> 1) & 0b0000_0111
             return Momentum(rawValue: UInt8(momentumBits)) ?? .none
         }
-        
+
         init(precision: Bool = false, momentum: Momentum = .none) {
             var value: Int32 = 0
             if precision {
@@ -398,11 +466,11 @@ extension Ghostty.Input {
             value |= Int32(momentum.rawValue) << 1
             self.rawValue = value
         }
-        
+
         init(rawValue: Int32) {
             self.rawValue = rawValue
         }
-        
+
         var cScrollMods: ghostty_input_scroll_mods_t {
             rawValue
         }
@@ -421,7 +489,7 @@ extension Ghostty.Input {
         case ended = 4
         case cancelled = 5
         case mayBegin = 6
-        
+
         var cMomentum: ghostty_input_mouse_momentum_e {
             switch self {
             case .none: GHOSTTY_MOUSE_MOMENTUM_NONE
@@ -438,8 +506,8 @@ extension Ghostty.Input {
 
 extension Ghostty.Input.Momentum: AppEnum {
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Scroll Momentum")
-    
-    static var caseDisplayRepresentations: [Ghostty.Input.Momentum : DisplayRepresentation] = [
+
+    static var caseDisplayRepresentations: [Ghostty.Input.Momentum: DisplayRepresentation] = [
         .none: "None",
         .began: "Began",
         .stationary: "Stationary",
@@ -475,7 +543,7 @@ extension Ghostty.Input {
     /// `ghostty_input_mods_e`
     struct Mods: OptionSet {
         let rawValue: UInt32
-        
+
         static let none = Mods(rawValue: GHOSTTY_MODS_NONE.rawValue)
         static let shift = Mods(rawValue: GHOSTTY_MODS_SHIFT.rawValue)
         static let ctrl = Mods(rawValue: GHOSTTY_MODS_CTRL.rawValue)
@@ -486,23 +554,23 @@ extension Ghostty.Input {
         static let ctrlRight = Mods(rawValue: GHOSTTY_MODS_CTRL_RIGHT.rawValue)
         static let altRight = Mods(rawValue: GHOSTTY_MODS_ALT_RIGHT.rawValue)
         static let superRight = Mods(rawValue: GHOSTTY_MODS_SUPER_RIGHT.rawValue)
-        
+
         var cMods: ghostty_input_mods_e {
             ghostty_input_mods_e(rawValue)
         }
-        
+
         init(rawValue: UInt32) {
             self.rawValue = rawValue
         }
-        
+
         init(cMods: ghostty_input_mods_e) {
             self.rawValue = cMods.rawValue
         }
-        
+
         init(nsFlags: NSEvent.ModifierFlags) {
             self.init(cMods: Ghostty.ghosttyMods(nsFlags))
         }
-        
+
         var nsFlags: NSEvent.ModifierFlags {
             Ghostty.eventModifierFlags(mods: cMods)
         }
@@ -1116,58 +1184,58 @@ extension Ghostty.Input.Key: AppEnum {
         return [
             // Letters (A-Z)
             .a, .b, .c, .d, .e, .f, .g, .h, .i, .j, .k, .l, .m, .n, .o, .p, .q, .r, .s, .t, .u, .v, .w, .x, .y, .z,
-            
+
             // Numbers (0-9)
             .digit0, .digit1, .digit2, .digit3, .digit4, .digit5, .digit6, .digit7, .digit8, .digit9,
-            
+
             // Common Control Keys
             .space, .enter, .tab, .backspace, .escape, .delete,
-            
+
             // Arrow Keys
             .arrowUp, .arrowDown, .arrowLeft, .arrowRight,
-            
+
             // Navigation Keys
             .home, .end, .pageUp, .pageDown, .insert,
-            
+
             // Function Keys (F1-F20)
             .f1, .f2, .f3, .f4, .f5, .f6, .f7, .f8, .f9, .f10, .f11, .f12,
             .f13, .f14, .f15, .f16, .f17, .f18, .f19, .f20,
-            
+
             // Modifier Keys
             .shiftLeft, .shiftRight, .controlLeft, .controlRight, .altLeft, .altRight,
             .metaLeft, .metaRight, .capsLock,
-            
+
             // Punctuation & Symbols
             .minus, .equal, .backquote, .bracketLeft, .bracketRight, .backslash,
             .semicolon, .quote, .comma, .period, .slash,
-            
+
             // Numpad
             .numLock, .numpad0, .numpad1, .numpad2, .numpad3, .numpad4, .numpad5,
             .numpad6, .numpad7, .numpad8, .numpad9, .numpadAdd, .numpadSubtract,
             .numpadMultiply, .numpadDivide, .numpadDecimal, .numpadEqual,
             .numpadEnter, .numpadComma,
-            
+
             // Media Keys
             .audioVolumeUp, .audioVolumeDown, .audioVolumeMute,
-            
+
             // International Keys
             .intlBackslash, .intlRo, .intlYen,
-            
+
             // Other
             .contextMenu
         ]
     }
 
-    static var caseDisplayRepresentations: [Ghostty.Input.Key : DisplayRepresentation] = [
+    static var caseDisplayRepresentations: [Ghostty.Input.Key: DisplayRepresentation] = [
         // Letters (A-Z)
         .a: "A", .b: "B", .c: "C", .d: "D", .e: "E", .f: "F", .g: "G", .h: "H", .i: "I", .j: "J",
         .k: "K", .l: "L", .m: "M", .n: "N", .o: "O", .p: "P", .q: "Q", .r: "R", .s: "S", .t: "T",
         .u: "U", .v: "V", .w: "W", .x: "X", .y: "Y", .z: "Z",
-        
+
         // Numbers (0-9)
         .digit0: "0", .digit1: "1", .digit2: "2", .digit3: "3", .digit4: "4",
         .digit5: "5", .digit6: "6", .digit7: "7", .digit8: "8", .digit9: "9",
-        
+
         // Common Control Keys
         .space: "Space",
         .enter: "Enter",
@@ -1175,26 +1243,26 @@ extension Ghostty.Input.Key: AppEnum {
         .backspace: "Backspace",
         .escape: "Escape",
         .delete: "Delete",
-        
+
         // Arrow Keys
         .arrowUp: "Up Arrow",
         .arrowDown: "Down Arrow",
         .arrowLeft: "Left Arrow",
         .arrowRight: "Right Arrow",
-        
+
         // Navigation Keys
         .home: "Home",
         .end: "End",
         .pageUp: "Page Up",
         .pageDown: "Page Down",
         .insert: "Insert",
-        
+
         // Function Keys (F1-F20)
         .f1: "F1", .f2: "F2", .f3: "F3", .f4: "F4", .f5: "F5", .f6: "F6",
         .f7: "F7", .f8: "F8", .f9: "F9", .f10: "F10", .f11: "F11", .f12: "F12",
         .f13: "F13", .f14: "F14", .f15: "F15", .f16: "F16", .f17: "F17",
         .f18: "F18", .f19: "F19", .f20: "F20",
-        
+
         // Modifier Keys
         .shiftLeft: "Left Shift",
         .shiftRight: "Right Shift",
@@ -1205,7 +1273,7 @@ extension Ghostty.Input.Key: AppEnum {
         .metaLeft: "Left Command",
         .metaRight: "Right Command",
         .capsLock: "Caps Lock",
-        
+
         // Punctuation & Symbols
         .minus: "Minus (-)",
         .equal: "Equal (=)",
@@ -1218,7 +1286,7 @@ extension Ghostty.Input.Key: AppEnum {
         .comma: "Comma (,)",
         .period: "Period (.)",
         .slash: "Slash (/)",
-        
+
         // Numpad
         .numLock: "Num Lock",
         .numpad0: "Numpad 0", .numpad1: "Numpad 1", .numpad2: "Numpad 2",
@@ -1232,17 +1300,17 @@ extension Ghostty.Input.Key: AppEnum {
         .numpadEqual: "Numpad Equal",
         .numpadEnter: "Numpad Enter",
         .numpadComma: "Numpad Comma",
-        
+
         // Media Keys
         .audioVolumeUp: "Volume Up",
         .audioVolumeDown: "Volume Down",
         .audioVolumeMute: "Volume Mute",
-        
+
         // International Keys
         .intlBackslash: "International Backslash",
         .intlRo: "International Ro",
         .intlYen: "International Yen",
-        
+
         // Other
         .contextMenu: "Context Menu"
     ]

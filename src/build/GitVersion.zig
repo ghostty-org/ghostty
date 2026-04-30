@@ -19,19 +19,30 @@ branch: []const u8,
 pub fn detect(b: *std.Build) !Version {
     // Execute a bunch of git commands to determine the automatic version.
     var code: u8 = 0;
-    const branch: []const u8 = b.runAllowFail(
-        &[_][]const u8{ "git", "-C", b.build_root.path orelse ".", "rev-parse", "--abbrev-ref", "HEAD" },
-        &code,
-        .Ignore,
-    ) catch |err| switch (err) {
-        error.FileNotFound => return error.GitNotFound,
-        error.ExitCodeFailure => return error.GitNotRepository,
-        else => return err,
+    const branch: []const u8 = b: {
+        const tmp: []u8 = b.runAllowFail(
+            &[_][]const u8{ "git", "-C", b.build_root.path orelse ".", "rev-parse", "--abbrev-ref", "HEAD" },
+            &code,
+            .Ignore,
+        ) catch |err| switch (err) {
+            error.FileNotFound => return error.GitNotFound,
+            error.ExitCodeFailure => return error.GitNotRepository,
+            else => return err,
+        };
+
+        // Replace characters that are not valid in semantic version
+        // pre-release identifiers (which only allow [0-9A-Za-z-]).
+        // Slashes would also mess up dist tarball paths.
+        for (tmp) |*c| {
+            if (!std.ascii.isAlphanumeric(c.*) and c.* != '-') c.* = '-';
+        }
+
+        break :b tmp;
     };
 
     const short_hash = short_hash: {
         const output = b.runAllowFail(
-            &[_][]const u8{ "git", "-C", b.build_root.path orelse ".", "log", "--pretty=format:%h", "-n", "1" },
+            &[_][]const u8{ "git", "-C", b.build_root.path orelse ".", "-c", "log.showSignature=false", "log", "--pretty=format:%h", "-n", "1" },
             &code,
             .Ignore,
         ) catch |err| switch (err) {

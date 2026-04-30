@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("../quirks.zig").inlineAssert;
 const passwd = @import("passwd.zig");
 const posix = std.posix;
 const objc = @import("objc");
@@ -14,7 +13,7 @@ const Error = error{
 /// is generally an expensive process so the value should be cached.
 pub inline fn home(buf: []u8) !?[]const u8 {
     return switch (builtin.os.tag) {
-        inline .linux, .freebsd, .macos => try homeUnix(buf),
+        .linux, .freebsd, .macos => try homeUnix(buf),
         .windows => try homeWindows(buf),
 
         // iOS doesn't have a user-writable home directory
@@ -123,7 +122,13 @@ pub const ExpandError = error{
 pub fn expandHome(path: []const u8, buf: []u8) ExpandError![]const u8 {
     return switch (builtin.os.tag) {
         .linux, .freebsd, .macos => try expandHomeUnix(path, buf),
+
+        // `~/` is not an idiom generally used on Windows
+        .windows => return path,
+
+        // iOS doesn't have a user-writable home directory
         .ios => return path,
+
         else => @compileError("unimplemented"),
     };
 }
@@ -144,6 +149,8 @@ fn expandHomeUnix(path: []const u8, buf: []u8) ExpandError![]const u8 {
 }
 
 test "expandHomeUnix" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
     const testing = std.testing;
     const allocator = testing.allocator;
     var buf: [std.fs.max_path_bytes]u8 = undefined;

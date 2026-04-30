@@ -1,36 +1,42 @@
 {
   lib,
   buildPythonPackage,
-  fetchPypi,
+  fetchFromGitHub,
   pythonOlder,
-  setuptools,
+  hatchling,
   # Dependencies
   blessed,
   wcwidth,
   pyyaml,
+  prettytable,
+  requests,
 }:
-buildPythonPackage rec {
+buildPythonPackage (finalAttrs: {
   pname = "ucs-detect";
-  version = "1.0.8";
+  version = "2.0.2";
   pyproject = true;
 
   disabled = pythonOlder "3.8";
 
-  src = fetchPypi {
-    inherit version;
-    pname = "ucs_detect";
-    hash = "sha256-ihB+tZCd6ykdeXYxc6V1Q6xALQ+xdCW5yqSL7oppqJc=";
+  src = fetchFromGitHub {
+    owner = "jquast";
+    repo = "ucs-detect";
+    tag = finalAttrs.version;
+    hash = "sha256-pCJNrJN+SO0pGveNJuISJbzOJYyxP9Tbljp8PwqbgYU=";
   };
 
   dependencies = [
     blessed
     wcwidth
     pyyaml
+    prettytable
+    requests
   ];
 
-  nativeBuildInputs = [setuptools];
+  nativeBuildInputs = [hatchling];
 
   doCheck = false;
+  dontCheckRuntimeDeps = true;
 
   meta = with lib; {
     description = "Measures number of Terminal column cells of wide-character codes";
@@ -38,4 +44,4 @@ buildPythonPackage rec {
     license = licenses.mit;
     maintainers = [];
   };
-}
+})

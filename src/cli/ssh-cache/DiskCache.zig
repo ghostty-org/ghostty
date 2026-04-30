@@ -9,7 +9,6 @@ const assert = @import("../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const internal_os = @import("../../os/main.zig");
 const xdg = internal_os.xdg;
-const TempDir = internal_os.TempDir;
 const Entry = @import("Entry.zig");
 
 // 512KB - sufficient for approximately 10k entries
@@ -58,6 +57,16 @@ pub fn clear(self: DiskCache) !void {
 
 pub const AddResult = enum { added, updated };
 
+pub const AddError = std.fs.Dir.MakeError ||
+    std.fs.Dir.StatFileError ||
+    std.fs.File.OpenError ||
+    std.fs.File.ChmodError ||
+    std.io.Reader.LimitedAllocError ||
+    FixupPermissionsError ||
+    ReadEntriesError ||
+    WriteCacheFileError ||
+    Error;
+
 /// Add or update a hostname entry in the cache.
 /// Returns AddResult.added for new entries or AddResult.updated for existing ones.
 /// The cache file is created if it doesn't exist with secure permissions (0600).
@@ -65,7 +74,7 @@ pub fn add(
     self: DiskCache,
     alloc: Allocator,
     hostname: []const u8,
-) !AddResult {
+) AddError!AddResult {
     if (!isValidCacheKey(hostname)) return error.HostnameIsInvalid;
 
     // Create cache directory if needed
@@ -125,9 +134,15 @@ pub fn add(
         break :update .updated;
     };
 
-    try self.writeCacheFile(alloc, entries, null);
+    try self.writeCacheFile(entries, null);
     return result;
 }
+
+pub const RemoveError = std.fs.File.OpenError ||
+    FixupPermissionsError ||
+    ReadEntriesError ||
+    WriteCacheFileError ||
+    Error;
 
 /// Remove a hostname entry from the cache.
 /// No error is returned if the hostname doesn't exist or the cache file is missing.
@@ -135,7 +150,7 @@ pub fn remove(
     self: DiskCache,
     alloc: Allocator,
     hostname: []const u8,
-) !void {
+) RemoveError!void {
     if (!isValidCacheKey(hostname)) return error.HostnameIsInvalid;
 
     // Open our file
@@ -166,8 +181,12 @@ pub fn remove(
         alloc.free(kv.value.terminfo_version);
     }
 
-    try self.writeCacheFile(alloc, entries, null);
+    try self.writeCacheFile(entries, null);
 }
+
+pub const ContainsError = std.fs.File.OpenError ||
+    ReadEntriesError ||
+    error{HostnameIsInvalid};
 
 /// Check if a hostname exists in the cache.
 /// Returns false if the cache file doesn't exist.
@@ -175,7 +194,7 @@ pub fn contains(
     self: DiskCache,
     alloc: Allocator,
     hostname: []const u8,
-) !bool {
+) ContainsError!bool {
     if (!isValidCacheKey(hostname)) return error.HostnameIsInvalid;
 
     // Open our file
@@ -195,7 +214,9 @@ pub fn contains(
     return entries.contains(hostname);
 }
 
-fn fixupPermissions(file: std.fs.File) (std.fs.File.StatError || std.fs.File.ChmodError)!void {
+pub const FixupPermissionsError = (std.fs.File.StatError || std.fs.File.ChmodError);
+
+fn fixupPermissions(file: std.fs.File) FixupPermissionsError!void {
     // Windows does not support chmod
     if (comptime builtin.os.tag == .windows) return;
 
@@ -207,34 +228,39 @@ fn fixupPermissions(file: std.fs.File) (std.fs.File.StatError || std.fs.File.Chm
     }
 }
 
+pub const WriteCacheFileError = std.fs.Dir.OpenError ||
+    std.fs.AtomicFile.InitError ||
+    std.fs.AtomicFile.FlushError ||
+    std.fs.AtomicFile.FinishError ||
+    Entry.FormatError ||
+    error{InvalidCachePath};
+
 fn writeCacheFile(
     self: DiskCache,
-    alloc: Allocator,
     entries: std.StringHashMap(Entry),
     expire_days: ?u32,
-) !void {
-    var td: TempDir = try .init();
-    defer td.deinit();
+) WriteCacheFileError!void {
+    const cache_dir = std.fs.path.dirname(self.path) orelse return error.InvalidCachePath;
+    const cache_basename = std.fs.path.basename(self.path);
 
-    const tmp_file = try td.dir.createFile("ssh-cache", .{ .mode = 0o600 });
-    defer tmp_file.close();
-    const tmp_path = try td.dir.realpathAlloc(alloc, "ssh-cache");
-    defer alloc.free(tmp_path);
+    var dir = try std.fs.cwd().openDir(cache_dir, .{});
+    defer dir.close();
 
     var buf: [1024]u8 = undefined;
-    var writer = tmp_file.writer(&buf);
+    var atomic_file = try dir.atomicFile(cache_basename, .{
+        .mode = 0o600,
+        .write_buffer = &buf,
+    });
+    defer atomic_file.deinit();
+
     var iter = entries.iterator();
     while (iter.next()) |kv| {
         // Only write non-expired entries
         if (kv.value_ptr.isExpired(expire_days)) continue;
-        try kv.value_ptr.format(&writer.interface);
+        try kv.value_ptr.format(&atomic_file.file_writer.interface);
     }
 
-    // Don't forget to flush!!
-    try writer.interface.flush();
-
-    // Atomic replace
-    try std.fs.renameAbsolute(tmp_path, self.path);
+    try atomic_file.finish();
 }
 
 /// List all entries in the cache.
@@ -273,10 +299,12 @@ pub fn deinitEntries(
     entries.deinit();
 }
 
+pub const ReadEntriesError = std.mem.Allocator.Error || std.io.Reader.LimitedAllocError;
+
 fn readEntries(
     alloc: Allocator,
     file: std.fs.File,
-) !std.StringHashMap(Entry) {
+) ReadEntriesError!std.StringHashMap(Entry) {
     var reader = file.reader(&.{});
     const content = try reader.interface.allocRemaining(
         alloc,
@@ -382,16 +410,16 @@ test "disk cache clear" {
     const alloc = testing.allocator;
 
     // Create our path
-    var td: TempDir = try .init();
-    defer td.deinit();
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
     var buf: [4096]u8 = undefined;
     {
-        var file = try td.dir.createFile("cache", .{});
+        var file = try tmp.dir.createFile("cache", .{});
         defer file.close();
         var file_writer = file.writer(&buf);
         try file_writer.interface.writeAll("HELLO!");
     }
-    const path = try td.dir.realpathAlloc(alloc, "cache");
+    const path = try tmp.dir.realpathAlloc(alloc, "cache");
     defer alloc.free(path);
 
     // Setup our cache
@@ -401,7 +429,7 @@ test "disk cache clear" {
     // Verify the file is gone
     try testing.expectError(
         error.FileNotFound,
-        td.dir.openFile("cache", .{}),
+        tmp.dir.openFile("cache", .{}),
     );
 }
 
@@ -410,18 +438,18 @@ test "disk cache operations" {
     const alloc = testing.allocator;
 
     // Create our path
-    var td: TempDir = try .init();
-    defer td.deinit();
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
     var buf: [4096]u8 = undefined;
     {
-        var file = try td.dir.createFile("cache", .{});
+        var file = try tmp.dir.createFile("cache", .{});
         defer file.close();
         var file_writer = file.writer(&buf);
         const writer = &file_writer.interface;
         try writer.writeAll("HELLO!");
         try writer.flush();
     }
-    const path = try td.dir.realpathAlloc(alloc, "cache");
+    const path = try tmp.dir.realpathAlloc(alloc, "cache");
     defer alloc.free(path);
 
     // Setup our cache
@@ -451,6 +479,32 @@ test "disk cache operations" {
         AddResult.added,
         try cache.add(alloc, "example.com"),
     );
+}
+
+test "disk cache cleans up temp files" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var tmp = testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const tmp_path = try tmp.dir.realpathAlloc(alloc, ".");
+    defer alloc.free(tmp_path);
+    const cache_path = try std.fs.path.join(alloc, &.{ tmp_path, "cache" });
+    defer alloc.free(cache_path);
+
+    const cache: DiskCache = .{ .path = cache_path };
+    try testing.expectEqual(AddResult.added, try cache.add(alloc, "example.com"));
+    try testing.expectEqual(AddResult.added, try cache.add(alloc, "example.org"));
+
+    // Verify only the cache file exists and no temp files left behind
+    var count: usize = 0;
+    var iter = tmp.dir.iterate();
+    while (try iter.next()) |entry| {
+        count += 1;
+        try testing.expectEqualStrings("cache", entry.name);
+    }
+    try testing.expectEqual(1, count);
 }
 
 test isValidHost {

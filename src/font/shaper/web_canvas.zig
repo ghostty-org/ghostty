@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const font = @import("../main.zig");
 const terminal = @import("../../terminal/main.zig");
 const unicode = @import("../../unicode/main.zig");
+const uucode = @import("uucode");
 
 const log = std.log.scoped(.font_shaper);
 
@@ -57,7 +58,7 @@ pub const Shaper = struct {
     }
 
     /// Returns an iterator that returns one text run at a time for the
-    /// given terminal row. Note that text runs are are only valid one at a time
+    /// given terminal row. Note that text runs are only valid one at a time
     /// for a Shaper struct since they share state.
     pub fn runIterator(
         self: *Shaper,
@@ -111,7 +112,7 @@ pub const Shaper = struct {
         // font ligatures. However, we do support grapheme clustering.
         // This means we can render things like skin tone emoji but
         // we can't render things like single glyph "=>".
-        var break_state: unicode.GraphemeBreakState = .{};
+        var break_state: uucode.grapheme.BreakState = .default;
         var cp1: u21 = @intCast(codepoints[0]);
 
         var start: usize = 0;

@@ -64,7 +64,7 @@ jobs:
           mkdir blob
           mv appcast.xml blob/appcast.xml
       - name: Upload Appcast to R2
-        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1
+        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
         with:
           r2-account-id: ${{ secrets.CF_R2_RELEASE_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_RELEASE_AWS_KEY }}

@@ -1,0 +1,11 @@
+.{
+    .name = .afl_plus_plus,
+    .fingerprint = 0x465bc4bebb188f16,
+    .version = "0.1.0",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "afl.c",
+    },
+}

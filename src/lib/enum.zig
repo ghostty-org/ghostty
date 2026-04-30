@@ -91,3 +91,55 @@ test "abi by removing a key" {
         try testing.expectEqual(2, @intFromEnum(T.d));
     }
 }
+
+/// Verify that for every key in enum T, there is a matching declaration in
+/// `ghostty.h` with the correct value. This should only ever be called inside a `test`
+/// because the `ghostty.h` module is only available then.
+pub fn checkGhosttyHEnum(
+    comptime T: type,
+    comptime prefix: []const u8,
+) !void {
+    const info = @typeInfo(T);
+
+    try std.testing.expect(info == .@"enum");
+    try std.testing.expect(info.@"enum".tag_type == c_int);
+    try std.testing.expect(info.@"enum".is_exhaustive == true);
+
+    @setEvalBranchQuota(100_000);
+
+    const c = @import("ghostty.h");
+
+    var set: std.EnumSet(T) = .initFull();
+
+    const enum_fields = info.@"enum".fields;
+
+    inline for (enum_fields) |field| {
+        const expected_name: *const [prefix.len + field.name.len]u8 = comptime e: {
+            var buf: [prefix.len + field.name.len]u8 = undefined;
+            @memcpy(buf[0..prefix.len], prefix);
+            for (buf[prefix.len..], field.name) |*d, s| {
+                d.* = std.ascii.toUpper(s);
+            }
+            break :e &buf;
+        };
+
+        if (@hasDecl(c, expected_name)) {
+            std.testing.expectEqual(field.value, @field(c, expected_name)) catch |e| {
+                std.log.err(@typeName(T) ++ " key " ++ field.name ++ " does not have the same backing int as " ++ expected_name, .{});
+                return e;
+            };
+
+            set.remove(@enumFromInt(field.value));
+        }
+    }
+
+    std.testing.expect(set.count() == 0) catch |e| {
+        var it = set.iterator();
+        while (it.next()) |v| {
+            var buf: [128]u8 = undefined;
+            const upper_string = std.ascii.upperString(&buf, @tagName(v));
+            std.log.err("ghostty.h is missing value for {s}{s}", .{ prefix, upper_string });
+        }
+        return e;
+    };
+}

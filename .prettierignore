@@ -11,6 +11,9 @@ zig-out/
 # macos is managed by XCode GUI
 macos/
 
+# Xcode asset catalogs
+**/*.xcassets/
+
 # produced by Icon Composer on macOS
 images/Ghostty.icon/icon.json
 
@@ -19,3 +22,10 @@ website/.next
 
 # shaders
 *.frag
+
+# fuzz corpus files
+test/fuzz-libghostty/corpus/
+test/fuzz-libghostty/afl-out/
+
+# Swift example build outputs
+example/swift-vt-xcframework/.build/

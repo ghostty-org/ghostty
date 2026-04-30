@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 
 /// Conditionals in Ghostty configuration are based on a static, typed

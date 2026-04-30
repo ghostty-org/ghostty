@@ -3,16 +3,12 @@ const Self = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = @import("../../quirks.zig").inlineAssert;
-const builtin = @import("builtin");
 const gl = @import("opengl");
 
-const OpenGL = @import("../OpenGL.zig");
 const Sampler = @import("Sampler.zig");
 const Target = @import("Target.zig");
 const Texture = @import("Texture.zig");
 const Pipeline = @import("Pipeline.zig");
-const RenderPass = @import("RenderPass.zig");
 const Buffer = @import("buffer.zig").Buffer;
 
 /// Options for beginning a render pass.

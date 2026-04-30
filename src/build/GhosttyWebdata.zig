@@ -3,7 +3,6 @@
 const GhosttyWebdata = @This();
 
 const std = @import("std");
-const Config = @import("Config.zig");
 const SharedDeps = @import("SharedDeps.zig");
 
 steps: []*std.Build.Step,

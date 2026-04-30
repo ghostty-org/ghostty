@@ -27,6 +27,7 @@ const Pty = ptypkg.Pty;
 const EnvMap = std.process.EnvMap;
 const PasswdEntry = internal_os.passwd.Entry;
 const windows = internal_os.windows;
+const ProcessInfo = @import("../pty.zig").ProcessInfo;
 
 const log = std.log.scoped(.io_exec);
 
@@ -235,6 +236,9 @@ pub fn focusGained(
 
     assert(td.backend == .exec);
     const execdata = &td.backend.exec;
+
+    // Windows has no termios, so there is nothing to poll.
+    if (comptime builtin.os.tag == .windows) return;
 
     if (!focused) {
         // Flag the timer to end on the next iteration. This is
@@ -562,10 +566,13 @@ pub const Config = struct {
     env_override: configpkg.RepeatableStringMap = .{},
     shell_integration: configpkg.Config.ShellIntegration = .detect,
     shell_integration_features: configpkg.Config.ShellIntegrationFeatures = .{},
+    cursor_blink: ?bool = null,
     working_directory: ?[]const u8 = null,
     resources_dir: ?[]const u8,
     term: []const u8,
-    linux_cgroup: Command.LinuxCgroup = Command.linux_cgroup_default,
+
+    rt_pre_exec_info: Command.RtPreExecInfo,
+    rt_post_fork_info: Command.RtPostForkInfo,
 };
 
 const Subprocess = struct {
@@ -583,7 +590,9 @@ const Subprocess = struct {
     screen_size: renderer.ScreenSize,
     pty: ?Pty = null,
     process: ?Process = null,
-    linux_cgroup: Command.LinuxCgroup = Command.linux_cgroup_default,
+
+    rt_pre_exec_info: Command.RtPreExecInfo,
+    rt_post_fork_info: Command.RtPostForkInfo,
 
     /// Union that represents the running process type.
     const Process = union(enum) {
@@ -750,15 +759,16 @@ const Subprocess = struct {
                     else => "sh",
                 } };
 
+            // Always set up shell features (GHOSTTY_SHELL_FEATURES). These are
+            // used by both automatic and manual shell integrations.
+            try shell_integration.setupFeatures(
+                &env,
+                cfg.shell_integration_features,
+                cfg.cursor_blink orelse true,
+            );
+
             const force: ?shell_integration.Shell = switch (cfg.shell_integration) {
                 .none => {
-                    // Even if shell integration is none, we still want to
-                    // set up the feature env vars
-                    try shell_integration.setupFeatures(
-                        &env,
-                        cfg.shell_integration_features,
-                    );
-
                     // This is a source of confusion for users despite being
                     // opt-in since it results in some Ghostty features not
                     // working. We always want to log it.
@@ -770,6 +780,7 @@ const Subprocess = struct {
                 .bash => .bash,
                 .elvish => .elvish,
                 .fish => .fish,
+                .nushell => .nushell,
                 .zsh => .zsh,
             };
 
@@ -784,7 +795,6 @@ const Subprocess = struct {
                 default_shell_command,
                 &env,
                 force,
-                cfg.shell_integration_features,
             ) orelse {
                 log.warn("shell could not be detected, no automatic shell integration will be injected", .{});
                 break :shell default_shell_command;
@@ -849,21 +859,14 @@ const Subprocess = struct {
         // https://github.com/ghostty-org/ghostty/discussions/7769
         if (cwd) |pwd| try env.put("PWD", pwd);
 
-        // If we have a cgroup, then we copy that into our arena so the
-        // memory remains valid when we start.
-        const linux_cgroup: Command.LinuxCgroup = cgroup: {
-            const default = Command.linux_cgroup_default;
-            if (comptime builtin.os.tag != .linux) break :cgroup default;
-            const path = cfg.linux_cgroup orelse break :cgroup default;
-            break :cgroup try alloc.dupe(u8, path);
-        };
-
         return .{
             .arena = arena,
             .env = env,
             .cwd = cwd,
             .args = args,
-            .linux_cgroup = linux_cgroup,
+
+            .rt_pre_exec_info = cfg.rt_pre_exec_info,
+            .rt_post_fork_info = cfg.rt_post_fork_info,
 
             // Should be initialized with initTerminal call.
             .grid_size = .{},
@@ -1012,17 +1015,27 @@ const Subprocess = struct {
             .stdout = if (builtin.os.tag == .windows) null else .{ .handle = pty.slave },
             .stderr = if (builtin.os.tag == .windows) null else .{ .handle = pty.slave },
             .pseudo_console = if (builtin.os.tag == .windows) pty.pseudo_console else {},
-            .pre_exec = if (builtin.os.tag == .windows) null else (struct {
-                fn callback(cmd: *Command) void {
-                    const sp = cmd.getData(Subprocess) orelse unreachable;
-                    sp.childPreExec() catch |err| log.err(
-                        "error initializing child: {}",
-                        .{err},
-                    );
-                }
-            }).callback,
+            .os_pre_exec = switch (comptime builtin.os.tag) {
+                .windows => null,
+                else => f: {
+                    const f = struct {
+                        fn callback(cmd: *Command) ?u8 {
+                            const sp = cmd.getData(Subprocess) orelse unreachable;
+                            sp.childPreExec() catch |err| log.err(
+                                "error initializing child: {}",
+                                .{err},
+                            );
+                            return null;
+                        }
+                    };
+                    break :f f.callback;
+                },
+            },
+            .rt_pre_exec = if (comptime @hasDecl(apprt.runtime, "pre_exec")) apprt.runtime.pre_exec.preExec else null,
+            .rt_pre_exec_info = self.rt_pre_exec_info,
+            .rt_post_fork = if (comptime @hasDecl(apprt.runtime, "post_fork")) apprt.runtime.post_fork.postFork else null,
+            .rt_post_fork_info = self.rt_post_fork_info,
             .data = self,
-            .linux_cgroup = self.linux_cgroup,
         };
 
         cmd.start(alloc) catch |err| {
@@ -1044,9 +1057,6 @@ const Subprocess = struct {
             log.warn("error killing command during cleanup err={}", .{err});
         };
         log.info("started subcommand path={s} pid={?}", .{ self.args[0], cmd.pid });
-        if (comptime builtin.os.tag == .linux) {
-            log.info("subcommand cgroup={s}", .{self.linux_cgroup orelse "-"});
-        }
 
         self.process = .{ .fork_exec = cmd };
         return switch (builtin.os.tag) {
@@ -1219,6 +1229,14 @@ const Subprocess = struct {
     /// This sends a signal via the Flatpak API.
     fn killCommandFlatpak(command: *FlatpakHostCommand) !void {
         try command.signal(c.SIGHUP, true);
+    }
+
+    /// Get information about the process(es) running within the subprocess.
+    /// Returns `null` if there was an error getting the information or the
+    /// information is not available on a particular platform.
+    pub fn getProcessInfo(self: *Subprocess, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
+        const pty = &(self.pty orelse return null);
+        return pty.getProcessInfo(info);
     }
 };
 
@@ -1537,26 +1555,39 @@ fn execCommand(
             defer args.deinit(alloc);
 
             if (comptime builtin.os.tag == .windows) {
-                // We run our shell wrapped in `cmd.exe` so that we don't have
-                // to parse the command line ourselves if it has arguments.
-
+                // On Windows we run the shell value directly rather than
+                // wrapping in `cmd.exe /C <shell>`. An intermediate cmd
+                // process is wasteful for the common case (`wsl ~`,
+                // `pwsh -NoLogo`, etc.) and has visible side effects
+                // (extra process in the tree, per-process cmd AutoRun
+                // state not reaching the user's actual shell).
+                //
+                // Values with arguments are split on whitespace. This
+                // does not honor Windows CLI quoting rules; users who
+                // need quoted arguments should use the direct command
+                // form, which takes an argv array as-is.
+                //
                 // Note we don't free any of the memory below since it is
                 // allocated in the arena.
-                const windir = std.process.getEnvVarOwned(
-                    alloc,
-                    "WINDIR",
-                ) catch |err| {
-                    log.warn("failed to get WINDIR, cannot run shell command err={}", .{err});
-                    return error.SystemError;
-                };
-                const cmd = try std.fs.path.joinZ(alloc, &[_][]const u8{
-                    windir,
-                    "System32",
-                    "cmd.exe",
-                });
-
-                try args.append(alloc, cmd);
-                try args.append(alloc, "/C");
+                if (std.mem.indexOfAny(u8, v, " \t") == null) {
+                    // No arguments. If the shell is literally "cmd.exe"
+                    // (the default), resolve via %COMSPEC% which is the
+                    // documented path to the current command processor.
+                    // Other values are passed as-is and resolved by
+                    // `internal_os.path.expand` in Command.startWindows.
+                    const argv0 = if (std.ascii.eqlIgnoreCase(v, "cmd.exe"))
+                        std.process.getEnvVarOwned(alloc, "COMSPEC") catch
+                            try alloc.dupe(u8, v)
+                    else
+                        try alloc.dupe(u8, v);
+                    try args.append(alloc, try alloc.dupeZ(u8, argv0));
+                } else {
+                    var it = std.mem.tokenizeAny(u8, v, " \t");
+                    while (it.next()) |tok| {
+                        try args.append(alloc, try alloc.dupeZ(u8, tok));
+                    }
+                }
+                break :shell try args.toOwnedSlice(alloc);
             } else {
                 // We run our shell wrapped in `/bin/sh` so that we don't have
                 // to parse the command line ourselves if it has arguments.
@@ -1572,6 +1603,13 @@ fn execCommand(
             break :shell try args.toOwnedSlice(alloc);
         },
     };
+}
+
+/// Get information about the process(es) running within the backend. Returns
+/// `null` if there was an error getting the information or the information is
+/// not available on a particular platform.
+pub fn getProcessInfo(self: *Exec, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
+    return self.subprocess.getProcessInfo(info);
 }
 
 test "execCommand darwin: shell command" {
@@ -1736,4 +1774,85 @@ test "execCommand: direct command, config freed" {
     try testing.expectEqual(2, result.len);
     try testing.expectEqualStrings(result[0], "foo");
     try testing.expectEqualStrings(result[1], "bar baz");
+}
+
+test "execCommand windows: bare cmd.exe resolves via COMSPEC" {
+    if (comptime builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const result = try execCommand(alloc, .{ .shell = "cmd.exe" }, struct {
+        fn get(_: Allocator) !PasswdEntry {
+            return .{};
+        }
+    });
+
+    try testing.expectEqual(1, result.len);
+
+    // Expect COMSPEC if available, otherwise the documented fallback.
+    const expected = std.process.getEnvVarOwned(alloc, "COMSPEC") catch
+        try alloc.dupe(u8, "C:\\Windows\\System32\\cmd.exe");
+    try testing.expectEqualStrings(expected, result[0]);
+}
+
+test "execCommand windows: bare non-cmd shell is passed through" {
+    if (comptime builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const result = try execCommand(alloc, .{ .shell = "pwsh.exe" }, struct {
+        fn get(_: Allocator) !PasswdEntry {
+            return .{};
+        }
+    });
+
+    try testing.expectEqual(1, result.len);
+    try testing.expectEqualStrings("pwsh.exe", result[0]);
+}
+
+test "execCommand windows: shell with args is split on whitespace" {
+    if (comptime builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const result = try execCommand(alloc, .{ .shell = "wsl ~" }, struct {
+        fn get(_: Allocator) !PasswdEntry {
+            return .{};
+        }
+    });
+
+    try testing.expectEqual(2, result.len);
+    try testing.expectEqualStrings("wsl", result[0]);
+    try testing.expectEqualStrings("~", result[1]);
+}
+
+test "execCommand windows: direct command is passed through unchanged" {
+    if (comptime builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const result = try execCommand(alloc, .{ .direct = &.{
+        "C:\\tools\\foo.exe",
+        "arg with spaces",
+    } }, struct {
+        fn get(_: Allocator) !PasswdEntry {
+            return .{};
+        }
+    });
+
+    try testing.expectEqual(2, result.len);
+    try testing.expectEqualStrings("C:\\tools\\foo.exe", result[0]);
+    try testing.expectEqualStrings("arg with spaces", result[1]);
 }

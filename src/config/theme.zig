@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const global_state = &@import("../global.zig").state;
 const internal_os = @import("../os/main.zig");
@@ -222,7 +221,7 @@ pub fn open(
 
     // Unlikely scenario: the theme doesn't exist. In this case, we reset
     // our iterator, reiterate over in order to build a better error message.
-    // This does double allocate some memory but for errors I think thats
+    // This does double allocate some memory but for errors I think that's
     // fine.
     it.reset();
     while (try it.next()) |loc| {

@@ -2,7 +2,6 @@
 //! library implementation(s) require per-process.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const builtin = @import("builtin");
 const options = @import("main.zig").options;
 const freetype = @import("freetype");
 const font = @import("main.zig");
@@ -11,6 +10,7 @@ const font = @import("main.zig");
 pub const Library = switch (options.backend) {
     // Freetype requires a state library
     .freetype,
+    .freetype_windows,
     .fontconfig_freetype,
     .coretext_freetype,
     => FreetypeLibrary,

@@ -23,8 +23,6 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = @import("../../../quirks.zig").inlineAssert;
 
-const z2d = @import("z2d");
-
 const common = @import("common.zig");
 const Thickness = common.Thickness;
 const Alignment = common.Alignment;

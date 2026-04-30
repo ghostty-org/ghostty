@@ -1,5 +1,4 @@
 const std = @import("std");
-const help_strings = @import("help_strings");
 const helpgen_actions = @import("../../input/helpgen_actions.zig");
 
 pub fn main() !void {

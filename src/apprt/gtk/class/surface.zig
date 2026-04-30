@@ -10,6 +10,7 @@ const gtk = @import("gtk");
 
 const apprt = @import("../../../apprt.zig");
 const build_config = @import("../../../build_config.zig");
+const configpkg = @import("../../../config.zig");
 const datastruct = @import("../../../datastruct/main.zig");
 const font = @import("../../../font/main.zig");
 const input = @import("../../../input.zig");
@@ -19,20 +20,22 @@ const terminal = @import("../../../terminal/main.zig");
 const CoreSurface = @import("../../../Surface.zig");
 const gresource = @import("../build/gresource.zig");
 const ext = @import("../ext.zig");
-const adw_version = @import("../adw_version.zig");
+const gsettings = @import("../gsettings.zig");
 const gtk_key = @import("../key.zig");
 const ApprtSurface = @import("../Surface.zig");
 const Common = @import("../class.zig").Common;
 const Application = @import("application.zig").Application;
 const Config = @import("config.zig").Config;
 const ResizeOverlay = @import("resize_overlay.zig").ResizeOverlay;
+const SearchOverlay = @import("search_overlay.zig").SearchOverlay;
+const KeyStateOverlay = @import("key_state_overlay.zig").KeyStateOverlay;
 const ChildExited = @import("surface_child_exited.zig").SurfaceChildExited;
 const ClipboardConfirmationDialog = @import("clipboard_confirmation_dialog.zig").ClipboardConfirmationDialog;
-const TitleDialog = @import("surface_title_dialog.zig").SurfaceTitleDialog;
+const TitleDialog = @import("title_dialog.zig").TitleDialog;
 const Window = @import("window.zig").Window;
-const WeakRef = @import("../weak_ref.zig").WeakRef;
 const InspectorWindow = @import("inspector_window.zig").InspectorWindow;
 const i18n = @import("../../../os/i18n.zig");
+const media = @import("../media.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface);
 
@@ -361,6 +364,63 @@ pub const Surface = extern struct {
                 },
             );
         };
+
+        pub const @"key-sequence" = struct {
+            pub const name = "key-sequence";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?*ext.StringList,
+                .{
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        ?*ext.StringList,
+                        .{
+                            .getter = getKeySequence,
+                            .getter_transfer = .full,
+                        },
+                    ),
+                },
+            );
+        };
+
+        pub const @"key-table" = struct {
+            pub const name = "key-table";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?*ext.StringList,
+                .{
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        ?*ext.StringList,
+                        .{
+                            .getter = getKeyTable,
+                            .getter_transfer = .full,
+                        },
+                    ),
+                },
+            );
+        };
+
+        pub const readonly = struct {
+            pub const name = "readonly";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = false,
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        bool,
+                        .{
+                            .getter = getReadonly,
+                        },
+                    ),
+                },
+            );
+        };
     };
 
     pub const signals = struct {
@@ -493,10 +553,6 @@ pub const Surface = extern struct {
         /// The configuration that this surface is using.
         config: ?*Config = null,
 
-        /// The cgroup created for this surface. This will be created
-        /// if `Application.transient_cgroup_base` is set.
-        cgroup_path: ?[]const u8 = null,
-
         /// The default size for a window that embeds this surface.
         default_size: ?*Size = null,
 
@@ -550,6 +606,12 @@ pub const Surface = extern struct {
 
         /// The resize overlay
         resize_overlay: *ResizeOverlay,
+
+        /// The search overlay
+        search_overlay: *SearchOverlay,
+
+        /// The key state overlay
+        key_state_overlay: *KeyStateOverlay,
 
         /// The apprt Surface.
         rt_surface: ApprtSurface = undefined,
@@ -615,6 +677,10 @@ pub const Surface = extern struct {
         vscroll_policy: gtk.ScrollablePolicy = .natural,
         vadj_signal_group: ?*gobject.SignalGroup = null,
 
+        // Key state tracking for key sequences and tables
+        key_sequence: std.ArrayListUnmanaged([:0]const u8) = .empty,
+        key_tables: std.ArrayListUnmanaged([:0]const u8) = .empty,
+
         // Template binds
         child_exited_overlay: *ChildExited,
         context_menu: *gtk.PopoverMenu,
@@ -623,11 +689,50 @@ pub const Surface = extern struct {
         error_page: *adw.StatusPage,
         terminal_page: *gtk.Overlay,
 
+        /// The context for this surface (window, tab, or split)
+        context: apprt.surface.NewSurfaceContext = .window,
+
+        /// Whether primary paste (middle-click paste) is enabled.
+        gtk_enable_primary_paste: bool = true,
+
+        /// True when a left mouse down was consumed purely for a focus change,
+        /// and the matching left mouse release should also be suppressed.
+        suppress_left_mouse_release: bool = false,
+
+        /// How much pending horizontal scroll do we have?
+        pending_horizontal_scroll: f64 = 0.0,
+
+        /// Timer to reset the amount of horizontal scroll if the user
+        /// stops scrolling.
+        pending_horizontal_scroll_reset: ?c_uint = null,
+
+        overrides: struct {
+            command: ?configpkg.Command = null,
+            working_directory: ?[:0]const u8 = null,
+
+            pub const none: @This() = .{};
+        } = .none,
+
         pub var offset: c_int = 0;
     };
 
-    pub fn new() *Self {
-        return gobject.ext.newInstance(Self, .{});
+    pub fn new(overrides: struct {
+        command: ?configpkg.Command = null,
+        working_directory: ?[:0]const u8 = null,
+        title: ?[:0]const u8 = null,
+
+        pub const none: @This() = .{};
+    }) *Self {
+        const self = gobject.ext.newInstance(Self, .{
+            .@"title-override" = overrides.title,
+        });
+        const alloc = Application.default().allocator();
+        const priv: *Private = self.private();
+        priv.overrides = .{
+            .command = if (overrides.command) |c| c.clone(alloc) catch null else null,
+            .working_directory = if (overrides.working_directory) |wd| alloc.dupeZ(u8, wd) catch null else null,
+        };
+        return self;
     }
 
     pub fn core(self: *Self) ?*CoreSurface {
@@ -648,6 +753,7 @@ pub const Surface = extern struct {
     pub fn setParent(
         self: *Self,
         parent: *CoreSurface,
+        context: apprt.surface.NewSurfaceContext,
     ) void {
         const priv = self.private();
 
@@ -657,6 +763,9 @@ pub const Surface = extern struct {
             log.warn("setParent called after surface is already realized", .{});
             return;
         }
+
+        // Store the context so initSurface can use it
+        priv.context = context;
 
         // Setup our font size
         const font_size_ptr = glib.ext.create(font.face.DesiredSize);
@@ -668,10 +777,8 @@ pub const Surface = extern struct {
         // Remainder needs a config. If there is no config we just assume
         // we aren't inheriting any of these values.
         if (priv.config) |config_obj| {
-            const config = config_obj.get();
-
-            // Setup our pwd if configured to inherit
-            if (config.@"window-inherit-working-directory") {
+            // Setup our cwd if configured to inherit
+            if (apprt.surface.shouldInheritWorkingDirectory(context, config_obj.get())) {
                 if (parent.rt_surface.surface.getPwd()) |pwd| {
                     priv.pwd = glib.ext.dupeZ(u8, pwd);
                     self.as(gobject.Object).notifyByPspec(properties.pwd.impl.param_spec);
@@ -717,10 +824,11 @@ pub const Surface = extern struct {
     /// should be applied to the surface
     fn closureShouldUnfocusedSplitBeShown(
         _: *Self,
+        search_active: c_int,
         focused: c_int,
         is_split: c_int,
     ) callconv(.c) c_int {
-        return @intFromBool(focused == 0 and is_split != 0);
+        return @intFromBool(search_active == 0 and focused == 0 and is_split != 0);
     }
 
     pub fn toggleFullscreen(self: *Self) void {
@@ -774,6 +882,74 @@ pub const Surface = extern struct {
     pub fn redrawInspector(self: *Self) void {
         const priv = self.private();
         if (priv.inspector) |v| v.queueRender();
+    }
+
+    /// Handle a key sequence action from the apprt.
+    pub fn keySequenceAction(
+        self: *Self,
+        value: apprt.action.KeySequence,
+    ) Allocator.Error!void {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+
+        self.as(gobject.Object).freezeNotify();
+        defer self.as(gobject.Object).thawNotify();
+        self.as(gobject.Object).notifyByPspec(properties.@"key-sequence".impl.param_spec);
+
+        switch (value) {
+            .trigger => |trigger| {
+                // Convert the trigger to a human-readable label
+                var buf: std.Io.Writer.Allocating = .init(alloc);
+                defer buf.deinit();
+                if (gtk_key.labelFromTrigger(&buf.writer, trigger)) |success| {
+                    if (!success) return;
+                } else |_| return error.OutOfMemory;
+
+                // Make space
+                try priv.key_sequence.ensureUnusedCapacity(alloc, 1);
+
+                // Copy and append
+                const duped = try buf.toOwnedSliceSentinel(0);
+                errdefer alloc.free(duped);
+                priv.key_sequence.appendAssumeCapacity(duped);
+            },
+            .end => {
+                // Free all the stored strings and clear
+                for (priv.key_sequence.items) |s| alloc.free(s);
+                priv.key_sequence.clearAndFree(alloc);
+            },
+        }
+    }
+
+    /// Handle a key table action from the apprt.
+    pub fn keyTableAction(
+        self: *Self,
+        value: apprt.action.KeyTable,
+    ) Allocator.Error!void {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+
+        self.as(gobject.Object).freezeNotify();
+        defer self.as(gobject.Object).thawNotify();
+        self.as(gobject.Object).notifyByPspec(properties.@"key-table".impl.param_spec);
+
+        switch (value) {
+            .activate => |name| {
+                // Duplicate the name string and push onto stack
+                const duped = try alloc.dupeZ(u8, name);
+                errdefer alloc.free(duped);
+                try priv.key_tables.append(alloc, duped);
+            },
+            .deactivate => {
+                // Pop and free the top table
+                if (priv.key_tables.pop()) |s| alloc.free(s);
+            },
+            .deactivate_all => {
+                // Free all tables and clear
+                for (priv.key_tables.items) |s| alloc.free(s);
+                priv.key_tables.clearAndFree(alloc);
+            },
+        }
     }
 
     pub fn showOnScreenKeyboard(self: *Self, event: ?*gdk.Event) bool {
@@ -836,6 +1012,14 @@ pub const Surface = extern struct {
                 log.warn("unable to remove progress bar timer", .{});
             }
             priv.progress_bar_timer = null;
+        }
+
+        if (priv.config) |config| {
+            if (!config.get().@"progress-style") {
+                log.debug("progress_report action blocked by config", .{});
+                priv.progress_bar_overlay.as(gtk.Widget).setVisible(@intFromBool(false));
+                return;
+            }
         }
 
         const progress_bar = priv.progress_bar_overlay;
@@ -977,6 +1161,20 @@ pub const Surface = extern struct {
 
             self.sendDesktopNotification(title, body);
         }
+
+        return true;
+    }
+
+    /// Get the readonly state from the core surface.
+    pub fn getReadonly(self: *Self) bool {
+        const priv: *Private = self.private();
+        const surface = priv.core_surface orelse return false;
+        return surface.readonly;
+    }
+
+    /// Notify anyone interested that the readonly status has changed.
+    pub fn setReadonly(self: *Self, _: apprt.Action.Value(.readonly)) bool {
+        self.as(gobject.Object).notifyByPspec(properties.readonly.impl.param_spec);
 
         return true;
     }
@@ -1137,13 +1335,14 @@ pub const Surface = extern struct {
                 if (entry.native == keycode) break :w3c entry.key;
             } else .unidentified;
 
-            // If the key should be remappable, then consult the pre-remapped
-            // XKB keyval/keysym to get the (possibly) remapped key.
+            // Consult the pre-remapped XKB keyval/keysym to get the (possibly)
+            // remapped key. If the W3C key or the remapped key
+            // is eligible for remapping, we use it.
             //
             // See the docs for `shouldBeRemappable` for why we even have to
             // do this in the first place.
-            if (w3c_key.shouldBeRemappable()) {
-                if (gtk_key.keyFromKeyval(keyval)) |remapped|
+            if (gtk_key.keyFromKeyval(keyval)) |remapped| {
+                if (w3c_key.shouldBeRemappable() or remapped.shouldBeRemappable())
                     break :keycode remapped;
             }
 
@@ -1238,12 +1437,7 @@ pub const Surface = extern struct {
     /// Prompt for a manual title change for the surface.
     pub fn promptTitle(self: *Self) void {
         const priv = self.private();
-        const dialog = gobject.ext.newInstance(
-            TitleDialog,
-            .{
-                .@"initial-value" = priv.title_override orelse priv.title,
-            },
-        );
+        const dialog = TitleDialog.new(.surface, priv.title_override orelse priv.title);
         _ = TitleDialog.signals.set.connect(
             dialog,
             *Self,
@@ -1270,63 +1464,6 @@ pub const Surface = extern struct {
             .x = x * scale_factor,
             .y = y * scale_factor,
         };
-    }
-
-    /// Initialize the cgroup for this surface if it hasn't been
-    /// already. While this is `init`-prefixed, we prefer to call this
-    /// in the realize function because we don't need to create a cgroup
-    /// if we don't init a surface.
-    fn initCgroup(self: *Self) void {
-        const priv = self.private();
-
-        // If we already have a cgroup path then we don't do it again.
-        if (priv.cgroup_path != null) return;
-
-        const app = Application.default();
-        const alloc = app.allocator();
-        const base = app.cgroupBase() orelse return;
-
-        // For the unique group name we use the self pointer. This may
-        // not be a good idea for security reasons but not sure yet. We
-        // may want to change this to something else eventually to be safe.
-        var buf: [256]u8 = undefined;
-        const name = std.fmt.bufPrint(
-            &buf,
-            "surfaces/{X}.scope",
-            .{@intFromPtr(self)},
-        ) catch unreachable;
-
-        // Create the cgroup. If it fails, no big deal... just ignore.
-        internal_os.cgroup.create(base, name, null) catch |err| {
-            log.warn("failed to create surface cgroup err={}", .{err});
-            return;
-        };
-
-        // Success, save the cgroup path.
-        priv.cgroup_path = std.fmt.allocPrint(
-            alloc,
-            "{s}/{s}",
-            .{ base, name },
-        ) catch null;
-    }
-
-    /// Deletes the cgroup if set.
-    fn clearCgroup(self: *Self) void {
-        const priv = self.private();
-        const path = priv.cgroup_path orelse return;
-
-        internal_os.cgroup.remove(path) catch |err| {
-            // We don't want this to be fatal in any way so we just log
-            // and continue. A dangling empty cgroup is not a big deal
-            // and this should be rare.
-            log.warn(
-                "failed to remove cgroup for surface path={s} err={}",
-                .{ path, err },
-            );
-        };
-
-        Application.default().allocator().free(path);
-        priv.cgroup_path = null;
     }
 
     //---------------------------------------------------------------
@@ -1364,10 +1501,6 @@ pub const Surface = extern struct {
         return true;
     }
 
-    pub fn cgroupPath(self: *Self) ?[]const u8 {
-        return self.private().cgroup_path;
-    }
-
     pub fn getContentScale(self: *Self) apprt.ContentScale {
         const priv = self.private();
         const gl_area = priv.gl_area;
@@ -1389,19 +1522,17 @@ pub const Surface = extern struct {
         const xft_dpi_scale = xft_scale: {
             // gtk-xft-dpi is font DPI multiplied by 1024. See
             // https://docs.gtk.org/gtk4/property.Settings.gtk-xft-dpi.html
-            const settings = gtk.Settings.getDefault() orelse break :xft_scale 1.0;
-            var value = std.mem.zeroes(gobject.Value);
-            defer value.unset();
-            _ = value.init(gobject.ext.typeFor(c_int));
-            settings.as(gobject.Object).getProperty("gtk-xft-dpi", &value);
-            const gtk_xft_dpi = value.getInt();
+            const gtk_xft_dpi = gsettings.get(.@"gtk-xft-dpi") orelse {
+                log.warn("gtk-xft-dpi was not set, using default value", .{});
+                break :xft_scale 1.0;
+            };
 
             // Use a value of 1.0 for the XFT DPI scale if the setting is <= 0
             // See:
             // https://gitlab.gnome.org/GNOME/libadwaita/-/commit/a7738a4d269bfdf4d8d5429ca73ccdd9b2450421
             // https://gitlab.gnome.org/GNOME/libadwaita/-/commit/9759d3fd81129608dd78116001928f2aed974ead
             if (gtk_xft_dpi <= 0) {
-                log.warn("gtk-xft-dpi was not set, using default value", .{});
+                log.warn("gtk-xft-dpi has invalid value ({}), using default", .{gtk_xft_dpi});
                 break :xft_scale 1.0;
             }
 
@@ -1431,9 +1562,16 @@ pub const Surface = extern struct {
     }
 
     pub fn defaultTermioEnv(self: *Self) !std.process.EnvMap {
-        const alloc = Application.default().allocator();
+        const app = Application.default();
+        const alloc = app.allocator();
         var env = try internal_os.getEnvMap(alloc);
         errdefer env.deinit();
+
+        if (app.savedLanguage()) |language| {
+            try env.put("LANG", language);
+        } else {
+            env.remove("LANG");
+        }
 
         // Don't leak these GTK environment variables to child processes.
         env.remove("GDK_DEBUG");
@@ -1549,8 +1687,8 @@ pub const Surface = extern struct {
         self: *Self,
         clipboard_type: apprt.Clipboard,
         state: apprt.ClipboardRequest,
-    ) !void {
-        try Clipboard.request(
+    ) !bool {
+        return try Clipboard.request(
             self,
             clipboard_type,
             state,
@@ -1600,7 +1738,7 @@ pub const Surface = extern struct {
         defer icon.unref();
         notification.setIcon(icon.as(gio.Icon));
 
-        const pointer = glib.Variant.newUint64(@intFromPtr(core_surface));
+        const pointer = glib.Variant.newUint64(core_surface.id);
         notification.setDefaultActionAndTargetValue(
             "app.present-surface",
             pointer,
@@ -1645,6 +1783,9 @@ pub const Surface = extern struct {
         priv.im_composing = false;
         priv.im_len = 0;
 
+        // Read GTK primary paste setting
+        priv.gtk_enable_primary_paste = gsettings.get(.@"gtk-enable-primary-paste") orelse true;
+
         // Set up to handle items being dropped on our surface. Files can be dropped
         // from Nautilus and strings can be dropped from many programs. The order
         // of these types matter.
@@ -1655,13 +1796,7 @@ pub const Surface = extern struct {
         };
         priv.drop_target.setGtypes(&drop_target_types, drop_target_types.len);
 
-        // Initialize our GLArea. We only set the values we can't set
-        // in our blueprint file.
-        const gl_area = priv.gl_area;
-        gl_area.setRequiredVersion(
-            renderer.OpenGL.MIN_VERSION_MAJOR,
-            renderer.OpenGL.MIN_VERSION_MINOR,
-        );
+        // Setup properties we can't set from our Blueprint file.
         self.as(gtk.Widget).setCursorFromName("text");
 
         // Initialize our config
@@ -1726,6 +1861,13 @@ pub const Surface = extern struct {
             priv.idle_rechild = null;
         }
 
+        if (priv.pending_horizontal_scroll_reset) |v| {
+            if (glib.Source.remove(v) == 0) {
+                log.warn("unable to remove pending horizontal scroll reset source", .{});
+            }
+            priv.pending_horizontal_scroll_reset = null;
+        }
+
         // This works around a GTK double-free bug where if you bind
         // to a top-level template child, it frees twice if the widget is
         // also the root child of the template. By unsetting the child here,
@@ -1744,6 +1886,7 @@ pub const Surface = extern struct {
     }
 
     fn finalize(self: *Self) callconv(.c) void {
+        const alloc = Application.default().allocator();
         const priv = self.private();
         if (priv.core_surface) |v| {
             // Remove ourselves from the list of known surfaces in the app.
@@ -1757,7 +1900,6 @@ pub const Surface = extern struct {
 
             // Deinit the surface
             v.deinit();
-            const alloc = Application.default().allocator();
             alloc.destroy(v);
 
             priv.core_surface = null;
@@ -1790,7 +1932,20 @@ pub const Surface = extern struct {
             glib.free(@ptrCast(@constCast(v)));
             priv.title_override = null;
         }
-        self.clearCgroup();
+        if (priv.overrides.command) |c| {
+            c.deinit(alloc);
+            priv.overrides.command = null;
+        }
+        if (priv.overrides.working_directory) |wd| {
+            alloc.free(wd);
+            priv.overrides.working_directory = null;
+        }
+
+        // Clean up key sequence and key table state
+        for (priv.key_sequence.items) |s| alloc.free(s);
+        priv.key_sequence.deinit(alloc);
+        for (priv.key_tables.items) |s| alloc.free(s);
+        priv.key_tables.deinit(alloc);
 
         gobject.Object.virtual_methods.finalize.call(
             Class.parent,
@@ -1804,6 +1959,24 @@ pub const Surface = extern struct {
     /// Returns the title property without a copy.
     pub fn getTitle(self: *Self) ?[:0]const u8 {
         return self.private().title;
+    }
+
+    /// Returns the effective title: the user-overridden title if set,
+    /// otherwise the terminal-set title.
+    pub fn getEffectiveTitle(self: *Self) ?[:0]const u8 {
+        const priv = self.private();
+        return priv.title_override orelse priv.title;
+    }
+
+    /// Copies the effective title to the clipboard.
+    pub fn copyTitleToClipboard(self: *Self) bool {
+        const title = self.getEffectiveTitle() orelse return false;
+        if (title.len == 0) return false;
+        self.setClipboard(.standard, &.{.{
+            .mime = "text/plain",
+            .data = title,
+        }}, false);
+        return true;
     }
 
     /// Set the title for this surface, copies the value. This should always
@@ -1874,6 +2047,69 @@ pub const Surface = extern struct {
             &size,
         );
         self.as(gobject.Object).notifyByPspec(properties.@"default-size".impl.param_spec);
+    }
+
+    /// Estimate and set the initial window size from config and font metrics.
+    /// This can be called before the core surface exists to set up the window
+    /// size before presenting. This is an estimate because it does not take
+    /// into account any padding that may need to be added to the window.
+    pub fn estimateInitialSize(self: *Self) void {
+        const priv: *Private = self.private();
+        const config_obj = priv.config orelse return;
+        const config = config_obj.get();
+
+        // Both dimensions must be configured
+        if (config.@"window-height" <= 0 or config.@"window-width" <= 0) return;
+
+        const app = Application.default();
+        const alloc = app.allocator();
+
+        // Get content scale and compute DPI
+        const content_scale = self.getContentScale();
+        const x_dpi = content_scale.x * font.face.default_dpi;
+        const y_dpi = content_scale.y * font.face.default_dpi;
+
+        const font_size: font.face.DesiredSize = .{
+            .points = config.@"font-size",
+            .xdpi = @intFromFloat(x_dpi),
+            .ydpi = @intFromFloat(y_dpi),
+        };
+
+        // Get font grid for cell metrics
+        var derived_config = font.SharedGridSet.DerivedConfig.init(alloc, config) catch return;
+        defer derived_config.deinit();
+
+        const font_grid_key, const font_grid = app.core().font_grid_set.ref(
+            &derived_config,
+            font_size,
+        ) catch return;
+        defer app.core().font_grid_set.deref(font_grid_key);
+
+        const cell = font_grid.cellSize();
+
+        const width = @max(CoreSurface.min_window_width_cells, config.@"window-width") * cell.width;
+        const height = @max(CoreSurface.min_window_height_cells, config.@"window-height") * cell.height;
+        const width_f32: f32 = @floatFromInt(width);
+        const height_f32: f32 = @floatFromInt(height);
+
+        const final_width: u32 = @intFromFloat(@ceil(width_f32 / content_scale.x));
+        const final_height: u32 = @intFromFloat(@ceil(height_f32 / content_scale.y));
+
+        self.setDefaultSize(.{ .width = final_width, .height = final_height });
+    }
+
+    /// Get the key sequence list. Full transfer.
+    fn getKeySequence(self: *Self) ?*ext.StringList {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+        return ext.StringList.create(alloc, priv.key_sequence.items) catch null;
+    }
+
+    /// Get the key table list. Full transfer.
+    fn getKeyTable(self: *Self) ?*ext.StringList {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+        return ext.StringList.create(alloc, priv.key_tables.items) catch null;
     }
 
     /// Return the min size, if set.
@@ -1951,6 +2187,33 @@ pub const Surface = extern struct {
         const priv = self.private();
         priv.@"error" = v;
         self.as(gobject.Object).notifyByPspec(properties.@"error".impl.param_spec);
+    }
+
+    pub fn setSearchActive(self: *Self, active: bool, needle: [:0]const u8) void {
+        const priv = self.private();
+        var value = gobject.ext.Value.newFrom(active);
+        defer value.unset();
+        gobject.Object.setProperty(
+            priv.search_overlay.as(gobject.Object),
+            SearchOverlay.properties.active.name,
+            &value,
+        );
+
+        if (!std.mem.eql(u8, needle, "")) {
+            priv.search_overlay.setSearchContents(needle);
+        }
+
+        if (active) {
+            priv.search_overlay.grabFocus();
+        }
+    }
+
+    pub fn setSearchTotal(self: *Self, total: ?usize) void {
+        self.private().search_overlay.setSearchTotal(total);
+    }
+
+    pub fn setSearchSelected(self: *Self, selected: ?usize) void {
+        self.private().search_overlay.setSearchSelected(selected);
     }
 
     fn propConfig(
@@ -2195,34 +2458,8 @@ pub const Surface = extern struct {
                 1.0,
             );
 
-            assert(std.fs.path.isAbsolute(path));
-            const media_file = gtk.MediaFile.newForFilename(path);
-
-            // If the audio file is marked as required, we'll emit an error if
-            // there was a problem playing it. Otherwise there will be silence.
-            if (required) {
-                _ = gobject.Object.signals.notify.connect(
-                    media_file,
-                    ?*anyopaque,
-                    mediaFileError,
-                    null,
-                    .{ .detail = "error" },
-                );
-            }
-
-            // Watch for the "ended" signal so that we can clean up after
-            // ourselves.
-            _ = gobject.Object.signals.notify.connect(
-                media_file,
-                ?*anyopaque,
-                mediaFileEnded,
-                null,
-                .{ .detail = "ended" },
-            );
-
-            const media_stream = media_file.as(gtk.MediaStream);
-            media_stream.setVolume(volume);
-            media_stream.play();
+            const media_file = media.fromFilename(path) orelse break :audio;
+            media.playMediaFile(media_file, volume, required);
         }
     }
 
@@ -2461,22 +2698,25 @@ pub const Surface = extern struct {
     }
 
     fn ecFocusEnter(_: *gtk.EventControllerFocus, self: *Self) callconv(.c) void {
+        self.updateFocus(true);
+    }
+
+    fn ecFocusLeave(_: *gtk.EventControllerFocus, self: *Self) callconv(.c) void {
+        self.updateFocus(false);
+    }
+
+    fn updateFocus(self: *Self, focused: bool) void {
         const priv = self.private();
-        priv.focused = true;
-        priv.im_context.as(gtk.IMContext).focusIn();
+        priv.focused = focused;
+
+        const ctx = priv.im_context.as(gtk.IMContext);
+        if (focused) ctx.focusIn() else ctx.focusOut();
+
         _ = glib.idleAddOnce(idleFocus, self.ref());
         self.as(gobject.Object).notifyByPspec(properties.focused.impl.param_spec);
 
         // Bell stops ringing as soon as we gain focus
-        self.setBellRinging(false);
-    }
-
-    fn ecFocusLeave(_: *gtk.EventControllerFocus, self: *Self) callconv(.c) void {
-        const priv = self.private();
-        priv.focused = false;
-        priv.im_context.as(gtk.IMContext).focusOut();
-        _ = glib.idleAddOnce(idleFocus, self.ref());
-        self.as(gobject.Object).notifyByPspec(properties.focused.impl.param_spec);
+        if (focused) self.setBellRinging(false);
     }
 
     /// The focus callback must be triggered on an idle loop source because
@@ -2514,12 +2754,25 @@ pub const Surface = extern struct {
 
         // If we don't have focus, grab it.
         const gl_area_widget = priv.gl_area.as(gtk.Widget);
-        if (gl_area_widget.hasFocus() == 0) {
+        const had_focus = gl_area_widget.hasFocus() != 0;
+        if (!had_focus) {
             _ = gl_area_widget.grabFocus();
         }
 
         // Report the event
         const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
+
+        // If this click is only transitioning split focus, suppress it so
+        // it doesn't get forwarded to the terminal as a mouse event.
+        if (!had_focus and button == .left) {
+            priv.suppress_left_mouse_release = true;
+            return;
+        }
+
+        if (button == .middle and !priv.gtk_enable_primary_paste) {
+            return;
+        }
+
         const consumed = consumed: {
             const gtk_mods = event.getModifierState();
             const mods = gtk_key.translateMods(gtk_mods);
@@ -2570,6 +2823,15 @@ pub const Surface = extern struct {
         const surface = priv.core_surface orelse return;
         const gtk_mods = event.getModifierState();
         const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
+
+        if (button == .left and priv.suppress_left_mouse_release) {
+            priv.suppress_left_mouse_release = false;
+            return;
+        }
+
+        if (button == .middle and !priv.gtk_enable_primary_paste) {
+            return;
+        }
 
         const mods = gtk_key.translateMods(gtk_mods);
         const consumed = surface.mouseButtonCallback(
@@ -2667,27 +2929,27 @@ pub const Surface = extern struct {
         }
     }
 
-    fn ecMouseScrollPrecisionBegin(
+    fn ecMouseScrollVerticalPrecisionBegin(
         _: *gtk.EventControllerScroll,
         self: *Self,
     ) callconv(.c) void {
         self.private().precision_scroll = true;
     }
 
-    fn ecMouseScrollPrecisionEnd(
+    fn ecMouseScrollVerticalPrecisionEnd(
         _: *gtk.EventControllerScroll,
         self: *Self,
     ) callconv(.c) void {
         self.private().precision_scroll = false;
     }
 
-    fn ecMouseScroll(
+    fn ecMouseScrollVertical(
         _: *gtk.EventControllerScroll,
         x: f64,
         y: f64,
         self: *Self,
     ) callconv(.c) c_int {
-        const priv = self.private();
+        const priv: *Private = self.private();
         const surface = priv.core_surface orelse return 0;
 
         // Multiply precision scrolls by 10 to get a better response from
@@ -2712,6 +2974,57 @@ pub const Surface = extern struct {
         };
 
         return 1;
+    }
+
+    fn ecMouseScrollHorizontal(
+        ec: *gtk.EventControllerScroll,
+        x: f64,
+        _: f64,
+        self: *Self,
+    ) callconv(.c) c_int {
+        const priv: *Private = self.private();
+
+        switch (ec.getUnit()) {
+            .surface => {},
+            .wheel => return @intFromBool(false),
+            else => return @intFromBool(false),
+        }
+
+        priv.pending_horizontal_scroll += x;
+
+        if (@abs(priv.pending_horizontal_scroll) < 120) {
+            if (priv.pending_horizontal_scroll_reset) |v| {
+                _ = glib.Source.remove(v);
+                priv.pending_horizontal_scroll_reset = null;
+            }
+            priv.pending_horizontal_scroll_reset = glib.timeoutAdd(500, ecMouseScrollHorizontalReset, self);
+            return @intFromBool(true);
+        }
+
+        _ = self.as(gtk.Widget).activateAction(
+            if (priv.pending_horizontal_scroll < 0.0)
+                "tab.next-page"
+            else
+                "tab.previous-page",
+            null,
+        );
+
+        if (priv.pending_horizontal_scroll_reset) |v| {
+            _ = glib.Source.remove(v);
+            priv.pending_horizontal_scroll_reset = null;
+        }
+
+        priv.pending_horizontal_scroll = 0.0;
+
+        return @intFromBool(true);
+    }
+
+    fn ecMouseScrollHorizontalReset(ud: ?*anyopaque) callconv(.c) c_int {
+        const self: *Self = @ptrCast(@alignCast(ud orelse return @intFromBool(glib.SOURCE_REMOVE)));
+        const priv: *Private = self.private();
+        priv.pending_horizontal_scroll = 0.0;
+        priv.pending_horizontal_scroll_reset = null;
+        return @intFromBool(glib.SOURCE_REMOVE);
     }
 
     fn imPreeditStart(
@@ -2982,10 +3295,13 @@ pub const Surface = extern struct {
 
         // Store our cached size
         const priv = self.private();
-        priv.size = .{
+
+        const new_size: apprt.SurfaceSize = .{
             .width = @intCast(width),
             .height = @intCast(height),
         };
+        const changed = !priv.size.eql(&new_size);
+        priv.size = new_size;
 
         // If our surface is realize, we send callbacks.
         if (priv.core_surface) |surface| {
@@ -2995,12 +3311,13 @@ pub const Surface = extern struct {
                 log.warn("error in content scale callback err={}", .{err});
             };
 
-            surface.sizeCallback(priv.size) catch |err| {
-                log.warn("error in size callback err={}", .{err});
-            };
-
-            // Setup our resize overlay if configured
-            self.resizeOverlaySchedule();
+            if (changed) {
+                surface.sizeCallback(new_size) catch |err| {
+                    log.warn("error in size callback err={}", .{err});
+                };
+                // Setup our resize overlay if configured
+                self.resizeOverlaySchedule();
+            }
 
             return;
         }
@@ -3017,7 +3334,7 @@ pub const Surface = extern struct {
     };
 
     fn initSurface(self: *Self) InitError!void {
-        const priv = self.private();
+        const priv: *Private = self.private();
         assert(priv.core_surface == null);
         const gl_area = priv.gl_area;
 
@@ -3034,10 +3351,6 @@ pub const Surface = extern struct {
         const app = Application.default();
         const alloc = app.allocator();
 
-        // Initialize our cgroup if we can.
-        self.initCgroup();
-        errdefer self.clearCgroup();
-
         // Make our pointer to store our surface
         const surface = try alloc.create(CoreSurface);
         errdefer alloc.destroy(surface);
@@ -3050,12 +3363,28 @@ pub const Surface = extern struct {
         var config = try apprt.surface.newConfig(
             app.core(),
             priv.config.?.get(),
+            priv.context,
         );
         defer config.deinit();
 
+        if (priv.overrides.command) |c| {
+            config.command = try c.clone(config._arena.?.allocator());
+        }
+        if (priv.overrides.working_directory) |wd| {
+            const config_alloc = config.arenaAlloc();
+            var wd_val: configpkg.WorkingDirectory = .{ .path = try config_alloc.dupe(u8, wd) };
+            try wd_val.finalize(config_alloc);
+            config.@"working-directory" = wd_val;
+        }
+
         // Properties that can impact surface init
         if (priv.font_size_request) |size| config.@"font-size" = size.points;
-        if (priv.pwd) |pwd| config.@"working-directory" = pwd;
+        if (priv.pwd) |pwd| {
+            const config_alloc = config.arenaAlloc();
+            var wd_val: configpkg.WorkingDirectory = .{ .path = try config_alloc.dupe(u8, pwd) };
+            try wd_val.finalize(config_alloc);
+            config.@"working-directory" = wd_val;
+        }
 
         // Initialize the surface
         surface.init(
@@ -3080,6 +3409,8 @@ pub const Surface = extern struct {
             .{},
             null,
         );
+
+        self.updateFocus(priv.focused);
     }
 
     fn resizeOverlaySchedule(self: *Self) void {
@@ -3134,35 +3465,6 @@ pub const Surface = extern struct {
         right.setVisible(0);
     }
 
-    fn mediaFileError(
-        media_file: *gtk.MediaFile,
-        _: *gobject.ParamSpec,
-        _: ?*anyopaque,
-    ) callconv(.c) void {
-        const path = path: {
-            const file = media_file.getFile() orelse break :path null;
-            break :path file.getPath();
-        };
-        defer if (path) |p| glib.free(p);
-
-        const media_stream = media_file.as(gtk.MediaStream);
-        const err = media_stream.getError() orelse return;
-        log.warn("error playing bell from {s}: {s} {d} {s}", .{
-            path orelse "<<unknown>>",
-            glib.quarkToString(err.f_domain),
-            err.f_code,
-            err.f_message orelse "",
-        });
-    }
-
-    fn mediaFileEnded(
-        media_file: *gtk.MediaFile,
-        _: *gobject.ParamSpec,
-        _: ?*anyopaque,
-    ) callconv(.c) void {
-        media_file.unref();
-    }
-
     fn titleDialogSet(
         _: *TitleDialog,
         title_ptr: [*:0]const u8,
@@ -3170,6 +3472,35 @@ pub const Surface = extern struct {
     ) callconv(.c) void {
         const title = std.mem.span(title_ptr);
         self.setTitleOverride(if (title.len == 0) null else title);
+    }
+
+    fn searchStop(_: *SearchOverlay, self: *Self) callconv(.c) void {
+        const surface = self.core() orelse return;
+        _ = surface.performBindingAction(.end_search) catch |err| {
+            log.warn("unable to perform end_search action err={}", .{err});
+        };
+        _ = self.private().gl_area.as(gtk.Widget).grabFocus();
+    }
+
+    fn searchChanged(_: *SearchOverlay, needle: ?[*:0]const u8, self: *Self) callconv(.c) void {
+        const surface = self.core() orelse return;
+        _ = surface.performBindingAction(.{ .search = std.mem.sliceTo(needle orelse "", 0) }) catch |err| {
+            log.warn("unable to perform search action err={}", .{err});
+        };
+    }
+
+    fn searchNextMatch(_: *SearchOverlay, self: *Self) callconv(.c) void {
+        const surface = self.core() orelse return;
+        _ = surface.performBindingAction(.{ .navigate_search = .next }) catch |err| {
+            log.warn("unable to perform navigate_search action err={}", .{err});
+        };
+    }
+
+    fn searchPreviousMatch(_: *SearchOverlay, self: *Self) callconv(.c) void {
+        const surface = self.core() orelse return;
+        _ = surface.performBindingAction(.{ .navigate_search = .previous }) catch |err| {
+            log.warn("unable to perform navigate_search action err={}", .{err});
+        };
     }
 
     const C = Common(Self, Private);
@@ -3186,6 +3517,8 @@ pub const Surface = extern struct {
 
         fn init(class: *Class) callconv(.c) void {
             gobject.ext.ensureType(ResizeOverlay);
+            gobject.ext.ensureType(SearchOverlay);
+            gobject.ext.ensureType(KeyStateOverlay);
             gobject.ext.ensureType(ChildExited);
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
@@ -3205,6 +3538,8 @@ pub const Surface = extern struct {
             class.bindTemplateChildPrivate("error_page", .{});
             class.bindTemplateChildPrivate("progress_bar_overlay", .{});
             class.bindTemplateChildPrivate("resize_overlay", .{});
+            class.bindTemplateChildPrivate("search_overlay", .{});
+            class.bindTemplateChildPrivate("key_state_overlay", .{});
             class.bindTemplateChildPrivate("terminal_page", .{});
             class.bindTemplateChildPrivate("drop_target", .{});
             class.bindTemplateChildPrivate("im_context", .{});
@@ -3218,9 +3553,10 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("mouse_up", &gcMouseUp);
             class.bindTemplateCallback("mouse_motion", &ecMouseMotion);
             class.bindTemplateCallback("mouse_leave", &ecMouseLeave);
-            class.bindTemplateCallback("scroll", &ecMouseScroll);
-            class.bindTemplateCallback("scroll_begin", &ecMouseScrollPrecisionBegin);
-            class.bindTemplateCallback("scroll_end", &ecMouseScrollPrecisionEnd);
+            class.bindTemplateCallback("scroll_vertical", &ecMouseScrollVertical);
+            class.bindTemplateCallback("scroll_vertical_begin", &ecMouseScrollVerticalPrecisionBegin);
+            class.bindTemplateCallback("scroll_vertical_end", &ecMouseScrollVerticalPrecisionEnd);
+            class.bindTemplateCallback("scroll_horizontal", &ecMouseScrollHorizontal);
             class.bindTemplateCallback("drop", &dtDrop);
             class.bindTemplateCallback("gl_realize", &glareaRealize);
             class.bindTemplateCallback("gl_unrealize", &glareaUnrealize);
@@ -3242,6 +3578,10 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("notify_vadjustment", &propVAdjustment);
             class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
             class.bindTemplateCallback("should_unfocused_split_be_shown", &closureShouldUnfocusedSplitBeShown);
+            class.bindTemplateCallback("search_stop", &searchStop);
+            class.bindTemplateCallback("search_changed", &searchChanged);
+            class.bindTemplateCallback("search_next_match", &searchNextMatch);
+            class.bindTemplateCallback("search_previous_match", &searchPreviousMatch);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
@@ -3252,6 +3592,8 @@ pub const Surface = extern struct {
                 properties.@"error".impl,
                 properties.@"font-size-request".impl,
                 properties.focused.impl,
+                properties.@"key-sequence".impl,
+                properties.@"key-table".impl,
                 properties.@"min-size".impl,
                 properties.@"mouse-shape".impl,
                 properties.@"mouse-hidden".impl,
@@ -3261,6 +3603,7 @@ pub const Surface = extern struct {
                 properties.@"title-override".impl,
                 properties.zoom.impl,
                 properties.@"is-split".impl,
+                properties.readonly.impl,
 
                 // For Gtk.Scrollable
                 properties.hadjustment.impl,
@@ -3428,16 +3771,30 @@ const Clipboard = struct {
     /// Request data from the clipboard (read the clipboard). This
     /// completes asynchronously and will call the `completeClipboardRequest`
     /// core surface API when done.
+    ///
+    /// Returns true if the request was started, false if the clipboard
+    /// doesn't contain text (allowing performable keybinds to pass through).
     pub fn request(
         self: *Surface,
         clipboard_type: apprt.Clipboard,
         state: apprt.ClipboardRequest,
-    ) Allocator.Error!void {
+    ) Allocator.Error!bool {
         // Get our requested clipboard
         const clipboard = get(
             self.private().gl_area.as(gtk.Widget),
             clipboard_type,
-        ) orelse return;
+        ) orelse return false;
+
+        // For paste requests, check if clipboard has text format available.
+        // This is a synchronous check that allows performable keybinds to
+        // pass through when the clipboard contains non-text content (e.g., images).
+        if (state == .paste) {
+            const formats = clipboard.getFormats();
+            if (formats.containGtype(gobject.ext.types.string) == 0) {
+                log.debug("clipboard has no text format, not starting paste request", .{});
+                return false;
+            }
+        }
 
         // Allocate our userdata
         const alloc = Application.default().allocator();
@@ -3457,6 +3814,8 @@ const Clipboard = struct {
             clipboardReadText,
             ud,
         );
+
+        return true;
     }
 
     /// Paste explicit text directly into the surface, regardless of the

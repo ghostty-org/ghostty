@@ -1,6 +1,7 @@
 const std = @import("std");
 const assert = @import("../../quirks.zig").inlineAssert;
 const testing = std.testing;
+const tripwire = @import("../../tripwire.zig");
 const Allocator = std.mem.Allocator;
 const point = @import("../point.zig");
 const highlight = @import("../highlight.zig");
@@ -10,13 +11,17 @@ const TrackedHighlight = highlight.Tracked;
 const PageList = @import("../PageList.zig");
 const Pin = PageList.Pin;
 const Screen = @import("../Screen.zig");
-const Selection = @import("../Selection.zig");
 const Terminal = @import("../Terminal.zig");
 const ActiveSearch = @import("active.zig").ActiveSearch;
 const PageListSearch = @import("pagelist.zig").PageListSearch;
 const SlidingWindow = @import("sliding_window.zig").SlidingWindow;
 
 const log = std.log.scoped(.search_screen);
+
+const reloadActive_tw = tripwire.module(enum {
+    history_append_new,
+    history_append_existing,
+}, ScreenSearch.reloadActive);
 
 /// Searches for a needle within a Screen, handling active area updates,
 /// pages being pruned from the screen (e.g. scrollback limits), and more.
@@ -387,6 +392,8 @@ pub const ScreenSearch = struct {
     ///
     /// The caller must hold the necessary locks to access the screen state.
     pub fn reloadActive(self: *ScreenSearch) Allocator.Error!void {
+        const tw = reloadActive_tw;
+
         // If our selection pin became garbage it means we scrolled off
         // the end. Clear our selection and on exit of this function,
         // try to select the last match.
@@ -412,6 +419,12 @@ pub const ScreenSearch = struct {
             // cause new pages to move into our history. If there are new
             // pages then we need to re-search the pages and add it to
             // our history results.
+
+            // If our screen has no scrollback then we have no history.
+            if (self.screen.no_scrollback) {
+                assert(self.history == null);
+                break :history;
+            }
 
             const history_: ?*HistorySearch = if (self.history) |*h| state: {
                 // If our start pin became garbage, it means we pruned all
@@ -480,12 +493,16 @@ pub const ScreenSearch = struct {
                 alloc,
                 self.history_results.items.len,
             );
-            errdefer results.deinit(alloc);
+            errdefer {
+                for (results.items) |*hl| hl.deinit(alloc);
+                results.deinit(alloc);
+            }
             while (window.next()) |hl| {
                 if (hl.chunks.items(.node)[0] == history_node) continue;
 
                 var hl_cloned = try hl.clone(alloc);
                 errdefer hl_cloned.deinit(alloc);
+                try tw.check(.history_append_new);
                 try results.append(alloc, hl_cloned);
             }
 
@@ -500,6 +517,7 @@ pub const ScreenSearch = struct {
             // Matches! Reverse our list then append all the remaining
             // history items that didn't start on our original node.
             std.mem.reverse(FlattenedHighlight, results.items);
+            try tw.check(.history_append_existing);
             try results.appendSlice(alloc, self.history_results.items);
             self.history_results.deinit(alloc);
             self.history_results = results;
@@ -576,8 +594,43 @@ pub const ScreenSearch = struct {
             },
         }
 
-        // Active area search was successful. Now we have to fixup our
-        // selection if we had one.
+        // If we have no scrollback, we need to prune any active results
+        // that aren't in the actual active area. We only do this for the
+        // no scrollback scenario because with scrollback we actually
+        // rely on our active search searching by page to find history
+        // items as well. This is all related to the fact that PageList
+        // scrollback limits are discrete by page size except we special
+        // case zero.
+        if (self.screen.no_scrollback and
+            self.active_results.items.len > 0)
+        active_prune: {
+            const items = self.active_results.items;
+            const tl = self.screen.pages.getTopLeft(.active);
+            for (0.., items) |i, *hl| {
+                if (!tl.before(hl.endPin())) {
+                    // Deinit because its going to be pruned no matter
+                    // what at some point for not being in the active area.
+                    hl.deinit(alloc);
+                    continue;
+                }
+
+                // In the active area! Since our results are sorted
+                // that means everything after this is also in the active
+                // area, so we prune up to this i.
+                if (i > 0) self.active_results.replaceRangeAssumeCapacity(
+                    0,
+                    i,
+                    &.{},
+                );
+
+                break :active_prune;
+            }
+
+            // None are in the active area...
+            self.active_results.clearRetainingCapacity();
+        }
+
+        // Now we have to fixup our selection if we had one.
         fixup: {
             const old_idx = old_selection_idx orelse break :fixup;
             const m = if (self.selected) |*m| m else break :fixup;
@@ -687,13 +740,9 @@ pub const ScreenSearch = struct {
             return true;
         };
 
-        const next_idx = prev.idx + 1;
         const active_len = self.active_results.items.len;
         const history_len = self.history_results.items.len;
-        if (next_idx >= active_len + history_len) {
-            // No more matches. We don't wrap or reset the match currently.
-            return false;
-        }
+        const next_idx = if (prev.idx + 1 >= active_len + history_len) 0 else prev.idx + 1;
         const hl: FlattenedHighlight = if (next_idx < active_len)
             self.active_results.items[active_len - 1 - next_idx]
         else
@@ -747,14 +796,10 @@ pub const ScreenSearch = struct {
             return true;
         };
 
-        // Can't go below zero
-        if (prev.idx == 0) {
-            // No more matches. We don't wrap or reset the match currently.
-            return false;
-        }
-
-        const next_idx = prev.idx - 1;
         const active_len = self.active_results.items.len;
+        const history_len = self.history_results.items.len;
+        const next_idx = if (prev.idx != 0) prev.idx - 1 else active_len - 1 + history_len;
+
         const hl: FlattenedHighlight = if (next_idx < active_len)
             self.active_results.items[active_len - 1 - next_idx]
         else
@@ -782,7 +827,7 @@ test "simple search" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+    s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
 
     var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
     defer search.deinit();
@@ -832,10 +877,10 @@ test "simple search with history" {
     var s = t.vtStream();
     defer s.deinit();
 
-    try s.nextSlice("Fizz\r\n");
-    while (list.totalPages() < 3) try s.nextSlice("\r\n");
-    for (0..list.rows) |_| try s.nextSlice("\r\n");
-    try s.nextSlice("hello.");
+    s.nextSlice("Fizz\r\n");
+    while (list.totalPages() < 3) s.nextSlice("\r\n");
+    for (0..list.rows) |_| s.nextSlice("\r\n");
+    s.nextSlice("hello.");
 
     var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
     defer search.deinit();
@@ -872,7 +917,7 @@ test "reload active with history change" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("Fizz\r\n");
+    s.nextSlice("Fizz\r\n");
 
     // Start up our search which will populate our initial active area.
     var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
@@ -885,9 +930,9 @@ test "reload active with history change" {
     }
 
     // Grow into two pages so our history pin will move.
-    while (list.totalPages() < 2) try s.nextSlice("\r\n");
-    for (0..list.rows) |_| try s.nextSlice("\r\n");
-    try s.nextSlice("2Fizz");
+    while (list.totalPages() < 2) s.nextSlice("\r\n");
+    for (0..list.rows) |_| s.nextSlice("\r\n");
+    s.nextSlice("2Fizz");
 
     // Active area changed so reload
     try search.reloadActive();
@@ -924,7 +969,7 @@ test "reload active with history change" {
 
     // Reset the screen which will make our pin garbage.
     t.fullReset();
-    try s.nextSlice("WeFizzing");
+    s.nextSlice("WeFizzing");
     try search.reloadActive();
     try search.searchAll();
 
@@ -953,7 +998,7 @@ test "active change contents" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("Fuzz\r\nBuzz\r\nFizz\r\nBang");
+    s.nextSlice("Fuzz\r\nBuzz\r\nFizz\r\nBang");
 
     var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
     defer search.deinit();
@@ -961,8 +1006,8 @@ test "active change contents" {
     try testing.expectEqual(1, search.active_results.items.len);
 
     // Erase the screen, move our cursor to the top, and change contents.
-    try s.nextSlice("\x1b[2J\x1b[H"); // Clear screen and move home
-    try s.nextSlice("Bang\r\nFizz\r\nHello!");
+    s.nextSlice("\x1b[2J\x1b[H"); // Clear screen and move home
+    s.nextSlice("Bang\r\nFizz\r\nHello!");
 
     try search.reloadActive();
     try search.searchAll();
@@ -993,7 +1038,7 @@ test "select next" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+    s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
 
     var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
     defer search.deinit();
@@ -1030,17 +1075,17 @@ test "select next" {
         } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
     }
 
-    // Next match (no wrap)
+    // Next match (wrap)
     _ = try search.select(.next);
     {
         const sel = search.selectedMatch().?.untracked();
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
-            .y = 0,
+            .y = 2,
         } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
-            .y = 0,
+            .y = 2,
         } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
     }
 }
@@ -1052,7 +1097,7 @@ test "select in active changes contents completely" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+    s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
 
     var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
     defer search.deinit();
@@ -1073,8 +1118,8 @@ test "select in active changes contents completely" {
     }
 
     // Erase the screen, move our cursor to the top, and change contents.
-    try s.nextSlice("\x1b[2J\x1b[H"); // Clear screen and move home
-    try s.nextSlice("Fuzz\r\nFizz\r\nHello!");
+    s.nextSlice("\x1b[2J\x1b[H"); // Clear screen and move home
+    s.nextSlice("Fuzz\r\nFizz\r\nHello!");
 
     try search.reloadActive();
     {
@@ -1091,8 +1136,8 @@ test "select in active changes contents completely" {
     }
 
     // Erase the screen, redraw with same contents.
-    try s.nextSlice("\x1b[2J\x1b[H"); // Clear screen and move home
-    try s.nextSlice("Fuzz\r\nFizz\r\nFizz");
+    s.nextSlice("\x1b[2J\x1b[H"); // Clear screen and move home
+    s.nextSlice("Fuzz\r\nFizz\r\nFizz");
 
     try search.reloadActive();
     {
@@ -1122,10 +1167,10 @@ test "select into history" {
     var s = t.vtStream();
     defer s.deinit();
 
-    try s.nextSlice("Fizz\r\n");
-    while (list.totalPages() < 3) try s.nextSlice("\r\n");
-    for (0..list.rows) |_| try s.nextSlice("\r\n");
-    try s.nextSlice("hello.");
+    s.nextSlice("Fizz\r\n");
+    while (list.totalPages() < 3) s.nextSlice("\r\n");
+    for (0..list.rows) |_| s.nextSlice("\r\n");
+    s.nextSlice("hello.");
 
     var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
     defer search.deinit();
@@ -1146,8 +1191,8 @@ test "select into history" {
     }
 
     // Erase the screen, redraw with same contents.
-    try s.nextSlice("\x1b[2J\x1b[H"); // Clear screen and move home
-    try s.nextSlice("yo yo");
+    s.nextSlice("\x1b[2J\x1b[H"); // Clear screen and move home
+    s.nextSlice("yo yo");
 
     try search.reloadActive();
     {
@@ -1164,7 +1209,7 @@ test "select into history" {
     }
 
     // Create some new history by adding more lines.
-    try s.nextSlice("\r\nfizz\r\nfizz\r\nfizz"); // Clear screen and move home
+    s.nextSlice("\r\nfizz\r\nfizz\r\nfizz"); // Clear screen and move home
     try search.reloadActive();
     {
         // Our selection should not move since the history is still not
@@ -1188,7 +1233,7 @@ test "select prev" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+    s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
 
     var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
     defer search.deinit();
@@ -1225,17 +1270,17 @@ test "select prev" {
         } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
     }
 
-    // Prev match (no wrap, stays at newest)
+    // Prev match (wrap)
     _ = try search.select(.prev);
     {
         const sel = search.selectedMatch().?.untracked();
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
-            .y = 2,
+            .y = 0,
         } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
-            .y = 2,
+            .y = 0,
         } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
     }
 }
@@ -1247,7 +1292,7 @@ test "select prev then next" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+    s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
 
     var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
     defer search.deinit();
@@ -1297,10 +1342,10 @@ test "select prev with history" {
     var s = t.vtStream();
     defer s.deinit();
 
-    try s.nextSlice("Fizz\r\n");
-    while (list.totalPages() < 3) try s.nextSlice("\r\n");
-    for (0..list.rows) |_| try s.nextSlice("\r\n");
-    try s.nextSlice("Fizz.");
+    s.nextSlice("Fizz\r\n");
+    while (list.totalPages() < 3) s.nextSlice("\r\n");
+    for (0..list.rows) |_| s.nextSlice("\r\n");
+    s.nextSlice("Fizz.");
 
     var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
     defer search.deinit();
@@ -1333,4 +1378,175 @@ test "select prev with history" {
             .y = 1,
         } }, t.screens.active.pages.pointFromPin(.active, sel.end).?);
     }
+}
+
+test "screen search no scrollback has no history" {
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{
+        .cols = 10,
+        .rows = 2,
+        .max_scrollback = 0,
+    });
+    defer t.deinit(alloc);
+
+    // Alt screen has no scrollback
+    _ = try t.switchScreen(.alternate);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // This will probably stop working at some point and we'll have
+    // no way to test it using public APIs, but at the time of writing
+    // this test, CSI 22 J (scroll complete) pushes into scrollback
+    // with alt screen.
+    s.nextSlice("Fizz\r\n");
+    s.nextSlice("\x1b[22J");
+    s.nextSlice("hello.");
+
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
+    defer search.deinit();
+    try search.searchAll();
+    try testing.expectEqual(0, search.active_results.items.len);
+
+    // Get all matches
+    const matches = try search.matches(alloc);
+    defer alloc.free(matches);
+    try testing.expectEqual(0, matches.len);
+}
+
+test "reloadActive partial history cleanup on appendSlice error" {
+    // This test verifies that when reloadActive fails at appendSlice (after
+    // the loop), all FlattenedHighlight items are properly cleaned up.
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{
+        .cols = 10,
+        .rows = 2,
+        .max_scrollback = std.math.maxInt(usize),
+    });
+    defer t.deinit(alloc);
+    const list: *PageList = &t.screens.active.pages;
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Write multiple "Fizz" matches that will end up in history.
+    // We need enough content to push "Fizz" entries into scrollback.
+    s.nextSlice("Fizz\r\nFizz\r\n");
+    while (list.totalPages() < 3) s.nextSlice("\r\n");
+    for (0..list.rows) |_| s.nextSlice("\r\n");
+    s.nextSlice("Fizz.");
+
+    // Complete initial search
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
+    defer search.deinit();
+    try search.searchAll();
+
+    // Now trigger reloadActive by adding more content that changes the
+    // active/history boundary. First add more "Fizz" entries to history.
+    s.nextSlice("\r\nFizz\r\nFizz\r\n");
+    while (list.totalPages() < 4) s.nextSlice("\r\n");
+    for (0..list.rows) |_| s.nextSlice("\r\n");
+
+    // Arm the tripwire to fail at appendSlice (after the loop completes).
+    // At this point, there are FlattenedHighlight items in the results list
+    // that need cleanup.
+    const tw = reloadActive_tw;
+    defer tw.end(.reset) catch unreachable;
+    tw.errorAlways(.history_append_existing, error.OutOfMemory);
+
+    // reloadActive is called by select(), which should trigger the error path.
+    // If the bug exists, testing.allocator will report a memory leak
+    // because FlattenedHighlight items weren't cleaned up.
+    try testing.expectError(error.OutOfMemory, search.select(.next));
+}
+
+test "reloadActive partial history cleanup on loop append error" {
+    // This test verifies that when reloadActive fails inside the loop
+    // (after some items have been appended), all FlattenedHighlight items
+    // are properly cleaned up.
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{
+        .cols = 10,
+        .rows = 2,
+        .max_scrollback = std.math.maxInt(usize),
+    });
+    defer t.deinit(alloc);
+    const list: *PageList = &t.screens.active.pages;
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Write multiple "Fizz" matches that will end up in history.
+    // We need enough content to push "Fizz" entries into scrollback.
+    s.nextSlice("Fizz\r\nFizz\r\n");
+    while (list.totalPages() < 3) s.nextSlice("\r\n");
+    for (0..list.rows) |_| s.nextSlice("\r\n");
+    s.nextSlice("Fizz.");
+
+    // Complete initial search
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
+    defer search.deinit();
+    try search.searchAll();
+
+    // Now trigger reloadActive by adding more content that changes the
+    // active/history boundary. First add more "Fizz" entries to history.
+    s.nextSlice("\r\nFizz\r\nFizz\r\n");
+    while (list.totalPages() < 4) s.nextSlice("\r\n");
+    for (0..list.rows) |_| s.nextSlice("\r\n");
+
+    // Arm the tripwire to fail after the first loop append succeeds.
+    // This leaves at least one FlattenedHighlight in the results list
+    // that needs cleanup.
+    const tw = reloadActive_tw;
+    defer tw.end(.reset) catch unreachable;
+    tw.errorAfter(.history_append_new, error.OutOfMemory, 1);
+
+    // reloadActive is called by select(), which should trigger the error path.
+    // If the bug exists, testing.allocator will report a memory leak
+    // because FlattenedHighlight items weren't cleaned up.
+    try testing.expectError(error.OutOfMemory, search.select(.next));
+}
+
+test "select after clearing scrollback" {
+    // Regression test for: https://github.com/ghostty-org/ghostty/issues/11957
+    // After clearing scrollback (CSI 3J), selecting next/prev should not crash.
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{
+        .cols = 10,
+        .rows = 2,
+        .max_scrollback = std.math.maxInt(usize),
+    });
+    defer t.deinit(alloc);
+    const list: *PageList = &t.screens.active.pages;
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Write enough content to push matches into scrollback history.
+    s.nextSlice("error\r\n");
+    while (list.totalPages() < 3) s.nextSlice("error\r\n");
+    for (0..list.rows) |_| s.nextSlice("\r\n");
+    s.nextSlice("error.");
+
+    // Start search and find all matches.
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "error");
+    defer search.deinit();
+    try search.searchAll();
+
+    // Should have matches in both history and active areas.
+    try testing.expect(search.history_results.items.len > 0);
+    try testing.expect(search.active_results.items.len > 0);
+
+    // Select a match first (so we have a selection).
+    _ = try search.select(.next);
+    try testing.expect(search.selected != null);
+
+    // Clear scrollback (equivalent to CSI 3J / Cmd+K erasing scrollback).
+    t.eraseDisplay(.scrollback, false);
+
+    // Selecting next/prev after clearing scrollback should not crash.
+    // Before the fix, this would hit an assertion in trackPin because
+    // the FlattenedHighlight contained dangling node pointers.
+    _ = try search.select(.next);
+    _ = try search.select(.prev);
 }

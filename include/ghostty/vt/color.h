@@ -8,6 +8,7 @@
 #define GHOSTTY_VT_COLOR_H
 
 #include <stdint.h>
+#include <ghostty/vt/types.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -84,7 +85,7 @@ typedef uint8_t GhosttyColorPaletteIndex;
  *
  * @ingroup sgr
  */
-void ghostty_color_rgb_get(GhosttyColorRgb color,
+GHOSTTY_API void ghostty_color_rgb_get(GhosttyColorRgb color,
                            uint8_t* r,
                            uint8_t* g,
                            uint8_t* b);

@@ -13,14 +13,14 @@ extension NSPasteboard.PasteboardType {
         default:
             break
         }
-        
+
         // Try to get UTType from MIME type
         guard let utType = UTType(mimeType: mimeType) else {
             // Fallback: use the MIME type directly as identifier
             self.init(mimeType)
             return
         }
-        
+
         // Use the UTType's identifier
         self.init(utType.identifier)
     }
@@ -50,7 +50,7 @@ extension NSPasteboard {
 
     /// The pasteboard for the Ghostty enum type.
     static func ghostty(_ clipboard: ghostty_clipboard_e) -> NSPasteboard? {
-        switch (clipboard) {
+        switch clipboard {
         case GHOSTTY_CLIPBOARD_STANDARD:
             return Self.general
 

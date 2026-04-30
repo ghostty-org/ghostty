@@ -1,10 +1,8 @@
 //! The options that are used to configure a terminal IO implementation.
 
-const builtin = @import("builtin");
 const xev = @import("../global.zig").xev;
 const apprt = @import("../apprt.zig");
 const renderer = @import("../renderer.zig");
-const Command = @import("../Command.zig");
 const Config = @import("../config.zig").Config;
 const termio = @import("../termio.zig");
 
@@ -32,7 +30,7 @@ mailbox: termio.Mailbox,
 /// terminal implementation.)
 renderer_state: *renderer.State,
 
-/// A handle to wake up the renderer. This hints to the renderer that that
+/// A handle to wake up the renderer. This hints to the renderer that
 /// a repaint should happen.
 renderer_wakeup: xev.Async,
 

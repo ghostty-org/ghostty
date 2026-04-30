@@ -3,7 +3,6 @@ const Allocator = std.mem.Allocator;
 const args = @import("args.zig");
 const Action = @import("ghostty.zig").Action;
 const Config = @import("../config.zig").Config;
-const cli = @import("../cli.zig");
 
 pub const Options = struct {
     /// The path of the config file to validate. If this isn't specified,

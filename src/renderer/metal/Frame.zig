@@ -3,17 +3,13 @@ const Self = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = @import("../../quirks.zig").inlineAssert;
-const builtin = @import("builtin");
 const objc = @import("objc");
 
 const mtl = @import("api.zig");
 const Renderer = @import("../generic.zig").Renderer(Metal);
 const Metal = @import("../Metal.zig");
 const Target = @import("Target.zig");
-const Pipeline = @import("Pipeline.zig");
 const RenderPass = @import("RenderPass.zig");
-const Buffer = @import("buffer.zig").Buffer;
 
 const Health = @import("../../renderer.zig").Health;
 

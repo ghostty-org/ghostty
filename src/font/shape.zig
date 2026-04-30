@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const options = @import("main.zig").options;
 const run = @import("shaper/run.zig");
 const feature = @import("shaper/feature.zig");
@@ -20,6 +19,7 @@ pub const default_features = feature.default_features;
 /// Shaper implementation for our compile options.
 pub const Shaper = switch (options.backend) {
     .freetype,
+    .freetype_windows,
     .fontconfig_freetype,
     .coretext_freetype,
     .coretext_harfbuzz,
@@ -35,8 +35,8 @@ pub const Shaper = switch (options.backend) {
     .web_canvas => web_canvas.Shaper,
 };
 
-/// A cell is a single single within a terminal that should be rendered
-/// for a shaping call. Note all terminal cells may be present; only
+/// A cell is a single glyph within a terminal that should be rendered
+/// for a shaping call. Not all terminal cells may be present; only
 /// cells that have a glyph that needs to be rendered.
 pub const Cell = struct {
     /// The X position of this shaper cell relative to the offset of the

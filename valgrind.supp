@@ -72,7 +72,16 @@
    fun:gdk_surface_handle_event
    ...
 }
-
+{
+   GTK CSS Node Validation
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   ...
+   fun:gtk_css_node_validate_internal
+   fun:gtk_css_node_validate
+   ...
+}
 {
    GTK CSS Provider Leak
    Memcheck:Leak
@@ -196,8 +205,44 @@
    fun:svga_context_flush
   ...
 }
-
 {
+   SVGA Stuff
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:calloc
+   fun:svga_create_surface_view
+   fun:svga_set_framebuffer_state
+   fun:st_update_framebuffer_state
+   fun:st_Clear
+   fun:gsk_gpu_render_pass_op_gl_command
+   ...
+}
+{
+   GTK Icon
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:*alloc
+   ...
+   fun:gtk_icon_theme_set_display
+   fun:gtk_icon_theme_get_for_display
+   ...
+}
+{
+   GDK Wayland Connection
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:calloc
+   fun:wl_closure_init
+   fun:wl_connection_demarshal
+   fun:wl_display_read_events
+   fun:gdk_wayland_poll_source_check
+   fun:g_main_context_check_unlocked
+   fun:g_main_context_iterate_unlocked.isra.0
+   fun:g_main_context_iteration
+   ...
+}
+{
+
    GSK Renderer GPU Stuff
    Memcheck:Leak
    match-leak-kinds: possible
@@ -295,6 +340,21 @@
    fun:g_main_context_dispatch_unlocked
    fun:g_main_context_iterate_unlocked.isra.0
    fun:g_main_context_iteration
+   ...
+}
+{
+   GSK More Forms
+   Memcheck:Leak
+   match-leak-kinds: possible
+   ...
+   fun:gsk_gl_device_use_program
+   fun:gsk_gl_frame_use_program
+   fun:gsk_gpu_shader_op_gl_command_n
+   fun:gsk_gpu_render_pass_op_gl_command
+   fun:gsk_gl_frame_submit
+   fun:gsk_gpu_renderer_render_texture
+   fun:gsk_renderer_render_texture
+   fun:render_contents
    ...
 }
 {

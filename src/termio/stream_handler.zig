@@ -36,7 +36,7 @@ pub const StreamHandler = struct {
     /// The mailbox for notifying the renderer of things.
     renderer_mailbox: *renderer.Thread.Mailbox,
 
-    /// A handle to wake up the renderer. This hints to the renderer that that
+    /// A handle to wake up the renderer. This hints to the renderer that
     /// a repaint should happen.
     renderer_wakeup: xev.Async,
 
@@ -70,6 +70,9 @@ pub const StreamHandler = struct {
     /// such as XTGETTCAP.
     dcs: terminal.dcs.Handler = .{},
 
+    /// The tmux control mode viewer state.
+    tmux_viewer: if (tmux_enabled) ?*terminal.tmux.Viewer else void = if (tmux_enabled) null else {},
+
     /// This is set to true when a message was written to the termio
     /// mailbox. This can be used by callers to determine if they need
     /// to wake up the termio thread.
@@ -81,9 +84,18 @@ pub const StreamHandler = struct {
 
     pub const Stream = terminal.Stream(StreamHandler);
 
+    /// True if we have tmux control mode built in.
+    pub const tmux_enabled = terminal.options.tmux_control_mode;
+
     pub fn deinit(self: *StreamHandler) void {
         self.apc.deinit();
         self.dcs.deinit();
+        if (comptime tmux_enabled) tmux: {
+            const viewer = self.tmux_viewer orelse break :tmux;
+            viewer.deinit();
+            self.alloc.destroy(viewer);
+            self.tmux_viewer = null;
+        }
     }
 
     /// This queues a render operation with the renderer thread. The render
@@ -107,7 +119,7 @@ pub const StreamHandler = struct {
         };
 
         // The config could have changed any of our colors so update mode 2031
-        self.surfaceMessageWriter(.{ .report_color_scheme = false });
+        self.messageWriter(.{ .color_scheme_report = .{ .force = false } });
     }
 
     inline fn surfaceMessageWriter(
@@ -164,6 +176,16 @@ pub const StreamHandler = struct {
         self: *StreamHandler,
         comptime action: Stream.Action.Tag,
         value: Stream.Action.Value(action),
+    ) void {
+        self.vtFallible(action, value) catch |err| {
+            log.warn("error handling VT action action={} err={}", .{ action, err });
+        };
+    }
+
+    inline fn vtFallible(
+        self: *StreamHandler,
+        comptime action: Stream.Action.Tag,
+        value: Stream.Action.Value(action),
     ) !void {
         // The branch hints here are based on real world data
         // which indicates that the most common actions are:
@@ -186,8 +208,8 @@ pub const StreamHandler = struct {
             .print_repeat => try self.terminal.printRepeat(value),
             .bell => self.bell(),
             .backspace => self.terminal.backspace(),
-            .horizontal_tab => try self.horizontalTab(value),
-            .horizontal_tab_back => try self.horizontalTabBack(value),
+            .horizontal_tab => self.horizontalTab(value),
+            .horizontal_tab_back => self.horizontalTabBack(value),
             .linefeed => {
                 @branchHint(.likely);
                 try self.linefeed();
@@ -220,7 +242,7 @@ pub const StreamHandler = struct {
             .erase_display_below => self.terminal.eraseDisplay(.below, value),
             .erase_display_above => self.terminal.eraseDisplay(.above, value),
             .erase_display_complete => {
-                try self.terminal.scrollViewport(.{ .bottom = {} });
+                self.terminal.scrollViewport(.{ .bottom = {} });
                 self.terminal.eraseDisplay(.complete, value);
             },
             .erase_display_scrollback => self.terminal.eraseDisplay(.scrollback, value),
@@ -234,7 +256,7 @@ pub const StreamHandler = struct {
             .insert_lines => self.terminal.insertLines(value),
             .insert_blanks => self.terminal.insertBlanks(value),
             .delete_lines => self.terminal.deleteLines(value),
-            .scroll_up => self.terminal.scrollUp(value),
+            .scroll_up => try self.terminal.scrollUp(value),
             .scroll_down => self.terminal.scrollDown(value),
             .tab_clear_current => self.terminal.tabClear(.current),
             .tab_clear_all => self.terminal.tabClear(.all),
@@ -299,8 +321,6 @@ pub const StreamHandler = struct {
             },
             .kitty_color_report => try self.kittyColorReport(value),
             .color_operation => try self.colorOperation(value.op, &value.requests, value.terminator),
-            .prompt_end => try self.promptEnd(),
-            .end_of_input => try self.endOfInput(),
             .end_hyperlink => try self.endHyperlink(),
             .active_status_display => self.terminal.status_display = value,
             .decaln => try self.decaln(),
@@ -310,9 +330,7 @@ pub const StreamHandler = struct {
             .progress_report => self.progressReport(value),
             .start_hyperlink => try self.startHyperlink(value.uri, value.id),
             .clipboard_contents => try self.clipboardContents(value.kind, value.data),
-            .prompt_start => self.promptStart(value.aid, value.redraw),
-            .prompt_continuation => self.promptContinuation(value.aid),
-            .end_of_command => self.endOfCommand(value.exit_code),
+            .semantic_prompt => try self.semanticPrompt(value),
             .mouse_shape => try self.setMouseShape(value),
             .configure_charset => self.configureCharset(value.slot, value.charset),
             .set_attribute => {
@@ -368,9 +386,78 @@ pub const StreamHandler = struct {
     fn dcsCommand(self: *StreamHandler, cmd: *terminal.dcs.Command) !void {
         // log.warn("DCS command: {}", .{cmd});
         switch (cmd.*) {
-            .tmux => |tmux| {
-                // TODO: process it
-                log.warn("tmux control mode event unimplemented cmd={}", .{tmux});
+            .tmux => |tmux| tmux: {
+                // If tmux control mode is disabled at the build level,
+                // then this whole block shouldn't be analyzed.
+                if (comptime !tmux_enabled) break :tmux;
+                log.info("tmux control mode event cmd={f}", .{tmux});
+
+                switch (tmux) {
+                    .enter => {
+                        // Setup our viewer state
+                        assert(self.tmux_viewer == null);
+                        const viewer = try self.alloc.create(terminal.tmux.Viewer);
+                        errdefer self.alloc.destroy(viewer);
+                        viewer.* = try .init(self.alloc);
+                        errdefer viewer.deinit();
+                        self.tmux_viewer = viewer;
+                        break :tmux;
+                    },
+
+                    .exit => {
+                        // Free our viewer state if we have one
+                        if (self.tmux_viewer) |viewer| {
+                            viewer.deinit();
+                            self.alloc.destroy(viewer);
+                            self.tmux_viewer = null;
+                        }
+
+                        // And always break since we assert below
+                        // that we're not handling an exit command.
+                        break :tmux;
+                    },
+
+                    else => {},
+                }
+
+                assert(tmux != .enter);
+                assert(tmux != .exit);
+
+                const viewer = self.tmux_viewer orelse {
+                    // This can only really happen if we failed to
+                    // initialize the viewer on enter.
+                    log.info(
+                        "received tmux control mode command without viewer: {f}",
+                        .{tmux},
+                    );
+
+                    break :tmux;
+                };
+
+                for (viewer.next(.{ .tmux = tmux })) |action| {
+                    log.info("tmux viewer action={f}", .{action});
+                    switch (action) {
+                        .exit => {
+                            // We ignore this because we will fully exit when
+                            // our DCS connection ends. We may want to handle
+                            // this in the future to notify our GUI we're
+                            // disconnected though.
+                        },
+
+                        .command => |command| {
+                            assert(command.len > 0);
+                            assert(command[command.len - 1] == '\n');
+                            self.messageWriter(try termio.Message.writeReq(
+                                self.alloc,
+                                command,
+                            ));
+                        },
+
+                        .windows => {
+                            // TODO
+                        },
+                    }
+                }
             },
 
             .xtgettcap => |*gettcap| {
@@ -479,18 +566,18 @@ pub const StreamHandler = struct {
         self.surfaceMessageWriter(.ring_bell);
     }
 
-    inline fn horizontalTab(self: *StreamHandler, count: u16) !void {
+    inline fn horizontalTab(self: *StreamHandler, count: u16) void {
         for (0..count) |_| {
             const x = self.terminal.screens.active.cursor.x;
-            try self.terminal.horizontalTab();
+            self.terminal.horizontalTab();
             if (x == self.terminal.screens.active.cursor.x) break;
         }
     }
 
-    inline fn horizontalTabBack(self: *StreamHandler, count: u16) !void {
+    inline fn horizontalTabBack(self: *StreamHandler, count: u16) void {
         for (0..count) |_| {
             const x = self.terminal.screens.active.cursor.x;
-            try self.terminal.horizontalTabBack();
+            self.terminal.horizontalTabBack();
             if (x == self.terminal.screens.active.cursor.x) break;
         }
     }
@@ -523,35 +610,24 @@ pub const StreamHandler = struct {
     }
 
     fn requestMode(self: *StreamHandler, mode: terminal.Mode) !void {
-        const tag: terminal.modes.ModeTag = @bitCast(@intFromEnum(mode));
-        const code: u8 = if (self.terminal.modes.get(mode)) 1 else 2;
-
-        var msg: termio.Message = .{ .write_small = .{} };
-        const resp = try std.fmt.bufPrint(
-            &msg.write_small.data,
-            "\x1B[{s}{};{}$y",
-            .{
-                if (tag.ansi) "" else "?",
-                tag.value,
-                code,
-            },
-        );
-        msg.write_small.len = @intCast(resp.len);
-        self.messageWriter(msg);
+        self.sendModeReport(self.terminal.modes.getReport(.fromMode(mode)));
     }
 
     fn requestModeUnknown(self: *StreamHandler, mode_raw: u16, ansi: bool) !void {
-        var msg: termio.Message = .{ .write_small = .{} };
-        const resp = try std.fmt.bufPrint(
-            &msg.write_small.data,
-            "\x1B[{s}{};0$y",
-            .{
-                if (ansi) "" else "?",
-                mode_raw,
-            },
-        );
-        msg.write_small.len = @intCast(resp.len);
-        self.messageWriter(msg);
+        self.sendModeReport(self.terminal.modes.getReport(.{ .value = @truncate(mode_raw), .ansi = ansi }));
+    }
+
+    fn sendModeReport(self: *StreamHandler, report: terminal.modes.Report) void {
+        var data: termio.Message.WriteReq.Small.Array = undefined;
+        var writer: std.Io.Writer = .fixed(&data);
+        report.encode(&writer) catch |err| {
+            log.err("error encoding mode report err={}", .{err});
+            return;
+        };
+        self.messageWriter(.{ .write_small = .{
+            .data = data,
+            .len = @intCast(writer.buffered().len),
+        } });
     }
 
     pub fn setMode(self: *StreamHandler, mode: terminal.Mode, enabled: bool) !void {
@@ -640,7 +716,7 @@ pub const StreamHandler = struct {
                 if (enabled) {
                     self.terminal.saveCursor();
                 } else {
-                    try self.terminal.restoreCursor();
+                    self.terminal.restoreCursor();
                 }
             },
 
@@ -790,7 +866,7 @@ pub const StreamHandler = struct {
                 self.messageWriter(msg);
             },
 
-            .color_scheme => self.surfaceMessageWriter(.{ .report_color_scheme = true }),
+            .color_scheme => self.messageWriter(.{ .color_scheme_report = .{ .force = true } }),
         }
     }
 
@@ -852,7 +928,7 @@ pub const StreamHandler = struct {
     }
 
     pub inline fn restoreCursor(self: *StreamHandler) !void {
-        try self.terminal.restoreCursor();
+        self.terminal.restoreCursor();
     }
 
     pub fn enquiry(self: *StreamHandler) !void {
@@ -875,7 +951,10 @@ pub const StreamHandler = struct {
         try self.setMouseShape(.text);
 
         // Reset resets our palette so we report it for mode 2031.
-        self.surfaceMessageWriter(.{ .report_color_scheme = false });
+        self.messageWriter(.{ .color_scheme_report = .{ .force = false } });
+
+        // Clear the progress bar
+        self.progressReport(.{ .state = .remove });
     }
 
     pub fn queryKittyKeyboard(self: *StreamHandler) !void {
@@ -920,6 +999,12 @@ pub const StreamHandler = struct {
             return;
         }
 
+        // Set the title on the terminal state. We ignore any errors since
+        // we can continue to operate just fine without it.
+        self.terminal.setTitle(title) catch |err| {
+            log.warn("error setting title in terminal state: {}", .{err});
+        };
+
         @memcpy(buf[0..title.len], title);
         buf[title.len] = 0;
 
@@ -948,7 +1033,7 @@ pub const StreamHandler = struct {
         self: *StreamHandler,
         shape: terminal.MouseShape,
     ) !void {
-        // Avoid changing the shape it it is already set to avoid excess
+        // Avoid changing the shape if it is already set to avoid excess
         // cross-thread messaging.
         if (self.terminal.mouse_shape == shape) return;
 
@@ -986,28 +1071,40 @@ pub const StreamHandler = struct {
         });
     }
 
-    inline fn promptStart(self: *StreamHandler, aid: ?[]const u8, redraw: bool) void {
-        _ = aid;
-        self.terminal.markSemanticPrompt(.prompt);
-        self.terminal.flags.shell_redraws_prompt = redraw;
-    }
+    fn semanticPrompt(
+        self: *StreamHandler,
+        cmd: Stream.Action.SemanticPrompt,
+    ) !void {
+        switch (cmd.action) {
+            .end_input_start_output => {
+                self.surfaceMessageWriter(.start_command);
+            },
 
-    inline fn promptContinuation(self: *StreamHandler, aid: ?[]const u8) void {
-        _ = aid;
-        self.terminal.markSemanticPrompt(.prompt_continuation);
-    }
+            .end_command => {
+                // The specification seems to not specify the type but
+                // other terminals accept 32-bits, but exit codes are really
+                // bytes, so we just do our best here.
+                const code: u8 = code: {
+                    const raw: i32 = cmd.readOption(.exit_code) orelse 0;
+                    break :code std.math.cast(u8, raw) orelse 1;
+                };
 
-    pub inline fn promptEnd(self: *StreamHandler) !void {
-        self.terminal.markSemanticPrompt(.input);
-    }
+                self.surfaceMessageWriter(.{ .stop_command = code });
+            },
 
-    pub inline fn endOfInput(self: *StreamHandler) !void {
-        self.terminal.markSemanticPrompt(.command);
-        self.surfaceMessageWriter(.start_command);
-    }
+            // Handled by Terminal, no special handling by us
+            .end_prompt_start_input,
+            .end_prompt_start_input_terminate_eol,
+            .fresh_line,
+            .fresh_line_new_prompt,
+            .new_command,
+            .prompt_start,
+            => {},
+        }
 
-    inline fn endOfCommand(self: *StreamHandler, exit_code: ?u8) void {
-        self.surfaceMessageWriter(.{ .stop_command = exit_code });
+        // We do this last so failures are still processed correctly
+        // above.
+        try self.terminal.semanticPrompt(cmd);
     }
 
     fn reportPwd(self: *StreamHandler, url: []const u8) !void {

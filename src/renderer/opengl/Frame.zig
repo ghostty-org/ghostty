@@ -3,16 +3,12 @@ const Self = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = @import("../../quirks.zig").inlineAssert;
-const builtin = @import("builtin");
 const gl = @import("opengl");
 
 const Renderer = @import("../generic.zig").Renderer(OpenGL);
 const OpenGL = @import("../OpenGL.zig");
 const Target = @import("Target.zig");
-const Pipeline = @import("Pipeline.zig");
 const RenderPass = @import("RenderPass.zig");
-const Buffer = @import("buffer.zig").Buffer;
 
 const Health = @import("../../renderer.zig").Health;
 

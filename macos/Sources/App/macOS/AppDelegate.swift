@@ -9,8 +9,7 @@ class AppDelegate: NSObject,
                     ObservableObject,
                     NSApplicationDelegate,
                     UNUserNotificationCenterDelegate,
-                    GhosttyAppDelegate
-{
+                    GhosttyAppDelegate {
     // The application logger. We should probably move this at some point to a dedicated
     // class/struct but for now it lives here! 🤷‍♂️
     static let logger = Logger(
@@ -46,6 +45,8 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuSelectAll: NSMenuItem?
     @IBOutlet private var menuFindParent: NSMenuItem?
     @IBOutlet private var menuFind: NSMenuItem?
+    @IBOutlet private var menuSelectionForFind: NSMenuItem?
+    @IBOutlet private var menuScrollToSelection: NSMenuItem?
     @IBOutlet private var menuFindNext: NSMenuItem?
     @IBOutlet private var menuFindPrevious: NSMenuItem?
     @IBOutlet private var menuHideFindBar: NSMenuItem?
@@ -63,11 +64,14 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuReturnToDefaultSize: NSMenuItem?
     @IBOutlet private var menuFloatOnTop: NSMenuItem?
     @IBOutlet private var menuUseAsDefault: NSMenuItem?
+    @IBOutlet private var menuSetAsDefaultTerminal: NSMenuItem?
 
     @IBOutlet private var menuIncreaseFontSize: NSMenuItem?
     @IBOutlet private var menuDecreaseFontSize: NSMenuItem?
     @IBOutlet private var menuResetFontSize: NSMenuItem?
     @IBOutlet private var menuChangeTitle: NSMenuItem?
+    @IBOutlet private var menuChangeTabTitle: NSMenuItem?
+    @IBOutlet private var menuReadonly: NSMenuItem?
     @IBOutlet private var menuQuickTerminal: NSMenuItem?
     @IBOutlet private var menuTerminalInspector: NSMenuItem?
     @IBOutlet private var menuCommandPalette: NSMenuItem?
@@ -92,16 +96,40 @@ class AppDelegate: NSObject,
     private var derivedConfig: DerivedConfig = DerivedConfig()
 
     /// The ghostty global state. Only one per process.
-    let ghostty: Ghostty.App = Ghostty.App()
+    let ghostty: Ghostty.App
 
     /// The global undo manager for app-level state such as window restoration.
     lazy var undoManager = ExpiringUndoManager()
 
+    /// The current state of the quick terminal.
+    private var quickTerminalControllerState: QuickTerminalState = .uninitialized
+
     /// Our quick terminal. This starts out uninitialized and only initializes if used.
-    private(set) lazy var quickController = QuickTerminalController(
-        ghostty,
-        position: derivedConfig.quickTerminalPosition
-    )
+    var quickController: QuickTerminalController {
+        switch quickTerminalControllerState {
+        case .initialized(let controller):
+            return controller
+
+        case .pendingRestore(let state):
+            let controller = QuickTerminalController(
+                ghostty,
+                position: derivedConfig.quickTerminalPosition,
+                baseConfig: state.baseConfig,
+                restorationState: state
+            )
+            quickTerminalControllerState = .initialized(controller)
+            return controller
+
+        case .uninitialized:
+            let controller = QuickTerminalController(
+                ghostty,
+                position: derivedConfig.quickTerminalPosition,
+                restorationState: nil
+            )
+            quickTerminalControllerState = .initialized(controller)
+            return controller
+        }
+    }
 
     /// Manages updates
     let updateController = UpdateController()
@@ -115,31 +143,45 @@ class AppDelegate: NSObject,
     }
 
     /// Tracks the windows that we hid for toggleVisibility.
-    private(set) var hiddenState: ToggleVisibilityState? = nil
+    private(set) var hiddenState: ToggleVisibilityState?
 
     /// The observer for the app appearance.
-    private var appearanceObserver: NSKeyValueObservation? = nil
+    private var appearanceObserver: NSKeyValueObservation?
 
     /// Signals
     private var signals: [DispatchSourceSignal] = []
 
-    /// The custom app icon image that is currently in use.
-    @Published private(set) var appIcon: NSImage? = nil
+    private let appIconUpdater = AppIconUpdater()
+
+    @MainActor private lazy var menuShortcutManager = Ghostty.MenuShortcutManager()
 
     override init() {
+#if DEBUG
+        ghostty = Ghostty.App(configPath: ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"])
+#else
+        ghostty = Ghostty.App()
+#endif
         super.init()
 
         ghostty.delegate = self
     }
 
-    //MARK: - NSApplicationDelegate
+    // MARK: - NSApplicationDelegate
 
     func applicationWillFinishLaunching(_ notification: Notification) {
-        UserDefaults.standard.register(defaults: [
+        #if DEBUG
+        if
+            let suite = UserDefaults.ghosttySuite,
+            let clear = ProcessInfo.processInfo.environment["GHOSTTY_CLEAR_USER_DEFAULTS"],
+            (clear as NSString).boolValue {
+            UserDefaults.ghostty.removePersistentDomain(forName: suite)
+        }
+        #endif
+        UserDefaults.ghostty.register(defaults: [
             // Disable the automatic full screen menu item because we handle
             // it manually.
             "NSFullScreenMenuItemEverywhere": false,
-            
+
             // On macOS 26 RC1, the autofill heuristic controller causes unusable levels
             // of slowdowns and CPU usage in the terminal window under certain [unknown]
             // conditions. We don't know exactly why/how. This disables the full heuristic
@@ -154,7 +196,7 @@ class AppDelegate: NSObject,
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // System settings overrides
-        UserDefaults.standard.register(defaults: [
+        UserDefaults.ghostty.register(defaults: [
             // Disable this so that repeated key events make it through to our terminal views.
             "ApplePressAndHoldEnabled": false,
         ])
@@ -163,7 +205,7 @@ class AppDelegate: NSObject,
         applicationLaunchTime = ProcessInfo.processInfo.systemUptime
 
         // Check if secure input was enabled when we last quit.
-        if (UserDefaults.standard.bool(forKey: "SecureInput") != SecureInput.shared.enabled) {
+        if UserDefaults.ghostty.bool(forKey: "SecureInput") != SecureInput.shared.enabled {
             toggleSecureInput(self)
         }
 
@@ -212,6 +254,12 @@ class AppDelegate: NSObject,
         )
         NotificationCenter.default.addObserver(
             self,
+            selector: #selector(terminalWindowHasBell(_:)),
+            name: .terminalWindowBellDidChangeNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
             selector: #selector(ghosttyNewWindow(_:)),
             name: Ghostty.Notification.ghosttyNewWindow,
             object: nil)
@@ -246,7 +294,7 @@ class AppDelegate: NSObject,
             guard let appearance = change.newValue else { return }
             guard let app = self.ghostty.app else { return }
             let scheme: ghostty_color_scheme_e
-            if (appearance.isDark) {
+            if appearance.isDark {
                 scheme = GHOSTTY_COLOR_SCHEME_DARK
             } else {
                 scheme = GHOSTTY_COLOR_SCHEME_LIGHT
@@ -265,12 +313,12 @@ class AppDelegate: NSObject,
         case .app:
             // Don't have to do anything.
             break
-            
+
         case .zig_run, .cli:
             // Part of launch services (clicking an app, using `open`, etc.) activates
             // the application and brings it to the front. When using the CLI we don't
             // get this behavior, so we have to do it manually.
-            
+
             // This never gets called until we click the dock icon. This forces it
             // activate immediately.
             applicationDidBecomeActive(.init(name: NSApplication.didBecomeActiveNotification))
@@ -294,11 +342,8 @@ class AppDelegate: NSObject,
         // If we're back manually then clear the hidden state because macOS handles it.
         self.hiddenState = nil
 
-        // Clear the dock badge when the app becomes active
-        self.setDockBadge(nil)
-
         // First launch stuff
-        if (!applicationHasBecomeActive) {
+        if !applicationHasBecomeActive {
             applicationHasBecomeActive = true
 
             // Let's launch our first window. We only do this if we have no other windows. It
@@ -319,8 +364,8 @@ class AppDelegate: NSObject,
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let windows = NSApplication.shared.windows
-        if (windows.isEmpty) { return .terminateNow }
-        
+        if windows.isEmpty { return .terminateNow }
+
         // If we've already accepted to install an update, then we don't need to
         // confirm quit. The user is already expecting the update to happen.
         if updateController.isInstalling {
@@ -346,14 +391,8 @@ class AppDelegate: NSObject,
             guard let keyword = AEKeyword("why?") else { break why }
 
             if let why = event.attributeDescriptor(forKeyword: keyword) {
-                switch (why.typeCodeValue) {
-                case kAEShutDown:
-                    fallthrough
-
-                case kAERestart:
-                    fallthrough
-
-                case kAEReallyLogOut:
+                switch why.typeCodeValue {
+                case kAEShutDown, kAERestart, kAEReallyLogOut:
                     return .terminateNow
 
                 default:
@@ -363,7 +402,7 @@ class AppDelegate: NSObject,
         }
 
         // If our app says we don't need to confirm, we can exit now.
-        if (!ghostty.needsConfirmQuit) { return .terminateNow }
+        if !ghostty.needsConfirmQuit { return .terminateNow }
 
         // We have some visible window. Show an app-wide modal to confirm quitting.
         let alert = NSAlert()
@@ -372,7 +411,7 @@ class AppDelegate: NSObject,
         alert.addButton(withTitle: "Close Ghostty")
         alert.addButton(withTitle: "Cancel")
         alert.alertStyle = .warning
-        switch (alert.runModal()) {
+        switch alert.runModal() {
         case .alertFirstButtonReturn:
             return .terminateNow
 
@@ -415,18 +454,18 @@ class AppDelegate: NSObject,
         // Ghostty will validate as well but we can avoid creating an entirely new
         // surface by doing our own validation here. We can also show a useful error
         // this way.
-        
+
         var isDirectory = ObjCBool(true)
         guard FileManager.default.fileExists(atPath: filename, isDirectory: &isDirectory) else { return false }
-        
+
         // Set to true if confirmation is required before starting up the
         // new terminal.
         var requiresConfirm: Bool = false
-        
+
         // Initialize the surface config which will be used to create the tab or window for the opened file.
         var config = Ghostty.SurfaceConfiguration()
-        
-        if (isDirectory.boolValue) {
+
+        if isDirectory.boolValue {
             // When opening a directory, check the configuration to decide
             // whether to open in a new tab or new window.
             config.workingDirectory = filename
@@ -437,24 +476,24 @@ class AppDelegate: NSObject,
             // because there is a sandbox escape possible if a sandboxed application
             // somehow is tricked into `open`-ing a non-sandboxed application.
             requiresConfirm = true
-            
+
             // When opening a file, we want to execute the file. To do this, we
             // don't override the command directly, because it won't load the
             // profile/rc files for the shell, which is super important on macOS
             // due to things like Homebrew. Instead, we set the command to
             // `<filename>; exit` which is what Terminal and iTerm2 do.
-            config.initialInput = "\(filename); exit\n"
-            
+            config.initialInput = "\(Ghostty.Shell.quote(filename)); exit\n"
+
             // For commands executed directly, we want to ensure we wait after exit
             // because in most cases scripts don't block on exit and we don't want
             // the window to just flash closed once complete.
             config.waitAfterCommand = true
-            
+
             // Set the parent directory to our working directory so that relative
             // paths in scripts work.
             config.workingDirectory = (filename as NSString).deletingLastPathComponent
         }
-        
+
         if requiresConfirm {
             // Confirmation required. We use an app-wide NSAlert for now. In the future we
             // may want to show this as a sheet on the focused window (especially if we're
@@ -464,15 +503,15 @@ class AppDelegate: NSObject,
             alert.addButton(withTitle: "Allow")
             alert.addButton(withTitle: "Cancel")
             alert.alertStyle = .warning
-            switch (alert.runModal()) {
+            switch alert.runModal() {
             case .alertFirstButtonReturn:
                 break
-                
+
             default:
                 return false
             }
         }
-        
+
         switch ghostty.config.macosDockDropBehavior {
         case .new_tab:
             _ = TerminalController.newTab(
@@ -482,13 +521,8 @@ class AppDelegate: NSObject,
             )
         case .new_window: _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
         }
-        
-        return true
-    }
 
-    /// This is called for the dock right-click menu.
-    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
-        return dockMenu
+        return true
     }
 
     /// Setup signal handlers
@@ -519,129 +553,6 @@ class AppDelegate: NSObject,
         signals.append(sigusr2)
     }
 
-    /// Setup all the images for our menu items.
-    private func setupMenuImages() {
-        // Note: This COULD Be done all in the xib file, but I find it easier to
-        // modify this stuff as code.
-        self.menuAbout?.setImageIfDesired(systemSymbolName: "info.circle")
-        self.menuCheckForUpdates?.setImageIfDesired(systemSymbolName: "square.and.arrow.down")
-        self.menuOpenConfig?.setImageIfDesired(systemSymbolName: "gear")
-        self.menuReloadConfig?.setImageIfDesired(systemSymbolName: "arrow.trianglehead.2.clockwise.rotate.90")
-        self.menuSecureInput?.setImageIfDesired(systemSymbolName: "lock.display")
-        self.menuNewWindow?.setImageIfDesired(systemSymbolName: "macwindow.badge.plus")
-        self.menuNewTab?.setImageIfDesired(systemSymbolName: "macwindow")
-        self.menuSplitRight?.setImageIfDesired(systemSymbolName: "rectangle.righthalf.inset.filled")
-        self.menuSplitLeft?.setImageIfDesired(systemSymbolName: "rectangle.leadinghalf.inset.filled")
-        self.menuSplitUp?.setImageIfDesired(systemSymbolName: "rectangle.tophalf.inset.filled")
-        self.menuSplitDown?.setImageIfDesired(systemSymbolName: "rectangle.bottomhalf.inset.filled")
-        self.menuClose?.setImageIfDesired(systemSymbolName: "xmark")
-        self.menuPasteSelection?.setImageIfDesired(systemSymbolName: "doc.on.clipboard.fill")
-        self.menuIncreaseFontSize?.setImageIfDesired(systemSymbolName: "textformat.size.larger")
-        self.menuResetFontSize?.setImageIfDesired(systemSymbolName: "textformat.size")
-        self.menuDecreaseFontSize?.setImageIfDesired(systemSymbolName: "textformat.size.smaller")
-        self.menuCommandPalette?.setImageIfDesired(systemSymbolName: "filemenu.and.selection")
-        self.menuQuickTerminal?.setImageIfDesired(systemSymbolName: "apple.terminal")
-        self.menuChangeTitle?.setImageIfDesired(systemSymbolName: "pencil.line")
-        self.menuTerminalInspector?.setImageIfDesired(systemSymbolName: "scope")
-        self.menuToggleFullScreen?.setImageIfDesired(systemSymbolName: "square.arrowtriangle.4.outward")
-        self.menuToggleVisibility?.setImageIfDesired(systemSymbolName: "eye")
-        self.menuZoomSplit?.setImageIfDesired(systemSymbolName: "arrow.up.left.and.arrow.down.right")
-        self.menuPreviousSplit?.setImageIfDesired(systemSymbolName: "chevron.backward.2")
-        self.menuNextSplit?.setImageIfDesired(systemSymbolName: "chevron.forward.2")
-        self.menuEqualizeSplits?.setImageIfDesired(systemSymbolName: "inset.filled.topleft.topright.bottomleft.bottomright.rectangle")
-        self.menuSelectSplitLeft?.setImageIfDesired(systemSymbolName: "arrow.left")
-        self.menuSelectSplitRight?.setImageIfDesired(systemSymbolName: "arrow.right")
-        self.menuSelectSplitAbove?.setImageIfDesired(systemSymbolName: "arrow.up")
-        self.menuSelectSplitBelow?.setImageIfDesired(systemSymbolName: "arrow.down")
-        self.menuMoveSplitDividerUp?.setImageIfDesired(systemSymbolName: "arrow.up.to.line")
-        self.menuMoveSplitDividerDown?.setImageIfDesired(systemSymbolName: "arrow.down.to.line")
-        self.menuMoveSplitDividerLeft?.setImageIfDesired(systemSymbolName: "arrow.left.to.line")
-        self.menuMoveSplitDividerRight?.setImageIfDesired(systemSymbolName: "arrow.right.to.line")
-        self.menuFloatOnTop?.setImageIfDesired(systemSymbolName: "square.filled.on.square")
-        self.menuFindParent?.setImageIfDesired(systemSymbolName: "text.page.badge.magnifyingglass")
-    }
-
-    /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
-    private func syncMenuShortcuts(_ config: Ghostty.Config) {
-        guard ghostty.readiness == .ready else { return }
-
-        syncMenuShortcut(config, action: "check_for_updates", menuItem: self.menuCheckForUpdates)
-        syncMenuShortcut(config, action: "open_config", menuItem: self.menuOpenConfig)
-        syncMenuShortcut(config, action: "reload_config", menuItem: self.menuReloadConfig)
-        syncMenuShortcut(config, action: "quit", menuItem: self.menuQuit)
-
-        syncMenuShortcut(config, action: "new_window", menuItem: self.menuNewWindow)
-        syncMenuShortcut(config, action: "new_tab", menuItem: self.menuNewTab)
-        syncMenuShortcut(config, action: "close_surface", menuItem: self.menuClose)
-        syncMenuShortcut(config, action: "close_tab", menuItem: self.menuCloseTab)
-        syncMenuShortcut(config, action: "close_window", menuItem: self.menuCloseWindow)
-        syncMenuShortcut(config, action: "close_all_windows", menuItem: self.menuCloseAllWindows)
-        syncMenuShortcut(config, action: "new_split:right", menuItem: self.menuSplitRight)
-        syncMenuShortcut(config, action: "new_split:left", menuItem: self.menuSplitLeft)
-        syncMenuShortcut(config, action: "new_split:down", menuItem: self.menuSplitDown)
-        syncMenuShortcut(config, action: "new_split:up", menuItem: self.menuSplitUp)
-
-        syncMenuShortcut(config, action: "undo", menuItem: self.menuUndo)
-        syncMenuShortcut(config, action: "redo", menuItem: self.menuRedo)
-        syncMenuShortcut(config, action: "copy_to_clipboard", menuItem: self.menuCopy)
-        syncMenuShortcut(config, action: "paste_from_clipboard", menuItem: self.menuPaste)
-        syncMenuShortcut(config, action: "paste_from_selection", menuItem: self.menuPasteSelection)
-        syncMenuShortcut(config, action: "select_all", menuItem: self.menuSelectAll)
-        syncMenuShortcut(config, action: "start_search", menuItem: self.menuFind)
-        syncMenuShortcut(config, action: "search:next", menuItem: self.menuFindNext)
-        syncMenuShortcut(config, action: "search:previous", menuItem: self.menuFindPrevious)
-
-        syncMenuShortcut(config, action: "toggle_split_zoom", menuItem: self.menuZoomSplit)
-        syncMenuShortcut(config, action: "goto_split:previous", menuItem: self.menuPreviousSplit)
-        syncMenuShortcut(config, action: "goto_split:next", menuItem: self.menuNextSplit)
-        syncMenuShortcut(config, action: "goto_split:up", menuItem: self.menuSelectSplitAbove)
-        syncMenuShortcut(config, action: "goto_split:down", menuItem: self.menuSelectSplitBelow)
-        syncMenuShortcut(config, action: "goto_split:left", menuItem: self.menuSelectSplitLeft)
-        syncMenuShortcut(config, action: "goto_split:right", menuItem: self.menuSelectSplitRight)
-        syncMenuShortcut(config, action: "resize_split:up,10", menuItem: self.menuMoveSplitDividerUp)
-        syncMenuShortcut(config, action: "resize_split:down,10", menuItem: self.menuMoveSplitDividerDown)
-        syncMenuShortcut(config, action: "resize_split:right,10", menuItem: self.menuMoveSplitDividerRight)
-        syncMenuShortcut(config, action: "resize_split:left,10", menuItem: self.menuMoveSplitDividerLeft)
-        syncMenuShortcut(config, action: "equalize_splits", menuItem: self.menuEqualizeSplits)
-        syncMenuShortcut(config, action: "reset_window_size", menuItem: self.menuReturnToDefaultSize)
-
-        syncMenuShortcut(config, action: "increase_font_size:1", menuItem: self.menuIncreaseFontSize)
-        syncMenuShortcut(config, action: "decrease_font_size:1", menuItem: self.menuDecreaseFontSize)
-        syncMenuShortcut(config, action: "reset_font_size", menuItem: self.menuResetFontSize)
-        syncMenuShortcut(config, action: "prompt_surface_title", menuItem: self.menuChangeTitle)
-        syncMenuShortcut(config, action: "toggle_quick_terminal", menuItem: self.menuQuickTerminal)
-        syncMenuShortcut(config, action: "toggle_visibility", menuItem: self.menuToggleVisibility)
-        syncMenuShortcut(config, action: "toggle_window_float_on_top", menuItem: self.menuFloatOnTop)
-        syncMenuShortcut(config, action: "inspector:toggle", menuItem: self.menuTerminalInspector)
-        syncMenuShortcut(config, action: "toggle_command_palette", menuItem: self.menuCommandPalette)
-
-        syncMenuShortcut(config, action: "toggle_secure_input", menuItem: self.menuSecureInput)
-
-        // This menu item is NOT synced with the configuration because it disables macOS
-        // global fullscreen keyboard shortcut. The shortcut in the Ghostty config will continue
-        // to work but it won't be reflected in the menu item.
-        //
-        // syncMenuShortcut(config, action: "toggle_fullscreen", menuItem: self.menuToggleFullScreen)
-
-        // Dock menu
-        reloadDockMenu()
-    }
-
-    /// Syncs a single menu shortcut for the given action. The action string is the same
-    /// action string used for the Ghostty configuration.
-    private func syncMenuShortcut(_ config: Ghostty.Config, action: String, menuItem: NSMenuItem?) {
-        guard let menu = menuItem else { return }
-        guard let shortcut = config.keyboardShortcut(for: action) else {
-            // No shortcut, clear the menu item
-            menu.keyEquivalent = ""
-            menu.keyEquivalentModifierMask = []
-            return
-        }
-
-        menu.keyEquivalent = shortcut.key.character.description
-        menu.keyEquivalentModifierMask = .init(swiftUIFlags: shortcut.modifiers)
-    }
-
     // MARK: Notifications and Events
 
     /// This handles events from the NSEvent.addLocalEventMonitor. We use this so we can get
@@ -657,16 +568,28 @@ class AppDelegate: NSObject,
     }
 
     private func localEventKeyDown(_ event: NSEvent) -> NSEvent? {
+        // If the tab overview is visible and escape is pressed, close it.
+        // This can't POSSIBLY be right and is probably a FirstResponder problem
+        // that we should handle elsewhere in our program. But this works and it
+        // is guarded by the tab overview currently showing.
+        if event.keyCode == 0x35, // Escape key
+           let window = NSApp.keyWindow,
+           let tabGroup = window.tabGroup,
+           tabGroup.isOverviewVisible {
+            window.toggleTabOverview(nil)
+            return nil
+        }
+
         // If we have a main window then we don't process any of the keys
         // because we let it capture and propagate.
         guard NSApp.mainWindow == nil else { return event }
 
         // If this event as-is would result in a key binding then we send it.
-        if let app = ghostty.app {
+        if let app = ghostty.app, let config = ghostty.config.config {
             var ghosttyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
             let match = (event.characters ?? "").withCString { ptr in
                 ghosttyEvent.text = ptr
-                if !ghostty_app_key_is_binding(app, ghosttyEvent) {
+                if !ghostty_config_key_is_binding(config, ghosttyEvent) {
                     return false
                 }
 
@@ -695,7 +618,7 @@ class AppDelegate: NSObject,
         guard let ghostty = self.ghostty.app else { return event }
 
         // Build our event input and call ghostty
-        if (ghostty_app_key(ghostty, event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS))) {
+        if ghostty_app_key(ghostty, event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)) {
             // The key was used so we want to stop it from going to our Mac app
             Ghostty.logger.debug("local key event handled event=\(event)")
             return nil
@@ -710,7 +633,7 @@ class AppDelegate: NSObject,
 
     @objc private func quickTerminalDidChangeVisibility(_ notification: Notification) {
         guard let quickController = notification.object as? QuickTerminalController else { return }
-        self.menuQuickTerminal?.state = if (quickController.visible) { .on } else { .off }
+        self.menuQuickTerminal?.state = if quickController.visible { .on } else { .off }
     }
 
     @objc private func ghosttyConfigDidChange(_ notification: Notification) {
@@ -726,46 +649,65 @@ class AppDelegate: NSObject,
     }
 
     @objc private func ghosttyBellDidRing(_ notification: Notification) {
-        if (ghostty.config.bellFeatures.contains(.system)) {
+        if ghostty.config.bellFeatures.contains(.system) {
             NSSound.beep()
         }
 
-        if (ghostty.config.bellFeatures.contains(.attention)) {
+        if ghostty.config.bellFeatures.contains(.audio) {
+            if let configPath = ghostty.config.bellAudioPath,
+               let sound = NSSound(contentsOfFile: configPath.path, byReference: false) {
+                sound.volume = ghostty.config.bellAudioVolume
+                sound.play()
+            }
+        }
+
+        if ghostty.config.bellFeatures.contains(.attention) {
             // Bounce the dock icon if we're not focused.
             NSApp.requestUserAttention(.informationalRequest)
-
-            // Handle setting the dock badge based on permissions
-            ghosttyUpdateBadgeForBell()
         }
     }
 
-    private func ghosttyUpdateBadgeForBell() {
+    @objc private func terminalWindowHasBell(_ notification: Notification) {
+        guard notification.object is BaseTerminalController else { return }
+        syncDockBadge()
+    }
+
+    private func requestBadgeAuthorizationAndSet(_ center: UNUserNotificationCenter) {
+        center.requestAuthorization(options: [.badge]) { granted, error in
+            if let error = error {
+                Self.logger.warning("Error requesting badge authorization: \(error)")
+                return
+            }
+
+            // Permission granted, set the badge
+            if granted {
+                DispatchQueue.main.async {
+                    self.setDockBadge()
+                }
+            }
+        }
+    }
+
+    private func syncDockBadge() {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
             switch settings.authorizationStatus {
             case .authorized:
-                // Already authorized, check badge setting and set if enabled
+                // If we're authorized and allow badges, then set the badge.
                 if settings.badgeSetting == .enabled {
                     DispatchQueue.main.async {
                         self.setDockBadge()
                     }
+                } else if settings.badgeSetting == .notSupported {
+                    // If badge setting is not supported, we may be in a sandbox that doesn't allow it.
+                    // We can still attempt to set the badge and hope for the best, but we should also
+                    // request authorization just in case it is a permissions issue.
+                    self.requestBadgeAuthorizationAndSet(center)
                 }
 
             case .notDetermined:
                 // Not determined yet, request authorization for badge
-                center.requestAuthorization(options: [.badge]) { granted, error in
-                    if let error = error {
-                        Self.logger.warning("Error requesting badge authorization: \(error)")
-                        return
-                    }
-
-                    if granted {
-                        // Permission granted, set the badge
-                        DispatchQueue.main.async {
-                            self.setDockBadge()
-                        }
-                    }
-                }
+                self.requestBadgeAuthorizationAndSet(center)
 
             case .denied, .provisional, .ephemeral:
                 // In these known non-authorized states, do not attempt to set the badge.
@@ -798,7 +740,12 @@ class AppDelegate: NSObject,
         _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: config)
     }
 
-    private func setDockBadge(_ label: String? = "•") {
+    private func setDockBadge() {
+        let bellCount = NSApp.windows
+            .compactMap { $0.windowController as? BaseTerminalController }
+            .reduce(0) { $0 + ($1.bell ? 1 : 0) }
+        let wantsBadge = ghostty.config.bellFeatures.contains(.attention) && bellCount > 0
+        let label = wantsBadge ? (bellCount > 99 ? "99+" : String(bellCount)) : nil
         NSApp.dockTile.badgeLabel = label
         NSApp.dockTile.display()
     }
@@ -810,11 +757,11 @@ class AppDelegate: NSObject,
         // Depending on the "window-save-state" setting we have to set the NSQuitAlwaysKeepsWindows
         // configuration. This is the only way to carefully control whether macOS invokes the
         // state restoration system.
-        switch (config.windowSaveState) {
-        case "never": UserDefaults.standard.setValue(false, forKey: "NSQuitAlwaysKeepsWindows")
-        case "always": UserDefaults.standard.setValue(true, forKey: "NSQuitAlwaysKeepsWindows")
+        switch config.windowSaveState {
+        case "never": UserDefaults.ghostty.setValue(false, forKey: "NSQuitAlwaysKeepsWindows")
+        case "always": UserDefaults.ghostty.setValue(true, forKey: "NSQuitAlwaysKeepsWindows")
         case "default": fallthrough
-        default: UserDefaults.standard.removeObject(forKey: "NSQuitAlwaysKeepsWindows")
+        default: UserDefaults.ghostty.removeObject(forKey: "NSQuitAlwaysKeepsWindows")
         }
 
         // Sync our auto-update settings. If SUEnableAutomaticChecks (in our Info.plist) is
@@ -829,19 +776,24 @@ class AppDelegate: NSObject,
                 autoUpdate == .check || autoUpdate == .download
             updateController.updater.automaticallyDownloadsUpdates =
                 autoUpdate == .download
-            /**
+            /*
              To test `auto-update` easily, uncomment the line below and
              delete `SUEnableAutomaticChecks` in Ghostty-Info.plist.
 
              Note: When `auto-update = download`, you may need to
              `Clean Build Folder` if a background install has already begun.
              */
-            //updateController.updater.checkForUpdatesInBackground()
+            // updateController.updater.checkForUpdatesInBackground()
         }
 
         // Config could change keybindings, so update everything that depends on that
-        syncMenuShortcuts(config)
+        DispatchQueue.main.async {
+            self.syncMenuShortcuts(config)
+        }
         TerminalController.all.forEach { $0.relabelTabs() }
+
+        // Update our badge since config can change what we show.
+        syncDockBadge()
 
         // Config could change window appearance. We wrap this in an async queue because when
         // this is called as part of application launch it can deadlock with an internal
@@ -849,7 +801,7 @@ class AppDelegate: NSObject,
         DispatchQueue.main.async { self.syncAppearance(config: config) }
 
         // Decide whether to hide/unhide app from dock and app switcher
-        switch (config.macosHidden) {
+        switch config.macosHidden {
         case .never:
             NSApp.setActivationPolicy(.regular)
 
@@ -860,16 +812,16 @@ class AppDelegate: NSObject,
         // If we have configuration errors, we need to show them.
         let c = ConfigurationErrorsController.sharedInstance
         c.errors = config.errors
-        if (c.errors.count > 0) {
-            if (c.window == nil || !c.window!.isVisible) {
+        if c.errors.count > 0 {
+            if c.window == nil || !c.window!.isVisible {
                 c.showWindow(self)
             }
         }
 
         // We need to handle our global event tap depending on if there are global
         // events that we care about in Ghostty.
-        if (ghostty_app_has_global_keybinds(ghostty.app!)) {
-            if (timeSinceLaunch > 5) {
+        if ghostty_app_has_global_keybinds(ghostty.app!) {
+            if timeSinceLaunch > 5 {
                 // If the process has been running for awhile we enable right away
                 // because no windows are likely to pop up.
                 GlobalEventTap.shared.enable()
@@ -884,9 +836,8 @@ class AppDelegate: NSObject,
         } else {
             GlobalEventTap.shared.disable()
         }
-        Task {
-            await updateAppIcon(from: config)
-        }
+
+        updateAppIcon(from: config)
     }
 
     /// Sync the appearance of our app with the theme specified in the config.
@@ -894,96 +845,13 @@ class AppDelegate: NSObject,
         NSApplication.shared.appearance = .init(ghosttyConfig: config)
     }
 
-    // Using AppIconActor to ensure this work
-    // happens synchronously in the background
-    @AppIconActor
-    private func updateAppIcon(from config: Ghostty.Config) async  {
-        var appIcon: NSImage?
-        var appIconName: String? = config.macosIcon.rawValue
-
-        switch (config.macosIcon) {
-        case .official:
-            // Discard saved icon name
-            appIconName = nil
-            break
-        case .blueprint:
-            appIcon = NSImage(named: "BlueprintImage")!
-
-        case .chalkboard:
-            appIcon = NSImage(named: "ChalkboardImage")!
-
-        case .glass:
-            appIcon = NSImage(named: "GlassImage")!
-
-        case .holographic:
-            appIcon = NSImage(named: "HolographicImage")!
-
-        case .microchip:
-            appIcon = NSImage(named: "MicrochipImage")!
-
-        case .paper:
-            appIcon = NSImage(named: "PaperImage")!
-
-        case .retro:
-            appIcon = NSImage(named: "RetroImage")!
-
-        case .xray:
-            appIcon = NSImage(named: "XrayImage")!
-
-        case .custom:
-            if let userIcon = NSImage(contentsOfFile: config.macosCustomIcon) {
-                appIcon = userIcon
-                appIconName = config.macosCustomIcon
-            } else {
-                appIcon = nil // Revert back to official icon if invalid location
-                appIconName = nil // Discard saved icon name
-            }
-        case .customStyle:
-            // Discard saved icon name
-            // if no valid colours were found
-            appIconName = nil
-            guard let ghostColor = config.macosIconGhostColor else { break }
-            guard let screenColors = config.macosIconScreenColor else { break }
-            guard let icon = ColorizedGhosttyIcon(
-                screenColors: screenColors,
-                ghostColor: ghostColor,
-                frame: config.macosIconFrame
-            ).makeImage() else { break }
-            appIcon = icon
-            let colorStrings = ([ghostColor] + screenColors).compactMap(\.hexString)
-            appIconName = (colorStrings + [config.macosIconFrame.rawValue])
-                .joined(separator: "_")
+    private func updateAppIcon(from config: Ghostty.Config) {
+        Task.detached {
+            await self.appIconUpdater.update(icon: AppIcon(config: config))
         }
-        // Only change the icon if it has actually changed
-        // from the current one
-        guard UserDefaults.standard.string(forKey: "CustomGhosttyIcon") != appIconName else {
-#if DEBUG
-            if appIcon == nil {
-                await MainActor.run {
-                    // Changing the app bundle's icon will corrupt code signing.
-                    // We only use the default blueprint icon for the dock,
-                    // so developers don't need to clean and re-build every time.
-                    NSApplication.shared.applicationIconImage = NSImage(named: "BlueprintImage")
-                }
-            }
-#endif
-            return
-        }
-        // make it immutable, so Swift 6 won't complain
-        let newIcon = appIcon
-
-        let appPath = Bundle.main.bundlePath
-        NSWorkspace.shared.setIcon(newIcon, forFile: appPath, options: [])
-        NSWorkspace.shared.noteFileSystemChanged(appPath)
-
-        await MainActor.run {
-            self.appIcon = newIcon
-            NSApplication.shared.applicationIconImage = newIcon
-        }
-        UserDefaults.standard.set(appIconName, forKey: "CustomGhosttyIcon")
     }
 
-    //MARK: - Restorable State
+    // MARK: - Restorable State
 
     /// We support NSSecureCoding for restorable state. Required as of macOS Sonoma (14) but a good idea anyways.
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
@@ -991,14 +859,33 @@ class AppDelegate: NSObject,
     }
 
     func application(_ app: NSApplication, willEncodeRestorableState coder: NSCoder) {
-        Self.logger.debug("application will save window state")
+        guard ghostty.config.windowSaveState != "never" else { return }
+
+        // Encode our quick terminal state if we have it.
+        switch quickTerminalControllerState {
+        case .initialized(let controller) where controller.restorable:
+            let data = QuickTerminalRestorableState(from: controller)
+            data.encode(with: coder)
+
+        case .pendingRestore(let state):
+            state.encode(with: coder)
+
+        default:
+            break
+        }
     }
 
     func application(_ app: NSApplication, didDecodeRestorableState coder: NSCoder) {
         Self.logger.debug("application will restore window state")
+
+        // Decode our quick terminal state.
+        if ghostty.config.windowSaveState != "never",
+            let state = QuickTerminalRestorableState(coder: coder) {
+            quickTerminalControllerState = .pendingRestore(state)
+        }
     }
 
-    //MARK: - UNUserNotificationCenterDelegate
+    // MARK: - UNUserNotificationCenterDelegate
 
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
@@ -1019,36 +906,23 @@ class AppDelegate: NSObject,
         withCompletionHandler(options)
     }
 
-    //MARK: - GhosttyAppDelegate
+    // MARK: - GhosttyAppDelegate
 
     func findSurface(forUUID uuid: UUID) -> Ghostty.SurfaceView? {
         for c in TerminalController.all {
-            for view in c.surfaceTree {
-                if view.id == uuid {
-                    return view
-                }
+            for view in c.surfaceTree where view.id == uuid {
+                return view
             }
         }
 
         return nil
     }
 
-    //MARK: - Dock Menu
-
-    private func reloadDockMenu() {
-        let newWindow = NSMenuItem(title: "New Window", action: #selector(newWindow), keyEquivalent: "")
-        let newTab = NSMenuItem(title: "New Tab", action: #selector(newTab), keyEquivalent: "")
-
-        dockMenu.removeAllItems()
-        dockMenu.addItem(newWindow)
-        dockMenu.addItem(newTab)
-    }
-
-    //MARK: - Global State
+    // MARK: - Global State
 
     func setSecureInput(_ mode: Ghostty.SetSecureInput) {
         let input = SecureInput.shared
-        switch (mode) {
+        switch mode {
         case .on:
             input.global = true
 
@@ -1058,14 +932,14 @@ class AppDelegate: NSObject,
         case .toggle:
             input.global.toggle()
         }
-        self.menuSecureInput?.state = if (input.global) { .on } else { .off }
-        UserDefaults.standard.set(input.global, forKey: "SecureInput")
+        self.menuSecureInput?.state = if input.global { .on } else { .off }
+        UserDefaults.ghostty.set(input.global, forKey: "SecureInput")
     }
 
-    //MARK: - IB Actions
+    // MARK: - IB Actions
 
     @IBAction func openConfig(_ sender: Any?) {
-        Ghostty.App.openConfig()
+        ghostty.openConfig()
     }
 
     @IBAction func reloadConfig(_ sender: Any?) {
@@ -1074,7 +948,7 @@ class AppDelegate: NSObject,
 
     @IBAction func checkForUpdates(_ sender: Any?) {
         updateController.checkForUpdates()
-        //UpdateSimulator.happyPath.simulate(with: updateViewModel)
+        // UpdateSimulator.happyPath.simulate(with: updateViewModel)
     }
 
     @IBAction func newWindow(_ sender: Any?) {
@@ -1184,16 +1058,167 @@ class AppDelegate: NSObject,
             // want to bring back these windows if we remove the toggle.
             //
             // We also ignore fullscreen windows because they don't hide anyways.
-            self.hiddenWindows = NSApp.windows.filter {
+            var visibleWindows = [Weak<NSWindow>]()
+            NSApp.windows.filter {
                 $0.isVisible &&
                 !$0.styleMask.contains(.fullScreen)
-            }.map { Weak($0) }
+            }.forEach { window in
+                // We only keep track of selectedWindow if it's in a tabGroup,
+                // so we can keep its selection state when restoring
+                let windowToHide = window.tabGroup?.selectedWindow ?? window
+                if !visibleWindows.contains(where: { $0.value === windowToHide }) {
+                    visibleWindows.append(Weak(windowToHide))
+                }
+            }
+            self.hiddenWindows = visibleWindows
         }
 
         func restore() {
             hiddenWindows.forEach { $0.value?.orderFrontRegardless() }
             keyWindow?.value?.makeKey()
         }
+    }
+}
+
+// MARK: Menu
+
+extension AppDelegate {
+    /// This is called for the dock right-click menu.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        return dockMenu
+    }
+
+    private func reloadDockMenu() {
+        let newWindow = NSMenuItem(title: "New Window", action: #selector(newWindow), keyEquivalent: "")
+        let newTab = NSMenuItem(title: "New Tab", action: #selector(newTab), keyEquivalent: "")
+
+        dockMenu.removeAllItems()
+        dockMenu.addItem(newWindow)
+        dockMenu.addItem(newTab)
+    }
+
+    /// Setup all the images for our menu items.
+    private func setupMenuImages() {
+        // Note: This COULD Be done all in the xib file, but I find it easier to
+        // modify this stuff as code.
+        self.menuAbout?.setImageIfDesired(systemSymbolName: "info.circle")
+        self.menuCheckForUpdates?.setImageIfDesired(systemSymbolName: "square.and.arrow.down")
+        self.menuOpenConfig?.setImageIfDesired(systemSymbolName: "gear")
+        self.menuReloadConfig?.setImageIfDesired(systemSymbolName: "arrow.trianglehead.2.clockwise.rotate.90")
+        self.menuSecureInput?.setImageIfDesired(systemSymbolName: "lock.display")
+        self.menuNewWindow?.setImageIfDesired(systemSymbolName: "macwindow.badge.plus")
+        self.menuNewTab?.setImageIfDesired(systemSymbolName: "macwindow")
+        self.menuSplitRight?.setImageIfDesired(systemSymbolName: "rectangle.righthalf.inset.filled")
+        self.menuSplitLeft?.setImageIfDesired(systemSymbolName: "rectangle.leadinghalf.inset.filled")
+        self.menuSplitUp?.setImageIfDesired(systemSymbolName: "rectangle.tophalf.inset.filled")
+        self.menuSplitDown?.setImageIfDesired(systemSymbolName: "rectangle.bottomhalf.inset.filled")
+        self.menuClose?.setImageIfDesired(systemSymbolName: "xmark")
+        self.menuPasteSelection?.setImageIfDesired(systemSymbolName: "doc.on.clipboard.fill")
+        self.menuIncreaseFontSize?.setImageIfDesired(systemSymbolName: "textformat.size.larger")
+        self.menuResetFontSize?.setImageIfDesired(systemSymbolName: "textformat.size")
+        self.menuDecreaseFontSize?.setImageIfDesired(systemSymbolName: "textformat.size.smaller")
+        self.menuCommandPalette?.setImageIfDesired(systemSymbolName: "filemenu.and.selection")
+        self.menuQuickTerminal?.setImageIfDesired(systemSymbolName: "apple.terminal")
+        self.menuChangeTabTitle?.setImageIfDesired(systemSymbolName: "pencil.line")
+        self.menuTerminalInspector?.setImageIfDesired(systemSymbolName: "scope")
+        self.menuReadonly?.setImageIfDesired(systemSymbolName: "eye.fill")
+        self.menuSetAsDefaultTerminal?.setImageIfDesired(systemSymbolName: "star.fill")
+        self.menuToggleFullScreen?.setImageIfDesired(systemSymbolName: "square.arrowtriangle.4.outward")
+        self.menuToggleVisibility?.setImageIfDesired(systemSymbolName: "eye")
+        self.menuZoomSplit?.setImageIfDesired(systemSymbolName: "arrow.up.left.and.arrow.down.right")
+        self.menuPreviousSplit?.setImageIfDesired(systemSymbolName: "chevron.backward.2")
+        self.menuNextSplit?.setImageIfDesired(systemSymbolName: "chevron.forward.2")
+        self.menuEqualizeSplits?.setImageIfDesired(systemSymbolName: "inset.filled.topleft.topright.bottomleft.bottomright.rectangle")
+        self.menuSelectSplitLeft?.setImageIfDesired(systemSymbolName: "arrow.left")
+        self.menuSelectSplitRight?.setImageIfDesired(systemSymbolName: "arrow.right")
+        self.menuSelectSplitAbove?.setImageIfDesired(systemSymbolName: "arrow.up")
+        self.menuSelectSplitBelow?.setImageIfDesired(systemSymbolName: "arrow.down")
+        self.menuMoveSplitDividerUp?.setImageIfDesired(systemSymbolName: "arrow.up.to.line")
+        self.menuMoveSplitDividerDown?.setImageIfDesired(systemSymbolName: "arrow.down.to.line")
+        self.menuMoveSplitDividerLeft?.setImageIfDesired(systemSymbolName: "arrow.left.to.line")
+        self.menuMoveSplitDividerRight?.setImageIfDesired(systemSymbolName: "arrow.right.to.line")
+        self.menuFloatOnTop?.setImageIfDesired(systemSymbolName: "square.filled.on.square")
+        self.menuFindParent?.setImageIfDesired(systemSymbolName: "text.page.badge.magnifyingglass")
+    }
+
+    /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
+    @MainActor private func syncMenuShortcuts(_ config: Ghostty.Config) {
+        guard ghostty.readiness == .ready else { return }
+
+        menuShortcutManager.reset()
+
+        syncMenuShortcut(config, action: "check_for_updates", menuItem: self.menuCheckForUpdates)
+        syncMenuShortcut(config, action: "open_config", menuItem: self.menuOpenConfig)
+        syncMenuShortcut(config, action: "reload_config", menuItem: self.menuReloadConfig)
+        syncMenuShortcut(config, action: "quit", menuItem: self.menuQuit)
+
+        syncMenuShortcut(config, action: "new_window", menuItem: self.menuNewWindow)
+        syncMenuShortcut(config, action: "new_tab", menuItem: self.menuNewTab)
+        syncMenuShortcut(config, action: "close_surface", menuItem: self.menuClose)
+        syncMenuShortcut(config, action: "close_tab", menuItem: self.menuCloseTab)
+        syncMenuShortcut(config, action: "close_window", menuItem: self.menuCloseWindow)
+        syncMenuShortcut(config, action: "close_all_windows", menuItem: self.menuCloseAllWindows)
+        syncMenuShortcut(config, action: "new_split:right", menuItem: self.menuSplitRight)
+        syncMenuShortcut(config, action: "new_split:left", menuItem: self.menuSplitLeft)
+        syncMenuShortcut(config, action: "new_split:down", menuItem: self.menuSplitDown)
+        syncMenuShortcut(config, action: "new_split:up", menuItem: self.menuSplitUp)
+
+        syncMenuShortcut(config, action: "undo", menuItem: self.menuUndo)
+        syncMenuShortcut(config, action: "redo", menuItem: self.menuRedo)
+        syncMenuShortcut(config, action: "copy_to_clipboard", menuItem: self.menuCopy)
+        syncMenuShortcut(config, action: "paste_from_clipboard", menuItem: self.menuPaste)
+        syncMenuShortcut(config, action: "paste_from_selection", menuItem: self.menuPasteSelection)
+        syncMenuShortcut(config, action: "select_all", menuItem: self.menuSelectAll)
+        syncMenuShortcut(config, action: "start_search", menuItem: self.menuFind)
+        syncMenuShortcut(config, action: "end_search", menuItem: self.menuHideFindBar)
+        syncMenuShortcut(config, action: "search_selection", menuItem: self.menuSelectionForFind)
+        syncMenuShortcut(config, action: "scroll_to_selection", menuItem: self.menuScrollToSelection)
+        syncMenuShortcut(config, action: "navigate_search:next", menuItem: self.menuFindNext)
+        syncMenuShortcut(config, action: "navigate_search:previous", menuItem: self.menuFindPrevious)
+
+        syncMenuShortcut(config, action: "toggle_split_zoom", menuItem: self.menuZoomSplit)
+        syncMenuShortcut(config, action: "goto_split:previous", menuItem: self.menuPreviousSplit)
+        syncMenuShortcut(config, action: "goto_split:next", menuItem: self.menuNextSplit)
+        syncMenuShortcut(config, action: "goto_split:up", menuItem: self.menuSelectSplitAbove)
+        syncMenuShortcut(config, action: "goto_split:down", menuItem: self.menuSelectSplitBelow)
+        syncMenuShortcut(config, action: "goto_split:left", menuItem: self.menuSelectSplitLeft)
+        syncMenuShortcut(config, action: "goto_split:right", menuItem: self.menuSelectSplitRight)
+        syncMenuShortcut(config, action: "resize_split:up,10", menuItem: self.menuMoveSplitDividerUp)
+        syncMenuShortcut(config, action: "resize_split:down,10", menuItem: self.menuMoveSplitDividerDown)
+        syncMenuShortcut(config, action: "resize_split:right,10", menuItem: self.menuMoveSplitDividerRight)
+        syncMenuShortcut(config, action: "resize_split:left,10", menuItem: self.menuMoveSplitDividerLeft)
+        syncMenuShortcut(config, action: "equalize_splits", menuItem: self.menuEqualizeSplits)
+        syncMenuShortcut(config, action: "reset_window_size", menuItem: self.menuReturnToDefaultSize)
+
+        syncMenuShortcut(config, action: "increase_font_size:1", menuItem: self.menuIncreaseFontSize)
+        syncMenuShortcut(config, action: "decrease_font_size:1", menuItem: self.menuDecreaseFontSize)
+        syncMenuShortcut(config, action: "reset_font_size", menuItem: self.menuResetFontSize)
+        syncMenuShortcut(config, action: "prompt_surface_title", menuItem: self.menuChangeTitle)
+        syncMenuShortcut(config, action: "prompt_tab_title", menuItem: self.menuChangeTabTitle)
+        syncMenuShortcut(config, action: "toggle_quick_terminal", menuItem: self.menuQuickTerminal)
+        syncMenuShortcut(config, action: "toggle_visibility", menuItem: self.menuToggleVisibility)
+        syncMenuShortcut(config, action: "toggle_window_float_on_top", menuItem: self.menuFloatOnTop)
+        syncMenuShortcut(config, action: "inspector:toggle", menuItem: self.menuTerminalInspector)
+        syncMenuShortcut(config, action: "toggle_command_palette", menuItem: self.menuCommandPalette)
+
+        syncMenuShortcut(config, action: "toggle_secure_input", menuItem: self.menuSecureInput)
+
+        // This menu item is NOT synced with the configuration because it disables macOS
+        // global fullscreen keyboard shortcut. The shortcut in the Ghostty config will continue
+        // to work but it won't be reflected in the menu item.
+        //
+        // syncMenuShortcut(config, action: "toggle_fullscreen", menuItem: self.menuToggleFullScreen)
+
+        // Dock menu
+        reloadDockMenu()
+    }
+
+    @MainActor private func syncMenuShortcut(_ config: Ghostty.Config, action: String, menuItem: NSMenuItem?) {
+        menuShortcutManager.syncMenuShortcut(config, action: action, menuItem: menuItem)
+    }
+
+    @MainActor func performGhosttyBindingMenuKeyEquivalent(with event: NSEvent) -> Bool {
+        menuShortcutManager.performGhosttyBindingMenuKeyEquivalent(with: event)
     }
 }
 
@@ -1217,12 +1242,29 @@ extension AppDelegate {
     }
 
     @IBAction func useAsDefault(_ sender: NSMenuItem) {
-        let ud = UserDefaults.standard
+        let ud = UserDefaults.ghostty
         let key = TerminalWindow.defaultLevelKey
-        if (menuFloatOnTop?.state == .on) {
+        if menuFloatOnTop?.state == .on {
             ud.set(NSWindow.Level.floating, forKey: key)
         } else {
             ud.removeObject(forKey: key)
+        }
+    }
+
+    @IBAction func setAsDefaultTerminal(_ sender: NSMenuItem) {
+        NSWorkspace.shared.setDefaultApplication(at: Bundle.main.bundleURL, toOpen: .unixExecutable) { error in
+            guard let error else { return }
+            Task { @MainActor in
+                let alert = NSAlert()
+                alert.messageText = "Failed to Set Default Terminal"
+                alert.informativeText = """
+                Ghostty could not be set as the default terminal application.
+
+                Error: \(error.localizedDescription)
+                """
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
         }
     }
 }
@@ -1232,6 +1274,9 @@ extension AppDelegate {
 extension AppDelegate: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
+        case #selector(setAsDefaultTerminal(_:)):
+            return NSWorkspace.shared.defaultTerminal != Bundle.main.bundleURL
+
         case #selector(floatOnTop(_:)),
             #selector(useAsDefault(_:)):
             // Float on top items only active if the key window is a primary
@@ -1260,7 +1305,12 @@ extension AppDelegate: NSMenuItemValidation {
     }
 }
 
-@globalActor
-fileprivate actor AppIconActor: GlobalActor {
-    static let shared = AppIconActor()
+/// Represents the state of the quick terminal controller.
+private enum QuickTerminalState {
+    /// Controller has not been initialized and has no pending restoration state.
+    case uninitialized
+    /// Restoration state is pending; controller will use this when first accessed.
+    case pendingRestore(QuickTerminalRestorableState)
+    /// Controller has been initialized.
+    case initialized(QuickTerminalController)
 }

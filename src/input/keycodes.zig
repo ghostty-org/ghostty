@@ -40,7 +40,7 @@ pub const Entry = struct {
 };
 
 /// A map from code to key. This isn't meant to be used at runtime
-/// (though it could), so it isn't exported. It it used to build the
+/// (though it could), so it isn't exported. It used to build the
 /// key value for Entry.
 const code_to_key = code_to_key: {
     @setEvalBranchQuota(5000);

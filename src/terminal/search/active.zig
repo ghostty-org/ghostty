@@ -5,7 +5,6 @@ const point = @import("../point.zig");
 const size = @import("../size.zig");
 const FlattenedHighlight = @import("../highlight.zig").Flattened;
 const PageList = @import("../PageList.zig");
-const Selection = @import("../Selection.zig");
 const SlidingWindow = @import("sliding_window.zig").SlidingWindow;
 const Terminal = @import("../Terminal.zig");
 
@@ -109,7 +108,7 @@ test "simple search" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+    s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
 
     var search: ActiveSearch = try .init(alloc, "Fizz");
     defer search.deinit();
@@ -149,15 +148,15 @@ test "clear screen and search" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+    s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
 
     var search: ActiveSearch = try .init(alloc, "Fizz");
     defer search.deinit();
     _ = try search.update(&t.screens.active.pages);
 
-    try s.nextSlice("\x1b[2J"); // Clear screen
-    try s.nextSlice("\x1b[H"); // Move cursor home
-    try s.nextSlice("Buzz\r\nFizz\r\nBuzz");
+    s.nextSlice("\x1b[2J"); // Clear screen
+    s.nextSlice("\x1b[H"); // Move cursor home
+    s.nextSlice("Buzz\r\nFizz\r\nBuzz");
     _ = try search.update(&t.screens.active.pages);
 
     {

@@ -51,7 +51,14 @@ fn buildGlslang(
         .linkage = .static,
     });
     lib.linkLibC();
-    lib.linkLibCpp();
+    // On MSVC, we must not use linkLibCpp because Zig unconditionally
+    // passes -nostdinc++ and then adds its bundled libc++/libc++abi
+    // include paths, which conflict with MSVC's own C++ runtime headers.
+    // The MSVC SDK include directories (added via linkLibC) contain
+    // both C and C++ headers, so linkLibCpp is not needed.
+    if (target.result.abi != .msvc) {
+        lib.linkLibCpp();
+    }
     if (upstream_) |upstream| lib.addIncludePath(upstream.path(""));
     lib.addIncludePath(b.path("override"));
     if (target.result.os.tag.isDarwin()) {
@@ -65,6 +72,14 @@ fn buildGlslang(
         "-fno-sanitize=undefined",
         "-fno-sanitize-trap=undefined",
     });
+    // MSVC requires explicit std specification otherwise C++17 features
+    // like std::variant, std::filesystem, and inline variables are
+    // guarded behind _HAS_CXX17.
+    try flags.append(b.allocator, "-std=c++17");
+
+    if (target.result.os.tag == .freebsd or target.result.abi == .musl) {
+        try flags.append(b.allocator, "-fPIC");
+    }
 
     if (upstream_) |upstream| {
         lib.addCSourceFiles(.{

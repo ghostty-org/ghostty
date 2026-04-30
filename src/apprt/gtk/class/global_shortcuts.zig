@@ -1,14 +1,11 @@
 const std = @import("std");
 const assert = @import("../../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
-const adw = @import("adw");
 const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
-const gtk = @import("gtk");
 
 const Binding = @import("../../../input.zig").Binding;
-const gresource = @import("../build/gresource.zig");
 const key = @import("../key.zig");
 const Common = @import("../class.zig").Common;
 const Application = @import("application.zig").Application;
@@ -172,12 +169,16 @@ pub const GlobalShortcuts = extern struct {
         var trigger_buf: [1024]u8 = undefined;
         var it = config.keybind.set.bindings.iterator();
         while (it.next()) |entry| {
-            const leaf = switch (entry.value_ptr.*) {
-                // Global shortcuts can't have leaders
+            const leaf: Binding.Set.GenericLeaf = switch (entry.value_ptr.*) {
                 .leader => continue,
-                .leaf => |leaf| leaf,
+                inline .leaf, .leaf_chained => |leaf| leaf.generic(),
             };
             if (!leaf.flags.global) continue;
+
+            // We only allow global keybinds that map to exactly a single
+            // action for now. TODO: remove this restriction
+            const actions = leaf.actionsSlice();
+            if (actions.len != 1) continue;
 
             const trigger = if (key.xdgShortcutFromTrigger(
                 &trigger_buf,
@@ -200,7 +201,7 @@ pub const GlobalShortcuts = extern struct {
             try priv.map.put(
                 alloc,
                 try alloc.dupeZ(u8, trigger),
-                leaf.action,
+                actions[0],
             );
         }
 

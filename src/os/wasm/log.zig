@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const wasm = @import("../wasm.zig");
 
 // Use the correct implementation

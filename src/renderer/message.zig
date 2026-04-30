@@ -1,5 +1,4 @@
 const std = @import("std");
-const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const configpkg = @import("../config.zig");

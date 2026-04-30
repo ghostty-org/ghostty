@@ -16,7 +16,6 @@ const font = @import("../main.zig");
 const Glyph = font.Glyph;
 const Library = font.Library;
 const opentype = @import("../opentype.zig");
-const fastmem = @import("../../fastmem.zig");
 const quirks = @import("../../quirks.zig");
 const config = @import("../../config.zig");
 
@@ -680,13 +679,16 @@ pub const Face = struct {
             else => |f| {
                 // Glyph formats are tags, so we can
                 // output a semi-readable error here.
+                // Use @bitCast to u32 because MSVC translates C enums
+                // as signed int, while GCC/Clang uses unsigned int.
+                const tag: u32 = @bitCast(f);
                 log.err(
                     "Can't render glyph with unsupported glyph format \"{s}\"",
                     .{[4]u8{
-                        @truncate(f >> 24),
-                        @truncate(f >> 16),
-                        @truncate(f >> 8),
-                        @truncate(f >> 0),
+                        @truncate(tag >> 24),
+                        @truncate(tag >> 16),
+                        @truncate(tag >> 8),
+                        @truncate(tag >> 0),
                     }},
                 );
                 return error.UnsupportedGlyphFormat;
@@ -1278,6 +1280,156 @@ test "bitmap glyph" {
     for (0..glyph.height) |y| {
         for (0..glyph.width) |x| {
             const pixel = terminus_i[y * terminus_i_pitch + x];
+            try testing.expectEqual(
+                @as(u8, if (pixel == '#') 255 else 0),
+                atlas.data[(glyph.atlas_y + y) * atlas.size + (glyph.atlas_x + x)],
+            );
+        }
+    }
+}
+
+// Expected pixel pattern for Spleen 8x16 'A' (glyph index from char 'A')
+// Derived from BDF BITMAP data: 00,00,7C,C6,C6,C6,FE,C6,C6,C6,C6,C6,00,00,00,00
+const spleen_A =
+    \\........
+    \\........
+    \\.#####..
+    \\##...##.
+    \\##...##.
+    \\##...##.
+    \\#######.
+    \\##...##.
+    \\##...##.
+    \\##...##.
+    \\##...##.
+    \\##...##.
+    \\........
+    \\........
+    \\........
+    \\........
+;
+// Including the newline
+const spleen_A_pitch = 9;
+// Test parameters for bitmap font tests
+const spleen_test_point_size = 12;
+const spleen_test_dpi = 96;
+
+test "bitmap glyph BDF" {
+    const alloc = testing.allocator;
+    const testFont = font.embedded.spleen_bdf;
+
+    var lib = try Library.init(alloc);
+    defer lib.deinit();
+
+    var atlas = try font.Atlas.init(alloc, 512, .grayscale);
+    defer atlas.deinit(alloc);
+
+    // Spleen 8x16 is a pure bitmap font at 16px height
+    var ft_font = try Face.init(lib, testFont, .{ .size = .{
+        .points = spleen_test_point_size,
+        .xdpi = spleen_test_dpi,
+        .ydpi = spleen_test_dpi,
+    } });
+    defer ft_font.deinit();
+
+    // Get glyph index for 'A'
+    const glyph_index = ft_font.glyphIndex('A') orelse return error.GlyphNotFound;
+
+    const glyph = try ft_font.renderGlyph(
+        alloc,
+        &atlas,
+        glyph_index,
+        .{ .grid_metrics = font.Metrics.calc(ft_font.getMetrics()) },
+    );
+
+    // Verify dimensions match Spleen 8x16
+    try testing.expectEqual(8, glyph.width);
+    try testing.expectEqual(16, glyph.height);
+
+    // Verify pixel-perfect rendering
+    for (0..glyph.height) |y| {
+        for (0..glyph.width) |x| {
+            const pixel = spleen_A[y * spleen_A_pitch + x];
+            try testing.expectEqual(
+                @as(u8, if (pixel == '#') 255 else 0),
+                atlas.data[(glyph.atlas_y + y) * atlas.size + (glyph.atlas_x + x)],
+            );
+        }
+    }
+}
+
+test "bitmap glyph PCF" {
+    const alloc = testing.allocator;
+    const testFont = font.embedded.spleen_pcf;
+
+    var lib = try Library.init(alloc);
+    defer lib.deinit();
+
+    var atlas = try font.Atlas.init(alloc, 512, .grayscale);
+    defer atlas.deinit(alloc);
+
+    var ft_font = try Face.init(lib, testFont, .{ .size = .{
+        .points = spleen_test_point_size,
+        .xdpi = spleen_test_dpi,
+        .ydpi = spleen_test_dpi,
+    } });
+    defer ft_font.deinit();
+
+    const glyph_index = ft_font.glyphIndex('A') orelse return error.GlyphNotFound;
+
+    const glyph = try ft_font.renderGlyph(
+        alloc,
+        &atlas,
+        glyph_index,
+        .{ .grid_metrics = font.Metrics.calc(ft_font.getMetrics()) },
+    );
+
+    try testing.expectEqual(8, glyph.width);
+    try testing.expectEqual(16, glyph.height);
+
+    for (0..glyph.height) |y| {
+        for (0..glyph.width) |x| {
+            const pixel = spleen_A[y * spleen_A_pitch + x];
+            try testing.expectEqual(
+                @as(u8, if (pixel == '#') 255 else 0),
+                atlas.data[(glyph.atlas_y + y) * atlas.size + (glyph.atlas_x + x)],
+            );
+        }
+    }
+}
+
+test "bitmap glyph OTB" {
+    const alloc = testing.allocator;
+    const testFont = font.embedded.spleen_otb;
+
+    var lib = try Library.init(alloc);
+    defer lib.deinit();
+
+    var atlas = try font.Atlas.init(alloc, 512, .grayscale);
+    defer atlas.deinit(alloc);
+
+    var ft_font = try Face.init(lib, testFont, .{ .size = .{
+        .points = spleen_test_point_size,
+        .xdpi = spleen_test_dpi,
+        .ydpi = spleen_test_dpi,
+    } });
+    defer ft_font.deinit();
+
+    const glyph_index = ft_font.glyphIndex('A') orelse return error.GlyphNotFound;
+
+    const glyph = try ft_font.renderGlyph(
+        alloc,
+        &atlas,
+        glyph_index,
+        .{ .grid_metrics = font.Metrics.calc(ft_font.getMetrics()) },
+    );
+
+    try testing.expectEqual(8, glyph.width);
+    try testing.expectEqual(16, glyph.height);
+
+    for (0..glyph.height) |y| {
+        for (0..glyph.width) |x| {
+            const pixel = spleen_A[y * spleen_A_pitch + x];
             try testing.expectEqual(
                 @as(u8, if (pixel == '#') 255 else 0),
                 atlas.data[(glyph.atlas_y + y) * atlas.size + (glyph.atlas_x + x)],

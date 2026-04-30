@@ -1,7 +1,7 @@
-# Example: `ghostty-vt` Paste Safety Check
+# Example: `ghostty-vt` Paste Utilities
 
 This contains a simple example of how to use the `ghostty-vt` paste
-utilities to check if paste data is safe.
+utilities to check if paste data is safe and encode it for terminal input.
 
 This uses a `build.zig` and `Zig` to build the C program so that we
 can reuse a lot of our build logic and depend directly on our source

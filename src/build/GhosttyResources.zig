@@ -1,9 +1,7 @@
 const GhosttyResources = @This();
 
 const std = @import("std");
-const builtin = @import("builtin");
 const assert = std.debug.assert;
-const buildpkg = @import("main.zig");
 const Config = @import("Config.zig");
 const RunStep = std.Build.Step.Run;
 const SharedDeps = @import("SharedDeps.zig");

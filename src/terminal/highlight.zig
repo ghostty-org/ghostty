@@ -11,7 +11,6 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = @import("../quirks.zig").inlineAssert;
 const size = @import("size.zig");
 const PageList = @import("PageList.zig");
 const PageChunk = PageList.PageIterator.Chunk;
@@ -178,6 +177,15 @@ pub const Flattened = struct {
             .node = slice.items(.node)[0],
             .x = self.top_x,
             .y = slice.items(.start)[0],
+        };
+    }
+
+    pub fn endPin(self: Flattened) Pin {
+        const slice = self.chunks.slice();
+        return .{
+            .node = slice.items(.node)[slice.len - 1],
+            .x = self.bot_x,
+            .y = slice.items(.end)[slice.len - 1] - 1,
         };
     }
 

@@ -1,4 +1,11 @@
 const std = @import("std");
+const lib = @import("lib.zig");
+
+/// The color scheme reported in response to a CSI ? 996 n query.
+pub const ColorScheme = lib.Enum(lib.target, &.{
+    "light",
+    "dark",
+});
 
 /// An enum(u16) of the available device status requests.
 pub const Request = dsr_enum: {

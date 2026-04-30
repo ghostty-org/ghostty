@@ -3,10 +3,8 @@ const adw = @import("adw");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 
-const gresource = @import("../build/gresource.zig");
 const adw_version = @import("../adw_version.zig");
 const Common = @import("../class.zig").Common;
-const Config = @import("config.zig").Config;
 
 const log = std.log.scoped(.gtk_ghostty_dialog);
 

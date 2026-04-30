@@ -11,6 +11,12 @@ struct TerminalEntity: AppEntity {
     @Property(title: "Working Directory")
     var workingDirectory: String?
 
+    @Property(title: "PID")
+    var pid: Int?
+
+    @Property(title: "TTY")
+    var tty: String?
+
     @Property(title: "Kind")
     var kind: Kind
 
@@ -49,10 +55,12 @@ struct TerminalEntity: AppEntity {
         self.id = view.id
         self.title = view.title
         self.workingDirectory = view.pwd
+        self.pid = view.surfaceModel?.foregroundPID
+        self.tty = view.surfaceModel?.ttyName
         if let nsImage = ImageRenderer(content: view.screenshot()).nsImage {
             self.screenshot = nsImage
         }
-        
+
         // Determine the kind based on the window controller type
         if view.window?.windowController is QuickTerminalController {
             self.kind = .quick
@@ -66,9 +74,9 @@ extension TerminalEntity {
     enum Kind: String, AppEnum {
         case normal
         case quick
-        
+
         static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Terminal Kind")
-        
+
         static var caseDisplayRepresentations: [Self: DisplayRepresentation] = [
             .normal: .init(title: "Normal"),
             .quick: .init(title: "Quick")
@@ -112,7 +120,7 @@ struct TerminalQuery: EntityStringQuery, EnumerableEntityQuery {
         let controllers = NSApp.windows.compactMap {
             $0.windowController as? BaseTerminalController
         }
-        
+
         // Get all our surfaces
         return controllers.flatMap {
             $0.surfaceTree.root?.leaves() ?? []

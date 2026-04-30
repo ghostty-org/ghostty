@@ -10,9 +10,12 @@ const gtk = @import("gtk");
 const input = @import("../../../input.zig");
 const gresource = @import("../build/gresource.zig");
 const key = @import("../key.zig");
+const WeakRef = @import("../weak_ref.zig").WeakRef;
 const Common = @import("../class.zig").Common;
 const Application = @import("application.zig").Application;
 const Window = @import("window.zig").Window;
+const Surface = @import("surface.zig").Surface;
+const Tab = @import("tab.zig").Tab;
 const Config = @import("config.zig").Config;
 
 const log = std.log.scoped(.gtk_ghostty_command_palette);
@@ -146,32 +149,136 @@ pub const CommandPalette = extern struct {
             return;
         };
 
-        const cfg = config.get();
-
         // Clear existing binds
         priv.source.removeAll();
+
+        const alloc = Application.default().allocator();
+        var commands: std.ArrayList(*Command) = .{};
+        defer {
+            for (commands.items) |cmd| cmd.unref();
+            commands.deinit(alloc);
+        }
+
+        self.collectJumpCommands(config, &commands) catch |err| {
+            log.warn("failed to collect jump commands: {}", .{err});
+        };
+
+        self.collectRegularCommands(config, &commands, alloc);
+
+        // Sort commands
+        std.mem.sort(*Command, commands.items, {}, struct {
+            fn lessThan(_: void, a: *Command, b: *Command) bool {
+                return compareCommands(a, b);
+            }
+        }.lessThan);
+
+        for (commands.items) |cmd| {
+            const cmd_ref = cmd.as(gobject.Object);
+            priv.source.append(cmd_ref);
+        }
+    }
+
+    /// Collect regular commands from configuration, filtering out unsupported actions.
+    fn collectRegularCommands(
+        self: *CommandPalette,
+        config: *Config,
+        commands: *std.ArrayList(*Command),
+        alloc: std.mem.Allocator,
+    ) void {
+        _ = self;
+        const cfg = config.get();
 
         for (cfg.@"command-palette-entry".value.items) |command| {
             // Filter out actions that are not implemented or don't make sense
             // for GTK.
-            switch (command.action) {
-                .close_all_windows,
-                .toggle_secure_input,
-                .check_for_updates,
-                .redo,
-                .undo,
-                .reset_window_size,
-                .toggle_window_float_on_top,
-                => continue,
+            if (!isActionSupportedOnGtk(command.action)) continue;
 
-                else => {},
-            }
+            const cmd = Command.new(config, command) catch |err| {
+                log.warn("failed to create command: {}", .{err});
+                continue;
+            };
+            errdefer cmd.unref();
 
-            const cmd = Command.new(config, command);
-            const cmd_ref = cmd.as(gobject.Object);
-            priv.source.append(cmd_ref);
-            cmd_ref.unref();
+            commands.append(alloc, cmd) catch |err| {
+                log.warn("failed to add command to list: {}", .{err});
+                continue;
+            };
         }
+    }
+
+    /// Check if an action is supported on GTK.
+    fn isActionSupportedOnGtk(action: input.Binding.Action) bool {
+        return switch (action) {
+            .close_all_windows,
+            .toggle_secure_input,
+            .check_for_updates,
+            .redo,
+            .undo,
+            .reset_window_size,
+            .toggle_window_float_on_top,
+            => false,
+
+            else => true,
+        };
+    }
+
+    /// Collect jump commands for all surfaces across all windows.
+    fn collectJumpCommands(
+        self: *CommandPalette,
+        config: *Config,
+        commands: *std.ArrayList(*Command),
+    ) !void {
+        _ = self;
+        const app = Application.default();
+        const alloc = app.allocator();
+
+        // Get all surfaces from the core app
+        const core_app = app.core();
+        for (core_app.surfaces.items) |apprt_surface| {
+            const surface = apprt_surface.gobj();
+            const cmd = Command.newJump(config, surface);
+            errdefer cmd.unref();
+            try commands.append(alloc, cmd);
+        }
+    }
+
+    /// Compare two commands for sorting.
+    /// Sorts alphabetically by title (case-insensitive), with colon normalization
+    /// so "Foo:" sorts before "Foo Bar:". Uses sort_key as tie-breaker.
+    fn compareCommands(a: *Command, b: *Command) bool {
+        const a_title = a.propGetTitle() orelse return false;
+        const b_title = b.propGetTitle() orelse return true;
+
+        // Compare case-insensitively with colon normalization
+        for (0..@min(a_title.len, b_title.len)) |i| {
+            // Get characters, replacing ':' with '\t'
+            const a_char = if (a_title[i] == ':') '\t' else a_title[i];
+            const b_char = if (b_title[i] == ':') '\t' else b_title[i];
+
+            const a_lower = std.ascii.toLower(a_char);
+            const b_lower = std.ascii.toLower(b_char);
+
+            if (a_lower != b_lower) {
+                return a_lower < b_lower;
+            }
+        }
+
+        // If one title is a prefix of the other, shorter one comes first
+        if (a_title.len != b_title.len) {
+            return a_title.len < b_title.len;
+        }
+
+        // Titles are equal - use sort_key as tie-breaker if both are jump commands
+        const a_sort_key = switch (a.private().data) {
+            .regular => return false,
+            .jump => |*ja| ja.sort_key,
+        };
+        const b_sort_key = switch (b.private().data) {
+            .regular => return false,
+            .jump => |*jb| jb.sort_key,
+        };
+
+        return a_sort_key < b_sort_key;
     }
 
     fn close(self: *CommandPalette) void {
@@ -234,9 +341,19 @@ pub const CommandPalette = extern struct {
         self.close();
 
         const cmd = gobject.ext.cast(Command, object_ orelse return) orelse return;
+
+        // Handle jump commands differently
+        if (cmd.isJump()) {
+            const surface = cmd.getJumpSurface() orelse return;
+            defer surface.unref();
+            surface.present();
+            return;
+        }
+
+        // Regular command - emit trigger signal
         const action = cmd.getAction() orelse return;
 
-        // Signal that an an action has been selected. Signals are synchronous
+        // Signal that an action has been selected. Signals are synchronous
         // so we shouldn't need to worry about cloning the action.
         signals.trigger.impl.emit(
             self,
@@ -413,31 +530,63 @@ const Command = extern struct {
     };
 
     pub const Private = struct {
-        /// The configuration we should use to get keybindings.
         config: ?*Config = null,
-
-        /// Arena used to manage our allocations.
         arena: ArenaAllocator,
-
-        /// The command.
-        command: ?input.Command = null,
-
-        /// Cache the formatted action.
-        action: ?[:0]const u8 = null,
-
-        /// Cache the formatted action_key.
-        action_key: ?[:0]const u8 = null,
+        data: CommandData,
 
         pub var offset: c_int = 0;
+
+        pub const CommandData = union(enum) {
+            regular: RegularData,
+            jump: JumpData,
+        };
+
+        pub const RegularData = struct {
+            command: input.Command,
+            action: ?[:0]const u8 = null,
+            action_key: ?[:0]const u8 = null,
+        };
+
+        pub const JumpData = struct {
+            surface: WeakRef(Surface) = .empty,
+            title: ?[:0]const u8 = null,
+            description: ?[:0]const u8 = null,
+            sort_key: usize,
+        };
     };
 
-    pub fn new(config: *Config, command: input.Command) *Self {
+    pub fn new(config: *Config, command: input.Command) Allocator.Error!*Self {
+        const self = gobject.ext.newInstance(Self, .{
+            .config = config,
+        });
+        errdefer self.unref();
+
+        const priv = self.private();
+        const cloned = try command.clone(priv.arena.allocator());
+
+        priv.data = .{
+            .regular = .{
+                .command = cloned,
+            },
+        };
+
+        return self;
+    }
+
+    /// Create a new jump command that focuses a specific surface.
+    pub fn newJump(config: *Config, surface: *Surface) *Self {
         const self = gobject.ext.newInstance(Self, .{
             .config = config,
         });
 
         const priv = self.private();
-        priv.command = command.clone(priv.arena.allocator()) catch null;
+        priv.data = .{
+            .jump = .{
+                // TODO: Replace with surface id whenever Ghostty adds one
+                .sort_key = @intFromPtr(surface),
+            },
+        };
+        priv.data.jump.surface.set(surface);
 
         return self;
     }
@@ -457,6 +606,13 @@ const Command = extern struct {
         if (priv.config) |config| {
             config.unref();
             priv.config = null;
+        }
+
+        switch (priv.data) {
+            .regular => {},
+            .jump => |*j| {
+                j.surface.set(null);
+            },
         }
 
         gobject.Object.virtual_methods.dispose.call(
@@ -481,52 +637,98 @@ const Command = extern struct {
     fn propGetActionKey(self: *Self) ?[:0]const u8 {
         const priv = self.private();
 
-        if (priv.action_key) |action_key| return action_key;
+        const regular = switch (priv.data) {
+            .regular => |*r| r,
+            .jump => return null,
+        };
 
-        const command = priv.command orelse return null;
+        if (regular.action_key) |action_key| return action_key;
 
-        priv.action_key = std.fmt.allocPrintSentinel(
+        regular.action_key = std.fmt.allocPrintSentinel(
             priv.arena.allocator(),
             "{f}",
-            .{command.action},
+            .{regular.command.action},
             0,
         ) catch null;
 
-        return priv.action_key;
+        return regular.action_key;
     }
 
     fn propGetAction(self: *Self) ?[:0]const u8 {
         const priv = self.private();
 
-        if (priv.action) |action| return action;
+        const regular = switch (priv.data) {
+            .regular => |*r| r,
+            .jump => return null,
+        };
 
-        const command = priv.command orelse return null;
+        if (regular.action) |action| return action;
 
         const cfg = if (priv.config) |config| config.get() else return null;
         const keybinds = cfg.keybind.set;
 
         const alloc = priv.arena.allocator();
 
-        priv.action = action: {
+        regular.action = action: {
             var buf: [64]u8 = undefined;
-            const trigger = keybinds.getTrigger(command.action) orelse break :action null;
+            const trigger = keybinds.getTrigger(regular.command.action) orelse break :action null;
             const accel = (key.accelFromTrigger(&buf, trigger) catch break :action null) orelse break :action null;
             break :action alloc.dupeZ(u8, accel) catch return null;
         };
 
-        return priv.action;
+        return regular.action;
     }
 
     fn propGetTitle(self: *Self) ?[:0]const u8 {
         const priv = self.private();
-        const command = priv.command orelse return null;
-        return command.title;
+
+        switch (priv.data) {
+            .regular => |*r| return r.command.title,
+            .jump => |*j| {
+                if (j.title) |title| return title;
+
+                const surface = j.surface.get() orelse return null;
+                defer surface.unref();
+
+                const alloc = priv.arena.allocator();
+                const effective_title = surface.getEffectiveTitle() orelse "Untitled";
+
+                j.title = std.fmt.allocPrintSentinel(
+                    alloc,
+                    "Focus: {s}",
+                    .{effective_title},
+                    0,
+                ) catch null;
+
+                return j.title;
+            },
+        }
     }
 
     fn propGetDescription(self: *Self) ?[:0]const u8 {
         const priv = self.private();
-        const command = priv.command orelse return null;
-        return command.description;
+
+        switch (priv.data) {
+            .regular => |*r| return r.command.description,
+            .jump => |*j| {
+                if (j.description) |desc| return desc;
+
+                const surface = j.surface.get() orelse return null;
+                defer surface.unref();
+
+                const alloc = priv.arena.allocator();
+                const title = surface.getEffectiveTitle() orelse "Untitled";
+                const pwd = surface.getPwd();
+
+                if (pwd) |p| {
+                    if (std.mem.indexOf(u8, title, p) == null) {
+                        j.description = alloc.dupeZ(u8, p) catch null;
+                    }
+                }
+
+                return j.description;
+            },
+        }
     }
 
     //---------------------------------------------------------------
@@ -536,8 +738,26 @@ const Command = extern struct {
     /// allocated data that will be freed when this object is.
     pub fn getAction(self: *Self) ?input.Binding.Action {
         const priv = self.private();
-        const command = priv.command orelse return null;
-        return command.action;
+        return switch (priv.data) {
+            .regular => |*r| r.command.action,
+            .jump => null,
+        };
+    }
+
+    /// Check if this is a jump command.
+    pub fn isJump(self: *Self) bool {
+        const priv = self.private();
+        return priv.data == .jump;
+    }
+
+    /// Get the jump surface. Returns a strong reference that the caller
+    /// must unref when done, or null if the surface has been destroyed.
+    pub fn getJumpSurface(self: *Self) ?*Surface {
+        const priv = self.private();
+        return switch (priv.data) {
+            .regular => null,
+            .jump => |*j| j.surface.get(),
+        };
     }
 
     //---------------------------------------------------------------

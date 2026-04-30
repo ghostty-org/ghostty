@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = @import("../quirks.zig").inlineAssert;
 const objc = @import("objc");
 
 const log = std.log.scoped(.os);

@@ -98,10 +98,10 @@ class ExpiringUndoManager: UndoManager {
 private class ExpiringTarget {
     /// The actual target object for the undo operation, held weakly to avoid retain cycles.
     private(set) weak var target: AnyObject?
-    
+
     /// Timer that triggers expiration after the specified duration.
     private var timer: Timer?
-    
+
     /// The undo manager from which to remove actions when this target expires.
     private weak var undoManager: UndoManager?
 
@@ -141,7 +141,7 @@ extension ExpiringTarget: Hashable, Equatable {
     static func == (lhs: ExpiringTarget, rhs: ExpiringTarget) -> Bool {
         return lhs === rhs
     }
-    
+
     func hash(into hasher: inout Hasher) {
         hasher.combine(ObjectIdentifier(self))
     }

@@ -1,7 +1,5 @@
 const std = @import("std");
-const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
-const apprt = @import("../apprt.zig");
 const renderer = @import("../renderer.zig");
 const terminal = @import("../terminal/main.zig");
 const termio = @import("../termio.zig");
@@ -17,6 +15,12 @@ pub const Message = union(enum) {
     /// other union value. It can be upped if we add a larger union member
     /// in the future.
     pub const WriteReq = MessageData(u8, 38);
+
+    /// Request a color scheme report is sent to the pty.
+    color_scheme_report: struct {
+        /// Force write the current color scheme
+        force: bool,
+    },
 
     /// Purposely crash the renderer. This is used for testing and debugging.
     /// See the "crash" binding action.
@@ -89,13 +93,8 @@ pub const Message = union(enum) {
         };
     }
 
-    /// The types of size reports that we support
-    pub const SizeReport = enum {
-        mode_2048,
-        csi_14_t,
-        csi_16_t,
-        csi_18_t,
-    };
+    /// The types of size reports that we support.
+    pub const SizeReport = terminal.size_report.Style;
 };
 
 test {

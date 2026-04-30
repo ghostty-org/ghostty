@@ -1,22 +1,24 @@
 {
   lib,
   buildPythonPackage,
-  fetchPypi,
+  fetchFromGitHub,
   pythonOlder,
   flit-core,
   six,
   wcwidth,
 }:
-buildPythonPackage rec {
+buildPythonPackage (finalAttrs: {
   pname = "blessed";
-  version = "1.23.0";
+  version = "1.31";
   pyproject = true;
 
-  disabled = pythonOlder "3.7";
+  disabled = pythonOlder "3.8";
 
-  src = fetchPypi {
-    inherit pname version;
-    hash = "sha256-VlkaMpZvcE9hMfFACvQVHZ6PX0FEEzpcoDQBl2Pe53s=";
+  src = fetchFromGitHub {
+    owner = "jquast";
+    repo = "blessed";
+    tag = finalAttrs.version;
+    hash = "sha256-Nn+aiDk0Qwk9xAvAqtzds/WlrLAozjPL1eSVNU75tJA=";
   };
 
   build-system = [flit-core];
@@ -27,6 +29,7 @@ buildPythonPackage rec {
   ];
 
   doCheck = false;
+  dontCheckRuntimeDeps = true;
 
   meta = with lib; {
     homepage = "https://github.com/jquast/blessed";
@@ -34,4 +37,4 @@ buildPythonPackage rec {
     maintainers = [];
     license = licenses.mit;
   };
-}
+})

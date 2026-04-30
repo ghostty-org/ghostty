@@ -67,7 +67,7 @@ struct NewTerminalIntent: AppIntent {
 
         // We don't run command as "command" and instead use "initialInput" so
         // that we can get all the login scripts to setup things like PATH.
-        if let command {
+        if let command, !command.isEmpty {
             config.initialInput = "\(command); exit\n"
         }
 
@@ -152,7 +152,7 @@ enum NewTerminalLocation: String {
     case splitRight = "split:right"
     case splitUp = "split:up"
     case splitDown = "split:down"
-    
+
     var splitDirection: SplitTree<Ghostty.SurfaceView>.NewDirection? {
         switch self {
         case .splitLeft: return .left

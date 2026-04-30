@@ -1,5 +1,4 @@
 const std = @import("std");
-const assert = @import("../../quirks.zig").inlineAssert;
 const testing = std.testing;
 const terminal = @import("../main.zig");
 

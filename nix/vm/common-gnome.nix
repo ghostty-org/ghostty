@@ -8,7 +8,7 @@
     ./common.nix
   ];
 
-  services.xserver = {
+  services = {
     displayManager = {
       gdm = {
         enable = true;
@@ -18,6 +18,19 @@
     desktopManager = {
       gnome = {
         enable = true;
+      };
+    };
+  };
+
+  systemd.user.services = {
+    "org.gnome.Shell@wayland" = {
+      serviceConfig = {
+        ExecStart = [
+          # Clear the list before overriding it.
+          ""
+          # Eval API is now internal so Shell needs to run in unsafe mode.
+          "${pkgs.gnome-shell}/bin/gnome-shell --unsafe-mode"
+        ];
       };
     };
   };

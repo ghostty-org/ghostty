@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ghostty VT Terminal - WebAssembly Example</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 0 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #333;
+        }
+        .input-section {
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .input-section h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        textarea {
+            width: 100%;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+            resize: vertical;
+        }
+        button {
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+        button:hover {
+            background: #0052a3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .output {
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            font-size: 14px;
+        }
+        .error {
+            background: #fee;
+            border-color: #faa;
+            color: #c00;
+        }
+        .status {
+            color: #666;
+            font-size: 14px;
+            margin: 10px 0;
+        }
+        .size-controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 10px;
+        }
+        .size-controls label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .size-controls input[type="number"] {
+            width: 60px;
+            padding: 4px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Ghostty VT Terminal - WebAssembly Example</h1>
+    <p>This example demonstrates initializing a terminal, writing VT-encoded data to it, and formatting the output using the Ghostty VT WebAssembly module.</p>
+
+    <div class="status" id="status">Loading WebAssembly module...</div>
+
+    <div class="input-section">
+        <h3>Terminal Size</h3>
+        <div class="size-controls">
+            <label>Cols: <input type="number" id="cols" value="80" min="1" max="500" disabled></label>
+            <label>Rows: <input type="number" id="rows" value="24" min="1" max="500" disabled></label>
+        </div>
+        <h3>VT Input</h3>
+        <textarea id="vtInput" rows="6" disabled>Hello, World!\r\n\x1b[1;32mGreen Bold\x1b[0m and \x1b[4mUnderline\x1b[0m\r\nLine 3: placeholder\r\n\x1b[3;1H\x1b[2KLine 3: Overwritten!</textarea>
+        <p style="font-size: 13px; color: #666; margin-top: 5px;">Use \x1b for ESC, \r\n for CR+LF. Press "Run" to process.</p>
+        <button id="runBtn" disabled>Run</button>
+    </div>
+
+    <div id="output" class="output">Waiting for input...</div>
+
+    <p><strong>Note:</strong> This example must be served via HTTP (not opened directly as a file). See the README for instructions.</p>
+
+    <script>
+        let wasmInstance = null;
+        let wasmMemory = null;
+        let typeLayout = null;
+
+        async function loadWasm() {
+            try {
+                const response = await fetch('../../zig-out/bin/ghostty-vt.wasm');
+                const wasmBytes = await response.arrayBuffer();
+
+                const wasmModule = await WebAssembly.instantiate(wasmBytes, {
+                    env: {
+                        log: (ptr, len) => {
+                            const bytes = new Uint8Array(wasmModule.instance.exports.memory.buffer, ptr, len);
+                            const text = new TextDecoder().decode(bytes);
+                            console.log('[wasm]', text);
+                        }
+                    }
+                });
+
+                wasmInstance = wasmModule.instance;
+                wasmMemory = wasmInstance.exports.memory;
+
+                // Load the type layout JSON from the library
+                const jsonPtr = wasmInstance.exports.ghostty_type_json();
+                const jsonStr = new TextDecoder().decode(
+                    new Uint8Array(wasmMemory.buffer, jsonPtr, wasmMemory.buffer.byteLength - jsonPtr)
+                ).split('\0')[0];
+                typeLayout = JSON.parse(jsonStr);
+
+                return true;
+            } catch (e) {
+                console.error('Failed to load WASM:', e);
+                if (window.location.protocol === 'file:') {
+                    throw new Error('Cannot load WASM from file:// protocol. Please serve via HTTP (see README)');
+                }
+                return false;
+            }
+        }
+
+        // Look up a field's offset and DataView setter from the type layout JSON.
+        function fieldInfo(structName, fieldName) {
+            const field = typeLayout[structName].fields[fieldName];
+            return field;
+        }
+
+        // Set a field in a DataView using the type layout JSON metadata.
+        function setField(view, structName, fieldName, value) {
+            const field = fieldInfo(structName, fieldName);
+            switch (field.type) {
+                case 'u8':  case 'bool': view.setUint8(field.offset, value); break;
+                case 'u16': view.setUint16(field.offset, value, true); break;
+                case 'u32': case 'enum': view.setUint32(field.offset, value, true); break;
+                case 'u64': view.setBigUint64(field.offset, BigInt(value), true); break;
+                default: throw new Error(`Unsupported field type: ${field.type}`);
+            }
+        }
+
+        function getBuffer() {
+            return wasmMemory.buffer;
+        }
+
+        // Parse escape sequences in the input string (e.g. \x1b, \r, \n)
+        function parseEscapes(str) {
+            return str
+                .replace(/\\x([0-9a-fA-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+                .replace(/\\r/g, '\r')
+                .replace(/\\n/g, '\n')
+                .replace(/\\t/g, '\t')
+                .replace(/\\\\/g, '\\');
+        }
+
+        // GHOSTTY_FORMATTER_FORMAT_PLAIN = 0
+        const GHOSTTY_FORMATTER_FORMAT_PLAIN = 0;
+        // GHOSTTY_SUCCESS = 0
+        const GHOSTTY_SUCCESS = 0;
+
+        function run() {
+            const outputDiv = document.getElementById('output');
+
+            try {
+                const cols = parseInt(document.getElementById('cols').value, 10);
+                const rows = parseInt(document.getElementById('rows').value, 10);
+                const vtText = parseEscapes(document.getElementById('vtInput').value);
+
+                const TERM_OPTS_SIZE = typeLayout['GhosttyTerminalOptions'].size;
+                const optsPtr = wasmInstance.exports.ghostty_wasm_alloc_u8_array(TERM_OPTS_SIZE);
+                new Uint8Array(getBuffer(), optsPtr, TERM_OPTS_SIZE).fill(0);
+                const optsView = new DataView(getBuffer(), optsPtr, TERM_OPTS_SIZE);
+                setField(optsView, 'GhosttyTerminalOptions', 'cols', cols);
+                setField(optsView, 'GhosttyTerminalOptions', 'rows', rows);
+                setField(optsView, 'GhosttyTerminalOptions', 'max_scrollback', 0);
+
+                // Allocate pointer to receive the terminal handle
+                const termPtrPtr = wasmInstance.exports.ghostty_wasm_alloc_opaque();
+
+                // Create terminal
+                const newResult = wasmInstance.exports.ghostty_terminal_new(0, termPtrPtr, optsPtr);
+                wasmInstance.exports.ghostty_wasm_free_u8_array(optsPtr, TERM_OPTS_SIZE);
+
+                if (newResult !== GHOSTTY_SUCCESS) {
+                    throw new Error(`ghostty_terminal_new failed with result ${newResult}`);
+                }
+
+                const termPtr = new DataView(getBuffer()).getUint32(termPtrPtr, true);
+                wasmInstance.exports.ghostty_wasm_free_opaque(termPtrPtr);
+
+                // Write VT data to the terminal
+                const vtBytes = new TextEncoder().encode(vtText);
+                const dataPtr = wasmInstance.exports.ghostty_wasm_alloc_u8_array(vtBytes.length);
+                new Uint8Array(getBuffer()).set(vtBytes, dataPtr);
+                wasmInstance.exports.ghostty_terminal_vt_write(termPtr, dataPtr, vtBytes.length);
+                wasmInstance.exports.ghostty_wasm_free_u8_array(dataPtr, vtBytes.length);
+
+                // Create a plain-text formatter
+                const FMT_OPTS_SIZE = typeLayout['GhosttyFormatterTerminalOptions'].size;
+                const fmtOptsPtr = wasmInstance.exports.ghostty_wasm_alloc_u8_array(FMT_OPTS_SIZE);
+                new Uint8Array(getBuffer(), fmtOptsPtr, FMT_OPTS_SIZE).fill(0);
+                const fmtOptsView = new DataView(getBuffer(), fmtOptsPtr, FMT_OPTS_SIZE);
+                setField(fmtOptsView, 'GhosttyFormatterTerminalOptions', 'size', FMT_OPTS_SIZE);
+                setField(fmtOptsView, 'GhosttyFormatterTerminalOptions', 'emit', GHOSTTY_FORMATTER_FORMAT_PLAIN);
+                setField(fmtOptsView, 'GhosttyFormatterTerminalOptions', 'unwrap', 0);
+                setField(fmtOptsView, 'GhosttyFormatterTerminalOptions', 'trim', 1);
+
+                // Set the nested sized-struct `size` fields for extra and extra.screen
+                const extraOffset = fieldInfo('GhosttyFormatterTerminalOptions', 'extra').offset;
+                const extraSize = typeLayout['GhosttyFormatterTerminalExtra'].size;
+                const extraSizeField = fieldInfo('GhosttyFormatterTerminalExtra', 'size');
+                fmtOptsView.setUint32(extraOffset + extraSizeField.offset, extraSize, true);
+
+                const screenOffset = fieldInfo('GhosttyFormatterTerminalExtra', 'screen').offset;
+                const screenSize = typeLayout['GhosttyFormatterScreenExtra'].size;
+                const screenSizeField = fieldInfo('GhosttyFormatterScreenExtra', 'size');
+                fmtOptsView.setUint32(extraOffset + screenOffset + screenSizeField.offset, screenSize, true);
+
+                const fmtPtrPtr = wasmInstance.exports.ghostty_wasm_alloc_opaque();
+                const fmtResult = wasmInstance.exports.ghostty_formatter_terminal_new(
+                    0, fmtPtrPtr, termPtr, fmtOptsPtr
+                );
+                wasmInstance.exports.ghostty_wasm_free_u8_array(fmtOptsPtr, FMT_OPTS_SIZE);
+
+                if (fmtResult !== GHOSTTY_SUCCESS) {
+                    wasmInstance.exports.ghostty_terminal_free(termPtr);
+                    throw new Error(`ghostty_formatter_terminal_new failed with result ${fmtResult}`);
+                }
+
+                const fmtPtr = new DataView(getBuffer()).getUint32(fmtPtrPtr, true);
+                wasmInstance.exports.ghostty_wasm_free_opaque(fmtPtrPtr);
+
+                // Format with alloc
+                const outPtrPtr = wasmInstance.exports.ghostty_wasm_alloc_opaque();
+                const outLenPtr = wasmInstance.exports.ghostty_wasm_alloc_usize();
+                const formatResult = wasmInstance.exports.ghostty_formatter_format_alloc(
+                    fmtPtr, 0, outPtrPtr, outLenPtr
+                );
+
+                if (formatResult !== GHOSTTY_SUCCESS) {
+                    wasmInstance.exports.ghostty_formatter_free(fmtPtr);
+                    wasmInstance.exports.ghostty_terminal_free(termPtr);
+                    throw new Error(`ghostty_formatter_format_alloc failed with result ${formatResult}`);
+                }
+
+                const outPtr = new DataView(getBuffer()).getUint32(outPtrPtr, true);
+                const outLen = new DataView(getBuffer()).getUint32(outLenPtr, true);
+
+                const outBytes = new Uint8Array(getBuffer(), outPtr, outLen);
+                const outText = new TextDecoder().decode(outBytes);
+
+                let output = `Terminal: ${cols}x${rows}\n`;
+                output += `Input: ${vtBytes.length} bytes\n`;
+                output += `Output: ${outLen} bytes\n\n`;
+                output += outText;
+
+                outputDiv.className = 'output';
+                outputDiv.textContent = output;
+
+                // Clean up
+                wasmInstance.exports.ghostty_free(0, outPtr, outLen);
+                wasmInstance.exports.ghostty_wasm_free_opaque(outPtrPtr);
+                wasmInstance.exports.ghostty_wasm_free_usize(outLenPtr);
+                wasmInstance.exports.ghostty_formatter_free(fmtPtr);
+                wasmInstance.exports.ghostty_terminal_free(termPtr);
+
+            } catch (e) {
+                console.error('Error:', e);
+                outputDiv.className = 'output error';
+                outputDiv.textContent = `Error: ${e.message}\n\nStack trace:\n${e.stack}`;
+            }
+        }
+
+        async function init() {
+            const statusDiv = document.getElementById('status');
+            const vtInput = document.getElementById('vtInput');
+            const colsInput = document.getElementById('cols');
+            const rowsInput = document.getElementById('rows');
+            const runBtn = document.getElementById('runBtn');
+
+            try {
+                statusDiv.textContent = 'Loading WebAssembly module...';
+
+                const loaded = await loadWasm();
+                if (!loaded) {
+                    throw new Error('Failed to load WebAssembly module');
+                }
+
+                statusDiv.textContent = '';
+                vtInput.disabled = false;
+                colsInput.disabled = false;
+                rowsInput.disabled = false;
+                runBtn.disabled = false;
+
+                runBtn.addEventListener('click', run);
+
+                // Run the default example on load
+                run();
+                return;
+            } catch (e) {
+                statusDiv.textContent = `Error: ${e.message}`;
+                statusDiv.style.color = '#c00';
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

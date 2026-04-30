@@ -15,8 +15,6 @@ const std = @import("std");
 const assert = @import("../../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 
-const z2d = @import("z2d");
-
 const common = @import("common.zig");
 const Thickness = common.Thickness;
 const Shade = common.Shade;
@@ -30,7 +28,6 @@ const hlineMiddle = common.hlineMiddle;
 const vlineMiddle = common.vlineMiddle;
 
 const font = @import("../../main.zig");
-const Sprite = @import("../../sprite.zig").Sprite;
 
 /// Specification of a traditional intersection-style line/box-drawing char,
 /// which can have a different style of line from each edge to the center.
@@ -848,7 +845,7 @@ fn dashHorizontal(
         }
         hline(canvas, x, x1, y, thick_px);
         // Advance by the width of the dash we drew and the width
-        // of a gap to get the the start of the next dash.
+        // of a gap to get the start of the next dash.
         x = x1 + gap_width;
     }
 }
@@ -926,7 +923,7 @@ fn dashVertical(
         }
         vline(canvas, y, y1, x, thick_px);
         // Advance by the height of the dash we drew and the height
-        // of a gap to get the the start of the next dash.
+        // of a gap to get the start of the next dash.
         y = y1 + gap_height;
     }
 }

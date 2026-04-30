@@ -8,10 +8,11 @@
   appstream,
   flatpak-builder,
   gdb,
+  cmake,
   #, glxinfo # unused
   ncurses,
   nodejs,
-  nodePackages,
+  prettier,
   oniguruma,
   parallel,
   pkg-config,
@@ -26,6 +27,7 @@
   wasmtime,
   wraptest,
   zig,
+  zig_0_15,
   zip,
   llvmPackages_latest,
   bzip2,
@@ -65,12 +67,12 @@
   poop,
   typos,
   shellcheck,
+  swiftlint,
   uv,
   wayland,
   wayland-scanner,
   wayland-protocols,
   zon2nix,
-  system,
   pkgs,
   # needed by GTK for loading SVG icons while running from within the
   # developer shell
@@ -90,6 +92,7 @@ in
     packages =
       [
         # For builds
+        cmake
         doxygen
         jq
         llvmPackages_latest.llvm
@@ -100,13 +103,13 @@ in
         scdoc
         zig
         zip
-        zon2nix.packages.${system}.zon2nix
+        zon2nix.packages.${stdenv.hostPlatform.system}.zon2nix
 
         # For web and wasm stuff
         nodejs
 
         # Linting
-        nodePackages.prettier
+        prettier
         alejandra
         pinact
         typos
@@ -198,6 +201,9 @@ in
 
         # for benchmarking
         poop
+      ]
+      ++ lib.optionals stdenv.hostPlatform.isDarwin [
+        swiftlint
       ];
 
     # This should be set onto the rpath of the ghostty binary if you want
@@ -221,8 +227,22 @@ in
         unset SDKROOT
         unset DEVELOPER_DIR
 
+        # AFL++ needs to use the Homebrew/system Apple toolchain directly.
+        # The Nix compiler wrapper variables leak a Nix linker into afl-cc,
+        # which breaks even trivial fuzz harness links on macOS.
+        unset NIX_CC
+        unset NIX_CFLAGS_COMPILE
+        unset NIX_LDFLAGS
+        unset LD
+        unset CC
+        unset CXX
+        unset CFLAGS
+        unset CPPFLAGS
+        unset LDFLAGS
+
         # We need to remove "xcrun" from the PATH. It is injected by
         # some dependency but we need to rely on system Xcode tools
         export PATH=$(echo "$PATH" | awk -v RS=: -v ORS=: '$0 !~ /xcrun/ || $0 == "/usr/bin" {print}' | sed 's/:$//')
+        export PATH="/opt/homebrew/opt/llvm/bin:/opt/homebrew/bin:/usr/local/opt/llvm/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
       '');
   }

@@ -130,7 +130,7 @@ class NativeFullscreen: FullscreenBase, FullscreenStyle {
 
 class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
     var fullscreenMode: FullscreenMode { .nonNative }
-    
+
     // Non-native fullscreen never supports tabs because tabs require
     // the "titled" style and we don't have it for non-native fullscreen.
     var supportsTabs: Bool { false }
@@ -204,12 +204,12 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         // We must hide the dock FIRST then hide the menu:
         // If you specify autoHideMenuBar, it must be accompanied by either hideDock or autoHideDock.
         // https://developer.apple.com/documentation/appkit/nsapplication/presentationoptions-swift.struct
-        if (savedState.dock) {
+        if savedState.dock {
             hideDock()
         }
 
         // Hide the menu if requested
-        if (properties.hideMenu && savedState.menu) {
+        if properties.hideMenu && savedState.menu {
             hideMenu()
         }
 
@@ -223,7 +223,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         // Being untitled let's our content take up the full frame.
         window.styleMask.remove(.titled)
 
-        // We dont' want the non-native fullscreen window to be resizable
+        // We don't want the non-native fullscreen window to be resizable
         // from the edges.
         window.styleMask.remove(.resizable)
 
@@ -261,7 +261,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         if savedState.dock {
             unhideDock()
         }
-        if (properties.hideMenu && savedState.menu) {
+        if properties.hideMenu && savedState.menu {
             unhideMenu()
         }
 
@@ -277,7 +277,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             if let window = window as? TerminalWindow, window.isTabBar(c) {
                 continue
             }
-            
+
             if window.titlebarAccessoryViewControllers.firstIndex(of: c) == nil {
                 window.addTitlebarAccessoryViewController(c)
             }
@@ -286,7 +286,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         // Removing "titled" also clears our toolbar
         window.toolbar = savedState.toolbar
         window.toolbarStyle = savedState.toolbarStyle
-        
+
         // If the window was previously in a tab group that isn't empty now,
         // we re-add it. We have to do this because our process of doing non-native
         // fullscreen removes the window from the tab group.
@@ -296,13 +296,13 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             if tabIndex == 0 {
                 // We were previously the first tab. Add it before ("below")
                 // the first window in the tab group currently.
-                tabGroup.windows.first!.addTabbedWindow(window, ordered: .below)
+                tabGroup.windows.first!.addTabbedWindowSafely(window, ordered: .below)
             } else if tabIndex <= tabGroup.windows.count {
                 // We were somewhere in the middle
-                tabGroup.windows[tabIndex - 1].addTabbedWindow(window, ordered: .above)
+                tabGroup.windows[tabIndex - 1].addTabbedWindowSafely(window, ordered: .above)
             } else {
                 // We were at the end
-                tabGroup.windows.last!.addTabbedWindow(window, ordered: .below)
+                tabGroup.windows.last!.addTabbedWindowSafely(window, ordered: .below)
             }
         }
 
@@ -328,8 +328,8 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         // calculate this ourselves.
         var frame = screen.frame
 
-        if (!NSApp.presentationOptions.contains(.autoHideMenuBar) &&
-            !NSApp.presentationOptions.contains(.hideMenuBar)) {
+        if !NSApp.presentationOptions.contains(.autoHideMenuBar) &&
+            !NSApp.presentationOptions.contains(.hideMenuBar) {
             // We need to subtract the menu height since we're still showing it.
             frame.size.height -= NSApp.mainMenu?.menuBarHeight ?? 0
 
@@ -339,7 +339,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             // put an #available check, but it was in a bug fix release so I think
             // if a bug is reported to Ghostty we can just advise the user to
             // update.
-        } else if (properties.paddedNotch) {
+        } else if properties.paddedNotch {
             // We are hiding the menu, we may need to avoid the notch.
             frame.size.height -= screen.safeAreaInsets.top
         }
@@ -412,8 +412,8 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             self.toolbar = window.toolbar
             self.toolbarStyle = window.toolbarStyle
             self.dock = window.screen?.hasDock ?? false
-            
-            self.titlebarAccessoryViewControllers = if (window.hasTitleBar) {
+
+            self.titlebarAccessoryViewControllers = if window.hasTitleBar {
                 // Accessing titlebarAccessoryViewControllers without a titlebar triggers a crash.
                 window.titlebarAccessoryViewControllers
             } else {

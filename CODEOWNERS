@@ -137,6 +137,7 @@
 /dist/macos/ @ghostty-org/macos
 /pkg/apple-sdk/ @ghostty-org/macos
 /pkg/macos/ @ghostty-org/macos
+/.swiftlint.yml @ghostty-org/macos
 
 # Renderer
 /src/renderer.zig @ghostty-org/renderer
@@ -161,32 +162,39 @@
 /src/surface_mouse.zig @ghostty-org/terminal
 
 # Localization
-/po/README_TRANSLATORS.md @ghostty-org/localization
-/po/com.mitchellh.ghostty.pot @ghostty-org/localization
-/po/ca_ES.UTF-8.po @ghostty-org/ca_ES
-/po/de_DE.UTF-8.po @ghostty-org/de_DE
-/po/es_BO.UTF-8.po @ghostty-org/es_BO
-/po/es_AR.UTF-8.po @ghostty-org/es_AR
-/po/fr_FR.UTF-8.po @ghostty-org/fr_FR
-/po/hu_HU.UTF-8.po @ghostty-org/hu_HU
-/po/id_ID.UTF-8.po @ghostty-org/id_ID
-/po/ja_JP.UTF-8.po @ghostty-org/ja_JP
-/po/mk_MK.UTF-8.po @ghostty-org/mk_MK
-/po/nb_NO.UTF-8.po @ghostty-org/nb_NO
-/po/nl_NL.UTF-8.po @ghostty-org/nl_NL
-/po/pl_PL.UTF-8.po @ghostty-org/pl_PL
-/po/pt_BR.UTF-8.po @ghostty-org/pt_BR
-/po/ru_RU.UTF-8.po @ghostty-org/ru_RU
-/po/tr_TR.UTF-8.po @ghostty-org/tr_TR
-/po/uk_UA.UTF-8.po @ghostty-org/uk_UA
-/po/zh_CN.UTF-8.po @ghostty-org/zh_CN
-/po/ga_IE.UTF-8.po @ghostty-org/ga_IE
-/po/ko_KR.UTF-8.po @ghostty-org/ko_KR
-/po/he_IL.UTF-8.po @ghostty-org/he_IL
-/po/it_IT.UTF-8.po @ghostty-org/it_IT
-/po/lt_LT.UTF-8.po @ghostty-org/lt_LT
-/po/zh_TW.UTF-8.po @ghostty-org/zh_TW
-/po/hr_HR.UTF-8.po @ghostty-org/hr_HR
+/po/README_TRANSLATORS.md @ghostty-org/manager  # *localization* manager.
+/po/com.mitchellh.ghostty.pot @ghostty-org/manager
+/src/os/i18n_locales.zig @ghostty-org/manager
+/po/be.po @ghostty-org/be_BY
+/po/bg.po @ghostty-org/bg_BG
+/po/ca.po @ghostty-org/ca_ES
+/po/de.po @ghostty-org/de_DE
+/po/es_AR.po @ghostty-org/es_AR
+/po/es_BO.po @ghostty-org/es_BO
+/po/es_ES.po @ghostty-org/es_ES
+/po/fr.po @ghostty-org/fr_FR
+/po/ga.po @ghostty-org/ga_IE
+/po/he.po @ghostty-org/he_IL
+/po/hr.po @ghostty-org/hr_HR
+/po/hu.po @ghostty-org/hu_HU
+/po/id.po @ghostty-org/id_ID
+/po/it.po @ghostty-org/it_IT
+/po/ja.po @ghostty-org/ja_JP
+/po/kk.po @ghostty-org/kk_KZ
+/po/ko_KR.po @ghostty-org/ko_KR
+/po/lt.po @ghostty-org/lt_LT
+/po/lv.po @ghostty-org/lv_LV
+/po/mk.po @ghostty-org/mk_MK
+/po/nb.po @ghostty-org/nb_NO
+/po/nl.po @ghostty-org/nl_NL
+/po/pl.po @ghostty-org/pl_PL
+/po/pt_BR.po @ghostty-org/pt_BR
+/po/ru.po @ghostty-org/ru_RU
+/po/tr.po @ghostty-org/tr_TR
+/po/uk.po @ghostty-org/uk_UA
+/po/vi.po @ghostty-org/vi_VN
+/po/zh_CN.po @ghostty-org/zh_CN
+/po/zh_TW.po @ghostty-org/zh_TW
 
 # Packaging - Snap
 /snap/ @ghostty-org/snap

@@ -1,55 +1,26 @@
 {
-  fn restore-xdg-dirs {
-    use str
-    var integration-dir = $E:GHOSTTY_SHELL_INTEGRATION_XDG_DIR
-    var xdg-dirs = [(str:split ':' $E:XDG_DATA_DIRS)]
-    var len = (count $xdg-dirs)
+  use platform
+  use str
 
-    var index = $nil
-    range $len | each {|dir-index|
-      if (eq $xdg-dirs[$dir-index] $integration-dir) {
-        set index = $dir-index
-        break
-      }
-    }
-    if (eq $nil $index) { return } # will appear as an error
-
-    if (== 0 $index) {
-      set xdg-dirs = $xdg-dirs[1..]
-    } elif (== (- $len 1) $index) {
-      set xdg-dirs = $xdg-dirs[0..(- $len 1)]
-    } else {
-      # no builtin function for this : )
-      set xdg-dirs = [ (take $index $xdg-dirs) (drop (+ 1 $index) $xdg-dirs) ]
-    }
-
-    if (== 0 (count $xdg-dirs)) {
-      unset-env XDG_DATA_DIRS
-    } else {
-      set-env XDG_DATA_DIRS (str:join ':' $xdg-dirs)
-    }
+  # Clean up XDG_DATA_DIRS by removing GHOSTTY_SHELL_INTEGRATION_XDG_DIR
+  if (and (has-env GHOSTTY_SHELL_INTEGRATION_XDG_DIR) (has-env XDG_DATA_DIRS)) {
+    set-env XDG_DATA_DIRS (str:replace $E:GHOSTTY_SHELL_INTEGRATION_XDG_DIR":" "" $E:XDG_DATA_DIRS)
     unset-env GHOSTTY_SHELL_INTEGRATION_XDG_DIR
   }
-  if (and (has-env GHOSTTY_SHELL_INTEGRATION_XDG_DIR) (has-env XDG_DATA_DIRS)) {
-    restore-xdg-dirs
-  }
-}
-
-{
-  use str
 
   # List of enabled shell integration features
   var features = [(str:split ',' $E:GHOSTTY_SHELL_FEATURES)]
 
-  # helper used by `mark-*` functions
+  # State tracking for semantic prompt sequences
+  # Values: 'prompt-start', 'pre-exec', 'post-exec'
   fn set-prompt-state {|new| set-env __ghostty_prompt_state $new }
 
   fn mark-prompt-start {
-    if (not-eq prompt-start (constantly $E:__ghostty_prompt_state)) {
-      printf "\e]133;D\a"
+    if (not-eq $E:__ghostty_prompt_state 'prompt-start') {
+      printf "\e]133;D;aid="$pid"\a"
     }
     set-prompt-state 'prompt-start'
-    printf "\e]133;A\a"
+    printf "\e]133;A;aid="$pid"\a"
   }
 
   fn mark-output-start {|_|
@@ -74,30 +45,34 @@
       }
     }
 
-    printf "\e]133;D;"$exit-status"\a"
+    printf "\e]133;D;"$exit-status";aid="$pid"\a"
   }
 
-  fn report-pwd {
-    use platform
-    printf "\e]7;kitty-shell-cwd://%s%s\a" (platform:hostname) $pwd
-  }
+  # NOTE: OSC 133;B (end of prompt, start of input) cannot be reliably
+  # implemented at the script level in Elvish. The prompt function's output is
+  # escaped, and writing to /dev/tty has timing issues because Elvish renders
+  # its prompts on a background thread. Full semantic prompt support requires a
+  # native implementation: https://github.com/elves/elvish/pull/1917
 
   fn sudo-with-terminfo {|@args|
     var sudoedit = $false
     for arg $args {
-      use str
-      if (str:has-prefix $arg -) {
-        if (has-value [e -edit] $arg[1..]) {
+      if (str:has-prefix $arg --) {
+        if (eq $arg --edit) {
           set sudoedit = $true
           break
         }
-        continue
+      } elif (str:has-prefix $arg -) {
+        if (str:contains (str:trim-prefix $arg -) e) {
+          set sudoedit = $true
+          break
+        }
+      } elif (not (str:contains $arg =)) {
+        break
       }
-
-      if (not (has-value $arg =)) { break }
     }
 
-    if (not $sudoedit) { set args = [ TERMINFO=$E:TERMINFO $@args ] }
+    if (not $sudoedit) { set args = [ --preserve-env=TERMINFO $@args ] }
     (external sudo) $@args
   }
 
@@ -108,8 +83,7 @@
     # Configure environment variables for remote session
     if (has-value $features ssh-env) {
       set ssh-opts = (conj $ssh-opts ^
-        -o "SetEnv COLORTERM=truecolor" ^
-        -o "SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION")
+        -o "SendEnv COLORTERM TERM_PROGRAM TERM_PROGRAM_VERSION")
     }
 
     if (has-value $features ssh-terminfo) {
@@ -173,28 +147,29 @@
       }
     }
 
-    with [E:TERM = $ssh-term] {
+    with [E:TERM = $ssh-term E:COLORTERM = truecolor] {
       (external ssh) $@ssh-opts $@args
     }
   }
 
   defer {
     mark-prompt-start
-    report-pwd
   }
 
   set edit:before-readline = (conj $edit:before-readline $mark-prompt-start~)
   set edit:after-readline  = (conj $edit:after-readline $mark-output-start~)
   set edit:after-command   = (conj $edit:after-command $mark-output-end~)
 
-  if (has-value $features title) {
-    set after-chdir = (conj $after-chdir {|_| report-pwd })
-  }
-  if (has-value $features cursor) {
-    fn beam  { printf "\e[5 q" }
-    fn block { printf "\e[0 q" }
+  if (str:contains $E:GHOSTTY_SHELL_FEATURES "cursor") {
+    var cursor = "5"    # blinking bar
+    if (has-value $features cursor:steady) {
+      set cursor = "6"  # steady bar
+    }
+
+    fn beam  { printf "\e["$cursor" q" }
+    fn reset { printf "\e[0 q" }
     set edit:before-readline = (conj $edit:before-readline $beam~)
-    set edit:after-readline  = (conj $edit:after-readline {|_| block })
+    set edit:after-readline  = (conj $edit:after-readline {|_| reset })
   }
   if (and (has-value $features path) (has-env GHOSTTY_BIN_DIR)) {
     if (not (has-value $paths $E:GHOSTTY_BIN_DIR)) {
@@ -207,4 +182,9 @@
   if (and (str:contains $E:GHOSTTY_SHELL_FEATURES ssh-) (has-external ssh)) {
     edit:add-var ssh~ $ssh-integration~
   }
+
+  # Report changes to the current directory.
+  fn report-pwd { printf "\e]7;kitty-shell-cwd://%s%s\a" (platform:hostname) $pwd }
+  set after-chdir = (conj $after-chdir {|_| report-pwd })
+  report-pwd
 }

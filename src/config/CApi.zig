@@ -1,9 +1,8 @@
+const builtin = @import("builtin");
 const std = @import("std");
-const assert = @import("../quirks.zig").inlineAssert;
-const cli = @import("../cli.zig");
 const inputpkg = @import("../input.zig");
 const state = &@import("../global.zig").state;
-const c = @import("../main_c.zig");
+const String = @import("../main_c.zig").String;
 
 const Config = @import("Config.zig");
 const c_get = @import("c_get.zig");
@@ -67,6 +66,15 @@ export fn ghostty_config_load_default_files(self: *Config) void {
     };
 }
 
+/// Load the configuration from a specific file path.
+/// The path must be null-terminated.
+export fn ghostty_config_load_file(self: *Config, path: [*:0]const u8) void {
+    const path_slice = std.mem.span(path);
+    self.loadFile(state.alloc, path_slice) catch |err| {
+        log.err("error loading config from file path={s} err={}", .{ path_slice, err });
+    };
+}
+
 /// Load the configuration from the user-specified configuration
 /// file locations in the previously loaded configuration. This will
 /// recursively continue to load up to a built-in limit.
@@ -124,7 +132,7 @@ export fn ghostty_config_get_diagnostic(self: *Config, idx: u32) Diagnostic {
     return .{ .message = message.ptr };
 }
 
-export fn ghostty_config_open_path() c.String {
+export fn ghostty_config_open_path() String {
     const path = edit.openPath(state.alloc) catch |err| {
         log.err("error opening config in editor err={}", .{err});
         return .empty;
@@ -137,3 +145,136 @@ export fn ghostty_config_open_path() c.String {
 const Diagnostic = extern struct {
     message: [*:0]const u8 = "",
 };
+
+test "ghostty_config_get: bool" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    cfg.maximize = true;
+
+    var out = false;
+    const key = "maximize";
+    try testing.expect(ghostty_config_get(&cfg, &out, key, key.len));
+    try testing.expect(out);
+}
+
+test "ghostty_config_get: enum" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    cfg.@"window-theme" = .dark;
+
+    var out: [*:0]const u8 = undefined;
+    const key = "window-theme";
+    try testing.expect(ghostty_config_get(&cfg, @ptrCast(&out), key, key.len));
+    const str = std.mem.sliceTo(out, 0);
+    try testing.expectEqualStrings("dark", str);
+}
+
+test "ghostty_config_get: optional null returns false" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    cfg.@"unfocused-split-fill" = null;
+
+    var out: Config.Color.C = undefined;
+    const key = "unfocused-split-fill";
+    try testing.expect(!ghostty_config_get(&cfg, @ptrCast(&out), key, key.len));
+}
+
+test "ghostty_config_get: unknown key returns false" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+
+    var out = false;
+    const key = "not-a-real-key";
+    try testing.expect(!ghostty_config_get(&cfg, &out, key, key.len));
+}
+
+test "ghostty_config_get: optional string null returns true" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    cfg.title = null;
+
+    var out: ?[*:0]const u8 = undefined;
+    const key = "title";
+    try testing.expect(ghostty_config_get(&cfg, @ptrCast(&out), key, key.len));
+    try testing.expect(out == null);
+}
+
+test "ghostty_config_get: float" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    cfg.@"background-opacity" = 0.42;
+
+    var out: f64 = 0;
+    const key = "background-opacity";
+    try testing.expect(ghostty_config_get(&cfg, &out, key, key.len));
+    try testing.expectApproxEqAbs(@as(f64, 0.42), out, 0.000001);
+}
+
+test "ghostty_config_get: struct cval conversion" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    cfg.background = .{ .r = 12, .g = 34, .b = 56 };
+
+    var out: Config.Color.C = undefined;
+    const key = "background";
+    try testing.expect(ghostty_config_get(&cfg, @ptrCast(&out), key, key.len));
+    try testing.expectEqual(@as(u8, 12), out.r);
+    try testing.expectEqual(@as(u8, 34), out.g);
+    try testing.expectEqual(@as(u8, 56), out.b);
+}
+
+test "ghostty_config_trigger: default keybind" {
+    const testing = std.testing;
+
+    var cfg = try Config.default(testing.allocator);
+    defer cfg.deinit();
+
+    // Default commands should be fetchable through config_trigger_
+    {
+        const trigger = try config_trigger_(&cfg, "open_config");
+        try testing.expectEqual(.unicode, trigger.tag);
+        try testing.expectEqual(@as(u32, ','), trigger.key.unicode);
+    }
+    {
+        const trigger = try config_trigger_(&cfg, "reload_config");
+        try testing.expectEqual(.unicode, trigger.tag);
+        try testing.expectEqual(@as(u32, ','), trigger.key.unicode);
+    }
+    // Performable bindings are not tracked in the reverse map,
+    // so config_trigger_ should return a default (empty) trigger.
+    if (comptime builtin.target.os.tag.isDarwin()) {
+        const next = try config_trigger_(&cfg, "navigate_search:next");
+        try testing.expectEqual(.physical, next.tag);
+        try testing.expectEqual(.unidentified, next.key.physical);
+
+        const prev = try config_trigger_(&cfg, "navigate_search:previous");
+        try testing.expectEqual(.physical, prev.tag);
+        try testing.expectEqual(.unidentified, prev.key.physical);
+    }
+    {
+        const trigger = try config_trigger_(&cfg, "adjust_selection:left");
+        try testing.expectEqual(.physical, trigger.tag);
+        try testing.expectEqual(.unidentified, trigger.key.physical);
+    }
+}

@@ -9,6 +9,7 @@ const PageList = terminal.PageList;
 const Pin = PageList.Pin;
 const Selection = terminal.Selection;
 const Screen = terminal.Screen;
+const Terminal = terminal.Terminal;
 const PageFormatter = @import("../formatter.zig").PageFormatter;
 const FlattenedHighlight = terminal.highlight.Flattened;
 
@@ -462,12 +463,13 @@ pub const SlidingWindow = struct {
         switch (self.direction) {
             .forward => {},
             .reverse => {
+                const slice = self.chunk_buf.slice();
+                const nodes = slice.items(.node);
+                const starts = slice.items(.start);
+                const ends = slice.items(.end);
+
                 if (self.chunk_buf.len > 1) {
                     // Reverse all our chunks. This should be pretty obvious why.
-                    const slice = self.chunk_buf.slice();
-                    const nodes = slice.items(.node);
-                    const starts = slice.items(.start);
-                    const ends = slice.items(.end);
                     std.mem.reverse(*PageList.List.Node, nodes);
                     std.mem.reverse(size.CellCountInt, starts);
                     std.mem.reverse(size.CellCountInt, ends);
@@ -484,10 +486,6 @@ pub const SlidingWindow = struct {
                     // We DON'T need to do this for any middle pages because
                     // they always use the full page.
                     //
-                    // We DON'T need to do this for chunks.len == 1 because
-                    // the pages themselves aren't reversed and we don't have
-                    // any prefix/suffix problems.
-                    //
                     // This is a fixup that makes our start/end match the
                     // same logic as the loops above if they were in forward
                     // order.
@@ -496,6 +494,13 @@ pub const SlidingWindow = struct {
                     ends[0] = nodes[0].data.size.rows;
                     ends[nodes.len - 1] = starts[nodes.len - 1] + 1;
                     starts[nodes.len - 1] = 0;
+                } else {
+                    // For a single chunk, the y values are in reverse order
+                    // (start is the screen-end, end is the screen-start).
+                    // Swap them to get proper top-to-bottom order.
+                    const start_y = starts[0];
+                    starts[0] = ends[0] - 1;
+                    ends[0] = start_y + 1;
                 }
 
                 // X values also need to be reversed since the top/bottom
@@ -539,7 +544,10 @@ pub const SlidingWindow = struct {
 
         // Encode the page into the buffer.
         const formatter: PageFormatter = formatter: {
-            var formatter: PageFormatter = .init(&meta.node.data, .plain);
+            var formatter: PageFormatter = .init(&meta.node.data, .{
+                .emit = .plain,
+                .unwrap = true,
+            });
             formatter.point_map = .{
                 .alloc = self.alloc,
                 .map = &meta.cell_map,
@@ -567,9 +575,16 @@ pub const SlidingWindow = struct {
             );
         }
 
+        // If our written data is empty, then there is nothing to
+        // add to our data set.
+        const written = encoded.written();
+        if (written.len == 0) {
+            self.assertIntegrity();
+            return 0;
+        }
+
         // Get our written data. If we're doing a reverse search then we
         // need to reverse all our encodings.
-        const written = encoded.written();
         switch (self.direction) {
             .forward => {},
             .reverse => {
@@ -1553,5 +1568,109 @@ test "SlidingWindow single append match on boundary reversed" {
             .y = 0,
         } }, s.pages.pointFromPin(.active, sel.end).?);
     }
+    try testing.expect(w.next() == null);
+}
+
+test "SlidingWindow single append soft wrapped" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var w: SlidingWindow = try .init(alloc, .forward, "boo!");
+    defer w.deinit();
+
+    var t: Terminal = try .init(alloc, .{ .cols = 4, .rows = 5 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("A\r\nxxboo!\r\nC");
+
+    // We want to test single-page cases.
+    const screen = t.screens.active;
+    try testing.expect(screen.pages.pages.first == screen.pages.pages.last);
+    const node: *PageList.List.Node = screen.pages.pages.first.?;
+    _ = try w.append(node);
+
+    // We should be able to find two matches.
+    {
+        const h = w.next().?;
+        const sel = h.untracked();
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 2,
+            .y = 1,
+        } }, screen.pages.pointFromPin(.active, sel.start));
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 1,
+            .y = 2,
+        } }, screen.pages.pointFromPin(.active, sel.end));
+    }
+    try testing.expect(w.next() == null);
+    try testing.expect(w.next() == null);
+}
+
+test "SlidingWindow single append reversed soft wrapped" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var w: SlidingWindow = try .init(alloc, .reverse, "boo!");
+    defer w.deinit();
+
+    var t: Terminal = try .init(alloc, .{ .cols = 4, .rows = 5 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("A\r\nxxboo!\r\nC");
+
+    // We want to test single-page cases.
+    const screen = t.screens.active;
+    try testing.expect(screen.pages.pages.first == screen.pages.pages.last);
+    const node: *PageList.List.Node = screen.pages.pages.first.?;
+    _ = try w.append(node);
+
+    // We should be able to find two matches.
+    {
+        const h = w.next().?;
+        const sel = h.untracked();
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 2,
+            .y = 1,
+        } }, screen.pages.pointFromPin(.active, sel.start));
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 1,
+            .y = 2,
+        } }, screen.pages.pointFromPin(.active, sel.end));
+    }
+    try testing.expect(w.next() == null);
+    try testing.expect(w.next() == null);
+}
+
+// This tests a real bug that occurred where a whitespace-only page
+// that encodes to zero bytes would crash.
+test "SlidingWindow append whitespace only node" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var w: SlidingWindow = try .init(alloc, .forward, "x");
+    defer w.deinit();
+
+    var s = try Screen.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+        .max_scrollback = 0,
+    });
+    defer s.deinit();
+
+    // By setting the empty page to wrap we get a zero-byte page.
+    // This is invasive but its otherwise hard to reproduce naturally
+    // without creating a slow test.
+    const node: *PageList.List.Node = s.pages.pages.first.?;
+    const last_row = node.data.getRow(node.data.size.rows - 1);
+    last_row.wrap = true;
+
+    try testing.expect(s.pages.pages.first == s.pages.pages.last);
+    _ = try w.append(node);
+
+    // No matches expected
     try testing.expect(w.next() == null);
 }

@@ -9,7 +9,7 @@ for any localization that they may add.
 
 ## GTK
 
-In the GTK app runtime, translable strings are mainly sourced from Blueprint
+In the GTK app runtime, translatable strings are mainly sourced from Blueprint
 files (located under `src/apprt/gtk/ui`). Blueprints have a native syntax for
 translatable strings, which look like this:
 

@@ -1,8 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = @import("../../quirks.zig").inlineAssert;
 const testing = std.testing;
-const CircBuf = @import("../../datastruct/main.zig").CircBuf;
 const terminal = @import("../main.zig");
 const point = terminal.point;
 const FlattenedHighlight = @import("../highlight.zig").Flattened;
@@ -11,7 +9,6 @@ const PageList = terminal.PageList;
 const Pin = PageList.Pin;
 const Selection = terminal.Selection;
 const Screen = terminal.Screen;
-const PageFormatter = @import("../formatter.zig").PageFormatter;
 const Terminal = @import("../Terminal.zig");
 const SlidingWindow = @import("sliding_window.zig").SlidingWindow;
 
@@ -112,6 +109,11 @@ pub const PageListSearch = struct {
     /// This returns false if there is no more data to feed. This essentially
     /// means we've searched the entire pagelist.
     pub fn feed(self: *PageListSearch) Allocator.Error!bool {
+        // If our pin becomes garbage it means wherever we were next
+        // was reused and we can't make sense of our progress anymore.
+        // It is effectively equivalent to reaching the end of the PageList.
+        if (self.pin.garbage) return false;
+
         // Add at least enough data to find a single match.
         var rem = self.window.needle.len;
 
@@ -139,7 +141,7 @@ test "simple search" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+    s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
 
     var search: PageListSearch = try .init(
         alloc,
@@ -189,14 +191,14 @@ test "feed multiple pages with matches" {
 
     // Fill up first page
     const first_page_rows = t.screens.active.pages.pages.first.?.data.capacity.rows;
-    for (0..first_page_rows - 1) |_| try s.nextSlice("\r\n");
-    try s.nextSlice("Fizz");
+    for (0..first_page_rows - 1) |_| s.nextSlice("\r\n");
+    s.nextSlice("Fizz");
     try testing.expect(t.screens.active.pages.pages.first == t.screens.active.pages.pages.last);
 
     // Create second page
-    try s.nextSlice("\r\n");
+    s.nextSlice("\r\n");
     try testing.expect(t.screens.active.pages.pages.first != t.screens.active.pages.pages.last);
-    try s.nextSlice("Buzz\r\nFizz");
+    s.nextSlice("Buzz\r\nFizz");
 
     var search: PageListSearch = try .init(
         alloc,
@@ -233,13 +235,13 @@ test "feed multiple pages no matches" {
 
     // Fill up first page
     const first_page_rows = t.screens.active.pages.pages.first.?.data.capacity.rows;
-    for (0..first_page_rows - 1) |_| try s.nextSlice("\r\n");
-    try s.nextSlice("Hello");
+    for (0..first_page_rows - 1) |_| s.nextSlice("\r\n");
+    s.nextSlice("Hello");
 
     // Create second page
-    try s.nextSlice("\r\n");
+    s.nextSlice("\r\n");
     try testing.expect(t.screens.active.pages.pages.first != t.screens.active.pages.pages.last);
-    try s.nextSlice("World");
+    s.nextSlice("World");
 
     var search: PageListSearch = try .init(
         alloc,
@@ -273,14 +275,14 @@ test "feed iteratively through multiple matches" {
     const first_page_rows = t.screens.active.pages.pages.first.?.data.capacity.rows;
 
     // Fill first page with a match at the end
-    for (0..first_page_rows - 1) |_| try s.nextSlice("\r\n");
-    try s.nextSlice("Page1Test");
+    for (0..first_page_rows - 1) |_| s.nextSlice("\r\n");
+    s.nextSlice("Page1Test");
     try testing.expect(t.screens.active.pages.pages.first == t.screens.active.pages.pages.last);
 
     // Create second page with a match
-    try s.nextSlice("\r\n");
+    s.nextSlice("\r\n");
     try testing.expect(t.screens.active.pages.pages.first != t.screens.active.pages.pages.last);
-    try s.nextSlice("Page2Test");
+    s.nextSlice("Page2Test");
 
     var search: PageListSearch = try .init(
         alloc,
@@ -314,13 +316,13 @@ test "feed with match spanning page boundary" {
     const first_page_rows = t.screens.active.pages.pages.first.?.data.capacity.rows;
 
     // Fill first page ending with "Te"
-    for (0..first_page_rows - 1) |_| try s.nextSlice("\r\n");
-    for (0..t.screens.active.pages.cols - 2) |_| try s.nextSlice("x");
-    try s.nextSlice("Te");
+    for (0..first_page_rows - 1) |_| s.nextSlice("\r\n");
+    for (0..t.screens.active.pages.cols - 2) |_| s.nextSlice("x");
+    s.nextSlice("Te");
     try testing.expect(t.screens.active.pages.pages.first == t.screens.active.pages.pages.last);
 
     // Second page starts with "st"
-    try s.nextSlice("st");
+    s.nextSlice("st");
     try testing.expect(t.screens.active.pages.pages.first != t.screens.active.pages.pages.last);
 
     var search: PageListSearch = try .init(
@@ -368,15 +370,15 @@ test "feed with match spanning page boundary with newline" {
     const first_page_rows = t.screens.active.pages.pages.first.?.data.capacity.rows;
 
     // Fill first page ending with "Te"
-    for (0..first_page_rows - 1) |_| try s.nextSlice("\r\n");
-    for (0..t.screens.active.pages.cols - 2) |_| try s.nextSlice("x");
-    try s.nextSlice("Te");
+    for (0..first_page_rows - 1) |_| s.nextSlice("\r\n");
+    for (0..t.screens.active.pages.cols - 2) |_| s.nextSlice("x");
+    s.nextSlice("Te");
     try testing.expect(t.screens.active.pages.pages.first == t.screens.active.pages.pages.last);
 
     // Second page starts with "st"
-    try s.nextSlice("\r\n");
+    s.nextSlice("\r\n");
     try testing.expect(t.screens.active.pages.pages.first != t.screens.active.pages.pages.last);
-    try s.nextSlice("st");
+    s.nextSlice("st");
 
     var search: PageListSearch = try .init(
         alloc,
@@ -390,5 +392,50 @@ test "feed with match spanning page boundary with newline" {
     try testing.expect(search.next() == null);
     try testing.expect(try search.feed());
     try testing.expect(search.next() == null);
+    try testing.expect(!try search.feed());
+}
+
+test "feed with pruned page" {
+    const alloc = testing.allocator;
+
+    // Zero here forces minimum max size to effectively two pages.
+    var p: PageList = try .init(alloc, 80, 24, 0);
+    defer p.deinit();
+
+    // Grow to capacity
+    const page1_node = p.pages.last.?;
+    const page1 = page1_node.data;
+    for (0..page1.capacity.rows - page1.size.rows) |_| {
+        try testing.expect(try p.grow() == null);
+    }
+
+    // Grow and allocate one more page. Then fill that page up.
+    const page2_node = (try p.grow()).?;
+    const page2 = page2_node.data;
+    for (0..page2.capacity.rows - page2.size.rows) |_| {
+        try testing.expect(try p.grow() == null);
+    }
+
+    // Setup search and feed until we can't
+    var search: PageListSearch = try .init(
+        alloc,
+        "Test",
+        &p,
+        p.pages.last.?,
+    );
+    defer search.deinit();
+    try testing.expect(try search.feed());
+    try testing.expect(!try search.feed());
+
+    // Next should create a new page, but it should reuse our first
+    // page since we're at max size.
+    const new = (try p.grow()).?;
+    try testing.expect(p.pages.last.? == new);
+
+    // Our first should now be page2 and our last should be page1
+    try testing.expectEqual(page2_node, p.pages.first.?);
+    try testing.expectEqual(page1_node, p.pages.last.?);
+
+    // Feed should still do nothing
     try testing.expect(!try search.feed());
 }

@@ -3,8 +3,6 @@ const Self = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = @import("../../quirks.zig").inlineAssert;
-const builtin = @import("builtin");
 const gl = @import("opengl");
 
 const OpenGL = @import("../OpenGL.zig");

@@ -1,4 +1,3 @@
-const std = @import("std");
 const key = @import("key.zig");
 
 /// A single entry in the kitty keymap data. There are only ~100 entries

@@ -6,10 +6,7 @@
 //!
 
 const std = @import("std");
-const assert = @import("../../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
-
-const z2d = @import("z2d");
 
 const common = @import("common.zig");
 const Shade = common.Shade;
@@ -18,7 +15,6 @@ const Alignment = common.Alignment;
 const fill = common.fill;
 
 const font = @import("../../main.zig");
-const Sprite = @import("../../sprite.zig").Sprite;
 
 // Utility names for common fractions
 const one_eighth: f64 = 0.125;
