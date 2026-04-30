@@ -7,13 +7,19 @@ import GhosttyRuntime
 struct ContentView: View {
     @EnvironmentObject private var ghostty: GhosttyApp
     @StateObject private var tabManager = TerminalTabManager()
-    @State private var commandText = ""
+    @StateObject private var boardState = BoardState.shared
+    @StateObject private var sessionManager = SessionManager.shared
 
     var body: some View {
         HSplitView {
-            LeftPanel(commandText: $commandText, tabManager: tabManager)
-                .frame(minWidth: 220, idealWidth: 240, maxWidth: 300)
-                .layoutPriority(0)
+            KanbanView(
+                boardState: boardState,
+                sessionManager: sessionManager,
+                tabManager: tabManager,
+                ghosttyApp: ghostty.app!
+            )
+            .frame(minWidth: 240, idealWidth: 320, maxWidth: 600)
+            .layoutPriority(0)
 
             // Right: tab bar + terminal
             VStack(spacing: 0) {
@@ -43,34 +49,21 @@ struct ContentView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(Color(.windowBackgroundColor))
-
-                // Command bar
-                HStack {
-                    TextField("command", text: $commandText)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(.body, design: .monospaced))
-                        .onSubmit { sendCommand() }
-
-                    SmallButton("Send") { sendCommand() }
-                }
-                .padding(6)
-                .background(Color(.windowBackgroundColor))
             }
             .frame(minWidth: 400, idealWidth: 600)
             .layoutPriority(1)
         }
         .frame(minWidth: 900, minHeight: 500)
+        .environment(\.themeColors, ThemeColors.colors(isDark: boardState.isDarkMode))
         .onAppear {
-            if tabManager.tabs.isEmpty, let app = ghostty.app {
-                tabManager.newTab(app: app)
+            if let app = ghostty.app {
+                if tabManager.tabs.isEmpty {
+                    tabManager.newTab(app: app)
+                }
+                sessionManager.configure(tabManager: tabManager, app: app)
+                boardState.configure(sessionManager: sessionManager)
             }
         }
-    }
-
-    private func sendCommand() {
-        guard !commandText.isEmpty, let tab = tabManager.activeTab else { return }
-        tab.surfaceView.sendText(commandText)
-        tab.surfaceView.sendEnter()
     }
 }
 
@@ -156,130 +149,6 @@ struct SurfaceViewWrapper: NSViewRepresentable {
     func updateNSView(_ nsView: GhosttySurfaceView, context: Context) {}
 }
 
-// MARK: - Left Panel
-
-struct LeftPanel: View {
-    @Binding var commandText: String
-    @ObservedObject var tabManager: TerminalTabManager
-    @EnvironmentObject private var ghostty: GhosttyApp
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HeaderView(tabManager: tabManager)
-            Divider()
-            ScrollView {
-                VStack(spacing: 8) {
-                    sectionHeader("Tab Management")
-                    SmallButton("+ New Tab") {
-                        if let app = ghostty.app {
-                            tabManager.newTab(app: app)
-                        }
-                    }
-                    SmallButton("Close Current Tab", color: .red) {
-                        if let id = tabManager.activeTabID {
-                            tabManager.closeTab(id: id)
-                        }
-                    }
-
-                    sectionHeader("Switch Tab")
-                    HStack(spacing: 4) {
-                        ForEach(tabManager.tabs) { tab in
-                            SmallButton(tab.title) { tabManager.selectTab(id: tab.id) }
-                        }
-                    }
-
-                    sectionHeader("Send Command")
-                    Picker("", selection: $commandText) {
-                        Text("(type command)").tag("")
-                        Text("echo hello").tag("echo hello")
-                        Text("pwd").tag("pwd")
-                        Text("ls -la").tag("ls -la")
-                        Text("top").tag("top")
-                        Text("claude --help").tag("claude --help")
-                    }
-                    .pickerStyle(.menu).labelsHidden()
-
-                    TextField("command", text: $commandText)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(.body, design: .monospaced))
-
-                    HStack(spacing: 4) {
-                        SmallButton("Send") {
-                            guard !commandText.isEmpty else { return }
-                            tabManager.activeTab?.surfaceView.sendText(commandText)
-                            tabManager.activeTab?.surfaceView.sendEnter()
-                        }
-                    }
-
-                    Divider()
-                    sectionHeader("Terminal Control")
-                    SmallButton("^C") { tabManager.activeTab?.surfaceView.sendText("\u{3}") }
-                    SmallButton("^D") { tabManager.activeTab?.surfaceView.sendText("\u{4}") }
-                    SmallButton("^Z") { tabManager.activeTab?.surfaceView.sendText("\u{1a}") }
-                    SmallButton("clear") {
-                        tabManager.activeTab?.surfaceView.sendText("clear")
-                        tabManager.activeTab?.surfaceView.sendEnter()
-                    }
-                }
-                .padding(12)
-            }
-        }
-        .background(Color(.windowBackgroundColor))
-    }
-
-    private func sectionHeader(_ title: String) -> some View {
-        HStack {
-            Text(title).font(.caption).fontWeight(.semibold)
-                .foregroundColor(.secondary).textCase(.uppercase)
-            Spacer()
-        }
-        .padding(.top, 6)
-    }
-}
-
-struct HeaderView: View {
-    @ObservedObject var tabManager: TerminalTabManager
-
-    var body: some View {
-        HStack {
-            Circle()
-                .fill(tabManager.activeTab != nil ? Color.green : Color.red)
-                .frame(width: 10, height: 10)
-            Text("Ghostty Demo")
-                .font(.headline)
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Color(.controlBackgroundColor).opacity(0.5))
-    }
-}
-
-// MARK: - Sub-views
-
-struct SmallButton: View {
-    let title: String
-    var color: Color = .accentColor
-    let action: () -> Void
-
-    init(_ title: String, color: Color = .accentColor, action: @escaping () -> Void) {
-        self.title = title; self.color = color; self.action = action
-    }
-
-    var body: some View {
-        Button(action: action) {
-            HStack {
-                Text(title).font(.system(size: 12, weight: .medium))
-                Spacer()
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(color.opacity(0.12))
-            .cornerRadius(6)
-        }
-        .buttonStyle(.plain)
-    }
-}
 
 // MARK: - Middle-click Close on Tab
 
