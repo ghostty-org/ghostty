@@ -35,7 +35,7 @@ struct TaskSidebarView: View {
                     if !hasSeenTasksPreviewNotice {
                         SidebarCalloutCard(
                             iconName: "wrench.and.screwdriver.fill",
-                            message: "Tasks is an early preview. Things may change. Send feedback to sean@seansmithdesign.com.",
+                            message: "Tasks is a preview of what's coming — it isn't wired up yet. Send feedback to sean@seansmithdesign.com.",
                             onDismiss: { hasSeenTasksPreviewNotice = true }
                         )
                         .padding(.horizontal, 8)
