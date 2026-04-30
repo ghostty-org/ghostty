@@ -41,7 +41,12 @@
           }
         },
         {
+          "image-name" : "Ghostties-Dev-Blueprint-1024.png",
+          "name" : "Ghostties-Dev-Blueprint-1024"
+        },
+        {
           "blend-mode" : "darken",
+          "hidden" : true,
           "image-name" : "screen-mask.png",
           "name" : "screen-mask",
           "position" : {
@@ -53,7 +58,7 @@
           }
         },
         {
-          "hidden" : false,
+          "hidden" : true,
           "image-name" : "screen-dark.png",
           "name" : "screen-dark",
           "position" : {
