@@ -86,7 +86,6 @@ struct SessionCreateModal: View {
     let ghosttyApp: ghostty_app_t
 
     @State private var isWorkTree = false
-    @State private var worktreeName = ""
     @Environment(\.dismiss) var dismiss
 
     var body: some View {
@@ -94,10 +93,6 @@ struct SessionCreateModal: View {
             Text("New Session").font(.headline)
 
             Toggle("Git Worktree", isOn: $isWorkTree)
-            if isWorkTree {
-                TextField("Worktree Name", text: $worktreeName)
-                    .textFieldStyle(.roundedBorder)
-            }
 
             HStack {
                 Button("Cancel") { dismiss() }
@@ -105,7 +100,8 @@ struct SessionCreateModal: View {
                     _ = sessionManager.createSession(
                         for: taskId,
                         worktree: isWorkTree,
-                        branch: worktreeName.isEmpty ? "main" : worktreeName,
+                        branch: "main",
+                        cwd: boardState.workspacePath,
                         boardState: boardState
                     )
                     dismiss()

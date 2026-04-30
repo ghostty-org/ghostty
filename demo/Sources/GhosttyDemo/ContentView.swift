@@ -63,6 +63,12 @@ struct ContentView: View {
                 }
                 sessionManager.configure(tabManager: tabManager, app: app)
                 boardState.configure(sessionManager: sessionManager)
+
+                // If workspace is set, cd the initial terminal into it
+                if let ws = boardState.workspacePath, let tab = tabManager.activeTab {
+                    tab.surfaceView.sendText("cd \(ws)")
+                    tab.surfaceView.sendEnter()
+                }
             }
         }
     }

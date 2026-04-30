@@ -63,7 +63,7 @@ final class SessionManager: ObservableObject {
         tabManager.newTab(app: ghosttyApp)
         let tabID = tabManager.activeTabID!
 
-        // 2. Send Claude command after a short delay
+        // 2. Send cd to workspace then Claude command
         let command: String
         if worktree {
             command = "claude --permission-mode bypassPermissions --worktree"
@@ -73,6 +73,10 @@ final class SessionManager: ObservableObject {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak tabManager] in
             guard let tabManager else { return }
+            if let cwd {
+                tabManager.activeTab?.surfaceView.sendText("cd \(cwd)")
+                tabManager.activeTab?.surfaceView.sendEnter()
+            }
             tabManager.activeTab?.surfaceView.sendText(command)
             tabManager.activeTab?.surfaceView.sendEnter()
         }
@@ -194,6 +198,25 @@ final class SessionManager: ObservableObject {
         if let index = sessions.firstIndex(where: { $0.id.uuidString.uppercased() == parsed.sessionId.uppercased() }) {
             sessions[index].sessionId = parsed.sessionId
             applyParsed(parsed, to: &sessions[index])
+        }
+    }
+
+    // MARK: - Workspace
+
+    /// Sends `cd <path>` to ALL terminal tabs and updates session cwds.
+    /// Called when the user switches to a new workspace folder.
+    func broadcastWorkspaceChange(path: String) {
+        guard let tabManager else { return }
+
+        // Update cwd on all sessions
+        for index in sessions.indices {
+            sessions[index].cwd = path
+        }
+
+        // Send cd to every terminal tab, not just session-linked ones
+        for tab in tabManager.tabs {
+            tab.surfaceView.sendText("cd \(path)")
+            tab.surfaceView.sendEnter()
         }
     }
 

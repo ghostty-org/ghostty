@@ -4,7 +4,22 @@ final class Persistence {
     static let shared = Persistence()
 
     private let fileManager = FileManager.default
+
+    /// Optional workspace path. When set, tasks.json is stored here.
+    /// When nil, falls back to ~/Library/Application Support/KanbanBoard/tasks.json
+    var workspacePath: String?
+
     private var tasksFileURL: URL {
+        if let workspacePath {
+            let url = URL(fileURLWithPath: workspacePath)
+                .appendingPathComponent(".kanban")
+                .appendingPathComponent("tasks.json")
+            let dir = url.deletingLastPathComponent()
+            if !fileManager.fileExists(atPath: dir.path) {
+                try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+            }
+            return url
+        }
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let appFolder = appSupport.appendingPathComponent("KanbanBoard", isDirectory: true)
 

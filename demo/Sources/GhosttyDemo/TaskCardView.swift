@@ -21,28 +21,33 @@ struct TaskCardView: View {
                 Rectangle().fill(priorityColor).frame(width: 4)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    // Title row + description + footer (task edit tap zone)
-                    VStack(alignment: .leading, spacing: 4) {
-                        // Title row
-                        HStack {
-                            Text(task.title).font(.system(size: 12, weight: .medium))
-                                .lineLimit(2).foregroundColor(colors.textPrimary)
-                            Spacer()
-                            // Expand/collapse button
-                            Button(action: { boardState.toggleTaskExpanded(task.id) }) {
-                                Image(systemName: task.isExpanded ? "chevron.up" : "chevron.down")
-                                    .font(.system(size: 10)).foregroundColor(colors.textMuted)
-                            }
-                            .buttonStyle(.plain)
-                        }
+                    // Title row: title is tappable, chevron is not
+                    HStack(alignment: .top) {
+                        Text(task.title).font(.system(size: 12, weight: .medium))
+                            .lineLimit(2).foregroundColor(colors.textPrimary)
+                            .contentShape(Rectangle())
+                            .onTapGesture(count: 2) { showEditModal = true }
 
-                        // Description snippet
+                        Spacer()
+
+                        // Expand/collapse button (outside double-tap zone)
+                        Button(action: { boardState.toggleTaskExpanded(task.id) }) {
+                            Image(systemName: task.isExpanded ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(colors.textMuted)
+                                .frame(width: 28, height: 28)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    // Description snippet + footer (task edit tap zone)
+                    VStack(alignment: .leading, spacing: 4) {
                         if !task.description.isEmpty {
                             Text(task.description).font(.system(size: 10))
                                 .lineLimit(2).foregroundColor(colors.textSecondary)
                         }
 
-                        // Footer: priority badge + session count
                         HStack(spacing: 8) {
                             PriorityBadge(priority: task.priority)
                             if !task.sessions.isEmpty {
@@ -133,7 +138,6 @@ struct SessionPanelView: View {
 
     @State private var showCreateSession = false
     @State private var createWorktree = false
-    @State private var createBranch = "main"
     @Environment(\.themeColors) var colors
 
     var body: some View {
@@ -174,26 +178,18 @@ struct SessionPanelView: View {
 
                 Toggle("Create worktree", isOn: $createWorktree)
 
-                if createWorktree {
-                    HStack {
-                        Text("Branch:").font(.caption)
-                        TextField("branch name", text: $createBranch)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                }
-
                 HStack(spacing: 12) {
                     Button("Cancel") { showCreateSession = false }
                     Button("Create") {
                         _ = sessionManager.createSession(
                             for: taskId,
                             worktree: createWorktree,
-                            branch: createBranch,
+                            branch: "main",
+                            cwd: boardState.workspacePath,
                             boardState: boardState
                         )
                         showCreateSession = false
                         createWorktree = false
-                        createBranch = "main"
                     }
                     .buttonStyle(.borderedProminent)
                 }

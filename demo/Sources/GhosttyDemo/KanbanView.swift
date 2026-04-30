@@ -79,7 +79,21 @@ struct KanbanToolbar: View {
     var body: some View {
         HStack {
             Text("Kanban").font(.headline)
+
+            if let path = boardState.workspacePath {
+                Text(path)
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 120)
+            }
+
             Spacer()
+            Button(action: { boardState.selectWorkspace() }) {
+                Image(systemName: "folder")
+            }
+            .help("Select workspace folder")
             Button(action: { showNewTaskModal = true }) {
                 Image(systemName: "plus")
             }

@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import UniformTypeIdentifiers
 
 @MainActor
 final class BoardState: ObservableObject {
@@ -8,12 +9,16 @@ final class BoardState: ObservableObject {
 
     @Published var tasks: [KanbanTask] = []
     @Published var isDarkMode: Bool = false
+    @Published var workspacePath: String?
 
     private let persistence = Persistence.shared
     private var sessionManager: SessionManager?
     private var cancellables: Set<AnyCancellable> = []
 
+    private let workspacePathKey = "kanban-workspace-path"
+
     private init() {
+        loadWorkspacePath()
         load()
         loadTheme()
     }
@@ -24,6 +29,49 @@ final class BoardState: ObservableObject {
     func configure(sessionManager: SessionManager) {
         self.sessionManager = sessionManager
         sessionManager.reconcile(from: tasks)
+    }
+
+    // MARK: - Workspace
+
+    private func loadWorkspacePath() {
+        workspacePath = UserDefaults.standard.string(forKey: workspacePathKey)
+        persistence.workspacePath = workspacePath
+    }
+
+    private func persistWorkspacePath() {
+        if let path = workspacePath {
+            UserDefaults.standard.set(path, forKey: workspacePathKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: workspacePathKey)
+        }
+    }
+
+    /// Opens an NSOpenPanel for the user to select a workspace folder.
+    /// On selection, saves the path to UserDefaults and launches a new
+    /// app instance configured for that workspace, then closes the current app.
+    func selectWorkspace() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.message = "Select a workspace folder"
+        panel.prompt = "Choose"
+
+        guard panel.runModal() == .OK, let selectedURL = panel.url else { return }
+
+        let path = selectedURL.path
+        workspacePath = path
+        persistence.workspacePath = path
+        persistWorkspacePath()
+
+        // Force sync so the new instance reads the fresh value
+        UserDefaults.standard.synchronize()
+
+        // Launch a new app instance alongside the current one
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: config)
     }
 
     // MARK: - Persistence
