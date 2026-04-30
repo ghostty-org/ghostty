@@ -17,11 +17,15 @@ class TerminalTabManager: ObservableObject {
         tabs.first { $0.id == activeTabID }
     }
 
-    func newTab(app: ghostty_app_t) {
+    func newTab(app: ghostty_app_t, workspacePath: String? = nil) {
         let sv = GhosttySurfaceView(app)
         let tab = Tab(surfaceView: sv)
         tabs.append(tab)
         activeTabID = tab.id
+        if let ws = workspacePath {
+            tab.surfaceView.sendText("cd \(ws)")
+            tab.surfaceView.sendEnter()
+        }
     }
 
     func selectTab(id: UUID) {

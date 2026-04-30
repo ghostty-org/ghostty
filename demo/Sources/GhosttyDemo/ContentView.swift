@@ -26,6 +26,7 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 // Tab Bar
                 TabBarView(tabManager: tabManager)
+                    .environmentObject(boardState)
 
                 // Terminal area (stacked views, only active is visible)
                 ZStack {
@@ -78,6 +79,8 @@ struct ContentView: View {
 // MARK: - Tab Bar
 
 struct TabBarView: View {
+    @EnvironmentObject private var ghostty: GhosttyApp
+    @EnvironmentObject private var boardState: BoardState
     @ObservedObject var tabManager: TerminalTabManager
 
     var body: some View {
@@ -94,8 +97,9 @@ struct TabBarView: View {
                 }
 
                 Button(action: {
-                    // New tab button — needs the app handle from environment
-                    // This is handled via the environmentObject in ContentView
+                    if let app = ghostty.app {
+                        tabManager.newTab(app: app, workspacePath: boardState.workspacePath)
+                    }
                 }) {
                     Image(systemName: "plus")
                         .font(.system(size: 11, weight: .bold))
