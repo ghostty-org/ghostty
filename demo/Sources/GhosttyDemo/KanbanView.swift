@@ -20,37 +20,38 @@ struct KanbanView: View {
             GeometryReader { geometry in
                 let isHorizontal = geometry.size.width >= 360
                 if isHorizontal {
-                    horizontalLayout
-                        .frame(height: geometry.size.height)
+                    horizontalContent(availableHeight: geometry.size.height)
                 } else {
-                    verticalLayout
+                    verticalContent
                 }
             }
         }
         .background(colors.bgPrimary)
     }
 
-    // MARK: - Adaptive Layouts
-
     @ViewBuilder
-    private var horizontalLayout: some View {
-        HStack(spacing: 6) {
-            ForEach(Status.allCases) { status in
-                KanbanColumnView(
-                    status: status,
-                    tasks: boardState.tasks(for: status),
-                    boardState: boardState,
-                    sessionManager: sessionManager,
-                    tabManager: tabManager,
-                    ghosttyApp: ghosttyApp
-                )
+    private func horizontalContent(availableHeight: CGFloat) -> some View {
+        ScrollView(.horizontal, showsIndicators: true) {
+            let pad: CGFloat = 6
+            HStack(spacing: pad) {
+                ForEach(Status.allCases) { status in
+                    KanbanColumnView(
+                        status: status,
+                        tasks: boardState.tasks(for: status),
+                        boardState: boardState,
+                        sessionManager: sessionManager,
+                        tabManager: tabManager,
+                        ghosttyApp: ghosttyApp
+                    )
+                    .frame(minHeight: 0, maxHeight: .infinity)
+                }
             }
+            .padding(pad)
         }
-        .padding(6)
     }
 
     @ViewBuilder
-    private var verticalLayout: some View {
+    private var verticalContent: some View {
         ScrollView(.vertical) {
             VStack(spacing: 6) {
                 ForEach(Status.allCases) { status in

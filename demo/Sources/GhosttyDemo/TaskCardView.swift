@@ -66,6 +66,8 @@ struct TaskCardView: View {
                     }
                 }
                 .padding(8)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) { showEditModal = true }
             }
         }
         .background(colors.taskBg)
@@ -77,7 +79,6 @@ struct TaskCardView: View {
         .shadow(color: Color.black.opacity(0.04), radius: 2, y: 1)
         .draggable(task.id.uuidString)
         .onHover { isHovering = $0 }
-        .onTapGesture(count: 2) { showEditModal = true }
         .sheet(isPresented: $showEditModal) {
             TaskEditModal(task: task, boardState: boardState)
         }

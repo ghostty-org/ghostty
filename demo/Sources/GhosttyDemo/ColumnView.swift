@@ -3,12 +3,6 @@ import GhosttyRuntime
 
 // MARK: - KanbanColumnView
 
-/// A single column in the kanban board.
-///
-/// Displays:
-///   - A colored header with status title and task count badge
-///   - A scrollable list of `TaskCardView` items
-///   - Drop-destination support for cross-column drag-and-drop moves
 struct KanbanColumnView: View {
     let status: Status
     let tasks: [KanbanTask]
@@ -22,8 +16,8 @@ struct KanbanColumnView: View {
     var body: some View {
         VStack(spacing: 0) {
             columnHeader
-            ScrollView(.vertical) {
-                LazyVStack(spacing: 8) {
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(spacing: 8) {
                     ForEach(tasks) { task in
                         TaskCardView(
                             task: task,
@@ -36,9 +30,8 @@ struct KanbanColumnView: View {
                 }
                 .padding(6)
             }
-            .scrollIndicators(.automatic)
         }
-        .frame(minWidth: 240)
+        .frame(minWidth: 200, maxHeight: .infinity, alignment: .top)
         .background(colors.columnBg)
         .cornerRadius(8)
         .overlay(
@@ -77,14 +70,10 @@ struct KanbanColumnView: View {
 
     private var columnColor: Color {
         switch status {
-        case .todo:
-            return colors.accent
-        case .inProgress:
-            return colors.warning
-        case .review:
-            return colors.worktree
-        case .done:
-            return colors.success
+        case .todo:     return colors.accent
+        case .inProgress: return colors.warning
+        case .review:   return colors.worktree
+        case .done:     return colors.success
         }
     }
 }
