@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import GhosttyKit
 
 // MARK: - SessionManager
@@ -25,6 +26,14 @@ final class SessionManager: ObservableObject {
 
     private var tabManager: TerminalTabManager?
     private var ghosttyApp: ghostty_app_t?
+    private var cancellables: Set<AnyCancellable> = []
+
+    /// The workspace path to match new JSONL files against.
+    private var currentWorkspacePath: String?
+
+    /// Ordered list of session IDs waiting to be matched with a real sessionId.
+    /// We match the first one (FIFO) to new sessions from the JsonlWatcher.
+    private var pendingSessionQueue: [UUID] = []
 
     // MARK: - Internal indexing
 
@@ -41,6 +50,15 @@ final class SessionManager: ObservableObject {
     func configure(tabManager: TerminalTabManager, app: ghostty_app_t) {
         self.tabManager = tabManager
         self.ghosttyApp = app
+        self.currentWorkspacePath = BoardState.shared.workspacePath
+
+        // When BoardState removes a session, clean up our indexes and close the tab.
+        BoardState.shared.$tasks
+            .dropFirst()
+            .sink { [weak self] newTasks in
+                self?.handleBoardStateChange(newTasks: newTasks)
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Session lifecycle
@@ -63,7 +81,21 @@ final class SessionManager: ObservableObject {
         tabManager.newTab(app: ghosttyApp)
         let tabID = tabManager.activeTabID!
 
-        // 2. Send cd to workspace then Claude command
+        // 2. Build session record (sessionId will be set by JsonlWatcher later)
+        let localId = UUID()
+        let session = Session(
+            id: localId,
+            title: "New Session",
+            status: .running,
+            timestamp: Date(),
+            isWorkTree: worktree,
+            branch: branch,
+            sessionId: nil,
+            tabID: tabID,
+            cwd: cwd
+        )
+
+        // 3. Send Claude command (no --session-id — Claude generates its own)
         let command: String
         if worktree {
             command = "claude --permission-mode bypassPermissions --worktree"
@@ -81,20 +113,10 @@ final class SessionManager: ObservableObject {
             tabManager.activeTab?.surfaceView.sendEnter()
         }
 
-        // 3. Build session record
-        let session = Session(
-            title: "New Session",
-            status: .running,
-            timestamp: Date(),
-            isWorkTree: worktree,
-            branch: branch,
-            tabID: tabID,
-            cwd: cwd
-        )
-
         // 4. Register in our indexes
         upsertSession(session)
         appendToTask(taskID: taskID, sessionID: session.id)
+        pendingSessionQueue.append(localId)
 
         // 5. Persist via BoardState
         boardState.addSession(to: taskID, session: session)
@@ -117,18 +139,32 @@ final class SessionManager: ObservableObject {
             tabManager.newTab(app: ghosttyApp)
             let newTabID = tabManager.activeTabID!
 
+            // cd to the workspace directory so claude --resume finds the session file
+            let cwd = session.cwd ?? BoardState.shared.workspacePath
+
             let resumeID = session.sessionId ?? session.id.uuidString.uppercased()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak tabManager] in
                 guard let tabManager else { return }
+                if let cwd {
+                    tabManager.activeTab?.surfaceView.sendText("cd \(cwd)")
+                    tabManager.activeTab?.surfaceView.sendEnter()
+                }
                 tabManager.activeTab?.surfaceView.sendText(
                     "claude --resume \(resumeID) --permission-mode bypassPermissions"
                 )
                 tabManager.activeTab?.surfaceView.sendEnter()
             }
 
-            // Update the session with the new tab ID
+            // Update the session with the new tab ID in both SessionManager and BoardState
             if let index = sessions.firstIndex(where: { $0.id == session.id }) {
                 sessions[index].tabID = newTabID
+                if let taskID = sessionTaskMap[session.id] {
+                    BoardState.shared.updateSessionTabID(
+                        taskId: taskID,
+                        sessionId: session.id,
+                        tabID: newTabID
+                    )
+                }
             }
         }
     }
@@ -155,9 +191,17 @@ final class SessionManager: ObservableObject {
 
     /// Called by `TerminalTabManager` (or an observer) when a tab is externally closed.
     /// Unlinks the tab from any session without removing the session itself.
+    /// Also syncs the nil tabID to BoardState for persistence.
     func unlinkTab(tabID: UUID) {
         if let index = sessions.firstIndex(where: { $0.tabID == tabID }) {
             sessions[index].tabID = nil
+            if let taskID = sessionTaskMap[sessions[index].id] {
+                BoardState.shared.updateSessionTabID(
+                    taskId: taskID,
+                    sessionId: sessions[index].id,
+                    tabID: nil
+                )
+            }
         }
     }
 
@@ -189,15 +233,33 @@ final class SessionManager: ObservableObject {
     /// Matching is tried by:
     ///   1. `session.sessionId == parsed.sessionId`
     ///   2. `session.id.uuidString.uppercased() == parsed.sessionId.uppercased()`
+    ///   3. `session.sessionId == nil` (defensive, for pre-fix data migration)
+    ///
+    /// After updating the local record, the change is also propagated to
+    /// `BoardState.shared` for persistence.
     func updateSession(from parsed: ParsedSession) {
+        var matchedIndex: Int?
+
         if let index = sessions.firstIndex(where: { $0.sessionId == parsed.sessionId }) {
-            applyParsed(parsed, to: &sessions[index])
-            return
+            matchedIndex = index
+        } else if let index = sessions.firstIndex(where: { $0.id.uuidString.uppercased() == parsed.sessionId.uppercased() }) {
+            sessions[index].sessionId = parsed.sessionId
+            matchedIndex = index
+        } else if let index = sessions.firstIndex(where: { $0.sessionId == nil }) {
+            sessions[index].sessionId = parsed.sessionId
+            matchedIndex = index
         }
 
-        if let index = sessions.firstIndex(where: { $0.id.uuidString.uppercased() == parsed.sessionId.uppercased() }) {
-            sessions[index].sessionId = parsed.sessionId
-            applyParsed(parsed, to: &sessions[index])
+        guard let matchedIndex else { return }
+        applyParsed(parsed, to: &sessions[matchedIndex])
+
+        // Propagate to BoardState for persistence
+        if let taskID = sessionTaskMap[sessions[matchedIndex].id] {
+            BoardState.shared.updateSessionFromParsed(
+                taskId: taskID,
+                sessionId: sessions[matchedIndex].id,
+                parsed: parsed
+            )
         }
     }
 
@@ -244,15 +306,60 @@ final class SessionManager: ObservableObject {
         sessionTaskMap = sessionToTask
     }
 
+    // MARK: - BoardState sync
+
+    /// Detects sessions removed from BoardState and cleans up our indexes + closes tabs.
+    private func handleBoardStateChange(newTasks: [KanbanTask]) {
+        let currentSessionIDs = Set(sessions.map { $0.id })
+        let boardSessionIDs = Set(newTasks.flatMap { $0.sessions.map { $0.id } })
+        let removedIDs = currentSessionIDs.subtracting(boardSessionIDs)
+
+        for sessionId in removedIDs {
+            // Close the terminal tab if one is linked
+            if let session = session(for: sessionId), let tabID = session.tabID {
+                tabManager?.closeTab(id: tabID)
+            }
+
+            // Clean up internal indexes
+            sessions.removeAll { $0.id == sessionId }
+            if let taskID = sessionTaskMap[sessionId] {
+                taskSessionIDs[taskID]?.remove(sessionId)
+                sessionTaskMap.removeValue(forKey: sessionId)
+            }
+        }
+    }
+
+    /// Called by JsonlWatcher when a new sessionId appears in a JSONL file.
+    /// Matches it to the first pending session (FIFO matching).
+    func matchNewSessionId(_ claudeSessionId: String) {
+        guard let sessionLocalId = pendingSessionQueue.first else { return }
+
+        // Update SessionManager's session
+        if let index = sessions.firstIndex(where: { $0.id == sessionLocalId }) {
+            sessions[index].sessionId = claudeSessionId
+
+            // Propagate to BoardState for persistence
+            if let taskID = sessionTaskMap[sessionLocalId] {
+                BoardState.shared.updateSessionFromParsed(
+                    taskId: taskID,
+                    sessionId: sessionLocalId,
+                    parsed: ParsedSession(sessionId: claudeSessionId)
+                )
+            }
+        }
+
+        pendingSessionQueue.removeFirst()
+    }
+
     // MARK: - Private helpers
 
     /// Applies `ParsedSession` fields onto a mutable `Session`.
+    /// Note: timestamp is NOT overwritten — it represents session creation time.
     private func applyParsed(_ parsed: ParsedSession, to session: inout Session) {
         if !parsed.title.isEmpty {
             session.title = parsed.title
         }
         session.status = parsed.status
-        session.timestamp = parsed.timestamp
         if let branch = parsed.branch, !branch.isEmpty {
             session.branch = branch
         }

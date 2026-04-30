@@ -195,9 +195,9 @@ struct ParsedSession {
 /// Usage:
 /// ```swift
 /// let watcher = JsonlWatcher(path: claudeProjectsPath)
-/// watcher.start { statuses in
-///     // statuses is [sessionId: SessionStatus]
-///     // merge into your SessionManager or board state
+/// watcher.start { sessions in
+///     // sessions is [sessionId: ParsedSession]
+///     // merge into your SessionManager via updateSession(from:)
 /// }
 /// ```
 class JsonlWatcher {
@@ -206,7 +206,11 @@ class JsonlWatcher {
     private var fileOffsets: [String: UInt64] = [:]  // incremental parse tracking
     private let processingQueue = DispatchQueue(label: "com.ghostty.jsonl-watcher", qos: .utility)
     private var lastModificationDates: [String: Date] = [:]
-    private var onChange: (([String: SessionStatus]) -> Void)?
+    private var onChange: (([String: ParsedSession]) -> Void)?
+    private var onNewSessionId: ((String) -> Void)?
+
+    /// Session IDs seen in previous scans; used to detect newly created sessions.
+    private var seenSessionIds: Set<String> = []
 
     // Debounce
     private var debounceWorkItem: DispatchWorkItem?
@@ -232,8 +236,12 @@ class JsonlWatcher {
 
     /// Start monitoring.  Triggers an initial scan immediately and then
     /// watches for directory-level changes on the processing queue.
-    func start(onChange: @escaping ([String: SessionStatus]) -> Void) {
+    func start(
+        onChange: @escaping ([String: ParsedSession]) -> Void,
+        onNewSessionId: @escaping (String) -> Void
+    ) {
         self.onChange = onChange
+        self.onNewSessionId = onNewSessionId
 
         guard FileManager.default.fileExists(atPath: path) else { return }
 
@@ -297,7 +305,7 @@ class JsonlWatcher {
     /// known values, and parse any that have changed.
     private func performScan() {
         let jsonlFiles = enumerateJsonlFiles()
-        var changedStatuses: [String: SessionStatus] = [:]
+        var changedSessions: [String: ParsedSession] = [:]
 
         for filePath in jsonlFiles {
             // Skip sub-agent directories
@@ -324,14 +332,26 @@ class JsonlWatcher {
             }
 
             for (sessionId, session) in parsed {
-                changedStatuses[sessionId] = session.status
+                changedSessions[sessionId] = session
             }
         }
 
-        guard !changedStatuses.isEmpty else { return }
+        guard !changedSessions.isEmpty else { return }
+
+        // Detect new session IDs (not seen in previous scans)
+        var newIds: [String] = []
+        for sessionId in changedSessions.keys {
+            if !seenSessionIds.contains(sessionId) {
+                seenSessionIds.insert(sessionId)
+                newIds.append(sessionId)
+            }
+        }
 
         DispatchQueue.main.async { [weak self] in
-            self?.onChange?(changedStatuses)
+            self?.onChange?(changedSessions)
+            for sessionId in newIds {
+                self?.onNewSessionId?(sessionId)
+            }
         }
     }
 

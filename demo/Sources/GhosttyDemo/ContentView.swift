@@ -10,6 +10,9 @@ struct ContentView: View {
     @StateObject private var boardState = BoardState.shared
     @StateObject private var sessionManager = SessionManager.shared
 
+    // JsonlWatcher is kept alive by this @State reference
+    @State private var jsonlWatcher: JsonlWatcher?
+
     var body: some View {
         HSplitView {
             KanbanView(
@@ -25,7 +28,7 @@ struct ContentView: View {
             // Right: tab bar + terminal
             VStack(spacing: 0) {
                 // Tab Bar
-                TabBarView(tabManager: tabManager)
+                TabBarView(tabManager: tabManager, sessionManager: sessionManager)
                     .environmentObject(boardState)
 
                 // Terminal area (stacked views, only active is visible)
@@ -71,6 +74,36 @@ struct ContentView: View {
                     tab.surfaceView.sendEnter()
                 }
             }
+
+            // Start monitoring Claude JSONL session files for the current workspace
+            let claudeProjects = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".claude/projects").path
+
+            // Determine the workspace-specific subdirectory to watch
+            let watchPath: String
+            if let ws = boardState.workspacePath {
+                // Encode the workspace path the same way Claude does
+                let encoded = ws.replacingOccurrences(of: "/", with: "-")
+                    .replacingOccurrences(of: ".", with: "-")
+                    .replacingOccurrences(of: ":", with: "-")
+                    .replacingOccurrences(of: " ", with: "-")
+                watchPath = claudeProjects + "/" + encoded
+            } else {
+                watchPath = claudeProjects
+            }
+
+            let sessionWatcher = JsonlWatcher(path: watchPath)
+            sessionWatcher.start(
+                onChange: { [sessionManager] parsedSessions in
+                    for (_, parsed) in parsedSessions {
+                        sessionManager.updateSession(from: parsed)
+                    }
+                },
+                onNewSessionId: { [sessionManager] sessionId in
+                    sessionManager.matchNewSessionId(sessionId)
+                }
+            )
+            jsonlWatcher = sessionWatcher
         }
     }
 
@@ -82,6 +115,7 @@ struct TabBarView: View {
     @EnvironmentObject private var ghostty: GhosttyApp
     @EnvironmentObject private var boardState: BoardState
     @ObservedObject var tabManager: TerminalTabManager
+    @ObservedObject var sessionManager: SessionManager
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -92,7 +126,10 @@ struct TabBarView: View {
                         isActive: tab.id == tabManager.activeTabID,
                         canClose: tabManager.tabs.count > 1,
                         onSelect: { tabManager.selectTab(id: tab.id) },
-                        onClose: { tabManager.closeTab(id: tab.id) }
+                        onClose: {
+                            tabManager.closeTab(id: tab.id)
+                            sessionManager.unlinkTab(tabID: tab.id)
+                        }
                     )
                 }
 

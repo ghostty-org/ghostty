@@ -174,6 +174,42 @@ final class BoardState: ObservableObject {
         }
     }
 
+    /// Updates a session's tabID (e.g., after resume creates a new tab, or unlink removes it).
+    func updateSessionTabID(taskId: UUID, sessionId: UUID, tabID: UUID?) {
+        if let taskIndex = tasks.firstIndex(where: { $0.id == taskId }),
+           let sessionIndex = tasks[taskIndex].sessions.firstIndex(where: { $0.id == sessionId }) {
+            tasks[taskIndex].sessions[sessionIndex].tabID = tabID
+            save()
+        }
+    }
+
+    /// Updates a session's metadata from a ParsedSession (JsonlWatcher data).
+    /// Covers title, status, branch, isWorkTree, cwd, and sessionId.
+    /// Note: timestamp is NOT overwritten — it represents session creation time.
+    func updateSessionFromParsed(taskId: UUID, sessionId: UUID, parsed: ParsedSession) {
+        guard let taskIndex = tasks.firstIndex(where: { $0.id == taskId }),
+              let sessionIndex = tasks[taskIndex].sessions.firstIndex(where: { $0.id == sessionId }) else {
+            return
+        }
+
+        var session = tasks[taskIndex].sessions[sessionIndex]
+        if !parsed.title.isEmpty {
+            session.title = parsed.title
+        }
+        session.status = parsed.status
+        if let branch = parsed.branch, !branch.isEmpty {
+            session.branch = branch
+        }
+        session.isWorkTree = parsed.isWorkTree
+        if let cwd = parsed.cwd {
+            session.cwd = cwd
+        }
+        session.sessionId = parsed.sessionId
+
+        tasks[taskIndex].sessions[sessionIndex] = session
+        save()
+    }
+
     // MARK: - Helpers
 
     func tasks(for status: Status) -> [KanbanTask] {

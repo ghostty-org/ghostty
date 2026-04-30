@@ -9,19 +9,21 @@ struct TaskCardView: View {
     @ObservedObject var sessionManager: SessionManager
     let tabManager: TerminalTabManager
     let ghosttyApp: ghostty_app_t
+    @ObservedObject var dragState: DragDropState
+    var insertedTaskId: UUID?
 
     @State private var isHovering = false
     @State private var showEditModal = false
+    @State private var cardFrame: CGRect = .zero
+    @State private var hasPoppedIn = false
     @Environment(\.themeColors) var colors
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 0) {
-                // Priority color strip
                 Rectangle().fill(priorityColor).frame(width: 4)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    // Title row: title is tappable, chevron is not
                     HStack(alignment: .top) {
                         Text(task.title).font(.system(size: 12, weight: .medium))
                             .lineLimit(2).foregroundColor(colors.textPrimary)
@@ -30,7 +32,6 @@ struct TaskCardView: View {
 
                         Spacer()
 
-                        // Expand/collapse button (outside double-tap zone)
                         Button(action: { boardState.toggleTaskExpanded(task.id) }) {
                             Image(systemName: task.isExpanded ? "chevron.up" : "chevron.down")
                                 .font(.system(size: 12, weight: .semibold))
@@ -41,7 +42,6 @@ struct TaskCardView: View {
                         .buttonStyle(.plain)
                     }
 
-                    // Description snippet + footer (task edit tap zone)
                     VStack(alignment: .leading, spacing: 4) {
                         if !task.description.isEmpty {
                             Text(task.description).font(.system(size: 10))
@@ -63,7 +63,6 @@ struct TaskCardView: View {
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) { showEditModal = true }
 
-                    // Expanded session panel (no task edit gesture)
                     if task.isExpanded {
                         SessionPanelView(
                             taskId: task.id,
@@ -82,22 +81,94 @@ struct TaskCardView: View {
         .cornerRadius(8)
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(isHovering ? colors.taskHoverBorder : colors.borderSubtle, lineWidth: 1)
+                .stroke(
+                    isHovering && !isBeingDragged ? colors.taskHoverBorder : colors.borderSubtle,
+                    lineWidth: 1
+                )
         )
-        .shadow(color: Color.black.opacity(0.04), radius: 2, y: 1)
-        .draggable(task.id.uuidString)
-        .onHover { isHovering = $0 }
+        .overlay(
+            isBeingDragged
+                ? RoundedRectangle(cornerRadius: 8)
+                    .stroke(colors.accent.opacity(0.2),
+                            style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                : nil
+        )
+        .shadow(color: isBeingDragged ? Color.clear : Color.black.opacity(isHovering ? 0.08 : 0.04),
+                radius: isHovering ? 6 : 2, y: isHovering ? 3 : 1)
+        .opacity(isBeingDragged ? 0.35 : 1.0)
+        .scaleEffect(popInScale)
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .preference(
+                        key: CardFramesKey.self,
+                        value: cardFrame == .zero ? [:] : [task.id: cardFrame]
+                    )
+                    .onAppear {
+                        updateFrame(geo)
+                    }
+                    .onChange(of: geo.frame(in: .named("board"))) { frame in
+                        cardFrame = frame
+                    }
+            }
+        )
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 5, coordinateSpace: .named("board"))
+                .onChanged { value in
+                    guard cardFrame != .zero else { return }
+                    if !dragState.isDragging {
+                        dragState.start(task: task, cardFrame: cardFrame)
+                    }
+                    dragState.updateGhost(translation: value.translation)
+                }
+                .onEnded { _ in
+                    dragState.endDrag()
+                }
+        )
+        .onHover { hovering in
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                isHovering = hovering
+            }
+        }
+        .onChange(of: insertedTaskId) { newId in
+            if newId == task.id {
+                hasPoppedIn = true
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) {
+                    hasPoppedIn = false
+                }
+            }
+        }
         .sheet(isPresented: $showEditModal) {
             TaskEditModal(task: task, boardState: boardState)
         }
     }
 
-    var priorityColor: Color {
+    // MARK: - Computed
+
+    private var isBeingDragged: Bool {
+        dragState.isDragging && dragState.draggedTask?.id == task.id
+    }
+
+    private var popInScale: CGFloat {
+        guard insertedTaskId == task.id else { return 1.0 }
+        return hasPoppedIn ? 0.92 : 1.0
+    }
+
+    private var priorityColor: Color {
         switch task.priority {
         case .p0: return colors.danger
         case .p1: return colors.warning
         case .p2: return colors.accent
         case .p3: return colors.textMuted
+        }
+    }
+
+    private func updateFrame(_ geo: GeometryProxy) {
+        let frame = geo.frame(in: .named("board"))
+        if frame != cardFrame {
+            DispatchQueue.main.async {
+                cardFrame = frame
+            }
         }
     }
 }
@@ -142,7 +213,6 @@ struct SessionPanelView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Session list
             ForEach(sessions) { session in
                 SessionRowView(
                     session: session,
@@ -154,7 +224,6 @@ struct SessionPanelView: View {
                 }
             }
 
-            // Add session button
             Button(action: { showCreateSession = true }) {
                 HStack(spacing: 4) {
                     Image(systemName: "plus.circle").font(.system(size: 10))
@@ -212,7 +281,6 @@ struct SessionRowView: View {
     var body: some View {
         Button(action: onResume) {
             HStack(spacing: 6) {
-                // Status dot: green=running, gray=idle, orange=needInput
                 Circle()
                     .fill(statusColor)
                     .frame(width: 6, height: 6)
@@ -252,7 +320,6 @@ struct SessionRowView: View {
 
                 Spacer(minLength: 4)
 
-                // Delete button
                 Button(action: onDelete) {
                     Image(systemName: "xmark")
                         .font(.system(size: 8, weight: .bold))

@@ -24,10 +24,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .environmentObject(ghosttyApp)
 
         let hostingView = NSHostingView(rootView: contentView)
-        hostingView.frame = NSRect(x: 0, y: 0, width: 900, height: 500)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 1350, height: 900)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 500),
+            contentRect: NSRect(x: 0, y: 0, width: 1350, height: 900),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
