@@ -69,7 +69,8 @@ struct ContentView: View {
 
     private func sendCommand() {
         guard !commandText.isEmpty, let tab = tabManager.activeTab else { return }
-        tab.surfaceView.sendText(commandText + "\n")
+        tab.surfaceView.sendText(commandText)
+        tab.surfaceView.sendEnter()
     }
 }
 
@@ -205,7 +206,8 @@ struct LeftPanel: View {
                     HStack(spacing: 4) {
                         SmallButton("Send") {
                             guard !commandText.isEmpty else { return }
-                            tabManager.activeTab?.surfaceView.sendText(commandText + "\n")
+                            tabManager.activeTab?.surfaceView.sendText(commandText)
+                            tabManager.activeTab?.surfaceView.sendEnter()
                         }
                     }
 
@@ -214,7 +216,10 @@ struct LeftPanel: View {
                     SmallButton("^C") { tabManager.activeTab?.surfaceView.sendText("\u{3}") }
                     SmallButton("^D") { tabManager.activeTab?.surfaceView.sendText("\u{4}") }
                     SmallButton("^Z") { tabManager.activeTab?.surfaceView.sendText("\u{1a}") }
-                    SmallButton("clear") { tabManager.activeTab?.surfaceView.sendText("clear\n") }
+                    SmallButton("clear") {
+                        tabManager.activeTab?.surfaceView.sendText("clear")
+                        tabManager.activeTab?.surfaceView.sendEnter()
+                    }
                 }
                 .padding(12)
             }

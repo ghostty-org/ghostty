@@ -52,6 +52,14 @@ public final class GhosttySurfaceView: NSView, ObservableObject {
         inner.surfaceModel?.sendText(text)
     }
 
+    /// Send a synthetic Enter key press via the key event path.
+    /// Unlike sendText("\n"), this goes through key encoding (not paste),
+    /// so it works correctly with bracketed paste mode enabled.
+    public func sendEnter() {
+        let event = Ghostty.Input.KeyEvent(key: .enter, action: .press)
+        inner.surfaceModel?.sendKeyEvent(event)
+    }
+
     public override func layout() {
         super.layout()
         scrollView.frame = bounds
