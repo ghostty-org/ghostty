@@ -113,6 +113,8 @@ struct ActiveZoneView: View {
                 .tracking(0.8)
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
 
+            PreviewBadge()
+
             Text("· \(rowCount) of ~\(taskStore.machineCap)")
                 .font(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))

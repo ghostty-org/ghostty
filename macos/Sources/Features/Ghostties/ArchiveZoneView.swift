@@ -66,11 +66,14 @@ struct ArchiveZoneView: View {
     // MARK: - Zone header
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 6) {
             Text("Graveyard".uppercased())
                 .font(.system(size: 10.5, weight: .semibold))
                 .tracking(0.8)
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+
+            PreviewBadge()
+
             Spacer(minLength: 0)
         }
         .padding(.horizontal, TaskRowMetrics.horizontalPadding)

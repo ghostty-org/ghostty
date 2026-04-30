@@ -23,6 +23,9 @@ struct TaskSidebarView: View {
     @EnvironmentObject private var workspaceStore: WorkspaceStore
     @Environment(\.colorScheme) private var colorScheme
 
+    @AppStorage("ghostties.hasSeenTasksPreviewNotice") private var hasSeenTasksPreviewNotice = false
+    @State private var showTasksPreviewAlert = false
+
     var body: some View {
         VStack(spacing: 0) {
             // D22: header strip with [+ Start] button at top-right.
@@ -93,6 +96,18 @@ struct TaskSidebarView: View {
         // U8: Observe the notification that AppDelegate's ⌘⇧N monitor posts.
         .onReceive(NotificationCenter.default.publisher(for: .openNewTaskComposer)) { _ in
             composerStore.open(workspaceStore: workspaceStore)
+        }
+        .onAppear {
+            if !hasSeenTasksPreviewNotice {
+                showTasksPreviewAlert = true
+            }
+        }
+        .alert("Tasks are still in development", isPresented: $showTasksPreviewAlert) {
+            Button("OK") {
+                hasSeenTasksPreviewNotice = true
+            }
+        } message: {
+            Text("This view is an early preview. Things may change or break — please share feedback.")
         }
     }
 

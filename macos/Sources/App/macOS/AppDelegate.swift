@@ -224,6 +224,10 @@ class AppDelegate: NSObject,
             // a desirable behavior to NOT have happen for a terminal, so this is a win.
             // Manual autofill via the `Edit => AutoFill` menu item still work as expected.
             "NSAutoFillHeuristicControllerEnabled": false,
+
+            // Fresh installs land on the project-first sidebar. Existing users
+            // keep whatever value they have persisted.
+            "ghostties.sidebarViewMode": "projectFirst",
         ])
     }
 

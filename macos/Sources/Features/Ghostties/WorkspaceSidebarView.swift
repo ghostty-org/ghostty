@@ -26,6 +26,8 @@ struct WorkspaceSidebarView: View {
     /// Tracks which projects are expanded (per-window, not persisted).
     @State private var expandedProjectIds: Set<UUID> = []
 
+    @AppStorage("ghostties.hasSeenOnboarding") private var hasSeenOnboarding = false
+
     var body: some View {
         VStack(spacing: 0) {
             // Titlebar toolbar: action buttons right of traffic lights
@@ -113,6 +115,14 @@ struct WorkspaceSidebarView: View {
         .onReceive(NotificationCenter.default.publisher(for: .workspaceNewSession)) { notification in
             guard notification.object as? NSWindow === coordinator.containerView?.window else { return }
             createNewSessionForSelectedProject()
+        }
+        .sheet(isPresented: Binding(
+            get: { !hasSeenOnboarding },
+            set: { _ in }
+        )) {
+            OnboardingSheet {
+                hasSeenOnboarding = true
+            }
         }
     }
 

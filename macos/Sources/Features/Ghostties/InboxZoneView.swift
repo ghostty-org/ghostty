@@ -277,6 +277,8 @@ struct InboxZoneView: View {
                 .tracking(0.8)
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
 
+            PreviewBadge()
+
             Text("· \(rows.count)")
                 .font(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
