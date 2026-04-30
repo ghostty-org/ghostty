@@ -40,20 +40,6 @@ struct ContentView: View {
                             .opacity(tab.id == tabManager.activeTabID ? 1 : 0)
                     }
                 }
-
-                // Bottom status bar
-                HStack {
-                    Circle()
-                        .fill(tabManager.activeTab != nil ? Color.green : Color.red)
-                        .frame(width: 8, height: 8)
-                    Text(tabManager.activeTab?.title ?? "No terminal")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color(.windowBackgroundColor))
             }
             .frame(minWidth: 400, idealWidth: 600)
             .layoutPriority(1)
