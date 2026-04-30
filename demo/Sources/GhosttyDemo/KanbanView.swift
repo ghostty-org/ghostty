@@ -21,6 +21,7 @@ struct KanbanView: View {
                 let isHorizontal = geometry.size.width >= 360
                 if isHorizontal {
                     horizontalLayout
+                        .frame(height: geometry.size.height)
                 } else {
                     verticalLayout
                 }

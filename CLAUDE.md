@@ -1,72 +1,70 @@
 # Ghostty Kanban
 
-Ghostty 终端的侧边栏看板，管理 Claude Code 会话。
+Ghostty 终端的看板，管理 Claude Code 会话。
 
 ## 核心功能
 - Todo / In Progress / Review / Done 四列
-- Claude Code 会话关联 Ghostty 分屏
+- Claude Code 会话关联 Ghostty 标签页
 - 拖拽管理任务
 - 亮/暗主题
 
 ## 架构
 
-**混合架构**：Web UI (HTML/CSS/JS) + Swift 原生逻辑
+**纯 SwiftUI 原生架构**（非 WKWebView），位于 `demo/` 目录。
 
-- UI 层：`macos/Resources/Kanban/board.html`（WKWebView 加载）
-- 桥接层：`KanbanWebView.swift`（JS ↔ Swift 消息传递）
-- 数据层：`BoardState.swift`、`KanbanModels.swift`
+关键文件：
+- `demo/Sources/GhosttyDemo/` — 全部 Swift 源码（10 个 UI/逻辑文件）
+- `demo/Package.swift` — SPM 包定义
+- `demo/run.sh` — 编译 → 打包 .app → 启动
 
 ## 数据模型
 
 ```swift
 KanbanTask: id, title, description, priority(P0-P3), status, sessions, isExpanded
-Session: id, title, status(running/idle/needInput), timestamp, isWorkTree, branch
+Session: id, title, status(running/idle/needInput), timestamp, isWorkTree, branch, tabID
 ```
 
-## 消息桥接
+## 关键设计
 
-JS → Swift：`window.webkit.messageHandlers.kanbanBridge`
-- `themeToggle`, `addTask`, `updateTask`, `moveTask`, `toggleExpand`, `addSession`, `removeSession`
-
-Swift → JS：
-- `updateBoardState({ tasks: [...] })`
-- `setDarkMode(true)`
-- `updateLayout(width, isNarrow)`
+- **tabID: UUID?** 替代 surfaceId: UInt64?（TerminalTabManager 集成）
+- **直接方法调用** 替代 NotificationCenter 间接通信
+- **GCD DispatchSource** 替代 FSEvents（更轻量）
+- **@Published** 自动绑定替代 JS 注入
 
 ## 存储
 
 | 数据 | 位置 |
 |------|------|
-| 任务 | `~/.config/ghostty/tasks.json` |
-| 会话映射 | `.ghostty/sessions.json` |
+| 任务 | `~/Library/Application Support/KanbanBoard/tasks.json` |
 | Claude 会话 | `~/.claude/projects/*/*.jsonl`（只读）|
 
 ## 构建
 
 ```bash
-# Xcode（修改 Swift 代码后需要重新构建）
-cd macos && xcodebuild -scheme Ghostty -configuration Debug build
+# 编译 + 打包 .app + 启动（推荐）
+bash demo/run.sh
 
-# Zig
-zig build && zig build test
+# 仅编译
+cd demo && swift build
 ```
+
+`run.sh` 生成 `demo/GhosttyDemo.app`，自动杀死旧进程并启动新版。
 
 ## 开发
 
-- **构建后启动**：构建完成后自动关闭旧进程并启动新版本 app，无需用户操作
-- **UI 修改**：直接编辑 `macos/Resources/Kanban/board.html`，无需重新编译
-- **调试**：Safari Web Inspector 可用；BoardState 变更自动同步到 WebView
-- **Lint**：`swiftlint lint --strict`
+**重要：每次修改 Swift 代码后必须重新打包 app！**
+- 运行 `bash demo/run.sh` 即可完成编译 → 打包 → 替换旧 app → 启动
+- 调试：Safari Web Inspector 不可用（纯 SwiftUI，非 WKWebView）
+- 主题颜色在 `KanbanTheme.swift` 中调整
 
-## 已知问题 / 经验
+## 已知问题
 
-- **WKWebView 中 `confirm()`/`alert()`/`prompt()` 不会弹出**：需要实现 `WKUIDelegate` 处理 JS 对话框，否则调用被静默忽略。使用自定义 HTML 对话框更可靠。
+- JSONL 监控依赖 `~/.claude/projects/` 目录存在
+- 首次启动会创建示例任务数据
+- 拖拽使用 `.draggable()`/`.dropDestination()` API
 
 ## 路线图
 
 - [ ] Ghostty C API 集成
-- [ ] 实时会话状态监控
 - [ ] Git worktree 创建
-- [ ] 会话继续/恢复
 - [ ] 多项目支持
-

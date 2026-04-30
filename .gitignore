@@ -33,4 +33,5 @@ vgcore.*
 # Demo build artifacts
 demo/.build/
 demo/libghostty-internal.a
+demo/GhosttyDemo.app
 
