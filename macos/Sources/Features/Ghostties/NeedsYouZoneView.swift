@@ -67,8 +67,6 @@ struct NeedsYouZoneView: View {
                 .font(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                 .fixedSize()
-
-            PreviewBadge()
         }
         .padding(.horizontal, TaskRowMetrics.horizontalPadding)
         .padding(.vertical, 6)

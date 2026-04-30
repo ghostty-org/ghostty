@@ -72,8 +72,6 @@ struct ArchiveZoneView: View {
                 .tracking(0.8)
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
 
-            PreviewBadge()
-
             Spacer(minLength: 0)
         }
         .padding(.horizontal, TaskRowMetrics.horizontalPadding)

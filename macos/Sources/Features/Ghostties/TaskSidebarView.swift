@@ -24,7 +24,6 @@ struct TaskSidebarView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     @AppStorage("ghostties.hasSeenTasksPreviewNotice") private var hasSeenTasksPreviewNotice = false
-    @State private var showTasksPreviewAlert = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -33,6 +32,16 @@ struct TaskSidebarView: View {
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
+                    if !hasSeenTasksPreviewNotice {
+                        SidebarCalloutCard(
+                            iconName: "wrench.and.screwdriver.fill",
+                            message: "Tasks is an early preview. Things may change. Send feedback to sean@seansmithdesign.com.",
+                            onDismiss: { hasSeenTasksPreviewNotice = true }
+                        )
+                        .padding(.horizontal, 8)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+                    }
                     // Zone order follows the brief's locked lane order:
                     // Inbox · Backlog · Running · Needs you · Review · Graveyard.
                     //
@@ -96,18 +105,6 @@ struct TaskSidebarView: View {
         // U8: Observe the notification that AppDelegate's ⌘⇧N monitor posts.
         .onReceive(NotificationCenter.default.publisher(for: .openNewTaskComposer)) { _ in
             composerStore.open(workspaceStore: workspaceStore)
-        }
-        .onAppear {
-            if !hasSeenTasksPreviewNotice {
-                showTasksPreviewAlert = true
-            }
-        }
-        .alert("Tasks are still in development", isPresented: $showTasksPreviewAlert) {
-            Button("OK") {
-                hasSeenTasksPreviewNotice = true
-            }
-        } message: {
-            Text("This view is an early preview. Things may change or break — please share feedback.")
         }
     }
 
