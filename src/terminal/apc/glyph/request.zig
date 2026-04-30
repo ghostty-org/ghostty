@@ -124,8 +124,14 @@ pub const Request = union(enum) {
             assert(raw.len >= 2);
             assert(raw[0] == 'r');
             assert(raw[1] == ';');
-            const payload_idx = std.mem.lastIndexOfScalar(u8, raw, ';').?;
-            assert(payload_idx > 1);
+            // Find the option/payload boundary by looking for the last `;`
+            // *after* the verb prefix. If none exists the request carries
+            // no payload — encode that with the `raw.len` sentinel, which
+            // `payload()` and `rawOptions()` already treat as "empty".
+            const payload_idx = if (std.mem.lastIndexOfScalar(u8, raw[2..], ';')) |i|
+                i + 2
+            else
+                raw.len;
 
             return .{
                 .raw = raw,
@@ -543,6 +549,35 @@ test "clear command" {
 
     try testing.expect(cmd == .clear);
     try testing.expectEqual(@as(u21, 0xE0A0), cmd.clear.get(.cp).?);
+}
+
+test "register bare verb is malformed but does not crash" {
+    // A solitary `r` is normalized to `r;` by the parser. There is no
+    // second semicolon, so options and payload are both empty. The
+    // parser must produce a register variant rather than panicking.
+    const testing = std.testing;
+
+    var cmd = try testParse(testing.allocator, "r");
+    defer cmd.deinit(testing.allocator);
+
+    try testing.expect(cmd == .register);
+    try testing.expect(cmd.register.get(.cp) == null);
+    try testing.expectEqualStrings("", cmd.register.payload());
+}
+
+test "register without payload separator does not crash" {
+    // No second `;`: the entire tail is treated as options, payload
+    // is empty. cp is still recoverable; decodePayload will fail
+    // with an empty-payload error which the handler maps to
+    // `malformed_payload`.
+    const testing = std.testing;
+
+    var cmd = try testParse(testing.allocator, "r;cp=e0a0");
+    defer cmd.deinit(testing.allocator);
+
+    try testing.expect(cmd == .register);
+    try testing.expectEqual(@as(u21, 0xE0A0), cmd.register.get(.cp).?);
+    try testing.expectEqualStrings("", cmd.register.payload());
 }
 
 test "invalid command" {

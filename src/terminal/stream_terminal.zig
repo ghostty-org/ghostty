@@ -681,9 +681,10 @@ pub const Handler = struct {
             },
 
             .glyph => |req| glyph: {
-                // Nothing to emit anywhere if we can't write replies.
-                if (self.effects.write_pty == null) break :glyph;
-
+                // Always run the handler so register/clear side effects
+                // land in the glossary even in readonly contexts (e.g.
+                // scrollback / search). Only the wire reply is gated on
+                // having a pty to write to.
                 const resp_opt = apc.glyph.handler.handle(
                     alloc,
                     &self.terminal.glyph_glossary,
@@ -693,6 +694,8 @@ pub const Handler = struct {
                     break :glyph;
                 };
                 const resp = resp_opt orelse break :glyph;
+
+                if (self.effects.write_pty == null) break :glyph;
 
                 // Response is nul-terminated for writePty's sentinel slice.
                 var buf: [256]u8 = undefined;

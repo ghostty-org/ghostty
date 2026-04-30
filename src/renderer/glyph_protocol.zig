@@ -74,6 +74,18 @@ pub const State = struct {
         self.payloads.clearRetainingCapacity();
     }
 
+    /// Drop every cached rasterized bitmap.
+    ///
+    /// Bitmap entries store atlas coordinates that are only valid for
+    /// the atlas they were rasterized into. When the renderer swaps
+    /// font grids (and therefore atlases), those coordinates become
+    /// stale even if the cell size is unchanged, so the cache must be
+    /// invalidated explicitly. Cloned payloads are kept; they're
+    /// independent of the atlas.
+    pub fn invalidateBitmaps(self: *State) void {
+        self.bitmaps.clearRetainingCapacity();
+    }
+
     /// Must be called while the caller holds the terminal state mutex,
     /// because it reads the glossary's live entries. If the glossary
     /// has mutated since the last call, every payload is recloned and

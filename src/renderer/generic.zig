@@ -1104,6 +1104,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self.font_shaper_cache.deinit(self.alloc);
             self.font_shaper_cache = font_shaper_cache;
 
+            // The glyph-protocol bitmap cache stores atlas coordinates
+            // owned by the *previous* grid. After a swap those addresses
+            // refer to a different atlas, so drop them and let the next
+            // frame re-rasterize into the new one.
+            self.glyph_protocol.invalidateBitmaps();
+
             // Update cell size.
             self.size.cell = .{
                 .width = metrics.cell_width,
