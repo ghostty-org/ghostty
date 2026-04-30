@@ -130,7 +130,7 @@ final class SessionManager: ObservableObject {
     func resumeSession(_ session: Session) {
         guard let tabManager else { return }
 
-        if let tabID = session.tabID {
+        if let tabID = session.tabID, tabManager.tabs.contains(where: { $0.id == tabID }) {
             // Tab still exists — just switch to it
             tabManager.selectTab(id: tabID)
         } else {

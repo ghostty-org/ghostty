@@ -1,43 +1,32 @@
-# Ghostty Kanban
+# Ghostty Demo — Agent 开发指南
 
-Ghostty 终端的看板，管理 Claude Code 会话。
+本项目是 **Ghostty Demo**，用于演示 Ghostty 终端的核心能力。Kanban 看板是集成的功能模块，不是独立项目。
 
-## 核心功能
-- Todo / In Progress / Review / Done 四列
-- Claude Code 会话关联 Ghostty 标签页
-- 拖拽管理任务
-- 亮/暗主题
-- JSONL 会话状态实时监控（running/idle/needInput）
+## 技术栈
 
-## 架构
+- **纯 SwiftUI 原生架构**（非 WKWebView）
+- **Ghostty Swift Runtime**：通过侵入式方案完全掌控 Ghostty Swift 源码
+- **SPM 包管理**
 
-**纯 SwiftUI 架构**：`demo/` 目录下独立包
+## 源码位置
 
-```
-ContentView (HSplitView)
-├── KanbanView (左面板, 240-600px)
-│   ├── KanbanToolbar (标题 + 新建 + 主题切换)
-│   ├── GeometryReader (自适应横排/纵排 @ 360px)
-│   └── Status columns × 4
-│       ├── ColumnView (标题 + 任务列表 + 拖拽接收)
-│       └── TaskCardView (优先级色条 + 展开/折叠 + 拖拽源)
-│           └── SessionPanelView (展开时显示 session 列表)
-├── TabBarView (标签栏)
-├── ZStack (终端区域)
-└── 状态栏
-```
+所有源码位于 `demo/Sources/GhosttyDemo/`：
 
-## 数据流
-
-```
-用户操作 → BoardState (@Published) → View 自动刷新
-              ↓
-           Persistence (tasks.json ~/Library/Application Support/)
-              ↓
-           SessionManager (标签页 ↔ 会话关联)
-              ↓
-           JsonlWatcher (GCD ~/.claude/projects/*.jsonl)
-```
+| 文件 | 职责 |
+|------|------|
+| `KanbanModels.swift` | 数据模型 |
+| `KanbanPersistence.swift` | JSON 持久化 |
+| `KanbanBoardState.swift` | 任务状态管理 |
+| `SessionManager.swift` | 会话生命周期管理 |
+| `JsonlWatcher.swift` | JSONL 增量解析 + 状态检测 |
+| `KanbanTheme.swift` | 亮/暗主题 |
+| `KanbanView.swift` | 主看板视图 |
+| `ColumnView.swift` | 单列视图 |
+| `TaskCardView.swift` | 任务卡片 |
+| `KanbanModals.swift` | 弹窗 |
+| `TerminalTabManager.swift` | 标签页管理 |
+| `ContentView.swift` | 主布局 |
+| `DemoApp.swift` | 应用入口 |
 
 ## 关键设计决策
 
@@ -45,65 +34,20 @@ ContentView (HSplitView)
 |------|------|
 | UI 框架 | SwiftUI 原生（非 WKWebView）|
 | 通信 | 直接方法调用（非 NotificationCenter）|
-| 会话 → 标签页 | `tabID: UUID?`（非 `surfaceId: UInt64?`）|
+| 会话 → 标签页 | `tabID: UUID`（非 `surfaceId: UInt64`）|
 | 文件监控 | GCD DispatchSource（非 FSEvents/Carbon）|
 | 终端控制 | `sendText()`/`sendEnter()` |
 | 命令模式 | `--permission-mode bypassPermissions` |
 
-## 存储
-
-| 数据 | 位置 |
-|------|------|
-| 任务 | `~/Library/Application Support/KanbanBoard/tasks.json` |
-| Claude 会话 | `~/.claude/projects/*/*.jsonl`（只读） |
-
-## 文件清单 (`demo/Sources/GhosttyDemo/`)
-
-| 文件 | 职责 |
-|------|------|
-| `KanbanModels.swift` | Priority, Status, SessionStatus, Session, KanbanTask |
-| `KanbanPersistence.swift` | JSON 持久化 + 示例数据 |
-| `KanbanBoardState.swift` | 任务 CRUD + 主题管理 |
-| `SessionManager.swift` | 会话生命周期 + 标签页管理 |
-| `JsonlWatcher.swift` | JSONL 增量解析 + 状态检测 |
-| `KanbanTheme.swift` | 亮/暗主题 + Environment 注入 |
-| `KanbanView.swift` | 主看板 + 自适应布局 |
-| `ColumnView.swift` | 单列 + 拖拽接收 |
-| `TaskCardView.swift` | 任务卡片 + Session 面板 |
-| `KanbanModals.swift` | 编辑/创建弹窗 |
-
-## 构建与运行
+## 构建命令
 
 ```bash
 # 编译 + 打包 .app + 启动
 bash demo/run.sh
-
-# 或仅编译
-cd demo && swift build
 ```
 
-`run.sh` 会：
-1. 杀死旧进程
-2. `swift build`
-3. 在 `demo/` 根目录生成 `GhosttyDemo.app`
-4. 签名并打开
+## 重要约束
 
-## 自适应布局
-
-| 看板宽度 | 布局 |
-|----------|------|
-| ≥ 360px | HStack 四列横排，每列独立 ScrollView |
-| < 360px | ScrollView VStack 纵排，整体滚动 |
-
-## 主题
-
-28 色亮/暗主题，通过 `EnvironmentValues.themeColors` 注入。
-偏好持久化到 `UserDefaults.standard("kanban-dark-mode")`。
-
-## 路线图
-
-- [ ] Ghostty C API 集成
-- [ ] 实时会话状态监控 ✓
-- [ ] Git worktree 创建
-- [ ] 会话继续/恢复 ✓
-- [ ] 多项目支持
+- 纯 SwiftUI，无 Web Inspector 可用
+- 修改代码后必须重新打包 app
+- JSONL 监控依赖 `~/.claude/projects/` 目录存在

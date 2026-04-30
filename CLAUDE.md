@@ -1,21 +1,38 @@
-# Ghostty Kanban
+# Ghostty Demo
 
-Ghostty 终端的看板，管理 Claude Code 会话。
+Ghostty 终端的演示应用，集成了看板功能用于管理 Claude Code 会话。
+
+## 项目结构
+
+```
+ghostty-kanban/
+├── demo/                          # Ghostty Demo 应用（主要）
+│   ├── Sources/
+│   │   ├── GhosttyDemo/           # 全部 SwiftUI 源码
+│   │   └── GhosttyRuntime/        # Ghostty Swift 运行时
+│   ├── Package.swift              # SPM 包定义
+│   └── run.sh                     # 编译 → 打包 .app → 启动
+└── docs/
+    ├── kanban-migration-plan.md   # 看板功能详细设计
+    └── session-management-plan.md # 会话管理设计
+```
 
 ## 核心功能
+
+**终端演示**
+- Ghostty 终端渲染（GhosttySurfaceView）
+- 多标签页管理（TerminalTabManager）
+- 终端文本输入与命令发送
+
+**看板管理**
 - Todo / In Progress / Review / Done 四列
-- Claude Code 会话关联 Ghostty 标签页
 - 拖拽管理任务
 - 亮/暗主题
 
-## 架构
-
-**纯 SwiftUI 原生架构**（非 WKWebView），位于 `demo/` 目录。
-
-关键文件：
-- `demo/Sources/GhosttyDemo/` — 全部 Swift 源码（10 个 UI/逻辑文件）
-- `demo/Package.swift` — SPM 包定义
-- `demo/run.sh` — 编译 → 打包 .app → 启动
+**Claude 会话集成**
+- 关联 Claude Code 会话与 Ghostty 标签页
+- JSONL 会话状态实时监控（running/idle/needInput）
+- 会话创建、恢复、删除
 
 ## 数据模型
 
