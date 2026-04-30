@@ -30,3 +30,7 @@ glad.zip
 .worktrees/
 vgcore.*
 
+# Demo build artifacts
+demo/.build/
+demo/libghostty-internal.a
+
