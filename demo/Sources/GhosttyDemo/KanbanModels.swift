@@ -24,6 +24,11 @@ enum Status: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Minimum width for a single kanban column
+    static let columnMinWidth: CGFloat = 300
+    /// Horizontal padding around the column HStack (left + right)
+    static let columnHPadding: CGFloat = 12
+
     var displayName: String {
         switch self {
         case .todo: return "Todo"

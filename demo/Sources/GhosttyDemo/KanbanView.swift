@@ -18,7 +18,7 @@ struct KanbanView: View {
             Divider()
 
             GeometryReader { geometry in
-                let isHorizontal = geometry.size.width >= 360
+                let isHorizontal = geometry.size.width >= Status.columnMinWidth * 1.5
                 if isHorizontal {
                     horizontalContent(availableHeight: geometry.size.height)
                 } else {
@@ -32,7 +32,7 @@ struct KanbanView: View {
     @ViewBuilder
     private func horizontalContent(availableHeight: CGFloat) -> some View {
         ScrollView(.horizontal, showsIndicators: true) {
-            let pad: CGFloat = 6
+            let pad = Status.columnHPadding / 2
             HStack(spacing: pad) {
                 ForEach(Status.allCases) { status in
                     KanbanColumnView(

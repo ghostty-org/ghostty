@@ -21,39 +21,44 @@ struct TaskCardView: View {
                 Rectangle().fill(priorityColor).frame(width: 4)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    // Title row
-                    HStack {
-                        Text(task.title).font(.system(size: 12, weight: .medium))
-                            .lineLimit(2).foregroundColor(colors.textPrimary)
-                        Spacer()
-                        // Expand/collapse button
-                        Button(action: { boardState.toggleTaskExpanded(task.id) }) {
-                            Image(systemName: task.isExpanded ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 10)).foregroundColor(colors.textMuted)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    // Description snippet
-                    if !task.description.isEmpty {
-                        Text(task.description).font(.system(size: 10))
-                            .lineLimit(2).foregroundColor(colors.textSecondary)
-                    }
-
-                    // Footer: priority badge + session count
-                    HStack(spacing: 8) {
-                        PriorityBadge(priority: task.priority)
-                        if !task.sessions.isEmpty {
-                            HStack(spacing: 2) {
-                                Image(systemName: "terminal").font(.system(size: 9))
-                                Text("\(task.sessions.count)").font(.system(size: 9))
+                    // Title row + description + footer (task edit tap zone)
+                    VStack(alignment: .leading, spacing: 4) {
+                        // Title row
+                        HStack {
+                            Text(task.title).font(.system(size: 12, weight: .medium))
+                                .lineLimit(2).foregroundColor(colors.textPrimary)
+                            Spacer()
+                            // Expand/collapse button
+                            Button(action: { boardState.toggleTaskExpanded(task.id) }) {
+                                Image(systemName: task.isExpanded ? "chevron.up" : "chevron.down")
+                                    .font(.system(size: 10)).foregroundColor(colors.textMuted)
                             }
-                            .foregroundColor(colors.textMuted)
+                            .buttonStyle(.plain)
                         }
-                        Spacer()
-                    }
 
-                    // Expanded session panel
+                        // Description snippet
+                        if !task.description.isEmpty {
+                            Text(task.description).font(.system(size: 10))
+                                .lineLimit(2).foregroundColor(colors.textSecondary)
+                        }
+
+                        // Footer: priority badge + session count
+                        HStack(spacing: 8) {
+                            PriorityBadge(priority: task.priority)
+                            if !task.sessions.isEmpty {
+                                HStack(spacing: 2) {
+                                    Image(systemName: "terminal").font(.system(size: 9))
+                                    Text("\(task.sessions.count)").font(.system(size: 9))
+                                }
+                                .foregroundColor(colors.textMuted)
+                            }
+                            Spacer()
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) { showEditModal = true }
+
+                    // Expanded session panel (no task edit gesture)
                     if task.isExpanded {
                         SessionPanelView(
                             taskId: task.id,
@@ -66,8 +71,6 @@ struct TaskCardView: View {
                     }
                 }
                 .padding(8)
-                .contentShape(Rectangle())
-                .onTapGesture(count: 2) { showEditModal = true }
             }
         }
         .background(colors.taskBg)

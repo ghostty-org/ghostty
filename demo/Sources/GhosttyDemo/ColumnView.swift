@@ -31,7 +31,7 @@ struct KanbanColumnView: View {
                 .padding(6)
             }
         }
-        .frame(minWidth: 200, maxHeight: .infinity, alignment: .top)
+        .frame(minWidth: Status.columnMinWidth, maxHeight: .infinity, alignment: .top)
         .background(colors.columnBg)
         .cornerRadius(8)
         .overlay(

@@ -18,7 +18,8 @@ struct ContentView: View {
                 tabManager: tabManager,
                 ghosttyApp: ghostty.app!
             )
-            .frame(minWidth: 240, idealWidth: 400)
+            .frame(minWidth: Status.columnMinWidth + Status.columnHPadding,
+                   idealWidth: Status.columnMinWidth * 1.5 + Status.columnHPadding)
             .layoutPriority(0)
 
             // Right: tab bar + terminal
@@ -65,6 +66,7 @@ struct ContentView: View {
             }
         }
     }
+
 }
 
 // MARK: - Tab Bar
