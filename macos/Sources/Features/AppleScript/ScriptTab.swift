@@ -203,21 +203,20 @@ extension ScriptTab {
 }
 
 /// Maps `TerminalTabColor` to and from the `tab color` enumeration in `Ghostty.sdef`.
-///
-/// Cocoa scripting passes enumerator FourCharCodes as integers via KVC.
+/// See `Ghostty.sdef` for how the codes are derived.
 private extension TerminalTabColor {
     var appleScriptCode: UInt32 {
         switch self {
-        case .none:     "GTcN".fourCharCode
-        case .blue:     "GTcB".fourCharCode
-        case .purple:   "GTcP".fourCharCode
-        case .pink:     "GTcK".fourCharCode
-        case .red:      "GTcR".fourCharCode
-        case .orange:   "GTcO".fourCharCode
-        case .yellow:   "GTcY".fourCharCode
-        case .green:    "GTcG".fourCharCode
-        case .teal:     "GTcT".fourCharCode
-        case .graphite: "GTcX".fourCharCode
+        case .none:     "none".fourCharCode
+        case .blue:     "08FF".fourCharCode
+        case .purple:   "C3DF".fourCharCode
+        case .pink:     "F35F".fourCharCode
+        case .red:      "F34F".fourCharCode
+        case .orange:   "F82F".fourCharCode
+        case .yellow:   "FC0F".fourCharCode
+        case .green:    "3C5F".fourCharCode
+        case .teal:     "0CBF".fourCharCode
+        case .graphite: "889F".fourCharCode
         }
     }
 
