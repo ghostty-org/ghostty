@@ -26,6 +26,8 @@ enum Status: String, Codable, CaseIterable, Identifiable {
 
     /// Minimum width for a single kanban column
     static let columnMinWidth: CGFloat = 300
+    /// Maximum width for a single kanban column
+    static let columnMaxWidth: CGFloat = 400
     /// Horizontal padding around the column HStack (left + right)
     static let columnHPadding: CGFloat = 12
 
@@ -77,6 +79,27 @@ struct Session: Identifiable, Codable, Equatable {
     }
 }
 
+// MARK: - Tag
+
+enum Tag: String, Codable, CaseIterable, Identifiable {
+    case bug, feat, docs, refac, test, ui, sec, perf
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .bug: return "Bug"
+        case .feat: return "Feat"
+        case .docs: return "Docs"
+        case .refac: return "Refac"
+        case .test: return "Test"
+        case .ui: return "UI"
+        case .sec: return "Sec"
+        case .perf: return "Perf"
+        }
+    }
+}
+
 // MARK: - KanbanTask
 
 struct KanbanTask: Identifiable, Codable, Equatable {
@@ -86,15 +109,17 @@ struct KanbanTask: Identifiable, Codable, Equatable {
     var priority: Priority
     var status: Status
     var sessions: [Session]
+    var tags: [Tag] = []
     var isExpanded: Bool
 
-    init(id: UUID = UUID(), title: String, description: String = "", priority: Priority = .p2, status: Status = .todo, sessions: [Session] = [], isExpanded: Bool = false) {
+    init(id: UUID = UUID(), title: String, description: String = "", priority: Priority = .p2, status: Status = .todo, sessions: [Session] = [], tags: [Tag] = [], isExpanded: Bool = false) {
         self.id = id
         self.title = title
         self.description = description
         self.priority = priority
         self.status = status
         self.sessions = sessions
+        self.tags = tags
         self.isExpanded = isExpanded
     }
 }
