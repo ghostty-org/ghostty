@@ -65,10 +65,11 @@ struct ContentView: View {
             let claudeProjects = FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".claude/projects").path
 
-            // Determine the workspace-specific subdirectory to watch
+            // Watch only the workspace-specific subdirectory so we never see
+            // JSONL files from other projects.  Encoding matches Claude's
+            // project-directory naming scheme.
             let watchPath: String
             if let ws = boardState.workspacePath {
-                // Encode the workspace path the same way Claude does
                 let encoded = ws.replacingOccurrences(of: "/", with: "-")
                     .replacingOccurrences(of: ".", with: "-")
                     .replacingOccurrences(of: ":", with: "-")

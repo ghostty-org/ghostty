@@ -190,15 +190,33 @@ final class SessionManager: ObservableObject {
     }
 
     /// Called by `TerminalTabManager` (or an observer) when a tab is externally closed.
-    /// Unlinks the tab from any session without removing the session itself.
-    /// Also syncs the nil tabID to BoardState for persistence.
+    /// If the session has never been matched to a real Claude session (`sessionId == nil`),
+    /// the session is deleted entirely.  Otherwise the tab is unlinked from the session
+    /// (tabID → nil) so the session can be resumed later in a new tab.
     func unlinkTab(tabID: UUID) {
-        if let index = sessions.firstIndex(where: { $0.tabID == tabID }) {
+        guard let index = sessions.firstIndex(where: { $0.tabID == tabID }) else { return }
+        let session = sessions[index]
+
+        if session.sessionId == nil {
+            // Session was created but Claude never started — wipe it completely.
+            let sessionId = session.id
+            let taskID = sessionTaskMap[sessionId]
+
+            sessions.remove(at: index)
+            if let taskID = taskID {
+                taskSessionIDs[taskID]?.remove(sessionId)
+                sessionTaskMap.removeValue(forKey: sessionId)
+                BoardState.shared.removeSession(from: taskID, sessionId: sessionId)
+            }
+
+            // Dequeue any pending match for this session
+            pendingSessionQueue.removeAll { $0 == sessionId }
+        } else {
             sessions[index].tabID = nil
-            if let taskID = sessionTaskMap[sessions[index].id] {
+            if let taskID = sessionTaskMap[session.id] {
                 BoardState.shared.updateSessionTabID(
                     taskId: taskID,
-                    sessionId: sessions[index].id,
+                    sessionId: session.id,
                     tabID: nil
                 )
             }
@@ -233,7 +251,9 @@ final class SessionManager: ObservableObject {
     /// Matching is tried by:
     ///   1. `session.sessionId == parsed.sessionId`
     ///   2. `session.id.uuidString.uppercased() == parsed.sessionId.uppercased()`
-    ///   3. `session.sessionId == nil` (defensive, for pre-fix data migration)
+    ///   3. `session.sessionId == nil` (safe: JsonlWatcher only processes the
+    ///      current workspace's subdirectory, so any unmatched session belongs
+    ///      to this workspace).
     ///
     /// After updating the local record, the change is also propagated to
     /// `BoardState.shared` for persistence.

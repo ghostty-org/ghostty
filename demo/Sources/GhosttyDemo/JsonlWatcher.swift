@@ -27,7 +27,12 @@ struct ParsedSession {
         }
 
         if let gitBranch = Self.extractGitBranch(from: json), !gitBranch.isEmpty {
-            branch = gitBranch
+            // Don't overwrite worktree name with the containing repo's
+            // git branch. Worktree sessions set their own branch from
+            // worktree-state events.
+            if !isWorkTree {
+                branch = gitBranch
+            }
         }
 
         if let extractedCWD = Self.extractCWD(from: json), !extractedCWD.isEmpty {
@@ -214,7 +219,7 @@ class JsonlWatcher {
 
     // Debounce
     private var debounceWorkItem: DispatchWorkItem?
-    private let debounceInterval: TimeInterval = 0.5
+    private let debounceInterval: TimeInterval = 0.2
 
     // Limits
     private let maxFileSize: UInt64 = 1_048_576  // 1 MB
@@ -348,10 +353,14 @@ class JsonlWatcher {
         }
 
         DispatchQueue.main.async { [weak self] in
-            self?.onChange?(changedSessions)
+            // Call onNewSessionId BEFORE onChange so matchNewSessionId sets the
+            // session's sessionId before updateSession tries to match.  This way
+            // updateSession can use the precise sessionId match (strategy 1)
+            // instead of the fragile nil-sessionId fallback (strategy 3).
             for sessionId in newIds {
                 self?.onNewSessionId?(sessionId)
             }
+            self?.onChange?(changedSessions)
         }
     }
 
