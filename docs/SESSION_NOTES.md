@@ -2228,3 +2228,59 @@ Full loop defined: Linear task (with `project-path` + `goal` fields) → Ghostti
 - All seed data had `status: running` — no genuine inbox tasks existed for testing
 - `template:` field in task frontmatter drives which Claude Code profile launches on row-click
 - Model matters for step 6: Haiku intercepted `gt done` as a chat message instead of running it; Sonnet/Opus reason correctly about MCP tools
+
+---
+
+## 2026-04-30 — Pre-launch polish + beta.13/beta.14 release flow
+
+**Goal:** ship the new app icon + onboarding UX, then test the release pipeline twice.
+
+**Shipped (commits on main):**
+- `59894ed54` feat(onboarding): project-first default, welcome sheet, Tasks preview tag
+- `1eab86660` feat(onboarding): expand welcome copy + preview callout card
+- `9597b6bf9` feat(icon): dev-only blueprint app icon for Debug builds
+- `48e4414fc` web: bump download CTA + homepage to v0.1.0-beta.13
+- `03a2ee6df` fix(tasks): honest preview-callout copy
+- `40f53a337` ci(release): cover all version strings in web/ auto-bump
+- `f832824e8` docs: handoff for ghostties.org analytics decision
+- Auto-commits from CI: `41176eb07` + `3d6440739` (appcast XML bumps)
+
+**Tags pushed:** `v0.1.0-beta.13`, `v0.1.0-beta.14` (both pipelines green, DMGs on GitHub Releases)
+
+### Polish UX changes (beta.13)
+- Project-first sidebar mode now registered in `register(defaults:)` → fresh installs land on Projects, not Tasks
+- New `OnboardingSheet.swift` — first-launch only, gated by `@AppStorage("ghostties.hasSeenOnboarding")`. Headline "Welcome to Ghostties" + "Ghostty + Ghostty + Ghostty" tagline. Includes mailto + GitHub links + version/build/updated-date footer pulled from `Bundle.main`.
+- Preview pill experiment in headers was scrapped after Sean's feedback — replaced with `SidebarCalloutCard` (extracted from existing `PinMigrationNoticeBanner` pattern), placed at top of Tasks sidebar zone, gated by `@AppStorage("ghostties.hasSeenTasksPreviewNotice")`. Dismissable.
+- Tasks callout copy iterated to honest version: "Tasks is a preview of what's coming — it isn't wired up yet."
+
+### Icons
+- Production AppIcon assets swapped for new pixel-art-on-CRT artwork (Sean's `images/Ghostties 30Apr2026.icon/` package)
+- Dev-only `AppIcon-Dev.appiconset` wired up — `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Dev` set on Ghostties target's Debug config only. Source: blueprint background generated programmatically + Sean's pixel-art ghosts overlaid.
+- Local Debug-build icon caching was stubborn (lsregister + Dock restart didn't fully flush). Production icon path unaffected.
+
+### CI hardening (caught live during release)
+- The release workflow already called `scripts/update-web-version.py` but the script's regexes were stale relative to current HTML. Beta.13 release shipped with download.html partially bumped (URL + meta updated, button label + last-updated footer + index.html terminal line all stuck on beta.12).
+- Rewrote `update-web-version.py` to cover: DMG URL, button label, meta line (with size), last-updated footer, terminal line-4, terminal date, char-count comments. Added DMG-byte-size pass-through from workflow (`stat -f%z Ghostties.dmg`).
+- Verified end-to-end on beta.14: ghostties.org/download fully in sync, no manual cleanup needed.
+
+### Known issue surfaced during smoke test
+- `Check for Updates` is silent on no-update / wrong-channel / error states. Root cause: default Sparkle channel is `stable` and stable appcast is empty (only beta tags exist). User has no signal whether Sparkle worked, hit a wrong channel, or errored.
+- Filed as **SEA-241** "Sparkle: surface check-for-update progress + result feedback" — Medium priority.
+- Workaround for testing: `auto-update-channel = tip` in `~/.config/ghostty/config` (shared with daily-driver Ghostty terminal).
+
+### Website analytics question
+- Sean asked about download visibility. GitHub already tracks DMG download counts (8 organic since 2026-04-26: beta.12=3, beta.10=2, beta.9=2, beta.13=1).
+- Privacy constraint: `web/privacy.html` currently states "Nothing. No telemetry, no analytics, no crash reports." Adding analytics needs the page updated first.
+- Handoff doc at `docs/handoffs/website-analytics.md` covers the PostHog wiring path if proceeding.
+
+### Memories saved
+- `feedback-sparkle-channel-default.md` — channel defaults to `stable`, which is empty; users need `tip` to see betas
+- `reference-release-pipeline-auto-bump.md` — CI now rewrites web HTML strings from `update-web-version.py`; no manual bump needed
+
+### Linear
+- **SEA-241** created (Sparkle UX feedback)
+
+### Reconciliation (orchestrator thread)
+- 2 implementer subagents delegated, both verified shipped + committed + green build
+- 4 inline implementations (dev icon wiring, copy fix, CI script rewrite, web bumps) all committed + pushed
+- All work on origin/main; no stranded branches or uncommitted scope
