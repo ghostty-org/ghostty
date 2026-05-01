@@ -60,6 +60,17 @@ public final class GhosttySurfaceView: NSView, ObservableObject {
         inner.surfaceModel?.sendKeyEvent(event)
     }
 
+    /// The underlying ghostty surface for this view.
+    public var surface: ghostty_surface_t? {
+        inner.surface
+    }
+
+    /// Notify the surface of focus changes.
+    /// Used to pause/resume cursor blinking and release secure input.
+    public func focusDidChange(_ focused: Bool) {
+        inner.focusDidChange(focused)
+    }
+
     public override func layout() {
         super.layout()
         scrollView.frame = bounds
