@@ -87,8 +87,8 @@ struct ContentView: View {
                         sessionManager.updateSession(from: parsed)
                     }
                 },
-                onNewSessionId: { [sessionManager] sessionId, _parsedSession in
-                    sessionManager.matchNewSessionId(sessionId)
+                onNewSessionId: { [sessionManager] sessionId, parsedSession in
+                    sessionManager.matchNewSessionId(sessionId, from: parsedSession)
                 }
             )
             jsonlWatcher = sessionWatcher

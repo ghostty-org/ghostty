@@ -351,26 +351,29 @@ final class SessionManager: ObservableObject {
     }
 
     /// Called by JsonlWatcher when a new sessionId appears in a JSONL file.
-    /// Matches it to the first pending session (FIFO matching).
-    func matchNewSessionId(_ claudeSessionId: String) {
-        guard let firstPending = pendingSessionQueue.first else { return }
-        let sessionLocalId = firstPending.localId
+    /// Matches it to the first pending session with matching `isWorkTree` type.
+    func matchNewSessionId(_ claudeSessionId: String, from parsed: ParsedSession) {
+        let isParsedWorktree = parsed.isWorkTree
+
+        // Find candidates with matching worktree type
+        let candidates = pendingSessionQueue.filter { $0.isWorkTree == isParsedWorktree }
+        guard let entry = candidates.first else { return }
 
         // Update SessionManager's session
-        if let index = sessions.firstIndex(where: { $0.id == sessionLocalId }) {
+        if let index = sessions.firstIndex(where: { $0.id == entry.localId }) {
             sessions[index].sessionId = claudeSessionId
 
             // Propagate to BoardState for persistence
-            if let taskID = sessionTaskMap[sessionLocalId] {
+            if let taskID = sessionTaskMap[entry.localId] {
                 BoardState.shared.updateSessionFromParsed(
                     taskId: taskID,
-                    sessionId: sessionLocalId,
-                    parsed: ParsedSession(sessionId: claudeSessionId)
+                    sessionId: entry.localId,
+                    parsed: parsed
                 )
             }
         }
 
-        pendingSessionQueue.removeFirst()
+        pendingSessionQueue.removeAll { $0.localId == entry.localId }
     }
 
     // MARK: - Private helpers
