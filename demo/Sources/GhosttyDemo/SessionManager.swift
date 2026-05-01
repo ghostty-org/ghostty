@@ -266,7 +266,11 @@ final class SessionManager: ObservableObject {
         } else if let index = sessions.firstIndex(where: { $0.id.uuidString.uppercased() == parsed.sessionId.uppercased() }) {
             sessions[index].sessionId = parsed.sessionId
             matchedIndex = index
-        } else if let index = sessions.firstIndex(where: { $0.sessionId == nil }) {
+        } else if let index = sessions.firstIndex(where: { session in
+            guard session.sessionId == nil else { return false }
+            guard session.isWorkTree == parsed.isWorkTree else { return false }
+            return true
+        }) {
             sessions[index].sessionId = parsed.sessionId
             matchedIndex = index
         }
