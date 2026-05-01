@@ -8,6 +8,8 @@ struct TaskEditModal: View {
     @State var description: String
     @State var priority: Priority
     @State var selectedTags: [Tag]
+    @State private var descriptionHeight: CGFloat = 80
+    @State private var dragStartHeight: CGFloat = 80
     let task: KanbanTask?  // nil = new task, non-nil = edit
     @ObservedObject var boardState: BoardState
     @Environment(\.dismiss) var dismiss
@@ -31,15 +33,30 @@ struct TaskEditModal: View {
             TextField("Title", text: $title)
                 .textFieldStyle(.roundedBorder)
 
-            AppKitTextView(text: $description)
-                .frame(height: 80)
-                .background(colors.inputBg)
-                .foregroundColor(colors.textPrimary)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5)
-                        .stroke(colors.borderColor, lineWidth: 1)
-                )
+            ZStack(alignment: .bottomTrailing) {
+                AppKitTextView(text: $description)
+                    .frame(height: descriptionHeight)
+                    .background(colors.inputBg)
+                    .foregroundColor(colors.textPrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(colors.borderColor, lineWidth: 1)
+                    )
+
+                // Native macOS resize grip with proper cursor
+                ResizeGripView()
+                    .frame(width: 20, height: 20)
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                descriptionHeight = max(80, dragStartHeight + value.translation.height)
+                            }
+                            .onEnded { _ in
+                                dragStartHeight = descriptionHeight
+                            }
+                    )
+            }
 
             // Priority row
             HStack {
@@ -233,5 +250,44 @@ struct AppKitTextView: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
             parent.text = textView.string
         }
+    }
+}
+
+// MARK: - Resize Grip View
+
+struct ResizeGripView: NSViewRepresentable {
+    func makeNSView(context: Context) -> ResizeGripNSView {
+        ResizeGripNSView()
+    }
+
+    func updateNSView(_ nsView: ResizeGripNSView, context: Context) {}
+}
+
+class ResizeGripNSView: NSView {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        wantsLayer = true
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .arrow)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let color = NSColor.secondaryLabelColor
+        ctx.setStrokeColor(color.cgColor)
+        ctx.setLineWidth(1.5)
+        ctx.setLineCap(.round)
+
+        let w = bounds.width
+        let h = bounds.height
+
+        // Three diagonal lines for native resize grip
+        for i in 0..<3 {
+            ctx.move(to: CGPoint(x: 6 + CGFloat(i) * 4, y: h))
+            ctx.addLine(to: CGPoint(x: w, y: 6 + CGFloat(i) * 4))
+        }
+        ctx.strokePath()
     }
 }
