@@ -1,4 +1,4 @@
-# Language X translations for com.mitchellh.ghostty package.
+# Basque translations for com.mitchellh.ghostty package.
 # Copyright (C) 2026 "Mitchell Hashimoto, Ghostty contributors"
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Mikel Larreategi <mlarreategi@codesyntax.com>, 2026.
