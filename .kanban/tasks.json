@@ -1,0 +1,128 @@
+ [
+  {
+    "description" : "Implement OAuth2.0 login flow",
+    "status" : "todo",
+    "tags" : [
+
+    ],
+    "priority" : "p1",
+    "title" : "User Login Module",
+    "id" : "D43B8F32-AEE0-4632-91A0-8290C696682C",
+    "sessions" : [
+      {
+        "branch" : "main",
+        "id" : "2C17A322-C5F8-46F2-9ED5-43D1CDCF25FA",
+        "isWorkTree" : false,
+        "sessionId" : "1dc35fc1-60a1-4d49-88ec-ca7357e8be02",
+        "cwd" : "\/Users\/hue\/Documents\/ghostty-kanban\/demo",
+        "timestamp" : "2026-05-01T06:00:30Z",
+        "status" : "idle",
+        "title" : "This session is being continued from a previous conversation"
+      },
+      {
+        "branch" : "main",
+        "id" : "7A83DA08-19F2-43AE-B7E9-F1F027743D56",
+        "isWorkTree" : false,
+        "sessionId" : "a6ceb092-6f5b-40a5-a001-c423b25f561e",
+        "cwd" : "\/Users\/hue\/Documents\/ghostty-kanban",
+        "timestamp" : "2026-05-01T07:30:30Z",
+        "status" : "needInput",
+        "title" : "hello"
+      }
+    ],
+    "isExpanded" : false
+  },
+  {
+    "description" : "Index optimization and query refactoring",
+    "status" : "todo",
+    "tags" : [
+
+    ],
+    "priority" : "p2",
+    "title" : "Database Optimization",
+    "id" : "858EDCC3-56B5-4EB2-8148-0B257ACC57F8",
+    "sessions" : [
+
+    ],
+    "isExpanded" : false
+  },
+  {
+    "description" : "Update Swagger docs",
+    "status" : "inProgress",
+    "tags" : [
+
+    ],
+    "priority" : "p3",
+    "title" : "API Documentation",
+    "id" : "1FF4D1E0-D153-40B6-AEE8-1441985A14DB",
+    "sessions" : [
+      {
+        "branch" : "main",
+        "id" : "37D988BD-4C4B-4AE3-8875-578B5CC2C522",
+        "isWorkTree" : false,
+        "sessionId" : "bbe30a05-1c11-4c64-a606-c81cd93beaf4",
+        "cwd" : "\/Users\/hue\/Documents\/ghostty-kanban\/macos",
+        "timestamp" : "2026-05-01T07:00:30Z",
+        "status" : "idle",
+        "title" : "\/Users\/hue\/Documents\/ghostty-kanban\/docs\/superpowers\/plans\/2"
+      }
+    ],
+    "isExpanded" : false
+  },
+  {
+    "description" : "WeChat Pay integration",
+    "status" : "review",
+    "tags" : [
+
+    ],
+    "priority" : "p0",
+    "title" : "Payment Integration",
+    "id" : "3C3D4A2B-99DB-410D-A8ED-1FD257890AC7",
+    "sessions" : [
+      {
+        "branch" : "main",
+        "id" : "0203E7B4-182E-4E5A-B7A2-C4052C4D12AB",
+        "isWorkTree" : false,
+        "sessionId" : "5A011A4E-8DCE-4FF5-8FC0-13A4B56DF464",
+        "cwd" : "\/Users\/hue\/Documents\/ghostty-kanban",
+        "timestamp" : "2026-04-30T08:00:30Z",
+        "status" : "idle",
+        "title" : "hello"
+      },
+      {
+        "branch" : "main",
+        "id" : "FAAB453E-30DE-4C71-A50F-998A9EAF678C",
+        "isWorkTree" : false,
+        "sessionId" : "8f1e9efa-6f23-4eb3-bd20-2dbb236e5c15",
+        "cwd" : "\/Users\/hue\/Documents\/ghostty-kanban",
+        "timestamp" : "2026-05-01T05:00:30Z",
+        "status" : "idle",
+        "title" : "bug：在拖动Task的时候，Task整一个标签的中心没有对准鼠标中间。"
+      }
+    ],
+    "isExpanded" : false
+  },
+  {
+    "description" : "Core business logic tests",
+    "status" : "done",
+    "tags" : [
+
+    ],
+    "priority" : "p2",
+    "title" : "Unit Test Coverage",
+    "id" : "C83D71C5-DBB0-40F5-ABCD-83D5B36C211F",
+    "sessions" : [
+      {
+        "branch" : "main",
+        "id" : "5FDEA67B-E267-4F50-AAFB-F817F222E399",
+        "isWorkTree" : false,
+        "sessionId" : "0f1ebe5e-ab62-43df-9583-fb1444447b00",
+        "cwd" : "\/Users\/hue\/Documents\/ghostty-kanban",
+        "timestamp" : "2026-05-01T03:00:30Z",
+        "status" : "idle",
+        "title" : "现在侧边栏和和右边的terminal中间的分割线不可以拖动调节两个窗口的大小。bug。先去调研一下，。复述一下我的意思，"
+      }
+    ],
+    "isExpanded" : false
+  }
+]
