@@ -1247,6 +1247,9 @@ extension AppDelegate {
         //
         // syncMenuShortcut(config, action: "toggle_fullscreen", menuItem: self.menuToggleFullScreen)
 
+        // Restore the restorable menu shortcuts if needed
+        restoreShortcutsRequest.send()
+
         // Dock menu
         reloadDockMenu()
     }
