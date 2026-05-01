@@ -1,4 +1,5 @@
 import Foundation
+import CoreServices
 
 // MARK: - ParsedSession
 
@@ -192,10 +193,9 @@ struct ParsedSession {
 
 /// Monitors `~/.claude/projects/` for changes to Claude Code JSONL session files.
 ///
-/// Uses a lightweight GCD `DispatchSourceFileSystemObject` on the directory
-/// (instead of Carbon FSEvents) for simpler dependencies.  When new data is
-/// detected it re-parses only the appended bytes (incremental), extracts
-/// session statuses, and delivers them via the `onChange` callback.
+/// Uses Carbon `FSEvents` for reliable, recursive directory monitoring.  When
+/// new data is detected it re-parses only the appended bytes (incremental),
+/// extracts session statuses, and delivers them via the `onChange` callback.
 ///
 /// Usage:
 /// ```swift
@@ -207,19 +207,15 @@ struct ParsedSession {
 /// ```
 class JsonlWatcher {
     private let path: String  // e.g. ~/.claude/projects/
-    private var source: DispatchSourceFileSystemObject?
+    private var eventStream: FSEventStreamRef?
     private var fileOffsets: [String: UInt64] = [:]  // incremental parse tracking
     private let processingQueue = DispatchQueue(label: "com.ghostty.jsonl-watcher", qos: .utility)
     private var lastModificationDates: [String: Date] = [:]
     private var onChange: (([String: ParsedSession]) -> Void)?
-    private var onNewSessionId: ((String) -> Void)?
+    private var onNewSessionId: ((String, ParsedSession) -> Void)?
 
     /// Session IDs seen in previous scans; used to detect newly created sessions.
     private var seenSessionIds: Set<String> = []
-
-    // Debounce
-    private var debounceWorkItem: DispatchWorkItem?
-    private let debounceInterval: TimeInterval = 0.2
 
     // Limits
     private let maxFileSize: UInt64 = 1_048_576  // 1 MB
@@ -243,7 +239,7 @@ class JsonlWatcher {
     /// watches for directory-level changes on the processing queue.
     func start(
         onChange: @escaping ([String: ParsedSession]) -> Void,
-        onNewSessionId: @escaping (String) -> Void
+        onNewSessionId: @escaping (String, ParsedSession) -> Void
     ) {
         self.onChange = onChange
         self.onNewSessionId = onNewSessionId
@@ -256,52 +252,65 @@ class JsonlWatcher {
             self?.performScan()
         }
 
-        setupDirectoryMonitoring()
+        startFseventsMonitoring()
     }
 
     /// Stop monitoring and release resources.
     func stop() {
-        source?.cancel()
-        source = nil
-        debounceWorkItem?.cancel()
-        debounceWorkItem = nil
+        if let stream = eventStream {
+            FSEventStreamStop(stream)
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+            eventStream = nil
+        }
     }
 
-    // MARK: - Directory monitoring (GCD dispatch source)
+    // MARK: - Directory monitoring (FSEvents)
 
-    /// Opens an event-only file descriptor on the watched directory and
-    /// installs a `DispatchSourceFileSystemObject` that fires on write,
-    /// rename, delete, or extend events.
-    private func setupDirectoryMonitoring() {
-        let fd = open(path, O_EVTONLY)
-        guard fd >= 0 else { return }
-
-        let dispatchSource = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .rename, .delete, .extend],
-            queue: processingQueue
+    /// Starts an FSEventStream watching the project directory recursively.
+    private func startFseventsMonitoring() {
+        var context = FSEventStreamContext(
+            version: 0,
+            info: Unmanaged.passUnretained(self).toOpaque(),
+            retain: nil,
+            release: nil,
+            copyDescription: nil
         )
 
-        dispatchSource.setEventHandler { [weak self] in
-            self?.scheduleScan()
+        let paths = [path] as CFArray
+
+        guard let stream = FSEventStreamCreate(
+            kCFAllocatorDefault,
+            { (streamRef, clientCallBackInfo, numEvents, eventPaths, eventFlags, eventIds) in
+                guard let info = clientCallBackInfo else { return }
+                let watcher = Unmanaged<JsonlWatcher>.fromOpaque(info).takeUnretainedValue()
+
+                let paths = unsafeBitCast(eventPaths, to: NSArray.self) as! [String]
+                for i in 0..<numEvents {
+                    let eventPath = paths[i]
+                    watcher.handleFileChange(path: eventPath)
+                }
+            },
+            &context,
+            paths,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+            0.1,  // 100 ms latency
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer)
+        ) else {
+            return
         }
 
-        dispatchSource.setCancelHandler {
-            close(fd)
-        }
-
-        source = dispatchSource
-        dispatchSource.resume()
+        eventStream = stream
+        FSEventStreamScheduleWithRunLoop(stream, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        FSEventStreamStart(stream)
     }
 
-    /// Debounce a full scan; coalesces rapid file-system events.
-    private func scheduleScan() {
-        debounceWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
+    /// Handles a file-change event from FSEvents, triggering a scan.
+    /// The 100ms FSEvents latency provides natural coalescing of rapid events.
+    private func handleFileChange(path: String) {
+        processingQueue.async { [weak self] in
             self?.performScan()
         }
-        debounceWorkItem = workItem
-        processingQueue.asyncAfter(deadline: .now() + debounceInterval, execute: workItem)
     }
 
     // MARK: - Scanning
@@ -353,14 +362,17 @@ class JsonlWatcher {
         }
 
         DispatchQueue.main.async { [weak self] in
-            // Call onNewSessionId BEFORE onChange so matchNewSessionId sets the
-            // session's sessionId before updateSession tries to match.  This way
-            // updateSession can use the precise sessionId match (strategy 1)
-            // instead of the fragile nil-sessionId fallback (strategy 3).
-            for sessionId in newIds {
-                self?.onNewSessionId?(sessionId)
-            }
+            // onChange FIRST: updateSession(from:) matches via its strategy chain
+            // (sessionId → UUID → nil fallback) in whatever order the parsed
+            // sessions arrive.  The nil fallback is safe because the watcher
+            // only monitors the current workspace's project subdirectory.
+            // onNewSessionId SECOND: pops the FIFO queue as a safety net.
             self?.onChange?(changedSessions)
+            for sessionId in newIds {
+                if let session = changedSessions[sessionId] {
+                    self?.onNewSessionId?(sessionId, session)
+                }
+            }
         }
     }
 

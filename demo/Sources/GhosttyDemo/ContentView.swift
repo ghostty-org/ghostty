@@ -31,13 +31,13 @@ struct ContentView: View {
                 TabBarView(tabManager: tabManager, sessionManager: sessionManager)
                     .environmentObject(boardState)
 
-                // Terminal area (stacked views, only active is visible)
+                // Terminal area (only render active tab to save GPU)
                 ZStack {
                     Color.black
-                    ForEach(tabManager.tabs) { tab in
-                        SurfaceViewWrapper(surfaceView: tab.surfaceView)
+                    if let activeTab = tabManager.activeTab {
+                        SurfaceViewWrapper(surfaceView: activeTab.surfaceView)
+                            .id(activeTab.id)  // Force recreation when tab changes
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .opacity(tab.id == tabManager.activeTabID ? 1 : 0)
                     }
                 }
             }
@@ -87,7 +87,7 @@ struct ContentView: View {
                         sessionManager.updateSession(from: parsed)
                     }
                 },
-                onNewSessionId: { [sessionManager] sessionId in
+                onNewSessionId: { [sessionManager] sessionId, _parsedSession in
                     sessionManager.matchNewSessionId(sessionId)
                 }
             )
