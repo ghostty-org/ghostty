@@ -298,7 +298,8 @@ struct KanbanView: View {
                                     dragState: dragState,
                                     insertedTaskId: insertedTaskId
                                 )
-                                .frame(minWidth: Status.columnMinWidth, maxHeight: .infinity)
+                                .frame(width: layout.colWidth)
+                                .frame(maxHeight: .infinity)
                             }
 
                             if layout.centerContent { Spacer(minLength: 0) }
@@ -320,7 +321,8 @@ struct KanbanView: View {
                                 dragState: dragState,
                                 insertedTaskId: insertedTaskId
                             )
-                            .frame(minWidth: Status.columnMinWidth, maxHeight: .infinity)
+                            .frame(minWidth: Status.columnMinWidth)
+                            .frame(maxHeight: .infinity)
                         }
                     }
                     .padding(.horizontal, pad)
