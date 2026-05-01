@@ -31,9 +31,10 @@ final class SessionManager: ObservableObject {
     /// The workspace path to match new JSONL files against.
     private var currentWorkspacePath: String?
 
-    /// Ordered list of session IDs waiting to be matched with a real sessionId.
+    /// Ordered list of sessions waiting to be matched with a real sessionId.
     /// We match the first one (FIFO) to new sessions from the JsonlWatcher.
-    private var pendingSessionQueue: [UUID] = []
+    /// Each entry stores the localId, worktree flag, and creation time.
+    private var pendingSessionQueue: [(localId: UUID, isWorkTree: Bool, createdAt: Date)] = []
 
     // MARK: - Internal indexing
 
@@ -116,7 +117,7 @@ final class SessionManager: ObservableObject {
         // 4. Register in our indexes
         upsertSession(session)
         appendToTask(taskID: taskID, sessionID: session.id)
-        pendingSessionQueue.append(localId)
+        pendingSessionQueue.append((localId: localId, isWorkTree: worktree, createdAt: Date()))
 
         // 5. Persist via BoardState
         boardState.addSession(to: taskID, session: session)
@@ -210,7 +211,7 @@ final class SessionManager: ObservableObject {
             }
 
             // Dequeue any pending match for this session
-            pendingSessionQueue.removeAll { $0 == sessionId }
+            pendingSessionQueue.removeAll { $0.localId == sessionId }
         } else {
             sessions[index].tabID = nil
             if let taskID = sessionTaskMap[session.id] {
@@ -352,7 +353,8 @@ final class SessionManager: ObservableObject {
     /// Called by JsonlWatcher when a new sessionId appears in a JSONL file.
     /// Matches it to the first pending session (FIFO matching).
     func matchNewSessionId(_ claudeSessionId: String) {
-        guard let sessionLocalId = pendingSessionQueue.first else { return }
+        guard let firstPending = pendingSessionQueue.first else { return }
+        let sessionLocalId = firstPending.localId
 
         // Update SessionManager's session
         if let index = sessions.firstIndex(where: { $0.id == sessionLocalId }) {
