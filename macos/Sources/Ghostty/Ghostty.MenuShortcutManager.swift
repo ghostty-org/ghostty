@@ -14,26 +14,43 @@ extension Ghostty {
         private var menuItemsByShortcut: [MenuShortcutKey: Weak<NSMenuItem>] = [:]
 
         /// Original shortcut configured in xib indexed by their action
-        private var restorableMenuItemsByOriginalShortcut: [MenuShortcutKey: Weak<NSMenuItem>] = [:]
+        private var restorableMenuItemsByOriginalShortcut: [MenuShortcutKey: (Weak<NSMenuItem>, String?)] = [:]
 
-        func saveRestorableMenuItem(_ item: NSMenuItem) {
+        private var menuItemsRestored = [(Weak<NSMenuItem>, String?)]()
+
+        func saveRestorableMenuItem(_ item: NSMenuItem?, action ghosttyAction: String?) {
             guard
+                let item,
                 let key = MenuShortcutKey(item)
             else {
                 return
             }
             // Later registrations intentionally override earlier ones for the same key.
-            restorableMenuItemsByOriginalShortcut[key] = .init(item)
+            restorableMenuItemsByOriginalShortcut[key] = (.init(item), ghosttyAction)
         }
 
         /// Restore shortcuts for the items that are registered
         ///
         /// - Important: the item is only restored when the current shortcut is empty
         func restoreMenuShortcuts() {
-            for (key, item) in restorableMenuItemsByOriginalShortcut where item.value?.keyEquivalent.isEmpty == true {
-                item.value?.keyEquivalent = key.keyEquivalent
-                item.value?.keyEquivalentModifierMask = key.modifierFlags
+            menuItemsRestored.removeAll()
+            for (key, item) in restorableMenuItemsByOriginalShortcut {
+                if let menuItem = item.0.value, menuItem.keyEquivalent.isEmpty {
+                    menuItem.keyEquivalent = key.keyEquivalent
+                    menuItem.keyEquivalentModifierMask = key.modifierFlags
+                    menuItemsRestored.append(item)
+                }
             }
+        }
+
+        /// Re-sync shortcuts for the items that are restored
+        func reSyncRestoredMenuShortcuts(config: Ghostty.Config) {
+            for item in menuItemsRestored {
+                if let menuItem = item.0.value {
+                    syncMenuShortcut(config, action: item.1, menuItem: menuItem)
+                }
+            }
+            menuItemsRestored.removeAll()
         }
 
         /// Reset our shortcut index since we're about to rebuild all menu bindings.
