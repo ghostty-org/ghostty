@@ -7,6 +7,7 @@ struct TaskEditModal: View {
     @State var title: String
     @State var description: String
     @State var priority: Priority
+    @State var selectedTags: [Tag]
     let task: KanbanTask?  // nil = new task, non-nil = edit
     @ObservedObject var boardState: BoardState
     @Environment(\.dismiss) var dismiss
@@ -19,6 +20,7 @@ struct TaskEditModal: View {
         _title = State(initialValue: task?.title ?? "")
         _description = State(initialValue: task?.description ?? "")
         _priority = State(initialValue: task?.priority ?? .p2)
+        _selectedTags = State(initialValue: task?.tags ?? [])
     }
 
     var body: some View {
@@ -34,12 +36,59 @@ struct TaskEditModal: View {
                 .border(Color.gray.opacity(0.3))
                 .cornerRadius(4)
 
-            Picker("Priority", selection: $priority) {
-                ForEach(Priority.allCases) { p in
-                    Text(p.displayName).tag(p)
+            // Priority row
+            HStack {
+                Text("Priority").foregroundColor(.secondary)
+                Spacer()
+                Picker("", selection: $priority) {
+                    ForEach(Priority.allCases) { p in
+                        Text(p.displayName).tag(p)
+                    }
                 }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .frame(width: 160)
             }
-            .pickerStyle(.segmented)
+
+            // Tags row
+            HStack {
+                Text("Tags").foregroundColor(.secondary)
+                Spacer()
+                Menu {
+                    ForEach(Tag.allCases) { tag in
+                        Button(action: {
+                            if selectedTags.contains(tag) {
+                                selectedTags.removeAll { $0 == tag }
+                            } else {
+                                selectedTags.append(tag)
+                            }
+                        }) {
+                            HStack {
+                                Text(tag.displayName)
+                                if selectedTags.contains(tag) {
+                                    Spacer()
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack {
+                        Text(selectedTags.isEmpty ? "Select tags" : selectedTags.map(\.displayName).joined(separator: ", "))
+                            .foregroundColor(selectedTags.isEmpty ? .secondary : .primary)
+                            .lineLimit(1)
+                        Spacer()
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color(.textBackgroundColor))
+                    .cornerRadius(4)
+                }
+                .frame(width: 160)
+            }
 
             HStack {
                 if task != nil {
@@ -58,7 +107,8 @@ struct TaskEditModal: View {
                         description: description,
                         priority: priority,
                         status: task?.status ?? .todo,
-                        sessions: task?.sessions ?? []
+                        sessions: task?.sessions ?? [],
+                        tags: selectedTags
                     )
                     if task != nil {
                         boardState.updateTask(t)
@@ -74,6 +124,7 @@ struct TaskEditModal: View {
         .frame(width: 400)
         .background(colors.modalBg)
     }
+
 }
 
 // MARK: - SessionCreateModal

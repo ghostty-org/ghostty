@@ -17,6 +17,7 @@ struct TaskCardView: View {
     @State private var cardFrame: CGRect = .zero
     @State private var hasPoppedIn = false
     @Environment(\.themeColors) var colors
+    @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,8 +49,23 @@ struct TaskCardView: View {
                                 .lineLimit(2).foregroundColor(colors.textSecondary)
                         }
 
-                        HStack(spacing: 8) {
+                        HStack(spacing: 6) {
                             PriorityBadge(priority: task.priority)
+
+                            if !task.tags.isEmpty {
+                                ForEach(task.tags) { tag in
+                                    Text(tag.displayName)
+                                        .font(.system(size: 9, weight: .medium))
+                                        .foregroundColor(tagTextColor)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(tagColor(tag))
+                                        .cornerRadius(4)
+                                }
+                            }
+
+                            Spacer()
+
                             if !task.sessions.isEmpty {
                                 HStack(spacing: 2) {
                                     Image(systemName: "terminal").font(.system(size: 9))
@@ -57,7 +73,6 @@ struct TaskCardView: View {
                                 }
                                 .foregroundColor(colors.textMuted)
                             }
-                            Spacer()
                         }
                     }
                     .contentShape(Rectangle())
@@ -160,6 +175,23 @@ struct TaskCardView: View {
         case .p1: return colors.warning
         case .p2: return colors.accent
         case .p3: return colors.textMuted
+        }
+    }
+
+    private var tagTextColor: Color {
+        boardState.isDarkMode ? .white : Color(hex: "555555")
+    }
+
+    private func tagColor(_ tag: Tag) -> Color {
+        switch tag {
+        case .bug:  return colors.tagBug
+        case .feat: return colors.tagFeat
+        case .docs: return colors.tagDocs
+        case .refac:return colors.tagRefac
+        case .test: return colors.tagTest
+        case .ui:   return colors.tagUI
+        case .sec:  return colors.tagSec
+        case .perf: return colors.tagPerf
         }
     }
 

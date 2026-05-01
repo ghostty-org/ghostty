@@ -31,6 +31,14 @@ struct Theme {
         static let modalBg = Color.white
         static let sessionPanelBg = Color(hex: "f9f9f9")
         static let modalFooterBg = Color(hex: "f9f9f9")
+        static let tagBug = Color(hex: "FFECEC")
+        static let tagFeat = Color(hex: "E8F8E8")
+        static let tagDocs = Color(hex: "E8F0FF")
+        static let tagRefac = Color(hex: "F2E8F8")
+        static let tagTest = Color(hex: "FFF8D6")
+        static let tagUI = Color(hex: "FFF0D6")
+        static let tagSec = Color(hex: "F0F0F2")
+        static let tagPerf = Color(hex: "E8FAFA")
     }
 
     // MARK: - Dark Theme
@@ -63,6 +71,14 @@ struct Theme {
         static let modalBg = Color(hex: "2d2d2d")
         static let sessionPanelBg = Color(hex: "252525")
         static let modalFooterBg = Color(hex: "252525")
+        static let tagBug = Color(hex: "6B3A3A")
+        static let tagFeat = Color(hex: "3A5F3A")
+        static let tagDocs = Color(hex: "3A4F6B")
+        static let tagRefac = Color(hex: "4F3A6B")
+        static let tagTest = Color(hex: "5A4A2A")
+        static let tagUI = Color(hex: "5A4A2A")
+        static let tagSec = Color(hex: "505050")
+        static let tagPerf = Color(hex: "3A5A5A")
     }
 }
 
@@ -125,6 +141,14 @@ struct ThemeColors {
     let modalBg: Color
     let sessionPanelBg: Color
     let modalFooterBg: Color
+    let tagBug: Color
+    let tagFeat: Color
+    let tagDocs: Color
+    let tagRefac: Color
+    let tagTest: Color
+    let tagUI: Color
+    let tagSec: Color
+    let tagPerf: Color
 
     static func colors(isDark: Bool) -> ThemeColors {
         isDark ? ThemeColors(
@@ -155,7 +179,15 @@ struct ThemeColors {
             btnGradientEnd: Theme.Dark.btnGradientEnd,
             modalBg: Theme.Dark.modalBg,
             sessionPanelBg: Theme.Dark.sessionPanelBg,
-            modalFooterBg: Theme.Dark.modalFooterBg
+            modalFooterBg: Theme.Dark.modalFooterBg,
+            tagBug: Theme.Dark.tagBug,
+            tagFeat: Theme.Dark.tagFeat,
+            tagDocs: Theme.Dark.tagDocs,
+            tagRefac: Theme.Dark.tagRefac,
+            tagTest: Theme.Dark.tagTest,
+            tagUI: Theme.Dark.tagUI,
+            tagSec: Theme.Dark.tagSec,
+            tagPerf: Theme.Dark.tagPerf
         ) : ThemeColors(
             bgPrimary: Theme.Light.bgPrimary,
             bgSecondary: Theme.Light.bgSecondary,
@@ -184,7 +216,15 @@ struct ThemeColors {
             btnGradientEnd: Theme.Light.btnGradientEnd,
             modalBg: Theme.Light.modalBg,
             sessionPanelBg: Theme.Light.sessionPanelBg,
-            modalFooterBg: Theme.Light.modalFooterBg
+            modalFooterBg: Theme.Light.modalFooterBg,
+            tagBug: Theme.Light.tagBug,
+            tagFeat: Theme.Light.tagFeat,
+            tagDocs: Theme.Light.tagDocs,
+            tagRefac: Theme.Light.tagRefac,
+            tagTest: Theme.Light.tagTest,
+            tagUI: Theme.Light.tagUI,
+            tagSec: Theme.Light.tagSec,
+            tagPerf: Theme.Light.tagPerf
         )
     }
 }

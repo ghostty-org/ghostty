@@ -105,6 +105,7 @@ struct KanbanView: View {
     let ghosttyApp: ghostty_app_t
 
     @Environment(\.themeColors) private var colors
+    @Environment(\.colorScheme) private var colorScheme
     @StateObject private var dragState = DragDropState()
     @State private var columnFrames: [Status: CGRect] = [:]
     @State private var cardFrames: [UUID: CGRect] = [:]
@@ -186,6 +187,19 @@ struct KanbanView: View {
                             .lineLimit(1)
                             .foregroundColor(colors.textSecondary)
                     }
+                    if !task.tags.isEmpty {
+                        HStack(spacing: 4) {
+                            ForEach(task.tags) { tag in
+                                Text(tag.displayName)
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(tagTextColor)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(themeTagColor(tag))
+                                    .cornerRadius(4)
+                            }
+                        }
+                    }
                     HStack(spacing: 6) {
                         PriorityBadge(priority: task.priority)
                         if !task.sessions.isEmpty {
@@ -257,26 +271,62 @@ struct KanbanView: View {
 
     @ViewBuilder
     private func horizontalContent(availableHeight: CGFloat) -> some View {
+        let gap: CGFloat = 6
         let pad = Status.columnHPadding / 2
-        ScrollView(.horizontal, showsIndicators: true) {
-            HStack(spacing: pad) {
-                ForEach(Status.allCases) { status in
-                    KanbanColumnView(
-                        status: status,
-                        tasks: boardState.tasks(for: status),
-                        boardState: boardState,
-                        sessionManager: sessionManager,
-                        tabManager: tabManager,
-                        ghosttyApp: ghosttyApp,
-                        dragState: dragState,
-                        insertedTaskId: insertedTaskId
-                    )
-                    .frame(minHeight: 0, maxHeight: .infinity)
+
+        GeometryReader { geometry in
+            let layout = ColumnLayout.compute(
+                totalWidth: geometry.size.width,
+                gap: gap,
+                pad: pad
+            )
+
+            Group {
+                if layout.needsScroll || layout.centerContent {
+                    ScrollView(.horizontal, showsIndicators: true) {
+                        HStack(spacing: gap) {
+                            if layout.centerContent { Spacer(minLength: 0) }
+
+                            ForEach(Status.allCases) { status in
+                                KanbanColumnView(
+                                    status: status,
+                                    tasks: boardState.tasks(for: status),
+                                    boardState: boardState,
+                                    sessionManager: sessionManager,
+                                    tabManager: tabManager,
+                                    ghosttyApp: ghosttyApp,
+                                    dragState: dragState,
+                                    insertedTaskId: insertedTaskId
+                                )
+                                .frame(minWidth: Status.columnMinWidth, maxHeight: .infinity)
+                            }
+
+                            if layout.centerContent { Spacer(minLength: 0) }
+                        }
+                        .padding(.horizontal, pad)
+                    }
+                    .scrollDisabled(!layout.needsScroll)
+                } else {
+                    // No scroll, no centering -- stretch to fill
+                    HStack(spacing: gap) {
+                        ForEach(Status.allCases) { status in
+                            KanbanColumnView(
+                                status: status,
+                                tasks: boardState.tasks(for: status),
+                                boardState: boardState,
+                                sessionManager: sessionManager,
+                                tabManager: tabManager,
+                                ghosttyApp: ghosttyApp,
+                                dragState: dragState,
+                                insertedTaskId: insertedTaskId
+                            )
+                            .frame(minWidth: Status.columnMinWidth, maxHeight: .infinity)
+                        }
+                    }
+                    .padding(.horizontal, pad)
                 }
             }
-            .padding(pad)
         }
-        .scrollDisabled(dragState.isDragging)
     }
 
     @ViewBuilder
@@ -307,6 +357,44 @@ struct KanbanView: View {
         case .p1: return colors.warning
         case .p2: return colors.accent
         case .p3: return colors.textMuted
+        }
+    }
+
+    private var tagTextColor: Color {
+        boardState.isDarkMode ? .white : Color(hex: "555555")
+    }
+
+    private func themeTagColor(_ tag: Tag) -> Color {
+        switch tag {
+        case .bug:  return colors.tagBug
+        case .feat: return colors.tagFeat
+        case .docs: return colors.tagDocs
+        case .refac:return colors.tagRefac
+        case .test: return colors.tagTest
+        case .ui:   return colors.tagUI
+        case .sec:  return colors.tagSec
+        case .perf: return colors.tagPerf
+        }
+    }
+}
+
+// MARK: - ColumnLayout
+
+private struct ColumnLayout {
+    let colWidth: CGFloat
+    let needsScroll: Bool
+    let centerContent: Bool
+
+    static func compute(totalWidth: CGFloat, gap: CGFloat, pad: CGFloat) -> ColumnLayout {
+        let availForCols = totalWidth - pad * 2 - gap * CGFloat(Status.allCases.count - 1)
+        let naturalPerCol = availForCols / CGFloat(Status.allCases.count)
+
+        if naturalPerCol <= Status.columnMinWidth {
+            return ColumnLayout(colWidth: Status.columnMinWidth, needsScroll: true, centerContent: false)
+        } else if naturalPerCol >= Status.columnMaxWidth {
+            return ColumnLayout(colWidth: Status.columnMaxWidth, needsScroll: false, centerContent: true)
+        } else {
+            return ColumnLayout(colWidth: naturalPerCol, needsScroll: false, centerContent: false)
         }
     }
 }
