@@ -1157,12 +1157,13 @@ extension AppDelegate {
     /// If you plan to add more items here, make sure you add the default shortcut in MainMenu.xib
     @MainActor private func saveRestorableMenuItems() {
         [
-            menuUndo, menuRedo,
-            menuCut,
-            menuCopy, menuPaste, menuSelectAll,
-        ]
-            .compactMap { $0 }
-            .forEach(menuShortcutManager.saveRestorableMenuItem(_:))
+            (menuUndo, "undo"),
+            (menuRedo, "redo"),
+            (menuCut, nil),
+            (menuCopy, "copy_to_clipboard"),
+            (menuPaste, "paste_from_clipboard"),
+            (menuSelectAll, "select_all"),
+        ].forEach(menuShortcutManager.saveRestorableMenuItem(_:action:))
 
         resetMenuObserver = restoreShortcutsRequest
             .throttle(for: .seconds(0.5), scheduler: DispatchQueue.main, latest: false)
@@ -1274,7 +1275,7 @@ extension AppDelegate {
         }
         // If it's a terminal window with surface focused,
         // then we re-sync the menu shortcuts
-        syncMenuShortcuts(ghostty.config)
+        menuShortcutManager.reSyncRestoredMenuShortcuts(config: ghostty.config)
 
         // For cases like after closing About which is the last window,
         // the restore shortcuts will stays there and most of them should be disabled or no-op.
