@@ -46,6 +46,7 @@ struct ContentView: View {
         }
         .frame(minWidth: 900, minHeight: 500)
         .environment(\.themeColors, ThemeColors.colors(isDark: boardState.isDarkMode))
+        .preferredColorScheme(boardState.isDarkMode ? .dark : .light)
         .onAppear {
             if let app = ghostty.app {
                 if tabManager.tabs.isEmpty {
@@ -150,25 +151,26 @@ struct TabButton: View {
     let onClose: () -> Void
 
     var body: some View {
-        Button(action: onSelect) {
-            HStack(spacing: 4) {
+        HStack(spacing: 4) {
+            Button(action: onSelect) {
                 Text(title)
                     .font(.system(size: 11))
                     .lineLimit(1)
-                if canClose {
-                    Button(action: onClose) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 8, weight: .bold))
-                    }
-                    .buttonStyle(.plain)
-                }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(isActive ? Color.accentColor.opacity(0.15) : Color.clear)
-            .cornerRadius(4)
+            .buttonStyle(.plain)
+
+            if canClose {
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(isActive ? Color.accentColor.opacity(0.15) : Color.clear)
+        .cornerRadius(4)
         .background(TabMiddleClickView(onClose: onClose))
     }
 }

@@ -31,14 +31,19 @@ struct TaskEditModal: View {
             TextField("Title", text: $title)
                 .textFieldStyle(.roundedBorder)
 
-            TextEditor(text: $description)
+            AppKitTextView(text: $description)
                 .frame(height: 80)
-                .border(Color.gray.opacity(0.3))
-                .cornerRadius(4)
+                .background(colors.inputBg)
+                .foregroundColor(colors.textPrimary)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5)
+                        .stroke(colors.borderColor, lineWidth: 1)
+                )
 
             // Priority row
             HStack {
-                Text("Priority").foregroundColor(.secondary)
+                Text("Priority").foregroundColor(colors.textSecondary)
                 Spacer()
                 Picker("", selection: $priority) {
                     ForEach(Priority.allCases) { p in
@@ -47,12 +52,12 @@ struct TaskEditModal: View {
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
-                .frame(width: 160)
+                .frame(width: 160, alignment: .trailing)
             }
 
             // Tags row
             HStack {
-                Text("Tags").foregroundColor(.secondary)
+                Text("Tags").foregroundColor(colors.textSecondary)
                 Spacer()
                 Menu {
                     ForEach(Tag.allCases) { tag in
@@ -75,19 +80,23 @@ struct TaskEditModal: View {
                 } label: {
                     HStack {
                         Text(selectedTags.isEmpty ? "Select tags" : selectedTags.map(\.displayName).joined(separator: ", "))
-                            .foregroundColor(selectedTags.isEmpty ? .secondary : .primary)
+                            .foregroundColor(selectedTags.isEmpty ? colors.textMuted : colors.textPrimary)
                             .lineLimit(1)
                         Spacer()
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.system(size: 10))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(colors.textMuted)
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(Color(.textBackgroundColor))
+                    .background(colors.inputBg)
                     .cornerRadius(4)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(colors.borderColor, lineWidth: 1)
+                    )
                 }
-                .frame(width: 160)
+                .frame(width: 160, alignment: .trailing)
             }
 
             HStack {
@@ -138,15 +147,21 @@ struct SessionCreateModal: View {
 
     @State private var isWorkTree = false
     @Environment(\.dismiss) var dismiss
+    @Environment(\.themeColors) var colors
 
     var body: some View {
         VStack(spacing: 12) {
-            Text("New Session").font(.headline)
+            Text("New Session")
+                .font(.headline)
+                .foregroundColor(colors.textPrimary)
 
             Toggle("Git Worktree", isOn: $isWorkTree)
+                .toggleStyle(.switch)
+                .foregroundColor(colors.textPrimary)
 
             HStack {
                 Button("Cancel") { dismiss() }
+                    .foregroundColor(colors.textPrimary)
                 Button("Create") {
                     _ = sessionManager.createSession(
                         for: taskId,
@@ -162,5 +177,61 @@ struct SessionCreateModal: View {
         }
         .padding(20)
         .frame(width: 350)
+        .background(colors.modalBg)
+    }
+}
+
+// MARK: - NSTextView Wrapper
+
+struct AppKitTextView: NSViewRepresentable {
+    @Binding var text: String
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSTextView.scrollableTextView()
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = false
+
+        let textView = scrollView.documentView as! NSTextView
+        textView.delegate = context.coordinator
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.drawsBackground = false
+        textView.textColor = .labelColor
+        textView.font = .systemFont(ofSize: NSFont.systemFontSize)
+        textView.textContainerInset = NSSize(width: 0, height: 5)
+        textView.textContainer?.lineFragmentPadding = 4
+
+        // Increase line spacing for readability
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = 4
+        textView.defaultParagraphStyle = paragraphStyle
+        textView.typingAttributes[.paragraphStyle] = paragraphStyle
+
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        let textView = scrollView.documentView as! NSTextView
+        if textView.string != text {
+            textView.string = text
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: AppKitTextView
+
+        init(_ parent: AppKitTextView) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            parent.text = textView.string
+        }
     }
 }
