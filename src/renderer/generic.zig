@@ -2631,6 +2631,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Pre-calculate BiDi visual mapping for this row
             var logical_to_visual: ?[]u32 = null;
             defer if (logical_to_visual) |ltv| self.alloc.free(ltv);
+            var visual_to_logical: ?[]u32 = null;
+            defer if (visual_to_logical) |v2l| self.alloc.free(v2l);
             if (state.cols > 0) bidi: {
                 var has_complex = false;
                 for (cells_raw[0..cells_len]) |c| {
@@ -2661,6 +2663,17 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     log.warn("bidi reorder failed err={}", .{err});
                     break :bidi;
                 };
+            }
+
+            if (logical_to_visual) |l2v| {
+                const v2l = try self.alloc.alloc(u32, l2v.len);
+                @memset(v2l, @as(u32, @intCast(cells_len)));
+                for (l2v, 0..) |visual_pos, logical_pos| {
+                    if (visual_pos < v2l.len) {
+                        v2l[visual_pos] = @intCast(logical_pos);
+                    }
+                }
+                visual_to_logical = v2l;
             }
 
             // On primary screen, we still apply vertical padding
@@ -2800,8 +2813,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     else
                         x;
                     if (selection) |sel| {
-                        if (x_compare >= sel[0] and
-                            x_compare <= sel[1]) break :selected .selection;
+                        const logical_x = if (visual_to_logical) |v2l|
+                            v2l[@min(x_compare, v2l.len - 1)]
+                        else
+                            x_compare;
+                        if (logical_x >= sel[0] and
+                            logical_x <= sel[1]) break :selected .selection;
                     }
 
                     // If we're highlighted, then we're selected. In the
