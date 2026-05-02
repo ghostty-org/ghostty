@@ -11,6 +11,7 @@ const terminal = @import("../terminal/main.zig");
 const renderer = @import("../renderer.zig");
 const math = @import("../math.zig");
 const Surface = @import("../Surface.zig");
+const BiDi = @import("../text/BiDi.zig");
 const link = @import("link.zig");
 const cellpkg = @import("cell.zig");
 const noMinContrast = cellpkg.noMinContrast;
@@ -2578,13 +2579,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
 
             // Setup our preedit text.
-            if (preedit) |preedit_v| preedit: {
-                const range = preedit_range orelse break :preedit;
+            if (preedit) |preedit_v| {
+                const range = preedit_range.?;
                 var x = range.x[0];
                 for (preedit_v.codepoints[range.cp_offset..]) |cp| {
                     self.addPreeditCell(
                         cp,
                         .{ .x = x, .y = range.y },
+                        state.colors.background,
                         state.colors.foreground,
                     ) catch |err| {
                         log.warn("error building preedit cell, will be invalid x={} y={}, err={}", .{
@@ -2625,6 +2627,41 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const cells_len = @min(cells_slice.len, self.cells.size.columns);
             const cells_raw = cells_slice.items(.raw);
             const cells_style = cells_slice.items(.style);
+
+            // Pre-calculate BiDi visual mapping for this row
+            var logical_to_visual: ?[]u32 = null;
+            defer if (logical_to_visual) |ltv| self.alloc.free(ltv);
+            if (state.cols > 0) bidi: {
+                var has_complex = false;
+                for (cells_raw[0..cells_len]) |c| {
+                    if (c.content_tag == .codepoint) {
+                        const script = BiDi.detectScript(c.content.codepoint);
+                        if (BiDi.isComplexScript(script)) {
+                            has_complex = true;
+                            break;
+                        }
+                    }
+                }
+                if (!has_complex) break :bidi;
+
+                var row_codepoints = try std.ArrayList(u32).initCapacity(self.alloc, cells_len);
+                defer row_codepoints.deinit(self.alloc);
+
+                for (cells_raw[0..cells_len]) |c| {
+                    row_codepoints.appendAssumeCapacity(if (c.content_tag == .codepoint) c.content.codepoint else 0x20);
+                }
+
+                var analysis = BiDi.analyzeBidiCodepoints(self.alloc, row_codepoints.items) catch |err| {
+                    log.warn("bidi analysis failed err={}", .{err});
+                    break :bidi;
+                };
+                defer analysis.deinit();
+
+                logical_to_visual = BiDi.reorderVisualCodepoints(self.alloc, row_codepoints.items, &analysis) catch |err| {
+                    log.warn("bidi reorder failed err={}", .{err});
+                    break :bidi;
+                };
+            }
 
             // On primary screen, we still apply vertical padding
             // extension under certain conditions we feel are safe.
@@ -3009,6 +3046,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     // This can occur for runs of empty cells, and is fine.
                     if (shaped_cells.len == 0) break :glyphs;
 
+                    // Detect RTL from cell cluster pattern:
+                    // If cells have descending cluster indices, it's RTL
+                    // NOTE: This is a fallback if we didn't get a full BiDi map
+                    var is_rtl = false;
+                    if (shaped_cells.len > 1) {
+                        is_rtl = shaped_cells[0].x > shaped_cells[shaped_cells.len - 1].x;
+                    }
+
                     // If we encounter a shaper cell to the left of the current
                     // cell then we have some problems. This logic relies on x
                     // position monotonically increasing.
@@ -3022,8 +3067,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         run.offset + shaped_cells[shaper_cells_i].x == x) : ({
                         shaper_cells_i += 1;
                     }) {
+                        const render_x = if (logical_to_visual) |map| map[x] else (if (is_rtl) state.cols - 1 - x else x);
                         self.addGlyph(
-                            @intCast(x),
+                            @intCast(render_x),
                             @intCast(y),
                             state.cols,
                             cells_raw,
@@ -3314,9 +3360,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self: *Self,
             cp: renderer.State.Preedit.Codepoint,
             coord: terminal.Coordinate,
+            screen_bg: terminal.color.RGB,
             screen_fg: terminal.color.RGB,
         ) !void {
-            // Render the glyph for our preedit text
+            const bg = screen_fg;
+            const fg = screen_bg;
+
             const render_ = self.font_grid.renderCodepoint(
                 self.alloc,
                 @intCast(cp.codepoint),
@@ -3332,11 +3381,19 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 return;
             };
 
-            // Add our text
+            self.cells.bgCell(coord.y, coord.x).* = .{
+                bg.r, bg.g, bg.b, 255,
+            };
+            if (cp.wide and coord.x < self.cells.size.columns - 1) {
+                self.cells.bgCell(coord.y, coord.x + 1).* = .{
+                    bg.r, bg.g, bg.b, 255,
+                };
+            }
+
             try self.cells.add(self.alloc, .text, .{
                 .atlas = .grayscale,
                 .grid_pos = .{ @intCast(coord.x), @intCast(coord.y) },
-                .color = .{ screen_fg.r, screen_fg.g, screen_fg.b, 255 },
+                .color = .{ fg.r, fg.g, fg.b, 255 },
                 .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },
                 .glyph_size = .{ render.glyph.width, render.glyph.height },
                 .bearings = .{
@@ -3344,12 +3401,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     @intCast(render.glyph.offset_y),
                 },
             });
-
-            // Add underline
-            try self.addUnderline(@intCast(coord.x), @intCast(coord.y), .single, screen_fg, 255);
-            if (cp.wide and coord.x < self.cells.size.columns - 1) {
-                try self.addUnderline(@intCast(coord.x + 1), @intCast(coord.y), .single, screen_fg, 255);
-            }
         }
 
         /// Sync the atlas data to the given texture. This copies the bytes
