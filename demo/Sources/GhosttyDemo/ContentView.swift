@@ -27,9 +27,11 @@ struct ContentView: View {
 
             // Right: tab bar + terminal
             VStack(spacing: 0) {
-                // Tab Bar
-                TabBarView(tabManager: tabManager, sessionManager: sessionManager)
-                    .environmentObject(boardState)
+                // Tab Bar (hidden when only one tab)
+                if tabManager.showTabBar {
+                    TabBarView(tabManager: tabManager, sessionManager: sessionManager)
+                        .environmentObject(boardState)
+                }
 
                 // Terminal area (only render active tab to save GPU)
                 ZStack {
@@ -93,36 +95,42 @@ struct TabBarView: View {
     @ObservedObject var sessionManager: SessionManager
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 2) {
-                ForEach(tabManager.tabs) { tab in
-                    TabButton(
-                        title: tab.title,
-                        isActive: tab.id == tabManager.activeTabID,
-                        canClose: tabManager.tabs.count > 1,
-                        onSelect: { tabManager.selectTab(id: tab.id) },
-                        onClose: {
-                            tabManager.closeTab(id: tab.id)
-                            sessionManager.unlinkTab(tabID: tab.id)
-                        }
-                    )
-                }
-
-                Button(action: {
-                    if let app = ghostty.app {
-                        tabManager.newTab(app: app, workspacePath: boardState.workspacePath)
+        HStack(spacing: 0) {
+            // Draggable tab list — expands to fill available width
+            ForEach(tabManager.tabs) { tab in
+                TabButton(
+                    title: tab.title,
+                    isActive: tab.id == tabManager.activeTabID,
+                    canClose: tabManager.tabs.count > 1,
+                    onSelect: { tabManager.selectTab(id: tab.id) },
+                    onClose: {
+                        tabManager.closeTab(id: tab.id)
+                        sessionManager.unlinkTab(tabID: tab.id)
                     }
-                }) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                )
+                .frame(maxWidth: .infinity)
+                .onDrag {
+                    NSItemProvider(object: tab.id.uuidString as NSString)
                 }
-                .buttonStyle(.plain)
-                .help("New Tab")
+                .onDrop(of: [.text], delegate: TabDropDelegate(
+                    tab: tab,
+                    tabManager: tabManager
+                ))
             }
-            .padding(.horizontal, 4)
+
+            // "+" button — always fixed at the far right
+            Button(action: {
+                if let app = ghostty.app {
+                    tabManager.newTab(app: app, workspacePath: boardState.workspacePath)
+                }
+            }) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.secondary)
+                    .frame(width: 28, height: 20)
+            }
+            .buttonStyle(.plain)
+            .help("New Tab")
         }
         .frame(height: 28)
         .background(Color(.controlBackgroundColor).opacity(0.8))
@@ -139,12 +147,10 @@ struct TabButton: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Button(action: onSelect) {
-                Text(title)
-                    .font(.system(size: 11))
-                    .lineLimit(1)
-            }
-            .buttonStyle(.plain)
+            Text(title)
+                .font(.system(size: 11))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
 
             if canClose {
                 Button(action: onClose) {
@@ -156,9 +162,37 @@ struct TabButton: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
         .background(isActive ? Color.accentColor.opacity(0.15) : Color.clear)
         .cornerRadius(4)
-        .background(TabMiddleClickView(onClose: onClose))
+    }
+}
+
+struct TabDropDelegate: DropDelegate {
+    let tab: TerminalTabManager.Tab
+    let tabManager: TerminalTabManager
+
+    func performDrop(info: DropInfo) -> Bool { true }
+
+    func dropEntered(info: DropInfo) {
+        guard let items = info.itemProviders(for: [.text]).first else { return }
+        _ = items.loadObject(ofClass: NSString.self) { reading, _ in
+            guard let uuidString = reading as? String,
+                  let sourceID = UUID(uuidString: uuidString),
+                  sourceID != tab.id else { return }
+            DispatchQueue.main.async {
+                guard let sourceIndex = tabManager.tabs.firstIndex(where: { $0.id == sourceID }),
+                      let destIndex = tabManager.tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+                withAnimation {
+                    tabManager.tabs.move(fromOffsets: IndexSet(integer: sourceIndex), toOffset: destIndex > sourceIndex ? destIndex + 1 : destIndex)
+                }
+            }
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
     }
 }
 
@@ -172,45 +206,4 @@ struct SurfaceViewWrapper: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: GhosttySurfaceView, context: Context) {}
-}
-
-
-// MARK: - Middle-click Close on Tab
-
-struct TabMiddleClickView: NSViewRepresentable {
-    let onClose: () -> Void
-
-    func makeNSView(context: Context) -> NSView {
-        let v = MiddleClickMonitor()
-        v.onMiddleClick = onClose
-        return v
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        (nsView as? MiddleClickMonitor)?.onMiddleClick = onClose
-    }
-}
-
-class MiddleClickMonitor: NSView {
-    var onMiddleClick: (() -> Void)?
-    private var monitor: Any?
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if let m = monitor { NSEvent.removeMonitor(m); monitor = nil }
-        guard window != nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown]) { [weak self] event in
-            guard let self, event.buttonNumber == 2 else { return event }
-            let loc = convert(event.locationInWindow, from: nil)
-            if bounds.contains(loc) {
-                onMiddleClick?()
-                return nil
-            }
-            return event
-        }
-    }
-
-    deinit {
-        if let m = monitor { NSEvent.removeMonitor(m) }
-    }
 }
