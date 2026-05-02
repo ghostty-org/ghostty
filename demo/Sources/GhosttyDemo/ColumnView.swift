@@ -23,7 +23,7 @@ struct KanbanColumnView: View {
     var body: some View {
         VStack(spacing: 0) {
             columnHeader
-            ScrollView(.vertical, showsIndicators: true) {
+            ScrollView(.vertical, showsIndicators: insertedTaskId == nil) {
                 VStack(spacing: 8) {
                     ForEach(Array(tasks.enumerated()), id: \.element.id) { index, task in
                         // Placeholder above this card
@@ -49,7 +49,7 @@ struct KanbanColumnView: View {
                 }
                 .padding(6)
             }
-            .scrollDisabled(dragState.isDragging)
+            .scrollDisabled(dragState.isDragging || insertedTaskId != nil)
         }
         .frame(minWidth: Status.columnMinWidth, maxHeight: .infinity, alignment: .top)
         .background(colors.columnBg)
