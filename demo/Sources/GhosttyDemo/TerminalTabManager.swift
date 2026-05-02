@@ -17,6 +17,8 @@ class TerminalTabManager: ObservableObject {
         tabs.first { $0.id == activeTabID }
     }
 
+    var showTabBar: Bool { tabs.count > 1 }
+
     func newTab(app: ghostty_app_t, workspacePath: String? = nil) {
         // 通知旧的活跃 Tab: 失去焦点 + 不可见
         if let oldActive = activeTab {
@@ -26,7 +28,15 @@ class TerminalTabManager: ObservableObject {
 
         let sv = GhosttySurfaceView(app)
         let tab = Tab(surfaceView: sv)
-        tabs.append(tab)
+
+        // Insert after the currently active tab, or at end if none active.
+        if let activeID = activeTabID,
+           let idx = tabs.firstIndex(where: { $0.id == activeID }) {
+            tabs.insert(tab, at: tabs.index(after: idx))
+        } else {
+            tabs.append(tab)
+        }
+
         activeTabID = tab.id
 
         // 通知新的活跃 Tab: 获得焦点 + 可见
@@ -68,6 +78,10 @@ class TerminalTabManager: ObservableObject {
                 setOcclusion(true, for: newActive)
             }
         }
+    }
+
+    func moveTab(from source: IndexSet, to destination: Int) {
+        tabs.move(fromOffsets: source, toOffset: destination)
     }
 
     /// 设置 Surface 的 Occlusion 状态
