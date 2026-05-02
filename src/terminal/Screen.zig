@@ -3135,6 +3135,20 @@ fn promptClickLine(self: *Screen, click_pin: Pin) PromptClickMove {
     return .{ .left = count, .right = 0 };
 }
 
+/// Returns true when the first strong directional character in the row is RTL.
+pub fn isRowRTL(_: *const Screen, pin: Pin) bool {
+    const BiDi = @import("../text/BiDi.zig");
+    const rac = pin.rowAndCell();
+    const cells = pin.node.data.getCells(rac.row);
+
+    for (cells) |cell| {
+        if (!cell.hasText()) continue;
+        if (BiDi.isStrongRtlCodepoint(cell.codepoint())) |rtl| return rtl;
+    }
+
+    return false;
+}
+
 /// Dump the screen to a string. The writer given should be buffered;
 /// this function does not attempt to efficiently write and generally writes
 /// one byte at a time.
