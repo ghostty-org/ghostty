@@ -91,6 +91,7 @@ elias8
 enzowilliam
 ephemera
 eriksremess
+erral
 faukah
 filip7
 flou
@@ -175,6 +176,7 @@ mitchellh
 miupa
 molechowski
 moonmao42
+-morgengeluk Appears to be using AI inappropriately even after it was requested they abide by the AI policy (there is clear evidence of the person-in-the-loop not attempting to clean up AI generated text, and their AI disclosure itself reads like AI-generated text and shows no signs of remorse or intent to improve).
 mpatankar6
 mrconnorkenway
 mrmage
@@ -216,6 +218,7 @@ rmengelbrecht
 rmunn
 rockorager
 rpfaeffle
+samasaur1
 sandydoo
 secrus
 seruman

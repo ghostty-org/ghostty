@@ -49,15 +49,15 @@ pub fn addPaths(
     });
 
     if (!gop.found_existing) init: {
-        if (comptime builtin.os.tag.isDarwin()) {
+        if (comptime builtin.os.tag.isDarwin()) darwin: {
             // Detect our SDK using the "findNative" Zig stdlib function.
             // This is really important because it forces using `xcrun` to
             // find the SDK path.
-            const libc = try std.zig.LibCInstallation.findNative(.{
+            const libc = std.zig.LibCInstallation.findNative(.{
                 .allocator = b.allocator,
                 .target = &step.rootModuleTarget(),
                 .verbose = false,
-            });
+            }) catch break :darwin;
 
             // Render the file compatible with the `--libc` Zig flag.
             var stream: std.io.Writer.Allocating = .init(b.allocator);

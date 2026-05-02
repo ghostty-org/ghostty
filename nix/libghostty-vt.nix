@@ -7,7 +7,10 @@
   runCommand,
   stdenv,
   testers,
+  fixDarwinDylibNames,
   versionCheckHook,
+  darwin,
+  xcbuild,
   zig_0_15,
   revision ? "dirty",
   optimize ? "Debug",
@@ -18,10 +21,7 @@ stdenv.mkDerivation (finalAttrs: {
   version = "0.1.0-dev+${revision}-nix";
 
   # We limit source like this to try and reduce the amount of rebuilds as possible
-  # thus we only provide the source that is needed for the build
-  #
-  # NOTE: as of the current moment only linux files are provided,
-  # since darwin support is not finished
+  # thus we only provide the source that is needed for the build.
   src = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.intersection (lib.fileset.fromSource (lib.sources.cleanSource ../.)) (
@@ -37,29 +37,55 @@ stdenv.mkDerivation (finalAttrs: {
     );
   };
 
-  deps = callPackage ../build.zig.zon.nix {name = "${finalAttrs.pname}-cache-${finalAttrs.version}";};
+  # Zig's build runner computes relative paths from `cwd` to the build directory.
+  # The logic is purely lexical, so if the `cwd` is a symlink that resolves to a different depth during `chdir`, the computed path becomes incorrect.
+  #
+  # See: https://codeberg.org/ziglang/zig/issues/32121
+  #
+  # Workaround: override `linkFarm` with a copy-farm so deps are real directories, not symlinks.
+  deps = callPackage ../build.zig.zon.nix {
+    name = "${finalAttrs.pname}-cache-${finalAttrs.version}";
+    linkFarm = name: entries:
+      runCommand name {} ''
+        mkdir -p $out
+        ${lib.concatMapStringsSep "\n" (e: ''
+            cp -rL ${e.path} $out/${e.name}
+          '')
+          entries}
+      '';
+  };
 
-  nativeBuildInputs = [
-    git
-    pkg-config
-    zig_0_15
-  ];
+  nativeBuildInputs =
+    [
+      git
+      pkg-config
+      zig_0_15
+    ]
+    ++ lib.optionals stdenv.hostPlatform.isDarwin [
+      darwin.cctools
+      fixDarwinDylibNames
+      xcbuild
+    ];
 
   buildInputs = [];
 
   doCheck = false;
   dontSetZigDefaultFlags = true;
 
-  zigBuildFlags = [
-    "--system"
-    "${finalAttrs.deps}"
-    "-Dlib-version-string=${finalAttrs.version}"
-    "-Dcpu=baseline"
-    "-Doptimize=${optimize}"
-    "-Dapp-runtime=none"
-    "-Demit-lib-vt=true"
-    "-Dsimd=${lib.boolToString simd}"
-  ];
+  zigBuildFlags =
+    [
+      "--system"
+      "${finalAttrs.deps}"
+      "-Dlib-version-string=${finalAttrs.version}"
+      "-Dcpu=baseline"
+      "-Doptimize=${optimize}"
+      "-Dapp-runtime=none"
+      "-Demit-lib-vt=true"
+      "-Dsimd=${lib.boolToString simd}"
+    ]
+    ++ lib.optionals stdenv.hostPlatform.isDarwin [
+      "-Demit-xcframework=false"
+    ];
   zigCheckFlags = finalAttrs.zigBuildFlags ++ ["test-lib-vt"];
 
   outputs = [
@@ -77,14 +103,25 @@ stdenv.mkDerivation (finalAttrs: {
       --replace-fail "$out" "$dev"
   '';
 
-  passthru.tests = {
+  passthru.tests = let
+    sharedExt = stdenv.hostPlatform.extensions.sharedLibrary;
+    sharedLibName = version:
+      if stdenv.hostPlatform.isDarwin
+      then "libghostty-vt.${version}${sharedExt}"
+      else "libghostty-vt${sharedExt}.${version}";
+    linkCheck = bin: pat:
+      if stdenv.hostPlatform.isDarwin
+      then ''otool -L "${bin}" | grep -q ${pat}''
+      else ''ldd "${bin}" 2>/dev/null | grep -q ${pat}'';
+  in {
     sanity-check = let
       version = "${lib.versions.major finalAttrs.version}.${lib.versions.minor finalAttrs.version}.${lib.versions.patch finalAttrs.version}";
     in
       runCommand "sanity-check" {} (builtins.concatStringsSep "\n" [
         ''
-          ${lib.getExe' stdenv.cc "nm"} "${finalAttrs.finalPackage}/lib/libghostty-vt.so.${version}" | grep -q 'T ghostty_terminal_new'
-          ${lib.getExe' stdenv.cc "nm"} "${finalAttrs.finalPackage.dev}/lib/libghostty-vt.a" | grep -q 'T ghostty_terminal_new'
+          set +o pipefail
+          ${lib.getExe' stdenv.cc "nm"} "${finalAttrs.finalPackage}/lib/${sharedLibName version}" | grep -qE 'T _?ghostty_terminal_new'
+          ${lib.getExe' stdenv.cc "nm"} "${finalAttrs.finalPackage.dev}/lib/libghostty-vt.a" | grep -qE 'T _?ghostty_terminal_new'
         ''
         (
           lib.optionalString simd
@@ -141,7 +178,7 @@ stdenv.mkDerivation (finalAttrs: {
           then "yes"
           else "no"
         }"
-        ldd "$out/bin/test" 2>/dev/null | grep -q libghostty-vt
+        ${linkCheck "$out/bin/test" "libghostty-vt"}
 
         runHook postInstallCheckHooks
       '';
@@ -179,7 +216,7 @@ stdenv.mkDerivation (finalAttrs: {
           then "yes"
           else "no"
         }"
-        ! ldd "$out/bin/test" 2>/dev/null | grep -q libghostty-vt
+        ! ${linkCheck "$out/bin/test" "libghostty-vt"}
 
         runHook postInstallCheckHooks
       '';
@@ -214,7 +251,7 @@ stdenv.mkDerivation (finalAttrs: {
       installCheckPhase = ''
         runHook preInstallCheckHooks
 
-        ldd "$out/bin/test" 2>/dev/null | grep -q libghostty-vt
+        ${linkCheck "$out/bin/test" "libghostty-vt"}
 
         runHook postInstallCheckHooks
       '';

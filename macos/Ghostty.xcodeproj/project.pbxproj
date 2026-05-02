@@ -73,7 +73,6 @@
 		3B39CAA42B33949B00DABEB8 /* GhosttyReleaseLocal.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GhosttyReleaseLocal.entitlements; sourceTree = "<group>"; };
 		55154BDF2B33911F001622DC /* ghostty */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ghostty; path = "../zig-out/share/ghostty"; sourceTree = "<group>"; };
 		552964E52B34A9B400030505 /* vim */ = {isa = PBXFileReference; lastKnownFileType = folder; name = vim; path = "../zig-out/share/vim"; sourceTree = "<group>"; };
-		80B155F32F9E3FF90040F9D8 /* Ghostty.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = file; path = Ghostty.xctestplan; sourceTree = "<group>"; };
 		810ACC9F2E9D3301004F8F92 /* GhosttyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GhosttyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8193244D2F24E6C000A9ED8F /* DockTilePlugin.plugin */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DockTilePlugin.plugin; sourceTree = BUILT_PRODUCTS_DIR; };
 		8F3A9B4B2FA6B88000A18D13 /* Ghostty.sdef */ = {isa = PBXFileReference; lastKnownFileType = text.sdef; path = Ghostty.sdef; sourceTree = "<group>"; };
@@ -338,7 +337,6 @@
 		A5B30528299BEAAA0047F10C = {
 			isa = PBXGroup;
 			children = (
-				80B155F32F9E3FF90040F9D8 /* Ghostty.xctestplan */,
 				A571AB1C2A206FC600248498 /* Ghostty-Info.plist */,
 				8F3A9B4B2FA6B88000A18D13 /* Ghostty.sdef */,
 				A5B30538299BEAAB0047F10C /* Assets.xcassets */,

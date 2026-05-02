@@ -263,7 +263,8 @@ pub fn build(b: *std.Build) !void {
 
         // On macOS we can run the macOS app. For "run" we always force
         // a native-only build so that we can run as quickly as possible.
-        if (config.target.result.os.tag.isDarwin() and
+        if (!config.emit_lib_vt and
+            config.target.result.os.tag.isDarwin() and
             (config.emit_xcframework or config.emit_macos_app))
         {
             const xcframework_native = try buildpkg.GhosttyXCFramework.init(
