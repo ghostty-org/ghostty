@@ -2676,15 +2676,34 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 visual_to_logical = v2l;
             }
 
-            // Update cursor position to visual coordinates for RTL rows
+            // Update cursor position to visual coordinates for RTL rows.
+            // When the cursor is inside a reordered region, use the
+            // direct logical_to_visual lookup. When the cursor is past
+            // the RTL block (LTR continuation), place it at the left
+            // edge of the RTL block where the next char would appear.
             if (logical_to_visual) |l2v| {
                 if (state.cursor.viewport) |cursor_vp| {
-                    const cursor_x = switch (state.cursor.cell.wide) {
-                        .narrow, .spacer_head, .wide => @as(u32, cursor_vp.x),
+                    const cursor_logical: u32 = switch (state.cursor.cell.wide) {
+                        .narrow, .spacer_head, .wide => cursor_vp.x,
                         .spacer_tail => cursor_vp.x -| 1,
                     };
-                    if (cursor_x < l2v.len) {
-                        self.uniforms.cursor_pos[0] = @intCast(l2v[cursor_x]);
+                    if (cursor_logical < l2v.len) {
+                        const direct = l2v[cursor_logical];
+                        if (direct != cursor_logical) {
+                            self.uniforms.cursor_pos[0] = @intCast(direct);
+                        } else if (cursor_logical > 0) {
+                            var min_visual: u32 = @intCast(cells_len);
+                            var any_rtl = false;
+                            for (l2v[0..cursor_logical], 0..) |v, logical_i| {
+                                if (v != @as(u32, @intCast(logical_i))) {
+                                    any_rtl = true;
+                                    min_visual = @min(min_visual, v);
+                                }
+                            }
+                            if (any_rtl and min_visual < @as(u32, @intCast(cells_len))) {
+                                self.uniforms.cursor_pos[0] = @intCast(min_visual);
+                            }
+                        }
                     }
                 }
             }
