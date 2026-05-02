@@ -5,6 +5,7 @@ const harfbuzz = @import("harfbuzz");
 const font = @import("../main.zig");
 const terminal = @import("../../terminal/main.zig");
 const unicode = @import("../../unicode/main.zig");
+const BiDi = @import("../../text/BiDi.zig");
 const Feature = font.shape.Feature;
 const FeatureList = font.shape.FeatureList;
 const default_features = font.shape.default_features;
@@ -255,14 +256,23 @@ pub const Shaper = struct {
         }
         //log.warn("----------------", .{});
 
+        // For RTL text: HarfBuzz outputs glyphs in visual RTL order (right-to-left),
+        // but the terminal grid requires logical LTR order (left-to-right with
+        // increasing X positions). We reverse the glyphs here to match grid expectations.
+        const is_rtl = self.hb_buf.getDirection() == .rtl;
+        if (is_rtl) {
+            std.mem.reverse(font.shape.Cell, self.cell_buf.items);
+        }
+
         return self.cell_buf.items;
     }
 
     /// The hooks for RunIterator.
     pub const RunIteratorHook = struct {
         shaper: *Shaper,
+        first_cp: ?u32 = null,
 
-        pub fn prepare(self: RunIteratorHook) void {
+        pub fn prepare(self: *RunIteratorHook) !void {
             // Reset the buffer for our current run
             self.shaper.hb_buf.reset();
             self.shaper.hb_buf.setContentType(.unicode);
@@ -274,13 +284,39 @@ pub const Shaper = struct {
 
             self.shaper.codepoints.clearRetainingCapacity();
 
-            // We don't support RTL text because RTL in terminals is messy.
-            // Its something we want to improve. For now, we force LTR because
-            // our renderers assume a strictly increasing X value.
+            self.first_cp = null;
+
+            // Set initial direction to LTR. For RTL scripts (Arabic, Hebrew),
+            // the direction will be explicitly set to RTL in addCodepoint
+            // based on the first codepoint's script.
             self.shaper.hb_buf.setDirection(.ltr);
         }
 
-        pub fn addCodepoint(self: RunIteratorHook, cp: u32, cluster: u32) !void {
+        pub fn addCodepoint(self: *RunIteratorHook, cp: u32, cluster: u32) !void {
+            // Track first codepoint to detect script
+            if (self.first_cp == null) {
+                self.first_cp = cp;
+
+                // Explicitly set script for complex scripts that require it
+                // for proper shaping (e.g., Arabic joining, Hebrew, etc.)
+                const script = BiDi.detectScript(cp);
+                if (BiDi.isComplexScript(script)) {
+                    // Map our BiDi.Script to HarfBuzz Script enum
+                    const hb_script: harfbuzz.Script = switch (script) {
+                        .Arabic => .arabic,
+                        .Hebrew => .hebrew,
+                        else => .invalid,
+                    };
+                    if (hb_script != .invalid) {
+                        self.shaper.hb_buf.setScript(hb_script);
+                    }
+                    // Set RTL direction for RTL scripts to enable proper shaping
+                    if (BiDi.isRtlScript(script)) {
+                        self.shaper.hb_buf.setDirection(.rtl);
+                    }
+                }
+            }
+
             // log.warn("cluster={} cp={x}", .{ cluster, cp });
             // We pass the index into codepoints as the cluster value to HarfBuzz.
             // After shaping, we use info.cluster to get back the index, which
@@ -293,7 +329,7 @@ pub const Shaper = struct {
             });
         }
 
-        pub fn finalize(self: RunIteratorHook) void {
+        pub fn finalize(self: *RunIteratorHook) !void {
             self.shaper.hb_buf.guessSegmentProperties();
         }
     };
