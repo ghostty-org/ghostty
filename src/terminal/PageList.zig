@@ -3155,6 +3155,9 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
         // Increase our total rows by one
         self.total_rows += 1;
 
+        // Hint any page that just fell outside the hot window cold.
+        self.hintColdBoundary();
+
         return null;
     }
 

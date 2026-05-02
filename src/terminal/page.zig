@@ -60,10 +60,17 @@ const AllocPosix = struct {
     /// best-effort.
     pub fn hint(mem: []align(std.heap.page_size_min) u8) void {
         // MADV_COLD (Linux 5.4+) marks pages as low-priority for reclaim.
-        // On older kernels and macOS, fall back to MADV_FREE which signals
-        // that the pages are reusable (contents may be discarded).
+        // On macOS, MADV_FREE_REUSABLE is an Apple-private extension that
+        // immediately decrements task phys_footprint, making the reclaim
+        // visible to Activity Monitor right away rather than waiting for
+        // memory pressure. On older kernels fall back to MADV_FREE.
+        // MADV_FREE_REUSABLE is not in the public SDK headers so we define it
+        // here. Value sourced from XNU: bsd/sys/mman.h MADV_FREE_REUSABLE = 7.
+        const MADV_FREE_REUSABLE: u32 = 7;
         const advice: u32 = if (@hasDecl(posix.MADV, "COLD"))
             @intCast(posix.MADV.COLD)
+        else if (builtin.os.tag == .macos)
+            MADV_FREE_REUSABLE
         else
             @intCast(posix.MADV.FREE);
         posix.madvise(mem.ptr, mem.len, advice) catch {};
