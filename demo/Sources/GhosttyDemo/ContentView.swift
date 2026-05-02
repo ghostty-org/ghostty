@@ -138,34 +138,100 @@ struct TabBarView: View {
     }
 }
 
-struct TabButton: View {
+struct TabButton: NSViewRepresentable {
     let title: String
     let isActive: Bool
     let canClose: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
 
-    var body: some View {
-        HStack(spacing: 4) {
-            Text(title)
-                .font(.system(size: 11))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
+    func makeNSView(context: Context) -> TabButtonNS {
+        let v = TabButtonNS()
+        v.onSelect = onSelect
+        v.onClose = onClose
+        v.update(title: title, isActive: isActive, canClose: canClose)
+        return v
+    }
 
-            if canClose {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
-                }
-                .buttonStyle(.plain)
-            }
+    func updateNSView(_ nsView: TabButtonNS, context: Context) {
+        nsView.onSelect = onSelect
+        nsView.onClose = onClose
+        nsView.update(title: title, isActive: isActive, canClose: canClose)
+    }
+}
+
+class TabButtonNS: NSView {
+    var onSelect: (() -> Void)?
+    var onClose: (() -> Void)?
+
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let closeButton = NSButton()
+    private var isActive = false
+    private var canClose = false
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setupViews()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setupViews() {
+        titleLabel.font = NSFont.systemFont(ofSize: 11)
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(titleLabel)
+
+        closeButton.bezelStyle = .inline
+        closeButton.title = "x"
+        closeButton.font = NSFont.systemFont(ofSize: 8, weight: .bold)
+        closeButton.target = self
+        closeButton.action = #selector(closeClicked)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(closeButton)
+
+        NSLayoutConstraint.activate([
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            closeButton.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 4),
+            closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            closeButton.widthAnchor.constraint(equalToConstant: 14),
+            closeButton.heightAnchor.constraint(equalToConstant: 14),
+        ])
+    }
+
+    func update(title: String, isActive: Bool, canClose: Bool) {
+        titleLabel.stringValue = title
+        self.isActive = isActive
+        self.canClose = canClose
+        closeButton.isHidden = !canClose
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if isActive {
+            NSColor.controlAccentColor.withAlphaComponent(0.15).setFill()
+            let path = NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4)
+            path.fill()
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
-        .background(isActive ? Color.accentColor.opacity(0.15) : Color.clear)
-        .cornerRadius(4)
+        super.draw(dirtyRect)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 || event.buttonNumber == 2 {
+            // Middle-click or double-click → close
+            onClose?()
+        } else {
+            onSelect?()
+        }
+    }
+
+    @objc private func closeClicked() {
+        onClose?()
     }
 }
 

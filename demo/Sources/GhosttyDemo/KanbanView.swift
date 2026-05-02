@@ -110,6 +110,7 @@ struct KanbanView: View {
     @State private var columnFrames: [Status: CGRect] = [:]
     @State private var cardFrames: [UUID: CGRect] = [:]
     @State private var insertedTaskId: UUID?
+    @State private var insertedTaskWorkItem: DispatchWorkItem?
     @State private var escMonitor: Any?
 
     var body: some View {
@@ -237,21 +238,21 @@ struct KanbanView: View {
 
         let index = dragState.targetIndex
         let taskId = task.id
-        let changed: Bool
 
         if source == target {
-            changed = reorderWithin(taskId: taskId, status: source, to: index)
+            _ = reorderWithin(taskId: taskId, status: source, to: index)
         } else {
             boardState.moveTask(taskId, to: target)
-            changed = true
         }
 
-        if changed {
-            insertedTaskId = taskId
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                insertedTaskId = nil
-            }
+        // Always animate on drop (regardless of whether position changed)
+        insertedTaskId = taskId
+        insertedTaskWorkItem?.cancel()
+        let workItem = DispatchWorkItem {
+            insertedTaskId = nil
         }
+        insertedTaskWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: workItem)
 
         dragState.draggedTask = nil
         dragState.targetStatus = nil

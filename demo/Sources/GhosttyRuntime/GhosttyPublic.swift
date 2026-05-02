@@ -65,6 +65,10 @@ public final class GhosttySurfaceView: NSView, ObservableObject {
         inner.surface
     }
 
+    /// The inner NSView that can become first responder.
+    /// Used by TerminalTabManager to transfer focus when switching tabs.
+    public var surfaceNSView: NSView { inner }
+
     /// Notify the surface of focus changes.
     /// Used to pause/resume cursor blinking and release secure input.
     public func focusDidChange(_ focused: Bool) {

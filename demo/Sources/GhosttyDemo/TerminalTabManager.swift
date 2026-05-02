@@ -60,10 +60,25 @@ class TerminalTabManager: ObservableObject {
 
         activeTabID = id
 
-        // 通知新的活跃 Tab: 获得焦点 + 可见
+        // 通知新的活跃 Tab: 可见
         if let newActive = activeTab {
-            newActive.surfaceView.focusDidChange(true)
             setOcclusion(true, for: newActive)
+        }
+
+        // 参考 Ghostty 原生实现: 通过 window.makeFirstResponder 让新 surface 成为 first responder
+        // 这会触发 becomeFirstResponder() → focusDidChange(true)，确保键盘事件正确路由
+        if let newActive = activeTab {
+            let innerView = newActive.surfaceView.surfaceNSView
+            if let window = innerView.window {
+                window.makeKeyAndOrderFront(nil)
+                window.makeFirstResponder(innerView)
+            } else {
+                DispatchQueue.main.async {
+                    guard let window = innerView.window else { return }
+                    window.makeKeyAndOrderFront(nil)
+                    window.makeFirstResponder(innerView)
+                }
+            }
         }
     }
 
