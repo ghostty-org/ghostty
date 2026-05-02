@@ -2676,6 +2676,19 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 visual_to_logical = v2l;
             }
 
+            // Update cursor position to visual coordinates for RTL rows
+            if (logical_to_visual) |l2v| {
+                if (state.cursor.viewport) |cursor_vp| {
+                    const cursor_x = switch (state.cursor.cell.wide) {
+                        .narrow, .spacer_head, .wide => @as(u32, cursor_vp.x),
+                        .spacer_tail => cursor_vp.x -| 1,
+                    };
+                    if (cursor_x < l2v.len) {
+                        self.uniforms.cursor_pos[0] = @intCast(l2v[cursor_x]);
+                    }
+                }
+            }
+
             // On primary screen, we still apply vertical padding
             // extension under certain conditions we feel are safe.
             //
