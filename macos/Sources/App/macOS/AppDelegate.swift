@@ -156,9 +156,7 @@ class AppDelegate: NSObject,
     private let appIconUpdater = AppIconUpdater()
 
     @MainActor private lazy var menuShortcutManager = Ghostty.MenuShortcutManager()
-    /// A signal to trigger restoration for shortcuts of registered menus, like copy and paste
-    let restoreShortcutsRequest = PassthroughSubject<Void, Never>()
-    /// A throttle observer for the signal above
+    /// A observer for resetting menu shortcuts based on firstResponder
     private var resetMenuObserver: Any?
 
     override init() {
@@ -215,7 +213,7 @@ class AppDelegate: NSObject,
             toggleSecureInput(self)
         }
 
-        saveRestorableMenuItems()
+        setupRestorableMenuItems()
 
         // Initial config loading
         ghosttyConfigDidChange(config: ghostty.config)
@@ -639,7 +637,6 @@ class AppDelegate: NSObject,
     @objc private func windowDidBecomeKey(_ notification: Notification) {
         let window = notification.object as? NSWindow
         syncFloatOnTopMenu(window)
-        restoreRegisteredMenusIfNeeded(for: window)
     }
 
     @objc private func quickTerminalDidChangeVisibility(_ notification: Notification) {
@@ -1152,10 +1149,10 @@ extension AppDelegate {
         self.menuFindParent?.setImageIfDesired(systemSymbolName: "text.page.badge.magnifyingglass")
     }
 
-    /// Save restorable menu items for later
+    /// Save restorable menu items and restore them whenever the first responder is not a terminal surface
     ///
     /// If you plan to add more items here, make sure you add the default shortcut in MainMenu.xib
-    @MainActor private func saveRestorableMenuItems() {
+    @MainActor private func setupRestorableMenuItems() {
         [
             (menuUndo, "undo"),
             (menuRedo, "redo"),
@@ -1165,15 +1162,34 @@ extension AppDelegate {
             (menuSelectAll, "select_all"),
         ].forEach(menuShortcutManager.saveRestorableMenuItem(_:action:))
 
-        resetMenuObserver = restoreShortcutsRequest
-            .throttle(for: .seconds(0.5), scheduler: DispatchQueue.main, latest: false)
-            .sink { [weak self] in
+        // The reason we're using publisher here instead of `windowDidBecomeKey`
+        // is that we want reset the observer whenever the key window is changed.
+        //
+        // I had a case where help menu's window becomes key with terminal window opened then moving away from help menu doesn't trigger another notification.
+        resetMenuObserver = NSApp.publisher(for: \.keyWindow)
+            .flatMap {
+                $0?.publisher(for: \.firstResponder, options: [.new])
+                    .map { $0 is Ghostty.SurfaceView }
+                    .eraseToAnyPublisher() ??
+                Just(true).eraseToAnyPublisher()
+                // When the keyWindow is nil, we want to re-sync them
+            }
+            .removeDuplicates()
+            .sink { [weak self] isSurfaceFocused in
                 guard let self else { return }
-                // We need to check the first responder again,
-                // because a request could be fired multiple time in a short time.
-                // It's hard for us to filter them out,
-                // but firstResponder will be updated correctly
-                restoreRegisteredMenusIfNeeded(for: nil)
+                if isSurfaceFocused {
+                    menuShortcutManager.reSyncRestoredMenuShortcuts(config: ghostty.config)
+                } else {
+                    // Restore for non terminal responders, like:
+                    // 1. About Window
+                    // 2. Alert modal
+                    // 3. ConfigurationErrors
+                    // 4. InlineTitleEditor
+                    // 5. SearchOverlay
+                    // 6. CommandPalette
+                    // 7. Help search
+                    menuShortcutManager.restoreMenuShortcuts()
+                }
             }
     }
 
@@ -1246,43 +1262,12 @@ extension AppDelegate {
         //
         // syncMenuShortcut(config, action: "toggle_fullscreen", menuItem: self.menuToggleFullScreen)
 
-        // Restore the restorable menu shortcuts if needed
-        restoreShortcutsRequest.send()
-
         // Dock menu
         reloadDockMenu()
     }
 
     @MainActor private func syncMenuShortcut(_ config: Ghostty.Config, action: String?, menuItem: NSMenuItem?) {
         menuShortcutManager.syncMenuShortcut(config, action: action, menuItem: menuItem)
-    }
-
-    @MainActor private func restoreRegisteredMenusIfNeeded(for window: NSWindow?) {
-        guard let window = window ?? NSApp.keyWindow else {
-            return
-        }
-        guard
-            window is TerminalWindow || window is QuickTerminalWindow,
-            window.firstResponder is Ghostty.SurfaceView
-        else {
-            // Restore for:
-            // 1. About Window
-            // 2. Alert modal
-            // 3. ConfigurationErrors
-            // 4. InlineTitleEditor
-            // 5. SearchOverlay
-            // 6. CommandPalette
-            // 7. Help search
-            menuShortcutManager.restoreMenuShortcuts()
-            return
-        }
-        // If it's a terminal window with surface focused,
-        // then we re-sync the menu shortcuts
-        menuShortcutManager.reSyncRestoredMenuShortcuts(config: ghostty.config)
-
-        // For cases like after closing About which is the last window,
-        // the restore shortcuts will stays there and most of them should be disabled or no-op.
-        // The next time a terminal window is open, the shortcuts will be updated
     }
 
     @MainActor func performGhosttyBindingMenuKeyEquivalent(with event: NSEvent) -> Bool {
