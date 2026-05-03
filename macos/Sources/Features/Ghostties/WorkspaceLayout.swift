@@ -26,12 +26,12 @@ enum WorkspaceLayout {
     /// Height reserved at top for window traffic light controls.
     static let titlebarSpacerHeight: CGFloat = 28
 
-    /// Breathing room between traffic lights and our toolbar row (toggle, +, title).
-    /// Traffic lights are at ~14pt from visual top; our row is this many pts further down.
-    static let breathingRoomBelowChrome: CGFloat = 8
+    /// Offset between traffic-light centerline and our toolbar row (toggle, +, title).
+    /// Zero = exact alignment with traffic lights (Dia Browser style, confirmed correct).
+    static let breathingRoomBelowChrome: CGFloat = 0
 
     /// Returns the Auto Layout `topAnchor + constant` that places an element's centerY
-    /// on the unified toolbar row — breathingRoomBelowChrome pts below the traffic lights.
+    /// on the unified toolbar row — co-planar with the traffic lights.
     /// Returns nil before the window is on-screen or if the button isn't available.
     /// Call from NSView.layout() or window-delegate hooks, not from init.
     static func titlebarRowTopAnchorConstant(in view: NSView) -> CGFloat? {
