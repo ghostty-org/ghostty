@@ -1,5 +1,4 @@
 import Foundation
-import CoreServices
 
 // MARK: - ParsedSession
 
@@ -193,9 +192,10 @@ struct ParsedSession {
 
 /// Monitors `~/.claude/projects/` for changes to Claude Code JSONL session files.
 ///
-/// Uses Carbon `FSEvents` for reliable, recursive directory monitoring.  When
-/// new data is detected it re-parses only the appended bytes (incremental),
-/// extracts session statuses, and delivers them via the `onChange` callback.
+/// Uses a lightweight GCD `DispatchSourceFileSystemObject` on the directory
+/// (instead of Carbon FSEvents) for simpler dependencies.  When new data is
+/// detected it re-parses only the appended bytes (incremental), extracts
+/// session statuses, and delivers them via the `onChange` callback.
 ///
 /// Usage:
 /// ```swift
@@ -207,7 +207,7 @@ struct ParsedSession {
 /// ```
 class JsonlWatcher {
     private let path: String  // e.g. ~/.claude/projects/
-    private var eventStream: FSEventStreamRef?
+    private var source: DispatchSourceFileSystemObject?
     private var fileOffsets: [String: UInt64] = [:]  // incremental parse tracking
     private let processingQueue = DispatchQueue(label: "com.ghostty.jsonl-watcher", qos: .utility)
     private var lastModificationDates: [String: Date] = [:]
@@ -216,6 +216,10 @@ class JsonlWatcher {
 
     /// Session IDs seen in previous scans; used to detect newly created sessions.
     private var seenSessionIds: Set<String> = []
+
+    // Debounce
+    private var debounceWorkItem: DispatchWorkItem?
+    private let debounceInterval: TimeInterval = 0.2
 
     // Limits
     private let maxFileSize: UInt64 = 1_048_576  // 1 MB
@@ -252,65 +256,52 @@ class JsonlWatcher {
             self?.performScan()
         }
 
-        startFseventsMonitoring()
+        setupDirectoryMonitoring()
     }
 
     /// Stop monitoring and release resources.
     func stop() {
-        if let stream = eventStream {
-            FSEventStreamStop(stream)
-            FSEventStreamInvalidate(stream)
-            FSEventStreamRelease(stream)
-            eventStream = nil
-        }
+        source?.cancel()
+        source = nil
+        debounceWorkItem?.cancel()
+        debounceWorkItem = nil
     }
 
-    // MARK: - Directory monitoring (FSEvents)
+    // MARK: - Directory monitoring (GCD dispatch source)
 
-    /// Starts an FSEventStream watching the project directory recursively.
-    private func startFseventsMonitoring() {
-        var context = FSEventStreamContext(
-            version: 0,
-            info: Unmanaged.passUnretained(self).toOpaque(),
-            retain: nil,
-            release: nil,
-            copyDescription: nil
+    /// Opens an event-only file descriptor on the watched directory and
+    /// installs a `DispatchSourceFileSystemObject` that fires on write,
+    /// rename, delete, or extend events.
+    private func setupDirectoryMonitoring() {
+        let fd = open(path, O_EVTONLY)
+        guard fd >= 0 else { return }
+
+        let dispatchSource = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .rename, .delete, .extend],
+            queue: processingQueue
         )
 
-        let paths = [path] as CFArray
-
-        guard let stream = FSEventStreamCreate(
-            kCFAllocatorDefault,
-            { (streamRef, clientCallBackInfo, numEvents, eventPaths, eventFlags, eventIds) in
-                guard let info = clientCallBackInfo else { return }
-                let watcher = Unmanaged<JsonlWatcher>.fromOpaque(info).takeUnretainedValue()
-
-                let paths = unsafeBitCast(eventPaths, to: NSArray.self) as! [String]
-                for i in 0..<numEvents {
-                    let eventPath = paths[i]
-                    watcher.handleFileChange(path: eventPath)
-                }
-            },
-            &context,
-            paths,
-            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-            0.1,  // 100 ms latency
-            FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer)
-        ) else {
-            return
+        dispatchSource.setEventHandler { [weak self] in
+            self?.scheduleScan()
         }
 
-        eventStream = stream
-        FSEventStreamScheduleWithRunLoop(stream, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
-        FSEventStreamStart(stream)
+        dispatchSource.setCancelHandler {
+            close(fd)
+        }
+
+        source = dispatchSource
+        dispatchSource.resume()
     }
 
-    /// Handles a file-change event from FSEvents, triggering a scan.
-    /// The 100ms FSEvents latency provides natural coalescing of rapid events.
-    private func handleFileChange(path: String) {
-        processingQueue.async { [weak self] in
+    /// Debounce a full scan; coalesces rapid file-system events.
+    private func scheduleScan() {
+        debounceWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
             self?.performScan()
         }
+        debounceWorkItem = workItem
+        processingQueue.asyncAfter(deadline: .now() + debounceInterval, execute: workItem)
     }
 
     // MARK: - Scanning
@@ -362,17 +353,14 @@ class JsonlWatcher {
         }
 
         DispatchQueue.main.async { [weak self] in
-            // onChange FIRST: updateSession(from:) matches via its strategy chain
-            // (sessionId → UUID → nil fallback) in whatever order the parsed
-            // sessions arrive.  The nil fallback is safe because the watcher
-            // only monitors the current workspace's project subdirectory.
-            // onNewSessionId SECOND: pops the FIFO queue as a safety net.
-            self?.onChange?(changedSessions)
+            // Call onNewSessionId BEFORE onChange so matchNewSessionId sets the
+            // session's sessionId before updateSession tries to match.
             for sessionId in newIds {
                 if let session = changedSessions[sessionId] {
                     self?.onNewSessionId?(sessionId, session)
                 }
             }
+            self?.onChange?(changedSessions)
         }
     }
 

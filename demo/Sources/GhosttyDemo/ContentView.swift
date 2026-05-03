@@ -67,7 +67,20 @@ struct ContentView: View {
             // Start monitoring Claude JSONL session files under ~/.claude/projects
             let claudeProjects = FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".claude/projects").path
-            let watchPath = claudeProjects
+
+            // Watch only the workspace-specific subdirectory so we never see
+            // JSONL files from other projects.  Encoding matches Claude's
+            // project-directory naming scheme.
+            let watchPath: String
+            if let ws = boardState.workspacePath {
+                let encoded = ws.replacingOccurrences(of: "/", with: "-")
+                    .replacingOccurrences(of: ".", with: "-")
+                    .replacingOccurrences(of: ":", with: "-")
+                    .replacingOccurrences(of: " ", with: "-")
+                watchPath = claudeProjects + "/" + encoded
+            } else {
+                watchPath = claudeProjects
+            }
 
             let sessionWatcher = JsonlWatcher(path: watchPath)
             sessionWatcher.start(
@@ -223,7 +236,7 @@ class TabButtonNS: NSView {
 
     override func mouseDown(with event: NSEvent) {
         if event.clickCount == 2 || event.buttonNumber == 2 {
-            // Middle-click or double-click → close
+            // Double-click or middle-click → close
             onClose?()
         } else {
             onSelect?()
