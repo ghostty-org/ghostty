@@ -2701,6 +2701,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                                 }
                             }
                             if (any_rtl and min_visual < @as(u32, @intCast(cells_len))) {
+                                log.warn("CURSOR_FIX rtl_edge logical={d} min_visual={d}", .{ cursor_logical, min_visual });
                                 self.uniforms.cursor_pos[0] = @intCast(min_visual);
                             }
                         }

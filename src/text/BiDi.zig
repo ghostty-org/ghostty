@@ -128,7 +128,7 @@ pub fn analyzeBidiCodepoints(
         bracket_types.ptr,
     );
 
-    var paragraph_dir: c.FriBidiParType = c.FRIBIDI_PAR_ON;
+    var paragraph_dir: c.FriBidiParType = c.FRIBIDI_PAR_LTR;
     _ = c.fribidi_get_par_embedding_levels_ex(
         bidi_types.ptr,
         bracket_types.ptr,
