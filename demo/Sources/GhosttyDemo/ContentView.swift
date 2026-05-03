@@ -268,14 +268,36 @@ struct TabDropDelegate: DropDelegate {
     }
 }
 
-// MARK: - Terminal View Wrapper (NSViewRepresentable)
+// MARK: - Terminal View Wrapper (GeometryReader + NSViewRepresentable)
 
-struct SurfaceViewWrapper: NSViewRepresentable {
+/// Wraps GhosttySurfaceView with explicit geometry size passing.
+/// This matches the original Ghostty's SurfaceRepresentable pattern
+/// (SurfaceView.swift:570-609) where GeometryReader provides the size
+/// and updateOSView only triggers layout when bounds differ.
+struct SurfaceViewWrapper: View {
     let surfaceView: GhosttySurfaceView
+
+    var body: some View {
+        GeometryReader { geo in
+            SurfaceRepresentable(surfaceView: surfaceView, size: geo.size)
+                .frame(width: geo.size.width, height: geo.size.height)
+        }
+    }
+}
+
+/// NSViewRepresentable that passes geometry size to GhosttySurfaceView.
+/// Only triggers layout when the size actually changes, matching
+/// original Ghostty's guard pattern (SurfaceView.swift:596).
+private struct SurfaceRepresentable: NSViewRepresentable {
+    let surfaceView: GhosttySurfaceView
+    let size: CGSize
 
     func makeNSView(context: Context) -> GhosttySurfaceView {
         surfaceView
     }
 
-    func updateNSView(_ nsView: GhosttySurfaceView, context: Context) {}
+    func updateNSView(_ nsView: GhosttySurfaceView, context: Context) {
+        guard nsView.bounds.size != size else { return }
+        nsView.needsLayout = true
+    }
 }
