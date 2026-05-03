@@ -633,10 +633,8 @@ class AppDelegate: NSObject,
         return event
     }
 
-    @MainActor
     @objc private func windowDidBecomeKey(_ notification: Notification) {
-        let window = notification.object as? NSWindow
-        syncFloatOnTopMenu(window)
+        syncFloatOnTopMenu(notification.object as? NSWindow)
     }
 
     @objc private func quickTerminalDidChangeVisibility(_ notification: Notification) {
