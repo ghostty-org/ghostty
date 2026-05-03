@@ -19,6 +19,9 @@ const request = @import("request.zig");
 /// glossary on `register`.
 pub const Payload = request.DecodedPayload;
 
+/// Authoritative cell width for a registered codepoint.
+pub const Width = request.Width;
+
 /// Maximum simultaneous registrations per session (spec §4).
 pub const capacity: usize = 1024;
 
@@ -29,6 +32,10 @@ pub const Entry = struct {
     payload: Payload,
     /// Units-per-em the outline was authored in.
     upm: u16,
+    /// Authoritative wcwidth for the codepoint. Drives the terminal's
+    /// cell-layout decisions (1 cell vs. 2 cells) regardless of the
+    /// Unicode table's value.
+    width: Width,
     /// Stable slot index in `0..capacity`. Renderer uses this as part of
     /// an atlas cache key, so it must remain invariant across an
     /// overwrite of the same codepoint.
@@ -90,6 +97,7 @@ pub const Glossary = struct {
         cp: u21,
         payload: Payload,
         upm: u16,
+        width: Width,
     ) Allocator.Error!?u21 {
         self.mutation_count +%= 1;
 
@@ -97,6 +105,7 @@ pub const Glossary = struct {
             var old = existing.payload;
             existing.payload = payload;
             existing.upm = upm;
+            existing.width = width;
             existing.generation = self.mutation_count;
             old.deinit(alloc);
             return null;
@@ -121,6 +130,7 @@ pub const Glossary = struct {
         try self.by_cp.put(alloc, cp, .{
             .payload = payload,
             .upm = upm,
+            .width = width,
             .slot = slot,
             .insertion_id = self.next_insertion,
             .generation = self.mutation_count,
@@ -128,6 +138,14 @@ pub const Glossary = struct {
         self.next_insertion +%= 1;
         self.slots[slot] = cp;
         return evicted;
+    }
+
+    /// Authoritative width for a registered codepoint, or `null` when
+    /// the codepoint isn't registered. Used by the terminal's print
+    /// path to override the Unicode table for layout decisions.
+    pub fn widthFor(self: *const Glossary, cp: u21) ?Width {
+        const entry = self.by_cp.getPtr(cp) orelse return null;
+        return entry.width;
     }
 
     /// Drop the registration for `cp`. No-op if nothing was registered.
@@ -199,25 +217,49 @@ test "register and get" {
     var g: Glossary = .{};
     defer g.deinit(testing.allocator);
 
-    const evicted = try g.register(testing.allocator, 0xE0A0, markerOutline(42), 1000);
+    const evicted = try g.register(testing.allocator, 0xE0A0, markerOutline(42), 1000, .narrow);
     try testing.expect(evicted == null);
     try testing.expect(g.contains(0xE0A0));
     try testing.expectEqual(@as(i32, 42), g.get(0xE0A0).?.payload.glyf.x_min);
     try testing.expectEqual(@as(u16, 1000), g.get(0xE0A0).?.upm);
+    try testing.expectEqual(Width.narrow, g.get(0xE0A0).?.width);
     try testing.expectEqual(@as(usize, 1), g.len());
+}
+
+test "register stores wide width and widthFor reports it" {
+    var g: Glossary = .{};
+    defer g.deinit(testing.allocator);
+
+    _ = try g.register(testing.allocator, 0xE0A0, markerOutline(0), 1000, .wide);
+    _ = try g.register(testing.allocator, 0xE0A1, markerOutline(0), 1000, .narrow);
+
+    try testing.expectEqual(Width.wide, g.widthFor(0xE0A0).?);
+    try testing.expectEqual(Width.narrow, g.widthFor(0xE0A1).?);
+    try testing.expect(g.widthFor(0xE0A2) == null);
+}
+
+test "overwrite updates width" {
+    var g: Glossary = .{};
+    defer g.deinit(testing.allocator);
+
+    _ = try g.register(testing.allocator, 0xE0A0, markerOutline(0), 1000, .narrow);
+    try testing.expectEqual(Width.narrow, g.widthFor(0xE0A0).?);
+
+    _ = try g.register(testing.allocator, 0xE0A0, markerOutline(0), 1000, .wide);
+    try testing.expectEqual(Width.wide, g.widthFor(0xE0A0).?);
 }
 
 test "overwrite preserves slot and insertion order" {
     var g: Glossary = .{};
     defer g.deinit(testing.allocator);
 
-    _ = try g.register(testing.allocator, 0xE0A0, markerOutline(1), 1000);
-    _ = try g.register(testing.allocator, 0xE0A1, markerOutline(2), 1000);
+    _ = try g.register(testing.allocator, 0xE0A0, markerOutline(1), 1000, .narrow);
+    _ = try g.register(testing.allocator, 0xE0A1, markerOutline(2), 1000, .narrow);
 
     const slot_before = g.get(0xE0A0).?.slot;
     const insertion_before = g.get(0xE0A0).?.insertion_id;
 
-    const evicted = try g.register(testing.allocator, 0xE0A0, markerOutline(9), 2048);
+    const evicted = try g.register(testing.allocator, 0xE0A0, markerOutline(9), 2048, .narrow);
     try testing.expect(evicted == null);
 
     const a = g.get(0xE0A0).?;
@@ -233,9 +275,9 @@ test "distinct registrations get distinct slots" {
     var g: Glossary = .{};
     defer g.deinit(testing.allocator);
 
-    _ = try g.register(testing.allocator, 0xE0A0, markerOutline(0), 1000);
-    _ = try g.register(testing.allocator, 0xE0A1, markerOutline(0), 1000);
-    _ = try g.register(testing.allocator, 0xE0A2, markerOutline(0), 1000);
+    _ = try g.register(testing.allocator, 0xE0A0, markerOutline(0), 1000, .narrow);
+    _ = try g.register(testing.allocator, 0xE0A1, markerOutline(0), 1000, .narrow);
+    _ = try g.register(testing.allocator, 0xE0A2, markerOutline(0), 1000, .narrow);
 
     const s0 = g.get(0xE0A0).?.slot;
     const s1 = g.get(0xE0A1).?.slot;
@@ -249,12 +291,12 @@ test "cleared slot is reused by next registration" {
     var g: Glossary = .{};
     defer g.deinit(testing.allocator);
 
-    _ = try g.register(testing.allocator, 0xE0A0, markerOutline(0), 1000);
+    _ = try g.register(testing.allocator, 0xE0A0, markerOutline(0), 1000, .narrow);
     const old_slot = g.get(0xE0A0).?.slot;
     g.clearOne(testing.allocator, 0xE0A0);
     try testing.expect(g.cpForSlot(old_slot) == null);
 
-    _ = try g.register(testing.allocator, 0xE0A1, markerOutline(0), 1000);
+    _ = try g.register(testing.allocator, 0xE0A1, markerOutline(0), 1000, .narrow);
     try testing.expectEqual(old_slot, g.get(0xE0A1).?.slot);
 }
 
@@ -262,8 +304,8 @@ test "clearOne leaves others intact" {
     var g: Glossary = .{};
     defer g.deinit(testing.allocator);
 
-    _ = try g.register(testing.allocator, 0xE0A0, markerOutline(0), 1000);
-    _ = try g.register(testing.allocator, 0xE0A1, markerOutline(0), 1000);
+    _ = try g.register(testing.allocator, 0xE0A0, markerOutline(0), 1000, .narrow);
+    _ = try g.register(testing.allocator, 0xE0A1, markerOutline(0), 1000, .narrow);
     g.clearOne(testing.allocator, 0xE0A0);
     try testing.expect(!g.contains(0xE0A0));
     try testing.expect(g.contains(0xE0A1));
@@ -279,8 +321,8 @@ test "clearOne unknown cp is a no-op" {
 test "clearAll drops everything" {
     var g: Glossary = .{};
     defer g.deinit(testing.allocator);
-    _ = try g.register(testing.allocator, 0xE0A0, markerOutline(0), 1000);
-    _ = try g.register(testing.allocator, 0xE0A1, markerOutline(0), 1000);
+    _ = try g.register(testing.allocator, 0xE0A0, markerOutline(0), 1000, .narrow);
+    _ = try g.register(testing.allocator, 0xE0A1, markerOutline(0), 1000, .narrow);
     g.clearAll(testing.allocator);
     try testing.expectEqual(@as(usize, 0), g.len());
     try testing.expect(g.cpForSlot(0) == null);
@@ -298,12 +340,13 @@ test "FIFO eviction at capacity" {
             @as(u21, 0xE000) + i,
             markerOutline(@intCast(i)),
             1000,
+            .narrow,
         );
     }
     try testing.expectEqual(capacity, g.len());
 
     // Next fresh registration evicts U+E000 (the oldest).
-    const evicted = try g.register(testing.allocator, 0xE500, markerOutline(-1), 1000);
+    const evicted = try g.register(testing.allocator, 0xE500, markerOutline(-1), 1000, .narrow);
     try testing.expectEqual(@as(u21, 0xE000), evicted.?);
     try testing.expect(!g.contains(0xE000));
     try testing.expect(g.contains(0xE500));
@@ -315,10 +358,10 @@ test "mutation_count bumps on register, overwrite, clear" {
     defer g.deinit(testing.allocator);
     try testing.expectEqual(@as(u64, 0), g.mutation_count);
 
-    _ = try g.register(testing.allocator, 0xE0A0, markerOutline(0), 1000);
+    _ = try g.register(testing.allocator, 0xE0A0, markerOutline(0), 1000, .narrow);
     try testing.expectEqual(@as(u64, 1), g.mutation_count);
 
-    _ = try g.register(testing.allocator, 0xE0A0, markerOutline(1), 1000); // overwrite
+    _ = try g.register(testing.allocator, 0xE0A0, markerOutline(1), 1000, .narrow); // overwrite
     try testing.expectEqual(@as(u64, 2), g.mutation_count);
     try testing.expectEqual(@as(u64, 2), g.get(0xE0A0).?.generation);
 
@@ -332,7 +375,7 @@ test "mutation_count bumps on register, overwrite, clear" {
     // clearAll on empty doesn't bump; on non-empty, does.
     g.clearAll(testing.allocator);
     try testing.expectEqual(@as(u64, 3), g.mutation_count);
-    _ = try g.register(testing.allocator, 0xE0A0, markerOutline(2), 1000);
+    _ = try g.register(testing.allocator, 0xE0A0, markerOutline(2), 1000, .narrow);
     g.clearAll(testing.allocator);
     try testing.expectEqual(@as(u64, 5), g.mutation_count);
 }
@@ -348,9 +391,10 @@ test "overwrite at capacity does not evict" {
             @as(u21, 0xE000) + i,
             markerOutline(@intCast(i)),
             1000,
+            .narrow,
         );
     }
-    const evicted = try g.register(testing.allocator, 0xE000, markerOutline(1234), 1000);
+    const evicted = try g.register(testing.allocator, 0xE000, markerOutline(1234), 1000, .narrow);
     try testing.expect(evicted == null);
     try testing.expectEqual(capacity, g.len());
     try testing.expectEqual(@as(i32, 1234), g.get(0xE000).?.payload.glyf.x_min);

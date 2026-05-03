@@ -21,6 +21,7 @@ const terminal = @import("../terminal/main.zig");
 const raster = font.glyph_protocol_raster;
 const glyf = terminal.apc.glyph.glyf;
 const Glossary = terminal.apc.glyph.Glossary;
+const Width = terminal.apc.glyph.request.Width;
 
 pub const State = struct {
     alloc: Allocator,
@@ -47,6 +48,7 @@ pub const State = struct {
     pub const Clone = struct {
         outline: glyf.Outline,
         upm: u16,
+        width: Width,
         generation: u64,
     };
 
@@ -109,6 +111,7 @@ pub const State = struct {
             self.payloads.putAssumeCapacity(cp, .{
                 .outline = cloned,
                 .upm = entry.upm,
+                .width = entry.width,
                 .generation = entry.generation,
             });
         }
@@ -121,6 +124,11 @@ pub const State = struct {
     /// requested cell size, rasterizing on cache miss. Returns `null`
     /// when the codepoint is not registered, so callers can fall
     /// through to the normal font lookup.
+    ///
+    /// The render-span width comes from the registration: a `width=2`
+    /// glyph rasterizes into a `2 * cell_w` bitmap so the shader
+    /// naturally extends it across the wide cell + spacer_tail pair
+    /// the terminal allocated for it.
     pub fn resolve(
         self: *State,
         cp: u21,
@@ -128,29 +136,38 @@ pub const State = struct {
         cell_h: u16,
         atlas: *font.Atlas,
         atlas_lock: *std.Thread.RwLock,
-    ) ResolveError!?font.Glyph {
+    ) ResolveError!?Resolved {
         const clone = self.payloads.getPtr(cp) orelse return null;
+        const span_w: u16 = cell_w *| clone.width.cells();
         const key: BitmapKey = .{
             .cp = cp,
             .generation = clone.generation,
             .cell_w = cell_w,
             .cell_h = cell_h,
         };
-        if (self.bitmaps.get(key)) |g| return g;
+        if (self.bitmaps.get(key)) |g| return .{ .glyph = g, .width = clone.width };
 
         const cached = try rasterizeGlyf(
             self.alloc,
             clone.outline,
             clone.upm,
-            cell_w,
+            span_w,
             cell_h,
             atlas,
             atlas_lock,
         );
 
         try self.bitmaps.put(self.alloc, key, cached);
-        return cached;
+        return .{ .glyph = cached, .width = clone.width };
     }
+};
+
+/// Output of `resolve`: the rasterized atlas entry plus the
+/// registration's authoritative width. Renderers use the width to
+/// place the glyph correctly when it spans more than one cell.
+pub const Resolved = struct {
+    glyph: font.Glyph,
+    width: Width,
 };
 
 pub const ResolveError = Allocator.Error || raster.Error || font.Atlas.Error;

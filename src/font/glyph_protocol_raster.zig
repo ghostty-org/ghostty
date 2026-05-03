@@ -37,9 +37,15 @@ pub const Bitmap = struct {
 pub const Error = Allocator.Error || z2d.painter.FillError ||
     error{ InvalidSize, InvalidMatrix, NoCurrentPoint };
 
-/// Rasterize `outline` into a `width × height` alpha bitmap using a
-/// uniform scale of `height / upm` (glyphs are typed at em size, so
-/// mapping em → cell height is the natural default).
+/// Rasterize `outline` into a `width × height` alpha bitmap.
+///
+/// The em-square (sized by `upm`) is uniformly scaled to fit the
+/// smaller of the two cell dimensions and centred inside the cell.
+/// This treats the registration's render span as a single cell — a
+/// square glyph in a narrow (1-cell, `width=1`) span never overflows
+/// into adjacent cells. Once the v1.7 placement options (`size`,
+/// `align`, `pad`, `width`) are wired in, this becomes the
+/// `size=contain; align=center,center; pad=0,0,0,0` case.
 pub fn rasterize(
     alloc: Allocator,
     outline: glyf.Outline,
@@ -64,17 +70,28 @@ pub fn rasterize(
         return .{ .width = width, .height = height, .data = data };
     }
 
-    // Transform: uniform scale em → pixel. glyf Y is up, raster Y is down,
-    // so flip around y_max. An optional x-offset centres narrow glyphs in
-    // the cell (callers that want cell-fit layout can override upstream).
-    const scale: f64 = @as(f64, @floatFromInt(height)) / @as(f64, @floatFromInt(upm));
-    const y_base: f64 = @as(f64, @floatFromInt(outline.y_max)) * scale;
+    // Transform: uniform scale em → pixel, fitting the em-square into the
+    // cell at its smaller dimension so a square glyph never overflows a
+    // narrow (1-cell) render span. The em is then centred horizontally
+    // and vertically inside the cell.
+    //
+    // glyf Y is up, raster Y is down. We pin glyf y=upm to the top of the
+    // centred em (so the authored top of the em-square lands at the top
+    // of the centred area), then transformY flips around `y_base`.
+    const w_f: f64 = @floatFromInt(width);
+    const h_f: f64 = @floatFromInt(height);
+    const upm_f: f64 = @floatFromInt(upm);
+    const scale: f64 = @min(w_f / upm_f, h_f / upm_f);
+    const em_extent: f64 = upm_f * scale;
+    const x_offset: f64 = (w_f - em_extent) / 2.0;
+    const y_top: f64 = (h_f - em_extent) / 2.0;
+    const y_base: f64 = y_top + em_extent;
 
     var path: z2d.Path = .empty;
     defer path.deinit(alloc);
 
     for (outline.contours) |contour| {
-        try appendContour(alloc, &path, contour, scale, y_base);
+        try appendContour(alloc, &path, contour, scale, x_offset, y_base);
     }
 
     try z2d.painter.fill(
@@ -109,6 +126,7 @@ fn appendContour(
     path: *z2d.Path,
     contour: []const glyf.Point,
     scale: f64,
+    x_offset: f64,
     y_base: f64,
 ) Error!void {
     const n = contour.len;
@@ -118,7 +136,7 @@ fn appendContour(
     // first point when on-curve; otherwise the last; otherwise the
     // midpoint of the first and last (synthesized). `steps` is the
     // number of contour points we'll visit in the walk loop.
-    const start = pickStart(contour, scale, y_base);
+    const start = pickStart(contour, scale, x_offset, y_base);
 
     try path.moveTo(alloc, start.x, start.y);
 
@@ -129,7 +147,7 @@ fn appendContour(
     var visited: usize = 0;
     while (visited < start.steps) : (visited += 1) {
         const p = contour[i];
-        const px = transformX(p.x, scale);
+        const px = transformX(p.x, scale, x_offset);
         const py = transformY(p.y, scale, y_base);
 
         if (p.on_curve) {
@@ -176,11 +194,11 @@ const Start = struct {
     steps: usize,
 };
 
-fn pickStart(contour: []const glyf.Point, scale: f64, y_base: f64) Start {
+fn pickStart(contour: []const glyf.Point, scale: f64, x_offset: f64, y_base: f64) Start {
     const n = contour.len;
     if (contour[0].on_curve) {
         return .{
-            .x = transformX(contour[0].x, scale),
+            .x = transformX(contour[0].x, scale, x_offset),
             .y = transformY(contour[0].y, scale, y_base),
             .idx = 1,
             .steps = n - 1,
@@ -188,25 +206,25 @@ fn pickStart(contour: []const glyf.Point, scale: f64, y_base: f64) Start {
     }
     if (contour[n - 1].on_curve) {
         return .{
-            .x = transformX(contour[n - 1].x, scale),
+            .x = transformX(contour[n - 1].x, scale, x_offset),
             .y = transformY(contour[n - 1].y, scale, y_base),
             .idx = 0,
             .steps = n - 1,
         };
     }
-    // Both endpoints off-curve: synthesized midpoint. Scale+flip is an
-    // affine transform, so the rendered midpoint equals the midpoint of
-    // the rendered endpoints.
+    // Both endpoints off-curve: synthesized midpoint. Scale+offset+flip
+    // is an affine transform, so the rendered midpoint equals the
+    // midpoint of the rendered endpoints.
     return .{
-        .x = (transformX(contour[0].x, scale) + transformX(contour[n - 1].x, scale)) / 2.0,
+        .x = (transformX(contour[0].x, scale, x_offset) + transformX(contour[n - 1].x, scale, x_offset)) / 2.0,
         .y = (transformY(contour[0].y, scale, y_base) + transformY(contour[n - 1].y, scale, y_base)) / 2.0,
         .idx = 0,
         .steps = n,
     };
 }
 
-inline fn transformX(x: i32, scale: f64) f64 {
-    return @as(f64, @floatFromInt(x)) * scale;
+inline fn transformX(x: i32, scale: f64, x_offset: f64) f64 {
+    return x_offset + @as(f64, @floatFromInt(x)) * scale;
 }
 
 inline fn transformY(y: i32, scale: f64, y_base: f64) f64 {
@@ -304,6 +322,31 @@ test "rasterize square fills every pixel" {
     for (bm.data) |a| total += a;
     const avg = total / (16 * 16);
     try testing.expect(avg > 200);
+}
+
+test "rasterize fits a square em inside a narrow cell without overflow" {
+    // Regression: a square em rasterized into a narrow (width < height)
+    // cell used to be scaled by `height/upm` on both axes, making the
+    // glyph's horizontal extent equal to `cell_height` — so the right
+    // half spilled past the bitmap and was clipped. The fix scales by
+    // `min(width, height) / upm` and centres horizontally; the right
+    // edge column should now also receive coverage.
+    var outline = try makeSquare(testing.allocator);
+    defer outline.deinit(testing.allocator);
+
+    const cell_w: u32 = 14;
+    const cell_h: u32 = 32;
+    var bm = try rasterize(testing.allocator, outline, 1000, cell_w, cell_h);
+    defer bm.deinit(testing.allocator);
+
+    // The em is scaled to `cell_w` pixels and centred vertically; the
+    // glyph occupies the middle row band. Pick a row inside that band
+    // and verify both the leftmost and rightmost pixels are covered —
+    // proof the glyph didn't overflow the cell.
+    const mid_row: usize = cell_h / 2;
+    const row_start = mid_row * cell_w;
+    try testing.expect(bm.data[row_start] > 200);
+    try testing.expect(bm.data[row_start + cell_w - 1] > 200);
 }
 
 test "rasterize centre is opaque, corner is clear for a diamond" {

@@ -563,7 +563,18 @@ pub fn print(self: *Terminal, c: u21) !void {
     // non-single-width characters properly. We have a fast-path for
     // byte-sized characters since they're so common. We can ignore
     // control characters because they're always filtered prior.
-    const width: usize = if (c <= 0xFF) 1 else @intCast(unicode.table.get(c).width);
+    //
+    // Glyph Protocol registrations override the Unicode table for
+    // their codepoint — `width=2` PUA glyphs need a wide cell +
+    // spacer_tail allocated at print time, not just at render time.
+    // PUA codepoints can never be ≤ 0xFF, so the byte fast-path is
+    // preserved.
+    const width: usize = if (c <= 0xFF)
+        1
+    else if (self.glyph_glossary.widthFor(c)) |w|
+        w.cells()
+    else
+        @intCast(unicode.table.get(c).width);
 
     // Note: it is possible to have a width of "3" and a width of "-1" from
     // uucode.x's wcwidth. We should look into those cases and handle them

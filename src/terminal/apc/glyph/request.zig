@@ -153,6 +153,9 @@ pub const Request = union(enum) {
             /// Requested reply verbosity for registration.
             reply,
 
+            /// Authoritative cell width for layout (UAX-11 / wcwidth).
+            width,
+
             /// Return the decoded Zig type for a register option.
             pub fn Type(comptime self: Option) type {
                 return switch (self) {
@@ -160,6 +163,7 @@ pub const Request = union(enum) {
                     .fmt => Format,
                     .upm => u32,
                     .reply => Reply,
+                    .width => Width,
                 };
             }
 
@@ -170,6 +174,7 @@ pub const Request = union(enum) {
                     .fmt => .glyf,
                     .upm => 1000,
                     .reply => .all,
+                    .width => .narrow,
                 };
             }
 
@@ -186,6 +191,7 @@ pub const Request = union(enum) {
                     .fmt => Format.init(value),
                     .upm => std.fmt.parseInt(u32, value, 10) catch null,
                     .reply => Reply.init(value) orelse .all,
+                    .width => Width.init(value) orelse .narrow,
                 };
             }
         };
@@ -378,6 +384,31 @@ pub fn reasonString(err: DecodeError) ?[]const u8 {
     };
 }
 
+/// Authoritative cell width for a registered codepoint, in the
+/// UAX-11 / wcwidth sense. The terminal uses this — not the Unicode
+/// table — for every layout decision involving the codepoint.
+///
+/// Only `1` (narrow) and `2` (wide) are valid on the wire; any other
+/// value is rejected by the parser.
+pub const Width = enum(u8) {
+    narrow = 1,
+    wide = 2,
+
+    pub fn init(value: []const u8) ?Width {
+        if (value.len != 1) return null;
+        return switch (value[0]) {
+            '1' => .narrow,
+            '2' => .wide,
+            else => null,
+        };
+    }
+
+    /// Number of terminal cells the codepoint occupies.
+    pub fn cells(self: Width) u8 {
+        return @intFromEnum(self);
+    }
+};
+
 /// Register command reply verbosity.
 pub const Reply = enum(u2) {
     /// Suppress both success and failure replies.
@@ -488,6 +519,28 @@ test "register command defaults" {
     try testing.expectEqual(Format.glyf, cmd.register.get(.fmt).?);
     try testing.expectEqual(@as(u32, 1000), cmd.register.get(.upm).?);
     try testing.expectEqual(Reply.all, cmd.register.get(.reply).?);
+    try testing.expectEqual(Width.narrow, cmd.register.get(.width).?);
+}
+
+test "register command with width=2" {
+    const testing = std.testing;
+
+    var cmd = try testParse(testing.allocator, "r;cp=e0a0;width=2;QQ==");
+    defer cmd.deinit(testing.allocator);
+
+    try testing.expect(cmd == .register);
+    try testing.expectEqual(Width.wide, cmd.register.get(.width).?);
+    try testing.expectEqual(@as(u8, 2), cmd.register.get(.width).?.cells());
+}
+
+test "register command invalid width falls back to narrow" {
+    const testing = std.testing;
+
+    var cmd = try testParse(testing.allocator, "r;cp=e0a0;width=9;QQ==");
+    defer cmd.deinit(testing.allocator);
+
+    try testing.expect(cmd == .register);
+    try testing.expectEqual(Width.narrow, cmd.register.get(.width).?);
 }
 
 test "register command invalid reply falls back to reply=1" {

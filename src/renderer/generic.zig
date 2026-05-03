@@ -3198,8 +3198,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // registration, bypass the normal font path and draw from
             // our rasterized outline. `glyf` registrations land in the
             // grayscale atlas and inherit the cell's foreground colour.
+            // For `width=2` registrations the bitmap spans two cells —
+            // the shader extends it past the cell boundary because
+            // glyph_size.x exceeds cell_size.x.
             if (std.math.cast(u21, cp)) |cp21| gp: {
-                const gp_glyph = self.glyph_protocol.resolve(
+                const resolved = self.glyph_protocol.resolve(
                     cp21,
                     @intCast(self.grid_metrics.cell_width),
                     @intCast(self.grid_metrics.cell_height),
@@ -3210,6 +3213,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     break :gp;
                 } orelse break :gp;
 
+                const gp_glyph = resolved.glyph;
                 if (gp_glyph.width == 0 or gp_glyph.height == 0) return;
 
                 try self.cells.add(self.alloc, .text, .{

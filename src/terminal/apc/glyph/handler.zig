@@ -80,10 +80,11 @@ fn handleRegister(
         return registerError(reply, cp, "malformed_payload");
     }
     const upm: u16 = @intCast(upm_raw);
+    const width = r.get(.width) orelse .narrow;
 
     // Ownership transfers to the glossary on success; only free on
     // failure. The glossary handles every payload variant uniformly.
-    _ = glossary.register(alloc, cp, decoded, upm) catch |err| {
+    _ = glossary.register(alloc, cp, decoded, upm, width) catch |err| {
         decoded.deinit(alloc);
         return err;
     };
@@ -181,7 +182,7 @@ test "query returns glossary when registered" {
         .y_min = 0,
         .x_max = 0,
         .y_max = 0,
-    } }, 1000);
+    } }, 1000, .narrow);
 
     var req = try parseRequest(testing.allocator, "q;cp=e0a0");
     defer req.deinit(testing.allocator);
@@ -246,6 +247,29 @@ test "register glyf success stores entry and acks" {
     try testing.expect(resp.register.status == .ok);
     try testing.expect(resp.register.reason == null);
     try testing.expect(g.contains(0xE0A0));
+    // No `width=` was sent, so the registration defaults to narrow.
+    try testing.expectEqual(request.Width.narrow, g.widthFor(0xE0A0).?);
+}
+
+test "register glyf with width=2 stores wide width" {
+    var g: Glossary = .{};
+    defer g.deinit(testing.allocator);
+
+    var b64: std.ArrayList(u8) = .empty;
+    defer b64.deinit(testing.allocator);
+    try makeEmptyGlyfB64(&b64);
+
+    var body: std.ArrayList(u8) = .empty;
+    defer body.deinit(testing.allocator);
+    try body.appendSlice(testing.allocator, "r;cp=e0a0;fmt=glyf;width=2;");
+    try body.appendSlice(testing.allocator, b64.items);
+
+    var req = try parseRequest(testing.allocator, body.items);
+    defer req.deinit(testing.allocator);
+
+    const resp = (try handle(testing.allocator, &g, req)).?;
+    try testing.expect(resp.register.status == .ok);
+    try testing.expectEqual(request.Width.wide, g.widthFor(0xE0A0).?);
 }
 
 test "register glyf with reply=2 is silent on success" {
@@ -305,7 +329,7 @@ test "clear specific cp acks and drops" {
         .y_min = 0,
         .x_max = 0,
         .y_max = 0,
-    } }, 1000);
+    } }, 1000, .narrow);
 
     var req = try parseRequest(testing.allocator, "c;cp=e0a0");
     defer req.deinit(testing.allocator);
