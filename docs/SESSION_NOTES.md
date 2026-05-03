@@ -1,5 +1,38 @@
 # Session Notes — Ghostties
 
+## May 3, 2026 (Traffic Light Alignment — upstream sync branch)
+
+### Headline
+
+Three attempts to restore the traffic-light / "+" / toggle vertical alignment that was accidentally reverted during the 985-commit upstream sync merge. Alignment is not yet confirmed correct; branch remains as `wip` commits. Need one more pass with debug instrumentation next session.
+
+### Context
+
+Branch: `chore/upstream-sync-2026-05`. The original fix (`e9ce5bdf7`, 2026-03-24) put all three elements at 22pt centerY from window top (sidebar `frame(height:28).padding(.top, 8)` + toggle `constant: 14`). It was silently reverted by `a85529c61` in the upstream merge.
+
+### Commits this session
+
+- `ba4657282` — wip: re-apply with wrong guesses (13pt / 19pt → 27pt)
+- `3f8c55f8e` — fix: restore original formula (terminalInset / terminalTitleBarHeight/2 → 22pt); user reported still not right
+- `bb8100b5e` — wip: switch to 14pt target (`frame(height: titlebarSpacerHeight)` no padding, `constant: titlebarSpacerHeight/2 - terminalInset = 6`); session ended before visual confirmation
+
+### What's unresolved
+
+The exact correct Y for the controls hasn't been measured. Multiple approaches all look "close" in screenshots but user has confirmed none are right. Root issue: it's hard to judge sub-5pt differences from screenshots alone.
+
+### Next session plan
+
+1. Add debug print to `WorkspaceViewContainer.layout()` measuring actual `closeButton` centerY and toggle centerY in content-view coordinates.
+2. Run app, read console output, set constants from real numbers.
+3. Also consider adding `.ignoresSafeArea(.container, edges: .top)` to the `projectFirst` branch in `applySidebarView()` (task-first already has it — may affect SwiftUI safe area computation for the sidebar "+" button).
+4. Once alignment confirmed, squash the three wip commits and open the upstream-sync PR.
+
+### Memory updated
+
+- `traffic-light-alignment.md` — full coordinate system analysis, all three attempts documented, next-session action plan.
+
+---
+
 ## Apr 26, 2026 (DMG Pipeline Iteration — beta.5 → beta.8)
 
 ### Headline
@@ -2151,13 +2184,13 @@ Meta/strategy only. MEMORY.md update was committed by a parallel session.
 
 ### Framework established — what lives where
 
-| Layer | Content | Cadence |
-|---|---|---|
-| MEMORY.md | Stable facts, hard rules, gotchas, agent file pointers | Slow-changing |
-| Linear | In-flight issues, milestones, "remaining before X" lists | Live state |
-| Agent files | Rich domain context (arch, UX, craft) | On-demand, slow |
-| SESSION_NOTES.md | Detailed session log | Per-session |
-| Second Brain | Searchable narrative; deep memory | Per-milestone |
+| Layer            | Content                                                  | Cadence         |
+| ---------------- | -------------------------------------------------------- | --------------- |
+| MEMORY.md        | Stable facts, hard rules, gotchas, agent file pointers   | Slow-changing   |
+| Linear           | In-flight issues, milestones, "remaining before X" lists | Live state      |
+| Agent files      | Rich domain context (arch, UX, craft)                    | On-demand, slow |
+| SESSION_NOTES.md | Detailed session log                                     | Per-session     |
+| Second Brain     | Searchable narrative; deep memory                        | Per-milestone   |
 
 ### Key decisions
 
@@ -2196,14 +2229,14 @@ First real end-to-end smoke test of the task workflow. All 5 core steps pass. Lo
 
 ### Smoke test results (full-loop-smoke.md)
 
-| Step | Result | Notes |
-|------|--------|-------|
-| 1 — Launch | ✅ | App launches clean, sidebar populated |
-| 2 — Tasks load | ✅ | Project-relative path: `<project>/.ghostties/tasks/` (NOT `~/.ghostties/tasks/`) |
-| 3 — Click → spawn | ✅ | Terminal opens at project root, `$GHOSTTIES_TASK_FILE` injected, correct template launched |
-| 4 — Agent writes artifact | ✅ | Claude Code wrote `docs/hello.md` (removed after test) |
-| 5 — `gt done` → Graveyard | ✅ | File written, file-watcher fired, row moved |
-| 6 — Linear write-back | ✅ | Works with Sonnet/Opus; Haiku too weak for MCP tool reasoning |
+| Step                      | Result | Notes                                                                                      |
+| ------------------------- | ------ | ------------------------------------------------------------------------------------------ |
+| 1 — Launch                | ✅     | App launches clean, sidebar populated                                                      |
+| 2 — Tasks load            | ✅     | Project-relative path: `<project>/.ghostties/tasks/` (NOT `~/.ghostties/tasks/`)           |
+| 3 — Click → spawn         | ✅     | Terminal opens at project root, `$GHOSTTIES_TASK_FILE` injected, correct template launched |
+| 4 — Agent writes artifact | ✅     | Claude Code wrote `docs/hello.md` (removed after test)                                     |
+| 5 — `gt done` → Graveyard | ✅     | File written, file-watcher fired, row moved                                                |
+| 6 — Linear write-back     | ✅     | Works with Sonnet/Opus; Haiku too weak for MCP tool reasoning                              |
 
 ### Bugs discovered
 
@@ -2236,6 +2269,7 @@ Full loop defined: Linear task (with `project-path` + `goal` fields) → Ghostti
 **Goal:** ship the new app icon + onboarding UX, then test the release pipeline twice.
 
 **Shipped (commits on main):**
+
 - `59894ed54` feat(onboarding): project-first default, welcome sheet, Tasks preview tag
 - `1eab86660` feat(onboarding): expand welcome copy + preview callout card
 - `9597b6bf9` feat(icon): dev-only blueprint app icon for Debug builds
@@ -2248,39 +2282,47 @@ Full loop defined: Linear task (with `project-path` + `goal` fields) → Ghostti
 **Tags pushed:** `v0.1.0-beta.13`, `v0.1.0-beta.14` (both pipelines green, DMGs on GitHub Releases)
 
 ### Polish UX changes (beta.13)
+
 - Project-first sidebar mode now registered in `register(defaults:)` → fresh installs land on Projects, not Tasks
 - New `OnboardingSheet.swift` — first-launch only, gated by `@AppStorage("ghostties.hasSeenOnboarding")`. Headline "Welcome to Ghostties" + "Ghostty + Ghostty + Ghostty" tagline. Includes mailto + GitHub links + version/build/updated-date footer pulled from `Bundle.main`.
 - Preview pill experiment in headers was scrapped after Sean's feedback — replaced with `SidebarCalloutCard` (extracted from existing `PinMigrationNoticeBanner` pattern), placed at top of Tasks sidebar zone, gated by `@AppStorage("ghostties.hasSeenTasksPreviewNotice")`. Dismissable.
 - Tasks callout copy iterated to honest version: "Tasks is a preview of what's coming — it isn't wired up yet."
 
 ### Icons
+
 - Production AppIcon assets swapped for new pixel-art-on-CRT artwork (Sean's `images/Ghostties 30Apr2026.icon/` package)
 - Dev-only `AppIcon-Dev.appiconset` wired up — `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Dev` set on Ghostties target's Debug config only. Source: blueprint background generated programmatically + Sean's pixel-art ghosts overlaid.
 - Local Debug-build icon caching was stubborn (lsregister + Dock restart didn't fully flush). Production icon path unaffected.
 
 ### CI hardening (caught live during release)
+
 - The release workflow already called `scripts/update-web-version.py` but the script's regexes were stale relative to current HTML. Beta.13 release shipped with download.html partially bumped (URL + meta updated, button label + last-updated footer + index.html terminal line all stuck on beta.12).
 - Rewrote `update-web-version.py` to cover: DMG URL, button label, meta line (with size), last-updated footer, terminal line-4, terminal date, char-count comments. Added DMG-byte-size pass-through from workflow (`stat -f%z Ghostties.dmg`).
 - Verified end-to-end on beta.14: ghostties.org/download fully in sync, no manual cleanup needed.
 
 ### Known issue surfaced during smoke test
+
 - `Check for Updates` is silent on no-update / wrong-channel / error states. Root cause: default Sparkle channel is `stable` and stable appcast is empty (only beta tags exist). User has no signal whether Sparkle worked, hit a wrong channel, or errored.
 - Filed as **SEA-241** "Sparkle: surface check-for-update progress + result feedback" — Medium priority.
 - Workaround for testing: `auto-update-channel = tip` in `~/.config/ghostty/config` (shared with daily-driver Ghostty terminal).
 
 ### Website analytics question
+
 - Sean asked about download visibility. GitHub already tracks DMG download counts (8 organic since 2026-04-26: beta.12=3, beta.10=2, beta.9=2, beta.13=1).
 - Privacy constraint: `web/privacy.html` currently states "Nothing. No telemetry, no analytics, no crash reports." Adding analytics needs the page updated first.
 - Handoff doc at `docs/handoffs/website-analytics.md` covers the PostHog wiring path if proceeding.
 
 ### Memories saved
+
 - `feedback-sparkle-channel-default.md` — channel defaults to `stable`, which is empty; users need `tip` to see betas
 - `reference-release-pipeline-auto-bump.md` — CI now rewrites web HTML strings from `update-web-version.py`; no manual bump needed
 
 ### Linear
+
 - **SEA-241** created (Sparkle UX feedback)
 
 ### Reconciliation (orchestrator thread)
+
 - 2 implementer subagents delegated, both verified shipped + committed + green build
 - 4 inline implementations (dev icon wiring, copy fix, CI script rewrite, web bumps) all committed + pushed
 - All work on origin/main; no stranded branches or uncommitted scope
