@@ -60,6 +60,7 @@
                 <outlet property="menuSelectSplitLeft" destination="cTK-oy-KuV" id="Jpr-5q-dqz"/>
                 <outlet property="menuSelectSplitRight" destination="upj-mc-L7X" id="nLY-o1-lky"/>
                 <outlet property="menuSelectionForFind" destination="TDN-42-Bu7" id="zya-wG-CDo"/>
+                <outlet property="menuRestoreMacOSTerminalAsDefault" destination="6JX-8T-4ae" id="NVp-lL-RvJ"/>
                 <outlet property="menuServices" destination="aQe-vS-j8Q" id="uWQ-Wo-T1L"/>
                 <outlet property="menuSetAsDefaultTerminal" destination="b1t-oB-7MI" id="6Eu-5G-OPo"/>
                 <outlet property="menuSplitDown" destination="UDZ-4y-6xL" id="ptr-mj-Azh"/>
@@ -115,6 +116,12 @@
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="setAsDefaultTerminal:" target="bbz-4X-AYv" id="QHh-CA-Qho"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Restore macOS Terminal as Default" id="6JX-8T-4ae" userLabel="Restore macOS Terminal as Default">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="restoreMacOSTerminalAsDefault:" target="bbz-4X-AYv" id="z6S-0K-iJ9"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="4je-JR-u6R"/>

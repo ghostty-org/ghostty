@@ -65,6 +65,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuFloatOnTop: NSMenuItem?
     @IBOutlet private var menuUseAsDefault: NSMenuItem?
     @IBOutlet private var menuSetAsDefaultTerminal: NSMenuItem?
+    @IBOutlet private var menuRestoreMacOSTerminalAsDefault: NSMenuItem?
 
     @IBOutlet private var menuIncreaseFontSize: NSMenuItem?
     @IBOutlet private var menuDecreaseFontSize: NSMenuItem?
@@ -1123,6 +1124,7 @@ extension AppDelegate {
         self.menuTerminalInspector?.setImageIfDesired(systemSymbolName: "scope")
         self.menuReadonly?.setImageIfDesired(systemSymbolName: "eye.fill")
         self.menuSetAsDefaultTerminal?.setImageIfDesired(systemSymbolName: "star.fill")
+        self.menuRestoreMacOSTerminalAsDefault?.setImageIfDesired(systemSymbolName: "arrow.uturn.backward.circle")
         self.menuToggleFullScreen?.setImageIfDesired(systemSymbolName: "square.arrowtriangle.4.outward")
         self.menuToggleVisibility?.setImageIfDesired(systemSymbolName: "eye")
         self.menuZoomSplit?.setImageIfDesired(systemSymbolName: "arrow.up.left.and.arrow.down.right")
@@ -1267,6 +1269,34 @@ extension AppDelegate {
             }
         }
     }
+
+    @IBAction func restoreMacOSTerminalAsDefault(_ sender: NSMenuItem) {
+        guard let terminalURL = NSWorkspace.shared.macOSTerminal else {
+            let alert = NSAlert()
+            alert.messageText = "Failed to Restore Default Terminal"
+            alert.informativeText = """
+            macOS Terminal could not be found on this system.
+            """
+            alert.alertStyle = .warning
+            alert.runModal()
+            return
+        }
+
+        NSWorkspace.shared.setDefaultApplication(at: terminalURL, toOpen: .unixExecutable) { error in
+            guard let error else { return }
+            Task { @MainActor in
+                let alert = NSAlert()
+                alert.messageText = "Failed to Restore Default Terminal"
+                alert.informativeText = """
+                macOS Terminal could not be restored as the default terminal application.
+
+                Error: \(error.localizedDescription)
+                """
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+        }
+    }
 }
 
 // MARK: NSMenuItemValidation
@@ -1275,7 +1305,11 @@ extension AppDelegate: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
         case #selector(setAsDefaultTerminal(_:)):
-            return NSWorkspace.shared.defaultTerminal != Bundle.main.bundleURL
+            return !NSWorkspace.shared.isGhosttyDefaultTerminal
+
+        case #selector(restoreMacOSTerminalAsDefault(_:)):
+            return NSWorkspace.shared.macOSTerminal != nil &&
+                !NSWorkspace.shared.isMacOSTerminalDefaultTerminal
 
         case #selector(floatOnTop(_:)),
             #selector(useAsDefault(_:)):
