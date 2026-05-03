@@ -26,12 +26,26 @@ enum WorkspaceLayout {
     /// Height reserved at top for window traffic light controls.
     static let titlebarSpacerHeight: CGFloat = 28
 
-    /// Vertical center of the macOS traffic-light row, measured from the window's visual top.
-    /// Measured empirically: window.standardWindowButton(.closeButton).midY converted to
-    /// WorkspaceViewContainer coordinates gives H − 14 on macOS 14+, where H = view height.
-    /// All toolbar siblings (+ button, sidebar toggle, browser toggle, title label) MUST anchor
-    /// their centerY to this value — do NOT derive it from titlebarSpacerHeight alone.
-    static let titlebarRowCenterY: CGFloat = 22
+    /// Breathing room between traffic lights and our toolbar row (toggle, +, title).
+    /// Traffic lights are at ~14pt from visual top; our row is this many pts further down.
+    static let breathingRoomBelowChrome: CGFloat = 8
+
+    /// Returns the Auto Layout `topAnchor + constant` that places an element's centerY
+    /// on the unified toolbar row — breathingRoomBelowChrome pts below the traffic lights.
+    /// Returns nil before the window is on-screen or if the button isn't available.
+    /// Call from NSView.layout() or window-delegate hooks, not from init.
+    static func titlebarRowTopAnchorConstant(in view: NSView) -> CGFloat? {
+        guard let win = view.window,
+              let close = win.standardWindowButton(.closeButton),
+              close.window === win,
+              view.window != nil else { return nil }
+        let closeInView = close.convert(close.bounds, to: view)
+        // closeInView.midY is in AppKit unflipped coords (larger = visually higher).
+        // "Below" traffic lights = smaller Y in unflipped coords.
+        let rowY_unflipped = closeInView.midY - breathingRoomBelowChrome
+        // topAnchor + N = N pts below visual top; visual top = bounds.height (unflipped).
+        return view.bounds.height - rowY_unflipped
+    }
 
     /// Height of the session-name title bar inside the terminal card.
     static let terminalTitleBarHeight: CGFloat = 28

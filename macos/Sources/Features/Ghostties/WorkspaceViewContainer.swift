@@ -169,6 +169,11 @@ class WorkspaceViewContainer: NSView {
     /// Current sidebar state — always kept in sync with `WorkspaceStore.shared.sidebarMode`.
     private var sidebarMode: SidebarMode = .pinned
 
+    /// Stored constraint for the sidebar toggle button's vertical position.
+    /// Updated in layout() from the live close-button frame so the toolbar row
+    /// survives macOS version bumps and upstream titlebar refactors.
+    private var sidebarToggleCenterYConstraint: NSLayoutConstraint!
+
     /// Stored constraints for animating sidebar show/hide and terminal insets.
     private var sidebarWidthConstraint: NSLayoutConstraint!
     private var shadowHostTopConstraint: NSLayoutConstraint!
@@ -315,6 +320,8 @@ class WorkspaceViewContainer: NSView {
         // Clean up previous window's observers (handles view moving between windows).
         NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didEnterFullScreenNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didExitFullScreenNotification, object: nil)
 
         guard let window = window else { return }
         // Give the coordinator a reference to this view so it can discover
@@ -346,6 +353,20 @@ class WorkspaceViewContainer: NSView {
             self,
             selector: #selector(windowDidBecomeKey),
             name: NSWindow.didBecomeKeyNotification,
+            object: window
+        )
+
+        // Re-measure toolbar row when fullscreen transitions change the titlebar geometry.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidEnterOrExitFullScreen),
+            name: NSWindow.didEnterFullScreenNotification,
+            object: window
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidEnterOrExitFullScreen),
+            name: NSWindow.didExitFullScreenNotification,
             object: window
         )
 
@@ -436,17 +457,28 @@ class WorkspaceViewContainer: NSView {
             transform: nil
         )
 
+        // Re-derive toolbar row position from live close-button frame.
+        // This survives macOS version bumps and upstream titlebar refactors.
+        if let constant = WorkspaceLayout.titlebarRowTopAnchorConstant(in: self) {
+            if abs(sidebarToggleCenterYConstraint.constant - constant) > 0.5 {
+                sidebarToggleCenterYConstraint.constant = constant
+            }
+            // Publish to SwiftUI sidebar so the + button stays in sync.
+            if abs(WorkspaceStore.shared.toolbarRowTopAnchorConstant - constant) > 0.5 {
+                WorkspaceStore.shared.toolbarRowTopAnchorConstant = constant
+            }
+        }
+
         #if DEBUG
         // Skip during transient startup layout passes before the window frame is final.
-        // Verifies the native traffic-light Y hasn't changed; our toolbar elements
-        // intentionally sit at titlebarRowCenterY (8pt below the traffic lights).
+        // Verifies our toolbar row tracks the traffic lights with the expected breathing room.
         if window?.isVisible == true,
            let close = window?.standardWindowButton(.closeButton) {
             let closeInSelf = close.convert(close.bounds, to: self)
-            let nativeTrafficLightY: CGFloat = 14
-            let expected = bounds.height - nativeTrafficLightY
-            assert(abs(closeInSelf.midY - expected) < 2.0,
-                   "[alignment] close.midY=\(closeInSelf.midY) expected≈\(expected) — macOS changed traffic-light position, review titlebarRowCenterY")
+            let expectedToggleMidY = closeInSelf.midY - WorkspaceLayout.breathingRoomBelowChrome
+            let actualToggleMidY = sidebarToggleButton.frame.midY
+            assert(abs(actualToggleMidY - expectedToggleMidY) < 2.0,
+                   "[alignment] toggle.midY=\(actualToggleMidY) expected≈\(expectedToggleMidY) (close.midY=\(closeInSelf.midY) - breathingRoom=\(WorkspaceLayout.breathingRoomBelowChrome))")
         }
         #endif
     }
@@ -1019,6 +1051,12 @@ class WorkspaceViewContainer: NSView {
         WorkspaceStore.shared.freezeSnapshot()
     }
 
+    @objc private func windowDidEnterOrExitFullScreen() {
+        // Fullscreen transitions reposition the traffic lights. Trigger a layout
+        // pass so titlebarRowTopAnchorConstant re-reads the new close-button frame.
+        needsLayout = true
+    }
+
     // MARK: - Layout
 
     private func setup() {
@@ -1102,6 +1140,11 @@ class WorkspaceViewContainer: NSView {
         terminalTopConstraint = terminalContainer.topAnchor.constraint(
             equalTo: terminalShadowHost.topAnchor, constant: titlebarInset)
 
+        // 22 is the initial guess (14pt traffic lights + 8pt breathing room);
+        // updated each layout() pass from the live close-button frame.
+        sidebarToggleCenterYConstraint = sidebarToggleButton.centerYAnchor
+            .constraint(equalTo: topAnchor, constant: 22)
+
         NSLayoutConstraint.activate([
             backgroundEffectView.topAnchor.constraint(equalTo: topAnchor),
             backgroundEffectView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -1132,13 +1175,12 @@ class WorkspaceViewContainer: NSView {
             // Sidebar toggle button — anchored to window top, not the terminal card.
             // The terminal card (terminalShadowHost) sits ~387pt below the window top in the
             // full layout, so terminalShadowHost.topAnchor is the wrong reference. Anchor
-            // directly to self.topAnchor + titlebarRowCenterY so the toggle sits on the
-            // same horizontal row as the traffic lights regardless of card position.
+            // directly to self.topAnchor + constant so the toggle sits on the same horizontal
+            // row as the traffic lights. The constant is updated from the live close-button
+            // frame in layout() — 22 is just the initial guess before the window appears.
             sidebarToggleButton.leadingAnchor.constraint(
                 equalTo: terminalShadowHost.leadingAnchor, constant: 8),
-            sidebarToggleButton.centerYAnchor.constraint(
-                equalTo: topAnchor,
-                constant: WorkspaceLayout.titlebarRowCenterY),
+            sidebarToggleCenterYConstraint,
 
             // Browser toggle button at top-right of the terminal card titlebar.
             browserToggleButton.trailingAnchor.constraint(
