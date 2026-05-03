@@ -135,7 +135,7 @@ struct WorkspaceSidebarView: View {
         }
         .padding(.horizontal, 12)
         .frame(height: WorkspaceLayout.terminalTitleBarHeight)
-        .padding(.top, 13)
+        .padding(.top, WorkspaceLayout.terminalInset)
     }
 
     // MARK: - Empty State

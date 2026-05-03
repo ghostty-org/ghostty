@@ -1119,7 +1119,7 @@ class WorkspaceViewContainer: NSView {
                 equalTo: terminalShadowHost.leadingAnchor, constant: 8),
             sidebarToggleButton.centerYAnchor.constraint(
                 equalTo: terminalShadowHost.topAnchor,
-                constant: 19),
+                constant: WorkspaceLayout.terminalTitleBarHeight / 2),
 
             // Browser toggle button at top-right of the terminal card titlebar.
             browserToggleButton.trailingAnchor.constraint(
