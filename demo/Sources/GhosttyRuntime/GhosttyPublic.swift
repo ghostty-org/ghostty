@@ -78,7 +78,9 @@ public final class GhosttySurfaceView: NSView, ObservableObject {
     public override func layout() {
         super.layout()
         scrollView.frame = bounds
-        // Update the surface size when layout changes
-        inner.sizeDidChange(bounds.size)
+        // SurfaceScrollView.layout() calls synchronizeCoreSurface() which
+        // handles the sizeDidChange call with the correct content size.
+        // The direct call here caused double ghostty_surface_set_size calls
+        // per frame with conflicting sizes (120 Metal resize calls/sec during drag).
     }
 }
