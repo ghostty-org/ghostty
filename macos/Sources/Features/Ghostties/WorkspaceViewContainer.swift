@@ -174,6 +174,11 @@ class WorkspaceViewContainer: NSView {
     /// survives macOS version bumps and upstream titlebar refactors.
     private var sidebarToggleCenterYConstraint: NSLayoutConstraint!
 
+    /// Transparent leading accessory that forces the titlebar zone to titlebarZoneHeight.
+    /// AppKit expands the titlebar to fit the tallest leading/trailing accessory view,
+    /// which moves the traffic lights down to zone/2 centerY. Stored to avoid duplicates.
+    private weak var titlebarSpacerAccessory: NSTitlebarAccessoryViewController?
+
     /// Stored constraints for animating sidebar show/hide and terminal insets.
     private var sidebarWidthConstraint: NSLayoutConstraint!
     private var shadowHostTopConstraint: NSLayoutConstraint!
@@ -334,6 +339,22 @@ class WorkspaceViewContainer: NSView {
 
         // Extend content under titlebar — traffic lights appear inside the sidebar panel.
         window.styleMask.insert(.fullSizeContentView)
+
+        // Force titlebar zone to titlebarZoneHeight by adding a transparent zero-width
+        // leading accessory. AppKit expands the titlebar to fit the tallest leading/trailing
+        // view, which centers traffic lights at zone/2 (~16pt). Without this, macOS 26 uses
+        // a ~16pt minimal zone (traffic lights at 8pt — too close to the top edge).
+        if titlebarSpacerAccessory == nil {
+            let acc = NSTitlebarAccessoryViewController()
+            let spacer = NSView()
+            spacer.translatesAutoresizingMaskIntoConstraints = false
+            spacer.widthAnchor.constraint(equalToConstant: 0).isActive = true
+            spacer.heightAnchor.constraint(equalToConstant: WorkspaceLayout.titlebarZoneHeight).isActive = true
+            acc.view = spacer
+            acc.layoutAttribute = .leading
+            window.addTitlebarAccessoryViewController(acc)
+            titlebarSpacerAccessory = acc
+        }
 
         // Apply initial traffic light visibility.
         setTrafficLightsHidden(sidebarMode == .closed)
