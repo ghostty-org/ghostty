@@ -55,17 +55,19 @@ struct Session: Identifiable, Codable, Equatable {
     var status: SessionStatus
     var timestamp: Date
     var isWorkTree: Bool
+    var isWorkTreeOverridden: Bool  // true = user explicitly set it; JSONL cannot overwrite
     var branch: String
     var sessionId: String?      // Claude session UUID from JSONL
     var tabID: UUID?            // TerminalTabManager tab ID (nil if closed)
     var cwd: String?
 
-    init(id: UUID = UUID(), title: String, status: SessionStatus = .running, timestamp: Date = Date(), isWorkTree: Bool = false, branch: String = "main", sessionId: String? = nil, tabID: UUID? = nil, cwd: String? = nil) {
+    init(id: UUID = UUID(), title: String, status: SessionStatus = .running, timestamp: Date = Date(), isWorkTree: Bool = false, isWorkTreeOverridden: Bool = false, branch: String = "main", sessionId: String? = nil, tabID: UUID? = nil, cwd: String? = nil) {
         self.id = id
         self.title = title
         self.status = status
         self.timestamp = timestamp
         self.isWorkTree = isWorkTree
+        self.isWorkTreeOverridden = isWorkTreeOverridden
         self.branch = branch
         self.sessionId = sessionId
         self.tabID = tabID

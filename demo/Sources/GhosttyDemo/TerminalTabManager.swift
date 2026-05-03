@@ -47,6 +47,14 @@ class TerminalTabManager: ObservableObject {
             tab.surfaceView.sendText("cd \(ws)")
             tab.surfaceView.sendEnter()
         }
+
+        // 确保新 surface 成为 first responder，否则键盘事件无法路由
+        DispatchQueue.main.async {
+            let innerView = tab.surfaceView.surfaceNSView
+            guard let window = innerView.window else { return }
+            window.makeKeyAndOrderFront(nil)
+            window.makeFirstResponder(innerView)
+        }
     }
 
     func selectTab(id: UUID) {

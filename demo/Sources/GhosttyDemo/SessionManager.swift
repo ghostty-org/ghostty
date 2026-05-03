@@ -90,6 +90,7 @@ final class SessionManager: ObservableObject {
             status: .running,
             timestamp: Date(),
             isWorkTree: worktree,
+            isWorkTreeOverridden: worktree,  // user explicitly specified → protect from JSONL overwrite
             branch: branch,
             sessionId: nil,
             tabID: tabID,
@@ -354,8 +355,6 @@ final class SessionManager: ObservableObject {
         }
     }
 
-    /// Called by JsonlWatcher when a new sessionId appears in a JSONL file.
-    /// Matches it to the first pending session with matching `isWorkTree` type.
     func matchNewSessionId(_ claudeSessionId: String, from parsed: ParsedSession) {
         let isParsedWorktree = parsed.isWorkTree
 
@@ -389,6 +388,9 @@ final class SessionManager: ObservableObject {
             session.title = parsed.title
         }
         session.status = parsed.status
+        if let branch = parsed.branch, !branch.isEmpty {
+            session.branch = branch
+        }
         if let branch = parsed.branch, !branch.isEmpty {
             session.branch = branch
         }

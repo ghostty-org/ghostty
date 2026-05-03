@@ -65,22 +65,15 @@ struct ContentView: View {
             }
 
             // Start monitoring Claude JSONL session files under ~/.claude/projects
+            // Watch the root projects directory (not workspace-specific subdirectory)
+            // so we catch both main sessions AND worktree sessions, which live
+            // in workspace-specific subdirectories like:
+            //   ~/.claude/projects/-Users-hue-Desktop-git1/          (main)
+            //   ~/.claude/projects/-Users-hue-Desktop-git1--claude-worktrees-*/  (worktrees)
             let claudeProjects = FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".claude/projects").path
 
-            // Watch only the workspace-specific subdirectory so we never see
-            // JSONL files from other projects.  Encoding matches Claude's
-            // project-directory naming scheme.
-            let watchPath: String
-            if let ws = boardState.workspacePath {
-                let encoded = ws.replacingOccurrences(of: "/", with: "-")
-                    .replacingOccurrences(of: ".", with: "-")
-                    .replacingOccurrences(of: ":", with: "-")
-                    .replacingOccurrences(of: " ", with: "-")
-                watchPath = claudeProjects + "/" + encoded
-            } else {
-                watchPath = claudeProjects
-            }
+            let watchPath = claudeProjects
 
             let sessionWatcher = JsonlWatcher(path: watchPath)
             sessionWatcher.start(

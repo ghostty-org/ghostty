@@ -3,6 +3,10 @@ import SwiftUI
 import Combine
 import UniformTypeIdentifiers
 
+extension Notification.Name {
+    static let workspacePathDidChange = Notification.Name("workspacePathDidChange")
+}
+
 @MainActor
 final class BoardState: ObservableObject {
     static let shared = BoardState()
@@ -64,6 +68,9 @@ final class BoardState: ObservableObject {
         workspacePath = path
         persistence.workspacePath = path
         persistWorkspacePath()
+
+        // Update the current app's JSONL watch path immediately
+        NotificationCenter.default.post(name: .workspacePathDidChange, object: path)
 
         // Force sync so the new instance reads the fresh value
         UserDefaults.standard.synchronize()
@@ -197,6 +204,9 @@ final class BoardState: ObservableObject {
             session.title = parsed.title
         }
         session.status = parsed.status
+        if let branch = parsed.branch, !branch.isEmpty {
+            session.branch = branch
+        }
         if let branch = parsed.branch, !branch.isEmpty {
             session.branch = branch
         }
