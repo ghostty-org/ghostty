@@ -1,5 +1,49 @@
 # Session Notes — Ghostties
 
+## May 3, 2026 — Session 2 (Traffic Light Alignment — structural fix attempt)
+
+### Headline
+
+Structural refactor: replaced all hardcoded alignment constants with runtime measurement from the live `closeButton.midY`. Alignment between `+` and toggle is now correct (co-planar, `breathingRoomBelowChrome = 0`). Remaining blocker: the traffic light row is at ~8pt from window top (too high) instead of ~16pt. The `NSTitlebarAccessoryViewController` approach to force a 32pt titlebar zone was applied but did not visibly move the traffic lights. Needs a different approach next session.
+
+### Context
+
+Branch: `chore/upstream-sync-2026-05`. Root cause of the row being too high: upstream sync removed NSToolbar (`a85529c61`), which shrank the macOS titlebar zone from ~28pt to ~16pt. Traffic lights center at zone/2, so: 28pt→14pt before, 16pt→8pt now. Target is 16pt (requires 32pt zone).
+
+### Research findings (compound-engineering + web research)
+
+- macOS 26 (Tahoe) changed traffic-light spacing — Zed has a `cfg!(macos_sdk_26)` conditional patch ([PR #38756](https://github.com/zed-industries/zed/pull/38756))
+- Hardcoded pt offsets are inherently brittle across macOS versions AND upstream syncs
+- `NSTitlebarAccessoryViewController` with `.leading` layoutAttribute is supposed to force the titlebar to expand to fit the tallest view — tried, did not visually work
+- Canonical Apple API for "place button on traffic-light row" is `NSTitlebarAccessoryViewController`, but we also need the zone height to be correct
+
+### Commits this session
+
+- `19c32cdc5` — `fix(alignment): derive titlebar row from live closeButton position` — runtime measurement, WorkspaceChromeMetrics, regression test
+- `b57d59eff` — `fix(alignment): align toolbar row exactly with traffic lights (breathingRoom 0)` — confirmed from design mock that exact co-planar is correct, not 8pt offset
+- `5eb9284a2` — `fix(alignment): force 32pt titlebar zone via transparent leading accessory` — NSTitlebarAccessoryViewController approach; did not visually change traffic-light position
+
+### What's unresolved
+
+The titlebar zone height is ~16pt on current macOS 26 + post-upstream-sync config. Traffic lights sit at ~8pt. We need ~32pt zone. The `NSTitlebarAccessoryViewController` with `.leading` + 32pt height view approach did not work — possible causes:
+
+- The method fires before window is fully set up (`viewDidMoveToWindow` timing)
+- AppKit on macOS 26 changed how `.leading` accessory affects titlebar height
+- The `titlebarSpacerAccessory` weak ref might be deallocating immediately
+
+### Next session plan
+
+1. **Diagnose first:** Add `print("titlebarHeight: \(window?.titlebarHeight ?? -1)")` in `viewDidMoveToWindow` after adding the accessory. Confirm it's 32pt or still 16pt.
+2. If still 16pt: try `acc.layoutAttribute = .bottom` with a 16pt view (adds space below traffic lights within chrome — may not be what we want but worth testing the height change).
+3. Try adding NSToolbar directly: `window.toolbar = NSToolbar(identifier: "GhosttiesSpacerBar")` + `window.toolbarStyle = .unifiedCompact` — this is the approach that worked before the upstream sync removed it.
+4. If toolbar approach works, scope it to our `WorkspaceViewContainer.viewDidMoveToWindow` so it survives future upstream toolbar changes.
+5. Once traffic lights are at 16pt + elements co-planar: squash, merge to main, open PR.
+
+### Memory updated
+
+- `traffic-light-alignment.md` — updated with runtime measurement approach, confirmed breathingRoom=0
+- `feedback-upstream-sync-alignment-checklist.md` — new, post-sync alignment verification steps
+
 ## May 3, 2026 (Traffic Light Alignment — upstream sync branch)
 
 ### Headline
