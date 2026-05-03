@@ -4,6 +4,7 @@ const posix = std.posix;
 const renderer = @import("../renderer.zig");
 const terminal = @import("../terminal/main.zig");
 const termio = @import("../termio.zig");
+const ProcessInfo = @import("../pty.zig").ProcessInfo;
 
 // The preallocation size for the write request pool. This should be big
 // enough to satisfy most write requests. It must be a power of 2.
@@ -99,6 +100,15 @@ pub const Backend = union(Kind) {
                 runtime_ms,
             ),
         }
+    }
+
+    /// Get information about the process(es) attached to the backend. Returns
+    /// `null` if there was an error getting the information or the information
+    /// is not available on a particular platform.
+    pub fn getProcessInfo(self: *Backend, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
+        return switch (self.*) {
+            .exec => |*exec| exec.getProcessInfo(info),
+        };
     }
 };
 

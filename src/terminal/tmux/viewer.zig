@@ -1053,10 +1053,7 @@ pub const Viewer = struct {
         // correct but we'll get the active contents soon.
         var stream = t.vtStream();
         defer stream.deinit();
-        stream.nextSlice(content) catch |err| {
-            log.info("failed to process pane history for pane id={}: {}", .{ id, err });
-            return err;
-        };
+        stream.nextSlice(content);
 
         // Populate the active area to be empty since this is only history.
         // We'll fill it with blanks and move the cursor to the top-left.
@@ -1097,10 +1094,7 @@ pub const Viewer = struct {
 
         var stream = t.vtStream();
         defer stream.deinit();
-        stream.nextSlice(content) catch |err| {
-            log.info("failed to process pane visible for pane id={}: {}", .{ id, err });
-            return err;
-        };
+        stream.nextSlice(content);
     }
 
     fn receivedOutput(
@@ -1117,10 +1111,7 @@ pub const Viewer = struct {
 
         var stream = t.vtStream();
         defer stream.deinit();
-        stream.nextSlice(data) catch |err| {
-            log.info("failed to process output for pane id={}: {}", .{ id, err });
-            return err;
-        };
+        stream.nextSlice(data);
     }
 
     fn initLayout(

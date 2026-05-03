@@ -23,8 +23,8 @@ pub fn main() !void {
 
         // Replace \n with \r\n
         for (buf[0..n]) |byte| {
-            if (byte == '\n') try stream.next('\r');
-            try stream.next(byte);
+            if (byte == '\n') stream.next('\r');
+            stream.next(byte);
         }
     }
 

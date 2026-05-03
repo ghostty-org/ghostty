@@ -2,7 +2,7 @@ const std = @import("std");
 const ghostty_vt = @import("ghostty-vt");
 const mem = @import("mem.zig");
 const Terminal = ghostty_vt.Terminal;
-const ReadonlyStream = ghostty_vt.ReadonlyStream;
+const TerminalStream = ghostty_vt.TerminalStream;
 
 /// Use a single global allocator for simplicity and to avoid heap
 /// allocation overhead in the fuzzer. The allocator is backed by a fixed
@@ -33,7 +33,7 @@ pub export fn zig_fuzz_test(
     }) catch return;
     defer t.deinit(alloc);
 
-    var stream: ReadonlyStream = t.vtStream();
+    var stream: TerminalStream = t.vtStream();
     defer stream.deinit();
 
     // Use the first byte to decide between the scalar and slice paths
@@ -43,11 +43,9 @@ pub export fn zig_fuzz_test(
 
     if (mode & 1 == 0) {
         // Slice path — exercises SIMD fast-path if enabled
-        stream.nextSlice(data) catch |err|
-            std.debug.panic("nextSlice: {}", .{err});
+        stream.nextSlice(data);
     } else {
         // Scalar path — exercises byte-at-a-time UTF-8 decoding
-        for (data) |byte| _ = stream.next(byte) catch |err|
-            std.debug.panic("next: {}", .{err});
+        for (data) |byte| stream.next(byte);
     }
 }

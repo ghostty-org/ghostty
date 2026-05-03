@@ -1,21 +1,60 @@
 const Utf8 = @This();
 
 const std = @import("std");
-const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const synthetic = @import("../main.zig");
 
-const log = std.log.scoped(.@"terminal-stream-bench");
+pub const Options = struct {
+    /// Seed to use for deterministic generation. If unset, a time-based
+    /// seed is used by the generic synthetic CLI.
+    seed: ?u64 = null,
 
-pub const Options = struct {};
+    /// Relative weight for choosing 1-byte UTF-8 sequences.
+    @"weight-one": f64 = 1.0,
+
+    /// Relative weight for choosing 2-byte UTF-8 sequences.
+    @"weight-two": f64 = 1.0,
+
+    /// Relative weight for choosing 3-byte UTF-8 sequences.
+    @"weight-three": f64 = 1.0,
+
+    /// Relative weight for choosing 4-byte UTF-8 sequences.
+    @"weight-four": f64 = 1.0,
+
+    /// Restrict ASCII codepoints to printable characters.
+    @"ascii-printable-only": bool = false,
+
+    /// Probability that an emitted sequence is malformed UTF-8.
+    @"invalid-rate": f64 = 0.0,
+};
+
+opts: Options,
 
 /// Create a new terminal stream handler for the given arguments.
 pub fn create(
     alloc: Allocator,
-    _: Options,
+    opts: Options,
 ) !*Utf8 {
+    if (opts.@"invalid-rate" < 0 or opts.@"invalid-rate" > 1) {
+        return error.InvalidValue;
+    }
+
+    const weights = [_]f64{
+        opts.@"weight-one",
+        opts.@"weight-two",
+        opts.@"weight-three",
+        opts.@"weight-four",
+    };
+    var weight_sum: f64 = 0;
+    for (weights) |weight| {
+        if (weight < 0) return error.InvalidValue;
+        weight_sum += weight;
+    }
+    if (weight_sum <= 0) return error.InvalidValue;
+
     const ptr = try alloc.create(Utf8);
     errdefer alloc.destroy(ptr);
+    ptr.* = .{ .opts = opts };
     return ptr;
 }
 
@@ -24,11 +63,22 @@ pub fn destroy(self: *Utf8, alloc: Allocator) void {
 }
 
 pub fn run(self: *Utf8, writer: *std.Io.Writer, rand: std.Random) !void {
-    _ = self;
+    var prng: ?std.Random.DefaultPrng = null;
+    var gen_rand = rand;
+    if (self.opts.seed) |seed| {
+        prng = std.Random.DefaultPrng.init(seed);
+        gen_rand = prng.?.random();
+    }
 
     var gen: synthetic.Utf8 = .{
-        .rand = rand,
+        .rand = gen_rand,
+        .ascii_printable_only = self.opts.@"ascii-printable-only",
+        .invalid_rate = self.opts.@"invalid-rate",
     };
+    gen.p_length.set(.one, self.opts.@"weight-one");
+    gen.p_length.set(.two, self.opts.@"weight-two");
+    gen.p_length.set(.three, self.opts.@"weight-three");
+    gen.p_length.set(.four, self.opts.@"weight-four");
 
     while (true) {
         gen.next(writer, 1024) catch |err| {
@@ -46,7 +96,9 @@ test Utf8 {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    const impl: *Utf8 = try .create(alloc, .{});
+    const impl: *Utf8 = try .create(alloc, .{
+        .seed = 1,
+    });
     defer impl.destroy(alloc);
 
     var prng = std.Random.DefaultPrng.init(1);
@@ -55,4 +107,5 @@ test Utf8 {
     var buf: [1024]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buf);
     try impl.run(&writer, rand);
+    try testing.expectEqual(@as(usize, 1024), writer.buffered().len);
 }

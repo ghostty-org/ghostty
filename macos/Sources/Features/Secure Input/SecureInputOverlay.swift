@@ -54,8 +54,6 @@ struct SecureInputOverlay: View {
                         isPopover = true
                     }
                     .backport.pointerStyle(.link)
-                    .padding(.top, 10)
-                    .padding(.trailing, 10)
                     .popover(isPresented: $isPopover, arrowEdge: .bottom) {
                         Text("""
                         Secure Input is active. Secure Input is a macOS security feature that
@@ -65,6 +63,8 @@ struct SecureInputOverlay: View {
                         """)
                         .padding(.all)
                     }
+                    .padding(.top, 10)
+                    .padding(.trailing, 10)
             }
 
             Spacer()

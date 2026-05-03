@@ -3,4 +3,6 @@ pub const Result = enum(c_int) {
     success = 0,
     out_of_memory = -1,
     invalid_value = -2,
+    out_of_space = -3,
+    no_value = -4,
 };

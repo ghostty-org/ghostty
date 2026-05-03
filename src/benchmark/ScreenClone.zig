@@ -94,9 +94,9 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
     // Force a style on every single row, which
     var s = self.terminal.vtStream();
     defer s.deinit();
-    s.nextSlice("\x1b[48;2;20;40;60m") catch unreachable;
-    for (0..self.terminal.rows - 1) |_| s.nextSlice("hello\r\n") catch unreachable;
-    s.nextSlice("hello") catch unreachable;
+    s.nextSlice("\x1b[48;2;20;40;60m");
+    for (0..self.terminal.rows - 1) |_| s.nextSlice("hello\r\n");
+    s.nextSlice("hello");
 
     // Setup our terminal state
     const data_f: std.fs.File = (options.dataFile(
@@ -120,10 +120,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
             return error.BenchmarkFailed;
         };
         if (n == 0) break; // EOF reached
-        stream.nextSlice(buf[0..n]) catch |err| {
-            log.warn("error processing data file chunk err={}", .{err});
-            return error.BenchmarkFailed;
-        };
+        stream.nextSlice(buf[0..n]);
     }
 }
 

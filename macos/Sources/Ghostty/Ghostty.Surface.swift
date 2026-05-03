@@ -92,6 +92,29 @@ extension Ghostty {
             ghostty_surface_mouse_captured(surface)
         }
 
+        /// The PID of the foreground process group attached to the PTY.
+        ///
+        /// Ghostties NOTE (upstream sync 2026-05): the underlying C symbol
+        /// `ghostty_surface_foreground_pid` was added upstream but isn't yet
+        /// present in our locally-built `GhosttyKit.xcframework` (zig 0.15.2
+        /// can't relink on macOS 26 — see `build-xcode-workaround.md`). Returning
+        /// nil keeps AppleScript / AppIntents callers safe until the xcframework
+        /// can be rebuilt; restore the original two-line implementation then.
+        @MainActor
+        var foregroundPID: Int? {
+            return nil
+        }
+
+        /// The PTY device name for this surface.
+        ///
+        /// Ghostties NOTE (upstream sync 2026-05): see foregroundPID above —
+        /// `ghostty_surface_tty_name` is missing from our local xcframework.
+        /// Returning nil is a temporary stub.
+        @MainActor
+        var ttyName: String? {
+            return nil
+        }
+
         /// Send a mouse button event to the terminal.
         ///
         /// This sends a complete mouse button event including the button state (press/release),

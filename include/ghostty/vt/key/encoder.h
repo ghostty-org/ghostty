@@ -9,8 +9,9 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <ghostty/vt/result.h>
+#include <ghostty/vt/types.h>
 #include <ghostty/vt/allocator.h>
+#include <ghostty/vt/terminal.h>
 #include <ghostty/vt/key/event.h>
 
 /**
@@ -21,7 +22,7 @@
  *
  * @ingroup key
  */
-typedef struct GhosttyKeyEncoder *GhosttyKeyEncoder;
+typedef struct GhosttyKeyEncoderImpl *GhosttyKeyEncoder;
 
 /**
  * Kitty keyboard protocol flags.
@@ -63,7 +64,7 @@ typedef uint8_t GhosttyKittyKeyFlags;
  *
  * @ingroup key
  */
-typedef enum {
+typedef enum GHOSTTY_ENUM_TYPED {
     /** Option key is not treated as alt */
     GHOSTTY_OPTION_AS_ALT_FALSE = 0,
     /** Option key is treated as alt */
@@ -72,6 +73,7 @@ typedef enum {
     GHOSTTY_OPTION_AS_ALT_LEFT = 2,
     /** Only right option key is treated as alt */
     GHOSTTY_OPTION_AS_ALT_RIGHT = 3,
+    GHOSTTY_OPTION_AS_ALT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyOptionAsAlt;
 
 /**
@@ -82,27 +84,36 @@ typedef enum {
  *
  * @ingroup key
  */
-typedef enum {
+typedef enum GHOSTTY_ENUM_TYPED {
     /** Terminal DEC mode 1: cursor key application mode (value: bool) */
     GHOSTTY_KEY_ENCODER_OPT_CURSOR_KEY_APPLICATION = 0,
-    
+
     /** Terminal DEC mode 66: keypad key application mode (value: bool) */
     GHOSTTY_KEY_ENCODER_OPT_KEYPAD_KEY_APPLICATION = 1,
-    
+
     /** Terminal DEC mode 1035: ignore keypad with numlock (value: bool) */
     GHOSTTY_KEY_ENCODER_OPT_IGNORE_KEYPAD_WITH_NUMLOCK = 2,
-    
+
     /** Terminal DEC mode 1036: alt sends escape prefix (value: bool) */
     GHOSTTY_KEY_ENCODER_OPT_ALT_ESC_PREFIX = 3,
-    
+
     /** xterm modifyOtherKeys mode 2 (value: bool) */
     GHOSTTY_KEY_ENCODER_OPT_MODIFY_OTHER_KEYS_STATE_2 = 4,
-    
+
     /** Kitty keyboard protocol flags (value: GhosttyKittyKeyFlags bitmask) */
     GHOSTTY_KEY_ENCODER_OPT_KITTY_FLAGS = 5,
-    
+
     /** macOS option-as-alt setting (value: GhosttyOptionAsAlt) */
     GHOSTTY_KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT = 6,
+
+    /** Backarrow key mode (value: bool)
+     * See https://vt100.net/dec/ek-vt3xx-tp-002.pdf page 170
+     * If `false` (the default), `backspace` emits 0x7f
+     * If `true`, `backspace` emits 0x08
+     */
+    GHOSTTY_KEY_ENCODER_OPT_BACKARROW_KEY_MODE = 7,
+
+    GHOSTTY_KEY_ENCODER_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyKeyEncoderOption;
 
 /**
@@ -118,7 +129,7 @@ typedef enum {
  *
  * @ingroup key
  */
-GhosttyResult ghostty_key_encoder_new(const GhosttyAllocator *allocator, GhosttyKeyEncoder *encoder);
+GHOSTTY_API GhosttyResult ghostty_key_encoder_new(const GhosttyAllocator *allocator, GhosttyKeyEncoder *encoder);
 
 /**
  * Free a key encoder instance.
@@ -130,7 +141,7 @@ GhosttyResult ghostty_key_encoder_new(const GhosttyAllocator *allocator, Ghostty
  *
  * @ingroup key
  */
-void ghostty_key_encoder_free(GhosttyKeyEncoder encoder);
+GHOSTTY_API void ghostty_key_encoder_free(GhosttyKeyEncoder encoder);
 
 /**
  * Set an option on the key encoder.
@@ -139,6 +150,10 @@ void ghostty_key_encoder_free(GhosttyKeyEncoder encoder);
  * of encoding such as terminal modes (cursor key application mode, keypad mode),
  * protocol selection (Kitty keyboard protocol flags), and platform-specific
  * behaviors (macOS option-as-alt).
+ *
+ * If you are using a terminal instance, you can set the key encoding
+ * options based on the active terminal state (e.g. legacy vs Kitty mode
+ * and associated flags) with ghostty_key_encoder_setopt_from_terminal().
  *
  * A null pointer value does nothing. It does not reset the value to the
  * default. The setopt call will do nothing.
@@ -149,7 +164,26 @@ void ghostty_key_encoder_free(GhosttyKeyEncoder encoder);
  *
  * @ingroup key
  */
-void ghostty_key_encoder_setopt(GhosttyKeyEncoder encoder, GhosttyKeyEncoderOption option, const void *value);
+GHOSTTY_API void ghostty_key_encoder_setopt(GhosttyKeyEncoder encoder, GhosttyKeyEncoderOption option, const void *value);
+
+/**
+ * Set encoder options from a terminal's current state.
+ *
+ * Reads the terminal's current modes and flags and applies them to the
+ * encoder's options. This sets cursor key application mode, keypad mode,
+ * alt escape prefix, modifyOtherKeys state, and Kitty keyboard protocol
+ * flags from the terminal state.
+ *
+ * Note that the `macos_option_as_alt` option cannot be determined from
+ * terminal state and is reset to `GHOSTTY_OPTION_AS_ALT_FALSE` by this
+ * call. Use ghostty_key_encoder_setopt() to set it afterward if needed.
+ *
+ * @param encoder The encoder handle, must not be NULL
+ * @param terminal The terminal handle, must not be NULL
+ *
+ * @ingroup key
+ */
+GHOSTTY_API void ghostty_key_encoder_setopt_from_terminal(GhosttyKeyEncoder encoder, GhosttyTerminal terminal);
 
 /**
  * Encode a key event into a terminal escape sequence.
@@ -161,7 +195,7 @@ void ghostty_key_encoder_setopt(GhosttyKeyEncoder encoder, GhosttyKeyEncoderOpti
  * typically don't generate escape sequences. Check the out_len parameter to
  * determine if any data was written.
  *
- * If the output buffer is too small, this function returns GHOSTTY_OUT_OF_MEMORY
+ * If the output buffer is too small, this function returns GHOSTTY_OUT_OF_SPACE
  * and out_len will contain the required buffer size. The caller can then
  * allocate a larger buffer and call the function again.
  *
@@ -170,26 +204,26 @@ void ghostty_key_encoder_setopt(GhosttyKeyEncoder encoder, GhosttyKeyEncoderOpti
  * @param out_buf Buffer to write the encoded sequence to
  * @param out_buf_size Size of the output buffer in bytes
  * @param out_len Pointer to store the number of bytes written (may be NULL)
- * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY if buffer too small, or other error code
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_SPACE if buffer too small, or other error code
  *
  * ## Example: Calculate required buffer size
  *
  * @code{.c}
- * // Query the required size with a NULL buffer (always returns OUT_OF_MEMORY)
+ * // Query the required size with a NULL buffer (always returns OUT_OF_SPACE)
  * size_t required = 0;
  * GhosttyResult result = ghostty_key_encoder_encode(encoder, event, NULL, 0, &required);
- * assert(result == GHOSTTY_OUT_OF_MEMORY);
- * 
+ * assert(result == GHOSTTY_OUT_OF_SPACE);
+ *
  * // Allocate buffer of required size
  * char *buf = malloc(required);
- * 
+ *
  * // Encode with properly sized buffer
  * size_t written = 0;
  * result = ghostty_key_encoder_encode(encoder, event, buf, required, &written);
  * assert(result == GHOSTTY_SUCCESS);
- * 
+ *
  * // Use the encoded sequence...
- * 
+ *
  * free(buf);
  * @endcode
  *
@@ -200,11 +234,11 @@ void ghostty_key_encoder_setopt(GhosttyKeyEncoder encoder, GhosttyKeyEncoderOpti
  * char buf[128];
  * size_t written = 0;
  * GhosttyResult result = ghostty_key_encoder_encode(encoder, event, buf, sizeof(buf), &written);
- * 
+ *
  * if (result == GHOSTTY_SUCCESS) {
  *   // Write the encoded sequence to the terminal
  *   write(pty_fd, buf, written);
- * } else if (result == GHOSTTY_OUT_OF_MEMORY) {
+ * } else if (result == GHOSTTY_OUT_OF_SPACE) {
  *   // Buffer too small, written contains required size
  *   char *dynamic_buf = malloc(written);
  *   result = ghostty_key_encoder_encode(encoder, event, dynamic_buf, written, &written);
@@ -216,6 +250,6 @@ void ghostty_key_encoder_setopt(GhosttyKeyEncoder encoder, GhosttyKeyEncoderOpti
  *
  * @ingroup key
  */
-GhosttyResult ghostty_key_encoder_encode(GhosttyKeyEncoder encoder, GhosttyKeyEvent event, char *out_buf, size_t out_buf_size, size_t *out_len);
+GHOSTTY_API GhosttyResult ghostty_key_encoder_encode(GhosttyKeyEncoder encoder, GhosttyKeyEvent event, char *out_buf, size_t out_buf_size, size_t *out_len);
 
 #endif /* GHOSTTY_VT_KEY_ENCODER_H */

@@ -118,8 +118,14 @@ extension Ghostty {
             ghostty_app_tick(app)
         }
 
-        static func openConfig() {
-            let str = Ghostty.AllocatedString(ghostty_config_open_path()).string
+        private static func openConfig(_ app: ghostty_app_t) {
+            guard let app_ud = ghostty_app_userdata(app) else { return }
+            let app = Unmanaged<App>.fromOpaque(app_ud).takeUnretainedValue()
+            app.openConfig()
+        }
+
+        func openConfig() {
+            let str = configPath ?? Ghostty.AllocatedString(ghostty_config_open_path()).string
             guard !str.isEmpty else { return }
             #if os(macOS)
             let fileURL = URL(fileURLWithPath: str).absoluteString
@@ -128,7 +134,7 @@ extension Ghostty {
             fileURL.withCString { cStr in
                 action.url = cStr
                 action.len = UInt(fileURL.count)
-                _ = openURL(action)
+                _ = App.openURL(action)
             }
             #else
             fatalError("Unsupported platform for opening config file")
@@ -269,7 +275,9 @@ extension Ghostty {
             _ userdata: UnsafeMutableRawPointer?,
             location: ghostty_clipboard_e,
             state: UnsafeMutableRawPointer?
-        ) {}
+        ) -> Bool {
+            return false
+        }
 
         static func confirmReadClipboard(
             _ userdata: UnsafeMutableRawPointer?,
@@ -321,20 +329,23 @@ extension Ghostty {
             ])
         }
 
-        static func readClipboard(_ userdata: UnsafeMutableRawPointer?, location: ghostty_clipboard_e, state: UnsafeMutableRawPointer?) {
-            // If we don't even have a surface, something went terrible wrong so we have
-            // to leak "state".
+        static func readClipboard(
+            _ userdata: UnsafeMutableRawPointer?,
+            location: ghostty_clipboard_e,
+            state: UnsafeMutableRawPointer?
+        ) -> Bool {
             let surfaceView = self.surfaceUserdata(from: userdata)
-            guard let surface = surfaceView.surface else { return }
+            guard let surface = surfaceView.surface else { return false }
 
             // Get our pasteboard
-            guard let pasteboard = NSPasteboard.ghostty(location) else {
-                return completeClipboardRequest(surface, data: "", state: state)
-            }
+            guard let pasteboard = NSPasteboard.ghostty(location) else { return false }
 
-            // Get our string
-            let str = pasteboard.getOpinionatedStringContents() ?? ""
+            // Return false if there is no text-like clipboard content so
+            // performable paste bindings can pass through to the terminal.
+            guard let str = pasteboard.getOpinionatedStringContents() else { return false }
+
             completeClipboardRequest(surface, data: str, state: state)
+            return true
         }
 
         static func confirmReadClipboard(
@@ -534,6 +545,14 @@ extension Ghostty {
             case GHOSTTY_ACTION_SET_TITLE:
                 setTitle(app, target: target, v: action.action.set_title)
 
+            // Ghostties NOTE (upstream sync 2026-05): GHOSTTY_ACTION_SET_TAB_TITLE
+            // and `action.action.set_tab_title` were added upstream but aren't
+            // yet exposed by our locally-built GhosttyKit.xcframework (zig 0.15.2
+            // is broken on macOS 26 — see build-xcode-workaround.md). Restore
+            // this case once the xcframework is rebuilt.
+            // case GHOSTTY_ACTION_SET_TAB_TITLE:
+            //     return setTabTitle(app, target: target, v: action.action.set_tab_title)
+
             case GHOSTTY_ACTION_PROMPT_TITLE:
                 return promptTitle(app, target: target, v: action.action.prompt_title)
 
@@ -541,7 +560,7 @@ extension Ghostty {
                 pwdChanged(app, target: target, v: action.action.pwd)
 
             case GHOSTTY_ACTION_OPEN_CONFIG:
-                openConfig()
+                openConfig(app)
 
             case GHOSTTY_ACTION_FLOAT_WINDOW:
                 toggleFloatWindow(app, target: target, mode: action.action.float_window)
@@ -631,7 +650,7 @@ extension Ghostty {
                 startSearch(app, target: target, v: action.action.start_search)
 
             case GHOSTTY_ACTION_END_SEARCH:
-                endSearch(app, target: target)
+                return endSearch(app, target: target)
 
             case GHOSTTY_ACTION_SEARCH_TOTAL:
                 searchTotal(app, target: target, v: action.action.search_total)
@@ -654,8 +673,7 @@ extension Ghostty {
             case GHOSTTY_ACTION_QUIT_TIMER:
                 fallthrough
             case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
-                Ghostty.logger.info("known but unimplemented action action=\(action.tag.rawValue)")
-                return false
+                return showChildExited(app, target: target, v: action.action.child_exited)
             case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
                 return copyTitleToClipboard(app, target: target)
 
@@ -1613,6 +1631,53 @@ extension Ghostty {
             }
         }
 
+        private static func setTabTitle(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_set_title_s
+        ) -> Bool {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("set tab title does nothing with an app target")
+                return false
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let title = String(cString: v.title!, encoding: .utf8) else { return false }
+                let titleOverride = title.isEmpty ? nil : title
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                guard let window = surfaceView.window,
+                      let controller = window.windowController as? BaseTerminalController
+                else { return false }
+                controller.titleOverride = titleOverride
+                return true
+
+            default:
+                assertionFailure()
+                return false
+            }
+        }
+
+        private static func showChildExited(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_surface_message_childexited_s,
+        ) -> Bool {
+            switch target.tag {
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                // We handle this when the window is visible and timetime_ms is greater than 0,
+                // which will rule out exit codes on launch
+                guard surfaceView.window != nil, v.timetime_ms > 0 else { return false }
+                guard let config = (NSApplication.shared.delegate as? AppDelegate)?.ghostty.config else { return false }
+                surfaceView.setChildExitedMessage(.init(v, threshold: config.abnormalCommandExitRuntime))
+                return true
+            default:
+                return false
+            }
+        }
+
         private static func copyTitleToClipboard(
             _ app: ghostty_app_t,
             target: ghostty_target_s) -> Bool {
@@ -1950,6 +2015,15 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let config = (NSApplication.shared.delegate as? AppDelegate)?.ghostty.config else { return }
+
+                guard config.progressStyle else {
+                    Ghostty.logger.debug("progress_report action blocked by config")
+                    DispatchQueue.main.async {
+                        surfaceView.progressReport = nil
+                    }
+                    return
+                }
 
                 let progressReport = Ghostty.Action.ProgressReport(c: v)
                 DispatchQueue.main.async {
@@ -2047,22 +2121,23 @@ extension Ghostty {
 
         private static func endSearch(
             _ app: ghostty_app_t,
-            target: ghostty_target_s) {
+            target: ghostty_target_s) -> Bool {
             switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("end_search does nothing with an app target")
-                return
+                return false
 
             case GHOSTTY_TARGET_SURFACE:
-                guard let surface = target.target.surface else { return }
-                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
 
                 DispatchQueue.main.async {
-                    surfaceView.searchState = nil
+                    surfaceView.endSearch()
                 }
-
+                return true
             default:
                 assertionFailure()
+                return false
             }
         }
 

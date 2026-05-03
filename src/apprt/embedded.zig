@@ -20,6 +20,7 @@ const CoreInspector = @import("../inspector/main.zig").Inspector;
 const CoreSurface = @import("../Surface.zig");
 const configpkg = @import("../config.zig");
 const Config = configpkg.Config;
+const String = @import("../main_c.zig").String;
 
 const log = std.log.scoped(.embedded_window);
 
@@ -50,10 +51,11 @@ pub const App = struct {
         /// Callback called to handle an action.
         action: *const fn (*App, apprt.Target.C, apprt.Action.C) callconv(.c) bool,
 
-        /// Read the clipboard value. The return value must be preserved
-        /// by the host until the next call. If there is no valid clipboard
-        /// value then this should return null.
-        read_clipboard: *const fn (SurfaceUD, c_int, *apprt.ClipboardRequest) callconv(.c) void,
+        /// Read the clipboard value. Returns true if the clipboard request
+        /// was started and complete_clipboard_request may be called with the
+        /// given state pointer. Returns false if the clipboard request couldn't
+        /// be started (such as when no text is available for a paste request).
+        read_clipboard: *const fn (SurfaceUD, c_int, *apprt.ClipboardRequest) callconv(.c) bool,
 
         /// This may be called after a read clipboard call to request
         /// confirmation that the clipboard value is safe to read. The embedder
@@ -512,7 +514,15 @@ pub const Surface = struct {
                     break :wd;
                 }
 
-                config.@"working-directory" = wd;
+                var wd_val: configpkg.WorkingDirectory = .{ .path = wd };
+                if (wd_val.finalize(config.arenaAlloc())) |_| {
+                    config.@"working-directory" = wd_val;
+                } else |err| {
+                    log.warn(
+                        "error finalizing working directory config dir={s} err={}",
+                        .{ wd_val.path, err },
+                    );
+                }
             }
         }
 
@@ -672,14 +682,16 @@ pub const Surface = struct {
         errdefer alloc.destroy(state_ptr);
         state_ptr.* = state;
 
-        self.app.opts.read_clipboard(
+        const started = self.app.opts.read_clipboard(
             self.userdata,
             @intCast(@intFromEnum(clipboard_type)),
             state_ptr,
         );
+        if (!started) {
+            alloc.destroy(state_ptr);
+            return false;
+        }
 
-        // Embedded apprt can't synchronously check clipboard content types,
-        // so we always return true to indicate the request was started.
         return true;
     }
 
@@ -1459,8 +1471,8 @@ pub const CAPI = struct {
     /// if it were sent to the surface right now. The "right now"
     /// is important because things like trigger sequences are only
     /// valid until the next key event.
-    export fn ghostty_app_key_is_binding(
-        app: *App,
+    export fn ghostty_config_key_is_binding(
+        config: *Config,
         event: KeyEvent,
     ) bool {
         const core_event = event.keyEvent().core() orelse {
@@ -1468,7 +1480,7 @@ pub const CAPI = struct {
             return false;
         };
 
-        return app.core_app.keyEventIsBinding(app, core_event);
+        return config.keyEventIsBinding(core_event);
     }
 
     /// Notify the app that the keyboard was changed. This causes the
@@ -1669,7 +1681,7 @@ pub const CAPI = struct {
         return true;
     }
 
-    export fn ghostty_surface_free_text(ptr: *Text) void {
+    export fn ghostty_surface_free_text(_: *Surface, ptr: *Text) void {
         ptr.deinit();
     }
 
@@ -1701,6 +1713,23 @@ pub const CAPI = struct {
             .cell_width_px = surface.core_surface.size.cell.width,
             .cell_height_px = surface.core_surface.size.cell.height,
         };
+    }
+
+    /// Returns the PID of the foreground process for the surface PTY.
+    export fn ghostty_surface_foreground_pid(surface: *Surface) u64 {
+        return surface.core_surface.getProcessInfo(.foreground_pid) orelse 0;
+    }
+
+    /// Returns the PTY name for the surface. The returned string must be
+    /// freed by the caller via ghostty_string_free.
+    export fn ghostty_surface_tty_name(surface: *Surface) String {
+        const tty_name = surface.core_surface.getProcessInfo(.tty_name) orelse return .empty;
+        const copy = surface.app.core_app.alloc.dupeZ(u8, tty_name) catch |err| {
+            log.err("error allocating tty name err={}", .{err});
+            return .empty;
+        };
+
+        return .fromSlice(copy);
     }
 
     /// Update the color scheme of the surface.

@@ -6,6 +6,8 @@
 	<string>0.0.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac</key>
+	<true/>
 	<key>NSDockTilePlugIn</key>
 	<string>DockTilePlugin.plugin</string>
 	<key>CFBundleDocumentTypes</key>

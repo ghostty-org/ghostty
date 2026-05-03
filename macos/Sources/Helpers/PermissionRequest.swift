@@ -126,7 +126,7 @@ class PermissionRequest {
     /// - Parameter key: The UserDefaults key to check
     /// - Returns: The cached decision, or nil if no valid cached decision exists
     private static func getStoredResult(for key: String) -> Bool? {
-        let userDefaults = UserDefaults.standard
+        let userDefaults = UserDefaults.ghostty
         guard let data = userDefaults.data(forKey: key),
               let storedPermission = try? NSKeyedUnarchiver.unarchivedObject(
                 ofClass: StoredPermission.self, from: data) else {
@@ -151,7 +151,7 @@ class PermissionRequest {
         let expiryDate = Date().addingTimeInterval(duration.timeInterval)
         let storedPermission = StoredPermission(result: result, expiry: expiryDate)
         if let data = try? NSKeyedArchiver.archivedData(withRootObject: storedPermission, requiringSecureCoding: true) {
-            let userDefaults = UserDefaults.standard
+            let userDefaults = UserDefaults.ghostty
             userDefaults.set(data, forKey: key)
         }
     }

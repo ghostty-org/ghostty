@@ -54,7 +54,7 @@ pub const Stream = struct {
             .events = &self.events,
         };
         defer self.parser_stream.handler.state = null;
-        try self.parser_stream.nextSlice(data);
+        self.parser_stream.nextSlice(data);
     }
 
     pub fn draw(
@@ -736,7 +736,7 @@ const VTHandler = struct {
         self: *VTHandler,
         comptime action: VTHandler.Stream.Action.Tag,
         value: VTHandler.Stream.Action.Value(action),
-    ) !void {
+    ) void {
         _ = self;
         _ = value;
     }

@@ -198,7 +198,8 @@ fn runArgs(
         const cwd: std.fs.Dir = std.fs.cwd();
         var buf: [std.fs.max_path_bytes]u8 = undefined;
         const wd = try cwd.realpath(".", &buf);
-        try opts._arguments.append(alloc, try std.fmt.allocPrintSentinel(alloc, "--working-directory={s}", .{wd}, 0));
+        // This should be inserted at the beginning of the list, just in case `-e` was used.
+        try opts._arguments.insert(alloc, 0, try std.fmt.allocPrintSentinel(alloc, "--working-directory={s}", .{wd}, 0));
     }
 
     var arena = ArenaAllocator.init(alloc_gpa);

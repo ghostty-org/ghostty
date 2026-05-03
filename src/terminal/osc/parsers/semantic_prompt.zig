@@ -14,6 +14,8 @@ const log = std.log.scoped(.osc_semantic_prompt);
 /// all except one do and the spec does also say to ignore unknown
 /// options. So, I think this is a fair interpretation.
 pub const Command = struct {
+    pub const C = void;
+
     action: Action,
     options_unvalidated: []const u8,
 
@@ -296,11 +298,11 @@ pub const Redraw = enum(u2) {
 
 /// Parse OSC 133, semantic prompts
 pub fn parse(parser: *Parser, _: ?u8) ?*OSCCommand {
-    const writer = parser.writer orelse {
+    const cap = if (parser.capture) |*c| c else {
         parser.state = .invalid;
         return null;
     };
-    const data = writer.buffered();
+    const data = cap.trailing();
     if (data.len == 0) {
         parser.state = .invalid;
         return null;

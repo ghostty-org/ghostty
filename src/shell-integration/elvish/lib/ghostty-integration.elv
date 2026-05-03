@@ -83,8 +83,7 @@
     # Configure environment variables for remote session
     if (has-value $features ssh-env) {
       set ssh-opts = (conj $ssh-opts ^
-        -o "SetEnv COLORTERM=truecolor" ^
-        -o "SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION")
+        -o "SendEnv COLORTERM TERM_PROGRAM TERM_PROGRAM_VERSION")
     }
 
     if (has-value $features ssh-terminfo) {
@@ -148,7 +147,7 @@
       }
     }
 
-    with [E:TERM = $ssh-term] {
+    with [E:TERM = $ssh-term E:COLORTERM = truecolor] {
       (external ssh) $@ssh-opts $@args
     }
   }

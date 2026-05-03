@@ -50,8 +50,8 @@ pub fn parse(parser: *Parser, terminator_ch: ?u8) ?*Command {
     // If we've collected any extra data parse that, otherwise use an empty
     // string.
     const data = data: {
-        const writer = parser.writer orelse break :data "";
-        break :data writer.buffered();
+        const cap = if (parser.capture) |*c| c else break :data "";
+        break :data cap.trailing();
     };
     // Check and make sure that we're parsing the correct OSCs
     const op: Operation = switch (parser.state) {

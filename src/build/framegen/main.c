@@ -8,15 +8,16 @@
 
 #define SEPARATOR '\x01'
 #define CHUNK_SIZE 16384
+#define MAX_FRAMES 1024
+#define PATH_SEP '/'
 
-static int filter_frames(const struct dirent *entry) {
-    const char *name = entry->d_name;
+static int is_frame_file(const char *name) {
     size_t len = strlen(name);
     return len > 4 && strcmp(name + len - 4, ".txt") == 0;
 }
 
-static int compare_frames(const struct dirent **a, const struct dirent **b) {
-    return strcmp((*a)->d_name, (*b)->d_name);
+static int compare_names(const void *a, const void *b) {
+    return strcmp(*(const char **)a, *(const char **)b);
 }
 
 static char *read_file(const char *path, size_t *out_size) {
@@ -54,17 +55,39 @@ int main(int argc, char **argv) {
     const char *frames_dir = argv[1];
     const char *output_file = argv[2];
 
-    struct dirent **namelist;
-    int n = scandir(frames_dir, &namelist, filter_frames, compare_frames);
-    if (n < 0) {
+    // Use opendir/readdir instead of scandir for Windows compatibility
+    DIR *dir = opendir(frames_dir);
+    if (!dir) {
         fprintf(stderr, "Failed to scan directory %s: %s\n", frames_dir, strerror(errno));
         return 1;
     }
+
+    char *names[MAX_FRAMES];
+    int n = 0;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (!is_frame_file(entry->d_name)) continue;
+        if (n >= MAX_FRAMES) {
+            fprintf(stderr, "Too many frame files (max %d)\n", MAX_FRAMES);
+            closedir(dir);
+            return 1;
+        }
+        names[n] = strdup(entry->d_name);
+        if (!names[n]) {
+            fprintf(stderr, "Failed to allocate memory\n");
+            closedir(dir);
+            return 1;
+        }
+        n++;
+    }
+    closedir(dir);
 
     if (n == 0) {
         fprintf(stderr, "No frame files found in %s\n", frames_dir);
         return 1;
     }
+
+    qsort(names, n, sizeof(char *), compare_names);
 
     size_t total_size = 0;
     char **frame_contents = calloc(n, sizeof(char*));
@@ -72,7 +95,7 @@ int main(int argc, char **argv) {
 
     for (int i = 0; i < n; i++) {
         char path[4096];
-        snprintf(path, sizeof(path), "%s/%s", frames_dir, namelist[i]->d_name);
+        snprintf(path, sizeof(path), "%s%c%s", frames_dir, PATH_SEP, names[i]);
         
         frame_contents[i] = read_file(path, &frame_sizes[i]);
         if (!frame_contents[i]) {

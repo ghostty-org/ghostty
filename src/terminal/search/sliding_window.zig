@@ -1583,7 +1583,7 @@ test "SlidingWindow single append soft wrapped" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("A\r\nxxboo!\r\nC");
+    s.nextSlice("A\r\nxxboo!\r\nC");
 
     // We want to test single-page cases.
     const screen = t.screens.active;
@@ -1620,7 +1620,7 @@ test "SlidingWindow single append reversed soft wrapped" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("A\r\nxxboo!\r\nC");
+    s.nextSlice("A\r\nxxboo!\r\nC");
 
     // We want to test single-page cases.
     const screen = t.screens.active;

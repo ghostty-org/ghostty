@@ -149,6 +149,8 @@ fn expandHomeUnix(path: []const u8, buf: []u8) ExpandError![]const u8 {
 }
 
 test "expandHomeUnix" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
     const testing = std.testing;
     const allocator = testing.allocator;
     var buf: [std.fs.max_path_bytes]u8 = undefined;

@@ -33,6 +33,16 @@ pub const FlatpakHostCommand = struct {
         @cInclude("gio/gio.h");
         @cInclude("gio/gunixfdlist.h");
     });
+    /// Flags for HostCommand method
+    ///
+    /// Ref: https://docs.flatpak.org/en/latest/libflatpak-api-reference.html#gdbus-method-org-freedesktop-Flatpak-Development.HostCommand
+    const Flags = packed struct(c_uint) {
+        /// Clear the environment
+        clear_env: bool = false,
+        /// Kill the sandbox when the caller disappears from the session bus
+        watch_bus: bool = false,
+        _reserved: std.meta.Int(.unsigned, @bitSizeOf(c_uint) - 2) = 0,
+    };
 
     /// Argv are the arguments to call on the host with argv[0] being
     /// the command to execute.
@@ -366,6 +376,9 @@ pub const FlatpakHostCommand = struct {
         const g_cwd = c.g_get_current_dir();
         defer c.g_free(g_cwd);
 
+        // Terminate session if Ghostty drops off the bus (e.g. due to crashes)
+        const flags: Flags = .{ .watch_bus = true };
+
         // The params for our RPC call
         const params = c.g_variant_new(
             "(^ay^aay@a{uh}@a{ss}u)",
@@ -373,7 +386,7 @@ pub const FlatpakHostCommand = struct {
             args.ptr,
             c.g_variant_builder_end(fd_builder),
             c.g_variant_builder_end(env_builder),
-            @as(c_int, 0),
+            @as(c_uint, @bitCast(flags)),
         );
         _ = c.g_variant_ref_sink(params); // take ownership
         defer c.g_variant_unref(params);

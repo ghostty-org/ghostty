@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="24506" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="24765" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
     <dependencies>
         <deployment identifier="macosx"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="24506"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="24765"/>
     </dependencies>
     <objects>
         <customObject id="-2" userLabel="File's Owner" customClass="NSApplication">
@@ -52,13 +52,14 @@
                 <outlet property="menuReloadConfig" destination="KKH-XX-5py" id="Wvp-7J-wqX"/>
                 <outlet property="menuResetFontSize" destination="Jah-MY-aLX" id="ger-qM-wrm"/>
                 <outlet property="menuReturnToDefaultSize" destination="Gbx-Vi-OGC" id="po9-qC-Iz6"/>
+                <outlet property="menuScrollToSelection" destination="1rN-4k-Dz3" id="aRr-aT-oe3"/>
                 <outlet property="menuSecureInput" destination="oC6-w4-qI7" id="PCc-pe-Mda"/>
                 <outlet property="menuSelectAll" destination="q2h-lq-e4r" id="s98-r1-Jcv"/>
                 <outlet property="menuSelectSplitAbove" destination="0yU-hC-8xF" id="aPc-lS-own"/>
                 <outlet property="menuSelectSplitBelow" destination="QDz-d9-CBr" id="FsH-Dq-jij"/>
                 <outlet property="menuSelectSplitLeft" destination="cTK-oy-KuV" id="Jpr-5q-dqz"/>
                 <outlet property="menuSelectSplitRight" destination="upj-mc-L7X" id="nLY-o1-lky"/>
-                <outlet property="menuSelectionForSearch" destination="TDN-42-Bu7" id="M04-1K-vze"/>
+                <outlet property="menuSelectionForFind" destination="TDN-42-Bu7" id="zya-wG-CDo"/>
                 <outlet property="menuServices" destination="aQe-vS-j8Q" id="uWQ-Wo-T1L"/>
                 <outlet property="menuSetAsDefaultTerminal" destination="b1t-oB-7MI" id="6Eu-5G-OPo"/>
                 <outlet property="menuSplitDown" destination="UDZ-4y-6xL" id="ptr-mj-Azh"/>

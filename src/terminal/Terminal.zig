@@ -5,6 +5,7 @@ const Terminal = @This();
 
 const std = @import("std");
 const build_options = @import("terminal_options");
+const lib = @import("lib.zig");
 const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
@@ -22,9 +23,8 @@ const point = @import("point.zig");
 const sgr = @import("sgr.zig");
 const Tabstops = @import("Tabstops.zig");
 const color = @import("color.zig");
-const mouse_shape_pkg = @import("mouse_shape.zig");
-const ReadonlyHandler = @import("stream_readonly.zig").Handler;
-const ReadonlyStream = @import("stream_readonly.zig").Stream;
+const mouse = @import("mouse.zig");
+const Stream = @import("stream_terminal.zig").Stream;
 
 const size = @import("size.zig");
 const pagepkg = @import("page.zig");
@@ -65,6 +65,9 @@ scrolling_region: ScrollingRegion,
 /// The last reported pwd, if any.
 pwd: std.ArrayList(u8),
 
+/// The title of the terminal as set by escape sequences (e.g. OSC 0/2).
+title: std.ArrayList(u8),
+
 /// The color state for this terminal.
 colors: Colors,
 
@@ -76,7 +79,7 @@ previous_char: ?u21 = null,
 modes: modespkg.ModeState = .{},
 
 /// The most recently set mouse shape for the terminal.
-mouse_shape: mouse_shape_pkg.MouseShape = .text,
+mouse_shape: mouse.Shape = .text,
 
 /// These are just a packed set of flags we may set on the terminal.
 flags: packed struct {
@@ -93,8 +96,8 @@ flags: packed struct {
     /// set mode in modes. You can't get the right event/format to use
     /// based on modes alone because modes don't show you what order
     /// this was called so we have to track it separately.
-    mouse_event: MouseEvents = .none,
-    mouse_format: MouseFormat = .x10,
+    mouse_event: mouse.Event = .none,
+    mouse_format: mouse.Format = .x10,
 
     /// Set via the XTSHIFTESCAPE sequence. If true (XTSHIFTESCAPE = 1)
     /// then we want to capture the shift key for the mouse protocol
@@ -164,31 +167,6 @@ pub const Dirty = packed struct {
     preedit: bool = false,
 };
 
-/// The event types that can be reported for mouse-related activities.
-/// These are all mutually exclusive (hence in a single enum).
-pub const MouseEvents = enum(u3) {
-    none = 0,
-    x10 = 1, // 9
-    normal = 2, // 1000
-    button = 3, // 1002
-    any = 4, // 1003
-
-    /// Returns true if this event sends motion events.
-    pub fn motion(self: MouseEvents) bool {
-        return self == .button or self == .any;
-    }
-};
-
-/// The format of mouse events when enabled.
-/// These are all mutually exclusive (hence in a single enum).
-pub const MouseFormat = enum(u3) {
-    x10 = 0,
-    utf8 = 1, // 1005
-    sgr = 2, // 1006
-    urxvt = 3, // 1015
-    sgr_pixels = 4, // 1016
-};
-
 /// Scrolling region is the area of the screen designated where scrolling
 /// occurs. When scrolling the screen, only this viewport is scrolled.
 pub const ScrollingRegion = struct {
@@ -213,6 +191,26 @@ pub const Options = struct {
     /// The default mode state. When the terminal gets a reset, it
     /// will revert back to this state.
     default_modes: modespkg.ModePacked = .{},
+
+    /// The total storage limit for Kitty images in bytes. Has no effect
+    /// if kitty images are disabled at build-time.
+    kitty_image_storage_limit: usize = switch (build_options.artifact) {
+        .ghostty => 320 * 1000 * 1000, // 320MB
+
+        // libghostty we start with a much lower limit since this is an
+        // embedded library and we want to be more conservative with memory
+        // usage by default.
+        .lib => 10 * 1000 * 1000, // 10MB
+    },
+
+    /// The limits for what medium types are allowed for Kitty image loading.
+    /// Has no effect if kitty images are disabled otherwise. For example,
+    // if no `sys.decode_png` hook is specified, png formats are disabled
+    // no matter what.
+    kitty_image_loading_limits: if (build_options.kitty_graphics)
+        kitty.graphics.LoadingImage.Limits
+    else
+        void = if (build_options.kitty_graphics) .direct else {},
 };
 
 /// Initialize a new terminal.
@@ -227,6 +225,8 @@ pub fn init(
         .cols = cols,
         .rows = rows,
         .max_scrollback = opts.max_scrollback,
+        .kitty_image_storage_limit = opts.kitty_image_storage_limit,
+        .kitty_image_loading_limits = opts.kitty_image_loading_limits,
     });
     errdefer screen_set.deinit(alloc);
 
@@ -242,6 +242,7 @@ pub fn init(
             .right = cols - 1,
         },
         .pwd = .empty,
+        .title = .empty,
         .colors = opts.colors,
         .modes = .{
             .values = opts.default_modes,
@@ -254,24 +255,35 @@ pub fn deinit(self: *Terminal, alloc: Allocator) void {
     self.tabstops.deinit(alloc);
     self.screens.deinit(alloc);
     self.pwd.deinit(alloc);
+    self.title.deinit(alloc);
     self.* = undefined;
 }
 
 /// Return a terminal.Stream that can process VT streams and update this
 /// terminal state. The streams will only process read-only data that
-/// modifies terminal state. Sequences that query or otherwise require
-/// output will be ignored.
-pub fn vtStream(self: *Terminal) ReadonlyStream {
+/// modifies terminal state.
+///
+/// Sequences that query or otherwise require output will be ignored.
+/// If you want to handle side effects, use `vtHandler` and set the
+/// effects field yourself, then initialize a stream.
+///
+/// This must be deinitialized by the caller.
+///
+/// Important: this creates a new stream each time with fresh parser state.
+/// If you need to persist parser state across multiple writes (e.g.
+/// for handling escape sequences split across write boundaries), you
+/// must store and reuse the returned stream.
+pub fn vtStream(self: *Terminal) Stream {
     return .initAlloc(self.gpa(), self.vtHandler());
 }
 
 /// This is the handler-side only for vtStream.
-pub fn vtHandler(self: *Terminal) ReadonlyHandler {
+pub fn vtHandler(self: *Terminal) Stream.Handler {
     return .init(self);
 }
 
 /// The general allocator we should use for this terminal.
-fn gpa(self: *Terminal) Allocator {
+pub fn gpa(self: *Terminal) Allocator {
     return self.screens.active.alloc;
 }
 
@@ -1704,7 +1716,7 @@ pub fn scrollUp(self: *Terminal, count: usize) !void {
 }
 
 /// Options for scrolling the viewport of the terminal grid.
-pub const ScrollViewport = union(enum) {
+pub const ScrollViewport = union(Tag) {
     /// Scroll to the top of the scrollback
     top,
 
@@ -1713,6 +1725,23 @@ pub const ScrollViewport = union(enum) {
 
     /// Scroll by some delta amount, up is negative.
     delta: isize,
+
+    pub const Tag = lib.Enum(lib.target, &.{
+        "top",
+        "bottom",
+        "delta",
+    });
+
+    const c_union = lib.TaggedUnion(
+        lib.target,
+        @This(),
+        // Padding: largest variant is isize (8 bytes on 64-bit).
+        // Use [2]u64 (16 bytes) for future expansion.
+        [2]u64,
+    );
+    pub const C = c_union.C;
+    pub const CValue = c_union.CValue;
+    pub const cval = c_union.cval;
 };
 
 /// Scroll the viewport of the terminal grid.
@@ -2594,7 +2623,7 @@ pub fn eraseDisplay(
             assert(!self.screens.active.cursor.pending_wrap);
         },
 
-        .scrollback => self.screens.active.eraseRows(.{ .history = .{} }, null),
+        .scrollback => self.screens.active.eraseHistory(null),
     }
 }
 
@@ -2684,6 +2713,34 @@ pub fn kittyGraphics(
     cmd: *kitty.graphics.Command,
 ) ?kitty.graphics.Response {
     return kitty.graphics.execute(alloc, self, cmd);
+}
+
+/// Set the storage size limit for Kitty graphics across all screens.
+pub fn setKittyGraphicsSizeLimit(
+    self: *Terminal,
+    alloc: Allocator,
+    limit: usize,
+) !void {
+    if (comptime !build_options.kitty_graphics) return;
+    var it = self.screens.all.iterator();
+    while (it.next()) |entry| {
+        const screen: *Screen = entry.value.*;
+        try screen.kitty_images.setLimit(alloc, screen, limit);
+    }
+}
+
+/// Set the allowed medium types for Kitty graphics image loading
+/// across all screens.
+pub fn setKittyGraphicsLoadingLimits(
+    self: *Terminal,
+    limits: kitty.graphics.LoadingImage.Limits,
+) void {
+    if (comptime !build_options.kitty_graphics) return;
+    var it = self.screens.all.iterator();
+    while (it.next()) |entry| {
+        const screen: *Screen = entry.value.*;
+        screen.kitty_images.image_limits = limits;
+    }
 }
 
 /// Set a style attribute.
@@ -2867,14 +2924,33 @@ pub fn resize(
 /// Set the pwd for the terminal.
 pub fn setPwd(self: *Terminal, pwd: []const u8) !void {
     self.pwd.clearRetainingCapacity();
-    try self.pwd.appendSlice(self.gpa(), pwd);
+    if (pwd.len > 0) {
+        try self.pwd.appendSlice(self.gpa(), pwd);
+        try self.pwd.append(self.gpa(), 0);
+    }
 }
 
 /// Returns the pwd for the terminal, if any. The memory is owned by the
 /// Terminal and is not copied. It is safe until a reset or setPwd.
-pub fn getPwd(self: *const Terminal) ?[]const u8 {
+pub fn getPwd(self: *const Terminal) ?[:0]const u8 {
     if (self.pwd.items.len == 0) return null;
-    return self.pwd.items;
+    return self.pwd.items[0 .. self.pwd.items.len - 1 :0];
+}
+
+/// Set the title for the terminal, as set by escape sequences (e.g. OSC 0/2).
+pub fn setTitle(self: *Terminal, t: []const u8) !void {
+    self.title.clearRetainingCapacity();
+    if (t.len > 0) {
+        try self.title.appendSlice(self.gpa(), t);
+        try self.title.append(self.gpa(), 0);
+    }
+}
+
+/// Returns the title for the terminal, if any. The memory is owned by the
+/// Terminal and is not copied. It is safe until a reset or setTitle.
+pub fn getTitle(self: *const Terminal) ?[:0]const u8 {
+    if (self.title.items.len == 0) return null;
+    return self.title.items[0 .. self.title.items.len - 1 :0];
 }
 
 /// Switch to the given screen type (alternate or primary).
@@ -2915,12 +2991,15 @@ pub fn switchScreen(self: *Terminal, key: ScreenSet.Key) !?*Screen {
                     .alternate => 0,
                 },
 
-                // Inherit our Kitty image storage limit from the primary
+                // Inherit our Kitty image settings from the primary
                 // screen if we have to initialize.
                 .kitty_image_storage_limit = if (comptime build_options.kitty_graphics)
                     primary.kitty_images.total_limit
                 else
                     0,
+                .kitty_image_loading_limits = if (comptime build_options.kitty_graphics)
+                    primary.kitty_images.image_limits
+                else {},
             },
         );
     };
@@ -3086,6 +3165,7 @@ pub fn fullReset(self: *Terminal) void {
     self.tabstops.reset(TABSTOP_INTERVAL);
     self.previous_char = null;
     self.pwd.clearRetainingCapacity();
+    self.title.clearRetainingCapacity();
     self.status_display = .main;
     self.scrolling_region = .{
         .top = 0,

@@ -108,7 +108,7 @@ test "simple search" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+    s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
 
     var search: ActiveSearch = try .init(alloc, "Fizz");
     defer search.deinit();
@@ -148,15 +148,15 @@ test "clear screen and search" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+    s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
 
     var search: ActiveSearch = try .init(alloc, "Fizz");
     defer search.deinit();
     _ = try search.update(&t.screens.active.pages);
 
-    try s.nextSlice("\x1b[2J"); // Clear screen
-    try s.nextSlice("\x1b[H"); // Move cursor home
-    try s.nextSlice("Buzz\r\nFizz\r\nBuzz");
+    s.nextSlice("\x1b[2J"); // Clear screen
+    s.nextSlice("\x1b[H"); // Move cursor home
+    s.nextSlice("Buzz\r\nFizz\r\nBuzz");
     _ = try search.update(&t.screens.active.pages);
 
     {

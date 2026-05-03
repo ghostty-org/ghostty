@@ -255,7 +255,16 @@ pub const Options = struct {
 
     /// The total storage limit for Kitty images in bytes for this
     /// screen. Kitty image storage is per-screen.
-    kitty_image_storage_limit: usize = 320 * 1000 * 1000, // 320MB
+    kitty_image_storage_limit: usize = switch (build_options.artifact) {
+        .ghostty => 320 * 1000 * 1000, // 320MB
+        .lib => 10 * 1000 * 1000, // 10MB
+    },
+
+    /// The limits for what medium types are allowed for Kitty image loading.
+    kitty_image_loading_limits: if (build_options.kitty_graphics)
+        kitty.graphics.LoadingImage.Limits
+    else
+        void = if (build_options.kitty_graphics) .direct else {},
 
     /// A simple, default terminal. If you rely on specific dimensions or
     /// scrollback (or lack of) then do not use this directly. This is just
@@ -313,6 +322,7 @@ pub fn init(
             &result,
             opts.kitty_image_storage_limit,
         ) catch unreachable;
+        result.kitty_images.image_limits = opts.kitty_image_loading_limits;
     }
 
     return result;
@@ -1302,19 +1312,21 @@ pub inline fn viewportIsBottom(self: Screen) bool {
 /// Erase the region specified by tl and br, inclusive. This will physically
 /// erase the rows meaning the memory will be reclaimed (if the underlying
 /// page is empty) and other rows will be shifted up.
-pub inline fn eraseRows(
+pub inline fn eraseHistory(
     self: *Screen,
-    tl: point.Point,
     bl: ?point.Point,
 ) void {
     defer self.assertIntegrity();
+    self.pages.eraseHistory(bl);
+    self.cursorReload();
+}
 
-    // Erase the rows
-    self.pages.eraseRows(tl, bl);
-
-    // Just to be safe, reset our cursor since it is possible depending
-    // on the points that our active area shifted so our pointers are
-    // invalid.
+pub inline fn eraseActive(
+    self: *Screen,
+    y: size.CellCountInt,
+) void {
+    defer self.assertIntegrity();
+    self.pages.eraseActive(y);
     self.cursorReload();
 }
 
@@ -1761,7 +1773,7 @@ pub inline fn resize(
     // erase our history. This is because PageList always keeps at least
     // a page size of history.
     if (self.no_scrollback) {
-        self.pages.eraseRows(.{ .history = .{} }, null);
+        self.pages.eraseHistory(null);
     }
 
     // If our cursor was updated, we do a full reload so all our cursor
@@ -3880,7 +3892,7 @@ test "Screen eraseRows history" {
         try testing.expectEqualStrings("1\n2\n3\n4\n5\n6", str);
     }
 
-    s.eraseRows(.{ .history = .{} }, null);
+    s.eraseHistory(null);
 
     {
         const str = try s.dumpStringAlloc(alloc, .{ .active = .{} });
@@ -3914,7 +3926,7 @@ test "Screen eraseRows history with more lines" {
         try testing.expectEqualStrings("A\nB\nC\n1\n2\n3\n4\n5\n6", str);
     }
 
-    s.eraseRows(.{ .history = .{} }, null);
+    s.eraseHistory(null);
 
     {
         const str = try s.dumpStringAlloc(alloc, .{ .active = .{} });
@@ -3943,7 +3955,7 @@ test "Screen eraseRows active partial" {
         try testing.expectEqualStrings("1\n2\n3", str);
     }
 
-    s.eraseRows(.{ .active = .{} }, .{ .active = .{ .y = 1 } });
+    s.eraseActive(1);
 
     {
         const str = try s.dumpStringAlloc(alloc, .{ .active = .{} });
@@ -5655,7 +5667,7 @@ test "Screen: clear history with no history" {
     defer s.deinit();
     try s.testWriteString("4ABCD\n5EFGH\n6IJKL");
     try testing.expect(s.pages.viewport == .active);
-    s.eraseRows(.{ .history = .{} }, null);
+    s.eraseHistory(null);
     try testing.expect(s.pages.viewport == .active);
     {
         // Test our contents rotated
@@ -5689,7 +5701,7 @@ test "Screen: clear history" {
         try testing.expectEqualStrings("1ABCD\n2EFGH\n3IJKL", contents);
     }
 
-    s.eraseRows(.{ .history = .{} }, null);
+    s.eraseHistory(null);
     try testing.expect(s.pages.viewport == .active);
     {
         // Test our contents rotated
@@ -6483,6 +6495,86 @@ test "Screen: resize more cols with populated scrollback" {
         } }).?;
         try testing.expectEqual(@as(u21, '5'), list_cell.cell.content.codepoint);
     }
+}
+
+test "Screen: resize more cols bounded scrollback keeps viewport valid" {
+    // Regression test for issue #12298.
+    //
+    // This needs to live at the Screen layer rather than PageList because the
+    // bad state only appears once Screen forwards the active cursor into the
+    // resize path. A direct PageList resize repro does not hit the same bug.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{
+        .cols = 2,
+        .rows = 10,
+        .max_scrollback = 10_000,
+    });
+    defer s.deinit();
+
+    // Build 30 rows of scrollback on top of our 10-row viewport so we have a
+    // 40-row screen with history above the active area.
+    for (0..30) |_| _ = try s.pages.grow();
+    s.cursorReload();
+    try testing.expectEqual(@as(usize, 40), s.pages.scrollbar().total);
+
+    // Fill the entire screen with two-row wrapped runs:
+    // - even rows mark the end of a wrapped line
+    // - odd rows mark the continuation
+    //
+    // With 2 columns, each logical line occupies two rows. When we grow to 4
+    // columns with reflow enabled, those pairs unwrap back into single rows.
+    // That cuts the total row count down and is what stresses the viewport pin.
+    var it = s.pages.pageIterator(.right_down, .{ .screen = .{} }, null);
+    while (it.next()) |chunk| {
+        const page = &chunk.node.data;
+        for (chunk.start..chunk.end) |y| {
+            const rac = page.getRowAndCell(0, y);
+            if (y % 2 == 0) {
+                rac.row.wrap = true;
+            } else {
+                rac.row.wrap_continuation = true;
+            }
+
+            for (0..s.pages.cols) |x| {
+                page.getRowAndCell(x, y).cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = 'A' },
+                };
+            }
+        }
+    }
+
+    // Pin the viewport to a history row just above the active area.
+    //
+    // Before resize:
+    // - total rows = 40
+    // - active area starts at row 30
+    // - viewport is pinned at row 28
+    //
+    // After unwrap during resize:
+    // - total rows shrinks to 20
+    // - the old row 28 remaps into what is now the active area
+    //
+    // The bug was that resize/grow would temporarily keep the viewport as a
+    // history pin even after reflow had moved it into the active area, leaving
+    // fewer than `rows` visible rows beneath the pin and tripping integrity
+    // checks.
+    s.pages.scroll(.{ .pin = s.pages.pin(.{ .screen = .{ .y = 28 } }).? });
+    try testing.expect(s.pages.viewport == .pin);
+    try testing.expect(s.pages.getBottomRight(.viewport) != null);
+
+    // Growing columns triggers reflow, which unwraps the synthetic wrapped
+    // rows above. This used to panic during the resize path.
+    try s.resize(.{ .cols = 4, .rows = s.pages.rows, .reflow = true });
+
+    // After the fix, the viewport is normalized back to the active area as
+    // soon as the pinned row lands there, so viewport queries remain valid.
+    try testing.expectEqual(@as(usize, 4), s.pages.cols);
+    try testing.expect(s.pages.scrollbar().total < 40);
+    try testing.expect(s.pages.viewport == .active);
+    try testing.expect(s.pages.getBottomRight(.viewport) != null);
 }
 
 test "Screen: resize more cols with reflow" {

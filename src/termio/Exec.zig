@@ -27,6 +27,7 @@ const Pty = ptypkg.Pty;
 const EnvMap = std.process.EnvMap;
 const PasswdEntry = internal_os.passwd.Entry;
 const windows = internal_os.windows;
+const ProcessInfo = @import("../pty.zig").ProcessInfo;
 
 const log = std.log.scoped(.io_exec);
 
@@ -235,6 +236,9 @@ pub fn focusGained(
 
     assert(td.backend == .exec);
     const execdata = &td.backend.exec;
+
+    // Windows has no termios, so there is nothing to poll.
+    if (comptime builtin.os.tag == .windows) return;
 
     if (!focused) {
         // Flag the timer to end on the next iteration. This is
@@ -1226,6 +1230,14 @@ const Subprocess = struct {
     fn killCommandFlatpak(command: *FlatpakHostCommand) !void {
         try command.signal(c.SIGHUP, true);
     }
+
+    /// Get information about the process(es) running within the subprocess.
+    /// Returns `null` if there was an error getting the information or the
+    /// information is not available on a particular platform.
+    pub fn getProcessInfo(self: *Subprocess, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
+        const pty = &(self.pty orelse return null);
+        return pty.getProcessInfo(info);
+    }
 };
 
 /// The read thread sits in a loop doing the following pseudo code:
@@ -1543,26 +1555,39 @@ fn execCommand(
             defer args.deinit(alloc);
 
             if (comptime builtin.os.tag == .windows) {
-                // We run our shell wrapped in `cmd.exe` so that we don't have
-                // to parse the command line ourselves if it has arguments.
-
+                // On Windows we run the shell value directly rather than
+                // wrapping in `cmd.exe /C <shell>`. An intermediate cmd
+                // process is wasteful for the common case (`wsl ~`,
+                // `pwsh -NoLogo`, etc.) and has visible side effects
+                // (extra process in the tree, per-process cmd AutoRun
+                // state not reaching the user's actual shell).
+                //
+                // Values with arguments are split on whitespace. This
+                // does not honor Windows CLI quoting rules; users who
+                // need quoted arguments should use the direct command
+                // form, which takes an argv array as-is.
+                //
                 // Note we don't free any of the memory below since it is
                 // allocated in the arena.
-                const windir = std.process.getEnvVarOwned(
-                    alloc,
-                    "WINDIR",
-                ) catch |err| {
-                    log.warn("failed to get WINDIR, cannot run shell command err={}", .{err});
-                    return error.SystemError;
-                };
-                const cmd = try std.fs.path.joinZ(alloc, &[_][]const u8{
-                    windir,
-                    "System32",
-                    "cmd.exe",
-                });
-
-                try args.append(alloc, cmd);
-                try args.append(alloc, "/C");
+                if (std.mem.indexOfAny(u8, v, " \t") == null) {
+                    // No arguments. If the shell is literally "cmd.exe"
+                    // (the default), resolve via %COMSPEC% which is the
+                    // documented path to the current command processor.
+                    // Other values are passed as-is and resolved by
+                    // `internal_os.path.expand` in Command.startWindows.
+                    const argv0 = if (std.ascii.eqlIgnoreCase(v, "cmd.exe"))
+                        std.process.getEnvVarOwned(alloc, "COMSPEC") catch
+                            try alloc.dupe(u8, v)
+                    else
+                        try alloc.dupe(u8, v);
+                    try args.append(alloc, try alloc.dupeZ(u8, argv0));
+                } else {
+                    var it = std.mem.tokenizeAny(u8, v, " \t");
+                    while (it.next()) |tok| {
+                        try args.append(alloc, try alloc.dupeZ(u8, tok));
+                    }
+                }
+                break :shell try args.toOwnedSlice(alloc);
             } else {
                 // We run our shell wrapped in `/bin/sh` so that we don't have
                 // to parse the command line ourselves if it has arguments.
@@ -1578,6 +1603,13 @@ fn execCommand(
             break :shell try args.toOwnedSlice(alloc);
         },
     };
+}
+
+/// Get information about the process(es) running within the backend. Returns
+/// `null` if there was an error getting the information or the information is
+/// not available on a particular platform.
+pub fn getProcessInfo(self: *Exec, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
+    return self.subprocess.getProcessInfo(info);
 }
 
 test "execCommand darwin: shell command" {
@@ -1742,4 +1774,85 @@ test "execCommand: direct command, config freed" {
     try testing.expectEqual(2, result.len);
     try testing.expectEqualStrings(result[0], "foo");
     try testing.expectEqualStrings(result[1], "bar baz");
+}
+
+test "execCommand windows: bare cmd.exe resolves via COMSPEC" {
+    if (comptime builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const result = try execCommand(alloc, .{ .shell = "cmd.exe" }, struct {
+        fn get(_: Allocator) !PasswdEntry {
+            return .{};
+        }
+    });
+
+    try testing.expectEqual(1, result.len);
+
+    // Expect COMSPEC if available, otherwise the documented fallback.
+    const expected = std.process.getEnvVarOwned(alloc, "COMSPEC") catch
+        try alloc.dupe(u8, "C:\\Windows\\System32\\cmd.exe");
+    try testing.expectEqualStrings(expected, result[0]);
+}
+
+test "execCommand windows: bare non-cmd shell is passed through" {
+    if (comptime builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const result = try execCommand(alloc, .{ .shell = "pwsh.exe" }, struct {
+        fn get(_: Allocator) !PasswdEntry {
+            return .{};
+        }
+    });
+
+    try testing.expectEqual(1, result.len);
+    try testing.expectEqualStrings("pwsh.exe", result[0]);
+}
+
+test "execCommand windows: shell with args is split on whitespace" {
+    if (comptime builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const result = try execCommand(alloc, .{ .shell = "wsl ~" }, struct {
+        fn get(_: Allocator) !PasswdEntry {
+            return .{};
+        }
+    });
+
+    try testing.expectEqual(2, result.len);
+    try testing.expectEqualStrings("wsl", result[0]);
+    try testing.expectEqualStrings("~", result[1]);
+}
+
+test "execCommand windows: direct command is passed through unchanged" {
+    if (comptime builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const result = try execCommand(alloc, .{ .direct = &.{
+        "C:\\tools\\foo.exe",
+        "arg with spaces",
+    } }, struct {
+        fn get(_: Allocator) !PasswdEntry {
+            return .{};
+        }
+    });
+
+    try testing.expectEqual(2, result.len);
+    try testing.expectEqualStrings("C:\\tools\\foo.exe", result[0]);
+    try testing.expectEqualStrings("arg with spaces", result[1]);
 }
