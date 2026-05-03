@@ -435,6 +435,20 @@ class WorkspaceViewContainer: NSView {
             rect: sidebarOverlayBackground.bounds,
             transform: nil
         )
+
+        #if DEBUG
+        // Skip during transient startup layout passes before the window frame is final.
+        // Verifies the native traffic-light Y hasn't changed; our toolbar elements
+        // intentionally sit at titlebarRowCenterY (8pt below the traffic lights).
+        if window?.isVisible == true,
+           let close = window?.standardWindowButton(.closeButton) {
+            let closeInSelf = close.convert(close.bounds, to: self)
+            let nativeTrafficLightY: CGFloat = 14
+            let expected = bounds.height - nativeTrafficLightY
+            assert(abs(closeInSelf.midY - expected) < 2.0,
+                   "[alignment] close.midY=\(closeInSelf.midY) expected≈\(expected) — macOS changed traffic-light position, review titlebarRowCenterY")
+        }
+        #endif
     }
 
     // MARK: - Sidebar View Mode (v0 feature toggle)
@@ -479,6 +493,7 @@ class WorkspaceViewContainer: NSView {
             let view = WorkspaceSidebarView()
                 .environmentObject(WorkspaceStore.shared)
                 .environmentObject(coordinator)
+                .ignoresSafeArea(.container, edges: .top)
             hostingView.rootView = AnyView(view)
         }
     }
@@ -1114,12 +1129,16 @@ class WorkspaceViewContainer: NSView {
             terminalContainer.trailingAnchor.constraint(equalTo: terminalShadowHost.trailingAnchor),
             terminalContainer.bottomAnchor.constraint(equalTo: terminalShadowHost.bottomAnchor),
 
-            // Sidebar toggle button at top-left of the terminal card titlebar.
+            // Sidebar toggle button — anchored to window top, not the terminal card.
+            // The terminal card (terminalShadowHost) sits ~387pt below the window top in the
+            // full layout, so terminalShadowHost.topAnchor is the wrong reference. Anchor
+            // directly to self.topAnchor + titlebarRowCenterY so the toggle sits on the
+            // same horizontal row as the traffic lights regardless of card position.
             sidebarToggleButton.leadingAnchor.constraint(
                 equalTo: terminalShadowHost.leadingAnchor, constant: 8),
             sidebarToggleButton.centerYAnchor.constraint(
-                equalTo: terminalShadowHost.topAnchor,
-                constant: WorkspaceLayout.titlebarSpacerHeight / 2 - WorkspaceLayout.terminalInset),
+                equalTo: topAnchor,
+                constant: WorkspaceLayout.titlebarRowCenterY),
 
             // Browser toggle button at top-right of the terminal card titlebar.
             browserToggleButton.trailingAnchor.constraint(

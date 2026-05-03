@@ -134,7 +134,10 @@ struct WorkspaceSidebarView: View {
             ToolbarIconButton(systemName: "plus", label: "Add project", action: presentFolderPicker)
         }
         .padding(.horizontal, 12)
-        .frame(height: WorkspaceLayout.titlebarSpacerHeight)
+        // frame height = 2× titlebarRowCenterY centers the + on the same horizontal row
+        // as the traffic lights and the sidebar toggle. Do not use titlebarSpacerHeight here —
+        // they happen to be equal today but the intent is different.
+        .frame(height: WorkspaceLayout.titlebarRowCenterY * 2)
     }
 
     // MARK: - Empty State

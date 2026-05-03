@@ -26,6 +26,13 @@ enum WorkspaceLayout {
     /// Height reserved at top for window traffic light controls.
     static let titlebarSpacerHeight: CGFloat = 28
 
+    /// Vertical center of the macOS traffic-light row, measured from the window's visual top.
+    /// Measured empirically: window.standardWindowButton(.closeButton).midY converted to
+    /// WorkspaceViewContainer coordinates gives H − 14 on macOS 14+, where H = view height.
+    /// All toolbar siblings (+ button, sidebar toggle, browser toggle, title label) MUST anchor
+    /// their centerY to this value — do NOT derive it from titlebarSpacerHeight alone.
+    static let titlebarRowCenterY: CGFloat = 22
+
     /// Height of the session-name title bar inside the terminal card.
     static let terminalTitleBarHeight: CGFloat = 28
 
