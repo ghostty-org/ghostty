@@ -16,6 +16,24 @@ const zf = @import("zf");
 // scroll position for larger lists.
 const SMALL_LIST_THRESHOLD = 10;
 
+const plain_theme_load_err =
+    "error: cannot read theme file: {s} ({s}){s}{s}{s}";
+
+fn logThemeLoadFailure(theme_name: []const u8, path: []const u8, load_err: anyerror) void {
+    var buf: [4096]u8 = undefined;
+    const stderr_file = std.fs.File.stderr();
+    const newline = if (stderr_file.isTty()) "\r\n" else "\n";
+    var w = stderr_file.writer(&buf);
+    w.interface.print(plain_theme_load_err, .{
+        theme_name,
+        @errorName(load_err),
+        newline,
+        path,
+        newline,
+    }) catch return;
+    w.interface.flush() catch {};
+}
+
 const ColorScheme = enum { all, dark, light };
 
 pub const Options = struct {
@@ -182,7 +200,10 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
     var theme_config = try Config.default(gpa_alloc);
     defer theme_config.deinit();
     for (themes.items) |theme| {
-        try theme_config.loadFile(theme_config._arena.?.allocator(), theme.path);
+        theme_config.loadFile(theme_config._arena.?.allocator(), theme.path) catch |err| {
+            logThemeLoadFailure(theme.theme, theme.path, err);
+            return 1;
+        };
         if (!shouldIncludeTheme(opts.color, theme_config)) {
             continue;
         }
@@ -362,7 +383,10 @@ const Preview = struct {
             while (it.next()) |token| try tokens.append(self.allocator, token);
 
             for (self.themes, 0..) |*theme, i| {
-                try theme_config.loadFile(theme_config._arena.?.allocator(), theme.path);
+                theme_config.loadFile(theme_config._arena.?.allocator(), theme.path) catch |err| {
+                    logThemeLoadFailure(theme.theme, theme.path, err);
+                    return err;
+                };
                 if (!shouldIncludeTheme(self.theme_filter, theme_config)) continue;
 
                 theme.rank = zf.rank(theme.theme, tokens.items, .{
@@ -373,7 +397,10 @@ const Preview = struct {
             }
         } else {
             for (self.themes, 0..) |*theme, i| {
-                try theme_config.loadFile(theme_config._arena.?.allocator(), theme.path);
+                theme_config.loadFile(theme_config._arena.?.allocator(), theme.path) catch |err| {
+                    logThemeLoadFailure(theme.theme, theme.path, err);
+                    return err;
+                };
                 if (shouldIncludeTheme(self.theme_filter, theme_config)) {
                     try self.filtered.append(self.allocator, i);
                     theme.rank = null;
@@ -1738,4 +1765,13 @@ fn shouldIncludeTheme(theme_filter: ColorScheme, theme_config: Config) bool {
     const luminance = 0.2126 * rf + 0.7152 * gf + 0.0722 * bf;
     const is_dark = luminance < 0.5;
     return (theme_filter == .all) or (theme_filter == .dark and is_dark) or (theme_filter == .light and !is_dark);
+}
+
+test "list_themes_plain_load_err_fmt" {
+    var w: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer w.deinit();
+    try w.writer.print(plain_theme_load_err, .{ "a.theme", "FileNotFound", "\n", "/abs/a.theme", "\n" });
+    const s = w.written();
+    try std.testing.expect(std.mem.eql(u8, s,
+        "error: cannot read theme file: a.theme (FileNotFound)\n/abs/a.theme\n"));
 }
