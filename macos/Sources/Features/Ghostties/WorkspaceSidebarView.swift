@@ -134,7 +134,8 @@ struct WorkspaceSidebarView: View {
             ToolbarIconButton(systemName: "plus", label: "Add project", action: presentFolderPicker)
         }
         .padding(.horizontal, 12)
-        .frame(height: WorkspaceLayout.titlebarSpacerHeight)
+        .frame(height: WorkspaceLayout.terminalTitleBarHeight)
+        .padding(.top, 13)
     }
 
     // MARK: - Empty State
