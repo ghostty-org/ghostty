@@ -25,6 +25,10 @@ class SurfaceScrollView: NSView {
     /// on the same row.
     private var lastSentRow: Int?
 
+    /// The last size we synchronized to the core surface. Used to avoid
+    /// redundant sizeDidChange calls when the size hasn't actually changed.
+    private var lastSynchronizedSize: CGSize = .zero
+
     init(contentSize: CGSize, surfaceView: Ghostty.SurfaceView) {
         self.surfaceView = surfaceView
         // The scroll view is our outermost view that controls all our scrollbar
@@ -211,9 +215,13 @@ class SurfaceScrollView: NSView {
         // Practically, this happened in the quick terminal.
         let width = scrollView.contentSize.width
         let height = surfaceView.frame.height
-        if width > 0 && height > 0 {
-            surfaceView.sizeDidChange(CGSize(width: width, height: height))
-        }
+        guard width > 0, height > 0 else { return }
+
+        let newSize = CGSize(width: width, height: height)
+        guard newSize != lastSynchronizedSize else { return }
+        lastSynchronizedSize = newSize
+
+        surfaceView.sizeDidChange(newSize)
     }
 
     /// Sizes the document view and scrolls the content view according to the scrollbar state
