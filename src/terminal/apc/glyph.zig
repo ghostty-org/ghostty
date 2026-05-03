@@ -35,10 +35,15 @@
 //! payload formats it supports.
 //!
 //! Request:   `ESC _ 25a1 ; s ESC \`
-//! Response:  `ESC _ 25a1 ; s ; fmt=<bitfield> ESC \`
+//! Response:  `ESC _ 25a1 ; s ; fmt=<list> ESC \`
 //!
-//! `fmt` bits:
-//!   - bit 0 (`1`): `glyf`   — TrueType simple glyphs (required in v1)
+//! `fmt` is a comma-separated list of supported payload-format
+//! names. Currently advertised:
+//!   - `glyf` — TrueType simple glyphs (required in v1)
+//!
+//! Order is not significant; clients ignore unknown names so future
+//! formats are forward-compatible. An empty `fmt=` value means the
+//! terminal speaks the protocol but advertises no payload formats.
 //!
 //! Any reply confirms support; no reply within a timeout means the
 //! terminal does not implement the protocol.
@@ -48,13 +53,14 @@
 //! Asks whether a codepoint is renderable and by whom.
 //!
 //! Request:   `ESC _ 25a1 ; q ; cp=<hex> ESC \`
-//! Response:  `ESC _ 25a1 ; q ; cp=<hex> ; status=<u8> ESC \`
+//! Response:  `ESC _ 25a1 ; q ; cp=<hex> ; status=<list> ESC \`
 //!
-//! `status` is a two-bit field:
-//!   - `0` (`free`)     — nothing renders this codepoint (tofu)
-//!   - `1` (`system`)   — a system font covers it
-//!   - `2` (`glossary`) — a session registration covers it
-//!   - `3` (`both`)     — both; the registration shadows the system font
+//! `status` is a comma-separated list of coverage names — the set
+//! of sources that can render `cp`:
+//!   - empty (`status=`)  — nothing renders this codepoint (tofu)
+//!   - `system`           — a system font covers it
+//!   - `glossary`         — a session registration covers it
+//!   - `system,glossary`  — both; the registration shadows the system font
 //!
 //! ## Register (`r`)
 //!
