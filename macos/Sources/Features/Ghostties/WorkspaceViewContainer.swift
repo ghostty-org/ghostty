@@ -174,10 +174,6 @@ class WorkspaceViewContainer: NSView {
     /// survives macOS version bumps and upstream titlebar refactors.
     private var sidebarToggleCenterYConstraint: NSLayoutConstraint!
 
-    /// Transparent leading accessory that forces the titlebar zone to titlebarZoneHeight.
-    /// AppKit expands the titlebar to fit the tallest leading/trailing accessory view,
-    /// which moves the traffic lights down to zone/2 centerY. Stored to avoid duplicates.
-
     /// Stored constraints for animating sidebar show/hide and terminal insets.
     private var sidebarWidthConstraint: NSLayoutConstraint!
     private var shadowHostTopConstraint: NSLayoutConstraint!

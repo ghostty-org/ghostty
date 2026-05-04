@@ -77,8 +77,13 @@ class TerminalWindow: NSWindow {
 
     // MARK: NSWindow Overrides
 
+    /// Set to true while attaching the invisible alignment toolbar in awakeFromNib,
+    /// so the toolbar didSet doesn't flip viewModel.hasToolbar.
+    private var _suppressHasToolbarUpdate = false
+
     override var toolbar: NSToolbar? {
         didSet {
+            guard !_suppressHasToolbarUpdate else { return }
             DispatchQueue.main.async {
                 // When we have a toolbar, our SwiftUI view needs to know for layout
                 self.viewModel.hasToolbar = self.toolbar != nil
@@ -167,13 +172,17 @@ class TerminalWindow: NSWindow {
         // This is the same mechanism used by Linear, Notion, Safari — AppKit keys
         // traffic-light vertical centering off NSToolbar presence, not accessories.
         // titleVisibility = .hidden prevents any visible toolbar surface.
+        // _suppressHasToolbarUpdate prevents the toolbar didSet from flipping
+        // viewModel.hasToolbar — this toolbar is invisible and must not shift
+        // the right-side titlebar accessories down.
+        _suppressHasToolbarUpdate = true
         let ghosttiesToolbar = NSToolbar(identifier: "GhosttiesTerminalToolbar")
         ghosttiesToolbar.showsBaselineSeparator = false
-        ghosttiesToolbar.displayMode = .iconOnly
         self.toolbar = ghosttiesToolbar
         self.toolbarStyle = .unified
         self.titleVisibility = .hidden
         self.titlebarAppearsTransparent = true
+        _suppressHasToolbarUpdate = false
 
         // DEBUG: Verify traffic-light alignment after AppKit has laid out the window.
         // If closeButton.midY drifts from expectedCloseButtonMidY, the NSToolbar
@@ -183,12 +192,16 @@ class TerminalWindow: NSWindow {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             guard let self,
                   let closeButton = self.standardWindowButton(.closeButton) else { return }
+            // Only assert for the base TerminalWindow class. Subclasses
+            // (HiddenTitlebarTerminalWindow, TitlebarTabsTahoe/VenturaTerminalWindow,
+            // TransparentTitlebarTerminalWindow) configure toolbars differently
+            // and would produce false positives.
+            guard type(of: self) == TerminalWindow.self else { return }
             guard let superview = closeButton.superview else { return }
             // In unflipped AppKit coords, larger Y = visually higher. Distance from
             // visual top of window = superview.bounds.height - frame.midY.
             // expectedCloseButtonMidY represents top-inset (distance from visual top), not raw midY.
             let topInset = superview.bounds.height - closeButton.frame.midY
-            print("[alignment] closeButton topInset = \(topInset) (expected ~\(expectedCloseButtonMidY))")
             let tolerance: CGFloat = 3
             if abs(topInset - expectedCloseButtonMidY) > tolerance {
                 assertionFailure(
