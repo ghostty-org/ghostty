@@ -183,16 +183,16 @@ class TerminalWindow: NSWindow {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             guard let self,
                   let closeButton = self.standardWindowButton(.closeButton) else { return }
-            // Convert to window coordinates
-            let midY = closeButton.convert(
-                CGPoint(x: closeButton.bounds.midX, y: closeButton.bounds.midY),
-                to: nil
-            ).y
-            print("[alignment] closeButton.midY = \(midY) (expected ~\(expectedCloseButtonMidY))")
+            guard let superview = closeButton.superview else { return }
+            // In unflipped AppKit coords, larger Y = visually higher. Distance from
+            // visual top of window = superview.bounds.height - frame.midY.
+            // expectedCloseButtonMidY represents top-inset (distance from visual top), not raw midY.
+            let topInset = superview.bounds.height - closeButton.frame.midY
+            print("[alignment] closeButton topInset = \(topInset) (expected ~\(expectedCloseButtonMidY))")
             let tolerance: CGFloat = 3
-            if abs(midY - expectedCloseButtonMidY) > tolerance {
+            if abs(topInset - expectedCloseButtonMidY) > tolerance {
                 assertionFailure(
-                    "[alignment] Traffic light Y regressed: got \(midY), expected \(expectedCloseButtonMidY) ±\(tolerance). " +
+                    "[alignment] Traffic light Y regressed: got \(topInset), expected \(expectedCloseButtonMidY) ±\(tolerance). " +
                     "The NSToolbar attachment in TerminalWindow.awakeFromNib was likely removed by an upstream merge. " +
                     "See reference-traffic-light-alignment-solved.md."
                 )
