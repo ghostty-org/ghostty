@@ -3,10 +3,10 @@ import SwiftUI
 import GhosttyKit
 
 #if DEBUG
-/// Expected window-coords midY of close button. AppKit centers traffic lights
-/// inside the unified-toolbar titlebar zone. If this drifts, the NSToolbar
-/// attachment in awakeFromNib was likely removed by an upstream merge.
-private let expectedCloseButtonMidY: CGFloat = 26  // measured under .unified toolbarStyle, macOS 26
+/// Expected top-inset of close button (distance from visual top of titlebar zone).
+/// AppKit centers traffic lights inside the unified-toolbar titlebar zone.
+/// If this drifts, the NSToolbar attachment in awakeFromNib was likely removed by an upstream merge.
+private let expectedCloseButtonTopInset: CGFloat = 26  // measured under .unified toolbarStyle, macOS 26
 #endif
 
 /// The base class for all standalone, "normal" terminal windows. This sets the basic
@@ -167,6 +167,7 @@ class TerminalWindow: NSWindow {
             }
         }
 
+        // MARK: - Ghostties fork fence (alignment toolbar) — see reference-traffic-light-alignment-solved.md
         // Attach an empty NSToolbar with toolbarStyle = .unified so AppKit grows
         // the titlebar zone and auto-centers traffic lights inside it.
         // This is the same mechanism used by Linear, Notion, Safari — AppKit keys
@@ -183,35 +184,36 @@ class TerminalWindow: NSWindow {
         self.titleVisibility = .hidden
         self.titlebarAppearsTransparent = true
         _suppressHasToolbarUpdate = false
+        // MARK: - End Ghostties fork fence (alignment toolbar)
 
-        // DEBUG: Verify traffic-light alignment after AppKit has laid out the window.
-        // If closeButton.midY drifts from expectedCloseButtonMidY, the NSToolbar
-        // attachment above was likely removed by an upstream merge. Fix the toolbar,
-        // don't silence this assertion.
+        // MARK: - Ghostties fork fence (alignment assertion)
         #if DEBUG
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self,
-                  let closeButton = self.standardWindowButton(.closeButton) else { return }
-            // Only assert for the base TerminalWindow class. Subclasses
-            // (HiddenTitlebarTerminalWindow, TitlebarTabsTahoe/VenturaTerminalWindow,
-            // TransparentTitlebarTerminalWindow) configure toolbars differently
-            // and would produce false positives.
-            guard type(of: self) == TerminalWindow.self else { return }
-            guard let superview = closeButton.superview else { return }
-            // In unflipped AppKit coords, larger Y = visually higher. Distance from
-            // visual top of window = superview.bounds.height - frame.midY.
-            // expectedCloseButtonMidY represents top-inset (distance from visual top), not raw midY.
-            let topInset = superview.bounds.height - closeButton.frame.midY
-            let tolerance: CGFloat = 3
-            if abs(topInset - expectedCloseButtonMidY) > tolerance {
-                assertionFailure(
-                    "[alignment] Traffic light Y regressed: got \(topInset), expected \(expectedCloseButtonMidY) ±\(tolerance). " +
-                    "The NSToolbar attachment in TerminalWindow.awakeFromNib was likely removed by an upstream merge. " +
-                    "See reference-traffic-light-alignment-solved.md."
-                )
+        do {
+            var obs: NSObjectProtocol?
+            obs = NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification,
+                object: self,
+                queue: .main
+            ) { [weak self] _ in
+                NotificationCenter.default.removeObserver(obs!)
+                guard let self,
+                      ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
+                      type(of: self) == TerminalWindow.self,
+                      let closeButton = self.standardWindowButton(.closeButton),
+                      let superview = closeButton.superview else { return }
+                let topInset = superview.bounds.height - closeButton.frame.midY
+                let tolerance: CGFloat = 3
+                if abs(topInset - expectedCloseButtonTopInset) > tolerance {
+                    assertionFailure(
+                        "[alignment] Traffic light Y regressed: got \(topInset), expected \(expectedCloseButtonTopInset) ±\(tolerance). " +
+                        "The NSToolbar attachment in TerminalWindow.awakeFromNib was likely removed by an upstream merge. " +
+                        "See reference-traffic-light-alignment-solved.md."
+                    )
+                }
             }
         }
         #endif
+        // MARK: - End Ghostties fork fence (alignment assertion)
 
         // Setup the accessory view for tabs that shows our keyboard shortcuts,
         // zoomed state, etc. Note I tried to use SwiftUI here but ran into issues

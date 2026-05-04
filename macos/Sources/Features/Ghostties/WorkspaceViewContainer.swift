@@ -459,9 +459,11 @@ class WorkspaceViewContainer: NSView {
 
         // Re-derive toolbar row position from live close-button frame.
         // This survives macOS version bumps and upstream titlebar refactors.
+        var didUpdateConstraintThisPass = false
         if let constant = WorkspaceLayout.titlebarRowTopAnchorConstant(in: self) {
             if abs(sidebarToggleCenterYConstraint.constant - constant) > 0.5 {
                 sidebarToggleCenterYConstraint.constant = constant
+                didUpdateConstraintThisPass = true
             }
             // Publish to SwiftUI sidebar so the + button stays in sync.
             if abs(WorkspaceStore.shared.toolbarRowTopAnchorConstant - constant) > 0.5 {
@@ -470,9 +472,11 @@ class WorkspaceViewContainer: NSView {
         }
 
         #if DEBUG
-        // Skip during transient startup layout passes before the window frame is final.
-        // Verifies our toolbar row tracks the traffic lights with the expected breathing room.
-        if window?.isVisible == true,
+        // Skip when constraint just changed this pass — frame reflects prior layout cycle.
+        // Also skip in CI test host to avoid trapping during headless app launch.
+        if !didUpdateConstraintThisPass,
+           ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
+           window?.isVisible == true,
            let close = window?.standardWindowButton(.closeButton) {
             let closeInSelf = close.convert(close.bounds, to: self)
             let expectedToggleMidY = closeInSelf.midY - WorkspaceLayout.breathingRoomBelowChrome
