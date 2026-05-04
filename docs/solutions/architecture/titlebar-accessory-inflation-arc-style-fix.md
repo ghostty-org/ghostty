@@ -25,6 +25,7 @@ date_solved: 2026-02-26
 After forcing the base Terminal nib (commit `509fc927f`) to hide the native title text, a visible titlebar band persisted in workspace mode. The band was ~30pt tall, pushing the sidebar toolbar buttons below the traffic lights instead of aligning them on the same horizontal line.
 
 **Observable symptoms:**
+
 - Titlebar text and background were gone, but vertical space remained
 - Traffic lights sat higher than the sidebar's `+` and sidebar-toggle buttons
 - The sidebar background did not extend flush to the window's top chrome edge
@@ -43,6 +44,7 @@ addTitlebarAccessoryViewController(updateAccessory)       // +height
 ```
 
 Additionally:
+
 1. **Missing `titlebarSeparatorStyle = .none`** — the default separator drew a hairline between titlebar and content
 2. **Missing `.ignoresSafeArea`** — with `.fullSizeContentView`, the NSWindow safe area includes the titlebar height. The sidebar's `NSHostingView` passed this inset to SwiftUI, pushing the `VStack` down even though the frame extended to the top
 
@@ -103,14 +105,14 @@ All components are required. Missing any one leaves visual artifacts.
 
 ## Investigation Trail
 
-| # | Approach | Result | Why |
-|---|----------|--------|-----|
-| 1 | KVO + `isHidden` on NSTextField | Failed | macOS resets `isHidden` internally |
-| 2 | `alphaValue = 0` on NSTextField | Failed | Targeted wrong element |
-| 3 | `toolbar = nil` | Partial | Removed text but band remained |
-| 4 | Clear `titlebarContainer.layer?.backgroundColor` | Failed | `syncAppearance()` repaints it |
-| 5 | Force base Terminal nib (`509fc927f`) | Partial | Fixed title text, band remained |
-| 6 | Remove accessories + separator style | **Success** | Eliminates structural height inflation |
+| #   | Approach                                         | Result      | Why                                    |
+| --- | ------------------------------------------------ | ----------- | -------------------------------------- |
+| 1   | KVO + `isHidden` on NSTextField                  | Failed      | macOS resets `isHidden` internally     |
+| 2   | `alphaValue = 0` on NSTextField                  | Failed      | Targeted wrong element                 |
+| 3   | `toolbar = nil`                                  | Partial     | Removed text but band remained         |
+| 4   | Clear `titlebarContainer.layer?.backgroundColor` | Failed      | `syncAppearance()` repaints it         |
+| 5   | Force base Terminal nib (`509fc927f`)            | Partial     | Fixed title text, band remained        |
+| 6   | Remove accessories + separator style             | **Success** | Eliminates structural height inflation |
 
 **Key insight:** The titlebar band was a **structural layout problem**, not a visual style problem. The accessories reserved height that remained allocated even after hiding text. Removing the accessories prevents the height reservation entirely.
 
@@ -136,3 +138,4 @@ All components are required. Missing any one leaves visual artifacts.
 - [Sidebar 3-State Machine](sidebar-3-state-machine-overlay-pattern.md) — the pinned/closed/overlay state machine this titlebar fix supports
 - `TerminalWindow.swift` — base class where accessories are added in `awakeFromNib()`
 - `HiddenTitlebarTerminalWindow.swift` — reference for `.titled` + `.fullSizeContentView` pattern (but hides traffic lights, which we don't want)
+- [NSToolbar Alignment for Co-Planar Toolbar Row](../architecture-patterns/appkit-traffic-light-alignment-2026-05-04.md) — when you also need custom UI elements (sidebar toggle, + button) co-planar with traffic lights, an empty NSToolbar is required on top of this pattern
