@@ -640,6 +640,10 @@ static int glad_gl_get_extensions(GladGLContext *context, const char **out_exts,
         }
         for(index = 0; index < num_exts_i; index++) {
             const char *gl_str_tmp = (const char*) context->GetStringi(GL_EXTENSIONS, index);
+            if (gl_str_tmp == NULL) {
+                glad_gl_free_extensions(exts_i);
+                return 0;
+            }
             size_t len = strlen(gl_str_tmp) + 1;
 
             char *local_str = (char*) malloc(len * sizeof(char));
