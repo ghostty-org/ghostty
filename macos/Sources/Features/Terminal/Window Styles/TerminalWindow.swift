@@ -155,6 +155,19 @@ class TerminalWindow: NSWindow {
             }
         }
 
+        // Attach an empty NSToolbar with toolbarStyle = .unified so AppKit grows
+        // the titlebar zone and auto-centers traffic lights inside it.
+        // This is the same mechanism used by Linear, Notion, Safari — AppKit keys
+        // traffic-light vertical centering off NSToolbar presence, not accessories.
+        // titleVisibility = .hidden prevents any visible toolbar surface.
+        let ghosttiesToolbar = NSToolbar(identifier: "GhosttiesTerminalToolbar")
+        ghosttiesToolbar.showsBaselineSeparator = false
+        ghosttiesToolbar.displayMode = .iconOnly
+        self.toolbar = ghosttiesToolbar
+        self.toolbarStyle = .unified
+        self.titleVisibility = .hidden
+        self.titlebarAppearsTransparent = true
+
         // Setup the accessory view for tabs that shows our keyboard shortcuts,
         // zoomed state, etc. Note I tried to use SwiftUI here but ran into issues
         // where buttons were not clickable.

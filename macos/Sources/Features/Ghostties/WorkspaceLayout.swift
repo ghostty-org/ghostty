@@ -26,11 +26,6 @@ enum WorkspaceLayout {
     /// Height reserved at top for window traffic light controls.
     static let titlebarSpacerHeight: CGFloat = 28
 
-    /// Target titlebar zone height. A transparent NSTitlebarAccessoryViewController
-    /// forces the OS to render this zone, centering traffic lights at zone/2 = 16pt.
-    /// Without this, macOS 26 defaults to a ~16pt zone (traffic lights at 8pt — too high).
-    static let titlebarZoneHeight: CGFloat = 32
-
     /// Offset between traffic-light centerline and our toolbar row (toggle, +, title).
     /// Zero = exact alignment with traffic lights (Dia Browser style, confirmed correct).
     static let breathingRoomBelowChrome: CGFloat = 0
