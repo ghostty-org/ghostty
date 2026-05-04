@@ -2,6 +2,13 @@ import AppKit
 import SwiftUI
 import GhosttyKit
 
+#if DEBUG
+/// Expected window-coords midY of close button. AppKit centers traffic lights
+/// inside the unified-toolbar titlebar zone. If this drifts, the NSToolbar
+/// attachment in awakeFromNib was likely removed by an upstream merge.
+private let expectedCloseButtonMidY: CGFloat = 22  // tune to actual after first run
+#endif
+
 /// The base class for all standalone, "normal" terminal windows. This sets the basic
 /// style and configuration of the window based on the app configuration.
 class TerminalWindow: NSWindow {
@@ -167,6 +174,31 @@ class TerminalWindow: NSWindow {
         self.toolbarStyle = .unified
         self.titleVisibility = .hidden
         self.titlebarAppearsTransparent = true
+
+        // DEBUG: Verify traffic-light alignment after AppKit has laid out the window.
+        // If closeButton.midY drifts from expectedCloseButtonMidY, the NSToolbar
+        // attachment above was likely removed by an upstream merge. Fix the toolbar,
+        // don't silence this assertion.
+        #if DEBUG
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self,
+                  let closeButton = self.standardWindowButton(.closeButton) else { return }
+            // Convert to window coordinates
+            let midY = closeButton.convert(
+                CGPoint(x: closeButton.bounds.midX, y: closeButton.bounds.midY),
+                to: nil
+            ).y
+            print("[alignment] closeButton.midY = \(midY) (expected ~\(expectedCloseButtonMidY))")
+            let tolerance: CGFloat = 3
+            if abs(midY - expectedCloseButtonMidY) > tolerance {
+                assertionFailure(
+                    "[alignment] Traffic light Y regressed: got \(midY), expected \(expectedCloseButtonMidY) ±\(tolerance). " +
+                    "The NSToolbar attachment in TerminalWindow.awakeFromNib was likely removed by an upstream merge. " +
+                    "See reference-traffic-light-alignment-solved.md."
+                )
+            }
+        }
+        #endif
 
         // Setup the accessory view for tabs that shows our keyboard shortcuts,
         // zoomed state, etc. Note I tried to use SwiftUI here but ran into issues
