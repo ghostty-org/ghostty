@@ -3008,8 +3008,23 @@ fn maybeHandleBinding(
     }
 
     // If we have the performable flag and the action was not performed,
-    // then we act as though a binding didn't exist.
+    // execute the else branch if present, otherwise act as though a
+    // binding didn't exist.
     if (leaf.flags.performable and !performed) {
+        if (leaf.else_actions.len > 0) {
+            for (leaf.else_actions) |else_action| {
+                if (self.performBindingAction(else_action)) |_| {} else |err| {
+                    log.info(
+                        "else binding action failed action={t} err={}",
+                        .{ else_action, err },
+                    );
+                }
+            }
+            self.endKeySequence(.drop, .retain);
+            self.keyboard.last_trigger = event.bindingHash();
+            return .consumed;
+        }
+
         // If we're in a sequence, we treat this as if we pressed a key
         // that doesn't exist in the sequence. Reset our sequence and flush
         // any queued events.
