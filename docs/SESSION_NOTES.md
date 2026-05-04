@@ -2370,3 +2370,48 @@ Full loop defined: Linear task (with `project-path` + `goal` fields) → Ghostti
 - 2 implementer subagents delegated, both verified shipped + committed + green build
 - 4 inline implementations (dev icon wiring, copy fix, CI script rewrite, web bumps) all committed + pushed
 - All work on origin/main; no stranded branches or uncommitted scope
+
+---
+
+## Session 2026-05-03 — P2 Alignment Cleanup + Main Merge
+
+### What happened
+
+Pickup session after the alignment CE review. P1+P3 were already shipped (`2dadaa8d2`). This session addressed the remaining P2 items and a crash discovered during the wrap.
+
+### Crash root cause (WorkspaceViewContainer)
+
+During testing, `WorkspaceViewContainer.layout()` crashed with:
+
+```
+[alignment] toggle.midY=915.0 expected≈923.0
+```
+
+Root cause: the constraint (`sidebarToggleCenterYConstraint.constant`) was updated in the same `layout()` call, but `sidebarToggleButton.frame.midY` still reflected the *previous* constraint — the new value doesn't apply until the next layout pass. The DEBUG assert immediately compared the stale frame against the fresh expected value. Classic read-after-write-in-same-pass race.
+
+### Commits shipped
+
+- `986bbe18e` — P2 cleanup + WorkspaceViewContainer crash fix
+
+**Changes in `TerminalWindow.swift`:**
+- Renamed `expectedCloseButtonMidY` → `expectedCloseButtonTopInset` (name was lying; it measures top inset, not midY)
+- Replaced fragile `asyncAfter(0.1)` assertion with a one-shot `NSWindow.didBecomeKeyNotification` observer (fires exactly when AppKit has settled layout; auto-removes itself)
+- Added `// MARK: - Ghostties fork fence` markers around both Ghostties-specific inserts in `awakeFromNib` for upstream merge visibility
+- Gated assertion behind `XCTestConfigurationFilePath == nil` to prevent CI test host trap
+
+**Changes in `WorkspaceViewContainer.swift`:**
+- Added `didUpdateConstraintThisPass` flag — if constraint was just updated this layout pass, skip the assertion (frame reflects prior cycle; assert would always be 1 cycle stale)
+- Same CI env guard added
+
+### Merge to main
+
+`chore/upstream-sync-2026-05` fast-forward merged to main. Main is now at `986bbe18e`.
+
+### Memory updated
+
+- `reference-traffic-light-alignment-solved.md` — completely rewritten with ironclad detail: full mechanism, code locations, coordinate math, what doesn't work, upstream merge checklist, quick diagnosis table, commit history
+
+### Reconciliation
+
+- 1 subagent delegated (P2 cleanup) — commit `986bbe18e` verified, pushed ✓
+- 1 direct merge (main) — `git merge --ff-only` + push verified ✓
