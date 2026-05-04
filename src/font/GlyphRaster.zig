@@ -256,7 +256,6 @@ fn quadToCubic(
     try path.curveTo(alloc, cp1x, cp1y, cp2x, cp2y, ex, ey);
 }
 
-// -----------------------------------------------------------------------------
 // tests
 
 const testing = std.testing;

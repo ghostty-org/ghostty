@@ -195,7 +195,6 @@ pub const Glossary = struct {
     }
 };
 
-// -----------------------------------------------------------------------------
 // tests
 
 const testing = std.testing;

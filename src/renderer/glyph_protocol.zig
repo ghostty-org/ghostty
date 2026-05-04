@@ -8,7 +8,7 @@
 //!
 //! At cell-emission time the renderer asks `resolve` for the atlas
 //! entry of a registered codepoint at a specific cell size. On cache
-//! miss this rasterizes the payload via `font.glyph_protocol_raster`
+//! miss this rasterizes the payload via `font.GlyphRaster`
 //! into the grayscale atlas. The bitmap cache is keyed on
 //! `(codepoint, generation, cell size)` so an overwrite or clear
 //! invalidates the stale entry exactly when the glossary mutates.
@@ -18,7 +18,7 @@ const Allocator = std.mem.Allocator;
 
 const font = @import("../font/main.zig");
 const terminal = @import("../terminal/main.zig");
-const raster = font.glyph_protocol_raster;
+const raster = font.GlyphRaster;
 const glyf = terminal.apc.glyph.glyf;
 const Glossary = terminal.apc.glyph.Glossary;
 const Width = terminal.apc.glyph.request.Width;

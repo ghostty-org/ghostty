@@ -642,7 +642,6 @@ test "invalid command" {
     );
 }
 
-// -----------------------------------------------------------------------------
 // decodePayload integration
 
 fn b64Encode(alloc: Allocator, data: []const u8) ![]u8 {
