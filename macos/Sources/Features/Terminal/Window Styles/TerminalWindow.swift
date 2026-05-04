@@ -6,7 +6,7 @@ import GhosttyKit
 /// Expected window-coords midY of close button. AppKit centers traffic lights
 /// inside the unified-toolbar titlebar zone. If this drifts, the NSToolbar
 /// attachment in awakeFromNib was likely removed by an upstream merge.
-private let expectedCloseButtonMidY: CGFloat = 22  // tune to actual after first run
+private let expectedCloseButtonMidY: CGFloat = 26  // measured under .unified toolbarStyle, macOS 26
 #endif
 
 /// The base class for all standalone, "normal" terminal windows. This sets the basic
