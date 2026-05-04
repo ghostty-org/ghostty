@@ -269,23 +269,31 @@ final class SessionManager: ObservableObject {
             matchedIndex = index
         } else if let index = sessions.firstIndex(where: { session in
             guard session.sessionId == nil else { return false }
-            guard session.isWorkTree == parsed.isWorkTree else { return false }
+            // Prefer cwd match when both sides have cwd info
+            if let parsedCwd = parsed.cwd, let sessionCwd = session.cwd {
+                return parsedCwd == sessionCwd
+            }
             return true
-        }) {
+        }) ?? sessions.firstIndex(where: { $0.sessionId == nil }) {
             sessions[index].sessionId = parsed.sessionId
             matchedIndex = index
         }
 
-        guard let matchedIndex else { return }
-        applyParsed(parsed, to: &sessions[matchedIndex])
+        if let matchedIndex {
+            applyParsed(parsed, to: &sessions[matchedIndex])
 
-        // Propagate to BoardState for persistence
-        if let taskID = sessionTaskMap[sessions[matchedIndex].id] {
-            BoardState.shared.updateSessionFromParsed(
-                taskId: taskID,
-                sessionId: sessions[matchedIndex].id,
-                parsed: parsed
-            )
+            // Propagate to BoardState for persistence
+            if let taskID = sessionTaskMap[sessions[matchedIndex].id] {
+                BoardState.shared.updateSessionFromParsed(
+                    taskId: taskID,
+                    sessionId: sessions[matchedIndex].id,
+                    parsed: parsed
+                )
+            }
+        } else {
+            // No match found — auto-create a new kanban session so
+            // terminal-created Claude sessions don't disappear.
+            autoCreateSession(from: parsed)
         }
     }
 
@@ -356,11 +364,18 @@ final class SessionManager: ObservableObject {
     }
 
     func matchNewSessionId(_ claudeSessionId: String, from parsed: ParsedSession) {
-        let isParsedWorktree = parsed.isWorkTree
+        guard !pendingSessionQueue.isEmpty else { return }
 
-        // Find candidates with matching worktree type
-        let candidates = pendingSessionQueue.filter { $0.isWorkTree == isParsedWorktree }
-        guard let entry = candidates.first else { return }
+        // Priority 1: match by isWorkTree (preferred, not required)
+        let entry: (localId: UUID, isWorkTree: Bool, createdAt: Date)
+        if let match = pendingSessionQueue.first(where: { $0.isWorkTree == parsed.isWorkTree }) {
+            entry = match
+        } else {
+            // Priority 2: any pending session (isWorkTree mismatch is common
+            // when user creates kanban session without --worktree but Claude
+            // auto-creates a worktree, or vice versa)
+            entry = pendingSessionQueue.first!
+        }
 
         // Update SessionManager's session
         if let index = sessions.firstIndex(where: { $0.id == entry.localId }) {
@@ -381,6 +396,27 @@ final class SessionManager: ObservableObject {
 
     // MARK: - Private helpers
 
+    /// Auto-creates a kanban session from an unmatched JSONL session.
+    /// Adds it to the first task (by UUID sort order for determinism).
+    private func autoCreateSession(from parsed: ParsedSession) {
+        let session = Session(
+            title: parsed.title.isEmpty ? "New Session" : parsed.title,
+            status: parsed.status,
+            timestamp: parsed.createdAt ?? Date(),
+            isWorkTree: parsed.isWorkTree,
+            branch: parsed.branch ?? "main",
+            sessionId: parsed.sessionId,
+            cwd: parsed.cwd
+        )
+
+        // Deterministic: pick the first task by UUID sort order
+        guard let firstTaskID = sessionTaskMap.keys.sorted(by: { $0.uuidString < $1.uuidString }).first else { return }
+
+        upsertSession(session)
+        appendToTask(taskID: firstTaskID, sessionID: session.id)
+        BoardState.shared.addSession(to: firstTaskID, session: session)
+    }
+
     /// Applies `ParsedSession` fields onto a mutable `Session`.
     /// Note: timestamp is NOT overwritten — it represents session creation time.
     private func applyParsed(_ parsed: ParsedSession, to session: inout Session) {
@@ -391,10 +427,9 @@ final class SessionManager: ObservableObject {
         if let branch = parsed.branch, !branch.isEmpty {
             session.branch = branch
         }
-        if let branch = parsed.branch, !branch.isEmpty {
-            session.branch = branch
+        if !session.isWorkTreeOverridden {
+            session.isWorkTree = parsed.isWorkTree
         }
-        session.isWorkTree = parsed.isWorkTree
         if let cwd = parsed.cwd {
             session.cwd = cwd
         }

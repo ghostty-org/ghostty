@@ -221,6 +221,11 @@ class JsonlWatcher {
     private var debounceWorkItem: DispatchWorkItem?
     private let debounceInterval: TimeInterval = 0.2
 
+    // Fallback polling timer — catches subdirectory changes that
+    // the directory-level DispatchSource cannot see.
+    private var pollTimer: DispatchSourceTimer?
+    private let pollInterval: TimeInterval = 3.0
+
     // Limits
     private let maxFileSize: UInt64 = 1_048_576  // 1 MB
 
@@ -263,6 +268,8 @@ class JsonlWatcher {
     func stop() {
         source?.cancel()
         source = nil
+        pollTimer?.cancel()
+        pollTimer = nil
         debounceWorkItem?.cancel()
         debounceWorkItem = nil
     }
@@ -292,6 +299,16 @@ class JsonlWatcher {
 
         source = dispatchSource
         dispatchSource.resume()
+
+        // Fallback polling: re-scan every `pollInterval` seconds to catch
+        // changes in subdirectories that the directory-level source misses.
+        let timer = DispatchSource.makeTimerSource(queue: processingQueue)
+        timer.schedule(deadline: .now() + pollInterval, repeating: pollInterval)
+        timer.setEventHandler { [weak self] in
+            self?.performScan()
+        }
+        timer.resume()
+        pollTimer = timer
     }
 
     /// Debounce a full scan; coalesces rapid file-system events.

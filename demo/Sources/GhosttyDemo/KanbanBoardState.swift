@@ -52,7 +52,7 @@ final class BoardState: ObservableObject {
 
     /// Opens an NSOpenPanel for the user to select a workspace folder.
     /// On selection, saves the path to UserDefaults and launches a new
-    /// app instance configured for that workspace, then closes the current app.
+    /// app instance configured for that workspace.
     func selectWorkspace() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -69,13 +69,10 @@ final class BoardState: ObservableObject {
         persistence.workspacePath = path
         persistWorkspacePath()
 
-        // Update the current app's JSONL watch path immediately
-        NotificationCenter.default.post(name: .workspacePathDidChange, object: path)
-
         // Force sync so the new instance reads the fresh value
         UserDefaults.standard.synchronize()
 
-        // Launch a new app instance alongside the current one
+        // Launch a new app instance for the new workspace
         let config = NSWorkspace.OpenConfiguration()
         config.createsNewApplicationInstance = true
         NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: config)
@@ -207,10 +204,9 @@ final class BoardState: ObservableObject {
         if let branch = parsed.branch, !branch.isEmpty {
             session.branch = branch
         }
-        if let branch = parsed.branch, !branch.isEmpty {
-            session.branch = branch
+        if !session.isWorkTreeOverridden {
+            session.isWorkTree = parsed.isWorkTree
         }
-        session.isWorkTree = parsed.isWorkTree
         if let cwd = parsed.cwd {
             session.cwd = cwd
         }
