@@ -96,14 +96,6 @@ enum WorkspaceLayout {
     /// warm. See `canvasBackgroundLight`.
     static let canvasBackgroundDark = NSColor(white: 0.18, alpha: 1)
 
-    /// Legacy fallback terminal card background (light mode). Retained for now
-    /// in case future browser/theme work wants a non-canvas fallback tone.
-    static let cardBackgroundLight = NSColor(red: 0xFD / 255.0, green: 0xF9 / 255.0, blue: 0xF7 / 255.0, alpha: 1)
-
-    /// Legacy fallback terminal card background (dark mode). See
-    /// `cardBackgroundLight`.
-    static let cardBackgroundDark = NSColor(white: 0.10, alpha: 1)
-
     /// Terracotta/warm rust accent for the "waiting" indicator state. #c97350
     static let waitingTerracotta = Color(red: 0.788, green: 0.451, blue: 0.314)
 

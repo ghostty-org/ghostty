@@ -44,6 +44,13 @@ class TerminalWindow: NSWindow {
     /// Sets up our tab context menu
     private var tabMenuObserver: NSObjectProtocol?
 
+    #if DEBUG
+    /// One-shot observer that fires the traffic-light alignment assertion the first time
+    /// this window becomes key. Stored as an instance var so it can be cleaned up in deinit
+    /// if the window is deallocated before ever becoming key.
+    private var alignmentAssertionObserver: NSObjectProtocol?
+    #endif
+
     /// Handles inline tab title editing for this host window.
     private(set) lazy var tabTitleEditor = TabTitleEditor(
         hostWindow: self,
@@ -189,28 +196,27 @@ class TerminalWindow: NSWindow {
 
         // MARK: - Ghostties fork fence (alignment assertion)
         #if DEBUG
-        do {
-            var obs: NSObjectProtocol?
-            obs = NotificationCenter.default.addObserver(
-                forName: NSWindow.didBecomeKeyNotification,
-                object: self,
-                queue: .main
-            ) { [weak self] _ in
-                if let o = obs { NotificationCenter.default.removeObserver(o) }
-                guard let self,
-                      ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
-                      type(of: self) == TerminalWindow.self,
-                      let closeButton = self.standardWindowButton(.closeButton),
-                      let superview = closeButton.superview else { return }
-                let topInset = superview.bounds.height - closeButton.frame.midY
-                let tolerance: CGFloat = 3
-                if abs(topInset - expectedCloseButtonTopInset) > tolerance {
-                    assertionFailure(
-                        "[alignment] Traffic light Y regressed: got \(topInset), expected \(expectedCloseButtonTopInset) ±\(tolerance). " +
-                        "The NSToolbar attachment in TerminalWindow.awakeFromNib was likely removed by an upstream merge. " +
-                        "See reference-traffic-light-alignment-solved.md."
-                    )
-                }
+        alignmentAssertionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: self,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            if let o = self.alignmentAssertionObserver {
+                NotificationCenter.default.removeObserver(o)
+                self.alignmentAssertionObserver = nil
+            }
+            guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
+                  type(of: self) == TerminalWindow.self,
+                  let closeButton = self.standardWindowButton(.closeButton),
+                  let superview = closeButton.superview else { return }
+            let topInset = superview.bounds.height - closeButton.frame.midY
+            let tolerance: CGFloat = 3
+            if abs(topInset - expectedCloseButtonTopInset) > tolerance {
+                assertionFailure(
+                    "[alignment] Traffic light Y regressed: got \(topInset), expected \(expectedCloseButtonTopInset) ±\(tolerance). " +
+                    "Check whether an upstream merge removed the NSToolbar attachment in awakeFromNib."
+                )
             }
         }
         #endif
@@ -638,6 +644,11 @@ class TerminalWindow: NSWindow {
         if let observer = tabMenuObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        #if DEBUG
+        if let o = alignmentAssertionObserver {
+            NotificationCenter.default.removeObserver(o)
+        }
+        #endif
     }
 
     // MARK: Config
