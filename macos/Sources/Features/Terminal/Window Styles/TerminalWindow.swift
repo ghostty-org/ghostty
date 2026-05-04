@@ -79,12 +79,13 @@ class TerminalWindow: NSWindow {
 
     /// Set to true while attaching the invisible alignment toolbar in awakeFromNib,
     /// so the toolbar didSet doesn't flip viewModel.hasToolbar.
-    private var _suppressHasToolbarUpdate = false
+    private var isAttachingAlignmentToolbar: Bool = false
 
     override var toolbar: NSToolbar? {
         didSet {
-            guard !_suppressHasToolbarUpdate else { return }
-            DispatchQueue.main.async {
+            guard !isAttachingAlignmentToolbar else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
                 // When we have a toolbar, our SwiftUI view needs to know for layout
                 self.viewModel.hasToolbar = self.toolbar != nil
             }
@@ -173,17 +174,17 @@ class TerminalWindow: NSWindow {
         // This is the same mechanism used by Linear, Notion, Safari — AppKit keys
         // traffic-light vertical centering off NSToolbar presence, not accessories.
         // titleVisibility = .hidden prevents any visible toolbar surface.
-        // _suppressHasToolbarUpdate prevents the toolbar didSet from flipping
+        // isAttachingAlignmentToolbar prevents the toolbar didSet from flipping
         // viewModel.hasToolbar — this toolbar is invisible and must not shift
         // the right-side titlebar accessories down.
-        _suppressHasToolbarUpdate = true
+        isAttachingAlignmentToolbar = true
+        defer { isAttachingAlignmentToolbar = false }
         let ghosttiesToolbar = NSToolbar(identifier: "GhosttiesTerminalToolbar")
         ghosttiesToolbar.showsBaselineSeparator = false
         self.toolbar = ghosttiesToolbar
         self.toolbarStyle = .unified
         self.titleVisibility = .hidden
         self.titlebarAppearsTransparent = true
-        _suppressHasToolbarUpdate = false
         // MARK: - End Ghostties fork fence (alignment toolbar)
 
         // MARK: - Ghostties fork fence (alignment assertion)
@@ -195,7 +196,7 @@ class TerminalWindow: NSWindow {
                 object: self,
                 queue: .main
             ) { [weak self] _ in
-                NotificationCenter.default.removeObserver(obs!)
+                if let o = obs { NotificationCenter.default.removeObserver(o) }
                 guard let self,
                       ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
                       type(of: self) == TerminalWindow.self,

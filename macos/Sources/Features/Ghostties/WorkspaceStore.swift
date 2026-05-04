@@ -47,8 +47,7 @@ final class WorkspaceStore: ObservableObject {
     /// The Auto Layout `topAnchor + constant` for the unified toolbar row.
     /// Derived from the live close-button frame by `WorkspaceViewContainer.layout()`
     /// and published here so the SwiftUI sidebar's `+` button stays in sync.
-    /// Initial value of 22 (= 14pt traffic lights + 8pt breathing room) is updated
-    /// at the first layout pass after the window appears.
+    /// Initial value approximates the unified-toolbar traffic-light row; updated at the first layout pass — see WorkspaceLayout.titlebarRowTopAnchorConstant.
     @Published var toolbarRowTopAnchorConstant: CGFloat = 22
 
     /// True once the one-time pin-semantics migration has run. Set by

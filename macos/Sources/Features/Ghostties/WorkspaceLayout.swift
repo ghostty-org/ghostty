@@ -37,8 +37,7 @@ enum WorkspaceLayout {
     static func titlebarRowTopAnchorConstant(in view: NSView) -> CGFloat? {
         guard let win = view.window,
               let close = win.standardWindowButton(.closeButton),
-              close.window === win,
-              view.window != nil else { return nil }
+              close.window === win else { return nil }
         let closeInView = close.convert(close.bounds, to: view)
         // closeInView.midY is in AppKit unflipped coords (larger = visually higher).
         // "Below" traffic lights = smaller Y in unflipped coords.

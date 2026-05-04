@@ -154,6 +154,9 @@ class WorkspaceViewContainer: NSView {
         return button
     }()
 
+    /// Weak reference to the window whose fullscreen observers are currently registered.
+    private weak var fullScreenObservedWindow: NSWindow?
+
     private var cancellables = Set<AnyCancellable>()
 
     /// Cancellables scoped to the currently-observed focused surface. Cleared and
@@ -320,8 +323,8 @@ class WorkspaceViewContainer: NSView {
         // Clean up previous window's observers (handles view moving between windows).
         NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
-        NotificationCenter.default.removeObserver(self, name: NSWindow.didEnterFullScreenNotification, object: nil)
-        NotificationCenter.default.removeObserver(self, name: NSWindow.didExitFullScreenNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didEnterFullScreenNotification, object: fullScreenObservedWindow)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didExitFullScreenNotification, object: fullScreenObservedWindow)
 
         guard let window = window else { return }
         // Give the coordinator a reference to this view so it can discover
@@ -369,6 +372,7 @@ class WorkspaceViewContainer: NSView {
             name: NSWindow.didExitFullScreenNotification,
             object: window
         )
+        fullScreenObservedWindow = window
 
         // If the window is already key when we move into it, freeze immediately.
         if window.isKeyWindow {
@@ -1144,7 +1148,7 @@ class WorkspaceViewContainer: NSView {
         terminalTopConstraint = terminalContainer.topAnchor.constraint(
             equalTo: terminalShadowHost.topAnchor, constant: titlebarInset)
 
-        // 22 is the initial guess (14pt traffic lights + 8pt breathing room);
+        // 22 is the initial guess before the window appears (breathingRoomBelowChrome is now 0);
         // updated each layout() pass from the live close-button frame.
         sidebarToggleCenterYConstraint = sidebarToggleButton.centerYAnchor
             .constraint(equalTo: topAnchor, constant: 22)

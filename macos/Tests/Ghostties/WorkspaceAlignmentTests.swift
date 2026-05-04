@@ -16,13 +16,13 @@ final class WorkspaceAlignmentTests: XCTestCase {
         // Simulate: view.bounds.height = 800, close.midY (unflipped) = 786 (= 800 - 14)
         let boundsHeight: CGFloat = 800
         let closeMidY_unflipped: CGFloat = boundsHeight - 14   // 14pt from visual top
-        let breathingRoom = WorkspaceLayout.breathingRoomBelowChrome  // 8
+        let breathingRoom = WorkspaceLayout.breathingRoomBelowChrome  // 0
 
-        let rowY_unflipped = closeMidY_unflipped - breathingRoom      // = 778
-        let constant = boundsHeight - rowY_unflipped                  // = 22
+        let rowY_unflipped = closeMidY_unflipped - breathingRoom      // = 786
+        let constant = boundsHeight - rowY_unflipped                  // = 14
 
-        XCTAssertEqual(constant, 22,
-            "topAnchor constant should place toolbar row 22pt below visual top")
+        XCTAssertEqual(constant, 14,
+            "topAnchor constant should place toolbar row 14pt below visual top")
         XCTAssertEqual(boundsHeight - constant, rowY_unflipped,
             "Unflipped Y should be bounds.height - constant")
     }
@@ -33,9 +33,9 @@ final class WorkspaceAlignmentTests: XCTestCase {
             let closeMidY = height - 14
             let rowY = closeMidY - WorkspaceLayout.breathingRoomBelowChrome
             let constant = height - rowY
-            // constant should always be 22 (= 14 + 8) regardless of window height
-            XCTAssertEqual(constant, 22, accuracy: 0.01,
-                "For height=\(height): constant should be 22, got \(constant)")
+            // constant should always be 14 (= 14 + 0, breathingRoom is zero)
+            XCTAssertEqual(constant, 14, accuracy: 0.01,
+                "For height=\(height): constant should be 14, got \(constant)")
         }
     }
 }
