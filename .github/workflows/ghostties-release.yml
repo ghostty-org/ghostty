@@ -57,7 +57,7 @@ jobs:
       is_beta: ${{ steps.extract.outputs.is_beta }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # Full history required for accurate build number via rev-list --count
           fetch-depth: 0
@@ -107,7 +107,7 @@ jobs:
       GHOSTTIES_COMMIT: ${{ needs.setup.outputs.commit }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Xcode version
         run: xcodebuild -version
@@ -349,7 +349,7 @@ jobs:
       IS_BETA: ${{ needs.setup.outputs.is_beta }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download macOS artifacts
         uses: actions/download-artifact@v4
