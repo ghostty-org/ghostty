@@ -37,8 +37,9 @@ final class KeyboardShortcutsTests: XCTestCase {
             ]
         )
         taskStore = TaskStore()
-        // Clear any residual focus state between tests.
-        RowFocusStore.shared.clearFocus(for: "")
+        // Clear any residual focus state between tests. Use the actual focused
+        // task's id so clearFocus's guard (id must match) fires correctly.
+        RowFocusStore.shared.clearFocus(for: RowFocusStore.shared.focusedTask?.id ?? "")
     }
 
     override func tearDownWithError() throws {

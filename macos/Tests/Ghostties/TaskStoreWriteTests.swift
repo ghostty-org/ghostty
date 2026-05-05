@@ -90,11 +90,18 @@ final class TaskStoreWriteTests: XCTestCase {
 
     func testWriteStatusThrowsOnReadOnlyDirectory() async throws {
         try writeFixture(id: "readonly-task", status: "inbox")
-        let url = tmp.appendingPathComponent("readonly-task.md")
 
-        // Make the file read-only.
+        // Lock the DIRECTORY, not the file. `write(atomically:true)` creates a temp
+        // file in the same directory before renaming it into place — that's a directory
+        // operation controlled by directory permissions. A read-only file with a
+        // writable directory is silently overwritten via rename on macOS/POSIX.
         try FileManager.default.setAttributes(
-            [.posixPermissions: 0o444], ofItemAtPath: url.path)
+            [.posixPermissions: 0o555], ofItemAtPath: tmp.path)
+        defer {
+            // Restore so tearDown can remove the directory.
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: tmp.path)
+        }
 
         let coreStore = GhosttiesCore.TaskStore(directory: tmp)
         let (task, fileURL) = try coreStore.resolve(idOrPrefix: "readonly-task")
@@ -103,7 +110,7 @@ final class TaskStoreWriteTests: XCTestCase {
 
         XCTAssertThrowsError(
             try coreStore.write(pairs: updatedPairs, body: task.body, to: fileURL),
-            "Writing to a read-only file must throw a typed CLIError, not silently absorb"
+            "Writing to a read-only directory must throw a typed CLIError, not silently absorb"
         ) { error in
             if let cliError = error as? CLIError {
                 // Verify it is a .io error (not silently absorbed).
@@ -116,10 +123,6 @@ final class TaskStoreWriteTests: XCTestCase {
                 XCTFail("Expected CLIError, got \(type(of: error)): \(error)")
             }
         }
-
-        // Restore permissions so tearDown can clean up.
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o644], ofItemAtPath: url.path)
     }
 
     // MARK: - writeProjectPath: happy path
