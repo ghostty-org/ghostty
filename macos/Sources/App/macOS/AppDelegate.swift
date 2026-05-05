@@ -262,8 +262,10 @@ class AppDelegate: NSObject,
         // Initial config loading
         ghosttyConfigDidChange(config: ghostty.config)
 
-        // Start our update checker.
+        // Start our update checker (skip in Debug builds to avoid Sparkle key validation errors).
+        #if !DEBUG
         updateController.startUpdater()
+        #endif
 
         // Register our service provider. This must happen after everything is initialized.
         NSApp.servicesProvider = ServiceProvider()
