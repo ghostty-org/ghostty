@@ -86,6 +86,9 @@ class BaseTerminalController: NSWindowController,
     /// The cancellables related to our focused surface.
     private var focusedSurfaceCancellables: Set<AnyCancellable> = []
 
+    /// The most recently focused surface used for toggling focus.
+    private var recentFocusedSurface: Ghostty.SurfaceView? = nil
+
     /// Cancellable for aggregating bell state across all surfaces in this controller.
     private var bellStateCancellable: AnyCancellable?
 
@@ -292,6 +295,8 @@ class BaseTerminalController: NSWindowController,
         if to.isEmpty {
             focusedSurface = nil
         }
+
+        pruneRecentFocusedSurface(tree: to)
     }
 
     /// Update all surfaces with the focus state. This ensures that libghostty has an accurate view about
@@ -426,6 +431,56 @@ class BaseTerminalController: NSWindowController,
     }
 
     // MARK: Split Tree Management
+
+    private func containsInSurfaceTree(
+        _ surface: Ghostty.SurfaceView?,
+        tree: SplitTree<Ghostty.SurfaceView>? = nil
+    ) -> Bool {
+        guard let surface else { return false }
+        let activeTree = tree ?? surfaceTree
+        return activeTree.contains(surface)
+    }
+
+    private func pruneRecentFocusedSurface(tree: SplitTree<Ghostty.SurfaceView>? = nil) {
+        guard recentFocusedSurface != nil else { return }
+
+        if !containsInSurfaceTree(recentFocusedSurface, tree: tree) {
+            recentFocusedSurface = nil
+        }
+    }
+
+    private func updateRecentFocusedSurface(
+        previous: Ghostty.SurfaceView?,
+        current: Ghostty.SurfaceView?
+    ) {
+        guard let previous, let current else { return }
+        guard previous !== current else { return }
+        guard containsInSurfaceTree(previous), containsInSurfaceTree(current) else { return }
+
+        recentFocusedSurface = previous
+    }
+
+    func splitFocusTarget(
+        for direction: Ghostty.SplitFocusDirection,
+        from target: Ghostty.SurfaceView
+    ) -> Ghostty.SurfaceView? {
+        // Find the node for the target surface
+        guard let targetNode = surfaceTree.root?.node(view: target) else { return nil }
+
+        switch direction {
+        case .recent:
+            pruneRecentFocusedSurface()
+
+            guard let recentSurface = recentFocusedSurface, recentSurface !== target else {
+                return nil
+            }
+
+            return containsInSurfaceTree(recentSurface) ? recentSurface : nil
+
+        default:
+            return surfaceTree.focusTarget(for: direction.toSplitTreeFocusDirection(), from: targetNode)
+        }
+    }
 
     /// Find the next surface to focus when a node is being closed.
     /// Goes to previous split unless we're the leftmost leaf, then goes to next.
@@ -633,11 +688,8 @@ class BaseTerminalController: NSWindowController,
         guard let directionAny = notification.userInfo?[Ghostty.Notification.SplitDirectionKey] else { return }
         guard let direction = directionAny as? Ghostty.SplitFocusDirection else { return }
 
-        // Find the node for the target surface
-        guard let targetNode = surfaceTree.root?.node(view: target) else { return }
-
         // Find the next surface to focus
-        guard let nextSurface = surfaceTree.focusTarget(for: direction.toSplitTreeFocusDirection(), from: targetNode) else {
+        guard let nextSurface = splitFocusTarget(for: direction, from: target) else {
             return
         }
 
@@ -804,6 +856,9 @@ class BaseTerminalController: NSWindowController,
         let lastFocusedSurface = focusedSurface
         focusedSurface = to
 
+        updateRecentFocusedSurface(previous: lastFocusedSurface, current: focusedSurface)
+        pruneRecentFocusedSurface()
+
         // Important to cancel any prior subscriptions
         focusedSurfaceCancellables = []
 
@@ -851,6 +906,7 @@ class BaseTerminalController: NSWindowController,
 
         window.title = lastComputedTitle
     }
+
 
     func pwdDidChange(to: URL?) {
         guard let window else { return }
