@@ -18,7 +18,7 @@ import GhosttyKit
 /// The coordinator discovers its window controller lazily through the view hierarchy.
 @MainActor
 final class SessionCoordinator: ObservableObject {
-    private let ghostty: Ghostty.App
+    private let ghostty: Ghostty.App?
 
     /// Weak reference to the container NSView — used to find the window controller.
     weak var containerView: NSView?
@@ -110,6 +110,13 @@ final class SessionCoordinator: ObservableObject {
         startActivityTimer()
     }
 
+    #if DEBUG
+    /// Testing stub — no GhosttyKit dependency, observers not started.
+    init() {
+        self.ghostty = nil
+    }
+    #endif
+
     // MARK: - Session Creation
 
     /// Create a new terminal session from a template within a project.
@@ -130,7 +137,7 @@ final class SessionCoordinator: ObservableObject {
             return createBrowserSession(session: session, template: template, project: project)
         }
 
-        guard let ghosttyApp = ghostty.app else { return false }
+        guard let ghosttyApp = ghostty?.app else { return false }
 
         // Build the full command string and resolve the binary path, both off
         // the main thread. buildCommand() may write prompt cache files and

@@ -19,7 +19,6 @@
 import XCTest
 import SwiftUI
 @testable import Ghostty
-import GhosttiesCore
 
 /// Tests for the SG-03 empty-state policy (U12 / SEA-168).
 ///
