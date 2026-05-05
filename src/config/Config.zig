@@ -2027,6 +2027,20 @@ keybind: Keybinds = .{},
 /// working directory will be used (the `working-directory` option).
 @"split-inherit-working-directory": bool = true,
 
+/// If true, all splits in the current window are automatically resized to
+/// be equal whenever a split is created or closed. This is equivalent to
+/// invoking the `equalize_splits` action after every split create/close.
+///
+/// Because the equalization runs over the entire split tree of the window,
+/// any prior manual resizes (e.g., via `resize_split`) within that tree are
+/// reset by this option whenever any split in the same window is created or
+/// closed.
+///
+/// Default is `false` to preserve existing behavior. Users who want every
+/// split to always be evenly sized (similar to iTerm2's default) should set
+/// this to `true`.
+@"auto-equalize-splits": bool = false,
+
 /// If true, new windows and tabs will inherit the font size of the previously
 /// focused window. If no window was previously focused, the default font size
 /// will be used. If this is false, the default font size specified in the
