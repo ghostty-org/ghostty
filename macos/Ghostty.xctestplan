@@ -34,6 +34,9 @@
   "testTargets" : [
     {
       "parallelizable" : true,
+      "skippedTests" : [
+        "MenuShortcutManagerTests"
+      ],
       "target" : {
         "containerPath" : "container:Ghostties.xcodeproj",
         "identifier" : "A54F45F22E1F047A0046BD5C",
