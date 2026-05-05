@@ -19,6 +19,7 @@
 import XCTest
 import SwiftUI
 @testable import Ghostty
+import GhosttiesCore
 
 /// Tests for the SG-03 empty-state policy (U12 / SEA-168).
 ///
@@ -33,13 +34,6 @@ import SwiftUI
 final class EmptyStatesTests: XCTestCase {
 
     // MARK: - Helpers
-
-    private func makeTaskStore(tasks: [TaskItem] = []) -> TaskStore {
-        let store = TaskStore()
-        // Use the internal setter via the public test hook (tasks are set via loadFixtures).
-        // Because TaskStore loads from disk, we verify behaviour through computed properties.
-        return store
-    }
 
     /// Creates a minimal TaskItem fixture for a given status.
     private func fixture(id: String = UUID().uuidString, status: TaskStatus, source: TaskSource = .shell) -> TaskItem {
