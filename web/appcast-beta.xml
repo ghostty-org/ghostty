@@ -10,10 +10,18 @@
     <sparkle:shortVersionString>0.1.0-beta.15</sparkle:shortVersionString>
     <sparkle:minimumSystemVersion>13.0.0</sparkle:minimumSystemVersion>
     <description><![CDATA[
-      <h1>Ghostties v0.1.0-beta.15</h1>
-      <p>Built from commit <a href="https://github.com/SeanSmithDesign/ghostties/commits/a41d842eb2571ea7f39b082da244d1cb718ada63">a41d842eb</a>.</p>
-      <p>See <a href="https://github.com/SeanSmithDesign/ghostties/releases/tag/v0.1.0-beta.15">release notes</a> on GitHub.</p>
-    ]]></description>
+  <h2>What's new in v0.1.0-beta.15</h2>
+  <p>Polish and stability fixes following the beta.14 smoke test.</p>
+  <h3>Fixed</h3>
+  <ul>
+    <li>Dark mode titlebar now matches the canvas background color</li>
+    <li>Fullscreen icon position in the toolbar corrected</li>
+    <li>Canvas corner radius is now consistent on all four corners</li>
+    <li>Shadow depth between browser and terminal panels is now consistent</li>
+    <li>Sparkle update toast no longer appears in release builds</li>
+  </ul>
+  <p><a href="https://github.com/SeanSmithDesign/ghostties/releases/tag/v0.1.0-beta.15">Full release notes on GitHub</a></p>
+]]></description>
     <enclosure
       url="https://github.com/SeanSmithDesign/ghostties/releases/download/v0.1.0-beta.15/Ghostties.dmg"
       type="application/octet-stream"
