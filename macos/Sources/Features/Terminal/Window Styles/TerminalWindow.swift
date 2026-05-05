@@ -569,6 +569,16 @@ class TerminalWindow: NSWindow {
 
             let backgroundColor = preferredBackgroundColor ?? NSColor(surfaceConfig.backgroundColor)
             self.backgroundColor = backgroundColor.withAlphaComponent(1)
+
+            // MARK: - Ghostties fork fence (titlebar bg sync)
+            // In workspace mode, the window background shows through the transparent titlebar.
+            // Override to the canvas background so the titlebar strip matches the canvas.
+            if self.contentView is WorkspaceViewContainer {
+                let isDark = self.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                self.backgroundColor = isDark
+                    ? WorkspaceLayout.canvasBackgroundDark
+                    : WorkspaceLayout.canvasBackgroundLight
+            }
         }
     }
 
