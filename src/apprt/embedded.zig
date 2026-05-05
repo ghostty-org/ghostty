@@ -1304,6 +1304,24 @@ pub const CAPI = struct {
         }
     };
 
+    // ghostty_ax_text_s — text info read from an AccessibilityContext.
+    // The text pointer is borrowed from the context; the caller must
+    // not free it separately.
+    const AXText = extern struct {
+        text: ?[*:0]const u8,
+        text_len: usize,
+        viewport_start: usize,
+        viewport_end: usize,
+    };
+
+    // ghostty_ax_bounds_s
+    const AXBounds = extern struct {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    };
+
     // ghostty_point_s
     const Point = extern struct {
         tag: Tag,
@@ -1678,6 +1696,97 @@ pub const CAPI = struct {
 
     export fn ghostty_surface_free_text(_: *Surface, ptr: *Text) void {
         ptr.deinit();
+    }
+
+    /// Creates a pre-computed accessibility context containing
+    /// the terminal text, viewport range, cursor offset, and
+    /// grid-to-offset mapping. The context is self-contained and
+    /// can be used for subsequent queries without rebuilding the
+    /// PinMap. Free with ghostty_surface_ax_context_free.
+    export fn ghostty_surface_ax_context_new(
+        surface: *Surface,
+    ) ?*anyopaque {
+        const ctx = surface.core_surface.createAccessibilityContext(
+            global.alloc,
+        ) catch |err| {
+            log.warn("error creating accessibility context err={}", .{err});
+            return null;
+        };
+        return ctx;
+    }
+
+    export fn ghostty_surface_ax_context_free(ctx_raw: *anyopaque) void {
+        const ctx: *CoreSurface.AccessibilityContext = @ptrCast(@alignCast(ctx_raw));
+        ctx.deinit();
+    }
+
+    /// Reads text and viewport info from a pre-built context.
+    /// The text pointer is borrowed — it remains valid until the
+    /// context is freed.
+    export fn ghostty_ax_context_info(
+        ctx_raw: *anyopaque,
+        result: *AXText,
+    ) bool {
+        const ctx: *const CoreSurface.AccessibilityContext = @ptrCast(@alignCast(ctx_raw));
+        result.* = .{
+            .text = ctx.text.ptr,
+            .text_len = ctx.text.len,
+            .viewport_start = ctx.viewport_start,
+            .viewport_end = ctx.viewport_end,
+        };
+        return true;
+    }
+
+    /// Returns the cursor byte offset from a pre-built context.
+    export fn ghostty_ax_context_cursor_offset(
+        ctx_raw: *anyopaque,
+        byte_offset: *usize,
+    ) bool {
+        const ctx: *const CoreSurface.AccessibilityContext = @ptrCast(@alignCast(ctx_raw));
+        byte_offset.* = ctx.cursor_offset orelse return false;
+        return true;
+    }
+
+    /// Given a pre-built context and a byte offset, returns the
+    /// view-local bounds of the cell. Coordinates are in points
+    /// with a top-left origin.
+    export fn ghostty_surface_ax_bounds(
+        surface: *Surface,
+        ctx_raw: *anyopaque,
+        byte_offset: usize,
+        result: *AXBounds,
+    ) bool {
+        const ctx: *const CoreSurface.AccessibilityContext = @ptrCast(@alignCast(ctx_raw));
+        const bounds = surface.core_surface.boundsForOffsetCtx(
+            ctx,
+            byte_offset,
+        ) orelse return false;
+
+        result.* = .{
+            .x = bounds.x,
+            .y = bounds.y,
+            .width = bounds.width,
+            .height = bounds.height,
+        };
+        return true;
+    }
+
+    /// Given a pre-built context and a view-local point, returns
+    /// the byte offset of the character at that position.
+    export fn ghostty_surface_ax_offset(
+        surface: *Surface,
+        ctx_raw: *anyopaque,
+        x: f64,
+        y: f64,
+        byte_offset: *usize,
+    ) bool {
+        const ctx: *const CoreSurface.AccessibilityContext = @ptrCast(@alignCast(ctx_raw));
+        byte_offset.* = surface.core_surface.offsetForPointCtx(
+            ctx,
+            x,
+            y,
+        ) orelse return false;
+        return true;
     }
 
     /// Tell the surface that it needs to schedule a render

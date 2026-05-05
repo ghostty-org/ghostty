@@ -414,6 +414,20 @@ typedef struct {
   uintptr_t text_len;
 } ghostty_text_s;
 
+typedef struct {
+  const char* text;
+  uintptr_t text_len;
+  uintptr_t viewport_start;
+  uintptr_t viewport_end;
+} ghostty_ax_text_s;
+
+typedef struct {
+  double x;
+  double y;
+  double width;
+  double height;
+} ghostty_ax_bounds_s;
+
 typedef enum {
   GHOSTTY_POINT_ACTIVE,
   GHOSTTY_POINT_VIEWPORT,
@@ -948,6 +962,7 @@ typedef enum {
   GHOSTTY_ACTION_SEARCH_SELECTED,
   GHOSTTY_ACTION_READONLY,
   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
+  GHOSTTY_ACTION_CONTENT_CHANGED,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -1160,6 +1175,14 @@ GHOSTTY_API bool ghostty_surface_read_text(ghostty_surface_t,
                                               ghostty_selection_s,
                                               ghostty_text_s*);
 GHOSTTY_API void ghostty_surface_free_text(ghostty_surface_t, ghostty_text_s*);
+
+typedef void* ghostty_ax_context_t;
+ghostty_ax_context_t ghostty_surface_ax_context_new(ghostty_surface_t);
+void ghostty_surface_ax_context_free(ghostty_ax_context_t);
+bool ghostty_ax_context_info(ghostty_ax_context_t, ghostty_ax_text_s*);
+bool ghostty_ax_context_cursor_offset(ghostty_ax_context_t, uintptr_t*);
+bool ghostty_surface_ax_bounds(ghostty_surface_t, ghostty_ax_context_t, uintptr_t, ghostty_ax_bounds_s*);
+bool ghostty_surface_ax_offset(ghostty_surface_t, ghostty_ax_context_t, double, double, uintptr_t*);
 
 #ifdef __APPLE__
 GHOSTTY_API void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);
