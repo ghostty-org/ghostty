@@ -914,6 +914,23 @@ palette: Palette = .{},
 /// behavior around edge cases is possible.
 @"cursor-click-to-move": bool = true,
 
+/// The style of the cursor when editing the preedit text using
+/// an IME (Input Method Editor).
+///
+/// All other cursor configs are applicable to IME cursor as well,
+/// with the exception of `cursor-click-to-move` and `cursor-style-blink`
+///
+/// Note: Some IME hardcodes the cursor as a bar as a part of the preedit text.
+/// To avoid showing two cursors, the native Ghostty cursor would be hidden.
+///
+/// Valid values are:
+///
+///   * `block`
+///   * `bar`
+///   * `underline`
+///   * `block_hollow`
+@"ime-cursor-style": terminal.CursorStyle = .bar,
+
 /// Hide the mouse immediately when typing. The mouse becomes visible again
 /// when the mouse is used (button, movement, etc.). Platform-specific behavior
 /// may dictate other scenarios where the mouse is shown. For example on macOS,
