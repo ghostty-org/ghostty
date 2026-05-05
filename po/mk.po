@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-02-17 23:16+0100\n"
+"POT-Creation-Date: 2026-03-25 16:24-0700\n"
 "PO-Revision-Date: 2026-02-12 17:00+0100\n"
 "Last-Translator: Andrej Daskalov <andrej.daskalov@gmail.com>\n"
 "Language-Team: Macedonian\n"
@@ -75,7 +75,7 @@ msgid "Ignore"
 msgstr "Игнорирај"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:11
-#: src/apprt/gtk/ui/1.2/surface.blp:366 src/apprt/gtk/ui/1.5/window.blp:300
+#: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:300
 msgid "Reload Configuration"
 msgstr "Одново вчитај конфигурација"
 
@@ -172,41 +172,45 @@ msgstr "Подели налево"
 msgid "Split Right"
 msgstr "Подели надесно"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:322
+#: src/apprt/gtk/ui/1.2/surface.blp:321
+msgid "Close Split"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.2/surface.blp:327
 msgid "Tab"
 msgstr "Јазиче"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:325 src/apprt/gtk/ui/1.5/window.blp:224
+#: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:224
 #: src/apprt/gtk/ui/1.5/window.blp:320
 msgid "Change Tab Title…"
 msgstr "Промени наслов на јазиче…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:57
+#: src/apprt/gtk/ui/1.2/surface.blp:335 src/apprt/gtk/ui/1.5/window.blp:57
 #: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:229
 msgid "New Tab"
 msgstr "Ново јазиче"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:335 src/apprt/gtk/ui/1.5/window.blp:234
+#: src/apprt/gtk/ui/1.2/surface.blp:340 src/apprt/gtk/ui/1.5/window.blp:234
 msgid "Close Tab"
 msgstr "Затвори јазиче"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:342
+#: src/apprt/gtk/ui/1.2/surface.blp:347
 msgid "Window"
 msgstr "Прозор"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:212
+#: src/apprt/gtk/ui/1.2/surface.blp:350 src/apprt/gtk/ui/1.5/window.blp:212
 msgid "New Window"
 msgstr "Нов прозор"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:350 src/apprt/gtk/ui/1.5/window.blp:217
+#: src/apprt/gtk/ui/1.2/surface.blp:355 src/apprt/gtk/ui/1.5/window.blp:217
 msgid "Close Window"
 msgstr "Затвори прозор"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:358
+#: src/apprt/gtk/ui/1.2/surface.blp:363
 msgid "Config"
 msgstr "Конфигурација"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:361 src/apprt/gtk/ui/1.5/window.blp:295
+#: src/apprt/gtk/ui/1.2/surface.blp:366 src/apprt/gtk/ui/1.5/window.blp:295
 msgid "Open Configuration"
 msgstr "Отвори конфигурација"
 
@@ -238,7 +242,7 @@ msgstr "Командна палета"
 msgid "Terminal Inspector"
 msgstr "Инспектор на терминал"
 
-#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1727
+#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1772
 msgid "About Ghostty"
 msgstr "За Ghostty"
 
@@ -310,15 +314,15 @@ msgstr "Сите сесии во овој прозорец ќе бидат пр�
 msgid "The currently running process in this split will be terminated."
 msgstr "Процесот кој моментално се извршува во оваа поделба ќе биде прекинат."
 
-#: src/apprt/gtk/class/surface.zig:1108
+#: src/apprt/gtk/class/surface.zig:1141
 msgid "Command Finished"
 msgstr "Командата заврши"
 
-#: src/apprt/gtk/class/surface.zig:1109
+#: src/apprt/gtk/class/surface.zig:1142
 msgid "Command Succeeded"
 msgstr "Командата успеа"
 
-#: src/apprt/gtk/class/surface.zig:1110
+#: src/apprt/gtk/class/surface.zig:1143
 msgid "Command Failed"
 msgstr "Командата не успеа"
 
@@ -338,18 +342,18 @@ msgstr "Промени наслов на терминал"
 msgid "Change Tab Title"
 msgstr "Промени наслов на јазиче"
 
-#: src/apprt/gtk/class/window.zig:1007
+#: src/apprt/gtk/class/window.zig:1067
 msgid "Reloaded the configuration"
 msgstr "Конфигурацијата е одново вчитана"
 
-#: src/apprt/gtk/class/window.zig:1566
+#: src/apprt/gtk/class/window.zig:1611
 msgid "Copied to clipboard"
 msgstr "Копирано во привремена меморија"
 
-#: src/apprt/gtk/class/window.zig:1568
+#: src/apprt/gtk/class/window.zig:1613
 msgid "Cleared clipboard"
 msgstr "Исчистена привремена меморија"
 
-#: src/apprt/gtk/class/window.zig:1708
+#: src/apprt/gtk/class/window.zig:1753
 msgid "Ghostty Developers"
 msgstr "Развивачи на Ghostty"

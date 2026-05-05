@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-02-17 23:16+0100\n"
+"POT-Creation-Date: 2026-03-25 16:24-0700\n"
 "PO-Revision-Date: 2026-03-08 20:23+0700\n"
 "Last-Translator: Mikail Muzakki <mikailmmuzakki@gmail.com>\n"
 "Language-Team: Indonesian <translation-team-id@lists.sourceforge.net>\n"
@@ -75,7 +75,7 @@ msgid "Ignore"
 msgstr "Abaikan"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:11
-#: src/apprt/gtk/ui/1.2/surface.blp:366 src/apprt/gtk/ui/1.5/window.blp:300
+#: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:300
 msgid "Reload Configuration"
 msgstr "Muat ulang konfigurasi"
 
@@ -116,8 +116,8 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
-"Terminal ini sedang dalam model hanya baca. Anda hanya bisa melihat, memilih, "
-"dan menggulir konten, tetapi peristiwa input tidak akan dikirim ke "
+"Terminal ini sedang dalam model hanya baca. Anda hanya bisa melihat, "
+"memilih, dan menggulir konten, tetapi peristiwa input tidak akan dikirim ke "
 "aplikasi berjalan."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:107
@@ -172,41 +172,45 @@ msgstr "Belah kiri"
 msgid "Split Right"
 msgstr "Belah kanan"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:322
+#: src/apprt/gtk/ui/1.2/surface.blp:321
+msgid "Close Split"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.2/surface.blp:327
 msgid "Tab"
 msgstr "Tab"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:325 src/apprt/gtk/ui/1.5/window.blp:224
+#: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:224
 #: src/apprt/gtk/ui/1.5/window.blp:320
 msgid "Change Tab Title…"
 msgstr "Ubah judul tab…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:57
+#: src/apprt/gtk/ui/1.2/surface.blp:335 src/apprt/gtk/ui/1.5/window.blp:57
 #: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:229
 msgid "New Tab"
 msgstr "Tab baru"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:335 src/apprt/gtk/ui/1.5/window.blp:234
+#: src/apprt/gtk/ui/1.2/surface.blp:340 src/apprt/gtk/ui/1.5/window.blp:234
 msgid "Close Tab"
 msgstr "Tutup tab"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:342
+#: src/apprt/gtk/ui/1.2/surface.blp:347
 msgid "Window"
 msgstr "Jendela"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:212
+#: src/apprt/gtk/ui/1.2/surface.blp:350 src/apprt/gtk/ui/1.5/window.blp:212
 msgid "New Window"
 msgstr "Jendela baru"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:350 src/apprt/gtk/ui/1.5/window.blp:217
+#: src/apprt/gtk/ui/1.2/surface.blp:355 src/apprt/gtk/ui/1.5/window.blp:217
 msgid "Close Window"
 msgstr "Tutup jendela"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:358
+#: src/apprt/gtk/ui/1.2/surface.blp:363
 msgid "Config"
 msgstr "Konfigurasi"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:361 src/apprt/gtk/ui/1.5/window.blp:295
+#: src/apprt/gtk/ui/1.2/surface.blp:366 src/apprt/gtk/ui/1.5/window.blp:295
 msgid "Open Configuration"
 msgstr "Buka konfigurasi"
 
@@ -238,7 +242,7 @@ msgstr "Palet perintah"
 msgid "Terminal Inspector"
 msgstr "Inspektur terminal"
 
-#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1727
+#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1772
 msgid "About Ghostty"
 msgstr "Tentang Ghostty"
 
@@ -310,15 +314,15 @@ msgstr "Semua sesi terminal di jendela ini akan diakhiri."
 msgid "The currently running process in this split will be terminated."
 msgstr "Proses yang sedang berjalan dalam belahan ini akan diakhiri."
 
-#: src/apprt/gtk/class/surface.zig:1108
+#: src/apprt/gtk/class/surface.zig:1141
 msgid "Command Finished"
 msgstr "Perintah selesai"
 
-#: src/apprt/gtk/class/surface.zig:1109
+#: src/apprt/gtk/class/surface.zig:1142
 msgid "Command Succeeded"
 msgstr "Perintah berhasil"
 
-#: src/apprt/gtk/class/surface.zig:1110
+#: src/apprt/gtk/class/surface.zig:1143
 msgid "Command Failed"
 msgstr "Perintah gagal"
 
@@ -338,18 +342,18 @@ msgstr "Ubah judul terminal"
 msgid "Change Tab Title"
 msgstr "Ubah judul tab"
 
-#: src/apprt/gtk/class/window.zig:1007
+#: src/apprt/gtk/class/window.zig:1067
 msgid "Reloaded the configuration"
 msgstr "Memuat ulang konfigurasi"
 
-#: src/apprt/gtk/class/window.zig:1566
+#: src/apprt/gtk/class/window.zig:1611
 msgid "Copied to clipboard"
 msgstr "Disalin ke papan klip"
 
-#: src/apprt/gtk/class/window.zig:1568
+#: src/apprt/gtk/class/window.zig:1613
 msgid "Cleared clipboard"
 msgstr "Papan klip dibersihkan"
 
-#: src/apprt/gtk/class/window.zig:1708
+#: src/apprt/gtk/class/window.zig:1753
 msgid "Ghostty Developers"
 msgstr "Pengembang Ghostty"
