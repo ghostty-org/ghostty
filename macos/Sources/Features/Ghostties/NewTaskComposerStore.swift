@@ -106,8 +106,6 @@ final class NewTaskComposerStore: ObservableObject {
         selectedProjectId = resolveDefaultProject(workspaceStore: workspaceStore)
 
         isOpen = true
-        // Give the view one run-loop cycle to appear, then trigger focus.
-        focusTitleFieldTrigger = true
     }
 
     /// Close the composer without writing anything (cancel / Esc).

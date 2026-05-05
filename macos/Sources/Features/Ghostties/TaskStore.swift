@@ -361,11 +361,19 @@ final class TaskStore: ObservableObject {
     // MARK: - Directory discovery
 
     /// Look for fixtures in priority order:
+    ///   0. `GHOSTTIES_TASKS_DIR` env var (empty string → no directory; used by tests)
     ///   1. `<cwd-up-to-.git>/.ghostties/tasks/`
     ///   2. `~/.ghostties/tasks/`
     ///   3. `~/Code/ghostties/.ghostties/tasks/` (dev fallback)
     private static func resolveTasksDirectory() -> URL? {
         let fm = FileManager.default
+
+        // 0. Test isolation override.
+        if let override = ProcessInfo.processInfo.environment["GHOSTTIES_TASKS_DIR"] {
+            guard !override.isEmpty else { return nil }
+            let url = URL(fileURLWithPath: override, isDirectory: true)
+            return fm.fileExists(atPath: url.path) ? url : nil
+        }
 
         // 1. Walk up from cwd looking for a .git directory
         let cwd = URL(fileURLWithPath: fm.currentDirectoryPath, isDirectory: true)

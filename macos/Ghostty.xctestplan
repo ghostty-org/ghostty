@@ -18,6 +18,10 @@
       {
         "key" : "GHOSTTY_CONFIG_PATH",
         "value" : "\/tmp\/Ghostty\/testing_config.ghostty"
+      },
+      {
+        "key" : "GHOSTTIES_TASKS_DIR",
+        "value" : ""
       }
     ],
     "performanceAntipatternCheckerEnabled" : true,
