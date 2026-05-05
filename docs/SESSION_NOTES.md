@@ -2387,19 +2387,21 @@ During testing, `WorkspaceViewContainer.layout()` crashed with:
 [alignment] toggle.midY=915.0 expected≈923.0
 ```
 
-Root cause: the constraint (`sidebarToggleCenterYConstraint.constant`) was updated in the same `layout()` call, but `sidebarToggleButton.frame.midY` still reflected the *previous* constraint — the new value doesn't apply until the next layout pass. The DEBUG assert immediately compared the stale frame against the fresh expected value. Classic read-after-write-in-same-pass race.
+Root cause: the constraint (`sidebarToggleCenterYConstraint.constant`) was updated in the same `layout()` call, but `sidebarToggleButton.frame.midY` still reflected the _previous_ constraint — the new value doesn't apply until the next layout pass. The DEBUG assert immediately compared the stale frame against the fresh expected value. Classic read-after-write-in-same-pass race.
 
 ### Commits shipped
 
 - `986bbe18e` — P2 cleanup + WorkspaceViewContainer crash fix
 
 **Changes in `TerminalWindow.swift`:**
+
 - Renamed `expectedCloseButtonMidY` → `expectedCloseButtonTopInset` (name was lying; it measures top inset, not midY)
 - Replaced fragile `asyncAfter(0.1)` assertion with a one-shot `NSWindow.didBecomeKeyNotification` observer (fires exactly when AppKit has settled layout; auto-removes itself)
 - Added `// MARK: - Ghostties fork fence` markers around both Ghostties-specific inserts in `awakeFromNib` for upstream merge visibility
 - Gated assertion behind `XCTestConfigurationFilePath == nil` to prevent CI test host trap
 
 **Changes in `WorkspaceViewContainer.swift`:**
+
 - Added `didUpdateConstraintThisPass` flag — if constraint was just updated this layout pass, skip the assertion (frame reflects prior cycle; assert would always be 1 cycle stale)
 - Same CI env guard added
 
@@ -2415,3 +2417,43 @@ Root cause: the constraint (`sidebarToggleCenterYConstraint.constant`) was updat
 
 - 1 subagent delegated (P2 cleanup) — commit `986bbe18e` verified, pushed ✓
 - 1 direct merge (main) — `git merge --ff-only` + push verified ✓
+
+---
+
+## 2026-05-05 — beta.15 release + release pipeline hardening
+
+### What happened
+
+Pickup session: full test suite was already green on `main` (`a41d842eb`). Tagged and shipped beta.15, then investigated why Sparkle auto-update wasn't working and hardened the release pipeline.
+
+### Key findings
+
+- **Sparkle channel bug** — `auto-update-channel` in the Ghostty config is silently ignored by `ghostty_config_get` because upstream Ghostty doesn't know the key. Sparkle always fell back to `.stable` (empty appcast). Interim fix: defaulted to `.tip` in code. Full fix tracked in SSD-263.
+- **Config path issue** — Ghostties reads from `~/.config/ghostty/config` (upstream path). Standalone users with no Ghostty installed have no config file at all. SSD-263 covers both problems.
+- **SSD-241** — Check for Updates shows zero feedback (no spinner, no "up to date" dialog). Pre-existing ticket, not fixed this session.
+- **Release pipeline gaps** — No changelog, no Sparkle dialog content, no GitHub release body. All three fixed.
+
+### Commits this session
+
+- `aa9dcf8c5` — `chore(ci): bump actions/checkout to v5 (Node.js 24)` — fixes 4 Node.js 20 deprecation warnings
+- `94535e847` — `fix(update): default auto-update channel to tip` — unblocks Sparkle for beta.16+
+- `655f83987` — `docs: add CHANGELOG.md with beta history` — beta.12–15 documented
+- `637fc6032` — `docs: fix beta.15 Sparkle description + add release checklist`
+
+### Tickets
+
+- **SSD-241** — Backlog (pre-existing, not fixed)
+- **SSD-263** — Created this session (High priority) — Ghostties standalone config path
+
+### What's next
+
+1. Sean manually installs beta.15 DMG (Sparkle can't auto-update from beta.13)
+2. Smoke test beta.15 UI fixes
+3. Fix SSD-241 (Sparkle feedback) for beta.16
+4. Fix SSD-263 (standalone config path) for beta.16
+5. CE backlog SEA-209–220 when ready
+
+### Reconciliation
+
+- 5/5 delegations verified: `aa9dcf8c5`, `94535e847`, `655f83987`, `637fc6032` all committed + pushed ✓
+- beta.15 tag pushed, CI completed successfully (21 min) ✓
