@@ -343,6 +343,9 @@ pub const Action = union(Key) {
     /// otherwise the terminal-set title.
     copy_title_to_clipboard,
 
+    /// Capture a screenshot of the surface.
+    capture_screenshot: Screenshot,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -410,6 +413,7 @@ pub const Action = union(Key) {
         search_selected,
         readonly,
         copy_title_to_clipboard,
+        capture_screenshot,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
@@ -625,6 +629,25 @@ pub const Readonly = enum(c_int) {
 
     test "ghostty.h Readonly" {
         try lib.checkGhosttyHEnum(Readonly, "GHOSTTY_READONLY_");
+    }
+};
+
+pub const Screenshot = enum(c_int) {
+    /// Take a screenshot of the surface, write the image to a file on disk, and
+    /// then copy the path to the image file into the clipboard.
+    copy_path,
+    /// Take a screenshot of the surface, write the image to a file on disk, and
+    /// then paste the path to the image file into the surface.
+    paste_path,
+    /// Take a screenshot of the surface, write the image to a file on disk, and
+    /// then open the image file using an OS-specific image viewer.
+    open,
+    /// Take a screenshot of the surface and copy the image data into the
+    /// clipboard.
+    copy_image,
+
+    test "ghostty.h Screenshot" {
+        try lib.checkGhosttyHEnum(Screenshot, "GHOSTTY_SCREENSHOT_");
     }
 };
 
