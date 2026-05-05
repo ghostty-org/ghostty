@@ -80,6 +80,15 @@ class BaseTerminalController: NSWindowController,
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private var derivedConfig: DerivedConfig
 
+    /// The current pwd for the focused surface. We cache this separately from representedURL
+    /// so config reload can restore the proxy icon after disabled mode clears the window state.
+    private var currentPwdURL: URL?
+
+    /// Hover state and tracking used for the "hidden" proxy icon mode.
+    private var isHoveringProxyIconTitlebar: Bool = false
+    private weak var proxyIconTrackingView: NSView?
+    private var proxyIconTrackingArea: NSTrackingArea?
+
     /// Track whether background is forced opaque (true) or using config transparency (false)
     var isBackgroundOpaque: Bool = false
 
@@ -224,6 +233,9 @@ class BaseTerminalController: NSWindowController,
     deinit {
         NotificationCenter.default.removeObserver(self)
         undoManager?.removeAllActions(withTarget: self)
+        if let trackingArea = proxyIconTrackingArea, let trackingView = proxyIconTrackingView {
+            trackingView.removeTrackingArea(trackingArea)
+        }
         if let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
         }
@@ -567,6 +579,9 @@ class BaseTerminalController: NSWindowController,
 
         // Update our derived config
         self.derivedConfig = DerivedConfig(config)
+
+        // Immediately refresh proxy icon behavior on all open windows.
+        refreshProxyIcon()
     }
 
     @objc private func ghosttyCommandPaletteDidToggle(_ notification: Notification) {
@@ -853,14 +868,8 @@ class BaseTerminalController: NSWindowController,
     }
 
     func pwdDidChange(to: URL?) {
-        guard let window else { return }
-
-        if derivedConfig.macosTitlebarProxyIcon == .visible {
-            // Use the 'to' URL directly
-            window.representedURL = to
-        } else {
-            window.representedURL = nil
-        }
+        currentPwdURL = to
+        refreshProxyIcon()
     }
 
     func cellSizeDidChange(to: NSSize) {
@@ -1155,6 +1164,8 @@ class BaseTerminalController: NSWindowController,
 
         // Set our update overlay state
         updateOverlayIsVisible = defaultUpdateOverlayVisibility()
+
+        refreshProxyIcon()
     }
 
     func defaultUpdateOverlayVisibility() -> Bool {
@@ -1243,6 +1254,8 @@ class BaseTerminalController: NSWindowController,
         DispatchQueue.main.async {
             self.syncFocusToSurfaceTree()
         }
+
+        refreshProxyIcon()
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -1262,10 +1275,26 @@ class BaseTerminalController: NSWindowController,
 
     func windowDidResize(_ notification: Notification) {
         windowFrameDidChange()
+        refreshProxyIcon()
     }
 
     func windowDidMove(_ notification: Notification) {
         windowFrameDidChange()
+        refreshProxyIcon()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        guard derivedConfig.macosTitlebarProxyIcon == .hidden else { return }
+        isHoveringProxyIconTitlebar = true
+        refreshProxyIcon()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        guard derivedConfig.macosTitlebarProxyIcon == .hidden else { return }
+        isHoveringProxyIconTitlebar = false
+        refreshProxyIcon()
     }
 
     func windowWillReturnUndoManager(_ window: NSWindow) -> UndoManager? {
@@ -1442,6 +1471,63 @@ class BaseTerminalController: NSWindowController,
         ghostty.resetTerminal(surface: surface)
     }
 
+    private func refreshProxyIcon() {
+        guard let window else { return }
+
+        refreshProxyIconTrackingArea()
+
+        let pwdURL = currentPwdURL ?? window.representedURL
+
+        switch derivedConfig.macosTitlebarProxyIcon {
+        case .visible:
+            window.representedURL = pwdURL
+            window.standardWindowButton(.documentIconButton)?.isHidden = (pwdURL == nil)
+
+        case .hidden:
+            window.representedURL = pwdURL
+            window.standardWindowButton(.documentIconButton)?.isHidden =
+                !isHoveringProxyIconTitlebar || pwdURL == nil
+
+        case .disabled:
+            window.standardWindowButton(.documentIconButton)?.isHidden = true
+            window.representedURL = nil
+        }
+    }
+
+    private func refreshProxyIconTrackingArea() {
+        if let trackingArea = proxyIconTrackingArea, let trackingView = proxyIconTrackingView {
+            trackingView.removeTrackingArea(trackingArea)
+            proxyIconTrackingArea = nil
+            proxyIconTrackingView = nil
+        }
+
+        guard derivedConfig.macosTitlebarProxyIcon == .hidden else {
+            isHoveringProxyIconTitlebar = false
+            return
+        }
+
+        guard let terminalWindow = window as? TerminalWindow,
+              let titlebarContainer = terminalWindow.titlebarContainer else {
+            isHoveringProxyIconTitlebar = false
+            return
+        }
+
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil)
+        titlebarContainer.addTrackingArea(trackingArea)
+
+        proxyIconTrackingArea = trackingArea
+        proxyIconTrackingView = titlebarContainer
+
+        let mouseLocation = titlebarContainer.convert(
+            window?.mouseLocationOutsideOfEventStream ?? .zero,
+            from: nil)
+        isHoveringProxyIconTitlebar = titlebarContainer.bounds.contains(mouseLocation)
+    }
+
     private struct DerivedConfig {
         let macosTitlebarProxyIcon: Ghostty.MacOSTitlebarProxyIcon
         let windowStepResize: Bool
@@ -1449,7 +1535,7 @@ class BaseTerminalController: NSWindowController,
         let splitPreserveZoom: Ghostty.Config.SplitPreserveZoom
 
         init() {
-            self.macosTitlebarProxyIcon = .visible
+            self.macosTitlebarProxyIcon = .hidden
             self.windowStepResize = false
             self.focusFollowsMouse = false
             self.splitPreserveZoom = .init()

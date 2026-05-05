@@ -3261,17 +3261,14 @@ keybind: Keybinds = .{},
 ///
 /// Valid values are:
 ///
-///   * `visible` - Show the proxy icon.
-///   * `hidden` - Hide the proxy icon.
-///
-/// The default value is `visible`.
+/// Proxy icon visibility mode for the titlebar. Valid values:
+/// - `visible` - always show the proxy icon
+/// - `hidden` - show proxy icon on hover (default, modern macOS behavior)
+/// - `disabled` - never show the proxy icon (drag-drop and context menu also disabled)
 ///
 /// This setting can be changed at runtime and will affect all currently
-/// open windows but only after their working directory changes again.
-/// Therefore, to make this work after changing the setting, you must
-/// usually `cd` to a different directory, open a different file in an
-/// editor, etc.
-@"macos-titlebar-proxy-icon": MacTitlebarProxyIcon = .visible,
+/// open windows immediately.
+@"macos-titlebar-proxy-icon": MacTitlebarProxyIcon = .hidden,
 
 /// Controls the windowing behavior when dropping a file or folder
 /// onto the Ghostty icon in the macOS dock.
@@ -9008,6 +9005,7 @@ pub const MacTitlebarStyle = enum {
 pub const MacTitlebarProxyIcon = enum {
     visible,
     hidden,
+    disabled,
 };
 
 /// See macos-hidden
