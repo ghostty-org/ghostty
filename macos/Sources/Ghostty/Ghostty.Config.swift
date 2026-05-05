@@ -656,7 +656,7 @@ extension Ghostty {
         }
 
         var autoUpdateChannel: AutoUpdateChannel {
-            let defaultValue = AutoUpdateChannel.stable
+            let defaultValue = AutoUpdateChannel.tip
             guard let config = self.config else { return defaultValue }
             var v: UnsafePointer<Int8>?
             let key = "auto-update-channel"
