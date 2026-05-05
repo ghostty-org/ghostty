@@ -273,6 +273,10 @@ pub const SplitTree = extern struct {
             .{ handle, direction, old_tree, &new_tree },
         );
 
+        // Auto-equalize the whole tree if the user opted in. We do this
+        // before publishing the tree so the resize is invisible to listeners.
+        autoEqualize(&new_tree, alloc);
+
         // Replace our tree
         self.setTree(&new_tree);
     }
@@ -646,6 +650,25 @@ pub const SplitTree = extern struct {
         self.setTree(&new_tree);
     }
 
+    /// If `auto-equalize-splits` is enabled, replace `tree` in place with an
+    /// equalized version. On allocation failure we log and leave `tree`
+    /// untouched so the create/close operation still succeeds with the
+    /// non-equalized layout.
+    fn autoEqualize(tree: *Surface.Tree, alloc: Allocator) void {
+        const app = Application.default();
+        const config_obj = app.getConfig();
+        defer config_obj.unref();
+        const config = config_obj.get();
+        if (!config.@"auto-equalize-splits") return;
+
+        const equalized = tree.equalize(alloc) catch |err| {
+            log.warn("unable to auto-equalize tree: {}", .{err});
+            return;
+        };
+        tree.deinit();
+        tree.* = equalized;
+    }
+
     pub fn actionZoom(
         _: *gio.SimpleAction,
         _: ?*glib.Variant,
@@ -744,6 +767,10 @@ pub const SplitTree = extern struct {
             return;
         };
         defer new_tree.deinit();
+
+        // Auto-equalize the surviving splits if the user opted in.
+        autoEqualize(&new_tree, Application.default().allocator());
+
         self.setTree(&new_tree);
 
         // Grab focus. We have to set this on the "last focused" because our
