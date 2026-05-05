@@ -260,8 +260,12 @@ class BaseTerminalController: NSWindowController,
             return nil
         }
 
+        // If auto-equalize-splits is enabled, equalize the new tree before
+        // committing it so all splits in the window become evenly sized.
+        let finalTree = derivedConfig.autoEqualizeSplits ? newTree.equalized() : newTree
+
         replaceSurfaceTree(
-            newTree,
+            finalTree,
             moveFocusTo: newView,
             moveFocusFrom: oldView,
             undoAction: "New Split")
@@ -456,8 +460,13 @@ class BaseTerminalController: NSWindowController,
             nil
         }
 
+        // If auto-equalize-splits is enabled, equalize the post-removal tree
+        // so the surviving splits in the window become evenly sized.
+        let removed = surfaceTree.removing(node)
+        let finalTree = derivedConfig.autoEqualizeSplits ? removed.equalized() : removed
+
         replaceSurfaceTree(
-            surfaceTree.removing(node),
+            finalTree,
             moveFocusTo: nextFocus,
             moveFocusFrom: focusedSurface,
             undoAction: "Close Terminal"
@@ -1447,12 +1456,14 @@ class BaseTerminalController: NSWindowController,
         let windowStepResize: Bool
         let focusFollowsMouse: Bool
         let splitPreserveZoom: Ghostty.Config.SplitPreserveZoom
+        let autoEqualizeSplits: Bool
 
         init() {
             self.macosTitlebarProxyIcon = .visible
             self.windowStepResize = false
             self.focusFollowsMouse = false
             self.splitPreserveZoom = .init()
+            self.autoEqualizeSplits = false
         }
 
         init(_ config: Ghostty.Config) {
@@ -1460,6 +1471,7 @@ class BaseTerminalController: NSWindowController,
             self.windowStepResize = config.windowStepResize
             self.focusFollowsMouse = config.focusFollowsMouse
             self.splitPreserveZoom = config.splitPreserveZoom
+            self.autoEqualizeSplits = config.autoEqualizeSplits
         }
     }
 }

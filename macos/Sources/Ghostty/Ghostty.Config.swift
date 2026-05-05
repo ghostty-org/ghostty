@@ -181,6 +181,14 @@ extension Ghostty {
             return .milliseconds(v)
         }
 
+        var autoEqualizeSplits: Bool {
+            guard let config = self.config else { return false }
+            var v = false
+            let key = "auto-equalize-splits"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
         var splitPreserveZoom: SplitPreserveZoom {
             guard let config = self.config else { return .init() }
             var v: CUnsignedInt = 0
