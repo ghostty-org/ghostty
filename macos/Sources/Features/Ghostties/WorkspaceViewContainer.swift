@@ -323,6 +323,7 @@ class WorkspaceViewContainer: NSView {
         // Clean up previous window's observers (handles view moving between windows).
         NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.willEnterFullScreenNotification, object: fullScreenObservedWindow)
         NotificationCenter.default.removeObserver(self, name: NSWindow.didEnterFullScreenNotification, object: fullScreenObservedWindow)
         NotificationCenter.default.removeObserver(self, name: NSWindow.didExitFullScreenNotification, object: fullScreenObservedWindow)
 
@@ -360,6 +361,14 @@ class WorkspaceViewContainer: NSView {
         )
 
         // Re-measure toolbar row when fullscreen transitions change the titlebar geometry.
+        // willEnter fires before AppKit takes a snapshot for the animation, preventing
+        // a single-frame glitch during the enter-fullscreen transition.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidEnterOrExitFullScreen),
+            name: NSWindow.willEnterFullScreenNotification,
+            object: window
+        )
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(windowDidEnterOrExitFullScreen),
@@ -637,7 +646,7 @@ class WorkspaceViewContainer: NSView {
         }
 
         // Shadow + corner radius (non-animatable).
-        browserShadowHost.layer?.shadowOpacity = visible ? 0.15 : 0
+        browserShadowHost.layer?.shadowOpacity = visible ? WorkspaceLayout.canvasShadowOpacity : 0
 
         invalidateIntrinsicContentSize()
     }
@@ -907,24 +916,24 @@ class WorkspaceViewContainer: NSView {
         switch newMode {
         case .pinned:
             terminalContainer.layer?.cornerRadius = WorkspaceLayout.terminalCornerRadius
-            terminalContainer.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-            terminalShadowHost.layer?.shadowOpacity = 0.15
+            terminalContainer.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+            terminalShadowHost.layer?.shadowOpacity = WorkspaceLayout.canvasShadowOpacity
             terminalShadowHost.layer?.cornerRadius = WorkspaceLayout.terminalCornerRadius
             terminalShadowHost.layer?.backgroundColor = cardBackgroundCGColor
             browserShadowHost.layer?.cornerRadius = WorkspaceLayout.terminalCornerRadius
             browserShadowHost.layer?.backgroundColor = browserCardBackgroundCGColor
-            browserShadowHost.layer?.shadowOpacity = isBrowserVisible ? 0.15 : 0
+            browserShadowHost.layer?.shadowOpacity = isBrowserVisible ? WorkspaceLayout.canvasShadowOpacity : 0
             layer?.backgroundColor = canvasBackgroundCGColor
             sidebarOverlayBackground.layer?.shadowOpacity = 0
         case .closed:
             terminalContainer.layer?.cornerRadius = WorkspaceLayout.terminalCornerRadius
-            terminalContainer.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-            terminalShadowHost.layer?.shadowOpacity = 0.15
+            terminalContainer.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+            terminalShadowHost.layer?.shadowOpacity = WorkspaceLayout.canvasShadowOpacity
             terminalShadowHost.layer?.cornerRadius = WorkspaceLayout.terminalCornerRadius
             terminalShadowHost.layer?.backgroundColor = cardBackgroundCGColor
             browserShadowHost.layer?.cornerRadius = WorkspaceLayout.terminalCornerRadius
             browserShadowHost.layer?.backgroundColor = browserCardBackgroundCGColor
-            browserShadowHost.layer?.shadowOpacity = isBrowserVisible ? 0.15 : 0
+            browserShadowHost.layer?.shadowOpacity = isBrowserVisible ? WorkspaceLayout.canvasShadowOpacity : 0
             layer?.backgroundColor = canvasBackgroundCGColor
             sidebarOverlayBackground.layer?.shadowOpacity = 0
         case .overlay:
@@ -1209,18 +1218,16 @@ class WorkspaceViewContainer: NSView {
         terminalContainer.wantsLayer = true
         terminalContainer.layer?.cornerRadius = hasCardInset ? WorkspaceLayout.terminalCornerRadius : 0
         terminalContainer.layer?.cornerCurve = .continuous
-        terminalContainer.layer?.maskedCorners = hasCardInset
-            ? [.layerMinXMinYCorner, .layerMaxXMinYCorner]  // top corners only (MinY = bottom in CA coords)
-            : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        terminalContainer.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
         terminalContainer.layer?.masksToBounds = true
 
         // Configure shadow on the host layer. Must happen after addSubview so the
         // layer exists (wantsLayer in a property closure may not create it in time).
         terminalShadowHost.wantsLayer = true
-        terminalShadowHost.layer?.shadowColor = NSColor.black.cgColor
-        terminalShadowHost.layer?.shadowOpacity = hasCardInset ? 0.15 : 0
-        terminalShadowHost.layer?.shadowRadius = 8
-        terminalShadowHost.layer?.shadowOffset = CGSize(width: 0, height: -2)
+        terminalShadowHost.layer?.shadowColor = WorkspaceLayout.canvasShadowColor
+        terminalShadowHost.layer?.shadowOpacity = hasCardInset ? WorkspaceLayout.canvasShadowOpacity : 0
+        terminalShadowHost.layer?.shadowRadius = WorkspaceLayout.canvasShadowRadius
+        terminalShadowHost.layer?.shadowOffset = WorkspaceLayout.canvasShadowOffset
 
         // Card background behind the title bar region. No masksToBounds — shadow
         // must render outside the layer bounds.
@@ -1230,10 +1237,10 @@ class WorkspaceViewContainer: NSView {
 
         // Browser shadow host — identical layer config to terminal shadow host.
         browserShadowHost.wantsLayer = true
-        browserShadowHost.layer?.shadowColor = NSColor.black.cgColor
+        browserShadowHost.layer?.shadowColor = WorkspaceLayout.canvasShadowColor
         browserShadowHost.layer?.shadowOpacity = 0  // hidden initially
-        browserShadowHost.layer?.shadowRadius = 8
-        browserShadowHost.layer?.shadowOffset = CGSize(width: 0, height: -2)
+        browserShadowHost.layer?.shadowRadius = WorkspaceLayout.canvasShadowRadius
+        browserShadowHost.layer?.shadowOffset = WorkspaceLayout.canvasShadowOffset
         browserShadowHost.layer?.cornerRadius = hasCardInset ? WorkspaceLayout.terminalCornerRadius : 0
         browserShadowHost.layer?.cornerCurve = .continuous
         browserShadowHost.layer?.backgroundColor = hasCardInset ? browserCardBackgroundCGColor : nil

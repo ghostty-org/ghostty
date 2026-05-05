@@ -35,6 +35,12 @@ enum WorkspaceLayout {
     /// Returns nil before the window is on-screen or if the button isn't available.
     /// Call from NSView.layout() or window-delegate hooks, not from init.
     static func titlebarRowTopAnchorConstant(in view: NSView) -> CGFloat? {
+        // In fullscreen, there is no titlebar row — content extends edge-to-edge.
+        // Return 0 so toolbar buttons park at the top edge (they will be hidden
+        // by the fullscreen chrome).
+        if view.window?.styleMask.contains(.fullScreen) == true {
+            return 0
+        }
         guard let win = view.window,
               let close = win.standardWindowButton(.closeButton),
               close.window === win else { return nil }
@@ -51,6 +57,18 @@ enum WorkspaceLayout {
 
     /// Corner radius on the floating terminal panel (all four corners).
     static let terminalCornerRadius: CGFloat = 12
+
+    /// Shadow color applied to canvas shadow hosts (terminal + browser cards).
+    static let canvasShadowColor: CGColor = NSColor.black.cgColor
+
+    /// Shadow blur radius applied to canvas shadow hosts.
+    static let canvasShadowRadius: CGFloat = 8
+
+    /// Shadow offset applied to canvas shadow hosts (slight downward cast).
+    static let canvasShadowOffset: CGSize = CGSize(width: 0, height: -2)
+
+    /// Shadow opacity applied to canvas shadow hosts when the card is visible.
+    static let canvasShadowOpacity: Float = 0.15
 
     /// Inset around the terminal panel when sidebar is visible (floating card effect).
     /// The design uses 8pt on all four sides (top, bottom, left, right).
