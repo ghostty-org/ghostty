@@ -2420,6 +2420,55 @@ Root cause: the constraint (`sidebarToggleCenterYConstraint.constant`) was updat
 
 ---
 
+## 2026-05-06 — Waveset A: tasks smoke-loop fixes + full CI coverage
+
+### What happened
+
+Planned and executed Waveset A of the Tasks feature plan — the gate before removing the "preview" banner and shipping beta.16. Six smoke-test bugs fixed across three surfaces (macOS, CLI, MCP). CI test coverage expanded from partial to complete.
+
+### Key work
+
+**Smoke-loop bug fixes (branch: `feat/tasks-smoke-ready`):**
+
+- **A1** — Inbox lane excluded `done` tasks (`recomputeLanes` filter in macOS `TaskStore`)
+- **A2** — Active zone dedup: session drafts now exclude rows whose `cwd` matches a running task's `projectPath`
+- **A3** — `gt done` fast path via `resolveByFilename` (one file read vs full scan) + `✓ marked done: <title>` output
+- **A4** — Default template changed to `Claude Code` across `gt new`, MCP `create_task`, and `NewTaskComposerStore`
+- **A5** — `scripts/install-gt.sh` + onboarding sheet `gt`-not-found prompt
+- **A6** — macOS `resolveTasksDirectory` delegates git-walk to `GhosttiesCore.TasksDirectory.find` (resolves CLI/macOS drift)
+
+**CI coverage expanded:**
+
+- CLI swift-package: 98 → 105 tests (7 skips removed — cwd-mutation tests were already fixed, skips were overly conservative)
+- macOS xcodebuild: 3 → 17 test classes (all 14 unaudited classes confirmed headless-safe and added)
+
+### Commits this session (branch: `feat/tasks-smoke-ready`)
+
+- `1de164fa7` — `fix(tasks): filter done tasks from Inbox lane; delegate macOS resolver to GhosttiesCore`
+- `b61e93f8e` — `fix(gt): done command faster + progress output; default template to Claude Code`
+- `bac434bbc` — `fix(tasks): default template to Claude Code; add install-gt.sh script and PATH prompt`
+- `09c9d18df` — `fix(test): remove broken empty-URL assertion in TasksDirectoryTests`
+- `28feb312a` — `ci: unskip TasksDirectoryTests + add ActiveZoneDedupTests; fix cwd-mutation in tests`
+- `256954bff` — `ci: add headless-safe macOS test classes to xcodebuild coverage`
+
+### Gotcha surfaced
+
+Parallel foreground subagents share the working tree — A1+A6 and A2 agents ran concurrently and their staged changes merged into one commit. Harmless here (non-overlapping files), but a pattern to watch. See `feedback-parallel-agents-shared-worktree.md`.
+
+### What's next
+
+1. Sean builds + runs `docs/full-loop-smoke.md` on `feat/tasks-smoke-ready`
+2. If passes → drop preview banner → merge to main → tag `v0.1.0-beta.16`
+3. Waveset B — six-zone parity: Backlog + Review as standalone top-level zones
+
+### Reconciliation
+
+- 6/6 delegations verified: all committed + pushed ✓
+- Tree clean on `feat/tasks-smoke-ready` ✓
+- 105 CLI tests + all 17 macOS test classes passing ✓
+
+---
+
 ## 2026-05-05 — beta.15 release + release pipeline hardening
 
 ### What happened
