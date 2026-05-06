@@ -124,11 +124,8 @@ final class TasksDirectoryTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: overrideDir.path),
                       "env override directory must exist for the resolver to accept it")
 
-        // And verify that an empty string env var → no directory (test isolation opt-out).
-        // The macOS resolver returns nil for an empty override.
-        let emptyOverrideURL = URL(fileURLWithPath: "", isDirectory: true)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: emptyOverrideURL.path),
-                       "empty GHOSTTIES_TASKS_DIR must resolve to a non-existent path → resolver returns nil")
+        // Note: empty-string GHOSTTIES_TASKS_DIR guard lives in macOS TaskStore.resolveTasksDirectory(),
+        // not in GhosttiesCore.TasksDirectory — no additional assertion needed here.
     }
 
     // MARK: - stateDirectory
