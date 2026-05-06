@@ -47,4 +47,74 @@ struct MenuShortcutManagerTests {
         #expect(goToLeftItem.keyEquivalent == "h")
         #expect(goToLeftItem.keyEquivalentModifierMask == .command)
     }
+
+    @Test func disabledMenuKeyEquivalentsClearShortcut() async throws {
+        let config = try TemporaryConfig("""
+        macos-menu-key-equivalents = false
+        keybind = super+n=new_window
+        """)
+
+        let item = NSMenuItem(title: "New Window", action: "newWindow:", keyEquivalent: "n")
+        item.keyEquivalentModifierMask = .command
+
+        let manager = await Ghostty.MenuShortcutManager()
+        await manager.reset()
+        await manager.syncMenuShortcut(config, action: "new_window", menuItem: item)
+
+        #expect(item.keyEquivalent.isEmpty)
+        #expect(item.keyEquivalentModifierMask.isEmpty)
+    }
+
+    @Test func disabledMenuKeyEquivalentsClearSystemShortcut() async throws {
+        let menu = NSMenu()
+        let hide = NSMenuItem(title: "Hide Ghostty", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        hide.keyEquivalentModifierMask = .command
+        menu.addItem(hide)
+
+        let regular = NSMenuItem(title: "Other", action: "other:", keyEquivalent: "o")
+        regular.keyEquivalentModifierMask = .command
+        menu.addItem(regular)
+
+        let manager = await Ghostty.MenuShortcutManager()
+        await manager.syncSystemMenuKeyEquivalents(false, menu: menu)
+
+        #expect(hide.keyEquivalent.isEmpty)
+        #expect(hide.keyEquivalentModifierMask.isEmpty)
+        #expect(regular.keyEquivalent == "o")
+        #expect(regular.keyEquivalentModifierMask == .command)
+
+        await manager.syncSystemMenuKeyEquivalents(true, menu: menu)
+
+        #expect(hide.keyEquivalent == "h")
+        #expect(hide.keyEquivalentModifierMask == .command)
+    }
+
+    @Test func disabledMenuKeyEquivalentsClearDynamicTabShortcuts() async throws {
+        let menu = NSMenu()
+        let next = NSMenuItem(title: "Show Next Tab", action: "selectNextTab:", keyEquivalent: "}")
+        next.keyEquivalentModifierMask = [.command, .shift]
+        menu.addItem(next)
+
+        let manager = await Ghostty.MenuShortcutManager()
+        await manager.syncSystemMenuKeyEquivalents(false, menu: menu)
+
+        #expect(next.keyEquivalent.isEmpty)
+        #expect(next.keyEquivalentModifierMask.isEmpty)
+    }
+
+    @Test func disabledMenuKeyEquivalentsClearMinimizeAllShortcut() async throws {
+        let menu = NSMenu()
+        let minimizeAll = NSMenuItem(
+            title: "Minimize All",
+            action: #selector(NSApplication.miniaturizeAll(_:)),
+            keyEquivalent: "m")
+        minimizeAll.keyEquivalentModifierMask = [.command, .option]
+        menu.addItem(minimizeAll)
+
+        let manager = await Ghostty.MenuShortcutManager()
+        await manager.syncSystemMenuKeyEquivalents(false, menu: menu)
+
+        #expect(minimizeAll.keyEquivalent.isEmpty)
+        #expect(minimizeAll.keyEquivalentModifierMask.isEmpty)
+    }
 }

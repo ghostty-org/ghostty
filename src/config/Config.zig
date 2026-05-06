@@ -1906,11 +1906,13 @@ keybind: Keybinds = .{},
 /// There are other edge case scenarios that may not behave as expected
 /// but are working as intended the way this feature is designed:
 ///
-/// * On macOS, bindings in the main menu will trigger before any remapping
-///   is done. This is because macOS itself handles menu activation and
-///   this happens before Ghostty receives the key event. To workaround
-///   this, you should unbind the menu items and rebind them using your
-///   desired modifier.
+/// * On macOS, menu key equivalents are handled by AppKit before Ghostty
+///   receives the key event. For example, `key-remap = command=left_alt`
+///   does not stop `cmd+n` from opening a new window, because the New Window
+///   menu item handles the shortcut before Ghostty can remap it. To let
+///   Ghostty receive and remap those events first, set
+///   `macos-menu-key-equivalents = false`, or unbind the menu items and rebind
+///   them using your desired modifier.
 ///
 /// This configuration can be repeated to specify multiple remaps.
 @"key-remap": KeyRemapSet = .empty,
@@ -3326,6 +3328,22 @@ keybind: Keybinds = .{},
 /// With some window managers and window transparency settings, you may
 /// find false more visually appealing.
 @"macos-window-shadow": bool = true,
+
+/// If true, Ghostty will use key equivalents for macOS menu items.
+///
+/// On macOS, AppKit handles menu key equivalents before Ghostty receives key
+/// events. This means a remap such as `key-remap = command=left_alt` still
+/// leaves `cmd+n` captured by the New Window menu item before Ghostty can turn
+/// it into `alt+n`.
+///
+/// Setting this to false clears those menu shortcuts so the key event reaches
+/// Ghostty and can be remapped first. This applies to Ghostty actions shown in
+/// the main menu and to standard macOS menu items that Ghostty can identify,
+/// such as Hide, Hide Others, Minimize, Toggle Full Screen, Show All Tabs, Show
+/// Previous Tab, Show Next Tab, and Ghostty Help.
+///
+/// The default is true.
+@"macos-menu-key-equivalents": bool = true,
 
 /// If true, the macOS icon in the dock and app switcher will be hidden. This is
 /// mainly intended for those primarily using the quick-terminal mode.

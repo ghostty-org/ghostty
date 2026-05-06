@@ -268,6 +268,11 @@ class AppDelegate: NSObject,
             selector: #selector(ghosttyNewTab(_:)),
             name: Ghostty.Notification.ghosttyNewTab,
             object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(menuWillOpen(_:)),
+            name: Notification.Name(rawValue: "NSMenuWillOpenNotification"),
+            object: nil)
 
         // Configure user notifications
         let actions = [
@@ -1209,6 +1214,8 @@ extension AppDelegate {
         //
         // syncMenuShortcut(config, action: "toggle_fullscreen", menuItem: self.menuToggleFullScreen)
 
+        menuShortcutManager.syncSystemMenuKeyEquivalents(config, menu: NSApp.mainMenu)
+
         // Dock menu
         reloadDockMenu()
     }
@@ -1219,6 +1226,12 @@ extension AppDelegate {
 
     @MainActor func performGhosttyBindingMenuKeyEquivalent(with event: NSEvent) -> Bool {
         menuShortcutManager.performGhosttyBindingMenuKeyEquivalent(with: event)
+    }
+
+    @MainActor @objc private func menuWillOpen(_ notification: Notification) {
+        guard ghostty.config.config != nil,
+              !ghostty.config.macosMenuKeyEquivalents else { return }
+        menuShortcutManager.syncSystemMenuKeyEquivalents(ghostty.config, menu: notification.object as? NSMenu)
     }
 }
 

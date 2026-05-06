@@ -56,6 +56,16 @@ struct ConfigTests {
         #expect(config.macosWindowShadow == true)
     }
 
+    @Test func macosMenuKeyEquivalentsDefaultsToTrue() throws {
+        let config = try TemporaryConfig("")
+        #expect(config.macosMenuKeyEquivalents == true)
+    }
+
+    @Test func macosMenuKeyEquivalentsSetToFalse() throws {
+        let config = try TemporaryConfig("macos-menu-key-equivalents = false")
+        #expect(config.macosMenuKeyEquivalents == false)
+    }
+
     @Test func maximizeDefaultsToFalse() throws {
         let config = try TemporaryConfig("")
         #expect(config.maximize == false)

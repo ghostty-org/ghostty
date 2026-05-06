@@ -13,6 +13,8 @@ extension Ghostty {
         /// If multiple items map to the same shortcut, the most recent one wins.
         private var menuItemsByShortcut: [MenuShortcutKey: Weak<NSMenuItem>] = [:]
 
+        private var systemMenuShortcuts: [ObjectIdentifier: StoredShortcut] = [:]
+
         /// Reset our shortcut index since we're about to rebuild all menu bindings.
         func reset() {
             menuItemsByShortcut.removeAll(keepingCapacity: true)
@@ -23,9 +25,39 @@ extension Ghostty {
         func syncMenuShortcut(_ config: Ghostty.Config, action: String?, menuItem: NSMenuItem?) {
             guard let menu = menuItem else { return }
 
-            if !updateMenuShortcut(config, action: action, menuItem: menu) {
+            if !config.macosMenuKeyEquivalents ||
+                !updateMenuShortcut(config, action: action, menuItem: menu) {
                 menu.keyEquivalent = ""
                 menu.keyEquivalentModifierMask = []
+            }
+        }
+
+        /// Syncs key equivalents for menu items that are provided by AppKit or static
+        /// macOS menu definitions instead of Ghostty keybinds.
+        func syncSystemMenuKeyEquivalents(_ config: Ghostty.Config, menu: NSMenu?) {
+            syncSystemMenuKeyEquivalents(config.macosMenuKeyEquivalents, menu: menu)
+        }
+
+        func syncSystemMenuKeyEquivalents(_ enabled: Bool, menu: NSMenu?) {
+            guard let menu else { return }
+
+            for item in menu.allItems where item.hasSuppressedSystemMenuKeyEquivalent {
+                let id = ObjectIdentifier(item)
+                if enabled {
+                    if let shortcut = systemMenuShortcuts[id] {
+                        item.keyEquivalent = shortcut.keyEquivalent
+                        item.keyEquivalentModifierMask = shortcut.modifierMask
+                    }
+                } else {
+                    if systemMenuShortcuts[id] == nil {
+                        systemMenuShortcuts[id] = .init(item)
+                    }
+                    if item.keyEquivalent.isEmpty && item.keyEquivalentModifierMask.isEmpty {
+                        continue
+                    }
+                    item.keyEquivalent = ""
+                    item.keyEquivalentModifierMask = []
+                }
             }
         }
 
@@ -74,6 +106,18 @@ extension Ghostty {
 }
 
 private extension Ghostty.MenuShortcutManager {
+    struct StoredShortcut {
+        let keyEquivalent: String
+        let modifierMask: NSEvent.ModifierFlags
+
+        init(_ menuItem: NSMenuItem) {
+            keyEquivalent = menuItem.keyEquivalent
+            modifierMask = menuItem.keyEquivalentModifierMask
+        }
+    }
+}
+
+private extension Ghostty.MenuShortcutManager {
     /// Syncs a single menu shortcut for the given action. The action string is the same
     /// action string used for the Ghostty configuration.
     ///
@@ -95,6 +139,36 @@ private extension Ghostty.MenuShortcutManager {
         // Later registrations intentionally override earlier ones for the same key.
         menuItemsByShortcut[key] = .init(menu)
         return true
+    }
+}
+
+private extension NSMenu {
+    var allItems: [NSMenuItem] {
+        items.flatMap { item in
+            if let submenu = item.submenu {
+                return [item] + submenu.allItems
+            }
+
+            return [item]
+        }
+    }
+}
+
+private extension NSMenuItem {
+    var hasSuppressedSystemMenuKeyEquivalent: Bool {
+        guard let action else { return false }
+
+        return [
+            "hide:",
+            "hideOtherApplications:",
+            "miniaturizeAll:",
+            "performMiniaturize:",
+            "selectNextTab:",
+            "selectPreviousTab:",
+            "showHelp:",
+            "toggleGhosttyFullScreen:",
+            "toggleTabOverview:",
+        ].contains(NSStringFromSelector(action))
     }
 }
 
