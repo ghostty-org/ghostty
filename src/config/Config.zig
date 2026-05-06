@@ -232,8 +232,9 @@ language: ?[:0]const u8 = null,
 ///
 /// The syntax is fairly loose, but invalid settings will be silently ignored.
 ///
-/// The font feature will apply to all fonts rendered by Ghostty. A future
-/// enhancement will allow targeting specific faces.
+/// Font features are only applied to the primary font family. Fallback
+/// fonts (fonts automatically selected when the primary font doesn't
+/// contain a needed glyph) use only the default font features.
 ///
 /// To disable programming ligatures, use `-calt` since this is the typical
 /// feature name for programming ligatures. To look into what font features
