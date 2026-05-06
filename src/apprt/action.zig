@@ -845,6 +845,7 @@ pub const ColorKind = enum(c_int) {
     foreground = -1,
     background = -2,
     cursor = -3,
+    tab = -4,
 
     // 0+ values indicate a palette index
     _,

@@ -787,6 +787,7 @@ typedef enum {
   GHOSTTY_ACTION_COLOR_KIND_FOREGROUND = -1,
   GHOSTTY_ACTION_COLOR_KIND_BACKGROUND = -2,
   GHOSTTY_ACTION_COLOR_KIND_CURSOR = -3,
+  GHOSTTY_ACTION_COLOR_KIND_TAB = -4,
 } ghostty_action_color_kind_e;
 
 // apprt.action.ColorChange

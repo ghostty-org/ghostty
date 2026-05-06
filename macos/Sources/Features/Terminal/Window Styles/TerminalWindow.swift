@@ -686,7 +686,7 @@ private struct TabColorIndicatorView: View {
     let tabColor: TerminalTabColor
 
     var body: some View {
-        if let color = tabColor.displayColor {
+        if let color = tabColor.color {
             Circle()
                 .fill(Color(color))
                 .frame(width: 6, height: 6)
@@ -777,17 +777,17 @@ extension TerminalWindow {
         let paletteItem = NSMenuItem()
         paletteItem.identifier = Self.tabColorPaletteIdentifier
         paletteItem.view = makeTabColorPaletteView(
-            selectedColor: (target?.window as? TerminalWindow)?.tabColor ?? .none
+            selectedColor: (target?.window as? TerminalWindow)?.tabColor.matchingPreset ?? .none
         ) { [weak target] color in
-            (target?.window as? TerminalWindow)?.tabColor = color
+            (target?.window as? TerminalWindow)?.tabColor = color.tabColor
         }
         menu.addItem(paletteItem)
     }
 }
 
 private func makeTabColorPaletteView(
-    selectedColor: TerminalTabColor,
-    selectionHandler: @escaping (TerminalTabColor) -> Void
+    selectedColor: TerminalTabColorPreset,
+    selectionHandler: @escaping (TerminalTabColorPreset) -> Void
 ) -> NSView {
     let hostingView = NSHostingView(rootView: TabColorMenuView(
         selectedColor: selectedColor,
