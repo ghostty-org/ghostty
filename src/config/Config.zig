@@ -8724,8 +8724,13 @@ pub const RepeatableCommand = struct {
             self.value.deinit(alloc);
             self.value_c.deinit(alloc);
         }
-        try self.value.appendSlice(alloc, inputpkg.command.defaults);
-        try self.value_c.appendSlice(alloc, inputpkg.command.defaultsC);
+        try self.value.ensureUnusedCapacity(alloc, inputpkg.command.defaults.len);
+        try self.value_c.ensureUnusedCapacity(alloc, inputpkg.command.defaults.len);
+        for (inputpkg.command.defaults) |cmd| {
+            const translated = cmd.translated();
+            self.value.appendAssumeCapacity(translated);
+            self.value_c.appendAssumeCapacity(try translated.cval(alloc));
+        }
     }
 
     pub fn parseCLI(
