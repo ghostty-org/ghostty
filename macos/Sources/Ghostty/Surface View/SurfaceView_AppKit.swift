@@ -1259,10 +1259,12 @@ extension Ghostty {
             }
 
             // Get information about if this is a binding.
+            var ghosttyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
+            var modsAreRemapped = false
             let bindingFlags = surfaceModel.flatMap { surface in
-                var ghosttyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
                 return (event.characters ?? "").withCString { ptr in
                     ghosttyEvent.text = ptr
+                    modsAreRemapped = surface.keyModsAreRemapped(ghosttyEvent)
                     return surface.keyIsBinding(ghosttyEvent)
                 }
             }
@@ -1275,7 +1277,8 @@ extension Ghostty {
                 //   - The binding is NOT `performable` (menu will always consume)
                 //   - The binding is `consumed` (unconsumed bindings should pass through
                 //     to the terminal, so we must not intercept them for the menu)
-                if keySequence.isEmpty,
+                if !modsAreRemapped,
+                   keySequence.isEmpty,
                    keyTables.isEmpty,
                    bindingFlags.isDisjoint(with: [.all, .performable]),
                    bindingFlags.contains(.consumed) {
@@ -1285,6 +1288,11 @@ extension Ghostty {
                     }
                 }
 
+                self.keyDown(with: event)
+                return true
+            }
+
+            if modsAreRemapped {
                 self.keyDown(with: event)
                 return true
             }

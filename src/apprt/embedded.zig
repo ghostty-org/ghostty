@@ -1811,6 +1811,20 @@ pub const CAPI = struct {
         return true;
     }
 
+    /// Returns true if the given key event has modifiers that would be remapped
+    /// before normal key processing.
+    export fn ghostty_surface_key_mods_are_remapped(
+        surface: *Surface,
+        event: KeyEvent,
+    ) bool {
+        const core_event = event.keyEvent().core() orelse {
+            log.warn("error processing key event", .{});
+            return false;
+        };
+
+        return surface.core_surface.keyEventModsAreRemapped(core_event);
+    }
+
     /// Send raw text to the terminal. This is treated like a paste
     /// so this isn't useful for sending escape sequences. For that,
     /// individual key input should be used.

@@ -1124,6 +1124,8 @@ GHOSTTY_API bool ghostty_surface_key(ghostty_surface_t, ghostty_input_key_s);
 GHOSTTY_API bool ghostty_surface_key_is_binding(ghostty_surface_t,
                                                    ghostty_input_key_s,
                                                    ghostty_binding_flags_e*);
+GHOSTTY_API bool ghostty_surface_key_mods_are_remapped(ghostty_surface_t,
+                                                          ghostty_input_key_s);
 GHOSTTY_API void ghostty_surface_text(ghostty_surface_t, const char*, uintptr_t);
 GHOSTTY_API void ghostty_surface_preedit(ghostty_surface_t, const char*, uintptr_t);
 GHOSTTY_API bool ghostty_surface_mouse_captured(ghostty_surface_t);
