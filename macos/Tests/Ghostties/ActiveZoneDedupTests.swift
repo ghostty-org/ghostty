@@ -1,14 +1,11 @@
-// IDE-ONLY: not currently exercised in CI macos job (build-only).
-// Run via Xcode Cmd+U or:
+// Exercised in CI under the macos-app job in .github/workflows/test-ghostties.yml.
+// Run locally via Xcode Cmd+U or:
 //   xcodebuild test \
 //     -project macos/Ghostties.xcodeproj \
 //     -scheme Ghostties \
 //     -destination 'platform=macOS,arch=arm64' \
 //     ONLY_ACTIVE_ARCH=YES ARCHS=arm64 \
 //     -only-testing:GhosttyTests/ActiveZoneDedupTests
-//
-// See .github/workflows/test-ghostties.yml — macos-app job is build-only due to
-// XCTest host app hang in headless GH Actions runners.
 //
 // Covers the deduplication predicate in ActiveZoneView.buildMergedRows:
 //   - A SessionDraft whose cwd matches a running TaskItem's projectPath must

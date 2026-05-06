@@ -48,17 +48,9 @@ jobs:
       - name: swift --version
         run: swift --version
 
-      # `swift test --parallel` on macos-latest GH Actions runners hangs at
-      # the worker level after running ~54 of 62 tests — the worker scheduled
-      # for TasksDirectoryTests + the last TaskStoreTests never produces any
-      # test output. Locally (Xcode 26.4.1) the same suite runs cleanly under
-      # --parallel in ~4s. Serial mode is even worse on CI: produces zero test
-      # output before the 10-min job timeout. Pragmatic skip until we have
-      # bandwidth to bisect what's specifically wrong with the GH Actions
-      # macos-latest swift-test scheduler.
       - name: swift test
         working-directory: cli
-        run: swift test --parallel --skip TasksDirectoryTests --skip testStatusUpdatePersistsAcrossReload --skip testResolveThrowsNotFoundForNonexistentId
+        run: swift test --parallel
 
   # ---------------------------------------------------------------------------
   # macOS App — Ghostties Xcode project tests
@@ -157,4 +149,5 @@ jobs:
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
             -only-testing:GhosttyTests/TaskModelTests \
-            -only-testing:GhosttyTests/TaskFileWatcherTests
+            -only-testing:GhosttyTests/TaskFileWatcherTests \
+            -only-testing:GhosttyTests/ActiveZoneDedupTests
