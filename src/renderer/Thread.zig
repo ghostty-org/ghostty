@@ -445,6 +445,13 @@ fn drainMailbox(self: *Thread) !void {
 
             .resize => |v| self.renderer.setScreenSize(v),
 
+            .surface_position => |v| self.renderer.setSurfacePosition(
+                v.offset_x,
+                v.offset_y,
+                v.window_width,
+                v.window_height,
+            ),
+
             .change_config => |config| {
                 defer config.alloc.destroy(config.thread);
                 defer config.alloc.destroy(config.impl);

@@ -3279,6 +3279,30 @@ pub fn occlusionCallback(self: *Surface, visible: bool) !void {
     try self.queueRender();
 }
 
+/// Called by the apprt when the surface position within the window changes.
+/// This updates custom shader uniforms so effects can span the full window.
+pub fn surfacePositionCallback(
+    self: *Surface,
+    offset_x: u32,
+    offset_y: u32,
+    window_width: u32,
+    window_height: u32,
+) !void {
+    // Crash metadata in case we crash in here
+    crash.sentry.thread_state = self.crashThreadState();
+    defer crash.sentry.thread_state = null;
+
+    _ = self.renderer_thread.mailbox.push(.{
+        .surface_position = .{
+            .offset_x = offset_x,
+            .offset_y = offset_y,
+            .window_width = window_width,
+            .window_height = window_height,
+        },
+    }, .{ .forever = {} });
+    try self.queueRender();
+}
+
 pub fn focusCallback(self: *Surface, focused: bool) !void {
     // Crash metadata in case we crash in here
     crash.sentry.thread_state = self.crashThreadState();
