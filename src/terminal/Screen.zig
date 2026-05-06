@@ -1766,7 +1766,11 @@ pub inline fn resize(
         .rows = opts.rows,
         .cols = opts.cols,
         .reflow = opts.reflow,
-        .cursor = .{ .x = self.cursor.x, .y = self.cursor.y },
+        .cursor = .{
+            .x = self.cursor.x,
+            .y = self.cursor.y,
+            .pin = self.cursor.page_pin,
+        },
     });
 
     // If we have no scrollback and we shrunk our rows, we must explicitly
@@ -7275,6 +7279,41 @@ test "Screen: resize less cols to eliminate wide char with row space" {
         defer alloc.free(contents);
         try testing.expectEqualStrings("", contents);
     }
+}
+
+test "Screen: resize less cols reflows cursor after wrapped text" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var s = try Screen.init(alloc, .{ .cols = 50, .rows = 7, .max_scrollback = 0 });
+    defer s.deinit();
+
+    for (0..30) |_| try s.testWriteString("a");
+
+    try testing.expectEqual(@as(usize, 0), s.cursor.y);
+    try testing.expectEqual(@as(usize, 30), s.cursor.x);
+
+    try s.resize(.{ .cols = 25, .rows = 7 });
+
+    try testing.expectEqual(@as(usize, 1), s.cursor.y);
+    try testing.expectEqual(@as(usize, 5), s.cursor.x);
+}
+
+test "Screen: resize less cols reflows cursor after empty cells" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var s = try Screen.init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
+    defer s.deinit();
+
+    try s.testWriteString("abc");
+    s.cursorRight(6);
+
+    try testing.expectEqual(@as(usize, 0), s.cursor.y);
+    try testing.expectEqual(@as(usize, 9), s.cursor.x);
+
+    try s.resize(.{ .cols = 5, .rows = 3 });
+
+    try testing.expectEqual(@as(usize, 1), s.cursor.y);
+    try testing.expectEqual(@as(usize, 4), s.cursor.x);
 }
 
 test "Screen: resize more cols with wide spacer head" {
