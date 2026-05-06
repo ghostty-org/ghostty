@@ -23,7 +23,7 @@ struct NewCommand: ParsableCommand {
     @Option(name: .long, help: "Path to the project's root directory (e.g. ~/Code/ghostties). Stored raw — tildes are not expanded.")
     var projectPath: String?
 
-    @Option(name: .long, help: "Launch template name (e.g. \"Orchestrator\").")
+    @Option(name: .long, help: "Launch template name (e.g. \"Claude Code\"). Defaults to \"Claude Code\".")
     var template: String?
 
     @Option(name: .long, help: "Status lane: inbox, backlog, running, needs-you, review, done/graveyard.")
@@ -83,9 +83,10 @@ struct NewCommand: ParsableCommand {
         if let projectPath, !projectPath.isEmpty {
             pairs.append(("project-path", projectPath))
         }
-        if let template, !template.isEmpty {
-            pairs.append(("template", template))
-        }
+        // Default to "Claude Code" when no template is specified so new tasks
+        // get a sensible launch template without requiring an explicit flag.
+        let templateValue = (template?.isEmpty == false) ? template! : "Claude Code"
+        pairs.append(("template", templateValue))
 
         let body = "\n## Goal\n\n\n## Notes\n\n\n## Activity\n\n- \(nowISO) — Task created via gt new\n"
 

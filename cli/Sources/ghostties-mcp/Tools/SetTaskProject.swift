@@ -9,7 +9,7 @@ func setTaskProjectTool() -> Tool {
             properties: [
                 ("id", S.string("Task id or unambiguous prefix.")),
                 ("project_path", S.string("Absolute path to the project's root directory (e.g. ~/Code/ghostties). Stored raw — tildes are not expanded.")),
-                ("template", S.string("Launch template name (e.g. \"Orchestrator\"). Stored verbatim. Omit to leave the existing value unchanged."))
+                ("template", S.string("Launch template name (e.g. \"Claude Code\"). Stored verbatim. Omit to leave the existing value unchanged."))
             ],
             required: ["id", "project_path"]
         ),

@@ -106,6 +106,21 @@ public struct TaskStore {
         throw CLIError.notFound("no task matches \"\(needle)\"")
     }
 
+    /// Fast-path resolve: try the exact filename `<needle>.md` first, loading
+    /// only that one file. Falls through to the full `resolve(idOrPrefix:)` scan
+    /// only when no exact filename match exists. Used by `gt done` so marking a
+    /// task complete with its full id completes in a single file read rather than
+    /// a full directory scan.
+    public func resolveByFilename(idOrPrefix needle: String) throws -> (task: Task, url: URL) {
+        let exact = directory.appendingPathComponent("\(needle).md")
+        if FileManager.default.fileExists(atPath: exact.path),
+           let task = loadFile(at: exact) {
+            return (task, exact)
+        }
+        // Fall through to full prefix-aware scan for partial ids.
+        return try resolve(idOrPrefix: needle)
+    }
+
     // MARK: - Write
 
     /// Overwrite a task's file with the given frontmatter pairs + body.
