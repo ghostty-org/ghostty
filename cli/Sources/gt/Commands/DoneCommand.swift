@@ -14,13 +14,13 @@ struct DoneCommand: ParsableCommand {
     func run() throws {
         let dir = try TasksDirectory.require()
         let store = TaskStore(directory: dir)
-        let (task, url) = try store.resolve(idOrPrefix: id)
+        let (task, url) = try store.resolveByFilename(idOrPrefix: id)
 
         let nowISO = isoFormatter.string(from: Date())
         var pairs = Frontmatter.set("status", TaskLane.done.rawValue, in: task.frontmatter)
         pairs = Frontmatter.set("completed", nowISO, in: pairs)
 
         try store.write(pairs: pairs, body: task.body, to: url)
-        // Silent success — like git.
+        print("✓ marked done: \(task.title)")
     }
 }

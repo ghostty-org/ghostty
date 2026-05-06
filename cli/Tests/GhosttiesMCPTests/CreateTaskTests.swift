@@ -289,7 +289,9 @@ final class CreateTaskTests: XCTestCase {
                       "on-disk 'project-path' missing or wrong; got:\n\(raw)")
     }
 
-    func test_createTask_withoutTemplate_doesNotWriteTemplateField() throws {
+    func test_createTask_withoutTemplate_defaultsToClaudeCode() throws {
+        // When no template argument is supplied, "Claude Code" must be written to
+        // disk so tasks always carry an explicit launch template.
         let responses = try driveServer([
             initRequest(),
             ["jsonrpc": "2.0", "id": 2, "method": "tools/call",
@@ -304,9 +306,8 @@ final class CreateTaskTests: XCTestCase {
             XCTFail("task file missing; saw \(files)"); return
         }
         let raw = try String(contentsOf: tasksDir.appendingPathComponent(file), encoding: .utf8)
-        // The field must be absent entirely — an omitted template is not written as blank.
-        XCTAssertFalse(raw.contains("template:"),
-                       "template: must not appear in frontmatter when argument was not supplied; got:\n\(raw)")
+        XCTAssertTrue(raw.contains("template: Claude Code"),
+                      "omitted template must default to 'Claude Code' on disk; got:\n\(raw)")
     }
 
     func test_createTask_linearStylePayload_writesAllFields() throws {

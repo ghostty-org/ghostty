@@ -160,4 +160,30 @@ final class TaskStoreTests: XCTestCase {
         try contents.write(to: url, atomically: true, encoding: .utf8)
         XCTAssertNil(makeStore().loadFile(at: url))
     }
+
+    // MARK: - resolveByFilename fast path
+
+    func testResolveByFilenameExactHit() throws {
+        _ = try writeFixture(id: "fast-task-abc123", title: "Fast task")
+        let (task, _) = try makeStore().resolveByFilename(idOrPrefix: "fast-task-abc123")
+        XCTAssertEqual(task.id, "fast-task-abc123")
+        XCTAssertEqual(task.title, "Fast task")
+    }
+
+    func testResolveByFilenameFallsBackToPrefixScan() throws {
+        _ = try writeFixture(id: "prefix-only-xyz789", title: "Prefix task")
+        // Pass only a prefix — no exact filename match, must fall back to full scan.
+        let (task, _) = try makeStore().resolveByFilename(idOrPrefix: "prefix-only")
+        XCTAssertEqual(task.id, "prefix-only-xyz789")
+    }
+
+    func testResolveByFilenameThrowsNotFoundWhenMissing() throws {
+        _ = try writeFixture(id: "exists-task")
+        XCTAssertThrowsError(try makeStore().resolveByFilename(idOrPrefix: "does-not-exist")) { error in
+            guard case CLIError.notFound(_) = error else {
+                XCTFail("expected notFound, got \(error)")
+                return
+            }
+        }
+    }
 }

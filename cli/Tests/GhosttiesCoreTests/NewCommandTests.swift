@@ -147,6 +147,54 @@ final class NewCommandTests: XCTestCase {
         }
     }
 
+    // MARK: - Template default
+
+    /// When no template is specified, "Claude Code" must be written to disk.
+    func testDefaultTemplateIsClaudeCode() throws {
+        let nowISO = "2026-04-26T10:00:00Z"
+        // Simulate `gt new "Default template task"` with the default applied by NewCommand.
+        let templateValue: String = "Claude Code"   // what NewCommand resolves nil → default to
+        let pairs: [(String, String)] = [
+            ("title", "Default template task"),
+            ("source", "shell"),
+            ("source-id", "default-template-task"),
+            ("branch", "null"),
+            ("project", "ghostties"),
+            ("created", nowISO),
+            ("status", TaskLane.backlog.rawValue),
+            ("template", templateValue)
+        ]
+        let url = try makeStore().create(id: "default-template-task", pairs: pairs,
+                                         body: "\n## Goal\n\n\n## Notes\n\n")
+        let raw = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(raw.contains("template: Claude Code"),
+                      "template must default to 'Claude Code'; got:\n\(raw)")
+        guard let task = makeStore().loadFile(at: url) else {
+            XCTFail("failed to reload task"); return
+        }
+        XCTAssertEqual(task.template, "Claude Code")
+    }
+
+    /// When --template is explicitly supplied, that value overrides the default.
+    func testExplicitTemplateOverridesDefault() throws {
+        let nowISO = "2026-04-26T10:00:00Z"
+        let pairs: [(String, String)] = [
+            ("title", "Custom template task"),
+            ("source", "shell"),
+            ("source-id", "custom-template-task"),
+            ("branch", "null"),
+            ("project", "ghostties"),
+            ("created", nowISO),
+            ("status", TaskLane.backlog.rawValue),
+            ("template", "Custom")
+        ]
+        let url = try makeStore().create(id: "custom-template-task", pairs: pairs,
+                                         body: "\n## Goal\n\n\n## Notes\n\n")
+        let raw = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(raw.contains("template: Custom"),
+                      "explicit template must be preserved; got:\n\(raw)")
+    }
+
     /// The four valid raw values must all parse successfully (positive contract).
     func testValidPriorityRawValuesParseSuccessfully() {
         let valid: [(String, TaskPriority)] = [

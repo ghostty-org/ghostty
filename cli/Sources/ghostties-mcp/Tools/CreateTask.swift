@@ -13,7 +13,7 @@ func createTaskTool() -> Tool {
                 ("branch", S.string("Branch name to associate with the task.")),
                 ("project", S.string("Project tag. Defaults to the tasks-dir's repo name.")),
                 ("project_path", S.string("Absolute path to the project's root directory (e.g. ~/Code/ghostties). Stored raw — tildes are not expanded.")),
-                ("template", S.string("Launch template name (e.g. \"Orchestrator\"). Stored verbatim.")),
+                ("template", S.string("Launch template name (e.g. \"Claude Code\"). Defaults to \"Claude Code\" when omitted.")),
                 ("lane", S.string("Status lane.", enum: laneEnum)),
                 ("priority", S.string("Task priority.", enum: priorityEnum)),
                 ("notes", S.string("Initial note body to seed the ## Notes section."))
@@ -76,9 +76,10 @@ func createTaskTool() -> Tool {
             if let projectPath, !projectPath.isEmpty {
                 pairs.append(("project-path", projectPath))
             }
-            if let template, !template.isEmpty {
-                pairs.append(("template", template))
-            }
+            // Default to "Claude Code" when no template argument is supplied so
+            // tasks created by agents always carry an explicit launch template.
+            let templateValue = (template?.isEmpty == false) ? template! : "Claude Code"
+            pairs.append(("template", templateValue))
 
             let notesSeed: String
             if let seedNotes, !seedNotes.isEmpty {
