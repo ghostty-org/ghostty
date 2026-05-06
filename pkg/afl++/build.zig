@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 /// Creates a build step that produces an AFL++-instrumented fuzzing
 /// executable.
@@ -23,6 +24,12 @@ pub fn addInstrumentedExe(
             @panic("Could not find 'afl-cc', which is required to build"),
         "-O3",
     });
+    if (builtin.target.os.tag.isDarwin()) {
+        // Apple's newer ld asserts on the custom section names emitted by
+        // AFL's LLVM instrumentation when linking our Zig-produced bitcode.
+        // lld links the same inputs without issue.
+        afl_cc.addArg("-fuse-ld=lld");
+    }
     afl_cc.addArg("-o");
     const fuzz_exe = afl_cc.addOutputFileArg(obj.name);
     afl_cc.addFileArg(pkg.path("afl.c"));

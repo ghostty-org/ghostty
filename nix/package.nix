@@ -30,7 +30,7 @@
 in
   stdenv.mkDerivation (finalAttrs: {
     pname = "ghostty";
-    version = "1.3.2-dev";
+    version = "1.3.2-dev+${revision}-nix";
 
     # We limit source like this to try and reduce the amount of rebuilds as possible
     # thus we only provide the source that is needed for the build
@@ -86,7 +86,7 @@ in
     zigBuildFlags = [
       "--system"
       "${finalAttrs.deps}"
-      "-Dversion-string=${finalAttrs.version}-${revision}-nix"
+      "-Dversion-string=${finalAttrs.version}"
       "-Dgtk-x11=${lib.boolToString enableX11}"
       "-Dgtk-wayland=${lib.boolToString enableWayland}"
       "-Dcpu=baseline"

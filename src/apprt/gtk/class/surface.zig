@@ -35,6 +35,7 @@ const TitleDialog = @import("title_dialog.zig").TitleDialog;
 const Window = @import("window.zig").Window;
 const InspectorWindow = @import("inspector_window.zig").InspectorWindow;
 const i18n = @import("../../../os/i18n.zig");
+const media = @import("../media.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface);
 
@@ -1737,7 +1738,7 @@ pub const Surface = extern struct {
         defer icon.unref();
         notification.setIcon(icon.as(gio.Icon));
 
-        const pointer = glib.Variant.newUint64(@intFromPtr(core_surface));
+        const pointer = glib.Variant.newUint64(core_surface.id);
         notification.setDefaultActionAndTargetValue(
             "app.present-surface",
             pointer,
@@ -2457,34 +2458,8 @@ pub const Surface = extern struct {
                 1.0,
             );
 
-            assert(std.fs.path.isAbsolute(path));
-            const media_file = gtk.MediaFile.newForFilename(path);
-
-            // If the audio file is marked as required, we'll emit an error if
-            // there was a problem playing it. Otherwise there will be silence.
-            if (required) {
-                _ = gobject.Object.signals.notify.connect(
-                    media_file,
-                    ?*anyopaque,
-                    mediaFileError,
-                    null,
-                    .{ .detail = "error" },
-                );
-            }
-
-            // Watch for the "ended" signal so that we can clean up after
-            // ourselves.
-            _ = gobject.Object.signals.notify.connect(
-                media_file,
-                ?*anyopaque,
-                mediaFileEnded,
-                null,
-                .{ .detail = "ended" },
-            );
-
-            const media_stream = media_file.as(gtk.MediaStream);
-            media_stream.setVolume(volume);
-            media_stream.play();
+            const media_file = media.fromFilename(path) orelse break :audio;
+            media.playMediaFile(media_file, volume, required);
         }
     }
 
@@ -2723,22 +2698,25 @@ pub const Surface = extern struct {
     }
 
     fn ecFocusEnter(_: *gtk.EventControllerFocus, self: *Self) callconv(.c) void {
+        self.updateFocus(true);
+    }
+
+    fn ecFocusLeave(_: *gtk.EventControllerFocus, self: *Self) callconv(.c) void {
+        self.updateFocus(false);
+    }
+
+    fn updateFocus(self: *Self, focused: bool) void {
         const priv = self.private();
-        priv.focused = true;
-        priv.im_context.as(gtk.IMContext).focusIn();
+        priv.focused = focused;
+
+        const ctx = priv.im_context.as(gtk.IMContext);
+        if (focused) ctx.focusIn() else ctx.focusOut();
+
         _ = glib.idleAddOnce(idleFocus, self.ref());
         self.as(gobject.Object).notifyByPspec(properties.focused.impl.param_spec);
 
         // Bell stops ringing as soon as we gain focus
-        self.setBellRinging(false);
-    }
-
-    fn ecFocusLeave(_: *gtk.EventControllerFocus, self: *Self) callconv(.c) void {
-        const priv = self.private();
-        priv.focused = false;
-        priv.im_context.as(gtk.IMContext).focusOut();
-        _ = glib.idleAddOnce(idleFocus, self.ref());
-        self.as(gobject.Object).notifyByPspec(properties.focused.impl.param_spec);
+        if (focused) self.setBellRinging(false);
     }
 
     /// The focus callback must be triggered on an idle loop source because
@@ -3317,10 +3295,13 @@ pub const Surface = extern struct {
 
         // Store our cached size
         const priv = self.private();
-        priv.size = .{
+
+        const new_size: apprt.SurfaceSize = .{
             .width = @intCast(width),
             .height = @intCast(height),
         };
+        const changed = !priv.size.eql(&new_size);
+        priv.size = new_size;
 
         // If our surface is realize, we send callbacks.
         if (priv.core_surface) |surface| {
@@ -3330,12 +3311,13 @@ pub const Surface = extern struct {
                 log.warn("error in content scale callback err={}", .{err});
             };
 
-            surface.sizeCallback(priv.size) catch |err| {
-                log.warn("error in size callback err={}", .{err});
-            };
-
-            // Setup our resize overlay if configured
-            self.resizeOverlaySchedule();
+            if (changed) {
+                surface.sizeCallback(new_size) catch |err| {
+                    log.warn("error in size callback err={}", .{err});
+                };
+                // Setup our resize overlay if configured
+                self.resizeOverlaySchedule();
+            }
 
             return;
         }
@@ -3427,6 +3409,8 @@ pub const Surface = extern struct {
             .{},
             null,
         );
+
+        self.updateFocus(priv.focused);
     }
 
     fn resizeOverlaySchedule(self: *Self) void {
@@ -3479,35 +3463,6 @@ pub const Surface = extern struct {
         const priv = self.private();
         const right = priv.url_right.as(gtk.Widget);
         right.setVisible(0);
-    }
-
-    fn mediaFileError(
-        media_file: *gtk.MediaFile,
-        _: *gobject.ParamSpec,
-        _: ?*anyopaque,
-    ) callconv(.c) void {
-        const path = path: {
-            const file = media_file.getFile() orelse break :path null;
-            break :path file.getPath();
-        };
-        defer if (path) |p| glib.free(p);
-
-        const media_stream = media_file.as(gtk.MediaStream);
-        const err = media_stream.getError() orelse return;
-        log.warn("error playing bell from {s}: {s} {d} {s}", .{
-            path orelse "<<unknown>>",
-            glib.quarkToString(err.f_domain),
-            err.f_code,
-            err.f_message orelse "",
-        });
-    }
-
-    fn mediaFileEnded(
-        media_file: *gtk.MediaFile,
-        _: *gobject.ParamSpec,
-        _: ?*anyopaque,
-    ) callconv(.c) void {
-        media_file.unref();
     }
 
     fn titleDialogSet(

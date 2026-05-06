@@ -25,12 +25,18 @@ fn colorMap() ColorMap {
     // of our unit tests will catch it.
     var iter = std.mem.splitScalar(u8, data, '\n');
     var i: usize = 0;
-    while (iter.next()) |line| {
+    while (iter.next()) |raw_line| {
+        // Trim \r so this works with both LF and CRLF line endings,
+        // since git may convert rgb.txt to CRLF on Windows checkouts.
+        const line = if (raw_line.len > 0 and raw_line[raw_line.len - 1] == '\r')
+            raw_line[0 .. raw_line.len - 1]
+        else
+            raw_line;
         if (line.len == 0) continue;
         const r = try std.fmt.parseInt(u8, std.mem.trim(u8, line[0..3], " "), 10);
         const g = try std.fmt.parseInt(u8, std.mem.trim(u8, line[4..7], " "), 10);
         const b = try std.fmt.parseInt(u8, std.mem.trim(u8, line[8..11], " "), 10);
-        const name = std.mem.trim(u8, line[12..], " \t\n");
+        const name = std.mem.trim(u8, line[12..], " \t");
         kvs[i] = .{ name, .{ .r = r, .g = g, .b = b } };
         i += 1;
     }

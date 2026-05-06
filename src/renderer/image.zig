@@ -426,7 +426,7 @@ pub const State = struct {
 
         // Calculate the dimensions of our image, taking in to
         // account the rows / columns specified by the placement.
-        const dest_size = p.calculatedSize(image.*, t);
+        const dest_size = p.pixelSize(image.*, t);
 
         // Calculate the source rectangle
         const source_x = @min(image.width, p.source_x);

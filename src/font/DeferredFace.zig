@@ -26,6 +26,10 @@ fc: if (options.backend == .fontconfig_freetype) ?Fontconfig else void =
 ct: if (font.Discover == font.discovery.CoreText) ?CoreText else void =
     if (font.Discover == font.discovery.CoreText) null else {},
 
+/// Windows (FreeType directory scan)
+win: if (options.backend == .freetype_windows) ?Windows else void =
+    if (options.backend == .freetype_windows) null else {},
+
 /// Canvas
 wc: if (options.backend == .web_canvas) ?WebCanvas else void =
     if (options.backend == .web_canvas) null else {},
@@ -47,6 +51,42 @@ pub const Fontconfig = struct {
 
     pub fn deinit(self: *Fontconfig) void {
         self.pattern.destroy();
+        self.* = undefined;
+    }
+};
+
+/// Windows specific data. Only present with the freetype_windows backend.
+///
+/// Unlike Fontconfig/CoreText which carry lightweight descriptor handles,
+/// the Windows backend has no external descriptor service — the "deferred"
+/// metadata is the FreeType face itself. We keep a pre-loaded face (loaded
+/// at discovery time) to answer `hasCodepoint` cheaply without re-opening
+/// the file on every query, and remember the path so `load()` can open a
+/// fresh face at the caller's requested size/options.
+pub const Windows = struct {
+    /// Path to the font file. Owned here.
+    path: [:0]const u8,
+
+    /// Face index within the file (for .ttc collections).
+    face_index: i32,
+
+    /// Variations to apply on load.
+    variations: []const font.face.Variation,
+
+    /// Pre-loaded face used for cheap metadata queries (glyphIndex,
+    /// hasColor). The size it was opened at is irrelevant for these
+    /// queries since the CMap is size-independent. Deinit'd with us.
+    peek: Face,
+
+    /// Whether the face presents as emoji (has color glyphs) or text.
+    presentation: Presentation,
+
+    /// Allocator that owns `path`.
+    alloc: Allocator,
+
+    pub fn deinit(self: *Windows) void {
+        self.peek.deinit();
+        self.alloc.free(self.path);
         self.* = undefined;
     }
 };
@@ -88,6 +128,7 @@ pub fn deinit(self: *DeferredFace) void {
     switch (options.backend) {
         .fontconfig_freetype => if (self.fc) |*fc| fc.deinit(),
         .freetype => {},
+        .freetype_windows => if (self.win) |*w| w.deinit(),
         .web_canvas => if (self.wc) |*wc| wc.deinit(),
         .coretext,
         .coretext_freetype,
@@ -102,6 +143,8 @@ pub fn deinit(self: *DeferredFace) void {
 pub fn familyName(self: DeferredFace, buf: []u8) ![]const u8 {
     switch (options.backend) {
         .freetype => {},
+
+        .freetype_windows => if (self.win) |w| return try w.peek.name(buf),
 
         .fontconfig_freetype => if (self.fc) |fc|
             return (try fc.pattern.get(.family, 0)).string,
@@ -130,6 +173,8 @@ pub fn familyName(self: DeferredFace, buf: []u8) ![]const u8 {
 pub fn name(self: DeferredFace, buf: []u8) ![]const u8 {
     switch (options.backend) {
         .freetype => {},
+
+        .freetype_windows => if (self.win) |w| return try w.peek.name(buf),
 
         .fontconfig_freetype => if (self.fc) |fc|
             return (try fc.pattern.get(.fullname, 0)).string,
@@ -164,6 +209,7 @@ pub fn load(
 ) !Face {
     return switch (options.backend) {
         .fontconfig_freetype => try self.loadFontconfig(lib, opts),
+        .freetype_windows => try self.loadWindows(lib, opts),
         .coretext, .coretext_harfbuzz, .coretext_noshape => try self.loadCoreText(lib, opts),
         .coretext_freetype => try self.loadCoreTextFreetype(lib, opts),
         .web_canvas => try self.loadWebCanvas(opts),
@@ -188,6 +234,19 @@ fn loadFontconfig(
     var face = try Face.initFile(lib, filename, face_index, opts);
     errdefer face.deinit();
     try face.setVariations(fc.variations, opts);
+    return face;
+}
+
+fn loadWindows(
+    self: *DeferredFace,
+    lib: Library,
+    opts: font.face.Options,
+) !Face {
+    const w = self.win.?;
+
+    var face = try Face.initFile(lib, w.path, w.face_index, opts);
+    errdefer face.deinit();
+    try face.setVariations(w.variations, opts);
     return face;
 }
 
@@ -284,6 +343,14 @@ pub fn hasCodepoint(self: DeferredFace, cp: u32, p: ?Presentation) bool {
                 }
 
                 return true;
+            }
+        },
+
+        .freetype_windows => {
+            // Use the pre-loaded peek face for a cheap CMap lookup.
+            if (self.win) |w| {
+                if (p) |desired| if (w.presentation != desired) return false;
+                return w.peek.glyphIndex(cp) != null;
             }
         },
 
@@ -411,7 +478,7 @@ test "fontconfig" {
 
     // Get a deferred face from fontconfig
     var def = def: {
-        var fc = discovery.Fontconfig.init();
+        var fc = discovery.Fontconfig.init(lib);
         defer fc.deinit();
         var it = try fc.discover(alloc, .{ .family = "monospace", .size = 12 });
         defer it.deinit();
@@ -443,7 +510,7 @@ test "coretext" {
 
     // Get a deferred face from fontconfig
     var def = def: {
-        var fc = discovery.CoreText.init();
+        var fc = discovery.CoreText.init(lib);
         var it = try fc.discover(alloc, .{ .family = "Monaco", .size = 12 });
         defer it.deinit();
         break :def (try it.next()).?;

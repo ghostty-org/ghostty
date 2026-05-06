@@ -47,9 +47,6 @@ extension Ghostty {
         // Maintain whether our window has focus (is key) or not
         @State private var windowFocus: Bool = true
 
-        // True if we're hovering over the left URL view, so we can show it on the right.
-        @State private var isHoveringURLLeft: Bool = false
-
         #if canImport(AppKit)
         // Observe SecureInput to detect when its enabled
         @ObservedObject private var secureInput = SecureInput.shared
@@ -133,51 +130,22 @@ extension Ghostty {
                     keyTables: surfaceView.keyTables,
                     keySequence: surfaceView.keySequence
                 )
+                .zIndex(1)
 #endif
 
-                // If we have a URL from hovering a link, we show that.
-                if let url = surfaceView.hoverUrl {
-                    let padding: CGFloat = 5
-                    let cornerRadius: CGFloat = 9
-                    ZStack {
-                        HStack {
-                            Spacer()
-                            VStack(alignment: .leading) {
-                                Spacer()
+                VStack(spacing: 0) {
+                    // If we have a URL from hovering a link, we show that.
+                    if let url = surfaceView.hoverUrl {
+                        URLHoverBanner(url: url)
+                    }
 
-                                Text(verbatim: url)
-                                    .padding(.init(top: padding, leading: padding, bottom: padding, trailing: padding))
-                                    .background(
-                                        UnevenRoundedRectangle(cornerRadii: .init(topLeading: cornerRadius))
-                                            .fill(.background)
-                                    )
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                    .opacity(isHoveringURLLeft ? 1 : 0)
-                            }
-                        }
-
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Spacer()
-
-                                Text(verbatim: url)
-                                    .padding(.init(top: padding, leading: padding, bottom: padding, trailing: padding))
-                                    .background(
-                                        UnevenRoundedRectangle(cornerRadii: .init(topTrailing: cornerRadius))
-                                            .fill(.background)
-                                    )
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                    .opacity(isHoveringURLLeft ? 0 : 1)
-                                    .onHover(perform: { hovering in
-                                        isHoveringURLLeft = hovering
-                                    })
-                            }
-                            Spacer()
-                        }
+                    // Show a bar to indicate a child process has exited.
+                    if let msg = surfaceView.childExitedMessage {
+                        ChildExitedMessageBar(msg: msg)
+                            .font(.system(size: min(surfaceView.cellSize.height * 0.8, 30)))
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
 
                 #if canImport(AppKit)
                 // If we have secure input enabled and we're the focused surface and window
@@ -196,10 +164,7 @@ extension Ghostty {
                         surfaceView: surfaceView,
                         searchState: searchState,
                         onClose: {
-#if canImport(AppKit)
-                            Ghostty.moveFocus(to: surfaceView)
-#endif
-                            surfaceView.searchState = nil
+                            surfaceView.endSearch()
                         }
                     )
                 }
@@ -242,7 +207,6 @@ extension Ghostty {
                 SurfaceGrabHandle(surfaceView: surfaceView)
                 #endif
             }
-
         }
     }
 
@@ -446,18 +410,16 @@ extension Ghostty {
                     }
 #endif
                     .backport.onKeyPress(.return) { modifiers in
-                        guard let surface = surfaceView.surface else { return .ignored }
-                        let action = modifiers.contains(.shift)
-                        ? "navigate_search:previous"
-                        : "navigate_search:next"
-                        ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
+                        if modifiers.contains(.shift) {
+                            _ = surfaceView.navigateSearchToPrevious()
+                        } else {
+                            _ = surfaceView.navigateSearchToNext()
+                        }
                         return .handled
                     }
 
                     Button(action: {
-                        guard let surface = surfaceView.surface else { return }
-                        let action = "navigate_search:next"
-                        ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
+                        _ = surfaceView.navigateSearchToNext()
                     }, label: {
                         Image(systemName: "chevron.up")
                     })
@@ -623,8 +585,13 @@ extension Ghostty {
         }
 
         func updateOSView(_ scrollView: SurfaceScrollView, context: Context) {
-            // Nothing to do: SwiftUI automatically updates the frame size, and
-            // SurfaceScrollView handles the rest in response to that
+            // SwiftUI may defer frame updates under system load (e.g., memory
+            // pressure, heavy I/O) or when external window managers trigger rapid
+            // layout changes. When that happens, the scroll view's bounds can
+            // fall out of sync with the size reported by GeometryReader, causing
+            // the surface to render at stale dimensions.
+            guard scrollView.bounds.size != size else { return }
+            scrollView.needsLayout = true
         }
         #else
         func makeOSView(context: Context) -> SurfaceView {
@@ -1262,19 +1229,5 @@ extension FocusedValues {
 
     struct FocusedGhosttySurfaceCellSize: FocusedValueKey {
         typealias Value = OSSize
-    }
-}
-
-// MARK: Search State
-
-extension Ghostty.SurfaceView {
-    class SearchState: ObservableObject {
-        @Published var needle: String = ""
-        @Published var selected: UInt?
-        @Published var total: UInt?
-
-        init(from startSearch: Ghostty.Action.StartSearch) {
-            self.needle = startSearch.needle ?? ""
-        }
     }
 }

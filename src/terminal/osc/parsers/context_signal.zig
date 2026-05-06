@@ -201,11 +201,11 @@ pub const Field = enum {
 ///   start=<id>[;<field>=<value>]*
 ///   end=<id>[;<field>=<value>]*
 pub fn parse(parser: *Parser, _: ?u8) ?*OSCCommand {
-    const writer = parser.writer orelse {
+    const cap = if (parser.capture) |*c| c else {
         parser.state = .invalid;
         return null;
     };
-    const data = writer.buffered();
+    const data = cap.trailing();
     if (data.len == 0) {
         parser.state = .invalid;
         return null;

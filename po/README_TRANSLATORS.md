@@ -145,7 +145,7 @@ section before submitting a pull request!
 > possible to view your translations there.
 
 Simply run `zig build run`. Ghostty uses your system language by default; if
-your translations are of the language of your system, use
+your translations are for a different language, use
 `zig build run -- --language=X` (where `X` is your locale name). You can
 alternatively set the `LANGUAGE` environment variable to your locale name.
 

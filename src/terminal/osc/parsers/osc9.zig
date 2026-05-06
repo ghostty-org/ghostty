@@ -5,15 +5,16 @@ const Command = @import("../../osc.zig").Command;
 
 /// Parse OSC 9, which could be an iTerm2 notification or a ConEmu extension.
 pub fn parse(parser: *Parser, _: ?u8) ?*Command {
-    const writer = parser.writer orelse {
+    const cap = if (parser.capture) |*c| c else {
         parser.state = .invalid;
         return null;
     };
+    const writer = cap.writer;
 
     // Check first to see if this is a ConEmu OSC
     // https://conemu.github.io/en/AnsiEscapeCodes.html#ConEmu_specific_OSC
     conemu: {
-        var data = writer.buffered();
+        var data = cap.trailing();
         if (data.len == 0) break :conemu;
         switch (data[0]) {
             // Check for OSC 9;1 9;10 9;11 9;12
@@ -90,7 +91,7 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
                             parser.state = .invalid;
                             return null;
                         };
-                        data = writer.buffered();
+                        data = cap.trailing();
                         parser.command = .{
                             .conemu_comment = data[3 .. data.len - 1 :0],
                         };
@@ -112,7 +113,7 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
                     parser.state = .invalid;
                     return null;
                 };
-                data = writer.buffered();
+                data = cap.trailing();
                 parser.command = .{
                     .conemu_show_message_box = data[2 .. data.len - 1 :0],
                 };
@@ -132,7 +133,7 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
                     parser.state = .invalid;
                     return null;
                 };
-                data = writer.buffered();
+                data = cap.trailing();
                 parser.command = .{
                     .conemu_change_tab_title = .{
                         .value = data[2 .. data.len - 1 :0],
@@ -214,7 +215,7 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
                     parser.state = .invalid;
                     return null;
                 };
-                data = writer.buffered();
+                data = cap.trailing();
                 parser.command = .{
                     .conemu_guimacro = data[2 .. data.len - 1 :0],
                 };
@@ -228,7 +229,7 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
                     parser.state = .invalid;
                     return null;
                 };
-                data = writer.buffered();
+                data = cap.trailing();
                 parser.command = .{
                     .conemu_run_process = data[2 .. data.len - 1 :0],
                 };
@@ -242,7 +243,7 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
                     parser.state = .invalid;
                     return null;
                 };
-                data = writer.buffered();
+                data = cap.trailing();
                 parser.command = .{
                     .conemu_output_environment_variable = data[2 .. data.len - 1 :0],
                 };
@@ -256,7 +257,7 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
                     parser.state = .invalid;
                     return null;
                 };
-                data = writer.buffered();
+                data = cap.trailing();
                 parser.command = .{
                     .report_pwd = .{
                         .value = data[2 .. data.len - 1 :0],
@@ -274,7 +275,7 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
         parser.state = .invalid;
         return null;
     };
-    const data = writer.buffered();
+    const data = cap.trailing();
     parser.command = .{
         .show_desktop_notification = .{
             .title = "",

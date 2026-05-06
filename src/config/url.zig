@@ -17,7 +17,7 @@ const oni = @import("oniguruma");
 /// 2. Do not match regexes ending with ), except for ones which contain a (
 ///    without a subsequent )
 ///
-/// Rule 2 means that that we handle the following two cases:
+/// Rule 2 means that we handle the following two cases:
 ///
 ///   "https://en.wikipedia.org/wiki/Rust_(video_game)" (include parens)
 ///   "(https://example.com)" (do not include the parens)

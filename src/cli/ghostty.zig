@@ -14,6 +14,7 @@ const list_actions = @import("list_actions.zig");
 const ssh_cache = @import("ssh_cache.zig");
 const edit_config = @import("edit_config.zig");
 const show_config = @import("show_config.zig");
+const explain_config = @import("explain_config.zig");
 const validate_config = @import("validate_config.zig");
 const crash_report = @import("crash_report.zig");
 const show_face = @import("show_face.zig");
@@ -53,6 +54,9 @@ pub const Action = enum {
 
     /// Dump the config to stdout
     @"show-config",
+
+    /// Explain a single config option
+    @"explain-config",
 
     // Validate passed config file
     @"validate-config",
@@ -142,6 +146,7 @@ pub const Action = enum {
             .@"ssh-cache" => try ssh_cache.run(alloc),
             .@"edit-config" => try edit_config.run(alloc),
             .@"show-config" => try show_config.run(alloc),
+            .@"explain-config" => try explain_config.run(alloc),
             .@"validate-config" => try validate_config.run(alloc),
             .@"crash-report" => try crash_report.run(alloc),
             .@"show-face" => try show_face.run(alloc),
@@ -181,6 +186,7 @@ pub const Action = enum {
                 .@"ssh-cache" => ssh_cache.Options,
                 .@"edit-config" => edit_config.Options,
                 .@"show-config" => show_config.Options,
+                .@"explain-config" => explain_config.Options,
                 .@"validate-config" => validate_config.Options,
                 .@"crash-report" => crash_report.Options,
                 .@"show-face" => show_face.Options,

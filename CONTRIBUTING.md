@@ -177,11 +177,6 @@ item is identified, it is moved to the issue tracker. **This pattern
 makes it easier for maintainers or contributors to find issues to work on
 since _every issue_ is ready to be worked on.**
 
-If you are experiencing a bug and have clear steps to reproduce it, please
-open an issue. If you are experiencing a bug but you are not sure how to
-reproduce it or aren't sure if it's a bug, please open a discussion.
-If you have an idea for a feature, please open a discussion.
-
 ### Pull Requests Implement an Issue
 
 Pull requests should be associated with a previously accepted issue.

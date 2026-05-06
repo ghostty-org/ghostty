@@ -99,7 +99,7 @@ class QuickTerminalTabManager: ObservableObject {
     /// - Parameters:
     ///   - tabStates: The saved tab states to restore
     ///   - currentIndex: The index of the tab that should be selected
-    func restoreTabs(from tabStates: [QuickTerminalTabState], currentIndex: Int) {
+    func restoreTabs(from tabStates: [QuickTerminalTabState<Ghostty.SurfaceView>], currentIndex: Int) {
         // Clear existing tabs without triggering close logic
         tabs.removeAll()
         currentTab = nil

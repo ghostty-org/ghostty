@@ -155,30 +155,27 @@ _ghostty_deferred_init() {
                 # Add our marks. Since we always start from a clean PS1
                 # (either restored above or freshly set by a theme), we can
                 # unconditionally add mark1 and markB.
-                builtin local mark2=$'%{\e]133;A;k=s\a%}'
+                builtin local mark2=$'%{\e]133;P;k=s\a%}'
                 builtin local markB=$'%{\e]133;B\a%}'
+                # If PS1 ends with a bare '%', it combines with the '{'
+                # in markB to form a '%{' prompt escape, swallowing the
+                # marker and producing a visible '{'. Fix by doubling the
+                # trailing '%' so it becomes a literal '%%'.
+                [[ $PS1 == *[^%]% || $PS1 == % ]] && PS1=$PS1%
                 PS1=${mark1}${PS1}${markB}
 
                 # Handle multiline prompts by marking newline-separated
-                # continuation lines with k=s (mark2). We skip the newline
-                # immediately after mark1 to avoid introducing a double
-                # newline due to OSC 133;A's fresh-line behavior.
+                # continuation lines with k=s (mark2).
                 #
                 # We skip this when PS1 changed because injecting marks into
                 # newlines can break pattern matching in themes that
                 # strip/rebuild the prompt dynamically (e.g., Pure).
                 if (( ! ps1_changed )) && [[ $PS1 == *$'\n'* ]]; then
-                    if [[ $PS1 == ${mark1}$'\n'* ]]; then
-                        builtin local rest=${PS1#${mark1}$'\n'}
-                        if [[ $rest == *$'\n'* ]]; then
-                            PS1=${mark1}$'\n'${rest//$'\n'/$'\n'${mark2}}
-                        fi
-                    else
-                        PS1=${PS1//$'\n'/$'\n'${mark2}}
-                    fi
+                    PS1=${PS1//$'\n'/$'\n'${mark2}}
                 fi
 
                 # PS2 mark is needed when clearing the prompt on resize
+                [[ $PS2 == *[^%]% || $PS2 == % ]] && PS2=$PS2%
                 PS2=${mark2}${PS2}${markB}
 
                 # Save the marked PS1 so we can detect modifications
@@ -325,8 +322,7 @@ _ghostty_deferred_init() {
 
         # Configure environment variables for remote session
         if [[ "$GHOSTTY_SHELL_FEATURES" == *ssh-env* ]]; then
-          ssh_opts+=(-o "SetEnv COLORTERM=truecolor")
-          ssh_opts+=(-o "SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION")
+          ssh_opts+=(-o "SendEnv COLORTERM TERM_PROGRAM TERM_PROGRAM_VERSION")
         fi
 
         # Install terminfo on remote host if needed
@@ -382,7 +378,7 @@ _ghostty_deferred_init() {
         fi
 
         # Execute SSH with TERM environment variable
-        TERM="$ssh_term" command ssh "${ssh_opts[@]}" "$@"
+        TERM="$ssh_term" COLORTERM=truecolor command ssh "${ssh_opts[@]}" "$@"
       }
     fi
 

@@ -45,6 +45,10 @@ extension Ghostty {
             self.init(config: ghostty_config_clone(config))
         }
 
+        func clone(config: ghostty_config_t) {
+            self.config = config
+        }
+
         deinit {
             self.config = nil
         }
@@ -703,6 +707,16 @@ extension Ghostty {
             guard let ptr = v else { return defaultValue }
             let str = String(cString: ptr)
             return MacShortcuts(rawValue: str) ?? defaultValue
+        }
+
+        var abnormalCommandExitRuntime: Duration {
+            let defaultValue: Duration = .milliseconds(250)
+            guard let config = self.config else { return defaultValue }
+            var v: UInt32?
+            let key = "abnormal-command-exit-runtime"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return defaultValue }
+            guard let v else { return defaultValue }
+            return .milliseconds(v)
         }
 
         var scrollbar: Scrollbar {

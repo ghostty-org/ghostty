@@ -1,6 +1,4 @@
-const build_options = @import("terminal_options");
-const lib = @import("../lib/main.zig");
-const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
+const lib = @import("lib.zig");
 
 /// C0 (7-bit) control characters from ANSI.
 ///
@@ -52,19 +50,9 @@ pub const RenditionAspect = enum(u16) {
     _,
 };
 
-/// The device attribute request type (ESC [ c).
-pub const DeviceAttributeReq = lib.Enum(
-    lib_target,
-    &.{
-        "primary", // Blank
-        "secondary", // >
-        "tertiary", // =
-    },
-);
-
 /// Possible cursor styles (ESC [ q)
 pub const CursorStyle = lib.Enum(
-    lib_target,
+    lib.target,
     &.{
         "default",
         "blinking_block",
@@ -88,7 +76,7 @@ pub const StatusLineType = enum(u16) {
 
 /// The display to target for status updates (DECSASD).
 pub const StatusDisplay = lib.Enum(
-    lib_target,
+    lib.target,
     &.{
         "main",
         "status_line",
@@ -98,7 +86,7 @@ pub const StatusDisplay = lib.Enum(
 /// The possible modify key formats to ESC[>{a};{b}m
 /// Note: this is not complete, we should add more as we support more
 pub const ModifyKeyFormat = lib.Enum(
-    lib_target,
+    lib.target,
     &.{
         "legacy",
         "cursor_keys",

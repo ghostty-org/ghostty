@@ -66,15 +66,15 @@ const map: Map = .initComptime(
 pub fn parse(parser: *Parser, _: ?u8) ?*Command {
     assert(parser.state == .@"1337");
 
-    const writer = parser.writer orelse {
+    const cap = if (parser.capture) |*c| c else {
         parser.state = .invalid;
         return null;
     };
-    writer.writeByte(0) catch {
+    cap.writer.writeByte(0) catch {
         parser.state = .invalid;
         return null;
     };
-    const data = writer.buffered();
+    const data = cap.trailing();
 
     const key_str: [:0]u8, const value_: ?[:0]u8 = kv: {
         const index = std.mem.indexOfScalar(u8, data, '=') orelse {

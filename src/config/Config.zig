@@ -39,6 +39,7 @@ pub const Path = @import("path.zig").Path;
 pub const RepeatablePath = @import("path.zig").RepeatablePath;
 const ClipboardCodepointMap = @import("ClipboardCodepointMap.zig");
 const KeyRemapSet = @import("../input/key_mods.zig").RemapSet;
+pub const WindowPaddingBalance = @import("../renderer/size.zig").PaddingBalance;
 const string = @import("string.zig");
 
 // We do this instead of importing all of terminal/main.zig to
@@ -48,6 +49,7 @@ const string = @import("string.zig");
 const terminal = struct {
     const CursorStyle = @import("../terminal/cursor.zig").Style;
     const color = @import("../terminal/color.zig");
+    const style = @import("../terminal/style.zig");
     const x11_color = @import("../terminal/x11_color.zig");
 };
 
@@ -1963,7 +1965,16 @@ keybind: Keybinds = .{},
 /// apply. The other padding is applied first and may affect how many grid cells
 /// actually exist, and this is applied last in order to balance the padding
 /// given a certain viewport size and grid cell size.
-@"window-padding-balance": bool = false,
+///
+/// Valid values are:
+///
+/// * `false` - No balancing is applied.
+/// * `true` - Balance the padding, but cap the top padding to avoid
+///   excessive space above the first row. Any excess is shifted to the
+///   bottom.
+/// * `equal` - Balance the padding equally on all sides without any
+///   top-padding cap. (Available since: 1.4.0)
+@"window-padding-balance": WindowPaddingBalance = .false,
 
 /// The color of the padding area of the window. Valid values are:
 ///
@@ -2393,8 +2404,12 @@ keybind: Keybinds = .{},
 /// The value `clipboard` will always copy text to the selection clipboard
 /// as well as the system clipboard.
 ///
-/// Middle-click paste will always use the selection clipboard. Middle-click
-/// paste is always enabled even if this is `false`.
+/// Middle-click primary paste (see `middle-click-action`) is enabled by
+/// default even if this is `false`. The clipboard it pastes from follows
+/// this setting: with `true` (or `false`) it reads from the selection
+/// clipboard (falling back to the system clipboard on platforms without a
+/// selection clipboard); with `clipboard` it reads from the system
+/// clipboard.
 ///
 /// The default value is true on Linux and macOS.
 @"copy-on-select": CopyOnSelect = switch (builtin.os.tag) {
@@ -2415,6 +2430,16 @@ keybind: Keybinds = .{},
 ///
 /// The default value is `context-menu`.
 @"right-click-action": RightClickAction = .@"context-menu",
+
+/// The action to take when the user middle-clicks on the terminal surface.
+///
+/// Valid values:
+///   * `primary-paste` - Paste from the selection (or system) clipboard per
+///      `copy-on-select`.
+///   * `ignore` - Do nothing, ignore the middle click.
+///
+/// The default value is `primary-paste`.
+@"middle-click-action": MiddleClickAction = .@"primary-paste",
 
 /// The time in milliseconds between clicks to consider a click a repeat
 /// (double, triple, etc.) or an entirely new single click. A value of zero will
@@ -2678,7 +2703,13 @@ keybind: Keybinds = .{},
 /// The default value is `main` because this is the recommended screen
 /// by the operating system.
 ///
-/// Only implemented on macOS.
+/// On macOS, `macos-menu-bar` uses the screen containing the menu bar.
+/// On Linux/Wayland, `macos-menu-bar` is treated as equivalent to `main`.
+///
+/// Note: On Linux, there is no universal concept of a "primary" monitor.
+/// Ghostty uses the compositor-reported primary output when available and
+/// falls back to the first monitor reported by GDK if no primary output can
+/// be resolved.
 @"quick-terminal-screen": QuickTerminalScreen = .main,
 
 /// Duration (in seconds) of the quick terminal enter and exit animation.
@@ -5576,6 +5607,14 @@ pub const BoldColor = union(enum) {
     color: Color,
     bright,
 
+    /// Convert to the terminal-native BoldColor type.
+    pub fn toTerminal(self: BoldColor) terminal.style.Style.BoldColor {
+        return switch (self) {
+            .color => |col| .{ .color = col.toTerminalRGB() },
+            .bright => .bright,
+        };
+    }
+
     pub fn parseCLI(input_: ?[]const u8) !BoldColor {
         const input = input_ orelse return error.ValueRequired;
         if (std.mem.eql(u8, input, "bright")) return .bright;
@@ -6372,6 +6411,22 @@ pub const RepeatableFontVariation = struct {
     }
 };
 
+/// Returns true if the given key event would trigger a keybinding
+/// if it were to be processed. This is useful for determining if
+/// a key event should be sent to the terminal or not.
+pub fn keyEventIsBinding(
+    self: *Config,
+    event: inputpkg.KeyEvent,
+) bool {
+    switch (event.action) {
+        .release => return false,
+        .press, .repeat => {},
+    }
+
+    // If we have a keybinding for this event then we return true.
+    return self.keybind.set.getEvent(event) != null;
+}
+
 /// Stores a set of keybinds.
 pub const Keybinds = struct {
     set: inputpkg.Binding.Set = .{},
@@ -6722,13 +6777,27 @@ pub const Keybinds = struct {
             // Semantic prompts
             try self.set.put(
                 alloc,
-                .{ .key = .{ .physical = .page_up }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .key = .{ .physical = .arrow_up }, .mods = .{ .shift = true, .ctrl = true } },
                 .{ .jump_to_prompt = -1 },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .physical = .page_down }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .key = .{ .physical = .arrow_down }, .mods = .{ .shift = true, .ctrl = true } },
                 .{ .jump_to_prompt = 1 },
+            );
+
+            // Move tab
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .page_up }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .move_tab = -1 },
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .page_down }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .move_tab = 1 },
+                .{ .performable = true },
             );
 
             // Search
@@ -8595,6 +8664,15 @@ pub const RightClickAction = enum {
     @"context-menu",
 };
 
+/// Options for middle-click actions.
+pub const MiddleClickAction = enum {
+    /// Paste from the selection/standard clipboard per `copy-on-select`.
+    @"primary-paste",
+
+    /// No action is taken on middle click.
+    ignore,
+};
+
 /// Shell integration values
 pub const ShellIntegration = enum {
     none,
@@ -9785,9 +9863,16 @@ pub const Theme = struct {
         // we're parsing a light/dark mode theme pair. Note that "=" isn't
         // actually valid for setting a light/dark mode pair but I anticipate
         // it'll be a common typo.
+        //
+        // On Windows, a colon at index 1 is a drive letter (e.g. C:\...)
+        // and should not trigger light/dark pair parsing.
+        const has_colon = if (comptime builtin.os.tag == .windows)
+            if (std.mem.indexOf(u8, input, ":")) |idx| idx != 1 else false
+        else
+            std.mem.indexOf(u8, input, ":") != null;
         if (std.mem.indexOf(u8, input, ",") != null or
             std.mem.indexOf(u8, input, "=") != null or
-            std.mem.indexOf(u8, input, ":") != null)
+            has_colon)
         {
             self.* = try cli.args.parseAutoStruct(
                 Theme,

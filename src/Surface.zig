@@ -36,6 +36,7 @@ const App = @import("App.zig");
 const internal_os = @import("os/main.zig");
 const inspectorpkg = @import("inspector/main.zig");
 const SurfaceMouse = @import("surface_mouse.zig");
+const ProcessInfo = @import("pty.zig").ProcessInfo;
 
 const log = std.log.scoped(.surface);
 
@@ -52,6 +53,13 @@ pub const min_window_height_cells: u32 = 4;
 /// The maximum number of key tables that can be active at any
 /// given time. `activate_key_table` calls after this are ignored.
 const max_active_key_tables = 8;
+
+/// Unique ID used to identify this surface for IPC purposes. It is
+/// exposed to the commands running in surfaces as the environment variable
+/// GHOSTTY_SURFACE_ID. It must not be zero as zero is used to incicate a null
+/// value when communicating an ID over DBus as DBus does not allow null/maybe
+/// values.
+id: u64,
 
 /// Allocator
 alloc: Allocator,
@@ -303,6 +311,7 @@ const DerivedConfig = struct {
     clipboard_codepoint_map: configpkg.Config.RepeatableClipboardCodepointMap,
     copy_on_select: configpkg.CopyOnSelect,
     right_click_action: configpkg.RightClickAction,
+    middle_click_action: configpkg.MiddleClickAction,
     confirm_close_surface: configpkg.ConfirmCloseSurface,
     cursor_click_to_move: bool,
     desktop_notifications: bool,
@@ -324,7 +333,7 @@ const DerivedConfig = struct {
     window_padding_bottom: u32,
     window_padding_left: u32,
     window_padding_right: u32,
-    window_padding_balance: bool,
+    window_padding_balance: configpkg.Config.WindowPaddingBalance,
     window_height: u32,
     window_width: u32,
     title: ?[:0]const u8,
@@ -381,6 +390,7 @@ const DerivedConfig = struct {
             .clipboard_codepoint_map = try config.@"clipboard-codepoint-map".clone(alloc),
             .copy_on_select = config.@"copy-on-select",
             .right_click_action = config.@"right-click-action",
+            .middle_click_action = config.@"middle-click-action",
             .confirm_close_surface = config.@"confirm-close-surface",
             .cursor_click_to_move = config.@"cursor-click-to-move",
             .desktop_notifications = config.@"desktop-notifications",
@@ -536,8 +546,8 @@ pub fn init(
             x_dpi,
             y_dpi,
         );
-        if (derived_config.window_padding_balance) {
-            size.balancePadding(explicit);
+        if (derived_config.window_padding_balance != .false) {
+            size.balancePadding(explicit, derived_config.window_padding_balance);
         } else {
             size.padding = explicit;
         }
@@ -578,6 +588,13 @@ pub fn init(
     errdefer io_thread.deinit();
 
     self.* = .{
+        .id = id: {
+            while (true) {
+                const candidate = std.crypto.random.int(u64);
+                if (candidate == 0) continue;
+                break :id candidate;
+            }
+        },
         .alloc = alloc,
         .app = app,
         .rt_app = rt_app,
@@ -630,6 +647,12 @@ pub fn init(
 
         // don't leak GHOSTTY_LOG to any subprocesses
         env.remove("GHOSTTY_LOG");
+
+        var buf: [18]u8 = undefined;
+        try env.put(
+            "GHOSTTY_SURFACE_ID",
+            std.fmt.bufPrint(&buf, "0x{x:0>16}", .{self.id}) catch unreachable,
+        );
 
         // Initialize our IO backend
         var io_exec = try termio.Exec.init(alloc, .{
@@ -2462,11 +2485,11 @@ fn resize(self: *Surface, size: rendererpkg.ScreenSize) !void {
 
 /// Recalculate the balanced padding if needed.
 fn balancePaddingIfNeeded(self: *Surface) void {
-    if (!self.config.window_padding_balance) return;
+    if (self.config.window_padding_balance == .false) return;
     const content_scale = try self.rt_surface.getContentScale();
     const x_dpi = content_scale.x * font.face.default_dpi;
     const y_dpi = content_scale.y * font.face.default_dpi;
-    self.size.balancePadding(self.config.scaledPadding(x_dpi, y_dpi));
+    self.size.balancePadding(self.config.scaledPadding(x_dpi, y_dpi), self.config.window_padding_balance);
 }
 
 /// Called to set the preedit state for character input. Preedit is used
@@ -3261,7 +3284,11 @@ pub fn focusCallback(self: *Surface, focused: bool) !void {
     crash.sentry.thread_state = self.crashThreadState();
     defer crash.sentry.thread_state = null;
 
-    // If our focus state is the same we do nothing.
+    // Always update the app focused surface, otherwise we miss
+    // the first surface created.
+    if (focused) self.app.focusSurface(self);
+
+    // If our focus state is unchanged we do nothing else.
     if (self.focused == focused) return;
     self.focused = focused;
 
@@ -3270,10 +3297,7 @@ pub fn focusCallback(self: *Surface, focused: bool) !void {
         .focus = focused,
     }, .{ .forever = {} });
 
-    if (focused) {
-        // Notify our app if we gained focus.
-        self.app.focusSurface(self);
-    } else unfocused: {
+    if (!focused) unfocused: {
         // If we lost focus and we have a keypress, then we want to send a key
         // release event for it. Depending on the apprt, this CAN result in
         // duplicate key release events, but that is better than not sending
@@ -3400,19 +3424,23 @@ pub fn scrollCallback(
         const yoff_adjusted: f64 = if (scroll_mods.precision)
             yoff * self.config.mouse_scroll_multiplier.precision
         else yoff_adjusted: {
-            // Round out the yoff to an absolute minimum of 1. macos tries to
-            // simulate precision scrolling with non precision events by
-            // ramping up the magnitude of the offsets as it detects faster
-            // scrolling. Single click (very slow) scrolls are reported with a
-            // magnitude of 0.1 which would normally require a few clicks
-            // before we register an actual scroll event (depending on cell
-            // height and the mouse_scroll_multiplier setting).
-            const yoff_max: f64 = if (yoff > 0)
-                @max(yoff, 1)
-            else
-                @min(yoff, -1);
+            if (comptime builtin.target.os.tag.isDarwin()) {
+                // Round out the yoff to an absolute minimum of 1. macos tries to
+                // simulate precision scrolling with non precision events by
+                // ramping up the magnitude of the offsets as it detects faster
+                // scrolling. Single click (very slow) scrolls are reported with a
+                // magnitude of 0.1 which would normally require a few clicks
+                // before we register an actual scroll event (depending on cell
+                // height and the mouse_scroll_multiplier setting).
+                const yoff_max: f64 = if (yoff > 0)
+                    @max(yoff, 1)
+                else
+                    @min(yoff, -1);
 
-            break :yoff_adjusted yoff_max * cell_size * self.config.mouse_scroll_multiplier.discrete;
+                break :yoff_adjusted yoff_max * cell_size * self.config.mouse_scroll_multiplier.discrete;
+            } else {
+                break :yoff_adjusted yoff * cell_size * self.config.mouse_scroll_multiplier.discrete;
+            }
         };
 
         // Add our previously saved pending amount to the offset to get the
@@ -3518,7 +3546,7 @@ pub fn scrollCallback(
         if (self.isMouseReporting()) {
             for (0..@abs(y.delta)) |_| {
                 const pos = try self.rt_surface.getCursorPos();
-                try self.mouseReport(switch (y.direction()) {
+                self.mouseReport(switch (y.direction()) {
                     .up_right => .four,
                     .down_left => .five,
                 }, .press, self.mouse.mods, pos);
@@ -3526,7 +3554,7 @@ pub fn scrollCallback(
 
             for (0..@abs(x.delta)) |_| {
                 const pos = try self.rt_surface.getCursorPos();
-                try self.mouseReport(switch (x.direction()) {
+                self.mouseReport(switch (x.direction()) {
                     .up_right => .six,
                     .down_left => .seven,
                 }, .press, self.mouse.mods, pos);
@@ -3576,7 +3604,7 @@ pub fn contentScaleCallback(self: *Surface, content_scale: apprt.ContentScale) !
 
     // Update our padding which is dependent on DPI. We only do this for
     // unbalanced padding since balanced padding is not dependent on DPI.
-    if (!self.config.window_padding_balance) {
+    if (self.config.window_padding_balance == .false) {
         self.size.padding = self.config.scaledPadding(x_dpi, y_dpi);
     }
 
@@ -3584,9 +3612,6 @@ pub fn contentScaleCallback(self: *Surface, content_scale: apprt.ContentScale) !
     // pixel-level changes to the renderer and viewport.
     try self.resize(self.size.screen);
 }
-
-/// The type of action to report for a mouse event.
-const MouseReportAction = enum { press, release, motion };
 
 /// Returns true if mouse reporting is enabled both in the config and
 /// the terminal state.
@@ -3598,228 +3623,65 @@ fn isMouseReporting(self: *const Surface) bool {
 fn mouseReport(
     self: *Surface,
     button: ?input.MouseButton,
-    action: MouseReportAction,
+    action: input.MouseAction,
     mods: input.Mods,
     pos: apprt.CursorPos,
-) !void {
+) void {
     // Mouse reporting must be enabled by both config and terminal state
     assert(self.config.mouse_reporting);
     assert(self.io.terminal.flags.mouse_event != .none);
 
-    // Depending on the event, we may do nothing at all.
-    switch (self.io.terminal.flags.mouse_event) {
-        .none => unreachable, // checked by assert above
+    // Build our encoding options.
+    const encoding_opts: input.mouse_encode.Options = opts: {
+        // Terminal and size state.
+        var opts: input.mouse_encode.Options = .fromTerminal(
+            &self.io.terminal,
+            self.size,
+        );
 
-        // X10 only reports clicks with mouse button 1, 2, 3. We verify
-        // the button later.
-        .x10 => if (action != .press or
-            button == null or
-            !(button.? == .left or
-                button.? == .right or
-                button.? == .middle)) return,
-
-        // Doesn't report motion
-        .normal => if (action == .motion) return,
-
-        // Button must be pressed
-        .button => if (button == null) return,
-
-        // Everything
-        .any => {},
-    }
-
-    // Handle scenarios where the mouse position is outside the viewport.
-    // We always report release events no matter where they happen.
-    if (action != .release) {
-        const pos_out_viewport = pos_out_viewport: {
-            const max_x: f32 = @floatFromInt(self.size.screen.width);
-            const max_y: f32 = @floatFromInt(self.size.screen.height);
-            break :pos_out_viewport pos.x < 0 or pos.y < 0 or
-                pos.x > max_x or pos.y > max_y;
-        };
-        if (pos_out_viewport) outside_viewport: {
-            // If we don't have a motion-tracking event mode, do nothing.
-            if (!self.io.terminal.flags.mouse_event.motion()) return;
-
-            // If any button is pressed, we still do the report. Otherwise,
-            // we do not do the report.
+        // Whether any button is pressed at all.
+        opts.any_button_pressed = pressed: {
             for (self.mouse.click_state) |state| {
-                if (state != .release) break :outside_viewport;
+                if (state != .release) break :pressed true;
             }
 
-            return;
-        }
-    }
+            break :pressed false;
+        };
 
-    // This format reports X/Y
-    const viewport_point = self.posToViewport(pos.x, pos.y);
+        // Keep track of our last reported viewport cell for event
+        // deduplication.
+        opts.last_cell = &self.mouse.event_point;
 
-    // Record our new point. We only want to send a mouse event if the
-    // cell changed, unless we're tracking raw pixels.
-    if (action == .motion and self.io.terminal.flags.mouse_format != .sgr_pixels) {
-        if (self.mouse.event_point) |last_point| {
-            if (last_point.eql(viewport_point)) return;
-        }
-    }
-    self.mouse.event_point = viewport_point;
-
-    // Get the code we'll actually write
-    const button_code: u8 = code: {
-        var acc: u8 = 0;
-
-        // Determine our initial button value
-        if (button == null) {
-            // Null button means motion without a button pressed
-            acc = 3;
-        } else if (action == .release and
-            self.io.terminal.flags.mouse_format != .sgr and
-            self.io.terminal.flags.mouse_format != .sgr_pixels)
-        {
-            // Release is 3. It is NOT 3 in SGR mode because SGR can tell
-            // the application what button was released.
-            acc = 3;
-        } else {
-            acc = switch (button.?) {
-                .left => 0,
-                .middle => 1,
-                .right => 2,
-                .four => 64,
-                .five => 65,
-                .six => 66,
-                .seven => 67,
-                .eight => 128,
-                .nine => 129,
-                else => return, // unsupported
-            };
-        }
-
-        // X10 doesn't have modifiers
-        if (self.io.terminal.flags.mouse_event != .x10) {
-            if (mods.shift) acc += 4;
-            if (mods.alt) acc += 8;
-            if (mods.ctrl) acc += 16;
-        }
-
-        // Motion adds another bit
-        if (action == .motion) acc += 32;
-
-        break :code acc;
+        break :opts opts;
     };
 
-    switch (self.io.terminal.flags.mouse_format) {
-        .x10 => {
-            if (viewport_point.x > 222 or viewport_point.y > 222) {
-                log.info("X10 mouse format can only encode X/Y up to 223", .{});
-                return;
-            }
-
-            // + 1 below is because our x/y is 0-indexed and the protocol wants 1
-            var data: termio.Message.WriteReq.Small.Array = undefined;
-            assert(data.len >= 6);
-            data[0] = '\x1b';
-            data[1] = '[';
-            data[2] = 'M';
-            data[3] = 32 + button_code;
-            data[4] = 32 + @as(u8, @intCast(viewport_point.x)) + 1;
-            data[5] = 32 + @as(u8, @intCast(viewport_point.y)) + 1;
-
-            // Ask our IO thread to write the data
-            self.queueIo(.{ .write_small = .{
-                .data = data,
-                .len = 6,
-            } }, .locked);
+    var data: termio.Message.WriteReq.Small.Array = undefined;
+    var writer: std.Io.Writer = .fixed(&data);
+    input.mouse_encode.encode(&writer, .{
+        .button = button,
+        .action = action,
+        .mods = mods,
+        .pos = .{
+            .x = pos.x,
+            .y = pos.y,
         },
-
-        .utf8 => {
-            // Maximum of 12 because at most we have 2 fully UTF-8 encoded chars
-            var data: termio.Message.WriteReq.Small.Array = undefined;
-            assert(data.len >= 12);
-            data[0] = '\x1b';
-            data[1] = '[';
-            data[2] = 'M';
-
-            // The button code will always fit in a single u8
-            data[3] = 32 + button_code;
-
-            // UTF-8 encode the x/y
-            var i: usize = 4;
-            i += try std.unicode.utf8Encode(@intCast(32 + viewport_point.x + 1), data[i..]);
-            i += try std.unicode.utf8Encode(@intCast(32 + viewport_point.y + 1), data[i..]);
-
-            // Ask our IO thread to write the data
-            self.queueIo(.{ .write_small = .{
-                .data = data,
-                .len = @intCast(i),
-            } }, .locked);
+    }, encoding_opts) catch |err| switch (err) {
+        error.WriteFailed => {
+            // This should never happen since mouse events should never
+            // be able to overflow the size of our small array. But if it
+            // does, let's log it and return. No need to crash upstreams.
+            // In the future we may want to fall back to allocation.
+            log.warn("failed to encode mouse event err={}", .{err});
+            return;
         },
+    };
+    const written = writer.buffered();
+    if (written.len == 0) return;
 
-        .sgr => {
-            // Final character to send in the CSI
-            const final: u8 = if (action == .release) 'm' else 'M';
-
-            // Response always is at least 4 chars, so this leaves the
-            // remainder for numbers which are very large...
-            var data: termio.Message.WriteReq.Small.Array = undefined;
-            const resp = try std.fmt.bufPrint(&data, "\x1B[<{d};{d};{d}{c}", .{
-                button_code,
-                viewport_point.x + 1,
-                viewport_point.y + 1,
-                final,
-            });
-
-            // Ask our IO thread to write the data
-            self.queueIo(.{ .write_small = .{
-                .data = data,
-                .len = @intCast(resp.len),
-            } }, .locked);
-        },
-
-        .urxvt => {
-            // Response always is at least 4 chars, so this leaves the
-            // remainder for numbers which are very large...
-            var data: termio.Message.WriteReq.Small.Array = undefined;
-            const resp = try std.fmt.bufPrint(&data, "\x1B[{d};{d};{d}M", .{
-                32 + button_code,
-                viewport_point.x + 1,
-                viewport_point.y + 1,
-            });
-
-            // Ask our IO thread to write the data
-            self.queueIo(.{ .write_small = .{
-                .data = data,
-                .len = @intCast(resp.len),
-            } }, .locked);
-        },
-
-        .sgr_pixels => {
-            // Final character to send in the CSI
-            const final: u8 = if (action == .release) 'm' else 'M';
-
-            // The position has to be adjusted to the terminal space.
-            const coord: rendererpkg.Coordinate.Terminal = (rendererpkg.Coordinate{
-                .surface = .{
-                    .x = pos.x,
-                    .y = pos.y,
-                },
-            }).convert(.terminal, self.size).terminal;
-
-            // Response always is at least 4 chars, so this leaves the
-            // remainder for numbers which are very large...
-            var data: termio.Message.WriteReq.Small.Array = undefined;
-            const resp = try std.fmt.bufPrint(&data, "\x1B[<{d};{d};{d}{c}", .{
-                button_code,
-                @as(i32, @intFromFloat(@round(coord.x))),
-                @as(i32, @intFromFloat(@round(coord.y))),
-                final,
-            });
-
-            // Ask our IO thread to write the data
-            self.queueIo(.{ .write_small = .{
-                .data = data,
-                .len = @intCast(resp.len),
-            } }, .locked);
-        },
-    }
+    self.queueIo(.{ .write_small = .{
+        .data = data,
+        .len = @intCast(written.len),
+    } }, .locked);
 }
 
 /// Returns true if the shift modifier is allowed to be captured by modifier
@@ -3965,6 +3827,8 @@ pub fn mouseButtonCallback(
         // clicked link will swallow the event.
         if (self.mouse.over_link) {
             const pos = try self.rt_surface.getCursorPos();
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
             if (self.processLinks(pos)) |processed| {
                 if (processed) return true;
             } else |err| {
@@ -4003,12 +3867,12 @@ pub fn mouseButtonCallback(
 
             const pos = try self.rt_surface.getCursorPos();
 
-            const report_action: MouseReportAction = switch (action) {
+            const report_action: input.MouseAction = switch (action) {
                 .press => .press,
                 .release => .release,
             };
 
-            try self.mouseReport(
+            self.mouseReport(
                 button,
                 report_action,
                 self.mouse.mods,
@@ -4151,14 +4015,24 @@ pub fn mouseButtonCallback(
         }
     }
 
-    // Middle-click pastes from our selection clipboard
-    if (button == .middle and action == .press) {
-        const clipboard: apprt.Clipboard = if (self.rt_surface.supportsClipboard(.selection))
-            .selection
-        else
-            .standard;
-        _ = try self.startClipboardRequest(clipboard, .{ .paste = {} });
-    }
+    // Middle-click paste source follows copy-on-select: when copy-on-select
+    // targets the selection clipboard, middle-click reads from it; when
+    // copy-on-select targets the system clipboard, middle-click reads from
+    // that instead. Falls back to the standard clipboard on platforms that
+    // do not support the selection clipboard.
+    if (button == .middle and action == .press) switch (self.config.middle_click_action) {
+        .ignore => {},
+        .@"primary-paste" => {
+            const clipboard: apprt.Clipboard = switch (self.config.copy_on_select) {
+                .clipboard => .standard,
+                .true, .false => if (self.rt_surface.supportsClipboard(.selection))
+                    .selection
+                else
+                    .standard,
+            };
+            _ = try self.startClipboardRequest(clipboard, .{ .paste = {} });
+        },
+    };
 
     // Right-click down selects word for context menus. If the apprt
     // doesn't implement context menus this can be a bit weird but they
@@ -4439,7 +4313,9 @@ fn linkAtPin(
     const line = screen.selectLine(.{
         .pin = mouse_pin,
         .whitespace = null,
-        .semantic_prompt_boundary = false,
+        // Respect semantic prompt boundaries so link/path matching doesn't
+        // merge shell prompt content with the text beside it.
+        .semantic_prompt_boundary = true,
     }) orelse return null;
 
     var strmap: terminal.StringMap = undefined;
@@ -4740,7 +4616,7 @@ pub fn cursorPosCallback(
                 break :button @enumFromInt(i);
         } else null;
 
-        try self.mouseReport(button, .motion, self.mouse.mods, pos);
+        self.mouseReport(button, .motion, self.mouse.mods, pos);
 
         // If we're doing mouse motion tracking, we do not support text
         // selection.
@@ -4968,14 +4844,14 @@ fn mouseSelection(
         break :ebs drag_pin.before(click_pin);
     };
 
-    // Whether or not the the click pin cell
+    // Whether or not the click pin cell
     // should be included in the selection.
     const include_click_cell = if (end_before_start)
         click_x_frac >= threshold_point
     else
         click_x_frac < threshold_point;
 
-    // Whether or not the the drag pin cell
+    // Whether or not the drag pin cell
     // should be included in the selection.
     const include_drag_cell = if (end_before_start)
         drag_x_frac < threshold_point
@@ -6506,6 +6382,13 @@ fn testMouseSelectionIsNull(
             size,
         ),
     );
+}
+
+/// Get information about the process(es) running within the surface. Returns
+/// `null` if there was an error getting the information or the information is
+/// not available on a particular platform.
+pub fn getProcessInfo(self: *Surface, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
+    return self.io.getProcessInfo(info);
 }
 
 test "Surface: selection logic" {

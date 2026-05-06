@@ -44,7 +44,7 @@ pub fn execute(
     var quiet = cmd.quiet;
 
     const resp_: ?Response = switch (cmd.control) {
-        .query => query(alloc, cmd),
+        .query => query(alloc, terminal, cmd),
         .display => display(alloc, terminal, cmd),
         .delete => delete(alloc, terminal, cmd),
 
@@ -94,7 +94,11 @@ pub fn execute(
 /// This command is used to attempt to load an image and respond with
 /// success/error but does not persist any of the command to the terminal
 /// state.
-fn query(alloc: Allocator, cmd: *const Command) Response {
+fn query(
+    alloc: Allocator,
+    terminal: *const Terminal,
+    cmd: *const Command,
+) Response {
     const t = cmd.control.query;
 
     // Query requires image ID. We can't actually send a response without
@@ -112,7 +116,8 @@ fn query(alloc: Allocator, cmd: *const Command) Response {
     };
 
     // Attempt to load the image. If we cannot, then set an appropriate error.
-    var loading = LoadingImage.init(alloc, cmd) catch |err| {
+    const storage = &terminal.screens.active.kitty_images;
+    var loading = LoadingImage.init(alloc, cmd, storage.image_limits) catch |err| {
         encodeError(&result, err);
         return result;
     };
@@ -322,7 +327,7 @@ fn loadAndAddImage(
         }
 
         break :loading loading.*;
-    } else try .init(alloc, cmd);
+    } else try .init(alloc, cmd, storage.image_limits);
 
     // We only want to deinit on error. If we're chunking, then we don't
     // want to deinit at all. If we're not chunking, then we'll deinit

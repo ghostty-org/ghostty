@@ -93,13 +93,8 @@ pub const Message = union(enum) {
         };
     }
 
-    /// The types of size reports that we support
-    pub const SizeReport = enum {
-        mode_2048,
-        csi_14_t,
-        csi_16_t,
-        csi_18_t,
-    };
+    /// The types of size reports that we support.
+    pub const SizeReport = terminal.size_report.Style;
 };
 
 test {

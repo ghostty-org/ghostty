@@ -18,17 +18,23 @@ archive_step: *std.Build.Step,
 check_step: *std.Build.Step,
 
 pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
+    // The name prefix used for all paths in the archive.
+    const name = if (cfg.emit_lib_vt) "libghostty-vt" else "ghostty";
+
     // Get the resources we're going to inject into the source tarball.
+    // lib-vt doesn't need GTK resources or frame data.
     const alloc = b.allocator;
     var resources: std.ArrayListUnmanaged(Resource) = .empty;
-    {
-        const gtk = SharedDeps.gtkNgDistResources(b);
-        try resources.append(alloc, gtk.resources_c);
-        try resources.append(alloc, gtk.resources_h);
-    }
-    {
-        const framedata = GhosttyFrameData.distResources(b);
-        try resources.append(alloc, framedata.framedata);
+    if (!cfg.emit_lib_vt) {
+        {
+            const gtk = SharedDeps.gtkNgDistResources(b);
+            try resources.append(alloc, gtk.resources_c);
+            try resources.append(alloc, gtk.resources_h);
+        }
+        {
+            const framedata = GhosttyFrameData.distResources(b);
+            try resources.append(alloc, framedata.framedata);
+        }
     }
 
     // git archive to create the final tarball. "git archive" is the
@@ -46,8 +52,8 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
         const version = b.addWriteFiles().add("VERSION", b.fmt("{f}", .{cfg.version}));
         // --add-file uses the most recent --prefix to determine the path
         // in the archive to copy the file (the directory only).
-        git_archive.addArg(b.fmt("--prefix=ghostty-{f}/", .{
-            cfg.version,
+        git_archive.addArg(b.fmt("--prefix={s}-{f}/", .{
+            name, cfg.version,
         }));
         git_archive.addPrefixedFileArg("--add-file=", version);
     }
@@ -65,8 +71,8 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
 
         // --add-file uses the most recent --prefix to determine the path
         // in the archive to copy the file (the directory only).
-        git_archive.addArg(b.fmt("--prefix=ghostty-{f}/{s}/", .{
-            cfg.version,
+        git_archive.addArg(b.fmt("--prefix={s}-{f}/{s}/", .{
+            name,                                 cfg.version,
             std.fs.path.dirname(resource.dist).?,
         }));
         git_archive.addPrefixedFileArg("--add-file=", copied);
@@ -77,19 +83,28 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
         // This is important. Standard source tarballs extract into
         // a directory named `project-version`. This is expected by
         // standard tooling such as debhelper and rpmbuild.
-        b.fmt("--prefix=ghostty-{f}/", .{cfg.version}),
+        b.fmt("--prefix={s}-{f}/", .{ name, cfg.version }),
         "-o",
     });
     const output = git_archive.addOutputFileArg(b.fmt(
-        "ghostty-{f}.tar.gz",
-        .{cfg.version},
+        "{s}-{f}.tar.gz",
+        .{ name, cfg.version },
     ));
     git_archive.addArg("HEAD");
+
+    // When building for lib-vt only, exclude large directories that
+    // are not needed to build libghostty-vt. This significantly reduces
+    // the size of the resulting archive.
+    if (cfg.emit_lib_vt) {
+        for (lib_vt_excludes) |exclude| {
+            git_archive.addArg(b.fmt(":(exclude){s}", .{exclude}));
+        }
+    }
 
     // The install step to put the dist into the build directory.
     const install = b.addInstallFile(
         output,
-        b.fmt("dist/ghostty-{f}.tar.gz", .{cfg.version}),
+        b.fmt("dist/{s}-{f}.tar.gz", .{ name, cfg.version }),
     );
 
     // The check step to ensure the archive works.
@@ -100,8 +115,8 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
     // This is the root Ghostty source dir of the extracted source tarball.
     // i.e. this is way `build.zig` is.
     const extract_dir = check
-        .addOutputDirectoryArg("ghostty")
-        .path(b, b.fmt("ghostty-{f}", .{cfg.version}));
+        .addOutputDirectoryArg(name)
+        .path(b, b.fmt("{s}-{f}", .{ name, cfg.version }));
 
     // Check that tests pass within the extracted directory. This isn't
     // a fully hermetic test because we're sharing the Zig cache. In
@@ -109,7 +124,12 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
     // in the interest of speed we don't do that for now and hope other
     // CI catches any issues.
     const check_test = step: {
-        const step = b.addSystemCommand(&.{ "zig", "build", "test" });
+        // For lib-vt, we run the lib-vt tests instead of the full test suite.
+        const check_cmd = if (cfg.emit_lib_vt)
+            &[_][]const u8{ "zig", "build", "test-lib-vt", "-Demit-lib-vt=true" }
+        else
+            &[_][]const u8{ "zig", "build", "test" };
+        const step = b.addSystemCommand(check_cmd);
         step.setCwd(extract_dir);
 
         // Must be set so that Zig knows that this command doesn't
@@ -133,6 +153,23 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
         check_test.step.dependOn(&check_path.step);
     }
 
+    // For lib-vt, also verify the CMake build works from the tarball.
+    if (cfg.emit_lib_vt) {
+        const cmake_build_dir = extract_dir.path(b, "cmake-build");
+        const cmake_configure = b.addSystemCommand(&.{ "cmake", "-B" });
+        cmake_configure.addDirectoryArg(cmake_build_dir);
+        cmake_configure.setCwd(extract_dir);
+        cmake_configure.expectExitCode(0);
+        cmake_configure.step.dependOn(&check.step);
+
+        const cmake_build = b.addSystemCommand(&.{ "cmake", "--build" });
+        cmake_build.addDirectoryArg(cmake_build_dir);
+        cmake_build.expectExitCode(0);
+        cmake_build.step.dependOn(&cmake_configure.step);
+
+        check_test.step.dependOn(&cmake_build.step);
+    }
+
     return .{
         .archive = output,
         .install_step = &install.step,
@@ -140,6 +177,36 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
         .check_step = &check_test.step,
     };
 }
+
+/// Paths to exclude from the dist archive when building for lib-vt only.
+/// These are large files and directories that are not needed to build or
+/// test libghostty-vt, specified as git pathspec exclude patterns.
+const lib_vt_excludes = &[_][]const u8{
+    // App and platform resources
+    "images",
+    "macos",
+    "dist/doxygen",
+    "dist/linux",
+    "dist/macos",
+    "dist/windows",
+    "flatpak",
+    "snap",
+    "po",
+    "example",
+
+    // Test corpus (lib-vt tests use embedded testdata within src/terminal/)
+    "test",
+
+    // Large binary assets
+    "src/font/res",
+    "src/crash/testdata",
+    "pkg/wuffs/src/too_big.jpg",
+    "pkg/wuffs/src/too_big.png",
+    "pkg/breakpad/vendor",
+
+    // Vendored libraries not used by lib-vt
+    "vendor",
+};
 
 /// A dist resource is a resource that is built and distributed as part
 /// of the source tarball with Ghostty. These aren't committed to the Git

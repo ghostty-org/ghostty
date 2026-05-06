@@ -1,8 +1,10 @@
 const std = @import("std");
 const testing = std.testing;
-const lib_alloc = @import("../../lib/allocator.zig");
-const CAllocator = lib_alloc.Allocator;
+const lib = @import("../lib.zig");
+const CAllocator = lib.alloc.Allocator;
 const terminal_c = @import("terminal.zig");
+const grid_ref = @import("grid_ref.zig");
+const selection_c = @import("selection.zig");
 const ZigTerminal = @import("../Terminal.zig");
 const formatterpkg = @import("../formatter.zig");
 const Result = @import("result.zig").Result;
@@ -22,6 +24,8 @@ pub const Formatter = ?*FormatterWrapper;
 
 /// C: GhosttyFormatterFormat
 pub const Format = formatterpkg.Format;
+
+const CSelection = selection_c.CSelection;
 
 /// C: GhosttyFormatterScreenOptions
 pub const ScreenOptions = extern struct {
@@ -63,6 +67,10 @@ pub const TerminalOptions = extern struct {
     trim: bool,
     extra: Extra,
 
+    /// Optional selection to restrict output to a range.
+    /// If null, the entire screen is formatted.
+    selection: ?*const CSelection = null,
+
     /// C: GhosttyFormatterTerminalExtra
     pub const Extra = extern struct {
         size: usize = @sizeOf(Extra),
@@ -100,7 +108,7 @@ pub fn terminal_new(
     result: *Formatter,
     terminal_: terminal_c.Terminal,
     opts: TerminalOptions,
-) callconv(.c) Result {
+) callconv(lib.calling_conv) Result {
     result.* = terminal_new_(
         alloc_,
         terminal_,
@@ -124,9 +132,9 @@ fn terminal_new_(
     InvalidValue,
     OutOfMemory,
 }!*FormatterWrapper {
-    const t = terminal_ orelse return error.InvalidValue;
+    const t: *ZigTerminal = (terminal_ orelse return error.InvalidValue).terminal;
 
-    const alloc = lib_alloc.default(alloc_);
+    const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(FormatterWrapper) catch
         return error.OutOfMemory;
     errdefer alloc.destroy(ptr);
@@ -137,6 +145,12 @@ fn terminal_new_(
         .trim = opts.trim,
     });
     formatter.extra = opts.extra.toZig();
+
+    // Setup the content that we're formatting
+    if (opts.selection) |sel| formatter.content = .{
+        .selection = sel.toZig() orelse
+            return error.InvalidValue,
+    };
 
     ptr.* = .{
         .kind = .{ .terminal = formatter },
@@ -151,7 +165,7 @@ pub fn format_buf(
     out_: ?[*]u8,
     out_len: usize,
     out_written: *usize,
-) callconv(.c) Result {
+) callconv(lib.calling_conv) Result {
     const wrapper = formatter_ orelse return .invalid_value;
 
     var writer: std.Io.Writer = .fixed(if (out_) |out|
@@ -181,9 +195,9 @@ pub fn format_alloc(
     alloc_: ?*const CAllocator,
     out_ptr: *?[*]u8,
     out_len: *usize,
-) callconv(.c) Result {
+) callconv(lib.calling_conv) Result {
     const wrapper = formatter_ orelse return .invalid_value;
-    const alloc = lib_alloc.default(alloc_);
+    const alloc = lib.alloc.default(alloc_);
 
     var aw: std.Io.Writer.Allocating = .init(alloc);
     defer aw.deinit();
@@ -198,7 +212,7 @@ pub fn format_alloc(
     return .success;
 }
 
-pub fn free(formatter_: Formatter) callconv(.c) void {
+pub fn free(formatter_: Formatter) callconv(lib.calling_conv) void {
     const wrapper = formatter_ orelse return;
     const alloc = wrapper.alloc;
     alloc.destroy(wrapper);
@@ -207,7 +221,7 @@ pub fn free(formatter_: Formatter) callconv(.c) void {
 test "terminal_new/free" {
     var t: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &t,
         .{ .cols = 80, .rows = 24, .max_scrollback = 10_000 },
     ));
@@ -215,7 +229,7 @@ test "terminal_new/free" {
 
     var f: Formatter = null;
     try testing.expectEqual(Result.success, terminal_new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &f,
         t,
         .{ .emit = .plain, .unwrap = false, .trim = true, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
@@ -227,7 +241,7 @@ test "terminal_new/free" {
 test "terminal_new invalid_value on null terminal" {
     var f: Formatter = null;
     try testing.expectEqual(Result.invalid_value, terminal_new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &f,
         null,
         .{ .emit = .plain, .unwrap = false, .trim = true, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
@@ -242,7 +256,7 @@ test "free null" {
 test "format plain" {
     var t: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &t,
         .{ .cols = 80, .rows = 24, .max_scrollback = 10_000 },
     ));
@@ -252,7 +266,7 @@ test "format plain" {
 
     var f: Formatter = null;
     try testing.expectEqual(Result.success, terminal_new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &f,
         t,
         .{ .emit = .plain, .unwrap = false, .trim = true, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
@@ -268,7 +282,7 @@ test "format plain" {
 test "format reflects terminal changes" {
     var t: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &t,
         .{ .cols = 80, .rows = 24, .max_scrollback = 10_000 },
     ));
@@ -278,7 +292,7 @@ test "format reflects terminal changes" {
 
     var f: Formatter = null;
     try testing.expectEqual(Result.success, terminal_new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &f,
         t,
         .{ .emit = .plain, .unwrap = false, .trim = true, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
@@ -300,7 +314,7 @@ test "format reflects terminal changes" {
 test "format null returns required size" {
     var t: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &t,
         .{ .cols = 80, .rows = 24, .max_scrollback = 10_000 },
     ));
@@ -310,7 +324,7 @@ test "format null returns required size" {
 
     var f: Formatter = null;
     try testing.expectEqual(Result.success, terminal_new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &f,
         t,
         .{ .emit = .plain, .unwrap = false, .trim = true, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
@@ -332,7 +346,7 @@ test "format null returns required size" {
 test "format buffer too small" {
     var t: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &t,
         .{ .cols = 80, .rows = 24, .max_scrollback = 10_000 },
     ));
@@ -342,7 +356,7 @@ test "format buffer too small" {
 
     var f: Formatter = null;
     try testing.expectEqual(Result.success, terminal_new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &f,
         t,
         .{ .emit = .plain, .unwrap = false, .trim = true, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
@@ -365,7 +379,7 @@ test "format null formatter" {
 test "format vt" {
     var t: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &t,
         .{ .cols = 80, .rows = 24, .max_scrollback = 10_000 },
     ));
@@ -375,7 +389,7 @@ test "format vt" {
 
     var f: Formatter = null;
     try testing.expectEqual(Result.success, terminal_new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &f,
         t,
         .{ .emit = .vt, .unwrap = false, .trim = true, .extra = .{ .palette = true, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = true, .hyperlink = true, .protection = false, .kitty_keyboard = false, .charsets = false } } },
@@ -389,10 +403,54 @@ test "format vt" {
     try testing.expect(std.mem.indexOf(u8, buf[0..written], "Test") != null);
 }
 
+test "format plain with selection" {
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{ .cols = 80, .rows = 24, .max_scrollback = 10_000 },
+    ));
+    defer terminal_c.free(t);
+
+    terminal_c.vt_write(t, "Hello World", 11);
+
+    // Get grid refs for "World" (columns 6..10 on row 0)
+    var start_ref: grid_ref.CGridRef = .{};
+    try testing.expectEqual(Result.success, terminal_c.grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 6, .y = 0 } },
+    }, &start_ref));
+
+    var end_ref: grid_ref.CGridRef = .{};
+    try testing.expectEqual(Result.success, terminal_c.grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 10, .y = 0 } },
+    }, &end_ref));
+
+    const sel: selection_c.CSelection = .{
+        .start = start_ref,
+        .end = end_ref,
+    };
+
+    var f: Formatter = null;
+    try testing.expectEqual(Result.success, terminal_new(
+        &lib.alloc.test_allocator,
+        &f,
+        t,
+        .{ .emit = .plain, .unwrap = false, .trim = true, .selection = &sel, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },
+    ));
+    defer free(f);
+
+    var buf: [1024]u8 = undefined;
+    var written: usize = 0;
+    try testing.expectEqual(Result.success, format_buf(f, &buf, buf.len, &written));
+    try testing.expectEqualStrings("World", buf[0..written]);
+}
+
 test "format html" {
     var t: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &t,
         .{ .cols = 80, .rows = 24, .max_scrollback = 10_000 },
     ));
@@ -402,7 +460,7 @@ test "format html" {
 
     var f: Formatter = null;
     try testing.expectEqual(Result.success, terminal_new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &f,
         t,
         .{ .emit = .html, .unwrap = false, .trim = true, .extra = .{ .palette = false, .modes = false, .scrolling_region = false, .tabstops = false, .pwd = false, .keyboard = false, .screen = .{ .cursor = false, .style = false, .hyperlink = false, .protection = false, .kitty_keyboard = false, .charsets = false } } },

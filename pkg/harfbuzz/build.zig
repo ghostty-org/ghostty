@@ -103,7 +103,14 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         .linkage = .static,
     });
     lib.linkLibC();
-    lib.linkLibCpp();
+    // On MSVC, we must not use linkLibCpp because Zig unconditionally
+    // passes -nostdinc++ and then adds its bundled libc++/libc++abi
+    // include paths, which conflict with MSVC's own C++ runtime headers.
+    // The MSVC SDK include directories (added via linkLibC) contain
+    // both C and C++ headers, so linkLibCpp is not needed.
+    if (target.result.abi != .msvc) {
+        lib.linkLibCpp();
+    }
 
     if (target.result.os.tag.isDarwin()) {
         try apple_sdk.addPaths(b, lib);
@@ -116,6 +123,15 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     try flags.appendSlice(b.allocator, &.{
         "-DHAVE_STDBOOL_H",
     });
+    // Disable ubsan for MSVC: Zig's ubsan runtime cannot be bundled
+    // on Windows (LNK4229), leaving __ubsan_handle_* unresolved when
+    // the static archive is consumed by an external linker.
+    if (target.result.abi == .msvc) {
+        try flags.appendSlice(b.allocator, &.{
+            "-fno-sanitize=undefined",
+            "-fno-sanitize-trap=undefined",
+        });
+    }
     if (target.result.os.tag != .windows) {
         try flags.appendSlice(b.allocator, &.{
             "-DHAVE_UNISTD_H",

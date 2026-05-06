@@ -92,6 +92,21 @@ extension Ghostty {
             ghostty_surface_mouse_captured(surface)
         }
 
+        /// The PID of the foreground process group attached to the PTY.
+        @MainActor
+        var foregroundPID: Int? {
+            let pid = ghostty_surface_foreground_pid(surface)
+            guard pid != 0 else { return nil }
+            return Int(exactly: pid)
+        }
+
+        /// The PTY device name for this surface.
+        @MainActor
+        var ttyName: String? {
+            let ttyName = AllocatedString(ghostty_surface_tty_name(surface)).string
+            return ttyName.isEmpty ? nil : ttyName
+        }
+
         /// Send a mouse button event to the terminal.
         ///
         /// This sends a complete mouse button event including the button state (press/release),

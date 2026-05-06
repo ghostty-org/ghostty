@@ -84,11 +84,14 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
 
         "-DFT_CONFIG_OPTION_SYSTEM_ZLIB=1",
 
-        "-DHAVE_UNISTD_H",
-        "-DHAVE_FCNTL_H",
-
         "-fno-sanitize=undefined",
     });
+    if (target.result.os.tag != .windows) {
+        try flags.appendSlice(b.allocator, &.{
+            "-DHAVE_UNISTD_H",
+            "-DHAVE_FCNTL_H",
+        });
+    }
 
     if (target.result.os.tag == .freebsd or target.result.abi == .musl) {
         try flags.append(b.allocator, "-fPIC");

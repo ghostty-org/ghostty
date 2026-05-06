@@ -51,6 +51,9 @@ pub const ImageStorage = struct {
     /// Non-null if there is an in-progress loading image.
     loading: ?*LoadingImage = null,
 
+    /// The limits of what medium types are allowed for image loading.
+    image_limits: LoadingImage.Limits = .direct,
+
     /// The total bytes of image data that have been loaded and the limit.
     /// If the limit is reached, the oldest images will be evicted to make
     /// space. Unused images take priority.
@@ -89,8 +92,9 @@ pub const ImageStorage = struct {
     ) !void {
         // Special case disabling by quickly deleting all
         if (limit == 0) {
+            const image_limits = self.image_limits;
             self.deinit(alloc, s);
-            self.* = .{};
+            self.* = .{ .image_limits = image_limits };
         }
 
         // If we re lowering our limit, check if we need to evict.
@@ -658,9 +662,10 @@ pub const ImageStorage = struct {
             }
         }
 
-        /// Calculates the size of this placement's image in pixels,
-        /// taking in to account the specified rows and columns.
-        pub fn calculatedSize(
+        /// Returns the size of this placement's image in pixels,
+        /// taking into account the source rectangle, specified
+        /// rows/columns, and aspect ratio.
+        pub fn pixelSize(
             self: Placement,
             image: Image,
             t: *const terminal.Terminal,
@@ -755,7 +760,7 @@ pub const ImageStorage = struct {
 
             // Otherwise we calculate the pixel size, divide by
             // cell size, and round up to the nearest integer.
-            const calc_size = self.calculatedSize(image, t);
+            const calc_size = self.pixelSize(image, t);
             return .{
                 .cols = std.math.divCeil(
                     u32,
@@ -1334,7 +1339,7 @@ test "storage: aspect ratio calculation when only columns or rows specified" {
         // that's 100px width. 100px * (9 / 16) = 56.25, which should round
         // to a height of 56px.
 
-        const calc_size = placement.calculatedSize(image, &t);
+        const calc_size = placement.pixelSize(image, &t);
         try testing.expectEqual(@as(u32, 100), calc_size.width);
         try testing.expectEqual(@as(u32, 56), calc_size.height);
     }
@@ -1352,7 +1357,7 @@ test "storage: aspect ratio calculation when only columns or rows specified" {
         // 100px height. 100px * (16 / 9) = 177.77..., which should round to
         // a width of 178px.
 
-        const calc_size = placement.calculatedSize(image, &t);
+        const calc_size = placement.pixelSize(image, &t);
         try testing.expectEqual(@as(u32, 178), calc_size.width);
         try testing.expectEqual(@as(u32, 100), calc_size.height);
     }

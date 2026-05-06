@@ -353,7 +353,7 @@ pub const CommandPalette = extern struct {
         // Regular command - emit trigger signal
         const action = cmd.getAction() orelse return;
 
-        // Signal that an an action has been selected. Signals are synchronous
+        // Signal that an action has been selected. Signals are synchronous
         // so we shouldn't need to worry about cloning the action.
         signals.trigger.impl.emit(
             self,

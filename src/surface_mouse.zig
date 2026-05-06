@@ -9,14 +9,14 @@ const std = @import("std");
 const builtin = @import("builtin");
 const input = @import("input.zig");
 const terminal = @import("terminal/main.zig");
-const MouseShape = @import("terminal/mouse_shape.zig").MouseShape;
+const MouseShape = terminal.MouseShape;
 
 /// For processing key events; the key that was physically pressed on the
 /// keyboard.
 physical_key: input.Key,
 
 /// The mouse event tracking mode, if any.
-mouse_event: terminal.Terminal.MouseEvents,
+mouse_event: terminal.MouseEvent,
 
 /// The current terminal's mouse shape.
 mouse_shape: MouseShape,

@@ -152,15 +152,9 @@ class AppDelegate: NSObject,
     /// Signals
     private var signals: [DispatchSourceSignal] = []
 
-    /// The custom app icon image that is currently in use.
-    @Published private(set) var appIcon: NSImage?
+    private let appIconUpdater = AppIconUpdater()
 
-    /// Ghostty menu items indexed by their normalized shortcut. This avoids traversing
-    /// the entire menu tree on every key equivalent event.
-    ///
-    /// We store a weak reference so this cache can never be the owner of menu items.
-    /// If multiple items map to the same shortcut, the most recent one wins.
-    private var menuItemsByShortcut: [MenuShortcutKey: Weak<NSMenuItem>] = [:]
+    @MainActor private lazy var menuShortcutManager = Ghostty.MenuShortcutManager()
 
     override init() {
 #if DEBUG
@@ -602,11 +596,11 @@ class AppDelegate: NSObject,
         guard NSApp.mainWindow == nil else { return event }
 
         // If this event as-is would result in a key binding then we send it.
-        if let app = ghostty.app {
+        if let app = ghostty.app, let config = ghostty.config.config {
             var ghosttyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
             let match = (event.characters ?? "").withCString { ptr in
                 ghosttyEvent.text = ptr
-                if !ghostty_app_key_is_binding(app, ghosttyEvent) {
+                if !ghostty_config_key_is_binding(config, ghosttyEvent) {
                     return false
                 }
 
@@ -689,6 +683,22 @@ class AppDelegate: NSObject,
         syncDockBadge()
     }
 
+    private func requestBadgeAuthorizationAndSet(_ center: UNUserNotificationCenter) {
+        center.requestAuthorization(options: [.badge]) { granted, error in
+            if let error = error {
+                Self.logger.warning("Error requesting badge authorization: \(error)")
+                return
+            }
+
+            // Permission granted, set the badge
+            if granted {
+                DispatchQueue.main.async {
+                    self.setDockBadge()
+                }
+            }
+        }
+    }
+
     private func syncDockBadge() {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
@@ -699,23 +709,16 @@ class AppDelegate: NSObject,
                     DispatchQueue.main.async {
                         self.setDockBadge()
                     }
+                } else if settings.badgeSetting == .notSupported {
+                    // If badge setting is not supported, we may be in a sandbox that doesn't allow it.
+                    // We can still attempt to set the badge and hope for the best, but we should also
+                    // request authorization just in case it is a permissions issue.
+                    self.requestBadgeAuthorizationAndSet(center)
                 }
 
             case .notDetermined:
                 // Not determined yet, request authorization for badge
-                center.requestAuthorization(options: [.badge]) { granted, error in
-                    if let error = error {
-                        Self.logger.warning("Error requesting badge authorization: \(error)")
-                        return
-                    }
-
-                    if granted {
-                        // Permission granted, set the badge
-                        DispatchQueue.main.async {
-                            self.setDockBadge()
-                        }
-                    }
-                }
+                self.requestBadgeAuthorizationAndSet(center)
 
             case .denied, .provisional, .ephemeral:
                 // In these known non-authorized states, do not attempt to set the badge.
@@ -795,7 +798,9 @@ class AppDelegate: NSObject,
         }
 
         // Config could change keybindings, so update everything that depends on that
-        syncMenuShortcuts(config)
+        DispatchQueue.main.async {
+            self.syncMenuShortcuts(config)
+        }
         TerminalController.all.forEach { $0.relabelTabs() }
 
         // Update our badge since config can change what we show.
@@ -852,13 +857,8 @@ class AppDelegate: NSObject,
     }
 
     private func updateAppIcon(from config: Ghostty.Config) {
-        // Since this is called after `DockTilePlugin` has been running,
-        // clean it up here to trigger a correct update of the current config.
-        UserDefaults.ghostty.removeObject(forKey: "CustomGhosttyIcon")
-        DispatchQueue.global().async {
-            UserDefaults.ghostty.appIcon = AppIcon(config: config)
-            DistributedNotificationCenter.default()
-                .postNotificationName(.ghosttyIconDidChange, object: nil, userInfo: nil, deliverImmediately: true)
+        Task.detached {
+            await self.appIconUpdater.update(icon: AppIcon(config: config))
         }
     }
 
@@ -870,8 +870,6 @@ class AppDelegate: NSObject,
     }
 
     func application(_ app: NSApplication, willEncodeRestorableState coder: NSCoder) {
-        Self.logger.debug("application will save window state")
-
         guard ghostty.config.windowSaveState != "never" else { return }
 
         // Encode our quick terminal state if we have it.
@@ -952,7 +950,7 @@ class AppDelegate: NSObject,
     // MARK: - IB Actions
 
     @IBAction func openConfig(_ sender: Any?) {
-        Ghostty.App.openConfig()
+        ghostty.openConfig()
     }
 
     @IBAction func reloadConfig(_ sender: Any?) {
@@ -1160,11 +1158,10 @@ extension AppDelegate {
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
-    private func syncMenuShortcuts(_ config: Ghostty.Config) {
+    @MainActor private func syncMenuShortcuts(_ config: Ghostty.Config) {
         guard ghostty.readiness == .ready else { return }
 
-        // Reset our shortcut index since we're about to rebuild all menu bindings.
-        menuItemsByShortcut.removeAll(keepingCapacity: true)
+        menuShortcutManager.reset()
 
         syncMenuShortcut(config, action: "check_for_updates", menuItem: self.menuCheckForUpdates)
         syncMenuShortcut(config, action: "open_config", menuItem: self.menuOpenConfig)
@@ -1189,10 +1186,11 @@ extension AppDelegate {
         syncMenuShortcut(config, action: "paste_from_selection", menuItem: self.menuPasteSelection)
         syncMenuShortcut(config, action: "select_all", menuItem: self.menuSelectAll)
         syncMenuShortcut(config, action: "start_search", menuItem: self.menuFind)
+        syncMenuShortcut(config, action: "end_search", menuItem: self.menuHideFindBar)
         syncMenuShortcut(config, action: "search_selection", menuItem: self.menuSelectionForFind)
         syncMenuShortcut(config, action: "scroll_to_selection", menuItem: self.menuScrollToSelection)
-        syncMenuShortcut(config, action: "search:next", menuItem: self.menuFindNext)
-        syncMenuShortcut(config, action: "search:previous", menuItem: self.menuFindPrevious)
+        syncMenuShortcut(config, action: "navigate_search:next", menuItem: self.menuFindNext)
+        syncMenuShortcut(config, action: "navigate_search:previous", menuItem: self.menuFindPrevious)
 
         syncMenuShortcut(config, action: "toggle_split_zoom", menuItem: self.menuZoomSplit)
         syncMenuShortcut(config, action: "goto_split:previous", menuItem: self.menuPreviousSplit)
@@ -1231,97 +1229,12 @@ extension AppDelegate {
         reloadDockMenu()
     }
 
-    /// Syncs a single menu shortcut for the given action. The action string is the same
-    /// action string used for the Ghostty configuration.
-    private func syncMenuShortcut(_ config: Ghostty.Config, action: String, menuItem: NSMenuItem?) {
-        guard let menu = menuItem else { return }
-
-        guard let shortcut = config.keyboardShortcut(for: action) else {
-            // No shortcut, clear the menu item
-            menu.keyEquivalent = ""
-            menu.keyEquivalentModifierMask = []
-            return
-        }
-
-        let keyEquivalent = shortcut.key.character.description
-        let modifierMask = NSEvent.ModifierFlags(swiftUIFlags: shortcut.modifiers)
-        menu.keyEquivalent = keyEquivalent
-        menu.keyEquivalentModifierMask = modifierMask
-
-        // Build a direct lookup for key-equivalent dispatch so we don't need to
-        // linearly walk the full menu hierarchy at event time.
-        guard let key = MenuShortcutKey(
-            keyEquivalent: keyEquivalent,
-            modifiers: modifierMask
-        ) else {
-            return
-        }
-
-        // Later registrations intentionally override earlier ones for the same key.
-        menuItemsByShortcut[key] = .init(menu)
+    @MainActor private func syncMenuShortcut(_ config: Ghostty.Config, action: String, menuItem: NSMenuItem?) {
+        menuShortcutManager.syncMenuShortcut(config, action: action, menuItem: menuItem)
     }
 
-    /// Attempts to perform a menu key equivalent only for menu items that represent
-    /// Ghostty keybind actions. This is important because it lets our surface dispatch
-    /// bindings through the menu so they flash but also lets our surface override macOS built-ins
-    /// like Cmd+H.
-    func performGhosttyBindingMenuKeyEquivalent(with event: NSEvent) -> Bool {
-        // Convert this event into the same normalized lookup key we use when
-        // syncing menu shortcuts from configuration.
-        guard let key = MenuShortcutKey(event: event) else {
-            return false
-        }
-
-        // If we don't have an entry for this key combo, no Ghostty-owned
-        // menu shortcut exists for this event.
-        guard let weakItem = menuItemsByShortcut[key] else {
-            return false
-        }
-
-        // Weak references can be nil if a menu item was deallocated after sync.
-        guard let item = weakItem.value else {
-            menuItemsByShortcut.removeValue(forKey: key)
-            return false
-        }
-
-        guard let parentMenu = item.menu else {
-            return false
-        }
-
-        // Keep enablement state fresh in case menu validation hasn't run yet.
-        parentMenu.update()
-        guard item.isEnabled else {
-            return false
-        }
-
-        let index = parentMenu.index(of: item)
-        guard index >= 0 else {
-            return false
-        }
-
-        parentMenu.performActionForItem(at: index)
-        return true
-    }
-
-    /// Hashable key for a menu shortcut match, normalized for quick lookup.
-    private struct MenuShortcutKey: Hashable {
-        private static let shortcutModifiers: NSEvent.ModifierFlags = [.shift, .control, .option, .command]
-
-        private let keyEquivalent: String
-        private let modifiersRawValue: UInt
-
-        init?(keyEquivalent: String, modifiers: NSEvent.ModifierFlags) {
-            let normalized = keyEquivalent.lowercased()
-            guard !normalized.isEmpty else { return nil }
-
-            self.keyEquivalent = normalized
-            self.modifiersRawValue = modifiers.intersection(Self.shortcutModifiers).rawValue
-        }
-
-        init?(event: NSEvent) {
-            guard let keyEquivalent = event.charactersIgnoringModifiers else { return nil }
-            self.init(keyEquivalent: keyEquivalent, modifiers: event.modifierFlags)
-        }
+    @MainActor func performGhosttyBindingMenuKeyEquivalent(with event: NSEvent) -> Bool {
+        menuShortcutManager.performGhosttyBindingMenuKeyEquivalent(with: event)
     }
 }
 

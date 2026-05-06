@@ -8,15 +8,15 @@ const Command = @import("../../osc.zig").Command;
 /// Parse OSC 52
 pub fn parse(parser: *Parser, _: ?u8) ?*Command {
     assert(parser.state == .@"52");
-    const writer = parser.writer orelse {
+    const cap = if (parser.capture) |*c| c else {
         parser.state = .invalid;
         return null;
     };
-    writer.writeByte(0) catch {
+    cap.writer.writeByte(0) catch {
         parser.state = .invalid;
         return null;
     };
-    const data = writer.buffered();
+    const data = cap.trailing();
     if (data.len == 1) {
         parser.state = .invalid;
         return null;

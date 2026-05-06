@@ -104,7 +104,7 @@ pub const Shaper = struct {
     }
 
     /// Returns an iterator that returns one text run at a time for the
-    /// given terminal row. Note that text runs are are only valid one at a time
+    /// given terminal row. Note that text runs are only valid one at a time
     /// for a Shaper struct since they share state.
     ///
     /// The selection must be a row-only selection (height = 1). See
@@ -2071,7 +2071,7 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
         });
     } else {
         // On CoreText we want to load Apple Emoji, we should have it.
-        var disco = font.Discover.init();
+        var disco = font.Discover.init(lib);
         defer disco.deinit();
         var disco_it = try disco.discover(alloc, .{
             .family = "Apple Color Emoji",
@@ -2126,7 +2126,7 @@ fn testShaperWithDiscoveredFont(alloc: Allocator, font_req: [:0]const u8) !TestS
 
     // Discover and add our font to the collection.
     {
-        var disco = font.Discover.init();
+        var disco = font.Discover.init(lib);
         defer disco.deinit();
         var disco_it = try disco.discover(alloc, .{
             .family = font_req,

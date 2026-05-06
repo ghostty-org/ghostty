@@ -52,6 +52,7 @@ pub const fixMaxFiles = file.fixMaxFiles;
 pub const restoreMaxFiles = file.restoreMaxFiles;
 pub const allocTmpDir = file.allocTmpDir;
 pub const freeTmpDir = file.freeTmpDir;
+pub const randomTmpPath = file.randomTmpPath;
 pub const isFlatpak = flatpak.isFlatpak;
 pub const FlatpakHostCommand = flatpak.FlatpakHostCommand;
 pub const home = homedir.home;
@@ -67,6 +68,7 @@ pub const ShellEscapeWriter = shell.ShellEscapeWriter;
 pub const getKernelInfo = kernel_info.getKernelInfo;
 
 test {
+    _ = file;
     _ = i18n;
     _ = path;
     _ = uri;

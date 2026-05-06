@@ -5,7 +5,12 @@
   via `lib.TaggedUnion`.
 - Any functions must be updated all the way through from here to
   `src/terminal/c/main.zig` to `src/lib_vt.zig` and the headers
-  in `include/ghostty/vt.h`.
+  in `include/ghostty/vt.h`. Specifically:
+  1. Define the function in `src/terminal/c/<module>.zig`.
+  2. Re-export it via a `pub const` in `src/terminal/c/main.zig`.
+  3. Add an `@export` call in `src/lib_vt.zig` with the
+     `ghostty_` prefixed symbol name.
+  4. Declare it in the corresponding header under `include/ghostty/vt/`.
 - In `include/ghostty/vt.h`, always sort the header contents by:
   (1) macros, (2) forward declarations, (3) types, (4) functions
 

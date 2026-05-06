@@ -6,6 +6,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
 const posix = std.posix;
+const windows = std.os.windows;
 const fastmem = @import("../fastmem.zig");
 const color = @import("color.zig");
 const hyperlink = @import("hyperlink.zig");
@@ -25,6 +26,60 @@ const alignForward = std.mem.alignForward;
 const alignBackward = std.mem.alignBackward;
 
 const log = std.log.scoped(.page);
+
+/// Page-aligned allocator used for terminal page backing memory. Pages
+/// require page-aligned, zeroed memory obtained directly from the OS
+/// (not the Zig allocator) because the allocation fast-path is
+/// performance-critical and the OS guarantees zeroed pages.
+const PageAlloc = switch (builtin.os.tag) {
+    .windows => AllocWindows,
+    else => AllocPosix,
+};
+
+/// Allocate page-aligned, zeroed backing memory using mmap with
+/// MAP_PRIVATE | MAP_ANONYMOUS which guarantees zeroed pages.
+const AllocPosix = struct {
+    pub fn alloc(n: usize) ![]align(std.heap.page_size_min) u8 {
+        return try posix.mmap(
+            null,
+            n,
+            posix.PROT.READ | posix.PROT.WRITE,
+            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
+            -1,
+            0,
+        );
+    }
+
+    pub fn free(mem: []align(std.heap.page_size_min) u8) void {
+        posix.munmap(mem);
+    }
+};
+
+/// Allocate page-aligned, zeroed backing memory using VirtualAlloc with
+/// MEM_COMMIT | MEM_RESERVE which guarantees zeroed pages.
+const AllocWindows = struct {
+    pub fn alloc(n: usize) error{OutOfMemory}![]align(std.heap.page_size_min) u8 {
+        const addr = windows.VirtualAlloc(
+            null,
+            n,
+            windows.MEM_COMMIT | windows.MEM_RESERVE,
+            windows.PAGE_READWRITE,
+        ) catch return error.OutOfMemory;
+
+        return @as(
+            [*]align(std.heap.page_size_min) u8,
+            @ptrCast(@alignCast(addr)),
+        )[0..n];
+    }
+
+    pub fn free(mem: []align(std.heap.page_size_min) u8) void {
+        windows.VirtualFree(
+            @ptrCast(@alignCast(mem.ptr)),
+            0,
+            windows.MEM_RELEASE,
+        );
+    }
+};
 
 /// The allocator to use for multi-codepoint grapheme data. We use
 /// a chunk size of 4 codepoints. It'd be best to set this empirically
@@ -167,20 +222,13 @@ pub const Page = struct {
     pub inline fn init(cap: Capacity) !Page {
         const l = layout(cap);
 
-        // We use mmap directly to avoid Zig allocator overhead
-        // (small but meaningful for this path) and because a private
-        // anonymous mmap is guaranteed on Linux and macOS to be zeroed,
+        // We allocate page-aligned zeroed memory directly to avoid Zig
+        // allocator overhead (small but meaningful for this path). Both
+        // mmap (POSIX) and VirtualAlloc (Windows) guarantee zeroed pages,
         // which is a critical property for us.
         assert(l.total_size % std.heap.page_size_min == 0);
-        const backing = try posix.mmap(
-            null,
-            l.total_size,
-            posix.PROT.READ | posix.PROT.WRITE,
-            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
-            -1,
-            0,
-        );
-        errdefer posix.munmap(backing);
+        const backing = try PageAlloc.alloc(l.total_size);
+        errdefer PageAlloc.free(backing);
 
         const buf = OffsetBuf.init(backing);
         return initBuf(buf, l);
@@ -245,7 +293,7 @@ pub const Page = struct {
     /// this if you allocated the backing memory yourself (i.e. you used
     /// initBuf).
     pub inline fn deinit(self: *Page) void {
-        posix.munmap(self.memory);
+        PageAlloc.free(self.memory);
         self.* = undefined;
     }
 
@@ -578,15 +626,8 @@ pub const Page = struct {
     /// using the page allocator. If you want to manage memory manually,
     /// use cloneBuf.
     pub inline fn clone(self: *const Page) !Page {
-        const backing = try posix.mmap(
-            null,
-            self.memory.len,
-            posix.PROT.READ | posix.PROT.WRITE,
-            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
-            -1,
-            0,
-        );
-        errdefer posix.munmap(backing);
+        const backing = try PageAlloc.alloc(self.memory.len);
+        errdefer PageAlloc.free(backing);
         return self.cloneBuf(backing);
     }
 
@@ -1947,6 +1988,14 @@ pub const Row = packed struct(u64) {
         prompt_continuation = 2,
     };
 
+    /// C ABI type.
+    pub const C = u64;
+
+    /// Returns this row as a C ABI value.
+    pub fn cval(self: Row) C {
+        return @bitCast(self);
+    }
+
     /// Returns true if this row has any managed memory outside of the
     /// row structure (graphemes, styles, etc.)
     pub inline fn managedMemory(self: Row) bool {
@@ -2050,6 +2099,14 @@ pub const Cell = packed struct(u64) {
         /// application, such as "user@host >"
         prompt = 2,
     };
+
+    /// C ABI type.
+    pub const C = u64;
+
+    /// Returns this cell as a C ABI value.
+    pub fn cval(self: Cell) C {
+        return @bitCast(self);
+    }
 
     /// Helper to make a cell that just has a codepoint.
     pub fn init(cp: u21) Cell {

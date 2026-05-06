@@ -31,7 +31,10 @@ pub const ftplugin =
     \\" Use syntax keywords for completion
     \\setlocal omnifunc=syntaxcomplete#Complete
     \\
-    \\let b:undo_ftplugin = 'setl cms< isk< ofu<'
+    \\" Ask ghostty to explain config keywords
+    \\setlocal keywordprg=ghostty\ +explain-config
+    \\
+    \\let b:undo_ftplugin = 'setl cms< isk< ofu< kp<'
     \\
     \\if !exists('current_compiler')
     \\  compiler ghostty
