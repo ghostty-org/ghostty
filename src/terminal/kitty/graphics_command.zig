@@ -436,6 +436,17 @@ pub const Transmission = struct {
         };
     }
 
+    /// Returns the protocol value for this format
+    pub fn protocolValue(self: Format) u8 {
+        return switch (self) {
+            .rgb => 24,
+            .rgba => 32,
+            .png => 100,
+            .gray_alpha => 16,
+            .gray => 8,
+        };
+    }
+
     fn parse(kv: KV) !Transmission {
         var result: Transmission = .{};
         if (kv.get('f')) |v| {
