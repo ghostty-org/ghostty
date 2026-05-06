@@ -10,6 +10,8 @@ pub const Action = enum {
     osc,
     utf8,
 
+    pub const ParseResult = cli.action.ActionParser(@This());
+
     /// Returns the struct associated with the action. The struct
     /// should have a few decls:
     ///
@@ -30,14 +32,18 @@ pub const Action = enum {
 /// An entrypoint for the synthetic generator CLI.
 pub fn main() !void {
     const alloc = std.heap.c_allocator;
-    const action_ = try cli.action.detectArgs(Action, alloc);
-    const action = action_ orelse return error.NoAction;
-    try mainAction(alloc, action, .cli);
+    // Eventually this will be replaced with the args from the "juicy" main.
+    var iter = try std.process.argsWithAllocator(alloc);
+    defer iter.deinit();
+    const result: Action.ParseResult = try .parse(alloc, &iter);
+    defer result.deinit(alloc);
+    const action = result.action orelse return error.NoAction;
+    try mainAction(alloc, action, .{ .cli = result.args });
 }
 
 pub const Args = union(enum) {
     /// The arguments passed to the CLI via argc/argv.
-    cli,
+    cli: []const [:0]const u8,
 
     /// Simple string arguments, parsed via std.process.ArgIteratorGeneral.
     string: []const u8,
@@ -66,8 +72,8 @@ fn mainActionImpl(
     var opts: Options = .{};
     defer if (@hasDecl(Options, "deinit")) opts.deinit();
     switch (args) {
-        .cli => {
-            var iter = try cli.args.argsIterator(alloc);
+        .cli => |a| {
+            var iter = try cli.args.argsIterator(alloc, a);
             defer iter.deinit();
             try cli.args.parse(Options, alloc, &opts, &iter);
         },

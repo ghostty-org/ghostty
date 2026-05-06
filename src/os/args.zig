@@ -9,26 +9,46 @@ const macos = @import("macos");
 ///
 /// For Zig-aware readers: this is the same as std.process.argsWithAllocator
 /// but handles macOS using NSProcessInfo instead of libc argc/argv.
-pub fn iterator(allocator: Allocator) ArgIterator.InitError!ArgIterator {
+pub fn iterator(allocator: Allocator, args: ?[]const [:0]const u8) ArgIterator.InitError!ArgIterator {
     //if (true) return try std.process.argsWithAllocator(allocator);
-    return .initWithAllocator(allocator);
+    return .initWithAllocator(allocator, args);
 }
 
-/// Duck-typed to std.process.ArgIterator
 pub const ArgIterator = switch (builtin.os.tag) {
     .macos => IteratorMacOS,
-    else => std.process.ArgIterator,
+    else => IteratorArgs,
 };
 
-/// This is an ArgIterator (duck-typed for std.process.ArgIterator) for
-/// NSApplicationMain-based applications on macOS. It uses NSProcessInfo to
-/// get the command line arguments since libc argc/argv pointers are not
-/// valid.
+const IteratorArgs = struct {
+    args: []const [:0]const u8,
+    index: usize,
+
+    pub const InitError = Allocator.Error;
+
+    pub fn initWithAllocator(_: Allocator, args: ?[]const [:0]const u8) InitError!IteratorArgs {
+        return .{
+            .args = args orelse &.{},
+            .index = 0,
+        };
+    }
+
+    pub fn next(self: *IteratorArgs) ?[:0]const u8 {
+        if (self.index >= self.args.len) return null;
+        defer self.index += 1;
+        return self.args[self.index];
+    }
+
+    pub fn deinit(_: *const IteratorArgs) void {}
+};
+
+/// This is an ArgIterator for NSApplicationMain-based applications on macOS.
+/// It uses NSProcessInfo to get the command line arguments since libc argc/argv
+/// pointers are not valid.
 ///
 /// I believe this should work for all macOS applications even if
-/// NSApplicationMain is not used, but I haven't tested that so I'm not
-/// sure. If/when libghostty is ever used outside of NSApplicationMain
-/// then we can revisit this.
+/// NSApplicationMain is not used, but I haven't tested that so I'm not sure.
+/// If/when libghostty is ever used outside of NSApplicationMain then we can
+/// revisit this.
 const IteratorMacOS = struct {
     alloc: Allocator,
     index: usize,
@@ -38,7 +58,7 @@ const IteratorMacOS = struct {
 
     pub const InitError = Allocator.Error;
 
-    pub fn initWithAllocator(alloc: Allocator) InitError!IteratorMacOS {
+    pub fn initWithAllocator(alloc: Allocator, _: ?[]const [:0]const u8) InitError!IteratorMacOS {
         const NSProcessInfo = objc.getClass("NSProcessInfo").?;
         const info = NSProcessInfo.msgSend(objc.Object, objc.sel("processInfo"), .{});
         const args = info.getProperty(objc.Object, "arguments");
@@ -124,7 +144,7 @@ test "args" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var iter = try iterator(alloc);
+    var iter = try iterator(alloc, &.{"hello"});
     defer iter.deinit();
     try testing.expect(iter.next().?.len > 0);
 }

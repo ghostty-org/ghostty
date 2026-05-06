@@ -4,6 +4,7 @@ const args = @import("args.zig");
 const Action = @import("ghostty.zig").Action;
 const Allocator = std.mem.Allocator;
 const vaxis = @import("vaxis");
+const global_state = &(@import("../global.zig")).state;
 
 const framedata = @import("framedata").compressed;
 
@@ -183,7 +184,7 @@ pub fn run(gpa: Allocator) !u8 {
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(gpa);
+        var iter = try args.argsIterator(gpa, global_state.results.args);
         defer iter.deinit();
         try args.parse(Options, gpa, &opts, &iter);
     }

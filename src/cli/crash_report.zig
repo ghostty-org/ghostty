@@ -4,6 +4,7 @@ const args = @import("args.zig");
 const Action = @import("ghostty.zig").Action;
 const Config = @import("../config.zig").Config;
 const crash = @import("../crash/main.zig");
+const global_state = &(@import("../global.zig")).state;
 
 pub const Options = struct {
     pub fn deinit(self: Options) void {
@@ -33,7 +34,7 @@ pub fn run(alloc_gpa: Allocator) !u8 {
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc_gpa);
+        var iter = try args.argsIterator(alloc_gpa, global_state.results.args);
         defer iter.deinit();
         try args.parse(Options, alloc_gpa, &opts, &iter);
     }

@@ -7,6 +7,7 @@ const Action = @import("ghostty.zig").Action;
 const configpkg = @import("../config.zig");
 const internal_os = @import("../os/main.zig");
 const Config = configpkg.Config;
+const global_state = &(@import("../global.zig")).state;
 
 pub const Options = struct {
     pub fn deinit(self: Options) void {
@@ -55,7 +56,7 @@ pub fn run(alloc: Allocator) !u8 {
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc);
+        var iter = try args.argsIterator(alloc, global_state.results.args);
         defer iter.deinit();
         try args.parse(Options, alloc, &opts, &iter);
     }

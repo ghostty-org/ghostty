@@ -4,6 +4,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const Action = @import("ghostty.zig").Action;
 const args = @import("args.zig");
 const font = @import("../font/main.zig");
+const global_state = &(@import("../global.zig")).state;
 
 const log = std.log.scoped(.list_fonts);
 
@@ -60,7 +61,7 @@ pub const Options = struct {
 ///     is identical to the `font-family` set of Ghostty configuration values, so
 ///     this can be used to debug why your desired font may not be loading.
 pub fn run(alloc: Allocator) !u8 {
-    var iter = try args.argsIterator(alloc);
+    var iter = try args.argsIterator(alloc, global_state.results.args);
     defer iter.deinit();
     return try runArgs(alloc, &iter);
 }

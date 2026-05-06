@@ -3,6 +3,7 @@ const args = @import("args.zig");
 const Action = @import("ghostty.zig").Action;
 const Allocator = std.mem.Allocator;
 const helpgen_actions = @import("../input/helpgen_actions.zig");
+const global_state = &(@import("../global.zig")).state;
 
 pub const Options = struct {
     /// If `true`, print out documentation about the action associated with the
@@ -32,7 +33,7 @@ pub fn run(alloc: Allocator) !u8 {
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc);
+        var iter = try args.argsIterator(alloc, global_state.results.args);
         defer iter.deinit();
         try args.parse(Options, alloc, &opts, &iter);
     }

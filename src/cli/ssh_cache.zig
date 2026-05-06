@@ -5,6 +5,7 @@ const args = @import("args.zig");
 const Action = @import("ghostty.zig").Action;
 pub const Entry = @import("ssh-cache/Entry.zig");
 pub const DiskCache = @import("ssh-cache/DiskCache.zig");
+const global_state = &(@import("../global.zig")).state;
 
 pub const Options = struct {
     clear: bool = false,
@@ -55,7 +56,7 @@ pub fn run(alloc_gpa: Allocator) !u8 {
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc_gpa);
+        var iter = try args.argsIterator(alloc_gpa, global_state.results.args);
         defer iter.deinit();
         try args.parse(Options, alloc_gpa, &opts, &iter);
     }

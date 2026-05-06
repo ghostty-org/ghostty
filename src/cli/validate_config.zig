@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const args = @import("args.zig");
 const Action = @import("ghostty.zig").Action;
 const Config = @import("../config.zig").Config;
+const global_state = &(@import("../global.zig")).state;
 
 pub const Options = struct {
     /// The path of the config file to validate. If this isn't specified,
@@ -34,7 +35,7 @@ pub fn run(alloc: std.mem.Allocator) !u8 {
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc);
+        var iter = try args.argsIterator(alloc, global_state.results.args);
         defer iter.deinit();
         try args.parse(Options, alloc, &opts, &iter);
     }
