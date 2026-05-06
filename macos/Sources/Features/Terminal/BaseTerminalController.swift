@@ -292,6 +292,7 @@ class BaseTerminalController: NSWindowController,
         if to.isEmpty {
             focusedSurface = nil
         }
+        syncSurfaceTreeOcclusionState()
     }
 
     /// Update all surfaces with the focus state. This ensures that libghostty has an accurate view about
@@ -458,8 +459,12 @@ class BaseTerminalController: NSWindowController,
 
         replaceSurfaceTree(
             surfaceTree.removing(node),
-            moveFocusTo: nextFocus,
-            moveFocusFrom: focusedSurface,
+            // When a non-focused surface is removed and this window stays as the key window,
+            // we should refocus the `focusedSurface` to make sure the window's firstResponder remains as it is.
+            //
+            // This is a weird workaround, since `resignFirstResponder` wasn't called on `focusedSurface` after drag,
+            // but the first responder became the window itself.
+            moveFocusTo: nextFocus ?? focusedSurface,
             undoAction: "Close Terminal"
         )
     }
@@ -1252,10 +1257,15 @@ class BaseTerminalController: NSWindowController,
     }
 
     func windowDidChangeOcclusionState(_ notification: Notification) {
+        syncSurfaceTreeOcclusionState()
+    }
+
+    private func syncSurfaceTreeOcclusionState() {
         let visible = self.window?.occlusionState.contains(.visible) ?? false
         for view in surfaceTree {
-            if let surface = view.surface {
+            if let surface = view.surface, view.isWindowVisible != visible {
                 ghostty_surface_set_occlusion(surface, visible)
+                view.isWindowVisible = visible
             }
         }
     }
