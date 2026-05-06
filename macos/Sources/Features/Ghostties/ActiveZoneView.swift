@@ -78,14 +78,35 @@ struct ActiveZoneView: View {
     /// change to `taskStore.active` or `sessionDraftStore.drafts`. The result is
     /// cached in `cachedMergedRows` so `body` never re-runs this computation.
     ///
-    /// Union of running tasks and drafts, sorted newest-first. Promoted drafts
-    /// (`promotedToTaskId != nil`) are filtered out — they're represented by
-    /// the new task row instead.
+    /// Union of running tasks and drafts, sorted newest-first. A draft is
+    /// excluded when either:
+    ///   (a) `promotedToTaskId != nil` — already represented by a task row, or
+    ///   (b) its `cwd` (tilde-expanded) matches the `projectPath` of any running
+    ///       task — covers the CLI-promotion path where the draft is never removed
+    ///       from the store because promotion happened outside the app.
     private func buildMergedRows() -> [ActiveRow] {
         let taskRows = taskStore.active.map(ActiveRow.task)
+
+        // Build a set of expanded project paths that already have a task row,
+        // so draft-exclusion lookup is O(1) per draft.
+        let activeProjectPaths: Set<String> = Set(
+            taskStore.active.compactMap { task -> String? in
+                guard let raw = task.projectPath, !raw.isEmpty else { return nil }
+                return (raw as NSString).expandingTildeInPath
+            }
+        )
+
         let draftRows = sessionDraftStore.drafts
-            .filter { $0.promotedToTaskId == nil }
+            .filter { draft in
+                // (a) Already promoted via the app's UI path.
+                guard draft.promotedToTaskId == nil else { return false }
+                // (b) Promoted via CLI / external write — a running task already
+                //     owns this cwd, so the draft row is a duplicate.
+                let expandedCwd = (draft.cwd as NSString).expandingTildeInPath
+                return !activeProjectPaths.contains(expandedCwd)
+            }
             .map(ActiveRow.draft)
+
         return (taskRows + draftRows).sorted { $0.sortDate > $1.sortDate }
     }
 

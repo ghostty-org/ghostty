@@ -121,7 +121,11 @@ final class TaskStore: ObservableObject {
             case .review:   rev.append(t)
             case .done:     dn.append(t)
             }
-            if t.source != .shell { ext.append(t) }
+            // A1: done tasks must never surface in the Inbox lane — the
+            // Graveyard handles them. Filter here at classification time so
+            // every downstream consumer (externalInbox, sortedExternalInbox)
+            // is automatically correct without each view needing its own guard.
+            if t.source != .shell && t.status != .done { ext.append(t) }
         }
         needsYou = needs; active = act; inbox = inb; backlog = bl
         review = rev; done = dn; externalInbox = ext
@@ -362,43 +366,35 @@ final class TaskStore: ObservableObject {
 
     /// Look for fixtures in priority order:
     ///   0. `GHOSTTIES_TASKS_DIR` env var (empty string → no directory; used by tests)
-    ///   1. `<cwd-up-to-.git>/.ghostties/tasks/`
-    ///   2. `~/.ghostties/tasks/`
-    ///   3. `~/Code/ghostties/.ghostties/tasks/` (dev fallback)
+    ///   1. Delegate to `GhosttiesCore.TasksDirectory.find(startingAt:)` — canonical
+    ///      git-walk shared with the CLI and MCP server (A6: resolver parity)
+    ///   2. `~/Code/ghostties/.ghostties/tasks/` (dev convenience fallback)
+    ///
+    /// Delegating to `GhosttiesCore.TasksDirectory.find` guarantees the macOS
+    /// sidebar and the `gt` CLI agree on which tasks directory wins for any given
+    /// project tree. Prior to A6 the macOS version did its own walk that stopped
+    /// at the first `.git` boundary (even when no `.ghostties/tasks` existed
+    /// there), whereas the core walk continues up to `$HOME`. That divergence
+    /// caused "task file not found" failures on real projects.
     private static func resolveTasksDirectory() -> URL? {
         let fm = FileManager.default
 
-        // 0. Test isolation override.
+        // 0. Test isolation override — preserve for unit-test isolation.
         if let override = ProcessInfo.processInfo.environment["GHOSTTIES_TASKS_DIR"] {
             guard !override.isEmpty else { return nil }
             let url = URL(fileURLWithPath: override, isDirectory: true)
             return fm.fileExists(atPath: url.path) ? url : nil
         }
 
-        // 1. Walk up from cwd looking for a .git directory
+        // 1. Delegate to the canonical GhosttiesCore resolver.
         let cwd = URL(fileURLWithPath: fm.currentDirectoryPath, isDirectory: true)
-        var cursor: URL? = cwd
-        while let here = cursor {
-            let gitPath = here.appendingPathComponent(".git")
-            if fm.fileExists(atPath: gitPath.path) {
-                let candidate = here.appendingPathComponent(".ghostties/tasks", isDirectory: true)
-                if fm.fileExists(atPath: candidate.path) {
-                    return candidate
-                }
-                break // found a repo root, but no .ghostties/tasks; fall through
-            }
-            let parent = here.deletingLastPathComponent()
-            cursor = parent.path == here.path ? nil : parent
+        if let found = GhosttiesCore.TasksDirectory.find(startingAt: cwd) {
+            return found
         }
 
-        // 2. User-global
+        // 2. Dev convenience fallback — keeps the app usable during local
+        //    development when cwd is not inside the ghostties repo.
         let home = fm.homeDirectoryForCurrentUser
-        let userGlobal = home.appendingPathComponent(".ghostties/tasks", isDirectory: true)
-        if fm.fileExists(atPath: userGlobal.path) {
-            return userGlobal
-        }
-
-        // 3. Dev convenience fallback
         let devFallback = home.appendingPathComponent("Code/ghostties/.ghostties/tasks", isDirectory: true)
         if fm.fileExists(atPath: devFallback.path) {
             return devFallback

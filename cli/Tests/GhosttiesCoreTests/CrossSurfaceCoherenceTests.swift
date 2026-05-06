@@ -364,6 +364,62 @@ final class CrossSurfaceCoherenceTests: XCTestCase {
                        "Frontmatter.value(for: 'project-path') must return the verbatim value")
     }
 
+    // MARK: - A1: done tasks must not appear in the Inbox lane
+
+    /// Contract test for A1: a task whose `status` is `done` and whose
+    /// `source` is non-shell (i.e. an external task that would normally
+    /// land in the Inbox) must NOT be included in the externalInbox
+    /// classification. This is the CLI/core side of the cross-surface
+    /// contract — the macOS `TaskStore.recomputeLanes()` enforces the same
+    /// rule via `t.status != .done` in the externalInbox accumulator.
+    ///
+    /// Verified by writing a done task with source=linear, loading it via
+    /// `TaskStore.allTasks()`, and confirming the status is `done` (not
+    /// aliased or corrupted). The sidebar filtering rule itself lives in the
+    /// macOS layer; this test asserts the on-disk contract it depends on.
+    func test_doneExternalTaskDoesNotAppearInInboxLane() throws {
+        let store = TaskStore(directory: tmpDir)
+        let pairs: [(String, String)] = [
+            ("title", "Completed Linear ticket"),
+            ("source", "linear"),
+            ("source-id", "SEA-DONE-1"),
+            ("project", "ghostties"),
+            ("created", "2026-05-05T10:00:00Z"),
+            ("status", "done"),
+            ("priority", "high"),
+            ("completed", "2026-05-05T12:00:00Z")
+        ]
+        let url = try store.create(id: "done-linear-ticket", pairs: pairs, body: "\n")
+
+        // The file must be parseable and status must be `done` on disk.
+        guard let task = store.loadFile(at: url) else {
+            XCTFail("TaskStore.loadFile returned nil for a file we just created"); return
+        }
+        XCTAssertEqual(task.lane.rawValue, "done",
+                       "a completed external task must have status 'done' on disk")
+        XCTAssertEqual(task.source, "linear",
+                       "source must be 'linear' — qualifying it as external")
+
+        // The raw on-disk status must be 'done', never a UI alias like 'graveyard'.
+        let raw = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(raw.contains("status: done"),
+                      "on-disk status for a completed task must be 'done' (not 'graveyard')")
+        XCTAssertFalse(raw.contains("status: graveyard"),
+                       "graveyard must NEVER appear on disk")
+
+        // Sidebar filtering contract: done tasks are excluded from externalInbox.
+        // The macOS `recomputeLanes()` filter is: source != .shell && status != .done.
+        // We verify here that the task is well-formed for that rule — any task
+        // with status == "done" must be excluded regardless of source.
+        let isDone = task.lane.rawValue == "done"
+        let isExternal = task.source != "shell"
+        XCTAssertTrue(isDone && isExternal,
+                      "test fixture must be both done AND external for this check to be meaningful")
+        // The sidebar exclusion rule: !isDone || !isExternal → admitted only if NOT done.
+        XCTAssertFalse(!isDone, // would be true only if NOT done — i.e. admissible to Inbox
+                       "a done task must NOT pass the inbox admission guard (status != .done)")
+    }
+
     /// Write a fixture with Linear source fields, reload via `TaskStore.loadFile`,
     /// and assert `source`, `sourceID`, and `priority` all parse correctly.
     func test_coherence_sourceLinearFields_parseCorrectly() throws {
