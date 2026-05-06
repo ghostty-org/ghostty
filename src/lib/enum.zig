@@ -1,5 +1,9 @@
 const std = @import("std");
+const builtin = @import("builtin");
+
 const Target = @import("target.zig").Target;
+
+const std_enums = @import("std_enums.zig");
 
 /// Create an enum type with the given keys that is C ABI compatible
 /// if we're targeting C, otherwise a Zig enum with smallest possible
@@ -92,24 +96,54 @@ test "abi by removing a key" {
     }
 }
 
+const CheckError = error{ SkipZigTest, TestExpectedEqual, TestUnexpectedResult };
+
+fn ghosttyHEnumCheck(expected: anytype, actual: anytype) CheckError!void {
+    try std.testing.expectEqual(expected, actual);
+}
+
 /// Verify that for every key in enum T, there is a matching declaration in
 /// `ghostty.h` with the correct value. This should only ever be called inside a `test`
 /// because the `ghostty.h` module is only available then.
-pub fn checkGhosttyHEnum(
+pub fn checkGhosttyHEnum(comptime T: type, comptime prefix: []const u8) CheckError!void {
+    // these targets don't support libc, which is required for this test
+    if (comptime builtin.cpu.arch.isWasm()) return error.SkipZigTest;
+    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
+
+    try checkEnum("ghostty.h", @import("ghostty-h"), T, null, prefix, ghosttyHEnumCheck);
+}
+
+/// Verify that for every key in enum T, there is a matching macro in
+/// `ghostty/vt.h`. This should only ever be called inside a `test` because the
+/// `ghostty/vt.h` module is only available then. The actual value of the macro
+/// is not checked as the value of the macro may be more complex than an integer
+/// that matches the Zig enum.
+pub fn checkGhosttyVtHMacroExists(comptime T: type, comptime prefix: []const u8) CheckError!void {
+    // these targets don't support libc, which is required for this test
+    if (comptime builtin.cpu.arch.isWasm()) return error.SkipZigTest;
+    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
+
+    try checkEnum("ghostty/vt.h", @import("ghostty-vt-h"), T, null, prefix, null);
+}
+
+fn checkEnum(
+    comptime name: []const u8,
+    comptime c: anytype,
     comptime T: type,
+    comptime backint_int_type_: ?type,
     comptime prefix: []const u8,
+    comptime check_: ?fn (anytype, anytype) CheckError!void,
 ) !void {
     const info = @typeInfo(T);
 
     try std.testing.expect(info == .@"enum");
-    try std.testing.expect(info.@"enum".tag_type == c_int);
+    if (backint_int_type_) |backing_int_type|
+        try std.testing.expect(info.@"enum".tag_type == backing_int_type);
     try std.testing.expect(info.@"enum".is_exhaustive == true);
 
     @setEvalBranchQuota(100_000);
 
-    const c = @import("ghostty.h");
-
-    var set: std.EnumSet(T) = .initFull();
+    var set: std_enums.EnumSet(T) = .initFull();
 
     const enum_fields = info.@"enum".fields;
 
@@ -124,10 +158,15 @@ pub fn checkGhosttyHEnum(
         };
 
         if (@hasDecl(c, expected_name)) {
-            std.testing.expectEqual(field.value, @field(c, expected_name)) catch |e| {
-                std.log.err(@typeName(T) ++ " key " ++ field.name ++ " does not have the same backing int as " ++ expected_name, .{});
-                return e;
-            };
+            if (check_) |check| {
+                check(
+                    field.value,
+                    @field(c, expected_name),
+                ) catch |e| {
+                    std.log.err(@typeName(T) ++ " key " ++ field.name ++ " / " ++ expected_name ++ " failed its check: {t}", .{e});
+                    return e;
+                };
+            }
 
             set.remove(@enumFromInt(field.value));
         }
@@ -138,7 +177,7 @@ pub fn checkGhosttyHEnum(
         while (it.next()) |v| {
             var buf: [128]u8 = undefined;
             const upper_string = std.ascii.upperString(&buf, @tagName(v));
-            std.log.err("ghostty.h is missing value for {s}{s}", .{ prefix, upper_string });
+            std.log.err("{s} is missing value for {s}{s}", .{ name, prefix, upper_string });
         }
         return e;
     };
