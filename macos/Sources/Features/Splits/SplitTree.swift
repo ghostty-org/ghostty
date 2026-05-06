@@ -202,7 +202,7 @@ extension SplitTree {
         case .spatial(let spatialDirection):
             // Get spatial representation and find best candidate
             let spatial = root.spatial()
-            let nodes = spatial.slots(in: spatialDirection, from: currentNode)
+            let nodes = spatial.slotsWrapped(in: spatialDirection, from: currentNode)
 
             // If we have no nodes in the direction specified then we don't do
             // anything.
@@ -1069,6 +1069,75 @@ extension SplitTree.Spatial {
         }
 
         return result
+    }
+
+    /// Same as `slots(in:from:)` but wraps around the grid edges when no slots
+    /// exist in the requested direction.
+    ///
+    /// When wrapping, the reference frame is virtually shifted by the overall
+    /// grid extent in the opposite direction, so every slot in the actual grid
+    /// appears on the requested side of that virtual reference. Distances are
+    /// computed against the shifted reference, which makes the closest result
+    /// the slot on the far edge — i.e. the wrap target.
+    func slotsWrapped(in direction: Direction, from referenceNode: SplitTree.Node) -> [Slot] {
+        // First try without wrapping. If we have any slots in the direction,
+        // wrapping isn't needed.
+        let direct = slots(in: direction, from: referenceNode)
+        if !direct.isEmpty { return direct }
+
+        guard let refSlot = slots.first(where: { $0.node == referenceNode }) else { return [] }
+
+        // Compute the overall bounds of the spatial grid so we know how far to
+        // shift the virtual reference frame.
+        let overall = slots.reduce(CGRect.null) { result, slot in
+            result.union(slot.bounds)
+        }
+
+        // Shift the reference in the opposite direction by the full grid extent.
+        // This makes every actual slot fall on the requested side, and the
+        // distance ordering naturally selects the slot at the far edge.
+        let shifted: CGRect = switch direction {
+        case .left: refSlot.bounds.offsetBy(dx: overall.width, dy: 0)
+        case .right: refSlot.bounds.offsetBy(dx: -overall.width, dy: 0)
+        case .up: refSlot.bounds.offsetBy(dx: 0, dy: overall.height)
+        case .down: refSlot.bounds.offsetBy(dx: 0, dy: -overall.height)
+        }
+
+        func distance(from rect1: CGRect, to rect2: CGRect) -> Double {
+            let dx = rect2.minX - rect1.minX
+            let dy = rect2.minY - rect1.minY
+            return sqrt(dx * dx + dy * dy)
+        }
+
+        return switch direction {
+        case .left:
+            slots.filter {
+                $0.node != referenceNode && $0.bounds.maxX <= shifted.minX
+            }.sorted {
+                distance(from: shifted, to: $0.bounds) < distance(from: shifted, to: $1.bounds)
+            }
+
+        case .right:
+            slots.filter {
+                $0.node != referenceNode && $0.bounds.minX >= shifted.maxX
+            }.sorted {
+                distance(from: shifted, to: $0.bounds) < distance(from: shifted, to: $1.bounds)
+            }
+
+        case .up:
+            slots.filter {
+                $0.node != referenceNode && $0.bounds.maxY <= shifted.minY
+            }.sorted {
+                distance(from: shifted, to: $0.bounds) < distance(from: shifted, to: $1.bounds)
+            }
+
+        case .down:
+            slots.filter {
+                $0.node != referenceNode && $0.bounds.minY >= shifted.maxY
+            }.sorted {
+                distance(from: shifted, to: $0.bounds) < distance(from: shifted, to: $1.bounds)
+            }
+        }
     }
 
     /// Returns whether the given node borders the specified side of the spatial bounds.

@@ -171,6 +171,40 @@ struct SplitTreeTests {
         #expect(target === view1)
     }
 
+    // Wrap: from the leftmost view, .spatial(.left) should wrap to the rightmost.
+    @Test func focusTargetSpatialWrapsLeftFromLeftEdge() throws {
+        let (tree, view1, view2) = try makeHorizontalSplit()
+        let target = tree.focusTarget(for: .spatial(.left), from: .leaf(view: view1))
+        #expect(target === view2)
+    }
+
+    // Wrap: from the rightmost view, .spatial(.right) should wrap to the leftmost.
+    @Test func focusTargetSpatialWrapsRightFromRightEdge() throws {
+        let (tree, view1, view2) = try makeHorizontalSplit()
+        let target = tree.focusTarget(for: .spatial(.right), from: .leaf(view: view2))
+        #expect(target === view1)
+    }
+
+    // Wrap: from the top view, .spatial(.up) should wrap to the bottom.
+    @Test func focusTargetSpatialWrapsUpFromTopEdge() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .down)
+        let target = tree.focusTarget(for: .spatial(.up), from: .leaf(view: view1))
+        #expect(target === view2)
+    }
+
+    // Wrap: from the bottom view, .spatial(.down) should wrap to the top.
+    @Test func focusTargetSpatialWrapsDownFromBottomEdge() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .down)
+        let target = tree.focusTarget(for: .spatial(.down), from: .leaf(view: view2))
+        #expect(target === view1)
+    }
+
     // MARK: - Equalized
 
     @Test func equalizedAdjustsRatioByLeafCount() throws {
@@ -621,6 +655,52 @@ struct SplitTreeTests {
         #expect(spatial.slots(in: .right, from: .leaf(view: view2)).isEmpty)
         #expect(spatial.slots(in: .up, from: .leaf(view: view1)).isEmpty)
         #expect(spatial.slots(in: .down, from: .leaf(view: view2)).isEmpty)
+    }
+
+    // slotsWrapped should match slots() when the direction has results without wrapping.
+    @Test func slotsWrappedMatchesSlotsWhenNotAtEdge() throws {
+        let (tree, view1, _) = try makeHorizontalSplit()
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 500))
+
+        let direct = spatial.slots(in: .right, from: .leaf(view: view1))
+        let wrapped = spatial.slotsWrapped(in: .right, from: .leaf(view: view1))
+        #expect(wrapped.map { $0.bounds } == direct.map { $0.bounds })
+    }
+
+    @Test func slotsWrappedWrapsHorizontally() throws {
+        let (tree, view1, view2) = try makeHorizontalSplit()
+        let spatial = tree.root!.spatial(within: CGSize(width: 1000, height: 500))
+
+        let leftFromA = spatial.slotsWrapped(in: .left, from: .leaf(view: view1))
+        #expect(leftFromA.contains { $0.node == .leaf(view: view2) })
+
+        let rightFromB = spatial.slotsWrapped(in: .right, from: .leaf(view: view2))
+        #expect(rightFromB.contains { $0.node == .leaf(view: view1) })
+    }
+
+    @Test func slotsWrappedWrapsVertically() throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: .down)
+        let spatial = tree.root!.spatial(within: CGSize(width: 500, height: 1000))
+
+        let upFromTop = spatial.slotsWrapped(in: .up, from: .leaf(view: view1))
+        #expect(upFromTop.contains { $0.node == .leaf(view: view2) })
+
+        let downFromBottom = spatial.slotsWrapped(in: .down, from: .leaf(view: view2))
+        #expect(downFromBottom.contains { $0.node == .leaf(view: view1) })
+    }
+
+    @Test func slotsWrappedReturnsEmptyForSingleNode() {
+        let view1 = MockView()
+        let tree = SplitTree<MockView>(view: view1)
+        let spatial = tree.root!.spatial(within: CGSize(width: 500, height: 500))
+
+        #expect(spatial.slotsWrapped(in: .left, from: .leaf(view: view1)).isEmpty)
+        #expect(spatial.slotsWrapped(in: .right, from: .leaf(view: view1)).isEmpty)
+        #expect(spatial.slotsWrapped(in: .up, from: .leaf(view: view1)).isEmpty)
+        #expect(spatial.slotsWrapped(in: .down, from: .leaf(view: view1)).isEmpty)
     }
 
     // Set/Dictionary usage is the only path that exercises StructuralIdentity.hash(into:)
