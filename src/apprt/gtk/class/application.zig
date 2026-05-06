@@ -747,6 +747,7 @@ pub const Application = extern struct {
 
             .set_title => Action.setTitle(target, value),
             .set_tab_title => return Action.setTabTitle(target, value),
+            .set_window_title => return Action.setWindowTitle(target, value),
 
             .show_child_exited => return Action.showChildExited(target, value),
 
@@ -2419,6 +2420,23 @@ const Action = struct {
                     },
                 }
             },
+            .window => {
+                switch (target) {
+                    .app => return false,
+                    .surface => |v| {
+                        const surface = v.rt_surface.surface;
+                        const win = ext.getAncestor(
+                            Window,
+                            surface.as(gtk.Widget),
+                        ) orelse {
+                            log.warn("surface is not in a window, ignoring prompt_window_title", .{});
+                            return false;
+                        };
+                        win.promptWindowTitle();
+                        return true;
+                    },
+                }
+            },
         }
     }
 
@@ -2585,6 +2603,30 @@ const Action = struct {
                     return false;
                 };
                 tab.setTitleOverride(if (value.title.len == 0) null else value.title);
+                return true;
+            },
+        }
+    }
+
+    pub fn setWindowTitle(
+        target: apprt.Target,
+        value: apprt.action.SetTitle,
+    ) bool {
+        switch (target) {
+            .app => {
+                log.warn("set_tab_title to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const window = ext.getAncestor(
+                    Window,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a window, ignoring set_window_title", .{});
+                    return false;
+                };
+                window.setTitleOverride(if (value.title.len == 0) null else value.title);
                 return true;
             },
         }

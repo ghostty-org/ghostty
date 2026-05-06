@@ -450,6 +450,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Prompt for a new title for the current tab.",
         }},
 
+        .prompt_window_title => comptime &.{.{
+            .action = .prompt_window_title,
+            .title = "Change Window Title…",
+            .description = "Prompt for a new title for the current window.",
+        }},
+
         .new_split => comptime &.{
             .{
                 .action = .{ .new_split = .left },
@@ -691,6 +697,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .set_font_size,
         .set_surface_title,
         .set_tab_title,
+        .set_window_title,
         .search,
         .scroll_to_row,
         .scroll_page_fractional,
