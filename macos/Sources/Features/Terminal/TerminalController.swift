@@ -215,28 +215,43 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
-    // Keep track of the last point that our window was launched at so that new
-    // windows "cascade" over each other and don't just launch directly on top
-    // of each other.
-    private static var lastCascadePoint = NSPoint(x: 0, y: 0)
-
-    private static func applyCascade(to window: NSWindow, hasFixedPos: Bool) {
-        if hasFixedPos { return }
-
-        if all.count > 1 {
-            lastCascadePoint = window.cascadeTopLeft(from: lastCascadePoint)
-        } else {
-            // We assume the window frame is already correct at this point,
-            // so we pass .zero to let cascade use the current frame position.
-            lastCascadePoint = window.cascadeTopLeft(from: .zero)
-        }
+    // The preferred parent terminal controller for new window.
+    private static var preferredNewWindowParent: TerminalController? {
+        preferredParent(on: .main)
     }
 
-    // The preferred parent terminal controller.
-    static var preferredParent: TerminalController? {
-        all.first {
-            $0.window?.isMainWindow ?? false
-        } ?? lastMain ?? all.last
+    // The preferred parent terminal controller for new tab.
+    static var preferredNewTabParent: TerminalController? {
+        // We choose a proper window on the current screen first.
+        // If none is found, we use existing windows on another screen.
+        // This could be changed to match `preferredNewWindowParent`,
+        // but for now, we always use an existing window.
+        preferredParent(on: .main) ?? preferredParent(on: nil)
+    }
+
+    // The preferred parent terminal controller for new split.
+    static var preferredNewSplitParent: TerminalController? {
+        preferredNewTabParent
+    }
+
+    /// Preferred parent terminal controller on specified screen
+    private static func preferredParent(on screen: NSScreen?) -> TerminalController? {
+        guard let screen else {
+            return all.first {
+                $0.window?.isMainWindow ?? false
+            } ?? lastMain ?? all.last
+        }
+        return all.last {
+            // find last main window in the screen first
+            $0.window?.screen == screen && $0.window?.isMainWindow == true
+        } ?? all.last {
+            // if no main window was found(typically out of focus)
+            // then just find the last visible window in the screen
+            // AppKit will store closed window for a while,
+            // We want to keep the first visible window
+            // in the same spot
+            $0.window?.screen == screen && $0.window?.isVisible == true
+        }
     }
 
     // The last controller to be main. We use this when paired with "preferredParent"
@@ -245,7 +260,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     // by something like an App Intent) then we prefer the most previous main.
     static private(set) weak var lastMain: TerminalController?
 
-    /// The "new window" action.
+    /// Creates and presents a new terminal window.
+    ///
+    /// The new window cascades from and inherits the style of the parent window.
+    /// If the parent window is fullscreen, the new window will also enter fullscreen.
+    /// If no parent is specified, the most recently focused window on the current screen is used.
+    ///
+    /// - Parameters:
+    ///   - ghostty: The Ghostty application instance used to configure the new window.
+    ///   - baseConfig: An optional surface configuration to apply to the new terminal surface.
+    ///     If `nil`, the default configuration is used.
+    ///   - explicitParent: The parent window from which the new window should cascade and inherit its style.
+    ///     If `nil`, the last main window on the current screen is used.
+    /// - Returns: The newly created `TerminalController` managing the new window.
     static func newWindow(
         _ ghostty: Ghostty.App,
         withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil,
@@ -255,7 +282,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Get our parent. Our parent is the one explicitly given to us,
         // otherwise the focused terminal, otherwise an arbitrary one.
-        let parent: NSWindow? = explicitParent ?? preferredParent?.window
+        let parent: NSWindow? = explicitParent ?? preferredNewWindowParent?.window
 
         if let parent, parent.styleMask.contains(.fullScreen) {
             // If our previous window was fullscreen then we want our new window to
@@ -285,13 +312,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // that Cocoa is doing that we need to be after.
         c.scheduleInitialPresentation {
             c.showWindow(self)
-
-            // Only cascade if we aren't fullscreen.
-            if let window = c.window {
-                if !window.styleMask.contains(.fullScreen) {
-                    let hasFixedPos = c.derivedConfig.windowPositionX != nil && c.derivedConfig.windowPositionY != nil
-                    Self.applyCascade(to: window, hasFixedPos: hasFixedPos)
-                }
+            let hasFixedPos = c.derivedConfig.windowPositionX != nil && c.derivedConfig.windowPositionY != nil
+            // Only cascade if we aren't fullscreen, have a parent and don't have fixed position in the config.
+            if
+                let window = c.window,
+                !window.styleMask.contains(.fullScreen),
+                let parent,
+                !hasFixedPos {
+                c.window?.cascadeTopLeft(from: parent.topLeftForNextWindow())
             }
 
             // All new_window actions force our app to be active, so that the new
@@ -319,7 +347,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     _ = TerminalController.newWindow(
                         ghostty,
                         withBaseConfig: baseConfig,
-                        withParent: explicitParent)
+                        withParent: explicitParent,
+                    )
                 }
             }
         }
@@ -337,7 +366,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     static func newWindow(
         _ ghostty: Ghostty.App,
         tree: SplitTree<Ghostty.SurfaceView>,
-        position: NSPoint? = nil,
+        position: NSPoint,
         confirmUndo: Bool = true,
     ) -> TerminalController {
         let c = TerminalController.init(ghostty, withSurfaceTree: tree)
@@ -355,13 +384,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 }
 
                 if !window.styleMask.contains(.fullScreen) {
-                    if let position {
-                        window.setFrameTopLeftPoint(position)
-                        window.constrainToScreen()
-                    } else {
-                        let hasFixedPos = c.derivedConfig.windowPositionX != nil && c.derivedConfig.windowPositionY != nil
-                        Self.applyCascade(to: window, hasFixedPos: hasFixedPos)
-                    }
+                    window.setFrameTopLeftPoint(position)
+                    window.constrainToScreen()
                 }
             }
         }
@@ -385,7 +409,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     withTarget: ghostty,
                     expiresAfter: target.undoExpiration
                 ) { ghostty in
-                    _ = TerminalController.newWindow(ghostty, tree: tree)
+                    _ = TerminalController.newWindow(ghostty, tree: tree, position: position)
                 }
             }
         }
@@ -461,13 +485,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // take effect. Our best theory is there is some next-event-loop-tick logic
         // that Cocoa is doing that we need to be after.
         controller.scheduleInitialPresentation {
-            // Only cascade if we aren't fullscreen and are alone in the tab group.
-            if !window.styleMask.contains(.fullScreen) &&
-                window.tabGroup?.windows.count ?? 1 == 1 {
-                let hasFixedPos = controller.derivedConfig.windowPositionX != nil && controller.derivedConfig.windowPositionY != nil
-                Self.applyCascade(to: window, hasFixedPos: hasFixedPos)
-            }
-
             controller.showWindow(self)
             window.makeKeyAndOrderFront(self)
 
@@ -1175,35 +1192,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         super.windowWillClose(notification)
         cancelPendingInitialPresentation()
         self.relabelTabs()
-
-        // If we remove a window, we reset the cascade point to the key window so that
-        // the next window cascade's from that one.
-        if let focusedWindow = NSApplication.shared.keyWindow {
-            // If we are NOT the focused window, then we are a tabbed window. If we
-            // are closing a tabbed window, we want to set the cascade point to be
-            // the next cascade point from this window.
-            if focusedWindow != window {
-                // The cascadeTopLeft call below should NOT move the window. Starting with
-                // macOS 15, we found that specifically when used with the new window snapping
-                // features of macOS 15, this WOULD move the frame. So we keep track of the
-                // old frame and restore it if necessary. Issue:
-                // https://github.com/ghostty-org/ghostty/issues/2565
-                let oldFrame = focusedWindow.frame
-
-                Self.lastCascadePoint = focusedWindow.cascadeTopLeft(from: .zero)
-
-                if focusedWindow.frame != oldFrame {
-                    focusedWindow.setFrame(oldFrame, display: true)
-                }
-
-                return
-            }
-
-            // If we are the focused window, then we set the last cascade point to
-            // our own frame so that it shows up in the same spot.
-            let frame = focusedWindow.frame
-            Self.lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
-        }
     }
 
     override func windowDidBecomeKey(_ notification: Notification) {
