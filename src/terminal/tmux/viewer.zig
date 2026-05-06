@@ -261,6 +261,12 @@ pub const Viewer = struct {
         }
     };
 
+    const PendingPaneResize = struct {
+        id: usize,
+        cols: size.CellCountInt,
+        rows: size.CellCountInt,
+    };
+
     /// Initialize a new viewer.
     ///
     /// The given allocator is used for all internal state. You must
@@ -638,10 +644,13 @@ pub const Viewer = struct {
             }
             panes.deinit(self.alloc);
         }
+        var pending_resizes: std.ArrayList(PendingPaneResize) = .empty;
+        defer pending_resizes.deinit(self.alloc);
         for (windows) |window| try initLayout(
             self.alloc,
             &self.panes,
             &panes,
+            &pending_resizes,
             window.layout,
         );
 
@@ -685,11 +694,6 @@ pub const Viewer = struct {
             if (added) try self.queueCommands(&.{.pane_state});
         }
 
-        // No more errors after this point. We're about to replace all
-        // our owned state with our temporary state, and our errdefers
-        // above will double-free if there is an error.
-        errdefer comptime unreachable;
-
         // Replace our window list if it changed. We assume it didn't
         // change if our pointer is pointing to the same data.
         if (windows.ptr != self.windows.items.ptr) {
@@ -711,6 +715,19 @@ pub const Viewer = struct {
             // entries are preserved.
             self.panes.deinit(self.alloc);
             self.panes = panes;
+            // Ownership transferred to self.panes; clear the temporary map.
+            panes = .empty;
+        }
+
+        // Resize reused panes after commit so the authoritative layout and
+        // local terminal geometry stay in sync.
+        for (pending_resizes.items) |resize| {
+            const entry = self.panes.getEntry(resize.id) orelse unreachable;
+            try entry.value_ptr.terminal.resize(
+                self.alloc,
+                resize.cols,
+                resize.rows,
+            );
         }
     }
 
@@ -1118,6 +1135,7 @@ pub const Viewer = struct {
         gpa_alloc: Allocator,
         panes_old: *const PanesMap,
         panes_new: *PanesMap,
+        pending_resizes: *std.ArrayList(PendingPaneResize),
         layout: Layout,
     ) !void {
         switch (layout.content) {
@@ -1128,6 +1146,7 @@ pub const Viewer = struct {
                         gpa_alloc,
                         panes_old,
                         panes_new,
+                        pending_resizes,
                         l,
                     );
                 }
@@ -1139,19 +1158,40 @@ pub const Viewer = struct {
                 if (gop.found_existing) break :pane;
                 errdefer _ = panes_new.swapRemove(gop.key_ptr.*);
 
+                const cols = std.math.cast(size.CellCountInt, layout.width) orelse {
+                    log.info(
+                        "layout width out of range for pane id={} width={}",
+                        .{ id, layout.width },
+                    );
+                    return error.InvalidLayoutSize;
+                };
+                const rows = std.math.cast(size.CellCountInt, layout.height) orelse {
+                    log.info(
+                        "layout height out of range for pane id={} height={}",
+                        .{ id, layout.height },
+                    );
+                    return error.InvalidLayoutSize;
+                };
+
                 // If we already have this pane, it is already initialized
-                // so just copy it over.
+                // so note any geometry change and copy it over.
                 if (panes_old.getEntry(id)) |entry| {
+                    if (entry.value_ptr.terminal.cols != cols or
+                        entry.value_ptr.terminal.rows != rows)
+                    {
+                        try pending_resizes.append(gpa_alloc, .{
+                            .id = id,
+                            .cols = cols,
+                            .rows = rows,
+                        });
+                    }
                     gop.value_ptr.* = entry.value_ptr.*;
                     break :pane;
                 }
 
-                // TODO: We need to gracefully handle overflow of our
-                // max cols/width here. In practice we shouldn't hit this
-                // so we cast but its not safe.
                 var t: Terminal = try .init(gpa_alloc, .{
-                    .cols = @intCast(layout.width),
-                    .rows = @intCast(layout.height),
+                    .cols = cols,
+                    .rows = rows,
                 });
                 errdefer t.deinit(gpa_alloc);
 
@@ -1844,6 +1884,22 @@ test "layout change" {
                     try testing.expectEqual(2, v.panes.count());
                     try testing.expect(v.panes.contains(0));
                     try testing.expect(v.panes.contains(2));
+                    try testing.expectEqual(
+                        @as(size.CellCountInt, 83),
+                        v.panes.getEntry(0).?.value_ptr.terminal.cols,
+                    );
+                    try testing.expectEqual(
+                        @as(size.CellCountInt, 22),
+                        v.panes.getEntry(0).?.value_ptr.terminal.rows,
+                    );
+                    try testing.expectEqual(
+                        @as(size.CellCountInt, 83),
+                        v.panes.getEntry(2).?.value_ptr.terminal.cols,
+                    );
+                    try testing.expectEqual(
+                        @as(size.CellCountInt, 21),
+                        v.panes.getEntry(2).?.value_ptr.terminal.rows,
+                    );
                     // Commands should be queued for the new pane (4 capture-pane + 1 pane_state)
                     try testing.expectEqual(5, v.command_queue.len());
                 }
