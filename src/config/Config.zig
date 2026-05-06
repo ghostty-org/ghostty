@@ -1903,14 +1903,9 @@ keybind: Keybinds = .{},
 /// * Generic modifiers (e.g. `ctrl`) match both left and right physical keys.
 ///   Use sided names (e.g. `left_ctrl`) to remap only one side.
 ///
-/// There are other edge case scenarios that may not behave as expected
-/// but are working as intended the way this feature is designed:
-///
-/// * On macOS, bindings in the main menu will trigger before any remapping
-///   is done. This is because macOS itself handles menu activation and
-///   this happens before Ghostty receives the key event. To workaround
-///   this, you should unbind the menu items and rebind them using your
-///   desired modifier.
+/// On macOS, Ghostty intercepts menu key equivalent events when their
+/// modifiers are remapped so that the remapped event can be handled before
+/// AppKit consumes it as a menu shortcut.
 ///
 /// This configuration can be repeated to specify multiple remaps.
 @"key-remap": KeyRemapSet = .empty,

@@ -2622,6 +2622,20 @@ pub fn keyEventIsBinding(
     };
 }
 
+/// Returns true if the given key event has modifiers that would be remapped
+/// before normal key processing.
+pub fn keyEventModsAreRemapped(
+    self: *Surface,
+    event: input.KeyEvent,
+) bool {
+    switch (event.action) {
+        .release => return false,
+        .press, .repeat => {},
+    }
+
+    return self.config.key_remaps.isRemapped(event.mods);
+}
+
 /// Called for any key events. This handles keybindings, encoding and
 /// sending to the terminal, etc.
 pub fn keyCallback(

@@ -82,6 +82,12 @@ extension Ghostty {
             event.withCValue { keyIsBinding($0) }
         }
 
+        /// Check if a key event has modifiers that Ghostty will remap.
+        @MainActor
+        func keyModsAreRemapped(_ event: ghostty_input_key_s) -> Bool {
+            ghostty_surface_key_mods_are_remapped(surface, event)
+        }
+
         /// Whether the terminal has captured mouse input.
         ///
         /// When the mouse is captured, the terminal application is receiving mouse events
