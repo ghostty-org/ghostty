@@ -774,11 +774,9 @@ extension Ghostty {
 
         override func resignFirstResponder() -> Bool {
             let result = super.resignFirstResponder()
-
             // We sometimes call this manually (see SplitView) as a way to force us to
             // yield our focus state.
             if result { focusDidChange(false) }
-
             return result
         }
 
