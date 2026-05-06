@@ -150,4 +150,18 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             -only-testing:GhosttyTests/TaskModelTests \
             -only-testing:GhosttyTests/TaskFileWatcherTests \
-            -only-testing:GhosttyTests/ActiveZoneDedupTests
+            -only-testing:GhosttyTests/ActiveZoneDedupTests \
+            -only-testing:GhosttyTests/TaskTypeBridgeTests \
+            -only-testing:GhosttyTests/RouterDebounceTests \
+            -only-testing:GhosttyTests/TaskStoreWriteTests \
+            -only-testing:GhosttyTests/RowClickRouterTests \
+            -only-testing:GhosttyTests/ExpandGraveyardTaskTests \
+            -only-testing:GhosttyTests/TriageOrphanTaskTests \
+            -only-testing:GhosttyTests/NewTaskComposerTests \
+            -only-testing:GhosttyTests/StartInboxTaskTests \
+            -only-testing:GhosttyTests/EmptyStatesTests \
+            -only-testing:GhosttyTests/FocusRunningTaskTests \
+            -only-testing:GhosttyTests/AccessibilityTests \
+            -only-testing:GhosttyTests/KeyboardShortcutsTests \
+            -only-testing:GhosttyTests/MultiWindowScopingTests \
+            -only-testing:GhosttyTests/WorkspaceAlignmentTests
