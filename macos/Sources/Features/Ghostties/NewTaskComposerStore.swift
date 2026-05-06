@@ -99,7 +99,9 @@ final class NewTaskComposerStore: ObservableObject {
 
         // Reset field state.
         titleText = ""
-        selectedTemplateName = nil
+        // D-default: Claude Code is the most common use case for new tasks.
+        // Orchestrator and Shell remain available in the template picker (D24).
+        selectedTemplateName = AgentTemplate.claudeCode.name
         writeError = nil
 
         // D6: smart-default cascade for project picker.
