@@ -20,7 +20,9 @@ struct DoneCommand: ParsableCommand {
         var pairs = Frontmatter.set("status", TaskLane.done.rawValue, in: task.frontmatter)
         pairs = Frontmatter.set("completed", nowISO, in: pairs)
 
+        let writeStart = Date()
         try store.write(pairs: pairs, body: task.body, to: url)
-        print("✓ marked done: \(task.title)")
+        let elapsedMs = Int(Date().timeIntervalSince(writeStart) * 1000)
+        print("✓ marked done: \(task.title) (\(elapsedMs)ms)")
     }
 }
