@@ -190,6 +190,12 @@ pub fn decode(alloc: Allocator, data: []const u8) DecodeError!Outline {
         points[p].on_curve = (flags[p] & FLAG_ON_CURVE) != 0;
     }
 
+    // The protocol doesn't pad records, so any leftover bytes mean the
+    // payload is structurally wrong (length mismatch, double payload,
+    // or forged input). OpenType fonts allow up to 3 bytes of trailing
+    // alignment padding; we don't, since this is wire input.
+    if (r.pos != data.len) return error.Malformed;
+
     const contours = try alloc.alloc([]Point, end_pts.len);
     errdefer alloc.free(contours);
 
@@ -460,6 +466,17 @@ test "decode rejects OVERLAP_SIMPLE past first flag" {
     try pushBe(&buf, i16, 10);
     try pushBe(&buf, i16, 0);
     try pushBe(&buf, i16, 10);
+
+    try testing.expectError(error.Malformed, decode(testing.allocator, buf.items));
+}
+
+test "decode rejects trailing bytes" {
+    // Build a valid triangle then append extra bytes — the protocol
+    // doesn't pad, so trailing data is malformed.
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    try triangleBytes(&buf);
+    try buf.appendSlice(testing.allocator, &[_]u8{ 0xAA, 0xBB });
 
     try testing.expectError(error.Malformed, decode(testing.allocator, buf.items));
 }
