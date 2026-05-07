@@ -137,8 +137,6 @@ fn isPUA(cp: u21) bool {
         (cp >= 0x10_0000 and cp <= 0x10_FFFD);
 }
 
-// tests
-
 const testing = std.testing;
 const CommandParser = request.CommandParser;
 
