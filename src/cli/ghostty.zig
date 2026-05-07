@@ -20,6 +20,7 @@ const crash_report = @import("crash_report.zig");
 const show_face = @import("show_face.zig");
 const boo = @import("boo.zig");
 const new_window = @import("new_window.zig");
+const new_tab = @import("new_tab.zig");
 
 /// Special commands that can be invoked via CLI flags. These are all
 /// invoked by using `+<action>` as a CLI flag. The only exception is
@@ -72,6 +73,9 @@ pub const Action = enum {
 
     // Use IPC to tell the running Ghostty to open a new window.
     @"new-window",
+
+    // Use IPC to tell the running Ghostty to open a new tab.
+    @"new-tab",
 
     pub fn detectSpecialCase(arg: []const u8) ?SpecialCase(Action) {
         // If we see a "-e" and we haven't seen a command yet, then
@@ -152,6 +156,7 @@ pub const Action = enum {
             .@"show-face" => try show_face.run(alloc),
             .boo => try boo.run(alloc),
             .@"new-window" => try new_window.run(alloc),
+            .@"new-tab" => try new_tab.run(alloc),
         };
     }
 
@@ -192,6 +197,7 @@ pub const Action = enum {
                 .@"show-face" => show_face.Options,
                 .boo => boo.Options,
                 .@"new-window" => new_window.Options,
+                .@"new-tab" => new_tab.Options,
             };
         }
     }

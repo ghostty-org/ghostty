@@ -70,20 +70,79 @@ pub const Action = union(enum) {
     //    entry. If the value type is void then only the key needs to be
     //    added. Ensure the order matches exactly with the Zig code.
 
-    /// The arguments to pass to Ghostty as the command.
+    /// Create a new window.
     new_window: NewWindow,
 
+    /// Create a new tab.
+    new_tab: NewTab,
+
     pub const NewWindow = struct {
-        /// A list of command arguments to launch in the new window. If this is
-        /// `null` the command configured in the config or the user's default
-        /// shell should be launched.
+        /// A list of configuration entries that will override the configuration
+        /// of the first surface of the new window. If this is `null` there
+        /// are no overrides. Note that not all configuration entries may be
+        /// overridden.
         ///
         /// It is an error for this to be non-`null`, but zero length.
         arguments: ?[][:0]const u8,
 
         pub const C = extern struct {
-            /// null terminated list of arguments
-            /// it will be null itself if there are no arguments
+            /// A list of configuration entries that will override the
+            /// configuration of the first surface of the new tab. If this is
+            /// `null` there are no overrides. Note that not all configuration
+            /// entries may be overridden.
+            ///
+            /// It is an error for this to be non-`null`, but zero length.
+            arguments: ?[*]?[*:0]const u8,
+
+            pub fn deinit(self: *NewWindow.C, alloc: Allocator) void {
+                if (self.arguments) |arguments| alloc.free(arguments);
+            }
+        };
+
+        pub fn cval(self: *NewWindow, alloc: Allocator) Allocator.Error!NewWindow.C {
+            var result: NewWindow.C = undefined;
+
+            if (self.arguments) |arguments| {
+                result.arguments = try alloc.alloc([*:0]const u8, arguments.len + 1);
+
+                for (arguments, 0..) |argument, i|
+                    result.arguments[i] = argument.ptr;
+
+                // add null terminator
+                result.arguments[arguments.len] = null;
+            } else {
+                result.arguments = null;
+            }
+
+            return result;
+        }
+    };
+
+    pub const NewTab = struct {
+        /// The unique ID of a surface. If the ID is zero the currently focused
+        /// surface is assumed. This will be used to identify the window to add
+        /// the tab to.
+        surface_id: u64,
+
+        /// A list of configuration entries that will override the configuration
+        /// of the first surface of the new tab. If this is `null` there
+        /// are no overrides. Note that not all configuration entries may be
+        /// overridden.
+        ///
+        /// It is an error for this to be non-`null`, but zero length.
+        arguments: ?[][:0]const u8,
+
+        pub const C = extern struct {
+            /// The unique ID of a surface. If the ID is zero the currently
+            /// focused surface is assumed. This will be used to identify the
+            /// window to add the tab to.
+            surface_id: u64,
+            /// A list of configuration entries that will override the
+            /// configuration of the first surface of the new tab. If this is
+            /// `null` there are no overrides. Note that not all configuration
+            /// entries may be overridden.
+            ///
+            /// It is an error for this to be non-`null`, but zero length.
             arguments: ?[*]?[*:0]const u8,
 
             pub fn deinit(self: *NewWindow.C, alloc: Allocator) void {
@@ -113,6 +172,7 @@ pub const Action = union(enum) {
     /// Sync with: ghostty_ipc_action_tag_e
     pub const Key = enum(c_int) {
         new_window,
+        new_tab,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_IPC_ACTION_");
@@ -158,8 +218,8 @@ pub const Action = union(enum) {
         // At the time of writing, we don't promise ABI compatibility
         // so we can change this but I want to be aware of it.
         assert(@sizeOf(CValue) == switch (@sizeOf(usize)) {
-            4 => 4,
-            8 => 8,
+            4 => 12,
+            8 => 16,
             else => unreachable,
         });
     }
