@@ -2577,6 +2577,43 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 }
             }
 
+            // Draw the caret (keyboard navigation cursor) as a hollow block.
+            caret: {
+                const caret_vp = state.caret orelse break :caret;
+                const x: u16 = if (caret_vp.wide_tail)
+                    caret_vp.x - 1
+                else
+                    caret_vp.x;
+
+                const caret_color = state.colors.foreground;
+
+                const render = self.font_grid.renderGlyph(
+                    self.alloc,
+                    font.sprite_index,
+                    @intFromEnum(font.Sprite.cursor_hollow_rect),
+                    .{
+                        .cell_width = 1,
+                        .grid_metrics = self.grid_metrics,
+                    },
+                ) catch |err| {
+                    log.warn("error rendering caret glyph err={}", .{err});
+                    break :caret;
+                };
+
+                self.cells.setCaret(.{
+                    .atlas = .grayscale,
+                    .bools = .{ .is_cursor_glyph = true },
+                    .grid_pos = .{ x, caret_vp.y },
+                    .color = .{ caret_color.r, caret_color.g, caret_color.b, 255 },
+                    .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },
+                    .glyph_size = .{ render.glyph.width, render.glyph.height },
+                    .bearings = .{
+                        @intCast(render.glyph.offset_x),
+                        @intCast(render.glyph.offset_y),
+                    },
+                });
+            }
+
             // Setup our preedit text.
             if (preedit) |preedit_v| preedit: {
                 const range = preedit_range orelse break :preedit;

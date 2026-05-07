@@ -507,6 +507,26 @@ pub const Action = union(enum) {
     ///
     adjust_selection: AdjustSelection,
 
+    /// Enter caret (keyboard navigation) mode. The caret is placed at the
+    /// current terminal cursor position. Also pushes the "caret" key table.
+    /// No-op if caret mode is already active.
+    enter_caret_mode,
+
+    /// Exit caret mode. Also pops the "caret" key table.
+    exit_caret_mode,
+
+    /// Move the caret in caret mode. No-op if caret mode is not active.
+    ///
+    /// Valid arguments are the same as `adjust_selection`:
+    /// `left`, `right`, `up`, `down`, `page_up`, `page_down`,
+    /// `home`, `end`, `beginning_of_line`, `end_of_line`.
+    move_caret: MoveCaret,
+
+    /// Toggle a selection anchored at the caret position. If no selection
+    /// exists, one is created at the current caret. If a selection exists,
+    /// it is cleared. No-op if caret mode is not active.
+    toggle_caret_selection,
+
     /// Jump the viewport forward or back by the given number of prompts.
     ///
     /// Requires shell integration.
@@ -1030,6 +1050,19 @@ pub const Action = union(enum) {
         end_of_line,
     };
 
+    pub const MoveCaret = enum {
+        left,
+        right,
+        up,
+        down,
+        page_up,
+        page_down,
+        home,
+        end,
+        beginning_of_line,
+        end_of_line,
+    };
+
     pub const SplitDirection = enum {
         right,
         down,
@@ -1383,6 +1416,10 @@ pub const Action = union(enum) {
             .scroll_page_fractional,
             .scroll_page_lines,
             .adjust_selection,
+            .enter_caret_mode,
+            .exit_caret_mode,
+            .move_caret,
+            .toggle_caret_selection,
             .jump_to_prompt,
             .write_scrollback_file,
             .write_screen_file,
