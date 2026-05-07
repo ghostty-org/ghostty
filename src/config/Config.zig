@@ -8633,18 +8633,18 @@ pub const RepeatableLink = struct {
 pub const CopyOnSelect = enum {
     /// Disables copy on select entirely.
     false,
-    @"none",
+    none,
 
     /// Copy on select is enabled, but goes to the selection clipboard.
     /// This is not supported on platforms such as macOS. This is the default.
     true,
-    @"primary",
+    primary,
 
     /// Copy on select is enabled and goes to both the system clipboard
     /// and the selection clipboard (for Linux).
-    @"clipboard",
+    clipboard,
 
-    @"both",
+    both,
 };
 
 /// Options for right-click actions.
