@@ -1,28 +1,9 @@
-//! Rasterize Glyph Protocol `glyf` outlines into alpha8 bitmaps via
-//! z2d (the same pure-Zig 2D library ghostty uses for its sprite font).
-//!
-//! The outline comes from `terminal.apc.glyph.glyf.decode()`, which
-//! produces a list of contours of `Point{x,y,on_curve}` in the
-//! authored `upm` coordinate space (Y-up). This module:
-//!
-//!   1. walks each contour applying the standard TrueType quadratic
-//!      Bézier rules (on-curve, off-curve, implied-on-curve at the
-//!      midpoint of two consecutive off-curve points),
-//!   2. emits z2d path nodes (z2d only exposes cubic `curveTo`, so
-//!      quadratics are degree-elevated to cubics),
-//!   3. fills the path into an `image_surface_alpha8` of the requested
-//!      pixel dimensions, Y-flipped so the glyph sits visually upright.
-//!
-//! The returned `Bitmap` owns a grayscale-alpha byte buffer ready to
-//! copy into the renderer's grayscale atlas.
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const z2d = @import("z2d");
 const apc_glyph = @import("../terminal/apc/glyph.zig");
 const glyf = apc_glyph.glyf;
 
-/// Alpha-only, row-major, top-left origin, stride = `width`.
 pub const Bitmap = struct {
     width: u32,
     height: u32,
@@ -37,13 +18,11 @@ pub const Bitmap = struct {
 pub const Error = Allocator.Error || z2d.painter.FillError ||
     error{ InvalidSize, InvalidMatrix, NoCurrentPoint };
 
-/// Rasterize `outline` into a `width × height` alpha bitmap.
-///
+/// rasterize: Rasterize `outline` into a `width × height` alpha bitmap.
 /// The em-square (sized by `upm`) is uniformly scaled to fit the
 /// smaller of the two cell dimensions and centred inside the cell.
-/// This treats the registration's render span as a single cell — a
-/// square glyph in a narrow (1-cell, `width=1`) span never overflows
-/// into adjacent cells. Once the v1.7 placement options (`size`,
+///
+/// TODO: Once the +v1.7 placement options (`size`,
 /// `align`, `pad`, `width`) are wired in, this becomes the
 /// `size=contain; align=center,center; pad=0,0,0,0` case.
 pub fn rasterize(
@@ -63,18 +42,13 @@ pub fn rasterize(
     );
     defer sfc.deinit(alloc);
 
-    // Empty-glyph fast path: allocate a zero bitmap and return.
+    // for empty glyphs go on fast path: allocate a zero bitmap and return.
     if (outline.contours.len == 0) {
         const data = try alloc.alloc(u8, @as(usize, width) * @as(usize, height));
         @memset(data, 0);
         return .{ .width = width, .height = height, .data = data };
     }
 
-    // Transform: uniform scale em → pixel, fitting the em-square into the
-    // cell at its smaller dimension so a square glyph never overflows a
-    // narrow (1-cell) render span. The em is then centred horizontally
-    // and vertically inside the cell.
-    //
     // glyf Y is up, raster Y is down. We pin glyf y=upm to the top of the
     // centred em (so the authored top of the em-square lands at the top
     // of the centred area), then transformY flips around `y_base`.
@@ -110,17 +84,7 @@ pub fn rasterize(
     return .{ .width = width, .height = height, .data = data };
 }
 
-/// Walk a single glyf contour and append its path nodes to `path`.
-/// Implements the TrueType quadratic-Bézier interpretation:
-///
-///   - two on-curves in a row → straight line,
-///   - on → off → on → quadratic Bézier with the off-curve as control,
-///   - two off-curves in a row → quadratic to the midpoint of the two
-///     off-curve points (implied on-curve), and the second off-curve
-///     becomes the next control.
-///
-/// Quadratics are elevated to cubics for z2d (which only exposes
-/// `curveTo`).
+/// note: implements the TrueType quadratic-Bézier interpretation
 fn appendContour(
     alloc: Allocator,
     path: *z2d.Path,
@@ -132,12 +96,7 @@ fn appendContour(
     const n = contour.len;
     if (n == 0) return;
 
-    // Choose a starting on-curve point per TrueType rules: prefer the
-    // first point when on-curve; otherwise the last; otherwise the
-    // midpoint of the first and last (synthesized). `steps` is the
-    // number of contour points we'll visit in the walk loop.
     const start = pickStart(contour, scale, x_offset, y_base);
-
     try path.moveTo(alloc, start.x, start.y);
 
     var i = start.idx;
@@ -186,11 +145,7 @@ const Ctrl = struct { x: f64, y: f64 };
 const Start = struct {
     x: f64,
     y: f64,
-    /// Index of the first contour point to visit after MoveTo.
     idx: usize,
-    /// Number of points to visit in the walk. When the start is a real
-    /// contour point we skip it in the walk (n-1); when the start is a
-    /// synthesized midpoint we walk every point (n).
     steps: usize,
 };
 
@@ -212,7 +167,7 @@ fn pickStart(contour: []const glyf.Point, scale: f64, x_offset: f64, y_base: f64
             .steps = n - 1,
         };
     }
-    // Both endpoints off-curve: synthesized midpoint. Scale+offset+flip
+    // both endpoints off-curve: synthesized midpoint. Scale+offset+flip
     // is an affine transform, so the rendered midpoint equals the
     // midpoint of the rendered endpoints.
     return .{
@@ -233,11 +188,8 @@ inline fn transformY(y: i32, scale: f64, y_base: f64) f64 {
     return y_base - @as(f64, @floatFromInt(y)) * scale;
 }
 
-/// Elevate a quadratic Bézier (cur, ctrl, end) to a cubic the z2d
-/// path API can accept:
-///
-///   cp1 = cur + 2/3 * (ctrl - cur)
-///   cp2 = end + 2/3 * (ctrl - end)
+/// cp1 = cur + 2/3 * (ctrl - cur)
+/// cp2 = end + 2/3 * (ctrl - end)
 fn quadToCubic(
     alloc: Allocator,
     path: *z2d.Path,
@@ -255,8 +207,6 @@ fn quadToCubic(
     const cp2y = ey + third * (cy - ey);
     try path.curveTo(alloc, cp1x, cp1y, cp2x, cp2y, ex, ey);
 }
-
-// tests
 
 const testing = std.testing;
 
@@ -324,12 +274,6 @@ test "rasterize square fills every pixel" {
 }
 
 test "rasterize fits a square em inside a narrow cell without overflow" {
-    // Regression: a square em rasterized into a narrow (width < height)
-    // cell used to be scaled by `height/upm` on both axes, making the
-    // glyph's horizontal extent equal to `cell_height` — so the right
-    // half spilled past the bitmap and was clipped. The fix scales by
-    // `min(width, height) / upm` and centres horizontally; the right
-    // edge column should now also receive coverage.
     var outline = try makeSquare(testing.allocator);
     defer outline.deinit(testing.allocator);
 
@@ -349,8 +293,6 @@ test "rasterize fits a square em inside a narrow cell without overflow" {
 }
 
 test "rasterize centre is opaque, corner is clear for a diamond" {
-    // Small diamond: on-curve vertices at (500,0), (1000,500), (500,1000),
-    // (0,500). Centre of the em should be inside, corners outside.
     const allocator = testing.allocator;
     const contour = try allocator.alloc(glyf.Point, 4);
     contour[0] = .{ .x = 500, .y = 0, .on_curve = true };
