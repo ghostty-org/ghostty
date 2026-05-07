@@ -229,18 +229,11 @@ pub const Request = union(enum) {
             return self.raw[2..self.payload_idx];
         }
 
-        /// Base64-decode the register payload, enforce the 64 KiB cap, and
-        /// decode it according to the request's `fmt`. The returned payload
-        /// owns its allocations; callers must `deinit`.
         pub fn decodePayload(
             self: Register,
             alloc: Allocator,
         ) DecodeError!DecodedPayload {
             const fmt = self.get(.fmt) orelse Format.glyf;
-
-            // Base64 → raw bytes. Reject invalid-padding and
-            // invalid-character errors with a single "malformed_payload"
-            // code; the spec has no finer-grained base64 reason.
             const b64 = self.payload();
             const decoder = std.base64.standard.Decoder;
             const size = decoder.calcSizeForSlice(b64) catch
