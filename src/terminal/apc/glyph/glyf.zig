@@ -221,8 +221,6 @@ const Reader = struct {
     }
 };
 
-// tests
-
 const testing = std.testing;
 
 // Flag bits duplicated for tests that hand-encode glyf records without
