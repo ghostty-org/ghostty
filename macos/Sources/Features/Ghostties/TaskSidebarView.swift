@@ -42,22 +42,18 @@ struct TaskSidebarView: View {
                         .padding(.top, 8)
                         .padding(.bottom, 4)
                     }
-                    // Zone order follows the brief's locked lane order:
-                    // Inbox · Backlog · Running · Needs you · Review · Graveyard.
+                    // Six-zone layout — locked order from the brief:
                     //
-                    // Only four of the six lanes have a dedicated top-level
-                    // zone view today — Backlog and Review currently live as
-                    // sub-lanes inside the Graveyard (ArchiveZoneView) and are
-                    // not rendered as standalone zones. The order below is the
-                    // brief's order with those two skipped:
+                    //   1. Inbox      — external arrivals (source-based); hides when empty
+                    //   2. Backlog    — planned but not started; header always visible
+                    //   3. Active     — running tasks + unpromoted session drafts; hides when empty
+                    //   4. Needs you  — awaiting human input; always visible (reserved height)
+                    //   5. Review     — done by agent, awaiting sign-off; header always visible
+                    //   6. Graveyard  — Done tasks only; hides when empty
                     //
-                    //   Inbox (source-based) → Running (Active) →
-                    //   Needs you → Graveyard (which internally holds
-                    //   Backlog · Review · Done).
-                    //
-                    // Inbox hides itself entirely when empty — most days it
-                    // will not render at all, so we only emit the trailing
-                    // divider when it has rows.
+                    // Zone dividers are emitted only when the preceding zone
+                    // rendered content (rows or a reserved-height empty state).
+                    // Zone 1: Inbox — hides entirely when empty (special case).
                     InboxZoneView(
                         taskStore: taskStore,
                         workspaceStore: workspaceStore,
@@ -69,7 +65,11 @@ struct TaskSidebarView: View {
                         zoneDivider
                     }
 
-                    // SG-03: Active / Running zone — fully hidden when empty.
+                    // Zone 2: Backlog — header always visible, body collapses when empty.
+                    BacklogZoneView(taskStore: taskStore)
+                    zoneDivider
+
+                    // Zone 3: Active / Running — fully hidden when empty.
                     // "Empty" means no running tasks AND no unpromoted session drafts.
                     let activeIsEmpty = taskStore.active.isEmpty && sessionDraftStore.drafts.filter { $0.promotedToTaskId == nil }.isEmpty
                     if !activeIsEmpty {
@@ -80,19 +80,17 @@ struct TaskSidebarView: View {
                         zoneDivider
                     }
 
-                    // SG-03: Needs-you zone — fully hidden when empty.
-                    if !taskStore.needsYou.isEmpty {
-                        NeedsYouZoneView(taskStore: taskStore)
-                        zoneDivider
-                    }
+                    // Zone 4: Needs you — always visible (reserved-height empty state).
+                    NeedsYouZoneView(taskStore: taskStore)
+                    zoneDivider
 
-                    // SG-03: Graveyard / Archive zone — fully hidden when all sub-lanes empty.
-                    let graveyardIsEmpty = taskStore.inbox.isEmpty
-                        && taskStore.backlog.isEmpty
-                        && taskStore.review.isEmpty
-                        && taskStore.done.isEmpty
-                    if !graveyardIsEmpty {
-                        ArchiveZoneView(taskStore: taskStore)
+                    // Zone 5: Review — header always visible, body collapses when empty.
+                    ReviewZoneView(taskStore: taskStore)
+                    zoneDivider
+
+                    // Zone 6: Graveyard — Done tasks only; hidden when empty.
+                    if !taskStore.done.isEmpty {
+                        GraveyardZoneView(taskStore: taskStore)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
