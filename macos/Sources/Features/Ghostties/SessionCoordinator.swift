@@ -130,7 +130,8 @@ final class SessionCoordinator: ObservableObject {
         template: AgentTemplate,
         project: Project,
         sourceTaskId: String? = nil,
-        sourceTaskFilePath: String? = nil
+        sourceTaskFilePath: String? = nil,
+        extraEnvironment: [String: String] = [:]
     ) async -> Bool {
         // Browser sessions bypass the terminal path entirely.
         if template.kind == .browser {
@@ -186,7 +187,10 @@ final class SessionCoordinator: ObservableObject {
                 ])
             }
             let scriptPath = (scriptDir as NSString).appendingPathComponent("\(session.id.uuidString).sh")
-            let script = "#!/bin/zsh -l\n. ~/.zshrc 2>/dev/null\n\(banner)\nexec \(cmd)\n"
+            // Spawn banner: first output line confirms task context before Claude starts.
+            // Uses env vars set in config.environmentVariables so they're already in scope.
+            let spawnBannerEcho = #"echo "task: $GHOSTTIES_TASK_ID · file: $GHOSTTIES_TASK_FILE · cwd: $(pwd)""#
+            let script = "#!/bin/zsh -l\n. ~/.zshrc 2>/dev/null\n\(banner)\n\(spawnBannerEcho)\nexec \(cmd)\n"
             if (try? script.write(toFile: scriptPath, atomically: true, encoding: .utf8)) != nil {
                 try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptPath)
                 return scriptPath
@@ -200,6 +204,13 @@ final class SessionCoordinator: ObservableObject {
         config.environmentVariables = template.environmentVariables
         if let taskFilePath = sourceTaskFilePath {
             config.environmentVariables["GHOSTTIES_TASK_FILE"] = taskFilePath
+        }
+        if let taskId = sourceTaskId {
+            config.environmentVariables["GHOSTTIES_TASK_ID"] = taskId
+        }
+        // Overlay any per-call env vars (e.g. GHOSTTIES_TEMPLATE for review sessions).
+        for (key, value) in extraEnvironment {
+            config.environmentVariables[key] = value
         }
 
         let newView = Ghostty.SurfaceView(ghosttyApp, baseConfig: config)
@@ -250,7 +261,8 @@ final class SessionCoordinator: ObservableObject {
         for project: Project,
         template: AgentTemplate,
         sourceTaskId: String? = nil,
-        sourceTaskFilePath: String? = nil
+        sourceTaskFilePath: String? = nil,
+        extraEnvironment: [String: String] = [:]
     ) async -> Bool {
         let store = WorkspaceStore.shared
         let count = store.sessions(for: project.id).count
@@ -261,7 +273,8 @@ final class SessionCoordinator: ObservableObject {
             template: template,
             project: project,
             sourceTaskId: sourceTaskId,
-            sourceTaskFilePath: sourceTaskFilePath
+            sourceTaskFilePath: sourceTaskFilePath,
+            extraEnvironment: extraEnvironment
         )
     }
 
@@ -413,6 +426,7 @@ final class SessionCoordinator: ObservableObject {
         templateName: String? = nil,
         sourceTaskId: String? = nil,
         sourceTaskFilePath: String? = nil,
+        extraEnvironment: [String: String] = [:],
         forceSpawn: Bool = false
     ) {
         let store = WorkspaceStore.shared
@@ -493,7 +507,8 @@ final class SessionCoordinator: ObservableObject {
                 for: project,
                 template: template,
                 sourceTaskId: sourceTaskId,
-                sourceTaskFilePath: sourceTaskFilePath
+                sourceTaskFilePath: sourceTaskFilePath,
+                extraEnvironment: extraEnvironment
             )
         }
     }

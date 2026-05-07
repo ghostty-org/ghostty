@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -6,12 +7,11 @@ import Foundation
 ///
 /// This is a pure computed value — not stored state. The router derives it
 /// from `task.status` + `hasProjectContext(task)` on every click.
-///
-/// Backlog and Review are intentionally absent from v0 — no v0 fixtures use
-/// those statuses. See TODO: SG-04 in `RowClickRouter.handleRowClick`.
 enum RowClickLane: Equatable {
     case inboxWithProject    // inbox status + project resolves in WorkspaceStore
     case inboxOrphan         // inbox status + no matching WorkspaceStore project
+    case backlogWithProject  // backlog status + project resolves in WorkspaceStore (SG-04)
+    case reviewWithProject   // review status + project resolves in WorkspaceStore (SG-04)
     case running             // running status
     case needsYou            // needs-you status
     case graveyard           // done status
@@ -137,6 +137,38 @@ final class RowClickRouter: ObservableObject {
         case .inboxOrphan:
             handlers.triageOrphanTask(task)
 
+        case .backlogWithProject:
+            // Backlog: open the task's .md file in the default editor. No spawn,
+            // no status change — Backlog means "planned but not now".
+            if let url = taskStore.fileURL(for: task) {
+                NSWorkspace.shared.open(url)
+            }
+
+        case .reviewWithProject:
+            // Review: open the .md file AND spawn a Claude Code session with the
+            // "review" template hint so the agent reads completed work. Applies
+            // the same D14 dual guard as .inboxWithProject.
+            guard !hitTestingBlockedTaskIds.contains(task.id) else { return }
+            guard promotionInFlight[task.id] == nil else { return }
+
+            hitTestingBlockedTaskIds.insert(task.id)
+            let hitTestCancelItem = DispatchWorkItem { [weak self] in
+                self?.hitTestingBlockedTaskIds.remove(task.id)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: hitTestCancelItem)
+
+            _Concurrency.Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    try await handlers.startReviewTask(task)
+                    self.armDebounce(for: task.id)
+                } catch {
+                    self.taskRowErrors[task.id] = error.localizedDescription
+                    hitTestCancelItem.cancel()
+                    self.hitTestingBlockedTaskIds.remove(task.id)
+                }
+            }
+
         case .running:
             _Concurrency.Task { @MainActor in await handlers.focusRunningTask(task) }
 
@@ -145,10 +177,6 @@ final class RowClickRouter: ObservableObject {
 
         case .graveyard:
             handlers.expandGraveyardTask(task)
-
-        // TODO: SG-04 — Backlog/Review routing deferred until those lanes have
-        // v0 fixtures (see R1: 5-handler enumeration for .inboxWithProject,
-        // .inboxOrphan, .running, .needsYou, .graveyard).
         }
     }
 
@@ -191,13 +219,22 @@ final class RowClickRouter: ObservableObject {
     /// - Returns: The `RowClickLane` that determines which handler fires.
     func computeLane(for task: TaskItem, workspaceStore: WorkspaceStore) -> RowClickLane {
         switch task.status {
-        case .inbox, .backlog, .review:
-            // For inbox (and the deferred backlog/review cases), distinguish
-            // project-context vs orphan. Backlog and Review fall into this
-            // branch for now and use the orphan path as a safe no-op default
-            // until SG-04 fixtures exist.
+        case .inbox:
             return hasProjectContext(task, workspaceStore: workspaceStore)
                 ? .inboxWithProject
+                : .inboxOrphan
+
+        case .backlog:
+            // Backlog tasks open the .md file read-only; orphans fall to inboxOrphan
+            // (triage card collects a project first before any file action).
+            return hasProjectContext(task, workspaceStore: workspaceStore)
+                ? .backlogWithProject
+                : .inboxOrphan
+
+        case .review:
+            // Review tasks spawn Claude Code in review mode; orphans triage first.
+            return hasProjectContext(task, workspaceStore: workspaceStore)
+                ? .reviewWithProject
                 : .inboxOrphan
 
         case .running:

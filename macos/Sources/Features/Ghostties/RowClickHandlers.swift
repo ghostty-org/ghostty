@@ -127,6 +127,62 @@ struct RowClickHandlers {
         // The file-watcher will migrate the row to Running; no terminal here.
     }
 
+    // MARK: - Review lane (with project context)
+
+    /// Start a review session for a completed task.
+    ///
+    /// Identical to `startInboxTask` in structure (D14 guards applied by the caller),
+    /// but injects `GHOSTTIES_TEMPLATE=review` into the spawned session's environment
+    /// so Claude Code knows to read completed work and prepare feedback rather than
+    /// starting fresh. Status is written to `.running` so the row migrates to Active
+    /// while the review is in progress.
+    ///
+    /// - Throws: `CLIError` (from `TaskStore.writeStatus`) on disk I/O failure.
+    func startReviewTask(_ task: TaskItem) async throws {
+        // 1. Open the task's .md file in the default editor.
+        if let url = taskStore.fileURL(for: task) {
+            NSWorkspace.shared.open(url)
+        }
+
+        // 2. Write status: running so the row migrates to Active while review runs.
+        try await taskStore.writeStatus(.running, for: task.id)
+
+        // 3. Clear any prior error chip.
+        RowClickRouter.shared.clearRowError(for: task.id)
+
+        // 4. Resolve the project cwd path (same resolution order as startInboxTask).
+        let resolvedPath: String? = {
+            if let raw = task.projectPath, !raw.isEmpty {
+                return (raw as NSString).expandingTildeInPath
+            }
+            if let storeProject = workspaceStore.projects
+                .first(where: { $0.name == task.project }) {
+                return storeProject.rootPath
+            }
+            return nil
+        }()
+
+        // Template resolution: task frontmatter wins; fall back to "Claude Code"
+        // so review always spawns an agent (not a bare shell).
+        let resolvedTemplateName: String? = task.template
+            ?? (defaultTaskTemplate.isEmpty ? "Claude Code" : defaultTaskTemplate)
+
+        if let path = resolvedPath {
+            coordinator.startOrFocusSession(
+                forProjectNamed: task.project,
+                rootPath: path,
+                templateName: resolvedTemplateName,
+                sourceTaskId: task.id,
+                sourceTaskFilePath: taskStore.fileURL(for: task)?.path,
+                extraEnvironment: ["GHOSTTIES_TEMPLATE": "review"],
+                forceSpawn: true
+            )
+        } else if let storeProject = workspaceStore.projects
+            .first(where: { $0.name == task.project }) {
+            coordinator.focusLastSession(forProject: storeProject.id)
+        }
+    }
+
     // MARK: - Inbox lane (orphan — no project context)
 
     /// Open the inline triage card for the orphan row.
