@@ -10,7 +10,10 @@ const log = std.log.scoped(.flatpak);
 pub fn isFlatpak() bool {
     // If we're not on Linux then we'll make this comptime false.
     if (comptime builtin.os.tag != .linux) return false;
-    return if (std.fs.accessAbsolute("/.flatpak-info", .{})) true else |_| false;
+    return if (std.Io.Dir.accessAbsolute(std.Io.Threaded.global_single_threaded.io(), "/.flatpak-info", .{}))
+        true
+    else |_|
+        false;
 }
 
 /// A struct to help execute commands on the host via the

@@ -6,13 +6,13 @@ const std = @import("std");
 const Config = @import("config/Config.zig");
 const Action = @import("cli/ghostty.zig").Action;
 const KeybindAction = @import("input/Binding.zig").Action;
+const compat_init = @import("lib/compat/init.zig");
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const alloc = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    compat_init.run(init.minimal);
 
     var buf: [4096]u8 = undefined;
-    var stdout = std.fs.File.stdout().writerStreaming(&buf);
+    var stdout = std.Io.File.stdout().writerStreaming(init.io, &buf);
     const writer = &stdout.interface;
     try writer.writeAll(
         \\// THIS FILE IS AUTO GENERATED
@@ -20,6 +20,7 @@ pub fn main() !void {
         \\
     );
 
+    const alloc = init.arena.allocator();
     try genConfig(alloc, writer);
     try genActions(alloc, writer);
     try genKeybindActions(alloc, writer);

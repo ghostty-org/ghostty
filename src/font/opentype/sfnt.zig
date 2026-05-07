@@ -235,8 +235,7 @@ pub const SFNT = struct {
     /// Parse a font from raw data. The struct will keep a
     /// reference to `data` and use it for future operations.
     pub fn init(data: []const u8, alloc: Allocator) !SFNT {
-        var fbs = std.io.fixedBufferStream(data);
-        const reader = fbs.reader();
+        var reader: std.Io.Reader = .fixed(data);
 
         // SFNT files use big endian, if our native endian is
         // not big we'll need to byte swap the values we read.
@@ -244,7 +243,7 @@ pub const SFNT = struct {
 
         var directory: Directory = undefined;
 
-        try reader.readNoEof(std.mem.asBytes(&directory.offset));
+        try reader.readSliceAll(std.mem.asBytes(&directory.offset));
         if (byte_swap) std.mem.byteSwapAllFields(
             Directory.OffsetSubtable,
             &directory.offset,
@@ -252,7 +251,7 @@ pub const SFNT = struct {
 
         directory.records = try alloc.alloc(Directory.TableRecord, directory.offset.num_tables);
 
-        try reader.readNoEof(std.mem.sliceAsBytes(directory.records));
+        try reader.readSliceAll(std.mem.sliceAsBytes(directory.records));
         if (byte_swap) for (directory.records) |*record| {
             std.mem.byteSwapAllFields(
                 Directory.TableRecord,

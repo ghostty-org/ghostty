@@ -388,10 +388,7 @@ pub const Dynamic = enum(u5) {
     /// "Each successive parameter changes the next color in the list.  The
     /// value of Ps tells the starting point in the list."
     pub fn next(self: Dynamic) ?Dynamic {
-        return std.meta.intToEnum(
-            Dynamic,
-            @intFromEnum(self) + 1,
-        ) catch null;
+        return std.enums.fromInt(Dynamic, @intFromEnum(self) + 1);
     }
 
     test "next" {

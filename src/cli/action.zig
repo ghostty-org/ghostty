@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const compat_args = @import("../lib/compat/args.zig");
 
 pub const DetectError = error{
     /// Multiple actions were detected. You can specify at most one
@@ -12,7 +13,7 @@ pub const DetectError = error{
 
 /// Detect the action from CLI args.
 pub fn detectArgs(comptime E: type, alloc: Allocator) !?E {
-    var iter = try std.process.argsWithAllocator(alloc);
+    var iter = try compat_args.getArgs().iterateAllocator(alloc);
     defer iter.deinit();
     return try detectIter(E, &iter);
 }
@@ -83,7 +84,7 @@ test "detect direct match" {
     const alloc = testing.allocator;
     const Enum = enum { foo, bar, baz };
 
-    var iter = try std.process.ArgIteratorGeneral(.{}).init(
+    var iter = try compat_args.ArgIteratorGeneral(.{}).init(
         alloc,
         "+foo",
     );
@@ -97,7 +98,7 @@ test "detect invalid match" {
     const alloc = testing.allocator;
     const Enum = enum { foo, bar, baz };
 
-    var iter = try std.process.ArgIteratorGeneral(.{}).init(
+    var iter = try compat_args.ArgIteratorGeneral(.{}).init(
         alloc,
         "+invalid",
     );
@@ -113,7 +114,7 @@ test "detect multiple actions" {
     const alloc = testing.allocator;
     const Enum = enum { foo, bar, baz };
 
-    var iter = try std.process.ArgIteratorGeneral(.{}).init(
+    var iter = try compat_args.ArgIteratorGeneral(.{}).init(
         alloc,
         "+foo +bar",
     );
@@ -129,7 +130,7 @@ test "detect no match" {
     const alloc = testing.allocator;
     const Enum = enum { foo, bar, baz };
 
-    var iter = try std.process.ArgIteratorGeneral(.{}).init(
+    var iter = try compat_args.ArgIteratorGeneral(.{}).init(
         alloc,
         "--some-flag",
     );
@@ -154,7 +155,7 @@ test "detect special case action" {
     };
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try compat_args.ArgIteratorGeneral(.{}).init(
             alloc,
             "--special +bar",
         );
@@ -164,7 +165,7 @@ test "detect special case action" {
     }
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try compat_args.ArgIteratorGeneral(.{}).init(
             alloc,
             "+bar --special",
         );
@@ -174,7 +175,7 @@ test "detect special case action" {
     }
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try compat_args.ArgIteratorGeneral(.{}).init(
             alloc,
             "+bar",
         );
@@ -200,7 +201,7 @@ test "detect special case fallback" {
     };
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try compat_args.ArgIteratorGeneral(.{}).init(
             alloc,
             "--special",
         );
@@ -210,7 +211,7 @@ test "detect special case fallback" {
     }
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try compat_args.ArgIteratorGeneral(.{}).init(
             alloc,
             "+bar --special",
         );
@@ -220,7 +221,7 @@ test "detect special case fallback" {
     }
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try compat_args.ArgIteratorGeneral(.{}).init(
             alloc,
             "--special +bar",
         );
@@ -246,7 +247,7 @@ test "detect special case abort_if_no_action" {
     };
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try compat_args.ArgIteratorGeneral(.{}).init(
             alloc,
             "-e",
         );
@@ -256,7 +257,7 @@ test "detect special case abort_if_no_action" {
     }
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try compat_args.ArgIteratorGeneral(.{}).init(
             alloc,
             "+foo -e",
         );
@@ -266,7 +267,7 @@ test "detect special case abort_if_no_action" {
     }
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try compat_args.ArgIteratorGeneral(.{}).init(
             alloc,
             "-e +bar",
         );

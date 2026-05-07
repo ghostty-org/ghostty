@@ -40,7 +40,7 @@ pub fn run(alloc: std.mem.Allocator) !u8 {
     }
 
     var buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    var stdout_writer = std.Io.File.stdout().writer(std.Io.Threaded.global_single_threaded.io(), &buffer);
     const stdout = &stdout_writer.interface;
     const result = runInner(alloc, opts, stdout);
     try stdout_writer.end();
@@ -58,7 +58,11 @@ fn runInner(
     // If a config path is passed, validate it, otherwise validate default configs
     if (opts.@"config-file") |config_path| {
         var buf: [std.fs.max_path_bytes]u8 = undefined;
-        const abs_path = try std.fs.cwd().realpath(config_path, &buf);
+        const abs_path = buf[0..try std.Io.Dir.cwd().realPathFile(
+            std.Io.Threaded.global_single_threaded.io(),
+            config_path,
+            &buf,
+        )];
         try cfg.loadFile(alloc, abs_path);
         try cfg.loadRecursiveFiles(alloc);
     } else {

@@ -13,7 +13,7 @@ const builtin = @import("builtin");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const Mutex = std.Thread.Mutex;
+const Mutex = std.Io.Mutex;
 const xev = @import("../../global.zig").xev;
 const internal_os = @import("../../os/main.zig");
 const BlockingQueue = @import("../../datastruct/main.zig").BlockingQueue;
@@ -221,8 +221,8 @@ fn threadMain_(self: *Thread) !void {
 
             // All searches are blocked. Let's grab the lock and feed data.
             .blocked => {
-                self.opts.mutex.lock();
-                defer self.opts.mutex.unlock();
+                self.opts.mutex.lockUncancelable(std.Io.Threaded.global_single_threaded.io());
+                defer self.opts.mutex.unlock(std.Io.Threaded.global_single_threaded.io());
                 s.feed(self.alloc, self.opts.terminal);
             },
         }
@@ -254,8 +254,8 @@ fn select(self: *Thread, sel: ScreenSearch.Select) !void {
     const s = if (self.search) |*s| s else return;
     const screen_search = s.screens.getPtr(s.last_screen.key) orelse return;
 
-    self.opts.mutex.lock();
-    defer self.opts.mutex.unlock();
+    self.opts.mutex.lockUncancelable(std.Io.Threaded.global_single_threaded.io());
+    defer self.opts.mutex.unlock(std.Io.Threaded.global_single_threaded.io());
 
     // Make the selection. Ignore the result because we don't
     // care if the selection didn't change.
@@ -335,8 +335,8 @@ fn changeNeedle(self: *Thread, needle: []const u8) !void {
     self.search = try .init(self.alloc, needle);
 
     // We need to grab the terminal lock and do an initial feed.
-    self.opts.mutex.lock();
-    defer self.opts.mutex.unlock();
+    self.opts.mutex.lockUncancelable(std.Io.Threaded.global_single_threaded.io());
+    defer self.opts.mutex.unlock(std.Io.Threaded.global_single_threaded.io());
     self.search.?.feed(self.alloc, self.opts.terminal);
 }
 
@@ -411,8 +411,8 @@ fn refreshCallback(
 
     // Run our feed if we have a search active.
     if (self.search) |*s| {
-        self.opts.mutex.lock();
-        defer self.opts.mutex.unlock();
+        self.opts.mutex.lockUncancelable(std.Io.Threaded.global_single_threaded.io());
+        defer self.opts.mutex.unlock(std.Io.Threaded.global_single_threaded.io());
         s.feed(self.alloc, self.opts.terminal);
     }
 
@@ -812,7 +812,7 @@ const Search = struct {
 
 const TestUserData = struct {
     const Self = @This();
-    reset: std.Thread.ResetEvent = .{},
+    reset: std.Io.Event = .unset,
     total: usize = 0,
     selected: ?Event.SelectedMatch = null,
     viewport: []FlattenedHighlight = &.{},
@@ -826,7 +826,7 @@ const TestUserData = struct {
         const ud: *Self = @ptrCast(@alignCast(userdata.?));
         switch (event) {
             .quit => {},
-            .complete => ud.reset.set(),
+            .complete => ud.reset.set(std.Io.Threaded.global_single_threaded.io()),
             .total_matches => |v| ud.total = v,
             .selected_match => |v| ud.selected = v,
             .viewport_matches => |v| {
@@ -847,7 +847,7 @@ const TestUserData = struct {
 
 test {
     const alloc = testing.allocator;
-    var mutex: std.Thread.Mutex = .{};
+    var mutex: std.Io.Mutex = .init;
     var t: Terminal = try .init(alloc, .{ .cols = 20, .rows = 2 });
     defer t.deinit(alloc);
 
@@ -882,7 +882,7 @@ test {
     try thread.wakeup.notify();
 
     // Wait for completion
-    try ud.reset.timedWait(100 * std.time.ns_per_ms);
+    try ud.reset.waitTimeout(testing.io, .{ .duration = .{ .clock = .awake, .raw = .fromMilliseconds(100) } });
 
     // Stop the thread
     try thread.stop.notify();

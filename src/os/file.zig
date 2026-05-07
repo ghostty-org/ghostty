@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const compat_env = @import("../lib/compat/env.zig");
 const posix = std.posix;
 const windows = @import("windows.zig");
 
@@ -81,7 +82,7 @@ pub fn allocTmpDir(allocator: std.mem.Allocator) std.mem.Allocator.Error![]const
         }
         return allocator.dupe(u8, "C:\\Windows\\Temp");
     }
-    const tmpdir = posix.getenv("TMPDIR") orelse posix.getenv("TMP") orelse return "/tmp";
+    const tmpdir = compat_env.getenv("TMPDIR") orelse compat_env.getenv("TMP") orelse return "/tmp";
     return std.mem.trimEnd(u8, tmpdir, &.{std.fs.path.sep});
 }
 
@@ -107,7 +108,7 @@ pub const random_basename_len = b64_encoder.calcSize(random_basename_bytes);
 pub fn randomBasename(buf: []u8) RandomBasenameError![]const u8 {
     if (buf.len < random_basename_len) return error.BufferTooSmall;
     var rand_buf: [random_basename_bytes]u8 = undefined;
-    std.crypto.random.bytes(&rand_buf);
+    std.Io.Threaded.global_single_threaded.io().random(&rand_buf);
     return b64_encoder.encode(buf[0..random_basename_len], &rand_buf);
 }
 

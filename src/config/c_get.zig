@@ -84,7 +84,7 @@ fn getValue(ptr_raw: *anyopaque, value: anytype) bool {
                 ptr.* = @intCast(@as(Backing, @bitCast(value)));
             },
 
-            .@"union" => |_| {
+            .@"union" => {
                 if (@hasDecl(T, "cval")) {
                     const PtrT = @typeInfo(@TypeOf(T.cval)).@"fn".return_type.?;
                     const ptr: *PtrT = @ptrCast(@alignCast(ptr_raw));

@@ -20,11 +20,12 @@ pub const Dir = struct {
     /// iterator must be freed with `ReportIterator.deinit`. The iterator
     /// may have no reports.
     pub fn iterator(self: *const Dir) !ReportIterator {
-        var dir = std.fs.openDirAbsolute(
+        var dir = std.Io.Dir.openDirAbsolute(
+            std.Io.Threaded.global_single_threaded.io(),
             self.path,
             .{ .iterate = true },
         ) catch return .{};
-        errdefer dir.close();
+        errdefer dir.close(std.Io.Threaded.global_single_threaded.io());
 
         return .{
             .dir = dir,
@@ -34,11 +35,11 @@ pub const Dir = struct {
 };
 
 pub const ReportIterator = struct {
-    dir: ?std.fs.Dir = null,
-    it: std.fs.Dir.Iterator = undefined,
+    dir: ?std.Io.Dir = null,
+    it: std.Io.Dir.Iterator = undefined,
 
     pub fn deinit(self: *ReportIterator) void {
-        if (self.dir) |dir| dir.close();
+        if (self.dir) |dir| dir.close(std.Io.Threaded.global_single_threaded.io());
     }
 
     pub fn next(self: *ReportIterator) !?Report {
@@ -47,15 +48,15 @@ pub const ReportIterator = struct {
 
         // Get the next file entry, if any.
         const entry = entry: while (true) {
-            const entry = try self.it.next() orelse return null;
+            const entry = try self.it.next(std.Io.Threaded.global_single_threaded.io()) orelse return null;
             if (entry.kind != .file) continue;
             break :entry entry;
         };
 
-        const stat = try dir.statFile(entry.name);
+        const stat = try dir.statFile(std.Io.Threaded.global_single_threaded.io(), entry.name, .{});
         return .{
             .name = entry.name,
-            .mtime = stat.mtime,
+            .mtime = stat.mtime.toNanoseconds(),
         };
     }
 };

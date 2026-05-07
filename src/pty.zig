@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const windows = @import("os/main.zig").windows;
+const compat_fcntl = @import("lib/compat/fcntl.zig");
 const posix = std.posix;
 const assert = @import("quirks.zig").inlineAssert;
 
@@ -153,12 +154,12 @@ const PosixPty = struct {
         // Set CLOEXEC on the master fd, only the slave fd should be inherited
         // by the child process (shell/command).
         cloexec: {
-            const flags = posix.fcntl(master_fd, posix.F.GETFD, 0) catch |err| {
+            const flags = compat_fcntl.fcntl(master_fd, posix.F.GETFD, 0) catch |err| {
                 log.warn("error getting flags for master fd err={}", .{err});
                 break :cloexec;
             };
 
-            _ = posix.fcntl(
+            _ = compat_fcntl.fcntl(
                 master_fd,
                 posix.F.SETFD,
                 flags | posix.FD_CLOEXEC,

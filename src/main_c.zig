@@ -15,6 +15,7 @@ const build_config = @import("build_config.zig");
 const main = @import("main_ghostty.zig");
 const state = &@import("global.zig").state;
 const apprt = @import("apprt.zig");
+const compat_args = @import("lib/compat/args.zig");
 const internal_os = @import("os/main.zig");
 
 // Some comptime assertions that our C API depends on.
@@ -105,7 +106,18 @@ pub const String = extern struct {
 pub export fn ghostty_init(argc: usize, argv: [*][*:0]u8) c_int {
     assert(builtin.link_libc);
 
-    std.os.argv = argv[0..argc];
+    // Bootstrap the args into our static local compatibility variable.
+    //
+    // NOTE: This exists outside of the global state because they are required
+    // for the pure Zig codepath as well; i.e., not from the library - they are
+    // also initialized in main().
+    //
+    // Additional note: although the environment model has also changed in the
+    // new Zig 0.16.0 "Juicy Main" model, our internal environment shims
+    // actually pull from libc when detected anyway, so we're fine here to
+    // continue as normal.
+    compat_args.args = .{ .vector = argv[0..argc] };
+
     state.init() catch |err| {
         std.log.err("failed to initialize ghostty error={}", .{err});
         return 1;
@@ -119,12 +131,12 @@ pub export fn ghostty_init(argc: usize, argv: [*][*:0]u8) c_int {
 pub export fn ghostty_cli_try_action() void {
     const action = state.action orelse return;
     std.log.info("executing CLI action={}", .{action});
-    posix.exit(action.run(state.alloc) catch |err| {
+    posix.system.exit(action.run(state.alloc) catch |err| {
         std.log.err("CLI action failed error={}", .{err});
-        posix.exit(1);
+        posix.system.exit(1);
     });
 
-    posix.exit(0);
+    posix.system.exit(0);
 }
 
 /// Return metadata about Ghostty, such as version, build mode, etc.

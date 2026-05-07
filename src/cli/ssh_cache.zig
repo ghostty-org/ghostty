@@ -61,13 +61,13 @@ pub fn run(alloc_gpa: Allocator) !u8 {
     }
 
     var stdout_buffer: [1024]u8 = undefined;
-    var stdout_file: std.fs.File = .stdout();
-    var stdout_writer = stdout_file.writer(&stdout_buffer);
+    var stdout_file: std.Io.File = .stdout();
+    var stdout_writer = stdout_file.writer(std.Io.Threaded.global_single_threaded.io(), &stdout_buffer);
     const stdout = &stdout_writer.interface;
 
     var stderr_buffer: [1024]u8 = undefined;
-    var stderr_file: std.fs.File = .stderr();
-    var stderr_writer = stderr_file.writer(&stderr_buffer);
+    var stderr_file: std.Io.File = .stderr();
+    var stderr_writer = stderr_file.writer(std.Io.Threaded.global_single_threaded.io(), &stderr_buffer);
     const stderr = &stderr_writer.interface;
 
     const result = runInner(alloc, opts, stdout, stderr);
@@ -208,7 +208,7 @@ fn listEntries(
     }.lessThan);
 
     try writer.print("Cached hosts ({d}):\n", .{items.items.len});
-    const now = std.time.timestamp();
+    const now = std.Io.Timestamp.now(std.Io.Threaded.global_single_threaded.io(), .real).toSeconds();
 
     for (items.items) |entry| {
         const age_days = @divTrunc(now - entry.timestamp, std.time.s_per_day);

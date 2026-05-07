@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const build_config = @import("../build_config.zig");
-const posix = std.posix;
+const legacy_env = @import("../lib/compat/env.zig");
 
 const c = @cImport({
     @cInclude("unistd.h");
@@ -26,7 +26,7 @@ pub fn launchedFromDesktop() bool {
             // was launched from the desktop.
             if (build_config.artifact == .lib) lib: {
                 const env = "GHOSTTY_MAC_LAUNCH_SOURCE";
-                const source = posix.getenv(env) orelse break :lib;
+                const source = legacy_env.getenv(env) orelse break :lib;
 
                 // Source can be "app", "cli", or "zig_run". We assume
                 // its the desktop only if its "app". We may want to do
@@ -44,7 +44,7 @@ pub fn launchedFromDesktop() bool {
         // another terminal was launched from a desktop file and then launches
         // Ghostty and Ghostty inherits the env.
         .linux, .freebsd => ul: {
-            const gio_pid_str = posix.getenv("GIO_LAUNCHED_DESKTOP_FILE_PID") orelse
+            const gio_pid_str = legacy_env.getenv("GIO_LAUNCHED_DESKTOP_FILE_PID") orelse
                 break :ul false;
 
             const pid = c.getpid();
@@ -89,7 +89,7 @@ pub fn desktopEnvironment() DesktopEnvironment {
 
             // Use $XDG_SESSION_DESKTOP to determine what DE we are using on Linux
             // https://www.freedesktop.org/software/systemd/man/latest/pam_systemd.html#desktop=
-            if (posix.getenv("XDG_SESSION_DESKTOP")) |sd| {
+            if (legacy_env.getenv("XDG_SESSION_DESKTOP")) |sd| {
                 if (std.ascii.eqlIgnoreCase("gnome", sd)) break :de .gnome;
                 if (std.ascii.eqlIgnoreCase("gnome-xorg", sd)) break :de .gnome;
             }
@@ -99,7 +99,7 @@ pub fn desktopEnvironment() DesktopEnvironment {
             // colon-separated list of up to three desktop names, although we
             // only look at the first.
             // https://specifications.freedesktop.org/desktop-entry-spec/latest/recognized-keys.html
-            if (posix.getenv("XDG_CURRENT_DESKTOP")) |cd| {
+            if (legacy_env.getenv("XDG_CURRENT_DESKTOP")) |cd| {
                 var cd_it = std.mem.splitScalar(u8, cd, ':');
                 const cd_first = cd_it.first();
                 if (std.ascii.eqlIgnoreCase(cd_first, "gnome")) break :de .gnome;
@@ -118,7 +118,7 @@ test "desktop environment" {
         .macos => try testing.expectEqual(.macos, desktopEnvironment()),
         .windows => try testing.expectEqual(.windows, desktopEnvironment()),
         .linux, .freebsd => {
-            const getenv = std.posix.getenv;
+            const getenv = legacy_env.getenv;
             const setenv = @import("env.zig").setenv;
             const unsetenv = @import("env.zig").unsetenv;
 

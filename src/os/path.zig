@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
+const compat_env = @import("../lib/compat/env.zig");
 
 /// Search for "cmd" in the PATH and return the absolute path. This will
 /// always allocate if there is a non-null result. The caller must free the
@@ -19,7 +20,7 @@ pub fn expand(alloc: Allocator, cmd: []const u8) !?[]u8 {
             const path = try std.unicode.utf16LeToUtf8Alloc(alloc, win_path);
             break :blk path;
         },
-        else => std.posix.getenvZ("PATH") orelse return null,
+        else => compat_env.getenvZ("PATH") orelse return null,
     };
     defer if (builtin.os.tag == .windows) alloc.free(PATH);
 
@@ -39,7 +40,8 @@ pub fn expand(alloc: Allocator, cmd: []const u8) !?[]u8 {
         const full_path = path_buf[0..path_len :0];
 
         // Stat it
-        const f = std.fs.cwd().openFile(
+        const f = std.Io.Dir.cwd().openFile(
+            std.Io.Threaded.global_single_threaded.io(),
             full_path,
             .{},
         ) catch |err| switch (err) {
@@ -52,9 +54,9 @@ pub fn expand(alloc: Allocator, cmd: []const u8) !?[]u8 {
             },
             else => return err,
         };
-        defer f.close();
-        const stat = try f.stat();
-        if (stat.kind != .directory and isExecutable(stat.mode)) {
+        defer f.close(std.Io.Threaded.global_single_threaded.io());
+        const stat = try f.stat(std.Io.Threaded.global_single_threaded.io());
+        if (stat.kind != .directory and isExecutable(stat.permissions)) {
             return try alloc.dupe(u8, full_path);
         }
     }
@@ -64,9 +66,16 @@ pub fn expand(alloc: Allocator, cmd: []const u8) !?[]u8 {
     return null;
 }
 
-fn isExecutable(mode: std.fs.File.Mode) bool {
-    if (builtin.os.tag == .windows) return true;
-    return mode & 0o0111 != 0;
+fn isExecutable(perms: std.Io.File.Permissions) bool {
+    return switch (builtin.os.tag) {
+        .windows => true,
+        else => posix: {
+            break :posix switch (std.posix.mode_t) {
+                u0 => true,
+                else => perms.toMode() & 0o0111 != 0,
+            };
+        },
+    };
 }
 
 // `uname -n` is the *nix equivalent of `hostname.exe` on Windows

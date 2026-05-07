@@ -9,6 +9,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const cli = @import("cli.zig");
+const compat_init = @import("lib/compat/init.zig");
 
 pub const Action = enum {
     // Shell completions
@@ -27,14 +28,16 @@ pub const Action = enum {
     terminfo,
 };
 
-pub fn main() !void {
+pub fn main(init: std.process.Init.Minimal) !void {
+    compat_init.run(init);
+
     const alloc = std.heap.c_allocator;
     const action_ = try cli.action.detectArgs(Action, alloc);
     const action = action_ orelse return error.NoAction;
 
     // Our output always goes to stdout.
     var buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writerStreaming(&buffer);
+    var stdout_writer = std.Io.File.stdout().writerStreaming(std.Io.Threaded.global_single_threaded.io(), &buffer);
     const writer = &stdout_writer.interface;
     switch (action) {
         .bash => try writer.writeAll(@import("extra/bash.zig").completions),

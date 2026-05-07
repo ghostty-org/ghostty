@@ -49,7 +49,7 @@ pub fn defaultPath(
 /// This removes the cache file from disk, effectively clearing all cached
 /// SSH terminfo entries.
 pub fn clear(self: DiskCache) !void {
-    std.fs.cwd().deleteFile(self.path) catch |err| switch (err) {
+    std.Io.Dir.cwd().deleteFile(std.Io.Threaded.global_single_threaded.io(), self.path) catch |err| switch (err) {
         error.FileNotFound => {},
         else => return err,
     };
@@ -57,11 +57,11 @@ pub fn clear(self: DiskCache) !void {
 
 pub const AddResult = enum { added, updated };
 
-pub const AddError = std.fs.Dir.MakeError ||
-    std.fs.Dir.StatFileError ||
-    std.fs.File.OpenError ||
-    std.fs.File.ChmodError ||
-    std.io.Reader.LimitedAllocError ||
+pub const AddError = std.Io.Dir.CreateDirError ||
+    std.Io.Dir.StatFileError ||
+    std.Io.File.OpenError ||
+    std.Io.File.SetPermissionsError ||
+    std.Io.Reader.LimitedAllocError ||
     FixupPermissionsError ||
     ReadEntriesError ||
     WriteCacheFileError ||
@@ -79,36 +79,40 @@ pub fn add(
 
     // Create cache directory if needed
     if (std.fs.path.dirname(self.path)) |dir| {
-        std.fs.cwd().makePath(dir) catch |err| switch (err) {
+        std.Io.Dir.cwd().createDirPath(std.Io.Threaded.global_single_threaded.io(), dir) catch |err| switch (err) {
             error.PathAlreadyExists => {},
             else => return err,
         };
     }
 
     // Open or create cache file with secure permissions
-    const file = std.fs.createFileAbsolute(self.path, .{
+    const file = std.Io.Dir.createFileAbsolute(std.Io.Threaded.global_single_threaded.io(), self.path, .{
         .read = true,
         .truncate = false,
-        .mode = 0o600,
+        .permissions = if (std.posix.mode_t != u0) .fromMode(0o600) else .default_file,
     }) catch |err| switch (err) {
         error.PathAlreadyExists => blk: {
-            const existing_file = try std.fs.openFileAbsolute(
+            const existing_file = try std.Io.Dir.openFileAbsolute(
+                std.Io.Threaded.global_single_threaded.io(),
                 self.path,
                 .{ .mode = .read_write },
             );
-            errdefer existing_file.close();
+            errdefer existing_file.close(std.Io.Threaded.global_single_threaded.io());
             try fixupPermissions(existing_file);
             break :blk existing_file;
         },
         else => return err,
     };
-    defer file.close();
+    defer file.close(std.Io.Threaded.global_single_threaded.io());
 
     // Lock
     // Causes a compile failure in the Zig std library on Windows, see:
     // https://github.com/ziglang/zig/issues/18430
-    if (comptime builtin.os.tag != .windows) _ = file.tryLock(.exclusive) catch return error.CacheIsLocked;
-    defer if (comptime builtin.os.tag != .windows) file.unlock();
+    if (comptime builtin.os.tag != .windows) _ = file.tryLock(
+        std.Io.Threaded.global_single_threaded.io(),
+        .exclusive,
+    ) catch return error.CacheIsLocked;
+    defer if (comptime builtin.os.tag != .windows) file.unlock(std.Io.Threaded.global_single_threaded.io());
 
     var entries = try readEntries(alloc, file);
     defer deinitEntries(alloc, &entries);
@@ -124,13 +128,13 @@ pub fn add(
         gop.key_ptr.* = hostname_copy;
         gop.value_ptr.* = .{
             .hostname = gop.key_ptr.*,
-            .timestamp = std.time.timestamp(),
+            .timestamp = std.Io.Timestamp.now(std.Io.Threaded.global_single_threaded.io(), .real).toSeconds(),
             .terminfo_version = terminfo_copy,
         };
         break :add .added;
     } else update: {
         // Update timestamp for existing entry
-        gop.value_ptr.timestamp = std.time.timestamp();
+        gop.value_ptr.timestamp = std.Io.Timestamp.now(std.Io.Threaded.global_single_threaded.io(), .real).toSeconds();
         break :update .updated;
     };
 
@@ -138,7 +142,7 @@ pub fn add(
     return result;
 }
 
-pub const RemoveError = std.fs.File.OpenError ||
+pub const RemoveError = std.Io.File.OpenError ||
     FixupPermissionsError ||
     ReadEntriesError ||
     WriteCacheFileError ||
@@ -154,21 +158,25 @@ pub fn remove(
     if (!isValidCacheKey(hostname)) return error.HostnameIsInvalid;
 
     // Open our file
-    const file = std.fs.openFileAbsolute(
+    const file = std.Io.Dir.openFileAbsolute(
+        std.Io.Threaded.global_single_threaded.io(),
         self.path,
         .{ .mode = .read_write },
     ) catch |err| switch (err) {
         error.FileNotFound => return,
         else => return err,
     };
-    defer file.close();
+    defer file.close(std.Io.Threaded.global_single_threaded.io());
     try fixupPermissions(file);
 
     // Lock
     // Causes a compile failure in the Zig std library on Windows, see:
     // https://github.com/ziglang/zig/issues/18430
-    if (comptime builtin.os.tag != .windows) _ = file.tryLock(.exclusive) catch return error.CacheIsLocked;
-    defer if (comptime builtin.os.tag != .windows) file.unlock();
+    if (comptime builtin.os.tag != .windows) _ = file.tryLock(
+        std.Io.Threaded.global_single_threaded.io(),
+        .exclusive,
+    ) catch return error.CacheIsLocked;
+    defer if (comptime builtin.os.tag != .windows) file.unlock(std.Io.Threaded.global_single_threaded.io());
 
     // Read existing entries
     var entries = try readEntries(alloc, file);
@@ -184,7 +192,7 @@ pub fn remove(
     try self.writeCacheFile(entries, null);
 }
 
-pub const ContainsError = std.fs.File.OpenError ||
+pub const ContainsError = std.Io.File.OpenError ||
     ReadEntriesError ||
     error{HostnameIsInvalid};
 
@@ -198,14 +206,15 @@ pub fn contains(
     if (!isValidCacheKey(hostname)) return error.HostnameIsInvalid;
 
     // Open our file
-    const file = std.fs.openFileAbsolute(
+    const file = std.Io.Dir.openFileAbsolute(
+        std.Io.Threaded.global_single_threaded.io(),
         self.path,
         .{},
     ) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => return err,
     };
-    defer file.close();
+    defer file.close(std.Io.Threaded.global_single_threaded.io());
 
     // Read existing entries
     var entries = try readEntries(alloc, file);
@@ -214,24 +223,24 @@ pub fn contains(
     return entries.contains(hostname);
 }
 
-pub const FixupPermissionsError = (std.fs.File.StatError || std.fs.File.ChmodError);
+pub const FixupPermissionsError = (std.Io.File.StatError || std.Io.File.SetPermissionsError);
 
-fn fixupPermissions(file: std.fs.File) FixupPermissionsError!void {
+fn fixupPermissions(file: std.Io.File) FixupPermissionsError!void {
     // Windows does not support chmod
     if (comptime builtin.os.tag == .windows) return;
 
     // Ensure file has correct permissions (readable/writable by
     // owner only)
-    const stat = try file.stat();
-    if (stat.mode & 0o777 != 0o600) {
-        try file.chmod(0o600);
+    const stat = try file.stat(std.Io.Threaded.global_single_threaded.io());
+    if (stat.permissions.toMode() & 0o777 != 0o600) {
+        try file.setPermissions(std.Io.Threaded.global_single_threaded.io(), .fromMode(0o600));
     }
 }
 
-pub const WriteCacheFileError = std.fs.Dir.OpenError ||
-    std.fs.AtomicFile.InitError ||
-    std.fs.AtomicFile.FlushError ||
-    std.fs.AtomicFile.FinishError ||
+pub const WriteCacheFileError = std.Io.Dir.OpenError ||
+    std.Io.Dir.CreateFileAtomicError ||
+    std.Io.File.Writer.Error ||
+    std.Io.File.Atomic.ReplaceError ||
     Entry.FormatError ||
     error{InvalidCachePath};
 
@@ -243,24 +252,26 @@ fn writeCacheFile(
     const cache_dir = std.fs.path.dirname(self.path) orelse return error.InvalidCachePath;
     const cache_basename = std.fs.path.basename(self.path);
 
-    var dir = try std.fs.cwd().openDir(cache_dir, .{});
-    defer dir.close();
+    var dir = try std.Io.Dir.cwd().openDir(std.Io.Threaded.global_single_threaded.io(), cache_dir, .{});
+    defer dir.close(std.Io.Threaded.global_single_threaded.io());
 
     var buf: [1024]u8 = undefined;
-    var atomic_file = try dir.atomicFile(cache_basename, .{
-        .mode = 0o600,
-        .write_buffer = &buf,
+    var atomic_file = try dir.createFileAtomic(std.Io.Threaded.global_single_threaded.io(), cache_basename, .{
+        .permissions = if (std.posix.mode_t != u0) .fromMode(0o600) else .default_file,
+        .replace = true,
     });
-    defer atomic_file.deinit();
+    defer atomic_file.deinit(std.Io.Threaded.global_single_threaded.io());
+    var file_writer = atomic_file.file.writer(std.Io.Threaded.global_single_threaded.io(), &buf);
 
     var iter = entries.iterator();
     while (iter.next()) |kv| {
         // Only write non-expired entries
         if (kv.value_ptr.isExpired(expire_days)) continue;
-        try kv.value_ptr.format(&atomic_file.file_writer.interface);
+        try kv.value_ptr.format(&file_writer.interface);
     }
 
-    try atomic_file.finish();
+    try file_writer.flush();
+    try atomic_file.replace(std.Io.Threaded.global_single_threaded.io());
 }
 
 /// List all entries in the cache.
@@ -271,14 +282,15 @@ pub fn list(
     alloc: Allocator,
 ) !std.StringHashMap(Entry) {
     // Open our file
-    const file = std.fs.openFileAbsolute(
+    const file = std.Io.Dir.openFileAbsolute(
+        std.Io.Threaded.global_single_threaded.io(),
         self.path,
         .{},
     ) catch |err| switch (err) {
         error.FileNotFound => return .init(alloc),
         else => return err,
     };
-    defer file.close();
+    defer file.close(std.Io.Threaded.global_single_threaded.io());
     return readEntries(alloc, file);
 }
 
@@ -299,13 +311,13 @@ pub fn deinitEntries(
     entries.deinit();
 }
 
-pub const ReadEntriesError = std.mem.Allocator.Error || std.io.Reader.LimitedAllocError;
+pub const ReadEntriesError = std.mem.Allocator.Error || std.Io.Reader.LimitedAllocError;
 
 fn readEntries(
     alloc: Allocator,
-    file: std.fs.File,
+    file: std.Io.File,
 ) ReadEntriesError!std.StringHashMap(Entry) {
-    var reader = file.reader(&.{});
+    var reader = file.reader(std.Io.Threaded.global_single_threaded.io(), &.{});
     const content = try reader.interface.allocRemaining(
         alloc,
         .limited(MAX_CACHE_SIZE),
@@ -378,7 +390,7 @@ fn isValidHost(host: []const u8) bool {
     // We also accept valid IP addresses. In practice, IPv4 addresses are also
     // considered valid hostnames due to their overlapping syntax, so we can
     // simplify this check to be IPv6-specific.
-    if (std.net.Address.parseIp6(host, 0)) |_| {
+    if (std.Io.net.IpAddress.parseIp6(host, 0)) |_| {
         return true;
     } else |_| {
         return false;
@@ -414,12 +426,12 @@ test "disk cache clear" {
     defer tmp.cleanup();
     var buf: [4096]u8 = undefined;
     {
-        var file = try tmp.dir.createFile("cache", .{});
-        defer file.close();
-        var file_writer = file.writer(&buf);
+        var file = try tmp.dir.createFile(testing.io, "cache", .{});
+        defer file.close(testing.io);
+        var file_writer = file.writer(testing.io, &buf);
         try file_writer.interface.writeAll("HELLO!");
     }
-    const path = try tmp.dir.realpathAlloc(alloc, "cache");
+    const path = try tmp.dir.realPathFileAlloc(testing.io, "cache", alloc);
     defer alloc.free(path);
 
     // Setup our cache
@@ -429,7 +441,7 @@ test "disk cache clear" {
     // Verify the file is gone
     try testing.expectError(
         error.FileNotFound,
-        tmp.dir.openFile("cache", .{}),
+        tmp.dir.openFile(testing.io, "cache", .{}),
     );
 }
 
@@ -442,14 +454,14 @@ test "disk cache operations" {
     defer tmp.cleanup();
     var buf: [4096]u8 = undefined;
     {
-        var file = try tmp.dir.createFile("cache", .{});
-        defer file.close();
-        var file_writer = file.writer(&buf);
+        var file = try tmp.dir.createFile(testing.io, "cache", .{});
+        defer file.close(testing.io);
+        var file_writer = file.writer(testing.io, &buf);
         const writer = &file_writer.interface;
         try writer.writeAll("HELLO!");
         try writer.flush();
     }
-    const path = try tmp.dir.realpathAlloc(alloc, "cache");
+    const path = try tmp.dir.realPathFileAlloc(testing.io, "cache", alloc);
     defer alloc.free(path);
 
     // Setup our cache
@@ -488,7 +500,7 @@ test "disk cache cleans up temp files" {
     var tmp = testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    const tmp_path = try tmp.dir.realpathAlloc(alloc, ".");
+    const tmp_path = try tmp.dir.realPathFileAlloc(testing.io, ".", alloc);
     defer alloc.free(tmp_path);
     const cache_path = try std.fs.path.join(alloc, &.{ tmp_path, "cache" });
     defer alloc.free(cache_path);
@@ -500,7 +512,7 @@ test "disk cache cleans up temp files" {
     // Verify only the cache file exists and no temp files left behind
     var count: usize = 0;
     var iter = tmp.dir.iterate();
-    while (try iter.next()) |entry| {
+    while (try iter.next(testing.io)) |entry| {
         count += 1;
         try testing.expectEqualStrings("cache", entry.name);
     }

@@ -34,7 +34,7 @@ pub const LoadingImage = struct {
     image: Image,
 
     /// The data that is being built up.
-    data: std.ArrayListUnmanaged(u8) = .{},
+    data: std.ArrayListUnmanaged(u8) = .empty,
 
     /// This is non-null when a transmit and display command is given
     /// so that we display the image after it is fully loaded.
@@ -134,9 +134,16 @@ pub const LoadingImage = struct {
         var abs_buf: [std.fs.max_path_bytes]u8 = undefined;
         const path = switch (t.medium) {
             .direct => unreachable, // handled above
-            .file, .temporary_file => posix.realpath(cmd.data, &abs_buf) catch |err| {
-                log.warn("failed to get absolute path: {}", .{err});
-                return error.InvalidData;
+            .file, .temporary_file => path: {
+                const len = std.Io.Dir.realPathFileAbsolute(
+                    std.Io.Threaded.global_single_threaded.io(),
+                    cmd.data,
+                    &abs_buf,
+                ) catch |err| {
+                    log.warn("failed to get absolute path: {}", .{err});
+                    return error.InvalidData;
+                };
+                break :path abs_buf[0..len];
             },
             .shared_memory => cmd.data,
         };
@@ -183,13 +190,18 @@ pub const LoadingImage = struct {
                 return error.InvalidData;
             },
         }
-        defer _ = std.c.close(fd);
+        const file: std.Io.File = .{
+            .handle = fd,
+            .flags = .{ .nonblocking = false },
+        };
+
+        defer file.close(std.Io.Threaded.global_single_threaded.io());
         defer _ = std.c.shm_unlink(pathz);
 
         // The size from stat on may be larger than our expected size because
         // shared memory has to be a multiple of the page size.
         const stat_size: usize = stat: {
-            const stat = std.posix.fstat(fd) catch |err| {
+            const stat = file.stat(std.Io.Threaded.global_single_threaded.io()) catch |err| {
                 log.warn("unable to fstat shared memory {s}: {}", .{ path, err });
                 return error.InvalidData;
             };
@@ -222,7 +234,7 @@ pub const LoadingImage = struct {
         const map = std.posix.mmap(
             null,
             stat_size, // mmap always uses the stat size
-            std.c.PROT.READ,
+            .{ .READ = true },
             std.c.MAP{ .TYPE = .SHARED },
             fd,
             0,
@@ -278,19 +290,19 @@ pub const LoadingImage = struct {
             }
         }
         defer if (medium == .temporary_file) {
-            posix.unlink(path) catch |err| {
+            std.Io.Dir.cwd().deleteFile(std.Io.Threaded.global_single_threaded.io(), path) catch |err| {
                 log.warn("failed to delete temporary file: {}", .{err});
             };
         };
 
-        var file = std.fs.cwd().openFile(path, .{}) catch |err| {
+        var file = std.Io.Dir.cwd().openFile(std.Io.Threaded.global_single_threaded.io(), path, .{}) catch |err| {
             log.warn("failed to open temporary file: {}", .{err});
             return error.InvalidData;
         };
-        defer file.close();
+        defer file.close(std.Io.Threaded.global_single_threaded.io());
 
         // File must be a regular file
-        if (file.stat()) |stat| {
+        if (file.stat(std.Io.Threaded.global_single_threaded.io())) |stat| {
             if (stat.kind != .file) {
                 log.warn("file is not a regular file kind={}", .{stat.kind});
                 return error.InvalidData;
@@ -300,15 +312,14 @@ pub const LoadingImage = struct {
             return error.InvalidData;
         }
 
+        var buf: [4096]u8 = undefined;
+        var buf_reader = file.reader(std.Io.Threaded.global_single_threaded.io(), &buf);
         if (t.offset > 0) {
-            file.seekTo(@intCast(t.offset)) catch |err| {
+            buf_reader.seekTo(@intCast(t.offset)) catch |err| {
                 log.warn("failed to seek to offset {}: {}", .{ t.offset, err });
                 return error.InvalidData;
             };
         }
-
-        var buf: [4096]u8 = undefined;
-        var buf_reader = file.reader(&buf);
         const reader = &buf_reader.interface;
 
         // Read the file
@@ -337,9 +348,12 @@ pub const LoadingImage = struct {
         // The temporary dir is sometimes a symlink. On macOS for
         // example /tmp is /private/var/...
         var buf: [std.fs.max_path_bytes]u8 = undefined;
-        if (posix.realpath(dir, &buf)) |real_dir| {
-            if (std.mem.startsWith(u8, path, real_dir)) return true;
-        } else |_| {}
+        const real_dir = buf[0 .. std.Io.Dir.realPathFileAbsolute(
+            std.Io.Threaded.global_single_threaded.io(),
+            dir,
+            &buf,
+        ) catch return false];
+        if (std.mem.startsWith(u8, path, real_dir)) return true;
 
         return false;
     }
@@ -402,10 +416,7 @@ pub const LoadingImage = struct {
         }
 
         // Set our time
-        self.image.transmit_time = std.time.Instant.now() catch |err| {
-            log.warn("failed to get time: {}", .{err});
-            return error.InternalError;
-        };
+        self.image.transmit_time = std.Io.Timestamp.now(std.Io.Threaded.global_single_threaded.io(), .real);
 
         // Everything looks good, copy the image data over.
         var result = self.image;
@@ -492,7 +503,7 @@ pub const LoadingImage = struct {
 
         // Replace our data
         self.data.deinit(alloc);
-        self.data = .{};
+        self.data = .empty;
         try self.data.ensureUnusedCapacity(alloc, result.data.len);
         try self.data.appendSlice(alloc, result.data[0..result.data.len]);
 
@@ -512,7 +523,7 @@ pub const Image = struct {
     format: command.Transmission.Format = .rgb,
     compression: command.Transmission.Compression = .none,
     data: []const u8 = "",
-    transmit_time: std.time.Instant = undefined,
+    transmit_time: std.Io.Timestamp = undefined,
 
     /// Set this to true if this image was loaded by a command that
     /// doesn't specify an ID or number, since such commands should
@@ -693,9 +704,9 @@ test "image load: rgb, zlib compressed, direct, chunked" {
     defer loading.deinit(alloc);
 
     // Read our remaining chunks
-    var fbs = std.io.fixedBufferStream(data[1024..]);
+    var fbs: std.Io.Reader = .fixed(data[1024..]);
     var buf: [1024]u8 = undefined;
-    while (fbs.reader().readAll(&buf)) |size| {
+    while (fbs.readSliceShort(&buf)) |size| {
         try loading.addData(alloc, buf[0..size]);
         if (size < buf.len) break;
     } else |err| return err;
@@ -729,9 +740,9 @@ test "image load: rgb, zlib compressed, direct, chunked with zero initial chunk"
     defer loading.deinit(alloc);
 
     // Read our remaining chunks
-    var fbs = std.io.fixedBufferStream(data);
+    var fbs: std.Io.Reader = .fixed(data);
     var buf: [1024]u8 = undefined;
-    while (fbs.reader().readAll(&buf)) |size| {
+    while (fbs.readSliceShort(&buf)) |size| {
         try loading.addData(alloc, buf[0..size]);
         if (size < buf.len) break;
     } else |err| return err;
@@ -749,13 +760,13 @@ test "image load: temporary file without correct path" {
     var tmp_dir = try temp_dir.TempDir.init();
     defer tmp_dir.deinit();
     const data = @embedFile("testdata/image-rgb-none-20x15-2147483647-raw.data");
-    try tmp_dir.dir.writeFile(.{
+    try tmp_dir.dir.writeFile(testing.io, .{
         .sub_path = "image.data",
         .data = data,
     });
 
     var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const path = try tmp_dir.dir.realpath("image.data", &buf);
+    const path = buf[0..try tmp_dir.dir.realPathFile(testing.io, "image.data", &buf)];
 
     var cmd: command.Command = .{
         .control = .{ .transmit = .{
@@ -772,7 +783,7 @@ test "image load: temporary file without correct path" {
     try testing.expectError(error.TemporaryFileNotNamedCorrectly, LoadingImage.init(alloc, &cmd, .all));
 
     // Temporary file should still be there
-    try tmp_dir.dir.access(path, .{});
+    try tmp_dir.dir.access(testing.io, path, .{});
 }
 
 test "image load: rgb, not compressed, temporary file" {
@@ -782,13 +793,13 @@ test "image load: rgb, not compressed, temporary file" {
     var tmp_dir = try temp_dir.TempDir.init();
     defer tmp_dir.deinit();
     const data = @embedFile("testdata/image-rgb-none-20x15-2147483647-raw.data");
-    try tmp_dir.dir.writeFile(.{
+    try tmp_dir.dir.writeFile(testing.io, .{
         .sub_path = "tty-graphics-protocol-image.data",
         .data = data,
     });
 
     var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const path = try tmp_dir.dir.realpath("tty-graphics-protocol-image.data", &buf);
+    const path = buf[0..try tmp_dir.dir.realPathFile(testing.io, "tty-graphics-protocol-image.data", &buf)];
 
     var cmd: command.Command = .{
         .control = .{ .transmit = .{
@@ -809,7 +820,7 @@ test "image load: rgb, not compressed, temporary file" {
     try testing.expect(img.compression == .none);
 
     // Temporary file should be gone
-    try testing.expectError(error.FileNotFound, tmp_dir.dir.access(path, .{}));
+    try testing.expectError(error.FileNotFound, tmp_dir.dir.access(testing.io, path, .{}));
 }
 
 test "image load: rgb, not compressed, regular file" {
@@ -819,13 +830,13 @@ test "image load: rgb, not compressed, regular file" {
     var tmp_dir = try temp_dir.TempDir.init();
     defer tmp_dir.deinit();
     const data = @embedFile("testdata/image-rgb-none-20x15-2147483647-raw.data");
-    try tmp_dir.dir.writeFile(.{
+    try tmp_dir.dir.writeFile(testing.io, .{
         .sub_path = "image.data",
         .data = data,
     });
 
     var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const path = try tmp_dir.dir.realpath("image.data", &buf);
+    const path = buf[0..try tmp_dir.dir.realPathFile(testing.io, "image.data", &buf)];
 
     var cmd: command.Command = .{
         .control = .{ .transmit = .{
@@ -844,7 +855,7 @@ test "image load: rgb, not compressed, regular file" {
     var img = try loading.complete(alloc);
     defer img.deinit(alloc);
     try testing.expect(img.compression == .none);
-    try tmp_dir.dir.access(path, .{});
+    try tmp_dir.dir.access(testing.io, path, .{});
 }
 
 test "image load: png, not compressed, regular file" {
@@ -856,13 +867,13 @@ test "image load: png, not compressed, regular file" {
     var tmp_dir = try temp_dir.TempDir.init();
     defer tmp_dir.deinit();
     const data = @embedFile("testdata/image-png-none-50x76-2147483647-raw.data");
-    try tmp_dir.dir.writeFile(.{
+    try tmp_dir.dir.writeFile(testing.io, .{
         .sub_path = "tty-graphics-protocol-image.data",
         .data = data,
     });
 
     var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const path = try tmp_dir.dir.realpath("tty-graphics-protocol-image.data", &buf);
+    const path = buf[0..try tmp_dir.dir.realPathFile(testing.io, "tty-graphics-protocol-image.data", &buf)];
 
     var cmd: command.Command = .{
         .control = .{ .transmit = .{
@@ -882,7 +893,7 @@ test "image load: png, not compressed, regular file" {
     defer img.deinit(alloc);
     try testing.expect(img.compression == .none);
     try testing.expect(img.format == .rgba);
-    try tmp_dir.dir.access(path, .{});
+    try tmp_dir.dir.access(testing.io, path, .{});
 }
 
 test "limits: direct medium always allowed" {
@@ -913,13 +924,13 @@ test "limits: file medium blocked by limits" {
     var tmp_dir = try temp_dir.TempDir.init();
     defer tmp_dir.deinit();
     const data = @embedFile("testdata/image-rgb-none-20x15-2147483647-raw.data");
-    try tmp_dir.dir.writeFile(.{
+    try tmp_dir.dir.writeFile(testing.io, .{
         .sub_path = "image.data",
         .data = data,
     });
 
     var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const path = try tmp_dir.dir.realpath("image.data", &buf);
+    const path = buf[0..try tmp_dir.dir.realPathFile(testing.io, "image.data", &buf)];
 
     var cmd: command.Command = .{
         .control = .{ .transmit = .{
@@ -943,13 +954,13 @@ test "limits: file medium allowed by limits" {
     var tmp_dir = try temp_dir.TempDir.init();
     defer tmp_dir.deinit();
     const data = @embedFile("testdata/image-rgb-none-20x15-2147483647-raw.data");
-    try tmp_dir.dir.writeFile(.{
+    try tmp_dir.dir.writeFile(testing.io, .{
         .sub_path = "image.data",
         .data = data,
     });
 
     var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const path = try tmp_dir.dir.realpath("image.data", &buf);
+    const path = buf[0..try tmp_dir.dir.realPathFile(testing.io, "image.data", &buf)];
 
     var cmd: command.Command = .{
         .control = .{ .transmit = .{
@@ -978,13 +989,13 @@ test "limits: temporary file medium blocked by limits" {
     var tmp_dir = try temp_dir.TempDir.init();
     defer tmp_dir.deinit();
     const data = @embedFile("testdata/image-rgb-none-20x15-2147483647-raw.data");
-    try tmp_dir.dir.writeFile(.{
+    try tmp_dir.dir.writeFile(testing.io, .{
         .sub_path = "tty-graphics-protocol-image.data",
         .data = data,
     });
 
     var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const path = try tmp_dir.dir.realpath("tty-graphics-protocol-image.data", &buf);
+    const path = buf[0..try tmp_dir.dir.realPathFile(testing.io, "tty-graphics-protocol-image.data", &buf)];
 
     var cmd: command.Command = .{
         .control = .{ .transmit = .{
@@ -1005,7 +1016,7 @@ test "limits: temporary file medium blocked by limits" {
     }));
 
     // File should still exist since we blocked before reading
-    try tmp_dir.dir.access("tty-graphics-protocol-image.data", .{});
+    try tmp_dir.dir.access(testing.io, "tty-graphics-protocol-image.data", .{});
 }
 
 test "limits: temporary file medium allowed by limits" {
@@ -1015,13 +1026,13 @@ test "limits: temporary file medium allowed by limits" {
     var tmp_dir = try temp_dir.TempDir.init();
     defer tmp_dir.deinit();
     const data = @embedFile("testdata/image-rgb-none-20x15-2147483647-raw.data");
-    try tmp_dir.dir.writeFile(.{
+    try tmp_dir.dir.writeFile(testing.io, .{
         .sub_path = "tty-graphics-protocol-image.data",
         .data = data,
     });
 
     var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const path = try tmp_dir.dir.realpath("tty-graphics-protocol-image.data", &buf);
+    const path = buf[0..try tmp_dir.dir.realPathFile(testing.io, "tty-graphics-protocol-image.data", &buf)];
 
     var cmd: command.Command = .{
         .control = .{ .transmit = .{

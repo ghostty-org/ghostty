@@ -56,7 +56,7 @@ font_grid_set: font.SharedGridSet,
 // Used to rate limit desktop notifications. Some platforms (notably macOS) will
 // run out of resources if desktop notifications are sent too fast and the OS
 // will kill Ghostty.
-last_notification_time: ?std.time.Instant = null,
+last_notification_time: ?std.Io.Timestamp = null,
 last_notification_digest: u64 = 0,
 
 /// The conditional state of the configuration. See the equivalent field
@@ -95,7 +95,7 @@ pub fn init(
 
     self.* = .{
         .alloc = alloc,
-        .surfaces = .{},
+        .surfaces = .empty,
         .mailbox = .{},
         .font_grid_set = font_grid_set,
         .config_conditional_state = .{},

@@ -1,21 +1,16 @@
 const std = @import("std");
 
-// Until the gobject bindings are built at the same time we are building
-// Ghostty, we need to import `gtk/gtk.h` directly to ensure that the version
-// macros match the version of `gtk4` that we are building/linking against.
-const c = @cImport({
-    @cInclude("gtk/gtk.h");
-});
-
 const gtk = @import("gtk");
 
 const log = std.log.scoped(.gtk);
 
-pub const comptime_version: std.SemanticVersion = .{
-    .major = c.GTK_MAJOR_VERSION,
-    .minor = c.GTK_MINOR_VERSION,
-    .patch = c.GTK_MICRO_VERSION,
-};
+// Until the gobject bindings are built at the same time we are building
+// Ghostty, we need to ensure that the version macros match the version of
+// `gtk4` that we are building/linking against.
+//
+// We pull this in through pkg-config, see src/build/SharedDeps.zig for more
+// details.
+pub const comptime_version = @import("gtk_semver").version;
 
 pub fn getRuntimeVersion() std.SemanticVersion {
     return .{
@@ -105,17 +100,17 @@ test "atLeast" {
 
     const funs = &.{ atLeast, runtimeAtLeast };
     inline for (funs) |fun| {
-        try testing.expect(fun(c.GTK_MAJOR_VERSION, c.GTK_MINOR_VERSION, c.GTK_MICRO_VERSION));
+        try testing.expect(fun(comptime_version.major, comptime_version.minor, comptime_version.patch));
 
-        try testing.expect(!fun(c.GTK_MAJOR_VERSION, c.GTK_MINOR_VERSION, c.GTK_MICRO_VERSION + 1));
-        try testing.expect(!fun(c.GTK_MAJOR_VERSION, c.GTK_MINOR_VERSION + 1, c.GTK_MICRO_VERSION));
-        try testing.expect(!fun(c.GTK_MAJOR_VERSION + 1, c.GTK_MINOR_VERSION, c.GTK_MICRO_VERSION));
+        try testing.expect(!fun(comptime_version.major, comptime_version.minor, comptime_version.patch + 1));
+        try testing.expect(!fun(comptime_version.major, comptime_version.minor + 1, comptime_version.patch));
+        try testing.expect(!fun(comptime_version.major + 1, comptime_version.minor, comptime_version.patch));
 
-        try testing.expect(fun(c.GTK_MAJOR_VERSION - 1, c.GTK_MINOR_VERSION, c.GTK_MICRO_VERSION));
-        try testing.expect(fun(c.GTK_MAJOR_VERSION - 1, c.GTK_MINOR_VERSION + 1, c.GTK_MICRO_VERSION));
-        try testing.expect(fun(c.GTK_MAJOR_VERSION - 1, c.GTK_MINOR_VERSION, c.GTK_MICRO_VERSION + 1));
+        try testing.expect(fun(comptime_version.major - 1, comptime_version.minor, comptime_version.patch));
+        try testing.expect(fun(comptime_version.major - 1, comptime_version.minor + 1, comptime_version.patch));
+        try testing.expect(fun(comptime_version.major - 1, comptime_version.minor, comptime_version.patch + 1));
 
-        try testing.expect(fun(c.GTK_MAJOR_VERSION, c.GTK_MINOR_VERSION - 1, c.GTK_MICRO_VERSION + 1));
+        try testing.expect(fun(comptime_version.major, comptime_version.minor - 1, comptime_version.patch + 1));
     }
 }
 
@@ -125,16 +120,16 @@ test "runtimeUntil" {
     // This is an array in case we add a comptime variant.
     const funs = &.{runtimeUntil};
     inline for (funs) |fun| {
-        try testing.expect(!fun(c.GTK_MAJOR_VERSION, c.GTK_MINOR_VERSION, c.GTK_MICRO_VERSION));
+        try testing.expect(!fun(comptime_version.major, comptime_version.minor, comptime_version.patch));
 
-        try testing.expect(fun(c.GTK_MAJOR_VERSION, c.GTK_MINOR_VERSION, c.GTK_MICRO_VERSION + 1));
-        try testing.expect(fun(c.GTK_MAJOR_VERSION, c.GTK_MINOR_VERSION + 1, c.GTK_MICRO_VERSION));
-        try testing.expect(fun(c.GTK_MAJOR_VERSION + 1, c.GTK_MINOR_VERSION, c.GTK_MICRO_VERSION));
+        try testing.expect(fun(comptime_version.major, comptime_version.minor, comptime_version.patch + 1));
+        try testing.expect(fun(comptime_version.major, comptime_version.minor + 1, comptime_version.patch));
+        try testing.expect(fun(comptime_version.major + 1, comptime_version.minor, comptime_version.patch));
 
-        try testing.expect(!fun(c.GTK_MAJOR_VERSION - 1, c.GTK_MINOR_VERSION, c.GTK_MICRO_VERSION));
-        try testing.expect(!fun(c.GTK_MAJOR_VERSION - 1, c.GTK_MINOR_VERSION + 1, c.GTK_MICRO_VERSION));
-        try testing.expect(!fun(c.GTK_MAJOR_VERSION - 1, c.GTK_MINOR_VERSION, c.GTK_MICRO_VERSION + 1));
+        try testing.expect(!fun(comptime_version.major - 1, comptime_version.minor, comptime_version.patch));
+        try testing.expect(!fun(comptime_version.major - 1, comptime_version.minor + 1, comptime_version.patch));
+        try testing.expect(!fun(comptime_version.major - 1, comptime_version.minor, comptime_version.patch + 1));
 
-        try testing.expect(!fun(c.GTK_MAJOR_VERSION, c.GTK_MINOR_VERSION - 1, c.GTK_MICRO_VERSION + 1));
+        try testing.expect(!fun(comptime_version.major, comptime_version.minor - 1, comptime_version.patch + 1));
     }
 }

@@ -43,9 +43,7 @@ pub const MTLResourceOptions = packed struct(c_ulong) {
     /// https://developer.apple.com/documentation/metal/mtlhazardtrackingmode?language=objc
     hazard_tracking_mode: HazardTrackingMode = .default,
 
-    _pad: @Type(.{
-        .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(c_ulong) - 10 },
-    }) = 0,
+    _pad: @Int(.unsigned, @bitSizeOf(c_ulong) - 10) = 0,
 
     pub const CPUCacheMode = enum(u4) {
         default = 0,
@@ -366,10 +364,7 @@ pub const MTLTextureUsage = packed struct(c_ulong) {
     /// https://developer.apple.com/documentation/metal/mtltextureusage/shaderatomic?language=objc
     shader_atomic: bool = false, // TextureUsageShaderAtomic = 32,
 
-    __reserved: @Type(.{ .int = .{
-        .signedness = .unsigned,
-        .bits = @bitSizeOf(c_ulong) - 6,
-    } }) = 0,
+    __reserved: @Int(.unsigned, @bitSizeOf(c_ulong) - 6) = 0,
 
     /// https://developer.apple.com/documentation/metal/mtltextureusage/unknown?language=objc
     const unknown: MTLTextureUsage = @bitCast(0); // TextureUsageUnknown = 0,

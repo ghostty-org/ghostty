@@ -545,7 +545,7 @@ pub const RenderState = struct {
                     .bg_color_palette => {
                         @branchHint(.unlikely);
                         cells_style[x] = .{ .bg_color = .{
-                            .palette = page_cell.content.color_palette,
+                            .palette = page_cell.content.color_palette.data,
                         } };
                     },
                 }

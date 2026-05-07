@@ -1,22 +1,16 @@
 const std = @import("std");
 
-// Until the gobject bindings are built at the same time we are building
-// Ghostty, we need to import `adwaita.h` directly to ensure that the version
-// macros match the version of `libadwaita` that we are building/linking
-// against.
-const c = @cImport({
-    @cInclude("adwaita.h");
-});
-
 const adw = @import("adw");
 
 const log = std.log.scoped(.gtk);
 
-pub const comptime_version: std.SemanticVersion = .{
-    .major = c.ADW_MAJOR_VERSION,
-    .minor = c.ADW_MINOR_VERSION,
-    .patch = c.ADW_MICRO_VERSION,
-};
+// Until the gobject bindings are built at the same time we are building
+// Ghostty, we need to ensure that the version macros match the version of
+// `libadwaita` that we are building/linking against.
+//
+// We pull this in through pkg-config, see src/build/SharedDeps.zig for more
+// details.
+pub const comptime_version = @import("adw_semver").version;
 
 pub fn getRuntimeVersion() std.SemanticVersion {
     return .{
@@ -89,14 +83,14 @@ test "versionAtLeast" {
 
     const funs = &.{ atLeast, runtimeAtLeast };
     inline for (funs) |fun| {
-        try testing.expect(fun(c.ADW_MAJOR_VERSION, c.ADW_MINOR_VERSION, c.ADW_MICRO_VERSION));
-        try testing.expect(!fun(c.ADW_MAJOR_VERSION, c.ADW_MINOR_VERSION, c.ADW_MICRO_VERSION + 1));
-        try testing.expect(!fun(c.ADW_MAJOR_VERSION, c.ADW_MINOR_VERSION + 1, c.ADW_MICRO_VERSION));
-        try testing.expect(!fun(c.ADW_MAJOR_VERSION + 1, c.ADW_MINOR_VERSION, c.ADW_MICRO_VERSION));
-        try testing.expect(fun(c.ADW_MAJOR_VERSION - 1, c.ADW_MINOR_VERSION, c.ADW_MICRO_VERSION));
-        try testing.expect(fun(c.ADW_MAJOR_VERSION - 1, c.ADW_MINOR_VERSION + 1, c.ADW_MICRO_VERSION));
-        try testing.expect(fun(c.ADW_MAJOR_VERSION - 1, c.ADW_MINOR_VERSION, c.ADW_MICRO_VERSION + 1));
-        try testing.expect(fun(c.ADW_MAJOR_VERSION, c.ADW_MINOR_VERSION - 1, c.ADW_MICRO_VERSION + 1));
+        try testing.expect(fun(comptime_version.major, comptime_version.minor, comptime_version.patch));
+        try testing.expect(!fun(comptime_version.major, comptime_version.minor, comptime_version.patch + 1));
+        try testing.expect(!fun(comptime_version.major, comptime_version.minor + 1, comptime_version.patch));
+        try testing.expect(!fun(comptime_version.major + 1, comptime_version.minor, comptime_version.patch));
+        try testing.expect(fun(comptime_version.major - 1, comptime_version.minor, comptime_version.patch));
+        try testing.expect(fun(comptime_version.major - 1, comptime_version.minor + 1, comptime_version.patch));
+        try testing.expect(fun(comptime_version.major - 1, comptime_version.minor, comptime_version.patch + 1));
+        try testing.expect(fun(comptime_version.major, comptime_version.minor - 1, comptime_version.patch + 1));
     }
 }
 

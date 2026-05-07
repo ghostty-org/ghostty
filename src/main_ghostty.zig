@@ -14,6 +14,7 @@ const apprt = @import("apprt.zig");
 const App = @import("App.zig");
 const Ghostty = @import("main_c.zig").Ghostty;
 const state = &@import("global.zig").state;
+const compat_init = @import("lib/compat/init.zig");
 
 /// The return type for main() depends on the build artifact. The lib build
 /// also calls "main" in order to run the CLI actions, but it calls it as
@@ -23,16 +24,19 @@ const MainReturn = switch (build_config.artifact) {
     else => void,
 };
 
-pub fn main() !MainReturn {
+pub fn main(init: std.process.Init.Minimal) !MainReturn {
+    // Bootstrap args and env into our static local compat vars
+    compat_init.run(init);
+
     // We first start by initializing our global state. This will setup
     // process-level state we need to run the terminal. The reason we use
     // a global is because the C API needs to be able to access this state;
     // no other Zig code should EVER access the global state.
     state.init() catch |err| {
         var buffer: [1024]u8 = undefined;
-        var stderr_writer = std.fs.File.stderr().writer(&buffer);
+        var stderr_writer = std.Io.File.stderr().writer(std.Io.Threaded.global_single_threaded.io(), &buffer);
         const stderr = &stderr_writer.interface;
-        defer posix.exit(1);
+        defer std.process.exit(1);
         const ErrSet = @TypeOf(err) || error{Unknown};
         switch (@as(ErrSet, @errorCast(err))) {
             error.MultipleActions => try stderr.print(
@@ -64,7 +68,7 @@ pub fn main() !MainReturn {
     // Execute our action if we have one
     if (state.action) |action| {
         std.log.info("executing CLI action={}", .{action});
-        posix.exit(action.run(alloc) catch |err| err: {
+        std.process.exit(action.run(alloc) catch |err| err: {
             std.log.err("CLI action failed error={}", .{err});
             break :err 1;
         });
@@ -90,7 +94,7 @@ pub fn main() !MainReturn {
             .{},
         );
 
-        posix.exit(0);
+        std.process.exit(0);
     }
 
     // Create our app state
@@ -153,13 +157,13 @@ fn logFn(
 
         // Lock so we are thread-safe
         var buf: [64]u8 = undefined;
-        const stderr = std.debug.lockStderrWriter(&buf);
-        defer std.debug.unlockStderrWriter();
+        const stderr = std.debug.lockStderr(&buf);
+        defer std.debug.unlockStderr();
 
         const level_txt = comptime level.asText();
         const prefix = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-        nosuspend stderr.print(level_txt ++ prefix ++ format ++ "\n", args) catch break :stderr;
-        nosuspend stderr.flush() catch break :stderr;
+        nosuspend stderr.file_writer.interface.print(level_txt ++ prefix ++ format ++ "\n", args) catch break :stderr;
+        nosuspend stderr.file_writer.interface.flush() catch break :stderr;
     }
 }
 

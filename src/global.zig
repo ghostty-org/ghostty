@@ -26,7 +26,7 @@ pub var state: GlobalState = undefined;
 /// be one of these at any given moment. This is extracted into a dedicated
 /// struct because it is reused by main and the static C lib.
 pub const GlobalState = struct {
-    const GPA = std.heap.GeneralPurposeAllocator(.{});
+    const GPA = std.heap.DebugAllocator(.{});
 
     gpa: ?GPA,
     alloc: std.mem.Allocator,
@@ -85,7 +85,7 @@ pub const GlobalState = struct {
                 }) break :gpa null;
             }
 
-            break :gpa GPA{};
+            break :gpa .init;
         };
 
         self.alloc = if (self.gpa) |*value|
