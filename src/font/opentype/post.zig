@@ -1,5 +1,6 @@
 const std = @import("std");
 const sfnt = @import("sfnt.zig");
+const compat_reader = @import("../../lib/compat/reader.zig");
 
 /// PostScript Table
 ///
@@ -46,10 +47,9 @@ pub const Post = extern struct {
     maxMemType1: sfnt.uint32 align(1),
 
     /// Parse the table from raw data.
-    pub fn init(data: []const u8) error{EndOfStream}!Post {
-        var fbs = std.io.fixedBufferStream(data);
-        const reader = fbs.reader();
-        return try reader.readStructEndian(Post, .big);
+    pub fn init(data: []const u8) std.Io.Reader.Error!Post {
+        var reader: std.Io.Reader = .fixed(data);
+        return try compat_reader.readStructEndian(&reader, Post, .big);
     }
 };
 

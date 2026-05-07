@@ -136,7 +136,8 @@ pub const PageListSearch = struct {
 
 test "simple search" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 10, .rows = 10 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -183,7 +184,8 @@ test "simple search" {
 
 test "feed multiple pages with matches" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 10, .rows = 10 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -227,7 +229,8 @@ test "feed multiple pages with matches" {
 
 test "feed multiple pages no matches" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 10, .rows = 10 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -266,7 +269,8 @@ test "feed multiple pages no matches" {
 
 test "feed iteratively through multiple matches" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 80, .rows = 24 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 80, .rows = 24 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -307,7 +311,8 @@ test "feed iteratively through multiple matches" {
 
 test "feed with match spanning page boundary" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 80, .rows = 24 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 80, .rows = 24 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -361,7 +366,8 @@ test "feed with match spanning page boundary" {
 
 test "feed with match spanning page boundary with newline" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 80, .rows = 24 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 80, .rows = 24 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();

@@ -1196,9 +1196,29 @@ jobs:
       - name: Test GTK Build
         run: nix develop -c zig build -Dapp-runtime=gtk -Demit-docs -Demit-webdata
 
-      # This relies on the cache being populated by the commands above.
+        # NOTE: This used to point to the Zig global cache directory before
+        # 0.16.0. Now, the cache directory exclusively stores "minified"
+        # archives of each dependency (i.e., only the paths defined in
+        # build.zig.zon), and an uncompressed, working copy is stored in
+        # PROJECT_ROOT/zig-pkg. The zig-pkg directory is warmed up during the
+        # regular fetching process from the global cache directory if
+        # possible.
+        #
+        # Nothing else should change; zon2nix's store path mimics what a
+        # zig-pkg directory should look like, so actual build steps should be
+        # fine, it's just here where we assume that all dependencies have been
+        # downloaded, and we want to test the validity of the package
+        # directory, do we need to have it pointing to zig-pkg and not the
+        # zon2nix store path.
+        #
+        # Note that this can also be attempted by running:
+        #   zig build --fetch=needed
+        #
+        # Note that --system PKGDIR should not be added to this invocation as
+        # it disables fetching altogether (even, seemingly, from the local
+        # cache).
       - name: Test System Build
-        run: nix develop -c zig build --system ${ZIG_GLOBAL_CACHE_DIR}/p
+        run: nix develop -c zig build --system "$(realpath zig-pkg)"
 
   test-lib-vt:
     if: github.repository == 'ghostty-org/ghostty' && needs.skip.outputs.skip != 'true'

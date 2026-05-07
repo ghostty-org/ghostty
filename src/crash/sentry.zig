@@ -9,6 +9,7 @@ const internal_os = @import("../os/main.zig");
 const crash = @import("main.zig");
 const state = &@import("../global.zig").state;
 const Surface = @import("../Surface.zig");
+const global = @import("../global.zig");
 
 const log = std.log.scoped(.sentry);
 
@@ -53,14 +54,6 @@ pub fn init(gpa: Allocator) !void {
     // Not supported on Windows currently, doesn't build.
     if (comptime builtin.os.tag == .windows) return;
 
-    // const start = try std.time.Instant.now();
-    // const start_micro = std.time.microTimestamp();
-    // defer {
-    //     const end = std.time.Instant.now() catch unreachable;
-    //     // "[updateFrame critical time] <START us>\t<TIME_TAKEN us>"
-    //     std.log.err("[sentry init time] start={}us duration={}ns", .{ start_micro, end.since(start) / std.time.ns_per_us });
-    // }
-
     // Must only start once
     assert(init_thread == null);
 
@@ -74,7 +67,7 @@ pub fn init(gpa: Allocator) !void {
         initThread,
         .{gpa},
     );
-    thr.setName("sentry-init") catch {};
+    thr.setName(global.io(), "sentry-init") catch {};
     init_thread = thr;
 }
 
@@ -289,15 +282,15 @@ pub const Transport = struct {
         // Get our XDG state directory where we'll store the crash reports.
         // This directory must exist for writing to work.
         const dir = try crash.defaultDir(alloc);
-        try std.fs.cwd().makePath(dir.path);
+        try std.Io.Dir.cwd().createDirPath(global.io(), dir.path);
 
         // Build our final path and write to it.
         const path = try std.fs.path.join(alloc, &.{
             dir.path,
             try std.fmt.allocPrint(alloc, "{s}.ghosttycrash", .{uuid.string()}),
         });
-        const file = try std.fs.cwd().createFile(path, .{});
-        defer file.close();
+        const file = try std.Io.Dir.cwd().createFile(global.io(), path, .{});
+        defer file.close(global.io());
         var buf: [4096]u8 = undefined;
         var file_writer = file.writer(&buf);
         try file_writer.interface.writeAll(json);

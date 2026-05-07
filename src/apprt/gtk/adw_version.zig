@@ -4,18 +4,16 @@ const std = @import("std");
 // Ghostty, we need to import `adwaita.h` directly to ensure that the version
 // macros match the version of `libadwaita` that we are building/linking
 // against.
-const c = @cImport({
-    @cInclude("adwaita.h");
-});
+const adw_c = @import("adw_c");
 
 const adw = @import("adw");
 
 const log = std.log.scoped(.gtk);
 
 pub const comptime_version: std.SemanticVersion = .{
-    .major = c.ADW_MAJOR_VERSION,
-    .minor = c.ADW_MINOR_VERSION,
-    .patch = c.ADW_MICRO_VERSION,
+    .major = adw_c.ADW_MAJOR_VERSION,
+    .minor = adw_c.ADW_MINOR_VERSION,
+    .patch = adw_c.ADW_MICRO_VERSION,
 };
 
 pub fn getRuntimeVersion() std.SemanticVersion {
@@ -89,14 +87,14 @@ test "versionAtLeast" {
 
     const funs = &.{ atLeast, runtimeAtLeast };
     inline for (funs) |fun| {
-        try testing.expect(fun(c.ADW_MAJOR_VERSION, c.ADW_MINOR_VERSION, c.ADW_MICRO_VERSION));
-        try testing.expect(!fun(c.ADW_MAJOR_VERSION, c.ADW_MINOR_VERSION, c.ADW_MICRO_VERSION + 1));
-        try testing.expect(!fun(c.ADW_MAJOR_VERSION, c.ADW_MINOR_VERSION + 1, c.ADW_MICRO_VERSION));
-        try testing.expect(!fun(c.ADW_MAJOR_VERSION + 1, c.ADW_MINOR_VERSION, c.ADW_MICRO_VERSION));
-        try testing.expect(fun(c.ADW_MAJOR_VERSION - 1, c.ADW_MINOR_VERSION, c.ADW_MICRO_VERSION));
-        try testing.expect(fun(c.ADW_MAJOR_VERSION - 1, c.ADW_MINOR_VERSION + 1, c.ADW_MICRO_VERSION));
-        try testing.expect(fun(c.ADW_MAJOR_VERSION - 1, c.ADW_MINOR_VERSION, c.ADW_MICRO_VERSION + 1));
-        try testing.expect(fun(c.ADW_MAJOR_VERSION, c.ADW_MINOR_VERSION - 1, c.ADW_MICRO_VERSION + 1));
+        try testing.expect(fun(adw_c.ADW_MAJOR_VERSION, adw_c.ADW_MINOR_VERSION, adw_c.ADW_MICRO_VERSION));
+        try testing.expect(!fun(adw_c.ADW_MAJOR_VERSION, adw_c.ADW_MINOR_VERSION, adw_c.ADW_MICRO_VERSION + 1));
+        try testing.expect(!fun(adw_c.ADW_MAJOR_VERSION, adw_c.ADW_MINOR_VERSION + 1, adw_c.ADW_MICRO_VERSION));
+        try testing.expect(!fun(adw_c.ADW_MAJOR_VERSION + 1, adw_c.ADW_MINOR_VERSION, adw_c.ADW_MICRO_VERSION));
+        try testing.expect(fun(adw_c.ADW_MAJOR_VERSION - 1, adw_c.ADW_MINOR_VERSION, adw_c.ADW_MICRO_VERSION));
+        try testing.expect(fun(adw_c.ADW_MAJOR_VERSION - 1, adw_c.ADW_MINOR_VERSION + 1, adw_c.ADW_MICRO_VERSION));
+        try testing.expect(fun(adw_c.ADW_MAJOR_VERSION - 1, adw_c.ADW_MINOR_VERSION, adw_c.ADW_MICRO_VERSION + 1));
+        try testing.expect(fun(adw_c.ADW_MAJOR_VERSION, adw_c.ADW_MINOR_VERSION - 1, adw_c.ADW_MICRO_VERSION + 1));
     }
 }
 

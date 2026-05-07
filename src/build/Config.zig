@@ -67,7 +67,7 @@ emit_unicode_table_gen: bool = false,
 is_dep: bool = false,
 
 /// Environmental properties
-env: std.process.EnvMap,
+env: *const std.process.Environ.Map,
 
 pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Config {
     // Setup our standard Zig target and optimize options, i.e.
@@ -124,10 +124,10 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     // defaults.
     const gtk_targets = gtk.targets(b);
 
-    // We use env vars throughout the build so we grab them immediately here.
-    var env = try std.process.getEnvMap(b.allocator);
-    errdefer env.deinit();
+    // Grab the environment from build state
+    const env = &b.graph.environ_map;
 
+    // We use env vars throughout the build so we grab them immediately here.
     var config: Config = .{
         .optimize = optimize,
         .target = target,
@@ -401,7 +401,7 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         if (system_package) break :emit_docs true;
 
         // We only default to true if we can find pandoc.
-        const path = expandPath(b.allocator, "pandoc") catch
+        const path = expandPath(b.graph.io, b.allocator, &b.graph.environ_map, "pandoc") catch
             break :emit_docs false;
         defer if (path) |p| b.allocator.free(p);
         break :emit_docs path != null;
@@ -450,7 +450,7 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         if (config.emit_lib_vt) {
             // In lib-vt mode default to whether xcodebuild is available,
             // since xcodebuild is required to produce the XCFramework.
-            const path = expandPath(b.allocator, "xcodebuild") catch
+            const path = expandPath(b.graph.io, b.allocator, &b.graph.environ_map, "xcodebuild") catch
                 break :emit_xcfw false;
             defer if (path) |p| b.allocator.free(p);
             break :emit_xcfw path != null;
@@ -591,7 +591,7 @@ pub fn terminalOptions(self: *const Config, artifact: TerminalBuildOptions.Artif
 }
 
 /// Returns a baseline CPU target retaining all the other CPU configs.
-pub fn baselineTarget(self: *const Config) std.Build.ResolvedTarget {
+pub fn baselineTarget(self: *const Config, io: std.Io) std.Build.ResolvedTarget {
     // Set our cpu model as baseline. There may need to be other modifications
     // we need to make such as resetting CPU features but for now this works.
     var q = self.target.query;
@@ -601,7 +601,7 @@ pub fn baselineTarget(self: *const Config) std.Build.ResolvedTarget {
     // handle the native case.
     return .{
         .query = q,
-        .result = std.zig.system.resolveTargetQuery(q) catch
+        .result = std.zig.system.resolveTargetQuery(io, q) catch
             @panic("unable to resolve baseline query"),
     };
 }

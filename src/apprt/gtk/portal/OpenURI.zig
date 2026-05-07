@@ -9,6 +9,7 @@ const assert = std.debug.assert;
 const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
+const global = @import("../../../global.zig");
 
 const App = @import("../App.zig");
 const portal = @import("../portal.zig");
@@ -23,7 +24,7 @@ app: *App,
 dbus: ?*gio.DBusConnection = null,
 
 /// Mutex to protect modification of the entries map or the cleanup timer.
-mutex: std.Thread.Mutex = .{},
+mutex: std.Io.Mutex = .init,
 
 /// Map to store data about any in-flight calls to the portal.
 entries: std.AutoArrayHashMapUnmanaged(usize, *Entry) = .empty,
@@ -78,7 +79,7 @@ const RequestData = struct {
 /// Data about any in-flight calls to the portal.
 pub const Entry = struct {
     /// When the request started.
-    start: std.time.Instant,
+    start: std.Io.Timestamp,
     /// A token used by the portal to identify requests and responses. The
     /// actual format of the token does not really matter as long as it can be
     /// used as part of a D-Bus object path. `usize` was chosen since it's easy
@@ -123,8 +124,8 @@ pub fn setDbusConnection(self: *OpenURI, dbus: ?*gio.DBusConnection) void {
 pub fn deinit(self: *OpenURI) void {
     const alloc = self.app.app.allocator();
 
-    self.mutex.lock();
-    defer self.mutex.unlock();
+    self.mutex.lockUncancelable(global.io());
+    defer self.mutex.unlock(global.io());
 
     if (!self.alive) return;
     self.alive = false;
@@ -157,8 +158,8 @@ pub fn start(self: *OpenURI, value: apprt.action.OpenUrl) (Allocator.Error || Er
         alloc.destroy(request);
     }
 
-    self.mutex.lock();
-    defer self.mutex.unlock();
+    self.mutex.lockUncancelable(global.io());
+    defer self.mutex.unlock(global.io());
 
     // Create an entry that is used to track the results of the D-Bus method
     // call.
@@ -166,7 +167,7 @@ pub fn start(self: *OpenURI, value: apprt.action.OpenUrl) (Allocator.Error || Er
         const entry = try alloc.create(Entry);
         errdefer alloc.destroy(entry);
         entry.* = .{
-            .start = std.time.Instant.now() catch return error.TimerUnavailable,
+            .start = std.Io.Timestamp.now(global.io(), .awake),
             .token = token,
             .kind = value.kind,
             .uri = try alloc.dupeZ(u8, value.url),
@@ -235,8 +236,8 @@ fn destroyEntry(alloc: Allocator, entry: *Entry) void {
 }
 
 fn failRequest(self: *OpenURI, token: usize) ?*Entry {
-    self.mutex.lock();
-    defer self.mutex.unlock();
+    self.mutex.lockUncancelable(global.io());
+    defer self.mutex.unlock(global.io());
 
     if (!self.alive) return null;
 
@@ -422,8 +423,8 @@ fn requestCallback(
         return;
     }
 
-    self.mutex.lock();
-    defer self.mutex.unlock();
+    self.mutex.lockUncancelable(global.io());
+    defer self.mutex.unlock(global.io());
 
     if (!self.alive) return;
 
@@ -461,8 +462,8 @@ fn responseReceived(
         return;
     };
 
-    self.mutex.lock();
-    defer self.mutex.unlock();
+    self.mutex.lockUncancelable(global.io());
+    defer self.mutex.unlock(global.io());
 
     if (!self.alive) return;
 
@@ -534,22 +535,18 @@ fn cleanup(ud: ?*anyopaque) callconv(.c) c_int {
 
     const alloc = self.app.app.allocator();
 
-    self.mutex.lock();
-    defer self.mutex.unlock();
+    self.mutex.lockUncancelable(global.io());
+    defer self.mutex.unlock(global.io());
 
     self.cleanup_timer = null;
     if (!self.alive) return @intFromBool(glib.SOURCE_REMOVE);
 
-    const now = std.time.Instant.now() catch {
-        // `now()` should never fail, but if it does, don't crash, just return.
-        // This might cause a small memory leak in rare circumstances but it
-        // should get cleaned up the next time a URL is clicked.
-        return @intFromBool(glib.SOURCE_REMOVE);
-    };
-
     loop: while (true) {
         for (self.entries.entries.items(.value)) |entry| {
-            if (now.since(entry.start) > cleanup_timeout * std.time.ns_per_s) {
+            if (entry.start.untilNow(
+                global.io(),
+                .awake,
+            ).toSeconds() > cleanup_timeout) {
                 log.warn("open uri request timed out token={x}", .{entry.token});
                 self.unsubscribeFromResponse(entry);
                 _ = self.entries.swapRemove(entry.token);

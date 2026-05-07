@@ -14,7 +14,7 @@ pub fn targets(b: *std.Build) Targets {
     const output = b.runAllowFail(
         &.{ "pkg-config", "--variable=targets", "gtk4" },
         &code,
-        .Ignore,
+        .ignore,
     ) catch return .{};
 
     const x11 = std.mem.indexOf(u8, output, "x11") != null;

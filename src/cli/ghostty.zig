@@ -22,6 +22,7 @@ const show_face = @import("show_face.zig");
 const boo = @import("boo.zig");
 const new_window = @import("new_window.zig");
 const toggle_quick_terminal = @import("toggle_quick_terminal.zig");
+const global = @import("../global.zig");
 
 /// Special commands that can be invoked via CLI flags. These are all
 /// invoked by using `+<action>` as a CLI flag. The only exception is
@@ -120,7 +121,10 @@ pub const Action = enum {
 
                     if (std.mem.eql(u8, field.name, @tagName(self))) {
                         var buffer: [1024]u8 = undefined;
-                        var stdout_writer = std.fs.File.stdout().writer(&buffer);
+                        var stdout_writer = std.Io.File.stdout().writer(
+                            global.io(),
+                            &buffer,
+                        );
                         const stdout = &stdout_writer.interface;
                         const text = @field(help_strings.Action, field.name) ++ "\n";
                         stdout.writeAll(text) catch |write_err| {
@@ -213,7 +217,7 @@ test "parse action none" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var iter = try std.process.ArgIteratorGeneral(.{}).init(
+    var iter = try std.process.Args.IteratorGeneral(.{}).init(
         alloc,
         "--a=42 --b --b-f=false",
     );
@@ -227,7 +231,7 @@ test "parse action version" {
     const alloc = testing.allocator;
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try std.process.Args.IteratorGeneral(.{}).init(
             alloc,
             "--a=42 --b --b-f=false --version",
         );
@@ -237,7 +241,7 @@ test "parse action version" {
     }
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try std.process.Args.IteratorGeneral(.{}).init(
             alloc,
             "--version --a=42 --b --b-f=false",
         );
@@ -247,7 +251,7 @@ test "parse action version" {
     }
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try std.process.Args.IteratorGeneral(.{}).init(
             alloc,
             "--c=84 --d --version --a=42 --b --b-f=false",
         );
@@ -262,7 +266,7 @@ test "parse action plus" {
     const alloc = testing.allocator;
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try std.process.Args.IteratorGeneral(.{}).init(
             alloc,
             "--a=42 --b --b-f=false +version",
         );
@@ -272,7 +276,7 @@ test "parse action plus" {
     }
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try std.process.Args.IteratorGeneral(.{}).init(
             alloc,
             "+version --a=42 --b --b-f=false",
         );
@@ -282,7 +286,7 @@ test "parse action plus" {
     }
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try std.process.Args.IteratorGeneral(.{}).init(
             alloc,
             "--c=84 --d +version --a=42 --b --b-f=false",
         );
@@ -297,7 +301,7 @@ test "parse action plus ignores -e" {
     const alloc = testing.allocator;
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try std.process.Args.IteratorGeneral(.{}).init(
             alloc,
             "--a=42 -e +version",
         );
@@ -307,7 +311,7 @@ test "parse action plus ignores -e" {
     }
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try std.process.Args.IteratorGeneral(.{}).init(
             alloc,
             "+list-fonts --a=42 -e +version",
         );

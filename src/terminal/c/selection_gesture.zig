@@ -241,7 +241,7 @@ pub fn event_new(
     event_type: EventType,
 ) callconv(lib.calling_conv) Result {
     const out = out_event orelse return .invalid_value;
-    _ = std.meta.intToEnum(EventType, @intFromEnum(event_type)) catch
+    _ = std.enums.fromInt(EventType, @intFromEnum(event_type)) orelse
         return .invalid_value;
 
     const alloc = lib.alloc.default(alloc_);
@@ -343,7 +343,7 @@ pub fn event_set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(EventOption, @intFromEnum(option)) catch {
+        _ = std.enums.fromInt(EventOption, @intFromEnum(option)) orelse {
             log.warn("selection_gesture_event_set invalid option value={d}", .{@intFromEnum(option)});
             return .invalid_value;
         };
@@ -365,7 +365,7 @@ pub fn get(
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(Data, @intFromEnum(data)) catch {
+        _ = std.enums.fromInt(Data, @intFromEnum(data)) orelse {
             log.warn("selection_gesture_get invalid data value={d}", .{@intFromEnum(data)});
             return .invalid_value;
         };
@@ -738,24 +738,12 @@ fn clearWordBoundaryCodepoints(event: *EventWrapper, target: *[]const u21) void 
     target.* = &selection_codepoints.default_word_boundaries;
 }
 
-fn instantFromNs(ns: u64) SelectionGesture.Time {
-    if (comptime builtin.target.cpu.arch == .wasm32 and
-        builtin.target.os.tag == .freestanding)
-    {
-        return ns;
-    }
-
-    return switch (builtin.os.tag) {
-        .windows, .uefi, .wasi => .{ .timestamp = ns },
-        else => .{ .timestamp = .{
-            .sec = @intCast(ns / std.time.ns_per_s),
-            .nsec = @intCast(ns % std.time.ns_per_s),
-        } },
-    };
+fn instantFromNs(ns: u64) std.Io.Timestamp {
+    return .fromNanoseconds(ns);
 }
 
 fn validBehavior(behavior: Behavior) bool {
-    _ = std.meta.intToEnum(Behavior, @intFromEnum(behavior)) catch return false;
+    _ = std.enums.fromInt(Behavior, @intFromEnum(behavior)) orelse return false;
     return true;
 }
 

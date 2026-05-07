@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const global = @import("../global.zig");
 const posix = std.posix;
 const windows = @import("windows.zig");
 
@@ -63,7 +64,7 @@ pub fn restoreMaxFiles(lim: rlimit) void {
 /// POSIX this returns `$TMPDIR`/`$TMP` (or `"/tmp"` as a fallback)
 /// without allocating. Always pair with `freeTmpDir` to release any
 /// allocation.
-pub fn allocTmpDir(allocator: std.mem.Allocator) std.mem.Allocator.Error![]const u8 {
+pub fn allocTmpDir(allocator: std.mem.Allocator, environ: std.process.Environ) std.mem.Allocator.Error![]const u8 {
     if (builtin.os.tag == .windows) {
         // GetTempPathW guarantees the result fits in MAX_PATH+1.
         var buf: [windows.MAX_PATH + 1:0]u16 = undefined;
@@ -81,7 +82,7 @@ pub fn allocTmpDir(allocator: std.mem.Allocator) std.mem.Allocator.Error![]const
         }
         return allocator.dupe(u8, "C:\\Windows\\Temp");
     }
-    const tmpdir = posix.getenv("TMPDIR") orelse posix.getenv("TMP") orelse return "/tmp";
+    const tmpdir = environ.getPosix("TMPDIR") orelse environ.getPosix("TMP") orelse return "/tmp";
     return std.mem.trimEnd(u8, tmpdir, &.{std.fs.path.sep});
 }
 
@@ -107,7 +108,7 @@ pub const random_basename_len = b64_encoder.calcSize(random_basename_bytes);
 pub fn randomBasename(buf: []u8) RandomBasenameError![]const u8 {
     if (buf.len < random_basename_len) return error.BufferTooSmall;
     var rand_buf: [random_basename_bytes]u8 = undefined;
-    std.crypto.random.bytes(&rand_buf);
+    global.io().random(&rand_buf);
     return b64_encoder.encode(buf[0..random_basename_len], &rand_buf);
 }
 
@@ -121,14 +122,12 @@ pub fn randomTmpPath(
     allocator: std.mem.Allocator,
     prefix: []const u8,
 ) std.mem.Allocator.Error![]u8 {
-    const tmp_dir = try allocTmpDir(allocator);
-    defer freeTmpDir(allocator, tmp_dir);
     var name_buf: [random_basename_len]u8 = undefined;
     const basename = randomBasename(&name_buf) catch unreachable;
     return std.fmt.allocPrint(
         allocator,
         "{s}{c}{s}{s}",
-        .{ tmp_dir, std.fs.path.sep, prefix, basename },
+        .{ global.tmpDirPath(), std.fs.path.sep, prefix, basename },
     );
 }
 

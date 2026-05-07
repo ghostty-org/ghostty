@@ -164,5 +164,5 @@ test "cursor shape from string" {
 }
 
 test {
-    _ = std.testing.refAllDeclsRecursive(@This());
+    _ = std.testing.refAllDecls(@This());
 }

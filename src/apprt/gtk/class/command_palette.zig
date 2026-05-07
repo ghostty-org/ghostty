@@ -153,7 +153,7 @@ pub const CommandPalette = extern struct {
         priv.source.removeAll();
 
         const alloc = Application.default().allocator();
-        var commands: std.ArrayList(*Command) = .{};
+        var commands: std.ArrayList(*Command) = .empty;
         defer {
             for (commands.items) |cmd| cmd.unref();
             commands.deinit(alloc);

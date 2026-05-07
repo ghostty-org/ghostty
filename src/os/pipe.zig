@@ -7,7 +7,17 @@ const posix = std.posix;
 /// CLOEXEC on the file descriptors.
 pub fn pipe() ![2]posix.fd_t {
     switch (builtin.os.tag) {
-        else => return try posix.pipe2(.{ .CLOEXEC = true }),
+        else => {
+            var fds: [2]posix.fd_t = undefined;
+            switch (posix.errno(posix.system.pipe2(&fds, .{ .CLOEXEC = true }))) {
+                .SUCCESS => return fds,
+                .INVAL => unreachable, // Invalid flags
+                .FAULT => unreachable, // Invalid fds pointer
+                .NFILE => return error.SystemFdQuotaExceeded,
+                .MFILE => return error.ProcessFdQuotaExceeded,
+                else => |err| return posix.unexpectedErrno(err),
+            }
+        },
         .windows => {
             var read: windows.HANDLE = undefined;
             var write: windows.HANDLE = undefined;

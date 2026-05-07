@@ -20,6 +20,7 @@ const SharedGrid = font.SharedGrid;
 const Style = font.Style;
 const Presentation = font.Presentation;
 const CFReleaseThread = os.CFReleaseThread;
+const global = @import("../../global.zig");
 
 const log = std.log.scoped(.font_shaper);
 
@@ -213,7 +214,7 @@ pub const Shaper = struct {
             CFReleaseThread.threadMain,
             .{cf_release_thread},
         );
-        cf_release_thr.setName("cf_release") catch {};
+        cf_release_thr.setName(global.io(), "cf_release") catch {};
 
         return .{
             .alloc = alloc,

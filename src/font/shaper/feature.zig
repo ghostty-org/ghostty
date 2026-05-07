@@ -1,6 +1,7 @@
 const std = @import("std");
 const assert = @import("../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
+const compat_reader = @import("../../lib/compat/reader.zig");
 
 const log = std.log.scoped(.font_shaper);
 
@@ -18,9 +19,8 @@ pub const Feature = struct {
     value: u32,
 
     pub fn fromString(str: []const u8) ?Feature {
-        var fbs = std.io.fixedBufferStream(str);
-        const reader = fbs.reader();
-        return .fromReader(reader);
+        var reader: std.Io.Reader = .fixed(str);
+        return .fromReader(&reader);
     }
 
     /// Parse a single font feature setting from a std.io.Reader, with a version
@@ -55,7 +55,7 @@ pub const Feature = struct {
             done,
         }).start) {
             // If we're done then we skip whitespace until we see a ','.
-            .done => while (true) switch (reader.readByte() catch ',') {
+            .done => while (true) switch (compat_reader.readByte(reader) catch ',') {
                 ' ', '\t' => continue,
                 ',' => break,
                 // If we see something other than whitespace or a ','
@@ -66,11 +66,11 @@ pub const Feature = struct {
             // If we're fast-forwarding from an error we just wanna
             // stop at the first boundary and ignore all other bytes.
             .err => {
-                reader.skipUntilDelimiterOrEof(',') catch {};
+                compat_reader.readSkipUntilDelimiterOrEof(reader, ',') catch {};
                 return null;
             },
 
-            .start => while (true) switch (reader.readByte() catch ',') {
+            .start => while (true) switch (compat_reader.readByte(reader) catch ',') {
                 // Ignore leading whitespace.
                 ' ', '\t' => continue,
                 // Empty feature string.
@@ -97,7 +97,7 @@ pub const Feature = struct {
                 },
             },
 
-            .tag => while (true) switch (reader.readByte() catch ',') {
+            .tag => while (true) switch (compat_reader.readByte(reader) catch ',') {
                 // If the tag is interrupted by a comma it's invalid.
                 ',' => return null,
                 // Ignore quote marks. This does technically ignore cases like
@@ -112,7 +112,7 @@ pub const Feature = struct {
                 },
             },
 
-            .space => while (true) switch (reader.readByte() catch ',') {
+            .space => while (true) switch (compat_reader.readByte(reader) catch ',') {
                 ' ', '\t' => continue,
                 // Ignore quote marks since we might have a
                 // closing quote from the tag still ahead.
@@ -142,7 +142,7 @@ pub const Feature = struct {
                 else => continue :state .err,
             },
 
-            .int => while (true) switch (reader.readByte() catch ',') {
+            .int => while (true) switch (compat_reader.readByte(reader) catch ',') {
                 ',' => break,
                 '0'...'9' => |byte| {
                     // If our value gets too big while
@@ -155,7 +155,7 @@ pub const Feature = struct {
                 else => continue :state .err,
             },
 
-            .bool => while (true) switch (reader.readByte() catch ',') {
+            .bool => while (true) switch (compat_reader.readByte(reader) catch ',') {
                 ',' => return null,
                 'n', 'N' => {
                     // "ofn"
@@ -222,7 +222,7 @@ pub const Feature = struct {
 
 /// A list of font feature settings (see `Feature` for more documentation).
 pub const FeatureList = struct {
-    features: std.ArrayListUnmanaged(Feature) = .{},
+    features: std.ArrayList(Feature) = .empty,
 
     pub fn deinit(self: *FeatureList, alloc: Allocator) void {
         self.features.deinit(alloc);
@@ -243,15 +243,14 @@ pub const FeatureList = struct {
         alloc: Allocator,
         str: []const u8,
     ) !void {
-        var fbs = std.io.fixedBufferStream(str);
-        const reader = fbs.reader();
-        while (fbs.pos < fbs.buffer.len) {
-            const i = fbs.pos;
-            if (Feature.fromReader(reader)) |feature| {
+        var reader: std.Io.Reader = .fixed(str);
+        while (reader.seek < reader.end) {
+            const i = reader.seek;
+            if (Feature.fromReader(&reader)) |feature| {
                 try self.features.append(alloc, feature);
             } else log.warn(
                 "failed to parse font feature setting: \"{s}\"",
-                .{fbs.buffer[i..fbs.pos]},
+                .{reader.buffer[i..reader.seek]},
             );
         }
     }

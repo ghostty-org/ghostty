@@ -243,15 +243,16 @@ fn testDiffAtlas(
     // Get the file contents, we compare the PNG data first in
     // order to ensure that no one smuggles arbitrary binary
     // data in to the reference PNGs.
-    const test_file = try std.fs.openFileAbsolute(path, .{ .mode = .read_only });
-    defer test_file.close();
-    const test_bytes = try test_file.readToEndAlloc(
+    const test_file = try std.Io.Dir.openFileAbsolute(std.testing.io, path, .{ .mode = .read_only });
+    defer test_file.close(std.testing.io);
+    var test_file_reader = test_file.reader(std.testing.io, &.{});
+    const test_bytes = try test_file_reader.interface.readAlloc(
         alloc,
-        std.math.maxInt(usize),
+        (try test_file.stat(std.testing.io)).size,
     );
     defer alloc.free(test_bytes);
 
-    const cwd_absolute = try std.fs.cwd().realpathAlloc(alloc, ".");
+    const cwd_absolute = try std.Io.Dir.cwd().realPathFileAlloc(std.testing.io, ".", alloc);
     defer alloc.free(cwd_absolute);
 
     // Get the reference file contents to compare.
@@ -262,7 +263,7 @@ fn testDiffAtlas(
     );
     defer alloc.free(ref_path);
     const ref_file =
-        std.fs.cwd().openFile(ref_path, .{ .mode = .read_only }) catch |err| {
+        std.Io.Dir.cwd().openFile(std.testing.io, ref_path, .{ .mode = .read_only }) catch |err| {
             log.err("Can't open reference file {s}: {}\n", .{
                 ref_path,
                 err,
@@ -276,14 +277,15 @@ fn testDiffAtlas(
                 .{ cwd_absolute, i, i + 0xFF, width, height, thickness },
             );
             defer alloc.free(test_path);
-            try std.fs.copyFileAbsolute(path, test_path, .{});
+            try std.Io.Dir.copyFileAbsolute(path, test_path, std.testing.io, .{});
 
             return true;
         };
-    defer ref_file.close();
-    const ref_bytes = try ref_file.readToEndAlloc(
+    defer ref_file.close(std.testing.io);
+    var ref_file_reader = ref_file.reader(std.testing.io, &.{});
+    const ref_bytes = try ref_file_reader.interface.readAlloc(
         alloc,
-        std.math.maxInt(usize),
+        (try ref_file.stat(std.testing.io)).size,
     );
     defer alloc.free(ref_bytes);
 
@@ -300,7 +302,7 @@ fn testDiffAtlas(
         .{ cwd_absolute, i, i + 0xFF, width, height, thickness },
     );
     defer alloc.free(test_path);
-    try std.fs.copyFileAbsolute(path, test_path, .{});
+    try std.Io.Dir.copyFileAbsolute(path, test_path, std.testing.io, .{});
 
     // Use wuffs to decode the reference PNG to raw pixels.
     // These will be RGBA, so when diffing we can just compare
@@ -364,7 +366,7 @@ fn testDiffAtlas(
         .{ i, i + 0xFF, width, height, thickness },
     );
     defer alloc.free(diff_path);
-    try z2d.png_exporter.writeToPNGFile(diff, diff_path, .{});
+    try z2d.png_exporter.writeToPNGFile(std.testing.io, diff, diff_path, .{});
     log.err(
         "One or more glyphs differ from reference file in range U+{X}...U+{X}! " ++
             "test={s}, reference={s}, diff={s}",
@@ -432,7 +434,7 @@ fn testDrawRanges(
     // Try to make the sprite_face_test folder if it doesn't already exist.
     var dir = testing.tmpDir(.{});
     defer dir.cleanup();
-    const tmp_dir = try dir.dir.realpathAlloc(alloc, ".");
+    const tmp_dir = try dir.dir.realPathFileAlloc(testing.io, ".", alloc);
     defer alloc.free(tmp_dir);
 
     // We set this to true if we have any fails so we can
@@ -451,7 +453,7 @@ fn testDrawRanges(
                     .{ tmp_dir, i, i + 0xFF, width, height, thickness },
                 );
                 defer alloc.free(path);
-                try z2d.png_exporter.writeToPNGFile(atlas, path, .{});
+                try z2d.png_exporter.writeToPNGFile(testing.io, atlas, path, .{});
 
                 if (try testDiffAtlas(
                     alloc,
@@ -496,7 +498,7 @@ fn testDrawRanges(
         .{ tmp_dir, i, i + 0xFF, width, height, thickness },
     );
     defer alloc.free(path);
-    try z2d.png_exporter.writeToPNGFile(atlas, path, .{});
+    try z2d.png_exporter.writeToPNGFile(std.testing.io, atlas, path, .{});
     if (try testDiffAtlas(
         alloc,
         &atlas,

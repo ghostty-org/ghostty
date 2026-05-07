@@ -6,6 +6,7 @@ const Allocator = std.mem.Allocator;
 
 const gio = @import("gio");
 const glib = @import("glib");
+const global = @import("../../../global.zig");
 
 const apprt = @import("../../../apprt.zig");
 const ApprtApp = @import("../App.zig");
@@ -28,10 +29,12 @@ payload_builder: *glib.VariantBuilder,
 /// Used to build the parameters for the IPC.
 parameters_builder: *glib.VariantBuilder,
 
+pub const InitError = Allocator.Error || std.Io.Writer.Error || apprt.ipc.Errors;
+
 /// Initialize the helper.
-pub fn init(alloc: Allocator, target: apprt.ipc.Target, action: [:0]const u8) (Allocator.Error || std.Io.Writer.Error || apprt.ipc.Errors)!Self {
+pub fn init(alloc: Allocator, target: apprt.ipc.Target, action: [:0]const u8) InitError!Self {
     var buf: [256]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&buf);
+    var stderr_writer = std.Io.File.stderr().writer(global.io(), &buf);
     const stderr = &stderr_writer.interface;
 
     // Get the appropriate bus name and object path for contacting the
@@ -133,7 +136,7 @@ pub fn addParameter(self: *Self, variant: *glib.Variant) void {
 /// should be done with this object other than call `deinit`.
 pub fn send(self: *Self) (std.Io.Writer.Error || apprt.ipc.Errors)!void {
     var buf: [256]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&buf);
+    var stderr_writer = std.Io.File.stderr().writer(global.io(), &buf);
     const stderr = &stderr_writer.interface;
 
     // finish building the parameters

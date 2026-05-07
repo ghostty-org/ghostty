@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
 const build_options = @import("terminal_options");
@@ -25,6 +26,7 @@ const selection_c = @import("selection.zig");
 const style_c = @import("style.zig");
 const color = @import("../color.zig");
 const Result = @import("result.zig").Result;
+const assert = @import("../../quirks.zig").inlineAssert;
 
 const Handler = @import("../stream_terminal.zig").Handler;
 
@@ -35,6 +37,13 @@ const log = std.log.scoped(.terminal_c);
 /// across multiple vt_write calls.
 const TerminalWrapper = struct {
     terminal: *ZigTerminal,
+    /// We need to keep an I/O instance here as part of the terminal since we
+    /// have no way of taking it in the C API. This is set up in `new` and
+    /// destroyed on `free`.
+    io_impl: std.Io.Threaded,
+    /// We also need to store a temp dir path for some operations (e.g., kitty
+    /// graphics). This provides stable storage for the API calls.
+    tmp_dir_path: [std.fs.max_path_bytes]u8,
     stream: Stream,
     effects: Effects = .{},
     tracked_grid_refs: std.AutoArrayHashMapUnmanaged(*grid_ref_tracked_c.TrackedGridRef, void) = .{},
@@ -270,8 +279,40 @@ fn new_(
         return error.OutOfMemory;
     errdefer alloc.destroy(wrapper);
 
+    // Since I/O implementations are out of scope for C, we just create a
+    // standard threaded one off of our allocator and environment at time of
+    // invocation.
+    //
+    // This is similar to what happens in main_c.zig (just without args).
+    const environ: std.process.Environ = if (std.process.Environ.Block == std.process.Environ.PosixBlock)
+        // Asserting libc means that we can fast-path all POSIX blocks
+        .{ .block = .{ .slice = std.c.environ[0..env_len: {
+            var len: usize = 0;
+            while (std.c.environ[len]) |_| : (len += 1) {}
+            break :env_len len;
+        } :null] } }
+    else
+        // Anything that is not using PosixBlock is a global block for
+        // purposes of initialization.
+        .{ .block = .{ .use_global = true } };
+
+    const argv0 = "libghostty-vt";
+    const argv0_windows = argv0_windows: {
+        var buf: [std.unicode.calcUtf16LeLen(argv0) catch unreachable]u16 = undefined;
+        _ = std.unicode.utf8ToUtf16Le(&buf, argv0) catch unreachable;
+        break :argv0_windows buf;
+    };
+
+    var io_impl: std.Io.Threaded = .init(alloc, .{
+        .argv0 = .init(.{ .vector = if (builtin.target.os.tag == .windows)
+            &argv0_windows
+        else
+            &.{"libghostty-vt"} }),
+        .environ = environ,
+    });
+
     // Setup our terminal
-    t.* = try .init(alloc, .{
+    t.* = try .init(io_impl.io(), alloc, .{
         .cols = opts.cols,
         .rows = opts.rows,
         .max_scrollback = opts.max_scrollback,
@@ -300,6 +341,8 @@ fn new_(
 
     wrapper.* = .{
         .terminal = t,
+        .io_impl = io_impl,
+        .tmp_dir_path = undefined, // Only used if temporary directory is set with API calls
         .stream = .initAlloc(alloc, handler),
     };
 
@@ -362,10 +405,10 @@ pub const Option = enum(c_int) {
             .color_palette => ?*const color.PaletteC,
             .kitty_image_storage_limit => ?*const u64,
             .kitty_image_medium_file,
-            .kitty_image_medium_temp_file,
             .kitty_image_medium_shared_mem,
             .glyph_protocol,
             => ?*const bool,
+            .kitty_image_medium_temp_file => ?*const lib.String,
             .apc_max_bytes, .apc_max_bytes_kitty => ?*const usize,
             .selection => ?*const selection_c.CSelection,
             .default_cursor_style => ?*const TerminalCursorStyle,
@@ -380,7 +423,7 @@ pub fn set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(Option, @intFromEnum(option)) catch {
+        _ = std.enums.fromInt(Option, @intFromEnum(option)) orelse {
             log.warn("terminal_set invalid option value={d}", .{@intFromEnum(option)});
             return .invalid_value;
         };
@@ -449,7 +492,6 @@ fn setTyped(
             }
         },
         .kitty_image_medium_file,
-        .kitty_image_medium_temp_file,
         .kitty_image_medium_shared_mem,
         => {
             if (comptime !build_options.kitty_graphics) return .success;
@@ -459,9 +501,28 @@ fn setTyped(
                 const screen = entry.value.*;
                 switch (option) {
                     .kitty_image_medium_file => screen.kitty_images.image_limits.file = val,
-                    .kitty_image_medium_temp_file => screen.kitty_images.image_limits.temporary_file = val,
                     .kitty_image_medium_shared_mem => screen.kitty_images.image_limits.shared_memory = val,
                     else => unreachable,
+                }
+            }
+        },
+        .kitty_image_medium_temp_file => {
+            if (comptime !build_options.kitty_graphics) return .success;
+            if (value) |v| {
+                if (v.len > wrapper.tmp_dir_path.len) return .out_of_memory;
+                @memcpy(&wrapper.tmp_dir_path, v.ptr[0..v.len]);
+                var it = wrapper.terminal.screens.all.iterator();
+                while (it.next()) |entry| {
+                    const screen = entry.value.*;
+                    screen.kitty_images.image_limits.temporary_file = .{
+                        .enabled = .{ .directory = wrapper.tmp_dir_path[0..v.len] },
+                    };
+                }
+            } else {
+                var it = wrapper.terminal.screens.all.iterator();
+                while (it.next()) |entry| {
+                    const screen = entry.value.*;
+                    screen.kitty_images.image_limits.temporary_file = .disabled;
                 }
             }
         },
@@ -683,9 +744,9 @@ pub const TerminalData = enum(c_int) {
             .color_palette, .color_palette_default => color.PaletteC,
             .kitty_image_storage_limit => u64,
             .kitty_image_medium_file,
-            .kitty_image_medium_temp_file,
             .kitty_image_medium_shared_mem,
             => bool,
+            .kitty_image_medium_temp_file => lib.String,
             .kitty_graphics => KittyGraphics,
             .selection => selection_c.CSelection,
         };
@@ -698,7 +759,7 @@ pub fn get(
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(TerminalData, @intFromEnum(data)) catch {
+        _ = std.enums.fromInt(TerminalData, @intFromEnum(data)) orelse {
             log.warn("terminal_get invalid data value={d}", .{@intFromEnum(data)});
             return .invalid_value;
         };
@@ -787,7 +848,11 @@ fn getTyped(
         },
         .kitty_image_medium_temp_file => {
             if (comptime !build_options.kitty_graphics) return .no_value;
-            out.* = t.screens.active.kitty_images.image_limits.temporary_file;
+            const dir = switch (t.screens.active.kitty_images.image_limits.temporary_file) {
+                .enabled => |d| d.directory,
+                .disabled => "",
+            };
+            out.* = .{ .ptr = dir.ptr, .len = dir.len };
         },
         .kitty_image_medium_shared_mem => {
             if (comptime !build_options.kitty_graphics) return .no_value;
@@ -885,6 +950,7 @@ pub fn free(terminal_: Terminal) callconv(lib.calling_conv) void {
     wrapper.tracked_grid_refs.deinit(alloc);
     wrapper.stream.deinit();
     t.deinit(alloc);
+    wrapper.io_impl.deinit();
     alloc.destroy(t);
     alloc.destroy(wrapper);
 }

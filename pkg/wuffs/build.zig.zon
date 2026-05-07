@@ -3,6 +3,12 @@
     .version = "0.0.0",
     .fingerprint = 0x67c0c059de921c4f,
     .dependencies = .{
+        .translate_c = .{
+            .lazy = true,
+            .url = "https://codeberg.org/vancluever/translate-c/archive/a5bc193c925b03f74d44e1a4b29c117822473b91.tar.gz",
+            .hash = "translate_c-0.0.0-Q_BUWhFXBwBZBr7EnRC97AKPYXbwHkpcc4TASklMqZu9",
+        },
+
         // google/wuffs
         .wuffs = .{
             .url = "https://deps.files.ghostty.org/wuffs-122037b39d577ec2db3fd7b2130e7b69ef6cc1807d68607a7c232c958315d381b5cd.tar.gz",

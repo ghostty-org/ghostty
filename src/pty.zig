@@ -153,19 +153,20 @@ const PosixPty = struct {
         // Set CLOEXEC on the master fd, only the slave fd should be inherited
         // by the child process (shell/command).
         cloexec: {
-            const flags = posix.fcntl(master_fd, posix.F.GETFD, 0) catch |err| {
-                log.warn("error getting flags for master fd err={}", .{err});
+            const flags = posix.system.fcntl(master_fd, posix.F.GETFD);
+            if (flags == -1) {
+                log.warn("error getting flags for master fd err=E{s}", .{@tagName(posix.errno(-1))});
                 break :cloexec;
-            };
+            }
 
-            _ = posix.fcntl(
+            switch (posix.errno(posix.system.fcntl(
                 master_fd,
                 posix.F.SETFD,
                 flags | posix.FD_CLOEXEC,
-            ) catch |err| {
-                log.warn("error setting CLOEXEC on master fd err={}", .{err});
-                break :cloexec;
-            };
+            ))) {
+                .SUCCESS => {},
+                else => |e| log.warn("error setting CLOEXEC on master fd err=E{}", .{e}),
+            }
         }
 
         // Enable UTF-8 mode. I think this is on by default on Linux but it
@@ -260,8 +261,8 @@ const PosixPty = struct {
         }
 
         // Can close master/slave pair now
-        posix.close(self.slave);
-        posix.close(self.master);
+        _ = posix.system.close(self.slave);
+        _ = posix.system.close(self.master);
     }
 
     /// Get information about the process(es) attached to the PTY. Returns

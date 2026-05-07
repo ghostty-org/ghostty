@@ -82,7 +82,8 @@ pub fn xtgettcapMap(comptime self: Source) std.StaticStringMap([]const u8) {
     kvs[2] = .{ "RGB", "8" };
     for (self.capabilities, 3..) |cap, i| {
         kvs[i] = .{
-            cap.name, switch (cap.value) {
+            cap.name,
+            switch (cap.value) {
                 .canceled => @compileError("canceled not handled yet"),
                 .boolean => "",
                 .string => |v| string: {
