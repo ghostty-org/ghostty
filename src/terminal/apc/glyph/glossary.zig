@@ -4,7 +4,9 @@
 //! (capacity+1)-th register for a fresh codepoint, the oldest entry is
 //! evicted (FIFO) to make room, per spec §4. Overwriting an existing
 //! codepoint replaces its outline but preserves both its stable slot
-//! index (used as an atlas cache key) and its insertion order.
+//! index (used as an atlas cache key) and its position in insertion
+//! order. Insertion order comes for free from the array-hash-map
+//! backing — `keys()[0]` is always the next eviction candidate.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -29,27 +31,24 @@ pub const Entry = struct {
     width: Width,
     /// Stable slot index in `0..capacity`.
     slot: u16,
-    /// Monotonic insertion counter used for FIFO eviction.
-    insertion_id: u64,
 };
 
 /// Per-session glyph-protocol glossary. `Terminal` owns one of these.
 pub const Glossary = struct {
-    by_cp: std.AutoHashMapUnmanaged(u21, Entry) = .empty,
+    /// Insertion-ordered map. `keys()[0]` is the oldest entry (next
+    /// FIFO eviction candidate); `put` on an existing key preserves
+    /// the entry's position.
+    by_cp: std.AutoArrayHashMapUnmanaged(u21, Entry) = .empty,
     /// Reverse index: `slots[i]` is the codepoint currently using slot
     /// `i`, or `null` if the slot is free.
     slots: [capacity]?u21 = [_]?u21{null} ** capacity,
-    /// Counter stamped on each fresh registration; survives eviction so
-    /// the "oldest" entry is always the one with the smallest id.
-    next_insertion: u64 = 0,
     /// Incremented on every mutation (register, clearOne, clearAll).
     /// Consumers (e.g. the renderer) compare their last-seen value to
     /// detect when they need to resync their snapshot of the glossary.
     mutation_count: u64 = 0,
 
     pub fn deinit(self: *Glossary, alloc: Allocator) void {
-        var it = self.by_cp.valueIterator();
-        while (it.next()) |entry| entry.payload.deinit(alloc);
+        for (self.by_cp.values()) |*entry| entry.payload.deinit(alloc);
         self.by_cp.deinit(alloc);
         self.* = undefined;
     }
@@ -99,8 +98,8 @@ pub const Glossary = struct {
         if (self.findFreeSlot()) |free| {
             slot = free;
         } else {
-            const oldest_cp = self.oldestCp() orelse unreachable;
-            const entry = self.by_cp.fetchRemove(oldest_cp).?.value;
+            const oldest_cp = self.by_cp.keys()[0];
+            const entry = self.by_cp.fetchOrderedRemove(oldest_cp).?.value;
             slot = entry.slot;
             self.slots[slot] = null;
             var evicted_payload = entry.payload;
@@ -115,9 +114,7 @@ pub const Glossary = struct {
             .upm = upm,
             .width = width,
             .slot = slot,
-            .insertion_id = self.next_insertion,
         });
-        self.next_insertion +%= 1;
         self.slots[slot] = cp;
         return evicted;
     }
@@ -131,8 +128,10 @@ pub const Glossary = struct {
     }
 
     /// Drop the registration for `cp`. No-op if nothing was registered.
+    /// Uses `fetchOrderedRemove` so insertion order is preserved for the
+    /// remaining entries (eviction still picks the actual oldest).
     pub fn clearOne(self: *Glossary, alloc: Allocator, cp: u21) void {
-        if (self.by_cp.fetchRemove(cp)) |kv| {
+        if (self.by_cp.fetchOrderedRemove(cp)) |kv| {
             self.mutation_count +%= 1;
             self.slots[kv.value.slot] = null;
             var payload = kv.value.payload;
@@ -144,8 +143,7 @@ pub const Glossary = struct {
     pub fn clearAll(self: *Glossary, alloc: Allocator) void {
         if (self.by_cp.count() == 0) return;
         self.mutation_count +%= 1;
-        var it = self.by_cp.valueIterator();
-        while (it.next()) |entry| entry.payload.deinit(alloc);
+        for (self.by_cp.values()) |*entry| entry.payload.deinit(alloc);
         self.by_cp.clearRetainingCapacity();
         self.slots = [_]?u21{null} ** capacity;
     }
@@ -161,19 +159,6 @@ pub const Glossary = struct {
     fn findFreeSlot(self: *const Glossary) ?u16 {
         for (self.slots, 0..) |s, i| if (s == null) return @intCast(i);
         return null;
-    }
-
-    fn oldestCp(self: *const Glossary) ?u21 {
-        var best_cp: ?u21 = null;
-        var best_id: u64 = std.math.maxInt(u64);
-        var it = self.by_cp.iterator();
-        while (it.next()) |kv| {
-            if (kv.value_ptr.insertion_id < best_id) {
-                best_id = kv.value_ptr.insertion_id;
-                best_cp = kv.key_ptr.*;
-            }
-        }
-        return best_cp;
     }
 };
 
@@ -238,7 +223,6 @@ test "overwrite preserves slot and insertion order" {
     _ = try g.register(testing.allocator, 0xE0A1, markerOutline(2), 1000, .narrow);
 
     const slot_before = g.get(0xE0A0).?.slot;
-    const insertion_before = g.get(0xE0A0).?.insertion_id;
 
     const evicted = try g.register(testing.allocator, 0xE0A0, markerOutline(9), 2048, .narrow);
     try testing.expect(evicted == null);
@@ -247,9 +231,10 @@ test "overwrite preserves slot and insertion order" {
     try testing.expectEqual(@as(i32, 9), a.payload.glyf.x_min);
     try testing.expectEqual(@as(u16, 2048), a.upm);
     try testing.expectEqual(slot_before, a.slot);
-    try testing.expectEqual(insertion_before, a.insertion_id);
-    // Second registration's id stays larger than the overwritten first.
-    try testing.expect(g.get(0xE0A1).?.insertion_id > a.insertion_id);
+    // Overwrite must keep the original ordering: 0xE0A0 still sits ahead
+    // of 0xE0A1 in the eviction queue.
+    try testing.expectEqual(@as(u21, 0xE0A0), g.by_cp.keys()[0]);
+    try testing.expectEqual(@as(u21, 0xE0A1), g.by_cp.keys()[1]);
 }
 
 test "distinct registrations get distinct slots" {
