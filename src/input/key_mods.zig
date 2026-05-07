@@ -472,6 +472,28 @@ pub const RemapSet = struct {
         unreachable;
     }
 
+    /// Apply the inverse of a remap to the given mods.
+    pub fn unapply(self: *const RemapSet, mods: Mods) Mods {
+        const mods_binding: Mods.Keys.Backing = @truncate(mods.int());
+        const mods_sides: Mods.Side.Backing = @bitCast(mods.sides);
+
+        var it = self.map.iterator();
+        while (it.next()) |entry| {
+            const to = entry.value_ptr.*;
+            const to_binding: Mods.Keys.Backing = @truncate(to.int());
+            if (mods_binding & to_binding != to_binding) continue;
+            const to_sides: Mods.Side.Backing = @bitCast(to.sides);
+            if ((mods_sides ^ to_sides) & to_binding != 0) continue;
+
+            var mods_int = mods.int();
+            mods_int &= ~to.int();
+            mods_int |= entry.key_ptr.*.int();
+            return @bitCast(mods_int);
+        }
+
+        return mods;
+    }
+
     /// Tracks which modifier keys and sides have remappings registered.
     /// Used as a fast pre-check before doing expensive map lookups.
     ///
@@ -650,6 +672,57 @@ test "RemapSet: multiple parses accumulate" {
     try testing.expectEqual(left_ctrl_result, set.apply(left_alt));
 }
 
+test "RemapSet: unapply reverses a sided remap" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+
+    try set.parse(alloc, "left_ctrl=left_super");
+    set.finalize();
+
+    const left_ctrl: Mods = .{ .ctrl = true, .sides = .{ .ctrl = .left } };
+    const left_super: Mods = .{ .super = true, .sides = .{ .super = .left } };
+    try testing.expectEqual(left_ctrl, set.unapply(left_super));
+    try testing.expectEqual(left_super, set.apply(set.unapply(left_super)));
+}
+
+test "RemapSet: unapply returns input when nothing matches" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+
+    try set.parse(alloc, "ctrl=super");
+    set.finalize();
+
+    const left_alt: Mods = .{ .alt = true, .sides = .{ .alt = .left } };
+    try testing.expectEqual(left_alt, set.unapply(left_alt));
+}
+
+test "RemapSet: unapply with multiple remaps targeting the same modifier" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+
+    // Both ctrl and alt remap to super. unapply on super is ambiguous,
+    // so we only assert that the result round-trips back to super under
+    // apply (the property config_trigger_ relies on for the menu).
+    try set.parse(alloc, "ctrl=super");
+    try set.parse(alloc, "alt=super");
+    set.finalize();
+
+    const left_super: Mods = .{ .super = true, .sides = .{ .super = .left } };
+    const reversed = set.unapply(left_super);
+    try testing.expect(reversed.ctrl or reversed.alt);
+    try testing.expect(!reversed.super);
+    try testing.expectEqual(left_super, set.apply(reversed));
+}
+
 test "RemapSet: error on missing assignment" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -791,6 +864,9 @@ test "RemapSet: parse aliased modifiers command" {
     const left_super: Mods = .{ .super = true, .sides = .{ .super = .left } };
     const left_alt: Mods = .{ .alt = true, .sides = .{ .alt = .left } };
     try testing.expectEqual(left_alt, set.apply(left_super));
+    const unmapped = set.unapply(left_alt);
+    try testing.expect(unmapped.super);
+    try testing.expect(!unmapped.alt);
 }
 
 test "RemapSet: parse aliased modifiers opt and option" {

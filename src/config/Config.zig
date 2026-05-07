@@ -1903,14 +1903,10 @@ keybind: Keybinds = .{},
 /// * Generic modifiers (e.g. `ctrl`) match both left and right physical keys.
 ///   Use sided names (e.g. `left_ctrl`) to remap only one side.
 ///
-/// There are other edge case scenarios that may not behave as expected
-/// but are working as intended the way this feature is designed:
-///
-/// * On macOS, bindings in the main menu will trigger before any remapping
-///   is done. This is because macOS itself handles menu activation and
-///   this happens before Ghostty receives the key event. To workaround
-///   this, you should unbind the menu items and rebind them using your
-///   desired modifier.
+/// On macOS, Ghostty applies key-remap when configuring menu key equivalents
+/// so that menu shortcuts use the physical modifiers that map to the
+/// configured keybind. Shortcuts whose configured modifiers cannot be
+/// produced after remapping are left unset in the menu.
 ///
 /// This configuration can be repeated to specify multiple remaps.
 @"key-remap": KeyRemapSet = .empty,
@@ -6416,8 +6412,13 @@ pub const RepeatableFontVariation = struct {
 /// a key event should be sent to the terminal or not.
 pub fn keyEventIsBinding(
     self: *Config,
-    event: inputpkg.KeyEvent,
+    event_orig: inputpkg.KeyEvent,
 ) bool {
+    var event = event_orig;
+    if (self.@"key-remap".isRemapped(event_orig.mods)) {
+        event.mods = self.@"key-remap".apply(event_orig.mods);
+    }
+
     switch (event.action) {
         .release => return false,
         .press, .repeat => {},
