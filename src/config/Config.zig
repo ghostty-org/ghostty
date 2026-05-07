@@ -2806,7 +2806,10 @@ keybind: Keybinds = .{},
 ///
 ///   * `detect` - Detect the shell based on the filename.
 ///
-///   * `bash`, `elvish`, `fish`, `nushell`, `zsh` - Use this specific shell injection scheme.
+///   * `bash`, `elvish`, `fish`, `nushell`, `zsh` - Use this specific shell
+///     injection scheme if the command is this shell. Has no effect if the
+///     command is not a shell, or is a different shell from the one specified
+///     here.
 ///
 /// The default value is `detect`.
 @"shell-integration": ShellIntegration = .detect,

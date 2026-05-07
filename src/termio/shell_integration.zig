@@ -10,13 +10,7 @@ const internal_os = @import("../os/main.zig");
 const log = std.log.scoped(.shell_integration);
 
 /// Shell types we support
-pub const Shell = enum {
-    bash,
-    elvish,
-    fish,
-    nushell,
-    zsh,
-};
+pub const Shell = config.Command.Shell;
 
 /// The result of setting up a shell integration.
 pub const ShellIntegration = struct {
@@ -46,9 +40,20 @@ pub fn setup(
     env: *EnvMap,
     force_shell: ?Shell,
 ) !?ShellIntegration {
+    const actual_shell = command.detectShell();
     const shell: Shell = force_shell orelse
-        try detectShell(alloc_arena, command) orelse
+        actual_shell orelse
         return null;
+
+    // Don't do any shell integration if we're not actually running the shell.
+    // This prevents problems when the command is overridden by `+new-window`
+    // or some other mechanism and `shell-integration` is forced to a specific
+    // shell rather than being detected.
+    //
+    // This means that `shell-integration=<shell>` has no effect if we detect
+    // that the command is not a shell, or is not the shell specified by
+    // `shell-integration`.
+    if (shell != actual_shell) return null;
 
     const new_command: config.Command = switch (shell) {
         .bash => try setupBash(
@@ -107,7 +112,7 @@ test "force shell" {
             &env,
             shell,
         );
-        try testing.expectEqual(shell, result.?.shell);
+        try testing.expect(result == null);
     }
 }
 
@@ -131,57 +136,6 @@ test "shell integration failure" {
 
     try testing.expect(result == null);
     try testing.expectEqual(0, env.count());
-}
-
-fn detectShell(alloc: Allocator, command: config.Command) !?Shell {
-    var arg_iter = try command.argIterator(alloc);
-    defer arg_iter.deinit();
-
-    const arg0 = arg_iter.next() orelse return null;
-    const exe = std.fs.path.basename(arg0);
-
-    if (std.mem.eql(u8, "bash", exe)) {
-        // Apple distributes their own patched version of Bash 3.2
-        // on macOS that disables the ENV-based POSIX startup path.
-        // This means we're unable to perform our automatic shell
-        // integration sequence in this specific environment.
-        //
-        // If we're running "/bin/bash" on Darwin, we can assume
-        // we're using Apple's Bash because /bin is non-writable
-        // on modern macOS due to System Integrity Protection.
-        if (comptime builtin.target.os.tag.isDarwin()) {
-            if (std.mem.eql(u8, "/bin/bash", arg0)) {
-                return null;
-            }
-        }
-        return .bash;
-    }
-
-    if (std.mem.eql(u8, "elvish", exe)) return .elvish;
-    if (std.mem.eql(u8, "fish", exe)) return .fish;
-    if (std.mem.eql(u8, "nu", exe)) return .nushell;
-    if (std.mem.eql(u8, "zsh", exe)) return .zsh;
-
-    return null;
-}
-
-test detectShell {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    try testing.expect(try detectShell(alloc, .{ .shell = "sh" }) == null);
-    try testing.expectEqual(.bash, try detectShell(alloc, .{ .shell = "bash" }));
-    try testing.expectEqual(.elvish, try detectShell(alloc, .{ .shell = "elvish" }));
-    try testing.expectEqual(.fish, try detectShell(alloc, .{ .shell = "fish" }));
-    try testing.expectEqual(.nushell, try detectShell(alloc, .{ .shell = "nu" }));
-    try testing.expectEqual(.zsh, try detectShell(alloc, .{ .shell = "zsh" }));
-
-    if (comptime builtin.target.os.tag.isDarwin()) {
-        try testing.expect(try detectShell(alloc, .{ .shell = "/bin/bash" }) == null);
-    }
-
-    try testing.expectEqual(.bash, try detectShell(alloc, .{ .shell = "bash -c 'command'" }));
-    try testing.expectEqual(.bash, try detectShell(alloc, .{ .shell = "\"/a b/bash\"" }));
 }
 
 /// Set up the shell integration features environment variable.
