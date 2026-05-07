@@ -79,8 +79,7 @@ previous_char: ?u21 = null,
 /// The modes that this terminal currently has active.
 modes: modespkg.ModeState = .{},
 
-/// Glyph Protocol session glossary. Owns every live registration for
-/// this session; isolated per-terminal per spec §4.
+/// Glyph Protocol session glossary.
 glyph_glossary: glyph.Glossary = .{},
 
 /// The most recently set mouse shape for the terminal.
@@ -567,8 +566,7 @@ pub fn print(self: *Terminal, c: u21) !void {
     // Glyph Protocol registrations override the Unicode table for
     // their codepoint — `width=2` PUA glyphs need a wide cell +
     // spacer_tail allocated at print time, not just at render time.
-    // PUA codepoints can never be ≤ 0xFF, so the byte fast-path is
-    // preserved.
+    // note: PUA codepoints can never be ≤ 0xFF.
     const width: usize = if (c <= 0xFF)
         1
     else if (self.glyph_glossary.widthFor(c)) |w|

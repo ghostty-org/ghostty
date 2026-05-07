@@ -232,9 +232,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Our overlay state, if any.
         overlay: ?Overlay = null,
 
-        /// Glyph Protocol renderer-side state. Snapshots the terminal's
-        /// session glossary each frame and rasterizes registered
-        /// outlines into the grayscale atlas on first use.
+        /// Glyph Protocol renderer-side state.
         glyph_protocol: glyph_protocol.State,
 
         const HighlightTag = enum(u8) {

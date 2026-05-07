@@ -25,26 +25,11 @@ const Width = terminal.apc.glyph.request.Width;
 
 pub const State = struct {
     alloc: Allocator,
-
-    /// Cloned payloads from the terminal's glossary, keyed by
-    /// codepoint. Populated under the terminal mutex in `syncFrom`;
-    /// read lock-free from the render thread afterwards.
     payloads: std.AutoHashMapUnmanaged(u21, Clone) = .empty,
-
-    /// Rasterized atlas entries cached across frames.
     bitmaps: std.AutoHashMapUnmanaged(BitmapKey, font.Glyph) = .empty,
-
-    /// Last-seen `Glossary.mutation_count`. When the current value
-    /// differs, payloads and bitmaps are resynced on the next call
-    /// to `syncFrom`.
     last_mutation: u64 = 0,
-
-    /// True once `syncFrom` has been called at least once. Lets the
-    /// initial sync run even when a freshly-initialized glossary has
-    /// `mutation_count == 0`.
     initialized: bool = false,
 
-    /// Cloned form of one registration.
     pub const Clone = struct {
         outline: glyf.Outline,
         upm: u16,
@@ -76,8 +61,6 @@ pub const State = struct {
         self.payloads.clearRetainingCapacity();
     }
 
-    /// Drop every cached rasterized bitmap.
-    ///
     /// Bitmap entries store atlas coordinates that are only valid for
     /// the atlas they were rasterized into. When the renderer swaps
     /// font grids (and therefore atlases), those coordinates become
@@ -162,9 +145,6 @@ pub const State = struct {
     }
 };
 
-/// Output of `resolve`: the rasterized atlas entry plus the
-/// registration's authoritative width. Renderers use the width to
-/// place the glyph correctly when it spans more than one cell.
 pub const Resolved = struct {
     glyph: font.Glyph,
     width: Width,
@@ -200,9 +180,6 @@ fn rasterizeGlyf(
     };
 }
 
-/// Deep-copy an `Outline` into renderer-owned storage. The source's
-/// `contours` slices into its `points`; the copy preserves that
-/// relationship by remapping offsets into the fresh points buffer.
 fn cloneOutline(alloc: Allocator, src: glyf.Outline) Allocator.Error!glyf.Outline {
     if (src.points.len == 0) {
         return .{

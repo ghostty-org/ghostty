@@ -41,9 +41,7 @@ pub const Handler = struct {
 
             // We identify the APC command by the first byte.
             .identify => |*id| id: {
-                // Kitty graphics is detected immediately on the `G` byte,
-                // since commands begin immediately after with no termination
-                // character after the 'G'.
+                // Kitty graphics protocol
                 if (comptime build_options.kitty_graphics) {
                     if (id.len == 0 and byte == 'G') {
                         self.state = .{ .kitty = .init(
@@ -186,8 +184,8 @@ pub const Protocol = enum {
             // encoded as base64), so the default is set to 65 MiB.
             .kitty => 65 * 1024 * 1024,
             // Glyph protocol messages carry single glyf outlines which
-            // are small, but base64 encoding inflates them. 1 MiB is
-            // generous for any single simple-glyph record.
+            // are small, but base64 encoding inflates them.
+            // 1 MiB is the max under the specification.
             .glyph => 1 * 1024 * 1024,
         };
     }
