@@ -31,11 +31,6 @@ pub const Entry = struct {
     slot: u16,
     /// Monotonic insertion counter used for FIFO eviction.
     insertion_id: u64,
-    /// Value of `Glossary.mutation_count` at the time this entry was
-    /// written (fresh insert OR overwrite). Paired with the codepoint,
-    /// it gives consumers (e.g. the renderer's rasterized-bitmap
-    /// cache) a stable key that invalidates exactly on write.
-    generation: u64,
 };
 
 /// Per-session glyph-protocol glossary. `Terminal` owns one of these.
@@ -95,7 +90,6 @@ pub const Glossary = struct {
             existing.payload = payload;
             existing.upm = upm;
             existing.width = width;
-            existing.generation = self.mutation_count;
             old.deinit(alloc);
             return null;
         }
@@ -122,7 +116,6 @@ pub const Glossary = struct {
             .width = width,
             .slot = slot,
             .insertion_id = self.next_insertion,
-            .generation = self.mutation_count,
         });
         self.next_insertion +%= 1;
         self.slots[slot] = cp;
@@ -351,7 +344,6 @@ test "mutation_count bumps on register, overwrite, clear" {
 
     _ = try g.register(testing.allocator, 0xE0A0, markerOutline(1), 1000, .narrow); // overwrite
     try testing.expectEqual(@as(u64, 2), g.mutation_count);
-    try testing.expectEqual(@as(u64, 2), g.get(0xE0A0).?.generation);
 
     g.clearOne(testing.allocator, 0xE0A0);
     try testing.expectEqual(@as(u64, 3), g.mutation_count);

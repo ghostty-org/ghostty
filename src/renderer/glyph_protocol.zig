@@ -9,9 +9,9 @@
 //! At cell-emission time the renderer asks `resolve` for the atlas
 //! entry of a registered codepoint at a specific cell size. On cache
 //! miss this rasterizes the payload via `font.GlyphRaster`
-//! into the grayscale atlas. The bitmap cache is keyed on
-//! `(codepoint, generation, cell size)` so an overwrite or clear
-//! invalidates the stale entry exactly when the glossary mutates.
+//! into the grayscale atlas. The bitmap cache is fully wiped in
+//! `syncFrom` whenever the glossary mutates, so an overwrite or
+//! clear can never leave a stale entry behind.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -34,12 +34,10 @@ pub const State = struct {
         outline: glyf.Outline,
         upm: u16,
         width: Width,
-        generation: u64,
     };
 
     pub const BitmapKey = struct {
         cp: u21,
-        generation: u64,
         cell_w: u16,
         cell_h: u16,
     };
@@ -95,7 +93,6 @@ pub const State = struct {
                 .outline = cloned,
                 .upm = entry.upm,
                 .width = entry.width,
-                .generation = entry.generation,
             });
         }
 
@@ -124,7 +121,6 @@ pub const State = struct {
         const span_w: u16 = cell_w *| clone.width.cells();
         const key: BitmapKey = .{
             .cp = cp,
-            .generation = clone.generation,
             .cell_w = cell_w,
             .cell_h = cell_h,
         };
