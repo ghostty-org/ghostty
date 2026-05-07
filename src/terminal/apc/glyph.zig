@@ -126,6 +126,10 @@
 
 const std = @import("std");
 
+/// APC prefix that identifies a Glyph Protocol message. The literal
+/// is the hex form of U+25A1 WHITE SQUARE — the canonical tofu symbol.
+pub const identifier = "25a1";
+
 pub const request = @import("glyph/request.zig");
 pub const response = @import("glyph/response.zig");
 pub const handler = @import("glyph/handler.zig");
