@@ -64,13 +64,19 @@ pub fn reasonString(err: DecodeError) ?[]const u8 {
     };
 }
 
-// glyf simple-glyph flag bits (OpenType spec).
+// glyf simple-glyph flag bits.
 const FLAG_ON_CURVE: u8 = 0x01;
 const FLAG_X_SHORT: u8 = 0x02;
 const FLAG_Y_SHORT: u8 = 0x04;
 const FLAG_REPEAT: u8 = 0x08;
 const FLAG_X_SAME_OR_POS: u8 = 0x10;
 const FLAG_Y_SAME_OR_POS: u8 = 0x20;
+/// Hint that contours may overlap. When set, the spec requires it
+/// to appear only on the first flag byte for the glyph. We don't
+/// currently use it but we validate placement.
+const FLAG_OVERLAP_SIMPLE: u8 = 0x40;
+/// Bit 7 is reserved; the spec requires it to be zero.
+const FLAG_RESERVED: u8 = 0x80;
 
 /// Decode a simple-glyph record. The returned `Outline` owns its
 /// allocations; callers must `deinit`.
@@ -85,6 +91,10 @@ pub fn decode(alloc: Allocator, data: []const u8) DecodeError!Outline {
     const y_min = try r.i16be();
     const x_max = try r.i16be();
     const y_max = try r.i16be();
+
+    // The spec defines xMax/yMax as the maxima of the point data, so
+    // a min strictly greater than its corresponding max is malformed.
+    if (x_min > x_max or y_min > y_max) return error.Malformed;
 
     // An empty glyph (numberOfContours == 0) is structurally valid: the
     // bounding box is the only remaining field. Used for rendering
@@ -123,8 +133,14 @@ pub fn decode(alloc: Allocator, data: []const u8) DecodeError!Outline {
     defer alloc.free(flags);
     {
         var idx: usize = 0;
+        var first_byte = true;
         while (idx < num_points) {
             const f = try r.byte();
+            if (f & FLAG_RESERVED != 0) return error.Malformed;
+            if (!first_byte and f & FLAG_OVERLAP_SIMPLE != 0) {
+                return error.Malformed;
+            }
+            first_byte = false;
             flags[idx] = f;
             idx += 1;
             if (f & FLAG_REPEAT != 0) {
@@ -143,7 +159,9 @@ pub fn decode(alloc: Allocator, data: []const u8) DecodeError!Outline {
     errdefer alloc.free(points);
 
     // X coordinates: delta encoding with SHORT (u8) / SAME_OR_POS
-    // fallback. See OpenType glyf §Simple Glyph Flags.
+    // fallback. See OpenType glyf §Simple Glyph Flags. Running sum is
+    // kept in i32 and overflow-checked since the wire input is
+    // attacker-controlled.
     var cx: i32 = 0;
     for (flags, 0..) |f, p| {
         var dx: i32 = 0;
@@ -153,7 +171,7 @@ pub fn decode(alloc: Allocator, data: []const u8) DecodeError!Outline {
         } else if (f & FLAG_X_SAME_OR_POS == 0) {
             dx = try r.i16be();
         }
-        cx += dx;
+        cx = std.math.add(i32, cx, dx) catch return error.Malformed;
         points[p].x = cx;
     }
 
@@ -167,7 +185,7 @@ pub fn decode(alloc: Allocator, data: []const u8) DecodeError!Outline {
         } else if (f & FLAG_Y_SAME_OR_POS == 0) {
             dy = try r.i16be();
         }
-        cy += dy;
+        cy = std.math.add(i32, cy, dy) catch return error.Malformed;
         points[p].y = cy;
         points[p].on_curve = (flags[p] & FLAG_ON_CURVE) != 0;
     }
@@ -210,10 +228,9 @@ const Reader = struct {
 
     fn u16be(self: *Reader) error{Malformed}!u16 {
         try self.need(2);
-        const hi: u16 = self.data[self.pos];
-        const lo: u16 = self.data[self.pos + 1];
+        const v = std.mem.readInt(u16, self.data[self.pos..][0..2], .big);
         self.pos += 2;
-        return (hi << 8) | lo;
+        return v;
     }
 
     fn i16be(self: *Reader) error{Malformed}!i16 {
@@ -222,11 +239,6 @@ const Reader = struct {
 };
 
 const testing = std.testing;
-
-// Flag bits duplicated for tests that hand-encode glyf records without
-// reaching into the decoder internals.
-const T_FLAG_ON_CURVE: u8 = 0x01;
-const T_FLAG_REPEAT: u8 = 0x08;
 
 fn pushBe(buf: *std.ArrayList(u8), comptime T: type, v: T) !void {
     var arr: [@sizeOf(T)]u8 = undefined;
@@ -244,9 +256,9 @@ fn triangleBytes(buf: *std.ArrayList(u8)) !void {
     try pushBe(buf, i16, 900); // yMax
     try pushBe(buf, u16, 2); // endPtsOfContours[0]
     try pushBe(buf, u16, 0); // instructionLength
-    try buf.append(testing.allocator, T_FLAG_ON_CURVE);
-    try buf.append(testing.allocator, T_FLAG_ON_CURVE);
-    try buf.append(testing.allocator, T_FLAG_ON_CURVE);
+    try buf.append(testing.allocator, FLAG_ON_CURVE);
+    try buf.append(testing.allocator, FLAG_ON_CURVE);
+    try buf.append(testing.allocator, FLAG_ON_CURVE);
     // X deltas: 500, -400, 800 as signed i16 BE.
     try pushBe(buf, i16, 500);
     try pushBe(buf, i16, -400);
@@ -292,7 +304,7 @@ test "decode rejects hinting" {
     try pushBe(&buf, u16, 0); // endPts[0]
     try pushBe(&buf, u16, 1); // instructionLength=1
     try buf.append(testing.allocator, 0x00); // one instruction byte
-    try buf.append(testing.allocator, T_FLAG_ON_CURVE);
+    try buf.append(testing.allocator, FLAG_ON_CURVE);
     try pushBe(&buf, i16, 0);
     try pushBe(&buf, i16, 0);
 
@@ -318,7 +330,7 @@ test "decode handles REPEAT flag" {
     try pushBe(&buf, u16, 3); // endPts[0]=3 → 4 points
     try pushBe(&buf, u16, 0); // instructionLength
     // 4 points with identical flags, encoded as one flag byte + REPEAT count 3.
-    try buf.append(testing.allocator, T_FLAG_ON_CURVE | T_FLAG_REPEAT);
+    try buf.append(testing.allocator, FLAG_ON_CURVE | FLAG_REPEAT);
     try buf.append(testing.allocator, 3);
     for ([_]i16{ 10, 10, 10, 10 }) |dx| try pushBe(&buf, i16, dx);
     for ([_]i16{ 0, 10, 0, -10 }) |dy| try pushBe(&buf, i16, dy);
@@ -388,4 +400,66 @@ test "reasonString covers every spec code" {
     try testing.expectEqualStrings("hinting_unsupported", reasonString(error.Hinted).?);
     try testing.expectEqualStrings("malformed_payload", reasonString(error.Malformed).?);
     try testing.expect(reasonString(error.OutOfMemory) == null);
+}
+
+test "decode rejects reserved flag bit" {
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    try pushBe(&buf, i16, 1);
+    try buf.appendSlice(testing.allocator, &[_]u8{0} ** 8);
+    try pushBe(&buf, u16, 0); // endPts[0] = 0 → 1 point
+    try pushBe(&buf, u16, 0); // instructionLength
+    try buf.append(testing.allocator, FLAG_ON_CURVE | FLAG_RESERVED);
+    try pushBe(&buf, i16, 0); // x delta
+    try pushBe(&buf, i16, 0); // y delta
+
+    try testing.expectError(error.Malformed, decode(testing.allocator, buf.items));
+}
+
+test "decode rejects backwards bbox" {
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    try pushBe(&buf, i16, 0); // numContours
+    try pushBe(&buf, i16, 100); // x_min
+    try pushBe(&buf, i16, 0); // y_min
+    try pushBe(&buf, i16, 50); // x_max < x_min
+    try pushBe(&buf, i16, 0); // y_max
+
+    try testing.expectError(error.Malformed, decode(testing.allocator, buf.items));
+}
+
+test "decode accepts OVERLAP_SIMPLE on first flag" {
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    try pushBe(&buf, i16, 1);
+    try buf.appendSlice(testing.allocator, &[_]u8{0} ** 8);
+    try pushBe(&buf, u16, 1); // endPts[0] = 1 → 2 points
+    try pushBe(&buf, u16, 0);
+    try buf.append(testing.allocator, FLAG_ON_CURVE | FLAG_OVERLAP_SIMPLE);
+    try buf.append(testing.allocator, FLAG_ON_CURVE);
+    try pushBe(&buf, i16, 0);
+    try pushBe(&buf, i16, 10);
+    try pushBe(&buf, i16, 0);
+    try pushBe(&buf, i16, 10);
+
+    var out = try decode(testing.allocator, buf.items);
+    defer out.deinit(testing.allocator);
+    try testing.expectEqual(@as(usize, 2), out.contours[0].len);
+}
+
+test "decode rejects OVERLAP_SIMPLE past first flag" {
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    try pushBe(&buf, i16, 1);
+    try buf.appendSlice(testing.allocator, &[_]u8{0} ** 8);
+    try pushBe(&buf, u16, 1); // endPts[0] = 1 → 2 points
+    try pushBe(&buf, u16, 0);
+    try buf.append(testing.allocator, FLAG_ON_CURVE);
+    try buf.append(testing.allocator, FLAG_ON_CURVE | FLAG_OVERLAP_SIMPLE);
+    try pushBe(&buf, i16, 0);
+    try pushBe(&buf, i16, 10);
+    try pushBe(&buf, i16, 0);
+    try pushBe(&buf, i16, 10);
+
+    try testing.expectError(error.Malformed, decode(testing.allocator, buf.items));
 }
