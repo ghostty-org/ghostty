@@ -23,8 +23,6 @@ struct TaskSidebarView: View {
     @EnvironmentObject private var workspaceStore: WorkspaceStore
     @Environment(\.colorScheme) private var colorScheme
 
-    @AppStorage("ghostties.hasSeenTasksPreviewNotice") private var hasSeenTasksPreviewNotice = false
-
     var body: some View {
         VStack(spacing: 0) {
             // D22: header strip with [+ Start] button at top-right.
@@ -32,16 +30,6 @@ struct TaskSidebarView: View {
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    if !hasSeenTasksPreviewNotice {
-                        SidebarCalloutCard(
-                            iconName: "wrench.and.screwdriver.fill",
-                            message: "Tasks is a preview of what's coming — it isn't wired up yet. Send feedback to sean@seansmithdesign.com.",
-                            onDismiss: { hasSeenTasksPreviewNotice = true }
-                        )
-                        .padding(.horizontal, 8)
-                        .padding(.top, 8)
-                        .padding(.bottom, 4)
-                    }
                     // Six-zone layout — locked order from the brief:
                     //
                     //   1. Inbox      — external arrivals (source-based); hides when empty
