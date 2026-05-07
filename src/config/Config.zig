@@ -2398,23 +2398,20 @@ keybind: Keybinds = .{},
 @"image-storage-limit": u32 = 320 * 1000 * 1000,
 
 /// Whether to automatically copy selected text to the clipboard. `true`
-/// will prefer to copy to the selection clipboard, otherwise it will copy to
-/// the system clipboard.
+/// will copy to the PRIMARY/SELECTION clipboard on Linux, with no action
+/// on MacOS. `primary` is an alias for `true`
 ///
-/// The value `clipboard` will always copy text to the selection clipboard
-/// as well as the system clipboard.
+/// The value `clipboard` will always copy text to the system clipboard.
+/// On Linux, the PRIMARY/SELECTION clipboard will not be modified.
 ///
-/// Middle-click primary paste (see `middle-click-action`) is enabled by
-/// default even if this is `false`. The clipboard it pastes from follows
-/// this setting: with `true` (or `false`) it reads from the selection
-/// clipboard (falling back to the system clipboard on platforms without a
-/// selection clipboard); with `clipboard` it reads from the system
-/// clipboard.
+/// The value `both` will copy to both clipboards on Linux, and only the
+/// system clipboard on MacOS.
 ///
-/// The default value is true on Linux and macOS.
+/// `false` will disable all copy-on-select, `none` is alias for `false`.
+///
+/// The default value is true on Linux and false otherwise
 @"copy-on-select": CopyOnSelect = switch (builtin.os.tag) {
     .linux => .true,
-    .macos => .true,
     else => .false,
 },
 
@@ -2434,8 +2431,9 @@ keybind: Keybinds = .{},
 /// The action to take when the user middle-clicks on the terminal surface.
 ///
 /// Valid values:
-///   * `primary-paste` - Paste from the selection (or system) clipboard per
-///      `copy-on-select`.
+///   * `primary-paste` - Paste from the PRIMARY/SELECTION clipboard on Linux.
+///      Does nothing on MacOS.
+///   * `clipboard-paste` - Paste from the system clipboard on Linux and MacOS.
 ///   * `ignore` - Do nothing, ignore the middle click.
 ///
 /// The default value is `primary-paste`.
@@ -8635,14 +8633,18 @@ pub const RepeatableLink = struct {
 pub const CopyOnSelect = enum {
     /// Disables copy on select entirely.
     false,
+    none,
 
     /// Copy on select is enabled, but goes to the selection clipboard.
     /// This is not supported on platforms such as macOS. This is the default.
     true,
+    primary,
 
     /// Copy on select is enabled and goes to both the system clipboard
     /// and the selection clipboard (for Linux).
     clipboard,
+
+    both,
 };
 
 /// Options for right-click actions.
@@ -8666,8 +8668,10 @@ pub const RightClickAction = enum {
 
 /// Options for middle-click actions.
 pub const MiddleClickAction = enum {
-    /// Paste from the selection/standard clipboard per `copy-on-select`.
+    /// Paste from primary/selection.
     @"primary-paste",
+    /// Paste from the clipboard.
+    @"clipboard-paste",
 
     /// No action is taken on middle click.
     ignore,
