@@ -18,6 +18,7 @@ const charsets = @import("charsets.zig");
 const csi = @import("csi.zig");
 const hyperlink = @import("hyperlink.zig");
 const kitty = @import("kitty.zig");
+const glyph = @import("apc/glyph.zig");
 const osc = @import("osc.zig");
 const point = @import("point.zig");
 const sgr = @import("sgr.zig");
@@ -77,6 +78,9 @@ previous_char: ?u21 = null,
 
 /// The modes that this terminal currently has active.
 modes: modespkg.ModeState = .{},
+
+/// Glyph Protocol session glossary.
+glyph_glossary: glyph.Glossary = .{},
 
 /// The most recently set mouse shape for the terminal.
 mouse_shape: mouse.Shape = .text,
@@ -252,6 +256,7 @@ pub fn init(
 }
 
 pub fn deinit(self: *Terminal, alloc: Allocator) void {
+    self.glyph_glossary.deinit(alloc);
     self.tabstops.deinit(alloc);
     self.screens.deinit(alloc);
     self.pwd.deinit(alloc);
@@ -557,7 +562,17 @@ pub fn print(self: *Terminal, c: u21) !void {
     // non-single-width characters properly. We have a fast-path for
     // byte-sized characters since they're so common. We can ignore
     // control characters because they're always filtered prior.
-    const width: usize = if (c <= 0xFF) 1 else @intCast(unicode.table.get(c).width);
+    //
+    // Glyph Protocol registrations override the Unicode table for
+    // their codepoint — `width=2` PUA glyphs need a wide cell +
+    // spacer_tail allocated at print time, not just at render time.
+    // note: PUA codepoints can never be ≤ 0xFF.
+    const width: usize = if (c <= 0xFF)
+        1
+    else if (self.glyph_glossary.widthFor(c)) |w|
+        w.cells()
+    else
+        @intCast(unicode.table.get(c).width);
 
     // Note: it is possible to have a width of "3" and a width of "-1" from
     // uucode.x's wcwidth. We should look into those cases and handle them

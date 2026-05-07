@@ -35,12 +35,15 @@
 //! payload formats it supports.
 //!
 //! Request:   `ESC _ 25a1 ; s ESC \`
-//! Response:  `ESC _ 25a1 ; s ; fmt=<bitfield> ESC \`
+//! Response:  `ESC _ 25a1 ; s ; fmt=<list> ESC \`
 //!
-//! `fmt` bits:
-//!   - bit 0 (`1`): `glyf`   — TrueType simple glyphs (required in v1)
-//!   - bit 1 (`2`): `colrv0` — COLR v0 layered flat-colour glyphs
-//!   - bit 2 (`4`): `colrv1` — COLR v1 paint-graph glyphs
+//! `fmt` is a comma-separated list of supported payload-format
+//! names. Currently advertised:
+//!   - `glyf` — TrueType simple glyphs (required in v1)
+//!
+//! Order is not significant; clients ignore unknown names so future
+//! formats are forward-compatible. An empty `fmt=` value means the
+//! terminal speaks the protocol but advertises no payload formats.
 //!
 //! Any reply confirms support; no reply within a timeout means the
 //! terminal does not implement the protocol.
@@ -50,13 +53,14 @@
 //! Asks whether a codepoint is renderable and by whom.
 //!
 //! Request:   `ESC _ 25a1 ; q ; cp=<hex> ESC \`
-//! Response:  `ESC _ 25a1 ; q ; cp=<hex> ; status=<u8> ESC \`
+//! Response:  `ESC _ 25a1 ; q ; cp=<hex> ; status=<list> ESC \`
 //!
-//! `status` is a two-bit field:
-//!   - `0` (`free`)     — nothing renders this codepoint (tofu)
-//!   - `1` (`system`)   — a system font covers it
-//!   - `2` (`glossary`) — a session registration covers it
-//!   - `3` (`both`)     — both; the registration shadows the system font
+//! `status` is a comma-separated list of coverage names — the set
+//! of sources that can render `cp`:
+//!   - empty (`status=`)  — nothing renders this codepoint (tofu)
+//!   - `system`           — a system font covers it
+//!   - `glossary`         — a session registration covers it
+//!   - `system,glossary`  — both; the registration shadows the system font
 //!
 //! ## Register (`r`)
 //!
@@ -74,8 +78,7 @@
 //!   - `cp`    — target codepoint (hex). Must be in a PUA range:
 //!               U+E000–U+F8FF, U+F0000–U+FFFFD, or U+100000–U+10FFFD.
 //!               Non-PUA values are rejected with `reason=out_of_namespace`.
-//!   - `fmt`   — payload format. Default `glyf`; `colrv0` and `colrv1`
-//!               are optional and advertised via the `s` reply.
+//!   - `fmt`   — payload format. Only `glyf` is currently supported.
 //!   - `upm`   — units-per-em for the coordinate space. Default 1000.
 //!   - `reply` — response verbosity:
 //!               `1` (default) = success + failure replies
@@ -123,9 +126,16 @@
 
 const std = @import("std");
 
+/// APC prefix that identifies a Glyph Protocol message. The literal
+/// is the hex form of U+25A1 WHITE SQUARE — the canonical tofu symbol.
+pub const identifier = "25a1";
+
 pub const request = @import("glyph/request.zig");
 pub const response = @import("glyph/response.zig");
+pub const handler = @import("glyph/handler.zig");
 
 pub const CommandParser = request.CommandParser;
 pub const Request = request.Request;
 pub const Response = response.Response;
+pub const Glossary = @import("glyph/glossary.zig").Glossary;
+pub const glyf = request.glyf;

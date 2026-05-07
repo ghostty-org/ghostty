@@ -28,6 +28,7 @@ const Terminal = terminal.Terminal;
 const Health = renderer.Health;
 
 const getConstraint = @import("../font/nerd_font_attributes.zig").getConstraint;
+const glyph_protocol = @import("glyph_protocol.zig");
 
 const FileType = @import("../file_type.zig").FileType;
 
@@ -230,6 +231,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         /// Our overlay state, if any.
         overlay: ?Overlay = null,
+
+        /// Glyph Protocol renderer-side state.
+        glyph_protocol: glyph_protocol.State,
 
         const HighlightTag = enum(u8) {
             search_match,
@@ -784,6 +788,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .api = api,
                 .swap_chain = swap_chain,
                 .display_link = display_link,
+
+                .glyph_protocol = .init(alloc),
             };
 
             try result.initShaders();
@@ -819,6 +825,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self.config.deinit();
 
             self.images.deinit(self.alloc);
+
+            self.glyph_protocol.deinit();
 
             if (self.bg_image) |img| img.deinit(self.alloc);
 
@@ -1094,6 +1102,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self.font_shaper_cache.deinit(self.alloc);
             self.font_shaper_cache = font_shaper_cache;
 
+            // The glyph-protocol bitmap cache stores atlas coordinates
+            // owned by the *previous* grid. After a swap those addresses
+            // refer to a different atlas, so drop them and let the next
+            // frame re-rasterize into the new one.
+            self.glyph_protocol.invalidateBitmaps();
+
             // Update cell size.
             self.size.cell = .{
                 .width = metrics.cell_width,
@@ -1198,6 +1212,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     // Scroll
                     state.terminal.scrollViewport(.bottom);
                 }
+
+                // Snapshot the glyph-protocol glossary while we still
+                // hold the terminal mutex. `syncFrom` no-ops when the
+                // glossary hasn't mutated since the last frame.
+                try self.glyph_protocol.syncFrom(&state.terminal.glyph_glossary);
 
                 // Update our terminal state
                 try self.terminal_state.update(self.alloc, state.terminal);
@@ -3172,6 +3191,43 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         ) !void {
             const cell = cell_raws[x];
             const cp = cell.codepoint();
+
+            // Glyph Protocol: if this codepoint has a session glossary
+            // registration, bypass the normal font path and draw from
+            // our rasterized outline. `glyf` registrations land in the
+            // grayscale atlas and inherit the cell's foreground colour.
+            // For `width=2` registrations the bitmap spans two cells —
+            // the shader extends it past the cell boundary because
+            // glyph_size.x exceeds cell_size.x.
+            if (std.math.cast(u21, cp)) |cp21| gp: {
+                const resolved = self.glyph_protocol.resolve(
+                    cp21,
+                    @intCast(self.grid_metrics.cell_width),
+                    @intCast(self.grid_metrics.cell_height),
+                    &self.font_grid.atlas_grayscale,
+                    &self.font_grid.lock,
+                ) catch |err| {
+                    log.warn("glyph protocol rasterize failed cp={x} err={}", .{ cp, err });
+                    break :gp;
+                } orelse break :gp;
+
+                const gp_glyph = resolved.glyph;
+                if (gp_glyph.width == 0 or gp_glyph.height == 0) return;
+
+                try self.cells.add(self.alloc, .text, .{
+                    .atlas = .grayscale,
+                    .bools = .{ .no_min_contrast = noMinContrast(cp) },
+                    .grid_pos = .{ @intCast(x), @intCast(y) },
+                    .color = .{ color.r, color.g, color.b, alpha },
+                    .glyph_pos = .{ gp_glyph.atlas_x, gp_glyph.atlas_y },
+                    .glyph_size = .{ gp_glyph.width, gp_glyph.height },
+                    .bearings = .{
+                        @intCast(gp_glyph.offset_x + shaper_cell.x_offset),
+                        @intCast(gp_glyph.offset_y + shaper_cell.y_offset),
+                    },
+                });
+                return;
+            }
 
             // Render
             const render = try self.font_grid.renderGlyph(

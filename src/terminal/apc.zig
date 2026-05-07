@@ -2,7 +2,7 @@ const std = @import("std");
 const build_options = @import("terminal_options");
 const Allocator = std.mem.Allocator;
 
-const glyph = @import("apc/glyph.zig");
+pub const glyph = @import("apc/glyph.zig");
 const kitty_gfx = @import("kitty/graphics.zig");
 
 const log = std.log.scoped(.terminal_apc);
@@ -41,9 +41,7 @@ pub const Handler = struct {
 
             // We identify the APC command by the first byte.
             .identify => |*id| id: {
-                // Kitty graphics is detected immediately on the `G` byte,
-                // since commands begin immediately after with no termination
-                // character after the 'G'.
+                // Kitty graphics protocol
                 if (comptime build_options.kitty_graphics) {
                     if (id.len == 0 and byte == 'G') {
                         self.state = .{ .kitty = .init(
@@ -58,7 +56,7 @@ pub const Handler = struct {
                 // If we hit `;` then identify...
                 if (byte == ';') {
                     const str = id.buf[0..id.len];
-                    if (std.mem.eql(u8, str, "25a1")) {
+                    if (std.mem.eql(u8, str, glyph.identifier)) {
                         self.state = .{ .glyph = .init(
                             alloc,
                             self.max_bytes.get(.glyph) orelse
@@ -148,10 +146,7 @@ pub const State = union(enum) {
     ///    If we overflow then we're immediately invalid because we don't
     ///    support anything longer than this.
     ///
-    identify: struct {
-        len: u3 = 0,
-        buf: [4]u8 = undefined,
-    },
+    identify: Identify,
 
     /// Kitty graphics protocol
     kitty: if (build_options.kitty_graphics)
@@ -161,6 +156,15 @@ pub const State = union(enum) {
 
     /// Glyph protocol
     glyph: glyph.CommandParser,
+
+    pub const Identify = struct {
+        /// Buffer sized to fit the longest known prefix-style identifier.
+        /// Extend the `@max(...)` call when adding new protocols.
+        const max_len = glyph.identifier.len;
+
+        len: std.math.IntFittingRange(0, max_len) = 0,
+        buf: [max_len]u8 = undefined,
+    };
 
     pub fn deinit(self: *State) void {
         switch (self.*) {
@@ -186,8 +190,8 @@ pub const Protocol = enum {
             // encoded as base64), so the default is set to 65 MiB.
             .kitty => 65 * 1024 * 1024,
             // Glyph protocol messages carry single glyf outlines which
-            // are small, but base64 encoding inflates them. 1 MiB is
-            // generous for any single simple-glyph record.
+            // are small, but base64 encoding inflates them.
+            // 1 MiB is the max under the specification.
             .glyph => 1 * 1024 * 1024,
         };
     }

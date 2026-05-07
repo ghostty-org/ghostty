@@ -560,7 +560,28 @@ pub const StreamHandler = struct {
                 }
             },
 
-            .glyph => {},
+            .glyph => |req| glyph: {
+                const glyph = terminal.apc.glyph;
+                const resp_opt = glyph.handler.handle(
+                    self.alloc,
+                    &self.terminal.glyph_glossary,
+                    req,
+                ) catch |err| {
+                    log.warn("glyph protocol handler error: {}", .{err});
+                    break :glyph;
+                };
+                const resp = resp_opt orelse break :glyph;
+
+                var buf: [256]u8 = undefined;
+                var writer: std.Io.Writer = .fixed(&buf);
+                resp.formatWire(&writer) catch |err| {
+                    log.warn("glyph protocol response encode error: {}", .{err});
+                    break :glyph;
+                };
+                const final = writer.buffered();
+                log.debug("glyph protocol response: {s}", .{final});
+                self.messageWriter(try termio.Message.writeReq(self.alloc, final));
+            },
         }
     }
 

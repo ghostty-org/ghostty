@@ -1,23 +1,29 @@
 const std = @import("std");
 
-/// Query response coverage state for a codepoint.
-pub const Coverage = enum(u2) {
+/// Query response coverage state for a codepoint. Encoded on the
+/// wire as a comma-separated list of coverage names.
+pub const Coverage = enum {
     /// No system font or registered glyph covers the codepoint.
-    free = 0,
+    free,
 
     /// A system font covers the codepoint.
-    system = 1,
+    system,
 
     /// A session glyph registration covers the codepoint.
-    glossary = 2,
+    glossary,
 
     /// Both the system font and a session registration cover the codepoint.
-    both = 3,
+    both,
 
-    /// Parse the query response coverage bitfield from its decimal form.
-    pub fn init(value: []const u8) ?Coverage {
-        const raw = std.fmt.parseInt(u2, value, 10) catch return null;
-        return std.meta.intToEnum(Coverage, raw) catch null;
+    /// Wire form of the `status=` value: a comma-separated list of
+    /// coverage names. `free` returns the empty string.
+    pub fn asStr(self: Coverage) []const u8 {
+        return switch (self) {
+            .free => "",
+            .system => "system",
+            .glossary => "glossary",
+            .both => "system,glossary",
+        };
     }
 };
 
@@ -40,17 +46,27 @@ pub const Response = union(enum) {
         /// Supported payload formats.
         fmt: Formats,
 
-        pub const Formats = packed struct(u8) {
+        pub const Formats = struct {
             /// TrueType simple glyph outlines (required in v1).
             glyf: bool = false,
 
-            /// COLR v0 layered flat-colour glyphs.
-            colrv0: bool = false,
-
-            /// COLR v1 paint-graph glyphs.
-            colrv1: bool = false,
-
-            _padding: u5 = 0,
+            /// Write the wire form of `fmt=`: a comma-separated list
+            /// of names of the format flags set on `self`. Empty
+            /// when no formats are advertised.
+            pub fn writeWire(
+                self: Formats,
+                writer: *std.Io.Writer,
+            ) std.Io.Writer.Error!void {
+                var first = true;
+                inline for (@typeInfo(Formats).@"struct".fields) |field| {
+                    if (field.type != bool) continue;
+                    if (@field(self, field.name)) {
+                        if (!first) try writer.writeAll(",");
+                        try writer.writeAll(field.name);
+                        first = false;
+                    }
+                }
+            }
         };
     };
 
@@ -106,10 +122,11 @@ pub const Response = union(enum) {
         switch (self) {
             .support => |r| {
                 try writer.writeAll("s;fmt=");
-                try writer.print("{d}", .{@as(u8, @bitCast(r.fmt))});
+                try r.fmt.writeWire(writer);
             },
             .query => |r| {
-                try writer.print("q;cp={x};status={d}", .{ r.cp, @intFromEnum(r.status) });
+                try writer.print("q;cp={x};status=", .{r.cp});
+                try writer.writeAll(r.status.asStr());
             },
             .register => |r| {
                 try writer.print("r;cp={x};status={d}", .{ r.cp, @intFromEnum(r.status) });
@@ -130,14 +147,19 @@ pub const Response = union(enum) {
     }
 };
 
-test "support formats bit layout" {
+test "support formats writeWire emits names" {
     const testing = std.testing;
     const Formats = Response.Support.Formats;
 
-    try testing.expectEqual(@as(u8, 1), @as(u8, @bitCast(Formats{ .glyf = true })));
-    try testing.expectEqual(@as(u8, 2), @as(u8, @bitCast(Formats{ .colrv0 = true })));
-    try testing.expectEqual(@as(u8, 4), @as(u8, @bitCast(Formats{ .colrv1 = true })));
-    try testing.expectEqual(@as(u8, 7), @as(u8, @bitCast(Formats{ .glyf = true, .colrv0 = true, .colrv1 = true })));
+    var buf: [64]u8 = undefined;
+
+    var w1: std.Io.Writer = .fixed(&buf);
+    try (Formats{ .glyf = true }).writeWire(&w1);
+    try testing.expectEqualStrings("glyf", w1.buffered());
+
+    var w2: std.Io.Writer = .fixed(&buf);
+    try (Formats{}).writeWire(&w2);
+    try testing.expectEqualStrings("", w2.buffered());
 }
 
 test "response support formatWire" {
@@ -146,20 +168,29 @@ test "response support formatWire" {
     var buf: [256]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buf);
 
-    const resp: Response = .{ .support = .{ .fmt = .{ .glyf = true, .colrv0 = true } } };
+    const resp: Response = .{ .support = .{ .fmt = .{ .glyf = true } } };
     try resp.formatWire(&writer);
-    try testing.expectEqualStrings("\x1b_25a1;s;fmt=3\x1b\\", writer.buffered());
+    try testing.expectEqualStrings("\x1b_25a1;s;fmt=glyf\x1b\\", writer.buffered());
 }
 
 test "response query formatWire" {
     const testing = std.testing;
 
     var buf: [256]u8 = undefined;
-    var writer: std.Io.Writer = .fixed(&buf);
 
-    const resp: Response = .{ .query = .{ .cp = 0xE0A0, .status = .both } };
-    try resp.formatWire(&writer);
-    try testing.expectEqualStrings("\x1b_25a1;q;cp=e0a0;status=3\x1b\\", writer.buffered());
+    var w_both: std.Io.Writer = .fixed(&buf);
+    try (Response{ .query = .{ .cp = 0xE0A0, .status = .both } }).formatWire(&w_both);
+    try testing.expectEqualStrings(
+        "\x1b_25a1;q;cp=e0a0;status=system,glossary\x1b\\",
+        w_both.buffered(),
+    );
+
+    var w_free: std.Io.Writer = .fixed(&buf);
+    try (Response{ .query = .{ .cp = 0xE0A0, .status = .free } }).formatWire(&w_free);
+    try testing.expectEqualStrings(
+        "\x1b_25a1;q;cp=e0a0;status=\x1b\\",
+        w_free.buffered(),
+    );
 }
 
 test "response register success formatWire" {

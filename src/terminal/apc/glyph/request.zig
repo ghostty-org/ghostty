@@ -2,6 +2,12 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
+pub const glyf = @import("glyf.zig");
+
+/// Maximum bytes a single register payload may occupy post-base64-decode.
+/// Matches the spec §6.2 `payload_too_large` threshold.
+pub const max_payload_bytes: usize = 64 * 1024;
+
 /// Stateful parser for a single glyph APC payload after the `25a1;` prefix.
 pub const CommandParser = struct {
     alloc: Allocator,
@@ -118,8 +124,14 @@ pub const Request = union(enum) {
             assert(raw.len >= 2);
             assert(raw[0] == 'r');
             assert(raw[1] == ';');
-            const payload_idx = std.mem.lastIndexOfScalar(u8, raw, ';').?;
-            assert(payload_idx > 1);
+            // Find the option/payload boundary by looking for the last `;`
+            // *after* the verb prefix. If none exists the request carries
+            // no payload — encode that with the `raw.len` sentinel, which
+            // `payload()` and `rawOptions()` already treat as "empty".
+            const payload_idx = if (std.mem.lastIndexOfScalar(u8, raw[2..], ';')) |i|
+                i + 2
+            else
+                raw.len;
 
             return .{
                 .raw = raw,
@@ -141,6 +153,9 @@ pub const Request = union(enum) {
             /// Requested reply verbosity for registration.
             reply,
 
+            /// Authoritative cell width for layout (UAX-11 / wcwidth).
+            width,
+
             /// Return the decoded Zig type for a register option.
             pub fn Type(comptime self: Option) type {
                 return switch (self) {
@@ -148,6 +163,7 @@ pub const Request = union(enum) {
                     .fmt => Format,
                     .upm => u32,
                     .reply => Reply,
+                    .width => Width,
                 };
             }
 
@@ -158,6 +174,7 @@ pub const Request = union(enum) {
                     .fmt => .glyf,
                     .upm => 1000,
                     .reply => .all,
+                    .width => .narrow,
                 };
             }
 
@@ -174,6 +191,7 @@ pub const Request = union(enum) {
                     .fmt => Format.init(value),
                     .upm => std.fmt.parseInt(u32, value, 10) catch null,
                     .reply => Reply.init(value) orelse .all,
+                    .width => Width.init(value) orelse .narrow,
                 };
             }
         };
@@ -209,6 +227,26 @@ pub const Request = union(enum) {
             assert(self.payload_idx >= 2);
             assert(self.payload_idx <= self.raw.len);
             return self.raw[2..self.payload_idx];
+        }
+
+        pub fn decodePayload(
+            self: Register,
+            alloc: Allocator,
+        ) DecodeError!DecodedPayload {
+            const fmt = self.get(.fmt) orelse Format.glyf;
+            const b64 = self.payload();
+            const decoder = std.base64.standard.Decoder;
+            const size = decoder.calcSizeForSlice(b64) catch
+                return error.InvalidBase64;
+            if (size > max_payload_bytes) return error.PayloadTooLarge;
+
+            const raw = try alloc.alloc(u8, size);
+            defer alloc.free(raw);
+            decoder.decode(raw, b64) catch return error.InvalidBase64;
+
+            return switch (fmt) {
+                .glyf => .{ .glyf = try glyf.decode(alloc, raw) },
+            };
         }
     };
 
@@ -299,15 +337,68 @@ pub const Format = enum {
     /// TrueType simple glyph outline data.
     glyf,
 
-    /// OpenType COLR version 0 layered color glyph data.
-    colrv0,
-
-    /// OpenType COLR version 1 paint graph glyph data.
-    colrv1,
-
     /// Parse a glyph payload format name.
     pub fn init(value: []const u8) ?Format {
         return std.meta.stringToEnum(Format, value);
+    }
+};
+
+/// Decoded register payload. Tagged by the request's `fmt`.
+pub const DecodedPayload = union(Format) {
+    glyf: glyf.Outline,
+
+    pub fn deinit(self: *DecodedPayload, alloc: Allocator) void {
+        switch (self.*) {
+            .glyf => |*o| o.deinit(alloc),
+        }
+    }
+};
+
+/// Errors produced while decoding a register payload. The non-OOM
+/// variants each map to a spec `reason=` code via `reasonString`.
+pub const DecodeError = error{
+    /// Payload failed base64 decoding (invalid padding or characters).
+    InvalidBase64,
+    /// Decoded payload exceeded the 64 KiB cap in spec §6.2.
+    PayloadTooLarge,
+} || glyf.DecodeError;
+
+/// Map a `DecodeError` to the spec `reason=` code, or `null` for
+/// errors that have no protocol-visible reason (allocation failures).
+pub fn reasonString(err: DecodeError) ?[]const u8 {
+    return switch (err) {
+        error.InvalidBase64,
+        error.Malformed,
+        => "malformed_payload",
+        error.PayloadTooLarge => "payload_too_large",
+        error.Composite => "composite_unsupported",
+        error.Hinted => "hinting_unsupported",
+        error.OutOfMemory => null,
+    };
+}
+
+/// Authoritative cell width for a registered codepoint, in the
+/// UAX-11 / wcwidth sense. The terminal uses this — not the Unicode
+/// table — for every layout decision involving the codepoint.
+///
+/// Only `1` (narrow) and `2` (wide) are valid on the wire; any other
+/// value is rejected by the parser.
+pub const Width = enum(u8) {
+    narrow = 1,
+    wide = 2,
+
+    pub fn init(value: []const u8) ?Width {
+        if (value.len != 1) return null;
+        return switch (value[0]) {
+            '1' => .narrow,
+            '2' => .wide,
+            else => null,
+        };
+    }
+
+    /// Number of terminal cells the codepoint occupies.
+    pub fn cells(self: Width) u8 {
+        return @intFromEnum(self);
     }
 };
 
@@ -421,6 +512,28 @@ test "register command defaults" {
     try testing.expectEqual(Format.glyf, cmd.register.get(.fmt).?);
     try testing.expectEqual(@as(u32, 1000), cmd.register.get(.upm).?);
     try testing.expectEqual(Reply.all, cmd.register.get(.reply).?);
+    try testing.expectEqual(Width.narrow, cmd.register.get(.width).?);
+}
+
+test "register command with width=2" {
+    const testing = std.testing;
+
+    var cmd = try testParse(testing.allocator, "r;cp=e0a0;width=2;QQ==");
+    defer cmd.deinit(testing.allocator);
+
+    try testing.expect(cmd == .register);
+    try testing.expectEqual(Width.wide, cmd.register.get(.width).?);
+    try testing.expectEqual(@as(u8, 2), cmd.register.get(.width).?.cells());
+}
+
+test "register command invalid width falls back to narrow" {
+    const testing = std.testing;
+
+    var cmd = try testParse(testing.allocator, "r;cp=e0a0;width=9;QQ==");
+    defer cmd.deinit(testing.allocator);
+
+    try testing.expect(cmd == .register);
+    try testing.expectEqual(Width.narrow, cmd.register.get(.width).?);
 }
 
 test "register command invalid reply falls back to reply=1" {
@@ -484,6 +597,35 @@ test "clear command" {
     try testing.expectEqual(@as(u21, 0xE0A0), cmd.clear.get(.cp).?);
 }
 
+test "register bare verb is malformed but does not crash" {
+    // A solitary `r` is normalized to `r;` by the parser. There is no
+    // second semicolon, so options and payload are both empty. The
+    // parser must produce a register variant rather than panicking.
+    const testing = std.testing;
+
+    var cmd = try testParse(testing.allocator, "r");
+    defer cmd.deinit(testing.allocator);
+
+    try testing.expect(cmd == .register);
+    try testing.expect(cmd.register.get(.cp) == null);
+    try testing.expectEqualStrings("", cmd.register.payload());
+}
+
+test "register without payload separator does not crash" {
+    // No second `;`: the entire tail is treated as options, payload
+    // is empty. cp is still recoverable; decodePayload will fail
+    // with an empty-payload error which the handler maps to
+    // `malformed_payload`.
+    const testing = std.testing;
+
+    var cmd = try testParse(testing.allocator, "r;cp=e0a0");
+    defer cmd.deinit(testing.allocator);
+
+    try testing.expect(cmd == .register);
+    try testing.expectEqual(@as(u21, 0xE0A0), cmd.register.get(.cp).?);
+    try testing.expectEqualStrings("", cmd.register.payload());
+}
+
 test "invalid command" {
     const testing = std.testing;
 
@@ -491,4 +633,122 @@ test "invalid command" {
         error.InvalidFormat,
         testParse(testing.allocator, "x"),
     );
+}
+
+// decodePayload integration
+
+fn b64Encode(alloc: Allocator, data: []const u8) ![]u8 {
+    const encoder = std.base64.standard.Encoder;
+    const buf = try alloc.alloc(u8, encoder.calcSize(data.len));
+    _ = encoder.encode(buf, data);
+    return buf;
+}
+
+fn emptyGlyphBytes(buf: *std.ArrayList(u8)) !void {
+    var arr: [2]u8 = undefined;
+    std.mem.writeInt(i16, &arr, 0, .big); // numberOfContours = 0
+    try buf.appendSlice(std.testing.allocator, &arr);
+    try buf.appendSlice(std.testing.allocator, &[_]u8{0} ** 8); // bbox
+}
+
+test "decodePayload decodes glyf" {
+    const testing = std.testing;
+
+    var empty_glyph: std.ArrayList(u8) = .empty;
+    defer empty_glyph.deinit(testing.allocator);
+    try emptyGlyphBytes(&empty_glyph);
+
+    const b64 = try b64Encode(testing.allocator, empty_glyph.items);
+    defer testing.allocator.free(b64);
+
+    var raw: std.ArrayList(u8) = .empty;
+    defer raw.deinit(testing.allocator);
+    try raw.appendSlice(testing.allocator, "r;cp=e0a0;fmt=glyf;");
+    try raw.appendSlice(testing.allocator, b64);
+
+    var cmd = try testParse(testing.allocator, raw.items);
+    defer cmd.deinit(testing.allocator);
+
+    var decoded = try cmd.register.decodePayload(testing.allocator);
+    defer decoded.deinit(testing.allocator);
+
+    try testing.expect(decoded == .glyf);
+    try testing.expectEqual(@as(usize, 0), decoded.glyf.contours.len);
+}
+
+test "decodePayload rejects invalid base64" {
+    const testing = std.testing;
+
+    var cmd = try testParse(testing.allocator, "r;cp=e0a0;fmt=glyf;%%%not-b64%%%");
+    defer cmd.deinit(testing.allocator);
+
+    try testing.expectError(
+        error.InvalidBase64,
+        cmd.register.decodePayload(testing.allocator),
+    );
+}
+
+test "decodePayload rejects oversized payload" {
+    const testing = std.testing;
+
+    const oversized = try testing.allocator.alloc(u8, max_payload_bytes + 1);
+    defer testing.allocator.free(oversized);
+    @memset(oversized, 0);
+
+    const b64 = try b64Encode(testing.allocator, oversized);
+    defer testing.allocator.free(b64);
+
+    var raw: std.ArrayList(u8) = .empty;
+    defer raw.deinit(testing.allocator);
+    try raw.appendSlice(testing.allocator, "r;cp=e0a0;fmt=glyf;");
+    try raw.appendSlice(testing.allocator, b64);
+
+    var cmd = try testParse(testing.allocator, raw.items);
+    defer cmd.deinit(testing.allocator);
+
+    try testing.expectError(
+        error.PayloadTooLarge,
+        cmd.register.decodePayload(testing.allocator),
+    );
+}
+
+test "decodePayload propagates glyf errors" {
+    // Composite glyph: numberOfContours == -1. The base64 of the first
+    // two bytes 0xFF 0xFF plus eight zero bbox bytes decodes to a
+    // composite record.
+    const testing = std.testing;
+
+    var composite: std.ArrayList(u8) = .empty;
+    defer composite.deinit(testing.allocator);
+    var arr: [2]u8 = undefined;
+    std.mem.writeInt(i16, &arr, -1, .big);
+    try composite.appendSlice(testing.allocator, &arr);
+    try composite.appendSlice(testing.allocator, &[_]u8{0} ** 8);
+
+    const b64 = try b64Encode(testing.allocator, composite.items);
+    defer testing.allocator.free(b64);
+
+    var raw: std.ArrayList(u8) = .empty;
+    defer raw.deinit(testing.allocator);
+    try raw.appendSlice(testing.allocator, "r;cp=e0a0;fmt=glyf;");
+    try raw.appendSlice(testing.allocator, b64);
+
+    var cmd = try testParse(testing.allocator, raw.items);
+    defer cmd.deinit(testing.allocator);
+
+    try testing.expectError(
+        error.Composite,
+        cmd.register.decodePayload(testing.allocator),
+    );
+}
+
+test "reasonString maps every DecodeError" {
+    const testing = std.testing;
+
+    try testing.expectEqualStrings("malformed_payload", reasonString(error.InvalidBase64).?);
+    try testing.expectEqualStrings("malformed_payload", reasonString(error.Malformed).?);
+    try testing.expectEqualStrings("payload_too_large", reasonString(error.PayloadTooLarge).?);
+    try testing.expectEqualStrings("composite_unsupported", reasonString(error.Composite).?);
+    try testing.expectEqualStrings("hinting_unsupported", reasonString(error.Hinted).?);
+    try testing.expect(reasonString(error.OutOfMemory) == null);
 }

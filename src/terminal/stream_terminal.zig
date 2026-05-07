@@ -680,7 +680,31 @@ pub const Handler = struct {
                 }
             },
 
-            .glyph => {},
+            .glyph => |req| glyph: {
+                // Always run the handler so register/clear side effects
+                // land in the glossary even in readonly contexts (e.g.
+                // scrollback / search). Only the wire reply is gated on
+                // having a pty to write to.
+                const resp_opt = apc.glyph.handler.handle(
+                    alloc,
+                    &self.terminal.glyph_glossary,
+                    req,
+                ) catch |err| {
+                    log.warn("glyph protocol handler error: {}", .{err});
+                    break :glyph;
+                };
+                const resp = resp_opt orelse break :glyph;
+
+                if (self.effects.write_pty == null) break :glyph;
+
+                // Response is nul-terminated for writePty's sentinel slice.
+                var buf: [256]u8 = undefined;
+                var writer: std.Io.Writer = .fixed(&buf);
+                resp.formatWire(&writer) catch break :glyph;
+                writer.writeByte(0) catch break :glyph;
+                const final = writer.buffered();
+                self.writePty(final[0 .. final.len - 1 :0]);
+            },
         }
     }
 };
