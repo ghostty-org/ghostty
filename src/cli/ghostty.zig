@@ -11,6 +11,7 @@ const list_keybinds = @import("list_keybinds.zig");
 const list_themes = @import("list_themes.zig");
 const list_colors = @import("list_colors.zig");
 const list_actions = @import("list_actions.zig");
+const ssh = @import("ssh.zig");
 const ssh_cache = @import("ssh_cache.zig");
 const edit_config = @import("edit_config.zig");
 const show_config = @import("show_config.zig");
@@ -45,6 +46,9 @@ pub const Action = enum {
 
     /// List keybind actions
     @"list-actions",
+
+    /// Wrap `ssh` to configure Ghostty terminal integration on remote hosts
+    ssh,
 
     /// Manage SSH terminfo cache for automatic remote host setup
     @"ssh-cache",
@@ -144,6 +148,7 @@ pub const Action = enum {
             .@"list-colors" => try list_colors.run(alloc),
             .@"list-actions" => try list_actions.run(alloc),
             .@"ssh-cache" => try ssh_cache.run(alloc),
+            .ssh => try ssh.run(alloc),
             .@"edit-config" => try edit_config.run(alloc),
             .@"show-config" => try show_config.run(alloc),
             .@"explain-config" => try explain_config.run(alloc),
@@ -184,6 +189,7 @@ pub const Action = enum {
                 .@"list-colors" => list_colors.Options,
                 .@"list-actions" => list_actions.Options,
                 .@"ssh-cache" => ssh_cache.Options,
+                .ssh => ssh.Options,
                 .@"edit-config" => edit_config.Options,
                 .@"show-config" => show_config.Options,
                 .@"explain-config" => explain_config.Options,

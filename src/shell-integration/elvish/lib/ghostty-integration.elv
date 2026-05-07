@@ -76,80 +76,20 @@
     (external sudo) $@args
   }
 
+  # SSH Integration
+  #
+  # Wrap `ssh` with `ghostty +ssh` and translate the shell-integration
+  # feature flags into command options.
   fn ssh-integration {|@args|
-    var ssh-term = "xterm-256color"
-    var ssh-opts = []
-
-    # Configure environment variables for remote session
-    if (has-value $features ssh-env) {
-      set ssh-opts = (conj $ssh-opts ^
-        -o "SendEnv COLORTERM TERM_PROGRAM TERM_PROGRAM_VERSION")
+    var ghostty = $E:GHOSTTY_BIN_DIR/"ghostty"
+    var flags = []
+    if (not (has-value $features ssh-env)) {
+      set flags = (conj $flags --forward-env=false)
     }
-
-    if (has-value $features ssh-terminfo) {
-      var ssh-user = ""
-      var ssh-hostname = ""
-
-      # Parse ssh config
-      for line [((external ssh) -G $@args)] {
-        var parts = [(str:fields $line)]
-        if (> (count $parts) 1) {
-          var ssh-key = $parts[0]
-          var ssh-value = $parts[1]
-          if (eq $ssh-key user) {
-            set ssh-user = $ssh-value
-          } elif (eq $ssh-key hostname) {
-            set ssh-hostname = $ssh-value
-          }
-          if (and (not-eq $ssh-user "") (not-eq $ssh-hostname "")) {
-            break
-          }
-        }
-      }
-
-      if (not-eq $ssh-hostname "") {
-        var ghostty = $E:GHOSTTY_BIN_DIR/"ghostty"
-        var ssh-target = $ssh-user"@"$ssh-hostname
-
-        # Check if terminfo is already cached
-        if (bool ?($ghostty +ssh-cache --host=$ssh-target)) {
-          set ssh-term = "xterm-ghostty"
-        } elif (has-external infocmp) {
-          var ssh-terminfo = ((external infocmp) -0 -x xterm-ghostty 2>/dev/null | slurp)
-
-          if (not-eq $ssh-terminfo "") {
-            echo "Setting up xterm-ghostty terminfo on "$ssh-hostname"..." >&2
-
-            use os
-            var ssh-cpath-dir = (os:temp-dir "ghostty-ssh-"$ssh-user".*")
-            var ssh-cpath = $ssh-cpath-dir"/socket"
-
-            if (bool ?(echo $ssh-terminfo | (external ssh) $@ssh-opts -o ControlMaster=yes -o ControlPath=$ssh-cpath -o ControlPersist=60s $@args '
-                  infocmp xterm-ghostty >/dev/null 2>&1 && exit 0
-                  command -v tic >/dev/null 2>&1 || exit 1
-                  mkdir -p ~/.terminfo 2>/dev/null && tic -x - 2>/dev/null && exit 0
-                  exit 1
-                ' 2>/dev/null)) {
-              set ssh-term = "xterm-ghostty"
-              set ssh-opts = (conj $ssh-opts -o ControlPath=$ssh-cpath)
-
-              # Cache successful installation
-              $ghostty +ssh-cache --add=$ssh-target >/dev/null
-            } else {
-              echo "Warning: Failed to install terminfo." >&2
-            }
-          } else {
-            echo "Warning: Could not generate terminfo data." >&2
-          }
-        } else {
-          echo "Warning: ghostty command not available for cache management." >&2
-        }
-      }
+    if (not (has-value $features ssh-terminfo)) {
+      set flags = (conj $flags --terminfo=false)
     }
-
-    with [E:TERM = $ssh-term E:COLORTERM = truecolor] {
-      (external ssh) $@ssh-opts $@args
-    }
+    $ghostty +ssh $@flags -- $@args
   }
 
   defer {
