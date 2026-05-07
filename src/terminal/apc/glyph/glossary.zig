@@ -5,18 +5,13 @@
 //! evicted (FIFO) to make room, per spec §4. Overwriting an existing
 //! codepoint replaces its outline but preserves both its stable slot
 //! index (used as an atlas cache key) and its insertion order.
-//!
-//! The glossary owns every stored `glyf.Outline`; dropping the glossary
-//! (via `deinit`) or evicting/clearing an entry frees the outline.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const glyf = @import("glyf.zig");
 const request = @import("request.zig");
 
-/// Stored payload for a registration — same shape as `DecodedPayload`
-/// from the wire decoder. Ownership transfers from the decoder to the
-/// glossary on `register`.
+/// Stored payload for a registration.
 pub const Payload = request.DecodedPayload;
 
 /// Authoritative cell width for a registered codepoint.
@@ -27,18 +22,12 @@ pub const capacity: usize = 1024;
 
 /// A single registered glyph.
 pub const Entry = struct {
-    /// Decoded payload. Owned by the glossary — monochrome outline for
-    /// glyf.
     payload: Payload,
     /// Units-per-em the outline was authored in.
     upm: u16,
-    /// Authoritative wcwidth for the codepoint. Drives the terminal's
-    /// cell-layout decisions (1 cell vs. 2 cells) regardless of the
-    /// Unicode table's value.
+    /// Authoritative wcwidth for the codepoint.
     width: Width,
-    /// Stable slot index in `0..capacity`. Renderer uses this as part of
-    /// an atlas cache key, so it must remain invariant across an
-    /// overwrite of the same codepoint.
+    /// Stable slot index in `0..capacity`.
     slot: u16,
     /// Monotonic insertion counter used for FIFO eviction.
     insertion_id: u64,
