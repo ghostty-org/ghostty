@@ -120,16 +120,13 @@ pub const Glossary = struct {
     }
 
     /// Authoritative width for a registered codepoint, or `null` when
-    /// the codepoint isn't registered. Used by the terminal's print
-    /// path to override the Unicode table for layout decisions.
+    /// the codepoint isn't registered.
     pub fn widthFor(self: *const Glossary, cp: u21) ?Width {
         const entry = self.by_cp.getPtr(cp) orelse return null;
         return entry.width;
     }
 
     /// Drop the registration for `cp`. No-op if nothing was registered.
-    /// Uses `fetchOrderedRemove` so insertion order is preserved for the
-    /// remaining entries (eviction still picks the actual oldest).
     pub fn clearOne(self: *Glossary, alloc: Allocator, cp: u21) void {
         if (self.by_cp.fetchOrderedRemove(cp)) |kv| {
             self.mutation_count +%= 1;
@@ -148,9 +145,7 @@ pub const Glossary = struct {
         self.slots = [_]?u21{null} ** capacity;
     }
 
-    /// Recover the codepoint currently occupying `slot`, if any. The
-    /// renderer uses this when resolving an atlas cache key back to a
-    /// registration.
+    /// Recover the codepoint currently occupying `slot`, if any.
     pub fn cpForSlot(self: *const Glossary, slot: u16) ?u21 {
         if (slot >= capacity) return null;
         return self.slots[slot];
@@ -161,8 +156,6 @@ pub const Glossary = struct {
         return null;
     }
 };
-
-// tests
 
 const testing = std.testing;
 
