@@ -1327,53 +1327,17 @@ pub const StreamHandler = struct {
                         },
                     };
 
-                    switch (self.osc_color_report_format) {
-                        .@"16-bit" => switch (kind) {
-                            .palette => |i| try response.writer.print(
-                                "\x1b]4;{d};rgb:{x:0>4}/{x:0>4}/{x:0>4}",
-                                .{
-                                    i,
-                                    @as(u16, color.r) * 257,
-                                    @as(u16, color.g) * 257,
-                                    @as(u16, color.b) * 257,
-                                },
-                            ),
-                            .dynamic => |dynamic| try response.writer.print(
-                                "\x1b]{d};rgb:{x:0>4}/{x:0>4}/{x:0>4}",
-                                .{
-                                    @intFromEnum(dynamic),
-                                    @as(u16, color.r) * 257,
-                                    @as(u16, color.g) * 257,
-                                    @as(u16, color.b) * 257,
-                                },
-                            ),
-                            .special => unreachable,
-                        },
-
-                        .@"8-bit" => switch (kind) {
-                            .palette => |i| try response.writer.print(
-                                "\x1b]4;{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}",
-                                .{
-                                    i,
-                                    @as(u16, color.r),
-                                    @as(u16, color.g),
-                                    @as(u16, color.b),
-                                },
-                            ),
-                            .dynamic => |dynamic| try response.writer.print(
-                                "\x1b]{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}",
-                                .{
-                                    @intFromEnum(dynamic),
-                                    @as(u16, color.r),
-                                    @as(u16, color.g),
-                                    @as(u16, color.b),
-                                },
-                            ),
-                            .special => unreachable,
-                        },
-
+                    const report_format: terminal.osc.color.ReportFormat = switch (self.osc_color_report_format) {
+                        .@"16-bit" => .@"16-bit",
+                        .@"8-bit" => .@"8-bit",
                         .none => unreachable,
-                    }
+                    };
+                    try terminal.osc.color.formatReport(
+                        &response.writer,
+                        report_format,
+                        kind,
+                        color,
+                    );
 
                     try response.writer.writeAll(terminator.string());
                 },

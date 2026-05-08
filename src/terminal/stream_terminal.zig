@@ -9,7 +9,6 @@ const device_status = @import("device_status.zig");
 const stream = @import("stream.zig");
 const Action = stream.Action;
 const Screen = @import("Screen.zig");
-const color = @import("color.zig");
 const modes = @import("modes.zig");
 const osc = @import("osc.zig");
 const osc_color = @import("osc/parsers/color.zig");
@@ -749,7 +748,8 @@ pub const Handler = struct {
                 .query => |target| {
                     if (self.effects.write_pty == null) continue;
                     const c = self.terminal.colorForXterm(target) orelse continue;
-                    try writeXtermColorReport(writer, target, c, terminator);
+                    try osc_color.formatReport(writer, .@"16-bit", target, c);
+                    try writer.writeAll(terminator.string());
                 },
 
                 .reset_special => {},
@@ -760,40 +760,6 @@ pub const Handler = struct {
             const resp = try response.toOwnedSliceSentinel(0);
             defer alloc.free(resp);
             self.writePty(resp);
-        }
-    }
-
-    fn writeXtermColorReport(
-        writer: *std.Io.Writer,
-        target: osc_color.Target,
-        c: color.RGB,
-        terminator: osc.Terminator,
-    ) !void {
-        switch (target) {
-            .palette => |i| {
-                try writer.print("\x1b]4;{d};", .{i});
-                try c.encodeRgb16(writer);
-                try writer.writeAll(terminator.string());
-            },
-            .dynamic => |dynamic| switch (dynamic) {
-                .foreground,
-                .background,
-                .cursor,
-                => {
-                    try writer.print("\x1b]{d};", .{@intFromEnum(dynamic)});
-                    try c.encodeRgb16(writer);
-                    try writer.writeAll(terminator.string());
-                },
-                .pointer_foreground,
-                .pointer_background,
-                .tektronix_foreground,
-                .tektronix_background,
-                .highlight_background,
-                .tektronix_cursor,
-                .highlight_foreground,
-                => {},
-            },
-            .special => {},
         }
     }
 
