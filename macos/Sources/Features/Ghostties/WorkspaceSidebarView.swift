@@ -27,57 +27,60 @@ struct WorkspaceSidebarView: View {
     @State private var expandedProjectIds: Set<UUID> = []
 
     @AppStorage("ghostties.hasSeenOnboarding") private var hasSeenOnboarding = false
+    @AppStorage("ghostties.sidebarTab") private var sidebarTab: SidebarTab = .projects
 
     var body: some View {
         VStack(spacing: 0) {
             // Titlebar toolbar: action buttons right of traffic lights
             titlebarToolbar
 
-            // One-time pin-semantics migration banner.
-            // Visible after the migration runs and stays until the user
-            // dismisses it. See Unit 6 for the migration design.
-            if store.hasShownPinMigrationNotice && !store.hasDismissedPinMigrationNotice {
-                PinMigrationNoticeBanner(onDismiss: store.dismissPinMigrationNotice)
-                    .padding(.horizontal, 8)
-                    .padding(.top, 12)
-                    .padding(.bottom, 4)
-                    .transition(.opacity)
-            }
-
-            // Scrollable disclosure list or empty state
-            if store.sectionedProjects.isEmpty {
-                emptyState
+            if sidebarTab == .sessions {
+                // Sessions tab: flat recents list across all projects.
+                RecentsListView()
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 2) {
-                        ForEach(store.sectionedProjects, id: \.0) { section, projects in
-                            // Hide the entire header for empty sections.
-                            // (`sectionedProjects` already drops empty buckets,
-                            // but this guard documents intent for future edits.)
-                            if !projects.isEmpty {
-                                SidebarSectionHeader(section: section)
-                                    .padding(.top, section == .pinned ? 0 : 8)
+                // Projects tab: existing disclosure list.
 
-                                ForEach(projects) { project in
-                                    ProjectDisclosureRow(
-                                        project: project,
-                                        isExpanded: expandedBinding(for: project.id),
-                                        selectedProjectId: $selectedProjectId
-                                    )
+                // One-time pin-semantics migration banner.
+                if store.hasShownPinMigrationNotice && !store.hasDismissedPinMigrationNotice {
+                    PinMigrationNoticeBanner(onDismiss: store.dismissPinMigrationNotice)
+                        .padding(.horizontal, 8)
+                        .padding(.top, 12)
+                        .padding(.bottom, 4)
+                        .transition(.opacity)
+                }
+
+                // Scrollable disclosure list or empty state
+                if store.sectionedProjects.isEmpty {
+                    emptyState
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 2) {
+                            ForEach(store.sectionedProjects, id: \.0) { section, projects in
+                                if !projects.isEmpty {
+                                    SidebarSectionHeader(section: section)
+                                        .padding(.top, section == .pinned ? 0 : 8)
+
+                                    ForEach(projects) { project in
+                                        ProjectDisclosureRow(
+                                            project: project,
+                                            isExpanded: expandedBinding(for: project.id),
+                                            selectedProjectId: $selectedProjectId
+                                        )
+                                    }
                                 }
                             }
                         }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .animation(
+                            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                                ? nil
+                                : .default,
+                            value: store.sectionSignature
+                        )
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .animation(
-                        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-                            ? nil
-                            : .default,
-                        value: store.sectionSignature
-                    )
+                    .accessibilityLabel("Projects")
                 }
-                .accessibilityLabel("Projects")
             }
 
             Spacer(minLength: 0)
@@ -129,15 +132,17 @@ struct WorkspaceSidebarView: View {
     // MARK: - Titlebar Toolbar
 
     private var titlebarToolbar: some View {
-        HStack {
+        HStack(spacing: 8) {
+            SidebarTabPicker(selectedTab: $sidebarTab)
             Spacer()
-            ToolbarIconButton(systemName: "plus", label: "Add project", action: presentFolderPicker)
+            // + button only shown in Projects tab; Sessions tab has its own header button.
+            if sidebarTab == .projects {
+                ToolbarIconButton(systemName: "plus", label: "Add project", action: presentFolderPicker)
+            }
         }
         .padding(.horizontal, 12)
-        // frame height = 2× toolbarRowTopAnchorConstant centers the + on the same horizontal
-        // row as the traffic lights and the sidebar toggle. The constant is derived at runtime
-        // from the live close-button frame by WorkspaceViewContainer.layout() and published
-        // via WorkspaceStore so this view re-renders when the geometry changes.
+        // frame height = 2× toolbarRowTopAnchorConstant centers controls on the same
+        // horizontal row as the traffic lights and the sidebar toggle.
         .frame(height: store.toolbarRowTopAnchorConstant * 2)
     }
 
