@@ -230,6 +230,11 @@ extension Notification.Name {
     /// and update the sidebar width. v0 feature toggle.
     static let workspaceSidebarViewModeChanged = Notification.Name("com.seansmithdesign.ghostties.workspace.sidebarViewModeChanged")
 
+    /// Posted by `TerminalController.showProjectsView` / `showSessionsView` after
+    /// writing the new tab value to UserDefaults. `@AppStorage` handles the SwiftUI
+    /// side automatically; this notification is available for AppKit observers.
+    static let workspaceSidebarTabChanged = Notification.Name("com.seansmithdesign.ghostties.workspace.sidebarTabChanged")
+
     /// Posted by `AppDelegate`'s ⌘⇧N local-event monitor and by any code path
     /// that wants to open the new-task composer. `NewTaskComposerStore.shared`
     /// observes this to call `open(workspaceStore:)`.

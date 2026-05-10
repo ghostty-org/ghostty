@@ -2,41 +2,46 @@ import SwiftUI
 
 /// The Sessions tab content: a flat, time-sorted list of all sessions across projects.
 ///
-/// Mirrors the recents list pattern from Claude Code — most recently active sessions
-/// appear at the top, with a "+ New Session" button pinned to the header.
-/// Sessions with no `lastActiveAt` timestamp sink below timestamped sessions.
+/// Layout:
+///   + New Session (full-width row → native flyout menu for project selection)
+///   ─────────────────────────────────
+///   ACTIVE    (sessions with a live indicator state)
+///   ARCHIVE   (exited / never-run sessions)
 struct RecentsListView: View {
     @EnvironmentObject private var store: WorkspaceStore
     @EnvironmentObject private var coordinator: SessionCoordinator
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 0) {
-            newSessionHeader
+            newSessionRow
 
-            if sortedSessions.isEmpty {
+            Rectangle()
+                .fill(Color.primary.opacity(0.10))
+                .frame(height: 1)
+
+            if store.sessions.isEmpty {
                 emptyState
             } else {
                 ScrollView {
                     LazyVStack(spacing: 2) {
-                        ForEach(sortedSessions) { session in
-                            let projectName = store.projects
-                                .first { $0.id == session.projectId }?.name ?? "Unknown"
-                            let indicatorState = store.globalIndicatorStates[session.id]
-                                ?? .inactive
-                            RecentsRowView(
-                                session: session,
-                                projectName: projectName,
-                                indicatorState: indicatorState,
-                                isActive: coordinator.activeSessionId == session.id,
-                                onTap: { coordinator.focusSession(id: session.id) }
-                            )
+                        if !activeSessions.isEmpty {
+                            SessionSectionHeader(title: "Active")
+                            ForEach(activeSessions) { session in
+                                sessionRow(for: session)
+                            }
+                        }
+
+                        if !archiveSessions.isEmpty {
+                            SessionSectionHeader(title: "Archive")
+                            ForEach(archiveSessions) { session in
+                                sessionRow(for: session)
+                            }
                         }
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                 }
-                .accessibilityLabel("Recent sessions")
+                .accessibilityLabel("Sessions")
             }
 
             Spacer(minLength: 0)
@@ -44,40 +49,47 @@ struct RecentsListView: View {
         .background(.clear)
     }
 
-    // MARK: - Header
+    // MARK: - New Session Row
 
-    private var newSessionHeader: some View {
-        HStack {
-            Spacer(minLength: 0)
-
-            Button(action: startNewSession) {
-                HStack(spacing: 4) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text("New Session")
-                        .font(.system(size: 11, weight: .semibold))
-                }
-                .foregroundStyle(Color.primary.opacity(0.60))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.primary.opacity(0.08))
-                )
+    private var newSessionRow: some View {
+        Menu {
+            ForEach(store.projects) { project in
+                Button(project.name) { startNewSession(in: project) }
             }
-            .buttonStyle(.plain)
-            .disabled(mostRecentProject == nil)
-            .help("New session")
-            .accessibilityLabel("New session")
+        } label: {
+            HStack(spacing: WorkspaceLayout.sidebarIconLabelSpacing) {
+                Image(systemName: "plus")
+                    .font(.system(size: 10, weight: .medium))
+                    .frame(width: WorkspaceLayout.sidebarIconColumnWidth, alignment: .center)
+                Text("New Session")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.primary)
+                Spacer(minLength: 4)
+            }
+            .padding(.leading, WorkspaceLayout.sidebarRowLeadingPadding)
             .padding(.trailing, 10)
+            .frame(height: 36)
+            .contentShape(Rectangle())
         }
-        .frame(height: 28)
-        .background(backgroundColor)
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Color.primary.opacity(0.10))
-                .frame(height: 1)
-        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .disabled(store.projects.isEmpty)
+        .accessibilityLabel("New Session")
+    }
+
+    // MARK: - Session Row
+
+    private func sessionRow(for session: AgentSession) -> some View {
+        let projectName = store.projects
+            .first { $0.id == session.projectId }?.name ?? "Unknown"
+        let indicatorState = store.globalIndicatorStates[session.id] ?? .inactive
+        return RecentsRowView(
+            session: session,
+            projectName: projectName,
+            indicatorState: indicatorState,
+            isActive: coordinator.activeSessionId == session.id,
+            onTap: { coordinator.focusSession(id: session.id) }
+        )
     }
 
     // MARK: - Empty State
@@ -98,27 +110,23 @@ struct RecentsListView: View {
 
     // MARK: - Data
 
-    /// Sessions sorted most-recently-active first.
-    /// Sessions with no `lastActiveAt` timestamp appear below all timestamped sessions,
-    /// ordered by their position in the store (insertion order).
-    var sortedSessions: [AgentSession] {
-        Self.sorted(sessions: store.sessions)
+    /// Sessions with a live indicator state — process is alive or actively tracked.
+    var activeSessions: [AgentSession] {
+        Self.sorted(sessions: store.sessions.filter {
+            (store.globalIndicatorStates[$0.id] ?? .inactive) != .inactive
+        })
     }
 
-    /// Finds the project that owns the most recently active session.
-    /// Falls back to `store.projects.first` if no sessions have timestamps.
-    private var mostRecentProject: Project? {
-        let recentSession = Self.sorted(sessions: store.sessions).first
-        if let projectId = recentSession?.projectId {
-            return store.projects.first { $0.id == projectId }
-        }
-        return store.projects.first
+    /// Sessions that have exited, completed, or never had a live process this launch.
+    var archiveSessions: [AgentSession] {
+        Self.sorted(sessions: store.sessions.filter {
+            (store.globalIndicatorStates[$0.id] ?? .inactive) == .inactive
+        })
     }
 
     // MARK: - Actions
 
-    private func startNewSession() {
-        guard let project = mostRecentProject else { return }
+    private func startNewSession(in project: Project) {
         let template: AgentTemplate = {
             if let defaultId = project.defaultTemplateId,
                let t = store.templates.first(where: { $0.id == defaultId }) {
@@ -145,18 +153,31 @@ struct RecentsListView: View {
             }
         }
     }
+}
 
-    // MARK: - Background
+// MARK: - Section Header
 
-    private var backgroundColor: Color {
-        Color(nsColor: colorScheme == .dark
-              ? WorkspaceLayout.chromeBackgroundDark
-              : WorkspaceLayout.chromeBackgroundLight)
+private struct SessionSectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title.uppercased())
+            .font(.system(size: 10, weight: .semibold))
+            .tracking(0.6)
+            .foregroundStyle(WorkspaceLayout.sectionHeaderForeground)
+            .padding(.leading, WorkspaceLayout.sidebarRowLeadingPadding
+                         + WorkspaceLayout.sidebarIconColumnWidth
+                         + WorkspaceLayout.sidebarIconLabelSpacing)
+            .padding(.trailing, 12)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
 #if DEBUG
-#Preview("Recents — populated") {
+#Preview("Sessions — active + archive") {
     let store = WorkspaceStore(testingProjects: [
         Project(name: "ghostties", rootPath: "~/Code/ghostties"),
         Project(name: "portfolio", rootPath: "~/Code/portfolio"),
@@ -169,7 +190,7 @@ struct RecentsListView: View {
         .preferredColorScheme(.dark)
 }
 
-#Preview("Recents — empty") {
+#Preview("Sessions — empty") {
     let store = WorkspaceStore(testingProjects: [])
     let coordinator = SessionCoordinator()
     return RecentsListView()

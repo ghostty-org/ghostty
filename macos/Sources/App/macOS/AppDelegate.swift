@@ -693,6 +693,24 @@ class AppDelegate: NSObject,
         let currentMode = UserDefaults.standard.string(forKey: "ghostties.sidebarViewMode") ?? "projectFirst"
         taskViewItem.state = currentMode == "taskFirst" ? .on : .off
 
+        // "Show Projects" — Cmd+Shift+1
+        let showProjectsItem = NSMenuItem(
+            title: "Show Projects",
+            action: #selector(TerminalController.showProjectsView(_:)),
+            keyEquivalent: "1"
+        )
+        showProjectsItem.keyEquivalentModifierMask = [.command, .shift]
+        showProjectsItem.setImageIfDesired(systemSymbolName: "square.grid.2x2")
+
+        // "Show Sessions" — Cmd+Shift+2
+        let showSessionsItem = NSMenuItem(
+            title: "Show Sessions",
+            action: #selector(TerminalController.showSessionsView(_:)),
+            keyEquivalent: "2"
+        )
+        showSessionsItem.keyEquivalentModifierMask = [.command, .shift]
+        showSessionsItem.setImageIfDesired(systemSymbolName: "clock")
+
         // Insert workspace group at the top of the View menu.
         viewMenu.insertItem(sidebarItem, at: 0)
         viewMenu.insertItem(sidebarItemCmdS, at: 1)
@@ -701,7 +719,9 @@ class AppDelegate: NSObject,
         viewMenu.insertItem(prevItem, at: 4)
         viewMenu.insertItem(newSessionItem, at: 5)
         viewMenu.insertItem(taskViewItem, at: 6)
-        viewMenu.insertItem(NSMenuItem.separator(), at: 7)
+        viewMenu.insertItem(showProjectsItem, at: 7)
+        viewMenu.insertItem(showSessionsItem, at: 8)
+        viewMenu.insertItem(NSMenuItem.separator(), at: 9)
 
     }
 

@@ -1328,6 +1328,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
+    @IBAction func showProjectsView(_ sender: Any?) {
+        UserDefaults.standard.set("projects", forKey: "ghostties.sidebarTab")
+        NotificationCenter.default.post(name: .workspaceSidebarTabChanged, object: nil)
+    }
+
+    @IBAction func showSessionsView(_ sender: Any?) {
+        UserDefaults.standard.set("sessions", forKey: "ghostties.sidebarTab")
+        NotificationCenter.default.post(name: .workspaceSidebarTabChanged, object: nil)
+    }
+
     // MARK: First Responder
 
     @IBAction func newWindow(_ sender: Any?) {
@@ -1690,6 +1700,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 extension TerminalController {
     override func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
+        case #selector(showProjectsView(_:)):
+            let tab = UserDefaults.standard.string(forKey: "ghostties.sidebarTab") ?? "projects"
+            item.state = tab == "projects" ? .on : .off
+            return true
+
+        case #selector(showSessionsView(_:)):
+            let tab = UserDefaults.standard.string(forKey: "ghostties.sidebarTab") ?? "projects"
+            item.state = tab == "sessions" ? .on : .off
+            return true
+
         case #selector(closeTabsOnTheRight):
             guard let window, let tabGroup = window.tabGroup else { return false }
             guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return false }

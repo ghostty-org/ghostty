@@ -1,5 +1,14 @@
 import SwiftUI
 
+/// The two top-level views the sidebar can display.
+///
+/// Stored in `@AppStorage("ghostties.sidebarTab")` so the selection persists
+/// across launches. Switching is done via the View menu (Show Projects / Show Sessions).
+enum SidebarTab: String {
+    case projects
+    case sessions
+}
+
 /// Single-column disclosure-style sidebar showing projects with expandable session lists.
 ///
 /// Replaces the previous two-column ZStack layout (icon rail + detail panel) with a
@@ -133,9 +142,8 @@ struct WorkspaceSidebarView: View {
 
     private var titlebarToolbar: some View {
         HStack(spacing: 8) {
-            SidebarTabPicker(selectedTab: $sidebarTab)
             Spacer()
-            // + button only shown in Projects tab; Sessions tab has its own header button.
+            // "+" only shown in Projects tab; Sessions view controls live in the content area.
             if sidebarTab == .projects {
                 ToolbarIconButton(systemName: "plus", label: "Add project", action: presentFolderPicker)
             }
