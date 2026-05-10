@@ -681,35 +681,39 @@ class AppDelegate: NSObject,
         newSessionItem.keyEquivalentModifierMask = [.command, .shift]
         newSessionItem.setImageIfDesired(systemSymbolName: "plus.rectangle")
 
-        // "Task View" — Cmd+Shift+V — v0 feature toggle for the task-first
-        // (Concept F) sidebar. Checked when the task-first mode is active.
-        let taskViewItem = NSMenuItem(
-            title: "Task View",
-            action: #selector(TerminalController.toggleTaskView(_:)),
-            keyEquivalent: "v"
-        )
-        taskViewItem.keyEquivalentModifierMask = [.command, .shift]
-        taskViewItem.setImageIfDesired(systemSymbolName: "checklist")
-        let currentMode = UserDefaults.standard.string(forKey: "ghostties.sidebarViewMode") ?? "projectFirst"
-        taskViewItem.state = currentMode == "taskFirst" ? .on : .off
-
-        // "Show Projects" — Cmd+Shift+1
-        let showProjectsItem = NSMenuItem(
-            title: "Show Projects",
+        // "Sidebar View" submenu — radio group for the three sidebar views.
+        let projectsSubItem = NSMenuItem(
+            title: "Projects",
             action: #selector(TerminalController.showProjectsView(_:)),
             keyEquivalent: "1"
         )
-        showProjectsItem.keyEquivalentModifierMask = [.command, .shift]
-        showProjectsItem.setImageIfDesired(systemSymbolName: "square.grid.2x2")
+        projectsSubItem.keyEquivalentModifierMask = [.command, .shift]
+        projectsSubItem.setImageIfDesired(systemSymbolName: "square.grid.2x2")
 
-        // "Show Sessions" — Cmd+Shift+2
-        let showSessionsItem = NSMenuItem(
-            title: "Show Sessions",
+        let sessionsSubItem = NSMenuItem(
+            title: "Sessions",
             action: #selector(TerminalController.showSessionsView(_:)),
             keyEquivalent: "2"
         )
-        showSessionsItem.keyEquivalentModifierMask = [.command, .shift]
-        showSessionsItem.setImageIfDesired(systemSymbolName: "clock")
+        sessionsSubItem.keyEquivalentModifierMask = [.command, .shift]
+        sessionsSubItem.setImageIfDesired(systemSymbolName: "clock")
+
+        let tasksSubItem = NSMenuItem(
+            title: "Tasks",
+            action: #selector(TerminalController.toggleTaskView(_:)),
+            keyEquivalent: "v"
+        )
+        tasksSubItem.keyEquivalentModifierMask = [.command, .shift]
+        tasksSubItem.setImageIfDesired(systemSymbolName: "checklist")
+
+        let sidebarViewSubmenu = NSMenu()
+        sidebarViewSubmenu.addItem(projectsSubItem)
+        sidebarViewSubmenu.addItem(sessionsSubItem)
+        sidebarViewSubmenu.addItem(tasksSubItem)
+
+        let sidebarViewParent = NSMenuItem(title: "Sidebar View", action: nil, keyEquivalent: "")
+        sidebarViewParent.submenu = sidebarViewSubmenu
+        sidebarViewParent.setImageIfDesired(systemSymbolName: "sidebar.squares.left")
 
         // Insert workspace group at the top of the View menu.
         viewMenu.insertItem(sidebarItem, at: 0)
@@ -718,10 +722,8 @@ class AppDelegate: NSObject,
         viewMenu.insertItem(nextItem, at: 3)
         viewMenu.insertItem(prevItem, at: 4)
         viewMenu.insertItem(newSessionItem, at: 5)
-        viewMenu.insertItem(taskViewItem, at: 6)
-        viewMenu.insertItem(showProjectsItem, at: 7)
-        viewMenu.insertItem(showSessionsItem, at: 8)
-        viewMenu.insertItem(NSMenuItem.separator(), at: 9)
+        viewMenu.insertItem(sidebarViewParent, at: 6)
+        viewMenu.insertItem(NSMenuItem.separator(), at: 7)
 
     }
 
