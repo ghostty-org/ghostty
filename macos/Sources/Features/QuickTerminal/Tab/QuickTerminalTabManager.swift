@@ -130,9 +130,19 @@ class QuickTerminalTabManager: ObservableObject {
         let tabIndex = tabs.count + 1
 
         let newTab = QuickTerminalTab(surfaceTree: surfaceTree, title: "Terminal \(tabIndex)")
-        tabs.append(newTab)
+        insertTabAfterCurrent(newTab)
 
         selectTab(newTab)
+    }
+
+    /// Inserts a tab immediately after the currently selected tab, or appends it
+    /// if there is no current selection.
+    private func insertTabAfterCurrent(_ tab: QuickTerminalTab) {
+        if let currentTabIndex {
+            tabs.insert(tab, at: currentTabIndex + 1)
+        } else {
+            tabs.append(tab)
+        }
     }
 
     /// Adds an existing surface tree as a new tab in the quick terminal.
@@ -150,7 +160,7 @@ class QuickTerminalTabManager: ObservableObject {
         )
         newTab.titleOverride = titleOverride
         newTab.tabColor = tabColor
-        tabs.append(newTab)
+        insertTabAfterCurrent(newTab)
         selectTab(newTab)
     }
 
