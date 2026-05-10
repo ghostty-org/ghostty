@@ -54,7 +54,22 @@ struct RecentsListView: View {
     private var newSessionRow: some View {
         Menu {
             ForEach(store.projects) { project in
-                Button(project.name) { startNewSession(in: project) }
+                let templates = availableTemplates(for: project)
+                if templates.count <= 1 {
+                    // Single template — tap creates directly, no submenu needed.
+                    Button(project.name) {
+                        startNewSession(in: project, template: templates.first)
+                    }
+                } else {
+                    // Multiple templates — submenu: project name → template list.
+                    Menu(project.name) {
+                        ForEach(templates) { template in
+                            Button(template.name) {
+                                startNewSession(in: project, template: template)
+                            }
+                        }
+                    }
+                }
             }
         } label: {
             HStack(spacing: WorkspaceLayout.sidebarIconLabelSpacing) {
@@ -75,6 +90,18 @@ struct RecentsListView: View {
         .menuIndicator(.hidden)
         .disabled(store.projects.isEmpty)
         .accessibilityLabel("New Session")
+    }
+
+    /// Returns templates available for a given project: global templates plus
+    /// any templates scoped to that project, with the project's default first.
+    private func availableTemplates(for project: Project) -> [AgentTemplate] {
+        let candidates = store.templates.filter { $0.isGlobal || $0.projectId == project.id }
+        // Lift the default template to the top of the list.
+        if let defaultId = project.defaultTemplateId {
+            let sorted = candidates.sorted { a, _ in a.id == defaultId }
+            return sorted
+        }
+        return candidates
     }
 
     // MARK: - Session Row
@@ -126,8 +153,8 @@ struct RecentsListView: View {
 
     // MARK: - Actions
 
-    private func startNewSession(in project: Project) {
-        let template: AgentTemplate = {
+    private func startNewSession(in project: Project, template: AgentTemplate?) {
+        let resolved: AgentTemplate = template ?? {
             if let defaultId = project.defaultTemplateId,
                let t = store.templates.first(where: { $0.id == defaultId }) {
                 return t
@@ -136,7 +163,7 @@ struct RecentsListView: View {
                 ?? AgentTemplate.shell
         }()
         Task {
-            await coordinator.createQuickSession(for: project, template: template)
+            await coordinator.createQuickSession(for: project, template: resolved)
         }
     }
 
