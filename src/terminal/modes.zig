@@ -10,6 +10,8 @@
 const std = @import("std");
 const testing = std.testing;
 
+const dececm_mode: u15 = 117;
+
 /// A struct that maintains the state of all the settable modes.
 pub const ModeState = struct {
     /// The values of the current modes.
@@ -79,6 +81,9 @@ pub const ModeState = struct {
     /// Return a DECRPM report for the given mode tag. If the tag does
     /// not correspond to a known mode, the report state is .not_recognized.
     pub fn getReport(self: *const ModeState, tag: ModeTag) Report {
+        if (!tag.ansi and tag.value == dececm_mode) {
+            return .{ .tag = tag, .state = .permanently_reset };
+        }
         const mode = modeFromInt(tag.value, tag.ansi) orelse return .{
             .tag = tag,
             .state = .not_recognized,
@@ -345,6 +350,13 @@ test "getReport known ANSI mode" {
     const report = state.getReport(.{ .value = 4, .ansi = true });
     try testing.expectEqual(Report.State.set, report.state);
     try testing.expectEqual(true, report.tag.ansi);
+}
+
+test "getReport DECECM permanently reset" {
+    const state: ModeState = .{};
+    const report = state.getReport(.{ .value = 117, .ansi = false });
+    try testing.expectEqual(Report.State.permanently_reset, report.state);
+    try testing.expectEqual(false, report.tag.ansi);
 }
 
 test "getReport unknown mode" {

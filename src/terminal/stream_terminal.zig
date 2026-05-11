@@ -1366,6 +1366,10 @@ test "request mode DECRQM with write_pty callback" {
         // Query an unknown mode
         s.nextSlice("\x1B[?9999$p");
         try testing.expectEqualStrings("\x1B[?9999;0$y", S.last_response.?);
+
+        // Query DECECM, which Ghostty recognizes but does not allow changing
+        s.nextSlice("\x1B[?117$p");
+        try testing.expectEqualStrings("\x1B[?117;4$y", S.last_response.?);
     }
 }
 
