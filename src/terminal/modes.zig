@@ -10,8 +10,6 @@
 const std = @import("std");
 const testing = std.testing;
 
-const dececm_mode: u15 = 117;
-
 /// A struct that maintains the state of all the settable modes.
 pub const ModeState = struct {
     /// The values of the current modes.
@@ -81,7 +79,9 @@ pub const ModeState = struct {
     /// Return a DECRPM report for the given mode tag. If the tag does
     /// not correspond to a known mode, the report state is .not_recognized.
     pub fn getReport(self: *const ModeState, tag: ModeTag) Report {
-        if (!tag.ansi and tag.value == dececm_mode) {
+        // DECECM (Erase Color Mode) is DEC private mode 117. Ghostty behaves as
+        // if it is permanently reset and does not implement it as a mutable mode.
+        if (!tag.ansi and tag.value == 117) {
             return .{ .tag = tag, .state = .permanently_reset };
         }
         const mode = modeFromInt(tag.value, tag.ansi) orelse return .{
