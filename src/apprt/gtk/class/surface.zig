@@ -1557,6 +1557,32 @@ pub const Surface = extern struct {
         return priv.size;
     }
 
+    /// Notify the core surface of this widget's position within the window.
+    /// This enables custom shaders to compute window-global coordinates
+    /// so effects like gradients or vignettes span across splits.
+    fn updateSurfacePosition(self: *Self, surface: *CoreSurface) void {
+        const widget = self.private().gl_area.as(gtk.Widget);
+        const root = widget.getRoot() orelse return;
+        const root_widget = root.as(gtk.Widget);
+
+        // Compute the surface's bounds within the root window widget.
+        // computeBounds returns a graphene.Rect in the target's coordinate space.
+        var bounds: gtk.graphene.Rect = undefined;
+        if (!widget.computeBounds(root_widget, &bounds)) return;
+
+        // GTK4 coordinates are in CSS pixels (logical), multiply by
+        // scale factor to get physical pixels matching iResolution.
+        const scale: f64 = @floatFromInt(widget.getScaleFactor());
+        const offset_x: u32 = @intFromFloat(@max(0, @as(f64, bounds.origin.x) * scale));
+        const offset_y: u32 = @intFromFloat(@max(0, @as(f64, bounds.origin.y) * scale));
+        const window_w: u32 = @intFromFloat(@as(f64, @floatFromInt(root_widget.getAllocatedWidth())) * scale);
+        const window_h: u32 = @intFromFloat(@as(f64, @floatFromInt(root_widget.getAllocatedHeight())) * scale);
+
+        surface.surfacePositionCallback(offset_x, offset_y, window_w, window_h) catch |err| {
+            log.warn("error in surface position callback err={}", .{err});
+        };
+    }
+
     pub fn getCursorPos(self: *Self) apprt.CursorPos {
         return self.private().cursor_pos;
     }
@@ -3315,6 +3341,10 @@ pub const Surface = extern struct {
                 surface.sizeCallback(new_size) catch |err| {
                     log.warn("error in size callback err={}", .{err});
                 };
+
+                // Update surface position within the window for custom shaders.
+                self.updateSurfacePosition(surface);
+
                 // Setup our resize overlay if configured
                 self.resizeOverlaySchedule();
             }

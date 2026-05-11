@@ -37,6 +37,8 @@ pub const Uniforms = extern struct {
     cursor_text: [4]f32 align(16),
     selection_background_color: [4]f32 align(16),
     selection_foreground_color: [4]f32 align(16),
+    surface_offset: [4]f32 align(16),
+    window_resolution: [4]f32 align(16),
 };
 
 /// The target to load shaders for.

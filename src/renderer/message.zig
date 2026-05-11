@@ -45,6 +45,15 @@ pub const Message = union(enum) {
     /// Changes the size. The screen size might change, padding, grid, etc.
     resize: renderer.Size,
 
+    /// Updates the position of this surface within its parent window.
+    /// Used by custom shaders to compute window-global coordinates.
+    surface_position: struct {
+        offset_x: u32,
+        offset_y: u32,
+        window_width: u32,
+        window_height: u32,
+    },
+
     /// The derived configuration to update the renderer with.
     change_config: struct {
         alloc: Allocator,
