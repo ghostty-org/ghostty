@@ -2717,8 +2717,10 @@ pub const Surface = extern struct {
         priv.focused = focused;
 
         const ctx = priv.im_context.as(gtk.IMContext);
-        if (!focused or self.shouldAllowFocusInOnScreenKeyboard()) {
-            if (focused) ctx.focusIn() else ctx.focusOut();
+        if (focused) {
+            if (self.shouldAllowFocusInOnScreenKeyboard()) ctx.focusIn();
+        } else {
+            ctx.focusOut();
         }
 
         _ = glib.idleAddOnce(idleFocus, self.ref());
