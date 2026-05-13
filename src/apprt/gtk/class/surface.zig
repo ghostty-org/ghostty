@@ -957,6 +957,13 @@ pub const Surface = extern struct {
         return priv.im_context.as(gtk.IMContext).activateOsk(event) != 0;
     }
 
+    fn shouldAllowFocusInOnScreenKeyboard(self: *Self) bool {
+        const priv = self.private();
+        const config = priv.config orelse return true;
+        const cfg = config.get();
+        return cfg.@"gtk-on-screen-keyboard-focus-on-focus-in";
+    }
+
     /// Set the scrollbar state for this surface. This will setup the
     /// properties for our Gtk.Scrollable interface properly.
     pub fn setScrollbar(self: *Self, scrollbar: terminal.Scrollbar) void {
@@ -2710,7 +2717,11 @@ pub const Surface = extern struct {
         priv.focused = focused;
 
         const ctx = priv.im_context.as(gtk.IMContext);
-        if (focused) ctx.focusIn() else ctx.focusOut();
+        if (focused) {
+            if (self.shouldAllowFocusInOnScreenKeyboard()) ctx.focusIn();
+        } else {
+            ctx.focusOut();
+        }
 
         _ = glib.idleAddOnce(idleFocus, self.ref());
         self.as(gobject.Object).notifyByPspec(properties.focused.impl.param_spec);

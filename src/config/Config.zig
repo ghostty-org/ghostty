@@ -3618,6 +3618,13 @@ else
 /// Available since: 1.1.0
 @"gtk-titlebar-hide-when-maximized": bool = false,
 
+/// If `true` (default), Ghostty will allow GTK input method focus-in events
+/// to happen when a surface gains focus. Some environments may show an
+/// on-screen keyboard when this occurs.
+///
+/// Set this to `false` to avoid focus-driven on-screen keyboard activation.
+@"gtk-on-screen-keyboard-focus-on-focus-in": bool = true,
+
 /// Determines the appearance of the top and bottom bars tab bar.
 ///
 /// Valid values are:
