@@ -63,6 +63,10 @@ extension Ghostty {
             let center = NotificationCenter.default
 
             ZStack {
+                // Ghostties: ambient ghost-physics empty state. Visible only while the
+                // surface is empty (no title, no output yet); fades on first PTY output.
+                SurfaceEmptyStatePhysics(surfaceView: surfaceView)
+
                 // We use a GeometryReader to get the frame bounds so that our metal surface
                 // is up to date. See TerminalSurfaceView for why we don't use the NSView
                 // resize callback.
