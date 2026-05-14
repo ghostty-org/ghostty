@@ -646,6 +646,7 @@ pub const Surface = extern struct {
 
         // Progress bar
         progress_bar_timer: ?c_uint = null,
+        progress_bar_animation_timer: ?c_uint = null,
 
         // True while the bell is ringing. This will be set to false (after
         // true) under various scenarios, but can also manually be set to
@@ -1018,55 +1019,59 @@ pub const Surface = extern struct {
             if (!config.get().@"progress-style") {
                 log.debug("progress_report action blocked by config", .{});
                 priv.progress_bar_overlay.as(gtk.Widget).setVisible(@intFromBool(false));
+                stopProgressBarAnimation(priv);
                 return;
             }
         }
 
         const progress_bar = priv.progress_bar_overlay;
+        // Whether this state should drive a continuous pulsing animation.
+        var pulsing = false;
         switch (value.state) {
             // Remove the progress bar
             .remove => {
                 progress_bar.as(gtk.Widget).setVisible(@intFromBool(false));
+                stopProgressBarAnimation(priv);
                 return;
             },
 
-            // Set the progress bar to a fixed value if one was provided, otherwise pulse.
-            // Remove the `error` CSS class so that the progress bar shows as normal.
+            // Fixed value if provided, otherwise pulse.
             .set => {
                 progress_bar.as(gtk.Widget).removeCssClass("error");
                 if (value.progress) |progress| {
                     progress_bar.setFraction(computeFraction(progress));
                 } else {
-                    progress_bar.pulse();
+                    pulsing = true;
                 }
             },
 
-            // Set the progress bar to a fixed value if one was provided, otherwise pulse.
-            // Set the `error` CSS class so that the progress bar shows as an error color.
+            // Fixed value if provided, otherwise pulse. Add `error` CSS class.
             .@"error" => {
                 progress_bar.as(gtk.Widget).addCssClass("error");
                 if (value.progress) |progress| {
                     progress_bar.setFraction(computeFraction(progress));
                 } else {
-                    progress_bar.pulse();
+                    pulsing = true;
                 }
             },
 
-            // The state of progress is unknown, so pulse the progress bar to
-            // indicate that things are still happening.
+            // Unknown progress, pulse.
             .indeterminate => {
-                progress_bar.pulse();
+                pulsing = true;
             },
 
-            // If a progress value was provided, set the progress bar to that value.
-            // Don't pulse the progress bar as that would indicate that things were
-            // happening. Otherwise this is mainly used to keep the progress bar on
-            // screen instead of timing out.
+            // Paused: show fraction if given, don't pulse.
             .pause => {
                 if (value.progress) |progress| {
                     progress_bar.setFraction(computeFraction(progress));
                 }
             },
+        }
+
+        if (pulsing) {
+            startProgressBarAnimation(self, priv);
+        } else {
+            stopProgressBarAnimation(priv);
         }
 
         // Assume all states lead to visibility
@@ -1091,6 +1096,34 @@ pub const Surface = extern struct {
         priv.progress_bar_timer = null;
         self.setProgressReport(.{ .state = .remove });
         return @intFromBool(glib.SOURCE_REMOVE);
+    }
+
+    /// Drives the pulse animation for indeterminate progress states.
+    fn progressBarAnimationTimer(ud: ?*anyopaque) callconv(.c) c_int {
+        const self: *Self = @ptrCast(@alignCast(ud.?));
+        const priv = self.private();
+        priv.progress_bar_overlay.pulse();
+        return @intFromBool(glib.SOURCE_CONTINUE);
+    }
+
+    fn startProgressBarAnimation(self: *Self, priv: *Private) void {
+        if (priv.progress_bar_animation_timer != null) return;
+        // Pulse once immediately so motion starts without waiting a full tick.
+        priv.progress_bar_overlay.pulse();
+        priv.progress_bar_animation_timer = glib.timeoutAdd(
+            100,
+            progressBarAnimationTimer,
+            self,
+        );
+    }
+
+    fn stopProgressBarAnimation(priv: *Private) void {
+        if (priv.progress_bar_animation_timer) |timer| {
+            if (glib.Source.remove(timer) == 0) {
+                log.warn("unable to remove progress bar animation timer", .{});
+            }
+            priv.progress_bar_animation_timer = null;
+        }
     }
 
     /// Request that this terminal come to the front and become focused.
@@ -1853,6 +1886,8 @@ pub const Surface = extern struct {
             }
             priv.progress_bar_timer = null;
         }
+
+        stopProgressBarAnimation(priv);
 
         if (priv.idle_rechild) |v| {
             if (glib.Source.remove(v) == 0) {
