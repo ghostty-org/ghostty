@@ -277,6 +277,13 @@ class WorkspaceViewContainer: NSView {
 
         self.coordinator = SessionCoordinator(ghostty: ghostty)
 
+        #if DEBUG
+        if let stress = ProcessInfo.processInfo.environment["GHOSTTIES_STRESS_SESSIONS"],
+           let n = Int(stress), n > 0 {
+            coordinator.injectStressLoad(count: n)
+        }
+        #endif
+
         // Start with a placeholder root; `applySidebarView()` will install the
         // correct view (project-first vs task-first) during setup. We use
         // AnyView so the hosting view's generic type is fixed across the

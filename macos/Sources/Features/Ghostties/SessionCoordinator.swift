@@ -1071,4 +1071,22 @@ final class SessionCoordinator: ObservableObject {
             }
         }
     }
+
+    // MARK: - Debug stress load
+
+#if DEBUG
+    /// Inject N fake "running" sessions to pressure-test the 1-second timer
+    /// without launching real Claude agents. Triggered via env var:
+    ///   GHOSTTIES_STRESS_SESSIONS=8 open /path/to/Ghostties\ Dev.app
+    func injectStressLoad(count: Int) {
+        for _ in 0..<count {
+            let id = UUID()
+            statuses[id] = .running
+            lastOutputTimestamps[id] = .now
+        }
+        if activityTimer == nil {
+            startActivityTimer()
+        }
+    }
+#endif
 }

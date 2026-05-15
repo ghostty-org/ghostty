@@ -16,9 +16,28 @@ YEL='\033[0;33m'
 NC='\033[0m'
 
 TRACE_OUT="/tmp/ghostties-$(date +%Y%m%d-%H%M%S).trace"
-APP_PATH="${1:-}"
+APP_PATH=""
+STRESS_SESSIONS=""
+
+# Parse args: optional --stress N, optional app path
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --stress)
+      STRESS_SESSIONS="${2:-5}"
+      shift 2
+      ;;
+    *)
+      APP_PATH="$1"
+      shift
+      ;;
+  esac
+done
 
 echo -e "${BOLD}Ghostties Time Profiler${NC}"
+if [[ -n "$STRESS_SESSIONS" ]]; then
+  echo -e "${YEL}Stress mode: injecting ${STRESS_SESSIONS} fake running sessions (GHOSTTIES_STRESS_SESSIONS=${STRESS_SESSIONS})${NC}"
+  echo -e "${DIM}No real Claude agents needed — coordinator tick fires every second with ${STRESS_SESSIONS} alive statuses.${NC}"
+fi
 
 # --- Locate the app ---
 if [[ -n "$APP_PATH" ]]; then
@@ -74,8 +93,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
-xcrun xctrace record \
-  --template "Time Profiler" \
-  --launch "$APP_PATH" \
-  --output "$TRACE_OUT" \
-  --time-limit 300s
+if [[ -n "$STRESS_SESSIONS" ]]; then
+  GHOSTTIES_STRESS_SESSIONS="$STRESS_SESSIONS" xcrun xctrace record \
+    --template "Time Profiler" \
+    --launch "$APP_PATH" \
+    --env "GHOSTTIES_STRESS_SESSIONS=$STRESS_SESSIONS" \
+    --output "$TRACE_OUT" \
+    --time-limit 300s
+else
+  xcrun xctrace record \
+    --template "Time Profiler" \
+    --launch "$APP_PATH" \
+    --output "$TRACE_OUT" \
+    --time-limit 300s
+fi
