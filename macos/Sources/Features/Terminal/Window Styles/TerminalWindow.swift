@@ -753,9 +753,9 @@ extension TerminalWindow {
         moveToQuickItem.identifier = Self.moveToQuickTerminalMenuItemIdentifier
         moveToQuickItem.target = targetController
         if #available(macOS 26.0, *) {
-            moveToQuickItem.setImageIfDesired(systemSymbolName: "arrow.down.to.line.compact")
+            moveToQuickItem.setImageIfDesired(systemSymbolName: "arrow.up.to.line.square")
         } else {
-            moveToQuickItem.setImageIfDesired(systemSymbolName: "arrow.down.to.line")
+            moveToQuickItem.setImageIfDesired(systemSymbolName: "arrow.up.to.line")
         }
         if menu.insertItem(moveToQuickItem, after: NSSelectorFromString("toggleTabOverview:")) == nil {
             menu.addItem(moveToQuickItem)

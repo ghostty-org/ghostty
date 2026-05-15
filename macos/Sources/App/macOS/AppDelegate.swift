@@ -1151,9 +1151,9 @@ extension AppDelegate {
         self.menuFloatOnTop?.setImageIfDesired(systemSymbolName: "square.filled.on.square")
         self.menuFindParent?.setImageIfDesired(systemSymbolName: "text.page.badge.magnifyingglass")
         if #available(macOS 26.0, *) {
-            self.menuMoveTabToQuickTerminal?.setImageIfDesired(systemSymbolName: "arrow.down.to.line.compact")
+            self.menuMoveTabToQuickTerminal?.setImageIfDesired(systemSymbolName: "arrow.up.to.line.square")
         } else {
-            self.menuMoveTabToQuickTerminal?.setImageIfDesired(systemSymbolName: "arrow.down.to.line")
+            self.menuMoveTabToQuickTerminal?.setImageIfDesired(systemSymbolName: "arrow.up.to.line")
         }
     }
 
