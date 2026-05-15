@@ -89,6 +89,10 @@ final class SessionCoordinator: ObservableObject {
     /// Cleared when the session returns to a prompt. Used for long-running detection.
     private var processingStartTimes: [UUID: ContinuousClock.Instant] = [:]
 
+    /// Last-published indicator state snapshot per session. The activity timer
+    /// compares against this cache and suppresses objectWillChange when nothing changed.
+    private var cachedIndicatorStates: [UUID: SessionIndicatorState]? = nil
+
     /// How long a session must be continuously processing before showing as long-running.
     private static let longRunningThreshold: ContinuousClock.Duration = .seconds(1800)
 
@@ -950,17 +954,28 @@ final class SessionCoordinator: ObservableObject {
                 // Only fire objectWillChange if there are running sessions that could transition.
                 let hasRunning = self.statuses.values.contains { $0.isAlive }
                 if hasRunning {
-                    // SEA-214: This send() invalidates all 7 view types observing coordinator
-                    // every second, even when indicator states haven't changed. Fix: cache
-                    // indicatorState snapshots and only send when a state actually transitions.
                     let runningCount = self.statuses.values.lazy.filter { $0.isAlive }.count
                     let tickState = Perf.signposter.beginInterval("sessionCoordinator.tick", "\(runningCount) running sessions")
-                    self.objectWillChange.send()
+
+                    // Compute current indicator states for all running sessions.
+                    var current: [UUID: SessionIndicatorState] = [:]
+                    for (id, status) in self.statuses where status.isAlive {
+                        current[id] = self.indicatorState(for: id)
+                    }
+
+                    // SEA-214: Only send objectWillChange when state actually changed,
+                    // suppressing the 7-view full-sidebar re-render that fired every second.
+                    Perf.publishIfChanged(
+                        "sessionCoordinator.tick",
+                        current: current,
+                        cached: &self.cachedIndicatorStates
+                    ) {
+                        self.objectWillChange.send()
+                    }
 
                     // Push each running session's indicator state to the global store
                     // so the menu bar icon can reflect the aggregate status.
-                    for (id, status) in self.statuses where status.isAlive {
-                        let state = self.indicatorState(for: id)
+                    for (id, state) in current {
                         WorkspaceStore.shared.updateIndicatorState(id: id, state: state)
                     }
 
