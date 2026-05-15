@@ -134,6 +134,8 @@ struct WorkspacePersistence {
     // MARK: - Read / Write
 
     static func load() -> State {
+        let signpostState = Perf.signposter.beginInterval("workspace.load")
+        defer { Perf.signposter.endInterval("workspace.load", signpostState) }
         let url = fileURL
         do {
             let data = try Data(contentsOf: url)
@@ -264,6 +266,8 @@ struct WorkspacePersistence {
     }
 
     static func save(_ state: State) {
+        let signpostState = Perf.signposter.beginInterval("workspace.save")
+        defer { Perf.signposter.endInterval("workspace.save", signpostState) }
         let url = fileURL
         do {
             try FileManager.default.createDirectory(

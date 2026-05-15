@@ -58,35 +58,42 @@ else
 fi
 
 h "4 / 6 — Ghostties.app process"
-GHOST=$(ps aux | grep '[G]hostties' | head -5)
+GHOST=$(ps aux | grep '[G]hostties' | head -5 || true)
 if [[ -z "$GHOST" ]]; then
   info "Ghostties.app not running (or running as 'ghostty' binary)"
-  GHOST=$(ps aux | grep '[g]hostty' | grep -v 'grep' | head -5)
+  GHOST=$(ps aux | grep '[g]hostty' | grep -v 'grep' | head -5 || true)
   if [[ -n "$GHOST" ]]; then
     echo "$GHOST" | awk '{printf "     PID %-6s  CPU %-5s  MEM %-5s  VSZ %-10s  %s\n", $2, $3, $4, $5, $11}'
+  else
+    info "No ghostty/Ghostties process found — app may not be running"
   fi
 else
   echo "$GHOST" | awk '{printf "     PID %-6s  CPU %-5s%%  MEM %-5s%%  VSZ %-10s KB\n", $2, $3, $4, $5}'
   CPU=$(echo "$GHOST" | awk '{print $3}' | head -1)
   CPU_INT=${CPU%.*}
-  if (( CPU_INT > 40 )); then
+  if [[ -n "$CPU_INT" ]] && (( CPU_INT > 40 )); then
     warn "Ghostties CPU ${CPU}% — elevated. Worth profiling (scripts/profile.sh)."
-  else
+  elif [[ -n "$CPU" ]]; then
     ok "Ghostties CPU: ${CPU}%"
   fi
 fi
 
 h "5 / 6 — Recent app logs (last 5 min)"
 echo ""
-log show \
+LOG_OUT=$(log show \
   --predicate 'subsystem == "com.mitchellh.ghostty"' \
   --last 5m \
   --style syslog \
-  2>/dev/null | tail -30 || info "No logs found for com.mitchellh.ghostty in last 5 min"
+  2>/dev/null | tail -30 || true)
+if [[ -n "$LOG_OUT" ]]; then
+  echo "$LOG_OUT"
+else
+  info "No logs found for com.mitchellh.ghostty in last 5 min"
+fi
 
 h "6 / 6 — macOS hang/spin reports for Ghostties"
 DIAG_DIR="$HOME/Library/Logs/DiagnosticReports"
-RECENT_HANG=$(ls -t "$DIAG_DIR"/Ghostties* 2>/dev/null | head -3 || true)
+RECENT_HANG=$(ls -t "$DIAG_DIR"/Ghostties* 2>/dev/null | head -3 || echo "")
 if [[ -n "$RECENT_HANG" ]]; then
   warn "macOS captured hang/crash reports — macOS diagnosed something:"
   echo "$RECENT_HANG" | while read -r f; do
@@ -99,8 +106,23 @@ else
   ok "No Ghostties hang/spin reports in ~/Library/Logs/DiagnosticReports"
 fi
 
+h "7 / 7 — MetricKit daily payloads (cold-launch, hangs, hitches)"
+METRICS_DIR="$HOME/Library/Application Support/Ghostties/metrics"
+if [[ -d "$METRICS_DIR" ]]; then
+  COUNT=$(ls "$METRICS_DIR" 2>/dev/null | wc -l | tr -d ' ' || echo 0)
+  if [[ "$COUNT" -gt 0 ]]; then
+    ok "${COUNT} MetricKit payload(s) collected — run 'open \"$METRICS_DIR\"' to inspect"
+    ls -lt "$METRICS_DIR" | head -5 | awk '{printf "     %s %s %s  %s\n", $6, $7, $8, $9}'
+  else
+    info "MetricKit directory exists but no payloads yet (Apple delivers once per 24h window)"
+  fi
+else
+  info "No MetricKit payloads yet — Ghostties must run for at least one 24h window after build"
+fi
+
 echo ""
 echo -e "${DIM}─────────────────────────────────────────────────────────────────${NC}"
-echo -e "${DIM}If all 6 checks are green and Ghostties still feels slow, THEN look at the app.${NC}"
-echo -e "${DIM}Next step: scripts/profile.sh (when it exists) or open Instruments > Time Profiler.${NC}"
+echo -e "${DIM}If all checks are green and it's still slow, profile it:${NC}"
+echo -e "${DIM}  scripts/profile.sh        → Time Profiler flame graph${NC}"
+echo -e "${DIM}  Instruments → Points of Interest → see workspace.load / sessionCoordinator.tick${NC}"
 echo ""

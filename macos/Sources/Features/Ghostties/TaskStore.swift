@@ -108,6 +108,8 @@ final class TaskStore: ObservableObject {
     /// Recomputes all lane arrays in a single pass over `tasks`. Call this
     /// everywhere `tasks` is mutated so the stored arrays stay in sync.
     private func recomputeLanes() {
+        let signpostState = Perf.signposter.beginInterval("taskStore.recomputeLanes", "\(tasks.count) tasks")
+        defer { Perf.signposter.endInterval("taskStore.recomputeLanes", signpostState) }
         var needs: [TaskItem] = [], act: [TaskItem] = []
         var inb: [TaskItem] = [], bl: [TaskItem] = []
         var rev: [TaskItem] = [], dn: [TaskItem] = []
@@ -285,6 +287,8 @@ final class TaskStore: ObservableObject {
     // MARK: - Loading
 
     func loadFromDisk() {
+        let signpostState = Perf.signposter.beginInterval("taskStore.load")
+        defer { Perf.signposter.endInterval("taskStore.load", signpostState) }
         guard let dir = Self.resolveTasksDirectory() else {
             #if DEBUG
             print("[TaskStore] No tasks directory found; tasks=[]")

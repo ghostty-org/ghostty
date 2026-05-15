@@ -42,6 +42,8 @@ struct PresetLoader {
     /// Checks a `.seed-version` marker file to determine if seeding is needed.
     /// Only copies bundled files that don't already exist (additive, never overwrites user edits).
     static func seedIfNeeded() {
+        let signpostState = Perf.signposter.beginInterval("presets.seed")
+        defer { Perf.signposter.endInterval("presets.seed", signpostState) }
         let fm = FileManager.default
         let dirPath = presetsDirectoryPath
         let versionFilePath = (dirPath as NSString).appendingPathComponent(".seed-version")
@@ -101,6 +103,8 @@ struct PresetLoader {
     /// Returns an array of `AgentTemplate` objects with `isDefault: true` and `isGlobal: true`.
     /// Templates have deterministic UUIDs generated from the filename so IDs persist across launches.
     static func loadPresets() -> [AgentTemplate] {
+        let signpostState = Perf.signposter.beginInterval("presets.load")
+        defer { Perf.signposter.endInterval("presets.load", signpostState) }
         let fm = FileManager.default
         let dirPath = presetsDirectoryPath
 

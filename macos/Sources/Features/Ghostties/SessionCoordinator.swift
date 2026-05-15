@@ -950,6 +950,11 @@ final class SessionCoordinator: ObservableObject {
                 // Only fire objectWillChange if there are running sessions that could transition.
                 let hasRunning = self.statuses.values.contains { $0.isAlive }
                 if hasRunning {
+                    // SEA-214: This send() invalidates all 7 view types observing coordinator
+                    // every second, even when indicator states haven't changed. Fix: cache
+                    // indicatorState snapshots and only send when a state actually transitions.
+                    let runningCount = self.statuses.values.lazy.filter { $0.isAlive }.count
+                    let tickState = Perf.signposter.beginInterval("sessionCoordinator.tick", "\(runningCount) running sessions")
                     self.objectWillChange.send()
 
                     // Push each running session's indicator state to the global store
@@ -963,6 +968,7 @@ final class SessionCoordinator: ObservableObject {
                     // whose sessions emit output at <1Hz still keep their
                     // `.activeNow` slot for the full grace window.
                     WorkspaceStore.shared.updateProjectActivityFromIndicatorStates()
+                    Perf.signposter.endInterval("sessionCoordinator.tick", tickState)
                 }
             }
         }

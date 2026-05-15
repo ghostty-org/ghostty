@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import UserNotifications
 import OSLog
+import MetricKit
 import Sparkle
 import GhosttyKit
 
@@ -9,7 +10,8 @@ class AppDelegate: NSObject,
                     ObservableObject,
                     NSApplicationDelegate,
                     UNUserNotificationCenterDelegate,
-                    GhosttyAppDelegate {
+                    GhosttyAppDelegate,
+                    MXMetricManagerSubscriber {
     // The application logger. We should probably move this at some point to a dedicated
     // class/struct but for now it lives here! 🤷‍♂️
     static let logger = Logger(
@@ -245,6 +247,8 @@ class AppDelegate: NSObject,
             return
         }
 
+        let launchSignpost = Perf.signposter.beginInterval("app.didFinishLaunching")
+
         // System settings overrides
         UserDefaults.ghostty.register(defaults: [
             // Disable this so that repeated key events make it through to our terminal views.
@@ -259,13 +263,17 @@ class AppDelegate: NSObject,
             toggleSecureInput(self)
         }
 
-        // Initial config loading
-        ghosttyConfigDidChange(config: ghostty.config)
+        // Initial config loading — first access of the lazy `ghostty` var triggers
+        // Ghostty.App(configPath:), the heaviest part of cold launch (see reference-ghostty-init-in-tests.md).
+        Perf.measure("app.ghosttyConfig") { ghosttyConfigDidChange(config: ghostty.config) }
 
         // Start our update checker (skip in Debug builds to avoid Sparkle key validation errors).
         #if !DEBUG
-        updateController.startUpdater()
+        Perf.measure("app.sparkleStart") { updateController.startUpdater() }
         #endif
+
+        // Subscribe for Apple MetricKit daily payloads (cold-launch time, hangs, hitches, CPU).
+        MXMetricManager.shared.add(self)
 
         // Register our service provider. This must happen after everything is initialized.
         NSApp.servicesProvider = ServiceProvider()
@@ -397,6 +405,8 @@ class AppDelegate: NSObject,
                 NSApp.arrangeInFront(nil)
             }
         }
+
+        Perf.signposter.endInterval("app.didFinishLaunching", launchSignpost)
     }
 
     func applicationDidHide(_ notification: Notification) {
@@ -1612,6 +1622,55 @@ extension AppDelegate: NSMenuItemValidation {
 
         default:
             return true
+        }
+    }
+}
+
+// MARK: MXMetricManagerSubscriber
+
+extension AppDelegate {
+    func didReceive(_ payloads: [MXMetricPayload]) {
+        let dir = metricsDirectory()
+        guard let dir else { return }
+        for payload in payloads {
+            let data = payload.jsonRepresentation()
+            let name = "metrics-\(ISO8601DateFormatter().string(from: payload.timeStampEnd)).json"
+            let url = dir.appendingPathComponent(name)
+            try? data.write(to: url, options: .atomic)
+        }
+        pruneOldMetrics(in: dir, keepLast: 7)
+    }
+
+    func didReceive(_ payloads: [MXDiagnosticPayload]) {
+        let dir = metricsDirectory()
+        guard let dir else { return }
+        for payload in payloads {
+            let data = payload.jsonRepresentation()
+            let name = "diag-\(ISO8601DateFormatter().string(from: payload.timeStampEnd)).json"
+            let url = dir.appendingPathComponent(name)
+            try? data.write(to: url, options: .atomic)
+        }
+        pruneOldMetrics(in: dir, keepLast: 7)
+    }
+
+    private func metricsDirectory() -> URL? {
+        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
+        let dir = support.appendingPathComponent("Ghostties/metrics", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func pruneOldMetrics(in dir: URL, keepLast: Int) {
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.creationDateKey], options: .skipsHiddenFiles
+        ) else { return }
+        let sorted = files.sorted {
+            let d0 = (try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            let d1 = (try? $1.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            return d0 > d1
+        }
+        for url in sorted.dropFirst(keepLast) {
+            try? FileManager.default.removeItem(at: url)
         }
     }
 }
