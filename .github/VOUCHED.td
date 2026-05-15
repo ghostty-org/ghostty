@@ -20,6 +20,7 @@
 # "!denounce" or "!denounce [username]" on a discussion.
 00-kat
 007hacky007
+00jciv00
 04cb
 0xdvc
 -4rh1t3ct0r7
@@ -43,7 +44,9 @@ andrejdaskalov
 anhthang
 anmitalidev
 anthonyzhoon
+athaapa
 atomk
+b1nar10
 balazs-szucs
 barutsrb
 bch
@@ -93,6 +96,7 @@ enzowilliam
 ephemera
 eriksremess
 erral
+-f1813483-netizen
 faukah
 filip7
 flou
@@ -175,6 +179,7 @@ misairuzame
 mischief
 mitchellh
 miupa
+mohshami
 molechowski
 moonmao42
 -morgengeluk Appears to be using AI inappropriately even after it was requested they abide by the AI policy (there is clear evidence of the person-in-the-loop not attempting to clean up AI generated text, and their AI disclosure itself reads like AI-generated text and shows no signs of remorse or intent to improve).
@@ -210,6 +215,7 @@ prakhar54-byte
 priyans-hu
 puzza007
 qwerasd205
+raphamorim
 reo101
 rgehan
 rhodes-b
@@ -230,6 +236,7 @@ sunshine-syz
 tbrundige
 tdgroot
 tdslot
+thirstycrow
 thoutbeckers
 ticclick
 tnagatomi
@@ -248,6 +255,7 @@ wyounas
 yabbal
 yamshta
 ydah
+-zaviro
 zenyr
 zeshi09
 zubb
