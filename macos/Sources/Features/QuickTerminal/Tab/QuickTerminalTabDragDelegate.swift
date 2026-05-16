@@ -37,15 +37,17 @@ class QuickTerminalTabDragDelegate: NSObject, NSDraggingSource {
         }
 
         if !quickWindow.frame.contains(screenPoint) {
-            // Check if we're over another Ghostty terminal window's tab bar area
+            // Released outside the quick terminal window.
             if let targetWindow = findGhosttyWindowAtLocation(screenPoint),
                isInTabBarArea(screenPoint, of: targetWindow) {
+                // Over another Ghostty window's tab bar — adopt as a new tab there.
                 tabManager.moveTabToExistingWindow(tab, targetWindow: targetWindow)
             } else {
+                // Fully outside any Ghostty window — detach into a new window.
                 tabManager.moveTabToNewWindow(tab, at: screenPoint)
             }
         } else if isInQuickTerminalTabBar(screenPoint, of: quickWindow) {
-            // Dropped in the tab bar - perform the tab move if we have a drop target
+            // Dropped in the tab bar — reorder if there's a valid drop target.
             if let source = tabManager.tabs.firstIndex(where: { $0.id == tab.id }),
                let dropIndex = tabManager.dropTargetIndex,
                dropIndex != source {
@@ -54,8 +56,10 @@ class QuickTerminalTabDragDelegate: NSObject, NSDraggingSource {
             }
             tabManager.draggedTab = nil
         } else {
-            // Dropped on the terminal surface (not tab bar) - move to new window
-            tabManager.moveTabToNewWindow(tab, at: screenPoint)
+            // Released elsewhere inside the quick terminal window (terminal
+            // surface, search overlay, debug banner, etc.). Cancel the drag —
+            // we never detach into a new window from inside the quick terminal.
+            tabManager.draggedTab = nil
         }
     }
 
