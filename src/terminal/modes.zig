@@ -79,8 +79,16 @@ pub const ModeState = struct {
     /// Return a DECRPM report for the given mode tag. If the tag does
     /// not correspond to a known mode, the report state is .not_recognized.
     pub fn getReport(self: *const ModeState, tag: ModeTag) Report {
-        // DECECM (Erase Color Mode) is DEC private mode 117. Ghostty behaves as
-        // if it is permanently reset and does not implement it as a mutable mode.
+        // DECECM (Erase Color Mode, DEC private mode 117) controls whether erasing
+        // and scrolling use the default background or the active background color.
+        // Ghostty's behavior is fixed equivalent to DECECM reset, and DECRQM has a
+        // "permanently reset" response for recognized modes that cannot be changed.
+        // Report that instead of "not recognized" so applications can query and adapt
+        // to Ghostty's erase-color behavior.
+        //
+        // See VT520/VT525 Programmer Information, "Erase Color" and DECRQM/DECRPM:
+        // https://web.mit.edu/dosathena/doc/www/ek-vt520-rm.pdf
+
         if (!tag.ansi and tag.value == 117) {
             return .{ .tag = tag, .state = .permanently_reset };
         }
