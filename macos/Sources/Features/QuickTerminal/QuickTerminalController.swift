@@ -156,7 +156,6 @@ class QuickTerminalController: BaseTerminalController {
         window.contentView = TerminalViewContainer {
             QuickTerminalView(ghostty: self.ghostty, controller: self, tabManager: tabManager)
         }
-        terminalViewContainer?.ghosttyConfigDidChange(ghostty.config, preferredBackgroundColor: nil)
 
         // Clear out our frame at this point, the fixup from above is complete.
         if let qtWindow = window as? QuickTerminalWindow {
@@ -620,6 +619,25 @@ class QuickTerminalController: BaseTerminalController {
                 NSApp.hide(nil)
             }
         })
+    }
+
+    /// The base implementation only updates surfaces in `self.surfaceTree`, which
+    /// for the quick terminal is just the currently selected tab. Background tabs'
+    /// surfaces live on their `QuickTerminalTab` until that tab becomes current,
+    /// so we push the scheme to them directly here before delegating to super.
+    override func updateColorSchemeForSurfaceTree() {
+        let scheme: ghostty_color_scheme_e = NSApplication.shared.effectiveAppearance.isDark
+            ? GHOSTTY_COLOR_SCHEME_DARK
+            : GHOSTTY_COLOR_SCHEME_LIGHT
+        for tab in tabManager.tabs where tab.id != tabManager.currentTab?.id {
+            for surfaceView in tab.surfaceTree {
+                if let surface = surfaceView.surface {
+                    ghostty_surface_set_color_scheme(surface, scheme)
+                }
+            }
+        }
+
+        super.updateColorSchemeForSurfaceTree()
     }
 
     override func syncAppearance() {
