@@ -75,20 +75,11 @@ class QuickTerminalTabDragDelegate: NSObject, NSDraggingSource {
 
     /// Finds a Ghostty terminal window (not quick terminal) at the given screen location.
     private func findGhosttyWindowAtLocation(_ location: NSPoint) -> NSWindow? {
-        let windows = NSApp.orderedWindows
-
-        for window in windows {
-            if window.windowController is QuickTerminalController {
-                continue
-            }
-            guard window.windowController is TerminalController else {
-                continue
-            }
-            if window.frame.contains(location) {
-                return window
-            }
+        NSApp.orderedWindows.first { window in
+            !(window.windowController is QuickTerminalController)
+                && window.windowController is TerminalController
+                && window.frame.contains(location)
         }
-        return nil
     }
 
     /// Checks if the given screen location is in the tab bar area of the window.
