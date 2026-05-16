@@ -21,12 +21,29 @@ struct QuickTerminalTabBarView: View {
         ghostty.config.backgroundBlur.isGlassStyle
     }
 
+    private var configuredSurfaceColor: NSColor {
+        NSColor(ghostty.config.backgroundColor)
+    }
+
+    private var configuredContrastColor: NSColor {
+        configuredSurfaceColor.isLightColor ? .black : .white
+    }
+
+    private func configuredTinted(by fraction: CGFloat) -> Color {
+        let blended = configuredSurfaceColor.blended(withFraction: fraction, of: configuredContrastColor) ?? configuredSurfaceColor
+        return Color(blended).opacity(ghostty.config.backgroundOpacity)
+    }
+
     private var tabBarBackgroundColor: Color {
-        if isGlassEnabled {
-            Color.white.opacity(0.15)
-        } else {
-            Color(NSColor.controlBackgroundColor)
-        }
+        // When glass is enabled, leave the bar clear so the active tab composites
+        // directly onto the same glass layer as the terminal surface — any wash
+        // here would make the active tab look denser than the surface below it.
+        //
+        // Without glass, paint a very subtle themed wash so drag gaps (and the
+        // bar's footprint generally) read as "empty slot in the bar" instead of
+        // "hole through the window".
+        guard !isGlassEnabled else { return Color.clear }
+        return configuredTinted(by: 0.10)
     }
 
     private var newTabButtonBackgroundColor: Color {
@@ -38,9 +55,9 @@ struct QuickTerminalTabBarView: View {
             }
         } else {
             if isHoveringNewTabButton {
-                Color(NSColor.underPageBackgroundColor)
+                configuredTinted(by: 0.15)
             } else {
-                Color(NSColor.controlBackgroundColor)
+                ghostty.config.backgroundColor.opacity(ghostty.config.backgroundOpacity)
             }
         }
     }
@@ -124,7 +141,10 @@ struct QuickTerminalTabBarView: View {
     @ViewBuilder private func renderDropPlaceholder() -> some View {
         Rectangle()
             .fill(Color.clear)
-            .frame(width: tabManager.draggedTabWidth ?? Constants.dropPlaceholderWidth, height: Constants.height)
+            .frame(
+                width: tabManager.draggedTabWidth ?? Constants.dropPlaceholderWidth,
+                height: Constants.height
+            )
     }
 
     @ViewBuilder private func renderAddNewTabButton() -> some View {

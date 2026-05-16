@@ -9,46 +9,51 @@ struct QuickTerminalTabItemView: View {
     let onClose: () -> Void
     let shortcut: KeyboardShortcut?
 
-    @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
     @State private var isHoveringCloseButton = false
 
+    private var surfaceColor: NSColor {
+        tab.backgroundColor.map { NSColor($0) } ?? .windowBackgroundColor
+    }
+
+    private var surfaceOpacity: Double {
+        tab.backgroundOpacity
+    }
+
+    /// Color to blend the surface color toward when dimming or highlighting.
+    private var contrastColor: NSColor {
+        surfaceColor.isLightColor ? .black : .white
+    }
+
+    private func tinted(by fraction: CGFloat, opacity: Double = 1) -> Color {
+        let blended = surfaceColor.blended(withFraction: fraction, of: contrastColor) ?? surfaceColor
+        return Color(blended).opacity(opacity)
+    }
+
+    /// Extra opacity applied to inactive states when glass is enabled so the
+    /// glass effect bleeds through behind the tab bar. Kept high enough that
+    /// the tint isn't washed out by the glass — especially on light themes.
+    private var inactiveGlassOpacity: Double { isGlassEnabled ? 0.85 : 1 }
+
+    /// How far to blend the surface color toward the contrast color for
+    /// inactive/hover states. Glass needs a heavier tint since the glass
+    /// effect behind the tab dilutes the result.
+    private var hoverTint: CGFloat { isGlassEnabled ? 0.30 : 0.20 }
+    private var inactiveTint: CGFloat { isGlassEnabled ? 0.55 : 0.35 }
+
     private var backgroundColor: Color {
-        if isGlassEnabled {
-            if isHighlighted {
-                Color(hue: 0, saturation: 0, brightness: colorScheme == .light ? 1 : 0.35)
-            } else if isHovering {
-                Color.white.opacity(colorScheme == .light ? 0.18 : 0.05)
-            } else {
-                Color(hue: 0, saturation: 0, brightness: colorScheme == .light ? 0.9 : 0).opacity(0.05)
-            }
-        } else {
-            if isHighlighted {
-                // Color(NSColor.controlBackgroundColor)
-                Color(hue: 0, saturation: 0, brightness: colorScheme == .light ? 1 : 0.35)
-            } else if isHovering {
-                Color(hue: 0, saturation: 0, brightness: colorScheme == .light ? 0.8 : 0.3)
-            } else {
-                Color(hue: 0, saturation: 0, brightness: colorScheme == .light ? 0.85 : 0.2)
-            }
-        }
+        if isHighlighted { return Color(surfaceColor).opacity(surfaceOpacity) }
+        let opacity = surfaceOpacity * inactiveGlassOpacity
+        if isHovering { return tinted(by: hoverTint, opacity: opacity) }
+        return tinted(by: inactiveTint, opacity: opacity)
     }
 
     private var closeButtonBackgroundColor: Color {
-        if isGlassEnabled {
-            if isHoveringCloseButton {
-                Color.white.opacity(0.3)
-            } else {
-                backgroundColor
-            }
-        } else {
-            if isHoveringCloseButton {
-                Color(NSColor.unemphasizedSelectedContentBackgroundColor)
-            } else {
-                backgroundColor
-            }
-        }
+        isHoveringCloseButton ? tinted(by: 0.45) : backgroundColor
     }
+
+    private var primaryForeground: Color { Color(contrastColor) }
+    private var secondaryForeground: Color { primaryForeground.opacity(0.6) }
 
     var body: some View {
         HStack(spacing: Constants.horizontalSpacing) {
@@ -81,7 +86,7 @@ struct QuickTerminalTabItemView: View {
         Button(action: onClose) {
             Image(systemName: "xmark")
                 .font(.system(size: Constants.closeButtonFontSize))
-                .foregroundColor(isHovering ? .primary : .secondary)
+                .foregroundColor(isHovering ? primaryForeground : secondaryForeground)
                 .padding(Constants.closeButtonPadding)
         }
         .buttonStyle(PlainButtonStyle())
@@ -107,7 +112,7 @@ struct QuickTerminalTabItemView: View {
 
     @ViewBuilder private func renderTitle() -> some View {
         Text(tab.title)
-            .foregroundColor(isHighlighted ? .primary : .secondary)
+            .foregroundColor(isHighlighted ? primaryForeground : secondaryForeground)
             .lineLimit(Constants.titleLineLimit)
             .truncationMode(.tail)
             .frame(minWidth: 0, maxWidth: .infinity)
@@ -116,7 +121,7 @@ struct QuickTerminalTabItemView: View {
     @ViewBuilder private func renderShortcut(_ shortcut: KeyboardShortcut) -> some View {
         Text(shortcut.description)
             .font(.system(size: Constants.shortcutFontSize))
-            .foregroundColor(isHighlighted ? .primary : .secondary)
+            .foregroundColor(isHighlighted ? primaryForeground : secondaryForeground)
             .opacity(0.7)
     }
 }
