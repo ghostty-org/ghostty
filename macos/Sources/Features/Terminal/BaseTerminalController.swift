@@ -784,15 +784,16 @@ class BaseTerminalController: NSWindowController,
     private func localEventFlagsChanged(_ event: NSEvent) -> NSEvent? {
         var surfaces: [Ghostty.SurfaceView] = surfaceTree.map { $0 }
 
-        // If we're the main window receiving key input, then we want to avoid
-        // calling this on our focused surface because that'll trigger a double
-        // flagsChanged call.
+        // If we're the main window receiving key input, then the focused
+        // surface gets flagsChanged through the responder chain. Other surfaces
+        // still need modifier updates for UI state such as link highlighting,
+        // but those updates must not be encoded as terminal input.
         if NSApp.mainWindow == window {
             surfaces = surfaces.filter { $0 != focusedSurface }
         }
 
         for surface in surfaces {
-            surface.flagsChanged(with: event)
+            surface.modifiersChanged(with: event)
         }
 
         return event

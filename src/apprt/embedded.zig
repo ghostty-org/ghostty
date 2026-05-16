@@ -1774,6 +1774,20 @@ pub const CAPI = struct {
         return @intCast(@as(input.Mods.Backing, @bitCast(result)));
     }
 
+    /// Update the modifier state for UI purposes without sending a key event
+    /// to the terminal.
+    export fn ghostty_surface_set_mods(
+        surface: *Surface,
+        mods_raw: c_int,
+    ) void {
+        surface.core_surface.modsCallback(@bitCast(@as(
+            input.Mods.Backing,
+            @truncate(@as(c_uint, @bitCast(mods_raw))),
+        ))) catch |err| {
+            log.warn("error processing mods event err={}", .{err});
+        };
+    }
+
     /// Send this for raw keypresses (i.e. the keyDown event on macOS).
     /// This will handle the keymap translation and send the appropriate
     /// key and char events.

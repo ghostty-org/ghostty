@@ -54,6 +54,13 @@ pub fn keyToMouseShape(self: SurfaceMouse) ?MouseShape {
     // Filter for appropriate key events
     if (!eligibleMouseShapeKeyEvent(self.physical_key)) return null;
 
+    return self.modsToMouseShape();
+}
+
+/// Translates the current modifier state to mouse shape without requiring a
+/// key event. This is used for modifier-only updates that should affect UI
+/// state without sending keyboard input to the terminal.
+pub fn modsToMouseShape(self: SurfaceMouse) ?MouseShape {
     // Exceptions: link hover or hidden state overrides any other shape
     // processing and does not change state.
     //
@@ -332,5 +339,40 @@ test "keyToMouseShape" {
         const want: MouseShape = .text;
         const got = m.keyToMouseShape();
         try testing.expect(want == got);
+    }
+}
+
+test "modsToMouseShape" {
+    const testing = std.testing;
+
+    {
+        // Modifier-only updates do not need a specific physical key.
+        const m: SurfaceMouse = .{
+            .physical_key = .unidentified,
+            .mouse_event = .none,
+            .mouse_shape = .text,
+            .mods = .{ .ctrl = true, .super = true, .alt = true },
+            .over_link = false,
+            .hidden = false,
+        };
+
+        const want: MouseShape = .crosshair;
+        const got = m.modsToMouseShape();
+        try testing.expect(want == got);
+    }
+
+    {
+        // Link hover still owns the cursor shape.
+        const m: SurfaceMouse = .{
+            .physical_key = .unidentified,
+            .mouse_event = .none,
+            .mouse_shape = .text,
+            .mods = .{ .ctrl = true, .super = true, .alt = true },
+            .over_link = true,
+            .hidden = false,
+        };
+
+        const got = m.modsToMouseShape();
+        try testing.expect(got == null);
     }
 }
