@@ -62,8 +62,7 @@ class QuickTerminalTabDragDelegate: NSObject, NSDraggingSource {
     /// Checks if the given screen location is in the tab bar area of the quick terminal window.
     private func isInQuickTerminalTabBar(_ location: NSPoint, of window: NSWindow) -> Bool {
         let windowFrame = window.frame
-        // Tab bar is at the top of the window, 24px tall
-        let tabBarHeight: CGFloat = 24
+        let tabBarHeight = QuickTerminalTabBarView.Constants.height
         let tabBarRect = NSRect(
             x: windowFrame.minX,
             y: windowFrame.maxY - tabBarHeight,
