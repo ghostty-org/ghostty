@@ -148,22 +148,27 @@ struct QuickTerminalTabBarView: View {
     }
 
     @ViewBuilder private func renderAddNewTabButton() -> some View {
-        Image(systemName: "plus")
-            .foregroundColor(Color(NSColor.secondaryLabelColor))
-            .padding(.horizontal, Constants.addNewTabButtonHorizontalPadding)
-            .frame(width: Constants.height, height: Constants.height)
-            .background(
-                Rectangle()
-                    .fill(newTabButtonBackgroundColor)
-            )
-            .onHover { isHovering in
-                isHoveringNewTabButton = isHovering
-            }
-            .onTapGesture {
-                tabManager.addNewTab()
-            }
-            .buttonStyle(PlainButtonStyle())
-            .help("Create a new Tab")
+        // Wrapped in FirstMouseHosting so the button fires on the first click
+        // when the quick terminal isn't the key window. SwiftUI's `.onTapGesture`
+        // sitting directly in the top-level hosting view doesn't accept
+        // first-mouse on its own; the hosting subclass gives it that path.
+        FirstMouseHosting {
+            Image(systemName: "plus")
+                .foregroundColor(Color(NSColor.secondaryLabelColor))
+                .padding(.horizontal, Constants.addNewTabButtonHorizontalPadding)
+                .frame(width: Constants.height, height: Constants.height)
+                .background(
+                    Rectangle()
+                        .fill(newTabButtonBackgroundColor)
+                )
+                .onHover { isHovering in
+                    isHoveringNewTabButton = isHovering
+                }
+                .onTapGesture {
+                    tabManager.addNewTab()
+                }
+                .help("Create a new Tab")
+        }
     }
 
     @ViewBuilder private func renderTabItem(_ tab: QuickTerminalTab, index: Int) -> some View {
@@ -202,6 +207,27 @@ struct QuickTerminalTabBarView: View {
 
         Divider()
             .background(Color(NSColor.separatorColor))
+    }
+}
+
+/// Hosts SwiftUI content inside an `NSHostingView` subclass that accepts
+/// first-mouse, so gestures inside it (e.g. `.onTapGesture`) fire on the first
+/// click when the window isn't key, instead of having that click consumed by
+/// window activation. AppKit checks `acceptsFirstMouse` on the hit-tested view,
+/// which is the hosting view itself — wrapping in a parent NSView doesn't work.
+private struct FirstMouseHosting<Content: View>: NSViewRepresentable {
+    @ViewBuilder let content: () -> Content
+
+    func makeNSView(context: Context) -> HostingView {
+        HostingView(rootView: content())
+    }
+
+    func updateNSView(_ nsView: HostingView, context: Context) {
+        nsView.rootView = content()
+    }
+
+    final class HostingView: NSHostingView<Content> {
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     }
 }
 
