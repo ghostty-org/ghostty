@@ -9,25 +9,27 @@ struct QuickTerminalTabItemView: View {
     let onClose: () -> Void
     let shortcut: KeyboardShortcut?
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
     @State private var isHoveringCloseButton = false
 
     private var backgroundColor: Color {
         if isGlassEnabled {
             if isHighlighted {
-                Color.white.opacity(0.28)
+                Color(hue: 0, saturation: 0, brightness: colorScheme == .light ? 1 : 0.35)
             } else if isHovering {
-                Color.white.opacity(0.18)
+                Color.white.opacity(colorScheme == .light ? 0.18 : 0.05)
             } else {
-                Color.white.opacity(0.05)
+                Color(hue: 0, saturation: 0, brightness: colorScheme == .light ? 0.9 : 0).opacity(0.05)
             }
         } else {
             if isHighlighted {
-                Color.white.opacity(0.15)
+                // Color(NSColor.controlBackgroundColor)
+                Color(hue: 0, saturation: 0, brightness: colorScheme == .light ? 1 : 0.35)
             } else if isHovering {
-                Color(NSColor.underPageBackgroundColor)
+                Color(hue: 0, saturation: 0, brightness: colorScheme == .light ? 0.8 : 0.3)
             } else {
-                Color(NSColor.controlBackgroundColor)
+                Color(hue: 0, saturation: 0, brightness: colorScheme == .light ? 0.85 : 0.2)
             }
         }
     }
