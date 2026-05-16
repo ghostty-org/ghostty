@@ -1170,6 +1170,20 @@ extension Ghostty {
             if let list = keyTextAccumulator, list.count > 0 {
                 // Accumulated text from interpretKeyEvents (committed by the IME).
                 for text in list {
+                    if Ghostty.SurfaceView.shouldAllowComposingTerminalControlInput(
+                        text,
+                        composing: composing
+                    ) {
+                        _ = keyAction(
+                            action,
+                            event: event,
+                            translationEvent: translationEvent,
+                            text: text,
+                            composing: false
+                        )
+                        continue
+                    }
+
                     // Drop bare control characters the IME accumulated while
                     // composing so they don't leak through to the terminal.
                     if Ghostty.SurfaceView.shouldSuppressComposingControlInput(
@@ -1190,6 +1204,20 @@ extension Ghostty {
                     )
                 }
             } else {
+                if Ghostty.SurfaceView.shouldAllowComposingTerminalControlInput(
+                    event.characters,
+                    composing: composing
+                ) {
+                    _ = keyAction(
+                        action,
+                        event: event,
+                        translationEvent: translationEvent,
+                        text: translationEvent.ghosttyCharacters,
+                        composing: false
+                    )
+                    return
+                }
+
                 // Raw control characters (e.g. ctrl+h) arriving during
                 // composition belong to the IME, not the terminal.
                 if Ghostty.SurfaceView.shouldSuppressComposingControlInput(
@@ -2067,6 +2095,28 @@ extension Ghostty.SurfaceView: NSTextInputClient {
             return false
         }
         return scalar.value < 0x20
+    }
+
+    /// True when a composing control input should still be forwarded to the
+    /// terminal instead of staying inside the IME.
+    static func shouldAllowComposingTerminalControlInput(
+        _ text: String?,
+        composing: Bool
+    ) -> Bool {
+        guard composing, let text else { return false }
+        let scalars = text.unicodeScalars
+        guard let scalar = scalars.first,
+              scalars.index(after: scalars.startIndex) == scalars.endIndex else {
+            return false
+        }
+
+        switch scalar.value {
+        case 0x03, // Ctrl+C
+             0x16: // Ctrl+V
+            return true
+        default:
+            return false
+        }
     }
 }
 

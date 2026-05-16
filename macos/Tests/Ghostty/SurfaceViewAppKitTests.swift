@@ -24,6 +24,26 @@ struct SurfaceViewAppKitTests {
         )
     }
 
+    @Test(arguments: [
+        ("\u{0003}", true),
+        ("\u{0016}", true),
+        ("\u{0008}", false),
+        ("\u{001F}", false),
+        ("h", false),
+        ("", false),
+    ])
+    func allowsOnlyCtrlCAndCtrlVWhileComposing(
+        text: String,
+        expected: Bool
+    ) {
+        #expect(
+            Ghostty.SurfaceView.shouldAllowComposingTerminalControlInput(
+                text,
+                composing: true
+            ) == expected
+        )
+    }
+
     @Test func doesNotSuppressControlTextWhenNotComposing() {
         #expect(
             Ghostty.SurfaceView.shouldSuppressComposingControlInput(
