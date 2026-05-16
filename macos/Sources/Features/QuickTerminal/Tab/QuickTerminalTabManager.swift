@@ -70,6 +70,16 @@ class QuickTerminalTabManager: ObservableObject {
         controller?.ghostty.config
     }
 
+    /// Forwards to the controller's undo manager (the app-level expiring manager).
+    /// Returns nil before the controller has a window so callers can short-circuit.
+    private var undoManager: ExpiringUndoManager? {
+        controller?.undoManager
+    }
+
+    private var undoExpiration: Duration {
+        controller?.undoExpiration ?? .seconds(60)
+    }
+
     init(controller: QuickTerminalController, restorationState: QuickTerminalRestorableState? = nil) {
         self.controller = controller
 
@@ -94,8 +104,9 @@ class QuickTerminalTabManager: ObservableObject {
                 selectTab(first)
             }
         } else {
-            // No saved state or restoration disabled - create default tab
-            addNewTab()
+            // No saved state or restoration disabled - create default tab.
+            // Skip undo registration; the initial tab is part of setup, not a user action.
+            performAddNewTab(registerUndo: false)
         }
     }
 
@@ -127,26 +138,21 @@ class QuickTerminalTabManager: ObservableObject {
     // MARK: Methods
 
     func addNewTab() {
-        guard let ghostty = controller?.ghostty else { return }
+        performAddNewTab(registerUndo: true)
+    }
+
+    @discardableResult
+    private func performAddNewTab(registerUndo: Bool) -> QuickTerminalTab? {
+        guard let ghostty = controller?.ghostty else { return nil }
 
         let leaf: Ghostty.SurfaceView = .init(ghostty.app!, baseConfig: nil)
         let surfaceTree: SplitTree<Ghostty.SurfaceView> = .init(view: leaf)
         let tabIndex = tabs.count + 1
-
         let newTab = QuickTerminalTab(surfaceTree: surfaceTree, title: "Terminal \(tabIndex)")
-        insertTabAfterCurrent(newTab)
 
-        selectTab(newTab)
-    }
-
-    /// Inserts a tab immediately after the currently selected tab, or appends it
-    /// if there is no current selection.
-    private func insertTabAfterCurrent(_ tab: QuickTerminalTab) {
-        if let currentTabIndex {
-            tabs.insert(tab, at: currentTabIndex + 1)
-        } else {
-            tabs.append(tab)
-        }
+        let insertIndex = (currentTabIndex.map { $0 + 1 }) ?? tabs.count
+        insertTab(newTab, at: insertIndex, undoActionName: registerUndo ? "New Tab" : nil)
+        return newTab
     }
 
     /// Adds an existing surface tree as a new tab in the quick terminal.
@@ -164,8 +170,8 @@ class QuickTerminalTabManager: ObservableObject {
         )
         newTab.titleOverride = titleOverride
         newTab.tabColor = tabColor
-        insertTabAfterCurrent(newTab)
-        selectTab(newTab)
+        let insertIndex = (currentTabIndex.map { $0 + 1 }) ?? tabs.count
+        insertTab(newTab, at: insertIndex, undoActionName: "Move Tab")
     }
 
     func selectTab(_ tab: QuickTerminalTab) {
@@ -175,25 +181,31 @@ class QuickTerminalTabManager: ObservableObject {
     }
 
     func closeTab(_ tab: QuickTerminalTab) {
-        guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+        guard tabs.contains(where: { $0.id == tab.id }) else { return }
 
-        tabs.remove(at: index)
+        // Group with the "create empty tab + animate out" fallback so a single
+        // undo restores both the closed tab and removes the auto-created one.
+        undoManager?.beginUndoGrouping()
+        defer { undoManager?.endUndoGrouping() }
 
-        if currentTab?.id == tab.id {
-            if tabs.isEmpty {
-                addNewTab()
-                controller?.animateOut()
-            } else {
-                let newIndex = min(index, tabs.count - 1)
-                selectTab(tabs[newIndex])
-            }
+        removeTab(tab, undoActionName: "Close Tab")
+
+        // If we just closed the last tab, replace it with a fresh empty tab and
+        // hide the window. The replacement is part of the same undo group, so
+        // undoing "Close Tab" both removes the new tab and restores the old one.
+        if tabs.isEmpty {
+            performAddNewTab(registerUndo: true)
+            controller?.animateOut()
         }
     }
 
     func closeAllTabs(except: QuickTerminalTab) {
         let toClose = self.tabs.filter { $0.id != except.id }
+        guard !toClose.isEmpty else { return }
 
-        guard toClose.count != self.tabs.count else { return }
+        undoManager?.beginUndoGrouping()
+        undoManager?.setActionName("Close Other Tabs")
+        defer { undoManager?.endUndoGrouping() }
 
         for tab in toClose {
             self.closeTab(tab)
@@ -202,8 +214,12 @@ class QuickTerminalTabManager: ObservableObject {
 
     func closeTabsToTheRight(of tab: QuickTerminalTab) {
         guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
-
         let toClose = tabs.enumerated().filter { $0.offset > index }.map { $0.element }
+        guard !toClose.isEmpty else { return }
+
+        undoManager?.beginUndoGrouping()
+        undoManager?.setActionName("Close Tabs to the Right")
+        defer { undoManager?.endUndoGrouping() }
 
         for tabToClose in toClose {
             self.closeTab(tabToClose)
@@ -211,7 +227,66 @@ class QuickTerminalTabManager: ObservableObject {
     }
 
     func moveTab(from source: IndexSet, to destination: Int) {
+        // Capture pre-move order so we can register an undo.
+        let preMoveOrder = tabs
         tabs.move(fromOffsets: source, toOffset: destination)
+        guard tabs.map(\.id) != preMoveOrder.map(\.id) else { return }
+        registerReorderUndo(to: preMoveOrder, actionName: "Move Tab")
+    }
+
+    // MARK: Undoable Helpers
+
+    /// Inserts a tab at the given index and (optionally) registers an undo that
+    /// closes it again. The undo closure re-registers a redo via `removeTab`.
+    private func insertTab(_ tab: QuickTerminalTab, at index: Int, undoActionName: String?) {
+        let clamped = max(0, min(index, tabs.count))
+        tabs.insert(tab, at: clamped)
+        selectTab(tab)
+
+        guard let undoActionName, let undoManager else { return }
+        undoManager.setActionName(undoActionName)
+        undoManager.registerUndo(withTarget: self, expiresAfter: undoExpiration) { target in
+            target.removeTab(tab, undoActionName: undoActionName)
+        }
+    }
+
+    /// Removes a tab without closing its surfaces (the tab object itself
+    /// retains them, so undo can restore it). Registers an undo that re-inserts.
+    private func removeTab(_ tab: QuickTerminalTab, undoActionName: String?) {
+        guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+        let previousSelection = currentTab
+
+        tabs.remove(at: index)
+
+        if currentTab?.id == tab.id {
+            if tabs.isEmpty {
+                currentTab = nil
+            } else {
+                let newIndex = min(index, tabs.count - 1)
+                selectTab(tabs[newIndex])
+            }
+        }
+
+        guard let undoActionName, let undoManager else { return }
+        undoManager.setActionName(undoActionName)
+        undoManager.registerUndo(withTarget: self, expiresAfter: undoExpiration) { target in
+            target.insertTab(tab, at: index, undoActionName: undoActionName)
+            if let previousSelection, target.tabs.contains(where: { $0.id == previousSelection.id }) {
+                target.selectTab(previousSelection)
+            }
+        }
+    }
+
+    /// Restores a previous tab ordering and registers a redo that re-applies
+    /// the current ordering.
+    private func registerReorderUndo(to previousOrder: [QuickTerminalTab], actionName: String) {
+        guard let undoManager else { return }
+        let newOrder = tabs
+        undoManager.setActionName(actionName)
+        undoManager.registerUndo(withTarget: self, expiresAfter: undoExpiration) { target in
+            target.tabs = previousOrder
+            target.registerReorderUndo(to: newOrder, actionName: actionName)
+        }
     }
 
     func selectNextTab() {
@@ -233,6 +308,15 @@ class QuickTerminalTabManager: ObservableObject {
     func moveTabToNewWindow(_ tab: QuickTerminalTab, at screenLocation: NSPoint? = nil) {
         guard let ghostty = controller?.ghostty else { return }
         guard controller?.window != nil else { return }
+
+        // Group with the auto-empty-tab fallback in `removeTabWithoutClosingSurfaces`
+        // so undo reverses both the move AND the auto-created replacement tab.
+        undoManager?.beginUndoGrouping()
+        defer { undoManager?.endUndoGrouping() }
+
+        // Capture state before the move so undo can restore it.
+        let originalIndex = tabs.firstIndex(where: { $0.id == tab.id }) ?? tabs.count
+        let previousSelection = currentTab
 
         // If this is the current tab, sync its surface tree from the controller
         if currentTab?.id == tab.id, let controllerTree = controller?.surfaceTree {
@@ -281,6 +365,16 @@ class QuickTerminalTabManager: ObservableObject {
 
         // Clear the dragged tab state
         draggedTab = nil
+
+        registerMoveOutUndo(
+            tab: tab,
+            destinationController: newController,
+            originalIndex: originalIndex,
+            previousSelection: previousSelection,
+            actionName: "Move Tab to New Window"
+        ) { target in
+            target.moveTabToNewWindow(tab, at: targetLocation)
+        }
     }
 
     /// Removes a tab from the tab list without closing its surfaces.
@@ -354,6 +448,15 @@ class QuickTerminalTabManager: ObservableObject {
         guard let ghostty = controller?.ghostty else { return }
         guard controller?.window != nil else { return }
 
+        // Group with the auto-empty-tab fallback in `removeTabWithoutClosingSurfaces`
+        // so undo reverses both the move AND the auto-created replacement tab.
+        undoManager?.beginUndoGrouping()
+        defer { undoManager?.endUndoGrouping() }
+
+        // Capture state before the move so undo can restore it.
+        let originalIndex = tabs.firstIndex(where: { $0.id == tab.id }) ?? tabs.count
+        let previousSelection = currentTab
+
         // If this is the current tab, sync its surface tree from the controller
         if currentTab?.id == tab.id, let controllerTree = controller?.surfaceTree {
             tab.surfaceTree = controllerTree
@@ -384,6 +487,64 @@ class QuickTerminalTabManager: ObservableObject {
 
         // Clear the dragged tab state
         draggedTab = nil
+
+        registerMoveOutUndo(
+            tab: tab,
+            destinationController: newController,
+            originalIndex: originalIndex,
+            previousSelection: previousSelection,
+            actionName: "Move Tab to Window"
+        ) { [weak targetWindow] target in
+            // If the original target window is gone by redo time, fall back to
+            // detaching as a standalone window so the tab still comes back.
+            if let targetWindow {
+                target.moveTabToExistingWindow(tab, targetWindow: targetWindow)
+            } else {
+                target.moveTabToNewWindow(tab)
+            }
+        }
+    }
+
+    /// Registers an undo for "move out" operations (to a new window or to an
+    /// existing window as a tab). The undo empties the destination controller's
+    /// surface tree (so closing it doesn't kill PTYs), closes its window, and
+    /// re-inserts the tab back into the quick terminal at its original index.
+    ///
+    /// `redo` re-runs the original move so Cmd+Shift+Z restores the tab to a
+    /// fresh destination window. We capture the destination controller strongly
+    /// until the undo expires/fires so the window can be cleanly dismissed; the
+    /// retention is bounded by `undoExpiration`.
+    private func registerMoveOutUndo(
+        tab: QuickTerminalTab,
+        destinationController: TerminalController,
+        originalIndex: Int,
+        previousSelection: QuickTerminalTab?,
+        actionName: String,
+        redo: @escaping (QuickTerminalTabManager) -> Void
+    ) {
+        guard let undoManager else { return }
+        undoManager.setActionName(actionName)
+        undoManager.registerUndo(withTarget: self, expiresAfter: undoExpiration) { target in
+            // The tab still holds the surfaces. Detach them from the destination
+            // controller's tree so closing its window won't tear down PTYs.
+            destinationController.surfaceTree = .init()
+            destinationController.window?.close()
+
+            // Re-insert into the quick terminal and restore selection. We pass
+            // nil for the undo action name so this insert doesn't register its
+            // own undo — we register the proper redo (re-run the move) below.
+            target.insertTab(tab, at: originalIndex, undoActionName: nil)
+            if let previousSelection, target.tabs.contains(where: { $0.id == previousSelection.id }) {
+                target.selectTab(previousSelection)
+            }
+
+            // Register the redo: re-run the original move so Cmd+Shift+Z
+            // recreates the destination window with this tab's surfaces.
+            undoManager.setActionName(actionName)
+            undoManager.registerUndo(withTarget: target, expiresAfter: target.undoExpiration) { target in
+                redo(target)
+            }
+        }
     }
 
     // MARK: - Notifications
