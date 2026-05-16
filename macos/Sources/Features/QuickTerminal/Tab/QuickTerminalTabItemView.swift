@@ -9,6 +9,11 @@ struct QuickTerminalTabItemView: View {
     /// via `QuickTerminalController.computeTitle` — the same rule the window
     /// title uses for regular terminals.
     let config: Ghostty.Config
+    /// Passed in from the bar so we can reset hover state when the tab list
+    /// changes — SwiftUI sometimes drops the `.onHover` exit when a tab
+    /// shifts out from under the cursor during an insertion/removal, which
+    /// leaves the previously-hovered tab's close button stuck visible.
+    let tabsCount: Int
     let onSelect: () -> Void
     let onClose: () -> Void
     let shortcut: KeyboardShortcut?
@@ -82,6 +87,14 @@ struct QuickTerminalTabItemView: View {
         )
         .onHover { isHovering in
             self.isHovering = isHovering
+        }
+        .onChange(of: tabsCount) { _ in
+            // SwiftUI sometimes drops the `.onHover` exit when a tab shifts
+            // out from under the cursor during an insertion/removal, leaving
+            // the close button stuck visible. Force a reset; if the cursor
+            // really is over this tab the next mouse move will restore it.
+            isHovering = false
+            isHoveringCloseButton = false
         }
         .onTapGesture {
             DispatchQueue.main.async {

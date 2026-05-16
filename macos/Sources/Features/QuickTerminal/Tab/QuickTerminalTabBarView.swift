@@ -192,6 +192,7 @@ struct QuickTerminalTabBarView: View {
                 isHighlighted: tabManager.currentTab?.id == tab.id,
                 isGlassEnabled: isGlassEnabled,
                 config: ghostty.config,
+                tabsCount: tabManager.tabs.count,
                 onSelect: { tabManager.selectTab(tab) },
                 onClose: {
                     if NSEvent.modifierFlags.contains(.option) {
