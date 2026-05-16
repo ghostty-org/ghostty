@@ -319,23 +319,49 @@ class QuickTerminalController: BaseTerminalController {
             return
         }
 
-        // If there are multiple tabs, close the current tab instead of hiding
-        if tabManager.tabs.count > 1, let currentTab = tabManager.currentTab {
-            tabManager.closeTab(currentTab)
-            return
-        }
-
-        // If its the root and the process exited, empty the tree and
-        // animate out. The next toggle will create a new surface.
-        if surface.processExited {
-            surfaceTree = .init()
+        // Always route through the tab manager so the underlying
+        // `QuickTerminalTab` and its `SurfaceView` are released, regardless
+        // of whether other tabs exist. Prompt for confirmation when any
+        // surface in the tab still has a running process.
+        guard let currentTab = tabManager.currentTab else {
             animateOut()
             return
         }
 
-        // If its the root then we just animate out. We never actually allow
-        // the surface to fully close.
-        animateOut()
+        let close = { [weak self] in
+            guard let self else { return }
+            if self.tabManager.tabs.count == 1 {
+                // Detach the dying surface from the controller so the
+                // replacement tab takes focus on a clean tree.
+                self.surfaceTree = .init()
+            }
+            self.tabManager.closeTab(currentTab)
+        }
+
+        if withConfirmation {
+            confirmCloseIfNeeded(of: currentTab.surfaceTree, action: close)
+        } else {
+            close()
+        }
+    }
+
+    /// Runs `action` immediately if no surface in `tree` requires confirmation,
+    /// otherwise shows the standard "Close Terminal?" prompt and runs `action`
+    /// only if the user confirms.
+    private func confirmCloseIfNeeded(
+        of tree: SplitTree<Ghostty.SurfaceView>,
+        action: @escaping () -> Void
+    ) {
+        guard tree.contains(where: { $0.needsConfirmQuit }) else {
+            action()
+            return
+        }
+        confirmClose(
+            messageText: "Close Terminal?",
+            informativeText: "The terminal still has a running process. If you close the terminal the process will be killed."
+        ) {
+            action()
+        }
     }
 
     // MARK: Methods
@@ -374,11 +400,11 @@ class QuickTerminalController: BaseTerminalController {
         self.previousActiveSpace = CGSSpace.active()
 
         // If our surface tree is empty then we initialize a new terminal. The surface
-        // tree can be empty if for example we run "exit" in the terminal and force
-        // animate out. Note: session restoration typically happens earlier in
+        // tree can be empty after closing the last tab (we defer creating the
+        // replacement until the user re-invokes the quick terminal) or after the
+        // process exits. Note: session restoration typically happens earlier in
         // QuickTerminalTabManager.init which restores tabs from the restorationState.
-        if surfaceTree.isEmpty,
-           let ghostty_app = ghostty.app {
+        if surfaceTree.isEmpty, ghostty.app != nil {
             if let tree = restorationState?.surfaceTree, !tree.isEmpty {
                 surfaceTree = tree
                 let view = tree.first(where: { $0.id.uuidString == restorationState?.focusedSurface }) ?? tree.first!
@@ -393,12 +419,11 @@ class QuickTerminalController: BaseTerminalController {
                     }
                 }
             } else {
-                var config = Ghostty.SurfaceConfiguration()
-                config.environmentVariables["GHOSTTY_QUICK_TERMINAL"] = "1"
-
-                let view = Ghostty.SurfaceView(ghostty_app, baseConfig: config)
-                surfaceTree = SplitTree(view: view)
-                focusedSurface = view
+                // Create a fresh tab via the tab manager so the new surface is
+                // tracked as a real tab instead of a raw entry in the controller's
+                // tree. This is the lazy counterpart to closeTab deferring its
+                // replacement until the next animateIn.
+                tabManager.addNewTab()
             }
         }
 

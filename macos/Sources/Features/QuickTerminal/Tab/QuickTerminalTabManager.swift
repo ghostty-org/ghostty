@@ -183,18 +183,13 @@ class QuickTerminalTabManager: ObservableObject {
     func closeTab(_ tab: QuickTerminalTab) {
         guard tabs.contains(where: { $0.id == tab.id }) else { return }
 
-        // Group with the "create empty tab + animate out" fallback so a single
-        // undo restores both the closed tab and removes the auto-created one.
-        undoManager?.beginUndoGrouping()
-        defer { undoManager?.endUndoGrouping() }
-
         removeTab(tab, undoActionName: "Close Tab")
 
-        // If we just closed the last tab, replace it with a fresh empty tab and
-        // hide the window. The replacement is part of the same undo group, so
-        // undoing "Close Tab" both removes the new tab and restores the old one.
+        // If we just closed the last tab, animate the quick terminal out and
+        // let macOS focus the next window. The replacement tab is created
+        // lazily on the next animateIn so we don't waste startup work on a
+        // surface the user may not actually want yet.
         if tabs.isEmpty {
-            performAddNewTab(registerUndo: true)
             controller?.animateOut()
         }
     }
