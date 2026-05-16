@@ -446,15 +446,18 @@ class AppDelegate: NSObject,
         // but I haven't seen it happen in releases. I'm unsure why.
         guard applicationHasBecomeActive else { return true }
 
-        // If the quick terminal is currently active (initialized), show it instead of
-        // opening a new window. Otherwise, open a new regular window.
+        // If the quick terminal is currently active (initialized) AND has at
+        // least one tab, show it instead of opening a new window. Otherwise
+        // open a new regular window — including the case where the quick
+        // terminal has been emptied (last tab closed) since the user has no
+        // visible QT state to return to.
         switch quickTerminalControllerState {
         case .uninitialized, .pendingRestore:
-            // Quick terminal not active, open a new regular window
             _ = TerminalController.newWindow(ghostty)
         case .initialized:
-            // Quick terminal is active, show it
-            if !quickController.visible {
+            if quickController.tabManager.tabs.isEmpty {
+                _ = TerminalController.newWindow(ghostty)
+            } else if !quickController.visible {
                 quickController.animateIn()
             }
         }
