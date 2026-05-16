@@ -5,9 +5,17 @@ struct QuickTerminalTabItemView: View {
 
     let isHighlighted: Bool
     let isGlassEnabled: Bool
+    /// The active Ghostty config, used to format the title (bell prefix etc.)
+    /// via `QuickTerminalController.computeTitle` — the same rule the window
+    /// title uses for regular terminals.
+    let config: Ghostty.Config
     let onSelect: () -> Void
     let onClose: () -> Void
     let shortcut: KeyboardShortcut?
+
+    private var displayTitle: String {
+        QuickTerminalController.computeTitle(title: tab.title, bell: tab.surfaceBell, config: config)
+    }
 
     @State private var isHovering = false
     @State private var isHoveringCloseButton = false
@@ -111,7 +119,7 @@ struct QuickTerminalTabItemView: View {
     }
 
     @ViewBuilder private func renderTitle() -> some View {
-        Text(tab.title)
+        Text(displayTitle)
             .foregroundColor(isHighlighted ? primaryForeground : secondaryForeground)
             .lineLimit(Constants.titleLineLimit)
             .truncationMode(.tail)

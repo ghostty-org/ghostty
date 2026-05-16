@@ -816,7 +816,10 @@ class BaseTerminalController: NSWindowController,
             // If we have a surface, we want to listen for title changes.
             titleSurface.$title
                 .combineLatest(titleSurface.$bell)
-                .map { [weak self] in self?.computeTitle(title: $0, bell: $1) ?? "" }
+                .map { [weak self] title, bell in
+                    guard let self else { return "" }
+                    return Self.computeTitle(title: title, bell: bell, config: self.ghostty.config)
+                }
                 .sink { [weak self] in self?.titleDidChange(to: $0) }
                 .store(in: &focusedSurfaceCancellables)
         } else {
@@ -825,9 +828,9 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
-    private func computeTitle(title: String, bell: Bool) -> String {
+    static func computeTitle(title: String, bell: Bool, config: Ghostty.Config) -> String {
         var result = title
-        if bell && ghostty.config.bellFeatures.contains(.title) {
+        if bell && config.bellFeatures.contains(.title) {
             result = "🔔 \(result)"
         }
 
@@ -843,9 +846,10 @@ class BaseTerminalController: NSWindowController,
         guard let window else { return }
 
         if let titleOverride {
-            window.title = computeTitle(
+            window.title = Self.computeTitle(
                 title: titleOverride,
-                bell: focusedSurface?.bell ?? false)
+                bell: focusedSurface?.bell ?? false,
+                config: ghostty.config)
             return
         }
 

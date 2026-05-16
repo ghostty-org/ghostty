@@ -2,20 +2,17 @@ import Combine
 import SwiftUI
 
 class QuickTerminalTab: ObservableObject, Identifiable {
-    /// The displayed title (uses titleOverride if set, otherwise the surface title)
-    @Published var title: String
 
-    /// User-defined title override. When set, this is displayed instead of the surface title.
-    @Published var titleOverride: String? {
-        didSet {
-            if let override = titleOverride {
-                title = override
-            } else {
-                // Restore surface title
-                title = currentSurfaceTitle ?? "Terminal"
-            }
-        }
-    }
+    /// User-defined title override. When set, this takes precedence over the surface title.
+    @Published var titleOverride: String?
+
+    /// The latest title from the focused surface (without any override applied).
+    @Published private(set) var surfaceTitle: String
+
+    /// Whether the focused surface currently has its bell flag set. The view layer
+    /// decides whether to prefix the title with a bell glyph based on the user's
+    /// `bell-features` config — this property just reflects raw surface state.
+    @Published private(set) var surfaceBell: Bool = false
 
     /// The tab color for visual identification
     @Published var tabColor: TerminalTabColor = .none
@@ -31,14 +28,15 @@ class QuickTerminalTab: ObservableObject, Identifiable {
     let id = UUID()
     var surfaceTree: SplitTree<Ghostty.SurfaceView>
 
-    /// Tracks the current surface title (before any override)
-    private var currentSurfaceTitle: String?
+    /// The displayed title for the tab. Override wins, otherwise the surface title.
+    /// Bell prefix is applied at the view layer where the config is available.
+    var title: String { titleOverride ?? surfaceTitle }
+
     private var cancellables: Set<AnyCancellable> = []
 
     init(surfaceTree: SplitTree<Ghostty.SurfaceView>, title: String = "Terminal") {
         self.surfaceTree = surfaceTree
-        self.currentSurfaceTitle = surfaceTree.first { $0.focused }?.title ?? title
-        self.title = self.currentSurfaceTitle ?? title
+        self.surfaceTitle = surfaceTree.first { $0.focused }?.title ?? title
 
         subscribeToSurface(surfaceTree.first { $0.focused })
     }
@@ -54,18 +52,19 @@ class QuickTerminalTab: ObservableObject, Identifiable {
         guard let surface else {
             backgroundColor = nil
             backgroundOpacity = 1
+            surfaceBell = false
             return
         }
 
+        // Mirrors BaseTerminalController's focused-surface title pipeline so the
+        // tab's `surfaceTitle` and `surfaceBell` stay in sync from a single sink.
         surface.$title
+            .combineLatest(surface.$bell)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] newTitle in
+            .sink { [weak self] title, bell in
                 guard let self else { return }
-                self.currentSurfaceTitle = newTitle
-                // Only update displayed title if no override is set
-                if self.titleOverride == nil {
-                    self.title = newTitle
-                }
+                self.surfaceTitle = title
+                self.surfaceBell = bell
             }
             .store(in: &cancellables)
 
