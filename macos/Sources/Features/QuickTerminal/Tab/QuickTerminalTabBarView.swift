@@ -93,6 +93,16 @@ struct QuickTerminalTabBarView: View {
                     .frame(minWidth: geometry.size.width)
                     .animation(.easeInOut(duration: 0.2), value: tabManager.dropTargetIndex)
                 }
+                .onAppear {
+                    // `.onChange` only fires on *changes*, but on restoration the
+                    // active tab is already set before this view appears — so we
+                    // need to scroll it into view explicitly on first layout.
+                    // The async delay lets the ScrollView lay out its content first.
+                    guard let tabId = tabManager.currentTab?.id else { return }
+                    DispatchQueue.main.async {
+                        proxy.scrollTo(tabId, anchor: .center)
+                    }
+                }
                 .onChange(of: tabManager.currentTab?.id) { newTabId in
                     if let tabId = newTabId {
                         withAnimation {
