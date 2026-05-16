@@ -687,7 +687,6 @@ class QuickTerminalController: BaseTerminalController {
         // which handles encoding at the application level (not window level).
     }
 
-
     @objc private func onToggleFullscreen(notification: SwiftUI.Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard target == self.focusedSurface else { return }

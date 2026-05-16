@@ -3,10 +3,12 @@ import SwiftUI
 
 /// Custom TabManager for the "quick" terminal
 class QuickTerminalTabManager: ObservableObject {
+
     /// All currently open tabs
-    @Published var tabs: [QuickTerminalTab] = []
+    @Published private(set) var tabs: [QuickTerminalTab] = []
+
     /// The current tab in focus
-    @Published var currentTab: QuickTerminalTab? {
+    @Published private(set) var currentTab: QuickTerminalTab? {
         didSet {
             if let oldTab = oldValue, let oldSurfaceTree = controller?.surfaceTree {
                 oldTab.surfaceTree = oldSurfaceTree
@@ -39,6 +41,7 @@ class QuickTerminalTabManager: ObservableObject {
             }
         }
     }
+
     /// The current tab being dragged
     @Published var draggedTab: QuickTerminalTab? {
         didSet {
@@ -48,14 +51,15 @@ class QuickTerminalTabManager: ObservableObject {
             }
         }
     }
+
     /// The index where a dragged tab will be dropped (for showing placeholder)
     @Published var dropTargetIndex: Int?
+
     /// The width of the tab being dragged (captured at drag start)
     var draggedTabWidth: CGFloat?
 
     /// Reference to the "quick" terminal Controller
-    weak var controller: QuickTerminalController?
-
+    private(set) weak var controller: QuickTerminalController?
 
     var currentTabIndex: Int? {
         tabs.firstIndex { $0.id == currentTab?.id }
