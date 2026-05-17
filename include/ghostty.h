@@ -1186,6 +1186,7 @@ GHOSTTY_API void ghostty_app_keyboard_changed(ghostty_app_t);
 GHOSTTY_API void ghostty_app_open_config(ghostty_app_t);
 GHOSTTY_API void ghostty_app_update_config(ghostty_app_t, ghostty_config_t);
 GHOSTTY_API bool ghostty_app_needs_confirm_quit(ghostty_app_t);
+GHOSTTY_API void ghostty_app_quit(ghostty_app_t, uint64_t);
 GHOSTTY_API bool ghostty_app_has_global_keybinds(ghostty_app_t);
 GHOSTTY_API void ghostty_app_set_color_scheme(ghostty_app_t, ghostty_color_scheme_e);
 
@@ -1199,7 +1200,6 @@ GHOSTTY_API ghostty_app_t ghostty_surface_app(ghostty_surface_t);
 GHOSTTY_API ghostty_surface_config_s ghostty_surface_inherited_config(ghostty_surface_t, ghostty_surface_context_e);
 GHOSTTY_API void ghostty_surface_update_config(ghostty_surface_t, ghostty_config_t);
 GHOSTTY_API bool ghostty_surface_needs_confirm_quit(ghostty_surface_t);
-GHOSTTY_API bool ghostty_surface_process_stop(ghostty_surface_t);
 GHOSTTY_API bool ghostty_surface_process_exited(ghostty_surface_t);
 GHOSTTY_API void ghostty_surface_refresh(ghostty_surface_t);
 GHOSTTY_API void ghostty_surface_draw(ghostty_surface_t);

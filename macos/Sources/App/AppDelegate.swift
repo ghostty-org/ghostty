@@ -385,42 +385,21 @@ class AppDelegate: NSObject,
         return derivedConfig.shouldQuitAfterLastWindowClosed
     }
 
-    /// Initiates graceful application termination.
+    /// Initiates graceful application termination by giving every child
+    /// process a chance to exit before the app terminates.
     ///
-    /// We signal all child processes to stop and then wait for them to exit
-    /// (or for our timeout to expire) before terminating the application.
+    /// The wait happens inside libghostty: it sends SIGHUP to all processes
+    /// in parallel, then waits up to `timeout` (total) for them to exit.
+    /// This blocks the main thread, which is acceptable here because we've
+    /// already committed to terminating.
     private func terminateGracefully(
-        timeout: DispatchTimeInterval = .milliseconds(500),
+        timeout: TimeInterval = 0.5
     ) -> NSApplication.TerminateReply {
-        var surfaces = TerminalController.all.flatMap { $0.surfaceTree }
-        if case .initialized(let controller) = quickTerminalControllerState {
-            surfaces += controller.surfaceTree
+        if let app = ghostty.app {
+            Ghostty.logger.debug("waiting for child processes to exit")
+            ghostty_app_quit(app, UInt64(max(0, timeout * 1000)))
         }
-        surfaces.forEach { $0.stopProcess() }
-
-        let deadline = DispatchTime.now() + timeout
-
-        func waitForProcesses() {
-            if surfaces.allSatisfy({ $0.processExited }) {
-                NSApp.reply(toApplicationShouldTerminate: true)
-                return
-            }
-
-            if DispatchTime.now() >= deadline {
-                Ghostty.logger.info("child process deadline exceeded; terminating immediately")
-                NSApp.reply(toApplicationShouldTerminate: true)
-                return
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(50)) {
-                waitForProcesses()
-            }
-        }
-
-        Ghostty.logger.debug("waiting for child processes to exit")
-        waitForProcesses()
-
-        return .terminateLater
+        return .terminateNow
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -1422,6 +1401,7 @@ extension AppDelegate {
 
                 if [.OK, .alertFirstButtonReturn].contains(response) {
                     await MainActor.run { _ = self.terminateGracefully() }
+                    await NSApp.reply(toApplicationShouldTerminate: true)
                 } else {
                     await NSApp.reply(toApplicationShouldTerminate: false)
                 }
@@ -1465,6 +1445,7 @@ extension AppDelegate {
                 }
             }
             await MainActor.run { _ = self.terminateGracefully() }
+            await NSApp.reply(toApplicationShouldTerminate: true)
         }
     }
 }
