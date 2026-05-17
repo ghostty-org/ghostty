@@ -374,14 +374,8 @@ class QuickTerminalController: BaseTerminalController {
             return
         }
 
-        let close = { [weak self] in
-            guard let self else { return }
-            if self.tabManager.tabs.count == 1 {
-                // Detach the dying surface from the controller so the
-                // replacement tab takes focus on a clean tree.
-                self.surfaceTree = .init()
-            }
-            self.tabManager.closeTab(currentTab)
+        let close: () -> Void = { [weak self] in
+            self?.tabManager.closeTab(currentTab)
         }
 
         if withConfirmation {

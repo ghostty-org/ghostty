@@ -197,16 +197,7 @@ class QuickTerminalTabManager: ObservableObject {
 
     func closeTab(_ tab: QuickTerminalTab) {
         guard tabs.contains(where: { $0.id == tab.id }) else { return }
-
         removeTab(tab, undoActionName: "Close Tab")
-
-        // If we just closed the last tab, animate the quick terminal out and
-        // let macOS focus the next window. The replacement tab is created
-        // lazily on the next animateIn so we don't waste startup work on a
-        // surface the user may not actually want yet.
-        if tabs.isEmpty {
-            controller?.animateOut()
-        }
     }
 
     func closeAllTabs(except: QuickTerminalTab) {
@@ -262,6 +253,11 @@ class QuickTerminalTabManager: ObservableObject {
 
     /// Removes a tab without closing its surfaces (the tab object itself
     /// retains them, so undo can restore it). Registers an undo that re-inserts.
+    ///
+    /// When the removal empties the tab list, also clears the controller's
+    /// surface tree and animates the quick terminal out. This runs here (rather
+    /// than only in `closeTab`) so it fires consistently on every removal path,
+    /// including the redo of an undone insert.
     private func removeTab(_ tab: QuickTerminalTab, undoActionName: String?) {
         guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
         let previousSelection = currentTab
@@ -275,6 +271,14 @@ class QuickTerminalTabManager: ObservableObject {
                 let newIndex = min(index, tabs.count - 1)
                 selectTab(tabs[newIndex])
             }
+        }
+
+        // Empty-tabs cleanup. Order matters: this runs *after* the
+        // currentTab → nil transition above so the dying tab has already
+        // captured the live surface tree in its `currentTab.didSet`.
+        if tabs.isEmpty {
+            controller?.surfaceTree = .init()
+            controller?.animateOut()
         }
 
         guard let undoActionName, let undoManager else { return }
