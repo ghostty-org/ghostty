@@ -7,25 +7,10 @@ import UniformTypeIdentifiers
 class QuickTerminalTabDragDelegate: NSObject, NSDraggingSource {
     let tab: QuickTerminalTab
     let tabManager: QuickTerminalTabManager
-    /// The scroll view the tab strip lives in. Captured at drag start so we
-    /// can drive auto-scroll from the drag source — `draggingSession(_:movedTo:)`
-    /// fires on every cursor move regardless of what's under the cursor, so
-    /// auto-scroll works even when the user drags off the bar.
-    private weak var scrollView: NSScrollView?
 
-    /// Active auto-scroll timer while the cursor sits in the leading/trailing
-    /// hot zone of the scroll view during a drag.
-    private var autoScrollTimer: Timer?
-    private var autoScrollDirection: CGFloat?
-
-    private static let autoScrollEdge: CGFloat = 80
-    private static let autoScrollStep: CGFloat = 12
-    private static let autoScrollInterval: TimeInterval = 1.0 / 60.0
-
-    init(tab: QuickTerminalTab, tabManager: QuickTerminalTabManager, scrollView: NSScrollView?) {
+    init(tab: QuickTerminalTab, tabManager: QuickTerminalTabManager) {
         self.tab = tab
         self.tabManager = tabManager
-        self.scrollView = scrollView
         super.init()
     }
 
@@ -38,22 +23,9 @@ class QuickTerminalTabDragDelegate: NSObject, NSDraggingSource {
 
     func draggingSession(
         _ session: NSDraggingSession,
-        movedTo screenPoint: NSPoint
-    ) {
-        // Auto-scroll the tab strip if the cursor is near either edge. We
-        // hook in here (on the drag source) rather than on per-tab drop
-        // destinations so scrolling continues to work even when the cursor
-        // is over a gap, an unfocused area, or off the bar entirely.
-        updateAutoScroll(at: screenPoint)
-    }
-
-    func draggingSession(
-        _ session: NSDraggingSession,
         endedAt screenPoint: NSPoint,
         operation: NSDragOperation
     ) {
-        stopAutoScroll()
-
         // This is called when the drag ends, regardless of where it was dropped
         // If draggedTab is still set, the drop wasn't handled by our drop delegates
         guard tabManager.draggedTab != nil else { return }
@@ -133,65 +105,6 @@ class QuickTerminalTabDragDelegate: NSObject, NSDraggingSource {
         )
 
         return tabBarRect.contains(location)
-    }
-
-    // MARK: - Drag Auto-Scroll
-
-    private func updateAutoScroll(at screenPoint: NSPoint) {
-        guard let scrollView, let window = scrollView.window else {
-            stopAutoScroll()
-            return
-        }
-
-        // Convert the screen point to the scroll view's clip-view coordinates
-        // (document coords) so it lines up with `clipView.bounds`.
-        let windowPoint = window.convertPoint(fromScreen: screenPoint)
-        let clipView = scrollView.contentView
-        let cursor = clipView.convert(windowPoint, from: nil)
-        let visible = clipView.bounds
-
-        let direction: CGFloat
-        if cursor.x < visible.minX + Self.autoScrollEdge {
-            direction = -Self.autoScrollStep
-        } else if cursor.x > visible.maxX - Self.autoScrollEdge {
-            direction = Self.autoScrollStep
-        } else {
-            stopAutoScroll()
-            return
-        }
-
-        startAutoScroll(direction: direction, in: scrollView)
-    }
-
-    private func startAutoScroll(direction: CGFloat, in scrollView: NSScrollView) {
-        if autoScrollTimer != nil, autoScrollDirection == direction { return }
-        stopAutoScroll()
-
-        autoScrollDirection = direction
-        autoScrollTimer = Timer.scheduledTimer(
-            withTimeInterval: Self.autoScrollInterval,
-            repeats: true
-        ) { [weak self, weak scrollView] _ in
-            guard let scrollView, let documentView = scrollView.documentView else {
-                self?.stopAutoScroll()
-                return
-            }
-            let visible = scrollView.documentVisibleRect
-            let maxX = max(0, documentView.bounds.width - visible.width)
-            let newX = max(0, min(visible.origin.x + direction, maxX))
-            if newX == visible.origin.x {
-                self?.stopAutoScroll()
-                return
-            }
-            scrollView.contentView.scroll(to: NSPoint(x: newX, y: visible.origin.y))
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-        }
-    }
-
-    private func stopAutoScroll() {
-        autoScrollTimer?.invalidate()
-        autoScrollTimer = nil
-        autoScrollDirection = nil
     }
 }
 
@@ -281,14 +194,8 @@ class DraggableTabNSView: NSView {
         dragStartLocation = nil
         isDragging = false
 
-        // Create the drag delegate. Pass the enclosing scroll view so the
-        // delegate can drive auto-scroll from the drag source independently
-        // of which view is currently under the cursor.
-        dragDelegate = QuickTerminalTabDragDelegate(
-            tab: tab,
-            tabManager: tabManager,
-            scrollView: enclosingScrollView
-        )
+        // Create the drag delegate
+        dragDelegate = QuickTerminalTabDragDelegate(tab: tab, tabManager: tabManager)
 
         // Create the dragging item
         let pasteboardItem = NSPasteboardItem()
