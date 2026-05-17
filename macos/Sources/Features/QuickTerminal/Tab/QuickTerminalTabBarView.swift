@@ -158,7 +158,9 @@ struct QuickTerminalTabBarView: View {
     }
 
     @ViewBuilder private func renderAddNewTabButton() -> some View {
-        Button(action: { tabManager.addNewTab() }) {
+        Button {
+            tabManager.addNewTab()
+        } label: {
             Image(systemName: "plus")
                 .foregroundColor(Color(NSColor.secondaryLabelColor))
                 .padding(.horizontal, Constants.addNewTabButtonHorizontalPadding)
