@@ -13,8 +13,6 @@ struct QuickTerminalTabBarView: View {
     @ObservedObject var tabManager: QuickTerminalTabManager
 
     @State private var isHoveringNewTabButton = false
-    @State private var tabBeingRenamed: QuickTerminalTab?
-    @State private var renameText: String = ""
 
     /// Whether the glass effect is enabled in the config
     private var isGlassEnabled: Bool {
@@ -69,16 +67,6 @@ struct QuickTerminalTabBarView: View {
         }
         .frame(height: Constants.height)
         .background(tabBarBackgroundColor)
-        .sheet(item: $tabBeingRenamed) { tab in
-            RenameTabSheet(
-                title: $renameText,
-                onCancel: { tabBeingRenamed = nil },
-                onConfirm: {
-                    tab.titleOverride = renameText.isEmpty ? nil : renameText
-                    tabBeingRenamed = nil
-                }
-            )
-        }
     }
 
     @ViewBuilder private func renderTabBar() -> some View {
@@ -208,8 +196,13 @@ struct QuickTerminalTabBarView: View {
                 tab: tab,
                 tabManager: tabManager,
                 onChangeTitle: {
-                    renameText = tab.titleOverride ?? tab.title
-                    tabBeingRenamed = tab
+                    // Steer the controller's title pipeline at this specific
+                    // tab without changing the active selection, then reuse
+                    // the base controller's prompt sheet. The controller's
+                    // `windowDidEndSheet` clears `tabBeingRenamed` when the
+                    // sheet closes (whether confirmed or canceled).
+                    tabManager.tabBeingRenamed = tab
+                    tabManager.controller?.promptTabTitle()
                 }
             )),
             tab: tab,
@@ -391,35 +384,3 @@ private class QuickTerminalTabContextMenuView: NSView {
     }
 }
 
-// MARK: - Rename Tab Sheet
-
-private struct RenameTabSheet: View {
-    @Binding var title: String
-    let onCancel: () -> Void
-    let onConfirm: () -> Void
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Text("Change Tab Title")
-                .font(.headline)
-
-            TextField("Tab title", text: $title)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 250)
-
-            Text("Leave blank to restore the default.")
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            HStack(spacing: 12) {
-                Button("Cancel", action: onCancel)
-                    .keyboardShortcut(.cancelAction)
-
-                Button("OK", action: onConfirm)
-                    .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(20)
-        .frame(minWidth: 300)
-    }
-}

@@ -44,6 +44,42 @@ class QuickTerminalController: BaseTerminalController {
         return manager
     }()
 
+    /// Route the controller's title override to a tab — `tabBeingRenamed` if
+    /// the user is actively renaming via the prompt sheet, otherwise the
+    /// active tab. This lets right-click "Change Tab Title" on an inactive
+    /// tab rename it without changing the selection, while command-palette
+    /// and menu invocations still operate on the active tab.
+    override var titleOverride: String? {
+        get { renameTarget?.titleOverride }
+        set {
+            renameTarget?.titleOverride = newValue
+            applyTitleToWindow()
+        }
+    }
+
+    /// Source the window title from `renameTarget` synchronously rather than
+    /// from `lastComputedTitle` (which is fed by the focused-surface title
+    /// subscription and lags one runloop tick behind a tab switch / rename
+    /// target change). Without this, base's `promptTabTitle` would read a
+    /// stale `window.title` when invoked right after setting `tabBeingRenamed`.
+    override func applyTitleToWindow() {
+        // Only the rename-target case needs special handling. Everything else
+        // (titleOverride set, or no tab at all) is what super already does.
+        if titleOverride == nil, let tab = renameTarget, let window {
+            window.title = Self.computeTitle(
+                title: tab.surfaceTitle,
+                bell: tab.surfaceBell,
+                config: ghostty.config)
+            return
+        }
+        super.applyTitleToWindow()
+    }
+
+    /// Whichever tab the next title read/write should target.
+    private var renameTarget: QuickTerminalTab? {
+        tabManager.tabBeingRenamed ?? tabManager.currentTab
+    }
+
     init(_ ghostty: Ghostty.App,
          position: QuickTerminalPosition = .top,
          baseConfig base: Ghostty.SurfaceConfiguration? = nil,
@@ -240,6 +276,16 @@ class QuickTerminalController: BaseTerminalController {
                 }
             }
         }
+    }
+
+    /// Clears the rename target once the title prompt sheet (or any sheet
+    /// happening while a rename was pending) ends. We can't easily distinguish
+    /// "OK" from "Cancel" from this callback — but the base's completion
+    /// handler runs before the sheet is dismissed, so by the time we get here
+    /// any confirmed rename has already been written through our overridden
+    /// `titleOverride` setter.
+    func windowDidEndSheet(_ notification: Notification) {
+        tabManager.tabBeingRenamed = nil
     }
 
     override func windowDidResize(_ notification: Notification) {

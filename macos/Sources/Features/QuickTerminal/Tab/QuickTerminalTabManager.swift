@@ -64,6 +64,15 @@ class QuickTerminalTabManager: ObservableObject {
     /// decide whether a drop-end inside the QT window should reorder or cancel.
     var dragIsOverTabBar: Bool = false
 
+    /// The tab currently being renamed via the title prompt sheet. When set,
+    /// `QuickTerminalController.titleOverride` and `applyTitleToWindow` target
+    /// this tab instead of `currentTab`, allowing the user to rename an
+    /// inactive tab without changing the selection. Cleared by the controller
+    /// when the sheet ends (`windowDidEndSheet`).
+    weak var tabBeingRenamed: QuickTerminalTab? {
+        didSet { controller?.applyTitleToWindow() }
+    }
+
     /// Reference to the "quick" terminal Controller
     private(set) weak var controller: QuickTerminalController?
 
