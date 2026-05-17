@@ -51,10 +51,7 @@ class QuickTerminalController: BaseTerminalController {
     /// and menu invocations still operate on the active tab.
     override var titleOverride: String? {
         get { renameTarget?.titleOverride }
-        set {
-            renameTarget?.titleOverride = newValue
-            applyTitleToWindow()
-        }
+        set { renameTarget?.titleOverride = newValue }
     }
 
     /// Source the window title from `renameTarget` synchronously rather than

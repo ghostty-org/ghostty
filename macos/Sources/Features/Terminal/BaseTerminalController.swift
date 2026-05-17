@@ -91,18 +91,9 @@ class BaseTerminalController: NSWindowController,
 
     /// An override title for the tab/window set by the user via prompt_tab_title.
     /// When set, this takes precedence over the computed title from the terminal.
-    ///
-    /// Computed (with a private backing var) rather than stored so subclasses
-    /// like `QuickTerminalController` can override the get/set to route to a
-    /// per-tab title source.
     var titleOverride: String? {
-        get { _titleOverride }
-        set {
-            _titleOverride = newValue
-            applyTitleToWindow()
-        }
+        didSet { applyTitleToWindow() }
     }
-    private var _titleOverride: String?
 
     /// The last computed title from the focused surface (without the override).
     private var lastComputedTitle: String = "👻"
