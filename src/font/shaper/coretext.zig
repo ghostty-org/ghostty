@@ -184,10 +184,14 @@ pub const Shaper = struct {
         errdefer run_state.deinit(alloc);
 
         // Use kCTTypesetterOptionForcedEmbeddingLevel to control BiDi
-        // embedding. We force embedding level 0 (LTR) for LTR runs and
-        // embedding level 1 (RTL) for RTL runs. Our run iterator already
-        // splits runs at direction boundaries, so each run is guaranteed
-        // to be single-direction.
+        // embedding. The run iterator already splits at direction
+        // boundaries, so each CoreText line we create here is a single LTR or
+        // RTL shaping run.
+        //
+        // Setting the attributed string's writing direction instead looks
+        // tempting, but it changes CoreText line breaking behavior. In
+        // particular, trailing spaces in RTL text can be emitted as their own
+        // right-to-left run ahead of the rest of the line.
         //
         // See: https://github.com/mitchellh/ghostty/issues/1737
         // See: https://github.com/mitchellh/ghostty/issues/1442
@@ -410,8 +414,7 @@ pub const Shaper = struct {
         var cell_offset: Offset = .{};
         const anchor_sentinel = std.math.nan(f64);
         self.cluster_anchor_x.clearRetainingCapacity();
-        try self.cluster_anchor_x.ensureUnusedCapacity(self.alloc, run.cells);
-        self.cluster_anchor_x.appendNTimesAssumeCapacity(anchor_sentinel, run.cells);
+        try self.cluster_anchor_x.appendNTimes(self.alloc, anchor_sentinel, run.cells);
 
         // For debugging positions, turn this on:
         //var run_offset_y: f64 = 0.0;
@@ -456,8 +459,10 @@ pub const Shaper = struct {
                 positions,
                 indices,
             ) |glyph, advance, position, index| {
-                // Our cluster is also our cell X position. If the cluster changes
-                // then we need to reset our current cell offsets.
+                // The cluster is the terminal cell this glyph belongs to.
+                // CoreText can report RTL glyphs in visual order with absolute
+                // glyph positions, so the current cluster does not always move
+                // left-to-right through the terminal row.
                 const cluster = state.codepoints.items[index].cluster;
                 const source_codepoint = state.codepoints.items[index].codepoint;
                 const is_combining_mark = source_codepoint != 0 and
@@ -515,6 +520,10 @@ pub const Shaper = struct {
                         const should_reset = (run.rtl and !is_combining_mark) or
                             !is_after_glyph_from_current_or_next_clusters;
                         if (should_reset) {
+                            // For RTL runs, CoreText's absolute glyph position
+                            // is the reliable cell anchor. The cumulative
+                            // advance is in output order and can point at the
+                            // wrong cell when marks are emitted around a base.
                             const reset_x = if (run.rtl) position.x else run_offset.x;
                             cell_offset = .{
                                 .cluster = cluster,
@@ -545,10 +554,10 @@ pub const Shaper = struct {
                         const cluster_i: usize = @intCast(cluster);
                         if (cluster_i < self.cluster_anchor_x.items.len) {
                             const anchor_x = self.cluster_anchor_x.items[cluster_i];
-                            // Keep this scoped to Arabic RTL marks only:
-                            // broadening this fallback regresses scripts with
-                            // out-of-order vowels/marks (e.g.
-                            // Chakma/Bengali tests).
+                            // Keep this scoped to Arabic RTL marks only. Other
+                            // scripts can also emit marks out of logical order,
+                            // but they do not all want the Arabic "attach back
+                            // to base cell" fallback.
                             const allow_non_first_fallback =
                                 bidi_helpers.isArabicCombiningMark(source_codepoint);
                             if (!std.math.isNan(anchor_x)) {
@@ -618,12 +627,10 @@ pub const Shaper = struct {
             }
         }
 
-        // If our buffer contains some non-ltr sections we need to sort it :/
+        // CoreText may return RTL or otherwise non-monotonic glyph runs. The
+        // renderer expects cells sorted by increasing terminal x, so normalize
+        // the order after all per-glyph offsets have been computed.
         if (non_ltr or run.rtl) {
-            // This is EXCEPTIONALLY rare. Only happens for languages with
-            // complex shaping which we don't even really support properly
-            // right now, so are very unlikely to be used heavily by users
-            // of Ghostty.
             @branchHint(.cold);
             std.mem.sort(
                 font.shape.Cell,

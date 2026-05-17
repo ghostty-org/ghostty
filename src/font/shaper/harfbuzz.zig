@@ -139,8 +139,11 @@ pub const Shaper = struct {
     ///
     /// If there is not enough space in the cell buffer, an error is returned.
     pub fn shape(self: *Shaper, run: font.shape.TextRun) ![]const font.shape.Cell {
-        // Set run direction before shaping so HarfBuzz applies the
-        // correct script-direction shaping behavior.
+        // RunIterator feeds codepoints to HarfBuzz in logical order for both
+        // LTR and RTL runs. The buffer direction tells HarfBuzz which script
+        // direction to use for Arabic/Hebrew joining, mark placement, and
+        // glyph ordering. prepare() resets to LTR for every run, so only the
+        // RTL path needs an override here.
         if (run.rtl) {
             self.hb_buf.setDirection(.rtl);
         }
@@ -183,8 +186,7 @@ pub const Shaper = struct {
         var cell_offset: CellOffset = .{};
         const anchor_sentinel = std.math.minInt(i32);
         self.cluster_anchor_x.clearRetainingCapacity();
-        try self.cluster_anchor_x.ensureUnusedCapacity(self.alloc, run.cells);
-        self.cluster_anchor_x.appendNTimesAssumeCapacity(anchor_sentinel, run.cells);
+        try self.cluster_anchor_x.appendNTimes(self.alloc, anchor_sentinel, run.cells);
 
         // Convert all our info/pos to cells and set it.
         self.cell_buf.clearRetainingCapacity();
@@ -192,8 +194,10 @@ pub const Shaper = struct {
             // info_v.cluster is the index into our codepoints array. We use it
             // to get the original cluster.
             const index = info_v.cluster;
-            // Our cluster is also our cell X position. If the cluster changes
-            // then we need to reset our current cell offsets.
+            // The cluster is the terminal cell this glyph belongs to. In
+            // RTL runs those cluster values can appear in decreasing
+            // visual order, and combining marks may arrive before the
+            // base glyph that establishes the final cell anchor.
             const cluster = self.codepoints.items[index].cluster;
             const source_codepoint = self.codepoints.items[index].codepoint;
             const is_combining_mark = source_codepoint != 0 and
@@ -273,9 +277,10 @@ pub const Shaper = struct {
                     const cluster_i: usize = @intCast(cluster);
                     if (cluster_i < self.cluster_anchor_x.items.len) {
                         const anchor_x = self.cluster_anchor_x.items[cluster_i];
-                        // Keep this scoped to Arabic RTL marks only: broadening
-                        // this fallback regresses scripts with out-of-order
-                        // vowels/marks (e.g. Chakma/Bengali tests).
+                        // Keep this scoped to Arabic RTL marks only. Other
+                        // scripts can also emit marks out of logical order, but
+                        // they do not all want the Arabic "attach back to base
+                        // cell" fallback.
                         const allow_non_first_fallback =
                             bidi_helpers.isArabicCombiningMark(source_codepoint);
                         if (anchor_x != anchor_sentinel) {
@@ -328,6 +333,8 @@ pub const Shaper = struct {
         }
         //log.warn("----------------", .{});
 
+        // RTL glyphs are produced in visual order, but Ghostty's renderer
+        // expects the returned cells sorted by increasing terminal x.
         if (run.rtl) {
             std.mem.sort(font.shape.Cell, self.cell_buf.items, {}, struct {
                 fn lt(_: void, a: font.shape.Cell, b: font.shape.Cell) bool {
