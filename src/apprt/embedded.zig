@@ -1466,8 +1466,8 @@ pub const CAPI = struct {
     /// if it were sent to the surface right now. The "right now"
     /// is important because things like trigger sequences are only
     /// valid until the next key event.
-    export fn ghostty_app_key_is_binding(
-        app: *App,
+    export fn ghostty_config_key_is_binding(
+        config: *Config,
         event: KeyEvent,
     ) bool {
         const core_event = event.keyEvent().core() orelse {
@@ -1475,7 +1475,7 @@ pub const CAPI = struct {
             return false;
         };
 
-        return app.core_app.keyEventIsBinding(app, core_event);
+        return config.keyEventIsBinding(core_event);
     }
 
     /// Notify the app that the keyboard was changed. This causes the

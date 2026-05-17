@@ -163,8 +163,7 @@ pub const SurfaceScrolledWindow = extern struct {
         _: ?*anyopaque,
     ) callconv(.c) void {
         const priv = self.private();
-        const child: *gtk.Widget = self.as(Parent).getChild().?;
-        const scrolled_window = gobject.ext.cast(gtk.ScrolledWindow, child).?;
+        const scrolled_window = self.private().scrolled_window.as(gtk.ScrolledWindow);
         scrolled_window.setChild(if (priv.surface) |s| s.as(gtk.Widget) else null);
 
         // Unbind old config binding if it exists

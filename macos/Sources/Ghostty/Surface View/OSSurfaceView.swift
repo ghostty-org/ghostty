@@ -99,6 +99,11 @@ extension Ghostty {
             self.childExitedMessage = message
         }
 
+        @MainActor
+        func endSearch() {
+            searchState = nil
+        }
+
         // MARK: - Placeholders
 
         func focusDidChange(_ focused: Bool) {}

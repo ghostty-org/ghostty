@@ -311,6 +311,7 @@ const DerivedConfig = struct {
     clipboard_codepoint_map: configpkg.Config.RepeatableClipboardCodepointMap,
     copy_on_select: configpkg.CopyOnSelect,
     right_click_action: configpkg.RightClickAction,
+    middle_click_action: configpkg.MiddleClickAction,
     confirm_close_surface: configpkg.ConfirmCloseSurface,
     cursor_click_to_move: bool,
     desktop_notifications: bool,
@@ -389,6 +390,7 @@ const DerivedConfig = struct {
             .clipboard_codepoint_map = try config.@"clipboard-codepoint-map".clone(alloc),
             .copy_on_select = config.@"copy-on-select",
             .right_click_action = config.@"right-click-action",
+            .middle_click_action = config.@"middle-click-action",
             .confirm_close_surface = config.@"confirm-close-surface",
             .cursor_click_to_move = config.@"cursor-click-to-move",
             .desktop_notifications = config.@"desktop-notifications",
@@ -3422,19 +3424,23 @@ pub fn scrollCallback(
         const yoff_adjusted: f64 = if (scroll_mods.precision)
             yoff * self.config.mouse_scroll_multiplier.precision
         else yoff_adjusted: {
-            // Round out the yoff to an absolute minimum of 1. macos tries to
-            // simulate precision scrolling with non precision events by
-            // ramping up the magnitude of the offsets as it detects faster
-            // scrolling. Single click (very slow) scrolls are reported with a
-            // magnitude of 0.1 which would normally require a few clicks
-            // before we register an actual scroll event (depending on cell
-            // height and the mouse_scroll_multiplier setting).
-            const yoff_max: f64 = if (yoff > 0)
-                @max(yoff, 1)
-            else
-                @min(yoff, -1);
+            if (comptime builtin.target.os.tag.isDarwin()) {
+                // Round out the yoff to an absolute minimum of 1. macos tries to
+                // simulate precision scrolling with non precision events by
+                // ramping up the magnitude of the offsets as it detects faster
+                // scrolling. Single click (very slow) scrolls are reported with a
+                // magnitude of 0.1 which would normally require a few clicks
+                // before we register an actual scroll event (depending on cell
+                // height and the mouse_scroll_multiplier setting).
+                const yoff_max: f64 = if (yoff > 0)
+                    @max(yoff, 1)
+                else
+                    @min(yoff, -1);
 
-            break :yoff_adjusted yoff_max * cell_size * self.config.mouse_scroll_multiplier.discrete;
+                break :yoff_adjusted yoff_max * cell_size * self.config.mouse_scroll_multiplier.discrete;
+            } else {
+                break :yoff_adjusted yoff * cell_size * self.config.mouse_scroll_multiplier.discrete;
+            }
         };
 
         // Add our previously saved pending amount to the offset to get the
@@ -3821,6 +3827,8 @@ pub fn mouseButtonCallback(
         // clicked link will swallow the event.
         if (self.mouse.over_link) {
             const pos = try self.rt_surface.getCursorPos();
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
             if (self.processLinks(pos)) |processed| {
                 if (processed) return true;
             } else |err| {
@@ -4007,14 +4015,24 @@ pub fn mouseButtonCallback(
         }
     }
 
-    // Middle-click pastes from our selection clipboard
-    if (button == .middle and action == .press) {
-        const clipboard: apprt.Clipboard = if (self.rt_surface.supportsClipboard(.selection))
-            .selection
-        else
-            .standard;
-        _ = try self.startClipboardRequest(clipboard, .{ .paste = {} });
-    }
+    // Middle-click paste source follows copy-on-select: when copy-on-select
+    // targets the selection clipboard, middle-click reads from it; when
+    // copy-on-select targets the system clipboard, middle-click reads from
+    // that instead. Falls back to the standard clipboard on platforms that
+    // do not support the selection clipboard.
+    if (button == .middle and action == .press) switch (self.config.middle_click_action) {
+        .ignore => {},
+        .@"primary-paste" => {
+            const clipboard: apprt.Clipboard = switch (self.config.copy_on_select) {
+                .clipboard => .standard,
+                .true, .false => if (self.rt_surface.supportsClipboard(.selection))
+                    .selection
+                else
+                    .standard,
+            };
+            _ = try self.startClipboardRequest(clipboard, .{ .paste = {} });
+        },
+    };
 
     // Right-click down selects word for context menus. If the apprt
     // doesn't implement context menus this can be a bit weird but they
@@ -4295,7 +4313,9 @@ fn linkAtPin(
     const line = screen.selectLine(.{
         .pin = mouse_pin,
         .whitespace = null,
-        .semantic_prompt_boundary = false,
+        // Respect semantic prompt boundaries so link/path matching doesn't
+        // merge shell prompt content with the text beside it.
+        .semantic_prompt_boundary = true,
     }) orelse return null;
 
     var strmap: terminal.StringMap = undefined;

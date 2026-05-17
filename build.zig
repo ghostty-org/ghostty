@@ -155,7 +155,11 @@ pub fn build(b: *std.Build) !void {
     // libghostty-vt xcframework (Apple only, universal binary).
     // Only when building on macOS (not cross-compiling) since
     // xcodebuild is required.
-    if (builtin.os.tag.isDarwin() and config.target.result.os.tag.isDarwin()) {
+    if (config.emit_lib_vt and
+        config.emit_xcframework and
+        builtin.os.tag.isDarwin() and
+        config.target.result.os.tag.isDarwin())
+    {
         const apple_libs = try buildpkg.GhosttyLibVt.initStaticAppleUniversal(
             b,
             &config,
@@ -200,8 +204,9 @@ pub fn build(b: *std.Build) !void {
     }
 
     // macOS only artifacts. These will error if they're initialized for
-    // other targets.
-    if (config.target.result.os.tag.isDarwin() and
+    // other targets. In lib-vt mode emit_xcframework controls the lib-vt
+    // xcframework above, not this one.
+    if (!config.emit_lib_vt and config.target.result.os.tag.isDarwin() and
         (config.emit_xcframework or config.emit_macos_app))
     {
         // Ghostty xcframework
@@ -258,7 +263,8 @@ pub fn build(b: *std.Build) !void {
 
         // On macOS we can run the macOS app. For "run" we always force
         // a native-only build so that we can run as quickly as possible.
-        if (config.target.result.os.tag.isDarwin() and
+        if (!config.emit_lib_vt and
+            config.target.result.os.tag.isDarwin() and
             (config.emit_xcframework or config.emit_macos_app))
         {
             const xcframework_native = try buildpkg.GhosttyXCFramework.init(

@@ -123,6 +123,15 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     try flags.appendSlice(b.allocator, &.{
         "-DHAVE_STDBOOL_H",
     });
+    // Disable ubsan for MSVC: Zig's ubsan runtime cannot be bundled
+    // on Windows (LNK4229), leaving __ubsan_handle_* unresolved when
+    // the static archive is consumed by an external linker.
+    if (target.result.abi == .msvc) {
+        try flags.appendSlice(b.allocator, &.{
+            "-fno-sanitize=undefined",
+            "-fno-sanitize-trap=undefined",
+        });
+    }
     if (target.result.os.tag != .windows) {
         try flags.appendSlice(b.allocator, &.{
             "-DHAVE_UNISTD_H",

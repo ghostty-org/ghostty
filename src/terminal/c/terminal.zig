@@ -1052,6 +1052,29 @@ test "vt_write split escape sequence" {
     try testing.expectEqualStrings("Hello Bold", str);
 }
 
+test "vt_write split combining mark after base at right edge" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 2,
+            .rows = 2,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    // Put "å" in the final column, then send its combining low line in a
+    // separate write so the mark arrives while the cursor has a pending wrap.
+    vt_write(t, "xå", 3);
+    vt_write(t, "\xcc\xb2", 2);
+
+    const str = try t.?.terminal.plainString(testing.allocator);
+    defer testing.allocator.free(str);
+    try testing.expectEqualStrings("xå̲", str);
+}
+
 test "get cols and rows" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(

@@ -1,6 +1,7 @@
 import SwiftUI
 import UserNotifications
 import GhosttyKit
+import System
 
 extension Ghostty {
     /// Render a terminal for the active app in the environment.
@@ -164,10 +165,7 @@ extension Ghostty {
                         surfaceView: surfaceView,
                         searchState: searchState,
                         onClose: {
-#if canImport(AppKit)
-                            Ghostty.moveFocus(to: surfaceView)
-#endif
-                            surfaceView.searchState = nil
+                            surfaceView.endSearch()
                         }
                     )
                 }
@@ -614,8 +612,13 @@ extension Ghostty {
         /// Explicit font size to use in points
         var fontSize: Float32?
 
-        /// Explicit working directory to set
-        var workingDirectory: String?
+        /// Explicit working directory. This is normalized on assignment to
+        /// remove any redundant and trailing path separators.
+        var workingDirectory: String? {
+            get { normalizedWorkingDirectory }
+            set { normalizedWorkingDirectory = newValue.map { FilePath($0).string } }
+        }
+        private var normalizedWorkingDirectory: String?
 
         /// Explicit command to set
         var command: String?

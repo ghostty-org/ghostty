@@ -1079,7 +1079,10 @@ pub const Window = extern struct {
         // Hide quick-terminal if set to autohide
         if (self.isQuickTerminal()) {
             if (self.getConfig()) |cfg| {
-                if (cfg.get().@"quick-terminal-autohide" and self.as(gtk.Window).isActive() == 0) {
+                if (cfg.get().@"quick-terminal-autohide" and
+                    self.as(gtk.Window).isActive() == 0 and
+                    self.as(gtk.Widget).isVisible() == 1)
+                {
                     self.toggleVisibility();
                 }
             }

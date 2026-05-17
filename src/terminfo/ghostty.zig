@@ -112,8 +112,8 @@ pub const ghostty: Source = .{
         // Cursor styles
         .{ .name = "Ss", .value = .{ .string = "\\E[%p1%d q" } },
 
-        // Cursor style reset
-        .{ .name = "Se", .value = .{ .string = "\\E[2 q" } },
+        // Cursor style reset (to user configured default)
+        .{ .name = "Se", .value = .{ .string = "\\E[0 q" } },
 
         // OSC 52 Clipboard
         .{ .name = "Ms", .value = .{ .string = "\\E]52;%p1%s;%p2%s\\007" } },

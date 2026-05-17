@@ -6,8 +6,7 @@ struct ChildExitedMessageBar: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(msg.text)
-                .fontWeight(.medium)
+            Text(message)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
@@ -27,6 +26,10 @@ struct ChildExitedMessageBar: View {
                     isHovered = $0
                 }
         }
+    }
+
+    private var message: AttributedString {
+        (try? AttributedString(markdown: msg.text)) ?? AttributedString(msg.text)
     }
 }
 

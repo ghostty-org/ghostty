@@ -3,9 +3,14 @@ using Adw 1;
 
 template $GhostttySurfaceScrolledWindow: Adw.Bin {
   notify::surface => $notify_surface();
-
-  Gtk.ScrolledWindow scrolled_window {
-    hscrollbar-policy: never;
-    vscrollbar-policy: bind $scrollbar_policy(template.config) as <Gtk.PolicyType>;
+  // The double-nesting is required due to a GTK bug where you can't
+  // bind the first child of a builder layout. If you do, you get a double
+  // dispose. Easiest way to see that is simply remove this and see the
+  // GTK critical errors (and sometimes crashes).
+  Adw.Bin {
+    Gtk.ScrolledWindow scrolled_window {
+      hscrollbar-policy: never;
+      vscrollbar-policy: bind $scrollbar_policy(template.config) as <Gtk.PolicyType>;
+    }
   }
 }

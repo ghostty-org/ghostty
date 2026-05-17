@@ -33,6 +33,12 @@ pub fn build(b: *std.Build) !void {
             "-DHAVE_STDINT_H",
             "-DHAVE_STDDEF_H",
         });
+        if (target.result.abi == .msvc) {
+            try flags.appendSlice(b.allocator, &.{
+                "-fno-sanitize=undefined",
+                "-fno-sanitize-trap=undefined",
+            });
+        }
         if (target.result.os.tag != .windows) {
             try flags.append(b.allocator, "-DZ_HAVE_UNISTD_H");
         }

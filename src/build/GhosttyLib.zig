@@ -2,9 +2,9 @@ const GhosttyLib = @This();
 
 const std = @import("std");
 const RunStep = std.Build.Step.Run;
+const CombineArchivesStep = @import("CombineArchivesStep.zig");
 const Config = @import("Config.zig");
 const SharedDeps = @import("SharedDeps.zig");
-const LibtoolStep = @import("LibtoolStep.zig");
 const LipoStep = @import("LipoStep.zig");
 
 /// The step that generates the file.
@@ -48,29 +48,18 @@ pub fn initStatic(
     }
 
     // Add our dependencies. Get the list of all static deps so we can
-    // build a combined archive if necessary.
+    // build a combined archive.
     var lib_list = try deps.add(lib);
     try lib_list.append(b.allocator, lib.getEmittedBin());
 
-    if (!deps.config.target.result.os.tag.isDarwin()) return .{
-        .step = &lib.step,
-        .output = lib.getEmittedBin(),
-        .dsym = null,
-        .pkg_config = null,
-        .pkg_config_static = null,
-    };
-
-    // Create a static lib that contains all our dependencies.
-    const libtool = LibtoolStep.create(b, .{
-        .name = "ghostty",
-        .out_name = "libghostty-fat.a",
-        .sources = lib_list.items,
-    });
-    libtool.step.dependOn(&lib.step);
+    // Combine all archives into a single fat static library so
+    // consumers only need to link one file.
+    const combined = CombineArchivesStep.create(b, deps.config.target, "ghostty-internal", lib_list.items);
+    combined.step.dependOn(&lib.step);
 
     return .{
-        .step = libtool.step,
-        .output = libtool.output,
+        .step = combined.step,
+        .output = combined.output,
 
         // Static libraries cannot have dSYMs because they aren't linked.
         .dsym = null,

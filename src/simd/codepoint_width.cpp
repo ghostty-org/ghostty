@@ -7,8 +7,14 @@
 #ifndef GHOSTTY_SIMD_CPW_HELPERS_
 #define GHOSTTY_SIMD_CPW_HELPERS_
 
-#include <assert.h>
-#include <stddef.h>
+#ifdef NDEBUG
+#define GHOSTTY_SIMD_ASSERT(cond) ((void)0)
+#else
+#define GHOSTTY_SIMD_ASSERT(cond) \
+  do {                            \
+    if (!(cond)) __builtin_trap();\
+  } while (0)
+#endif
 
 // Replacement for std::size() that works without libc++.
 template <typename T, size_t N>
@@ -249,8 +255,8 @@ static_assert(array_size(nsm_gte16) == array_size(nsm_lte16));
 /// Handles 16-bit codepoints.
 template <class D, typename T = uint16_t>
 int8_t CodepointWidth16(D d, uint16_t input) {
-  assert(input > 0xFF);
-  assert(input <= 0xFFFF);
+  GHOSTTY_SIMD_ASSERT(input > 0xFF);
+  GHOSTTY_SIMD_ASSERT(input <= 0xFFFF);
 
   const size_t N = hn::Lanes(d);
   const hn::Vec<D> input_vec = Set(d, input);
@@ -287,7 +293,7 @@ int8_t CodepointWidth16(D d, uint16_t input) {
         return 2;
       }
     }
-    assert(i >= 7);  // We should have checked all the ranges.
+    GHOSTTY_SIMD_ASSERT(i >= 7);  // We should have checked all the ranges.
   }
 
   {
@@ -353,7 +359,7 @@ int8_t CodepointWidth16(D d, uint16_t input) {
 /// Handles codepoints larger than 16-bit.
 template <class D, typename T = uint32_t>
 int8_t CodepointWidth32(D d, T input) {
-  assert(input > 0xFFFF);
+  GHOSTTY_SIMD_ASSERT(input > 0xFFFF);
 
   const size_t N = hn::Lanes(d);
   const hn::Vec<D> input_vec = Set(d, input);
@@ -379,7 +385,7 @@ int8_t CodepointWidth32(D d, T input) {
         return 2;
       }
     }
-    assert(i >= 2);  // We should have checked all the ranges.
+    GHOSTTY_SIMD_ASSERT(i >= 2);  // We should have checked all the ranges.
   }
 
   {

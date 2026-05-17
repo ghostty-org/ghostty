@@ -161,15 +161,17 @@ pub export fn ghostty_string_free(str: String) void {
 // function that depends on CRT internal state (setlocale, malloc from C
 // dependencies, C++ constructors in glslang) crashes with null pointer
 // dereferences. Declaring DllMain causes Zig's start.zig to call it
-// during DLL_PROCESS_ATTACH/DETACH, and we forward to the CRT bootstrap
-// functions from libvcruntime and libucrt (already linked).
+// during DLL_PROCESS_ATTACH/DETACH, and for MSVC we forward to the CRT
+// bootstrap functions from libvcruntime and libucrt (already linked).
+// For other ABIs (MinGW) the handler is a no-op since dllcrt2.obj already
+// handles CRT init; we still need `DllMain` declared so that Zig's
+// start.zig does not fall back to calling a non-function value.
 //
 // This is a workaround. Zig handles MinGW DLLs correctly (via dllcrt2.obj)
 // but not MSVC. No upstream issue tracks this exact gap as of 2026-03-26.
 // Closest: Codeberg ziglang/zig #30936 (reimplement crt0 code).
 // Remove this DllMain when Zig handles MSVC DLL CRT init natively.
-pub const DllMain = if (builtin.os.tag == .windows and
-    builtin.abi == .msvc) struct {
+pub const DllMain = if (builtin.os.tag == .windows) struct {
     const BOOL = std.os.windows.BOOL;
     const HINSTANCE = std.os.windows.HINSTANCE;
     const DWORD = std.os.windows.DWORD;
@@ -186,6 +188,8 @@ pub const DllMain = if (builtin.os.tag == .windows and
     const __acrt_uninitialize = @extern(*const fn (c_int) callconv(.c) c_int, .{ .name = "__acrt_uninitialize" });
 
     pub fn handler(_: HINSTANCE, fdwReason: DWORD, _: LPVOID) callconv(.winapi) BOOL {
+        // Only MSVC needs to bootstrap the CRT; MinGW handles it via dllcrt2.obj.
+        if (builtin.abi != .msvc) return TRUE;
         switch (fdwReason) {
             DLL_PROCESS_ATTACH => {
                 if (__vcrt_initialize() < 0) return FALSE;

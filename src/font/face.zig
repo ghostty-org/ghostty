@@ -11,6 +11,7 @@ pub const web_canvas = @import("face/web_canvas.zig");
 /// Face implementation for the compile options.
 pub const Face = switch (options.backend) {
     .freetype,
+    .freetype_windows,
     .fontconfig_freetype,
     .coretext_freetype,
     => freetype.Face,

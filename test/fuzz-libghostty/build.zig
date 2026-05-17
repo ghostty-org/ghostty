@@ -23,7 +23,10 @@ const fuzzers: []const Fuzzer = &.{
 };
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
+    // Resolve a "generic" host target so the emitted LLVM bitcode does not
+    // contain native CPU features (e.g. +zcm, +zcz) that the LLVM version
+    // bundled with afl-cc may not recognise, which would produce warnings.
+    const target = b.resolveTargetQuery(.{});
     const optimize = b.standardOptimizeOption(.{});
 
     const ghostty_dep = b.lazyDependency("ghostty", .{

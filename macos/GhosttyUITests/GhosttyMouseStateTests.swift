@@ -8,8 +8,6 @@
 import XCTest
 
 final class GhosttyMouseStateTests: GhosttyCustomConfigCase {
-    override static var runsForEachTargetApplicationUIConfiguration: Bool { false }
-
     // https://github.com/ghostty-org/ghostty/pull/11276
     @MainActor func testSelectionFocusChange() async throws {
         let app = XCUIApplication()

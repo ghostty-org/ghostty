@@ -7,7 +7,7 @@
 //! available on Windows. This tool handles both the script generation
 //! and the piping in a single cross-platform executable.
 //!
-//! Usage: combine_archives <output.a> <input1.a> [input2.a ...]
+//! Usage: combine_archives <zig_exe> <output.a> <input1.a> [input2.a ...]
 
 const std = @import("std");
 
@@ -16,13 +16,14 @@ pub fn main() !void {
     const alloc = gpa.allocator();
 
     const args = try std.process.argsAlloc(alloc);
-    if (args.len < 3) {
-        std.log.err("usage: combine_archives <output> <input...>", .{});
+    if (args.len < 4) {
+        std.log.err("usage: combine_archives <zig_exe> <output> <input...>", .{});
         std.process.exit(1);
     }
 
-    const output_path = args[1];
-    const inputs = args[2..];
+    const zig_exe = args[1];
+    const output_path = args[2];
+    const inputs = args[3..];
 
     // Build the MRI script.
     var script: std.ArrayListUnmanaged(u8) = .empty;
@@ -36,7 +37,7 @@ pub fn main() !void {
     }
     try script.appendSlice(alloc, "SAVE\nEND\n");
 
-    var child: std.process.Child = .init(&.{ "zig", "ar", "-M" }, alloc);
+    var child: std.process.Child = .init(&.{ zig_exe, "ar", "-M" }, alloc);
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Inherit;
     child.stderr_behavior = .Inherit;

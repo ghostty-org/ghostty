@@ -585,11 +585,11 @@ class AppDelegate: NSObject,
         guard NSApp.mainWindow == nil else { return event }
 
         // If this event as-is would result in a key binding then we send it.
-        if let app = ghostty.app {
+        if let app = ghostty.app, let config = ghostty.config.config {
             var ghosttyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
             let match = (event.characters ?? "").withCString { ptr in
                 ghosttyEvent.text = ptr
-                if !ghostty_app_key_is_binding(app, ghosttyEvent) {
+                if !ghostty_config_key_is_binding(config, ghosttyEvent) {
                     return false
                 }
 
@@ -859,8 +859,6 @@ class AppDelegate: NSObject,
     }
 
     func application(_ app: NSApplication, willEncodeRestorableState coder: NSCoder) {
-        Self.logger.debug("application will save window state")
-
         guard ghostty.config.windowSaveState != "never" else { return }
 
         // Encode our quick terminal state if we have it.
@@ -941,7 +939,7 @@ class AppDelegate: NSObject,
     // MARK: - IB Actions
 
     @IBAction func openConfig(_ sender: Any?) {
-        Ghostty.App.openConfig()
+        ghostty.openConfig()
     }
 
     @IBAction func reloadConfig(_ sender: Any?) {
@@ -1172,6 +1170,7 @@ extension AppDelegate {
         syncMenuShortcut(config, action: "paste_from_selection", menuItem: self.menuPasteSelection)
         syncMenuShortcut(config, action: "select_all", menuItem: self.menuSelectAll)
         syncMenuShortcut(config, action: "start_search", menuItem: self.menuFind)
+        syncMenuShortcut(config, action: "end_search", menuItem: self.menuHideFindBar)
         syncMenuShortcut(config, action: "search_selection", menuItem: self.menuSelectionForFind)
         syncMenuShortcut(config, action: "scroll_to_selection", menuItem: self.menuScrollToSelection)
         syncMenuShortcut(config, action: "navigate_search:next", menuItem: self.menuFindNext)

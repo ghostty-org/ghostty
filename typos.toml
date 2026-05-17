@@ -76,6 +76,8 @@ GIR = "GIR"
 rin = "rin"
 # sprites
 ower = "ower"
+# OpenType table names
+loca = "loca"
 
 [type.po]
 extend-glob = ["*.po"]

@@ -444,13 +444,22 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         bool,
         "emit-xcframework",
         "Build and install the xcframework for the macOS library.",
-    ) orelse !config.emit_lib_vt and
-        builtin.target.os.tag.isDarwin() and
-        target.result.os.tag == .macos and
-        config.app_runtime == .none and
-        (!config.emit_bench and
-            !config.emit_test_exe and
-            !config.emit_helpgen);
+    ) orelse emit_xcfw: {
+        if (!builtin.target.os.tag.isDarwin() or target.result.os.tag != .macos)
+            break :emit_xcfw false;
+        if (config.emit_lib_vt) {
+            // In lib-vt mode default to whether xcodebuild is available,
+            // since xcodebuild is required to produce the XCFramework.
+            const path = expandPath(b.allocator, "xcodebuild") catch
+                break :emit_xcfw false;
+            defer if (path) |p| b.allocator.free(p);
+            break :emit_xcfw path != null;
+        }
+        break :emit_xcfw config.app_runtime == .none and
+            (!config.emit_bench and
+                !config.emit_test_exe and
+                !config.emit_helpgen);
+    };
 
     config.emit_macos_app = b.option(
         bool,

@@ -258,12 +258,20 @@ fn startPosix(self: *Command, arena: Allocator) !void {
 }
 
 fn startWindows(self: *Command, arena: Allocator) !void {
-    const application_w = try std.unicode.utf8ToUtf16LeAllocZ(arena, self.path);
     const cwd_w = if (self.cwd) |cwd| try std.unicode.utf8ToUtf16LeAllocZ(arena, cwd) else null;
-    const command_line_w = if (self.args.len > 0) b: {
-        const command_line = try windowsCreateCommandLine(arena, self.args);
-        break :b try std.unicode.utf8ToUtf16LeAllocZ(arena, command_line);
-    } else null;
+
+    // Pass null for lpApplicationName and put the program as the first
+    // token of lpCommandLine. This lets CreateProcessW perform the
+    // standard program search (parent-app dir, CWD, system dirs, PATH)
+    // and append ".exe" when the name has no extension, which is what
+    // users expect for bare commands like `wsl ~` or `pwsh.exe`.
+    // It also preserves the child's argv[0] as written by the caller
+    // rather than replacing it with the resolved absolute path.
+    const command_line = if (self.args.len > 0)
+        try windowsCreateCommandLine(arena, self.args)
+    else
+        try windowsCreateCommandLine(arena, &.{self.path});
+    const command_line_w = try std.unicode.utf8ToUtf16LeAllocZ(arena, command_line);
     const env_w = if (self.env) |env_map| try createWindowsEnvBlock(arena, env_map) else null;
 
     const any_null_fd = self.stdin == null or self.stdout == null or self.stderr == null;
@@ -345,8 +353,8 @@ fn startWindows(self: *Command, arena: Allocator) !void {
 
     var process_information: windows.PROCESS_INFORMATION = undefined;
     if (windows.exp.kernel32.CreateProcessW(
-        application_w.ptr,
-        if (command_line_w) |w| w.ptr else null,
+        null,
+        command_line_w.ptr,
         null,
         null,
         windows.TRUE,

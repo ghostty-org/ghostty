@@ -2404,8 +2404,12 @@ keybind: Keybinds = .{},
 /// The value `clipboard` will always copy text to the selection clipboard
 /// as well as the system clipboard.
 ///
-/// Middle-click paste will always use the selection clipboard. Middle-click
-/// paste is always enabled even if this is `false`.
+/// Middle-click primary paste (see `middle-click-action`) is enabled by
+/// default even if this is `false`. The clipboard it pastes from follows
+/// this setting: with `true` (or `false`) it reads from the selection
+/// clipboard (falling back to the system clipboard on platforms without a
+/// selection clipboard); with `clipboard` it reads from the system
+/// clipboard.
 ///
 /// The default value is true on Linux and macOS.
 @"copy-on-select": CopyOnSelect = switch (builtin.os.tag) {
@@ -2426,6 +2430,16 @@ keybind: Keybinds = .{},
 ///
 /// The default value is `context-menu`.
 @"right-click-action": RightClickAction = .@"context-menu",
+
+/// The action to take when the user middle-clicks on the terminal surface.
+///
+/// Valid values:
+///   * `primary-paste` - Paste from the selection (or system) clipboard per
+///      `copy-on-select`.
+///   * `ignore` - Do nothing, ignore the middle click.
+///
+/// The default value is `primary-paste`.
+@"middle-click-action": MiddleClickAction = .@"primary-paste",
 
 /// The time in milliseconds between clicks to consider a click a repeat
 /// (double, triple, etc.) or an entirely new single click. A value of zero will
@@ -2866,9 +2880,16 @@ keybind: Keybinds = .{},
 /// command-palette-entry = title:"Ghostty",description:"Add a little Ghostty to your terminal.",action:"text:\xf0\x9f\x91\xbb"
 /// ```
 ///
+/// There are some additional special values that can be specified for
+/// command-palette-entry:
+///
+///   * `command-palette-entry=clear` will clear all command entries. Warning: this
+///     removes ALL entries up to this point, including the default
+///     entries. Available since: 1.4.0
+///
 /// By default, the command palette is preloaded with most actions that might
 /// be useful in an interactive setting yet do not have easily accessible or
-/// memorizable shortcuts. The default entries can be cleared by setting this
+/// memorizable shortcuts. The default entries can be restored by setting this
 /// setting to an empty value:
 ///
 /// ```ini
@@ -6448,6 +6469,22 @@ pub const RepeatableFontVariation = struct {
     }
 };
 
+/// Returns true if the given key event would trigger a keybinding
+/// if it were to be processed. This is useful for determining if
+/// a key event should be sent to the terminal or not.
+pub fn keyEventIsBinding(
+    self: *Config,
+    event: inputpkg.KeyEvent,
+) bool {
+    switch (event.action) {
+        .release => return false,
+        .press, .repeat => {},
+    }
+
+    // If we have a keybinding for this event then we return true.
+    return self.keybind.set.getEvent(event) != null;
+}
+
 /// Stores a set of keybinds.
 pub const Keybinds = struct {
     set: inputpkg.Binding.Set = .{},
@@ -6798,13 +6835,27 @@ pub const Keybinds = struct {
             // Semantic prompts
             try self.set.put(
                 alloc,
-                .{ .key = .{ .physical = .page_up }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .key = .{ .physical = .arrow_up }, .mods = .{ .shift = true, .ctrl = true } },
                 .{ .jump_to_prompt = -1 },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .physical = .page_down }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .key = .{ .physical = .arrow_down }, .mods = .{ .shift = true, .ctrl = true } },
                 .{ .jump_to_prompt = 1 },
+            );
+
+            // Move tab
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .page_up }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .move_tab = -1 },
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .page_down }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .move_tab = 1 },
+                .{ .performable = true },
             );
 
             // Search
@@ -8671,6 +8722,15 @@ pub const RightClickAction = enum {
     @"context-menu",
 };
 
+/// Options for middle-click actions.
+pub const MiddleClickAction = enum {
+    /// Paste from the selection/standard clipboard per `copy-on-select`.
+    @"primary-paste",
+
+    /// No action is taken on middle click.
+    ignore,
+};
+
 /// Shell integration values
 pub const ShellIntegration = enum {
     none,
@@ -8734,6 +8794,13 @@ pub const RepeatableCommand = struct {
         // Unset or empty input clears the list
         const input = input_ orelse "";
         if (input.len == 0) {
+            log.info("config has 'command-palette-entry =', using default entries", .{});
+            try self.init(alloc);
+            return;
+        }
+
+        if (std.mem.eql(u8, input, "clear")) {
+            log.info("config has 'command-palette-entry = clear', all command entries cleared", .{});
             self.value.clearRetainingCapacity();
             self.value_c.clearRetainingCapacity();
             return;
@@ -8845,8 +8912,11 @@ pub const RepeatableCommand = struct {
         try testing.expectEqualStrings("Baz", list.value.items[3].title);
         try testing.expectEqualStrings("Raspberry Pie", list.value.items[3].description);
 
-        try list.parseCLI(alloc, "");
+        try list.parseCLI(alloc, "clear");
         try testing.expectEqual(@as(usize, 0), list.value.items.len);
+
+        try list.parseCLI(alloc, "");
+        try testing.expectEqual(inputpkg.command.defaults.len, list.value.items.len);
     }
 
     test "RepeatableCommand formatConfig empty" {
@@ -8961,7 +9031,7 @@ pub const RepeatableCommand = struct {
         try list.parseCLI(alloc, "title:Foo,action:ignore");
         try testing.expectEqual(@as(usize, 1), list.cval().len);
 
-        try list.parseCLI(alloc, "");
+        try list.parseCLI(alloc, "clear");
         try testing.expectEqual(@as(usize, 0), list.cval().len);
     }
 };

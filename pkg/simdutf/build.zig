@@ -13,18 +13,23 @@ pub fn build(b: *std.Build) !void {
         }),
         .linkage = .static,
     });
-    lib.linkLibC();
-    if (!no_libcxx) {
-        // On MSVC, we must not use linkLibCpp because Zig unconditionally
-        // passes -nostdinc++ and then adds its bundled libc++/libc++abi
-        // include paths, which conflict with MSVC's own C++ runtime headers.
-        // The MSVC SDK include directories (added via linkLibC) contain
-        // both C and C++ headers, so linkLibCpp is not needed.
-        if (target.result.abi != .msvc) {
-            lib.linkLibCpp();
-        }
-    }
     lib.addIncludePath(b.path("vendor"));
+    lib.linkLibC();
+    libcpp: {
+        if (target.result.abi == .msvc) {
+            // On MSVC, we must not use linkLibCpp because Zig unconditionally
+            // passes -nostdinc++ and then adds its bundled libc++/libc++abi
+            // include paths, which conflict with MSVC's own C++ runtime headers.
+            // The MSVC SDK include directories (added via linkLibC) contain
+            // both C and C++ headers, so linkLibCpp is not needed.
+            break :libcpp;
+        }
+
+        // We link libcpp even with no_libcxx because simdutf requires
+        // libc++ headers at build time. But it doesn't require libc++
+        // at runtime. For Ghostty itself, we have CI tests to verify this.
+        lib.linkLibCpp();
+    }
 
     if (target.result.os.tag.isDarwin()) {
         const apple_sdk = @import("apple_sdk");
@@ -40,19 +45,29 @@ pub fn build(b: *std.Build) !void {
     defer flags.deinit(b.allocator);
     // Zig 0.13 bug: https://github.com/ziglang/zig/issues/20414
     // (See root Ghostty build.zig on why we do this)
-    try flags.appendSlice(b.allocator, &.{
-        "-DSIMDUTF_IMPLEMENTATION_ICELAKE=0",
+    try flags.append(b.allocator, "-DSIMDUTF_IMPLEMENTATION_ICELAKE=0");
 
-        // Fixes linker issues for release builds missing ubsanitizer symbols
+    // Fixes linker issues for release builds missing ubsanitizer symbols
+    try flags.appendSlice(b.allocator, &.{
         "-fno-sanitize=undefined",
         "-fno-sanitize-trap=undefined",
     });
 
     if (no_libcxx) {
         try flags.append(b.allocator, "-DSIMDUTF_NO_LIBCXX");
-        try flags.append(b.allocator, "-fno-exceptions");
-        try flags.append(b.allocator, "-fno-rtti");
+        if (target.result.abi != .msvc) {
+            // Clang/GCC-only flags; MSVC doesn't accept these.
+            try flags.append(b.allocator, "-fno-exceptions");
+            try flags.append(b.allocator, "-fno-rtti");
+        }
+
         lib.root_module.addCMacro("SIMDUTF_NO_LIBCXX", "1");
+    }
+
+    if (target.result.abi == .msvc) {
+        // On MSVC we skip linkLibCpp (see above), so the C++ standard is
+        // not set implicitly. simdutf requires C++17, so set it explicitly.
+        try flags.append(b.allocator, "-std=c++17");
     }
 
     if (target.result.os.tag == .freebsd or target.result.abi == .musl) {

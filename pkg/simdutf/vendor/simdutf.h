@@ -1,7 +1,8 @@
-/* auto-generated on 2026-04-14 20:34:32 -0700. Do not edit! */
+/* auto-generated on 2026-04-21 21:46:47 -0400. Do not edit! */
 /* begin file include/simdutf.h */
 #ifndef SIMDUTF_H
 #define SIMDUTF_H
+#include <cstring>
 
 /* begin file include/simdutf/compiler_check.h */
 #ifndef SIMDUTF_COMPILER_CHECK_H
@@ -49,8 +50,8 @@
   #define SIMDUTF_CPLUSPLUS11 1
 #endif
 
-#ifndef SIMDUTF_CPLUSPLUS11
-  #error simdutf requires a compiler compliant with the C++11 standard
+#ifndef SIMDUTF_CPLUSPLUS17
+  #error simdutf requires a compiler compliant with the C++17 standard
 #endif
 
 #endif // SIMDUTF_COMPILER_CHECK_H
@@ -64,44 +65,14 @@
 #define SIMDUTF_PORTABILITY_H
 
 
-#ifdef SIMDUTF_NO_LIBCXX
-  #include <float.h>
-  #include <stddef.h>
-  #include <stdint.h>
-  #include <stdlib.h>
-#else
-  #include <cfloat>
-  #include <cstddef>
-  #include <cstdint>
-  #include <cstdlib>
-#endif
+#include <cfloat>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #ifndef _WIN32
   // strcasecmp, strncasecmp
   #include <strings.h>
-#endif
-
-#ifdef SIMDUTF_NO_LIBCXX
-  #undef SIMDUTF_NO_LIBCXX
-  #define SIMDUTF_NO_LIBCXX 1
-  /**
-   * SIMDUTF_NO_LIBCXX is an all-or-nothing reduced-surface build contract
-   * that forces simdutf to avoid using any libc++ or libc++abi features.
-   *
-   * Every translation unit that compiles simdutf sources or includes simdutf
-   * headers must use the same setting. Public APIs that expose std::* either
-   * change shape or are unavailable in this mode, so it should be treated as a
-   * separate ABI from the normal build.
-   *
-   * To avoid pulling in libc++/libstdc++ or their runtime hooks, this mode
-   * also forces the no-threads/shared-state path and disables the
-   * std::atomic_ref, std::span, and std::text_encoding surfaces so later
-   * headers can rely on the reduced-surface contract.
-   */
-  #undef SIMDUTF_NO_THREADS
-  #define SIMDUTF_NO_THREADS 1
-  #undef SIMDUTF_ATOMIC_REF
-  #define SIMDUTF_SPAN_DISABLED 1
-  #define SIMDUTF_NO_STD_TEXT_ENCODING 1
 #endif
 
 #if defined(__apple_build_version__)
@@ -112,27 +83,17 @@
 #endif
 
 #if SIMDUTF_CPLUSPLUS20
-  #ifndef SIMDUTF_NO_LIBCXX
-    #include <version>
-    #if __cpp_concepts >= 201907L && __cpp_lib_span >= 202002L &&              \
-        !defined(SIMDUTF_SPAN_DISABLED)
-      #define SIMDUTF_SPAN 1
-    #endif // __cpp_concepts >= 201907L && __cpp_lib_span >= 202002L
-    #if __cpp_lib_atomic_ref >= 201806L
-      #define SIMDUTF_ATOMIC_REF 1
-    #endif // __cpp_lib_atomic_ref
-  #endif   // SIMDUTF_NO_LIBCXX
+  #include <version>
+  #if __cpp_concepts >= 201907L && __cpp_lib_span >= 202002L &&                \
+      !defined(SIMDUTF_SPAN_DISABLED)
+    #define SIMDUTF_SPAN 1
+  #endif // __cpp_concepts >= 201907L && __cpp_lib_span >= 202002L
+  #if __cpp_lib_atomic_ref >= 201806L
+    #define SIMDUTF_ATOMIC_REF 1
+  #endif // __cpp_lib_atomic_ref
   #if __has_cpp_attribute(maybe_unused) >= 201603L
     #define SIMDUTF_MAYBE_UNUSED_AVAILABLE 1
   #endif // __has_cpp_attribute(maybe_unused) >= 201603L
-#endif
-
-// Best-effort weak symbol annotation for fallback ABI hooks that should defer
-// to a toolchain-provided definition when one is linked in.
-#if defined(__GNUC__) || defined(__clang__)
-  #define SIMDUTF_WEAK __attribute__((weak))
-#else
-  #define SIMDUTF_WEAK
 #endif
 
 /**
@@ -471,36 +432,18 @@
 // Sometimes logging is useful, but we want it disabled by default
 // and free of any logging code in release builds.
 #ifdef SIMDUTF_LOGGING
-  #ifdef SIMDUTF_NO_LIBCXX
-    #include <stdio.h>
-    #define simdutf_log(msg)                                                   \
-      do {                                                                     \
-        printf("[%s]: %s\n\t%s:%d\n", __FUNCTION__, msg, __FILE__, __LINE__); \
-        fflush(stdout);                                                        \
-      } while (0)
-    #define simdutf_log_assert(cond, msg)                                      \
-      do {                                                                     \
-        if (!(cond)) {                                                         \
-          fprintf(stderr, "[%s]: %s\n\t%s:%d\n", __FUNCTION__, msg,         \
-                  __FILE__, __LINE__);                                         \
-          fflush(stderr);                                                      \
-          abort();                                                             \
-        }                                                                      \
-      } while (0)
-  #else
-    #include <iostream>
-    #define simdutf_log(msg)                                                   \
-      std::cout << "[" << __FUNCTION__ << "]: " << msg << std::endl            \
-                << "\t" << __FILE__ << ":" << __LINE__ << std::endl;
-    #define simdutf_log_assert(cond, msg)                                      \
-      do {                                                                     \
-        if (!(cond)) {                                                         \
-          std::cerr << "[" << __FUNCTION__ << "]: " << msg << std::endl        \
-                    << "\t" << __FILE__ << ":" << __LINE__ << std::endl;       \
-          std::abort();                                                        \
-        }                                                                      \
-      } while (0)
-  #endif
+  #include <iostream>
+  #define simdutf_log(msg)                                                     \
+    std::cout << "[" << __FUNCTION__ << "]: " << msg << std::endl              \
+              << "\t" << __FILE__ << ":" << __LINE__ << std::endl;
+  #define simdutf_log_assert(cond, msg)                                        \
+    do {                                                                       \
+      if (!(cond)) {                                                           \
+        std::cerr << "[" << __FUNCTION__ << "]: " << msg << std::endl          \
+                  << "\t" << __FILE__ << ":" << __LINE__ << std::endl;         \
+        std::abort();                                                          \
+      }                                                                        \
+    } while (0)
 #else
   #define simdutf_log(msg)
   #define simdutf_log_assert(cond, msg)
@@ -605,13 +548,6 @@
 
 #endif // MSC_VER
 
-// Conditional constexpr macro: expands to constexpr for C++17+, empty otherwise
-#if SIMDUTF_CPLUSPLUS17
-  #define simdutf_constexpr constexpr
-#else
-  #define simdutf_constexpr
-#endif
-
 // Will evaluate to constexpr in C++23 or later. This makes it possible to mark
 // functions constexpr if the "if consteval" feature is available to use.
 #if SIMDUTF_CPLUSPLUS23
@@ -670,14 +606,12 @@
 /* begin file include/simdutf/encoding_types.h */
 #ifndef SIMDUTF_ENCODING_TYPES_H
 #define SIMDUTF_ENCODING_TYPES_H
+#include <string_view>
 
-#ifndef SIMDUTF_NO_LIBCXX
-  #include <string>
-  #if !defined(SIMDUTF_NO_STD_TEXT_ENCODING) &&                                \
-      defined(__cpp_lib_text_encoding) && __cpp_lib_text_encoding >= 202306L
-    #define SIMDUTF_HAS_STD_TEXT_ENCODING 1
-    #include <text_encoding>
-  #endif
+#if !defined(SIMDUTF_NO_STD_TEXT_ENCODING) &&                                  \
+    defined(__cpp_lib_text_encoding) && __cpp_lib_text_encoding >= 202306L
+  #define SIMDUTF_HAS_STD_TEXT_ENCODING 1
+  #include <text_encoding>
 #endif
 
 namespace simdutf {
@@ -713,11 +647,7 @@ match_system(endianness e) {
   return e == endianness::NATIVE;
 }
 
-#ifdef SIMDUTF_NO_LIBCXX
-simdutf_warn_unused const char *to_string(encoding_type bom);
-#else
-simdutf_warn_unused std::string to_string(encoding_type bom);
-#endif
+simdutf_warn_unused std::string_view to_string(encoding_type bom);
 
 // Note that BOM for UTF8 is discouraged.
 namespace BOM {
@@ -741,7 +671,7 @@ simdutf_warn_unused size_t bom_byte_size(encoding_type bom);
 
 } // namespace BOM
 
-#if defined(SIMDUTF_HAS_STD_TEXT_ENCODING) && !defined(SIMDUTF_NO_LIBCXX)
+#ifdef SIMDUTF_HAS_STD_TEXT_ENCODING
 /**
  * Convert a simdutf encoding type to a std::text_encoding.
  *
@@ -857,7 +787,7 @@ from_std_encoding_native(const std::text_encoding &enc) noexcept {
     return unspecified;
   }
 }
-#endif // defined(SIMDUTF_HAS_STD_TEXT_ENCODING) && !defined(SIMDUTF_NO_LIBCXX)
+#endif // SIMDUTF_HAS_STD_TEXT_ENCODING
 
 } // namespace simdutf
 #endif
@@ -865,6 +795,8 @@ from_std_encoding_native(const std::text_encoding &enc) noexcept {
 /* begin file include/simdutf/error.h */
 #ifndef SIMDUTF_ERROR_H
 #define SIMDUTF_ERROR_H
+#include <string_view>
+
 namespace simdutf {
 
 enum error_code {
@@ -907,7 +839,6 @@ enum error_code {
   OTHER                     // Not related to validation/transcoding.
 };
 
-#if SIMDUTF_CPLUSPLUS17 && !defined(SIMDUTF_NO_LIBCXX)
 inline std::string_view error_to_string(error_code code) noexcept {
   switch (code) {
   case SUCCESS:
@@ -936,7 +867,6 @@ inline std::string_view error_to_string(error_code code) noexcept {
     return "OTHER";
   }
 }
-#endif
 
 struct result {
   error_code error;
@@ -1003,18 +933,18 @@ SIMDUTF_DISABLE_UNDESIRED_WARNINGS
 #define SIMDUTF_SIMDUTF_VERSION_H
 
 /** The version of simdutf being used (major.minor.revision) */
-#define SIMDUTF_VERSION "8.2.0"
+#define SIMDUTF_VERSION "9.0.0"
 
 namespace simdutf {
 enum {
   /**
    * The major version (MAJOR.minor.revision) of simdutf being used.
    */
-  SIMDUTF_VERSION_MAJOR = 8,
+  SIMDUTF_VERSION_MAJOR = 9,
   /**
    * The minor version (major.MINOR.revision) of simdutf being used.
    */
-  SIMDUTF_VERSION_MINOR = 2,
+  SIMDUTF_VERSION_MINOR = 0,
   /**
    * The revision (major.minor.REVISION) of simdutf being used.
    */
@@ -1027,452 +957,12 @@ enum {
 /* begin file include/simdutf/implementation.h */
 #ifndef SIMDUTF_IMPLEMENTATION_H
 #define SIMDUTF_IMPLEMENTATION_H
-
-#if defined(SIMDUTF_INTERNAL_TESTS) && defined(SIMDUTF_NO_LIBCXX)
-  #error "SIMDUTF_INTERNAL_TESTS is unsupported with SIMDUTF_NO_LIBCXX"
-#endif
-
-#include <string.h>
-
 #if !defined(SIMDUTF_NO_THREADS)
   #include <atomic>
-#endif
-#ifndef SIMDUTF_NO_LIBCXX
-  #include <string>
 #endif
 #ifdef SIMDUTF_INTERNAL_TESTS
   #include <vector>
 #endif
-/* begin file include/simdutf/internal/stl_compat.h */
-#ifndef SIMDUTF_INTERNAL_STL_COMPAT_H
-#define SIMDUTF_INTERNAL_STL_COMPAT_H
-
-
-#ifndef SIMDUTF_NO_LIBCXX
-  #include <algorithm>
-  #include <array>
-  #include <cstddef>
-  #include <cstring>
-  #include <iterator>
-  #if SIMDUTF_CPLUSPLUS20
-    #include <span>
-  #endif
-  #include <string>
-  #include <tuple>
-  #include <type_traits>
-  #include <utility>
-#else
-  #include <stddef.h>
-  #include <string.h>
-#endif
-
-namespace simdutf {
-namespace internal {
-
-//--------------------------------------------------------------------
-// Pair
-//--------------------------------------------------------------------
-#ifndef SIMDUTF_NO_LIBCXX
-template <typename First, typename Second> using pair = std::pair<First, Second>;
-
-using std::make_pair;
-
-template <size_t Index, typename First, typename Second>
-using pair_get_impl = std::tuple_element<Index, pair<First, Second>>;
-#else
-template <typename First, typename Second> struct pair {
-  First first;
-  Second second;
-};
-
-template <size_t Index, typename First, typename Second> struct pair_get_impl {
-  static_assert(Index < 2, "pair index out of bounds");
-  using type = First;
-};
-
-template <typename First, typename Second>
-struct pair_get_impl<0, First, Second> {
-  using type = First;
-
-  simdutf_really_inline static constexpr type &
-  get(pair<First, Second> &value) noexcept {
-    return value.first;
-  }
-
-  simdutf_really_inline static constexpr const type &
-  get(const pair<First, Second> &value) noexcept {
-    return value.first;
-  }
-};
-
-template <typename First, typename Second>
-struct pair_get_impl<1, First, Second> {
-  using type = Second;
-
-  simdutf_really_inline static constexpr type &
-  get(pair<First, Second> &value) noexcept {
-    return value.second;
-  }
-
-  simdutf_really_inline static constexpr const type &
-  get(const pair<First, Second> &value) noexcept {
-    return value.second;
-  }
-};
-
-template <typename First, typename Second>
-simdutf_really_inline constexpr pair<First, Second>
-make_pair(First first, Second second) noexcept {
-  return {first, second};
-}
-
-template <size_t Index, typename First, typename Second>
-simdutf_really_inline constexpr
-    typename pair_get_impl<Index, First, Second>::type &
-get(pair<First, Second> &value) noexcept {
-  return pair_get_impl<Index, First, Second>::get(value);
-}
-
-template <size_t Index, typename First, typename Second>
-simdutf_really_inline constexpr const
-    typename pair_get_impl<Index, First, Second>::type &
-get(const pair<First, Second> &value) noexcept {
-  return pair_get_impl<Index, First, Second>::get(value);
-}
-#endif
-
-//--------------------------------------------------------------------
-// Tuple
-//--------------------------------------------------------------------
-#ifndef SIMDUTF_NO_LIBCXX
-using std::get;
-
-template <typename First, typename Second, typename Third>
-using tuple = std::tuple<First, Second, Third>;
-
-using std::make_tuple;
-
-template <size_t Index, typename First, typename Second, typename Third>
-using tuple_get_impl = std::tuple_element<Index, tuple<First, Second, Third>>;
-#else
-template <typename First, typename Second, typename Third> struct tuple {
-  First first;
-  Second second;
-  Third third;
-};
-
-template <size_t Index, typename First, typename Second, typename Third>
-struct tuple_get_impl {
-  static_assert(Index < 3, "tuple index out of bounds");
-  using type = First;
-};
-
-template <typename First, typename Second, typename Third>
-struct tuple_get_impl<0, First, Second, Third> {
-  using type = First;
-
-  simdutf_really_inline static constexpr type &
-  get(tuple<First, Second, Third> &value) noexcept {
-    return value.first;
-  }
-
-  simdutf_really_inline static constexpr const type &
-  get(const tuple<First, Second, Third> &value) noexcept {
-    return value.first;
-  }
-};
-
-template <typename First, typename Second, typename Third>
-struct tuple_get_impl<1, First, Second, Third> {
-  using type = Second;
-
-  simdutf_really_inline static constexpr type &
-  get(tuple<First, Second, Third> &value) noexcept {
-    return value.second;
-  }
-
-  simdutf_really_inline static constexpr const type &
-  get(const tuple<First, Second, Third> &value) noexcept {
-    return value.second;
-  }
-};
-
-template <typename First, typename Second, typename Third>
-struct tuple_get_impl<2, First, Second, Third> {
-  using type = Third;
-
-  simdutf_really_inline static constexpr type &
-  get(tuple<First, Second, Third> &value) noexcept {
-    return value.third;
-  }
-
-  simdutf_really_inline static constexpr const type &
-  get(const tuple<First, Second, Third> &value) noexcept {
-    return value.third;
-  }
-};
-
-template <typename First, typename Second, typename Third>
-simdutf_really_inline constexpr tuple<First, Second, Third>
-make_tuple(First first, Second second, Third third) noexcept {
-  return {first, second, third};
-}
-
-template <size_t Index, typename First, typename Second, typename Third>
-simdutf_really_inline constexpr
-    typename tuple_get_impl<Index, First, Second, Third>::type &
-get(tuple<First, Second, Third> &value) noexcept {
-  return tuple_get_impl<Index, First, Second, Third>::get(value);
-}
-
-template <size_t Index, typename First, typename Second, typename Third>
-simdutf_really_inline constexpr const
-    typename tuple_get_impl<Index, First, Second, Third>::type &
-get(const tuple<First, Second, Third> &value) noexcept {
-  return tuple_get_impl<Index, First, Second, Third>::get(value);
-}
-#endif
-
-//--------------------------------------------------------------------
-// Array
-//--------------------------------------------------------------------
-#ifndef SIMDUTF_NO_LIBCXX
-template <typename T, size_t N> using array = std::array<T, N>;
-#else
-template <typename T, size_t N> struct array {
-  // Keep zero-sized instantiations well-formed without changing size().
-  T storage[N == 0 ? 1 : N];
-
-  simdutf_really_inline T *data() noexcept { return storage; }
-  simdutf_really_inline constexpr const T *data() const noexcept {
-    return storage;
-  }
-  simdutf_really_inline constexpr size_t size() const noexcept { return N; }
-  simdutf_really_inline T *begin() noexcept { return data(); }
-  simdutf_really_inline constexpr const T *begin() const noexcept {
-    return data();
-  }
-  simdutf_really_inline T *end() noexcept { return data() + N; }
-  simdutf_really_inline constexpr const T *end() const noexcept {
-    return data() + N;
-  }
-  simdutf_really_inline T &operator[](size_t index) noexcept {
-    return storage[index];
-  }
-  simdutf_really_inline constexpr const T &
-  operator[](size_t index) const noexcept {
-    return storage[index];
-  }
-};
-#endif
-
-//--------------------------------------------------------------------
-// Types and Traits
-//--------------------------------------------------------------------
-#ifndef SIMDUTF_NO_LIBCXX
-using ptrdiff_t = std::ptrdiff_t;
-template <typename T, typename U> using is_same = std::is_same<T, U>;
-template <typename T> using remove_reference = std::remove_reference<T>;
-template <typename T> using remove_const = std::remove_const<T>;
-template <typename T> using remove_volatile = std::remove_volatile<T>;
-template <typename T> using remove_cv = std::remove_cv<T>;
-template <typename T> using decay = std::decay<T>;
-#else
-using ptrdiff_t = ::ptrdiff_t;
-
-template <typename T, typename U> struct is_same {
-  static constexpr bool value = false;
-};
-
-template <typename T> struct is_same<T, T> {
-  static constexpr bool value = true;
-};
-
-template <typename T> struct remove_reference {
-  using type = T;
-};
-
-template <typename T> struct remove_reference<T &> {
-  using type = T;
-};
-
-template <typename T> struct remove_reference<T &&> {
-  using type = T;
-};
-
-template <typename T> struct remove_const {
-  using type = T;
-};
-
-template <typename T> struct remove_const<const T> {
-  using type = T;
-};
-
-template <typename T> struct remove_volatile {
-  using type = T;
-};
-
-template <typename T> struct remove_volatile<volatile T> {
-  using type = T;
-};
-
-template <typename T> struct remove_cv {
-  using type = typename remove_const<typename remove_volatile<T>::type>::type;
-};
-
-template <typename T> struct decay {
-  using type =
-      typename remove_cv<typename remove_reference<T>::type>::type;
-};
-#endif
-
-template <typename T> using decay_t = typename decay<T>::type;
-
-//--------------------------------------------------------------------
-// String Helpers
-//--------------------------------------------------------------------
-
-simdutf_really_inline constexpr const char *
-c_str(const char *value) noexcept {
-  return value;
-}
-
-#ifndef SIMDUTF_NO_LIBCXX
-simdutf_really_inline const char *
-c_str(const std::string &value) noexcept {
-  return value.c_str();
-}
-#endif
-
-//--------------------------------------------------------------------
-// Span
-//--------------------------------------------------------------------
-#if !defined(SIMDUTF_NO_LIBCXX) && SIMDUTF_CPLUSPLUS20
-template <typename T> using span = std::span<T>;
-#else
-template <typename T> class span {
-public:
-  using element_type = T;
-  using value_type = typename remove_cv<T>::type;
-  using pointer = T *;
-  using reference = T &;
-  using iterator = pointer;
-
-  simdutf_really_inline constexpr span() noexcept : data_(nullptr), size_(0) {}
-  simdutf_really_inline constexpr span(pointer data, size_t size) noexcept
-      : data_(data), size_(size) {}
-
-  simdutf_really_inline constexpr pointer data() const noexcept {
-    return data_;
-  }
-  simdutf_really_inline constexpr size_t size() const noexcept { return size_; }
-  simdutf_really_inline constexpr iterator begin() const noexcept {
-    return data_;
-  }
-  simdutf_really_inline constexpr iterator end() const noexcept {
-    return data_ + size_;
-  }
-  simdutf_really_inline constexpr reference operator[](size_t index) const noexcept {
-    return data_[index];
-  }
-
-private:
-  pointer data_;
-  size_t size_;
-};
-#endif
-
-//--------------------------------------------------------------------
-// Iterator Helpers
-//--------------------------------------------------------------------
-template <typename Iterator>
-simdutf_really_inline constexpr ptrdiff_t distance(Iterator first,
-                                                   Iterator last) noexcept {
-#ifndef SIMDUTF_NO_LIBCXX
-  return std::distance(first, last);
-#else
-  return last - first;
-#endif
-}
-
-//--------------------------------------------------------------------
-// Algorithm Helpers
-//--------------------------------------------------------------------
-template <typename T>
-simdutf_really_inline simdutf_constexpr T min_value(T a, T b) noexcept {
-#if !defined(SIMDUTF_NO_LIBCXX) && SIMDUTF_CPLUSPLUS14
-  return (std::min)(a, b);
-#else
-  return b < a ? b : a;
-#endif
-}
-
-template <typename T>
-simdutf_really_inline T *find(T *first, T *last, const T &value) noexcept {
-#ifndef SIMDUTF_NO_LIBCXX
-  return std::find(first, last, value);
-#else
-  while (first != last) {
-    if (*first == value) {
-      return first;
-    }
-    ++first;
-  }
-  return last;
-#endif
-}
-
-template <typename T>
-simdutf_really_inline const T *find(const T *first, const T *last,
-                                    const T &value) noexcept {
-#ifndef SIMDUTF_NO_LIBCXX
-  return std::find(first, last, value);
-#else
-  while (first != last) {
-    if (*first == value) {
-      return first;
-    }
-    ++first;
-  }
-  return last;
-#endif
-}
-
-//--------------------------------------------------------------------
-// Memory Helpers
-//--------------------------------------------------------------------
-simdutf_really_inline void *memcpy(void *destination, const void *source,
-                                   size_t count) noexcept {
-#ifndef SIMDUTF_NO_LIBCXX
-  return std::memcpy(destination, source, count);
-#else
-  return ::memcpy(destination, source, count);
-#endif
-}
-
-simdutf_really_inline void *memmove(void *destination, const void *source,
-                                    size_t count) noexcept {
-#ifndef SIMDUTF_NO_LIBCXX
-  return std::memmove(destination, source, count);
-#else
-  return ::memmove(destination, source, count);
-#endif
-}
-
-simdutf_really_inline void *memset(void *destination, int ch,
-                                   size_t count) noexcept {
-#ifndef SIMDUTF_NO_LIBCXX
-  return std::memset(destination, ch, count);
-#else
-  return ::memset(destination, ch, count);
-#endif
-}
-
-} // namespace internal
-} // namespace simdutf
-
-#endif // SIMDUTF_INTERNAL_STL_COMPAT_H
-/* end file include/simdutf/internal/stl_compat.h */
 /* begin file include/simdutf/internal/isadetection.h */
 /* From
 https://github.com/endorno/pytorch/blob/master/torch/lib/TH/generic/simd/simd.h
@@ -1522,13 +1012,8 @@ POSSIBILITY OF SUCH DAMAGE.
 #ifndef SIMDutf_INTERNAL_ISADETECTION_H
 #define SIMDutf_INTERNAL_ISADETECTION_H
 
-#ifdef SIMDUTF_NO_LIBCXX
-  #include <stdint.h>
-  #include <stdlib.h>
-#else
-  #include <cstdint>
-  #include <cstdlib>
-#endif
+#include <cstdint>
+#include <cstdlib>
 #if defined(_MSC_VER)
   #include <intrin.h>
 #elif defined(HAVE_GCC_GET_CPUID) && defined(USE_GCC_GET_CPUID)
@@ -1805,17 +1290,13 @@ static inline uint32_t detect_supported_architectures() {
 #endif // SIMDutf_INTERNAL_ISADETECTION_H
 /* end file include/simdutf/internal/isadetection.h */
 
-#if SIMDUTF_CPLUSPLUS20
+#include <string_view>
+#if SIMDUTF_SPAN
   #include <concepts>
   #include <type_traits>
-#endif
-
-#if SIMDUTF_SPAN
   #include <span>
   #include <tuple>
-#endif
-#if SIMDUTF_CPLUSPLUS17 && !defined(SIMDUTF_NO_LIBCXX)
-  #include <string_view>
+  #include <utility> // for std::unreachable
 #endif
 // The following defines are conditionally enabled/disabled during amalgamation.
 // By default all features are enabled, regular code shouldn't check them. Only
@@ -1827,14 +1308,14 @@ static inline uint32_t detect_supported_architectures() {
 //      #endif
 //
 #define SIMDUTF_FEATURE_DETECT_ENCODING 0
-#define SIMDUTF_FEATURE_ASCII 0
+#define SIMDUTF_FEATURE_ASCII 1
 #define SIMDUTF_FEATURE_LATIN1 1
 #define SIMDUTF_FEATURE_UTF8 1
 #define SIMDUTF_FEATURE_UTF16 0
 #define SIMDUTF_FEATURE_UTF32 1
 #define SIMDUTF_FEATURE_BASE64 1
 
-#if SIMDUTF_SPAN && SIMDUTF_CPLUSPLUS23
+#if SIMDUTF_CPLUSPLUS23
 /* begin file include/simdutf/constexpr_ptr.h */
 #ifndef SIMDUTF_CONSTEXPR_PTR_H
 #define SIMDUTF_CONSTEXPR_PTR_H
@@ -1977,7 +1458,7 @@ constexpr auto constexpr_cast_writeptr(TargetType *raw) {
 /* end file include/simdutf/constexpr_ptr.h */
 #endif
 
-#if SIMDUTF_CPLUSPLUS20
+#if SIMDUTF_SPAN
 /// helpers placed in namespace detail are not a part of the public API
 namespace simdutf {
 namespace detail {
@@ -1986,14 +1467,11 @@ namespace detail {
  * are all distinct types.
  */
 template <typename T>
-concept byte_like =
-#ifndef SIMDUTF_NO_LIBCXX
-    std::is_same_v<T, std::byte> ||     //
-#endif
-    std::is_same_v<T, char> ||          //
-    std::is_same_v<T, signed char> ||   //
-    std::is_same_v<T, unsigned char> || //
-    std::is_same_v<T, char8_t>;
+concept byte_like = std::is_same_v<T, std::byte> ||     //
+                    std::is_same_v<T, char> ||          //
+                    std::is_same_v<T, signed char> ||   //
+                    std::is_same_v<T, unsigned char> || //
+                    std::is_same_v<T, char8_t>;
 
 template <typename T>
 concept is_byte_like = byte_like<std::remove_cvref_t<T>>;
@@ -2008,7 +1486,7 @@ concept is_pointer = std::is_pointer_v<T>;
  */
 template <typename T>
 concept input_span_of_byte_like = requires(const T &t) {
-  { t.size() } noexcept -> std::convertible_to<size_t>;
+  { t.size() } noexcept -> std::convertible_to<std::size_t>;
   { t.data() } noexcept -> is_pointer;
   { *t.data() } noexcept -> is_byte_like;
 };
@@ -2021,7 +1499,7 @@ concept is_mutable = !std::is_const_v<std::remove_reference_t<T>>;
  */
 template <typename T>
 concept output_span_of_byte_like = requires(T &t) {
-  { t.size() } noexcept -> std::convertible_to<size_t>;
+  { t.size() } noexcept -> std::convertible_to<std::size_t>;
   { t.data() } noexcept -> is_pointer;
   { *t.data() } noexcept -> is_byte_like;
   { *t.data() } noexcept -> is_mutable;
@@ -2060,11 +1538,10 @@ concept indexes_into_uint32 = requires(InputPtr p) {
 };
 } // namespace detail
 } // namespace simdutf
-#endif // SIMDUTF_CPLUSPLUS20
+#endif // SIMDUTF_SPAN
 
-#if SIMDUTF_SPAN || defined(SIMDUTF_NO_LIBCXX)
-  // These helpers back the span-based constexpr wrappers in the public header
-  // and the reduced no-libcxx amalgamated implementation path.
+// these includes are needed for constexpr support. they are
+// not part of the public api.
 /* begin file include/simdutf/scalar/swap_bytes.h */
 #ifndef SIMDUTF_SWAP_BYTES_H
 #define SIMDUTF_SWAP_BYTES_H
@@ -2127,9 +1604,9 @@ simdutf_warn_unused simdutf_constexpr23 bool validate(InputPtr data,
   {
     for (; pos + 16 <= len; pos += 16) {
       uint64_t v1;
-      internal::memcpy(&v1, data + pos, sizeof(uint64_t));
+      std::memcpy(&v1, data + pos, sizeof(uint64_t));
       uint64_t v2;
-      internal::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
+      std::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
       uint64_t v{v1 | v2};
       if ((v & 0x8080808080808080) != 0) {
         return false;
@@ -2139,7 +1616,7 @@ simdutf_warn_unused simdutf_constexpr23 bool validate(InputPtr data,
 
   // process the tail byte-by-byte
   for (; pos < len; pos++) {
-    if (static_cast<uint8_t>(data[pos]) >= 0b10000000) {
+    if (static_cast<std::uint8_t>(data[pos]) >= 0b10000000) {
       return false;
     }
   }
@@ -2160,13 +1637,13 @@ validate_with_errors(InputPtr data, size_t len) noexcept {
     // process in blocks of 16 bytes when possible
     for (; pos + 16 <= len; pos += 16) {
       uint64_t v1;
-      internal::memcpy(&v1, data + pos, sizeof(uint64_t));
+      std::memcpy(&v1, data + pos, sizeof(uint64_t));
       uint64_t v2;
-      internal::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
+      std::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
       uint64_t v{v1 | v2};
       if ((v & 0x8080808080808080) != 0) {
         for (; pos < len; pos++) {
-          if (static_cast<uint8_t>(data[pos]) >= 0b10000000) {
+          if (static_cast<std::uint8_t>(data[pos]) >= 0b10000000) {
             return result(error_code::TOO_LARGE, pos);
           }
         }
@@ -2176,7 +1653,7 @@ validate_with_errors(InputPtr data, size_t len) noexcept {
 
   // process the tail byte-by-byte
   for (; pos < len; pos++) {
-    if (static_cast<uint8_t>(data[pos]) >= 0b10000000) {
+    if (static_cast<std::uint8_t>(data[pos]) >= 0b10000000) {
       return result(error_code::TOO_LARGE, pos);
     }
   }
@@ -2190,7 +1667,6 @@ validate_with_errors(InputPtr data, size_t len) noexcept {
 
 #endif
 /* end file include/simdutf/scalar/ascii.h */
-  #if SIMDUTF_ATOMIC_REF
 /* begin file include/simdutf/scalar/atomic_util.h */
 #ifndef SIMDUTF_ATOMIC_UTIL_H
 #define SIMDUTF_ATOMIC_UTIL_H
@@ -2222,7 +1698,7 @@ inline void memcpy_atomic_read(char *dst, const char *src, size_t len) {
   // Handle unaligned start
   size_t offset = reinterpret_cast<std::uintptr_t>(src) % alignment;
   if (offset) {
-    size_t to_align = internal::min_value(len, alignment - offset);
+    size_t to_align = std::min(len, alignment - offset);
     bbb_memcpy_atomic_read(dst, src, to_align);
     src += to_align;
     dst += to_align;
@@ -2234,7 +1710,7 @@ inline void memcpy_atomic_read(char *dst, const char *src, size_t len) {
     auto *src_aligned = reinterpret_cast<uint64_t *>(const_cast<char *>(src));
     const auto dst_value =
         std::atomic_ref<uint64_t>(*src_aligned).load(std::memory_order_relaxed);
-    internal::memcpy(dst, &dst_value, sizeof(uint64_t));
+    std::memcpy(dst, &dst_value, sizeof(uint64_t));
     src += alignment;
     dst += alignment;
     len -= alignment;
@@ -2269,7 +1745,7 @@ inline void memcpy_atomic_write(char *dst, const char *src, size_t len) {
   // Handle unaligned start
   size_t offset = reinterpret_cast<std::uintptr_t>(dst) % alignment;
   if (offset) {
-    size_t to_align = internal::min_value(len, alignment - offset);
+    size_t to_align = std::min(len, alignment - offset);
     bbb_memcpy_atomic_write(dst, src, to_align);
     dst += to_align;
     src += to_align;
@@ -2280,7 +1756,7 @@ inline void memcpy_atomic_write(char *dst, const char *src, size_t len) {
   while (len >= alignment) {
     auto *dst_aligned = reinterpret_cast<uint64_t *>(dst);
     uint64_t src_val;
-    internal::memcpy(&src_val, src, sizeof(uint64_t)); // Non-atomic read from src
+    std::memcpy(&src_val, src, sizeof(uint64_t)); // Non-atomic read from src
     std::atomic_ref<uint64_t>(*dst_aligned)
         .store(src_val, std::memory_order_relaxed);
     dst += alignment;
@@ -2298,7 +1774,6 @@ inline void memcpy_atomic_write(char *dst, const char *src, size_t len) {
 #endif // SIMDUTF_ATOMIC_REF
 #endif // SIMDUTF_ATOMIC_UTIL_H
 /* end file include/simdutf/scalar/atomic_util.h */
-  #endif
 /* begin file include/simdutf/scalar/latin1.h */
 #ifndef SIMDUTF_LATIN1_H
 #define SIMDUTF_LATIN1_H
@@ -2740,14 +2215,12 @@ trim_partial_utf16(const char16_t *input, size_t length) {
   return length;
 }
 
-template <endianness big_endian>
-simdutf_constexpr bool is_high_surrogate(char16_t c) {
+template <endianness big_endian> constexpr bool is_high_surrogate(char16_t c) {
   c = scalar::utf16::swap_if_needed<big_endian>(c);
   return (0xd800 <= c && c <= 0xdbff);
 }
 
-template <endianness big_endian>
-simdutf_constexpr bool is_low_surrogate(char16_t c) {
+template <endianness big_endian> constexpr bool is_low_surrogate(char16_t c) {
   c = scalar::utf16::swap_if_needed<big_endian>(c);
   return (0xdc00 <= c && c <= 0xdfff);
 }
@@ -2835,6 +2308,8 @@ simdutf_constexpr23 void to_well_formed_utf16(const char16_t *input, size_t len,
 #ifndef SIMDUTF_UTF16_TO_LATIN1_H
 #define SIMDUTF_UTF16_TO_LATIN1_H
 
+#include <cstring> // for std::memcpy
+
 namespace simdutf {
 namespace scalar {
 namespace {
@@ -2890,21 +2365,21 @@ simdutf_constexpr23 result convert_with_errors(InputPtr data, size_t len,
       if (pos + 16 <= len) { // if it is safe to read 32 more bytes, check that
                              // they are Latin1
         uint64_t v1, v2, v3, v4;
-        internal::memcpy(&v1, data + pos, sizeof(uint64_t));
-        internal::memcpy(&v2, data + pos + 4, sizeof(uint64_t));
-        internal::memcpy(&v3, data + pos + 8, sizeof(uint64_t));
-        internal::memcpy(&v4, data + pos + 12, sizeof(uint64_t));
+        ::memcpy(&v1, data + pos, sizeof(uint64_t));
+        ::memcpy(&v2, data + pos + 4, sizeof(uint64_t));
+        ::memcpy(&v3, data + pos + 8, sizeof(uint64_t));
+        ::memcpy(&v4, data + pos + 12, sizeof(uint64_t));
 
-        if simdutf_constexpr (!match_system(big_endian)) {
+        if constexpr (!match_system(big_endian)) {
           v1 = (v1 >> 8) | (v1 << (64 - 8));
         }
-        if simdutf_constexpr (!match_system(big_endian)) {
+        if constexpr (!match_system(big_endian)) {
           v2 = (v2 >> 8) | (v2 << (64 - 8));
         }
-        if simdutf_constexpr (!match_system(big_endian)) {
+        if constexpr (!match_system(big_endian)) {
           v3 = (v3 >> 8) | (v3 << (64 - 8));
         }
-        if simdutf_constexpr (!match_system(big_endian)) {
+        if constexpr (!match_system(big_endian)) {
           v4 = (v4 >> 8) | (v4 << (64 - 8));
         }
 
@@ -2953,7 +2428,7 @@ simdutf_constexpr23 inline size_t
 convert_valid_impl(InputIterator data, size_t len,
                    OutputIterator latin_output) {
   static_assert(
-      internal::is_same<internal::decay_t<decltype(*data)>, uint16_t>::value,
+      std::is_same<typename std::decay<decltype(*data)>::type, uint16_t>::value,
       "must decay to uint16_t");
   size_t pos = 0;
   const auto start = latin_output;
@@ -3143,7 +2618,7 @@ simdutf_constexpr23 size_t convert(InputPtr data, size_t len,
                             // they are ascii
         uint64_t v;
         ::memcpy(&v, data + pos, sizeof(uint64_t));
-        if simdutf_constexpr (!match_system(big_endian)) {
+        if constexpr (!match_system(big_endian)) {
           v = (v >> 8) | (v << (64 - 8));
         }
         if ((v & 0xFF80FF80FF80FF80) == 0) {
@@ -3233,7 +2708,7 @@ simdutf_constexpr23 full_result convert_with_errors(InputPtr data, size_t len,
                             // they are ascii
         uint64_t v;
         ::memcpy(&v, data + pos, sizeof(uint64_t));
-        if simdutf_constexpr (!match_system(big_endian))
+        if constexpr (!match_system(big_endian))
           v = (v >> 8) | (v << (64 - 8));
         if ((v & 0xFF80FF80FF80FF80) == 0) {
           size_t final_pos = pos + 4;
@@ -3340,7 +2815,7 @@ simdutf_constexpr23 size_t convert_with_replacement(const char16_t *data,
                             // they are ascii
         uint64_t v;
         ::memcpy(&v, data + pos, sizeof(uint64_t));
-        if simdutf_constexpr (!match_system(big_endian)) {
+        if constexpr (!match_system(big_endian)) {
           v = (v >> 8) | (v << (64 - 8));
         }
         if ((v & 0xFF80FF80FF80FF80) == 0) {
@@ -3440,7 +2915,7 @@ simdutf_constexpr23 size_t convert_valid(InputPtr data, size_t len,
                             // they are ascii
         uint64_t v;
         ::memcpy(&v, data + pos, sizeof(uint64_t));
-        if simdutf_constexpr (!match_system(big_endian)) {
+        if constexpr (!match_system(big_endian)) {
           v = (v >> 8) | (v << (64 - 8));
         }
         if ((v & 0xFF80FF80FF80FF80) == 0) {
@@ -3672,7 +3147,7 @@ template <typename ReadPtr, typename WritePtr>
 simdutf_constexpr23 size_t convert_valid(ReadPtr data, size_t len,
                                          WritePtr latin1_output) {
   static_assert(
-      internal::is_same<internal::decay_t<decltype(*data)>, uint32_t>::value,
+      std::is_same<typename std::decay<decltype(*data)>::type, uint32_t>::value,
       "dereferencing the data pointer must result in a uint32_t");
   auto start = latin1_output;
   uint32_t utf32_char;
@@ -3690,7 +3165,7 @@ simdutf_constexpr23 size_t convert_valid(ReadPtr data, size_t len,
       if (pos + 2 <= len) {
         // if it is safe to read 8 more bytes, check that they are Latin1
         uint64_t v;
-        internal::memcpy(&v, data + pos, sizeof(uint64_t));
+        std::memcpy(&v, data + pos, sizeof(uint64_t));
         if ((v & 0xFFFFFF00FFFFFF00) == 0) {
           *latin1_output++ = char(data[pos]);
           *latin1_output++ = char(data[pos + 1]);
@@ -3760,7 +3235,7 @@ simdutf_constexpr23 size_t convert(const char32_t *data, size_t len,
       word -= 0x10000;
       uint16_t high_surrogate = uint16_t(0xD800 + (word >> 10));
       uint16_t low_surrogate = uint16_t(0xDC00 + (word & 0x3FF));
-      if simdutf_constexpr (!match_system(big_endian)) {
+      if constexpr (!match_system(big_endian)) {
         high_surrogate = u16_swap_bytes(high_surrogate);
         low_surrogate = u16_swap_bytes(low_surrogate);
       }
@@ -3795,7 +3270,7 @@ simdutf_constexpr23 result convert_with_errors(const char32_t *data, size_t len,
       word -= 0x10000;
       uint16_t high_surrogate = uint16_t(0xD800 + (word >> 10));
       uint16_t low_surrogate = uint16_t(0xDC00 + (word & 0x3FF));
-      if simdutf_constexpr (!match_system(big_endian)) {
+      if constexpr (!match_system(big_endian)) {
         high_surrogate = u16_swap_bytes(high_surrogate);
         low_surrogate = u16_swap_bytes(low_surrogate);
       }
@@ -3841,7 +3316,7 @@ simdutf_constexpr23 size_t convert_valid(const char32_t *data, size_t len,
       word -= 0x10000;
       uint16_t high_surrogate = uint16_t(0xD800 + (word >> 10));
       uint16_t low_surrogate = uint16_t(0xDC00 + (word & 0x3FF));
-      if simdutf_constexpr (!match_system(big_endian)) {
+      if constexpr (!match_system(big_endian)) {
         high_surrogate = u16_swap_bytes(high_surrogate);
         low_surrogate = u16_swap_bytes(low_surrogate);
       }
@@ -4092,7 +3567,7 @@ template <class BytePtr>
 simdutf_constexpr23 simdutf_warn_unused bool validate(BytePtr data,
                                                       size_t len) noexcept {
   static_assert(
-      internal::is_same<internal::decay_t<decltype(*data)>, uint8_t>::value,
+      std::is_same<typename std::decay<decltype(*data)>::type, uint8_t>::value,
       "dereferencing the data pointer must result in a uint8_t");
   uint64_t pos = 0;
   uint32_t code_point = 0;
@@ -4106,9 +3581,9 @@ simdutf_constexpr23 simdutf_warn_unused bool validate(BytePtr data,
       if (next_pos <= len) { // if it is safe to read 16 more bytes, check
                              // that they are ascii
         uint64_t v1{};
-        internal::memcpy(&v1, data + pos, sizeof(uint64_t));
+        std::memcpy(&v1, data + pos, sizeof(uint64_t));
         uint64_t v2{};
-        internal::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
+        std::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
         uint64_t v{v1 | v2};
         if ((v & 0x8080808080808080) == 0) {
           pos = next_pos;
@@ -4197,7 +3672,7 @@ template <class BytePtr>
 simdutf_constexpr23 simdutf_warn_unused result
 validate_with_errors(BytePtr data, size_t len) noexcept {
   static_assert(
-      internal::is_same<internal::decay_t<decltype(*data)>, uint8_t>::value,
+      std::is_same<typename std::decay<decltype(*data)>::type, uint8_t>::value,
       "dereferencing the data pointer must result in a uint8_t");
   size_t pos = 0;
   uint32_t code_point = 0;
@@ -4207,9 +3682,9 @@ validate_with_errors(BytePtr data, size_t len) noexcept {
     if (next_pos <=
         len) { // if it is safe to read 16 more bytes, check that they are ascii
       uint64_t v1;
-      internal::memcpy(&v1, data + pos, sizeof(uint64_t));
+      std::memcpy(&v1, data + pos, sizeof(uint64_t));
       uint64_t v2;
-      internal::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
+      std::memcpy(&v2, data + pos + sizeof(uint64_t), sizeof(uint64_t));
       uint64_t v{v1 | v2};
       if ((v & 0x8080808080808080) == 0) {
         pos = next_pos;
@@ -4591,7 +4066,7 @@ inline result rewind_and_convert_with_errors(size_t prior_bytes,
   bool found_leading_bytes{false};
   // important: it is i <= how_far_back and not 'i < how_far_back'.
   for (size_t i = 0; i <= how_far_back; i++) {
-    unsigned char byte = buf[-static_cast<internal::ptrdiff_t>(i)];
+    unsigned char byte = buf[-static_cast<std::ptrdiff_t>(i)];
     found_leading_bytes = ((byte & 0b11000000) != 0b10000000);
     if (found_leading_bytes) {
       if (i > 0 && byte < 128) {
@@ -4787,7 +4262,7 @@ simdutf_constexpr23 size_t convert(InputPtr data, size_t len,
       if (code_point < 0x80 || 0x7ff < code_point) {
         return 0;
       }
-      if simdutf_constexpr (!match_system(big_endian)) {
+      if constexpr (!match_system(big_endian)) {
         code_point = uint32_t(u16_swap_bytes(uint16_t(code_point)));
       }
       *utf16_output++ = char16_t(code_point);
@@ -4813,7 +4288,7 @@ simdutf_constexpr23 size_t convert(InputPtr data, size_t len,
           (0xd7ff < code_point && code_point < 0xe000)) {
         return 0;
       }
-      if simdutf_constexpr (!match_system(big_endian)) {
+      if constexpr (!match_system(big_endian)) {
         code_point = uint32_t(u16_swap_bytes(uint16_t(code_point)));
       }
       *utf16_output++ = char16_t(code_point);
@@ -4844,7 +4319,7 @@ simdutf_constexpr23 size_t convert(InputPtr data, size_t len,
       code_point -= 0x10000;
       uint16_t high_surrogate = uint16_t(0xD800 + (code_point >> 10));
       uint16_t low_surrogate = uint16_t(0xDC00 + (code_point & 0x3FF));
-      if simdutf_constexpr (!match_system(big_endian)) {
+      if constexpr (!match_system(big_endian)) {
         high_surrogate = u16_swap_bytes(high_surrogate);
         low_surrogate = u16_swap_bytes(low_surrogate);
       }
@@ -4914,7 +4389,7 @@ simdutf_constexpr23 result convert_with_errors(InputPtr data, size_t len,
       if (code_point < 0x80 || 0x7ff < code_point) {
         return result(error_code::OVERLONG, pos);
       }
-      if simdutf_constexpr (!match_system(big_endian)) {
+      if constexpr (!match_system(big_endian)) {
         code_point = uint32_t(u16_swap_bytes(uint16_t(code_point)));
       }
       *utf16_output++ = char16_t(code_point);
@@ -4942,7 +4417,7 @@ simdutf_constexpr23 result convert_with_errors(InputPtr data, size_t len,
       if (0xd7ff < code_point && code_point < 0xe000) {
         return result(error_code::SURROGATE, pos);
       }
-      if simdutf_constexpr (!match_system(big_endian)) {
+      if constexpr (!match_system(big_endian)) {
         code_point = uint32_t(u16_swap_bytes(uint16_t(code_point)));
       }
       *utf16_output++ = char16_t(code_point);
@@ -4976,7 +4451,7 @@ simdutf_constexpr23 result convert_with_errors(InputPtr data, size_t len,
       code_point -= 0x10000;
       uint16_t high_surrogate = uint16_t(0xD800 + (code_point >> 10));
       uint16_t low_surrogate = uint16_t(0xDC00 + (code_point & 0x3FF));
-      if simdutf_constexpr (!match_system(big_endian)) {
+      if constexpr (!match_system(big_endian)) {
         high_surrogate = u16_swap_bytes(high_surrogate);
         low_surrogate = u16_swap_bytes(low_surrogate);
       }
@@ -5024,7 +4499,7 @@ inline result rewind_and_convert_with_errors(size_t prior_bytes,
   bool found_leading_bytes{false};
   // important: it is i <= how_far_back and not 'i < how_far_back'.
   for (size_t i = 0; i <= how_far_back; i++) {
-    unsigned char byte = buf[-static_cast<internal::ptrdiff_t>(i)];
+    unsigned char byte = buf[-static_cast<std::ptrdiff_t>(i)];
     found_leading_bytes = ((byte & 0b11000000) != 0b10000000);
     if (found_leading_bytes) {
       if (i > 0 && byte < 128) {
@@ -5120,7 +4595,7 @@ simdutf_constexpr23 size_t convert_valid(InputPtr data, size_t len,
       } // minimal bound checking
       uint16_t code_point = uint16_t(((leading_byte & 0b00011111) << 6) |
                                      (uint8_t(data[pos + 1]) & 0b00111111));
-      if simdutf_constexpr (!match_system(big_endian)) {
+      if constexpr (!match_system(big_endian)) {
         code_point = u16_swap_bytes(uint16_t(code_point));
       }
       *utf16_output++ = char16_t(code_point);
@@ -5135,7 +4610,7 @@ simdutf_constexpr23 size_t convert_valid(InputPtr data, size_t len,
           uint16_t(((leading_byte & 0b00001111) << 12) |
                    ((uint8_t(data[pos + 1]) & 0b00111111) << 6) |
                    (uint8_t(data[pos + 2]) & 0b00111111));
-      if simdutf_constexpr (!match_system(big_endian)) {
+      if constexpr (!match_system(big_endian)) {
         code_point = u16_swap_bytes(uint16_t(code_point));
       }
       *utf16_output++ = char16_t(code_point);
@@ -5152,7 +4627,7 @@ simdutf_constexpr23 size_t convert_valid(InputPtr data, size_t len,
       code_point -= 0x10000;
       uint16_t high_surrogate = uint16_t(0xD800 + (code_point >> 10));
       uint16_t low_surrogate = uint16_t(0xDC00 + (code_point & 0x3FF));
-      if simdutf_constexpr (!match_system(big_endian)) {
+      if constexpr (!match_system(big_endian)) {
         high_surrogate = u16_swap_bytes(high_surrogate);
         low_surrogate = u16_swap_bytes(low_surrogate);
       }
@@ -5432,7 +4907,7 @@ inline result rewind_and_convert_with_errors(size_t prior_bytes,
   bool found_leading_bytes{false};
   // important: it is i <= how_far_back and not 'i < how_far_back'.
   for (size_t i = 0; i <= how_far_back; i++) {
-    unsigned char byte = buf[-static_cast<internal::ptrdiff_t>(i)];
+    unsigned char byte = buf[-static_cast<std::ptrdiff_t>(i)];
     found_leading_bytes = ((byte & 0b11000000) != 0b10000000);
     if (found_leading_bytes) {
       if (i > 0 && byte < 128) {
@@ -5560,7 +5035,6 @@ simdutf_constexpr23 size_t convert_valid(InputPtr data, size_t len,
 
 #endif
 /* end file include/simdutf/scalar/utf8_to_utf32/valid_utf8_to_utf32.h */
-#endif
 
 namespace simdutf {
 
@@ -5621,6 +5095,64 @@ validate_utf8_with_errors(
     #endif
   {
     return validate_utf8_with_errors(
+        reinterpret_cast<const char *>(input.data()), input.size());
+  }
+}
+  #endif // SIMDUTF_SPAN
+
+/**
+ * Validate the ASCII string.
+ *
+ * Overridden by each implementation.
+ *
+ * @param buf the ASCII string to validate.
+ * @param len the length of the string in bytes.
+ * @return true if and only if the string is valid ASCII.
+ */
+simdutf_warn_unused bool validate_ascii(const char *buf, size_t len) noexcept;
+  #if SIMDUTF_SPAN
+simdutf_really_inline simdutf_warn_unused simdutf_constexpr23 bool
+validate_ascii(const detail::input_span_of_byte_like auto &input) noexcept {
+    #if SIMDUTF_CPLUSPLUS23
+  if consteval {
+    return scalar::ascii::validate(
+        detail::constexpr_cast_ptr<std::uint8_t>(input.data()), input.size());
+  } else
+    #endif
+  {
+    return validate_ascii(reinterpret_cast<const char *>(input.data()),
+                          input.size());
+  }
+}
+  #endif // SIMDUTF_SPAN
+
+/**
+ * Validate the ASCII string and stop on error. It might be faster than
+ * validate_utf8 when an error is expected to occur early.
+ *
+ * Overridden by each implementation.
+ *
+ * @param buf the ASCII string to validate.
+ * @param len the length of the string in bytes.
+ * @return a result pair struct (of type simdutf::result containing the two
+ * fields error and count) with an error code and either position of the error
+ * (in the input in code units) if any, or the number of code units validated if
+ * successful.
+ */
+simdutf_warn_unused result validate_ascii_with_errors(const char *buf,
+                                                      size_t len) noexcept;
+  #if SIMDUTF_SPAN
+simdutf_really_inline simdutf_warn_unused simdutf_constexpr23 result
+validate_ascii_with_errors(
+    const detail::input_span_of_byte_like auto &input) noexcept {
+    #if SIMDUTF_CPLUSPLUS23
+  if consteval {
+    return scalar::ascii::validate_with_errors(
+        detail::constexpr_cast_ptr<std::uint8_t>(input.data()), input.size());
+  } else
+    #endif
+  {
+    return validate_ascii_with_errors(
         reinterpret_cast<const char *>(input.data()), input.size());
   }
 }
@@ -6548,11 +6080,7 @@ find(const char16_t *start, const char16_t *end, char16_t character) noexcept {
 /* begin file include/simdutf/base64_tables.h */
 #ifndef SIMDUTF_BASE64_TABLES_H
 #define SIMDUTF_BASE64_TABLES_H
-#ifdef SIMDUTF_NO_LIBCXX
-  #include <stdint.h>
-#else
-  #include <cstdint>
-#endif
+#include <cstdint>
 
 namespace simdutf {
 namespace {
@@ -7442,13 +6970,10 @@ static_assert(to_base64_url_value[uint8_t('_')] == 63,
 #ifndef SIMDUTF_BASE64_H
 #define SIMDUTF_BASE64_H
 
-#ifdef SIMDUTF_NO_LIBCXX
-  #include <stddef.h>
-  #include <stdint.h>
-#else
-  #include <cstddef>
-  #include <cstdint>
-#endif
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 
 namespace simdutf {
 namespace scalar {
@@ -7462,7 +6987,7 @@ template <class char_type> bool is_ascii_white_space(char_type c) {
 }
 
 template <class char_type> simdutf_constexpr23 bool is_eight_byte(char_type c) {
-  if simdutf_constexpr (sizeof(char_type) == 1) {
+  if constexpr (sizeof(char_type) == 1) {
     return true;
   }
   return uint8_t(c) == c;
@@ -7861,7 +7386,7 @@ template <bool use_lines = false>
 simdutf_constexpr23 size_t tail_encode_base64_impl(
     char *dst, const char *src, size_t srclen, base64_options options,
     size_t line_length = simdutf::default_line_length, size_t line_offset = 0) {
-  if simdutf_constexpr (use_lines) {
+  if constexpr (use_lines) {
     // sanitize line_length and starting_line_offset.
     // line_length must be greater than 3.
     if (line_length < 4) {
@@ -7896,7 +7421,7 @@ simdutf_constexpr23 size_t tail_encode_base64_impl(
     t1 = uint8_t(src[i]);
     t2 = uint8_t(src[i + 1]);
     t3 = uint8_t(src[i + 2]);
-    if simdutf_constexpr (use_lines) {
+    if constexpr (use_lines) {
       if (line_offset + 3 >= line_length) {
         if (line_offset == line_length) {
           *out++ = '\n';
@@ -7946,7 +7471,7 @@ simdutf_constexpr23 size_t tail_encode_base64_impl(
     break;
   case 1:
     t1 = uint8_t(src[i]);
-    if simdutf_constexpr (use_lines) {
+    if constexpr (use_lines) {
       if (use_padding) {
         if (line_offset + 3 >= line_length) {
           if (line_offset == line_length) {
@@ -8012,7 +7537,7 @@ simdutf_constexpr23 size_t tail_encode_base64_impl(
   default: /* case 2 */
     t1 = uint8_t(src[i]);
     t2 = uint8_t(src[i + 1]);
-    if simdutf_constexpr (use_lines) {
+    if constexpr (use_lines) {
       if (use_padding) {
         if (line_offset + 3 >= line_length) {
           if (line_offset == line_length) {
@@ -8356,12 +7881,7 @@ simdutf_warn_unused size_t prefix_length(size_t count,
 
 namespace simdutf {
 
-  #if SIMDUTF_CPLUSPLUS17 || defined(SIMDUTF_NO_LIBCXX)
-    #ifdef SIMDUTF_NO_LIBCXX
-inline const char *to_string(base64_options options) noexcept {
-    #else
-inline std::string_view to_string(base64_options options) noexcept {
-    #endif
+inline std::string_view to_string(base64_options options) {
   switch (options) {
   case base64_default:
     return "base64_default";
@@ -8382,14 +7902,8 @@ inline std::string_view to_string(base64_options options) noexcept {
   }
   return "<unknown>";
 }
-  #endif // SIMDUTF_CPLUSPLUS17 || defined(SIMDUTF_NO_LIBCXX)
 
-  #if SIMDUTF_CPLUSPLUS17 || defined(SIMDUTF_NO_LIBCXX)
-    #ifdef SIMDUTF_NO_LIBCXX
-inline const char *to_string(last_chunk_handling_options options) noexcept {
-    #else
-inline std::string_view to_string(last_chunk_handling_options options) noexcept {
-    #endif
+inline std::string_view to_string(last_chunk_handling_options options) {
   switch (options) {
   case loose:
     return "loose";
@@ -8402,7 +7916,6 @@ inline std::string_view to_string(last_chunk_handling_options options) noexcept 
   }
   return "<unknown>";
 }
-  #endif // SIMDUTF_CPLUSPLUS17 || defined(SIMDUTF_NO_LIBCXX)
 
 /**
  * Provide the maximal binary length in bytes given the base64 input.
@@ -9276,11 +8789,7 @@ public:
    *
    * @return the name of the implementation, e.g. "haswell", "westmere", "arm64"
    */
-#ifdef SIMDUTF_NO_LIBCXX
-  virtual const char *name() const { return _name; }
-#else
-  virtual std::string name() const { return std::string(_name); }
-#endif
+  virtual std::string_view name() const noexcept { return _name; }
 
   /**
    * The description of this implementation.
@@ -9291,11 +8800,7 @@ public:
    *
    * @return the name of the implementation, e.g. "haswell", "westmere", "arm64"
    */
-#ifdef SIMDUTF_NO_LIBCXX
-  virtual const char *description() const { return _description; }
-#else
-  virtual std::string description() const { return std::string(_description); }
-#endif
+  virtual std::string_view description() const noexcept { return _description; }
 
   /**
    * The instruction sets this implementation is compiled against
@@ -9345,6 +8850,33 @@ public:
    */
   simdutf_warn_unused virtual result
   validate_utf8_with_errors(const char *buf, size_t len) const noexcept = 0;
+
+  /**
+   * Validate the ASCII string.
+   *
+   * Overridden by each implementation.
+   *
+   * @param buf the ASCII string to validate.
+   * @param len the length of the string in bytes.
+   * @return true if and only if the string is valid ASCII.
+   */
+  simdutf_warn_unused virtual bool
+  validate_ascii(const char *buf, size_t len) const noexcept = 0;
+
+  /**
+   * Validate the ASCII string and stop on error.
+   *
+   * Overridden by each implementation.
+   *
+   * @param buf the ASCII string to validate.
+   * @param len the length of the string in bytes.
+   * @return a result pair struct (of type simdutf::result containing the two
+   * fields error and count) with an error code and either position of the error
+   * (in the input in code units) if any, or the number of code units validated
+   * if successful.
+   */
+  simdutf_warn_unused virtual result
+  validate_ascii_with_errors(const char *buf, size_t len) const noexcept = 0;
 
   /**
    * Validate the UTF-32 string.
@@ -10046,12 +9578,11 @@ public:
   // framework.
   //
   // Regular users should not use it, the tests of the public
-  // API are enough. This developer-only surface intentionally remains
-  // unavailable in Phase 1 SIMDUTF_NO_LIBCXX builds.
+  // API are enough.
 
   struct TestProcedure {
     // display name
-    std::string name;
+    std::string_view name;
 
     // procedure should return whether given test pass or not
     void (*procedure)(const implementation &);
@@ -10119,24 +9650,7 @@ public:
    * @param name the implementation to find, e.g. "westmere", "haswell", "arm64"
    * @return the implementation, or nullptr if the parse failed.
    */
-  const implementation *operator[](const char *name) const noexcept {
-    if (name == nullptr) {
-      return nullptr;
-    }
-    for (const implementation *impl : *this) {
-#ifdef SIMDUTF_NO_LIBCXX
-      if (strcmp(impl->name(), name) == 0) {
-#else
-      if (impl->name() == name) {
-#endif
-        return impl;
-      }
-    }
-    return nullptr;
-  }
-
-#ifndef SIMDUTF_NO_LIBCXX
-  const implementation *operator[](const std::string &name) const noexcept {
+  const implementation *operator[](std::string_view name) const noexcept {
     for (const implementation *impl : *this) {
       if (impl->name() == name) {
         return impl;
@@ -10144,7 +9658,6 @@ public:
     }
     return nullptr;
   }
-#endif
 
   /**
    * Detect the most advanced implementation supported by the current host.
@@ -10286,8 +9799,8 @@ simdutf_warn_unused simdutf_constexpr23 result base64_to_binary_safe_impl(
     base64_options options,
     last_chunk_handling_options last_chunk_handling_options,
     bool decode_up_to_bad_char) noexcept {
-  static_assert(internal::is_same<chartype, char>::value ||
-                    internal::is_same<chartype, char16_t>::value,
+  static_assert(std::is_same<chartype, char>::value ||
+                    std::is_same<chartype, char16_t>::value,
                 "Only char and char16_t are supported.");
   size_t remaining_input_length = length;
   size_t remaining_output_length = outlen;
@@ -10295,7 +9808,7 @@ simdutf_warn_unused simdutf_constexpr23 result base64_to_binary_safe_impl(
   size_t output_position = 0;
 
   // We also do a first pass using the fast path to decode as much as possible
-  size_t safe_input = internal::min_value(
+  size_t safe_input = (std::min)(
       remaining_input_length,
       base64_length_from_binary(remaining_output_length / 3 * 3, options));
   bool done_with_partial = (safe_input == remaining_input_length);
@@ -10470,7 +9983,7 @@ namespace detail {
 // the detail namespace is not part of the public api
 
 template <std::size_t N> struct base64_literal_helper {
-  simdutf::internal::array<char, N - 1> storage{};
+  std::array<char, N - 1> storage{};
   static constexpr std::size_t size() noexcept { return N - 1; }
   consteval base64_literal_helper(const char (&str)[N]) {
     for (std::size_t i = 0; i < size(); i++) {
@@ -10481,7 +9994,7 @@ template <std::size_t N> struct base64_literal_helper {
 
 template <std::size_t InputLen> struct base64_decode_result {
   static constexpr std::size_t max_out = (InputLen + 3) / 4 * 3;
-  simdutf::internal::array<char, max_out> buffer{};
+  std::array<char, max_out> buffer{};
   std::size_t output_count{};
 };
 
@@ -10491,7 +10004,7 @@ consteval auto base64_decode_literal(const char *str) {
   auto r = scalar::base64::base64_to_binary_details_impl(
       str, InputLen, result.buffer.data(), base64_default, loose);
   if (r.error != error_code::SUCCESS) {
-    throw "invalid base64 input in _base64 literal";
+    std::unreachable(); // invalid base64 input in _base64 literal
   }
   result.output_count = r.output_count;
   return result;
@@ -10499,7 +10012,7 @@ consteval auto base64_decode_literal(const char *str) {
 
 template <base64_literal_helper a> consteval auto base64_make_array() {
   constexpr auto decoded = base64_decode_literal<a.size()>(a.storage.data());
-  simdutf::internal::array<char, decoded.output_count> ret{};
+  std::array<char, decoded.output_count> ret{};
   for (std::size_t i = 0; i < decoded.output_count; i++) {
     ret[i] = decoded.buffer[i];
   }
@@ -10514,7 +10027,7 @@ template <base64_literal_helper a> consteval auto base64_make_array() {
  * Usage:
  *   using namespace simdutf::literals;
  *   constexpr auto decoded = "SGVsbG8gV29ybGQh"_base64;
- *   // decoded is an array-like object containing "Hello World!"
+ *   // decoded is a std::array<char, 12> containing "Hello World!"
  *
  * The input must be valid base64. Whitepace is allowed and ignored.
  * A compilation error occurs if the input is invalid.
@@ -10527,6 +10040,7 @@ template <detail::base64_literal_helper a> consteval auto operator""_base64() {
 } // namespace simdutf
 
 #endif // SIMDUTF_CPLUSPLUS23 && SIMDUTF_FEATURE_BASE64
+
 #endif // SIMDUTF_IMPLEMENTATION_H
 /* end file include/simdutf/implementation.h */
 

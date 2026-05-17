@@ -103,6 +103,12 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
 
         var flags: std.ArrayList([]const u8) = .empty;
         defer flags.deinit(b.allocator);
+        if (target.result.abi == .msvc) {
+            try flags.appendSlice(b.allocator, &.{
+                "-fno-sanitize=undefined",
+                "-fno-sanitize-trap=undefined",
+            });
+        }
         lib.addCSourceFiles(.{
             .root = upstream.path(""),
             .flags = flags.items,

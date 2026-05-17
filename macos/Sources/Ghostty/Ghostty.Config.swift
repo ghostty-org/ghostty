@@ -709,6 +709,16 @@ extension Ghostty {
             return MacShortcuts(rawValue: str) ?? defaultValue
         }
 
+        var abnormalCommandExitRuntime: Duration {
+            let defaultValue: Duration = .milliseconds(250)
+            guard let config = self.config else { return defaultValue }
+            var v: UInt32?
+            let key = "abnormal-command-exit-runtime"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return defaultValue }
+            guard let v else { return defaultValue }
+            return .milliseconds(v)
+        }
+
         var scrollbar: Scrollbar {
             let defaultValue = Scrollbar.system
             guard let config = self.config else { return defaultValue }

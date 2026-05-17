@@ -315,25 +315,6 @@ pub fn focusEvent(self: *App, focused: bool) void {
     self.focused = focused;
 }
 
-/// Returns true if the given key event would trigger a keybinding
-/// if it were to be processed. This is useful for determining if
-/// a key event should be sent to the terminal or not.
-pub fn keyEventIsBinding(
-    self: *App,
-    rt_app: *apprt.App,
-    event: input.KeyEvent,
-) bool {
-    _ = self;
-
-    switch (event.action) {
-        .release => return false,
-        .press, .repeat => {},
-    }
-
-    // If we have a keybinding for this event then we return true.
-    return rt_app.config.keybind.set.getEvent(event) != null;
-}
-
 /// Handle a key event at the app-scope. If this key event is used,
 /// this will return true and the caller shouldn't continue processing
 /// the event. If the event is not used, this will return false.

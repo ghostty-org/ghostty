@@ -79,11 +79,6 @@ elif [ "$1" != "--update" ]; then
   exit 1
 fi
 
-# Fetch all dependencies (including lazy ones) into the global cache
-# so that zon2nix can find them when resolving transitive dependencies.
-# Otherwise, lazy dependencies that aren't unpacked will fail below.
-zig build --fetch=all
-
 zon2nix "$BUILD_ZIG_ZON" --15 --nix "$WORK_DIR/build.zig.zon.nix" --txt "$WORK_DIR/build.zig.zon.txt" --json "$WORK_DIR/build.zig.zon.json" --flatpak "$WORK_DIR/zig-packages.json"
 alejandra --quiet "$WORK_DIR/build.zig.zon.nix"
 prettier --log-level warn --write "$WORK_DIR/build.zig.zon.json"

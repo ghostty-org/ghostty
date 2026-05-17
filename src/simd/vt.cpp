@@ -5,8 +5,6 @@
 #include <hwy/highway.h>
 
 #include <simdutf.h>
-#include <stdlib.h>
-#include <string.h>
 
 #include <simd/index_of.h>
 #include <simd/vt.h>
