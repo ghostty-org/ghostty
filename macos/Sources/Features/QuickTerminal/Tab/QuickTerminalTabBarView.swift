@@ -96,7 +96,7 @@ struct QuickTerminalTabBarView: View {
                     // Its only job is to be a drop destination across the bar
                     // so NSScrollView's built-in autoscroll engages even when
                     // the cursor is over a gap or past the last tab.
-                    .background(TabBarDropTarget())
+                    .background(TabBarDropTarget(tabManager: tabManager))
                 }
                 .onAppear {
                     // `.onChange` only fires on *changes*, but on restoration the

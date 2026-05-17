@@ -46,8 +46,11 @@ class QuickTerminalTabDragDelegate: NSObject, NSDraggingSource {
                 // Fully outside any Ghostty window — detach into a new window.
                 tabManager.moveTabToNewWindow(tab, at: screenPoint)
             }
-        } else if isInQuickTerminalTabBar(screenPoint, of: quickWindow) {
+        } else if tabManager.dragIsOverTabBar {
             // Dropped in the tab bar — reorder if there's a valid drop target.
+            // `dragIsOverTabBar` is set by `TabBarDropTarget` via real AppKit
+            // drag callbacks, so it tracks the bar's true frame instead of
+            // relying on a hardcoded height + window-top assumption.
             if let source = tabManager.tabs.firstIndex(where: { $0.id == tab.id }),
                let dropIndex = tabManager.dropTargetIndex,
                dropIndex != source {
@@ -61,19 +64,6 @@ class QuickTerminalTabDragDelegate: NSObject, NSDraggingSource {
             // we never detach into a new window from inside the quick terminal.
             tabManager.draggedTab = nil
         }
-    }
-
-    /// Checks if the given screen location is in the tab bar area of the quick terminal window.
-    private func isInQuickTerminalTabBar(_ location: NSPoint, of window: NSWindow) -> Bool {
-        let windowFrame = window.frame
-        let tabBarHeight = QuickTerminalTabBarView.Constants.height
-        let tabBarRect = NSRect(
-            x: windowFrame.minX,
-            y: windowFrame.maxY - tabBarHeight,
-            width: windowFrame.width,
-            height: tabBarHeight
-        )
-        return tabBarRect.contains(location)
     }
 
     /// Finds a Ghostty terminal window (not quick terminal) at the given screen location.

@@ -48,6 +48,7 @@ class QuickTerminalTabManager: ObservableObject {
             if draggedTab == nil {
                 dropTargetIndex = nil
                 draggedTabWidth = nil
+                dragIsOverTabBar = false
             }
         }
     }
@@ -57,6 +58,11 @@ class QuickTerminalTabManager: ObservableObject {
 
     /// The width of the tab being dragged (captured at drag start)
     var draggedTabWidth: CGFloat?
+
+    /// True while the drag cursor is over the tab bar's drop target underlay.
+    /// Set by `TabBarDropTarget`; read by `QuickTerminalTabDragDelegate` to
+    /// decide whether a drop-end inside the QT window should reorder or cancel.
+    var dragIsOverTabBar: Bool = false
 
     /// Reference to the "quick" terminal Controller
     private(set) weak var controller: QuickTerminalController?
