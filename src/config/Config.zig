@@ -2437,7 +2437,7 @@ keybind: Keybinds = .{},
 /// The action to take when the user middle-clicks on the terminal surface.
 ///
 /// Valid values:
-///   * `primary-paste` - Paste from the PRIMARY/SELECTION clipboard on Linux.
+///   * `primary-paste` - Paste from the selection clipboard on Linux.
 ///      Does nothing on macOS.
 ///   * `clipboard-paste` - Paste from the system clipboard.
 ///   * `ignore` - Do nothing, ignore the middle click.
