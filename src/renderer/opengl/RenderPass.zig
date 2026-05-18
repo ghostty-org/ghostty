@@ -83,6 +83,18 @@ pub fn step(self: *Self, s: Step) void {
 
     defer self.step_number += 1;
 
+    // Set the viewport to match the attachment we're rendering into.
+    // Ghostty's GTK apprt keeps the GL viewport in sync via GLArea, but
+    // other apprts (e.g. embedded) do not, so we set it explicitly for
+    // every step rather than relying on external viewport state.
+    {
+        const vp_w, const vp_h = switch (self.attachments[0].target) {
+            .target => |t| .{ t.width, t.height },
+            .texture => |t| .{ t.width, t.height },
+        };
+        gl.viewport(0, 0, @intCast(vp_w), @intCast(vp_h)) catch return;
+    }
+
     // If we have a clear color and this is the
     // first step in the pass, go ahead and clear.
     if (self.step_number == 0) if (self.attachments[0].clear_color) |c| {

@@ -45,6 +45,11 @@ blending: configpkg.Config.AlphaBlending,
 /// The most recently presented target, in case we need to present it again.
 last_target: ?Target = null,
 
+/// The apprt surface. Used by the embedded runtime to query the drawable
+/// size (GTK instead reads it from the GL viewport, which its GLArea
+/// keeps in sync).
+rt_surface: *apprt.Surface,
+
 /// NOTE: This is an error{}!OpenGL instead of just OpenGL for parity with
 ///       Metal, since it needs to be fallible so does this, even though it
 ///       can't actually fail.
@@ -52,6 +57,7 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) error{}!OpenGL {
     return .{
         .alloc = alloc,
         .blending = opts.config.blending,
+        .rt_surface = opts.rt_surface,
     };
 }
 
@@ -335,13 +341,28 @@ pub fn initShaders(
 
 /// Get the current size of the runtime surface.
 pub fn surfaceSize(self: *const OpenGL) !struct { width: u32, height: u32 } {
-    _ = self;
-    var viewport: [4]gl.c.GLint = undefined;
-    gl.glad.context.GetIntegerv.?(gl.c.GL_VIEWPORT, &viewport);
-    return .{
-        .width = @intCast(viewport[2]),
-        .height = @intCast(viewport[3]),
-    };
+    switch (apprt.runtime) {
+        else => @compileError("unsupported app runtime for OpenGL"),
+
+        // GTK keeps the GL viewport in sync with the GLArea size, so it
+        // is a reliable source of the drawable size.
+        apprt.gtk => {
+            var viewport: [4]gl.c.GLint = undefined;
+            gl.glad.context.GetIntegerv.?(gl.c.GL_VIEWPORT, &viewport);
+            return .{
+                .width = @intCast(viewport[2]),
+                .height = @intCast(viewport[3]),
+            };
+        },
+
+        // The embedded host owns the drawable. Nothing keeps the GL
+        // viewport in sync with it, so use the pixel size the host
+        // reports through ghostty_surface_set_size.
+        apprt.embedded => {
+            const size = self.rt_surface.size;
+            return .{ .width = size.width, .height = size.height };
+        },
+    }
 }
 
 /// Initialize a new render target which can be presented by this API.
