@@ -1,26 +1,23 @@
-#include "GhosttyWindow.h"
+#include "GhosttySurface.h"
 
 #include <cstdio>
 
 #include <QByteArray>
-#include <QClipboard>
 #include <QExposeEvent>
 #include <QFocusEvent>
-#include <QGuiApplication>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QResizeEvent>
 #include <QString>
 #include <QSurfaceFormat>
-#include <QTimer>
 #include <QWheelEvent>
 
-GhosttyWindow::GhosttyWindow() {
+GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner)
+    : m_app(app), m_owner(owner) {
   setSurfaceType(QWindow::OpenGLSurface);
-  setTitle(QStringLiteral("Ghostty (Qt)"));
 
-  // Guide the platform's visual selection toward a GL-capable config so
-  // the EGL window surface can be created against this window.
+  // Guide the platform's visual selection toward a GL-capable, opaque
+  // config so the EGL window surface can be created against this window.
   QSurfaceFormat fmt;
   fmt.setRenderableType(QSurfaceFormat::OpenGL);
   fmt.setProfile(QSurfaceFormat::CoreProfile);
@@ -28,18 +25,14 @@ GhosttyWindow::GhosttyWindow() {
   fmt.setRedBufferSize(8);
   fmt.setGreenBufferSize(8);
   fmt.setBlueBufferSize(8);
-  // No alpha: the window should be opaque, not composited against the
-  // desktop. (Background transparency would be a deliberate later opt-in.)
   fmt.setAlphaBufferSize(0);
   setFormat(fmt);
 }
 
-GhosttyWindow::~GhosttyWindow() {
+GhosttySurface::~GhosttySurface() {
   // Freeing the surface stops libghostty's renderer thread, which calls
   // threadExit -> glReleaseCurrent before this returns.
   if (m_surface) ghostty_surface_free(m_surface);
-  if (m_app) ghostty_app_free(m_app);
-  if (m_config) ghostty_config_free(m_config);
 
   if (m_eglDisplay != EGL_NO_DISPLAY) {
     if (m_eglSurface != EGL_NO_SURFACE)
@@ -50,7 +43,7 @@ GhosttyWindow::~GhosttyWindow() {
   }
 }
 
-bool GhosttyWindow::initialize() {
+bool GhosttySurface::initialize(ghostty_surface_t parent) {
   // Force native window creation so winId() is valid for EGL.
   create();
 
@@ -59,33 +52,12 @@ bool GhosttyWindow::initialize() {
     return false;
   }
 
-  // Load configuration in the same order as the reference apprt:
-  // default files, CLI args, then any recursively included files.
-  m_config = ghostty_config_new();
-  ghostty_config_load_default_files(m_config);
-  ghostty_config_load_cli_args(m_config);
-  ghostty_config_load_recursive_files(m_config);
-  ghostty_config_finalize(m_config);
-
-  // App-level runtime config.
-  ghostty_runtime_config_s rt = {};
-  rt.userdata = this;
-  rt.supports_selection_clipboard = true;
-  rt.wakeup_cb = onWakeup;
-  rt.action_cb = onAction;
-  rt.read_clipboard_cb = onReadClipboard;
-  rt.confirm_read_clipboard_cb = onConfirmReadClipboard;
-  rt.write_clipboard_cb = onWriteClipboard;
-  rt.close_surface_cb = onCloseSurface;
-
-  m_app = ghostty_app_new(&rt, m_config);
-  if (!m_app) {
-    std::fprintf(stderr, "[ghostty-qt] ghostty_app_new failed\n");
-    return false;
-  }
-
-  // Surface config: hand libghostty our EGL context via callbacks.
-  ghostty_surface_config_s sc = ghostty_surface_config_new();
+  // A new surface in a tab inherits the parent surface's working
+  // directory etc.; the first surface uses a default config.
+  ghostty_surface_config_s sc =
+      parent ? ghostty_surface_inherited_config(parent,
+                                                GHOSTTY_SURFACE_CONTEXT_TAB)
+             : ghostty_surface_config_new();
   sc.platform_tag = GHOSTTY_PLATFORM_OPENGL;
   sc.platform.opengl.userdata = this;
   sc.platform.opengl.get_proc_address = glGetProcAddress;
@@ -106,16 +78,10 @@ bool GhosttyWindow::initialize() {
 
   updateSize();
   ghostty_surface_set_focus(m_surface, true);
-
-  // Periodic tick as a backstop; onWakeup drives responsive ticking.
-  auto *timer = new QTimer(this);
-  connect(timer, &QTimer::timeout, this, &GhosttyWindow::tick);
-  timer->start(16);
-
   return true;
 }
 
-bool GhosttyWindow::setupEgl() {
+bool GhosttySurface::setupEgl() {
   m_eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
   if (m_eglDisplay == EGL_NO_DISPLAY) return false;
   if (!eglInitialize(m_eglDisplay, nullptr, nullptr)) return false;
@@ -152,9 +118,9 @@ bool GhosttyWindow::setupEgl() {
 
   // Ghostty's OpenGL renderer requires at least OpenGL 4.3 core.
   const EGLint contextAttribs[] = {
-      EGL_CONTEXT_MAJOR_VERSION,        4,
-      EGL_CONTEXT_MINOR_VERSION,        3,
-      EGL_CONTEXT_OPENGL_PROFILE_MASK,  EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
+      EGL_CONTEXT_MAJOR_VERSION,       4,
+      EGL_CONTEXT_MINOR_VERSION,       3,
+      EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
       EGL_NONE,
   };
   m_eglContext =
@@ -162,14 +128,14 @@ bool GhosttyWindow::setupEgl() {
   if (m_eglContext == EGL_NO_CONTEXT) return false;
 
   m_eglSurface = eglCreateWindowSurface(
-      m_eglDisplay, config,
-      static_cast<EGLNativeWindowType>(winId()), nullptr);
+      m_eglDisplay, config, static_cast<EGLNativeWindowType>(winId()),
+      nullptr);
   if (m_eglSurface == EGL_NO_SURFACE) return false;
 
   return true;
 }
 
-void GhosttyWindow::updateSize() {
+void GhosttySurface::updateSize() {
   if (!m_surface) return;
   const double dpr = devicePixelRatio();
   const int w = static_cast<int>(width() * dpr);
@@ -190,7 +156,7 @@ static ghostty_input_mods_e translateMods(Qt::KeyboardModifiers m) {
   return static_cast<ghostty_input_mods_e>(r);
 }
 
-void GhosttyWindow::sendKey(QKeyEvent *ev, ghostty_input_action_e action) {
+void GhosttySurface::sendKey(QKeyEvent *ev, ghostty_input_action_e action) {
   if (!m_surface) return;
 
   // Forward committed text only for printable input; control characters
@@ -224,8 +190,8 @@ void GhosttyWindow::sendKey(QKeyEvent *ev, ghostty_input_action_e action) {
   ghostty_surface_key(m_surface, k);
 }
 
-void GhosttyWindow::sendMouseButton(QMouseEvent *ev,
-                                    ghostty_input_mouse_state_e state) {
+void GhosttySurface::sendMouseButton(QMouseEvent *ev,
+                                     ghostty_input_mouse_state_e state) {
   if (!m_surface) return;
   ghostty_input_mouse_button_e button;
   switch (ev->button()) {
@@ -238,14 +204,9 @@ void GhosttyWindow::sendMouseButton(QMouseEvent *ev,
                                translateMods(ev->modifiers()));
 }
 
-void GhosttyWindow::tick() {
-  if (m_app) ghostty_app_tick(m_app);
-  if (m_surface && ghostty_surface_process_exited(m_surface)) close();
-}
-
 // --- QWindow events --------------------------------------------------
 
-void GhosttyWindow::exposeEvent(QExposeEvent *) {
+void GhosttySurface::exposeEvent(QExposeEvent *) {
   if (!m_surface || !isExposed()) return;
   // devicePixelRatio() is only reliable once the window is on a screen,
   // so (re)sync the surface size here as well as in resizeEvent.
@@ -253,27 +214,28 @@ void GhosttyWindow::exposeEvent(QExposeEvent *) {
   ghostty_surface_refresh(m_surface);
 }
 
-void GhosttyWindow::resizeEvent(QResizeEvent *) { updateSize(); }
+void GhosttySurface::resizeEvent(QResizeEvent *) { updateSize(); }
 
-void GhosttyWindow::keyPressEvent(QKeyEvent *ev) {
-  sendKey(ev, ev->isAutoRepeat() ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS);
+void GhosttySurface::keyPressEvent(QKeyEvent *ev) {
+  sendKey(ev,
+          ev->isAutoRepeat() ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS);
 }
 
-void GhosttyWindow::keyReleaseEvent(QKeyEvent *ev) {
+void GhosttySurface::keyReleaseEvent(QKeyEvent *ev) {
   // Qt synthesizes a release before each auto-repeat press; drop those.
   if (ev->isAutoRepeat()) return;
   sendKey(ev, GHOSTTY_ACTION_RELEASE);
 }
 
-void GhosttyWindow::mousePressEvent(QMouseEvent *ev) {
+void GhosttySurface::mousePressEvent(QMouseEvent *ev) {
   sendMouseButton(ev, GHOSTTY_MOUSE_PRESS);
 }
 
-void GhosttyWindow::mouseReleaseEvent(QMouseEvent *ev) {
+void GhosttySurface::mouseReleaseEvent(QMouseEvent *ev) {
   sendMouseButton(ev, GHOSTTY_MOUSE_RELEASE);
 }
 
-void GhosttyWindow::mouseMoveEvent(QMouseEvent *ev) {
+void GhosttySurface::mouseMoveEvent(QMouseEvent *ev) {
   if (!m_surface) return;
   const double dpr = devicePixelRatio();
   ghostty_surface_mouse_pos(m_surface, ev->position().x() * dpr,
@@ -281,128 +243,40 @@ void GhosttyWindow::mouseMoveEvent(QMouseEvent *ev) {
                             translateMods(ev->modifiers()));
 }
 
-void GhosttyWindow::wheelEvent(QWheelEvent *ev) {
+void GhosttySurface::wheelEvent(QWheelEvent *ev) {
   if (!m_surface) return;
   // angleDelta is in eighths of a degree; 120 units == one wheel notch.
   const QPoint d = ev->angleDelta();
   ghostty_surface_mouse_scroll(m_surface, d.x() / 120.0, d.y() / 120.0, 0);
 }
 
-void GhosttyWindow::focusInEvent(QFocusEvent *) {
+void GhosttySurface::focusInEvent(QFocusEvent *) {
   if (m_surface) ghostty_surface_set_focus(m_surface, true);
 }
 
-void GhosttyWindow::focusOutEvent(QFocusEvent *) {
+void GhosttySurface::focusOutEvent(QFocusEvent *) {
   if (m_surface) ghostty_surface_set_focus(m_surface, false);
 }
 
 // --- GL context callbacks (run on libghostty's renderer thread) ------
 
-void *GhosttyWindow::glGetProcAddress(void *, const char *name) {
+void *GhosttySurface::glGetProcAddress(void *, const char *name) {
   return reinterpret_cast<void *>(eglGetProcAddress(name));
 }
 
-void GhosttyWindow::glMakeCurrent(void *ud) {
-  auto *self = static_cast<GhosttyWindow *>(ud);
+void GhosttySurface::glMakeCurrent(void *ud) {
+  auto *self = static_cast<GhosttySurface *>(ud);
   eglMakeCurrent(self->m_eglDisplay, self->m_eglSurface, self->m_eglSurface,
                  self->m_eglContext);
 }
 
-void GhosttyWindow::glReleaseCurrent(void *ud) {
-  auto *self = static_cast<GhosttyWindow *>(ud);
+void GhosttySurface::glReleaseCurrent(void *ud) {
+  auto *self = static_cast<GhosttySurface *>(ud);
   eglMakeCurrent(self->m_eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE,
                  EGL_NO_CONTEXT);
 }
 
-void GhosttyWindow::glPresent(void *ud) {
-  auto *self = static_cast<GhosttyWindow *>(ud);
+void GhosttySurface::glPresent(void *ud) {
+  auto *self = static_cast<GhosttySurface *>(ud);
   eglSwapBuffers(self->m_eglDisplay, self->m_eglSurface);
-}
-
-// --- libghostty runtime callbacks ------------------------------------
-
-void GhosttyWindow::onWakeup(void *ud) {
-  // Called from a libghostty thread; hop to the GUI thread to tick.
-  auto *self = static_cast<GhosttyWindow *>(ud);
-  QMetaObject::invokeMethod(self, "tick", Qt::QueuedConnection);
-}
-
-bool GhosttyWindow::onAction(ghostty_app_t app, ghostty_target_s target,
-                             ghostty_action_s action) {
-  (void)target;
-  // Actions can be dispatched from non-GUI threads, so anything touching
-  // the window is marshalled onto the GUI thread.
-  auto *self = static_cast<GhosttyWindow *>(ghostty_app_userdata(app));
-  if (!self) return false;
-
-  switch (action.tag) {
-    case GHOSTTY_ACTION_SET_TITLE: {
-      const char *title = action.action.set_title.title;
-      if (!title) return true;
-      const QString t = QString::fromUtf8(title);
-      QMetaObject::invokeMethod(
-          self, [self, t]() { self->setTitle(t); }, Qt::QueuedConnection);
-      return true;
-    }
-
-    case GHOSTTY_ACTION_QUIT:
-    case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:
-      QMetaObject::invokeMethod(
-          self, [self]() { self->close(); }, Qt::QueuedConnection);
-      return true;
-
-    default:
-      // Tabs, splits, fullscreen, etc. are not handled by this
-      // single-window scaffold yet.
-      return false;
-  }
-}
-
-bool GhosttyWindow::onReadClipboard(void *ud, ghostty_clipboard_e loc,
-                                    void *state) {
-  // Called synchronously when libghostty needs clipboard contents (paste).
-  auto *self = static_cast<GhosttyWindow *>(ud);
-  if (!self->m_surface) return false;
-
-  const QClipboard::Mode mode = loc == GHOSTTY_CLIPBOARD_SELECTION
-                                    ? QClipboard::Selection
-                                    : QClipboard::Clipboard;
-  const QByteArray text = QGuiApplication::clipboard()->text(mode).toUtf8();
-  ghostty_surface_complete_clipboard_request(self->m_surface,
-                                             text.constData(), state, true);
-  return true;
-}
-
-void GhosttyWindow::onConfirmReadClipboard(void *ud, const char *str,
-                                           void *state,
-                                           ghostty_clipboard_request_e req) {
-  (void)req;
-  // The scaffold trusts pastes rather than showing an unsafe-paste
-  // confirmation dialog. TODO: a real confirmation prompt.
-  auto *self = static_cast<GhosttyWindow *>(ud);
-  if (self->m_surface)
-    ghostty_surface_complete_clipboard_request(self->m_surface, str, state,
-                                               true);
-}
-
-void GhosttyWindow::onWriteClipboard(void *ud, ghostty_clipboard_e loc,
-                                     const ghostty_clipboard_content_s *content,
-                                     size_t n, bool confirm) {
-  (void)confirm;
-  if (n == 0 || !content[0].data) return;
-
-  auto *self = static_cast<GhosttyWindow *>(ud);
-  const QClipboard::Mode mode = loc == GHOSTTY_CLIPBOARD_SELECTION
-                                    ? QClipboard::Selection
-                                    : QClipboard::Clipboard;
-  const QString text = QString::fromUtf8(content[0].data);
-  QMetaObject::invokeMethod(
-      self, [text, mode]() { QGuiApplication::clipboard()->setText(text, mode); },
-      Qt::QueuedConnection);
-}
-
-void GhosttyWindow::onCloseSurface(void *ud, bool) {
-  auto *self = static_cast<GhosttyWindow *>(ud);
-  QMetaObject::invokeMethod(
-      self, [self]() { self->close(); }, Qt::QueuedConnection);
 }

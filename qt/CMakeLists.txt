@@ -21,7 +21,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Gui)
+find_package(Qt6 REQUIRED COMPONENTS Gui Widgets)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(EGL REQUIRED IMPORTED_TARGET egl)
 
@@ -43,13 +43,15 @@ file(CREATE_LINK "ghostty-internal.so" "${GHOSTTY_LIB_DIR}/libghostty.so"
 
 add_executable(ghostty-qt
   src/main.cpp
-  src/GhosttyWindow.cpp
+  src/GhosttySurface.cpp
+  src/MainWindow.cpp
 )
 
 target_include_directories(ghostty-qt PRIVATE "${GHOSTTY_ROOT}/include")
 
 target_link_libraries(ghostty-qt PRIVATE
   Qt6::Gui
+  Qt6::Widgets
   PkgConfig::EGL
   "${GHOSTTY_LIB_DIR}/libghostty.so"
 )

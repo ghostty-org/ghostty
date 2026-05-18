@@ -1,8 +1,8 @@
 #include <cstdio>
 
-#include <QGuiApplication>
+#include <QApplication>
 
-#include "GhosttyWindow.h"
+#include "MainWindow.h"
 #include "ghostty.h"
 
 int main(int argc, char **argv) {
@@ -16,9 +16,9 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  QGuiApplication app(argc, argv);
+  QApplication app(argc, argv);
 
-  GhosttyWindow window;
+  MainWindow window;
   if (!window.initialize()) {
     std::fprintf(stderr, "[ghostty-qt] window initialization failed\n");
     return 1;
