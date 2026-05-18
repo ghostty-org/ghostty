@@ -11,6 +11,7 @@
 #include <QPoint>
 #include <QRect>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QString>
 #include <QTabWidget>
 #include <QTimer>
@@ -31,6 +32,12 @@ MainWindow::MainWindow() {
   // window height (matching the GTK frontend).
   m_tabs->setTabBarAutoHide(true);
   m_tabs->setContentsMargins(0, 0, 0, 0);
+  // Keep the whole chain translucent so the terminal's background
+  // opacity reaches the desktop: the QTabWidget and its internal
+  // stacked widget otherwise paint an opaque background.
+  m_tabs->setAttribute(Qt::WA_TranslucentBackground);
+  if (auto *stack = m_tabs->findChild<QStackedWidget *>())
+    stack->setAttribute(Qt::WA_TranslucentBackground);
 
   auto *layout = new QVBoxLayout(this);
   layout->setContentsMargins(0, 0, 0, 0);
