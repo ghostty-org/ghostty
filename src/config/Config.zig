@@ -8662,7 +8662,7 @@ pub const RepeatableLink = struct {
 
 /// Options for copy on select behavior.
 pub const CopyOnSelect = enum {
-    /// Disables copy on select entirely.
+    /// Disables copy on select entirely. This is the default on macOS.
     none,
 
     /// Copy on select is enabled, but goes to the selection clipboard.
