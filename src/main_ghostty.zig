@@ -62,7 +62,7 @@ pub fn main() !MainReturn {
     }
 
     // Execute our action if we have one
-    if (state.action) |action| {
+    if (state.results.action) |action| {
         std.log.info("executing CLI action={}", .{action});
         posix.exit(action.run(alloc) catch |err| err: {
             std.log.err("CLI action failed error={}", .{err});

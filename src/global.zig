@@ -30,9 +30,11 @@ pub const GlobalState = struct {
 
     gpa: ?GPA,
     alloc: std.mem.Allocator,
-    action: ?cli.ghostty.Action,
     logging: Logging,
     rlimits: ResourceLimits = .{},
+
+    /// Results of parsing CLI arguments for actions.
+    results: cli.ghostty.Action.ParseResult,
 
     /// The app resources directory, equivalent to zig-out/share when we build
     /// from source. This is null if we can't detect it.
@@ -64,10 +66,10 @@ pub const GlobalState = struct {
         self.* = .{
             .gpa = null,
             .alloc = undefined,
-            .action = null,
             .logging = .{},
             .rlimits = .{},
             .resources_dir = .{},
+            .results = undefined,
         };
         errdefer self.deinit();
 
@@ -95,16 +97,18 @@ pub const GlobalState = struct {
         else
             unreachable;
 
+        // Eventually this will be replaced with the args passed on from the
+        // "juicy" main.
+        var iter = try std.process.argsWithAllocator(self.alloc);
+        defer iter.deinit();
+
         // We first try to parse any action that we may be executing.
-        self.action = try cli.action.detectArgs(
-            cli.ghostty.Action,
-            self.alloc,
-        );
+        self.results = try .parse(self.alloc, &iter);
 
         // If we have an action executing, we disable logging by default
         // since we write to stderr we don't want logs messing up our
         // output.
-        if (self.action != null) self.logging.stderr = false;
+        if (self.results.action != null) self.logging.stderr = false;
 
         // I don't love the env var name but I don't have it in my heart
         // to parse CLI args 3 times (once for actions, once for config,
@@ -183,6 +187,7 @@ pub const GlobalState = struct {
     /// Cleans up the global state. This doesn't _need_ to be called but
     /// doing so in dev modes will check for memory leaks.
     pub fn deinit(self: *GlobalState) void {
+        self.results.deinit(self.alloc);
         self.resources_dir.deinit(self.alloc);
 
         // Flush our crash logs

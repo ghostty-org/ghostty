@@ -25,12 +25,18 @@ pub const Action = enum {
 
     // Other
     terminfo,
+
+    pub const ParseResults = cli.action.ActionParser(@This());
 };
 
 pub fn main() !void {
     const alloc = std.heap.c_allocator;
-    const action_ = try cli.action.detectArgs(Action, alloc);
-    const action = action_ orelse return error.NoAction;
+    // Eventually this will be replaced with the args from the "juicy" main.
+    var iter = try std.process.argsWithAllocator(alloc);
+    defer iter.deinit();
+    const results: Action.ParseResults = try .parse(alloc, &iter);
+    defer results.deinit(alloc);
+    const action = results.action orelse return error.NoAction;
 
     // Our output always goes to stdout.
     var buffer: [1024]u8 = undefined;

@@ -7,6 +7,7 @@ const Config = @import("../config/Config.zig");
 const ConfigKey = @import("../config/key.zig").Key;
 const KeybindAction = @import("../input/Binding.zig").Action;
 const Pager = @import("Pager.zig");
+const global_state = &(@import("../global.zig")).state;
 
 pub const Options = struct {
     /// The config option to explain. For example:
@@ -51,7 +52,7 @@ pub fn run(alloc: Allocator) !u8 {
     var positional: ?[]const u8 = null;
     var no_pager: bool = false;
 
-    var iter = try args.argsIterator(alloc);
+    var iter = try args.argsIterator(alloc, global_state.results.args);
     defer iter.deinit();
     defer if (option_name) |s| alloc.free(s);
     defer if (keybind_name) |s| alloc.free(s);

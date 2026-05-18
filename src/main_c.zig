@@ -117,7 +117,7 @@ pub export fn ghostty_init(argc: usize, argv: [*][*:0]u8) c_int {
 /// Runs an action if it is specified. If there is no action this returns
 /// false. If there is an action then this doesn't return.
 pub export fn ghostty_cli_try_action() void {
-    const action = state.action orelse return;
+    const action = state.results.action orelse return;
     std.log.info("executing CLI action={}", .{action});
     posix.exit(action.run(state.alloc) catch |err| {
         std.log.err("CLI action failed error={}", .{err});

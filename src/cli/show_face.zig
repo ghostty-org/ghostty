@@ -7,6 +7,7 @@ const diagnostics = @import("diagnostics.zig");
 const font = @import("../font/main.zig");
 const configpkg = @import("../config.zig");
 const Config = configpkg.Config;
+const global_state = &(@import("../global.zig")).state;
 
 pub const Options = struct {
     /// This is set by the CLI parser for deinit.
@@ -62,7 +63,7 @@ pub const Options = struct {
 ///     style. Valid options are `text` and `emoji`. If unset, the presentation
 ///     style of a codepoint will be inferred from the Unicode standard.
 pub fn run(alloc: Allocator) !u8 {
-    var iter = try args.argsIterator(alloc);
+    var iter = try args.argsIterator(alloc, global_state.results.args);
     defer iter.deinit();
 
     var stdout_buffer: [1024]u8 = undefined;

@@ -10,6 +10,7 @@ const vaxis = @import("vaxis");
 const input = @import("../input.zig");
 const tui = @import("tui.zig");
 const Binding = input.Binding;
+const global_state = &(@import("../global.zig")).state;
 
 pub const Options = struct {
     /// If `true`, print out the default keybinds instead of the ones configured
@@ -56,7 +57,7 @@ pub fn run(alloc: Allocator) !u8 {
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc);
+        var iter = try args.argsIterator(alloc, global_state.results.args);
         defer iter.deinit();
         try args.parse(Options, alloc, &opts, &iter);
     }
