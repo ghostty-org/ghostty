@@ -8701,7 +8701,7 @@ pub const RightClickAction = enum {
 pub const MiddleClickAction = enum {
     /// Paste from the selection clipboard.
     @"primary-paste",
-    /// Paste from the clipboard.
+    /// Paste from the standard clipboard.
     @"clipboard-paste",
 
     /// No action is taken on middle click.
