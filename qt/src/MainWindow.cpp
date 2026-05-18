@@ -13,7 +13,6 @@
 #include <QPoint>
 #include <QRect>
 #include <QSplitter>
-#include <QStackedWidget>
 #include <QString>
 #include <QTabWidget>
 #include <QTimer>
@@ -34,12 +33,15 @@ MainWindow::MainWindow() {
   // window height (matching the GTK frontend).
   m_tabs->setTabBarAutoHide(true);
   m_tabs->setContentsMargins(0, 0, 0, 0);
-  // Keep the whole chain translucent so the terminal's background
-  // opacity reaches the desktop: the QTabWidget and its internal
-  // stacked widget otherwise paint an opaque background.
-  m_tabs->setAttribute(Qt::WA_TranslucentBackground);
-  if (auto *stack = m_tabs->findChild<QStackedWidget *>())
-    stack->setAttribute(Qt::WA_TranslucentBackground);
+  // Paint an opaque background behind the tab widget so the tab bar
+  // renders as a solid, styled bar. A plain QTabWidget fills nothing, so
+  // the translucent top-level window would otherwise show through the
+  // document-mode tabs; autoFillBackground fills it with the palette
+  // window colour. Only the top-level window and the GL surfaces are
+  // translucent: each GhosttySurface paints with CompositionMode_Source,
+  // overwriting this opaque background so the terminal's per-pixel alpha
+  // still reaches the window backing store.
+  m_tabs->setAutoFillBackground(true);
 
   auto *layout = new QVBoxLayout(this);
   layout->setContentsMargins(0, 0, 0, 0);
@@ -119,8 +121,8 @@ GhosttySurface *MainWindow::newTab(ghostty_surface_t parent) {
   m_surfaces.append(surface);
 
   // The tab page hosts the tab's split tree (initially one surface).
+  // It stays opaque chrome; the GhosttySurface paints over it.
   auto *page = new QWidget(m_tabs);
-  page->setAttribute(Qt::WA_TranslucentBackground);
   auto *pageLayout = new QVBoxLayout(page);
   pageLayout->setContentsMargins(0, 0, 0, 0);
   pageLayout->addWidget(surface);

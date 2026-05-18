@@ -26,14 +26,12 @@ int main(int argc, char **argv) {
 
   QApplication app(argc, argv);
 
-  // Use the Fusion style rather than KDE's Breeze. Breeze unconditionally
-  // applies a blur-behind (frosted-glass) effect to any translucent
-  // window — which our terminal is — and offers no way to opt out. That
-  // blur masks the real background transparency; Fusion has no such
-  // behaviour. The widget style is otherwise nearly invisible here (the
-  // terminal is GL-rendered; the only Qt chrome is an auto-hidden tab
-  // bar), so this costs nothing visible.
-  QApplication::setStyle(QStringLiteral("Fusion"));
+  // We keep the user's system widget style rather than forcing Fusion.
+  // Some styles dim and blur translucent windows, which masks the
+  // terminal's own background-opacity: Kvantum themes do this when
+  // `blurring`/`reduce_window_opacity` are set. The fix belongs in the
+  // style's config, not here — for Kvantum, add "ghostty-qt" to the
+  // theme's `opaque` app list (the same opt-out video players use).
 
   // ghostty_init must run *after* QApplication: QApplication strips its
   // own options (e.g. -style) out of argv in place, and libghostty later
