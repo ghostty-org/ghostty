@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QList>
 #include <QWidget>
 
 #include "ghostty.h"
@@ -50,6 +51,13 @@ private:
   void closeTab(int index);
   GhosttySurface *surfaceAt(int index) const;
   int tabIndexForSurface(GhosttySurface *surface) const;
+  QList<GhosttySurface *> surfacesInTab(int index) const;
+
+  // Keybind-driven navigation between tabs and split panes.
+  void gotoTab(ghostty_action_goto_tab_e tab);
+  void gotoSplit(GhosttySurface *from, ghostty_action_goto_split_e dir);
+  void resizeSplit(GhosttySurface *from, ghostty_action_resize_split_s rs);
+  void equalizeSplits(GhosttySurface *from);
 
   // Runtime callbacks dispatched by libghostty. wakeup/action carry the
   // app userdata; clipboard/close carry the surface userdata.

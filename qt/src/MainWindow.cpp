@@ -1,11 +1,15 @@
 #include "MainWindow.h"
 
+#include <algorithm>
+#include <climits>
 #include <cstdio>
 
 #include <QByteArray>
 #include <QClipboard>
 #include <QGuiApplication>
 #include <QList>
+#include <QPoint>
+#include <QRect>
 #include <QSplitter>
 #include <QString>
 #include <QTabWidget>
@@ -245,6 +249,130 @@ int MainWindow::tabIndexForSurface(GhosttySurface *surface) const {
   return -1;
 }
 
+QList<GhosttySurface *> MainWindow::surfacesInTab(int index) const {
+  QList<GhosttySurface *> result;
+  QWidget *page = m_tabs->widget(index);
+  if (!page) return result;
+  for (auto it = m_containers.cbegin(); it != m_containers.cend(); ++it)
+    if (page->isAncestorOf(it.value())) result.append(it.key());
+  return result;
+}
+
+void MainWindow::gotoTab(ghostty_action_goto_tab_e tab) {
+  const int n = m_tabs->count();
+  if (n == 0) return;
+  int index;
+  switch (tab) {
+    case GHOSTTY_GOTO_TAB_PREVIOUS:
+      index = (m_tabs->currentIndex() - 1 + n) % n;
+      break;
+    case GHOSTTY_GOTO_TAB_NEXT:
+      index = (m_tabs->currentIndex() + 1) % n;
+      break;
+    case GHOSTTY_GOTO_TAB_LAST:
+      index = n - 1;
+      break;
+    default:
+      // A positive value is a 1-based tab number.
+      index = static_cast<int>(tab) - 1;
+      break;
+  }
+  if (index >= 0 && index < n) m_tabs->setCurrentIndex(index);
+}
+
+void MainWindow::gotoSplit(GhosttySurface *from,
+                           ghostty_action_goto_split_e dir) {
+  const int tab = tabIndexForSurface(from);
+  if (tab < 0) return;
+  QList<GhosttySurface *> panes = surfacesInTab(tab);
+  if (panes.size() < 2) return;
+
+  // Global-coordinate center of a pane's container.
+  const auto centerOf = [this](GhosttySurface *s) {
+    QWidget *c = m_containers.value(s);
+    return QRect(c->mapToGlobal(QPoint(0, 0)), c->size()).center();
+  };
+
+  GhosttySurface *target = nullptr;
+  if (dir == GHOSTTY_GOTO_SPLIT_PREVIOUS ||
+      dir == GHOSTTY_GOTO_SPLIT_NEXT) {
+    // Cycle through panes in reading order.
+    std::sort(panes.begin(), panes.end(),
+              [&](GhosttySurface *a, GhosttySurface *b) {
+                const QPoint pa = centerOf(a), pb = centerOf(b);
+                return pa.y() != pb.y() ? pa.y() < pb.y() : pa.x() < pb.x();
+              });
+    const int i = panes.indexOf(from);
+    const int step = dir == GHOSTTY_GOTO_SPLIT_NEXT ? 1 : -1;
+    target = panes[(i + step + panes.size()) % panes.size()];
+  } else {
+    // Directional: the nearest pane whose center lies that way.
+    const QPoint fc = centerOf(from);
+    int best = INT_MAX;
+    for (GhosttySurface *p : panes) {
+      if (p == from) continue;
+      const QPoint c = centerOf(p);
+      const int dx = c.x() - fc.x(), dy = c.y() - fc.y();
+      bool ok = false;
+      switch (dir) {
+        case GHOSTTY_GOTO_SPLIT_LEFT: ok = dx < 0; break;
+        case GHOSTTY_GOTO_SPLIT_RIGHT: ok = dx > 0; break;
+        case GHOSTTY_GOTO_SPLIT_UP: ok = dy < 0; break;
+        case GHOSTTY_GOTO_SPLIT_DOWN: ok = dy > 0; break;
+        default: break;
+      }
+      if (!ok) continue;
+      const int dist = dx * dx + dy * dy;
+      if (dist < best) {
+        best = dist;
+        target = p;
+      }
+    }
+  }
+
+  if (target) target->requestActivate();
+}
+
+void MainWindow::resizeSplit(GhosttySurface *from,
+                             ghostty_action_resize_split_s rs) {
+  QWidget *container = m_containers.value(from);
+  if (!container) return;
+  auto *splitter = qobject_cast<QSplitter *>(container->parentWidget());
+  if (!splitter) return;
+
+  const bool horizontal = splitter->orientation() == Qt::Horizontal;
+  const bool axisMatches =
+      horizontal ? (rs.direction == GHOSTTY_RESIZE_SPLIT_LEFT ||
+                    rs.direction == GHOSTTY_RESIZE_SPLIT_RIGHT)
+                 : (rs.direction == GHOSTTY_RESIZE_SPLIT_UP ||
+                    rs.direction == GHOSTTY_RESIZE_SPLIT_DOWN);
+  if (!axisMatches) return;
+
+  QList<int> sizes = splitter->sizes();
+  const int idx = splitter->indexOf(container);
+  if (idx < 0 || sizes.size() < 2) return;
+
+  const bool grow = rs.direction == GHOSTTY_RESIZE_SPLIT_RIGHT ||
+                    rs.direction == GHOSTTY_RESIZE_SPLIT_DOWN;
+  const int delta = grow ? rs.amount : -static_cast<int>(rs.amount);
+  const int other = idx == 0 ? 1 : idx - 1;
+  sizes[idx] = std::max(0, sizes[idx] + delta);
+  sizes[other] = std::max(0, sizes[other] - delta);
+  splitter->setSizes(sizes);
+}
+
+void MainWindow::equalizeSplits(GhosttySurface *from) {
+  const int tab = tabIndexForSurface(from);
+  if (tab < 0) return;
+  QWidget *page = m_tabs->widget(tab);
+  const auto splitters = page->findChildren<QSplitter *>();
+  for (QSplitter *splitter : splitters) {
+    QList<int> sizes;
+    for (int i = 0; i < splitter->count(); ++i) sizes.append(1 << 20);
+    splitter->setSizes(sizes);
+  }
+}
+
 // --- libghostty runtime callbacks ------------------------------------
 
 void MainWindow::onWakeup(void *ud) {
@@ -303,6 +431,62 @@ bool MainWindow::onAction(ghostty_app_t app, ghostty_target_s target,
       return true;
     }
 
+    case GHOSTTY_ACTION_GOTO_TAB: {
+      const ghostty_action_goto_tab_e tab = action.action.goto_tab;
+      QMetaObject::invokeMethod(
+          self, [self, tab]() { self->gotoTab(tab); }, Qt::QueuedConnection);
+      return true;
+    }
+
+    case GHOSTTY_ACTION_GOTO_SPLIT: {
+      if (!src) return false;
+      const ghostty_action_goto_split_e dir = action.action.goto_split;
+      QMetaObject::invokeMethod(
+          self, [self, src, dir]() { self->gotoSplit(src, dir); },
+          Qt::QueuedConnection);
+      return true;
+    }
+
+    case GHOSTTY_ACTION_RESIZE_SPLIT: {
+      if (!src) return false;
+      const ghostty_action_resize_split_s rs = action.action.resize_split;
+      QMetaObject::invokeMethod(
+          self, [self, src, rs]() { self->resizeSplit(src, rs); },
+          Qt::QueuedConnection);
+      return true;
+    }
+
+    case GHOSTTY_ACTION_EQUALIZE_SPLITS:
+      if (src)
+        QMetaObject::invokeMethod(
+            self, [self, src]() { self->equalizeSplits(src); },
+            Qt::QueuedConnection);
+      return true;
+
+    case GHOSTTY_ACTION_TOGGLE_FULLSCREEN:
+      QMetaObject::invokeMethod(
+          self,
+          [self]() {
+            if (self->isFullScreen())
+              self->showNormal();
+            else
+              self->showFullScreen();
+          },
+          Qt::QueuedConnection);
+      return true;
+
+    case GHOSTTY_ACTION_TOGGLE_MAXIMIZE:
+      QMetaObject::invokeMethod(
+          self,
+          [self]() {
+            if (self->isMaximized())
+              self->showNormal();
+            else
+              self->showMaximized();
+          },
+          Qt::QueuedConnection);
+      return true;
+
     case GHOSTTY_ACTION_QUIT:
     case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:
       QMetaObject::invokeMethod(
@@ -310,7 +494,7 @@ bool MainWindow::onAction(ghostty_app_t app, ghostty_target_s target,
       return true;
 
     default:
-      // Fullscreen, tab navigation, etc. are not handled yet.
+      // Split zoom, tab moving, inspector, etc. are not handled yet.
       return false;
   }
 }
