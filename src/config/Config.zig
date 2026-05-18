@@ -8666,7 +8666,8 @@ pub const CopyOnSelect = enum {
     none,
 
     /// Copy on select is enabled, but goes to the selection clipboard.
-    /// This is not supported on platforms such as macOS. This is the default.
+    /// This is not supported on platforms such as macOS. This is the default
+    /// on Linux.
     primary,
 
     /// Copy on select is enabled and goes to both the system clipboard
