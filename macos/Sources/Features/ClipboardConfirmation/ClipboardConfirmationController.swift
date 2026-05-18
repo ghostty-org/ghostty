@@ -1,49 +1,90 @@
 import Foundation
-import Cocoa
+import AppKit
 import SwiftUI
 import GhosttyKit
 
-/// This initializes a clipboard confirmation warning window. The window itself
+/// This initializes a clipboard confirmation warning alert. The window itself
 /// WILL NOT show automatically and the caller must show the window via
 /// showWindow, beginSheet, etc.
-class ClipboardConfirmationController: NSWindowController {
-    override var windowNibName: NSNib.Name? { "ClipboardConfirmation" }
-
+class ClipboardConfirmationAlert: NSAlert, NSAlertDelegate {
     let surface: ghostty_surface_t
     let contents: String
     let request: Ghostty.ClipboardRequest
     let state: UnsafeMutableRawPointer?
-    weak private var delegate: ClipboardConfirmationViewDelegate?
 
-    init(surface: ghostty_surface_t, contents: String, request: Ghostty.ClipboardRequest, state: UnsafeMutableRawPointer?, delegate: ClipboardConfirmationViewDelegate) {
+    enum Action: String {
+        case cancel
+        case confirm
+
+        static func text(_ action: Action, _ reason: Ghostty.ClipboardRequest) -> String {
+            switch (action, reason) {
+            case (.cancel, .paste):
+                return "Cancel"
+            case (.cancel, .osc_52_read), (.cancel, .osc_52_write):
+                return "Deny"
+            case (.confirm, .paste):
+                return "Paste"
+            case (.confirm, .osc_52_read), (.confirm, .osc_52_write):
+                return "Allow"
+            }
+        }
+    }
+
+    init(surface: ghostty_surface_t, contents: String, request: Ghostty.ClipboardRequest, state: UnsafeMutableRawPointer?) {
         self.surface = surface
         self.contents = contents
         self.request = request
         self.state = state
-        self.delegate = delegate
-        super.init(window: nil)
-    }
+        super.init()
 
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported for this view")
-    }
-
-    // MARK: - NSWindowController
-
-    override func windowDidLoad() {
-        guard let window = window else { return }
-
+        showsHelp = true
         switch request {
         case .paste:
-            window.title = "Warning: Potentially Unsafe Paste"
+            messageText = "Potentially Unsafe Paste"
+            alertStyle = .critical
+            helpAnchor = "clipboard-paste-protection"
         case .osc_52_read, .osc_52_write:
-            window.title = "Authorize Clipboard Access"
+            messageText = "Authorize Clipboard Access"
+            alertStyle = .warning
+            helpAnchor = "clipboard-write"
         }
 
-        window.contentView = NSHostingView(rootView: ClipboardConfirmationView(
-            contents: contents,
-            request: request,
-            delegate: delegate
-        ))
+        informativeText = request.text()
+        let accessoryView = NSTextView.scrollableTextView()
+        accessoryView.frame = .init(x: 0, y: 0, width: 300, height: 200)
+        if let textView = accessoryView.documentView as? NSTextView {
+            textView.drawsBackground = false
+            textView.isEditable = false
+            textView.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+            textView.textContainerInset = .zero
+
+            textView.string = contents
+        }
+
+        self.accessoryView = accessoryView
+
+        addCancelButton(Action.text(.cancel, request))
+        addConfirmButton(Action.text(.confirm, request))
+        delegate = self
+    }
+
+    func addCancelButton(_ buttonTitle: String) {
+        addButton(withTitle: buttonTitle)
+            .keyEquivalent = .init([KeyboardShortcut(.escape).key.character])
+    }
+
+    func addConfirmButton(_ buttonTitle: String) {
+        addButton(withTitle: buttonTitle)
+            .keyEquivalent = .init([KeyboardShortcut(.return).key.character])
+    }
+
+    func alertShowHelp(_ alert: NSAlert) -> Bool {
+        var components = URLComponents(string: "https://ghostty.org/docs/config/reference")
+        components?.fragment = alert.helpAnchor
+        guard let url = components?.url else {
+            return false
+        }
+        NSWorkspace.shared.open(url)
+        return true
     }
 }
