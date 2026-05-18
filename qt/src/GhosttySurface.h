@@ -7,6 +7,7 @@
 #include "ghostty.h"
 
 class MainWindow;
+struct wl_egl_window;  // Wayland; opaque
 
 // One Ghostty terminal surface, rendered into a QWindow. The QWindow is
 // embedded into a MainWindow tab via QWidget::createWindowContainer.
@@ -57,6 +58,9 @@ private:
   EGLDisplay m_eglDisplay = EGL_NO_DISPLAY;
   EGLContext m_eglContext = EGL_NO_CONTEXT;
   EGLSurface m_eglSurface = EGL_NO_SURFACE;
+  // Non-null only on Wayland: the EGL window surface is backed by a
+  // wl_egl_window rather than a native X11 window.
+  wl_egl_window *m_wlEglWindow = nullptr;
 
   ghostty_surface_t m_surface = nullptr;
 };

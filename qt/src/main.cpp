@@ -6,8 +6,10 @@
 #include "ghostty.h"
 
 int main(int argc, char **argv) {
-  // This scaffold uses the X11 window id for the EGL window surface, so
-  // it requires the xcb platform plugin (XWayland is fine).
+  // Default to xcb: the X11 path is stable. The Wayland-native path
+  // (GhosttySurface's wl_egl_window branch) is experimental — opt in
+  // with QT_QPA_PLATFORM=wayland. On a Wayland session xcb runs under
+  // XWayland.
   if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
     qputenv("QT_QPA_PLATFORM", "xcb");
 

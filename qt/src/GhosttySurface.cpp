@@ -1,16 +1,23 @@
 #include "GhosttySurface.h"
 
+#include <algorithm>
 #include <cstdio>
 
 #include <QByteArray>
 #include <QExposeEvent>
 #include <QFocusEvent>
+#include <QGuiApplication>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QResizeEvent>
 #include <QString>
 #include <QSurfaceFormat>
 #include <QWheelEvent>
+#include <QtGui/qguiapplication_platform.h>
+#include <qpa/qplatformnativeinterface.h>
+
+#include <EGL/eglext.h>
+#include <wayland-egl.h>
 
 GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner)
     : m_app(app), m_owner(owner) {
@@ -44,6 +51,7 @@ GhosttySurface::~GhosttySurface() {
     if (m_eglContext != EGL_NO_CONTEXT)
       eglDestroyContext(m_eglDisplay, m_eglContext);
   }
+  if (m_wlEglWindow) wl_egl_window_destroy(m_wlEglWindow);
 }
 
 bool GhosttySurface::initialize(ghostty_surface_t parent) {
@@ -85,7 +93,21 @@ bool GhosttySurface::initialize(ghostty_surface_t parent) {
 }
 
 bool GhosttySurface::setupEgl() {
-  m_eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+  const bool wayland =
+      QGuiApplication::platformName().contains(QLatin1String("wayland"));
+
+  // --- EGL display -----------------------------------------------------
+  if (wayland) {
+    // Use Qt's own Wayland connection so the EGL surface and the window
+    // share a wl_display.
+    auto *wl =
+        qGuiApp->nativeInterface<QNativeInterface::QWaylandApplication>();
+    if (!wl || !wl->display()) return false;
+    m_eglDisplay = eglGetPlatformDisplay(EGL_PLATFORM_WAYLAND_KHR,
+                                         wl->display(), nullptr);
+  } else {
+    m_eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+  }
   if (m_eglDisplay == EGL_NO_DISPLAY) return false;
   if (!eglInitialize(m_eglDisplay, nullptr, nullptr)) return false;
 
@@ -130,9 +152,27 @@ bool GhosttySurface::setupEgl() {
       eglCreateContext(m_eglDisplay, config, EGL_NO_CONTEXT, contextAttribs);
   if (m_eglContext == EGL_NO_CONTEXT) return false;
 
-  m_eglSurface = eglCreateWindowSurface(
-      m_eglDisplay, config, static_cast<EGLNativeWindowType>(winId()),
-      nullptr);
+  // --- EGL window surface ---------------------------------------------
+  if (wayland) {
+    // EGL needs a wl_egl_window built from this window's wl_surface.
+    auto *ni = QGuiApplication::platformNativeInterface();
+    auto *wlSurface = static_cast<wl_surface *>(
+        ni ? ni->nativeResourceForWindow("surface", this) : nullptr);
+    if (!wlSurface) return false;
+
+    const int w = std::max(1, static_cast<int>(width() * devicePixelRatio()));
+    const int h = std::max(1, static_cast<int>(height() * devicePixelRatio()));
+    m_wlEglWindow = wl_egl_window_create(wlSurface, w, h);
+    if (!m_wlEglWindow) return false;
+
+    m_eglSurface = eglCreateWindowSurface(
+        m_eglDisplay, config,
+        reinterpret_cast<EGLNativeWindowType>(m_wlEglWindow), nullptr);
+  } else {
+    m_eglSurface = eglCreateWindowSurface(
+        m_eglDisplay, config, static_cast<EGLNativeWindowType>(winId()),
+        nullptr);
+  }
   if (m_eglSurface == EGL_NO_SURFACE) return false;
 
   return true;
@@ -143,6 +183,11 @@ void GhosttySurface::updateSize() {
   const double dpr = devicePixelRatio();
   const int w = static_cast<int>(width() * dpr);
   const int h = static_cast<int>(height() * dpr);
+
+  // The Wayland EGL window does not track the QWindow size on its own.
+  if (m_wlEglWindow && w > 0 && h > 0)
+    wl_egl_window_resize(m_wlEglWindow, w, h, 0, 0);
+
   ghostty_surface_set_content_scale(m_surface, dpr, dpr);
   if (w > 0 && h > 0)
     ghostty_surface_set_size(m_surface, static_cast<uint32_t>(w),
