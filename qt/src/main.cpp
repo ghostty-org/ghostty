@@ -30,7 +30,7 @@ int main(int argc, char **argv) {
   // Some styles dim and blur translucent windows, which masks the
   // terminal's own background-opacity: Kvantum themes do this when
   // `blurring`/`reduce_window_opacity` are set. The fix belongs in the
-  // style's config, not here — for Kvantum, add "ghostty-qt" to the
+  // style's config, not here — for Kvantum, add "ghostty" to the
   // theme's `opaque` app list (the same opt-out video players use).
 
   // ghostty_init must run *after* QApplication: QApplication strips its
@@ -38,13 +38,13 @@ int main(int argc, char **argv) {
   // re-scans that array for CLI config — scanning the pre-strip array
   // would walk past its end into freed/null entries.
   if (ghostty_init(static_cast<uintptr_t>(argc), argv) != GHOSTTY_SUCCESS) {
-    std::fprintf(stderr, "[ghostty-qt] ghostty_init failed\n");
+    std::fprintf(stderr, "[ghostty] ghostty_init failed\n");
     return 1;
   }
 
   MainWindow window;
   if (!window.initialize()) {
-    std::fprintf(stderr, "[ghostty-qt] window initialization failed\n");
+    std::fprintf(stderr, "[ghostty] window initialization failed\n");
     return 1;
   }
   window.resize(800, 600);

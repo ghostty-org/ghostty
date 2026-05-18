@@ -12,6 +12,7 @@
 #include <QList>
 #include <QPoint>
 #include <QRect>
+#include <QShowEvent>
 #include <QSplitter>
 #include <QString>
 #include <QTabWidget>
@@ -104,7 +105,7 @@ bool MainWindow::initialize() {
 
   m_app = ghostty_app_new(&rt, m_config);
   if (!m_app) {
-    std::fprintf(stderr, "[ghostty-qt] ghostty_app_new failed\n");
+    std::fprintf(stderr, "[ghostty] ghostty_app_new failed\n");
     return false;
   }
 
@@ -113,7 +114,24 @@ bool MainWindow::initialize() {
   connect(timer, &QTimer::timeout, this, &MainWindow::tick);
   timer->start(16);
 
-  return newTab(nullptr) != nullptr;
+  // The first tab is created in showEvent, not here: see below.
+  return true;
+}
+
+void MainWindow::showEvent(QShowEvent *event) {
+  QWidget::showEvent(event);
+
+  // Create the first terminal only once the window is on-screen. A
+  // surface created earlier (from initialize(), before show()) spawns
+  // its shell while the device pixel ratio is still unsettled, so a
+  // shell greeting such as fastfetch queries a wrong cell size and sizes
+  // Kitty graphics images for it. Deferring to here — past show(), via a
+  // queued call so the window is fully mapped — makes the first tab
+  // behave exactly like every later one.
+  if (m_firstTabPending) {
+    m_firstTabPending = false;
+    QTimer::singleShot(0, this, [this] { newTab(nullptr); });
+  }
 }
 
 GhosttySurface *MainWindow::newTab(ghostty_surface_t parent) {

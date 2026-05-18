@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(ghostty-qt LANGUAGES CXX)
+project(ghostty LANGUAGES CXX)
 
 # A Qt6 frontend for Ghostty that embeds libghostty through the
 # GHOSTTY_PLATFORM_OPENGL C API. libghostty's OpenGL renderer draws each
@@ -17,7 +17,7 @@ project(ghostty-qt LANGUAGES CXX)
 # Then build and run this app:
 #
 #   cmake -S qt -B qt/build && cmake --build qt/build
-#   ./qt/build/ghostty-qt
+#   ./qt/build/ghostty
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -41,21 +41,21 @@ endif()
 file(CREATE_LINK "ghostty-internal.so" "${GHOSTTY_LIB_DIR}/libghostty.so"
   SYMBOLIC)
 
-add_executable(ghostty-qt
+add_executable(ghostty
   src/main.cpp
   src/GhosttySurface.cpp
   src/MainWindow.cpp
 )
 
-target_include_directories(ghostty-qt PRIVATE "${GHOSTTY_ROOT}/include")
+target_include_directories(ghostty PRIVATE "${GHOSTTY_ROOT}/include")
 
-target_link_libraries(ghostty-qt PRIVATE
+target_link_libraries(ghostty PRIVATE
   Qt6::Gui
   Qt6::Widgets
   Qt6::OpenGL
   "${GHOSTTY_LIB_DIR}/libghostty.so"
 )
 
-target_link_options(ghostty-qt PRIVATE
+target_link_options(ghostty PRIVATE
   "-Wl,-rpath,${GHOSTTY_LIB_DIR}"
 )

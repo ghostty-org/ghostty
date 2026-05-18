@@ -5,6 +5,7 @@
 
 #include "ghostty.h"
 
+class QShowEvent;
 class QTabWidget;
 class GhosttySurface;
 
@@ -47,6 +48,9 @@ public:
 public slots:
   void tick();
 
+protected:
+  void showEvent(QShowEvent *) override;
+
 private slots:
   void onTabCloseRequested(int index);
   void onCurrentChanged(int index);
@@ -80,4 +84,5 @@ private:
   QTabWidget *m_tabs = nullptr;
   QList<GhosttySurface *> m_surfaces;  // every live surface
   bool m_needsPremultiply = false;     // a custom shader is configured
+  bool m_firstTabPending = true;       // first tab is created on show()
 };

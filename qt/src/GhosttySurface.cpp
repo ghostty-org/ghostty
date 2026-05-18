@@ -36,7 +36,7 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
   m_context = new QOpenGLContext(this);
   m_context->setFormat(QSurfaceFormat::defaultFormat());
   if (!m_context->create()) {
-    std::fprintf(stderr, "[ghostty-qt] GL context creation failed\n");
+    std::fprintf(stderr, "[ghostty] GL context creation failed\n");
     return;
   }
   m_offscreen = new QOffscreenSurface(nullptr, this);
@@ -44,7 +44,7 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
   m_offscreen->create();
 
   if (!makeCurrent()) {
-    std::fprintf(stderr, "[ghostty-qt] makeCurrent failed\n");
+    std::fprintf(stderr, "[ghostty] makeCurrent failed\n");
     return;
   }
 
@@ -70,7 +70,7 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
 
   m_surface = ghostty_surface_new(m_app, &sc);
   if (!m_surface) {
-    std::fprintf(stderr, "[ghostty-qt] ghostty_surface_new failed\n");
+    std::fprintf(stderr, "[ghostty] ghostty_surface_new failed\n");
     return;
   }
 
@@ -95,7 +95,11 @@ bool GhosttySurface::makeCurrent() {
 
 // --- rendering ------------------------------------------------------
 
-void GhosttySurface::resizeEvent(QResizeEvent *) {
+// Re-sync the framebuffer and libghostty surface to the widget's current
+// size and device pixel ratio. Driven by resizeEvent and by
+// DevicePixelRatioChange: on Wayland the fractional scale settles
+// asynchronously, after the window has already first appeared.
+void GhosttySurface::syncSurfaceSize() {
   if (!m_surface) return;
 
   // Render at the display's device-pixel resolution. devicePixelRatioF()
@@ -104,9 +108,10 @@ void GhosttySurface::resizeEvent(QResizeEvent *) {
   const double dpr = devicePixelRatioF();
   const int w = std::max(1, static_cast<int>(width() * dpr));
   const int h = std::max(1, static_cast<int>(height() * dpr));
-  if (w == m_fbw && h == m_fbh) return;
+  if (w == m_fbw && h == m_fbh && dpr == m_fbDpr) return;
   m_fbw = w;
   m_fbh = h;
+  m_fbDpr = dpr;
 
   if (!makeCurrent()) return;
   delete m_fbo;
@@ -118,6 +123,18 @@ void GhosttySurface::resizeEvent(QResizeEvent *) {
   ghostty_surface_set_size(m_surface, static_cast<uint32_t>(w),
                            static_cast<uint32_t>(h));
   renderTerminal();
+}
+
+void GhosttySurface::resizeEvent(QResizeEvent *) { syncSurfaceSize(); }
+
+bool GhosttySurface::event(QEvent *e) {
+  // The device pixel ratio can change without a resize — the Wayland
+  // fractional scale settling after startup, or a move between monitors.
+  // Re-sync so the framebuffer matches and the readback is tagged with
+  // that same ratio; otherwise paintEvent blits the frame at the wrong
+  // size (the FBO was sized at one DPR, the image tagged with another).
+  if (e->type() == QEvent::DevicePixelRatioChange) syncSurfaceSize();
+  return QWidget::event(e);
 }
 
 void GhosttySurface::requestRender() { renderTerminal(); }
@@ -132,9 +149,14 @@ void GhosttySurface::renderTerminal() {
   ghostty_surface_draw(m_surface);
   premultiplyFramebuffer();
 
-  // Read the frame back as a premultiplied, top-down QImage. paintEvent
-  // scales it to the widget, so its device pixel ratio is irrelevant.
+  // Read the frame back as a premultiplied, top-down QImage, tagged with
+  // the ratio the framebuffer was sized at so paintEvent can blit it 1:1
+  // at its true logical size. Using the live devicePixelRatioF() here
+  // would mis-size the blit if the DPR changed since syncSurfaceSize ran.
+  // (Scaling it to the widget instead made the whole frame — images
+  // included — rubber-band while a resize was in flight.)
   m_image = m_fbo->toImage();
+  m_image.setDevicePixelRatio(m_fbDpr);
   m_fbo->release();
 
   update();
@@ -143,16 +165,14 @@ void GhosttySurface::renderTerminal() {
 void GhosttySurface::paintEvent(QPaintEvent *) {
   if (m_image.isNull()) return;
   QPainter painter(this);
-  // Scale the framebuffer image to fill the widget. The QRect overload
-  // is required: drawImage(0, 0, img) would select the int-coordinate
-  // overload, which blits at raw pixel size and ignores both the
-  // widget's logical size and the device pixel ratio (a 2x zoom on a
-  // HiDPI display).
-  painter.setRenderHint(QPainter::SmoothPixmapTransform);
-  // Replace the (transparent) widget pixels with the terminal image,
-  // alpha included, so the background's translucency is preserved.
+  // Blit the framebuffer 1:1. m_image carries the device pixel ratio, so
+  // the QPointF overload draws it at its true logical size: when in sync
+  // that exactly fills the widget, and mid-resize the content keeps its
+  // real size instead of stretching to the (already-resized) widget.
+  // CompositionMode_Source replaces the transparent widget pixels with
+  // the terminal image, alpha included, so its translucency is kept.
   painter.setCompositionMode(QPainter::CompositionMode_Source);
-  painter.drawImage(rect(), m_image);
+  painter.drawImage(QPointF(0, 0), m_image);
 }
 
 // libghostty's renderer outputs premultiplied alpha — except a custom

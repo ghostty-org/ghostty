@@ -40,6 +40,7 @@ public slots:
   void requestRender();
 
 protected:
+  bool event(QEvent *) override;
   void paintEvent(QPaintEvent *) override;
   void resizeEvent(QResizeEvent *) override;
 
@@ -54,6 +55,7 @@ protected:
 
 private:
   bool makeCurrent();
+  void syncSurfaceSize();
   void renderTerminal();
   void sendKey(QKeyEvent *, ghostty_input_action_e action);
   void sendMouseButton(QMouseEvent *, ghostty_input_mouse_state_e state);
@@ -86,4 +88,5 @@ private:
 
   int m_fbw = 0;                       // framebuffer size, device pixels
   int m_fbh = 0;
+  double m_fbDpr = 1.0;                // DPR the framebuffer was sized at
 };
