@@ -3,8 +3,10 @@
 #include <cstdio>
 
 #include <QByteArray>
+#include <QClipboard>
 #include <QExposeEvent>
 #include <QFocusEvent>
+#include <QGuiApplication>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QResizeEvent>
@@ -320,30 +322,82 @@ void GhosttyWindow::onWakeup(void *ud) {
   QMetaObject::invokeMethod(self, "tick", Qt::QueuedConnection);
 }
 
-bool GhosttyWindow::onAction(ghostty_app_t, ghostty_target_s,
-                             ghostty_action_s) {
-  // TODO(C): handle actions -- title changes, new tab/split/window,
-  // fullscreen, clipboard confirmations, etc.
-  return false;
+bool GhosttyWindow::onAction(ghostty_app_t app, ghostty_target_s target,
+                             ghostty_action_s action) {
+  (void)target;
+  // Actions can be dispatched from non-GUI threads, so anything touching
+  // the window is marshalled onto the GUI thread.
+  auto *self = static_cast<GhosttyWindow *>(ghostty_app_userdata(app));
+  if (!self) return false;
+
+  switch (action.tag) {
+    case GHOSTTY_ACTION_SET_TITLE: {
+      const char *title = action.action.set_title.title;
+      if (!title) return true;
+      const QString t = QString::fromUtf8(title);
+      QMetaObject::invokeMethod(
+          self, [self, t]() { self->setTitle(t); }, Qt::QueuedConnection);
+      return true;
+    }
+
+    case GHOSTTY_ACTION_QUIT:
+    case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:
+      QMetaObject::invokeMethod(
+          self, [self]() { self->close(); }, Qt::QueuedConnection);
+      return true;
+
+    default:
+      // Tabs, splits, fullscreen, etc. are not handled by this
+      // single-window scaffold yet.
+      return false;
+  }
 }
 
-bool GhosttyWindow::onReadClipboard(void *, ghostty_clipboard_e, void *) {
-  // TODO(B4): wire QClipboard.
-  return false;
+bool GhosttyWindow::onReadClipboard(void *ud, ghostty_clipboard_e loc,
+                                    void *state) {
+  // Called synchronously when libghostty needs clipboard contents (paste).
+  auto *self = static_cast<GhosttyWindow *>(ud);
+  if (!self->m_surface) return false;
+
+  const QClipboard::Mode mode = loc == GHOSTTY_CLIPBOARD_SELECTION
+                                    ? QClipboard::Selection
+                                    : QClipboard::Clipboard;
+  const QByteArray text = QGuiApplication::clipboard()->text(mode).toUtf8();
+  ghostty_surface_complete_clipboard_request(self->m_surface,
+                                             text.constData(), state, true);
+  return true;
 }
 
-void GhosttyWindow::onConfirmReadClipboard(void *, const char *, void *,
-                                           ghostty_clipboard_request_e) {
-  // TODO(B4): paste confirmation dialog.
+void GhosttyWindow::onConfirmReadClipboard(void *ud, const char *str,
+                                           void *state,
+                                           ghostty_clipboard_request_e req) {
+  (void)req;
+  // The scaffold trusts pastes rather than showing an unsafe-paste
+  // confirmation dialog. TODO: a real confirmation prompt.
+  auto *self = static_cast<GhosttyWindow *>(ud);
+  if (self->m_surface)
+    ghostty_surface_complete_clipboard_request(self->m_surface, str, state,
+                                               true);
 }
 
-void GhosttyWindow::onWriteClipboard(void *, ghostty_clipboard_e,
-                                     const ghostty_clipboard_content_s *,
-                                     size_t, bool) {
-  // TODO(B4): wire QClipboard.
+void GhosttyWindow::onWriteClipboard(void *ud, ghostty_clipboard_e loc,
+                                     const ghostty_clipboard_content_s *content,
+                                     size_t n, bool confirm) {
+  (void)confirm;
+  if (n == 0 || !content[0].data) return;
+
+  auto *self = static_cast<GhosttyWindow *>(ud);
+  const QClipboard::Mode mode = loc == GHOSTTY_CLIPBOARD_SELECTION
+                                    ? QClipboard::Selection
+                                    : QClipboard::Clipboard;
+  const QString text = QString::fromUtf8(content[0].data);
+  QMetaObject::invokeMethod(
+      self, [text, mode]() { QGuiApplication::clipboard()->setText(text, mode); },
+      Qt::QueuedConnection);
 }
 
 void GhosttyWindow::onCloseSurface(void *ud, bool) {
   auto *self = static_cast<GhosttyWindow *>(ud);
-  QMetaObject::invokeMethod(self, "close", Qt::QueuedConnection);
+  QMetaObject::invokeMethod(
+      self, [self]() { self->close(); }, Qt::QueuedConnection);
 }
