@@ -59,7 +59,12 @@ bool GhosttyWindow::initialize() {
     return false;
   }
 
+  // Load configuration in the same order as the reference apprt:
+  // default files, CLI args, then any recursively included files.
   m_config = ghostty_config_new();
+  ghostty_config_load_default_files(m_config);
+  ghostty_config_load_cli_args(m_config);
+  ghostty_config_load_recursive_files(m_config);
   ghostty_config_finalize(m_config);
 
   // App-level runtime config.
