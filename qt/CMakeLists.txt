@@ -2,8 +2,10 @@ cmake_minimum_required(VERSION 3.16)
 project(ghostty-qt LANGUAGES CXX)
 
 # A Qt6 frontend for Ghostty that embeds libghostty through the
-# GHOSTTY_PLATFORM_OPENGL C API -- the same embedding model the macOS app
-# uses with Metal.
+# GHOSTTY_PLATFORM_OPENGL C API. Each terminal is a QOpenGLWidget;
+# libghostty draws on the GUI thread (the embedded apprt sets
+# must_draw_from_app_thread for the OpenGL renderer) and Qt composites
+# the widgets, so this runs natively on both Wayland and X11.
 #
 # Build libghostty first, from the repo root:
 #
@@ -13,21 +15,12 @@ project(ghostty-qt LANGUAGES CXX)
 #
 #   cmake -S qt -B qt/build && cmake --build qt/build
 #   ./qt/build/ghostty-qt
-#
-# Runs on X11/xcb (default; XWayland on a Wayland session). A native
-# Wayland path exists (QT_QPA_PLATFORM=wayland) but is experimental:
-# rendering our own EGL onto a Qt-owned wl_surface currently trips
-# Wayland protocol errors.
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Gui Widgets GuiPrivate)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(EGL REQUIRED IMPORTED_TARGET egl)
-# Wayland-native rendering needs wl_egl_window.
-pkg_check_modules(WAYLAND_EGL REQUIRED IMPORTED_TARGET wayland-egl)
+find_package(Qt6 REQUIRED COMPONENTS Gui Widgets OpenGLWidgets)
 
 # libghostty is built out-of-tree by Zig.
 get_filename_component(GHOSTTY_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
@@ -55,10 +48,8 @@ target_include_directories(ghostty-qt PRIVATE "${GHOSTTY_ROOT}/include")
 
 target_link_libraries(ghostty-qt PRIVATE
   Qt6::Gui
-  Qt6::GuiPrivate  # QPlatformNativeInterface, for the Wayland wl_surface
   Qt6::Widgets
-  PkgConfig::EGL
-  PkgConfig::WAYLAND_EGL
+  Qt6::OpenGLWidgets
   "${GHOSTTY_LIB_DIR}/libghostty.so"
 )
 

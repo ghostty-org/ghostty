@@ -37,10 +37,10 @@ MainWindow::MainWindow() {
 }
 
 MainWindow::~MainWindow() {
-  // Surfaces must be destroyed (freeing their ghostty_surface_t and
-  // stopping their renderer threads) before the shared app is freed.
-  qDeleteAll(m_containers);
-  m_containers.clear();
+  // Destroy the surfaces (freeing their ghostty_surface_t) before the
+  // shared app; Qt's own child cleanup runs after this body.
+  qDeleteAll(m_surfaces);
+  m_surfaces.clear();
   if (m_app) ghostty_app_free(m_app);
   if (m_config) ghostty_config_free(m_config);
 }
@@ -78,97 +78,70 @@ bool MainWindow::initialize() {
 }
 
 GhosttySurface *MainWindow::newTab(ghostty_surface_t parent) {
-  auto *surface = new GhosttySurface(m_app, this);
-  QWidget *container = QWidget::createWindowContainer(surface, nullptr);
-  container->setFocusPolicy(Qt::StrongFocus);
+  auto *surface = new GhosttySurface(m_app, this, parent);
+  m_surfaces.append(surface);
 
   // The tab page hosts the tab's split tree (initially one surface).
   auto *page = new QWidget(m_tabs);
   auto *pageLayout = new QVBoxLayout(page);
   pageLayout->setContentsMargins(0, 0, 0, 0);
-  pageLayout->addWidget(container);
+  pageLayout->addWidget(surface);
 
   const int index = m_tabs->addTab(page, QStringLiteral("Ghostty"));
-  m_containers.insert(surface, container);
   m_tabs->setCurrentIndex(index);
-
-  if (!surface->initialize(parent)) {
-    m_containers.remove(surface);
-    m_tabs->removeTab(index);
-    delete page;  // also destroys the container and its surface
-    return nullptr;
-  }
-
-  surface->requestActivate();
+  surface->setFocus();
   return surface;
 }
 
 GhosttySurface *MainWindow::splitSurface(
     GhosttySurface *target, ghostty_action_split_direction_e dir) {
-  QWidget *container = m_containers.value(target);
-  if (!container) return nullptr;
+  if (!m_surfaces.contains(target)) return nullptr;
 
   const bool horizontal = dir == GHOSTTY_SPLIT_DIRECTION_RIGHT ||
                           dir == GHOSTTY_SPLIT_DIRECTION_LEFT;
   const bool newAfter = dir == GHOSTTY_SPLIT_DIRECTION_RIGHT ||
                         dir == GHOSTTY_SPLIT_DIRECTION_DOWN;
 
-  auto *surface = new GhosttySurface(m_app, this);
-  QWidget *newContainer = QWidget::createWindowContainer(surface, nullptr);
-  newContainer->setFocusPolicy(Qt::StrongFocus);
-
+  auto *surface = new GhosttySurface(m_app, this, target->surface());
   auto *splitter =
       new QSplitter(horizontal ? Qt::Horizontal : Qt::Vertical);
   splitter->setChildrenCollapsible(false);
 
-  // Insert `splitter` where `container` currently sits in the tree.
-  QWidget *parent = container->parentWidget();
+  // Insert `splitter` where `target` currently sits in the tree.
+  QWidget *parent = target->parentWidget();
   if (auto *parentSplitter = qobject_cast<QSplitter *>(parent)) {
-    parentSplitter->replaceWidget(parentSplitter->indexOf(container),
-                                  splitter);
+    parentSplitter->replaceWidget(parentSplitter->indexOf(target), splitter);
   } else if (parent && parent->layout()) {
-    delete parent->layout()->replaceWidget(container, splitter);
+    delete parent->layout()->replaceWidget(target, splitter);
   } else {
     delete splitter;
-    delete newContainer;  // also destroys the new surface
+    delete surface;
     return nullptr;
   }
 
-  // `container` is now parentless; place it and the new pane in order.
   if (newAfter) {
-    splitter->addWidget(container);
-    splitter->addWidget(newContainer);
+    splitter->addWidget(target);
+    splitter->addWidget(surface);
   } else {
-    splitter->addWidget(newContainer);
-    splitter->addWidget(container);
+    splitter->addWidget(surface);
+    splitter->addWidget(target);
   }
   splitter->setSizes({1 << 20, 1 << 20});  // start the panes roughly equal
 
-  m_containers.insert(surface, newContainer);
-
-  if (!surface->initialize(target->surface())) {
-    m_containers.remove(surface);
-    delete newContainer;  // leaves a one-pane splitter; near-impossible path
-    return nullptr;
-  }
-
-  surface->requestActivate();
+  m_surfaces.append(surface);
+  surface->setFocus();
   return surface;
 }
 
 void MainWindow::removeSurface(GhosttySurface *surface) {
-  const auto it = m_containers.find(surface);
-  if (it == m_containers.end()) return;
-  QWidget *container = it.value();
-  m_containers.erase(it);
+  if (!m_surfaces.removeOne(surface)) return;
 
-  QWidget *parent = container->parentWidget();
-
+  QWidget *parent = surface->parentWidget();
   if (auto *splitter = qobject_cast<QSplitter *>(parent)) {
     // One pane of a split: collapse the splitter into its sibling.
     QWidget *sibling = nullptr;
     for (int i = 0; i < splitter->count(); ++i)
-      if (splitter->widget(i) != container) sibling = splitter->widget(i);
+      if (splitter->widget(i) != surface) sibling = splitter->widget(i);
 
     QWidget *splitterParent = splitter->parentWidget();
     if (auto *grand = qobject_cast<QSplitter *>(splitterParent)) {
@@ -176,7 +149,7 @@ void MainWindow::removeSurface(GhosttySurface *surface) {
     } else if (splitterParent && splitterParent->layout()) {
       delete splitterParent->layout()->replaceWidget(splitter, sibling);
     }
-    // Deleting the now-orphaned splitter also deletes `container`.
+    // Deleting the orphaned splitter also deletes `surface`.
     splitter->deleteLater();
     return;
   }
@@ -184,22 +157,17 @@ void MainWindow::removeSurface(GhosttySurface *surface) {
   // Otherwise this surface is the whole tab.
   const int index = m_tabs->indexOf(parent);
   if (index >= 0) m_tabs->removeTab(index);
-  if (parent) parent->deleteLater();  // page; deletes the container too
+  if (parent) parent->deleteLater();  // page; destroys the surface too
   if (m_tabs->count() == 0) close();
 }
 
 void MainWindow::closeTab(int index) {
   QWidget *page = m_tabs->widget(index);
   if (!page) return;
-
-  // Drop every surface hosted anywhere inside this tab's split tree.
-  const auto surfaces = m_containers.keys();
-  for (GhosttySurface *s : surfaces) {
-    QWidget *c = m_containers.value(s);
-    if (c && page->isAncestorOf(c)) m_containers.remove(s);
-  }
+  const auto inTab = page->findChildren<GhosttySurface *>();
+  for (GhosttySurface *s : inTab) m_surfaces.removeOne(s);
   m_tabs->removeTab(index);
-  page->deleteLater();  // destroys all contained surfaces
+  page->deleteLater();  // destroys every surface in the tab
   if (m_tabs->count() == 0) close();
 }
 
@@ -217,7 +185,7 @@ void MainWindow::tick() {
   ghostty_app_tick(m_app);
 
   // Close any pane whose child process has exited.
-  const auto surfaces = m_containers.keys();
+  const auto surfaces = m_surfaces;  // copy; removeSurface mutates the list
   for (GhosttySurface *s : surfaces) {
     if (s->surface() && ghostty_surface_process_exited(s->surface()))
       removeSurface(s);
@@ -229,33 +197,27 @@ void MainWindow::onTabCloseRequested(int index) { closeTab(index); }
 void MainWindow::onCurrentChanged(int index) {
   GhosttySurface *s = surfaceAt(index);
   if (!s) return;
-  s->requestActivate();
+  s->setFocus();
   setWindowTitle(m_tabs->tabText(index) + QStringLiteral(" — Ghostty"));
 }
 
 GhosttySurface *MainWindow::surfaceAt(int index) const {
   QWidget *page = m_tabs->widget(index);
   if (!page) return nullptr;
-  for (auto it = m_containers.cbegin(); it != m_containers.cend(); ++it)
-    if (page->isAncestorOf(it.value())) return it.key();
-  return nullptr;
+  const auto surfaces = page->findChildren<GhosttySurface *>();
+  return surfaces.isEmpty() ? nullptr : surfaces.first();
 }
 
 int MainWindow::tabIndexForSurface(GhosttySurface *surface) const {
-  QWidget *container = m_containers.value(surface);
-  if (!container) return -1;
   for (int i = 0; i < m_tabs->count(); ++i)
-    if (m_tabs->widget(i)->isAncestorOf(container)) return i;
+    if (m_tabs->widget(i)->isAncestorOf(surface)) return i;
   return -1;
 }
 
 QList<GhosttySurface *> MainWindow::surfacesInTab(int index) const {
-  QList<GhosttySurface *> result;
   QWidget *page = m_tabs->widget(index);
-  if (!page) return result;
-  for (auto it = m_containers.cbegin(); it != m_containers.cend(); ++it)
-    if (page->isAncestorOf(it.value())) result.append(it.key());
-  return result;
+  if (!page) return {};
+  return page->findChildren<GhosttySurface *>();
 }
 
 void MainWindow::gotoTab(ghostty_action_goto_tab_e tab) {
@@ -287,10 +249,8 @@ void MainWindow::gotoSplit(GhosttySurface *from,
   QList<GhosttySurface *> panes = surfacesInTab(tab);
   if (panes.size() < 2) return;
 
-  // Global-coordinate center of a pane's container.
-  const auto centerOf = [this](GhosttySurface *s) {
-    QWidget *c = m_containers.value(s);
-    return QRect(c->mapToGlobal(QPoint(0, 0)), c->size()).center();
+  const auto centerOf = [](GhosttySurface *s) {
+    return QRect(s->mapToGlobal(QPoint(0, 0)), s->size()).center();
   };
 
   GhosttySurface *target = nullptr;
@@ -330,14 +290,12 @@ void MainWindow::gotoSplit(GhosttySurface *from,
     }
   }
 
-  if (target) target->requestActivate();
+  if (target) target->setFocus();
 }
 
 void MainWindow::resizeSplit(GhosttySurface *from,
                              ghostty_action_resize_split_s rs) {
-  QWidget *container = m_containers.value(from);
-  if (!container) return;
-  auto *splitter = qobject_cast<QSplitter *>(container->parentWidget());
+  auto *splitter = qobject_cast<QSplitter *>(from->parentWidget());
   if (!splitter) return;
 
   const bool horizontal = splitter->orientation() == Qt::Horizontal;
@@ -349,7 +307,7 @@ void MainWindow::resizeSplit(GhosttySurface *from,
   if (!axisMatches) return;
 
   QList<int> sizes = splitter->sizes();
-  const int idx = splitter->indexOf(container);
+  const int idx = splitter->indexOf(from);
   if (idx < 0 || sizes.size() < 2) return;
 
   const bool grow = rs.direction == GHOSTTY_RESIZE_SPLIT_RIGHT ||
@@ -395,9 +353,14 @@ bool MainWindow::onAction(ghostty_app_t app, ghostty_target_s target,
   // Actions may be dispatched from non-GUI threads, so window-touching
   // work is marshalled onto the GUI thread.
   switch (action.tag) {
+    case GHOSTTY_ACTION_RENDER:
+      // libghostty wants a redraw; QOpenGLWidget::update schedules it.
+      if (src)
+        QMetaObject::invokeMethod(src, "update", Qt::QueuedConnection);
+      return true;
+
     case GHOSTTY_ACTION_NEW_TAB:
     case GHOSTTY_ACTION_NEW_WINDOW: {
-      // This single-window app maps new windows to new tabs.
       ghostty_surface_t parent = src ? src->surface() : nullptr;
       QMetaObject::invokeMethod(
           self, [self, parent]() { self->newTab(parent); },

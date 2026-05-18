@@ -1,6 +1,5 @@
 #pragma once
 
-#include <QHash>
 #include <QList>
 #include <QWidget>
 
@@ -13,8 +12,8 @@ class GhosttySurface;
 // terminal surfaces as tabs; each tab may be subdivided into splits.
 //
 // Widget tree: QTabWidget -> tab page (QWidget) -> split tree, where a
-// node is either a surface container (QWidget::createWindowContainer)
-// or a QSplitter of two such nodes.
+// node is either a GhosttySurface (a QOpenGLWidget) or a QSplitter of
+// two such nodes.
 class MainWindow : public QWidget {
   Q_OBJECT
 
@@ -74,7 +73,5 @@ private:
   ghostty_config_t m_config = nullptr;
   ghostty_app_t m_app = nullptr;
   QTabWidget *m_tabs = nullptr;
-
-  // Each surface mapped to the container widget that hosts it.
-  QHash<GhosttySurface *, QWidget *> m_containers;
+  QList<GhosttySurface *> m_surfaces;  // every live surface
 };
