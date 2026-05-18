@@ -27,6 +27,10 @@ MainWindow::MainWindow() {
   m_tabs->setTabsClosable(true);
   m_tabs->setMovable(true);
   m_tabs->setDocumentMode(true);
+  // Hide the tab bar with a single tab so the terminal gets the full
+  // window height (matching the GTK frontend).
+  m_tabs->setTabBarAutoHide(true);
+  m_tabs->setContentsMargins(0, 0, 0, 0);
 
   auto *layout = new QVBoxLayout(this);
   layout->setContentsMargins(0, 0, 0, 0);
