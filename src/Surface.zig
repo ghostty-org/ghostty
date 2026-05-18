@@ -2354,7 +2354,7 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
             .mixed,
         ),
 
-        // Only CLIPBOARD is set.
+        // Only the standard clipboard is set.
         .clipboard => try self.copySelectionToClipboards(
             sel,
             &.{.standard},
