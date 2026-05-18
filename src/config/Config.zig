@@ -96,8 +96,9 @@ pub const compatibility = std.StaticStringMap(
     // See: https://github.com/ghostty-org/ghostty/pull/9764
     .{ "macos-dock-drop-behavior", compatMacOSDockDropBehavior },
 
-    // Ghostty 1.4 Update "copy-on-select", allow copying to PRIMARY/SELECTION
-    // (On supported operating systems), CLIPBOARD, or both.
+    // Ghostty 1.4 updated "copy-on-select", allow copying to the selection
+    // clipboard (on supported operating systems), the system clipboard, or
+    // both. The semantics also changed but this is the correct mapping.
     // See: https://github.com/ghostty-org/ghostty/pull/12604
     .{ "copy-on-select", compatCopyOnSelect },
 });
