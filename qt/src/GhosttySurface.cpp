@@ -16,6 +16,10 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
     : m_app(app), m_owner(owner), m_parentSurface(parent_surface) {
   setFocusPolicy(Qt::StrongFocus);
   setMouseTracking(true);  // deliver motion events for hover/link detection
+  // Composite the framebuffer's alpha (libghostty bakes background-opacity
+  // into it) instead of painting the widget opaque.
+  setAttribute(Qt::WA_TranslucentBackground);
+  setAttribute(Qt::WA_AlwaysStackOnTop);
 }
 
 GhosttySurface::~GhosttySurface() {
