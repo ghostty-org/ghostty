@@ -2437,7 +2437,7 @@ keybind: Keybinds = .{},
 ///
 /// Valid values:
 ///   * `primary-paste` - Paste from the PRIMARY/SELECTION clipboard on Linux.
-///      Does nothing on MacOS.
+///      Does nothing on macOS.
 ///   * `clipboard-paste` - Paste from the system clipboard.
 ///   * `ignore` - Do nothing, ignore the middle click.
 ///
