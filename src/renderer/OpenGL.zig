@@ -193,11 +193,10 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         apprt.gtk,
         => try prepareContext(null),
 
-        // The renderer's `init` runs next, on this (the calling) thread,
-        // and creates GL objects — so the host context must be current
-        // and GL loaded here. `finalizeSurfaceInit` releases the context
-        // again before the renderer thread starts. glad's context is
-        // thread-local, so `threadEnter` re-loads it on that thread.
+        // The OpenGL embedded path draws on the app thread
+        // (must_draw_from_app_thread). Make the host context current on
+        // this — the app — thread and load GL; it stays current here for
+        // the surface's lifetime.
         apprt.embedded => switch (surface.platform) {
             .opengl => |host| {
                 host.make_current(host.userdata);
@@ -224,53 +223,23 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
 /// thread for final main thread setup requirements.
 pub fn finalizeSurfaceInit(self: *const OpenGL, surface: *apprt.Surface) !void {
     _ = self;
-
-    switch (apprt.runtime) {
-        else => @compileError("unsupported app runtime for OpenGL"),
-
-        // GTK keeps its GL context current on the app thread; there is
-        // nothing to finalize here.
-        apprt.gtk => {},
-
-        // The renderer's `init` has finished creating GL objects on this
-        // (the calling) thread. Release the host context so the renderer
-        // thread can make it current in `threadEnter`.
-        apprt.embedded => switch (surface.platform) {
-            .opengl => |host| host.release_current(host.userdata),
-            .macos, .ios => {},
-        },
-    }
+    _ = surface;
+    // Nothing to do: GTK and the OpenGL embedded path both keep the GL
+    // context current on the app thread, where all drawing happens.
 }
 
 /// Callback called by renderer.Thread when it begins.
 pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
     _ = self;
+    _ = surface;
 
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
 
-        apprt.gtk => {
-            // GTK doesn't support threaded OpenGL operations as far as I can
-            // tell, so we use the renderer thread to setup all the state
-            // but then do the actual draws and texture syncs and all that
-            // on the main thread. As such, we don't do anything here.
-        },
-
-        apprt.embedded => switch (surface.platform) {
-            .opengl => |host| {
-                // The host owns the GL context. Make it current on this
-                // (the renderer) thread — the host must never make it
-                // current on its own thread — then load the GL entry
-                // points via the host's loader.
-                host.make_current(host.userdata);
-                gl_host = host;
-                try prepareContext(&gladHostLoader);
-            },
-
-            // macOS and iOS use the Metal renderer; the OpenGL renderer
-            // must not be paired with those platforms.
-            .macos, .ios => return error.UnsupportedPlatform,
-        },
+        // GTK and the OpenGL embedded path both draw on the app thread
+        // (must_draw_from_app_thread), so the renderer thread must not
+        // touch the GL context.
+        apprt.gtk, apprt.embedded => {},
     }
 }
 
@@ -281,20 +250,9 @@ pub fn threadExit(self: *const OpenGL) void {
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
 
-        apprt.gtk => {
-            // We don't need to do any unloading for GTK because we may
-            // be sharing the global bindings with other windows.
-        },
-
-        apprt.embedded => {
-            // The renderer thread is exiting, so unload glad's
-            // thread-local context and release the host's GL context.
-            if (gl_host) |host| {
-                gl.glad.unload();
-                host.release_current(host.userdata);
-                gl_host = null;
-            }
-        },
+        // See threadEnter: the renderer thread does not own the GL
+        // context for either runtime.
+        apprt.gtk, apprt.embedded => {},
     }
 }
 

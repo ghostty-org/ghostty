@@ -19,6 +19,7 @@ const CoreApp = @import("../App.zig");
 const CoreInspector = @import("../inspector/main.zig").Inspector;
 const CoreSurface = @import("../Surface.zig");
 const configpkg = @import("../config.zig");
+const build_config = @import("../build_config.zig");
 const Config = configpkg.Config;
 const String = @import("../main_c.zig").String;
 
@@ -27,6 +28,12 @@ const log = std.log.scoped(.embedded_window);
 pub const resourcesDir = internal_os.resourcesDir;
 
 pub const App = struct {
+    /// Whether drawing must happen on the app (GUI) thread rather than a
+    /// dedicated renderer thread. The OpenGL renderer renders into the
+    /// host's GL context, which the host owns on its GUI thread (e.g. a
+    /// QOpenGLWidget); Metal keeps its own renderer thread.
+    pub const must_draw_from_app_thread = build_config.renderer == .opengl;
+
     /// Because we only expect the embedding API to be used in embedded
     /// environments, the options are extern so that we can expose it
     /// directly to a C callconv and not pay for any translation costs.
