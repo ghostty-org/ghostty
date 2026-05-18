@@ -2347,10 +2347,10 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
     switch (self.config.copy_on_select) {
         .none => unreachable, // handled above with an early exit
 
-        // Both standard and selection clipboards are set.
-        .both => try self.copySelectionToClipboards(
+        // The selection clipboard is set if supported, otherwise nothing is copied.
+        .primary => try self.copySelectionToClipboards(
             sel,
-            &.{ .standard, .selection },
+            &.{.selection},
             .mixed,
         ),
 
@@ -2361,10 +2361,10 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
             .mixed,
         ),
 
-        // The selection clipboard is set if supported, otherwise nothing is copied.
-        .primary => try self.copySelectionToClipboards(
+        // Both standard and selection clipboards are set.
+        .both => try self.copySelectionToClipboards(
             sel,
-            &.{.selection},
+            &.{ .standard, .selection },
             .mixed,
         ),
     }
