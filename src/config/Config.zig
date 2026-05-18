@@ -8670,8 +8670,7 @@ pub const CopyOnSelect = enum {
     /// on Linux.
     primary,
 
-    /// Copy on select is enabled and goes to both the system clipboard
-    /// and the selection clipboard (for Linux).
+    /// Copy on select is enabled and goes to the system clipboard.
     clipboard,
 
     both,
