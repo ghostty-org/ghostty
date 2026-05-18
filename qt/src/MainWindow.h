@@ -8,8 +8,12 @@
 class QTabWidget;
 class GhosttySurface;
 
-// The top-level window. Owns the shared ghostty_app_t and presents one
-// or more terminal surfaces as tabs.
+// The top-level window. Owns the shared ghostty_app_t and presents
+// terminal surfaces as tabs; each tab may be subdivided into splits.
+//
+// Widget tree: QTabWidget -> tab page (QWidget) -> split tree, where a
+// node is either a surface container (QWidget::createWindowContainer)
+// or a QSplitter of two such nodes.
 class MainWindow : public QWidget {
   Q_OBJECT
 
@@ -24,7 +28,12 @@ public:
   // directory etc. the new surface should inherit.
   GhosttySurface *newTab(ghostty_surface_t parent);
 
-  // Remove the tab hosting `surface`; closes the window if it was last.
+  // Split `target`'s pane in two, adding a new surface beside it.
+  GhosttySurface *splitSurface(GhosttySurface *target,
+                               ghostty_action_split_direction_e dir);
+
+  // Remove a single surface: collapses its split, or closes the tab if
+  // it was the tab's only surface (and the window if it was the last).
   void removeSurface(GhosttySurface *surface);
 
   // Update the tab label and window title for `surface`.
@@ -38,8 +47,9 @@ private slots:
   void onCurrentChanged(int index);
 
 private:
+  void closeTab(int index);
   GhosttySurface *surfaceAt(int index) const;
-  int indexOfSurface(GhosttySurface *surface) const;
+  int tabIndexForSurface(GhosttySurface *surface) const;
 
   // Runtime callbacks dispatched by libghostty. wakeup/action carry the
   // app userdata; clipboard/close carry the surface userdata.
@@ -57,6 +67,6 @@ private:
   ghostty_app_t m_app = nullptr;
   QTabWidget *m_tabs = nullptr;
 
-  // Each surface mapped to the container widget that hosts it in a tab.
+  // Each surface mapped to the container widget that hosts it.
   QHash<GhosttySurface *, QWidget *> m_containers;
 };
