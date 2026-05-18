@@ -26,6 +26,7 @@ int main(int argc, char **argv) {
   fmt.setRenderableType(QSurfaceFormat::OpenGL);
   fmt.setProfile(QSurfaceFormat::CoreProfile);
   fmt.setVersion(4, 3);
+  fmt.setAlphaBufferSize(8);  // allow a translucent terminal background
   QSurfaceFormat::setDefaultFormat(fmt);
 
   QApplication app(argc, argv);

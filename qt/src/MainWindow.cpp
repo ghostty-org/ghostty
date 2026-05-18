@@ -20,6 +20,8 @@
 
 MainWindow::MainWindow() {
   setWindowTitle(QStringLiteral("Ghostty (Qt)"));
+  // Let a translucent terminal background show through to the desktop.
+  setAttribute(Qt::WA_TranslucentBackground);
 
   m_tabs = new QTabWidget(this);
   m_tabs->setTabsClosable(true);
@@ -83,6 +85,7 @@ GhosttySurface *MainWindow::newTab(ghostty_surface_t parent) {
 
   // The tab page hosts the tab's split tree (initially one surface).
   auto *page = new QWidget(m_tabs);
+  page->setAttribute(Qt::WA_TranslucentBackground);
   auto *pageLayout = new QVBoxLayout(page);
   pageLayout->setContentsMargins(0, 0, 0, 0);
   pageLayout->addWidget(surface);
