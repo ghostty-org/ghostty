@@ -26,14 +26,17 @@ typedef struct {
 // The single surface, so GLFW input callbacks can reach it.
 static ghostty_surface_t g_surface = NULL;
 
-// Count of presented frames, bumped from the renderer thread. A nonzero
-// value confirms the OpenGL embedded render path is producing frames.
+// Set when libghostty asks for a redraw; the main loop then draws.
+static int g_needs_draw = 1;
+
+// Count of presented frames. A nonzero value confirms the OpenGL
+// embedded render path is producing frames.
 static atomic_int g_frames = 0;
 
 // --- ghostty_platform_opengl_s callbacks -----------------------------
 //
-// These run on libghostty's renderer thread, NOT the main thread. The
-// renderer thread owns the GL context for the surface's lifetime.
+// libghostty draws on the app thread (must_draw_from_app_thread), so
+// these run on the main thread.
 
 static void *gl_get_proc_address(void *userdata, const char *name) {
   (void)userdata;
@@ -68,8 +71,12 @@ static bool on_action(ghostty_app_t app, ghostty_target_s target,
                       ghostty_action_s action) {
   (void)app;
   (void)target;
-  (void)action;
-  // The harness ignores all actions (new window, title changes, ...).
+  // libghostty requests a redraw via the render action; the main loop
+  // services it. Other actions are ignored by this harness.
+  if (action.tag == GHOSTTY_ACTION_RENDER) {
+    g_needs_draw = 1;
+    return true;
+  }
   return false;
 }
 
@@ -134,8 +141,10 @@ static void on_char(GLFWwindow *win, unsigned int cp) {
 
 static void on_framebuffer_size(GLFWwindow *win, int w, int h) {
   (void)win;
-  if (g_surface && w > 0 && h > 0)
+  if (g_surface && w > 0 && h > 0) {
     ghostty_surface_set_size(g_surface, (uint32_t)w, (uint32_t)h);
+    g_needs_draw = 1;
+  }
 }
 
 int main(int argc, char **argv) {
@@ -163,9 +172,8 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // The renderer thread owns the GL context. Release it from the main
-  // thread so libghostty's renderer thread can make it current.
-  glfwMakeContextCurrent(NULL);
+  // libghostty draws on the app thread, so the GL context stays current
+  // on this (the main) thread, where glfwCreateWindow left it.
 
   host_t host = {.window = window};
 
@@ -233,14 +241,22 @@ int main(int argc, char **argv) {
          "Close the window to exit.\n");
   fflush(stdout);
 
-  // Main loop: pump GLFW events and tick libghostty. The renderer runs
-  // on its own thread and presents through our callbacks.
+  // Main loop: pump GLFW events, tick libghostty, and draw when asked.
   double next_report = glfwGetTime() + 1.0;
   while (!glfwWindowShouldClose(window)) {
     glfwWaitEventsTimeout(0.1);
     ghostty_app_tick(app);
-    if (ghostty_surface_process_exited(surface))
+    if (ghostty_surface_process_exited(surface)) {
       glfwSetWindowShouldClose(window, GLFW_TRUE);
+      break;
+    }
+
+    // libghostty requested a draw (via the render action); service it
+    // on this thread.
+    if (g_needs_draw) {
+      g_needs_draw = 0;
+      ghostty_surface_draw(surface);
+    }
 
     // Report presented-frame count once per second.
     double now = glfwGetTime();
