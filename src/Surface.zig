@@ -2361,7 +2361,7 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
             .mixed,
         ),
 
-        // The PRIMARY clipboard is set if supported, otherwise nothing is copied.
+        // The selection clipboard is set if supported, otherwise nothing is copied.
         .primary => try self.copySelectionToClipboards(
             sel,
             &.{.selection},
