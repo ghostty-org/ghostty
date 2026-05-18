@@ -2403,19 +2403,25 @@ keybind: Keybinds = .{},
 /// limit per surface is double.
 @"image-storage-limit": u32 = 320 * 1000 * 1000,
 
-/// Whether to automatically copy selected text to the clipboard. `true`
-/// will copy to the PRIMARY/SELECTION clipboard on Linux, with no action
-/// on MacOS. `primary` is an alias for `true`
+/// Whether to automatically copy selected text to the clipboard.
 ///
-/// The value `clipboard` will always copy text to the system clipboard.
-/// On Linux, the PRIMARY/SELECTION clipboard will not be modified.
+/// Valid values:
 ///
-/// The value `both` will copy to both clipboards on Linux, and only the
-/// system clipboard on MacOS.
+/// * `none` - Do not copy selected text automatically.
 ///
-/// `false` will disable all copy-on-select, `none` is alias for `false`.
+/// * `primary` - On Linux, copy to the selection clipboard only. This has no
+///   effect on macOS. (Available since: 1.4.0)
 ///
-/// The default value is true on Linux and false otherwise
+/// * `clipboard` - Copy text to the system clipboard only.
+///
+/// * `both` - Copy to both clipboards on Linux, and only the system clipboard
+///   on macOS. (Available since: 1.4.0)
+///
+/// For backward compatibility and convenience, a value of `true` is the same as
+/// `primary` on Linux and `clipboard` on macOS, and `false` is an alias for
+/// `none`.
+///
+/// The default value is `primary` on Linux and `none` otherwise.
 @"copy-on-select": CopyOnSelect = switch (builtin.os.tag) {
     .linux => .primary,
     else => .none,
