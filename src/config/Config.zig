@@ -8699,7 +8699,7 @@ pub const RightClickAction = enum {
 
 /// Options for middle-click actions.
 pub const MiddleClickAction = enum {
-    /// Paste from primary/selection.
+    /// Paste from the selection clipboard.
     @"primary-paste",
     /// Paste from the clipboard.
     @"clipboard-paste",
