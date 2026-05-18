@@ -180,8 +180,6 @@ fn gladHostLoader(
 
 /// This is called early right after surface creation.
 pub fn surfaceInit(surface: *apprt.Surface) !void {
-    _ = surface;
-
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
 
@@ -189,10 +187,21 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         apprt.gtk,
         => try prepareContext(null),
 
-        // The embedded apprt with an OpenGL host defers all GL setup to
-        // the renderer thread (see `threadEnter`), which owns the host's
-        // GL context.
-        apprt.embedded => {},
+        // The renderer's `init` runs next, on this (the calling) thread,
+        // and creates GL objects — so the host context must be current
+        // and GL loaded here. `finalizeSurfaceInit` releases the context
+        // again before the renderer thread starts. glad's context is
+        // thread-local, so `threadEnter` re-loads it on that thread.
+        apprt.embedded => switch (surface.platform) {
+            .opengl => |host| {
+                host.make_current(host.userdata);
+                gl_host = host;
+                try prepareContext(&gladHostLoader);
+            },
+
+            // macOS and iOS use the Metal renderer.
+            .macos, .ios => return error.UnsupportedPlatform,
+        },
     }
 
     // These are very noisy so this is commented, but easy to uncomment
@@ -209,7 +218,22 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
 /// thread for final main thread setup requirements.
 pub fn finalizeSurfaceInit(self: *const OpenGL, surface: *apprt.Surface) !void {
     _ = self;
-    _ = surface;
+
+    switch (apprt.runtime) {
+        else => @compileError("unsupported app runtime for OpenGL"),
+
+        // GTK keeps its GL context current on the app thread; there is
+        // nothing to finalize here.
+        apprt.gtk => {},
+
+        // The renderer's `init` has finished creating GL objects on this
+        // (the calling) thread. Release the host context so the renderer
+        // thread can make it current in `threadEnter`.
+        apprt.embedded => switch (surface.platform) {
+            .opengl => |host| host.release_current(host.userdata),
+            .macos, .ios => {},
+        },
+    }
 }
 
 /// Callback called by renderer.Thread when it begins.
