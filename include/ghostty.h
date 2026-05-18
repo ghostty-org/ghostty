@@ -66,6 +66,7 @@ typedef enum {
   GHOSTTY_PLATFORM_INVALID,
   GHOSTTY_PLATFORM_MACOS,
   GHOSTTY_PLATFORM_IOS,
+  GHOSTTY_PLATFORM_OPENGL,
 } ghostty_platform_e;
 
 typedef enum {
@@ -453,9 +454,35 @@ typedef struct {
   void* uiview;
 } ghostty_platform_ios_s;
 
+// Platform configuration for a host that provides its own OpenGL
+// context (e.g. a Qt, X11, or Wayland application embedding libghostty).
+//
+// The host owns the OpenGL context and windowing. Ghostty's renderer
+// runs on a dedicated thread and invokes these callbacks from that
+// thread, so the context must be usable from a thread other than the
+// one that created it.
+typedef struct {
+  // Userdata passed as the first argument to every callback below.
+  void* userdata;
+
+  // Return the address of the named OpenGL function, or NULL if it is
+  // not available. Used to load the GL function pointers.
+  void* (*get_proc_address)(void* userdata, const char* name);
+
+  // Make the host's OpenGL context current on the calling thread.
+  void (*make_current)(void* userdata);
+
+  // Release the host's OpenGL context from the calling thread.
+  void (*release_current)(void* userdata);
+
+  // Present the most recently rendered frame (e.g. swap buffers).
+  void (*present)(void* userdata);
+} ghostty_platform_opengl_s;
+
 typedef union {
   ghostty_platform_macos_s macos;
   ghostty_platform_ios_s ios;
+  ghostty_platform_opengl_s opengl;
 } ghostty_platform_u;
 
 typedef enum {

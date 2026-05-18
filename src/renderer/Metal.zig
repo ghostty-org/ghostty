@@ -99,6 +99,10 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Metal {
             .view = switch (opts.rt_surface.platform) {
                 .macos => |v| v.nsview,
                 .ios => |v| v.uiview,
+
+                // The OpenGL platform is only valid with the OpenGL
+                // renderer; it cannot provide a view for Metal.
+                .opengl => return error.UnsupportedPlatform,
             },
         },
 

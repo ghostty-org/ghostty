@@ -344,6 +344,7 @@ pub const App = struct {
 pub const Platform = union(PlatformTag) {
     macos: MacOS,
     ios: IOS,
+    opengl: OpenGL,
 
     // If our build target for libghostty is not darwin then we do
     // not include macos support at all.
@@ -357,6 +358,32 @@ pub const Platform = union(PlatformTag) {
         uiview: objc.Object,
     } else void;
 
+    /// Configuration for a host that provides its own OpenGL context
+    /// (e.g. a Qt, X11, or Wayland application embedding libghostty).
+    ///
+    /// Ghostty's renderer thread drives the context via these callbacks,
+    /// so they must be safe to call from a thread other than the one
+    /// that created the context.
+    pub const OpenGL = struct {
+        /// Userdata passed as the first argument to every callback.
+        userdata: ?*anyopaque,
+
+        /// Resolve the address of an OpenGL function by name.
+        get_proc_address: *const fn (
+            ?*anyopaque,
+            [*:0]const u8,
+        ) callconv(.c) ?*anyopaque,
+
+        /// Make the host's OpenGL context current on the calling thread.
+        make_current: *const fn (?*anyopaque) callconv(.c) void,
+
+        /// Release the host's OpenGL context from the calling thread.
+        release_current: *const fn (?*anyopaque) callconv(.c) void,
+
+        /// Present the most recently rendered frame (e.g. swap buffers).
+        present: *const fn (?*anyopaque) callconv(.c) void,
+    };
+
     // The C ABI compatible version of this union. The tag is expected
     // to be stored elsewhere.
     pub const C = extern union {
@@ -366,6 +393,17 @@ pub const Platform = union(PlatformTag) {
 
         ios: extern struct {
             uiview: ?*anyopaque,
+        },
+
+        opengl: extern struct {
+            userdata: ?*anyopaque,
+            get_proc_address: ?*const fn (
+                ?*anyopaque,
+                [*:0]const u8,
+            ) callconv(.c) ?*anyopaque,
+            make_current: ?*const fn (?*anyopaque) callconv(.c) void,
+            release_current: ?*const fn (?*anyopaque) callconv(.c) void,
+            present: ?*const fn (?*anyopaque) callconv(.c) void,
         },
     };
 
@@ -386,6 +424,21 @@ pub const Platform = union(PlatformTag) {
                     break :ios error.UIViewMustBeSet);
                 break :ios .{ .ios = .{ .uiview = uiview } };
             } else error.UnsupportedPlatform,
+
+            .opengl => opengl: {
+                const config = c_platform.opengl;
+                break :opengl .{ .opengl = .{
+                    .userdata = config.userdata,
+                    .get_proc_address = config.get_proc_address orelse
+                        break :opengl error.GetProcAddressMustBeSet,
+                    .make_current = config.make_current orelse
+                        break :opengl error.MakeCurrentMustBeSet,
+                    .release_current = config.release_current orelse
+                        break :opengl error.ReleaseCurrentMustBeSet,
+                    .present = config.present orelse
+                        break :opengl error.PresentMustBeSet,
+                } };
+            },
         };
     }
 };
@@ -396,6 +449,7 @@ pub const PlatformTag = enum(c_int) {
 
     macos = 1,
     ios = 2,
+    opengl = 3,
 };
 
 pub const EnvVar = extern struct {

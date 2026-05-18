@@ -158,6 +158,26 @@ fn prepareContext(getProcAddress: anytype) !void {
     try gl.enable(gl.c.GL_FRAMEBUFFER_SRGB);
 }
 
+/// Host-provided OpenGL callbacks for the embedded apprt.
+///
+/// The renderer thread owns the host's GL context exclusively: it is made
+/// current in `threadEnter`, used by `present`, and released in
+/// `threadExit` — all on the same thread. We therefore stash the callbacks
+/// thread-locally rather than threading them through `*const OpenGL`.
+///
+/// Never set for non-embedded runtimes.
+threadlocal var gl_host: ?apprt.embedded.Platform.OpenGL = null;
+
+/// Adapts the host's `get_proc_address` (which takes a userdata argument)
+/// to glad's GLFW-style loader signature (which does not). Reads the host
+/// callbacks from the thread-local `gl_host`.
+fn gladHostLoader(
+    name: [*:0]const u8,
+) callconv(.c) ?*const fn () callconv(.c) void {
+    const host = gl_host orelse return null;
+    return @ptrCast(host.get_proc_address(host.userdata, name));
+}
+
 /// This is called early right after surface creation.
 pub fn surfaceInit(surface: *apprt.Surface) !void {
     _ = surface;
@@ -169,11 +189,10 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         apprt.gtk,
         => try prepareContext(null),
 
-        apprt.embedded => {
-            // TODO(mitchellh): this does nothing today to allow libghostty
-            // to compile for OpenGL targets but libghostty is strictly
-            // broken for rendering on this platforms.
-        },
+        // The embedded apprt with an OpenGL host defers all GL setup to
+        // the renderer thread (see `threadEnter`), which owns the host's
+        // GL context.
+        apprt.embedded => {},
     }
 
     // These are very noisy so this is commented, but easy to uncomment
@@ -196,7 +215,6 @@ pub fn finalizeSurfaceInit(self: *const OpenGL, surface: *apprt.Surface) !void {
 /// Callback called by renderer.Thread when it begins.
 pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
     _ = self;
-    _ = surface;
 
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
@@ -208,10 +226,20 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
             // on the main thread. As such, we don't do anything here.
         },
 
-        apprt.embedded => {
-            // TODO(mitchellh): this does nothing today to allow libghostty
-            // to compile for OpenGL targets but libghostty is strictly
-            // broken for rendering on this platforms.
+        apprt.embedded => switch (surface.platform) {
+            .opengl => |host| {
+                // The host owns the GL context. Make it current on this
+                // (the renderer) thread — the host must never make it
+                // current on its own thread — then load the GL entry
+                // points via the host's loader.
+                host.make_current(host.userdata);
+                gl_host = host;
+                try prepareContext(&gladHostLoader);
+            },
+
+            // macOS and iOS use the Metal renderer; the OpenGL renderer
+            // must not be paired with those platforms.
+            .macos, .ios => return error.UnsupportedPlatform,
         },
     }
 }
@@ -229,7 +257,13 @@ pub fn threadExit(self: *const OpenGL) void {
         },
 
         apprt.embedded => {
-            // TODO: see threadEnter
+            // The renderer thread is exiting, so unload glad's
+            // thread-local context and release the host's GL context.
+            if (gl_host) |host| {
+                gl.glad.unload();
+                host.release_current(host.userdata);
+                gl_host = null;
+            }
         },
     }
 }
@@ -328,6 +362,13 @@ pub fn present(self: *OpenGL, target: Target) !void {
 
     // Keep track of this target in case we need to repeat it.
     self.last_target = target;
+
+    // Embedded OpenGL hosts own buffer presentation: the blit above only
+    // writes the default framebuffer, so ask the host to swap buffers.
+    // (GTK presents implicitly via its GLArea, so this is embedded-only.)
+    if (apprt.runtime == apprt.embedded) {
+        if (gl_host) |host| host.present(host.userdata);
+    }
 }
 
 /// Present the last presented target again.
