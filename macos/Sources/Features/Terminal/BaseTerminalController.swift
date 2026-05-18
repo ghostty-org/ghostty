@@ -30,7 +30,6 @@ class BaseTerminalController: NSWindowController,
                               NSWindowDelegate,
                               TerminalViewDelegate,
                               TerminalViewModel,
-                              ClipboardConfirmationViewDelegate,
                               FullscreenDelegate {
     /// The app instance that this terminal view will represent.
     let ghostty: Ghostty.App
@@ -63,7 +62,7 @@ class BaseTerminalController: NSWindowController,
     private var alert: NSAlert?
 
     /// The clipboard confirmation window, if shown.
-    private var clipboardConfirmation: ClipboardConfirmationController?
+    private var clipboardConfirmation: ClipboardConfirmationAlert?
 
     /// Fullscreen state management.
     private(set) var fullscreenStyle: FullscreenStyle?
@@ -1100,25 +1099,32 @@ class BaseTerminalController: NSWindowController,
         }
 
         // Show our paste confirmation
-        self.clipboardConfirmation = ClipboardConfirmationController(
+        self.clipboardConfirmation = ClipboardConfirmationAlert(
             surface: surface,
             contents: str,
             request: request,
             state: state,
-            delegate: self
         )
-        window.beginSheet(self.clipboardConfirmation!.window!)
+
+        clipboardConfirmation?.beginSheetModal(for: window) { [weak self] response in
+            switch response {
+            case .alertFirstButtonReturn:
+                self?.clipboardConfirmationComplete(.cancel, request)
+            case .alertSecondButtonReturn:
+                self?.clipboardConfirmationComplete(.confirm, request)
+            default:
+                break
+            }
+        }
     }
 
-    func clipboardConfirmationComplete(_ action: ClipboardConfirmationView.Action, _ request: Ghostty.ClipboardRequest) {
+    func clipboardConfirmationComplete(_ action: ClipboardConfirmationAlert.Action, _ request: Ghostty.ClipboardRequest) {
         // End our clipboard confirmation no matter what
         guard let cc = self.clipboardConfirmation else { return }
         self.clipboardConfirmation = nil
 
         // Close the sheet
-        if let ccWindow = cc.window {
-            window?.endSheet(ccWindow)
-        }
+        cc.window.orderOut(nil)
 
         switch request {
         case let .osc_52_write(pasteboard):
