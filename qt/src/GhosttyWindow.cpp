@@ -1,6 +1,5 @@
 #include "GhosttyWindow.h"
 
-#include <atomic>
 #include <cstdio>
 
 #include <QByteArray>
@@ -13,10 +12,6 @@
 #include <QSurfaceFormat>
 #include <QTimer>
 #include <QWheelEvent>
-
-// Count of presented frames, bumped from the renderer thread. A rising
-// value confirms the OpenGL embedded render path is producing frames.
-static std::atomic<unsigned> s_frameCount{0};
 
 GhosttyWindow::GhosttyWindow() {
   setSurfaceType(QWindow::OpenGLSurface);
@@ -31,7 +26,9 @@ GhosttyWindow::GhosttyWindow() {
   fmt.setRedBufferSize(8);
   fmt.setGreenBufferSize(8);
   fmt.setBlueBufferSize(8);
-  fmt.setAlphaBufferSize(8);
+  // No alpha: the window should be opaque, not composited against the
+  // desktop. (Background transparency would be a deliberate later opt-in.)
+  fmt.setAlphaBufferSize(0);
   setFormat(fmt);
 }
 
@@ -125,14 +122,26 @@ bool GhosttyWindow::setupEgl() {
       EGL_RED_SIZE,        8,
       EGL_GREEN_SIZE,      8,
       EGL_BLUE_SIZE,       8,
-      EGL_ALPHA_SIZE,      8,
       EGL_NONE,
   };
-  EGLConfig config = nullptr;
+  EGLConfig configs[64];
   EGLint numConfigs = 0;
-  if (!eglChooseConfig(m_eglDisplay, configAttribs, &config, 1, &numConfigs) ||
+  if (!eglChooseConfig(m_eglDisplay, configAttribs, configs, 64, &numConfigs) ||
       numConfigs < 1)
     return false;
+
+  // EGL color-size attributes are minimums, so eglChooseConfig may still
+  // return alpha-bearing configs. Pick one with no alpha channel so the
+  // window surface is opaque.
+  EGLConfig config = configs[0];
+  for (EGLint i = 0; i < numConfigs; ++i) {
+    EGLint alpha = 0;
+    eglGetConfigAttrib(m_eglDisplay, configs[i], EGL_ALPHA_SIZE, &alpha);
+    if (alpha == 0) {
+      config = configs[i];
+      break;
+    }
+  }
 
   // Ghostty's OpenGL renderer requires at least OpenGL 4.3 core.
   const EGLint contextAttribs[] = {
@@ -224,20 +233,17 @@ void GhosttyWindow::sendMouseButton(QMouseEvent *ev,
 
 void GhosttyWindow::tick() {
   if (m_app) ghostty_app_tick(m_app);
-  if (m_surface && ghostty_surface_process_exited(m_surface)) {
-    close();
-    return;
-  }
-  // Scaffold heartbeat: report presented frames roughly once a second.
-  if (++m_tickCount % 60 == 0)
-    std::fprintf(stderr, "[ghostty-qt] frames presented: %u\n",
-                 s_frameCount.load());
+  if (m_surface && ghostty_surface_process_exited(m_surface)) close();
 }
 
 // --- QWindow events --------------------------------------------------
 
 void GhosttyWindow::exposeEvent(QExposeEvent *) {
-  if (m_surface && isExposed()) ghostty_surface_refresh(m_surface);
+  if (!m_surface || !isExposed()) return;
+  // devicePixelRatio() is only reliable once the window is on a screen,
+  // so (re)sync the surface size here as well as in resizeEvent.
+  updateSize();
+  ghostty_surface_refresh(m_surface);
 }
 
 void GhosttyWindow::resizeEvent(QResizeEvent *) { updateSize(); }
@@ -304,7 +310,6 @@ void GhosttyWindow::glReleaseCurrent(void *ud) {
 void GhosttyWindow::glPresent(void *ud) {
   auto *self = static_cast<GhosttyWindow *>(ud);
   eglSwapBuffers(self->m_eglDisplay, self->m_eglSurface);
-  s_frameCount.fetch_add(1);
 }
 
 // --- libghostty runtime callbacks ------------------------------------

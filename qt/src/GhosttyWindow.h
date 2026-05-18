@@ -77,6 +77,4 @@ private:
   ghostty_config_t m_config = nullptr;
   ghostty_app_t m_app = nullptr;
   ghostty_surface_t m_surface = nullptr;
-
-  unsigned m_tickCount = 0;
 };
