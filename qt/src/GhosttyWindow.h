@@ -37,13 +37,19 @@ protected:
   void exposeEvent(QExposeEvent *) override;
   void resizeEvent(QResizeEvent *) override;
   void keyPressEvent(QKeyEvent *) override;
+  void keyReleaseEvent(QKeyEvent *) override;
+  void mousePressEvent(QMouseEvent *) override;
+  void mouseReleaseEvent(QMouseEvent *) override;
+  void mouseMoveEvent(QMouseEvent *) override;
+  void wheelEvent(QWheelEvent *) override;
   void focusInEvent(QFocusEvent *) override;
   void focusOutEvent(QFocusEvent *) override;
 
 private:
   bool setupEgl();
   void updateSize();
-  void pushText(const QString &text);
+  void sendKey(QKeyEvent *, ghostty_input_action_e action);
+  void sendMouseButton(QMouseEvent *, ghostty_input_mouse_state_e state);
 
   // --- GL context callbacks (run on libghostty's renderer thread) ---
   static void *glGetProcAddress(void *ud, const char *name);

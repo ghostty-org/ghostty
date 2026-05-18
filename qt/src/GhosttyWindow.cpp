@@ -7,10 +7,12 @@
 #include <QExposeEvent>
 #include <QFocusEvent>
 #include <QKeyEvent>
+#include <QMouseEvent>
 #include <QResizeEvent>
 #include <QString>
 #include <QSurfaceFormat>
 #include <QTimer>
+#include <QWheelEvent>
 
 // Count of presented frames, bumped from the renderer thread. A rising
 // value confirms the OpenGL embedded render path is producing frames.
@@ -162,11 +164,62 @@ void GhosttyWindow::updateSize() {
                              static_cast<uint32_t>(h));
 }
 
-void GhosttyWindow::pushText(const QString &text) {
-  if (!m_surface || text.isEmpty()) return;
-  const QByteArray utf8 = text.toUtf8();
-  ghostty_surface_text(m_surface, utf8.constData(),
-                       static_cast<uintptr_t>(utf8.size()));
+// Translate Qt keyboard modifiers into libghostty's modifier bitfield.
+static ghostty_input_mods_e translateMods(Qt::KeyboardModifiers m) {
+  int r = GHOSTTY_MODS_NONE;
+  if (m & Qt::ShiftModifier) r |= GHOSTTY_MODS_SHIFT;
+  if (m & Qt::ControlModifier) r |= GHOSTTY_MODS_CTRL;
+  if (m & Qt::AltModifier) r |= GHOSTTY_MODS_ALT;
+  if (m & Qt::MetaModifier) r |= GHOSTTY_MODS_SUPER;
+  return static_cast<ghostty_input_mods_e>(r);
+}
+
+void GhosttyWindow::sendKey(QKeyEvent *ev, ghostty_input_action_e action) {
+  if (!m_surface) return;
+
+  // Forward committed text only for printable input; control characters
+  // and special keys (Enter, Tab, arrows, Ctrl+letter, ...) are encoded
+  // by libghostty from the physical keycode + modifiers.
+  const QByteArray text = ev->text().toUtf8();
+  const bool printable =
+      !text.isEmpty() &&
+      static_cast<unsigned char>(text.front()) >= 0x20 &&
+      static_cast<unsigned char>(text.front()) != 0x7f;
+
+  // Unshifted codepoint, used for keybind matching (letters and digits).
+  uint32_t unshifted = 0;
+  const int key = ev->key();
+  if (key >= Qt::Key_A && key <= Qt::Key_Z)
+    unshifted = static_cast<uint32_t>('a' + (key - Qt::Key_A));
+  else if (key >= Qt::Key_0 && key <= Qt::Key_9)
+    unshifted = static_cast<uint32_t>('0' + (key - Qt::Key_0));
+
+  ghostty_input_key_s k = {};
+  k.action = action;
+  k.mods = translateMods(ev->modifiers());
+  k.consumed_mods = GHOSTTY_MODS_NONE;
+  // On the xcb platform nativeScanCode() is the X11/XKB keycode, which
+  // is exactly what libghostty expects as the native keycode on Linux.
+  k.keycode = ev->nativeScanCode();
+  k.text = printable ? text.constData() : nullptr;
+  k.unshifted_codepoint = unshifted;
+  k.composing = false;
+
+  ghostty_surface_key(m_surface, k);
+}
+
+void GhosttyWindow::sendMouseButton(QMouseEvent *ev,
+                                    ghostty_input_mouse_state_e state) {
+  if (!m_surface) return;
+  ghostty_input_mouse_button_e button;
+  switch (ev->button()) {
+    case Qt::LeftButton: button = GHOSTTY_MOUSE_LEFT; break;
+    case Qt::RightButton: button = GHOSTTY_MOUSE_RIGHT; break;
+    case Qt::MiddleButton: button = GHOSTTY_MOUSE_MIDDLE; break;
+    default: button = GHOSTTY_MOUSE_UNKNOWN; break;
+  }
+  ghostty_surface_mouse_button(m_surface, state, button,
+                               translateMods(ev->modifiers()));
 }
 
 void GhosttyWindow::tick() {
@@ -190,10 +243,36 @@ void GhosttyWindow::exposeEvent(QExposeEvent *) {
 void GhosttyWindow::resizeEvent(QResizeEvent *) { updateSize(); }
 
 void GhosttyWindow::keyPressEvent(QKeyEvent *ev) {
-  // TODO(B3): full key translation via ghostty_surface_key -- control
-  // sequences, arrows, function keys, modifiers. For the scaffold we
-  // forward committed text only, which covers typing and Enter.
-  pushText(ev->text());
+  sendKey(ev, ev->isAutoRepeat() ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS);
+}
+
+void GhosttyWindow::keyReleaseEvent(QKeyEvent *ev) {
+  // Qt synthesizes a release before each auto-repeat press; drop those.
+  if (ev->isAutoRepeat()) return;
+  sendKey(ev, GHOSTTY_ACTION_RELEASE);
+}
+
+void GhosttyWindow::mousePressEvent(QMouseEvent *ev) {
+  sendMouseButton(ev, GHOSTTY_MOUSE_PRESS);
+}
+
+void GhosttyWindow::mouseReleaseEvent(QMouseEvent *ev) {
+  sendMouseButton(ev, GHOSTTY_MOUSE_RELEASE);
+}
+
+void GhosttyWindow::mouseMoveEvent(QMouseEvent *ev) {
+  if (!m_surface) return;
+  const double dpr = devicePixelRatio();
+  ghostty_surface_mouse_pos(m_surface, ev->position().x() * dpr,
+                            ev->position().y() * dpr,
+                            translateMods(ev->modifiers()));
+}
+
+void GhosttyWindow::wheelEvent(QWheelEvent *ev) {
+  if (!m_surface) return;
+  // angleDelta is in eighths of a degree; 120 units == one wheel notch.
+  const QPoint d = ev->angleDelta();
+  ghostty_surface_mouse_scroll(m_surface, d.x() / 120.0, d.y() / 120.0, 0);
 }
 
 void GhosttyWindow::focusInEvent(QFocusEvent *) {
