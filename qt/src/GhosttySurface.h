@@ -1,18 +1,28 @@
 #pragma once
 
-#include <QOpenGLWidget>
+#include <QImage>
+#include <QWidget>
 
 #include "ghostty.h"
 
 class MainWindow;
+class QOffscreenSurface;
+class QOpenGLContext;
+class QOpenGLFramebufferObject;
+class QOpenGLShaderProgram;
+class QOpenGLVertexArrayObject;
 
-// One Ghostty terminal surface, rendered with a QOpenGLWidget.
+// One Ghostty terminal pane.
 //
-// libghostty draws on the GUI thread — the embedded apprt sets
-// must_draw_from_app_thread for the OpenGL renderer — so rendering is
-// driven straight from paintGL. Qt owns the GL context and composites
-// the widget, which works identically on X11 and Wayland.
-class GhosttySurface : public QOpenGLWidget {
+// libghostty's OpenGL renderer draws the terminal into an offscreen
+// framebuffer owned by a private QOpenGLContext (there is no on-screen
+// GL surface). Each frame is read back into a QImage and painted with
+// QPainter. That keeps this an ordinary translucent QWidget, so it
+// embeds in the QTabWidget / QSplitter tree and its transparent
+// background composites to the desktop exactly like the rest of the
+// widget chrome — avoiding QOpenGLWidget (composites opaque on Wayland)
+// and an embedded QOpenGLWindow (does not present when embedded).
+class GhosttySurface : public QWidget {
   Q_OBJECT
 
 public:
@@ -25,10 +35,13 @@ public:
   ghostty_surface_t surface() const { return m_surface; }
   MainWindow *owner() const { return m_owner; }
 
+public slots:
+  // Render a fresh frame (the libghostty RENDER action).
+  void requestRender();
+
 protected:
-  void initializeGL() override;
-  void paintGL() override;
-  void resizeGL(int w, int h) override;
+  void paintEvent(QPaintEvent *) override;
+  void resizeEvent(QResizeEvent *) override;
 
   void keyPressEvent(QKeyEvent *) override;
   void keyReleaseEvent(QKeyEvent *) override;
@@ -40,9 +53,15 @@ protected:
   void focusOutEvent(QFocusEvent *) override;
 
 private:
-  void syncSize();
+  bool makeCurrent();
+  void renderTerminal();
   void sendKey(QKeyEvent *, ghostty_input_action_e action);
   void sendMouseButton(QMouseEvent *, ghostty_input_mouse_state_e state);
+
+  // Premultiply the framebuffer's alpha; only used when a custom shader
+  // is configured (see GhosttySurface.cpp).
+  void initPremultiply();
+  void premultiplyFramebuffer();
 
   // libghostty GL platform callbacks (all run on the GUI thread).
   static void *glGetProcAddress(void *ud, const char *name);
@@ -55,7 +74,16 @@ private:
   ghostty_surface_t m_parentSurface;   // inherited-config source; may be null
   ghostty_surface_t m_surface = nullptr;
 
-  // Last framebuffer size pushed to libghostty, to skip redundant work.
-  int m_lastW = 0;
-  int m_lastH = 0;
+  // Private offscreen GL context libghostty renders into.
+  QOpenGLContext *m_context = nullptr;
+  QOffscreenSurface *m_offscreen = nullptr;
+  QOpenGLFramebufferObject *m_fbo = nullptr;
+  QImage m_image;                      // last frame, read back from m_fbo
+
+  // GL objects for the alpha-premultiply pass.
+  QOpenGLShaderProgram *m_premultProg = nullptr;
+  QOpenGLVertexArrayObject *m_premultVao = nullptr;
+
+  int m_fbw = 0;                       // framebuffer size, device pixels
+  int m_fbh = 0;
 };

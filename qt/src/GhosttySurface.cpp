@@ -1,14 +1,24 @@
 #include "GhosttySurface.h"
 
+#include "MainWindow.h"
+
+#include <algorithm>
 #include <cstdio>
 
 #include <QByteArray>
 #include <QFocusEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QOffscreenSurface>
 #include <QOpenGLContext>
+#include <QOpenGLFramebufferObject>
 #include <QOpenGLFunctions>
+#include <QOpenGLShaderProgram>
+#include <QOpenGLVertexArrayObject>
+#include <QPainter>
+#include <QResizeEvent>
 #include <QString>
+#include <QSurfaceFormat>
 #include <QWheelEvent>
 
 GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
@@ -16,29 +26,34 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
     : m_app(app), m_owner(owner), m_parentSurface(parent_surface) {
   setFocusPolicy(Qt::StrongFocus);
   setMouseTracking(true);  // deliver motion events for hover/link detection
-  // Composite the framebuffer's alpha (libghostty bakes background-opacity
-  // into it) instead of painting the widget opaque. WA_TranslucentBackground
-  // also sets WA_NoSystemBackground; a QOpenGLWidget needs the latter
-  // cleared for its framebuffer alpha to reach the window.
+  // The widget paints a per-pixel-alpha QImage of the terminal; a
+  // translucent background lets that alpha reach the desktop.
   setAttribute(Qt::WA_TranslucentBackground);
-  setAttribute(Qt::WA_NoSystemBackground, false);
-}
 
-GhosttySurface::~GhosttySurface() {
-  if (m_surface) {
-    // The renderer releases GL objects during teardown, so do it with
-    // our context current.
-    makeCurrent();
-    ghostty_surface_free(m_surface);
-    doneCurrent();
+  // A private OpenGL context for libghostty's renderer. It is never made
+  // current on a window — rendering goes to an offscreen framebuffer —
+  // so an unparented QOffscreenSurface is enough to satisfy makeCurrent.
+  m_context = new QOpenGLContext(this);
+  m_context->setFormat(QSurfaceFormat::defaultFormat());
+  if (!m_context->create()) {
+    std::fprintf(stderr, "[ghostty-qt] GL context creation failed\n");
+    return;
   }
-}
+  m_offscreen = new QOffscreenSurface(nullptr, this);
+  m_offscreen->setFormat(m_context->format());
+  m_offscreen->create();
 
-// --- QOpenGLWidget --------------------------------------------------
+  if (!makeCurrent()) {
+    std::fprintf(stderr, "[ghostty-qt] makeCurrent failed\n");
+    return;
+  }
 
-void GhosttySurface::initializeGL() {
-  // The context is current. Create the libghostty surface now so the
-  // renderer's GL objects are created in this widget's context.
+  // A placeholder framebuffer; resizeEvent installs the real size.
+  QOpenGLFramebufferObjectFormat fmt;
+  fmt.setInternalTextureFormat(GL_RGBA8);
+  m_fbw = m_fbh = 16;
+  m_fbo = new QOpenGLFramebufferObject(QSize(m_fbw, m_fbh), fmt);
+
   ghostty_surface_config_s sc =
       m_parentSurface
           ? ghostty_surface_inherited_config(m_parentSurface,
@@ -58,45 +73,143 @@ void GhosttySurface::initializeGL() {
     std::fprintf(stderr, "[ghostty-qt] ghostty_surface_new failed\n");
     return;
   }
-  ghostty_surface_set_focus(m_surface, hasFocus());
+
+  if (m_owner->needsPremultiply()) initPremultiply();
 }
 
-void GhosttySurface::paintGL() {
-  // libghostty renders into the framebuffer QOpenGLWidget has bound.
+GhosttySurface::~GhosttySurface() {
+  // Release GL-owning objects with the context current.
+  if (makeCurrent()) {
+    if (m_surface) ghostty_surface_free(m_surface);
+    delete m_fbo;
+    delete m_premultProg;
+    delete m_premultVao;
+    m_context->doneCurrent();
+  }
+}
+
+bool GhosttySurface::makeCurrent() {
+  return m_context && m_offscreen && m_offscreen->isValid() &&
+         m_context->makeCurrent(m_offscreen);
+}
+
+// --- rendering ------------------------------------------------------
+
+void GhosttySurface::resizeEvent(QResizeEvent *) {
   if (!m_surface) return;
-  syncSize();
-  ghostty_surface_draw(m_surface);
+
+  // Render at the display's device-pixel resolution. devicePixelRatioF()
+  // is the true (possibly fractional) scale because main() selects the
+  // PassThrough rounding policy.
+  const double dpr = devicePixelRatioF();
+  const int w = std::max(1, static_cast<int>(width() * dpr));
+  const int h = std::max(1, static_cast<int>(height() * dpr));
+  if (w == m_fbw && h == m_fbh) return;
+  m_fbw = w;
+  m_fbh = h;
+
+  if (!makeCurrent()) return;
+  delete m_fbo;
+  QOpenGLFramebufferObjectFormat fmt;
+  fmt.setInternalTextureFormat(GL_RGBA8);
+  m_fbo = new QOpenGLFramebufferObject(QSize(w, h), fmt);
+
+  ghostty_surface_set_content_scale(m_surface, dpr, dpr);
+  ghostty_surface_set_size(m_surface, static_cast<uint32_t>(w),
+                           static_cast<uint32_t>(h));
+  renderTerminal();
 }
 
-void GhosttySurface::resizeGL(int, int) {
-  // The framebuffer was resized; request a repaint. paintGL reads the
-  // GL viewport, which is the authoritative framebuffer size.
+void GhosttySurface::requestRender() { renderTerminal(); }
+
+void GhosttySurface::renderTerminal() {
+  if (!m_surface || !m_fbo || !makeCurrent()) return;
+
+  // libghostty renders into its own target and blits the result to the
+  // currently bound framebuffer — bind ours so we get the final image.
+  m_fbo->bind();
+  m_context->functions()->glViewport(0, 0, m_fbw, m_fbh);
+  ghostty_surface_draw(m_surface);
+  premultiplyFramebuffer();
+
+  // Read the frame back as a premultiplied, top-down QImage. paintEvent
+  // scales it to the widget, so its device pixel ratio is irrelevant.
+  m_image = m_fbo->toImage();
+  m_fbo->release();
+
   update();
 }
 
-void GhosttySurface::syncSize() {
-  if (!m_surface) return;
+void GhosttySurface::paintEvent(QPaintEvent *) {
+  if (m_image.isNull()) return;
+  QPainter painter(this);
+  // Scale the framebuffer image to fill the widget. The QRect overload
+  // is required: drawImage(0, 0, img) would select the int-coordinate
+  // overload, which blits at raw pixel size and ignores both the
+  // widget's logical size and the device pixel ratio (a 2x zoom on a
+  // HiDPI display).
+  painter.setRenderHint(QPainter::SmoothPixmapTransform);
+  // Replace the (transparent) widget pixels with the terminal image,
+  // alpha included, so the background's translucency is preserved.
+  painter.setCompositionMode(QPainter::CompositionMode_Source);
+  painter.drawImage(rect(), m_image);
+}
 
-  // QOpenGLWidget sets the GL viewport to its framebuffer's true size
-  // before paintGL. That is the size libghostty must render into — it
-  // is NOT width() * devicePixelRatio(): on a fractional-scale Wayland
-  // output the framebuffer uses the fractional scale, while
-  // devicePixelRatio() reports a rounded-up integer.
-  int vp[4] = {0, 0, 0, 0};
-  QOpenGLContext::currentContext()->functions()->glGetIntegerv(0x0BA2, vp);
-  const int fbw = vp[2], fbh = vp[3];
-  if (fbw <= 0 || fbh <= 0) return;
-  if (fbw == m_lastW && fbh == m_lastH) return;
-  m_lastW = fbw;
-  m_lastH = fbh;
+// libghostty's renderer outputs premultiplied alpha — except a custom
+// shader runs as a final Shadertoy-style pass and those conventionally
+// emit *straight* alpha (RGB not scaled by alpha). QPainter and the
+// compositor expect premultiplied, so a straight framebuffer renders the
+// terminal color at full strength and reads as opaque. Fix it by
+// premultiplying the framebuffer in place before reading it back.
+//
+// This runs only when a custom shader is configured: without one the
+// renderer's output is already premultiplied and a second pass would
+// wrongly darken the background.
+void GhosttySurface::initPremultiply() {
+  m_premultVao = new QOpenGLVertexArrayObject(this);
+  m_premultVao->create();
 
-  // Content scale is the framebuffer-to-logical ratio (the real
-  // display scale), so libghostty sizes the font correctly.
-  const double sx = width() > 0 ? static_cast<double>(fbw) / width() : 1.0;
-  const double sy = height() > 0 ? static_cast<double>(fbh) / height() : 1.0;
-  ghostty_surface_set_content_scale(m_surface, sx, sy);
-  ghostty_surface_set_size(m_surface, static_cast<uint32_t>(fbw),
-                           static_cast<uint32_t>(fbh));
+  m_premultProg = new QOpenGLShaderProgram(this);
+  // A single oversized triangle covering the viewport; positions are
+  // derived from gl_VertexID so no vertex buffer is needed.
+  m_premultProg->addShaderFromSourceCode(QOpenGLShader::Vertex,
+                                         R"(#version 330 core
+void main() {
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+})");
+  // The fragment color is irrelevant: the blend below uses a source
+  // factor of zero, so only the destination framebuffer and its alpha
+  // matter.
+  m_premultProg->addShaderFromSourceCode(QOpenGLShader::Fragment,
+                                         R"(#version 330 core
+out vec4 fragColor;
+void main() { fragColor = vec4(1.0); }
+)");
+  m_premultProg->link();
+}
+
+void GhosttySurface::premultiplyFramebuffer() {
+  if (!m_premultProg || !m_premultProg->isLinked()) return;
+  auto *f = m_context->functions();
+
+  // result.rgb = src.rgb*0 + dst.rgb*dst.a ; alpha left untouched by the
+  // color mask. This multiplies every pixel's RGB by its own alpha.
+  f->glViewport(0, 0, m_fbw, m_fbh);
+  f->glDisable(GL_SCISSOR_TEST);
+  f->glDisable(GL_DEPTH_TEST);
+  f->glEnable(GL_BLEND);
+  f->glBlendFuncSeparate(GL_ZERO, GL_DST_ALPHA, GL_ZERO, GL_ONE);
+  f->glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+
+  m_premultVao->bind();
+  m_premultProg->bind();
+  f->glDrawArrays(GL_TRIANGLES, 0, 3);
+  m_premultProg->release();
+  m_premultVao->release();
+
+  f->glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+  f->glDisable(GL_BLEND);
 }
 
 // --- input ----------------------------------------------------------
@@ -214,9 +327,9 @@ void GhosttySurface::glMakeCurrent(void *ud) {
 }
 
 void GhosttySurface::glReleaseCurrent(void *) {
-  // No-op: QOpenGLWidget manages context currency around paintGL.
+  // No-op: renderTerminal makes the context current around each frame.
 }
 
 void GhosttySurface::glPresent(void *) {
-  // No-op: Qt composites the widget's framebuffer and swaps the window.
+  // No-op: the frame is read back from the framebuffer, not swapped.
 }

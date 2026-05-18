@@ -39,6 +39,11 @@ public:
   // Update the tab label and window title for `surface`.
   void setSurfaceTitle(GhosttySurface *surface, const QString &title);
 
+  // Whether a custom shader is configured. With one, libghostty's final
+  // framebuffer is non-premultiplied and surfaces must premultiply it
+  // before Qt composites (see GhosttySurface::premultiplyFramebuffer).
+  bool needsPremultiply() const { return m_needsPremultiply; }
+
 public slots:
   void tick();
 
@@ -74,4 +79,5 @@ private:
   ghostty_app_t m_app = nullptr;
   QTabWidget *m_tabs = nullptr;
   QList<GhosttySurface *> m_surfaces;  // every live surface
+  bool m_needsPremultiply = false;     // a custom shader is configured
 };

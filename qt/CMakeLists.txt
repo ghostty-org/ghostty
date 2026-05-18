@@ -2,10 +2,13 @@ cmake_minimum_required(VERSION 3.16)
 project(ghostty-qt LANGUAGES CXX)
 
 # A Qt6 frontend for Ghostty that embeds libghostty through the
-# GHOSTTY_PLATFORM_OPENGL C API. Each terminal is a QOpenGLWidget;
-# libghostty draws on the GUI thread (the embedded apprt sets
-# must_draw_from_app_thread for the OpenGL renderer) and Qt composites
-# the widgets, so this runs natively on both Wayland and X11.
+# GHOSTTY_PLATFORM_OPENGL C API. libghostty's OpenGL renderer draws each
+# terminal into an offscreen framebuffer (a private QOpenGLContext); the
+# frame is read back into a QImage and painted on an ordinary translucent
+# QWidget. That keeps the terminal a plain widget — it embeds in the
+# tab/split tree and its transparent background composites like any other
+# widget. libghostty draws on the GUI thread (the embedded apprt sets
+# must_draw_from_app_thread for the OpenGL renderer).
 #
 # Build libghostty first, from the repo root:
 #
@@ -20,7 +23,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Gui Widgets OpenGLWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Gui Widgets OpenGL)
 
 # libghostty is built out-of-tree by Zig.
 get_filename_component(GHOSTTY_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
@@ -49,7 +52,7 @@ target_include_directories(ghostty-qt PRIVATE "${GHOSTTY_ROOT}/include")
 target_link_libraries(ghostty-qt PRIVATE
   Qt6::Gui
   Qt6::Widgets
-  Qt6::OpenGLWidgets
+  Qt6::OpenGL
   "${GHOSTTY_LIB_DIR}/libghostty.so"
 )
 

@@ -6,6 +6,8 @@
 
 #include <QByteArray>
 #include <QClipboard>
+#include <QDir>
+#include <QFile>
 #include <QGuiApplication>
 #include <QList>
 #include <QPoint>
@@ -58,6 +60,26 @@ MainWindow::~MainWindow() {
   if (m_config) ghostty_config_free(m_config);
 }
 
+// Whether the Ghostty config enables a custom shader. libghostty does
+// not expose this through ghostty_config_get (`custom-shader` is a
+// repeatable path), so scan the primary config file directly.
+static bool configHasCustomShader() {
+  QString dir = qEnvironmentVariable("XDG_CONFIG_HOME");
+  if (dir.isEmpty()) dir = QDir::homePath() + QStringLiteral("/.config");
+
+  QFile f(dir + QStringLiteral("/ghostty/config"));
+  if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
+
+  while (!f.atEnd()) {
+    const QByteArray line = f.readLine().trimmed();
+    if (!line.startsWith("custom-shader")) continue;
+    // Require a non-empty value: `custom-shader =` alone clears it.
+    const int eq = line.indexOf('=');
+    if (eq >= 0 && !line.mid(eq + 1).trimmed().isEmpty()) return true;
+  }
+  return false;
+}
+
 bool MainWindow::initialize() {
   // Load configuration in the same order as the reference apprt.
   m_config = ghostty_config_new();
@@ -65,6 +87,8 @@ bool MainWindow::initialize() {
   ghostty_config_load_cli_args(m_config);
   ghostty_config_load_recursive_files(m_config);
   ghostty_config_finalize(m_config);
+
+  m_needsPremultiply = configHasCustomShader();
 
   ghostty_runtime_config_s rt = {};
   rt.userdata = this;
@@ -368,9 +392,9 @@ bool MainWindow::onAction(ghostty_app_t app, ghostty_target_s target,
   // work is marshalled onto the GUI thread.
   switch (action.tag) {
     case GHOSTTY_ACTION_RENDER:
-      // libghostty wants a redraw; QOpenGLWidget::update schedules it.
+      // libghostty wants a redraw; schedule one on the terminal window.
       if (src)
-        QMetaObject::invokeMethod(src, "update", Qt::QueuedConnection);
+        QMetaObject::invokeMethod(src, "requestRender", Qt::QueuedConnection);
       return true;
 
     case GHOSTTY_ACTION_NEW_TAB:
