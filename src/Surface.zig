@@ -4016,7 +4016,7 @@ pub fn mouseButtonCallback(
         }
     }
 
-    // Middle-click action, either ignore, or paste from clipboard or paste from PRIMARY/SELECTION if supported.
+    // Middle-click action, either ignore, or paste from clipboard or paste from the selection clipboard if supported.
     if (button == .middle and action == .press) switch (self.config.middle_click_action) {
         .ignore => {},
         .@"clipboard-paste" => {
