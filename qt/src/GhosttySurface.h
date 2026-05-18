@@ -40,7 +40,7 @@ protected:
   void focusOutEvent(QFocusEvent *) override;
 
 private:
-  void updateSize();
+  void syncSize();
   void sendKey(QKeyEvent *, ghostty_input_action_e action);
   void sendMouseButton(QMouseEvent *, ghostty_input_mouse_state_e state);
 
@@ -54,4 +54,8 @@ private:
   MainWindow *m_owner;                 // not owned
   ghostty_surface_t m_parentSurface;   // inherited-config source; may be null
   ghostty_surface_t m_surface = nullptr;
+
+  // Last framebuffer size pushed to libghostty, to skip redundant work.
+  int m_lastW = 0;
+  int m_lastH = 0;
 };

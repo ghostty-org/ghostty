@@ -7,6 +7,7 @@
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QOpenGLContext>
+#include <QOpenGLFunctions>
 #include <QString>
 #include <QWheelEvent>
 
@@ -51,26 +52,45 @@ void GhosttySurface::initializeGL() {
     std::fprintf(stderr, "[ghostty-qt] ghostty_surface_new failed\n");
     return;
   }
-  updateSize();
   ghostty_surface_set_focus(m_surface, hasFocus());
 }
 
 void GhosttySurface::paintGL() {
   // libghostty renders into the framebuffer QOpenGLWidget has bound.
-  if (m_surface) ghostty_surface_draw(m_surface);
+  if (!m_surface) return;
+  syncSize();
+  ghostty_surface_draw(m_surface);
 }
 
-void GhosttySurface::resizeGL(int, int) { updateSize(); }
+void GhosttySurface::resizeGL(int, int) {
+  // The framebuffer was resized; request a repaint. paintGL reads the
+  // GL viewport, which is the authoritative framebuffer size.
+  update();
+}
 
-void GhosttySurface::updateSize() {
+void GhosttySurface::syncSize() {
   if (!m_surface) return;
-  const double dpr = devicePixelRatioF();
-  const int w = static_cast<int>(width() * dpr);
-  const int h = static_cast<int>(height() * dpr);
-  ghostty_surface_set_content_scale(m_surface, dpr, dpr);
-  if (w > 0 && h > 0)
-    ghostty_surface_set_size(m_surface, static_cast<uint32_t>(w),
-                             static_cast<uint32_t>(h));
+
+  // QOpenGLWidget sets the GL viewport to its framebuffer's true size
+  // before paintGL. That is the size libghostty must render into — it
+  // is NOT width() * devicePixelRatio(): on a fractional-scale Wayland
+  // output the framebuffer uses the fractional scale, while
+  // devicePixelRatio() reports a rounded-up integer.
+  int vp[4] = {0, 0, 0, 0};
+  QOpenGLContext::currentContext()->functions()->glGetIntegerv(0x0BA2, vp);
+  const int fbw = vp[2], fbh = vp[3];
+  if (fbw <= 0 || fbh <= 0) return;
+  if (fbw == m_lastW && fbh == m_lastH) return;
+  m_lastW = fbw;
+  m_lastH = fbh;
+
+  // Content scale is the framebuffer-to-logical ratio (the real
+  // display scale), so libghostty sizes the font correctly.
+  const double sx = width() > 0 ? static_cast<double>(fbw) / width() : 1.0;
+  const double sy = height() > 0 ? static_cast<double>(fbh) / height() : 1.0;
+  ghostty_surface_set_content_scale(m_surface, sx, sy);
+  ghostty_surface_set_size(m_surface, static_cast<uint32_t>(fbw),
+                           static_cast<uint32_t>(fbh));
 }
 
 // --- input ----------------------------------------------------------

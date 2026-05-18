@@ -12,6 +12,12 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  // Use the display's true fractional scale rather than rounding it up
+  // (Wayland otherwise reports e.g. 2.0 for a 1.2x display, which scales
+  // the terminal up).
+  QGuiApplication::setHighDpiScaleFactorRoundingPolicy(
+      Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
+
   // Multiple QOpenGLWidgets compose reliably with a shared GL context.
   QApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
 
