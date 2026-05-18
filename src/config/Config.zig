@@ -95,6 +95,11 @@ pub const compatibility = std.StaticStringMap(
     // Ghostty 1.3 rename the "window" option to "new-window".
     // See: https://github.com/ghostty-org/ghostty/pull/9764
     .{ "macos-dock-drop-behavior", compatMacOSDockDropBehavior },
+
+    // Ghostty 1.4 Update "copy-on-select", allow copying to PRIMARY/SELECTION
+    // (On supported operating systems), CLIPBOARD, or both.
+    // See: https://github.com/ghostty-org/ghostty/pull/12604
+    .{ "copy-on-select", compatCopyOnSelect },
 });
 
 /// Set Ghostty's graphical user interface language to a language other than the
@@ -2411,8 +2416,8 @@ keybind: Keybinds = .{},
 ///
 /// The default value is true on Linux and false otherwise
 @"copy-on-select": CopyOnSelect = switch (builtin.os.tag) {
-    .linux => .true,
-    else => .false,
+    .linux => .primary,
+    else => .none,
 },
 
 /// The action to take when the user right-clicks on the terminal surface.
@@ -4870,6 +4875,28 @@ fn compatMacOSDockDropBehavior(
 
     if (std.mem.eql(u8, value orelse "", "window")) {
         self.@"macos-dock-drop-behavior" = .@"new-window";
+        return true;
+    }
+
+    return false;
+}
+
+fn compatCopyOnSelect(
+    self: *Config,
+    alloc: Allocator,
+    key: []const u8,
+    value: ?[]const u8,
+) bool {
+    _ = alloc;
+    assert(std.mem.eql(u8, key, "copy-on-select"));
+
+    if (std.mem.eql(u8, value orelse "", "true")) {
+        self.@"copy-on-select" = .primary;
+        return true;
+    }
+
+    if (std.mem.eql(u8, value orelse "", "false")) {
+        self.@"copy-on-select" = .none;
         return true;
     }
 
@@ -8632,12 +8659,10 @@ pub const RepeatableLink = struct {
 /// Options for copy on select behavior.
 pub const CopyOnSelect = enum {
     /// Disables copy on select entirely.
-    false,
     none,
 
     /// Copy on select is enabled, but goes to the selection clipboard.
     /// This is not supported on platforms such as macOS. This is the default.
-    true,
     primary,
 
     /// Copy on select is enabled and goes to both the system clipboard

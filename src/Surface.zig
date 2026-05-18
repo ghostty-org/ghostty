@@ -2335,7 +2335,7 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
     try self.io.terminal.screens.active.select(sel_);
 
     // If copy on select is false then exit early.
-    if (self.config.copy_on_select == .false or self.config.copy_on_select == .none) return;
+    if (self.config.copy_on_select == .none) return;
 
     // Set our selection clipboard. If the selection is cleared we do not
     // clear the clipboard. If the selection is set, we only set the clipboard
@@ -2345,7 +2345,7 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
     if (prev_) |prev| if (sel.eql(prev)) return;
 
     switch (self.config.copy_on_select) {
-        .false, .none => unreachable, // handled above with an early exit
+        .none => unreachable, // handled above with an early exit
 
         // Both PRIMARY and CLIPBOARD are set.
         .both => try self.copySelectionToClipboards(
@@ -2362,7 +2362,7 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
         ),
 
         // The PRIMARY clipboard is set if supported, otherwise nothing is copied.
-        .true, .primary => try self.copySelectionToClipboards(
+        .primary => try self.copySelectionToClipboards(
             sel,
             &.{.selection},
             .mixed,
@@ -3810,7 +3810,7 @@ pub fn mouseButtonCallback(
         // The selection clipboard is only updated for left-click drag when
         // the left button is released. This is to avoid the clipboard
         // being updated on every mouse move which would be noisy.
-        if (self.config.copy_on_select != .false) {
+        if (self.config.copy_on_select != .none) {
             self.renderer_state.mutex.lock();
             defer self.renderer_state.mutex.unlock();
             const prev_ = self.io.terminal.screens.active.selection;
