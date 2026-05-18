@@ -34,12 +34,15 @@ GhosttySurface::~GhosttySurface() {
   // threadExit -> glReleaseCurrent before this returns.
   if (m_surface) ghostty_surface_free(m_surface);
 
+  // Destroy this surface's own EGL objects, but NOT the EGLDisplay: it
+  // is the process-wide default display shared by every surface, so
+  // calling eglTerminate here would invalidate the other surfaces'
+  // contexts. The display is released when the process exits.
   if (m_eglDisplay != EGL_NO_DISPLAY) {
     if (m_eglSurface != EGL_NO_SURFACE)
       eglDestroySurface(m_eglDisplay, m_eglSurface);
     if (m_eglContext != EGL_NO_CONTEXT)
       eglDestroyContext(m_eglDisplay, m_eglContext);
-    eglTerminate(m_eglDisplay);
   }
 }
 
