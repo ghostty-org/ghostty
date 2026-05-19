@@ -13,7 +13,7 @@ class QCloseEvent;
 class QMediaPlayer;
 class QShowEvent;
 class QSplitter;
-class QTabWidget;
+class TabWidget;
 class QTimer;
 class CommandPalette;
 class GhosttySurface;
@@ -95,6 +95,10 @@ private:
   void frame();
 
   void closeTab(int index);
+  // Tear tab `index` out into a new window (tabTornOff signal).
+  void detachTab(int index);
+  // Move `page` (a tab and its surfaces) from `src` into this window.
+  void adoptTab(MainWindow *src, QWidget *page);
   GhosttySurface *surfaceAt(int index) const;
   int tabIndexForSurface(GhosttySurface *surface) const;
   QList<GhosttySurface *> surfacesInTab(int index) const;
@@ -180,7 +184,7 @@ private:
                                bool);
   static void onCloseSurface(void *ud, bool process_active);
 
-  QTabWidget *m_tabs = nullptr;
+  TabWidget *m_tabs = nullptr;
   QList<GhosttySurface *> m_surfaces;  // every live surface in this window
   bool m_firstTabPending = true;       // first tab is created on show()
   ghostty_surface_t m_firstTabParent = nullptr;  // inherited by the 1st tab

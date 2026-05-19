@@ -8,6 +8,7 @@
 #include <QAudioOutput>
 #include <QByteArray>
 #include <QClipboard>
+#include <QCursor>
 #include <QCloseEvent>
 #include <QDBusConnection>
 #include <QDBusMessage>
@@ -39,6 +40,7 @@
 
 #include "CommandPalette.h"
 #include "GhosttySurface.h"
+#include "TabWidget.h"
 #include "WindowBlur.h"
 
 // Prefix marking a tab with an unacknowledged bell (bell-features title).
@@ -59,7 +61,7 @@ MainWindow::MainWindow() {
   // Let a translucent terminal background show through to the desktop.
   setAttribute(Qt::WA_TranslucentBackground);
 
-  m_tabs = new QTabWidget(this);
+  m_tabs = new TabWidget(this);
   m_tabs->setTabsClosable(true);
   m_tabs->setMovable(true);
   m_tabs->setDocumentMode(true);
@@ -85,6 +87,7 @@ MainWindow::MainWindow() {
           &MainWindow::onTabCloseRequested);
   connect(m_tabs, &QTabWidget::currentChanged, this,
           &MainWindow::onCurrentChanged);
+  connect(m_tabs, &TabWidget::tabTornOff, this, &MainWindow::detachTab);
 }
 
 MainWindow::~MainWindow() {
@@ -424,6 +427,48 @@ void MainWindow::closeTab(int index) {
     m_skipCloseConfirm = true;
     close();
   }
+}
+
+void MainWindow::adoptTab(MainWindow *src, QWidget *page) {
+  const int srcIndex = src->m_tabs->indexOf(page);
+  if (srcIndex < 0 || src == this) return;
+
+  // Re-home every surface in the tab — the libghostty surfaces are
+  // unaffected (the app is shared), only the owning window changes.
+  for (GhosttySurface *s : page->findChildren<GhosttySurface *>()) {
+    src->m_surfaces.removeOne(s);
+    if (!m_surfaces.contains(s)) m_surfaces.append(s);
+    s->setOwner(this);
+  }
+
+  const QString text = src->m_tabs->tabText(srcIndex);
+  const QVariant data = src->m_tabs->tabBar()->tabData(srcIndex);
+  src->m_tabs->removeTab(srcIndex);          // page is now parentless
+  const int index = m_tabs->addTab(page, text);  // reparents page here
+  m_tabs->tabBar()->setTabData(index, data);
+  m_tabs->setCurrentIndex(index);
+
+  if (src->m_tabs->count() == 0) {
+    src->m_skipCloseConfirm = true;
+    src->close();
+  }
+}
+
+void MainWindow::detachTab(int index) {
+  QWidget *page = m_tabs->widget(index);
+  if (!page || m_tabs->count() <= 1) return;  // never tear off a lone tab
+
+  auto *w = new MainWindow;
+  w->setAttribute(Qt::WA_DeleteOnClose);
+  w->m_firstTabPending = false;  // it is handed the torn-off tab instead
+  if (!w->initialize()) {
+    delete w;
+    return;
+  }
+  w->adoptTab(this, page);
+  w->resize(size());
+  w->show();
+  w->move(QCursor::pos());  // a hint; Wayland leaves placement to KWin
 }
 
 void MainWindow::setSurfaceTitle(GhosttySurface *surface,

@@ -48,6 +48,8 @@ public:
 
   ghostty_surface_t surface() const { return m_surface; }
   MainWindow *owner() const { return m_owner; }
+  // Reassign the owning window (used when a tab is torn off into one).
+  void setOwner(MainWindow *owner) { m_owner = owner; }
 
   // Show a dismissable "process exited" overlay over the terminal. The
   // surface stays open until the user dismisses it (key or click).

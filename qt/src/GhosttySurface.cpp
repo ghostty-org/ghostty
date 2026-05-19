@@ -4,6 +4,7 @@
 #include "MainWindow.h"
 #include "OverlayScrollbar.h"
 #include "SearchBar.h"
+#include "TabWidget.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -776,12 +777,23 @@ void GhosttySurface::contextMenuEvent(QContextMenuEvent *ev) {
 }
 
 void GhosttySurface::dragEnterEvent(QDragEnterEvent *ev) {
-  if (ev->mimeData()->hasUrls() || ev->mimeData()->hasText())
+  // Accept a tab tear-off drag too — not to handle it, but so Qt does
+  // not paint a "forbidden" cursor while a torn-off tab hovers the
+  // terminal. The tear-off still completes as a new window (only a tab
+  // bar's drop cancels it).
+  if (ev->mimeData()->hasUrls() || ev->mimeData()->hasText() ||
+      ev->mimeData()->hasFormat(QString::fromLatin1(kGhosttyTabMime)))
     ev->acceptProposedAction();
 }
 
 void GhosttySurface::dropEvent(QDropEvent *ev) {
   const QMimeData *mime = ev->mimeData();
+  // A tab tear-off released on the terminal: accept it cleanly and let
+  // the tear-off code turn it into a new window.
+  if (mime->hasFormat(QString::fromLatin1(kGhosttyTabMime))) {
+    ev->acceptProposedAction();
+    return;
+  }
   QString text;
   if (mime->hasUrls()) {
     // Dropped files are inserted as shell-quoted, space-separated paths.
