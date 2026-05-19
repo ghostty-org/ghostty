@@ -3,6 +3,7 @@
 #include <QApplication>
 #include <QSurfaceFormat>
 
+#include "GlobalShortcuts.h"
 #include "MainWindow.h"
 #include "ghostty.h"
 
@@ -53,6 +54,18 @@ int main(int argc, char **argv) {
     std::fprintf(stderr, "[ghostty] window initialization failed\n");
     return 1;
   }
+
+  // Register global shortcuts via the XDG portal so the quick terminal
+  // can be toggled while Ghostty is unfocused. Keys are assigned by the
+  // desktop (KDE System Settings -> Shortcuts).
+  GlobalShortcuts globalShortcuts;
+  QObject::connect(&globalShortcuts, &GlobalShortcuts::activated,
+                   [](const QString &id) {
+                     if (id == QLatin1String("toggle-quick-terminal"))
+                       MainWindow::toggleQuickTerminal();
+                     else if (id == QLatin1String("toggle-visibility"))
+                       MainWindow::toggleVisibility();
+                   });
 
   return app.exec();
 }

@@ -74,6 +74,7 @@ add_executable(ghostty
   src/main.cpp
   src/CommandPalette.cpp
   src/GhosttySurface.cpp
+  src/GlobalShortcuts.cpp
   src/MainWindow.cpp
   src/SearchBar.cpp
   src/WindowBlur.cpp
