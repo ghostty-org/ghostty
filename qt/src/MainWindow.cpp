@@ -113,6 +113,21 @@ static void postNotification(const QString &title, const QString &body) {
   QDBusConnection::sessionBus().send(msg);  // fire-and-forget
 }
 
+// Drive the taskbar progress bar via the Unity LauncherEntry D-Bus API
+// (honored by the KDE task manager), keyed to ghostty.desktop.
+static void postProgress(bool visible, double fraction) {
+  QDBusMessage msg = QDBusMessage::createSignal(
+      QStringLiteral("/com/canonical/unity/launcherentry/ghostty"),
+      QStringLiteral("com.canonical.Unity.LauncherEntry"),
+      QStringLiteral("Update"));
+  QVariantMap props;
+  props[QStringLiteral("progress")] = fraction;
+  props[QStringLiteral("progress-visible")] = visible;
+  msg.setArguments(
+      {QStringLiteral("application://ghostty.desktop"), QVariant(props)});
+  QDBusConnection::sessionBus().send(msg);
+}
+
 bool MainWindow::initialize() {
   // Load configuration in the same order as the reference apprt.
   m_config = ghostty_config_new();
@@ -834,6 +849,16 @@ bool MainWindow::onAction(ghostty_app_t app, ghostty_target_s target,
       if (action.action.renderer_health == GHOSTTY_RENDERER_HEALTH_UNHEALTHY)
         std::fprintf(stderr, "[ghostty] renderer reported unhealthy\n");
       return true;
+
+    case GHOSTTY_ACTION_PROGRESS_REPORT: {
+      const ghostty_action_progress_report_s p = action.action.progress_report;
+      const bool visible = p.state != GHOSTTY_PROGRESS_STATE_REMOVE;
+      const double fraction = p.progress >= 0 ? p.progress / 100.0 : 0.0;
+      QMetaObject::invokeMethod(
+          self, [visible, fraction]() { postProgress(visible, fraction); },
+          Qt::QueuedConnection);
+      return true;
+    }
 
     default:
       // Inspector, command palette, search, etc. are not handled yet.
