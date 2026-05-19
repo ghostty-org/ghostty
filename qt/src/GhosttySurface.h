@@ -6,7 +6,9 @@
 #include "ghostty.h"
 
 class MainWindow;
+class QContextMenuEvent;
 class QInputMethodEvent;
+class QKeySequence;
 class QLabel;
 class QOffscreenSurface;
 class QOpenGLContext;
@@ -55,6 +57,7 @@ protected:
   void mousePressEvent(QMouseEvent *) override;
   void mouseReleaseEvent(QMouseEvent *) override;
   void mouseMoveEvent(QMouseEvent *) override;
+  void contextMenuEvent(QContextMenuEvent *) override;
   void wheelEvent(QWheelEvent *) override;
   void focusInEvent(QFocusEvent *) override;
   void focusOutEvent(QFocusEvent *) override;
@@ -72,6 +75,11 @@ private:
   void sendKey(QKeyEvent *, ghostty_input_action_e action);
   void commitText(const QString &text);
   void sendMouseButton(QMouseEvent *, ghostty_input_mouse_state_e state);
+  bool rightClickOpensMenu(QMouseEvent *ev) const;
+
+  // The keybind currently bound to `action` (for context-menu hints),
+  // or an empty sequence if none / not displayable.
+  QKeySequence shortcutFor(const char *action) const;
 
   // Premultiply the framebuffer's alpha; only used when a custom shader
   // is configured (see GhosttySurface.cpp).

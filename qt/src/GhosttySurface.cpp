@@ -6,10 +6,18 @@
 #include <cstdio>
 
 #include <QByteArray>
+#include <QClipboard>
+#include <QContextMenuEvent>
 #include <QFocusEvent>
+#include <QGuiApplication>
+#include <QIcon>
+#include <QInputDialog>
 #include <QInputMethodEvent>
 #include <QKeyEvent>
+#include <QKeySequence>
 #include <QLabel>
+#include <QLineEdit>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
@@ -350,17 +358,156 @@ void GhosttySurface::keyReleaseEvent(QKeyEvent *ev) {
   sendKey(ev, GHOSTTY_ACTION_RELEASE);
 }
 
+// A right-click opens the context menu (contextMenuEvent) unless the
+// running program is capturing the mouse, in which case it gets the
+// click. Returns true if the click was for the menu and should not be
+// forwarded to the terminal.
+bool GhosttySurface::rightClickOpensMenu(QMouseEvent *ev) const {
+  return ev->button() == Qt::RightButton && m_surface &&
+         !ghostty_surface_mouse_captured(m_surface);
+}
+
 void GhosttySurface::mousePressEvent(QMouseEvent *ev) {
   if (m_exitOverlay) {
     m_owner->removeSurface(this);
     return;
   }
   setFocus();
+  if (rightClickOpensMenu(ev)) return;
   sendMouseButton(ev, GHOSTTY_MOUSE_PRESS);
 }
 
 void GhosttySurface::mouseReleaseEvent(QMouseEvent *ev) {
+  if (rightClickOpensMenu(ev)) return;
   sendMouseButton(ev, GHOSTTY_MOUSE_RELEASE);
+}
+
+// The keybind bound to `action` in the live config, as a QKeySequence
+// for a context-menu hint. Empty if unbound or not displayable.
+QKeySequence GhosttySurface::shortcutFor(const char *action) const {
+  if (!m_owner || !m_owner->config()) return {};
+  const ghostty_input_trigger_s t =
+      ghostty_config_trigger(m_owner->config(), action, qstrlen(action));
+
+  QString key;
+  switch (t.tag) {
+    case GHOSTTY_TRIGGER_UNICODE:
+      if (t.key.unicode) key = QString(QChar(t.key.unicode)).toUpper();
+      break;
+    case GHOSTTY_TRIGGER_PHYSICAL: {
+      const ghostty_input_key_e k = t.key.physical;
+      if (k >= GHOSTTY_KEY_A && k <= GHOSTTY_KEY_Z)
+        key = QChar('A' + (k - GHOSTTY_KEY_A));
+      else if (k >= GHOSTTY_KEY_DIGIT_0 && k <= GHOSTTY_KEY_DIGIT_9)
+        key = QChar('0' + (k - GHOSTTY_KEY_DIGIT_0));
+      else if (k == GHOSTTY_KEY_ENTER)
+        key = QStringLiteral("Return");
+      else if (k == GHOSTTY_KEY_SPACE)
+        key = QStringLiteral("Space");
+      else if (k == GHOSTTY_KEY_TAB)
+        key = QStringLiteral("Tab");
+      break;
+    }
+    default:
+      break;  // CATCH_ALL etc. — nothing displayable
+  }
+  if (key.isEmpty()) return {};
+
+  QString seq;
+  if (t.mods & GHOSTTY_MODS_CTRL) seq += QStringLiteral("Ctrl+");
+  if (t.mods & GHOSTTY_MODS_ALT) seq += QStringLiteral("Alt+");
+  if (t.mods & GHOSTTY_MODS_SHIFT) seq += QStringLiteral("Shift+");
+  if (t.mods & GHOSTTY_MODS_SUPER) seq += QStringLiteral("Meta+");
+  return QKeySequence(seq + key);
+}
+
+void GhosttySurface::contextMenuEvent(QContextMenuEvent *ev) {
+  // Let a mouse-capturing program have the right-click; also suppress
+  // the menu while the child-exited overlay is up.
+  if (!m_surface || m_exitOverlay ||
+      ghostty_surface_mouse_captured(m_surface))
+    return;
+
+  QMenu menu(this);
+  // Each item carries its libghostty keybind-action string in data();
+  // exec() returns the chosen action and we run it once, below. Icons
+  // come from the system theme; the shortcut hint from the live config.
+  const auto add = [this](QMenu *into, const char *label, const char *icon,
+                          const char *action, bool enabled) {
+    QAction *a = into->addAction(QString::fromUtf8(label));
+    a->setData(QString::fromUtf8(action));
+    a->setEnabled(enabled);
+    if (QIcon themed = QIcon::fromTheme(QString::fromUtf8(icon));
+        !themed.isNull())
+      a->setIcon(themed);
+    if (QKeySequence sc = shortcutFor(action); !sc.isEmpty())
+      a->setShortcut(sc);
+  };
+
+  add(&menu, "Copy", "edit-copy", "copy_to_clipboard",
+      ghostty_surface_has_selection(m_surface));
+  add(&menu, "Paste", "edit-paste", "paste_from_clipboard",
+      !QGuiApplication::clipboard()->text().isEmpty());
+  add(&menu, "Select All", "edit-select-all", "select_all", true);
+  menu.addSeparator();
+  add(&menu, "Clear", "edit-clear-all", "clear_screen", true);
+  add(&menu, "Reset", "view-refresh", "reset", true);
+  menu.addSeparator();
+
+  QMenu *split = menu.addMenu(
+      QIcon::fromTheme(QStringLiteral("view-split-left-right")),
+      QStringLiteral("Split"));
+  add(split, "Change Title…", "document-edit", "prompt_surface_title", true);
+  add(split, "Split Right", "view-split-left-right", "new_split:right", true);
+  add(split, "Split Down", "view-split-top-bottom", "new_split:down", true);
+  add(split, "Split Left", "view-split-left-right", "new_split:left", true);
+  add(split, "Split Up", "view-split-top-bottom", "new_split:up", true);
+
+  QMenu *tab = menu.addMenu(QIcon::fromTheme(QStringLiteral("tab-new")),
+                            QStringLiteral("Tab"));
+  add(tab, "Change Tab Title…", "document-edit", "prompt_tab_title", true);
+  add(tab, "New Tab", "tab-new", "new_tab", true);
+  add(tab, "Close Tab", "tab-close", "close_tab", true);
+
+  QMenu *window = menu.addMenu(QIcon::fromTheme(QStringLiteral("window-new")),
+                               QStringLiteral("Window"));
+  add(window, "New Window", "window-new", "new_window", true);
+  add(window, "Close Window", "window-close", "close_window", true);
+
+  menu.addSeparator();
+  QMenu *config = menu.addMenu(QIcon::fromTheme(QStringLiteral("configure")),
+                               QStringLiteral("Config"));
+  add(config, "Open Config", "document-open", "open_config", true);
+  add(config, "Reload Config", "view-refresh", "reload_config", true);
+
+  QAction *chosen = menu.exec(ev->globalPos());
+  if (!chosen || !m_surface) return;
+  const QString data = chosen->data().toString();
+
+  // The title items have no apprt-side prompt in libghostty: collect the
+  // text here and apply it with the set_*_title keybind action (an empty
+  // title resets it).
+  if (data == QLatin1String("prompt_surface_title") ||
+      data == QLatin1String("prompt_tab_title")) {
+    const bool surfaceTitle = data == QLatin1String("prompt_surface_title");
+    bool ok = false;
+    const QString title = QInputDialog::getText(
+        this,
+        surfaceTitle ? QStringLiteral("Change Title")
+                     : QStringLiteral("Change Tab Title"),
+        QStringLiteral("Title:"), QLineEdit::Normal, QString(), &ok);
+    if (!ok) return;
+    const QByteArray act =
+        (surfaceTitle ? QByteArrayLiteral("set_surface_title:")
+                      : QByteArrayLiteral("set_tab_title:")) +
+        title.toUtf8();
+    ghostty_surface_binding_action(m_surface, act.constData(), act.size());
+    return;
+  }
+
+  const QByteArray action = data.toUtf8();
+  ghostty_surface_binding_action(m_surface, action.constData(),
+                                 action.size());
 }
 
 void GhosttySurface::mouseMoveEvent(QMouseEvent *ev) {

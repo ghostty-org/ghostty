@@ -41,6 +41,9 @@ public:
   // Update the tab label and window title for `surface`.
   void setSurfaceTitle(GhosttySurface *surface, const QString &title);
 
+  // The live libghostty config (for keybind lookups, etc.).
+  ghostty_config_t config() const { return m_config; }
+
   // Whether a custom shader is configured. With one, libghostty's final
   // framebuffer is non-premultiplied and surfaces must premultiply it
   // before Qt composites (see GhosttySurface::premultiplyFramebuffer).
