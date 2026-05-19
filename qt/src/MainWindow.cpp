@@ -415,10 +415,33 @@ void MainWindow::setSurfaceTitle(GhosttySurface *surface,
                                  const QString &title) {
   const int index = tabIndexForSurface(surface);
   if (index < 0) return;
-  m_tabs->setTabText(index,
-                     tabBellMarked(index) ? kBellMark + title : title);
-  if (index == m_tabs->currentIndex())
-    setWindowTitle(title + QStringLiteral(" — Ghostty"));
+  // Store the terminal title as the tab's base; updateTabText decides
+  // whether it or a manual override is shown.
+  QStringList data = m_tabs->tabBar()->tabData(index).toStringList();
+  while (data.size() < 2) data.append(QString());
+  data[0] = title;
+  m_tabs->tabBar()->setTabData(index, data);
+  updateTabText(index);
+}
+
+void MainWindow::setTabTitleOverride(GhosttySurface *surface,
+                                     const QString &title) {
+  const int index = tabIndexForSurface(surface);
+  if (index < 0) return;
+  QStringList data = m_tabs->tabBar()->tabData(index).toStringList();
+  while (data.size() < 2) data.append(QString());
+  data[1] = title;  // empty clears the override
+  m_tabs->tabBar()->setTabData(index, data);
+  updateTabText(index);
+}
+
+void MainWindow::copyTitleToClipboard() {
+  const int tab = m_tabs->currentIndex();
+  if (tab < 0) return;
+  const QStringList data = m_tabs->tabBar()->tabData(tab).toStringList();
+  const QString title =
+      !data.value(1).isEmpty() ? data.value(1) : data.value(0);
+  if (!title.isEmpty()) QGuiApplication::clipboard()->setText(title);
 }
 
 void MainWindow::frame() {
@@ -503,8 +526,7 @@ void MainWindow::onCurrentChanged(int index) {
   s->setFocus();
   // Acknowledge any bell `title` mark now that the tab is visible.
   for (GhosttySurface *surf : surfacesInTab(index)) surf->setBellTitle(false);
-  refreshTabTitle(index);
-  setWindowTitle(m_tabs->tabText(index) + QStringLiteral(" — Ghostty"));
+  updateTabText(index);
 }
 
 GhosttySurface *MainWindow::surfaceAt(int index) const {
@@ -663,7 +685,7 @@ void MainWindow::ringBell(GhosttySurface *surface) {
     // Marking the current tab is pointless — you are looking at it.
     if (tab >= 0 && tab != m_tabs->currentIndex()) {
       surface->setBellTitle(true);
-      refreshTabTitle(tab);
+      updateTabText(tab);
     }
   }
 }
@@ -674,10 +696,17 @@ bool MainWindow::tabBellMarked(int tab) const {
   return false;
 }
 
-void MainWindow::refreshTabTitle(int tab) {
-  QString text = m_tabs->tabText(tab);
-  if (text.startsWith(kBellMark)) text = text.mid(kBellMark.size());
+void MainWindow::updateTabText(int tab) {
+  if (tab < 0 || tab >= m_tabs->count()) return;
+  const QStringList data = m_tabs->tabBar()->tabData(tab).toStringList();
+  const QString base = data.value(0);
+  const QString override = data.value(1);
+  QString text = !override.isEmpty() ? override
+                 : !base.isEmpty()   ? base
+                                     : QStringLiteral("Ghostty");
   m_tabs->setTabText(tab, tabBellMarked(tab) ? kBellMark + text : text);
+  if (tab == m_tabs->currentIndex())
+    setWindowTitle(text + QStringLiteral(" — Ghostty"));
 }
 
 void MainWindow::playBellAudio() {
@@ -878,6 +907,34 @@ static Qt::CursorShape mouseShapeToCursor(ghostty_action_mouse_shape_e s) {
   }
 }
 
+// Format a keybind trigger as a human-readable chord, e.g. "Ctrl+B".
+static QString formatTrigger(const ghostty_input_trigger_s &t) {
+  QString s;
+  if (t.mods & GHOSTTY_MODS_CTRL) s += QStringLiteral("Ctrl+");
+  if (t.mods & GHOSTTY_MODS_ALT) s += QStringLiteral("Alt+");
+  if (t.mods & GHOSTTY_MODS_SHIFT) s += QStringLiteral("Shift+");
+  if (t.mods & GHOSTTY_MODS_SUPER) s += QStringLiteral("Super+");
+  switch (t.tag) {
+    case GHOSTTY_TRIGGER_UNICODE:
+      s += QString(QChar(t.key.unicode)).toUpper();
+      break;
+    case GHOSTTY_TRIGGER_PHYSICAL: {
+      const ghostty_input_key_e k = t.key.physical;
+      if (k >= GHOSTTY_KEY_DIGIT_0 && k <= GHOSTTY_KEY_DIGIT_9)
+        s += QChar('0' + (k - GHOSTTY_KEY_DIGIT_0));
+      else if (k >= GHOSTTY_KEY_A && k <= GHOSTTY_KEY_Z)
+        s += QChar('A' + (k - GHOSTTY_KEY_A));
+      else
+        s += QStringLiteral("•");  // an unmapped physical key
+      break;
+    }
+    default:
+      s += QStringLiteral("…");  // catch-all
+      break;
+  }
+  return s;
+}
+
 bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
                           ghostty_action_s action) {
   // The surface this action targets, if any.
@@ -943,6 +1000,61 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       const QString t = QString::fromUtf8(title);
       QMetaObject::invokeMethod(
           win, [win, src, t]() { win->setSurfaceTitle(src, t); },
+          Qt::QueuedConnection);
+      return true;
+    }
+
+    case GHOSTTY_ACTION_SET_TAB_TITLE: {
+      // A manual tab-title override (an empty string clears it).
+      if (!src) return true;
+      const char *title = action.action.set_tab_title.title;
+      const QString t = QString::fromUtf8(title ? title : "");
+      QMetaObject::invokeMethod(
+          win, [win, src, t]() { win->setTabTitleOverride(src, t); },
+          Qt::QueuedConnection);
+      return true;
+    }
+
+    case GHOSTTY_ACTION_PROMPT_TITLE: {
+      if (!src) return true;
+      const bool tabScope =
+          action.action.prompt_title == GHOSTTY_PROMPT_TITLE_TAB;
+      QMetaObject::invokeMethod(
+          src, [src, tabScope]() { src->promptTitle(tabScope); },
+          Qt::QueuedConnection);
+      return true;
+    }
+
+    case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
+      if (win)
+        QMetaObject::invokeMethod(
+            win, [win]() { win->copyTitleToClipboard(); },
+            Qt::QueuedConnection);
+      return true;
+
+    case GHOSTTY_ACTION_RESET_WINDOW_SIZE:
+      if (win)
+        QMetaObject::invokeMethod(
+            win,
+            [win]() {
+              win->resize(win->m_defaultWindowSize.isValid()
+                              ? win->m_defaultWindowSize
+                              : QSize(800, 600));
+            },
+            Qt::QueuedConnection);
+      return true;
+
+    case GHOSTTY_ACTION_KEY_SEQUENCE: {
+      if (!src) return true;
+      const ghostty_action_key_sequence_s ks = action.action.key_sequence;
+      if (!ks.active) {
+        QMetaObject::invokeMethod(src, [src]() { src->endKeySequence(); },
+                                  Qt::QueuedConnection);
+        return true;
+      }
+      const QString chord = formatTrigger(ks.trigger);
+      QMetaObject::invokeMethod(
+          src, [src, chord]() { src->pushKeySequence(chord); },
           Qt::QueuedConnection);
       return true;
     }
@@ -1075,8 +1187,10 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
           [win, sz]() {
             // The action carries device pixels; resize() takes logical.
             const double dpr = win->devicePixelRatioF();
-            win->resize(static_cast<int>(sz.width / dpr),
-                        static_cast<int>(sz.height / dpr));
+            const QSize logical(static_cast<int>(sz.width / dpr),
+                                static_cast<int>(sz.height / dpr));
+            win->m_defaultWindowSize = logical;  // for RESET_WINDOW_SIZE
+            win->resize(logical);
           },
           Qt::QueuedConnection);
       return true;

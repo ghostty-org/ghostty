@@ -32,6 +32,7 @@
 #include <QResizeEvent>
 #include <QScrollBar>
 #include <QSignalBlocker>
+#include <QSplitter>
 #include <QString>
 #include <QStringList>
 #include <QSurfaceFormat>
@@ -163,6 +164,9 @@ void GhosttySurface::resizeEvent(QResizeEvent *) {
   layoutScrollbar();
   syncSurfaceSize();
   if (m_exitOverlay) m_exitOverlay->setGeometry(rect());
+  if (m_keySeqOverlay && m_keySeqOverlay->isVisible())
+    m_keySeqOverlay->move(8, height() - m_keySeqOverlay->height() - 8);
+  showResizeOverlay();
 }
 
 bool GhosttySurface::event(QEvent *e) {
@@ -250,6 +254,26 @@ void GhosttySurface::paintEvent(QPaintEvent *) {
   painter.setCompositionMode(QPainter::CompositionMode_Source);
   painter.drawImage(QPointF(0, 0), m_image);
 
+  // Unfocused-split dimming: a translucent fill over an inactive pane.
+  // Only split panes (a QSplitter parent) are dimmed, matching GTK.
+  if (!hasFocus() && qobject_cast<QSplitter *>(parentWidget())) {
+    ghostty_config_t cfg = m_owner ? m_owner->config() : nullptr;
+    double opacity = 0.7;
+    if (cfg)
+      ghostty_config_get(cfg, &opacity, "unfocused-split-opacity",
+                         qstrlen("unfocused-split-opacity"));
+    if (opacity < 1.0) {
+      QColor fill(0, 0, 0);  // default: dim toward black
+      ghostty_config_color_s c{};
+      if (cfg && ghostty_config_get(cfg, &c, "unfocused-split-fill",
+                                    qstrlen("unfocused-split-fill")))
+        fill = QColor(c.r, c.g, c.b);
+      fill.setAlphaF(1.0 - opacity);
+      painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+      painter.fillRect(rect(), fill);
+    }
+  }
+
   // Bell `border` feature: a brief attention flash over the terminal.
   if (m_bellFlash) {
     painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
@@ -266,6 +290,106 @@ void GhosttySurface::flashBorder() {
     m_bellFlash = false;
     update();
   });
+}
+
+// A small translucent overlay label (key-sequence / resize display).
+static QLabel *makeOverlayLabel(QWidget *parent) {
+  auto *label = new QLabel(parent);
+  label->setAttribute(Qt::WA_TransparentForMouseEvents);
+  label->setStyleSheet(QStringLiteral(
+      "background: rgba(0,0,0,0.75); color: #f0f0f0; font-size: 13px;"
+      "padding: 4px 10px; border-radius: 4px;"));
+  label->hide();
+  return label;
+}
+
+// Read a string/enum config value (enums arrive as their tag name).
+static QString cfgString(ghostty_config_t cfg, const char *key) {
+  const char *v = nullptr;
+  if (cfg && ghostty_config_get(cfg, &v, key, qstrlen(key)) && v)
+    return QString::fromUtf8(v);
+  return {};
+}
+
+void GhosttySurface::promptTitle(bool tabScope) {
+  bool ok = false;
+  const QString title = QInputDialog::getText(
+      this,
+      tabScope ? QStringLiteral("Change Tab Title")
+               : QStringLiteral("Change Title"),
+      QStringLiteral("Title:"), QLineEdit::Normal, QString(), &ok);
+  if (!ok || !m_surface) return;
+  // The keybind action round-trips through libghostty, which emits
+  // SET_TAB_TITLE / SET_TITLE back to apply it (an empty title resets).
+  const QByteArray act =
+      (tabScope ? QByteArrayLiteral("set_tab_title:")
+                : QByteArrayLiteral("set_surface_title:")) +
+      title.toUtf8();
+  ghostty_surface_binding_action(m_surface, act.constData(), act.size());
+}
+
+void GhosttySurface::pushKeySequence(const QString &chord) {
+  m_keySeq.append(chord);
+  if (!m_keySeqOverlay) m_keySeqOverlay = makeOverlayLabel(this);
+  m_keySeqOverlay->setText(m_keySeq.join(QStringLiteral("  ")));
+  m_keySeqOverlay->adjustSize();
+  m_keySeqOverlay->move(8, height() - m_keySeqOverlay->height() - 8);
+  m_keySeqOverlay->show();
+  m_keySeqOverlay->raise();
+}
+
+void GhosttySurface::endKeySequence() {
+  m_keySeq.clear();
+  if (m_keySeqOverlay) m_keySeqOverlay->hide();
+}
+
+void GhosttySurface::showResizeOverlay() {
+  if (!m_surface || !m_owner) return;
+  const ghostty_surface_size_s sz = ghostty_surface_size(m_surface);
+  // Only a grid-size change is a "resize" worth announcing.
+  if (sz.columns == m_lastCols && sz.rows == m_lastRows) return;
+  m_lastCols = sz.columns;
+  m_lastRows = sz.rows;
+
+  ghostty_config_t cfg = m_owner->config();
+  const QString mode = cfgString(cfg, "resize-overlay");
+  const bool first = !m_firstGridSeen;
+  m_firstGridSeen = true;
+  if (mode == QLatin1String("never")) return;
+  if (mode == QLatin1String("after-first") && first) return;
+
+  if (!m_resizeOverlay) m_resizeOverlay = makeOverlayLabel(this);
+  m_resizeOverlay->setText(
+      QStringLiteral("%1 × %2").arg(sz.columns).arg(sz.rows));
+  m_resizeOverlay->adjustSize();
+
+  // resize-overlay-position: center / {top,bottom}-{left,center,right}.
+  const QString pos = cfgString(cfg, "resize-overlay-position");
+  const int m = 8;
+  int x = (width() - m_resizeOverlay->width()) / 2;
+  int y = (height() - m_resizeOverlay->height()) / 2;
+  if (pos.contains(QLatin1String("left"))) x = m;
+  else if (pos.contains(QLatin1String("right")))
+    x = width() - m_resizeOverlay->width() - m;
+  if (pos.contains(QLatin1String("top"))) y = m;
+  else if (pos.contains(QLatin1String("bottom")))
+    y = height() - m_resizeOverlay->height() - m;
+  m_resizeOverlay->move(x, y);
+  m_resizeOverlay->show();
+  m_resizeOverlay->raise();
+
+  unsigned long long durNs = 0;
+  ghostty_config_get(cfg, &durNs, "resize-overlay-duration",
+                     qstrlen("resize-overlay-duration"));
+  const int durMs = durNs ? static_cast<int>(durNs / 1000000ULL) : 750;
+  if (!m_resizeHideTimer) {
+    m_resizeHideTimer = new QTimer(this);
+    m_resizeHideTimer->setSingleShot(true);
+    connect(m_resizeHideTimer, &QTimer::timeout, this, [this]() {
+      if (m_resizeOverlay) m_resizeOverlay->hide();
+    });
+  }
+  m_resizeHideTimer->start(durMs);
 }
 
 void GhosttySurface::showChildExited(int exitCode) {
@@ -571,23 +695,10 @@ void GhosttySurface::contextMenuEvent(QContextMenuEvent *ev) {
   }
 
   // The title items have no apprt-side prompt in libghostty: collect the
-  // text here and apply it with the set_*_title keybind action (an empty
-  // title resets it).
+  // text here and apply it via promptTitle (the set_*_title keybind).
   if (data == QLatin1String("prompt_surface_title") ||
       data == QLatin1String("prompt_tab_title")) {
-    const bool surfaceTitle = data == QLatin1String("prompt_surface_title");
-    bool ok = false;
-    const QString title = QInputDialog::getText(
-        this,
-        surfaceTitle ? QStringLiteral("Change Title")
-                     : QStringLiteral("Change Tab Title"),
-        QStringLiteral("Title:"), QLineEdit::Normal, QString(), &ok);
-    if (!ok) return;
-    const QByteArray act =
-        (surfaceTitle ? QByteArrayLiteral("set_surface_title:")
-                      : QByteArrayLiteral("set_tab_title:")) +
-        title.toUtf8();
-    ghostty_surface_binding_action(m_surface, act.constData(), act.size());
+    promptTitle(data == QLatin1String("prompt_tab_title"));
     return;
   }
 
@@ -645,10 +756,12 @@ void GhosttySurface::enterEvent(QEnterEvent *) {
 
 void GhosttySurface::focusInEvent(QFocusEvent *) {
   if (m_surface) ghostty_surface_set_focus(m_surface, true);
+  update();  // repaint without the unfocused-split dim
 }
 
 void GhosttySurface::focusOutEvent(QFocusEvent *) {
   if (m_surface) ghostty_surface_set_focus(m_surface, false);
+  update();  // repaint with the unfocused-split dim (if a split pane)
 }
 
 // Insert a string of committed text (an IME commit) as terminal input.

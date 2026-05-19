@@ -3,6 +3,7 @@
 #include <atomic>
 
 #include <QImage>
+#include <QStringList>
 #include <QWidget>
 
 #include "ghostty.h"
@@ -12,6 +13,7 @@ class QContextMenuEvent;
 class QDragEnterEvent;
 class QDropEvent;
 class QEnterEvent;
+class QTimer;
 class QInputMethodEvent;
 class QKeySequence;
 class QLabel;
@@ -69,6 +71,15 @@ public:
   // viewport-top row, and the visible row count.
   void updateScrollbar(uint64_t total, uint64_t offset, uint64_t len);
 
+  // Open the title-change dialog (PROMPT_TITLE action / context menu);
+  // `tabScope` picks the tab vs surface title.
+  void promptTitle(bool tabScope);
+
+  // Pending-keybind chord overlay, driven by the KEY_SEQUENCE action:
+  // pushKeySequence appends a chord, endKeySequence clears the overlay.
+  void pushKeySequence(const QString &chord);
+  void endKeySequence();
+
   // Bell `border` feature: briefly flash a border over the terminal.
   void flashBorder();
   // Bell `title` feature: mark/unmark an unacknowledged bell. MainWindow
@@ -106,6 +117,7 @@ private:
   void layoutScrollbar();          // position the scrollbar at the edge
   bool scrollbarAllowed() const;   // false when `scrollbar = never`
   void buildExitOverlay(int exitCode);
+  void showResizeOverlay();        // transient grid-size overlay on resize
   void sendKey(QKeyEvent *, ghostty_input_action_e action);
   void commitText(const QString &text);
   void sendMouseButton(QMouseEvent *, ghostty_input_mouse_state_e state);
@@ -146,6 +158,13 @@ private:
   double m_fbDpr = 1.0;                // DPR the framebuffer was sized at
 
   QLabel *m_exitOverlay = nullptr;     // "process exited" banner; lazily made
+  QLabel *m_keySeqOverlay = nullptr;   // pending keybind chord; lazily made
+  QStringList m_keySeq;                // accumulated pending chords
+  QLabel *m_resizeOverlay = nullptr;   // transient "cols x rows"; lazily made
+  QTimer *m_resizeHideTimer = nullptr; // auto-hides m_resizeOverlay
+  bool m_firstGridSeen = false;        // for `resize-overlay = after-first`
+  int m_lastCols = 0;                  // last grid size, to detect changes
+  int m_lastRows = 0;
   QScrollBar *m_scrollbar = nullptr;   // scrollback scrollbar; hidden by default
   bool m_notifyOnCommand = false;      // one-shot: notify on next cmd finish
   bool m_bellFlash = false;            // bell `border` flash in progress

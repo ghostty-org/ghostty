@@ -3,6 +3,7 @@
 #include <atomic>
 
 #include <QList>
+#include <QSize>
 #include <QWidget>
 
 #include "ghostty.h"
@@ -102,7 +103,16 @@ private:
   // Bell `title` feature: prefix a tab's title while any surface in it
   // has an unacknowledged bell.
   bool tabBellMarked(int tab) const;
-  void refreshTabTitle(int tab);
+
+  // Recompute a tab's displayed text from its stored base (terminal)
+  // title and manual override, plus any bell mark. Tab data holds a
+  // {base, override} QStringList.
+  void updateTabText(int tab);
+  // Set/clear a tab's manual title override (empty string clears it);
+  // while set, SET_TITLE no longer changes the tab text.
+  void setTabTitleOverride(GhosttySurface *surface, const QString &title);
+  // Copy the current tab's effective title to the clipboard.
+  void copyTitleToClipboard();
 
   // Config: rebuild from disk (reloadConfig) or apply one libghostty
   // handed us (applyConfig), pushing it to the app and every surface.
@@ -152,6 +162,7 @@ private:
   bool m_firstTabPending = true;       // first tab is created on show()
   ghostty_surface_t m_firstTabParent = nullptr;  // inherited by the 1st tab
   bool m_skipCloseConfirm = false;     // close already confirmed elsewhere
+  QSize m_defaultWindowSize;           // for RESET_WINDOW_SIZE; from INITIAL_SIZE
 
   // Process-shared libghostty state: one app and config drive every
   // window. Created by the first initialize(), freed with the last
