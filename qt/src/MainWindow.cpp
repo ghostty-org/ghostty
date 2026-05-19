@@ -139,9 +139,10 @@ bool MainWindow::initialize() {
     return false;
   }
 
-  // Periodic tick as a backstop; onWakeup drives responsive ticking.
+  // 60fps frame timer: a backstop tick plus rendering. onWakeup drives
+  // extra ticks between frames for input responsiveness.
   auto *timer = new QTimer(this);
-  connect(timer, &QTimer::timeout, this, &MainWindow::tick);
+  connect(timer, &QTimer::timeout, this, &MainWindow::frame);
   timer->start(16);
 
   // The first tab is created in showEvent, not here: see below.
@@ -288,10 +289,18 @@ void MainWindow::setSurfaceTitle(GhosttySurface *surface,
 }
 
 void MainWindow::tick() {
+  // Cleared first so a wakeup during the tick re-queues another.
+  m_tickPending.store(false);
   if (!m_app) return;
   ghostty_app_tick(m_app);
-  // Process exit is handled by libghostty: a normal exit closes the
-  // surface via close_surface_cb; an abnormal one fires SHOW_CHILD_EXITED.
+}
+
+void MainWindow::frame() {
+  if (!m_app) return;
+  ghostty_app_tick(m_app);
+  // Rendering happens only here, so a flood of RENDER actions cannot
+  // saturate the GUI thread — each surface renders at most once a frame.
+  for (GhosttySurface *s : m_surfaces) s->renderIfDirty();
 }
 
 void MainWindow::onTabCloseRequested(int index) { closeTab(index); }
@@ -510,9 +519,11 @@ void MainWindow::toggleSplitZoom(GhosttySurface *surface) {
 // --- libghostty runtime callbacks ------------------------------------
 
 void MainWindow::onWakeup(void *ud) {
-  // app userdata; hop to the GUI thread to tick.
+  // app userdata. Coalesce: queue a tick only when one is not already
+  // pending, so a chatty surface cannot flood the event loop.
   auto *self = static_cast<MainWindow *>(ud);
-  QMetaObject::invokeMethod(self, "tick", Qt::QueuedConnection);
+  if (!self->m_tickPending.exchange(true))
+    QMetaObject::invokeMethod(self, "tick", Qt::QueuedConnection);
 }
 
 // Map a libghostty mouse shape to the nearest Qt cursor.
@@ -567,9 +578,9 @@ bool MainWindow::onAction(ghostty_app_t app, ghostty_target_s target,
   // work is marshalled onto the GUI thread.
   switch (action.tag) {
     case GHOSTTY_ACTION_RENDER:
-      // libghostty wants a redraw; schedule one on the terminal window.
-      if (src)
-        QMetaObject::invokeMethod(src, "requestRender", Qt::QueuedConnection);
+      // Mark the surface dirty; the frame timer renders it. No event is
+      // queued here — a busy surface would otherwise flood the loop.
+      if (src) src->markDirty();
       return true;
 
     case GHOSTTY_ACTION_NEW_TAB:

@@ -158,7 +158,9 @@ bool GhosttySurface::event(QEvent *e) {
   return QWidget::event(e);
 }
 
-void GhosttySurface::requestRender() { renderTerminal(); }
+void GhosttySurface::renderIfDirty() {
+  if (m_dirty.exchange(false)) renderTerminal();
+}
 
 void GhosttySurface::renderTerminal() {
   if (!m_surface || !m_fbo || !makeCurrent()) return;

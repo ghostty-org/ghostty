@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include <QImage>
 #include <QWidget>
 
@@ -54,9 +56,12 @@ public:
     return armed;
   }
 
-public slots:
-  // Render a fresh frame (the libghostty RENDER action).
-  void requestRender();
+public:
+  // Render coalescing: markDirty() flags the surface (called from the
+  // RENDER action, possibly off-thread); renderIfDirty(), called once a
+  // frame by MainWindow, does the actual render.
+  void markDirty() { m_dirty.store(true); }
+  void renderIfDirty();
 
 protected:
   bool event(QEvent *) override;
@@ -126,4 +131,5 @@ private:
 
   QLabel *m_exitOverlay = nullptr;     // "process exited" banner; lazily made
   bool m_notifyOnCommand = false;      // one-shot: notify on next cmd finish
+  std::atomic<bool> m_dirty{false};    // a frame render is pending
 };

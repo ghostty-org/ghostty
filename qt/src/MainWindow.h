@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include <QList>
 #include <QWidget>
 
@@ -64,6 +66,9 @@ private:
   // Create the first tab once the device pixel ratio has settled.
   void createFirstTab();
 
+  // 60fps frame timer: ticks libghostty and renders any dirty surface.
+  void frame();
+
   void closeTab(int index);
   GhosttySurface *surfaceAt(int index) const;
   int tabIndexForSurface(GhosttySurface *surface) const;
@@ -103,6 +108,11 @@ private:
   QList<GhosttySurface *> m_surfaces;  // every live surface
   bool m_needsPremultiply = false;     // a custom shader is configured
   bool m_firstTabPending = true;       // first tab is created on show()
+
+  // Coalesces wakeup-driven ticks: a tick is queued at most once at a
+  // time, so a busy surface can't flood the event loop. Set from
+  // onWakeup (possibly off-thread), cleared at the start of tick().
+  std::atomic<bool> m_tickPending{false};
 
   // Split-zoom state: the surface temporarily filling its tab, the
   // splitter it came from, its index there, and the stashed tree root.
