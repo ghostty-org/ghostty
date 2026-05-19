@@ -1,0 +1,64 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $GhosttyVerticalTabSidebar: Box {
+  styles [
+    "vertical-tab-sidebar",
+  ]
+
+  orientation: vertical;
+  width-request: 180;
+
+  ScrolledWindow {
+    vexpand: true;
+    hscrollbar-policy: never;
+
+    ListBox tab_list {
+      styles [
+        "navigation-sidebar",
+      ]
+
+      selection-mode: single;
+      row-selected => $row_selected();
+    }
+  }
+
+  Separator {
+    orientation: horizontal;
+  }
+
+  Box {
+    styles [
+      "vertical-tab-sidebar-footer",
+    ]
+
+    orientation: horizontal;
+    halign: center;
+    margin-top: 6;
+    margin-bottom: 6;
+    margin-start: 6;
+    margin-end: 6;
+    spacing: 6;
+
+    Button new_tab_button {
+      styles [
+        "flat",
+      ]
+
+      clicked => $new_tab();
+      icon-name: "tab-new-symbolic";
+      tooltip-text: _("New Tab");
+    }
+
+    ToggleButton {
+      styles [
+        "flat",
+      ]
+
+      icon-name: "view-grid-symbolic";
+      tooltip-text: _("View Open Tabs");
+      active: bind template.tab-overview-open bidirectional;
+    }
+  }
+}
+
