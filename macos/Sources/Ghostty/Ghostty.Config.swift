@@ -372,6 +372,14 @@ extension Ghostty {
             return Ghostty.MacOSTabsLocation(rawValue: str) ?? defaultValue
         }
 
+        var macosTabColor: Bool {
+            guard let config = self.config else { return true }
+            var v = true
+            let key = "macos-tab-color"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
         var macosTitlebarProxyIcon: MacOSTitlebarProxyIcon {
             let defaultValue = MacOSTitlebarProxyIcon.visible
             guard let config = self.config else { return defaultValue }

@@ -46,6 +46,33 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// changes in the list.
     private var tabWindowsHash: Int = 0
 
+    /// Parent window used to seed shared vertical tab sidebar state before AppKit
+    /// attaches this controller's window to the native tab group.
+    private weak var verticalTabsParentWindow: NSWindow?
+
+    /// Shared model for the vertical tab sidebar. Native macOS tabs swap the whole
+    /// window content view, so each tab has its own SwiftUI sidebar instance. Sharing
+    /// the model keeps the sidebar stable when switching to a newly created tab.
+    private var verticalTabModelStorage: VerticalTabSidebar.TabModel?
+
+    var verticalTabModel: VerticalTabSidebar.TabModel {
+        if let model = verticalTabModelStorage {
+            return model
+        }
+
+        if let parent = verticalTabsParentWindow,
+           parent !== window,
+           let parentController = parent.windowController as? TerminalController {
+            let model = parentController.verticalTabModel
+            verticalTabModelStorage = model
+            return model
+        }
+
+        let model = VerticalTabSidebar.TabModel()
+        verticalTabModelStorage = model
+        return model
+    }
+
     /// The initial window presentation is deferred by one runloop turn in a few places so
     /// AppKit can settle tab/window state first. Close actions must cancel it to avoid
     /// re-showing a tab that was already closed.
@@ -432,6 +459,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Create a new window and add it to the parent
         let controller = TerminalController.init(ghostty, withBaseConfig: baseConfig)
+        controller.verticalTabsParentWindow = parent
         controller.isBackgroundOpaque = parentController.isBackgroundOpaque
         guard let window = controller.window else { return controller }
 

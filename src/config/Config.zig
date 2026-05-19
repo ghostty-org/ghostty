@@ -3402,6 +3402,17 @@ keybind: Keybinds = .{},
 /// Available since: 1.3.0
 @"macos-tabs-location": MacTabsLocation = .native,
 
+/// Whether to color-code the tabs in the vertical tab sidebar. When
+/// enabled, each tab is assigned a unique color from a palette when it
+/// is first opened and keeps that color for the duration of the session.
+/// This makes it easy to distinguish tabs at a glance.
+///
+/// This option only has an effect when `macos-tabs-location` is set to
+/// `left` or `right`.
+///
+/// The default value is `true`.
+@"macos-tab-color": bool = true,
+
 /// Whether the proxy icon in the macOS titlebar is visible. The proxy icon
 /// is the icon that represents the folder of the current working directory.
 /// You can see this very clearly in the macOS built-in Terminal.app

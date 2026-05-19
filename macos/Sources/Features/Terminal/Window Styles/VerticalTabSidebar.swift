@@ -4,14 +4,17 @@ import Cocoa
 /// A vertical tab sidebar that displays tabs in a vertical list.
 /// This provides an alternative to the native horizontal tab bar.
 struct VerticalTabSidebar: View {
+    /// Whether tab color-coding is enabled (read from config by the parent view)
+    var tabColorEnabled: Bool
+
     /// The window controller that manages the tabs
     weak var windowController: BaseTerminalController?
-    
+
     /// Whether the sidebar is on the right side (affects resize handle position)
     var isRightSide: Bool = false
     
     /// The tab data model that tracks all tabs
-    @StateObject private var tabModel = TabModel()
+    @ObservedObject private var tabModel: TabModel
     
     /// Timer for refreshing the tab list
     @State private var refreshTimer: Timer?
@@ -30,6 +33,15 @@ struct VerticalTabSidebar: View {
     /// Minimum and maximum width constraints
     private let minWidth: CGFloat = 120
     private let maxWidth: CGFloat = 400
+
+    init(tabColorEnabled: Bool, windowController: BaseTerminalController?, isRightSide: Bool = false) {
+        self.tabColorEnabled = tabColorEnabled
+        self.windowController = windowController
+        self.isRightSide = isRightSide
+        self._tabModel = ObservedObject(
+            wrappedValue: (windowController as? TerminalController)?.verticalTabModel ?? TabModel()
+        )
+    }
     
     var body: some View {
         HStack(spacing: 0) {
@@ -42,13 +54,14 @@ struct VerticalTabSidebar: View {
             VStack(spacing: 0) {
                 // Tab list
                 ScrollView {
-                    LazyVStack(spacing: 2) {
+                    VStack(spacing: 2) {
                         ForEach(tabModel.tabs) { tab in
                             TabRow(
                                 title: tab.title,
                                 isSelected: tab.isSelected,
                                 keyEquivalent: tab.index < 9 ? "\(tab.index + 1)" : nil,
                                 hasCustomTitle: tabModel.getCustomTitle(for: tab.window) != nil,
+                                color: tabColorEnabled ? tab.color : nil,
                                 onSelect: {
                                     selectTab(tab.window)
                                 },
@@ -167,6 +180,9 @@ struct VerticalTabSidebar: View {
                 TextField("Tab title", text: $title)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 250)
+                    .onSubmit {
+                        save()
+                    }
                 
                 Text("Leave empty to use automatic title")
                     .font(.caption)
@@ -178,10 +194,7 @@ struct VerticalTabSidebar: View {
                     }
                     .keyboardShortcut(.escape)
                     
-                    Button("Save") {
-                        onSave()
-                        isPresented = false
-                    }
+                    Button("Save", action: save)
                     .keyboardShortcut(.return)
                     .buttonStyle(.borderedProminent)
                 }
@@ -189,41 +202,64 @@ struct VerticalTabSidebar: View {
             .padding(20)
             .frame(minWidth: 300)
         }
+
+        private func save() {
+            onSave()
+            isPresented = false
+        }
     }
     
     // MARK: - Tab Data Model
-    
+
+    /// Generate a tab color for the nth tab using golden-ratio hue spacing.
+    /// Saturation and brightness also rotate so adjacent tabs don't feel like
+    /// the same color treatment with a different hue.
+    private static func tabColor(at index: Int) -> Color {
+        let goldenRatioConjugate = 0.618033988749895
+        let hue = (Double(index) * goldenRatioConjugate).truncatingRemainder(dividingBy: 1.0)
+        let saturations = [1.0, 0.92, 0.78, 0.96, 0.84, 0.70]
+        let brightnesses = [0.54, 0.70, 0.46, 0.62, 0.78, 0.50]
+        let saturation = saturations[index % saturations.count]
+        let brightness = brightnesses[(index / saturations.count + index) % brightnesses.count]
+        return Color(hue: hue, saturation: saturation, brightness: brightness)
+    }
+
     /// Represents a single tab's data
     struct TabData: Identifiable {
-        let id: String  // Unique ID combining window hash and title for proper updates
+        let id: ObjectIdentifier  // Stable ID based on window identity — title changes update in place
         let window: NSWindow
         let title: String
         let index: Int
         let isSelected: Bool
-        
-        init(window: NSWindow, index: Int, isSelected: Bool, customTitles: [ObjectIdentifier: String], resolvedTitle: String) {
+        let color: Color
+
+        init(window: NSWindow, index: Int, isSelected: Bool, customTitles: [ObjectIdentifier: String], resolvedTitle: String, color: Color) {
             self.window = window
             self.index = index
             self.isSelected = isSelected
-            
+            self.color = color
+            self.id = ObjectIdentifier(window)
+
             // Use custom title if set, otherwise use resolved title (based on tab-title-mode)
             let windowId = ObjectIdentifier(window)
             if let customTitle = customTitles[windowId], !customTitle.isEmpty {
                 self.title = customTitle
-                self.id = "\(windowId.hashValue)-custom-\(customTitle)"
             } else {
                 self.title = resolvedTitle
-                self.id = "\(windowId.hashValue)-\(resolvedTitle)"
             }
         }
     }
-    
+
     /// Observable model that holds the tab list and custom titles
     class TabModel: ObservableObject {
         @Published var tabs: [TabData] = []
         /// Custom titles set by the user (keyed by window ObjectIdentifier)
         var customTitles: [ObjectIdentifier: String] = [:]
-        
+        /// Persistent color assigned to each window for the session
+        var tabColors: [ObjectIdentifier: Color] = [:]
+        /// Index into tabColorPalette for the next new window
+        var nextColorIndex: Int = 0
+
         func setCustomTitle(_ title: String?, for window: NSWindow) {
             let id = ObjectIdentifier(window)
             if let title = title, !title.isEmpty {
@@ -232,11 +268,11 @@ struct VerticalTabSidebar: View {
                 customTitles.removeValue(forKey: id)
             }
         }
-        
+
         func getCustomTitle(for window: NSWindow) -> String? {
             return customTitles[ObjectIdentifier(window)]
         }
-        
+
         func clearCustomTitle(for window: NSWindow) {
             customTitles.removeValue(forKey: ObjectIdentifier(window))
         }
@@ -254,13 +290,23 @@ struct VerticalTabSidebar: View {
         let isSelected: Bool
         let keyEquivalent: String?
         let hasCustomTitle: Bool
+        let color: Color?
         let onSelect: () -> Void
         let onClose: () -> Void
         let onRename: () -> Void
         let onClearCustomTitle: () -> Void
-        
+
         @State private var isHovering: Bool = false
-        
+
+        private var backgroundFill: Color {
+            if let c = color {
+                return c.opacity(isSelected ? 0.55 : isHovering ? 0.40 : 0.28)
+            }
+            if isSelected { return Color.accentColor.opacity(0.2) }
+            if isHovering { return Color.primary.opacity(0.05) }
+            return Color.clear
+        }
+
         var body: some View {
             HStack(spacing: 6) {
                 // Key equivalent badge
@@ -302,12 +348,18 @@ struct VerticalTabSidebar: View {
             .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(isSelected ? Color.accentColor.opacity(0.2) : (isHovering ? Color.primary.opacity(0.05) : Color.clear))
+                    .fill(backgroundFill)
             )
             .contentShape(Rectangle())
             .onTapGesture {
                 onSelect()
             }
+            .simultaneousGesture(
+                TapGesture(count: 2)
+                    .onEnded {
+                        onRename()
+                    }
+            )
             .onHover { hovering in
                 isHovering = hovering
             }
@@ -336,11 +388,11 @@ struct VerticalTabSidebar: View {
             tabModel.tabs = []
             return
         }
-        
+
         // Get all tabbed windows and the selected one
         let windows: [NSWindow]
         let selectedWindow: NSWindow?
-        
+
         if let tabGroup = window.tabGroup {
             windows = tabGroup.windows
             selectedWindow = tabGroup.selectedWindow
@@ -348,29 +400,53 @@ struct VerticalTabSidebar: View {
             windows = [window]
             selectedWindow = window
         }
-        
+
+        // If the window list shrank but the "missing" windows are still alive, we're
+        // in a transitional state (e.g. macOS hasn't finished adding the new tab to
+        // the tab group yet). Skip this tick — the next refresh will have the full list.
+        if !tabModel.tabs.isEmpty && windows.count < tabModel.tabs.count {
+            let current = Set(windows)
+            let hasLivingMissingWindow = tabModel.tabs.contains { tab in
+                !current.contains(tab.window) && tab.window.isVisible
+            }
+            if hasLivingMissingWindow { return }
+        }
+
+        // Assign a persistent color to each window the first time it's seen
+        for win in windows {
+            let winId = ObjectIdentifier(win)
+            if tabModel.tabColors[winId] == nil {
+                tabModel.tabColors[winId] = VerticalTabSidebar.tabColor(at: tabModel.nextColorIndex)
+                tabModel.nextColorIndex += 1
+            }
+        }
+
         // Build the tab data with current titles (using custom titles if set)
         let newTabs = windows.enumerated().map { index, win in
-            // Get the controller for this window to resolve title based on config
             let controller = win.windowController as? BaseTerminalController
             let resolvedTitle = resolveTitle(for: win, controller: controller)
-            
+            let winId = ObjectIdentifier(win)
+            let color = tabModel.tabColors[winId] ?? VerticalTabSidebar.tabColor(at: 0)
+
             return TabData(
                 window: win,
                 index: index,
                 isSelected: win == selectedWindow,
                 customTitles: tabModel.customTitles,
-                resolvedTitle: resolvedTitle
+                resolvedTitle: resolvedTitle,
+                color: color
             )
         }
-        
-        // Check if anything changed (IDs or selection state)
-        let newIds = newTabs.map { $0.id }
-        let oldIds = tabModel.tabs.map { $0.id }
-        let newSelection = newTabs.map { $0.isSelected }
-        let oldSelection = tabModel.tabs.map { $0.isSelected }
-        
-        if newIds != oldIds || newSelection != oldSelection {
+
+        // Only update if something visible actually changed to avoid spurious re-renders
+        let changed = newTabs.count != tabModel.tabs.count ||
+            zip(newTabs, tabModel.tabs).contains { new, old in
+                new.id != old.id ||
+                new.isSelected != old.isSelected ||
+                new.title != old.title
+            }
+
+        if changed {
             tabModel.tabs = newTabs
         }
     }
@@ -426,9 +502,8 @@ struct VerticalTabSidebar: View {
 #if DEBUG
 struct VerticalTabSidebar_Previews: PreviewProvider {
     static var previews: some View {
-        VerticalTabSidebar(windowController: nil)
+        VerticalTabSidebar(tabColorEnabled: true, windowController: nil)
             .frame(height: 400)
     }
 }
 #endif
-
