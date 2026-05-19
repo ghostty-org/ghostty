@@ -1,6 +1,7 @@
 #include "GhosttySurface.h"
 
 #include "MainWindow.h"
+#include "SearchBar.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -166,6 +167,7 @@ void GhosttySurface::resizeEvent(QResizeEvent *) {
   if (m_exitOverlay) m_exitOverlay->setGeometry(rect());
   if (m_keySeqOverlay && m_keySeqOverlay->isVisible())
     m_keySeqOverlay->move(8, height() - m_keySeqOverlay->height() - 8);
+  layoutSearchBar();
   showResizeOverlay();
 }
 
@@ -341,6 +343,34 @@ void GhosttySurface::pushKeySequence(const QString &chord) {
 void GhosttySurface::endKeySequence() {
   m_keySeq.clear();
   if (m_keySeqOverlay) m_keySeqOverlay->hide();
+}
+
+void GhosttySurface::openSearch(const QString &prefill) {
+  if (!m_searchBar) m_searchBar = new SearchBar(this);
+  m_searchBar->open(prefill);
+  layoutSearchBar();
+}
+
+void GhosttySurface::closeSearch() {
+  if (m_searchBar) m_searchBar->hide();
+}
+
+void GhosttySurface::setSearchTotal(int total) {
+  if (m_searchBar) m_searchBar->setTotal(total);
+}
+
+void GhosttySurface::setSearchSelected(int selected) {
+  if (m_searchBar) m_searchBar->setSelected(selected);
+}
+
+void GhosttySurface::layoutSearchBar() {
+  if (!m_searchBar || !m_searchBar->isVisible()) return;
+  m_searchBar->adjustSize();
+  // Top-right, clear of the scrollbar.
+  const int sbw = (m_scrollbar && m_scrollbar->isVisible())
+                      ? m_scrollbar->sizeHint().width()
+                      : 0;
+  m_searchBar->move(width() - m_searchBar->width() - sbw - 8, 8);
 }
 
 void GhosttySurface::showResizeOverlay() {
@@ -651,6 +681,7 @@ void GhosttySurface::contextMenuEvent(QContextMenuEvent *ev) {
   add(&menu, "Paste", "edit-paste", "paste_from_clipboard",
       !QGuiApplication::clipboard()->text().isEmpty());
   add(&menu, "Select All", "edit-select-all", "select_all", true);
+  add(&menu, "Find…", "edit-find", "start_search", true);
   add(&menu, "Notify on Next Command Finish",
       "preferences-desktop-notification", "@notify-command", true);
   menu.addSeparator();

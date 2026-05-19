@@ -1348,8 +1348,42 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
             Qt::QueuedConnection);
       return true;
 
+    case GHOSTTY_ACTION_START_SEARCH: {
+      if (!src) return true;
+      const char *needle = action.action.start_search.needle;
+      const QString n = QString::fromUtf8(needle ? needle : "");
+      QMetaObject::invokeMethod(src, [src, n]() { src->openSearch(n); },
+                                Qt::QueuedConnection);
+      return true;
+    }
+
+    case GHOSTTY_ACTION_END_SEARCH:
+      if (src)
+        QMetaObject::invokeMethod(src, [src]() { src->closeSearch(); },
+                                  Qt::QueuedConnection);
+      return true;
+
+    case GHOSTTY_ACTION_SEARCH_TOTAL: {
+      if (!src) return true;
+      const int total = static_cast<int>(action.action.search_total.total);
+      QMetaObject::invokeMethod(
+          src, [src, total]() { src->setSearchTotal(total); },
+          Qt::QueuedConnection);
+      return true;
+    }
+
+    case GHOSTTY_ACTION_SEARCH_SELECTED: {
+      if (!src) return true;
+      const int sel =
+          static_cast<int>(action.action.search_selected.selected);
+      QMetaObject::invokeMethod(
+          src, [src, sel]() { src->setSearchSelected(sel); },
+          Qt::QueuedConnection);
+      return true;
+    }
+
     default:
-      // Inspector and in-terminal search are not handled yet.
+      // The terminal inspector is not handled yet.
       return false;
   }
 }

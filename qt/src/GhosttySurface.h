@@ -14,6 +14,7 @@ class QDragEnterEvent;
 class QDropEvent;
 class QEnterEvent;
 class QTimer;
+class SearchBar;
 class QInputMethodEvent;
 class QKeySequence;
 class QLabel;
@@ -80,6 +81,14 @@ public:
   void pushKeySequence(const QString &chord);
   void endKeySequence();
 
+  // In-terminal search (the *_SEARCH actions): openSearch shows the
+  // search bar (optionally pre-filled), closeSearch hides it, and the
+  // setSearch* calls mirror libghostty's reported match counters.
+  void openSearch(const QString &prefill);
+  void closeSearch();
+  void setSearchTotal(int total);
+  void setSearchSelected(int selected);
+
   // Bell `border` feature: briefly flash a border over the terminal.
   void flashBorder();
   // Bell `title` feature: mark/unmark an unacknowledged bell. MainWindow
@@ -118,6 +127,7 @@ private:
   bool scrollbarAllowed() const;   // false when `scrollbar = never`
   void buildExitOverlay(int exitCode);
   void showResizeOverlay();        // transient grid-size overlay on resize
+  void layoutSearchBar();          // position the search bar at the top edge
   void sendKey(QKeyEvent *, ghostty_input_action_e action);
   void commitText(const QString &text);
   void sendMouseButton(QMouseEvent *, ghostty_input_mouse_state_e state);
@@ -165,6 +175,7 @@ private:
   bool m_firstGridSeen = false;        // for `resize-overlay = after-first`
   int m_lastCols = 0;                  // last grid size, to detect changes
   int m_lastRows = 0;
+  SearchBar *m_searchBar = nullptr;    // in-terminal search; lazily made
   QScrollBar *m_scrollbar = nullptr;   // scrollback scrollbar; hidden by default
   bool m_notifyOnCommand = false;      // one-shot: notify on next cmd finish
   bool m_bellFlash = false;            // bell `border` flash in progress

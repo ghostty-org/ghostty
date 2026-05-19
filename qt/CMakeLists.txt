@@ -72,6 +72,7 @@ add_executable(ghostty
   src/CommandPalette.cpp
   src/GhosttySurface.cpp
   src/MainWindow.cpp
+  src/SearchBar.cpp
   src/WindowBlur.cpp
   "${BLUR_CODE}"
   "${BLUR_HEADER}"
