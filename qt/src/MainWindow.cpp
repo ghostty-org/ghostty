@@ -21,6 +21,7 @@
 #include <QMessageBox>
 #include <QPoint>
 #include <QRect>
+#include <QScreen>
 #include <QShowEvent>
 #include <QSplitter>
 #include <QStringList>
@@ -32,6 +33,9 @@
 #include <QTimer>
 #include <QVariant>
 #include <QVBoxLayout>
+#include <QWindow>
+
+#include <LayerShellQt/window.h>
 
 #include "CommandPalette.h"
 #include "GhosttySurface.h"
@@ -47,6 +51,7 @@ bool MainWindow::s_needsPremultiply = false;
 QList<MainWindow *> MainWindow::s_windows;
 QTimer *MainWindow::s_quitTimer = nullptr;
 int MainWindow::s_quitDelayMs = 0;
+MainWindow *MainWindow::s_quickTerminal = nullptr;
 std::atomic<bool> MainWindow::s_tickPending{false};
 
 MainWindow::MainWindow() {
@@ -84,6 +89,7 @@ MainWindow::MainWindow() {
 
 MainWindow::~MainWindow() {
   s_windows.removeOne(this);
+  if (this == s_quickTerminal) s_quickTerminal = nullptr;
 
   // Destroy this window's surfaces (freeing their ghostty_surface_t)
   // before any app teardown; Qt's own child cleanup runs after this body.
@@ -227,18 +233,21 @@ bool MainWindow::initialize() {
     QApplication::setQuitOnLastWindowClosed(quitAfter && s_quitDelayMs == 0);
   }
 
-  // Per-window startup window state, applied before show().
-  // window-decoration `none` drops the native frame; `auto`/`server`/
-  // `client` keep a decorated window (the compositor picks the side on
-  // Wayland).
-  if (configString("window-decoration") == QLatin1String("none"))
-    setWindowFlag(Qt::FramelessWindowHint, true);
-  // fullscreen wins over maximize; its enum is `false` when unset.
-  const QString fullscreen = configString("fullscreen");
-  if (!fullscreen.isEmpty() && fullscreen != QLatin1String("false"))
-    setWindowState(windowState() | Qt::WindowFullScreen);
-  else if (configBool("maximize", false))
-    setWindowState(windowState() | Qt::WindowMaximized);
+  // Per-window startup window state, applied before show(). None of it
+  // applies to the quick terminal — that is a layer-shell surface.
+  if (!m_quickTerminal) {
+    // window-decoration `none` drops the native frame; `auto`/`server`/
+    // `client` keep a decorated window (the compositor picks the side
+    // on Wayland).
+    if (configString("window-decoration") == QLatin1String("none"))
+      setWindowFlag(Qt::FramelessWindowHint, true);
+    // fullscreen wins over maximize; its enum is `false` when unset.
+    const QString fullscreen = configString("fullscreen");
+    if (!fullscreen.isEmpty() && fullscreen != QLatin1String("false"))
+      setWindowState(windowState() | Qt::WindowFullScreen);
+    else if (configBool("maximize", false))
+      setWindowState(windowState() | Qt::WindowMaximized);
+  }
 
   // Tab-bar policy and colour scheme.
   applyWindowConfig();
@@ -526,6 +535,103 @@ void MainWindow::toggleVisibility() {
       w->activateWindow();
     }
   }
+}
+
+void MainWindow::toggleQuickTerminal() {
+  if (s_quickTerminal) {
+    if (s_quickTerminal->isVisible()) {
+      s_quickTerminal->hide();
+    } else {
+      s_quickTerminal->show();
+      s_quickTerminal->raise();
+      s_quickTerminal->activateWindow();
+    }
+    return;
+  }
+  // First use: build the dedicated quick-terminal window.
+  auto *w = new MainWindow;
+  w->m_quickTerminal = true;
+  w->setAttribute(Qt::WA_DeleteOnClose);
+  if (!w->initialize()) {
+    delete w;
+    return;
+  }
+  s_quickTerminal = w;
+  w->setupLayerShell();
+  w->show();
+}
+
+void MainWindow::setupLayerShell() {
+  // LayerShellQt attaches to the native window; force it into being.
+  winId();
+  QWindow *handle = windowHandle();
+  if (!handle) return;
+  LayerShellQt::Window *ls = LayerShellQt::Window::get(handle);
+  if (!ls) return;
+  using LSW = LayerShellQt::Window;
+
+  ls->setLayer(LSW::LayerTop);
+  const QString ki = configString("quick-terminal-keyboard-interactivity");
+  ls->setKeyboardInteractivity(
+      ki == QLatin1String("exclusive") ? LSW::KeyboardInteractivityExclusive
+      : ki == QLatin1String("none")    ? LSW::KeyboardInteractivityNone
+                                       : LSW::KeyboardInteractivityOnDemand);
+
+  QScreen *screen = handle->screen();
+  const QSize scr = screen ? screen->size() : QSize(1920, 1080);
+
+  // quick-terminal-size: primary is the edge-perpendicular extent.
+  ghostty_config_quick_terminal_size_s qsz = {};
+  ghostty_config_get(s_config, &qsz, "quick-terminal-size",
+                     qstrlen("quick-terminal-size"));
+  const auto toPx = [](const ghostty_quick_terminal_size_s &s, int dim,
+                       int fallback) -> int {
+    switch (s.tag) {
+      case GHOSTTY_QUICK_TERMINAL_SIZE_PERCENTAGE:
+        return static_cast<int>(s.value.percentage / 100.0f * dim);
+      case GHOSTTY_QUICK_TERMINAL_SIZE_PIXELS:
+        return static_cast<int>(s.value.pixels);
+      default:
+        return fallback;
+    }
+  };
+
+  const QString pos = configString("quick-terminal-position");
+  LSW::Anchors anchors;
+  QSize size;
+  if (pos == QLatin1String("bottom")) {
+    anchors = LSW::Anchors(LSW::AnchorBottom) | LSW::AnchorLeft |
+              LSW::AnchorRight;
+    size = {scr.width(), toPx(qsz.primary, scr.height(), 400)};
+  } else if (pos == QLatin1String("left")) {
+    anchors = LSW::Anchors(LSW::AnchorLeft) | LSW::AnchorTop |
+              LSW::AnchorBottom;
+    size = {toPx(qsz.primary, scr.width(), 400), scr.height()};
+  } else if (pos == QLatin1String("right")) {
+    anchors = LSW::Anchors(LSW::AnchorRight) | LSW::AnchorTop |
+              LSW::AnchorBottom;
+    size = {toPx(qsz.primary, scr.width(), 400), scr.height()};
+  } else if (pos == QLatin1String("center")) {
+    anchors = LSW::Anchors(LSW::AnchorNone);
+    size = {toPx(qsz.primary, scr.width(), 800),
+            toPx(qsz.secondary, scr.height(), 400)};
+  } else {  // top (the default)
+    anchors = LSW::Anchors(LSW::AnchorTop) | LSW::AnchorLeft |
+              LSW::AnchorRight;
+    size = {scr.width(), toPx(qsz.primary, scr.height(), 400)};
+  }
+  ls->setAnchors(anchors);
+  ls->setDesiredSize(size);
+  resize(size);
+}
+
+void MainWindow::changeEvent(QEvent *e) {
+  // quick-terminal-autohide: drop the dropdown when it loses focus.
+  if (e->type() == QEvent::ActivationChange && m_quickTerminal &&
+      isVisible() && !isActiveWindow() &&
+      configBool("quick-terminal-autohide", true))
+    hide();
+  QWidget::changeEvent(e);
 }
 
 void MainWindow::handleQuitTimer(bool start) {
@@ -1363,6 +1469,12 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
     case GHOSTTY_ACTION_TOGGLE_VISIBILITY:
       QMetaObject::invokeMethod(qApp,
                                 []() { MainWindow::toggleVisibility(); },
+                                Qt::QueuedConnection);
+      return true;
+
+    case GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL:
+      QMetaObject::invokeMethod(qApp,
+                                []() { MainWindow::toggleQuickTerminal(); },
                                 Qt::QueuedConnection);
       return true;
 

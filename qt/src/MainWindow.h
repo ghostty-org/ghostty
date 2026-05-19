@@ -73,6 +73,8 @@ protected:
   // Honors `confirm-close-surface`: prompts if a surface has a running
   // process, and ignores the event if the user declines.
   void closeEvent(QCloseEvent *) override;
+  // Drives quick-terminal autohide on loss of activation.
+  void changeEvent(QEvent *) override;
 
 private slots:
   void onTabCloseRequested(int index);
@@ -133,6 +135,10 @@ private:
   // compositor (see WindowBlur).
   void applyBlur();
 
+  // Turn this window into a layer-shell dropdown anchored to a screen
+  // edge, per the `quick-terminal-*` config. Quick-terminal only.
+  void setupLayerShell();
+
   // Show/hide the command palette (TOGGLE_COMMAND_PALETTE), scoped to
   // `surface` for executing the chosen command.
   void toggleCommandPalette(GhosttySurface *surface);
@@ -147,6 +153,10 @@ private:
 
   // Show or hide every window at once (TOGGLE_VISIBILITY).
   static void toggleVisibility();
+
+  // Show/hide the dropdown quick terminal, creating it on first use
+  // (TOGGLE_QUICK_TERMINAL). There is at most one per process.
+  static void toggleQuickTerminal();
 
   // Wire the libghostty quit_timer action to a delayed QApplication
   // quit, gated on `quit-after-last-window-closed`.
@@ -174,6 +184,7 @@ private:
   bool m_firstTabPending = true;       // first tab is created on show()
   ghostty_surface_t m_firstTabParent = nullptr;  // inherited by the 1st tab
   bool m_skipCloseConfirm = false;     // close already confirmed elsewhere
+  bool m_quickTerminal = false;        // this is the dropdown quick terminal
   QSize m_defaultWindowSize;           // for RESET_WINDOW_SIZE; from INITIAL_SIZE
 
   // Process-shared libghostty state: one app and config drive every
@@ -185,6 +196,7 @@ private:
   static QList<MainWindow *> s_windows;
   static QTimer *s_quitTimer;          // delayed quit-after-last-window
   static int s_quitDelayMs;            // 0 = no delay configured
+  static MainWindow *s_quickTerminal;  // the one quick terminal, if any
 
   // Coalesces wakeup-driven ticks: a tick is queued at most once at a
   // time, so a busy surface can't flood the event loop.

@@ -32,6 +32,9 @@ include(GNUInstallDirs)
 find_package(Qt6 REQUIRED COMPONENTS Gui GuiPrivate Widgets OpenGL DBus
   Multimedia)
 
+# LayerShellQt: the quick terminal is a wlr-layer-shell dropdown window.
+find_package(LayerShellQt REQUIRED)
+
 # KWin background-blur is applied through the native compositor: the
 # org_kde_kwin_blur Wayland protocol and the _KDE_NET_WM_BLUR atom on
 # X11. Qt6::GuiPrivate gives the QPA native-handle accessors.
@@ -92,6 +95,7 @@ target_link_libraries(ghostty PRIVATE
   Qt6::Multimedia
   PkgConfig::WAYLAND_CLIENT
   PkgConfig::XCB
+  LayerShellQt::Interface
   "${GHOSTTY_LIB_DIR}/libghostty.so"
 )
 
