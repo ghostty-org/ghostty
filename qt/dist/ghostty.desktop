@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Ghostty
+GenericName=Terminal
+Comment=A terminal emulator
+Exec=ghostty
+Icon=ghostty
+Categories=System;TerminalEmulator;
+Keywords=terminal;tty;pty;
+StartupNotify=true
+StartupWMClass=ghostty
+Terminal=false

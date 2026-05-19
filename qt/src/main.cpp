@@ -26,6 +26,11 @@ int main(int argc, char **argv) {
 
   QApplication app(argc, argv);
 
+  // Match the installed ghostty.desktop: this becomes the Wayland app-id
+  // (and X11 WM_CLASS), so the compositor associates the window with the
+  // desktop entry — taskbar icon, launcher identity.
+  QGuiApplication::setDesktopFileName(QStringLiteral("ghostty"));
+
   // We keep the user's system widget style rather than forcing Fusion.
   // Some styles dim and blur translucent windows, which masks the
   // terminal's own background-opacity: Kvantum themes do this when

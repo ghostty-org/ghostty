@@ -16,14 +16,17 @@ project(ghostty LANGUAGES CXX)
 #
 #   zig build -Dapp-runtime=none -Doptimize=ReleaseFast
 #
-# Then build and run this app:
+# Then build, run, and (optionally) install this app:
 #
 #   cmake -S qt -B qt/build && cmake --build qt/build
 #   ./qt/build/ghostty
+#   cmake --install qt/build --prefix ~/.local
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
+
+include(GNUInstallDirs)
 
 find_package(Qt6 REQUIRED COMPONENTS Gui Widgets OpenGL DBus)
 
@@ -59,6 +62,27 @@ target_link_libraries(ghostty PRIVATE
   "${GHOSTTY_LIB_DIR}/libghostty.so"
 )
 
-target_link_options(ghostty PRIVATE
-  "-Wl,-rpath,${GHOSTTY_LIB_DIR}"
+# RPATH: the build-tree binary finds libghostty.so in zig-out/lib; the
+# installed binary finds it next to itself ($ORIGIN/../lib).
+set_target_properties(ghostty PROPERTIES
+  BUILD_RPATH "${GHOSTTY_LIB_DIR}"
+  INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}"
 )
+
+# --- install ---------------------------------------------------------
+install(TARGETS ghostty RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+
+# libghostty.so the binary links against (SONAME is libghostty.so).
+install(FILES "${GHOSTTY_SO}"
+  DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+  RENAME libghostty.so)
+
+install(FILES dist/ghostty.desktop
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+
+# Reuse Ghostty's own PNG icons, installed into the hicolor theme.
+foreach(sz 16 32 128 256 512)
+  install(FILES "${GHOSTTY_ROOT}/images/icons/icon_${sz}.png"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/${sz}x${sz}/apps"
+    RENAME ghostty.png)
+endforeach()
