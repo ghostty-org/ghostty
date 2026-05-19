@@ -50,6 +50,7 @@ public slots:
   void tick();
 
 protected:
+  bool event(QEvent *) override;
   void showEvent(QShowEvent *) override;
 
 private slots:
@@ -57,6 +58,9 @@ private slots:
   void onCurrentChanged(int index);
 
 private:
+  // Create the first tab once the device pixel ratio has settled.
+  void createFirstTab();
+
   void closeTab(int index);
   GhosttySurface *surfaceAt(int index) const;
   int tabIndexForSurface(GhosttySurface *surface) const;

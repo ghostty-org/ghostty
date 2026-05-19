@@ -124,17 +124,29 @@ bool MainWindow::initialize() {
 void MainWindow::showEvent(QShowEvent *event) {
   QWidget::showEvent(event);
 
-  // Create the first terminal only once the window is on-screen. A
-  // surface created earlier (from initialize(), before show()) spawns
-  // its shell while the device pixel ratio is still unsettled, so a
-  // shell greeting such as fastfetch queries a wrong cell size and sizes
-  // Kitty graphics images for it. Deferring to here — past show(), via a
-  // queued call so the window is fully mapped — makes the first tab
-  // behave exactly like every later one.
-  if (m_firstTabPending) {
-    m_firstTabPending = false;
-    QTimer::singleShot(0, this, [this] { newTab(nullptr); });
-  }
+  // Defer the first terminal until the device pixel ratio has settled.
+  // On Wayland the fractional scale arrives asynchronously after the
+  // window appears; a surface created before then spawns its shell at a
+  // stale scale, so a shell greeting (fastfetch) queries a wrong cell
+  // size and mis-sizes Kitty images. event() creates the tab as soon as
+  // a DevicePixelRatioChange lands; this timer is the fallback for when
+  // the ratio was already correct at show.
+  if (m_firstTabPending)
+    QTimer::singleShot(250, this, [this] { createFirstTab(); });
+}
+
+bool MainWindow::event(QEvent *e) {
+  // The fractional scale settling after the window appears arrives as a
+  // DevicePixelRatioChange — the earliest point the first surface can be
+  // created with a correct, stable scale.
+  if (e->type() == QEvent::DevicePixelRatioChange) createFirstTab();
+  return QWidget::event(e);
+}
+
+void MainWindow::createFirstTab() {
+  if (!m_firstTabPending) return;
+  m_firstTabPending = false;
+  newTab(nullptr);
 }
 
 GhosttySurface *MainWindow::newTab(ghostty_surface_t parent) {
