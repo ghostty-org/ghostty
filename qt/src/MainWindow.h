@@ -40,6 +40,13 @@ public:
   // tab whose surface inherits from `parent` (may be null).
   static MainWindow *newWindow(ghostty_surface_t parent);
 
+  // Show or hide every window at once (TOGGLE_VISIBILITY).
+  static void toggleVisibility();
+
+  // Show/hide the dropdown quick terminal, creating it on first use
+  // (TOGGLE_QUICK_TERMINAL). There is at most one per process.
+  static void toggleQuickTerminal();
+
   // Open a new tab. `parent` (may be null) is the surface whose working
   // directory etc. the new surface should inherit.
   GhosttySurface *newTab(ghostty_surface_t parent);
@@ -117,10 +124,11 @@ private:
   // Copy the current tab's effective title to the clipboard.
   void copyTitleToClipboard();
 
-  // Config: rebuild from disk (reloadConfig) or apply one libghostty
-  // handed us (applyConfig), pushing it to the app and every surface.
+  // Rebuild the config from disk and push it to libghostty.
   void reloadConfig();
-  void applyConfig(ghostty_config_t config);
+  // Refresh every window's chrome from the current config (used after a
+  // reload and on the CONFIG_CHANGE notification).
+  static void refreshChrome();
 
   // Typed wrappers over ghostty_config_get. configString also serves
   // enum keys — libghostty returns an enum as its tag name string.
@@ -150,13 +158,6 @@ private:
   // Close every window, optionally quitting the process; prompts once
   // via ghostty_app_needs_confirm_quit.
   static void closeAllWindows();
-
-  // Show or hide every window at once (TOGGLE_VISIBILITY).
-  static void toggleVisibility();
-
-  // Show/hide the dropdown quick terminal, creating it on first use
-  // (TOGGLE_QUICK_TERMINAL). There is at most one per process.
-  static void toggleQuickTerminal();
 
   // Wire the libghostty quit_timer action to a delayed QApplication
   // quit, gated on `quit-after-last-window-closed`.

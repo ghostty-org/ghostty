@@ -860,21 +860,9 @@ void MainWindow::playBellAudio() {
   m_bellPlayer->play();
 }
 
-// Push `config` to the shared app and every surface of every window,
-// and adopt it as the live config. Takes ownership of `config` (frees
-// the previous one).
-void MainWindow::applyConfig(ghostty_config_t config) {
-  if (!config) return;
-  ghostty_app_update_config(s_app, config);
-  for (MainWindow *w : s_windows)
-    for (GhosttySurface *s : w->m_surfaces)
-      if (s->surface()) ghostty_surface_update_config(s->surface(), config);
-
-  if (s_config && s_config != config) ghostty_config_free(s_config);
-  s_config = config;
-  s_needsPremultiply = configHasCustomShader();
-
-  // Re-apply window settings that a reload may have changed.
+// Refresh every window's chrome (tab-bar policy, colour scheme, blur)
+// from the current s_config.
+void MainWindow::refreshChrome() {
   for (MainWindow *w : s_windows) {
     w->applyWindowConfig();
     w->applyBlur();
@@ -888,7 +876,20 @@ void MainWindow::reloadConfig() {
   ghostty_config_load_cli_args(config);
   ghostty_config_load_recursive_files(config);
   ghostty_config_finalize(config);
-  applyConfig(config);
+
+  // Push to libghostty. App.updateConfig propagates the config to every
+  // surface and fires CONFIG_CHANGE back at us — which only refreshes
+  // chrome, never re-pushes, so this does not loop.
+  ghostty_app_update_config(s_app, config);
+
+  // Adopt the new config. libghostty keeps borrowed references to it
+  // (the surface message queue), so it must outlive this call — which
+  // it does, as the live s_config.
+  if (s_config && s_config != config) ghostty_config_free(s_config);
+  s_config = config;
+  s_needsPremultiply = configHasCustomShader();
+
+  refreshChrome();
 }
 
 QString MainWindow::configString(const char *key) const {
@@ -919,9 +920,11 @@ void MainWindow::applyWindowConfig() {
   } else if (tabBar == QLatin1String("always")) {
     m_tabs->setTabBarAutoHide(false);
     m_tabs->tabBar()->show();
-  } else {  // auto (the default)
-    m_tabs->tabBar()->show();
+  } else {  // auto (the default): hidden while there is a lone tab
     m_tabs->setTabBarAutoHide(true);
+    // setTabBarAutoHide does not retroactively correct an explicitly
+    // shown/hidden bar, so set the right state for the current count.
+    m_tabs->tabBar()->setVisible(m_tabs->count() > 1);
   }
 
   // window-theme: force a light/dark scheme, or follow the OS. `auto`
@@ -1301,9 +1304,19 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       return true;
 
     case GHOSTTY_ACTION_OPEN_CONFIG: {
-      // libghostty opens the config file in the user's editor itself and
-      // returns the path; we only need to free that string.
+      // ghostty_config_open_path creates the config file if missing and
+      // returns its path; opening it is the apprt's job.
       ghostty_string_s path = ghostty_config_open_path();
+      if (path.ptr && path.len) {
+        const QString p =
+            QString::fromUtf8(path.ptr, static_cast<int>(path.len));
+        QMetaObject::invokeMethod(
+            qApp,
+            [p]() {
+              QDesktopServices::openUrl(QUrl::fromLocalFile(p));
+            },
+            Qt::QueuedConnection);
+      }
       ghostty_string_free(path);
       return true;
     }
@@ -1314,20 +1327,13 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
             win, [win]() { win->reloadConfig(); }, Qt::QueuedConnection);
       return true;
 
-    case GHOSTTY_ACTION_CONFIG_CHANGE: {
-      // Clone libghostty's config so it outlives this callback; applyConfig
-      // adopts the clone as the live config (and applies it to every
-      // window). Free the clone ourselves if there is no window to adopt it.
-      ghostty_config_t cfg =
-          ghostty_config_clone(action.action.config_change.config);
-      if (win)
-        QMetaObject::invokeMethod(
-            win, [win, cfg]() { win->applyConfig(cfg); },
-            Qt::QueuedConnection);
-      else
-        ghostty_config_free(cfg);
+    case GHOSTTY_ACTION_CONFIG_CHANGE:
+      // A notification: libghostty already holds the new config (this
+      // often fires as the echo of our own ghostty_app_update_config).
+      // Re-pushing it would loop, so just refresh window chrome.
+      QMetaObject::invokeMethod(qApp, []() { MainWindow::refreshChrome(); },
+                                Qt::QueuedConnection);
       return true;
-    }
 
     case GHOSTTY_ACTION_INITIAL_SIZE: {
       if (!win) return false;
