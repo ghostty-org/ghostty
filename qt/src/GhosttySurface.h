@@ -14,6 +14,7 @@ class QDragEnterEvent;
 class QDropEvent;
 class QEnterEvent;
 class QTimer;
+class InspectorWindow;
 class SearchBar;
 class QInputMethodEvent;
 class QKeySequence;
@@ -80,6 +81,9 @@ public:
   // pushKeySequence appends a chord, endKeySequence clears the overlay.
   void pushKeySequence(const QString &chord);
   void endKeySequence();
+
+  // Show/hide/toggle the terminal inspector window (INSPECTOR action).
+  void toggleInspector(ghostty_action_inspector_e mode);
 
   // In-terminal search (the *_SEARCH actions): openSearch shows the
   // search bar (optionally pre-filled), closeSearch hides it, and the
@@ -176,6 +180,7 @@ private:
   int m_lastCols = 0;                  // last grid size, to detect changes
   int m_lastRows = 0;
   SearchBar *m_searchBar = nullptr;    // in-terminal search; lazily made
+  InspectorWindow *m_inspectorWindow = nullptr;  // terminal inspector; lazily made
   QScrollBar *m_scrollbar = nullptr;   // scrollback scrollbar; hidden by default
   bool m_notifyOnCommand = false;      // one-shot: notify on next cmd finish
   bool m_bellFlash = false;            // bell `border` flash in progress

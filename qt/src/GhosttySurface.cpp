@@ -1,5 +1,6 @@
 #include "GhosttySurface.h"
 
+#include "InspectorWindow.h"
 #include "MainWindow.h"
 #include "SearchBar.h"
 
@@ -110,6 +111,9 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
 }
 
 GhosttySurface::~GhosttySurface() {
+  // The inspector window holds m_surface; destroy it before m_surface.
+  delete m_inspectorWindow;
+
   // Release GL-owning objects with the context current.
   if (makeCurrent()) {
     if (m_surface) ghostty_surface_free(m_surface);
@@ -343,6 +347,25 @@ void GhosttySurface::pushKeySequence(const QString &chord) {
 void GhosttySurface::endKeySequence() {
   m_keySeq.clear();
   if (m_keySeqOverlay) m_keySeqOverlay->hide();
+}
+
+void GhosttySurface::toggleInspector(ghostty_action_inspector_e mode) {
+  const bool visible = m_inspectorWindow && m_inspectorWindow->isVisible();
+  bool show;
+  switch (mode) {
+    case GHOSTTY_INSPECTOR_SHOW: show = true; break;
+    case GHOSTTY_INSPECTOR_HIDE: show = false; break;
+    default: show = !visible; break;  // GHOSTTY_INSPECTOR_TOGGLE
+  }
+  if (show) {
+    if (!m_inspectorWindow)
+      m_inspectorWindow = new InspectorWindow(m_surface);
+    m_inspectorWindow->show();
+    m_inspectorWindow->raise();
+    m_inspectorWindow->activateWindow();
+  } else if (m_inspectorWindow) {
+    m_inspectorWindow->hide();
+  }
 }
 
 void GhosttySurface::openSearch(const QString &prefill) {

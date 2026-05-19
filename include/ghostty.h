@@ -1229,6 +1229,14 @@ GHOSTTY_API void ghostty_inspector_metal_render(ghostty_inspector_t, void*, void
 GHOSTTY_API bool ghostty_inspector_metal_shutdown(ghostty_inspector_t);
 #endif
 
+// Inspector rendering for the embedded OpenGL platform. init/shutdown
+// manage the ImGui OpenGL backend; render draws the inspector into the
+// currently bound GL framebuffer (the host makes its context current
+// and binds the target framebuffer first).
+GHOSTTY_API bool ghostty_inspector_opengl_init(ghostty_inspector_t);
+GHOSTTY_API void ghostty_inspector_opengl_render(ghostty_inspector_t);
+GHOSTTY_API void ghostty_inspector_opengl_shutdown(ghostty_inspector_t);
+
 // APIs I'd like to get rid of eventually but are still needed for now.
 // Don't use these unless you know what you're doing.
 GHOSTTY_API void ghostty_set_window_background_blur(ghostty_app_t, void*);

@@ -1064,10 +1064,12 @@ pub const Inspector = struct {
 
     const Backend = enum {
         metal,
+        opengl,
 
         pub fn deinit(self: Backend) void {
             switch (self) {
                 .metal => if (builtin.target.os.tag.isDarwin()) cimgui.ImGui_ImplMetal_Shutdown(),
+                .opengl => if (!builtin.target.os.tag.isDarwin()) cimgui.ImGui_ImplOpenGL3_ShutdownWithLoaderCleanup(),
             }
         }
     };
@@ -1166,6 +1168,52 @@ pub const Inspector = struct {
             command_buffer.value,
             encoder.value,
         );
+    }
+
+    /// Initialize the inspector for an OpenGL backend. The ImGui OpenGL3
+    /// backend self-loads GL symbols and renders into the bound
+    /// framebuffer, so no device handle is needed.
+    pub fn initOpenGL(self: *Inspector) bool {
+        if (comptime builtin.target.os.tag.isDarwin()) return false;
+        cimgui.c.ImGui_SetCurrentContext(self.ig_ctx);
+
+        if (self.backend) |v| {
+            v.deinit();
+            self.backend = null;
+        }
+
+        if (!cimgui.ImGui_ImplOpenGL3_Init(null)) {
+            log.warn("failed to initialize OpenGL backend", .{});
+            return false;
+        }
+        self.backend = .opengl;
+
+        log.debug("initialized OpenGL backend", .{});
+        return true;
+    }
+
+    /// Render the inspector into the currently bound GL framebuffer.
+    pub fn renderOpenGL(self: *Inspector) !void {
+        if (comptime builtin.target.os.tag.isDarwin()) return;
+        assert(self.backend == .opengl);
+
+        // Render twice so ImGui completes its state processing (this
+        // mirrors renderMetal).
+        for (0..2) |_| {
+            cimgui.ImGui_ImplOpenGL3_NewFrame();
+            try self.newFrame();
+            cimgui.c.ImGui_NewFrame();
+
+            render: {
+                const surface = &self.surface.core_surface;
+                const inspector = surface.inspector orelse break :render;
+                inspector.render(surface);
+            }
+
+            cimgui.c.ImGui_Render();
+        }
+
+        cimgui.ImGui_ImplOpenGL3_RenderDrawData(cimgui.c.ImGui_GetDrawData());
     }
 
     pub fn updateContentScale(self: *Inspector, x: f64, y: f64) void {
@@ -2185,6 +2233,23 @@ pub const CAPI = struct {
 
     export fn ghostty_inspector_set_focus(ptr: *Inspector, focused: bool) void {
         ptr.focusCallback(focused);
+    }
+
+    export fn ghostty_inspector_opengl_init(ptr: *Inspector) bool {
+        return ptr.initOpenGL();
+    }
+
+    export fn ghostty_inspector_opengl_render(ptr: *Inspector) void {
+        ptr.renderOpenGL() catch |err| {
+            log.err("error rendering inspector err={}", .{err});
+        };
+    }
+
+    export fn ghostty_inspector_opengl_shutdown(ptr: *Inspector) void {
+        if (ptr.backend) |v| {
+            v.deinit();
+            ptr.backend = null;
+        }
     }
 
     /// Sets the window background blur on macOS to the desired value.

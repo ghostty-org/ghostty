@@ -1519,8 +1519,16 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       return true;
     }
 
+    case GHOSTTY_ACTION_INSPECTOR: {
+      if (!src) return true;
+      const ghostty_action_inspector_e mode = action.action.inspector;
+      QMetaObject::invokeMethod(
+          src, [src, mode]() { src->toggleInspector(mode); },
+          Qt::QueuedConnection);
+      return true;
+    }
+
     default:
-      // The terminal inspector is not handled yet.
       return false;
   }
 }
