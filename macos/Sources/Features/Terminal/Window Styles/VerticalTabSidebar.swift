@@ -12,24 +12,24 @@ struct VerticalTabSidebar: View {
 
     /// Whether the sidebar is on the right side (affects resize handle position)
     var isRightSide: Bool = false
-    
+
     /// The tab data model that tracks all tabs
     @ObservedObject private var tabModel: TabModel
-    
+
     /// Timer for refreshing the tab list
     @State private var refreshTimer: Timer?
-    
+
     /// For the rename dialog
     @State private var isShowingRenameDialog: Bool = false
     @State private var renameText: String = ""
     @State private var windowToRename: NSWindow? = nil
-    
+
     /// Sidebar width - persisted in UserDefaults
     @AppStorage("verticalTabSidebarWidth") private var sidebarWidth: Double = 200
-    
+
     /// Whether we're currently resizing
     @State private var isResizing: Bool = false
-    
+
     /// Minimum and maximum width constraints
     private let minWidth: CGFloat = 120
     private let maxWidth: CGFloat = 400
@@ -42,14 +42,14 @@ struct VerticalTabSidebar: View {
             wrappedValue: (windowController as? TerminalController)?.verticalTabModel ?? TabModel()
         )
     }
-    
+
     var body: some View {
         HStack(spacing: 0) {
             // Resize handle on the left if sidebar is on the right
             if isRightSide {
                 resizeHandle
             }
-            
+
             // Main sidebar content
             VStack(spacing: 0) {
                 // Tab list
@@ -82,9 +82,9 @@ struct VerticalTabSidebar: View {
                     }
                     .padding(.vertical, 4)
                 }
-                
+
                 Divider()
-                
+
                 // Footer with new tab button
                 HStack(spacing: 8) {
                     Button(action: createNewTab) {
@@ -93,7 +93,7 @@ struct VerticalTabSidebar: View {
                     }
                     .buttonStyle(.plain)
                     .help("New Tab")
-                    
+
                     Spacer()
                 }
                 .padding(.horizontal, 12)
@@ -101,7 +101,7 @@ struct VerticalTabSidebar: View {
             }
             .frame(width: sidebarWidth)
             .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-            
+
             // Resize handle on the right if sidebar is on the left
             if !isRightSide {
                 resizeHandle
@@ -127,7 +127,7 @@ struct VerticalTabSidebar: View {
             )
         }
     }
-    
+
     /// The resize handle view
     private var resizeHandle: some View {
         ZStack {
@@ -136,7 +136,7 @@ struct VerticalTabSidebar: View {
                 .fill(Color(nsColor: .separatorColor))
                 .frame(width: 1)
                 .frame(maxHeight: .infinity)
-            
+
             // Wider invisible hit area for dragging
             Rectangle()
                 .fill(isResizing ? Color.accentColor.opacity(0.3) : Color.clear)
@@ -164,39 +164,39 @@ struct VerticalTabSidebar: View {
                 }
         )
     }
-    
+
     // MARK: - Rename Sheet
-    
+
     struct RenameTabSheet: View {
         @Binding var title: String
         @Binding var isPresented: Bool
         let onSave: () -> Void
-        
+
         var body: some View {
             VStack(spacing: 16) {
                 Text("Rename Tab")
                     .font(.headline)
-                
+
                 TextField("Tab title", text: $title)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 250)
                     .onSubmit {
                         save()
                     }
-                
+
                 Text("Leave empty to use automatic title")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                
+
                 HStack(spacing: 12) {
                     Button("Cancel") {
                         isPresented = false
                     }
                     .keyboardShortcut(.escape)
-                    
+
                     Button("Save", action: save)
-                    .keyboardShortcut(.return)
-                    .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.return)
+                        .buttonStyle(.borderedProminent)
                 }
             }
             .padding(20)
@@ -208,7 +208,7 @@ struct VerticalTabSidebar: View {
             isPresented = false
         }
     }
-    
+
     // MARK: - Tab Data Model
 
     /// Generate a tab color for the nth tab using golden-ratio hue spacing.
@@ -226,7 +226,7 @@ struct VerticalTabSidebar: View {
 
     /// Represents a single tab's data
     struct TabData: Identifiable {
-        let id: ObjectIdentifier  // Stable ID based on window identity — title changes update in place
+        let id: ObjectIdentifier
         let window: NSWindow
         let title: String
         let index: Int
@@ -240,7 +240,7 @@ struct VerticalTabSidebar: View {
             self.color = color
             self.id = ObjectIdentifier(window)
 
-            // Use custom title if set, otherwise use resolved title (based on tab-title-mode)
+            // Use custom title if set, otherwise use resolved title.
             let windowId = ObjectIdentifier(window)
             if let customTitle = customTitles[windowId], !customTitle.isEmpty {
                 self.title = customTitle
@@ -257,7 +257,7 @@ struct VerticalTabSidebar: View {
         var customTitles: [ObjectIdentifier: String] = [:]
         /// Persistent color assigned to each window for the session
         var tabColors: [ObjectIdentifier: Color] = [:]
-        /// Index into tabColorPalette for the next new window
+        /// Index for the next generated tab color
         var nextColorIndex: Int = 0
 
         func setCustomTitle(_ title: String?, for window: NSWindow) {
@@ -277,14 +277,14 @@ struct VerticalTabSidebar: View {
             customTitles.removeValue(forKey: ObjectIdentifier(window))
         }
     }
-    
+
     /// Get the title for a window
     private func resolveTitle(for window: NSWindow, controller: BaseTerminalController?) -> String {
         return window.title
     }
-    
+
     // MARK: - Tab Row
-    
+
     struct TabRow: View {
         let title: String
         let isSelected: Bool
@@ -316,23 +316,23 @@ struct VerticalTabSidebar: View {
                         .foregroundColor(.secondary)
                         .frame(width: 28)
                 }
-                
+
                 // Custom title indicator
                 if hasCustomTitle {
                     Image(systemName: "pencil.circle.fill")
                         .font(.system(size: 10))
                         .foregroundColor(.accentColor.opacity(0.7))
                 }
-                
+
                 // Tab title
                 Text(title.isEmpty ? "Ghostty" : title)
                     .font(.system(size: 12))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .foregroundColor(isSelected ? .primary : .secondary)
-                
+
                 Spacer()
-                
+
                 // Close button (shown on hover)
                 if isHovering {
                     Button(action: onClose) {
@@ -380,9 +380,9 @@ struct VerticalTabSidebar: View {
             .padding(.horizontal, 4)
         }
     }
-    
+
     // MARK: - Actions
-    
+
     private func refreshTabs() {
         guard let window = windowController?.window else {
             tabModel.tabs = []
@@ -402,8 +402,7 @@ struct VerticalTabSidebar: View {
         }
 
         // If the window list shrank but the "missing" windows are still alive, we're
-        // in a transitional state (e.g. macOS hasn't finished adding the new tab to
-        // the tab group yet). Skip this tick — the next refresh will have the full list.
+        // in a transitional state. Skip this tick; the next refresh will have the full list.
         if !tabModel.tabs.isEmpty && windows.count < tabModel.tabs.count {
             let current = Set(windows)
             let hasLivingMissingWindow = tabModel.tabs.contains { tab in
@@ -421,7 +420,7 @@ struct VerticalTabSidebar: View {
             }
         }
 
-        // Build the tab data with current titles (using custom titles if set)
+        // Build the tab data with current titles
         let newTabs = windows.enumerated().map { index, win in
             let controller = win.windowController as? BaseTerminalController
             let resolvedTitle = resolveTitle(for: win, controller: controller)
@@ -438,7 +437,6 @@ struct VerticalTabSidebar: View {
             )
         }
 
-        // Only update if something visible actually changed to avoid spurious re-renders
         let changed = newTabs.count != tabModel.tabs.count ||
             zip(newTabs, tabModel.tabs).contains { new, old in
                 new.id != old.id ||
@@ -450,47 +448,47 @@ struct VerticalTabSidebar: View {
             tabModel.tabs = newTabs
         }
     }
-    
+
     private func selectTab(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
         refreshTabs()
     }
-    
+
     private func closeTab(_ window: NSWindow) {
         // If this is the only tab, close the window
         if tabModel.tabs.count <= 1 {
             window.close()
             return
         }
-        
+
         // Otherwise just close this tab
         window.close()
-        
+
         // Refresh after a short delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             refreshTabs()
         }
     }
-    
+
     private func createNewTab() {
         guard let surface = windowController?.focusedSurface?.surface else { return }
         windowController?.ghostty.newTab(surface: surface)
-        
+
         // Refresh after a short delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             refreshTabs()
         }
     }
-    
+
     // MARK: - Timer
-    
+
     private func startRefreshTimer() {
         // Refresh tabs periodically to catch changes
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
             refreshTabs()
         }
     }
-    
+
     private func stopRefreshTimer() {
         refreshTimer?.invalidate()
         refreshTimer = nil
