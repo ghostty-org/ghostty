@@ -145,6 +145,9 @@ private:
   // via ghostty_app_needs_confirm_quit.
   static void closeAllWindows();
 
+  // Show or hide every window at once (TOGGLE_VISIBILITY).
+  static void toggleVisibility();
+
   // Wire the libghostty quit_timer action to a delayed QApplication
   // quit, gated on `quit-after-last-window-closed`.
   static void handleQuitTimer(bool start);

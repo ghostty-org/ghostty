@@ -509,6 +509,25 @@ void MainWindow::closeAllWindows() {
   qApp->quit();
 }
 
+void MainWindow::toggleVisibility() {
+  // If anything is showing, hide everything; otherwise reveal it all.
+  bool anyVisible = false;
+  for (MainWindow *w : s_windows)
+    if (w->isVisible()) {
+      anyVisible = true;
+      break;
+    }
+  for (MainWindow *w : s_windows) {
+    if (anyVisible) {
+      w->hide();
+    } else {
+      w->show();
+      w->raise();
+      w->activateWindow();
+    }
+  }
+}
+
 void MainWindow::handleQuitTimer(bool start) {
   // Only meaningful when a delay is configured; otherwise Qt's
   // quitOnLastWindowClosed already handles the quit.
@@ -1340,6 +1359,12 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
           Qt::QueuedConnection);
       return true;
     }
+
+    case GHOSTTY_ACTION_TOGGLE_VISIBILITY:
+      QMetaObject::invokeMethod(qApp,
+                                []() { MainWindow::toggleVisibility(); },
+                                Qt::QueuedConnection);
+      return true;
 
     case GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE:
       if (win)
