@@ -7,6 +7,8 @@
 
 class MainWindow;
 class QContextMenuEvent;
+class QDragEnterEvent;
+class QDropEvent;
 class QInputMethodEvent;
 class QKeySequence;
 class QLabel;
@@ -43,6 +45,15 @@ public:
   // surface stays open until the user dismisses it (key or click).
   void showChildExited(int exitCode);
 
+  // Arm a one-shot desktop notification for the next command to finish
+  // (context-menu item); consumeCommandNotify reads-and-clears the flag.
+  void armCommandNotify() { m_notifyOnCommand = true; }
+  bool consumeCommandNotify() {
+    const bool armed = m_notifyOnCommand;
+    m_notifyOnCommand = false;
+    return armed;
+  }
+
 public slots:
   // Render a fresh frame (the libghostty RENDER action).
   void requestRender();
@@ -58,6 +69,8 @@ protected:
   void mouseReleaseEvent(QMouseEvent *) override;
   void mouseMoveEvent(QMouseEvent *) override;
   void contextMenuEvent(QContextMenuEvent *) override;
+  void dragEnterEvent(QDragEnterEvent *) override;
+  void dropEvent(QDropEvent *) override;
   void wheelEvent(QWheelEvent *) override;
   void focusInEvent(QFocusEvent *) override;
   void focusOutEvent(QFocusEvent *) override;
@@ -112,4 +125,5 @@ private:
   double m_fbDpr = 1.0;                // DPR the framebuffer was sized at
 
   QLabel *m_exitOverlay = nullptr;     // "process exited" banner; lazily made
+  bool m_notifyOnCommand = false;      // one-shot: notify on next cmd finish
 };

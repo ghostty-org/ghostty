@@ -8,6 +8,8 @@
 #include <QByteArray>
 #include <QClipboard>
 #include <QContextMenuEvent>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QFocusEvent>
 #include <QGuiApplication>
 #include <QIcon>
@@ -18,6 +20,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
+#include <QMimeData>
 #include <QMouseEvent>
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
@@ -28,8 +31,10 @@
 #include <QPainter>
 #include <QResizeEvent>
 #include <QString>
+#include <QStringList>
 #include <QSurfaceFormat>
 #include <QTimer>
+#include <QUrl>
 #include <QWheelEvent>
 
 GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
@@ -38,6 +43,7 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
   setFocusPolicy(Qt::StrongFocus);
   setMouseTracking(true);  // deliver motion events for hover/link detection
   setAttribute(Qt::WA_InputMethodEnabled, true);  // IME composition
+  setAcceptDrops(true);                           // file / text drops
   // The widget paints a per-pixel-alpha QImage of the terminal; a
   // translucent background lets that alpha reach the desktop.
   setAttribute(Qt::WA_TranslucentBackground);
@@ -449,6 +455,8 @@ void GhosttySurface::contextMenuEvent(QContextMenuEvent *ev) {
   add(&menu, "Paste", "edit-paste", "paste_from_clipboard",
       !QGuiApplication::clipboard()->text().isEmpty());
   add(&menu, "Select All", "edit-select-all", "select_all", true);
+  add(&menu, "Notify on Next Command Finish",
+      "preferences-desktop-notification", "@notify-command", true);
   menu.addSeparator();
   add(&menu, "Clear", "edit-clear-all", "clear_screen", true);
   add(&menu, "Reset", "view-refresh", "reset", true);
@@ -484,6 +492,12 @@ void GhosttySurface::contextMenuEvent(QContextMenuEvent *ev) {
   if (!chosen || !m_surface) return;
   const QString data = chosen->data().toString();
 
+  // Arm the one-shot "command finished" notification (no keybind action).
+  if (data == QLatin1String("@notify-command")) {
+    armCommandNotify();
+    return;
+  }
+
   // The title items have no apprt-side prompt in libghostty: collect the
   // text here and apply it with the set_*_title keybind action (an empty
   // title resets it).
@@ -508,6 +522,31 @@ void GhosttySurface::contextMenuEvent(QContextMenuEvent *ev) {
   const QByteArray action = data.toUtf8();
   ghostty_surface_binding_action(m_surface, action.constData(),
                                  action.size());
+}
+
+void GhosttySurface::dragEnterEvent(QDragEnterEvent *ev) {
+  if (ev->mimeData()->hasUrls() || ev->mimeData()->hasText())
+    ev->acceptProposedAction();
+}
+
+void GhosttySurface::dropEvent(QDropEvent *ev) {
+  const QMimeData *mime = ev->mimeData();
+  QString text;
+  if (mime->hasUrls()) {
+    // Dropped files are inserted as shell-quoted, space-separated paths.
+    QStringList paths;
+    for (const QUrl &url : mime->urls()) {
+      QString p = url.isLocalFile() ? url.toLocalFile() : url.toString();
+      p.replace(QLatin1String("'"), QLatin1String("'\\''"));
+      paths << QLatin1Char('\'') + p + QLatin1Char('\'');
+    }
+    text = paths.join(QLatin1Char(' '));
+  } else if (mime->hasText()) {
+    text = mime->text();
+  }
+  if (text.isEmpty()) return;
+  commitText(text);
+  ev->acceptProposedAction();
 }
 
 void GhosttySurface::mouseMoveEvent(QMouseEvent *ev) {

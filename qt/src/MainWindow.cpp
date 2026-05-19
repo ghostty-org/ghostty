@@ -7,19 +7,26 @@
 #include <QApplication>
 #include <QByteArray>
 #include <QClipboard>
+#include <QDBusConnection>
+#include <QDBusMessage>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
 #include <QList>
+#include <QMap>
+#include <QMessageBox>
 #include <QPoint>
 #include <QRect>
 #include <QShowEvent>
 #include <QSplitter>
+#include <QStringList>
 #include <QUrl>
 #include <QString>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QTimer>
+#include <QVariant>
 #include <QVBoxLayout>
 
 #include "GhosttySurface.h"
@@ -84,6 +91,26 @@ static bool configHasCustomShader() {
     if (eq >= 0 && !line.mid(eq + 1).trimmed().isEmpty()) return true;
   }
   return false;
+}
+
+// Post a desktop notification via the freedesktop D-Bus service.
+static void postNotification(const QString &title, const QString &body) {
+  QDBusMessage msg = QDBusMessage::createMethodCall(
+      QStringLiteral("org.freedesktop.Notifications"),
+      QStringLiteral("/org/freedesktop/Notifications"),
+      QStringLiteral("org.freedesktop.Notifications"),
+      QStringLiteral("Notify"));
+  msg.setArguments({
+      QStringLiteral("Ghostty"),             // app_name
+      uint(0),                               // replaces_id
+      QStringLiteral("utilities-terminal"),  // app_icon
+      title,                                 // summary
+      body,                                  // body
+      QStringList(),                         // actions
+      QVariantMap(),                         // hints
+      -1,                                    // expire_timeout (default)
+  });
+  QDBusConnection::sessionBus().send(msg);  // fire-and-forget
 }
 
 bool MainWindow::initialize() {
@@ -404,6 +431,15 @@ void MainWindow::equalizeSplits(GhosttySurface *from) {
     for (int i = 0; i < splitter->count(); ++i) sizes.append(1 << 20);
     splitter->setSizes(sizes);
   }
+}
+
+void MainWindow::moveTab(int amount) {
+  const int n = m_tabs->count();
+  if (n < 2 || amount == 0) return;
+  const int from = m_tabs->currentIndex();
+  const int to = std::clamp(from + amount, 0, n - 1);
+  if (to != from)
+    if (QTabBar *bar = m_tabs->findChild<QTabBar *>()) bar->moveTab(from, to);
 }
 
 // Push `config` to the app and every surface, and adopt it as the live
@@ -735,6 +771,59 @@ bool MainWindow::onAction(ghostty_app_t app, ghostty_target_s target,
       return true;
     }
 
+    case GHOSTTY_ACTION_DESKTOP_NOTIFICATION: {
+      const ghostty_action_desktop_notification_s n =
+          action.action.desktop_notification;
+      const QString title = QString::fromUtf8(n.title ? n.title : "");
+      const QString body = QString::fromUtf8(n.body ? n.body : "");
+      QMetaObject::invokeMethod(
+          self, [title, body]() { postNotification(title, body); },
+          Qt::QueuedConnection);
+      return true;
+    }
+
+    case GHOSTTY_ACTION_COMMAND_FINISHED: {
+      if (!src) return true;
+      const int code = action.action.command_finished.exit_code;
+      QMetaObject::invokeMethod(
+          src,
+          [src, code]() {
+            if (!src->consumeCommandNotify()) return;
+            postNotification(
+                QStringLiteral("Command finished"),
+                code >= 0 ? QStringLiteral("Exited with code %1").arg(code)
+                          : QStringLiteral("The command completed."));
+          },
+          Qt::QueuedConnection);
+      return true;
+    }
+
+    case GHOSTTY_ACTION_MOVE_TAB: {
+      const int amount = static_cast<int>(action.action.move_tab.amount);
+      QMetaObject::invokeMethod(
+          self, [self, amount]() { self->moveTab(amount); },
+          Qt::QueuedConnection);
+      return true;
+    }
+
+    case GHOSTTY_ACTION_MOUSE_VISIBILITY: {
+      if (!src) return false;
+      const bool hidden =
+          action.action.mouse_visibility == GHOSTTY_MOUSE_HIDDEN;
+      QMetaObject::invokeMethod(
+          src,
+          [src, hidden]() {
+            src->setCursor(hidden ? Qt::BlankCursor : Qt::ArrowCursor);
+          },
+          Qt::QueuedConnection);
+      return true;
+    }
+
+    case GHOSTTY_ACTION_RENDERER_HEALTH:
+      if (action.action.renderer_health == GHOSTTY_RENDERER_HEALTH_UNHEALTHY)
+        std::fprintf(stderr, "[ghostty] renderer reported unhealthy\n");
+      return true;
+
     default:
       // Inspector, command palette, search, etc. are not handled yet.
       return false;
@@ -759,12 +848,33 @@ bool MainWindow::onReadClipboard(void *ud, ghostty_clipboard_e loc,
 
 void MainWindow::onConfirmReadClipboard(void *ud, const char *str, void *state,
                                         ghostty_clipboard_request_e) {
-  // The scaffold trusts pastes rather than showing an unsafe-paste
-  // confirmation dialog. TODO: a real confirmation prompt.
+  // libghostty asks for confirmation when a paste looks unsafe. The
+  // dialog MUST be deferred: this callback runs inside libghostty, and a
+  // modal dialog here spins a nested event loop that re-enters libghostty
+  // through the render tick — a crash/freeze. `state` is a completion
+  // token valid until used; `str` is not, so copy it.
   auto *surface = static_cast<GhosttySurface *>(ud);
-  if (surface && surface->surface())
-    ghostty_surface_complete_clipboard_request(surface->surface(), str, state,
-                                               true);
+  if (!surface || !surface->surface()) return;
+
+  const QByteArray content(str);
+  QMetaObject::invokeMethod(
+      surface->owner(),
+      [surface, content, state]() {
+        if (!surface->surface()) return;
+        QString preview = QString::fromUtf8(content);
+        if (preview.size() > 200)
+          preview = preview.left(200) + QStringLiteral("…");
+        const auto reply = QMessageBox::warning(
+            surface->owner(), QStringLiteral("Confirm Paste"),
+            QStringLiteral("The text being pasted may be unsafe:\n\n%1\n\n"
+                           "Paste anyway?")
+                .arg(preview),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        ghostty_surface_complete_clipboard_request(
+            surface->surface(), content.constData(), state,
+            reply == QMessageBox::Yes);
+      },
+      Qt::QueuedConnection);
 }
 
 void MainWindow::onWriteClipboard(void *ud, ghostty_clipboard_e loc,

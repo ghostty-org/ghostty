@@ -23,7 +23,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Gui Widgets OpenGL)
+find_package(Qt6 REQUIRED COMPONENTS Gui Widgets OpenGL DBus)
 
 # libghostty is built out-of-tree by Zig.
 get_filename_component(GHOSTTY_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
@@ -53,6 +53,7 @@ target_link_libraries(ghostty PRIVATE
   Qt6::Gui
   Qt6::Widgets
   Qt6::OpenGL
+  Qt6::DBus
   "${GHOSTTY_LIB_DIR}/libghostty.so"
 )
 

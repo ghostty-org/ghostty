@@ -74,6 +74,7 @@ private:
   void gotoSplit(GhosttySurface *from, ghostty_action_goto_split_e dir);
   void resizeSplit(GhosttySurface *from, ghostty_action_resize_split_s rs);
   void equalizeSplits(GhosttySurface *from);
+  void moveTab(int amount);  // reorder the current tab by `amount`
 
   // Config: rebuild from disk (reloadConfig) or apply one libghostty
   // handed us (applyConfig), pushing it to the app and every surface.
