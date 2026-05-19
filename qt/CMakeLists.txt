@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
-project(ghostty LANGUAGES CXX)
+# C is needed for the wayland-scanner-generated protocol code.
+project(ghostty LANGUAGES CXX C)
 
 # A Qt6 frontend for Ghostty that embeds libghostty through the
 # GHOSTTY_PLATFORM_OPENGL C API. libghostty's OpenGL renderer draws each
@@ -28,7 +29,27 @@ set(CMAKE_AUTOMOC ON)
 
 include(GNUInstallDirs)
 
-find_package(Qt6 REQUIRED COMPONENTS Gui Widgets OpenGL DBus Multimedia)
+find_package(Qt6 REQUIRED COMPONENTS Gui GuiPrivate Widgets OpenGL DBus
+  Multimedia)
+
+# KWin background-blur is applied through the native compositor: the
+# org_kde_kwin_blur Wayland protocol and the _KDE_NET_WM_BLUR atom on
+# X11. Qt6::GuiPrivate gives the QPA native-handle accessors.
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
+pkg_check_modules(XCB REQUIRED IMPORTED_TARGET xcb)
+find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
+
+# Generate client glue for the org_kde_kwin_blur protocol.
+set(BLUR_XML "${CMAKE_CURRENT_SOURCE_DIR}/protocols/blur.xml")
+set(BLUR_HEADER "${CMAKE_CURRENT_BINARY_DIR}/blur-client-protocol.h")
+set(BLUR_CODE "${CMAKE_CURRENT_BINARY_DIR}/blur-protocol.c")
+add_custom_command(OUTPUT "${BLUR_HEADER}"
+  COMMAND "${WAYLAND_SCANNER}" client-header "${BLUR_XML}" "${BLUR_HEADER}"
+  DEPENDS "${BLUR_XML}" VERBATIM)
+add_custom_command(OUTPUT "${BLUR_CODE}"
+  COMMAND "${WAYLAND_SCANNER}" private-code "${BLUR_XML}" "${BLUR_CODE}"
+  DEPENDS "${BLUR_XML}" VERBATIM)
 
 # libghostty is built out-of-tree by Zig.
 get_filename_component(GHOSTTY_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
@@ -50,16 +71,25 @@ add_executable(ghostty
   src/main.cpp
   src/GhosttySurface.cpp
   src/MainWindow.cpp
+  src/WindowBlur.cpp
+  "${BLUR_CODE}"
+  "${BLUR_HEADER}"
 )
 
-target_include_directories(ghostty PRIVATE "${GHOSTTY_ROOT}/include")
+target_include_directories(ghostty PRIVATE
+  "${GHOSTTY_ROOT}/include"
+  "${CMAKE_CURRENT_BINARY_DIR}"  # generated blur-client-protocol.h
+)
 
 target_link_libraries(ghostty PRIVATE
   Qt6::Gui
+  Qt6::GuiPrivate
   Qt6::Widgets
   Qt6::OpenGL
   Qt6::DBus
   Qt6::Multimedia
+  PkgConfig::WAYLAND_CLIENT
+  PkgConfig::XCB
   "${GHOSTTY_LIB_DIR}/libghostty.so"
 )
 

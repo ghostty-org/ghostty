@@ -34,6 +34,7 @@
 #include <QVBoxLayout>
 
 #include "GhosttySurface.h"
+#include "WindowBlur.h"
 
 // Prefix marking a tab with an unacknowledged bell (bell-features title).
 static const QString kBellMark = QStringLiteral("● ");
@@ -276,6 +277,10 @@ void MainWindow::showEvent(QShowEvent *event) {
   // the ratio was already correct at show.
   if (m_firstTabPending)
     QTimer::singleShot(250, this, [this] { createFirstTab(); });
+
+  // Apply background blur once the native (Wayland/X11) surface exists;
+  // a zero-delay timer defers past the platform-window creation.
+  QTimer::singleShot(0, this, [this] { applyBlur(); });
 }
 
 bool MainWindow::event(QEvent *e) {
@@ -744,7 +749,10 @@ void MainWindow::applyConfig(ghostty_config_t config) {
   s_needsPremultiply = configHasCustomShader();
 
   // Re-apply window settings that a reload may have changed.
-  for (MainWindow *w : s_windows) w->applyWindowConfig();
+  for (MainWindow *w : s_windows) {
+    w->applyWindowConfig();
+    w->applyBlur();
+  }
 }
 
 void MainWindow::reloadConfig() {
@@ -809,6 +817,17 @@ void MainWindow::applyWindowConfig() {
   }
   QGuiApplication::styleHints()->setColorScheme(scheme);
 #endif
+}
+
+void MainWindow::applyBlur() {
+  // background-blur is a union whose C value is an i16: 0 (and the
+  // macOS-only negatives) means off, a positive radius means on. KWin
+  // uses its own configured radius, so only on/off matters here.
+  short blur = 0;
+  if (s_config)
+    ghostty_config_get(s_config, &blur, "background-blur",
+                       qstrlen("background-blur"));
+  applyWindowBlur(this, blur > 0);
 }
 
 void MainWindow::toggleSplitZoom(GhosttySurface *surface) {

@@ -128,6 +128,10 @@ private:
   // tab-bar visibility policy and the light/dark colour scheme.
   void applyWindowConfig();
 
+  // Apply the `background-blur` config to this window via the KWin
+  // compositor (see WindowBlur).
+  void applyBlur();
+
   // Prompt (per `confirm-close-surface`) before closing `surfaces`.
   // Returns true if the close may proceed.
   bool confirmCloseSurfaces(const QList<GhosttySurface *> &surfaces);
