@@ -53,6 +53,10 @@ public:
   // before Qt composites (see GhosttySurface::premultiplyFramebuffer).
   bool needsPremultiply() const { return m_needsPremultiply; }
 
+  // Whether `focus-follows-mouse` is enabled — a GhosttySurface grabs
+  // focus when the pointer enters it.
+  bool focusFollowsMouse() const;
+
 public slots:
   void tick();
 
@@ -96,6 +100,15 @@ private:
   // handed us (applyConfig), pushing it to the app and every surface.
   void reloadConfig();
   void applyConfig(ghostty_config_t config);
+
+  // Typed wrappers over ghostty_config_get. configString also serves
+  // enum keys — libghostty returns an enum as its tag name string.
+  QString configString(const char *key) const;
+  bool configBool(const char *key, bool fallback) const;
+
+  // Apply config-driven window settings that may change on reload: the
+  // tab-bar visibility policy and the light/dark colour scheme.
+  void applyWindowConfig();
 
   // Toggle a split pane filling its tab. Re-parents the surface out of
   // / back into the splitter tree.

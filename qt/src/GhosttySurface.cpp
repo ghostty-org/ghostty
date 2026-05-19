@@ -638,6 +638,11 @@ void GhosttySurface::wheelEvent(QWheelEvent *ev) {
   ghostty_surface_mouse_scroll(m_surface, d.x() / 120.0, d.y() / 120.0, 0);
 }
 
+void GhosttySurface::enterEvent(QEnterEvent *) {
+  // focus-follows-mouse: take focus when the pointer enters this pane.
+  if (m_owner && m_owner->focusFollowsMouse() && !hasFocus()) setFocus();
+}
+
 void GhosttySurface::focusInEvent(QFocusEvent *) {
   if (m_surface) ghostty_surface_set_focus(m_surface, true);
 }

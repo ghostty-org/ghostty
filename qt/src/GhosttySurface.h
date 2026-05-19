@@ -11,6 +11,7 @@ class MainWindow;
 class QContextMenuEvent;
 class QDragEnterEvent;
 class QDropEvent;
+class QEnterEvent;
 class QInputMethodEvent;
 class QKeySequence;
 class QLabel;
@@ -89,6 +90,7 @@ protected:
   void dragEnterEvent(QDragEnterEvent *) override;
   void dropEvent(QDropEvent *) override;
   void wheelEvent(QWheelEvent *) override;
+  void enterEvent(QEnterEvent *) override;  // focus-follows-mouse
   void focusInEvent(QFocusEvent *) override;
   void focusOutEvent(QFocusEvent *) override;
 

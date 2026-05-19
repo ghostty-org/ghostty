@@ -25,6 +25,7 @@
 #include <QStringList>
 #include <QUrl>
 #include <QString>
+#include <QStyleHints>
 #include <QTabBar>
 #include <QTabWidget>
 #include <QTimer>
@@ -164,6 +165,22 @@ bool MainWindow::initialize() {
 
   m_needsPremultiply = configHasCustomShader();
 
+  // Startup-only window state, applied before main() calls show().
+  // window-decoration `none` drops the native frame; `auto`/`server`/
+  // `client` keep a decorated window (the compositor picks the side on
+  // Wayland).
+  if (configString("window-decoration") == QLatin1String("none"))
+    setWindowFlag(Qt::FramelessWindowHint, true);
+  // fullscreen wins over maximize; its enum is `false` when unset.
+  const QString fullscreen = configString("fullscreen");
+  if (!fullscreen.isEmpty() && fullscreen != QLatin1String("false"))
+    setWindowState(windowState() | Qt::WindowFullScreen);
+  else if (configBool("maximize", false))
+    setWindowState(windowState() | Qt::WindowMaximized);
+
+  // Tab-bar policy and colour scheme.
+  applyWindowConfig();
+
   ghostty_runtime_config_s rt = {};
   rt.userdata = this;
   rt.supports_selection_clipboard = true;
@@ -229,7 +246,15 @@ GhosttySurface *MainWindow::newTab(ghostty_surface_t parent) {
   pageLayout->setContentsMargins(0, 0, 0, 0);
   pageLayout->addWidget(surface);
 
-  const int index = m_tabs->addTab(page, QStringLiteral("Ghostty"));
+  // window-new-tab-position: place the tab right after the current one,
+  // or append it at the end (the default).
+  int index;
+  if (configString("window-new-tab-position") == QLatin1String("current") &&
+      m_tabs->count() > 0)
+    index = m_tabs->insertTab(m_tabs->currentIndex() + 1, page,
+                              QStringLiteral("Ghostty"));
+  else
+    index = m_tabs->addTab(page, QStringLiteral("Ghostty"));
   m_tabs->setCurrentIndex(index);
   surface->setFocus();
   return surface;
@@ -561,6 +586,9 @@ void MainWindow::applyConfig(ghostty_config_t config) {
   if (m_config && m_config != config) ghostty_config_free(m_config);
   m_config = config;
   m_needsPremultiply = configHasCustomShader();
+
+  // Re-apply window settings that a reload may have changed.
+  applyWindowConfig();
 }
 
 void MainWindow::reloadConfig() {
@@ -571,6 +599,60 @@ void MainWindow::reloadConfig() {
   ghostty_config_load_recursive_files(config);
   ghostty_config_finalize(config);
   applyConfig(config);
+}
+
+QString MainWindow::configString(const char *key) const {
+  const char *value = nullptr;
+  if (!m_config ||
+      !ghostty_config_get(m_config, &value, key, qstrlen(key)) || !value)
+    return {};
+  return QString::fromUtf8(value);
+}
+
+bool MainWindow::configBool(const char *key, bool fallback) const {
+  bool value = fallback;  // ghostty_config_get leaves it untouched if absent
+  if (m_config) ghostty_config_get(m_config, &value, key, qstrlen(key));
+  return value;
+}
+
+bool MainWindow::focusFollowsMouse() const {
+  return configBool("focus-follows-mouse", false);
+}
+
+void MainWindow::applyWindowConfig() {
+  // window-show-tab-bar: always shown / auto-hidden with a lone tab /
+  // never shown.
+  const QString tabBar = configString("window-show-tab-bar");
+  if (tabBar == QLatin1String("never")) {
+    m_tabs->setTabBarAutoHide(false);
+    m_tabs->tabBar()->hide();
+  } else if (tabBar == QLatin1String("always")) {
+    m_tabs->setTabBarAutoHide(false);
+    m_tabs->tabBar()->show();
+  } else {  // auto (the default)
+    m_tabs->tabBar()->show();
+    m_tabs->setTabBarAutoHide(true);
+  }
+
+  // window-theme: force a light/dark scheme, or follow the OS. `auto`
+  // is rewritten to `system` on Linux by libghostty; `ghostty` follows
+  // the configured background colour's luminance.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+  const QString theme = configString("window-theme");
+  Qt::ColorScheme scheme = Qt::ColorScheme::Unknown;  // Unknown = follow OS
+  if (theme == QLatin1String("dark")) {
+    scheme = Qt::ColorScheme::Dark;
+  } else if (theme == QLatin1String("light")) {
+    scheme = Qt::ColorScheme::Light;
+  } else if (theme == QLatin1String("ghostty")) {
+    ghostty_config_color_s bg{};
+    if (ghostty_config_get(m_config, &bg, "background", qstrlen("background"))) {
+      const double luma = 0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b;
+      scheme = luma < 128.0 ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light;
+    }
+  }
+  QGuiApplication::styleHints()->setColorScheme(scheme);
+#endif
 }
 
 void MainWindow::toggleSplitZoom(GhosttySurface *surface) {
