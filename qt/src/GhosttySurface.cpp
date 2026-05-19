@@ -662,10 +662,18 @@ QVariant GhosttySurface::inputMethodQuery(Qt::InputMethodQuery query) const {
   switch (query) {
     case Qt::ImEnabled:
       return true;
-    case Qt::ImCursorRectangle:
-      // Approximate anchor for the candidate window; tracking the real
-      // terminal cursor cell is a follow-up.
-      return QRect(4, height() - 4, 1, 1);
+    case Qt::ImCursorRectangle: {
+      // Anchor the IME candidate window at the terminal cursor.
+      // libghostty reports the cursor in device pixels; the IME wants
+      // logical widget coordinates, so divide by the surface's DPR.
+      if (!m_surface) return QRect();
+      const ghostty_surface_cursor_position_s c =
+          ghostty_surface_cursor_position(m_surface);
+      const double dpr = m_fbDpr > 0 ? m_fbDpr : 1.0;
+      return QRect(static_cast<int>(c.x / dpr), static_cast<int>(c.y / dpr),
+                   std::max(1, static_cast<int>(c.width / dpr)),
+                   std::max(1, static_cast<int>(c.height / dpr)));
+    }
     default:
       return QWidget::inputMethodQuery(query);
   }

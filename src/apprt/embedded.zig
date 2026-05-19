@@ -1343,6 +1343,14 @@ pub const CAPI = struct {
         cell_height_px: u32,
     };
 
+    // Sync with ghostty_surface_cursor_position_s
+    const SurfaceCursorPosition = extern struct {
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    };
+
     // ghostty_clipboard_content_s
     const ClipboardContent = extern struct {
         mime: [*:0]const u8,
@@ -1768,6 +1776,26 @@ pub const CAPI = struct {
             .height_px = surface.core_surface.size.screen.height,
             .cell_width_px = surface.core_surface.size.cell.width,
             .cell_height_px = surface.core_surface.size.cell.height,
+        };
+    }
+
+    /// Return the terminal cursor's pixel rectangle in the surface's
+    /// device-pixel coordinate space. Used to place an IME candidate
+    /// window at the cursor.
+    export fn ghostty_surface_cursor_position(
+        surface: *Surface,
+    ) SurfaceCursorPosition {
+        const core = &surface.core_surface;
+        core.renderer_state.mutex.lock();
+        defer core.renderer_state.mutex.unlock();
+        const cursor = core.renderer_state.terminal.screens.active.cursor;
+        const cell = core.size.cell;
+        const pad = core.size.padding;
+        return .{
+            .x = @as(u32, cursor.x) * cell.width + pad.left,
+            .y = @as(u32, cursor.y) * cell.height + pad.top,
+            .width = cell.width,
+            .height = cell.height,
         };
     }
 
