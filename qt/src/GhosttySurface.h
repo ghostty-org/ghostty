@@ -19,6 +19,7 @@ class QOpenGLContext;
 class QOpenGLFramebufferObject;
 class QOpenGLShaderProgram;
 class QOpenGLVertexArrayObject;
+class QScrollBar;
 
 // One Ghostty terminal pane.
 //
@@ -63,6 +64,10 @@ public:
   void markDirty() { m_dirty.store(true); }
   void renderIfDirty();
 
+  // Reflect a libghostty SCROLLBAR action: total scrollback rows, the
+  // viewport-top row, and the visible row count.
+  void updateScrollbar(uint64_t total, uint64_t offset, uint64_t len);
+
 protected:
   bool event(QEvent *) override;
   void paintEvent(QPaintEvent *) override;
@@ -89,6 +94,8 @@ private:
   bool makeCurrent();
   void syncSurfaceSize();
   void renderTerminal();
+  void layoutScrollbar();          // position the scrollbar at the edge
+  bool scrollbarAllowed() const;   // false when `scrollbar = never`
   void buildExitOverlay(int exitCode);
   void sendKey(QKeyEvent *, ghostty_input_action_e action);
   void commitText(const QString &text);
@@ -130,6 +137,7 @@ private:
   double m_fbDpr = 1.0;                // DPR the framebuffer was sized at
 
   QLabel *m_exitOverlay = nullptr;     // "process exited" banner; lazily made
+  QScrollBar *m_scrollbar = nullptr;   // scrollback scrollbar; hidden by default
   bool m_notifyOnCommand = false;      // one-shot: notify on next cmd finish
   std::atomic<bool> m_dirty{false};    // a frame render is pending
 };

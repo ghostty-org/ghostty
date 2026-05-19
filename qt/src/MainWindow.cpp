@@ -850,6 +850,16 @@ bool MainWindow::onAction(ghostty_app_t app, ghostty_target_s target,
         std::fprintf(stderr, "[ghostty] renderer reported unhealthy\n");
       return true;
 
+    case GHOSTTY_ACTION_SCROLLBAR: {
+      if (!src) return false;
+      const ghostty_action_scrollbar_s s = action.action.scrollbar;
+      QMetaObject::invokeMethod(
+          src,
+          [src, s]() { src->updateScrollbar(s.total, s.offset, s.len); },
+          Qt::QueuedConnection);
+      return true;
+    }
+
     case GHOSTTY_ACTION_PROGRESS_REPORT: {
       const ghostty_action_progress_report_s p = action.action.progress_report;
       const bool visible = p.state != GHOSTTY_PROGRESS_STATE_REMOVE;

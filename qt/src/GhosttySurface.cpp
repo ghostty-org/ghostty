@@ -30,6 +30,8 @@
 #include <QOpenGLVertexArrayObject>
 #include <QPainter>
 #include <QResizeEvent>
+#include <QScrollBar>
+#include <QSignalBlocker>
 #include <QString>
 #include <QStringList>
 #include <QSurfaceFormat>
@@ -44,6 +46,16 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
   setMouseTracking(true);  // deliver motion events for hover/link detection
   setAttribute(Qt::WA_InputMethodEnabled, true);  // IME composition
   setAcceptDrops(true);                           // file / text drops
+
+  // Scrollback scrollbar: driven by SCROLLBAR actions, hidden until one
+  // reports scrollback. Dragging it runs libghostty's scroll_to_row.
+  m_scrollbar = new QScrollBar(Qt::Vertical, this);
+  m_scrollbar->hide();
+  connect(m_scrollbar, &QScrollBar::valueChanged, this, [this](int v) {
+    if (!m_surface) return;
+    const QByteArray a = "scroll_to_row:" + QByteArray::number(v);
+    ghostty_surface_binding_action(m_surface, a.constData(), a.size());
+  });
   // The widget paints a per-pixel-alpha QImage of the terminal; a
   // translucent background lets that alpha reach the desktop.
   setAttribute(Qt::WA_TranslucentBackground);
@@ -124,7 +136,11 @@ void GhosttySurface::syncSurfaceSize() {
   // is the true (possibly fractional) scale because main() selects the
   // PassThrough rounding policy.
   const double dpr = devicePixelRatioF();
-  const int w = std::max(1, static_cast<int>(width() * dpr));
+  // The terminal renders into the width left of the scrollbar strip.
+  const int sbw = (m_scrollbar && m_scrollbar->isVisible())
+                       ? m_scrollbar->sizeHint().width()
+                       : 0;
+  const int w = std::max(1, static_cast<int>((width() - sbw) * dpr));
   const int h = std::max(1, static_cast<int>(height() * dpr));
   if (w == m_fbw && h == m_fbh && dpr == m_fbDpr) return;
   m_fbw = w;
@@ -144,6 +160,7 @@ void GhosttySurface::syncSurfaceSize() {
 }
 
 void GhosttySurface::resizeEvent(QResizeEvent *) {
+  layoutScrollbar();
   syncSurfaceSize();
   if (m_exitOverlay) m_exitOverlay->setGeometry(rect());
 }
@@ -160,6 +177,42 @@ bool GhosttySurface::event(QEvent *e) {
 
 void GhosttySurface::renderIfDirty() {
   if (m_dirty.exchange(false)) renderTerminal();
+}
+
+void GhosttySurface::layoutScrollbar() {
+  if (!m_scrollbar || !m_scrollbar->isVisible()) return;
+  const int w = m_scrollbar->sizeHint().width();
+  m_scrollbar->setGeometry(width() - w, 0, w, height());
+}
+
+// `scrollbar = never` in the config hides the scrollbar unconditionally;
+// `system` (the default) shows it whenever there is scrollback.
+bool GhosttySurface::scrollbarAllowed() const {
+  if (!m_owner || !m_owner->config()) return true;
+  const char *value = nullptr;
+  if (ghostty_config_get(m_owner->config(), &value, "scrollbar",
+                         qstrlen("scrollbar")) &&
+      value)
+    return qstrcmp(value, "never") != 0;
+  return true;  // unknown — default to showing
+}
+
+void GhosttySurface::updateScrollbar(uint64_t total, uint64_t offset,
+                                     uint64_t len) {
+  const bool visible = scrollbarAllowed() && total > len;
+  if (visible != m_scrollbar->isVisible()) {
+    m_scrollbar->setVisible(visible);
+    layoutScrollbar();
+    syncSurfaceSize();  // the terminal's available width changed
+  }
+  if (!visible) return;
+
+  // Update the range without echoing back through valueChanged as a
+  // scroll_to_row (which would fight libghostty's own scroll state).
+  const QSignalBlocker block(m_scrollbar);
+  m_scrollbar->setRange(0, static_cast<int>(total - len));
+  m_scrollbar->setPageStep(static_cast<int>(len));
+  m_scrollbar->setValue(static_cast<int>(offset));
 }
 
 void GhosttySurface::renderTerminal() {
