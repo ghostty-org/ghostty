@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 # C is needed for the wayland-scanner-generated protocol code.
-project(ghostty LANGUAGES CXX C)
+project(ghastty LANGUAGES CXX C)
 
-# A Qt6 frontend for Ghostty that embeds libghostty through the
+# Ghastty: a Qt6 frontend for Ghostty that embeds libghostty through the
 # GHOSTTY_PLATFORM_OPENGL C API. libghostty's OpenGL renderer draws each
 # terminal into an offscreen framebuffer (a private QOpenGLContext); the
 # frame is read back into a QImage and painted on an ordinary translucent
@@ -20,7 +20,7 @@ project(ghostty LANGUAGES CXX C)
 # Then build, run, and (optionally) install this app:
 #
 #   cmake -S qt -B qt/build && cmake --build qt/build
-#   ./qt/build/ghostty
+#   ./qt/build/ghastty
 #   cmake --install qt/build --prefix ~/.local
 
 set(CMAKE_CXX_STANDARD 17)
@@ -30,7 +30,7 @@ set(CMAKE_AUTOMOC ON)
 include(GNUInstallDirs)
 
 find_package(Qt6 REQUIRED COMPONENTS Gui GuiPrivate Widgets OpenGL DBus
-  Multimedia)
+  Multimedia Svg)
 
 # LayerShellQt: the quick terminal is a wlr-layer-shell dropdown window.
 find_package(LayerShellQt REQUIRED)
@@ -70,7 +70,7 @@ endif()
 file(CREATE_LINK "ghostty-internal.so" "${GHOSTTY_LIB_DIR}/libghostty.so"
   SYMBOLIC)
 
-add_executable(ghostty
+add_executable(ghastty
   src/main.cpp
   src/CommandPalette.cpp
   src/GhosttySurface.cpp
@@ -85,18 +85,25 @@ add_executable(ghostty
   "${BLUR_HEADER}"
 )
 
-target_include_directories(ghostty PRIVATE
+# Embed the app icon so it is available even running from the build tree.
+qt_add_resources(ghastty "appicon"
+  PREFIX "/"
+  BASE dist
+  FILES dist/ghastty.svg)
+
+target_include_directories(ghastty PRIVATE
   "${GHOSTTY_ROOT}/include"
   "${CMAKE_CURRENT_BINARY_DIR}"  # generated blur-client-protocol.h
 )
 
-target_link_libraries(ghostty PRIVATE
+target_link_libraries(ghastty PRIVATE
   Qt6::Gui
   Qt6::GuiPrivate
   Qt6::Widgets
   Qt6::OpenGL
   Qt6::DBus
   Qt6::Multimedia
+  Qt6::Svg
   PkgConfig::WAYLAND_CLIENT
   PkgConfig::XCB
   LayerShellQt::Interface
@@ -105,25 +112,22 @@ target_link_libraries(ghostty PRIVATE
 
 # RPATH: the build-tree binary finds libghostty.so in zig-out/lib; the
 # installed binary finds it next to itself ($ORIGIN/../lib).
-set_target_properties(ghostty PROPERTIES
+set_target_properties(ghastty PROPERTIES
   BUILD_RPATH "${GHOSTTY_LIB_DIR}"
   INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}"
 )
 
 # --- install ---------------------------------------------------------
-install(TARGETS ghostty RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(TARGETS ghastty RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 
 # libghostty.so the binary links against (SONAME is libghostty.so).
 install(FILES "${GHOSTTY_SO}"
   DESTINATION "${CMAKE_INSTALL_LIBDIR}"
   RENAME libghostty.so)
 
-install(FILES dist/ghostty.desktop
+install(FILES dist/ghastty.desktop
   DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
 
-# Reuse Ghostty's own PNG icons, installed into the hicolor theme.
-foreach(sz 16 32 128 256 512)
-  install(FILES "${GHOSTTY_ROOT}/images/icons/icon_${sz}.png"
-    DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/${sz}x${sz}/apps"
-    RENAME ghostty.png)
-endforeach()
+# The custom scalable app icon.
+install(FILES dist/ghastty.svg
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps")

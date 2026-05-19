@@ -1,13 +1,13 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=Ghostty
+Name=Ghastty
 GenericName=Terminal
 Comment=A terminal emulator
-Exec=ghostty
-Icon=ghostty
+Exec=ghastty
+Icon=ghastty
 Categories=System;TerminalEmulator;
 Keywords=terminal;tty;pty;
 StartupNotify=true
-StartupWMClass=ghostty
+StartupWMClass=ghastty
 Terminal=false

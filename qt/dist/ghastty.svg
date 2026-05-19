@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Ghastty app icon: a glitch/corrupted ghost on a CRT terminal screen.
+     Authored for QtSvg: no clipPath / mask / filter / blend modes. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024"
+     viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bezel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#34374a"/>
+      <stop offset="0.5" stop-color="#1c1e29"/>
+      <stop offset="1" stop-color="#0d0e14"/>
+    </linearGradient>
+    <radialGradient id="screen" cx="0.5" cy="0.38" r="0.9">
+      <stop offset="0" stop-color="#0f1e34"/>
+      <stop offset="1" stop-color="#03050a"/>
+    </radialGradient>
+    <radialGradient id="screenVig" cx="0.5" cy="0.44" r="0.7">
+      <stop offset="0.5" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.5"/>
+    </radialGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#bcd8ff" stop-opacity="0.10"/>
+      <stop offset="0.4" stop-color="#bcd8ff" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Ghost shading (userSpaceOnUse: matches the ghost's own bbox). -->
+    <linearGradient id="ghostBody" gradientUnits="userSpaceOnUse"
+                    x1="512" y1="278" x2="512" y2="692">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.5" stop-color="#e9edfb"/>
+      <stop offset="1" stop-color="#aeb8d6"/>
+    </linearGradient>
+    <radialGradient id="ghostHi" gradientUnits="userSpaceOnUse"
+                    cx="455" cy="392" r="285">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="ghostVol" gradientUnits="userSpaceOnUse"
+                    cx="512" cy="472" r="252">
+      <stop offset="0.55" stop-color="#16203c" stop-opacity="0"/>
+      <stop offset="1" stop-color="#16203c" stop-opacity="0.55"/>
+    </radialGradient>
+    <linearGradient id="ghostFoot" gradientUnits="userSpaceOnUse"
+                    x1="512" y1="278" x2="512" y2="692">
+      <stop offset="0.6" stop-color="#28314f" stop-opacity="0"/>
+      <stop offset="1" stop-color="#28314f" stop-opacity="0.55"/>
+    </linearGradient>
+    <linearGradient id="eyeGrad" gradientUnits="userSpaceOnUse"
+                    x1="512" y1="402" x2="512" y2="498">
+      <stop offset="0" stop-color="#1a2c4c"/>
+      <stop offset="1" stop-color="#05080f"/>
+    </linearGradient>
+
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#34d8f0" stop-opacity="0.4"/>
+      <stop offset="1" stop-color="#34d8f0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="shadow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#000307" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#000307" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Ghost body, reused for fringes, glow strokes and shading layers. -->
+    <path id="ghost" d="M 322 658
+      L 322 468
+      A 190 190 0 0 1 702 468
+      L 702 658
+      Q 654 726 607 658
+      Q 559 726 512 658
+      Q 464 726 417 658
+      Q 369 726 322 658 Z"/>
+
+    <!-- Eyes + smile, reused for the RGB-split copies. -->
+    <g id="face">
+      <rect x="441" y="402" width="46" height="96" rx="23"/>
+      <rect x="537" y="402" width="46" height="96" rx="23"/>
+      <path d="M 484 576 Q 512 612 540 576 Q 512 592 484 576 Z"/>
+    </g>
+  </defs>
+
+  <!-- Base bezel + CRT screen. The screen corner radius (112) is matched
+       by the inner edge of the bezel ring drawn on top. -->
+  <rect x="0" y="0" width="1024" height="1024" rx="208" fill="url(#bezel)"/>
+  <rect x="96" y="96" width="832" height="832" rx="112" fill="url(#screen)"/>
+
+  <!-- Screen content (overflow is masked by the bezel frame, drawn later). -->
+  <ellipse cx="512" cy="716" rx="248" ry="74" fill="url(#shadow)"/>
+  <ellipse cx="512" cy="478" rx="312" ry="332" fill="url(#glow)"/>
+
+  <!-- Faked soft outline glow (layered strokes). -->
+  <use href="#ghost" fill="none" stroke="#22d3ee" stroke-opacity="0.08" stroke-width="42"/>
+  <use href="#ghost" fill="none" stroke="#22d3ee" stroke-opacity="0.11" stroke-width="24"/>
+  <use href="#ghost" fill="none" stroke="#a6ecff" stroke-opacity="0.16" stroke-width="11"/>
+
+  <!-- RGB-split chromatic fringes. -->
+  <use href="#ghost" transform="translate(-13,7)" fill="#f0469f" opacity="0.9"/>
+  <use href="#ghost" transform="translate(13,-7)" fill="#22d3ee" opacity="0.9"/>
+
+  <!-- Volume-shaded ghost body: stacked gradient fills of the same shape. -->
+  <use href="#ghost" fill="url(#ghostBody)"/>
+  <use href="#ghost" fill="url(#ghostFoot)"/>
+  <use href="#ghost" fill="url(#ghostVol)"/>
+  <use href="#ghost" fill="url(#ghostHi)"/>
+  <use href="#ghost" fill="none" stroke="#ffffff" stroke-opacity="0.32" stroke-width="3"/>
+
+  <!-- Displaced glitch tears (full-width body slices in the straight-side
+       region, so a rectangle matches the silhouette exactly). -->
+  <g>
+    <rect x="343" y="507" width="380" height="38" fill="#f0469f" opacity="0.85"/>
+    <rect x="369" y="493" width="380" height="38" fill="#22d3ee" opacity="0.85"/>
+    <rect x="356" y="500" width="380" height="38" fill="url(#ghostBody)"/>
+    <rect x="96" y="500" width="832" height="3" fill="#22d3ee" opacity="0.6"/>
+    <rect x="96" y="535" width="832" height="3" fill="#f0469f" opacity="0.6"/>
+  </g>
+  <g>
+    <rect x="279" y="627" width="380" height="30" fill="#22d3ee" opacity="0.85"/>
+    <rect x="305" y="613" width="380" height="30" fill="#f0469f" opacity="0.85"/>
+    <rect x="292" y="620" width="380" height="30" fill="url(#ghostBody)"/>
+    <rect x="96" y="620" width="832" height="3" fill="#f0469f" opacity="0.6"/>
+    <rect x="96" y="647" width="832" height="3" fill="#22d3ee" opacity="0.6"/>
+  </g>
+
+  <!-- RGB-split face. -->
+  <use href="#face" transform="translate(-8,4)" fill="#f0469f" opacity="0.85"/>
+  <use href="#face" transform="translate(8,-4)" fill="#22d3ee" opacity="0.85"/>
+  <use href="#face" fill="url(#eyeGrad)"/>
+  <ellipse cx="452" cy="426" rx="9" ry="13" fill="#ffffff" opacity="0.85"/>
+  <ellipse cx="548" cy="426" rx="9" ry="13" fill="#ffffff" opacity="0.85"/>
+
+  <!-- CRT scanlines. -->
+  <g fill="#ffffff" opacity="0.05">
+    <rect x="96" y="120" width="832" height="2"/>
+    <rect x="96" y="160" width="832" height="2"/>
+    <rect x="96" y="200" width="832" height="2"/>
+    <rect x="96" y="240" width="832" height="2"/>
+    <rect x="96" y="280" width="832" height="2"/>
+    <rect x="96" y="320" width="832" height="2"/>
+    <rect x="96" y="360" width="832" height="2"/>
+    <rect x="96" y="400" width="832" height="2"/>
+    <rect x="96" y="440" width="832" height="2"/>
+    <rect x="96" y="480" width="832" height="2"/>
+    <rect x="96" y="520" width="832" height="2"/>
+    <rect x="96" y="560" width="832" height="2"/>
+    <rect x="96" y="600" width="832" height="2"/>
+    <rect x="96" y="640" width="832" height="2"/>
+    <rect x="96" y="680" width="832" height="2"/>
+    <rect x="96" y="720" width="832" height="2"/>
+    <rect x="96" y="760" width="832" height="2"/>
+    <rect x="96" y="800" width="832" height="2"/>
+    <rect x="96" y="840" width="832" height="2"/>
+    <rect x="96" y="880" width="832" height="2"/>
+  </g>
+
+  <!-- Stuck "dead pixels". -->
+  <rect x="210" y="360" width="14" height="14" fill="#f0469f" opacity="0.75"/>
+  <rect x="228" y="360" width="14" height="14" fill="#22d3ee" opacity="0.55"/>
+  <rect x="788" y="470" width="16" height="10" fill="#22d3ee" opacity="0.75"/>
+  <rect x="250" y="722" width="14" height="14" fill="#22d3ee" opacity="0.7"/>
+  <rect x="760" y="700" width="12" height="12" fill="#f0469f" opacity="0.7"/>
+
+  <!-- Vignette + glass sheen, kept within the screen rect. -->
+  <rect x="96" y="96" width="832" height="832" fill="url(#screenVig)"/>
+  <rect x="96" y="96" width="832" height="380" fill="url(#sheen)"/>
+
+  <!-- Bezel ring drawn on top: a 96px-wide stroke covering the border band,
+       masking every bit of screen-content overflow. Its outer edge sits at
+       corner radius 208, its inner edge at 112. -->
+  <rect x="48" y="48" width="928" height="928" rx="160" fill="none"
+        stroke="#1d1f29" stroke-width="96"/>
+
+  <!-- Edge definition. -->
+  <rect x="96" y="96" width="832" height="832" rx="112" fill="none"
+        stroke="#000000" stroke-opacity="0.55" stroke-width="2"/>
+  <rect x="99" y="99" width="826" height="826" rx="109" fill="none"
+        stroke="#ffffff" stroke-opacity="0.05" stroke-width="2"/>
+  <rect x="8" y="8" width="1008" height="1008" rx="201" fill="none"
+        stroke="#ffffff" stroke-opacity="0.06" stroke-width="3"/>
+</svg>

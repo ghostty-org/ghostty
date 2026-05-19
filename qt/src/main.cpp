@@ -1,6 +1,7 @@
 #include <cstdio>
 
 #include <QApplication>
+#include <QIcon>
 #include <QSurfaceFormat>
 
 #include "GlobalShortcuts.h"
@@ -27,10 +28,14 @@ int main(int argc, char **argv) {
 
   QApplication app(argc, argv);
 
-  // Match the installed ghostty.desktop: this becomes the Wayland app-id
+  // Match the installed ghastty.desktop: this becomes the Wayland app-id
   // (and X11 WM_CLASS), so the compositor associates the window with the
   // desktop entry — taskbar icon, launcher identity.
-  QGuiApplication::setDesktopFileName(QStringLiteral("ghostty"));
+  QGuiApplication::setDesktopFileName(QStringLiteral("ghastty"));
+
+  // The window icon, embedded so it works even running from the build
+  // tree (when ghastty.desktop / the icon theme are not yet installed).
+  QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/ghastty.svg")));
 
   // We keep the user's system widget style rather than forcing Fusion.
   // Some styles dim and blur translucent windows, which masks the

@@ -57,7 +57,7 @@ MainWindow *MainWindow::s_quickTerminal = nullptr;
 std::atomic<bool> MainWindow::s_tickPending{false};
 
 MainWindow::MainWindow() {
-  setWindowTitle(QStringLiteral("Ghostty (Qt)"));
+  setWindowTitle(QStringLiteral("Ghastty"));
   // Let a translucent terminal background show through to the desktop.
   setAttribute(Qt::WA_TranslucentBackground);
 
@@ -165,9 +165,9 @@ static void postNotification(const QString &title, const QString &body) {
       QStringLiteral("org.freedesktop.Notifications"),
       QStringLiteral("Notify"));
   msg.setArguments({
-      QStringLiteral("Ghostty"),             // app_name
+      QStringLiteral("Ghastty"),             // app_name
       uint(0),                               // replaces_id
-      QStringLiteral("utilities-terminal"),  // app_icon
+      QStringLiteral("ghastty"),             // app_icon
       title,                                 // summary
       body,                                  // body
       QStringList(),                         // actions
@@ -178,17 +178,17 @@ static void postNotification(const QString &title, const QString &body) {
 }
 
 // Drive the taskbar progress bar via the Unity LauncherEntry D-Bus API
-// (honored by the KDE task manager), keyed to ghostty.desktop.
+// (honored by the KDE task manager), keyed to ghastty.desktop.
 static void postProgress(bool visible, double fraction) {
   QDBusMessage msg = QDBusMessage::createSignal(
-      QStringLiteral("/com/canonical/unity/launcherentry/ghostty"),
+      QStringLiteral("/com/canonical/unity/launcherentry/ghastty"),
       QStringLiteral("com.canonical.Unity.LauncherEntry"),
       QStringLiteral("Update"));
   QVariantMap props;
   props[QStringLiteral("progress")] = fraction;
   props[QStringLiteral("progress-visible")] = visible;
   msg.setArguments(
-      {QStringLiteral("application://ghostty.desktop"), QVariant(props)});
+      {QStringLiteral("application://ghastty.desktop"), QVariant(props)});
   QDBusConnection::sessionBus().send(msg);
 }
 
@@ -328,9 +328,9 @@ GhosttySurface *MainWindow::newTab(ghostty_surface_t parent) {
   if (configString("window-new-tab-position") == QLatin1String("current") &&
       m_tabs->count() > 0)
     index = m_tabs->insertTab(m_tabs->currentIndex() + 1, page,
-                              QStringLiteral("Ghostty"));
+                              QStringLiteral("Ghastty"));
   else
-    index = m_tabs->addTab(page, QStringLiteral("Ghostty"));
+    index = m_tabs->addTab(page, QStringLiteral("Ghastty"));
   m_tabs->setCurrentIndex(index);
   surface->setFocus();
   return surface;
@@ -879,10 +879,10 @@ void MainWindow::updateTabText(int tab) {
   const QString override = data.value(1);
   QString text = !override.isEmpty() ? override
                  : !base.isEmpty()   ? base
-                                     : QStringLiteral("Ghostty");
+                                     : QStringLiteral("Ghastty");
   m_tabs->setTabText(tab, tabBellMarked(tab) ? kBellMark + text : text);
   if (tab == m_tabs->currentIndex())
-    setWindowTitle(text + QStringLiteral(" — Ghostty"));
+    setWindowTitle(text + QStringLiteral(" — Ghastty"));
 }
 
 void MainWindow::playBellAudio() {
