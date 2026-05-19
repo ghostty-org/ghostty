@@ -137,10 +137,13 @@ class QuickTerminalController: BaseTerminalController {
         }
 
         // Setup our content
-        window.contentView = TerminalViewContainer {
-            TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
-        }
-
+        window.contentView = TerminalViewContainer(
+            ghostty: self.ghostty,
+            viewModel: self,
+            delegate: self,
+            windowController: self
+        )
+        
         // Clear out our frame at this point, the fixup from above is complete.
         if let qtWindow = window as? QuickTerminalWindow {
             qtWindow.initialFrame = nil

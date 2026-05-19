@@ -1092,17 +1092,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Initialize our content view to the SwiftUI root
-        let container = TerminalViewContainer {
-            TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
-        }
-
-        // Set the initial content size on the container so that
-        // intrinsicContentSize returns the correct value immediately,
-        // without waiting for @FocusedValue to propagate through the
-        // SwiftUI focus chain.
-        container.initialContentSize = focusedSurface?.initialSize
-
-        window.contentView = container
+        window.contentView = TerminalViewContainer(
+            ghostty: self.ghostty,
+            viewModel: self,
+            delegate: self,
+            windowController: self
+        )
 
         // If we have a default size, we want to apply it.
         if let defaultSize {

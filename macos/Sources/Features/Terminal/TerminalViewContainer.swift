@@ -22,8 +22,14 @@ class TerminalViewContainer: NSView {
         return window.value(forKey: "_cornerRadius") as? CGFloat
     }
 
-    init<Root: View>(@ViewBuilder rootView: () -> Root) {
-        self.terminalView = NSHostingView(rootView: rootView())
+    init(ghostty: Ghostty.App, viewModel: ViewModel, delegate: (any TerminalViewDelegate)? = nil, windowController: BaseTerminalController? = nil) {
+        self.derivedConfig = DerivedConfig(config: ghostty.config)
+        self.terminalView = NSHostingView(rootView: TerminalView(
+            ghostty: ghostty,
+            viewModel: viewModel,
+            delegate: delegate,
+            windowController: windowController
+        ))
         super.init(frame: .zero)
         setup()
     }
