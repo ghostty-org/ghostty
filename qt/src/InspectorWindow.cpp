@@ -47,7 +47,7 @@ ghostty_input_key_e translateKey(int key) {
 
 InspectorWindow::InspectorWindow(ghostty_surface_t surface)
     : m_surface(surface) {
-  setWindowTitle(QStringLiteral("Ghostty Inspector"));
+  setWindowTitle(QStringLiteral("Ghastty Inspector"));
   setFocusPolicy(Qt::StrongFocus);
   setMouseTracking(true);
   resize(800, 600);

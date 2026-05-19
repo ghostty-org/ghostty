@@ -131,12 +131,12 @@ void GlobalShortcuts::handleCreateSession(uint code,
   shortcuts.append(
       {QStringLiteral("toggle-quick-terminal"),
        {{QStringLiteral("description"),
-         QStringLiteral("Toggle the Ghostty quick terminal")},
+         QStringLiteral("Toggle the Ghastty quick terminal")},
         {QStringLiteral("preferred_trigger"), QStringLiteral("LOGO+grave")}}});
   shortcuts.append(
       {QStringLiteral("toggle-visibility"),
        {{QStringLiteral("description"),
-         QStringLiteral("Toggle Ghostty window visibility")}}});
+         QStringLiteral("Toggle Ghastty window visibility")}}});
 
   portalCall(QStringLiteral("BindShortcuts"),
              {QVariant::fromValue(QDBusObjectPath(m_sessionHandle)),
