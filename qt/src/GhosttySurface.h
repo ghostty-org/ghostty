@@ -24,7 +24,7 @@ class QOpenGLContext;
 class QOpenGLFramebufferObject;
 class QOpenGLShaderProgram;
 class QOpenGLVertexArrayObject;
-class QScrollBar;
+class OverlayScrollbar;
 
 // One Ghostty terminal pane.
 //
@@ -129,6 +129,7 @@ private:
   void renderTerminal();
   void layoutScrollbar();          // position the scrollbar at the edge
   bool scrollbarAllowed() const;   // false when `scrollbar = never`
+  void flashScrollbar();           // reveal the overlay scrollbar, arm hide
   void buildExitOverlay(int exitCode);
   void showResizeOverlay();        // transient grid-size overlay on resize
   void layoutSearchBar();          // position the search bar at the top edge
@@ -181,7 +182,8 @@ private:
   int m_lastRows = 0;
   SearchBar *m_searchBar = nullptr;    // in-terminal search; lazily made
   InspectorWindow *m_inspectorWindow = nullptr;  // terminal inspector; lazily made
-  QScrollBar *m_scrollbar = nullptr;   // scrollback scrollbar; hidden by default
+  OverlayScrollbar *m_scrollbar = nullptr;  // floating scrollback scrollbar
+  bool m_scrollAtBottom = true;        // viewport is following the buffer tail
   bool m_notifyOnCommand = false;      // one-shot: notify on next cmd finish
   bool m_bellFlash = false;            // bell `border` flash in progress
   bool m_bellTitle = false;            // unacknowledged bell `title` mark

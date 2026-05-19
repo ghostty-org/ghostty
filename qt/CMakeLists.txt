@@ -77,6 +77,7 @@ add_executable(ghostty
   src/GlobalShortcuts.cpp
   src/InspectorWindow.cpp
   src/MainWindow.cpp
+  src/OverlayScrollbar.cpp
   src/SearchBar.cpp
   src/WindowBlur.cpp
   "${BLUR_CODE}"

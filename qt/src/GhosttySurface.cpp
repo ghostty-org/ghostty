@@ -2,6 +2,7 @@
 
 #include "InspectorWindow.h"
 #include "MainWindow.h"
+#include "OverlayScrollbar.h"
 #include "SearchBar.h"
 
 #include <algorithm>
@@ -32,8 +33,6 @@
 #include <QOpenGLVertexArrayObject>
 #include <QPainter>
 #include <QResizeEvent>
-#include <QScrollBar>
-#include <QSignalBlocker>
 #include <QSplitter>
 #include <QString>
 #include <QStringList>
@@ -50,15 +49,17 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
   setAttribute(Qt::WA_InputMethodEnabled, true);  // IME composition
   setAcceptDrops(true);                           // file / text drops
 
-  // Scrollback scrollbar: driven by SCROLLBAR actions, hidden until one
-  // reports scrollback. Dragging it runs libghostty's scroll_to_row.
-  m_scrollbar = new QScrollBar(Qt::Vertical, this);
-  m_scrollbar->hide();
-  connect(m_scrollbar, &QScrollBar::valueChanged, this, [this](int v) {
-    if (!m_surface) return;
-    const QByteArray a = "scroll_to_row:" + QByteArray::number(v);
-    ghostty_surface_binding_action(m_surface, a.constData(), a.size());
-  });
+  // Scrollback scrollbar: a floating overlay driven by SCROLLBAR
+  // actions. Dragging it runs libghostty's scroll_to_row.
+  m_scrollbar = new OverlayScrollbar(this);
+  connect(m_scrollbar, &OverlayScrollbar::scrollToRow, this,
+          [this](int row) {
+            if (!m_surface) return;
+            const QByteArray a =
+                "scroll_to_row:" + QByteArray::number(row);
+            ghostty_surface_binding_action(m_surface, a.constData(),
+                                           a.size());
+          });
   // The widget paints a per-pixel-alpha QImage of the terminal; a
   // translucent background lets that alpha reach the desktop.
   setAttribute(Qt::WA_TranslucentBackground);
@@ -142,11 +143,9 @@ void GhosttySurface::syncSurfaceSize() {
   // is the true (possibly fractional) scale because main() selects the
   // PassThrough rounding policy.
   const double dpr = devicePixelRatioF();
-  // The terminal renders into the width left of the scrollbar strip.
-  const int sbw = (m_scrollbar && m_scrollbar->isVisible())
-                       ? m_scrollbar->sizeHint().width()
-                       : 0;
-  const int w = std::max(1, static_cast<int>((width() - sbw) * dpr));
+  // The terminal fills the full width; the scrollbar is a thin overlay
+  // floating on top, so it does not subtract from the grid.
+  const int w = std::max(1, static_cast<int>(width() * dpr));
   const int h = std::max(1, static_cast<int>(height() * dpr));
   if (w == m_fbw && h == m_fbh && dpr == m_fbDpr) return;
   m_fbw = w;
@@ -190,9 +189,11 @@ void GhosttySurface::renderIfDirty() {
 }
 
 void GhosttySurface::layoutScrollbar() {
-  if (!m_scrollbar || !m_scrollbar->isVisible()) return;
-  const int w = m_scrollbar->sizeHint().width();
-  m_scrollbar->setGeometry(width() - w, 0, w, height());
+  if (!m_scrollbar) return;
+  // Always positioned (even while faded out) so it is placed correctly
+  // the moment it is revealed.
+  m_scrollbar->setGeometry(width() - OverlayScrollbar::kWidth, 0,
+                           OverlayScrollbar::kWidth, height());
 }
 
 // `scrollbar = never` in the config hides the scrollbar unconditionally;
@@ -209,20 +210,35 @@ bool GhosttySurface::scrollbarAllowed() const {
 
 void GhosttySurface::updateScrollbar(uint64_t total, uint64_t offset,
                                      uint64_t len) {
-  const bool visible = scrollbarAllowed() && total > len;
-  if (visible != m_scrollbar->isVisible()) {
-    m_scrollbar->setVisible(visible);
-    layoutScrollbar();
-    syncSurfaceSize();  // the terminal's available width changed
+  if (!m_scrollbar) return;
+  if (!scrollbarAllowed() || total <= len) {
+    m_scrollbar->setMetrics(0, 0, 0);
+    m_scrollbar->hide();
+    return;
   }
-  if (!visible) return;
+  m_scrollbar->setMetrics(total, offset, len);
 
-  // Update the range without echoing back through valueChanged as a
-  // scroll_to_row (which would fight libghostty's own scroll state).
-  const QSignalBlocker block(m_scrollbar);
-  m_scrollbar->setRange(0, static_cast<int>(total - len));
-  m_scrollbar->setPageStep(static_cast<int>(len));
-  m_scrollbar->setValue(static_cast<int>(offset));
+  // Overlay behaviour: reveal the scrollbar on scroll activity, but not
+  // for output that merely follows the bottom of the buffer.
+  const bool atBottom = offset + len >= total;
+  if (!atBottom || !m_scrollAtBottom) flashScrollbar();
+  m_scrollAtBottom = atBottom;
+}
+
+// Reveal the overlay scrollbar (it fades itself back out when idle).
+void GhosttySurface::flashScrollbar() {
+  if (!m_scrollbar || !scrollbarAllowed()) return;
+  // Handle colour: light on a dark terminal, dark on a light one.
+  ghostty_config_color_s bg{};
+  if (m_owner && m_owner->config() &&
+      ghostty_config_get(m_owner->config(), &bg, "background",
+                         qstrlen("background"))) {
+    const double luma = 0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b;
+    m_scrollbar->setHandleColor(luma < 128.0 ? QColor(235, 235, 235)
+                                             : QColor(45, 45, 45));
+  }
+  layoutScrollbar();
+  m_scrollbar->reveal();
 }
 
 void GhosttySurface::renderTerminal() {
@@ -389,11 +405,9 @@ void GhosttySurface::setSearchSelected(int selected) {
 void GhosttySurface::layoutSearchBar() {
   if (!m_searchBar || !m_searchBar->isVisible()) return;
   m_searchBar->adjustSize();
-  // Top-right, clear of the scrollbar.
-  const int sbw = (m_scrollbar && m_scrollbar->isVisible())
-                      ? m_scrollbar->sizeHint().width()
-                      : 0;
-  m_searchBar->move(width() - m_searchBar->width() - sbw - 8, 8);
+  // Top-right, kept clear of the overlay scrollbar's strip.
+  m_searchBar->move(
+      width() - m_searchBar->width() - OverlayScrollbar::kWidth - 8, 8);
 }
 
 void GhosttySurface::showResizeOverlay() {
@@ -794,6 +808,12 @@ void GhosttySurface::mouseMoveEvent(QMouseEvent *ev) {
   ghostty_surface_mouse_pos(m_surface, ev->position().x(),
                             ev->position().y(),
                             translateMods(ev->modifiers()));
+
+  // Reveal the overlay scrollbar when the pointer reaches the right
+  // edge. While it is visible the scrollbar widget grabs the strip
+  // itself; this only fires once it has faded out and been hidden.
+  if (ev->position().x() >= width() - OverlayScrollbar::kWidth)
+    flashScrollbar();
 }
 
 void GhosttySurface::wheelEvent(QWheelEvent *ev) {
@@ -801,6 +821,7 @@ void GhosttySurface::wheelEvent(QWheelEvent *ev) {
   // angleDelta is in eighths of a degree; 120 units == one wheel notch.
   const QPoint d = ev->angleDelta();
   ghostty_surface_mouse_scroll(m_surface, d.x() / 120.0, d.y() / 120.0, 0);
+  flashScrollbar();  // mouse-wheel scrolling reveals the overlay scrollbar
 }
 
 void GhosttySurface::enterEvent(QEnterEvent *) {
