@@ -650,6 +650,14 @@ bool MainWindow::onAction(ghostty_app_t app, ghostty_target_s target,
             Qt::QueuedConnection);
       return true;
 
+    case GHOSTTY_ACTION_OPEN_CONFIG: {
+      // libghostty opens the config file in the user's editor itself and
+      // returns the path; we only need to free that string.
+      ghostty_string_s path = ghostty_config_open_path();
+      ghostty_string_free(path);
+      return true;
+    }
+
     case GHOSTTY_ACTION_RELOAD_CONFIG:
       QMetaObject::invokeMethod(
           self, [self]() { self->reloadConfig(); }, Qt::QueuedConnection);
