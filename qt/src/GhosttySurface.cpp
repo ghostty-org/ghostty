@@ -365,9 +365,11 @@ void GhosttySurface::mouseReleaseEvent(QMouseEvent *ev) {
 
 void GhosttySurface::mouseMoveEvent(QMouseEvent *ev) {
   if (!m_surface) return;
-  const double dpr = devicePixelRatioF();
-  ghostty_surface_mouse_pos(m_surface, ev->position().x() * dpr,
-                            ev->position().y() * dpr,
+  // ghostty_surface_mouse_pos wants unscaled (logical) coordinates — it
+  // applies the content scale itself. Passing device pixels double-scales
+  // the position and drifts the selection on HiDPI displays.
+  ghostty_surface_mouse_pos(m_surface, ev->position().x(),
+                            ev->position().y(),
                             translateMods(ev->modifiers()));
 }
 
