@@ -68,6 +68,13 @@ public:
   // viewport-top row, and the visible row count.
   void updateScrollbar(uint64_t total, uint64_t offset, uint64_t len);
 
+  // Bell `border` feature: briefly flash a border over the terminal.
+  void flashBorder();
+  // Bell `title` feature: mark/unmark an unacknowledged bell. MainWindow
+  // prefixes the tab title while any surface in the tab is marked.
+  void setBellTitle(bool marked) { m_bellTitle = marked; }
+  bool bellTitle() const { return m_bellTitle; }
+
 protected:
   bool event(QEvent *) override;
   void paintEvent(QPaintEvent *) override;
@@ -139,5 +146,7 @@ private:
   QLabel *m_exitOverlay = nullptr;     // "process exited" banner; lazily made
   QScrollBar *m_scrollbar = nullptr;   // scrollback scrollbar; hidden by default
   bool m_notifyOnCommand = false;      // one-shot: notify on next cmd finish
+  bool m_bellFlash = false;            // bell `border` flash in progress
+  bool m_bellTitle = false;            // unacknowledged bell `title` mark
   std::atomic<bool> m_dirty{false};    // a frame render is pending
 };

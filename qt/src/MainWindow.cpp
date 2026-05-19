@@ -33,6 +33,9 @@
 
 #include "GhosttySurface.h"
 
+// Prefix marking a tab with an unacknowledged bell (bell-features title).
+static const QString kBellMark = QStringLiteral("● ");
+
 MainWindow::MainWindow() {
   setWindowTitle(QStringLiteral("Ghostty (Qt)"));
   // Let a translucent terminal background show through to the desktop.
@@ -321,7 +324,8 @@ void MainWindow::setSurfaceTitle(GhosttySurface *surface,
                                  const QString &title) {
   const int index = tabIndexForSurface(surface);
   if (index < 0) return;
-  m_tabs->setTabText(index, title);
+  m_tabs->setTabText(index,
+                     tabBellMarked(index) ? kBellMark + title : title);
   if (index == m_tabs->currentIndex())
     setWindowTitle(title + QStringLiteral(" — Ghostty"));
 }
@@ -347,6 +351,9 @@ void MainWindow::onCurrentChanged(int index) {
   GhosttySurface *s = surfaceAt(index);
   if (!s) return;
   s->setFocus();
+  // Acknowledge any bell `title` mark now that the tab is visible.
+  for (GhosttySurface *surf : surfacesInTab(index)) surf->setBellTitle(false);
+  refreshTabTitle(index);
   setWindowTitle(m_tabs->tabText(index) + QStringLiteral(" — Ghostty"));
 }
 
@@ -489,7 +496,7 @@ void MainWindow::moveTab(int amount) {
     if (QTabBar *bar = m_tabs->findChild<QTabBar *>()) bar->moveTab(from, to);
 }
 
-void MainWindow::ringBell() {
+void MainWindow::ringBell(GhosttySurface *surface) {
   // bell-features is a packed struct, returned by ghostty_config_get as
   // a bitfield: bit 0 system, 1 audio, 2 attention, 3 title, 4 border.
   unsigned int features = 1u << 2;  // fall back to `attention`
@@ -498,6 +505,29 @@ void MainWindow::ringBell() {
   if (features & (1u << 2)) QApplication::alert(this);  // attention
   if (features & (1u << 0)) QApplication::beep();       // system
   if (features & (1u << 1)) playBellAudio();            // audio
+
+  if (!surface) return;
+  if (features & (1u << 4)) surface->flashBorder();     // border
+  if (features & (1u << 3)) {                           // title
+    const int tab = tabIndexForSurface(surface);
+    // Marking the current tab is pointless — you are looking at it.
+    if (tab >= 0 && tab != m_tabs->currentIndex()) {
+      surface->setBellTitle(true);
+      refreshTabTitle(tab);
+    }
+  }
+}
+
+bool MainWindow::tabBellMarked(int tab) const {
+  for (GhosttySurface *s : surfacesInTab(tab))
+    if (s->bellTitle()) return true;
+  return false;
+}
+
+void MainWindow::refreshTabTitle(int tab) {
+  QString text = m_tabs->tabText(tab);
+  if (text.startsWith(kBellMark)) text = text.mid(kBellMark.size());
+  m_tabs->setTabText(tab, tabBellMarked(tab) ? kBellMark + text : text);
 }
 
 void MainWindow::playBellAudio() {
@@ -810,7 +840,7 @@ bool MainWindow::onAction(ghostty_app_t app, ghostty_target_s target,
       return true;
 
     case GHOSTTY_ACTION_RING_BELL:
-      QMetaObject::invokeMethod(self, [self]() { self->ringBell(); },
+      QMetaObject::invokeMethod(self, [self, src]() { self->ringBell(src); },
                                 Qt::QueuedConnection);
       return true;
 

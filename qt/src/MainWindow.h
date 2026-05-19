@@ -84,8 +84,13 @@ private:
   void moveTab(int amount);  // reorder the current tab by `amount`
 
   // Ring the terminal bell, honoring the `bell-features` config.
-  void ringBell();
+  void ringBell(GhosttySurface *surface);
   void playBellAudio();
+
+  // Bell `title` feature: prefix a tab's title while any surface in it
+  // has an unacknowledged bell.
+  bool tabBellMarked(int tab) const;
+  void refreshTabTitle(int tab);
 
   // Config: rebuild from disk (reloadConfig) or apply one libghostty
   // handed us (applyConfig), pushing it to the app and every surface.

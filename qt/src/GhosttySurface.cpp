@@ -249,6 +249,23 @@ void GhosttySurface::paintEvent(QPaintEvent *) {
   // the terminal image, alpha included, so its translucency is kept.
   painter.setCompositionMode(QPainter::CompositionMode_Source);
   painter.drawImage(QPointF(0, 0), m_image);
+
+  // Bell `border` feature: a brief attention flash over the terminal.
+  if (m_bellFlash) {
+    painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+    painter.setPen(QPen(QColor(255, 96, 96, 230), 3));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRect(QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5));
+  }
+}
+
+void GhosttySurface::flashBorder() {
+  m_bellFlash = true;
+  update();
+  QTimer::singleShot(160, this, [this]() {
+    m_bellFlash = false;
+    update();
+  });
 }
 
 void GhosttySurface::showChildExited(int exitCode) {
