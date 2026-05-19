@@ -5,6 +5,7 @@
 #include <cstdio>
 
 #include <QApplication>
+#include <QAudioOutput>
 #include <QByteArray>
 #include <QClipboard>
 #include <QDBusConnection>
@@ -15,6 +16,7 @@
 #include <QGuiApplication>
 #include <QList>
 #include <QMap>
+#include <QMediaPlayer>
 #include <QMessageBox>
 #include <QPoint>
 #include <QRect>
@@ -91,6 +93,27 @@ static bool configHasCustomShader() {
     if (eq >= 0 && !line.mid(eq + 1).trimmed().isEmpty()) return true;
   }
   return false;
+}
+
+// Scan the primary Ghostty config file for `key = value`, returning the
+// last matching value (empty if absent). For keys not cleanly exposed by
+// ghostty_config_get.
+static QString configValue(const QString &key) {
+  QString dir = qEnvironmentVariable("XDG_CONFIG_HOME");
+  if (dir.isEmpty()) dir = QDir::homePath() + QStringLiteral("/.config");
+
+  QFile f(dir + QStringLiteral("/ghostty/config"));
+  if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+
+  const QByteArray wanted = key.toUtf8();
+  QString value;
+  while (!f.atEnd()) {
+    const QByteArray line = f.readLine().trimmed();
+    const int eq = line.indexOf('=');
+    if (eq < 0 || line.left(eq).trimmed() != wanted) continue;
+    value = QString::fromUtf8(line.mid(eq + 1).trimmed());
+  }
+  return value;
 }
 
 // Post a desktop notification via the freedesktop D-Bus service.
@@ -466,6 +489,37 @@ void MainWindow::moveTab(int amount) {
     if (QTabBar *bar = m_tabs->findChild<QTabBar *>()) bar->moveTab(from, to);
 }
 
+void MainWindow::ringBell() {
+  // bell-features is a packed struct, returned by ghostty_config_get as
+  // a bitfield: bit 0 system, 1 audio, 2 attention, 3 title, 4 border.
+  unsigned int features = 1u << 2;  // fall back to `attention`
+  ghostty_config_get(m_config, &features, "bell-features",
+                     qstrlen("bell-features"));
+  if (features & (1u << 2)) QApplication::alert(this);  // attention
+  if (features & (1u << 0)) QApplication::beep();       // system
+  if (features & (1u << 1)) playBellAudio();            // audio
+}
+
+void MainWindow::playBellAudio() {
+  QString path = configValue(QStringLiteral("bell-audio-path"));
+  if (path.isEmpty()) return;
+  if (path.startsWith(QLatin1String("~/")))
+    path = QDir::homePath() + path.mid(1);
+
+  bool ok = false;
+  const double volume =
+      configValue(QStringLiteral("bell-audio-volume")).toDouble(&ok);
+
+  if (!m_bellPlayer) {
+    m_bellAudio = new QAudioOutput(this);
+    m_bellPlayer = new QMediaPlayer(this);
+    m_bellPlayer->setAudioOutput(m_bellAudio);
+  }
+  m_bellAudio->setVolume(ok ? volume : 0.5);
+  m_bellPlayer->setSource(QUrl::fromLocalFile(path));
+  m_bellPlayer->play();
+}
+
 // Push `config` to the app and every surface, and adopt it as the live
 // config. Takes ownership of `config` (frees the previous one).
 void MainWindow::applyConfig(ghostty_config_t config) {
@@ -756,11 +810,8 @@ bool MainWindow::onAction(ghostty_app_t app, ghostty_target_s target,
       return true;
 
     case GHOSTTY_ACTION_RING_BELL:
-      // Taskbar/window attention hint. Honoring `bell-features` config
-      // (audio file, volume) is a future refinement.
-      QMetaObject::invokeMethod(
-          self, [self]() { QApplication::alert(self); },
-          Qt::QueuedConnection);
+      QMetaObject::invokeMethod(self, [self]() { self->ringBell(); },
+                                Qt::QueuedConnection);
       return true;
 
     case GHOSTTY_ACTION_MOUSE_SHAPE: {

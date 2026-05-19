@@ -7,6 +7,8 @@
 
 #include "ghostty.h"
 
+class QAudioOutput;
+class QMediaPlayer;
 class QShowEvent;
 class QSplitter;
 class QTabWidget;
@@ -81,6 +83,10 @@ private:
   void equalizeSplits(GhosttySurface *from);
   void moveTab(int amount);  // reorder the current tab by `amount`
 
+  // Ring the terminal bell, honoring the `bell-features` config.
+  void ringBell();
+  void playBellAudio();
+
   // Config: rebuild from disk (reloadConfig) or apply one libghostty
   // handed us (applyConfig), pushing it to the app and every surface.
   void reloadConfig();
@@ -120,4 +126,8 @@ private:
   QWidget *m_zoomRoot = nullptr;
   QSplitter *m_zoomSplitter = nullptr;
   int m_zoomIndex = 0;
+
+  // Bell audio playback; created lazily on the first audio bell.
+  QMediaPlayer *m_bellPlayer = nullptr;
+  QAudioOutput *m_bellAudio = nullptr;
 };

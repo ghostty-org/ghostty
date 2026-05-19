@@ -28,7 +28,7 @@ set(CMAKE_AUTOMOC ON)
 
 include(GNUInstallDirs)
 
-find_package(Qt6 REQUIRED COMPONENTS Gui Widgets OpenGL DBus)
+find_package(Qt6 REQUIRED COMPONENTS Gui Widgets OpenGL DBus Multimedia)
 
 # libghostty is built out-of-tree by Zig.
 get_filename_component(GHOSTTY_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
@@ -59,6 +59,7 @@ target_link_libraries(ghostty PRIVATE
   Qt6::Widgets
   Qt6::OpenGL
   Qt6::DBus
+  Qt6::Multimedia
   "${GHOSTTY_LIB_DIR}/libghostty.so"
 )
 
