@@ -86,7 +86,12 @@ bool InspectorWindow::makeCurrent() {
 void InspectorWindow::syncSize() {
   if (!m_inspector) return;
   const qreal dpr = devicePixelRatioF();
-  ghostty_inspector_set_content_scale(m_inspector, dpr, dpr);
+  // updateContentScale rebuilds the ImGui style, so only push it when
+  // the scale actually changes; set_size already ignores no-op resizes.
+  if (dpr != m_lastDpr) {
+    ghostty_inspector_set_content_scale(m_inspector, dpr, dpr);
+    m_lastDpr = dpr;
+  }
   ghostty_inspector_set_size(m_inspector,
                              static_cast<uint32_t>(width() * dpr),
                              static_cast<uint32_t>(height() * dpr));

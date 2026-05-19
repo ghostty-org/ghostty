@@ -1229,6 +1229,13 @@ pub const Inspector = struct {
         var style: cimgui.c.ImGuiStyle = undefined;
         cimgui.ext.ImGuiStyle_ImGuiStyle(&style);
         cimgui.c.ImGuiStyle_ScaleAllSizes(&style, @floatCast(x));
+
+        // The embedded inspector font is baked at a 2x content scale
+        // (see Inspector.setup); FontScaleMain scales the glyphs to the
+        // real DPI so the text matches the scaled widget style instead
+        // of assuming 2x. (io.FontGlobalScale was removed in ImGui 1.92.)
+        style.FontScaleMain = @floatCast(x / 2.0);
+
         const active_style = cimgui.c.ImGui_GetStyle();
         active_style.* = style;
     }

@@ -51,4 +51,5 @@ private:
   QImage m_image;                  // last frame, read back from m_fbo
   QTimer *m_timer = nullptr;       // drives ~30fps redraws while visible
   bool m_glReady = false;          // ghostty_inspector_opengl_init done
+  double m_lastDpr = 0;            // last pushed content scale
 };
