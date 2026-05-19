@@ -6,6 +6,7 @@
 #include "ghostty.h"
 
 class QShowEvent;
+class QSplitter;
 class QTabWidget;
 class GhosttySurface;
 
@@ -67,6 +68,15 @@ private:
   void resizeSplit(GhosttySurface *from, ghostty_action_resize_split_s rs);
   void equalizeSplits(GhosttySurface *from);
 
+  // Config: rebuild from disk (reloadConfig) or apply one libghostty
+  // handed us (applyConfig), pushing it to the app and every surface.
+  void reloadConfig();
+  void applyConfig(ghostty_config_t config);
+
+  // Toggle a split pane filling its tab. Re-parents the surface out of
+  // / back into the splitter tree.
+  void toggleSplitZoom(GhosttySurface *surface);
+
   // Runtime callbacks dispatched by libghostty. wakeup/action carry the
   // app userdata; clipboard/close carry the surface userdata.
   static void onWakeup(void *ud);
@@ -85,4 +95,11 @@ private:
   QList<GhosttySurface *> m_surfaces;  // every live surface
   bool m_needsPremultiply = false;     // a custom shader is configured
   bool m_firstTabPending = true;       // first tab is created on show()
+
+  // Split-zoom state: the surface temporarily filling its tab, the
+  // splitter it came from, its index there, and the stashed tree root.
+  GhosttySurface *m_zoomed = nullptr;
+  QWidget *m_zoomRoot = nullptr;
+  QSplitter *m_zoomSplitter = nullptr;
+  int m_zoomIndex = 0;
 };

@@ -6,6 +6,8 @@
 #include "ghostty.h"
 
 class MainWindow;
+class QInputMethodEvent;
+class QLabel;
 class QOffscreenSurface;
 class QOpenGLContext;
 class QOpenGLFramebufferObject;
@@ -35,6 +37,10 @@ public:
   ghostty_surface_t surface() const { return m_surface; }
   MainWindow *owner() const { return m_owner; }
 
+  // Show a dismissable "process exited" overlay over the terminal. The
+  // surface stays open until the user dismisses it (key or click).
+  void showChildExited(int exitCode);
+
 public slots:
   // Render a fresh frame (the libghostty RENDER action).
   void requestRender();
@@ -53,11 +59,18 @@ protected:
   void focusInEvent(QFocusEvent *) override;
   void focusOutEvent(QFocusEvent *) override;
 
+  // IME composition: preedit text is forwarded to libghostty for inline
+  // display; committed text is inserted as input.
+  void inputMethodEvent(QInputMethodEvent *) override;
+  QVariant inputMethodQuery(Qt::InputMethodQuery) const override;
+
 private:
   bool makeCurrent();
   void syncSurfaceSize();
   void renderTerminal();
+  void buildExitOverlay(int exitCode);
   void sendKey(QKeyEvent *, ghostty_input_action_e action);
+  void commitText(const QString &text);
   void sendMouseButton(QMouseEvent *, ghostty_input_mouse_state_e state);
 
   // Premultiply the framebuffer's alpha; only used when a custom shader
@@ -89,4 +102,6 @@ private:
   int m_fbw = 0;                       // framebuffer size, device pixels
   int m_fbh = 0;
   double m_fbDpr = 1.0;                // DPR the framebuffer was sized at
+
+  QLabel *m_exitOverlay = nullptr;     // "process exited" banner; lazily made
 };

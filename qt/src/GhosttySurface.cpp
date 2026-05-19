@@ -7,7 +7,9 @@
 
 #include <QByteArray>
 #include <QFocusEvent>
+#include <QInputMethodEvent>
 #include <QKeyEvent>
+#include <QLabel>
 #include <QMouseEvent>
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
@@ -19,6 +21,7 @@
 #include <QResizeEvent>
 #include <QString>
 #include <QSurfaceFormat>
+#include <QTimer>
 #include <QWheelEvent>
 
 GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
@@ -26,6 +29,7 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
     : m_app(app), m_owner(owner), m_parentSurface(parent_surface) {
   setFocusPolicy(Qt::StrongFocus);
   setMouseTracking(true);  // deliver motion events for hover/link detection
+  setAttribute(Qt::WA_InputMethodEnabled, true);  // IME composition
   // The widget paints a per-pixel-alpha QImage of the terminal; a
   // translucent background lets that alpha reach the desktop.
   setAttribute(Qt::WA_TranslucentBackground);
@@ -125,7 +129,10 @@ void GhosttySurface::syncSurfaceSize() {
   renderTerminal();
 }
 
-void GhosttySurface::resizeEvent(QResizeEvent *) { syncSurfaceSize(); }
+void GhosttySurface::resizeEvent(QResizeEvent *) {
+  syncSurfaceSize();
+  if (m_exitOverlay) m_exitOverlay->setGeometry(rect());
+}
 
 bool GhosttySurface::event(QEvent *e) {
   // The device pixel ratio can change without a resize — the Wayland
@@ -173,6 +180,40 @@ void GhosttySurface::paintEvent(QPaintEvent *) {
   // the terminal image, alpha included, so its translucency is kept.
   painter.setCompositionMode(QPainter::CompositionMode_Source);
   painter.drawImage(QPointF(0, 0), m_image);
+}
+
+void GhosttySurface::showChildExited(int exitCode) {
+  if (m_exitOverlay) return;  // already shown
+
+  // Defer the banner briefly. A normal `exit` closes the surface within
+  // a frame or two (libghostty calls close() right after this action),
+  // and we don't want the banner to flash in that case. The QObject-
+  // context singleShot is cancelled if the surface is destroyed first,
+  // so the banner only appears for surfaces that actually persist (an
+  // abnormal exit, or `wait-after-command`).
+  QTimer::singleShot(120, this, [this, exitCode]() { buildExitOverlay(exitCode); });
+}
+
+void GhosttySurface::buildExitOverlay(int exitCode) {
+  if (m_exitOverlay) return;
+
+  // A translucent banner over the terminal. It is transparent to mouse
+  // events so a click lands on this widget and dismisses it (see
+  // mousePressEvent / keyPressEvent).
+  m_exitOverlay = new QLabel(this);
+  m_exitOverlay->setAlignment(Qt::AlignCenter);
+  m_exitOverlay->setWordWrap(true);
+  m_exitOverlay->setAttribute(Qt::WA_TransparentForMouseEvents);
+  m_exitOverlay->setStyleSheet(QStringLiteral(
+      "background: rgba(0,0,0,0.65); color: #e0e0e0; font-size: 14px;"));
+  const QString code = exitCode >= 0
+                           ? QStringLiteral(" (code %1)").arg(exitCode)
+                           : QString();
+  m_exitOverlay->setText(QStringLiteral(
+      "Process exited%1\nPress any key or click to close").arg(code));
+  m_exitOverlay->setGeometry(rect());
+  m_exitOverlay->show();
+  m_exitOverlay->raise();
 }
 
 // libghostty's renderer outputs premultiplied alpha — except a custom
@@ -293,6 +334,12 @@ void GhosttySurface::sendMouseButton(QMouseEvent *ev,
 }
 
 void GhosttySurface::keyPressEvent(QKeyEvent *ev) {
+  // While the child-exited overlay is up, any key dismisses it (closes
+  // the pane) instead of reaching the dead terminal.
+  if (m_exitOverlay) {
+    m_owner->removeSurface(this);
+    return;
+  }
   sendKey(ev,
           ev->isAutoRepeat() ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS);
 }
@@ -304,6 +351,10 @@ void GhosttySurface::keyReleaseEvent(QKeyEvent *ev) {
 }
 
 void GhosttySurface::mousePressEvent(QMouseEvent *ev) {
+  if (m_exitOverlay) {
+    m_owner->removeSurface(this);
+    return;
+  }
   setFocus();
   sendMouseButton(ev, GHOSTTY_MOUSE_PRESS);
 }
@@ -333,6 +384,48 @@ void GhosttySurface::focusInEvent(QFocusEvent *) {
 
 void GhosttySurface::focusOutEvent(QFocusEvent *) {
   if (m_surface) ghostty_surface_set_focus(m_surface, false);
+}
+
+// Insert a string of committed text (an IME commit) as terminal input.
+void GhosttySurface::commitText(const QString &text) {
+  if (!m_surface || text.isEmpty()) return;
+  const QByteArray utf8 = text.toUtf8();
+  ghostty_input_key_s k = {};
+  k.action = GHOSTTY_ACTION_PRESS;
+  k.mods = GHOSTTY_MODS_NONE;
+  k.consumed_mods = GHOSTTY_MODS_NONE;
+  k.keycode = 0;
+  k.text = utf8.constData();
+  k.unshifted_codepoint = 0;
+  k.composing = false;
+  ghostty_surface_key(m_surface, k);
+}
+
+void GhosttySurface::inputMethodEvent(QInputMethodEvent *ev) {
+  if (m_surface) {
+    // Forward the in-progress composition for inline display, then any
+    // finalized text. A well-behaved IME sends an empty preedit string
+    // alongside the commit, so this order matches GTK: clear, then commit.
+    const QByteArray preedit = ev->preeditString().toUtf8();
+    ghostty_surface_preedit(
+        m_surface, preedit.isEmpty() ? nullptr : preedit.constData(),
+        static_cast<uintptr_t>(preedit.size()));
+    if (!ev->commitString().isEmpty()) commitText(ev->commitString());
+  }
+  ev->accept();
+}
+
+QVariant GhosttySurface::inputMethodQuery(Qt::InputMethodQuery query) const {
+  switch (query) {
+    case Qt::ImEnabled:
+      return true;
+    case Qt::ImCursorRectangle:
+      // Approximate anchor for the candidate window; tracking the real
+      // terminal cursor cell is a follow-up.
+      return QRect(4, height() - 4, 1, 1);
+    default:
+      return QWidget::inputMethodQuery(query);
+  }
 }
 
 // --- libghostty GL platform callbacks --------------------------------
