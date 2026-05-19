@@ -10,9 +10,11 @@ project(ghostty LANGUAGES CXX)
 # widget. libghostty draws on the GUI thread (the embedded apprt sets
 # must_draw_from_app_thread for the OpenGL renderer).
 #
-# Build libghostty first, from the repo root:
+# Build libghostty first, from the repo root. Use ReleaseFast: a Debug
+# build of libghostty leaves the whole terminal core unoptimized and
+# makes rendering and surface creation noticeably sluggish.
 #
-#   zig build -Dapp-runtime=none -Doptimize=Debug
+#   zig build -Dapp-runtime=none -Doptimize=ReleaseFast
 #
 # Then build and run this app:
 #
