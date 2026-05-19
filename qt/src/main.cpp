@@ -47,13 +47,12 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  MainWindow window;
-  if (!window.initialize()) {
+  // The first window; further windows are opened on demand by the
+  // new_window action. Each window owns itself (WA_DeleteOnClose).
+  if (!MainWindow::newWindow(nullptr)) {
     std::fprintf(stderr, "[ghostty] window initialization failed\n");
     return 1;
   }
-  window.resize(800, 600);
-  window.show();
 
   return app.exec();
 }

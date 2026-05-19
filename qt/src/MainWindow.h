@@ -8,14 +8,17 @@
 #include "ghostty.h"
 
 class QAudioOutput;
+class QCloseEvent;
 class QMediaPlayer;
 class QShowEvent;
 class QSplitter;
 class QTabWidget;
+class QTimer;
 class GhosttySurface;
 
-// The top-level window. Owns the shared ghostty_app_t and presents
-// terminal surfaces as tabs; each tab may be subdivided into splits.
+// A top-level window presenting terminal surfaces as tabs; each tab may
+// be subdivided into splits. The libghostty app and config are shared
+// process-wide across every window (the static s_* members below).
 //
 // Widget tree: QTabWidget -> tab page (QWidget) -> split tree, where a
 // node is either a GhosttySurface (a QOpenGLWidget) or a QSplitter of
@@ -27,8 +30,13 @@ public:
   MainWindow();
   ~MainWindow() override;
 
-  // Create the libghostty app and the first tab. Call once before show().
+  // Per-window setup. The first call also creates the shared libghostty
+  // app and config; later windows reuse them. Call once before show().
   bool initialize();
+
+  // Open a new top-level window, sharing the libghostty app, with one
+  // tab whose surface inherits from `parent` (may be null).
+  static MainWindow *newWindow(ghostty_surface_t parent);
 
   // Open a new tab. `parent` (may be null) is the surface whose working
   // directory etc. the new surface should inherit.
@@ -46,23 +54,23 @@ public:
   void setSurfaceTitle(GhosttySurface *surface, const QString &title);
 
   // The live libghostty config (for keybind lookups, etc.).
-  ghostty_config_t config() const { return m_config; }
+  ghostty_config_t config() const { return s_config; }
 
   // Whether a custom shader is configured. With one, libghostty's final
   // framebuffer is non-premultiplied and surfaces must premultiply it
   // before Qt composites (see GhosttySurface::premultiplyFramebuffer).
-  bool needsPremultiply() const { return m_needsPremultiply; }
+  bool needsPremultiply() const { return s_needsPremultiply; }
 
   // Whether `focus-follows-mouse` is enabled — a GhosttySurface grabs
   // focus when the pointer enters it.
   bool focusFollowsMouse() const;
 
-public slots:
-  void tick();
-
 protected:
   bool event(QEvent *) override;
   void showEvent(QShowEvent *) override;
+  // Honors `confirm-close-surface`: prompts if a surface has a running
+  // process, and ignores the event if the user declines.
+  void closeEvent(QCloseEvent *) override;
 
 private slots:
   void onTabCloseRequested(int index);
@@ -110,12 +118,25 @@ private:
   // tab-bar visibility policy and the light/dark colour scheme.
   void applyWindowConfig();
 
+  // Prompt (per `confirm-close-surface`) before closing `surfaces`.
+  // Returns true if the close may proceed.
+  bool confirmCloseSurfaces(const QList<GhosttySurface *> &surfaces);
+
+  // Close every window, optionally quitting the process; prompts once
+  // via ghostty_app_needs_confirm_quit.
+  static void closeAllWindows();
+
+  // Wire the libghostty quit_timer action to a delayed QApplication
+  // quit, gated on `quit-after-last-window-closed`.
+  static void handleQuitTimer(bool start);
+
   // Toggle a split pane filling its tab. Re-parents the surface out of
   // / back into the splitter tree.
   void toggleSplitZoom(GhosttySurface *surface);
 
-  // Runtime callbacks dispatched by libghostty. wakeup/action carry the
-  // app userdata; clipboard/close carry the surface userdata.
+  // Runtime callbacks dispatched by libghostty. wakeup/action are
+  // app-level (routed via the target surface or s_windows); clipboard/
+  // close carry the surface userdata.
   static void onWakeup(void *ud);
   static bool onAction(ghostty_app_t, ghostty_target_s, ghostty_action_s);
   static bool onReadClipboard(void *ud, ghostty_clipboard_e, void *state);
@@ -126,17 +147,25 @@ private:
                                bool);
   static void onCloseSurface(void *ud, bool process_active);
 
-  ghostty_config_t m_config = nullptr;
-  ghostty_app_t m_app = nullptr;
   QTabWidget *m_tabs = nullptr;
-  QList<GhosttySurface *> m_surfaces;  // every live surface
-  bool m_needsPremultiply = false;     // a custom shader is configured
+  QList<GhosttySurface *> m_surfaces;  // every live surface in this window
   bool m_firstTabPending = true;       // first tab is created on show()
+  ghostty_surface_t m_firstTabParent = nullptr;  // inherited by the 1st tab
+  bool m_skipCloseConfirm = false;     // close already confirmed elsewhere
+
+  // Process-shared libghostty state: one app and config drive every
+  // window. Created by the first initialize(), freed with the last
+  // window. s_windows tracks every live window.
+  static ghostty_app_t s_app;
+  static ghostty_config_t s_config;
+  static bool s_needsPremultiply;      // a custom shader is configured
+  static QList<MainWindow *> s_windows;
+  static QTimer *s_quitTimer;          // delayed quit-after-last-window
+  static int s_quitDelayMs;            // 0 = no delay configured
 
   // Coalesces wakeup-driven ticks: a tick is queued at most once at a
-  // time, so a busy surface can't flood the event loop. Set from
-  // onWakeup (possibly off-thread), cleared at the start of tick().
-  std::atomic<bool> m_tickPending{false};
+  // time, so a busy surface can't flood the event loop.
+  static std::atomic<bool> s_tickPending;
 
   // Split-zoom state: the surface temporarily filling its tab, the
   // splitter it came from, its index there, and the stashed tree root.
