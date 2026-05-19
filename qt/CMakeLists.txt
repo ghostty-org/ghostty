@@ -69,6 +69,7 @@ file(CREATE_LINK "ghostty-internal.so" "${GHOSTTY_LIB_DIR}/libghostty.so"
 
 add_executable(ghostty
   src/main.cpp
+  src/CommandPalette.cpp
   src/GhosttySurface.cpp
   src/MainWindow.cpp
   src/WindowBlur.cpp

@@ -15,6 +15,7 @@ class QShowEvent;
 class QSplitter;
 class QTabWidget;
 class QTimer;
+class CommandPalette;
 class GhosttySurface;
 
 // A top-level window presenting terminal surfaces as tabs; each tab may
@@ -132,6 +133,10 @@ private:
   // compositor (see WindowBlur).
   void applyBlur();
 
+  // Show/hide the command palette (TOGGLE_COMMAND_PALETTE), scoped to
+  // `surface` for executing the chosen command.
+  void toggleCommandPalette(GhosttySurface *surface);
+
   // Prompt (per `confirm-close-surface`) before closing `surfaces`.
   // Returns true if the close may proceed.
   bool confirmCloseSurfaces(const QList<GhosttySurface *> &surfaces);
@@ -192,4 +197,7 @@ private:
   // Bell audio playback; created lazily on the first audio bell.
   QMediaPlayer *m_bellPlayer = nullptr;
   QAudioOutput *m_bellAudio = nullptr;
+
+  // The command palette; created lazily on first use.
+  CommandPalette *m_commandPalette = nullptr;
 };

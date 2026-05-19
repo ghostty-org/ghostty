@@ -33,6 +33,7 @@
 #include <QVariant>
 #include <QVBoxLayout>
 
+#include "CommandPalette.h"
 #include "GhosttySurface.h"
 #include "WindowBlur.h"
 
@@ -819,6 +820,11 @@ void MainWindow::applyWindowConfig() {
 #endif
 }
 
+void MainWindow::toggleCommandPalette(GhosttySurface *surface) {
+  if (!m_commandPalette) m_commandPalette = new CommandPalette(this);
+  m_commandPalette->toggleFor(surface);
+}
+
 void MainWindow::applyBlur() {
   // background-blur is a union whose C value is an i16: 0 (and the
   // macOS-only negatives) means off, a positive radius means on. KWin
@@ -1335,8 +1341,15 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       return true;
     }
 
+    case GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE:
+      if (win)
+        QMetaObject::invokeMethod(
+            win, [win, src]() { win->toggleCommandPalette(src); },
+            Qt::QueuedConnection);
+      return true;
+
     default:
-      // Inspector, command palette, search, etc. are not handled yet.
+      // Inspector and in-terminal search are not handled yet.
       return false;
   }
 }
