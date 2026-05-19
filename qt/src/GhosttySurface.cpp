@@ -42,6 +42,8 @@
 #include <QUrl>
 #include <QWheelEvent>
 
+#include <xkbcommon/xkbcommon.h>
+
 GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
                                ghostty_surface_t parent_surface)
     : m_app(app), m_owner(owner), m_parentSurface(parent_surface) {
@@ -553,6 +555,94 @@ void GhosttySurface::premultiplyFramebuffer() {
 
 // --- input ----------------------------------------------------------
 
+// Wraps a libxkbcommon keymap + state derived from the system's XKB
+// defaults (XKB_DEFAULT_LAYOUT etc.). We need this for two things:
+//
+//   1. The unshifted codepoint a key would produce with no modifiers —
+//      libghostty's kitty encoder uses it to find a key entry for
+//      printable keys (without it, punctuation falls into a fallback
+//      that mis-encodes release events).
+//
+//   2. Which modifiers the layout "consumed" to produce the event's
+//      text — e.g. Shift+; → ":" consumes Shift. The encoder uses this
+//      to decide between plain text and a modifier-bearing CSI; without
+//      it Shift+punctuation gets emitted as a kitty CSI the shell can't
+//      decode (Shift+letter happens to work because A-Z survive that
+//      path).
+class XkbState {
+public:
+  static XkbState &instance() {
+    static XkbState self;
+    return self;
+  }
+
+  // Level-0 (unshifted) Unicode codepoint for `keycode`, or 0 if the
+  // key has no associated UTF-32 (function keys, modifiers, etc.).
+  uint32_t unshiftedCodepoint(uint32_t keycode) const {
+    if (!m_unshifted) return 0;
+    const xkb_keysym_t sym =
+        xkb_state_key_get_one_sym(m_unshifted, keycode);
+    if (sym == XKB_KEY_NoSymbol) return 0;
+    return xkb_keysym_to_utf32(sym);
+  }
+
+  // Modifiers consumed by the layout to produce `keycode`'s text given
+  // `mods` are depressed. Returns the consumed subset, expressed as
+  // ghostty mod bits.
+  ghostty_input_mods_e consumedMods(uint32_t keycode,
+                                    ghostty_input_mods_e mods) const {
+    if (!m_query) return GHOSTTY_MODS_NONE;
+    xkb_mod_mask_t depressed = 0;
+    if ((mods & GHOSTTY_MODS_SHIFT) && m_idxShift != XKB_MOD_INVALID)
+      depressed |= (1u << m_idxShift);
+    if ((mods & GHOSTTY_MODS_CTRL) && m_idxCtrl != XKB_MOD_INVALID)
+      depressed |= (1u << m_idxCtrl);
+    if ((mods & GHOSTTY_MODS_ALT) && m_idxAlt != XKB_MOD_INVALID)
+      depressed |= (1u << m_idxAlt);
+    if ((mods & GHOSTTY_MODS_SUPER) && m_idxSuper != XKB_MOD_INVALID)
+      depressed |= (1u << m_idxSuper);
+    xkb_state_update_mask(m_query, depressed, 0, 0, 0, 0, 0);
+    const xkb_mod_mask_t consumed = xkb_state_key_get_consumed_mods2(
+        m_query, keycode, XKB_CONSUMED_MODE_XKB);
+    // Reset so the next query starts from no-mods.
+    xkb_state_update_mask(m_query, 0, 0, 0, 0, 0, 0);
+    int r = GHOSTTY_MODS_NONE;
+    if (m_idxShift != XKB_MOD_INVALID && (consumed & (1u << m_idxShift)))
+      r |= GHOSTTY_MODS_SHIFT;
+    if (m_idxCtrl != XKB_MOD_INVALID && (consumed & (1u << m_idxCtrl)))
+      r |= GHOSTTY_MODS_CTRL;
+    if (m_idxAlt != XKB_MOD_INVALID && (consumed & (1u << m_idxAlt)))
+      r |= GHOSTTY_MODS_ALT;
+    if (m_idxSuper != XKB_MOD_INVALID && (consumed & (1u << m_idxSuper)))
+      r |= GHOSTTY_MODS_SUPER;
+    return static_cast<ghostty_input_mods_e>(r);
+  }
+
+private:
+  XkbState() {
+    m_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    if (!m_ctx) return;
+    m_keymap = xkb_keymap_new_from_names(m_ctx, nullptr,
+                                         XKB_KEYMAP_COMPILE_NO_FLAGS);
+    if (!m_keymap) return;
+    m_unshifted = xkb_state_new(m_keymap);
+    m_query = xkb_state_new(m_keymap);
+    m_idxShift = xkb_keymap_mod_get_index(m_keymap, XKB_MOD_NAME_SHIFT);
+    m_idxCtrl = xkb_keymap_mod_get_index(m_keymap, XKB_MOD_NAME_CTRL);
+    m_idxAlt = xkb_keymap_mod_get_index(m_keymap, XKB_MOD_NAME_ALT);
+    m_idxSuper = xkb_keymap_mod_get_index(m_keymap, XKB_MOD_NAME_LOGO);
+  }
+
+  struct xkb_context *m_ctx = nullptr;
+  struct xkb_keymap *m_keymap = nullptr;
+  struct xkb_state *m_unshifted = nullptr;  // permanent no-mods state
+  struct xkb_state *m_query = nullptr;      // reused for consumed-mods queries
+  xkb_mod_index_t m_idxShift = XKB_MOD_INVALID;
+  xkb_mod_index_t m_idxCtrl = XKB_MOD_INVALID;
+  xkb_mod_index_t m_idxAlt = XKB_MOD_INVALID;
+  xkb_mod_index_t m_idxSuper = XKB_MOD_INVALID;
+};
+
 // Translate Qt keyboard modifiers into libghostty's modifier bitfield.
 static ghostty_input_mods_e translateMods(Qt::KeyboardModifiers m) {
   int r = GHOSTTY_MODS_NONE;
@@ -575,23 +665,25 @@ void GhosttySurface::sendKey(QKeyEvent *ev, ghostty_input_action_e action) {
       static_cast<unsigned char>(text.front()) >= 0x20 &&
       static_cast<unsigned char>(text.front()) != 0x7f;
 
-  // Unshifted codepoint, used for keybind matching (letters and digits).
-  uint32_t unshifted = 0;
-  const int key = ev->key();
-  if (key >= Qt::Key_A && key <= Qt::Key_Z)
-    unshifted = static_cast<uint32_t>('a' + (key - Qt::Key_A));
-  else if (key >= Qt::Key_0 && key <= Qt::Key_9)
-    unshifted = static_cast<uint32_t>('0' + (key - Qt::Key_0));
+  // On xcb nativeScanCode() is the X11/XKB keycode; the Wayland plugin
+  // likewise reports the XKB keycode, which is libghostty's Linux native.
+  const uint32_t keycode = ev->nativeScanCode();
 
   ghostty_input_key_s k = {};
   k.action = action;
   k.mods = translateMods(ev->modifiers());
-  k.consumed_mods = GHOSTTY_MODS_NONE;
-  // On xcb nativeScanCode() is the X11/XKB keycode; the Wayland plugin
-  // likewise reports the XKB keycode, which is libghostty's Linux native.
-  k.keycode = ev->nativeScanCode();
+  k.keycode = keycode;
   k.text = printable ? text.constData() : nullptr;
-  k.unshifted_codepoint = unshifted;
+  // XKB lookups: unshifted codepoint (what this physical key would
+  // produce with no mods, e.g. ';' for the Shift+; → ':' event) and the
+  // modifiers the layout consumed to produce the event's text. Without
+  // consumed_mods, Shift+punctuation is emitted as a kitty CSI sequence
+  // the shell can't decode; with it set, libghostty's encoder falls
+  // back to plain text correctly.
+  k.unshifted_codepoint = XkbState::instance().unshiftedCodepoint(keycode);
+  k.consumed_mods = printable
+                        ? XkbState::instance().consumedMods(keycode, k.mods)
+                        : GHOSTTY_MODS_NONE;
   k.composing = false;
 
   ghostty_surface_key(m_surface, k);
@@ -868,14 +960,27 @@ void GhosttySurface::commitText(const QString &text) {
 
 void GhosttySurface::inputMethodEvent(QInputMethodEvent *ev) {
   if (m_surface) {
+    const QString preeditStr = ev->preeditString();
+    const QString commitStr = ev->commitString();
+
     // Forward the in-progress composition for inline display, then any
     // finalized text. A well-behaved IME sends an empty preedit string
     // alongside the commit, so this order matches GTK: clear, then commit.
-    const QByteArray preedit = ev->preeditString().toUtf8();
+    const QByteArray preedit = preeditStr.toUtf8();
     ghostty_surface_preedit(
         m_surface, preedit.isEmpty() ? nullptr : preedit.constData(),
         static_cast<uintptr_t>(preedit.size()));
-    if (!ev->commitString().isEmpty()) commitText(ev->commitString());
+
+    // Only commit when the text is the result of real IME composition —
+    // either the preceding event left us in preedit, or this event has
+    // active preedit alongside the commit. On Wayland's text-input-v3
+    // (KDE Plasma 6 with no IME), the compositor sends a commit for
+    // every plain ASCII character it also delivers as a key event;
+    // forwarding both here would double every keystroke (the visible
+    // symptom: ":" in nvim arriving as "::").
+    if (!commitStr.isEmpty() && (m_hadPreedit || !preeditStr.isEmpty()))
+      commitText(commitStr);
+    m_hadPreedit = !preeditStr.isEmpty();
   }
   ev->accept();
 }

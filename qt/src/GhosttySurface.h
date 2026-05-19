@@ -107,6 +107,10 @@ protected:
   void paintEvent(QPaintEvent *) override;
   void resizeEvent(QResizeEvent *) override;
 
+  // Disable Qt's Tab/Backtab focus traversal so those keys reach
+  // keyPressEvent and can be forwarded to the terminal.
+  bool focusNextPrevChild(bool) override { return false; }
+
   void keyPressEvent(QKeyEvent *) override;
   void keyReleaseEvent(QKeyEvent *) override;
   void mousePressEvent(QMouseEvent *) override;
@@ -189,5 +193,11 @@ private:
   bool m_notifyOnCommand = false;      // one-shot: notify on next cmd finish
   bool m_bellFlash = false;            // bell `border` flash in progress
   bool m_bellTitle = false;            // unacknowledged bell `title` mark
+  // Tracks whether the prior inputMethodEvent reported active preedit.
+  // Used to distinguish a real post-composition commit (forward to the
+  // terminal) from the duplicate ASCII commit that Wayland's
+  // text-input-v3 fires alongside a keyPressEvent (drop it — the key
+  // event will deliver the same text).
+  bool m_hadPreedit = false;
   std::atomic<bool> m_dirty{false};    // a frame render is pending
 };

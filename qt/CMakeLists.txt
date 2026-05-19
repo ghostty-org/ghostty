@@ -41,6 +41,11 @@ find_package(LayerShellQt REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
 pkg_check_modules(XCB REQUIRED IMPORTED_TARGET xcb)
+# libxkbcommon: derive the unshifted Unicode codepoint for a key event
+# from its XKB keycode, so libghostty's kitty encoder finds an entry for
+# punctuation keys (Qt's ev->key() reports the SHIFTED symbol, e.g.
+# Qt::Key_Colon for Shift+;).
+pkg_check_modules(XKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
 find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
 
 # Generate client glue for the org_kde_kwin_blur protocol.
@@ -106,6 +111,7 @@ target_link_libraries(ghastty PRIVATE
   Qt6::Svg
   PkgConfig::WAYLAND_CLIENT
   PkgConfig::XCB
+  PkgConfig::XKBCOMMON
   LayerShellQt::Interface
   "${GHOSTTY_LIB_DIR}/libghostty.so"
 )
