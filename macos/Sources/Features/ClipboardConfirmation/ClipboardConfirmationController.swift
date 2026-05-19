@@ -51,7 +51,8 @@ class ClipboardConfirmationAlert: NSAlert, NSAlertDelegate {
 
         informativeText = request.text()
         let accessoryView = NSTextView.scrollableTextView()
-        accessoryView.frame = .init(x: 0, y: 0, width: 300, height: 200)
+        // Maximum frame when calculating the content size
+        accessoryView.frame = .init(x: 0, y: 0, width: 400, height: 270)
         if let textView = accessoryView.documentView as? NSTextView {
             textView.drawsBackground = false
             textView.isEditable = false
@@ -65,7 +66,35 @@ class ClipboardConfirmationAlert: NSAlert, NSAlertDelegate {
 
         addCancelButton(Action.text(.cancel, request))
         addConfirmButton(Action.text(.confirm, request))
+        layout()
+        updateContentHeight()
+
         delegate = self
+    }
+
+    private func updateContentHeight() {
+        guard
+            let accessoryView,
+            let textView = (accessoryView as? NSScrollView)?.documentView as? NSTextView,
+            let layoutManager = textView.layoutManager,
+            let textContainer = textView.textContainer
+        else {
+            return
+        }
+
+        textContainer.containerSize = CGSize(
+            width: accessoryView.frame.width,
+            height: .greatestFiniteMagnitude,
+        )
+        textContainer.widthTracksTextView = false
+
+        layoutManager.ensureLayout(for: textContainer)
+
+        let usedRect = layoutManager.usedRect(for: textContainer)
+        accessoryView.frame.size.height = .minimum(
+            accessoryView.frame.height,
+            .maximum(10, usedRect.height),
+        )
     }
 
     func addCancelButton(_ buttonTitle: String) {
