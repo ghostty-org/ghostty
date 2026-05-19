@@ -224,8 +224,13 @@ fn kitty(
     const entry = entry_ orelse {
         // No entry found. If we have UTF-8 text this is a pure text event
         // (e.g. composed/IME text), so send it as-is so programs can
-        // still receive it.
-        if (event.utf8.len > 0) return try writer.writeAll(event.utf8);
+        // still receive it. Releases never carry text — when `report_events`
+        // is on this fallback would otherwise re-emit the character on
+        // key-up, doubling every keystroke that lacks an entry (e.g.
+        // punctuation when the apprt did not provide an unshifted
+        // codepoint).
+        if (event.utf8.len > 0 and event.action != .release)
+            return try writer.writeAll(event.utf8);
         return;
     };
 
