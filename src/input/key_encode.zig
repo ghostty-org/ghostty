@@ -1867,6 +1867,47 @@ test "kitty: enter with utf8 (dead key state)" {
     try testing.expectEqualStrings("A", writer.buffered());
 }
 
+// Regression: a release event with non-empty utf8 for a key that has no
+// kitty entry (e.g. when the apprt does not populate unshifted_codepoint
+// for punctuation) used to fall through and re-emit the character on
+// key-up, doubling every keystroke under report_events.
+test "kitty: no-entry release with utf8 emits nothing" {
+    var buf: [128]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .action = .release,
+        .key = .unidentified,
+        .mods = .{},
+        .utf8 = ":",
+        // unshifted_codepoint = 0 forces the no-entry fallback.
+    }, .{
+        .kitty_flags = .{
+            .disambiguate = true,
+            .report_events = true,
+        },
+    });
+    try testing.expectEqualStrings("", writer.buffered());
+}
+
+// And a press in the same shape still emits the text (the fix is
+// specifically scoped to releases).
+test "kitty: no-entry press with utf8 still emits text" {
+    var buf: [128]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try kitty(&writer, .{
+        .action = .press,
+        .key = .unidentified,
+        .mods = .{},
+        .utf8 = ":",
+    }, .{
+        .kitty_flags = .{
+            .disambiguate = true,
+            .report_events = true,
+        },
+    });
+    try testing.expectEqualStrings(":", writer.buffered());
+}
+
 test "kitty: keypad number" {
     var buf: [128]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buf);

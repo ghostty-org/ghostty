@@ -457,10 +457,12 @@ typedef struct {
 // Platform configuration for a host that provides its own OpenGL
 // context (e.g. a Qt, X11, or Wayland application embedding libghostty).
 //
-// The host owns the OpenGL context and windowing. Ghostty's renderer
-// runs on a dedicated thread and invokes these callbacks from that
-// thread, so the context must be usable from a thread other than the
-// one that created it.
+// The host owns the OpenGL context and windowing. libghostty draws on
+// the app (GUI) thread for the OpenGL renderer (the embedded apprt
+// sets must_draw_from_app_thread for OpenGL), so these callbacks all
+// run on the same thread that calls ghostty_surface_new and
+// ghostty_surface_draw. The context only needs to be usable from that
+// thread; it does not need to be thread-portable.
 typedef struct {
   // Userdata passed as the first argument to every callback below.
   void* userdata;

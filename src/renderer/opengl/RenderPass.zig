@@ -11,6 +11,8 @@ const Texture = @import("Texture.zig");
 const Pipeline = @import("Pipeline.zig");
 const Buffer = @import("buffer.zig").Buffer;
 
+const log = std.log.scoped(.opengl);
+
 /// Options for beginning a render pass.
 pub const Options = struct {
     /// Color attachments for this render pass.
@@ -58,21 +60,35 @@ pub fn begin(
 
 /// Add a step to this render pass.
 ///
-/// TODO: Errors are silently ignored in this function, maybe they shouldn't be?
+/// Errors during GL bind / state setup short-circuit the step (we have
+/// no recovery story mid-pass) but are logged so they're not silent.
 pub fn step(self: *Self, s: Step) void {
     if (s.draw.instance_count == 0) return;
 
-    const pbind = s.pipeline.program.use() catch return;
+    const pbind = s.pipeline.program.use() catch |err| {
+        log.warn("render pass: program bind failed err={}", .{err});
+        return;
+    };
     defer pbind.unbind();
 
-    const vaobind = s.pipeline.vao.bind() catch return;
+    const vaobind = s.pipeline.vao.bind() catch |err| {
+        log.warn("render pass: VAO bind failed err={}", .{err});
+        return;
+    };
     defer vaobind.unbind();
 
     const fbobind = switch (self.attachments[0].target) {
-        .target => |t| t.framebuffer.bind(.framebuffer) catch return,
+        .target => |t| t.framebuffer.bind(.framebuffer) catch |err| {
+            log.warn("render pass: framebuffer bind failed err={}", .{err});
+            return;
+        },
         .texture => |t| bind: {
-            const fbobind = s.pipeline.fbo.bind(.framebuffer) catch return;
-            fbobind.texture2D(.color0, t.target, t.texture, 0) catch {
+            const fbobind = s.pipeline.fbo.bind(.framebuffer) catch |err| {
+                log.warn("render pass: pipeline fbo bind failed err={}", .{err});
+                return;
+            };
+            fbobind.texture2D(.color0, t.target, t.texture, 0) catch |err| {
+                log.warn("render pass: texture2D attach failed err={}", .{err});
                 fbobind.unbind();
                 return;
             };

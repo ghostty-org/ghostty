@@ -166,10 +166,12 @@ fn prepareContext(getProcAddress: anytype) !void {
 
 /// Host-provided OpenGL callbacks for the embedded apprt.
 ///
-/// The renderer thread owns the host's GL context exclusively: it is made
-/// current in `threadEnter`, used by `present`, and released in
-/// `threadExit` — all on the same thread. We therefore stash the callbacks
-/// thread-locally rather than threading them through `*const OpenGL`.
+/// libghostty draws on the app thread for the OpenGL renderer
+/// (`must_draw_from_app_thread`), so these callbacks are set in
+/// `surfaceInit` and read by `present` on that same thread. The
+/// renderer thread is a no-op for OpenGL (see threadEnter/threadExit).
+/// `threadlocal` keeps the bookkeeping per-thread without an explicit
+/// hand-off, and avoids threading the callbacks through `*const OpenGL`.
 ///
 /// Never set for non-embedded runtimes.
 threadlocal var gl_host: ?apprt.embedded.Platform.OpenGL = null;
@@ -181,7 +183,12 @@ fn gladHostLoader(
     name: [*:0]const u8,
 ) callconv(.c) ?*const fn () callconv(.c) void {
     const host = gl_host orelse return null;
-    return @ptrCast(host.get_proc_address(host.userdata, name));
+    // The host returns ?*anyopaque (alignment 1); a function pointer
+    // has alignment ≥ 4 on aarch64. eglGetProcAddress / glXGetProcAddress
+    // promise the returned pointer is suitable for the OpenGL ABI, so
+    // @alignCast is the assertion we want here.
+    const raw = host.get_proc_address(host.userdata, name) orelse return null;
+    return @ptrCast(@alignCast(raw));
 }
 
 /// This is called early right after surface creation.
