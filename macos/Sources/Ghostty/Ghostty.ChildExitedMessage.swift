@@ -21,11 +21,11 @@ extension Ghostty {
             // See: Surface.zig/childExited
             // If our runtime was below some threshold then we assume that this
             // was an abnormal exit and we show an error message.
-            if abnormalCommandExitRuntime >= .milliseconds(message.timetime_ms) {
+            if abnormalCommandExitRuntime >= .milliseconds(message.runtime_ms) {
                 level = .error
-                let measure = Measurement.init(value: Double(message.timetime_ms), unit: UnitDuration.milliseconds)
+                let measure = Measurement.init(value: Double(message.runtime_ms), unit: UnitDuration.milliseconds)
                 let formatter = MeasurementFormatter()
-                if message.timetime_ms > 1000 {
+                if message.runtime_ms > 1000 {
                     formatter.unitOptions = .naturalScale
                 } else {
                     formatter.unitOptions = .providedUnit

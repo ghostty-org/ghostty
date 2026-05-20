@@ -867,7 +867,7 @@ typedef enum {
 // apprt.surface.Message.ChildExited
 typedef struct {
   uint32_t exit_code;
-  uint64_t timetime_ms;
+  uint64_t runtime_ms;
 } ghostty_surface_message_childexited_s;
 
 // terminal.osc.Command.ProgressReport.State
@@ -1075,7 +1075,7 @@ typedef union {
 typedef struct {
   ghostty_ipc_target_tag_e tag;
   ghostty_ipc_target_u target;
-} chostty_ipc_target_s;
+} ghostty_ipc_target_s;
 
 // apprt.ipc.Action.NewWindow
 typedef struct {
@@ -1235,6 +1235,10 @@ GHOSTTY_API bool ghostty_inspector_metal_shutdown(ghostty_inspector_t);
 // manage the ImGui OpenGL backend; render draws the inspector into the
 // currently bound GL framebuffer (the host makes its context current
 // and binds the target framebuffer first).
+//
+// On Apple targets these symbols are present but no-op: Apple builds
+// use the Metal inspector path above and the ImGui OpenGL3 backend is
+// not compiled into libghostty there.
 GHOSTTY_API bool ghostty_inspector_opengl_init(ghostty_inspector_t);
 GHOSTTY_API void ghostty_inspector_opengl_render(ghostty_inspector_t);
 GHOSTTY_API void ghostty_inspector_opengl_shutdown(ghostty_inspector_t);
