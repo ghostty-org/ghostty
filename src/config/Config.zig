@@ -3656,6 +3656,14 @@ else
 /// which is the old style.
 @"gtk-wide-tabs": bool = true,
 
+/// If `true` (default), then two-finger horizontal scrolling on a touchpad
+/// will switch between tabs. Scrolling left goes to the next tab and
+/// scrolling right goes to the previous tab. Set this to `false` to
+/// disable this behavior.
+///
+/// Available since 1.4.0.
+@"gtk-horizontal-tab-scroll": bool = true,
+
 /// Custom CSS files to be loaded.
 ///
 /// GTK CSS documentation can be found at the following links:
