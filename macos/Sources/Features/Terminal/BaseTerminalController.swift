@@ -817,7 +817,10 @@ class BaseTerminalController: NSWindowController,
             // If we have a surface, we want to listen for title changes.
             titleSurface.$title
                 .combineLatest(titleSurface.$bell)
-                .map { [weak self] in self?.computeTitle(title: $0, bell: $1) ?? "" }
+                .map { [weak self] title, bell in
+                    guard let self else { return "" }
+                    return Self.computeTitle(title: title, bell: bell, config: self.ghostty.config)
+                }
                 .sink { [weak self] in self?.titleDidChange(to: $0) }
                 .store(in: &focusedSurfaceCancellables)
         } else {
@@ -826,9 +829,9 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
-    private func computeTitle(title: String, bell: Bool) -> String {
+    static func computeTitle(title: String, bell: Bool, config: Ghostty.Config) -> String {
         var result = title
-        if bell && ghostty.config.bellFeatures.contains(.title) {
+        if bell && config.bellFeatures.contains(.title) {
             result = "🔔 \(result)"
         }
 
@@ -840,13 +843,14 @@ class BaseTerminalController: NSWindowController,
         applyTitleToWindow()
     }
 
-    private func applyTitleToWindow() {
+    func applyTitleToWindow() {
         guard let window else { return }
 
         if let titleOverride {
-            window.title = computeTitle(
+            window.title = Self.computeTitle(
                 title: titleOverride,
-                bell: focusedSurface?.bell ?? false)
+                bell: focusedSurface?.bell ?? false,
+                config: ghostty.config)
             return
         }
 
@@ -1010,6 +1014,37 @@ class BaseTerminalController: NSWindowController,
     func syncAppearance() {
         // Purposely a no-op. This lets subclasses override this and we can call
         // it virtually from here.
+    }
+
+    // MARK: Surface Color Scheme
+
+    /// Update the surface tree's color scheme only when it actually changes.
+    ///
+    /// Calling ``ghostty_surface_set_color_scheme`` triggers
+    /// ``syncAppearance(_:)`` via notification,
+    /// so we avoid redundant calls.
+    func updateColorSchemeForSurfaceTree() {
+        /// Derive the target scheme from `window-theme` or system appearance.
+        /// We set the scheme on surfaces so they pick the correct theme
+        /// and let ``syncAppearance(_:)`` update the window accordingly.
+        ///
+        /// Using App's effectiveAppearance here to prevent incorrect updates.
+        let themeAppearance = NSApplication.shared.effectiveAppearance
+        let scheme: ghostty_color_scheme_e
+        if themeAppearance.isDark {
+            scheme = GHOSTTY_COLOR_SCHEME_DARK
+        } else {
+            scheme = GHOSTTY_COLOR_SCHEME_LIGHT
+        }
+        guard scheme != appliedColorScheme else {
+            return
+        }
+        for surfaceView in surfaceTree {
+            if let surface = surfaceView.surface {
+                ghostty_surface_set_color_scheme(surface, scheme)
+            }
+        }
+        appliedColorScheme = scheme
     }
 
     // MARK: Fullscreen
@@ -1478,37 +1513,6 @@ extension BaseTerminalController: NSMenuItemValidation {
         default:
             return true
         }
-    }
-
-    // MARK: - Surface Color Scheme
-
-    /// Update the surface tree's color scheme only when it actually changes.
-    ///
-    /// Calling ``ghostty_surface_set_color_scheme`` triggers
-    /// ``syncAppearance(_:)`` via notification,
-    /// so we avoid redundant calls.
-    func updateColorSchemeForSurfaceTree() {
-        /// Derive the target scheme from `window-theme` or system appearance.
-        /// We set the scheme on surfaces so they pick the correct theme
-        /// and let ``syncAppearance(_:)`` update the window accordingly.
-        ///
-        /// Using App's effectiveAppearance here to prevent incorrect updates.
-        let themeAppearance = NSApplication.shared.effectiveAppearance
-        let scheme: ghostty_color_scheme_e
-        if themeAppearance.isDark {
-            scheme = GHOSTTY_COLOR_SCHEME_DARK
-        } else {
-            scheme = GHOSTTY_COLOR_SCHEME_LIGHT
-        }
-        guard scheme != appliedColorScheme else {
-            return
-        }
-        for surfaceView in surfaceTree {
-            if let surface = surfaceView.surface {
-                ghostty_surface_set_color_scheme(surface, scheme)
-            }
-        }
-        appliedColorScheme = scheme
     }
 }
 

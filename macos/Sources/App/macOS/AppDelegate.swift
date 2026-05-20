@@ -54,6 +54,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuToggleVisibility: NSMenuItem?
     @IBOutlet private var menuToggleFullScreen: NSMenuItem?
     @IBOutlet private var menuBringAllToFront: NSMenuItem?
+    @IBOutlet private var menuMoveTabToQuickTerminal: NSMenuItem?
     @IBOutlet private var menuZoomSplit: NSMenuItem?
     @IBOutlet private var menuPreviousSplit: NSMenuItem?
     @IBOutlet private var menuNextSplit: NSMenuItem?
@@ -445,8 +446,21 @@ class AppDelegate: NSObject,
         // but I haven't seen it happen in releases. I'm unsure why.
         guard applicationHasBecomeActive else { return true }
 
-        // No visible windows, open a new one.
-        _ = TerminalController.newWindow(ghostty)
+        // If the quick terminal is currently active (initialized) AND has at
+        // least one tab, show it instead of opening a new window. Otherwise
+        // open a new regular window — including the case where the quick
+        // terminal has been emptied (last tab closed) since the user has no
+        // visible QT state to return to.
+        switch quickTerminalControllerState {
+        case .uninitialized, .pendingRestore:
+            _ = TerminalController.newWindow(ghostty)
+        case .initialized:
+            if quickController.tabManager.tabs.isEmpty {
+                _ = TerminalController.newWindow(ghostty)
+            } else if !quickController.visible {
+                quickController.animateIn()
+            }
+        }
         return false
     }
 
@@ -1139,6 +1153,11 @@ extension AppDelegate {
         self.menuMoveSplitDividerRight?.setImageIfDesired(systemSymbolName: "arrow.right.to.line")
         self.menuFloatOnTop?.setImageIfDesired(systemSymbolName: "square.filled.on.square")
         self.menuFindParent?.setImageIfDesired(systemSymbolName: "text.page.badge.magnifyingglass")
+        if #available(macOS 26.0, *) {
+            self.menuMoveTabToQuickTerminal?.setImageIfDesired(systemSymbolName: "arrow.up.to.line.square")
+        } else {
+            self.menuMoveTabToQuickTerminal?.setImageIfDesired(systemSymbolName: "arrow.up.to.line")
+        }
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
