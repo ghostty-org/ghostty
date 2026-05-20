@@ -107,6 +107,11 @@ flags: packed struct {
     /// This is true when the view is focused. This defaults to true
     /// and it is up to the apprt to set the correct value.
     focused: bool = true,
+    
+    /// This is true when blinking text should be visible and false when
+    /// it should not be visible. This is toggled on a timer by the thread
+    /// automatically.
+    text_blink_visible: bool = false,
 } = .{},
 
 pub const DerivedConfig = struct {
@@ -411,6 +416,7 @@ fn drainMailbox(self: *Thread) !void {
                     // and then restart the timer.
                     if (self.cursor_c.state() != .active) {
                         self.flags.cursor_blink_visible = true;
+                        self.flags.text_blink_visible = true;
                         self.cursor_h.run(
                             &self.loop,
                             &self.cursor_c,
@@ -610,6 +616,7 @@ fn renderCallback(
     t.renderer.updateFrame(
         t.state,
         t.flags.cursor_blink_visible,
+        t.flags.text_blink_visible,
     ) catch |err|
         log.warn("error rendering err={}", .{err});
 
@@ -642,6 +649,7 @@ fn cursorTimerCallback(
     };
 
     t.flags.cursor_blink_visible = !t.flags.cursor_blink_visible;
+    t.flags.text_blink_visible = !t.flags.text_blink_visible;
     t.wakeup.notify() catch {};
 
     t.cursor_h.run(
