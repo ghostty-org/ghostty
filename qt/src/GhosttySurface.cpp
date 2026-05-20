@@ -14,9 +14,11 @@
 #include <QByteArray>
 #include <QClipboard>
 #include <QContextMenuEvent>
+#include <QDateTime>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFocusEvent>
+#include <QFontMetrics>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QInputDialog>
@@ -308,6 +310,52 @@ void GhosttySurface::paintEvent(QPaintEvent *) {
     painter.setBrush(Qt::NoBrush);
     painter.drawRect(QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5));
   }
+
+  // Resize overlay (rendered here, not as a child widget, so it
+  // can't race the Source-mode blit above mid-resize).
+  paintResizeOverlay(painter);
+}
+
+// Forward decl: cfgString is defined further down (alongside other
+// per-config-key helpers). We need it here for the resize-overlay
+// paint path.
+static QString cfgString(ghostty_config_t cfg, const char *key);
+
+void GhosttySurface::paintResizeOverlay(QPainter &painter) {
+  if (m_resizeOverlayText.isEmpty()) return;
+  if (QDateTime::currentMSecsSinceEpoch() >= m_resizeOverlayUntilMs) return;
+  if (!m_owner) return;
+
+  ghostty_config_t cfg = m_owner->config();
+  const QString posCfg = cfgString(cfg, "resize-overlay-position");
+
+  // Layout the text in a rounded-rect plate, sized from the text's
+  // bounding rect plus padding.
+  painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+  QFont f = painter.font();
+  f.setPixelSize(13);
+  painter.setFont(f);
+  const QFontMetrics fm(f);
+  const QRect textRect = fm.boundingRect(m_resizeOverlayText);
+  const int padX = 10, padY = 4;
+  const int w = textRect.width() + padX * 2;
+  const int h = textRect.height() + padY * 2;
+
+  const int m = 8;
+  int x = (width() - w) / 2;
+  int y = (height() - h) / 2;
+  if (posCfg.contains(QLatin1String("left"))) x = m;
+  else if (posCfg.contains(QLatin1String("right"))) x = width() - w - m;
+  if (posCfg.contains(QLatin1String("top"))) y = m;
+  else if (posCfg.contains(QLatin1String("bottom"))) y = height() - h - m;
+
+  const QRectF plate(x, y, w, h);
+  painter.setRenderHint(QPainter::Antialiasing, true);
+  painter.setPen(Qt::NoPen);
+  painter.setBrush(QColor(0, 0, 0, 191));  // 0.75 alpha
+  painter.drawRoundedRect(plate, 4, 4);
+  painter.setPen(QColor(0xf0, 0xf0, 0xf0));
+  painter.drawText(plate, Qt::AlignCenter, m_resizeOverlayText);
 }
 
 void GhosttySurface::flashBorder() {
@@ -422,26 +470,8 @@ void GhosttySurface::showResizeOverlay() {
   const QString mode = cfgString(cfg, "resize-overlay");
   if (mode == QLatin1String("never")) return;
 
-  // Reset the hide timer on EVERY resize event, not just on grid-size
-  // boundaries. Without this, slow window drags only triggered the
-  // overlay when the grid happened to step (e.g. crossing a cell
-  // height), so the overlay flashed for ~750ms then disappeared even
-  // though the user was still dragging. Reading the duration here
-  // also picks up any config reload during a resize.
-  unsigned long long durNs = 0;
-  configGet(cfg, &durNs, "resize-overlay-duration");
-  const int durMs = durNs ? static_cast<int>(durNs / 1000000ULL) : 750;
-  if (!m_resizeHideTimer) {
-    m_resizeHideTimer = new QTimer(this);
-    m_resizeHideTimer->setSingleShot(true);
-    connect(m_resizeHideTimer, &QTimer::timeout, this, [this]() {
-      if (m_resizeOverlay) m_resizeOverlay->hide();
-    });
-  }
-  m_resizeHideTimer->start(durMs);
-
-  // The overlay TEXT only changes when the grid steps. Suppress the
-  // "after-first" mode's first-show, then track each grid step.
+  // The "after-first" mode hides the overlay until the grid has
+  // stepped at least once after the surface was created.
   const bool gridChanged =
       sz.columns != m_lastCols || sz.rows != m_lastRows;
   if (gridChanged) {
@@ -449,42 +479,39 @@ void GhosttySurface::showResizeOverlay() {
     m_lastCols = sz.columns;
     m_lastRows = sz.rows;
     m_firstGridSeen = true;
+    m_resizeOverlayText =
+        QStringLiteral("%1 × %2").arg(sz.columns).arg(sz.rows);
     if (mode == QLatin1String("after-first") && first) return;
-  } else if (m_resizeOverlay && m_resizeOverlay->isVisible()) {
-    // Overlay already visible with the right text; just reposition
-    // for the new widget size and we're done.
-    if (!m_resizeOverlay) return;
-    repositionResizeOverlay();
-    return;
-  } else if (!m_firstGridSeen) {
-    // Haven't seen a grid step yet AND no overlay is currently up.
-    // Don't show stale 0×0 text.
+  } else if (m_resizeOverlayText.isEmpty()) {
+    // No grid step has happened yet AND no overlay text is cached —
+    // nothing to display.
     return;
   }
 
-  if (!m_resizeOverlay) m_resizeOverlay = makeOverlayLabel(this);
-  m_resizeOverlay->setText(
-      QStringLiteral("%1 × %2").arg(sz.columns).arg(sz.rows));
-  m_resizeOverlay->adjustSize();
-  repositionResizeOverlay();
-  m_resizeOverlay->show();
-  m_resizeOverlay->raise();
-}
+  // Push the hide deadline forward on every resizeEvent so the
+  // overlay stays visible until the user actually stops resizing.
+  // Without this, slow drags between cell-boundary crossings would
+  // let the timer fire mid-drag and flash the overlay off-on-off.
+  unsigned long long durNs = 0;
+  configGet(cfg, &durNs, "resize-overlay-duration");
+  const int durMs = durNs ? static_cast<int>(durNs / 1000000ULL) : 750;
+  m_resizeOverlayUntilMs =
+      QDateTime::currentMSecsSinceEpoch() + durMs;
 
-void GhosttySurface::repositionResizeOverlay() {
-  if (!m_resizeOverlay || !m_owner) return;
-  ghostty_config_t cfg = m_owner->config();
-  const QString pos = cfgString(cfg, "resize-overlay-position");
-  const int m = 8;
-  int x = (width() - m_resizeOverlay->width()) / 2;
-  int y = (height() - m_resizeOverlay->height()) / 2;
-  if (pos.contains(QLatin1String("left"))) x = m;
-  else if (pos.contains(QLatin1String("right")))
-    x = width() - m_resizeOverlay->width() - m;
-  if (pos.contains(QLatin1String("top"))) y = m;
-  else if (pos.contains(QLatin1String("bottom")))
-    y = height() - m_resizeOverlay->height() - m;
-  m_resizeOverlay->move(x, y);
+  // Schedule a paint at the deadline so the overlay disappears even
+  // when no further resize events are arriving.
+  if (!m_resizeHideTimer) {
+    m_resizeHideTimer = new QTimer(this);
+    m_resizeHideTimer->setSingleShot(true);
+    connect(m_resizeHideTimer, &QTimer::timeout, this,
+            [this]() { update(); });
+  }
+  m_resizeHideTimer->start(durMs);
+
+  // Repaint now so the overlay appears (or its text updates) on the
+  // next frame. paintEvent reads m_resizeOverlayText and the
+  // deadline; nothing else changes about the surface contents.
+  update();
 }
 
 void GhosttySurface::showChildExited(int exitCode) {

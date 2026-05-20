@@ -25,6 +25,7 @@ class QOpenGLContext;
 class QOpenGLFramebufferObject;
 class QOpenGLShaderProgram;
 class QOpenGLVertexArrayObject;
+class QPainter;
 class OverlayScrollbar;
 
 // One Ghostty terminal pane.
@@ -139,7 +140,10 @@ private:
   void flashScrollbar();           // reveal the overlay scrollbar, arm hide
   void buildExitOverlay(int exitCode);
   void showResizeOverlay();        // transient grid-size overlay on resize
-  void repositionResizeOverlay();  // re-place overlay for current widget size
+  // Paint the resize overlay (if visible) directly via the parent's
+  // QPainter — done inside paintEvent so the overlay is atomic with
+  // the terminal blit beneath it.
+  void paintResizeOverlay(QPainter &painter);
   void layoutSearchBar();          // position the search bar at the top edge
   void sendKey(QKeyEvent *, ghostty_input_action_e action);
   void commitText(const QString &text);
@@ -183,8 +187,12 @@ private:
   QLabel *m_exitOverlay = nullptr;     // "process exited" banner; lazily made
   QLabel *m_keySeqOverlay = nullptr;   // pending keybind chord; lazily made
   QStringList m_keySeq;                // accumulated pending chords
-  QLabel *m_resizeOverlay = nullptr;   // transient "cols x rows"; lazily made
-  QTimer *m_resizeHideTimer = nullptr; // auto-hides m_resizeOverlay
+  // Resize overlay is painted directly inside paintEvent (not a child
+  // QLabel) so it can't race the parent's CompositionMode_Source blit
+  // mid-resize. Deadline-based: visible while now < m_resizeOverlayUntil.
+  QString m_resizeOverlayText;
+  qint64 m_resizeOverlayUntilMs = 0;   // monotonic ms since epoch
+  QTimer *m_resizeHideTimer = nullptr; // schedules a paint at hide-time
   bool m_firstGridSeen = false;        // for `resize-overlay = after-first`
   int m_lastCols = 0;                  // last grid size, to detect changes
   int m_lastRows = 0;
