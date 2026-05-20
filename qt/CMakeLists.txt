@@ -29,8 +29,15 @@ set(CMAKE_AUTOMOC ON)
 
 include(GNUInstallDirs)
 
-find_package(Qt6 REQUIRED COMPONENTS Gui GuiPrivate Widgets OpenGL DBus
+find_package(Qt6 REQUIRED COMPONENTS Gui Widgets OpenGL DBus
   Multimedia Svg)
+# WindowBlur uses qpa/qplatformnativeinterface.h to reach the wl_display
+# / wl_surface / xcb_connection_t for the native compositor blur calls.
+# Qt's official path is `find_package(Qt6 COMPONENTS GuiPrivate)`, but
+# Debian's qt6-base-private-dev ships the private headers without the
+# matching Qt6GuiPrivateConfig.cmake. Detect the component when present;
+# otherwise fall back to wiring the private include dir by hand.
+find_package(Qt6 QUIET OPTIONAL_COMPONENTS GuiPrivate)
 
 # LayerShellQt: the quick terminal is a wlr-layer-shell dropdown window.
 find_package(LayerShellQt REQUIRED)
@@ -71,9 +78,17 @@ if(NOT EXISTS "${GHOSTTY_SO}")
 endif()
 
 # The .so's SONAME is libghostty.so but it is installed as
-# ghostty-internal.so; create the expected name so the loader finds it.
-file(CREATE_LINK "ghostty-internal.so" "${GHOSTTY_LIB_DIR}/libghostty.so"
-  SYMBOLIC)
+# ghostty-internal.so. Create a symlink in the build tree (NOT in the
+# Zig output dir, which is the source tree from CMake's perspective)
+# so the loader finds it under the SONAME the binary links against.
+set(GHOSTTY_LINK_DIR "${CMAKE_CURRENT_BINARY_DIR}/lib")
+set(GHOSTTY_LINK_SO "${GHOSTTY_LINK_DIR}/libghostty.so")
+add_custom_command(OUTPUT "${GHOSTTY_LINK_SO}"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${GHOSTTY_LINK_DIR}"
+  COMMAND "${CMAKE_COMMAND}" -E create_symlink
+    "${GHOSTTY_SO}" "${GHOSTTY_LINK_SO}"
+  DEPENDS "${GHOSTTY_SO}" VERBATIM)
+add_custom_target(ghostty_link DEPENDS "${GHOSTTY_LINK_SO}")
 
 add_executable(ghastty
   src/main.cpp
@@ -85,6 +100,7 @@ add_executable(ghastty
   src/OverlayScrollbar.cpp
   src/SearchBar.cpp
   src/TabWidget.cpp
+  src/Util.cpp
   src/WindowBlur.cpp
   "${BLUR_CODE}"
   "${BLUR_HEADER}"
@@ -101,9 +117,10 @@ target_include_directories(ghastty PRIVATE
   "${CMAKE_CURRENT_BINARY_DIR}"  # generated blur-client-protocol.h
 )
 
+add_dependencies(ghastty ghostty_link)
+
 target_link_libraries(ghastty PRIVATE
   Qt6::Gui
-  Qt6::GuiPrivate
   Qt6::Widgets
   Qt6::OpenGL
   Qt6::DBus
@@ -113,13 +130,44 @@ target_link_libraries(ghastty PRIVATE
   PkgConfig::XCB
   PkgConfig::XKBCOMMON
   LayerShellQt::Interface
-  "${GHOSTTY_LIB_DIR}/libghostty.so"
+  "${GHOSTTY_LINK_SO}"
 )
 
-# RPATH: the build-tree binary finds libghostty.so in zig-out/lib; the
-# installed binary finds it next to itself ($ORIGIN/../lib).
+# Hook up the private QPA headers (see find_package above).
+if(TARGET Qt6::GuiPrivate)
+  target_link_libraries(ghastty PRIVATE Qt6::GuiPrivate)
+else()
+  # Debian fallback: locate qplatformnativeinterface.h and add its
+  # parent dir as a private include (the header lives at
+  # <prefix>/QtGui/<version>/QtGui/qpa/qplatformnativeinterface.h, so we
+  # add the dir containing the `qpa` subfolder).
+  find_path(QT_QPA_INCLUDE_DIR
+    NAMES qpa/qplatformnativeinterface.h
+    HINTS
+      "${Qt6Gui_PRIVATE_INCLUDE_DIRS}"
+      "${Qt6_DIR}/../../../include/aarch64-linux-gnu/qt6/QtGui/${Qt6_VERSION}/QtGui"
+      "${Qt6_DIR}/../../../include/x86_64-linux-gnu/qt6/QtGui/${Qt6_VERSION}/QtGui"
+      "${Qt6_DIR}/../../../include/qt6/QtGui/${Qt6_VERSION}/QtGui"
+    PATH_SUFFIXES
+      "qt6/QtGui/${Qt6_VERSION}/QtGui"
+  )
+  if(NOT QT_QPA_INCLUDE_DIR)
+    message(FATAL_ERROR
+      "Qt6 private QPA headers not found.\n"
+      "Install qt6-base-private-dev (Debian/Ubuntu) or the equivalent "
+      "Qt 6 private headers package.")
+  endif()
+  message(STATUS "Using Qt private include dir: ${QT_QPA_INCLUDE_DIR}")
+  target_include_directories(ghastty PRIVATE "${QT_QPA_INCLUDE_DIR}")
+endif()
+
+# RPATH:
+# - Build tree: libghostty.so lives in our build dir (a symlink to the
+#   actual zig-out artifact), and the .so's NEEDED entries also point
+#   into zig-out/lib for transitive deps.
+# - Installed: libghostty.so lives next to the binary ($ORIGIN/../lib).
 set_target_properties(ghastty PROPERTIES
-  BUILD_RPATH "${GHOSTTY_LIB_DIR}"
+  BUILD_RPATH "${GHOSTTY_LINK_DIR};${GHOSTTY_LIB_DIR}"
   INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}"
 )
 
