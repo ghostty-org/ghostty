@@ -5,6 +5,7 @@
 #include "OverlayScrollbar.h"
 #include "SearchBar.h"
 #include "TabWidget.h"
+#include "Util.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -73,7 +74,7 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
   m_context = new QOpenGLContext(this);
   m_context->setFormat(QSurfaceFormat::defaultFormat());
   if (!m_context->create()) {
-    std::fprintf(stderr, "[ghostty] GL context creation failed\n");
+    std::fprintf(stderr, "[ghastty] GL context creation failed\n");
     return;
   }
   m_offscreen = new QOffscreenSurface(nullptr, this);
@@ -81,7 +82,7 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
   m_offscreen->create();
 
   if (!makeCurrent()) {
-    std::fprintf(stderr, "[ghostty] makeCurrent failed\n");
+    std::fprintf(stderr, "[ghastty] makeCurrent failed\n");
     return;
   }
 
@@ -107,7 +108,7 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
 
   m_surface = ghostty_surface_new(m_app, &sc);
   if (!m_surface) {
-    std::fprintf(stderr, "[ghostty] ghostty_surface_new failed\n");
+    std::fprintf(stderr, "[ghastty] ghostty_surface_new failed\n");
     return;
   }
 
@@ -116,7 +117,8 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
 
 GhosttySurface::~GhosttySurface() {
   // The inspector window holds m_surface; destroy it before m_surface.
-  delete m_inspectorWindow;
+  // QPointer auto-nulls on a destroyed QObject, so .data() is safe.
+  delete m_inspectorWindow.data();
 
   // Release GL-owning objects with the context current.
   if (makeCurrent()) {
@@ -204,9 +206,7 @@ void GhosttySurface::layoutScrollbar() {
 bool GhosttySurface::scrollbarAllowed() const {
   if (!m_owner || !m_owner->config()) return true;
   const char *value = nullptr;
-  if (ghostty_config_get(m_owner->config(), &value, "scrollbar",
-                         qstrlen("scrollbar")) &&
-      value)
+  if (configGet(m_owner->config(), &value, "scrollbar") && value)
     return qstrcmp(value, "never") != 0;
   return true;  // unknown — default to showing
 }
@@ -233,9 +233,7 @@ void GhosttySurface::flashScrollbar() {
   if (!m_scrollbar || !scrollbarAllowed()) return;
   // Handle colour: light on a dark terminal, dark on a light one.
   ghostty_config_color_s bg{};
-  if (m_owner && m_owner->config() &&
-      ghostty_config_get(m_owner->config(), &bg, "background",
-                         qstrlen("background"))) {
+  if (m_owner && configGet(m_owner->config(), &bg, "background")) {
     const double luma = 0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b;
     m_scrollbar->setHandleColor(luma < 128.0 ? QColor(235, 235, 235)
                                              : QColor(45, 45, 45));
@@ -284,14 +282,11 @@ void GhosttySurface::paintEvent(QPaintEvent *) {
   if (!hasFocus() && qobject_cast<QSplitter *>(parentWidget())) {
     ghostty_config_t cfg = m_owner ? m_owner->config() : nullptr;
     double opacity = 0.7;
-    if (cfg)
-      ghostty_config_get(cfg, &opacity, "unfocused-split-opacity",
-                         qstrlen("unfocused-split-opacity"));
+    configGet(cfg, &opacity, "unfocused-split-opacity");
     if (opacity < 1.0) {
       QColor fill(0, 0, 0);  // default: dim toward black
       ghostty_config_color_s c{};
-      if (cfg && ghostty_config_get(cfg, &c, "unfocused-split-fill",
-                                    qstrlen("unfocused-split-fill")))
+      if (configGet(cfg, &c, "unfocused-split-fill"))
         fill = QColor(c.r, c.g, c.b);
       fill.setAlphaF(1.0 - opacity);
       painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
@@ -449,8 +444,7 @@ void GhosttySurface::showResizeOverlay() {
   m_resizeOverlay->raise();
 
   unsigned long long durNs = 0;
-  ghostty_config_get(cfg, &durNs, "resize-overlay-duration",
-                     qstrlen("resize-overlay-duration"));
+  configGet(cfg, &durNs, "resize-overlay-duration");
   const int durMs = durNs ? static_cast<int>(durNs / 1000000ULL) : 750;
   if (!m_resizeHideTimer) {
     m_resizeHideTimer = new QTimer(this);
@@ -569,6 +563,11 @@ void GhosttySurface::premultiplyFramebuffer() {
 //      it Shift+punctuation gets emitted as a kitty CSI the shell can't
 //      decode (Shift+letter happens to work because A-Z survive that
 //      path).
+//
+// THREAD SAFETY: this is a process singleton accessed only from the Qt
+// GUI thread (Qt key events are dispatched there, and so is libghostty's
+// inputMethodEvent forwarding). consumedMods mutates m_query, so a
+// second thread would race; do not call from worker threads.
 class XkbState {
 public:
   static XkbState &instance() {
@@ -588,7 +587,8 @@ public:
 
   // Modifiers consumed by the layout to produce `keycode`'s text given
   // `mods` are depressed. Returns the consumed subset, expressed as
-  // ghostty mod bits.
+  // ghostty mod bits. Mutates m_query (mutable) — see thread-safety
+  // note on the class.
   ghostty_input_mods_e consumedMods(uint32_t keycode,
                                     ghostty_input_mods_e mods) const {
     if (!m_query) return GHOSTTY_MODS_NONE;
@@ -633,25 +633,30 @@ private:
     m_idxSuper = xkb_keymap_mod_get_index(m_keymap, XKB_MOD_NAME_LOGO);
   }
 
+  ~XkbState() {
+    // Run on process exit when the static is destroyed. The OS would
+    // reclaim regardless, but explicit teardown silences leak checkers
+    // and documents the ownership chain.
+    if (m_query) xkb_state_unref(m_query);
+    if (m_unshifted) xkb_state_unref(m_unshifted);
+    if (m_keymap) xkb_keymap_unref(m_keymap);
+    if (m_ctx) xkb_context_unref(m_ctx);
+  }
+
+  XkbState(const XkbState &) = delete;
+  XkbState &operator=(const XkbState &) = delete;
+
   struct xkb_context *m_ctx = nullptr;
   struct xkb_keymap *m_keymap = nullptr;
   struct xkb_state *m_unshifted = nullptr;  // permanent no-mods state
-  struct xkb_state *m_query = nullptr;      // reused for consumed-mods queries
+  // Reused across consumedMods calls (mutated then reset). Mutable so
+  // consumedMods can stay logically const.
+  mutable struct xkb_state *m_query = nullptr;
   xkb_mod_index_t m_idxShift = XKB_MOD_INVALID;
   xkb_mod_index_t m_idxCtrl = XKB_MOD_INVALID;
   xkb_mod_index_t m_idxAlt = XKB_MOD_INVALID;
   xkb_mod_index_t m_idxSuper = XKB_MOD_INVALID;
 };
-
-// Translate Qt keyboard modifiers into libghostty's modifier bitfield.
-static ghostty_input_mods_e translateMods(Qt::KeyboardModifiers m) {
-  int r = GHOSTTY_MODS_NONE;
-  if (m & Qt::ShiftModifier) r |= GHOSTTY_MODS_SHIFT;
-  if (m & Qt::ControlModifier) r |= GHOSTTY_MODS_CTRL;
-  if (m & Qt::AltModifier) r |= GHOSTTY_MODS_ALT;
-  if (m & Qt::MetaModifier) r |= GHOSTTY_MODS_SUPER;
-  return static_cast<ghostty_input_mods_e>(r);
-}
 
 void GhosttySurface::sendKey(QKeyEvent *ev, ghostty_input_action_e action) {
   if (!m_surface) return;
@@ -659,6 +664,9 @@ void GhosttySurface::sendKey(QKeyEvent *ev, ghostty_input_action_e action) {
   // Forward committed text only for printable input; control characters
   // and special keys (Enter, Tab, arrows, Ctrl+letter, ...) are encoded
   // by libghostty from the physical keycode + modifiers.
+  // The QByteArray below is stack-local; ghostty_surface_key is
+  // synchronous and copies any text it needs internally, so the buffer
+  // only has to live across this call.
   const QByteArray text = ev->text().toUtf8();
   const bool printable =
       !text.isEmpty() &&
@@ -745,40 +753,21 @@ void GhosttySurface::mouseReleaseEvent(QMouseEvent *ev) {
 }
 
 // The keybind bound to `action` in the live config, as a QKeySequence
-// for a context-menu hint. Empty if unbound or not displayable.
+// for a context-menu hint. Empty if unbound or not displayable
+// (CATCH_ALL, an unmapped physical key, etc.).
 QKeySequence GhosttySurface::shortcutFor(const char *action) const {
   if (!m_owner || !m_owner->config()) return {};
   const ghostty_input_trigger_s t =
       ghostty_config_trigger(m_owner->config(), action, qstrlen(action));
 
-  QString key;
-  switch (t.tag) {
-    case GHOSTTY_TRIGGER_UNICODE:
-      if (t.key.unicode) key = QString(QChar(t.key.unicode)).toUpper();
-      break;
-    case GHOSTTY_TRIGGER_PHYSICAL: {
-      const ghostty_input_key_e k = t.key.physical;
-      if (k >= GHOSTTY_KEY_A && k <= GHOSTTY_KEY_Z)
-        key = QChar('A' + (k - GHOSTTY_KEY_A));
-      else if (k >= GHOSTTY_KEY_DIGIT_0 && k <= GHOSTTY_KEY_DIGIT_9)
-        key = QChar('0' + (k - GHOSTTY_KEY_DIGIT_0));
-      else if (k == GHOSTTY_KEY_ENTER)
-        key = QStringLiteral("Return");
-      else if (k == GHOSTTY_KEY_SPACE)
-        key = QStringLiteral("Space");
-      else if (k == GHOSTTY_KEY_TAB)
-        key = QStringLiteral("Tab");
-      break;
-    }
-    default:
-      break;  // CATCH_ALL etc. — nothing displayable
-  }
+  const QString key = triggerKeyName(t);
   if (key.isEmpty()) return {};
 
   QString seq;
   if (t.mods & GHOSTTY_MODS_CTRL) seq += QStringLiteral("Ctrl+");
   if (t.mods & GHOSTTY_MODS_ALT) seq += QStringLiteral("Alt+");
   if (t.mods & GHOSTTY_MODS_SHIFT) seq += QStringLiteral("Shift+");
+  // QKeySequence parses Meta+ as the Super/Logo key on Linux.
   if (t.mods & GHOSTTY_MODS_SUPER) seq += QStringLiteral("Meta+");
   return QKeySequence(seq + key);
 }

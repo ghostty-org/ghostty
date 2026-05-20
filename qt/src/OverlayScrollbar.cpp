@@ -55,7 +55,10 @@ void OverlayScrollbar::setMetrics(quint64 total, quint64 offset,
   m_total = total;
   m_offset = offset;
   m_len = len;
-  if (isVisible()) update();
+  // Repaint when visible OR while a fade-out is in flight; the handle
+  // position changes constantly with output, and skipping the update
+  // makes the fading scrollbar lag behind the actual scrollback.
+  if (isVisible() || m_opacity > 0.0) update();
 }
 
 void OverlayScrollbar::fadeTo(qreal target, int ms) {

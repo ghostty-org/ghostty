@@ -60,6 +60,14 @@ org_kde_kwin_blur_manager *blurManager(wl_display *display) {
   return globals.manager;
 }
 
+// The live blur object per window — kept so it can be released when
+// blur is turned off, re-applied on a config change, or the window
+// itself is destroyed.
+static QHash<QWindow *, org_kde_kwin_blur *> &waylandBlurs() {
+  static QHash<QWindow *, org_kde_kwin_blur *> blurs;
+  return blurs;
+}
+
 void applyWayland(QWindow *window, bool enabled) {
   QPlatformNativeInterface *native = QGuiApplication::platformNativeInterface();
   if (!native) return;
@@ -72,9 +80,7 @@ void applyWayland(QWindow *window, bool enabled) {
   org_kde_kwin_blur_manager *manager = blurManager(display);
   if (!manager) return;  // compositor advertises no blur support
 
-  // The live blur object per window — kept so it can be released when
-  // blur is turned off or re-applied on a config change.
-  static QHash<QWindow *, org_kde_kwin_blur *> blurs;
+  auto &blurs = waylandBlurs();
   if (org_kde_kwin_blur *old = blurs.take(window))
     org_kde_kwin_blur_release(old);
 
@@ -84,6 +90,15 @@ void applyWayland(QWindow *window, bool enabled) {
     org_kde_kwin_blur_set_region(blur, nullptr);  // null = whole surface
     org_kde_kwin_blur_commit(blur);
     blurs.insert(window, blur);
+
+    // Release the blur object when the window goes away. Without this,
+    // a closed window leaves its org_kde_kwin_blur leaked and the
+    // QWindow* key in the hash dangles.
+    QObject::connect(window, &QWindow::destroyed, qApp, [window]() {
+      auto &b = waylandBlurs();
+      if (org_kde_kwin_blur *old = b.take(window))
+        org_kde_kwin_blur_release(old);
+    });
   } else {
     org_kde_kwin_blur_manager_unset(manager, surface);
   }

@@ -15,6 +15,11 @@ class QTimer;
 // into an offscreen framebuffer owned by a private QOpenGLContext; each
 // frame is read back into a QImage and painted, mirroring how
 // GhosttySurface composites the terminal.
+//
+// The inspector window is shown via a normal Qt::Widget close (WM
+// close button), which is treated as "hide", not "destroy" — the
+// owning surface keeps a QPointer to it and toggles visibility. The
+// window only deletes when its owning GhosttySurface is destroyed.
 class InspectorWindow : public QWidget {
   Q_OBJECT
 
@@ -24,6 +29,10 @@ public:
   ~InspectorWindow() override;
 
 protected:
+  // Treat the WM close button as a hide rather than a destroy. The
+  // GhosttySurface owns the inspector's lifetime; closing here would
+  // dangle its QPointer and skip libghostty inspector teardown.
+  void closeEvent(QCloseEvent *) override;
   void paintEvent(QPaintEvent *) override;
   void resizeEvent(QResizeEvent *) override;
   void mouseMoveEvent(QMouseEvent *) override;

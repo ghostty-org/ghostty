@@ -12,16 +12,9 @@
 #include <QTimer>
 #include <QWheelEvent>
 
-namespace {
+#include "Util.h"
 
-ghostty_input_mods_e translateMods(Qt::KeyboardModifiers m) {
-  int r = GHOSTTY_MODS_NONE;
-  if (m & Qt::ShiftModifier) r |= GHOSTTY_MODS_SHIFT;
-  if (m & Qt::ControlModifier) r |= GHOSTTY_MODS_CTRL;
-  if (m & Qt::AltModifier) r |= GHOSTTY_MODS_ALT;
-  if (m & Qt::MetaModifier) r |= GHOSTTY_MODS_SUPER;
-  return static_cast<ghostty_input_mods_e>(r);
-}
+namespace {
 
 // The editing/navigation keys an ImGui text field needs; other keys
 // arrive as text via ghostty_inspector_text.
@@ -132,6 +125,14 @@ void InspectorWindow::paintEvent(QPaintEvent *) {
 }
 
 void InspectorWindow::resizeEvent(QResizeEvent *) { syncSize(); }
+
+void InspectorWindow::closeEvent(QCloseEvent *e) {
+  // Hide rather than destroy: the owning GhosttySurface keeps a
+  // QPointer to this window across show/hide cycles. The window is
+  // deleted only when the surface is destroyed.
+  hide();
+  e->ignore();
+}
 
 void InspectorWindow::sendMouseButton(QMouseEvent *ev,
                                       ghostty_input_mouse_state_e state) {

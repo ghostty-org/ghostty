@@ -3,6 +3,7 @@
 #include <atomic>
 
 #include <QImage>
+#include <QPointer>
 #include <QStringList>
 #include <QWidget>
 
@@ -187,7 +188,10 @@ private:
   int m_lastCols = 0;                  // last grid size, to detect changes
   int m_lastRows = 0;
   SearchBar *m_searchBar = nullptr;    // in-terminal search; lazily made
-  InspectorWindow *m_inspectorWindow = nullptr;  // terminal inspector; lazily made
+  // Terminal inspector window; lazily made. QPointer so a WM-driven
+  // close (treated as hide) or a parent-destroyed cascade leaves the
+  // pointer null instead of dangling.
+  QPointer<InspectorWindow> m_inspectorWindow;
   OverlayScrollbar *m_scrollbar = nullptr;  // floating scrollback scrollbar
   bool m_scrollAtBottom = true;        // viewport is following the buffer tail
   bool m_notifyOnCommand = false;      // one-shot: notify on next cmd finish

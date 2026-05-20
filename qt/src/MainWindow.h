@@ -91,8 +91,11 @@ private:
   // Create the first tab once the device pixel ratio has settled.
   void createFirstTab();
 
-  // 60fps frame timer: ticks libghostty and renders any dirty surface.
-  void frame();
+  // 60fps frame timer body. Static because there is only one timer
+  // per process — N windows pointing at the same shared ghostty_app_t.
+  // Ticks libghostty once and renders any dirty surface across every
+  // window.
+  static void frame();
 
   void closeTab(int index);
   // Tear tab `index` out into a new window (tabTornOff signal).
@@ -184,6 +187,12 @@ private:
                                bool);
   static void onCloseSurface(void *ud, bool process_active);
 
+  // True if `s` is still owned by some live MainWindow. The surface
+  // userdata callbacks above use this to validate a libghostty-supplied
+  // pointer before dereferencing — a worker-thread callback can race
+  // the GhosttySurface destructor.
+  static bool surfaceAlive(GhosttySurface *s);
+
   TabWidget *m_tabs = nullptr;
   QList<GhosttySurface *> m_surfaces;  // every live surface in this window
   bool m_firstTabPending = true;       // first tab is created on show()
@@ -202,6 +211,10 @@ private:
   static QTimer *s_quitTimer;          // delayed quit-after-last-window
   static int s_quitDelayMs;            // 0 = no delay configured
   static MainWindow *s_quickTerminal;  // the one quick terminal, if any
+  // Process-wide 60Hz frame timer. Replaces a per-window timer, so N
+  // windows do not produce N ghostty_app_tick calls every 16ms for the
+  // same shared app.
+  static QTimer *s_frameTimer;
 
   // Coalesces wakeup-driven ticks: a tick is queued at most once at a
   // time, so a busy surface can't flood the event loop.

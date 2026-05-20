@@ -95,7 +95,7 @@ void GlobalShortcuts::portalCall(const QString &method, QVariantList args,
           [method](QDBusPendingCallWatcher *w) {
             QDBusPendingReply<QDBusObjectPath> reply = *w;
             if (reply.isError())
-              std::fprintf(stderr, "[ghostty] portal %s failed: %s\n",
+              std::fprintf(stderr, "[ghastty] portal %s failed: %s\n",
                            method.toUtf8().constData(),
                            reply.error().message().toUtf8().constData());
             w->deleteLater();
@@ -111,7 +111,7 @@ void GlobalShortcuts::onResponse(const QDBusMessage &message) {
   const QVariantMap results =
       args.size() > 1 ? qdbus_cast<QVariantMap>(args.at(1)) : QVariantMap();
   if (code != 0)
-    std::fprintf(stderr, "[ghostty] portal %s response code=%u\n",
+    std::fprintf(stderr, "[ghastty] portal %s response code=%u\n",
                  method.toUtf8().constData(), code);
   if (method == QLatin1String("CreateSession"))
     handleCreateSession(code, results);

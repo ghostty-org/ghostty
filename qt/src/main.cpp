@@ -49,14 +49,14 @@ int main(int argc, char **argv) {
   // re-scans that array for CLI config — scanning the pre-strip array
   // would walk past its end into freed/null entries.
   if (ghostty_init(static_cast<uintptr_t>(argc), argv) != GHOSTTY_SUCCESS) {
-    std::fprintf(stderr, "[ghostty] ghostty_init failed\n");
+    std::fprintf(stderr, "[ghastty] ghostty_init failed\n");
     return 1;
   }
 
   // The first window; further windows are opened on demand by the
   // new_window action. Each window owns itself (WA_DeleteOnClose).
   if (!MainWindow::newWindow(nullptr)) {
-    std::fprintf(stderr, "[ghostty] window initialization failed\n");
+    std::fprintf(stderr, "[ghastty] window initialization failed\n");
     return 1;
   }
 

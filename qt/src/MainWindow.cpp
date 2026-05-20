@@ -21,6 +21,7 @@
 #include <QMediaPlayer>
 #include <QMessageBox>
 #include <QPoint>
+#include <QPointer>
 #include <QRect>
 #include <QScreen>
 #include <QShowEvent>
@@ -41,6 +42,7 @@
 #include "CommandPalette.h"
 #include "GhosttySurface.h"
 #include "TabWidget.h"
+#include "Util.h"
 #include "WindowBlur.h"
 
 // Prefix marking a tab with an unacknowledged bell (bell-features title).
@@ -54,6 +56,7 @@ QList<MainWindow *> MainWindow::s_windows;
 QTimer *MainWindow::s_quitTimer = nullptr;
 int MainWindow::s_quitDelayMs = 0;
 MainWindow *MainWindow::s_quickTerminal = nullptr;
+QTimer *MainWindow::s_frameTimer = nullptr;
 std::atomic<bool> MainWindow::s_tickPending{false};
 
 MainWindow::MainWindow() {
@@ -101,6 +104,14 @@ MainWindow::~MainWindow() {
 
   // The shared app and config outlive every window but the last.
   if (s_windows.isEmpty()) {
+    if (s_frameTimer) {
+      // The timer is parented to qApp; stop it so a final tick can't
+      // fire after s_app is freed below. delete leaves qApp's child
+      // list to clean up at process exit.
+      s_frameTimer->stop();
+      delete s_frameTimer;
+      s_frameTimer = nullptr;
+    }
     if (s_quitTimer) {
       delete s_quitTimer;
       s_quitTimer = nullptr;
@@ -220,7 +231,7 @@ bool MainWindow::initialize() {
 
     s_app = ghostty_app_new(&rt, s_config);
     if (!s_app) {
-      std::fprintf(stderr, "[ghostty] ghostty_app_new failed\n");
+      std::fprintf(stderr, "[ghastty] ghostty_app_new failed\n");
       return false;
     }
 
@@ -229,9 +240,7 @@ bool MainWindow::initialize() {
     // through the libghostty quit_timer action (see handleQuitTimer).
     const bool quitAfter = configBool("quit-after-last-window-closed", true);
     unsigned long long delayNs = 0;
-    ghostty_config_get(s_config, &delayNs,
-                       "quit-after-last-window-closed-delay",
-                       qstrlen("quit-after-last-window-closed-delay"));
+    configGet(s_config, &delayNs, "quit-after-last-window-closed-delay");
     s_quitDelayMs = quitAfter ? static_cast<int>(delayNs / 1000000ULL) : 0;
     QApplication::setQuitOnLastWindowClosed(quitAfter && s_quitDelayMs == 0);
   }
@@ -255,11 +264,17 @@ bool MainWindow::initialize() {
   // Tab-bar policy and colour scheme.
   applyWindowConfig();
 
-  // 60fps frame timer: a backstop tick plus rendering. onWakeup drives
-  // extra ticks between frames for input responsiveness.
-  auto *timer = new QTimer(this);
-  connect(timer, &QTimer::timeout, this, &MainWindow::frame);
-  timer->start(16);
+  // Process-wide 60fps frame timer (created on the first window): a
+  // backstop tick plus rendering. onWakeup drives extra ticks between
+  // frames for input responsiveness. One timer covers every window —
+  // N windows would otherwise produce N ticks per 16ms for the same
+  // shared ghostty_app_t.
+  if (!s_frameTimer) {
+    s_frameTimer = new QTimer(qApp);
+    QObject::connect(s_frameTimer, &QTimer::timeout, qApp,
+                     &MainWindow::frame);
+    s_frameTimer->start(16);
+  }
 
   // The first tab is created in showEvent, not here: see below.
   return true;
@@ -442,6 +457,7 @@ void MainWindow::adoptTab(MainWindow *src, QWidget *page) {
   }
 
   const QString text = src->m_tabs->tabText(srcIndex);
+  // QVariant carrying the typed TabData; copies cleanly across windows.
   const QVariant data = src->m_tabs->tabBar()->tabData(srcIndex);
   src->m_tabs->removeTab(srcIndex);          // page is now parentless
   const int index = m_tabs->addTab(page, text);  // reparents page here
@@ -477,10 +493,9 @@ void MainWindow::setSurfaceTitle(GhosttySurface *surface,
   if (index < 0) return;
   // Store the terminal title as the tab's base; updateTabText decides
   // whether it or a manual override is shown.
-  QStringList data = m_tabs->tabBar()->tabData(index).toStringList();
-  while (data.size() < 2) data.append(QString());
-  data[0] = title;
-  m_tabs->tabBar()->setTabData(index, data);
+  TabData data = m_tabs->tabBar()->tabData(index).value<TabData>();
+  data.base = title;
+  m_tabs->tabBar()->setTabData(index, QVariant::fromValue(data));
   updateTabText(index);
 }
 
@@ -488,19 +503,18 @@ void MainWindow::setTabTitleOverride(GhosttySurface *surface,
                                      const QString &title) {
   const int index = tabIndexForSurface(surface);
   if (index < 0) return;
-  QStringList data = m_tabs->tabBar()->tabData(index).toStringList();
-  while (data.size() < 2) data.append(QString());
-  data[1] = title;  // empty clears the override
-  m_tabs->tabBar()->setTabData(index, data);
+  TabData data = m_tabs->tabBar()->tabData(index).value<TabData>();
+  data.override_ = title;  // empty clears the override
+  m_tabs->tabBar()->setTabData(index, QVariant::fromValue(data));
   updateTabText(index);
 }
 
 void MainWindow::copyTitleToClipboard() {
   const int tab = m_tabs->currentIndex();
   if (tab < 0) return;
-  const QStringList data = m_tabs->tabBar()->tabData(tab).toStringList();
+  const TabData data = m_tabs->tabBar()->tabData(tab).value<TabData>();
   const QString title =
-      !data.value(1).isEmpty() ? data.value(1) : data.value(0);
+      !data.override_.isEmpty() ? data.override_ : data.base;
   if (!title.isEmpty()) QGuiApplication::clipboard()->setText(title);
 }
 
@@ -509,7 +523,10 @@ void MainWindow::frame() {
   ghostty_app_tick(s_app);
   // Rendering happens only here, so a flood of RENDER actions cannot
   // saturate the GUI thread — each surface renders at most once a frame.
-  for (GhosttySurface *s : m_surfaces) s->renderIfDirty();
+  // One pass across every window: the shared ghostty_app_t was already
+  // ticked once above.
+  for (MainWindow *w : s_windows)
+    for (GhosttySurface *s : w->m_surfaces) s->renderIfDirty();
 }
 
 void MainWindow::onTabCloseRequested(int index) {
@@ -627,8 +644,7 @@ void MainWindow::setupLayerShell() {
 
   // quick-terminal-size: primary is the edge-perpendicular extent.
   ghostty_config_quick_terminal_size_s qsz = {};
-  ghostty_config_get(s_config, &qsz, "quick-terminal-size",
-                     qstrlen("quick-terminal-size"));
+  configGet(s_config, &qsz, "quick-terminal-size");
   const auto toPx = [](const ghostty_quick_terminal_size_s &s, int dim,
                        int fallback) -> int {
     switch (s.tag) {
@@ -666,7 +682,9 @@ void MainWindow::setupLayerShell() {
     size = {scr.width(), toPx(qsz.primary, scr.height(), 400)};
   }
   ls->setAnchors(anchors);
-  ls->setDesiredSize(size);
+  // The layer-shell protocol takes the size from the underlying
+  // wl_surface (i.e. the QWindow's size); LayerShellQt has no
+  // setDesiredSize on this Qt branch.
   resize(size);
 }
 
@@ -845,18 +863,17 @@ void MainWindow::moveTab(int amount) {
 }
 
 void MainWindow::ringBell(GhosttySurface *surface) {
-  // bell-features is a packed struct, returned by ghostty_config_get as
-  // a bitfield: bit 0 system, 1 audio, 2 attention, 3 title, 4 border.
-  unsigned int features = 1u << 2;  // fall back to `attention`
-  ghostty_config_get(s_config, &features, "bell-features",
-                     qstrlen("bell-features"));
-  if (features & (1u << 2)) QApplication::alert(this);  // attention
-  if (features & (1u << 0)) QApplication::beep();       // system
-  if (features & (1u << 1)) playBellAudio();            // audio
+  // bell-features is a packed struct returned by ghostty_config_get as
+  // a bitfield (see BellFeature in Util.h).
+  unsigned int features = BellAttention;  // fallback if config-get fails
+  configGet(s_config, &features, "bell-features");
+  if (features & BellAttention) QApplication::alert(this);
+  if (features & BellSystem) QApplication::beep();
+  if (features & BellAudio) playBellAudio();
 
   if (!surface) return;
-  if (features & (1u << 4)) surface->flashBorder();     // border
-  if (features & (1u << 3)) {                           // title
+  if (features & BellBorder) surface->flashBorder();
+  if (features & BellTitle) {
     const int tab = tabIndexForSurface(surface);
     // Marking the current tab is pointless — you are looking at it.
     if (tab >= 0 && tab != m_tabs->currentIndex()) {
@@ -874,12 +891,10 @@ bool MainWindow::tabBellMarked(int tab) const {
 
 void MainWindow::updateTabText(int tab) {
   if (tab < 0 || tab >= m_tabs->count()) return;
-  const QStringList data = m_tabs->tabBar()->tabData(tab).toStringList();
-  const QString base = data.value(0);
-  const QString override = data.value(1);
-  QString text = !override.isEmpty() ? override
-                 : !base.isEmpty()   ? base
-                                     : QStringLiteral("Ghastty");
+  const TabData data = m_tabs->tabBar()->tabData(tab).value<TabData>();
+  QString text = !data.override_.isEmpty() ? data.override_
+                 : !data.base.isEmpty()    ? data.base
+                                           : QStringLiteral("Ghastty");
   m_tabs->setTabText(tab, tabBellMarked(tab) ? kBellMark + text : text);
   if (tab == m_tabs->currentIndex())
     setWindowTitle(text + QStringLiteral(" — Ghastty"));
@@ -984,7 +999,7 @@ void MainWindow::applyWindowConfig() {
     scheme = Qt::ColorScheme::Light;
   } else if (theme == QLatin1String("ghostty")) {
     ghostty_config_color_s bg{};
-    if (ghostty_config_get(s_config, &bg, "background", qstrlen("background"))) {
+    if (configGet(s_config, &bg, "background")) {
       const double luma = 0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b;
       scheme = luma < 128.0 ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light;
     }
@@ -1003,9 +1018,7 @@ void MainWindow::applyBlur() {
   // macOS-only negatives) means off, a positive radius means on. KWin
   // uses its own configured radius, so only on/off matters here.
   short blur = 0;
-  if (s_config)
-    ghostty_config_get(s_config, &blur, "background-blur",
-                       qstrlen("background-blur"));
+  configGet(s_config, &blur, "background-blur");
   applyWindowBlur(this, blur > 0);
 }
 
@@ -1057,7 +1070,9 @@ void MainWindow::onWakeup(void *) {
   // Coalesce: queue a shared-app tick only when one is not already
   // pending, so a chatty surface cannot flood the event loop. May be
   // called off-thread, so it marshals onto qApp (always alive) rather
-  // than any particular window.
+  // than any particular window. The s_app check inside the lambda
+  // guards against the last window being destroyed (which frees s_app)
+  // between this wakeup and the queued tick draining.
   if (s_tickPending.exchange(true)) return;
   QMetaObject::invokeMethod(
       qApp,
@@ -1066,6 +1081,13 @@ void MainWindow::onWakeup(void *) {
         if (s_app) ghostty_app_tick(s_app);
       },
       Qt::QueuedConnection);
+}
+
+bool MainWindow::surfaceAlive(GhosttySurface *s) {
+  if (!s) return false;
+  for (MainWindow *w : s_windows)
+    if (w->m_surfaces.contains(s)) return true;
+  return false;
 }
 
 // Map a libghostty mouse shape to the nearest Qt cursor.
@@ -1105,32 +1127,14 @@ static Qt::CursorShape mouseShapeToCursor(ghostty_action_mouse_shape_e s) {
   }
 }
 
-// Format a keybind trigger as a human-readable chord, e.g. "Ctrl+B".
-static QString formatTrigger(const ghostty_input_trigger_s &t) {
-  QString s;
-  if (t.mods & GHOSTTY_MODS_CTRL) s += QStringLiteral("Ctrl+");
-  if (t.mods & GHOSTTY_MODS_ALT) s += QStringLiteral("Alt+");
-  if (t.mods & GHOSTTY_MODS_SHIFT) s += QStringLiteral("Shift+");
-  if (t.mods & GHOSTTY_MODS_SUPER) s += QStringLiteral("Super+");
-  switch (t.tag) {
-    case GHOSTTY_TRIGGER_UNICODE:
-      s += QString(QChar(t.key.unicode)).toUpper();
-      break;
-    case GHOSTTY_TRIGGER_PHYSICAL: {
-      const ghostty_input_key_e k = t.key.physical;
-      if (k >= GHOSTTY_KEY_DIGIT_0 && k <= GHOSTTY_KEY_DIGIT_9)
-        s += QChar('0' + (k - GHOSTTY_KEY_DIGIT_0));
-      else if (k >= GHOSTTY_KEY_A && k <= GHOSTTY_KEY_Z)
-        s += QChar('A' + (k - GHOSTTY_KEY_A));
-      else
-        s += QStringLiteral("•");  // an unmapped physical key
-      break;
-    }
-    default:
-      s += QStringLiteral("…");  // catch-all
-      break;
-  }
-  return s;
+// Queue `f` on `target`'s thread, but only if `target` is still alive
+// when the slot runs (Qt cancels queued slots whose receiver was
+// deleted). Cross-captured pointers must be wrapped in QPointer
+// separately — `target` only protects itself.
+template <class Target, class F>
+static void post(Target *target, F &&f) {
+  if (!target) return;
+  QMetaObject::invokeMethod(target, std::forward<F>(f), Qt::QueuedConnection);
 }
 
 bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
@@ -1143,9 +1147,14 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
 
   // The window the action applies to: the target surface's window, or
   // (for app-level actions) any live window. Surface/window work is
-  // marshalled onto `win` so it is cancelled if that window goes away.
+  // marshalled onto `win` so it is cancelled if that window goes away;
+  // *cross*-captured pointers (e.g. `src` when posting to `win`) are
+  // wrapped in QPointer so they're checked at lambda-execution time —
+  // a multi-window + tear-off + close race could otherwise UAF.
   MainWindow *win = src ? src->owner()
                         : (s_windows.isEmpty() ? nullptr : s_windows.first());
+  QPointer<MainWindow> winp(win);
+  QPointer<GhosttySurface> srcp(src);
 
   // Actions may be dispatched from non-GUI threads, so window-touching
   // work is marshalled onto the GUI thread.
@@ -1158,47 +1167,46 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
 
     case GHOSTTY_ACTION_NEW_TAB: {
       if (!win) return false;
-      ghostty_surface_t parent = src ? src->surface() : nullptr;
-      QMetaObject::invokeMethod(
-          win, [win, parent]() { win->newTab(parent); },
-          Qt::QueuedConnection);
+      // `parent` is a libghostty handle whose lifetime tracks `src`'s.
+      // If `src` is gone by the time the lambda runs, drop the parent
+      // and create an unparented tab.
+      post(win, [winp, srcp]() {
+        if (!winp) return;
+        winp->newTab(srcp ? srcp->surface() : nullptr);
+      });
       return true;
     }
 
-    case GHOSTTY_ACTION_NEW_WINDOW: {
-      ghostty_surface_t parent = src ? src->surface() : nullptr;
-      QMetaObject::invokeMethod(
-          qApp, [parent]() { MainWindow::newWindow(parent); },
-          Qt::QueuedConnection);
+    case GHOSTTY_ACTION_NEW_WINDOW:
+      post(qApp, [srcp]() {
+        MainWindow::newWindow(srcp ? srcp->surface() : nullptr);
+      });
       return true;
-    }
 
     case GHOSTTY_ACTION_NEW_SPLIT: {
       if (!src) return false;
       const ghostty_action_split_direction_e dir = action.action.new_split;
-      QMetaObject::invokeMethod(
-          win, [win, src, dir]() { win->splitSurface(src, dir); },
-          Qt::QueuedConnection);
+      post(win, [winp, srcp, dir]() {
+        if (winp && srcp) winp->splitSurface(srcp, dir);
+      });
       return true;
     }
 
     case GHOSTTY_ACTION_CLOSE_TAB:
       if (src)
-        QMetaObject::invokeMethod(
-            win,
-            [win, src]() {
-              if (win->confirmCloseSurfaces({src})) win->removeSurface(src);
-            },
-            Qt::QueuedConnection);
+        post(win, [winp, srcp]() {
+          if (!winp || !srcp) return;
+          if (winp->confirmCloseSurfaces({srcp})) winp->removeSurface(srcp);
+        });
       return true;
 
     case GHOSTTY_ACTION_SET_TITLE: {
       const char *title = action.action.set_title.title;
       if (!title || !src) return true;
       const QString t = QString::fromUtf8(title);
-      QMetaObject::invokeMethod(
-          win, [win, src, t]() { win->setSurfaceTitle(src, t); },
-          Qt::QueuedConnection);
+      post(win, [winp, srcp, t]() {
+        if (winp && srcp) winp->setSurfaceTitle(srcp, t);
+      });
       return true;
     }
 
@@ -1207,9 +1215,9 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       if (!src) return true;
       const char *title = action.action.set_tab_title.title;
       const QString t = QString::fromUtf8(title ? title : "");
-      QMetaObject::invokeMethod(
-          win, [win, src, t]() { win->setTabTitleOverride(src, t); },
-          Qt::QueuedConnection);
+      post(win, [winp, srcp, t]() {
+        if (winp && srcp) winp->setTabTitleOverride(srcp, t);
+      });
       return true;
     }
 
@@ -1217,117 +1225,108 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       if (!src) return true;
       const bool tabScope =
           action.action.prompt_title == GHOSTTY_PROMPT_TITLE_TAB;
-      QMetaObject::invokeMethod(
-          src, [src, tabScope]() { src->promptTitle(tabScope); },
-          Qt::QueuedConnection);
+      post(src, [srcp, tabScope]() {
+        if (srcp) srcp->promptTitle(tabScope);
+      });
       return true;
     }
 
     case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
-      if (win)
-        QMetaObject::invokeMethod(
-            win, [win]() { win->copyTitleToClipboard(); },
-            Qt::QueuedConnection);
+      post(win, [winp]() {
+        if (winp) winp->copyTitleToClipboard();
+      });
       return true;
 
     case GHOSTTY_ACTION_RESET_WINDOW_SIZE:
-      if (win)
-        QMetaObject::invokeMethod(
-            win,
-            [win]() {
-              win->resize(win->m_defaultWindowSize.isValid()
-                              ? win->m_defaultWindowSize
-                              : QSize(800, 600));
-            },
-            Qt::QueuedConnection);
+      post(win, [winp]() {
+        if (!winp) return;
+        winp->resize(winp->m_defaultWindowSize.isValid()
+                         ? winp->m_defaultWindowSize
+                         : QSize(800, 600));
+      });
       return true;
 
     case GHOSTTY_ACTION_KEY_SEQUENCE: {
       if (!src) return true;
       const ghostty_action_key_sequence_s ks = action.action.key_sequence;
       if (!ks.active) {
-        QMetaObject::invokeMethod(src, [src]() { src->endKeySequence(); },
-                                  Qt::QueuedConnection);
+        post(src, [srcp]() {
+          if (srcp) srcp->endKeySequence();
+        });
         return true;
       }
       const QString chord = formatTrigger(ks.trigger);
-      QMetaObject::invokeMethod(
-          src, [src, chord]() { src->pushKeySequence(chord); },
-          Qt::QueuedConnection);
+      post(src, [srcp, chord]() {
+        if (srcp) srcp->pushKeySequence(chord);
+      });
       return true;
     }
 
     case GHOSTTY_ACTION_GOTO_TAB: {
       if (!win) return false;
       const ghostty_action_goto_tab_e tab = action.action.goto_tab;
-      QMetaObject::invokeMethod(
-          win, [win, tab]() { win->gotoTab(tab); }, Qt::QueuedConnection);
+      post(win, [winp, tab]() {
+        if (winp) winp->gotoTab(tab);
+      });
       return true;
     }
 
     case GHOSTTY_ACTION_GOTO_SPLIT: {
       if (!src) return false;
       const ghostty_action_goto_split_e dir = action.action.goto_split;
-      QMetaObject::invokeMethod(
-          win, [win, src, dir]() { win->gotoSplit(src, dir); },
-          Qt::QueuedConnection);
+      post(win, [winp, srcp, dir]() {
+        if (winp && srcp) winp->gotoSplit(srcp, dir);
+      });
       return true;
     }
 
     case GHOSTTY_ACTION_RESIZE_SPLIT: {
       if (!src) return false;
       const ghostty_action_resize_split_s rs = action.action.resize_split;
-      QMetaObject::invokeMethod(
-          win, [win, src, rs]() { win->resizeSplit(src, rs); },
-          Qt::QueuedConnection);
+      post(win, [winp, srcp, rs]() {
+        if (winp && srcp) winp->resizeSplit(srcp, rs);
+      });
       return true;
     }
 
     case GHOSTTY_ACTION_EQUALIZE_SPLITS:
       if (src)
-        QMetaObject::invokeMethod(
-            win, [win, src]() { win->equalizeSplits(src); },
-            Qt::QueuedConnection);
+        post(win, [winp, srcp]() {
+          if (winp && srcp) winp->equalizeSplits(srcp);
+        });
       return true;
 
     case GHOSTTY_ACTION_TOGGLE_FULLSCREEN:
       if (!win) return false;
-      QMetaObject::invokeMethod(
-          win,
-          [win]() {
-            if (win->isFullScreen())
-              win->showNormal();
-            else
-              win->showFullScreen();
-          },
-          Qt::QueuedConnection);
+      post(win, [winp]() {
+        if (!winp) return;
+        if (winp->isFullScreen())
+          winp->showNormal();
+        else
+          winp->showFullScreen();
+      });
       return true;
 
     case GHOSTTY_ACTION_TOGGLE_MAXIMIZE:
       if (!win) return false;
-      QMetaObject::invokeMethod(
-          win,
-          [win]() {
-            if (win->isMaximized())
-              win->showNormal();
-            else
-              win->showMaximized();
-          },
-          Qt::QueuedConnection);
+      post(win, [winp]() {
+        if (!winp) return;
+        if (winp->isMaximized())
+          winp->showNormal();
+        else
+          winp->showMaximized();
+      });
       return true;
 
     case GHOSTTY_ACTION_QUIT:
     case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:
-      QMetaObject::invokeMethod(qApp, []() { MainWindow::closeAllWindows(); },
-                                Qt::QueuedConnection);
+      post(qApp, []() { MainWindow::closeAllWindows(); });
       return true;
 
     case GHOSTTY_ACTION_QUIT_TIMER: {
       const bool start =
           action.action.quit_timer == GHOSTTY_QUIT_TIMER_START;
-      QMetaObject::invokeMethod(
-          qApp, [start]() { MainWindow::handleQuitTimer(start); },
-          Qt::QueuedConnection);
+      post(qApp, [start]() { MainWindow::handleQuitTimer(start); });
       return true;
     }
 
@@ -1335,17 +1334,17 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       if (!src) return false;
       const int code =
           static_cast<int>(action.action.child_exited.exit_code);
-      QMetaObject::invokeMethod(
-          src, [src, code]() { src->showChildExited(code); },
-          Qt::QueuedConnection);
+      post(src, [srcp, code]() {
+        if (srcp) srcp->showChildExited(code);
+      });
       return true;
     }
 
     case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
       if (src)
-        QMetaObject::invokeMethod(
-            win, [win, src]() { win->toggleSplitZoom(src); },
-            Qt::QueuedConnection);
+        post(win, [winp, srcp]() {
+          if (winp && srcp) winp->toggleSplitZoom(srcp);
+        });
       return true;
 
     case GHOSTTY_ACTION_OPEN_CONFIG: {
@@ -1355,67 +1354,60 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       if (path.ptr && path.len) {
         const QString p =
             QString::fromUtf8(path.ptr, static_cast<int>(path.len));
-        QMetaObject::invokeMethod(
-            qApp,
-            [p]() {
-              QDesktopServices::openUrl(QUrl::fromLocalFile(p));
-            },
-            Qt::QueuedConnection);
+        post(qApp,
+             [p]() { QDesktopServices::openUrl(QUrl::fromLocalFile(p)); });
       }
       ghostty_string_free(path);
       return true;
     }
 
     case GHOSTTY_ACTION_RELOAD_CONFIG:
-      if (win)
-        QMetaObject::invokeMethod(
-            win, [win]() { win->reloadConfig(); }, Qt::QueuedConnection);
+      post(win, [winp]() {
+        if (winp) winp->reloadConfig();
+      });
       return true;
 
     case GHOSTTY_ACTION_CONFIG_CHANGE:
       // A notification: libghostty already holds the new config (this
       // often fires as the echo of our own ghostty_app_update_config).
       // Re-pushing it would loop, so just refresh window chrome.
-      QMetaObject::invokeMethod(qApp, []() { MainWindow::refreshChrome(); },
-                                Qt::QueuedConnection);
+      post(qApp, []() { MainWindow::refreshChrome(); });
       return true;
 
     case GHOSTTY_ACTION_INITIAL_SIZE: {
       if (!win) return false;
       const ghostty_action_initial_size_s sz = action.action.initial_size;
-      QMetaObject::invokeMethod(
-          win,
-          [win, sz]() {
-            // The action carries device pixels; resize() takes logical.
-            const double dpr = win->devicePixelRatioF();
-            const QSize logical(static_cast<int>(sz.width / dpr),
-                                static_cast<int>(sz.height / dpr));
-            win->m_defaultWindowSize = logical;  // for RESET_WINDOW_SIZE
-            win->resize(logical);
-          },
-          Qt::QueuedConnection);
+      post(win, [winp, sz]() {
+        if (!winp) return;
+        // The action carries device pixels; resize() takes logical.
+        const double dpr = winp->devicePixelRatioF();
+        const QSize logical(static_cast<int>(sz.width / dpr),
+                            static_cast<int>(sz.height / dpr));
+        winp->m_defaultWindowSize = logical;  // for RESET_WINDOW_SIZE
+        winp->resize(logical);
+      });
       return true;
     }
 
     case GHOSTTY_ACTION_CLOSE_WINDOW:
-      if (win)
-        QMetaObject::invokeMethod(win, [win]() { win->close(); },
-                                  Qt::QueuedConnection);
+      post(win, [winp]() {
+        if (winp) winp->close();
+      });
       return true;
 
     case GHOSTTY_ACTION_RING_BELL:
-      if (win)
-        QMetaObject::invokeMethod(win, [win, src]() { win->ringBell(src); },
-                                  Qt::QueuedConnection);
+      post(win, [winp, srcp]() {
+        if (winp) winp->ringBell(srcp);
+      });
       return true;
 
     case GHOSTTY_ACTION_MOUSE_SHAPE: {
       if (!src) return false;
       const Qt::CursorShape shape =
           mouseShapeToCursor(action.action.mouse_shape);
-      QMetaObject::invokeMethod(
-          src, [src, shape]() { src->setCursor(shape); },
-          Qt::QueuedConnection);
+      post(src, [srcp, shape]() {
+        if (srcp) srcp->setCursor(shape);
+      });
       return true;
     }
 
@@ -1424,8 +1416,9 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       const ghostty_action_mouse_over_link_s l = action.action.mouse_over_link;
       const QString url =
           l.url && l.len ? QString::fromUtf8(l.url, l.len) : QString();
-      QMetaObject::invokeMethod(
-          src, [src, url]() { src->setToolTip(url); }, Qt::QueuedConnection);
+      post(src, [srcp, url]() {
+        if (srcp) srcp->setToolTip(url);
+      });
       return true;
     }
 
@@ -1433,13 +1426,10 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       const ghostty_action_open_url_s u = action.action.open_url;
       if (!u.url || !u.len) return true;
       const QString s = QString::fromUtf8(u.url, static_cast<int>(u.len));
-      QMetaObject::invokeMethod(
-          qApp,
-          [s]() {
-            QDesktopServices::openUrl(
-                QUrl::fromUserInput(s, QString(), QUrl::AssumeLocalFile));
-          },
-          Qt::QueuedConnection);
+      post(qApp, [s]() {
+        QDesktopServices::openUrl(
+            QUrl::fromUserInput(s, QString(), QUrl::AssumeLocalFile));
+      });
       return true;
     }
 
@@ -1448,34 +1438,28 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
           action.action.desktop_notification;
       const QString title = QString::fromUtf8(n.title ? n.title : "");
       const QString body = QString::fromUtf8(n.body ? n.body : "");
-      QMetaObject::invokeMethod(
-          qApp, [title, body]() { postNotification(title, body); },
-          Qt::QueuedConnection);
+      post(qApp, [title, body]() { postNotification(title, body); });
       return true;
     }
 
     case GHOSTTY_ACTION_COMMAND_FINISHED: {
       if (!src) return true;
       const int code = action.action.command_finished.exit_code;
-      QMetaObject::invokeMethod(
-          src,
-          [src, code]() {
-            if (!src->consumeCommandNotify()) return;
-            postNotification(
-                QStringLiteral("Command finished"),
-                code >= 0 ? QStringLiteral("Exited with code %1").arg(code)
-                          : QStringLiteral("The command completed."));
-          },
-          Qt::QueuedConnection);
+      post(src, [srcp, code]() {
+        if (!srcp || !srcp->consumeCommandNotify()) return;
+        postNotification(
+            QStringLiteral("Command finished"),
+            code >= 0 ? QStringLiteral("Exited with code %1").arg(code)
+                      : QStringLiteral("The command completed."));
+      });
       return true;
     }
 
     case GHOSTTY_ACTION_MOVE_TAB: {
       const int amount = static_cast<int>(action.action.move_tab.amount);
-      if (win)
-        QMetaObject::invokeMethod(
-            win, [win, amount]() { win->moveTab(amount); },
-            Qt::QueuedConnection);
+      post(win, [winp, amount]() {
+        if (winp) winp->moveTab(amount);
+      });
       return true;
     }
 
@@ -1483,27 +1467,23 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       if (!src) return false;
       const bool hidden =
           action.action.mouse_visibility == GHOSTTY_MOUSE_HIDDEN;
-      QMetaObject::invokeMethod(
-          src,
-          [src, hidden]() {
-            src->setCursor(hidden ? Qt::BlankCursor : Qt::ArrowCursor);
-          },
-          Qt::QueuedConnection);
+      post(src, [srcp, hidden]() {
+        if (srcp) srcp->setCursor(hidden ? Qt::BlankCursor : Qt::ArrowCursor);
+      });
       return true;
     }
 
     case GHOSTTY_ACTION_RENDERER_HEALTH:
       if (action.action.renderer_health == GHOSTTY_RENDERER_HEALTH_UNHEALTHY)
-        std::fprintf(stderr, "[ghostty] renderer reported unhealthy\n");
+        std::fprintf(stderr, "[ghastty] renderer reported unhealthy\n");
       return true;
 
     case GHOSTTY_ACTION_SCROLLBAR: {
       if (!src) return false;
       const ghostty_action_scrollbar_s s = action.action.scrollbar;
-      QMetaObject::invokeMethod(
-          src,
-          [src, s]() { src->updateScrollbar(s.total, s.offset, s.len); },
-          Qt::QueuedConnection);
+      post(src, [srcp, s]() {
+        if (srcp) srcp->updateScrollbar(s.total, s.offset, s.len);
+      });
       return true;
     }
 
@@ -1511,52 +1491,47 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       const ghostty_action_progress_report_s p = action.action.progress_report;
       const bool visible = p.state != GHOSTTY_PROGRESS_STATE_REMOVE;
       const double fraction = p.progress >= 0 ? p.progress / 100.0 : 0.0;
-      QMetaObject::invokeMethod(
-          qApp, [visible, fraction]() { postProgress(visible, fraction); },
-          Qt::QueuedConnection);
+      post(qApp, [visible, fraction]() { postProgress(visible, fraction); });
       return true;
     }
 
     case GHOSTTY_ACTION_TOGGLE_VISIBILITY:
-      QMetaObject::invokeMethod(qApp,
-                                []() { MainWindow::toggleVisibility(); },
-                                Qt::QueuedConnection);
+      post(qApp, []() { MainWindow::toggleVisibility(); });
       return true;
 
     case GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL:
-      QMetaObject::invokeMethod(qApp,
-                                []() { MainWindow::toggleQuickTerminal(); },
-                                Qt::QueuedConnection);
+      post(qApp, []() { MainWindow::toggleQuickTerminal(); });
       return true;
 
     case GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE:
-      if (win)
-        QMetaObject::invokeMethod(
-            win, [win, src]() { win->toggleCommandPalette(src); },
-            Qt::QueuedConnection);
+      post(win, [winp, srcp]() {
+        if (winp) winp->toggleCommandPalette(srcp);
+      });
       return true;
 
     case GHOSTTY_ACTION_START_SEARCH: {
       if (!src) return true;
       const char *needle = action.action.start_search.needle;
       const QString n = QString::fromUtf8(needle ? needle : "");
-      QMetaObject::invokeMethod(src, [src, n]() { src->openSearch(n); },
-                                Qt::QueuedConnection);
+      post(src, [srcp, n]() {
+        if (srcp) srcp->openSearch(n);
+      });
       return true;
     }
 
     case GHOSTTY_ACTION_END_SEARCH:
       if (src)
-        QMetaObject::invokeMethod(src, [src]() { src->closeSearch(); },
-                                  Qt::QueuedConnection);
+        post(src, [srcp]() {
+          if (srcp) srcp->closeSearch();
+        });
       return true;
 
     case GHOSTTY_ACTION_SEARCH_TOTAL: {
       if (!src) return true;
       const int total = static_cast<int>(action.action.search_total.total);
-      QMetaObject::invokeMethod(
-          src, [src, total]() { src->setSearchTotal(total); },
-          Qt::QueuedConnection);
+      post(src, [srcp, total]() {
+        if (srcp) srcp->setSearchTotal(total);
+      });
       return true;
     }
 
@@ -1564,18 +1539,18 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       if (!src) return true;
       const int sel =
           static_cast<int>(action.action.search_selected.selected);
-      QMetaObject::invokeMethod(
-          src, [src, sel]() { src->setSearchSelected(sel); },
-          Qt::QueuedConnection);
+      post(src, [srcp, sel]() {
+        if (srcp) srcp->setSearchSelected(sel);
+      });
       return true;
     }
 
     case GHOSTTY_ACTION_INSPECTOR: {
       if (!src) return true;
       const ghostty_action_inspector_e mode = action.action.inspector;
-      QMetaObject::invokeMethod(
-          src, [src, mode]() { src->toggleInspector(mode); },
-          Qt::QueuedConnection);
+      post(src, [srcp, mode]() {
+        if (srcp) srcp->toggleInspector(mode);
+      });
       return true;
     }
 
@@ -1587,9 +1562,11 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
 bool MainWindow::onReadClipboard(void *ud, ghostty_clipboard_e loc,
                                  void *state) {
   // surface userdata. Called synchronously when libghostty needs
-  // clipboard contents (paste).
+  // clipboard contents (paste). May arrive on a worker thread, so
+  // surfaceAlive validates the pointer first — the GhosttySurface
+  // could be mid-destruction.
   auto *surface = static_cast<GhosttySurface *>(ud);
-  if (!surface || !surface->surface()) return false;
+  if (!surfaceAlive(surface) || !surface->surface()) return false;
 
   const QClipboard::Mode mode = loc == GHOSTTY_CLIPBOARD_SELECTION
                                     ? QClipboard::Selection
@@ -1608,24 +1585,30 @@ void MainWindow::onConfirmReadClipboard(void *ud, const char *str, void *state,
   // through the render tick — a crash/freeze. `state` is a completion
   // token valid until used; `str` is not, so copy it.
   auto *surface = static_cast<GhosttySurface *>(ud);
-  if (!surface || !surface->surface()) return;
+  if (!surfaceAlive(surface) || !surface->surface()) return;
 
+  QPointer<GhosttySurface> sp(surface);
   const QByteArray content(str);
   QMetaObject::invokeMethod(
       surface->owner(),
-      [surface, content, state]() {
-        if (!surface->surface()) return;
+      [sp, content, state]() {
+        if (!sp || !sp->surface()) return;
         QString preview = QString::fromUtf8(content);
-        if (preview.size() > 200)
-          preview = preview.left(200) + QStringLiteral("…");
+        // Truncate by code unit but back off to a non-surrogate boundary
+        // so we don't slice a surrogate pair half.
+        if (preview.size() > 200) {
+          int cut = 200;
+          while (cut > 0 && preview.at(cut - 1).isHighSurrogate()) --cut;
+          preview = preview.left(cut) + QStringLiteral("…");
+        }
         const auto reply = QMessageBox::warning(
-            surface->owner(), QStringLiteral("Confirm Paste"),
+            sp->owner(), QStringLiteral("Confirm Paste"),
             QStringLiteral("The text being pasted may be unsafe:\n\n%1\n\n"
                            "Paste anyway?")
                 .arg(preview),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         ghostty_surface_complete_clipboard_request(
-            surface->surface(), content.constData(), state,
+            sp->surface(), content.constData(), state,
             reply == QMessageBox::Yes);
       },
       Qt::QueuedConnection);
@@ -1636,14 +1619,16 @@ void MainWindow::onWriteClipboard(void *ud, ghostty_clipboard_e loc,
                                   size_t n, bool) {
   if (n == 0 || !content[0].data) return;
   auto *surface = static_cast<GhosttySurface *>(ud);
-  if (!surface) return;
+  if (!surfaceAlive(surface)) return;
 
   const QClipboard::Mode mode = loc == GHOSTTY_CLIPBOARD_SELECTION
                                     ? QClipboard::Selection
                                     : QClipboard::Clipboard;
   const QString text = QString::fromUtf8(content[0].data);
+  // The clipboard is process-global; route via qApp so a window dying
+  // mid-flight does not strand the write.
   QMetaObject::invokeMethod(
-      surface->owner(),
+      qApp,
       [text, mode]() { QGuiApplication::clipboard()->setText(text, mode); },
       Qt::QueuedConnection);
 }
@@ -1652,13 +1637,15 @@ void MainWindow::onCloseSurface(void *ud, bool) {
   // surface userdata. Deferred out of this callback so the confirm
   // dialog cannot spin a nested event loop back into libghostty.
   auto *surface = static_cast<GhosttySurface *>(ud);
-  if (!surface) return;
+  if (!surfaceAlive(surface)) return;
   MainWindow *self = surface->owner();
+  QPointer<MainWindow> selfp(self);
+  QPointer<GhosttySurface> sp(surface);
   QMetaObject::invokeMethod(
       self,
-      [self, surface]() {
-        if (self->confirmCloseSurfaces({surface}))
-          self->removeSurface(surface);
+      [selfp, sp]() {
+        if (!selfp || !sp) return;
+        if (selfp->confirmCloseSurfaces({sp})) selfp->removeSurface(sp);
       },
       Qt::QueuedConnection);
 }

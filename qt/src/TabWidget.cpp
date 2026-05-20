@@ -1,18 +1,40 @@
 #include "TabWidget.h"
 
+#include <cstring>
+
+#include <QByteArray>
+#include <QDataStream>
 #include <QDrag>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPixmap>
+#include <QPointer>
 #include <QRect>
 
 namespace {
-// Set by a TabBar::dropEvent during an in-flight tear-off. It is the
-// reliable "released on a tab bar" signal: QDrag::exec()'s return value
-// cannot be trusted across surfaces on Wayland.
-bool g_tabDropHandled = false;
+// MIME role carrying a pointer-to-originating-TabBar so a receiving
+// bar's dropEvent can mark the originator's m_dropHandled. We can't
+// rely on QDrag::exec()'s return value on Wayland, and a process-wide
+// "drop handled" flag races with simultaneous tear-offs in different
+// windows.
+constexpr char kTearOffOriginRole[] = "application/x-ghastty-tab-origin";
+
+QByteArray encodeOrigin(TabBar *bar) {
+  // Pack the raw pointer; the source process owns it for the lifetime
+  // of the drag. We never dereference unless we're in the same process,
+  // and a tear-off across processes is meaningless.
+  QByteArray bytes(reinterpret_cast<const char *>(&bar), sizeof(bar));
+  return bytes;
+}
+
+TabBar *decodeOrigin(const QByteArray &bytes) {
+  if (bytes.size() != sizeof(TabBar *)) return nullptr;
+  TabBar *bar;
+  std::memcpy(&bar, bytes.constData(), sizeof(bar));
+  return bar;
+}
 }  // namespace
 
 void TabBar::mousePressEvent(QMouseEvent *e) {
@@ -64,6 +86,10 @@ void TabBar::startTearOff(QMouseEvent *e) {
   QDrag *drag = new QDrag(this);
   auto *mime = new QMimeData;
   mime->setData(QString::fromLatin1(kGhosttyTabMime), QByteArray());
+  // Tag the drag with a pointer to this bar so the receiving bar's
+  // dropEvent can mark *our* m_dropHandled — a process-global flag
+  // would race with simultaneous tear-offs in other windows.
+  mime->setData(QString::fromLatin1(kTearOffOriginRole), encodeOrigin(this));
   drag->setMimeData(mime);
   drag->setPixmap(grab(tabBox));
   drag->setHotSpot(m_pressPos - tabBox.topLeft());
@@ -77,15 +103,15 @@ void TabBar::startTearOff(QMouseEvent *e) {
 
   // Released on a tab bar cancels the tear-off; released anywhere else
   // (the terminal, another window, the desktop) tears it into a new
-  // window. g_tabDropHandled — set by TabBar::dropEvent — is the
-  // signal, since QDrag::exec()'s result is unreliable across surfaces
-  // on Wayland.
-  g_tabDropHandled = false;
+  // window. m_dropHandled — set by a TabBar::dropEvent on the
+  // originating bar — is the signal, since QDrag::exec()'s result is
+  // unreliable across surfaces on Wayland.
+  m_dropHandled = false;
   drag->exec(Qt::MoveAction);
 
   m_tearing = false;
   m_pressIndex = -1;
-  if (!g_tabDropHandled) emit tabTornOff(index);
+  if (!m_dropHandled) emit tabTornOff(index);
 }
 
 void TabBar::dragEnterEvent(QDragEnterEvent *e) {
@@ -94,9 +120,15 @@ void TabBar::dragEnterEvent(QDragEnterEvent *e) {
 }
 
 void TabBar::dropEvent(QDropEvent *e) {
-  // Dropping a tear-off back on a tab bar cancels it.
+  // Dropping a tear-off back on a tab bar cancels it. Mark the flag on
+  // the *originating* bar (carried in the MIME payload), not this one
+  // — a tear-off can be dropped onto a different window's bar.
   if (e->mimeData()->hasFormat(QString::fromLatin1(kGhosttyTabMime))) {
-    g_tabDropHandled = true;
+    if (TabBar *origin = decodeOrigin(
+            e->mimeData()->data(QString::fromLatin1(kTearOffOriginRole))))
+      origin->m_dropHandled = true;
+    else
+      m_dropHandled = true;  // fallback: mark ourselves
     e->acceptProposedAction();
   }
 }
