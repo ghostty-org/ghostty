@@ -13,6 +13,46 @@ extension Ghostty {
         /// If multiple items map to the same shortcut, the most recent one wins.
         private var menuItemsByShortcut: [MenuShortcutKey: Weak<NSMenuItem>] = [:]
 
+        /// Original shortcut configured in xib indexed by their action
+        private var restorableMenuItemsByOriginalShortcut: [MenuShortcutKey: (Weak<NSMenuItem>, String?)] = [:]
+
+        private var menuItemsRestored = [(Weak<NSMenuItem>, String?)]()
+
+        func saveRestorableMenuItem(_ item: NSMenuItem?, action ghosttyAction: String?) {
+            guard
+                let item,
+                let key = MenuShortcutKey(item)
+            else {
+                return
+            }
+            // Later registrations intentionally override earlier ones for the same key.
+            restorableMenuItemsByOriginalShortcut[key] = (.init(item), ghosttyAction)
+        }
+
+        /// Restore shortcuts for the items that are registered
+        ///
+        /// - Important: the item is only restored when the current shortcut is empty
+        func restoreMenuShortcuts() {
+            menuItemsRestored.removeAll()
+            for (key, item) in restorableMenuItemsByOriginalShortcut {
+                if let menuItem = item.0.value, menuItem.keyEquivalent.isEmpty {
+                    menuItem.keyEquivalent = key.keyEquivalent
+                    menuItem.keyEquivalentModifierMask = key.modifierFlags
+                    menuItemsRestored.append(item)
+                }
+            }
+        }
+
+        /// Re-sync shortcuts for the items that are restored
+        func reSyncRestoredMenuShortcuts(config: Ghostty.Config) {
+            for item in menuItemsRestored {
+                if let menuItem = item.0.value {
+                    syncMenuShortcut(config, action: item.1, menuItem: menuItem)
+                }
+            }
+            menuItemsRestored.removeAll()
+        }
+
         /// Reset our shortcut index since we're about to rebuild all menu bindings.
         func reset() {
             menuItemsByShortcut.removeAll(keepingCapacity: true)
