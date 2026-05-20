@@ -227,7 +227,7 @@ pub const Action = union(Key) {
     /// Open the Ghostty configuration. This is platform-specific about
     /// what it means; it can mean opening a dedicated UI or just opening
     /// a file in a text editor.
-    open_config,
+    open_config: OpenConfig,
 
     /// Called when there are no more surfaces and the app should quit
     /// after the configured delay.
@@ -999,6 +999,19 @@ pub const SearchSelected = struct {
         return .{
             .selected = if (self.selected) |s| @intCast(s) else -1,
         };
+    }
+};
+
+/// sync with ghostty_action_close_tab_mode_e in ghostty.h
+pub const OpenConfig = enum(c_int) {
+    /// Open the config in the OS default editor.
+    os_open,
+
+    /// Open the config in a new window using $EDITOR or $VISUAL
+    new_window,
+
+    test "ghostty.h OpenConfig" {
+        try lib.checkGhosttyHEnum(OpenConfig, "GHOSTTY_ACTION_OPEN_CONFIG_");
     }
 };
 
