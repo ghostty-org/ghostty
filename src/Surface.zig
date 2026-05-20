@@ -2335,7 +2335,7 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
     try self.io.terminal.screens.active.select(sel_);
 
     // If copy on select is false then exit early.
-    if (self.config.copy_on_select == .false) return;
+    if (self.config.copy_on_select == .none) return;
 
     // Set our selection clipboard. If the selection is cleared we do not
     // clear the clipboard. If the selection is set, we only set the clipboard
@@ -2345,27 +2345,28 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
     if (prev_) |prev| if (sel.eql(prev)) return;
 
     switch (self.config.copy_on_select) {
-        .false => unreachable, // handled above with an early exit
+        .none => unreachable, // handled above with an early exit
+
+        // The selection clipboard is set if supported, otherwise nothing is copied.
+        .primary => try self.copySelectionToClipboards(
+            sel,
+            &.{.selection},
+            .mixed,
+        ),
+
+        // Only the standard clipboard is set.
+        .clipboard => try self.copySelectionToClipboards(
+            sel,
+            &.{.standard},
+            .mixed,
+        ),
 
         // Both standard and selection clipboards are set.
-        .clipboard => try self.copySelectionToClipboards(
+        .both => try self.copySelectionToClipboards(
             sel,
             &.{ .standard, .selection },
             .mixed,
         ),
-
-        // The selection clipboard is set if supported, otherwise the standard.
-        .true => {
-            const clipboard: apprt.Clipboard = if (self.rt_surface.supportsClipboard(.selection))
-                .selection
-            else
-                .standard;
-            try self.copySelectionToClipboards(
-                sel,
-                &.{clipboard},
-                .mixed,
-            );
-        },
     }
 }
 
@@ -3809,7 +3810,7 @@ pub fn mouseButtonCallback(
         // The selection clipboard is only updated for left-click drag when
         // the left button is released. This is to avoid the clipboard
         // being updated on every mouse move which would be noisy.
-        if (self.config.copy_on_select != .false) {
+        if (self.config.copy_on_select != .none) {
             self.renderer_state.mutex.lock();
             defer self.renderer_state.mutex.unlock();
             const prev_ = self.io.terminal.screens.active.selection;
@@ -4015,22 +4016,16 @@ pub fn mouseButtonCallback(
         }
     }
 
-    // Middle-click paste source follows copy-on-select: when copy-on-select
-    // targets the selection clipboard, middle-click reads from it; when
-    // copy-on-select targets the system clipboard, middle-click reads from
-    // that instead. Falls back to the standard clipboard on platforms that
-    // do not support the selection clipboard.
+    // Middle-click action, either ignore, or paste from clipboard or paste from the selection clipboard if supported.
     if (button == .middle and action == .press) switch (self.config.middle_click_action) {
         .ignore => {},
+        .@"clipboard-paste" => {
+            _ = try self.startClipboardRequest(.standard, .{ .paste = {} });
+        },
         .@"primary-paste" => {
-            const clipboard: apprt.Clipboard = switch (self.config.copy_on_select) {
-                .clipboard => .standard,
-                .true, .false => if (self.rt_surface.supportsClipboard(.selection))
-                    .selection
-                else
-                    .standard,
-            };
-            _ = try self.startClipboardRequest(clipboard, .{ .paste = {} });
+            if (self.rt_surface.supportsClipboard(.selection)) {
+                _ = try self.startClipboardRequest(.selection, .{ .paste = {} });
+            }
         },
     };
 
