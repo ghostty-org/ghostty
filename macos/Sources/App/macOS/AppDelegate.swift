@@ -516,7 +516,7 @@ class AppDelegate: NSObject,
         case .new_tab:
             _ = TerminalController.newTab(
                 ghostty,
-                from: TerminalController.preferredParent?.window,
+                from: TerminalController.preferredNewTabParent?.window,
                 withBaseConfig: config
             )
         case .new_window: _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
@@ -722,8 +722,13 @@ class AppDelegate: NSObject,
 
     @objc private func ghosttyNewWindow(_ notification: Notification) {
         let configAny = notification.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
+        let surfaceView = notification.object as? NSView
         let config = configAny as? Ghostty.SurfaceConfiguration
-        _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
+        _ = TerminalController.newWindow(
+            ghostty,
+            withBaseConfig: config,
+            withParent: surfaceView?.window,
+        )
     }
 
     @objc private func ghosttyNewTab(_ notification: Notification) {
@@ -958,7 +963,7 @@ class AppDelegate: NSObject,
     @IBAction func newTab(_ sender: Any?) {
         _ = TerminalController.newTab(
             ghostty,
-            from: TerminalController.preferredParent?.window
+            from: TerminalController.preferredNewTabParent?.window
         )
     }
 
