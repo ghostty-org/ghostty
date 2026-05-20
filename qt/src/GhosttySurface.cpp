@@ -321,8 +321,16 @@ void GhosttySurface::paintEvent(QPaintEvent *) {
 static QString cfgString(ghostty_config_t cfg, const char *key);
 
 void GhosttySurface::paintResizeOverlay(QPainter &painter) {
+  const qint64 now = QDateTime::currentMSecsSinceEpoch();
+  std::fprintf(stderr,
+               "[ghastty/dbg] paintResizeOverlay: text='%s' nowMs=%lld "
+               "untilMs=%lld owner=%p\n",
+               m_resizeOverlayText.toUtf8().constData(),
+               static_cast<long long>(now),
+               static_cast<long long>(m_resizeOverlayUntilMs),
+               static_cast<void *>(m_owner));
   if (m_resizeOverlayText.isEmpty()) return;
-  if (QDateTime::currentMSecsSinceEpoch() >= m_resizeOverlayUntilMs) return;
+  if (now >= m_resizeOverlayUntilMs) return;
   if (!m_owner) return;
 
   ghostty_config_t cfg = m_owner->config();
@@ -467,6 +475,11 @@ void GhosttySurface::showResizeOverlay() {
   const ghostty_surface_size_s sz = ghostty_surface_size(m_surface);
   ghostty_config_t cfg = m_owner->config();
   const QString mode = cfgString(cfg, "resize-overlay");
+  std::fprintf(stderr,
+               "[ghastty/dbg] showResizeOverlay: mode=%s grid=%ux%u "
+               "lastCols=%d lastRows=%d firstSeen=%d\n",
+               mode.toUtf8().constData(), sz.columns, sz.rows,
+               m_lastCols, m_lastRows, m_firstGridSeen ? 1 : 0);
   if (mode == QLatin1String("never")) return;
 
   // First-call short-circuit. resizeEvent fires once when the
