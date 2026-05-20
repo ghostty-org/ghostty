@@ -1,4 +1,6 @@
 const std = @import("std");
+const builtin = @import("builtin");
+
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const formatterpkg = @import("formatter.zig");
@@ -195,6 +197,87 @@ pub const Command = union(enum) {
                 );
             },
         }
+    }
+
+    /// Shell types we support
+    pub const Shell = enum {
+        bash,
+        elvish,
+        fish,
+        nushell,
+        zsh,
+    };
+
+    /// Detect if this command is a known shell.
+    pub fn detectShell(self: Self) ?Shell {
+        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        var fba: std.heap.FixedBufferAllocator = .init(&buf);
+
+        const arg0 = switch (self) {
+            .direct => |v| v[0],
+            .shell => |v| arg: {
+                var it = std.process.ArgIteratorGeneral(.{}).init(fba.allocator(), v) catch return null;
+                break :arg it.next() orelse return null;
+            },
+        };
+
+        const exe = std.fs.path.basename(arg0);
+
+        if (std.mem.eql(u8, "bash", exe)) {
+            // Apple distributes their own patched version of Bash 3.2
+            // on macOS that disables the ENV-based POSIX startup path.
+            // This means we're unable to perform our automatic shell
+            // integration sequence in this specific environment.
+            //
+            // If we're running "/bin/bash" on Darwin, we can assume
+            // we're using Apple's Bash because /bin is non-writable
+            // on modern macOS due to System Integrity Protection.
+            if (comptime builtin.target.os.tag.isDarwin()) {
+                if (std.mem.eql(u8, "/bin/bash", arg0)) {
+                    return null;
+                }
+            }
+            return .bash;
+        }
+
+        if (std.mem.eql(u8, "elvish", exe)) return .elvish;
+        if (std.mem.eql(u8, "fish", exe)) return .fish;
+        if (std.mem.eql(u8, "nu", exe)) return .nushell;
+        if (std.mem.eql(u8, "zsh", exe)) return .zsh;
+
+        return null;
+    }
+
+    test detectShell {
+        const testing = std.testing;
+
+        try testing.expect(detectShell(.{ .shell = "sh" }) == null);
+        try testing.expectEqual(.bash, detectShell(.{ .shell = "bash" }));
+        try testing.expectEqual(.elvish, detectShell(.{ .shell = "elvish" }));
+        try testing.expectEqual(.fish, detectShell(.{ .shell = "fish" }));
+        try testing.expectEqual(.nushell, detectShell(.{ .shell = "nu" }));
+        try testing.expectEqual(.zsh, detectShell(.{ .shell = "zsh" }));
+
+        if (comptime builtin.target.os.tag.isDarwin()) {
+            try testing.expect(detectShell(.{ .shell = "/bin/bash" }) == null);
+        }
+
+        try testing.expectEqual(.bash, detectShell(.{ .shell = "bash -c 'command'" }));
+        try testing.expectEqual(.bash, detectShell(.{ .shell = "\"/a b/bash\"" }));
+
+        try testing.expect(detectShell(.{ .direct = &.{"sh"} }) == null);
+        try testing.expectEqual(.bash, detectShell(.{ .direct = &.{"bash"} }));
+        try testing.expectEqual(.elvish, detectShell(.{ .direct = &.{"elvish"} }));
+        try testing.expectEqual(.fish, detectShell(.{ .direct = &.{"fish"} }));
+        try testing.expectEqual(.nushell, detectShell(.{ .direct = &.{"nu"} }));
+        try testing.expectEqual(.zsh, detectShell(.{ .direct = &.{"zsh"} }));
+
+        if (comptime builtin.target.os.tag.isDarwin()) {
+            try testing.expect(detectShell(.{&.{ .direct = "/bin/bash" }}) == null);
+        }
+
+        try testing.expectEqual(.bash, detectShell(.{ .direct = &.{ "bash", "-c", "command" } }));
+        try testing.expectEqual(.bash, detectShell(.{ .direct = &.{"/a b/bash"} }));
     }
 
     test "Command: parseCLI errors" {
