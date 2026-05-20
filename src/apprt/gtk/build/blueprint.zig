@@ -7,10 +7,6 @@
 
 const std = @import("std");
 
-pub const c = @cImport({
-    @cInclude("adwaita.h");
-});
-
 pub const blueprint_compiler_help =
     \\
     \\When building from a Git checkout, Ghostty requires
@@ -25,24 +21,21 @@ pub const blueprint_compiler_help =
     \\more information on the recommended build instructions.
 ;
 
-const adwaita_version = std.SemanticVersion{
-    .major = c.ADW_MAJOR_VERSION,
-    .minor = c.ADW_MINOR_VERSION,
-    .patch = c.ADW_MICRO_VERSION,
-};
+const adwaita_version = @import("adw_semver").version;
+
 const required_blueprint_version = std.SemanticVersion{
     .major = 0,
     .minor = 16,
     .patch = 0,
 };
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
     const alloc = debug_allocator.allocator();
 
     // Get our args
-    var it = try std.process.argsWithAllocator(alloc);
+    var it = try init.minimal.args.iterateAllocator(alloc);
     defer it.deinit();
     _ = it.next(); // Skip argv0
     const arg_major = it.next() orelse return error.NoMajorVersion;
@@ -63,51 +56,37 @@ pub fn main() !void {
             \\compile this blueprint. Please install it, ensure that it is
             \\available on your PATH, and then retry building Ghostty.
         , .{required_adwaita_version});
-        std.posix.exit(1);
+        std.process.exit(1);
     }
 
     // Version checks
     {
-        var stdout: std.ArrayListUnmanaged(u8) = .empty;
-        defer stdout.deinit(alloc);
-        var stderr: std.ArrayListUnmanaged(u8) = .empty;
-        defer stderr.deinit(alloc);
-
-        var blueprint_compiler = std.process.Child.init(
-            &.{
-                "blueprint-compiler",
-                "--version",
-            },
-            alloc,
-        );
-        blueprint_compiler.stdout_behavior = .Pipe;
-        blueprint_compiler.stderr_behavior = .Pipe;
-        try blueprint_compiler.spawn();
-        try blueprint_compiler.collectOutput(
-            alloc,
-            &stdout,
-            &stderr,
-            std.math.maxInt(u16),
-        );
-        const term = blueprint_compiler.wait() catch |err| switch (err) {
+        const blueprint_compiler = std.process.run(alloc, init.io, .{
+            .argv = &.{ "blueprint-compiler", "--version" },
+        }) catch |err| switch (err) {
             error.FileNotFound => {
                 std.debug.print(
                     \\`blueprint-compiler` not found.
                 ++ blueprint_compiler_help,
                     .{required_blueprint_version},
                 );
-                std.posix.exit(1);
+                std.process.exit(1);
             },
             else => return err,
         };
-        switch (term) {
-            .Exited => |rc| if (rc != 0) std.process.exit(1),
+        defer {
+            alloc.free(blueprint_compiler.stdout);
+            alloc.free(blueprint_compiler.stderr);
+        }
+
+        switch (blueprint_compiler.term) {
+            .exited => |rc| if (rc != 0) std.process.exit(1),
             else => std.process.exit(1),
         }
 
         const version = try std.SemanticVersion.parse(std.mem.trim(
             u8,
-            stdout.items,
+            blueprint_compiler.stdout,
             &std.ascii.whitespace,
         ));
         if (version.order(required_blueprint_version) == .lt) {
@@ -116,57 +95,45 @@ pub fn main() !void {
             ++ blueprint_compiler_help,
                 .{required_blueprint_version},
             );
-            std.posix.exit(1);
+            std.process.exit(1);
         }
     }
 
     // Compilation
     {
-        var stdout: std.ArrayListUnmanaged(u8) = .empty;
-        defer stdout.deinit(alloc);
-        var stderr: std.ArrayListUnmanaged(u8) = .empty;
-        defer stderr.deinit(alloc);
-
-        var blueprint_compiler = std.process.Child.init(
-            &.{
+        const blueprint_compiler = std.process.run(alloc, init.io, .{
+            .argv = &.{
                 "blueprint-compiler",
                 "compile",
                 "--output",
                 output,
                 input,
             },
-            alloc,
-        );
-        blueprint_compiler.stdout_behavior = .Pipe;
-        blueprint_compiler.stderr_behavior = .Pipe;
-        try blueprint_compiler.spawn();
-        try blueprint_compiler.collectOutput(
-            alloc,
-            &stdout,
-            &stderr,
-            std.math.maxInt(u16),
-        );
-        const term = blueprint_compiler.wait() catch |err| switch (err) {
+        }) catch |err| switch (err) {
             error.FileNotFound => {
                 std.debug.print(
                     \\`blueprint-compiler` not found.
                 ++ blueprint_compiler_help,
                     .{required_blueprint_version},
                 );
-                std.posix.exit(1);
+                std.process.exit(1);
             },
             else => return err,
         };
+        defer {
+            alloc.free(blueprint_compiler.stdout);
+            alloc.free(blueprint_compiler.stderr);
+        }
 
-        switch (term) {
-            .Exited => |rc| {
+        switch (blueprint_compiler.term) {
+            .exited => |rc| {
                 if (rc != 0) {
-                    std.debug.print("{s}", .{stderr.items});
+                    std.debug.print("{s}", .{blueprint_compiler.stderr});
                     std.process.exit(1);
                 }
             },
             else => {
-                std.debug.print("{s}", .{stderr.items});
+                std.debug.print("{s}", .{blueprint_compiler.stderr});
                 std.process.exit(1);
             },
         }

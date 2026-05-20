@@ -39,8 +39,8 @@ pub fn run(alloc_gpa: Allocator) !u8 {
     }
 
     var buffer: [1024]u8 = undefined;
-    var stdout_file: std.fs.File = .stdout();
-    var stdout_writer = stdout_file.writer(&buffer);
+    var stdout_file: std.Io.File = .stdout();
+    var stdout_writer = stdout_file.writer(std.Io.Threaded.global_single_threaded.io(), &buffer);
     const stdout = &stdout_writer.interface;
 
     const result = runInner(alloc, &stdout_file, stdout);
@@ -50,7 +50,7 @@ pub fn run(alloc_gpa: Allocator) !u8 {
 
 fn runInner(
     alloc: Allocator,
-    stdout_file: *std.fs.File,
+    stdout_file: *std.Io.File,
     stdout: *std.Io.Writer,
 ) !u8 {
     const crash_dir = try crash.defaultDir(alloc);
@@ -66,7 +66,7 @@ fn runInner(
     // If we have no reports, then we're done. If we have a tty then we
     // print a message, otherwise we do nothing.
     if (reports.items.len == 0) {
-        if (std.posix.isatty(stdout_file.handle)) {
+        if (try stdout_file.isTty(std.Io.Threaded.global_single_threaded.io())) {
             try stdout.writeAll("No crash reports! 👻\n");
         }
         return 0;
@@ -76,7 +76,7 @@ fn runInner(
 
     for (reports.items) |report| {
         var buf: [128]u8 = undefined;
-        const now = std.time.nanoTimestamp();
+        const now = std.Io.Timestamp.now(std.Io.Threaded.global_single_threaded.io(), .real).toNanoseconds();
         const diff = now - report.mtime;
         const since = if (diff <= 0) "now" else s: {
             const d = Config.Duration{ .duration = @intCast(diff) };

@@ -113,16 +113,16 @@ pub fn open(
     diags: *cli.DiagnosticList,
 ) error{OutOfMemory}!?struct {
     path: []const u8,
-    file: std.fs.File,
+    file: std.Io.File,
 } {
     // Absolute themes are loaded a different path.
     if (std.fs.path.isAbsolute(theme)) {
-        const file: std.fs.File = try openAbsolute(
+        const file: std.Io.File = try openAbsolute(
             arena_alloc,
             theme,
             diags,
         ) orelse return null;
-        const stat = file.stat() catch |err| {
+        const stat = file.stat(std.Io.Threaded.global_single_threaded.io()) catch |err| {
             try diags.append(arena_alloc, .{
                 .message = try std.fmt.allocPrintSentinel(
                     arena_alloc,
@@ -166,11 +166,11 @@ pub fn open(
     // Iterate over the possible locations to try to find the
     // one that exists.
     var it: LocationIterator = .{ .arena_alloc = arena_alloc };
-    const cwd = std.fs.cwd();
+    const cwd = std.Io.Dir.cwd();
     while (try it.next()) |loc| {
         const path = try std.fs.path.join(arena_alloc, &.{ loc.dir, theme });
-        if (cwd.openFile(path, .{})) |file| {
-            const stat = file.stat() catch |err| {
+        if (cwd.openFile(std.Io.Threaded.global_single_threaded.io(), path, .{})) |file| {
+            const stat = file.stat(std.Io.Threaded.global_single_threaded.io()) catch |err| {
                 try diags.append(arena_alloc, .{
                     .message = try std.fmt.allocPrintSentinel(
                         arena_alloc,
@@ -251,8 +251,8 @@ pub fn openAbsolute(
     arena_alloc: Allocator,
     theme: []const u8,
     diags: *cli.DiagnosticList,
-) error{OutOfMemory}!?std.fs.File {
-    return std.fs.openFileAbsolute(theme, .{}) catch |err| {
+) error{OutOfMemory}!?std.Io.File {
+    return std.Io.Dir.openFileAbsolute(std.Io.Threaded.global_single_threaded.io(), theme, .{}) catch |err| {
         switch (err) {
             error.FileNotFound => try diags.append(arena_alloc, .{
                 .message = try std.fmt.allocPrintSentinel(

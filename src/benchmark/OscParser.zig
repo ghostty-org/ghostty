@@ -13,7 +13,7 @@ const log = std.log.scoped(.@"osc-parser-bench");
 opts: Options,
 
 /// The file, opened in the setup function.
-data_f: ?std.fs.File = null,
+data_f: ?std.Io.File = null,
 
 parser: Parser,
 
@@ -70,7 +70,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
 fn teardown(ptr: *anyopaque) void {
     const self: *OscParser = @ptrCast(@alignCast(ptr));
     if (self.data_f) |f| {
-        f.close();
+        f.close(std.Io.Threaded.global_single_threaded.io());
         self.data_f = null;
     }
 }
@@ -80,7 +80,7 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
 
     const f = self.data_f orelse return;
     var read_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
-    var r = f.reader(&read_buf);
+    var r = f.reader(std.Io.Threaded.global_single_threaded.io(), &read_buf);
 
     var osc_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     while (true) {

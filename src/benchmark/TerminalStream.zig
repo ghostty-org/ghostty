@@ -30,7 +30,7 @@ handler: Handler,
 stream: Stream,
 
 /// The file, opened in the setup function.
-data_f: ?std.fs.File = null,
+data_f: ?std.Io.File = null,
 
 pub const Options = struct {
     /// The size of the terminal. This affects benchmarking when
@@ -99,7 +99,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
 fn teardown(ptr: *anyopaque) void {
     const self: *TerminalStream = @ptrCast(@alignCast(ptr));
     if (self.data_f) |f| {
-        f.close();
+        f.close(std.Io.Threaded.global_single_threaded.io());
         self.data_f = null;
     }
 }
@@ -115,7 +115,7 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
     const f = self.data_f orelse return;
 
     var read_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
-    var f_reader = f.reader(&read_buf);
+    var f_reader = f.reader(std.Io.Threaded.global_single_threaded.io(), &read_buf);
     const r = &f_reader.interface;
 
     var buf: [4096]u8 = undefined;

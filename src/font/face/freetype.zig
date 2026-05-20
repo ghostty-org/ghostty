@@ -41,7 +41,7 @@ pub const Face = struct {
     ///
     /// This means that anywhere where `self.face.loadGlyph`
     /// is called, this mutex must be held.
-    ft_mutex: *std.Thread.Mutex,
+    ft_mutex: *std.Io.Mutex,
 
     /// Harfbuzz font corresponding to this face.
     hb_font: harfbuzz.Font,
@@ -68,8 +68,8 @@ pub const Face = struct {
         index: i32,
         opts: font.face.Options,
     ) !Face {
-        lib.mutex.lock();
-        defer lib.mutex.unlock();
+        lib.mutex.lockUncancelable(std.Io.Threaded.global_single_threaded.io());
+        defer lib.mutex.unlock(std.Io.Threaded.global_single_threaded.io());
         const face = try lib.lib.initFace(path, index);
         errdefer face.deinit();
         return try initFace(lib, face, opts);
@@ -81,8 +81,8 @@ pub const Face = struct {
         source: [:0]const u8,
         opts: font.face.Options,
     ) !Face {
-        lib.mutex.lock();
-        defer lib.mutex.unlock();
+        lib.mutex.lockUncancelable(std.Io.Threaded.global_single_threaded.io());
+        defer lib.mutex.unlock(std.Io.Threaded.global_single_threaded.io());
         const face = try lib.lib.initMemoryFace(source, 0);
         errdefer face.deinit();
         return try initFace(lib, face, opts);
@@ -99,9 +99,9 @@ pub const Face = struct {
         var hb_font = try harfbuzz.freetype.createFont(face.handle);
         errdefer hb_font.destroy();
 
-        const ft_mutex = try lib.alloc.create(std.Thread.Mutex);
+        const ft_mutex = try lib.alloc.create(std.Io.Mutex);
         errdefer lib.alloc.destroy(ft_mutex);
-        ft_mutex.* = .{};
+        ft_mutex.* = .init;
 
         var result: Face = .{
             .lib = lib,
@@ -142,8 +142,8 @@ pub const Face = struct {
     pub fn deinit(self: *Face) void {
         self.lib.alloc.destroy(self.ft_mutex);
         {
-            self.lib.mutex.lock();
-            defer self.lib.mutex.unlock();
+            self.lib.mutex.lockUncancelable(std.Io.Threaded.global_single_threaded.io());
+            defer self.lib.mutex.unlock(std.Io.Threaded.global_single_threaded.io());
 
             self.face.deinit();
         }
@@ -330,8 +330,8 @@ pub const Face = struct {
 
     /// Returns true if the given glyph ID is colorized.
     pub fn isColorGlyph(self: *const Face, glyph_id: u32) bool {
-        self.ft_mutex.lock();
-        defer self.ft_mutex.unlock();
+        self.ft_mutex.lockUncancelable(std.Io.Threaded.global_single_threaded.io());
+        defer self.ft_mutex.unlock(std.Io.Threaded.global_single_threaded.io());
 
         // Load the glyph and see what pixel mode it renders with.
         // All modes other than BGRA are non-color.
@@ -429,8 +429,8 @@ pub const Face = struct {
         glyph_index: u32,
         opts: font.face.RenderOptions,
     ) !Glyph {
-        self.ft_mutex.lock();
-        defer self.ft_mutex.unlock();
+        self.ft_mutex.lockUncancelable(std.Io.Threaded.global_single_threaded.io());
+        defer self.ft_mutex.unlock(std.Io.Threaded.global_single_threaded.io());
 
         // Load the glyph.
         try self.face.loadGlyph(glyph_index, self.glyphLoadFlags(opts.constraint.doesAnything()));
@@ -541,7 +541,7 @@ pub const Face = struct {
                     else
                         0.0;
 
-                const outline = &glyph.*.outline;
+                const outline: *freetype.c.FT_Outline = &glyph.*.outline;
                 for (outline.points[0..@intCast(outline.n_points)]) |*p| {
                     // Convert to f64 for processing
                     var px = f26dot6ToF64(p.x);
@@ -971,8 +971,8 @@ pub const Face = struct {
         // the metrics provided by FreeType, and set ascii_height to null as
         // it's optional.
         const cell_width: f64, const ascii_height: ?f64 = measurements: {
-            self.ft_mutex.lock();
-            defer self.ft_mutex.unlock();
+            self.ft_mutex.lockUncancelable(std.Io.Threaded.global_single_threaded.io());
+            defer self.ft_mutex.unlock(std.Io.Threaded.global_single_threaded.io());
 
             var max: f64 = 0.0;
             var top: f64 = 0.0;
@@ -1024,8 +1024,8 @@ pub const Face = struct {
 
             break :heights .{
                 cap: {
-                    self.ft_mutex.lock();
-                    defer self.ft_mutex.unlock();
+                    self.ft_mutex.lockUncancelable(std.Io.Threaded.global_single_threaded.io());
+                    defer self.ft_mutex.unlock(std.Io.Threaded.global_single_threaded.io());
                     if (face.getCharIndex('H')) |glyph_index| {
                         if (face.loadGlyph(glyph_index, self.glyphLoadFlags(false))) {
                             break :cap getGlyphSize(face.handle.*.glyph).height;
@@ -1034,8 +1034,8 @@ pub const Face = struct {
                     break :cap null;
                 },
                 ex: {
-                    self.ft_mutex.lock();
-                    defer self.ft_mutex.unlock();
+                    self.ft_mutex.lockUncancelable(std.Io.Threaded.global_single_threaded.io());
+                    defer self.ft_mutex.unlock(std.Io.Threaded.global_single_threaded.io());
                     if (face.getCharIndex('x')) |glyph_index| {
                         if (face.loadGlyph(glyph_index, self.glyphLoadFlags(false))) {
                             break :ex getGlyphSize(face.handle.*.glyph).height;
@@ -1048,8 +1048,8 @@ pub const Face = struct {
 
         // Measure "水" (CJK water ideograph, U+6C34) for our ic width.
         const ic_width: ?f64 = ic_width: {
-            self.ft_mutex.lock();
-            defer self.ft_mutex.unlock();
+            self.ft_mutex.lockUncancelable(std.Io.Threaded.global_single_threaded.io());
+            defer self.ft_mutex.unlock(std.Io.Threaded.global_single_threaded.io());
 
             const glyph = face.getCharIndex('水') orelse break :ic_width null;
 

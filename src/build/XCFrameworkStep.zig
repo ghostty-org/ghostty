@@ -63,8 +63,8 @@ pub fn create(b: *std.Build, opts: Options) *XCFrameworkStep {
         run.addArg("-output");
         run.addArg(opts.out_path);
         run.expectExitCode(0);
-        _ = run.captureStdOut();
-        _ = run.captureStdErr();
+        _ = run.captureStdOut(.{});
+        _ = run.captureStdErr(.{});
         break :run run;
     };
     run_create.step.dependOn(&run_delete.step);

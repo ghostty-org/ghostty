@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
-const posix = std.posix;
+const compat_env = @import("../lib/compat/env.zig");
 const isFlatpak = @import("flatpak.zig").isFlatpak;
 
 pub const Error = Allocator.Error;
@@ -82,7 +82,7 @@ pub const GetEnvResult = struct {
 pub fn getenv(alloc: Allocator, key: []const u8) Error!?GetEnvResult {
     return switch (builtin.os.tag) {
         // Non-Windows doesn't need to allocate
-        else => if (posix.getenv(key)) |v| .{ .value = v } else null,
+        else => if (compat_env.getenv(key)) |v| .{ .value = v } else null,
 
         // Windows needs to allocate
         .windows => if (std.process.getEnvVarOwned(alloc, key)) |v| .{

@@ -99,7 +99,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
     s.nextSlice("hello");
 
     // Setup our terminal state
-    const data_f: std.fs.File = (options.dataFile(
+    const data_f: std.Io.File = (options.dataFile(
         self.opts.data,
     ) catch |err| {
         log.warn("error opening data file err={}", .{err});
@@ -110,7 +110,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
     defer stream.deinit();
 
     var read_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
-    var f_reader = data_f.reader(&read_buf);
+    var f_reader = data_f.reader(std.Io.Threaded.global_single_threaded.io(), &read_buf);
     const r = &f_reader.interface;
 
     var buf: [4096]u8 = undefined;

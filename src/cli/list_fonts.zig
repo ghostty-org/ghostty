@@ -92,7 +92,7 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
     }
 
     var buffer: [2048]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    var stdout_writer = std.Io.File.stdout().writer(std.Io.Threaded.global_single_threaded.io(), &buffer);
     const stdout = &stdout_writer.interface;
 
     // We'll be putting our fonts into a list categorized by family
@@ -133,7 +133,7 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
         const gop = try map.getOrPut(family);
         if (!gop.found_existing) {
             try families.append(alloc, family);
-            gop.value_ptr.* = .{};
+            gop.value_ptr.* = .empty;
         }
         try gop.value_ptr.append(alloc, full_name);
     }

@@ -70,23 +70,17 @@ pub fn format(
 /// format variables. This can be used with `parseFormatStruct` to
 /// parse an output string into a format struct.
 pub fn FormatStruct(comptime vars: []const Variable) type {
-    var fields: [vars.len]std.builtin.Type.StructField = undefined;
-    for (vars, &fields) |variable, *field| {
-        field.* = .{
-            .name = @tagName(variable),
-            .type = variable.Type(),
-            .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = @alignOf(variable.Type()),
-        };
+    var names: [vars.len][]const u8 = undefined;
+    var types: [vars.len]type = undefined;
+    var attrs: [vars.len]std.builtin.Type.StructField.Attributes = undefined;
+
+    for (vars, &names, &types, &attrs) |variable, *name, *ty, *attr| {
+        name.* = @tagName(variable);
+        ty.* = variable.Type();
+        attr.* = .{ .@"align" = @alignOf(variable.Type()) };
     }
 
-    return @Type(.{ .@"struct" = .{
-        .layout = .auto,
-        .fields = &fields,
-        .decls = &.{},
-        .is_tuple = false,
-    } });
+    return @Struct(.auto, null, &names, &types, &attrs);
 }
 
 /// Possible variables in a tmux format string that we support.

@@ -29,16 +29,16 @@ pub fn legacyDefaultXdgPath(alloc: Allocator) ![]const u8 {
 pub fn preferredXdgPath(alloc: Allocator) ![]const u8 {
     // If the XDG path exists, use that.
     const xdg_path = try defaultXdgPath(alloc);
-    if (open(xdg_path)) |f| {
-        f.close();
+    if (open(std.Io.Threaded.global_single_threaded.io(), xdg_path)) |f| {
+        f.close(std.Io.Threaded.global_single_threaded.io());
         return xdg_path;
     } else |_| {}
 
     // Try the legacy path
     errdefer alloc.free(xdg_path);
     const legacy_xdg_path = try legacyDefaultXdgPath(alloc);
-    if (open(legacy_xdg_path)) |f| {
-        f.close();
+    if (open(std.Io.Threaded.global_single_threaded.io(), legacy_xdg_path)) |f| {
+        f.close(std.Io.Threaded.global_single_threaded.io());
         alloc.free(xdg_path);
         return legacy_xdg_path;
     } else |_| {}
@@ -130,10 +130,11 @@ const OpenFileError = error{
 /// Opens the file at the given path and returns the file handle
 /// if it exists and is non-empty. This also constrains the possible
 /// errors to a smaller set that we can explicitly handle.
-pub fn open(path: []const u8) OpenFileError!std.fs.File {
+pub fn open(io: std.Io, path: []const u8) OpenFileError!std.Io.File {
     assert(std.fs.path.isAbsolute(path));
 
-    var file = std.fs.openFileAbsolute(
+    var file = std.Io.Dir.openFileAbsolute(
+        io,
         path,
         .{},
     ) catch |err| switch (err) {
@@ -146,9 +147,9 @@ pub fn open(path: []const u8) OpenFileError!std.fs.File {
             return OpenFileError.FileOpenFailed;
         },
     };
-    errdefer file.close();
+    errdefer file.close(io);
 
-    const stat = file.stat() catch |err| {
+    const stat = file.stat(io) catch |err| {
         log.warn("error getting file stat path={s} err={}", .{
             path,
             err,

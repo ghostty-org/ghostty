@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
+const compat_env = @import("../lib/compat/env.zig");
 
 pub const ResourcesDir = struct {
     /// Avoid accessing these directly, use the app() and host() methods instead.
@@ -67,7 +68,10 @@ pub fn resourcesDir(alloc: Allocator) !ResourcesDir {
 
     // Get the path to our running binary
     var exe_buf: [std.fs.max_path_bytes]u8 = undefined;
-    var exe: []const u8 = std.fs.selfExePath(&exe_buf) catch return .{};
+    var exe: []const u8 = exe_buf[0 .. std.process.executablePath(
+        std.Io.Threaded.global_single_threaded.io(),
+        &exe_buf,
+    ) catch return .{}];
 
     // We have an exe path! Climb the tree looking for the terminfo
     // bundle as we expect it.
@@ -78,7 +82,13 @@ pub fn resourcesDir(alloc: Allocator) !ResourcesDir {
         // On MacOS, we look for the app bundle path.
         if (comptime builtin.target.os.tag.isDarwin()) {
             inline for (sentinels) |sentinel| {
-                if (try maybeDir(&dir_buf, dir, "Contents/Resources", sentinel)) |v| {
+                if (try maybeDir(
+                    std.Io.Threaded.global_single_threaded.io(),
+                    &dir_buf,
+                    dir,
+                    "Contents/Resources",
+                    sentinel,
+                )) |v| {
                     return .{ .app_path = try std.fs.path.join(alloc, &.{ v, "ghostty" }) };
                 }
             }
@@ -102,11 +112,8 @@ pub fn resourcesDir(alloc: Allocator) !ResourcesDir {
     // If terminfo detection failed in debug builds (somehow),
     // fallback and use the provided resources dir.
     if (comptime builtin.mode == .Debug) {
-        if (std.process.getEnvVarOwned(alloc, "GHOSTTY_RESOURCES_DIR")) |dir| {
-            if (dir.len > 0) return .{ .app_path = dir };
-        } else |err| switch (err) {
-            error.EnvironmentVariableNotFound => {},
-            else => return err,
+        if (compat_env.getenv("GHOSTTY_RESOURCES_DIR")) |dir| {
+            if (dir.len > 0) return .{ .app_path = try alloc.dupe(u8, dir) };
         }
     }
 
@@ -127,7 +134,7 @@ pub fn maybeDir(
 ) !?[]const u8 {
     const path = try std.fmt.bufPrint(buf, "{s}/{s}/{s}", .{ base, sub, suffix });
 
-    if (std.fs.accessAbsolute(path, .{})) {
+    if (std.Io.Dir.accessAbsolute(std.Io.Threaded.global_single_threaded.io(), path, .{})) {
         const len = path.len - suffix.len - 1;
         return buf[0..len];
     } else |_| {

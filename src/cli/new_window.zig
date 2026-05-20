@@ -9,6 +9,9 @@ const lib = @import("../lib/main.zig");
 const homedir = @import("../os/homedir.zig");
 
 pub const Options = struct {
+    /// We store an I/O implementation to make maintenance easier.
+    _io: std.Io,
+
     /// This is set by the CLI parser for deinit.
     _arena: ?ArenaAllocator = null,
 
@@ -26,8 +29,18 @@ pub const Options = struct {
     /// there is a "normal" config setting on the cli.
     _diagnostics: diagnostics.DiagnosticList = .{},
 
+    pub const ParseManuallyHookError = error{InvalidValue} ||
+        homedir.ExpandError ||
+        std.Io.Dir.RealPathFileAllocError ||
+        Allocator.Error;
+
     /// Manual parse hook, collect all of the arguments after `+new-window`.
-    pub fn parseManuallyHook(self: *Options, alloc: Allocator, arg: []const u8, iter: anytype) (error{InvalidValue} || homedir.ExpandError || std.fs.Dir.RealPathAllocError || Allocator.Error)!bool {
+    pub fn parseManuallyHook(
+        self: *Options,
+        alloc: Allocator,
+        arg: []const u8,
+        iter: anytype,
+    ) ParseManuallyHookError!bool {
         var e_seen: bool = std.mem.eql(u8, arg, "-e");
 
         // Include the argument that triggered the manual parse hook.
@@ -50,7 +63,12 @@ pub const Options = struct {
         return false;
     }
 
-    fn checkArg(self: *Options, alloc: Allocator, arg: []const u8) (error{InvalidValue} || homedir.ExpandError || std.fs.Dir.RealPathAllocError || Allocator.Error)!?[:0]const u8 {
+    const CheckArgError = error{InvalidValue} ||
+        homedir.ExpandError ||
+        std.Io.Dir.RealPathFileAllocError ||
+        Allocator.Error;
+
+    fn checkArg(self: *Options, alloc: Allocator, arg: []const u8) CheckArgError!?[:0]const u8 {
         if (lib.cutPrefix(u8, arg, "--class=")) |rest| {
             self.class = try alloc.dupeZ(u8, std.mem.trim(u8, rest, &std.ascii.whitespace));
             return null;
@@ -60,11 +78,11 @@ pub const Options = struct {
             const stripped = std.mem.trim(u8, rest, &std.ascii.whitespace);
             if (std.mem.eql(u8, stripped, "home")) return try alloc.dupeZ(u8, arg);
             if (std.mem.eql(u8, stripped, "inherit")) return try alloc.dupeZ(u8, arg);
-            const cwd: std.fs.Dir = std.fs.cwd();
+            const cwd: std.Io.Dir = .cwd();
             var expandhome_buf: [std.fs.max_path_bytes]u8 = undefined;
             const expanded = try homedir.expandHome(stripped, &expandhome_buf);
             var realpath_buf: [std.fs.max_path_bytes]u8 = undefined;
-            const realpath = try cwd.realpath(expanded, &realpath_buf);
+            const realpath = realpath_buf[0..try cwd.realPathFile(self._io, expanded, &realpath_buf)];
             self._working_directory_seen = true;
             return try std.fmt.allocPrintSentinel(alloc, "--working-directory={s}", .{realpath}, 0);
         }
@@ -151,7 +169,7 @@ pub fn run(alloc: Allocator) !u8 {
     defer iter.deinit();
 
     var buffer: [1024]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&buffer);
+    var stderr_writer = std.Io.File.stderr().writer(std.Io.Threaded.global_single_threaded.io(), &buffer);
     const stderr = &stderr_writer.interface;
 
     const result = runArgs(alloc, &iter, stderr);
@@ -164,7 +182,7 @@ fn runArgs(
     argsIter: anytype,
     stderr: *std.Io.Writer,
 ) !u8 {
-    var opts: Options = .{};
+    var opts: Options = .{ ._io = std.Io.Threaded.global_single_threaded.io() };
     defer opts.deinit();
 
     args.parse(Options, alloc_gpa, &opts, argsIter) catch |err| switch (err) {
@@ -195,9 +213,9 @@ fn runArgs(
 
     if (!opts._working_directory_seen) {
         const alloc = opts._arena.?.allocator();
-        const cwd: std.fs.Dir = std.fs.cwd();
+        const cwd: std.Io.Dir = .cwd();
         var buf: [std.fs.max_path_bytes]u8 = undefined;
-        const wd = try cwd.realpath(".", &buf);
+        const wd = buf[0..try cwd.realPath(std.Io.Threaded.global_single_threaded.io(), &buf)];
         // This should be inserted at the beginning of the list, just in case `-e` was used.
         try opts._arguments.insert(alloc, 0, try std.fmt.allocPrintSentinel(alloc, "--working-directory={s}", .{wd}, 0));
     }

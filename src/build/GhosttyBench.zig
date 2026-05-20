@@ -23,9 +23,9 @@ pub fn init(
                 // We always want our datagen to be fast because it
                 // takes awhile to run.
                 .optimize = .ReleaseFast,
+                .link_libc = true,
             }),
         });
-        exe.linkLibC();
         _ = try deps.add(exe);
         try steps.append(b.allocator, exe);
     }
@@ -39,9 +39,9 @@ pub fn init(
                 .target = deps.config.target,
                 // We always want our benchmarks to be in release mode.
                 .optimize = .ReleaseFast,
+                .link_libc = true,
             }),
         });
-        exe.linkLibC();
         _ = try deps.add(exe);
         try steps.append(b.allocator, exe);
     }

@@ -7,6 +7,7 @@ const Allocator = std.mem.Allocator;
 const posix = std.posix;
 const homedir = @import("homedir.zig");
 const env_os = @import("env.zig");
+const compat_env = @import("../lib/compat/env.zig");
 
 pub const Options = struct {
     /// Subdirectories to join to the base. This avoids extra allocations
@@ -165,7 +166,7 @@ test "fallback when xdg env empty" {
     const alloc = std.testing.allocator;
 
     const saved_home = home: {
-        const home = std.posix.getenv("HOME") orelse break :home null;
+        const home = compat_env.getenv("HOME") orelse break :home null;
         break :home try alloc.dupeZ(u8, home);
     };
     defer env: {
@@ -194,7 +195,7 @@ test "fallback when xdg env empty" {
     inline for (cases) |case| {
         // Save and restore each environment variable
         const saved_env = blk: {
-            const value = std.posix.getenv(case.name) orelse break :blk null;
+            const value = compat_env.getenv(case.name) orelse break :blk null;
             break :blk try alloc.dupeZ(u8, value);
         };
         defer env: {
@@ -228,7 +229,7 @@ test "fallback when xdg env empty and subdir" {
     const alloc = std.testing.allocator;
 
     const saved_home = home: {
-        const home = std.posix.getenv("HOME") orelse break :home null;
+        const home = compat_env.getenv("HOME") orelse break :home null;
         break :home try alloc.dupeZ(u8, home);
     };
     defer env: {
@@ -258,7 +259,7 @@ test "fallback when xdg env empty and subdir" {
     inline for (cases) |case| {
         // Save and restore each environment variable
         const saved_env = blk: {
-            const value = std.posix.getenv(case.name) orelse break :blk null;
+            const value = compat_env.getenv(case.name) orelse break :blk null;
             break :blk try alloc.dupeZ(u8, value);
         };
         defer env: {

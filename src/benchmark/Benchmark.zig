@@ -64,21 +64,23 @@ pub fn run(
         signpost.log.release();
     };
 
-    const start = std.time.Instant.now() catch return error.BenchmarkFailed;
+    const start: std.Io.Timestamp = .now(std.Io.Threaded.global_single_threaded.io(), .awake);
     while (true) {
         // Run our step function. If it fails, we return the error.
         try self.vtable.stepFn(self.ptr);
         result.iterations += 1;
 
         // Get our current monotonic time and check our exit conditions.
-        const now = std.time.Instant.now() catch return error.BenchmarkFailed;
+        const now: std.Io.Timestamp = .now(std.Io.Threaded.global_single_threaded.io(), .awake);
+        const elapsed = start.durationTo(now).nanoseconds;
+        assert(elapsed >= 0);
         const exit = switch (mode) {
             .once => true,
-            .duration => |ns| now.since(start) >= ns,
+            .duration => |ns| elapsed >= ns,
         };
 
         if (exit) {
-            result.duration = now.since(start);
+            result.duration = @as(u64, @intCast(std.math.clamp(elapsed, 0, std.math.maxInt(u64))));
             return result;
         }
     }

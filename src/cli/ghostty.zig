@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const help_strings = @import("help_strings");
 const actionpkg = @import("action.zig");
+const compat_args = @import("../lib/compat/args.zig");
 const SpecialCase = actionpkg.SpecialCase;
 
 const list_fonts = @import("list_fonts.zig");
@@ -116,7 +117,10 @@ pub const Action = enum {
 
                     if (std.mem.eql(u8, field.name, @tagName(self))) {
                         var buffer: [1024]u8 = undefined;
-                        var stdout_writer = std.fs.File.stdout().writer(&buffer);
+                        var stdout_writer = std.Io.File.stdout().writer(
+                            std.Io.Threaded.global_single_threaded.io(),
+                            &buffer,
+                        );
                         const stdout = &stdout_writer.interface;
                         const text = @field(help_strings.Action, field.name) ++ "\n";
                         stdout.writeAll(text) catch |write_err| {
@@ -207,7 +211,7 @@ test "parse action none" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var iter = try std.process.ArgIteratorGeneral(.{}).init(
+    var iter = try compat_args.ArgIteratorGeneral(.{}).init(
         alloc,
         "--a=42 --b --b-f=false",
     );
@@ -221,7 +225,7 @@ test "parse action version" {
     const alloc = testing.allocator;
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try compat_args.ArgIteratorGeneral(.{}).init(
             alloc,
             "--a=42 --b --b-f=false --version",
         );
@@ -231,7 +235,7 @@ test "parse action version" {
     }
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try compat_args.ArgIteratorGeneral(.{}).init(
             alloc,
             "--version --a=42 --b --b-f=false",
         );
@@ -241,7 +245,7 @@ test "parse action version" {
     }
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try compat_args.ArgIteratorGeneral(.{}).init(
             alloc,
             "--c=84 --d --version --a=42 --b --b-f=false",
         );
@@ -256,7 +260,7 @@ test "parse action plus" {
     const alloc = testing.allocator;
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try compat_args.ArgIteratorGeneral(.{}).init(
             alloc,
             "--a=42 --b --b-f=false +version",
         );
@@ -266,7 +270,7 @@ test "parse action plus" {
     }
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try compat_args.ArgIteratorGeneral(.{}).init(
             alloc,
             "+version --a=42 --b --b-f=false",
         );
@@ -276,7 +280,7 @@ test "parse action plus" {
     }
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try compat_args.ArgIteratorGeneral(.{}).init(
             alloc,
             "--c=84 --d +version --a=42 --b --b-f=false",
         );
@@ -291,7 +295,7 @@ test "parse action plus ignores -e" {
     const alloc = testing.allocator;
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try compat_args.ArgIteratorGeneral(.{}).init(
             alloc,
             "--a=42 -e +version",
         );
@@ -301,7 +305,7 @@ test "parse action plus ignores -e" {
     }
 
     {
-        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        var iter = try compat_args.ArgIteratorGeneral(.{}).init(
             alloc,
             "+list-fonts --a=42 -e +version",
         );

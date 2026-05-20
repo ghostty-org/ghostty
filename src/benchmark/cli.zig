@@ -1,6 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const cli = @import("../cli.zig");
+const compat_args = @import("../lib/compat/args.zig");
+const compat_init = @import("../lib/compat/init.zig");
 
 /// The available actions for the CLI. This is the list of available
 /// benchmarks. View docs for each individual one in the predictably
@@ -36,7 +38,8 @@ pub const Action = enum {
 };
 
 /// An entrypoint for the benchmark CLI.
-pub fn main() !void {
+pub fn main(init: std.process.Init.Minimal) !void {
+    compat_init.run(init);
     const alloc = std.heap.c_allocator;
     const action_ = try cli.action.detectArgs(Action, alloc);
     const action = action_ orelse return error.NoAction;
@@ -48,7 +51,7 @@ pub const Args = union(enum) {
     /// The arguments passed to the CLI via argc/argv.
     cli,
 
-    /// Simple string arguments, parsed via std.process.ArgIteratorGeneral.
+    /// Simple string arguments, parsed via ArgIteratorGeneral.
     string: []const u8,
 };
 
@@ -81,7 +84,7 @@ fn mainActionImpl(
             try cli.args.parse(Options, alloc, &opts, &iter);
         },
         .string => |str| {
-            var iter = try std.process.ArgIteratorGeneral(.{}).init(
+            var iter = try compat_args.ArgIteratorGeneral(.{}).init(
                 alloc,
                 str,
             );

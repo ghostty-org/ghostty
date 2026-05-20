@@ -25,9 +25,10 @@ pub fn build(b: *std.Build) !void {
     // use that as the version source of truth. Otherwise we fall back
     // to what is in the build.zig.zon.
     const file_version: ?[]const u8 = if (b.build_root.handle.readFileAlloc(
-        b.allocator,
+        b.graph.io,
         "VERSION",
-        128,
+        b.allocator,
+        std.Io.Limit.limited(128),
     )) |content| std.mem.trim(
         u8,
         content,
@@ -298,7 +299,7 @@ pub fn build(b: *std.Build) !void {
         // We need to rebuild Ghostty with a baseline CPU target.
         const valgrind_exe = exe: {
             var valgrind_config = config;
-            valgrind_config.target = valgrind_config.baselineTarget();
+            valgrind_config.target = valgrind_config.baselineTarget(b.graph.io);
             break :exe try buildpkg.GhosttyExe.init(
                 b,
                 &valgrind_config,
@@ -343,7 +344,7 @@ pub fn build(b: *std.Build) !void {
             .filters = test_filters,
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/main.zig"),
-                .target = config.baselineTarget(),
+                .target = config.baselineTarget(b.graph.io),
                 .optimize = .Debug,
                 .strip = false,
                 .omit_frame_pointer = false,
@@ -358,7 +359,7 @@ pub fn build(b: *std.Build) !void {
         // Verify our internal libghostty header.
         const ghostty_h = b.addTranslateC(.{
             .root_source_file = b.path("include/ghostty.h"),
-            .target = config.baselineTarget(),
+            .target = config.baselineTarget(b.graph.io),
             .optimize = .Debug,
         });
         test_exe.root_module.addImport("ghostty.h", ghostty_h.createModule());
@@ -366,6 +367,10 @@ pub fn build(b: *std.Build) !void {
         // Normal test running
         const test_run = b.addRunArtifact(test_exe);
         test_step.dependOn(&test_run.step);
+
+        // Check step
+        const check_step = b.step("check-manual", "build but don't run tests (manual version)");
+        check_step.dependOn(&test_exe.step);
 
         // Normal tests always test our libghostty modules
         //test_step.dependOn(test_lib_vt_step);

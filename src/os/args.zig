@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const objc = @import("objc");
 const macos = @import("macos");
+const compat_args = @import("../lib/compat/args.zig");
 
 /// Returns an iterator over the command line arguments. This may or may
 /// not allocate depending on the platform.
@@ -11,13 +12,16 @@ const macos = @import("macos");
 /// but handles macOS using NSProcessInfo instead of libc argc/argv.
 pub fn iterator(allocator: Allocator) ArgIterator.InitError!ArgIterator {
     //if (true) return try std.process.argsWithAllocator(allocator);
-    return .initWithAllocator(allocator);
+    return switch (builtin.os.tag) {
+        .macos => .initWithAllocator(allocator),
+        else => .initAllocator(compat_args.getArgs(), allocator),
+    };
 }
 
 /// Duck-typed to std.process.ArgIterator
 pub const ArgIterator = switch (builtin.os.tag) {
     .macos => IteratorMacOS,
-    else => std.process.ArgIterator,
+    else => std.process.Args.Iterator,
 };
 
 /// This is an ArgIterator (duck-typed for std.process.ArgIterator) for
@@ -121,6 +125,19 @@ const IteratorMacOS = struct {
 };
 
 test "args" {
+    // We have to bootstrap a dummy arg set in, so this kind of limits us now
+    // to the platforms we can test on. This test is not too complex anyway, so
+    // not testing on the skipped platforms is probably not a big deal.
+    switch (builtin.os.tag) {
+        .windows => compat_args.args = .{ .vector = &.{std.unicode.wtf8ToWtf16LeStringLiteral("foo")} },
+        .wasi => switch (builtin.link_libc) {
+            false => return error.SkipZigTest,
+            true => compat_args.args = .{ .vector = &.{"foo"} },
+        },
+        .freestanding, .other => return error.SkipZigTest,
+        else => compat_args.args = .{ .vector = &.{"foo"} },
+    }
+
     const testing = std.testing;
     const alloc = testing.allocator;
 

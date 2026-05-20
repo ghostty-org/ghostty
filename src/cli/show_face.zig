@@ -66,11 +66,11 @@ pub fn run(alloc: Allocator) !u8 {
     defer iter.deinit();
 
     var stdout_buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = std.Io.File.stdout().writer(std.Io.Threaded.global_single_threaded.io(), &stdout_buffer);
     const stdout = &stdout_writer.interface;
 
     var stderr_buffer: [1024]u8 = undefined;
-    var stderr_writer = std.fs.File.stdout().writer(&stderr_buffer);
+    var stderr_writer = std.Io.File.stdout().writer(std.Io.Threaded.global_single_threaded.io(), &stderr_buffer);
     const stderr = &stderr_writer.interface;
 
     const result = runArgs(

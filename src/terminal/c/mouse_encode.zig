@@ -113,7 +113,7 @@ pub fn setopt(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) void {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(Option, @intFromEnum(option)) catch {
+        _ = std.enums.fromInt(Option, @intFromEnum(option)) orelse {
             log.warn("setopt invalid option value={d}", .{@intFromEnum(option)});
             return;
         };
@@ -137,7 +137,7 @@ fn setoptTyped(
     switch (option) {
         .event => {
             if (comptime std.debug.runtime_safety) {
-                _ = std.meta.intToEnum(TrackingMode, @intFromEnum(value.*)) catch {
+                _ = std.enums.fromInt(TrackingMode, @intFromEnum(value.*)) orelse {
                     log.warn("setopt invalid TrackingMode value={d}", .{@intFromEnum(value.*)});
                     return;
                 };
@@ -149,7 +149,7 @@ fn setoptTyped(
 
         .format => {
             if (comptime std.debug.runtime_safety) {
-                _ = std.meta.intToEnum(Format, @intFromEnum(value.*)) catch {
+                _ = std.enums.fromInt(Format, @intFromEnum(value.*)) orelse {
                     log.warn("setopt invalid Format value={d}", .{@intFromEnum(value.*)});
                     return;
                 };

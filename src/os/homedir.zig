@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const passwd = @import("passwd.zig");
-const posix = std.posix;
+const compat_env = @import("../lib/compat/env.zig");
 const objc = @import("objc");
 
 const Error = error{
@@ -25,7 +25,7 @@ pub inline fn home(buf: []u8) !?[]const u8 {
 
 fn homeUnix(buf: []u8) !?[]const u8 {
     // First: if we have a HOME env var, then we use that.
-    if (posix.getenv("HOME")) |result| {
+    if (compat_env.getenv("HOME")) |result| {
         if (buf.len < result.len) return Error.BufferTooSmall;
         @memcpy(buf[0..result.len], result);
         return buf[0..result.len];
@@ -60,13 +60,13 @@ fn homeUnix(buf: []u8) !?[]const u8 {
 
     // If all else fails, have the shell tell us...
     fba.reset();
-    const run = try std.process.Child.run(.{
-        .allocator = fba.allocator(),
+    const run = try std.process.run(fba.allocator(), std.Io.Threaded.global_single_threaded.io(), .{
         .argv = &[_][]const u8{ "/bin/sh", "-c", "cd && pwd" },
-        .max_output_bytes = fba.buffer.len / 2,
+        .stdout_limit = .limited(fba.buffer.len / 2),
+        .stderr_limit = .limited(fba.buffer.len / 2),
     });
 
-    if (run.term == .Exited and run.term.Exited == 0) {
+    if (run.term == .exited and run.term.exited == 0) {
         const result = trimSpace(run.stdout);
         if (buf.len < result.len) return Error.BufferTooSmall;
         @memcpy(buf[0..result.len], result);

@@ -60,7 +60,10 @@ pub fn TaggedUnion(
             }
 
             const tag_fields = @typeInfo(Tag).@"enum".fields;
-            var union_fields: [tag_fields.len + 1]std.builtin.Type.UnionField = undefined;
+            var names: [tag_fields.len + 1][]const u8 = undefined;
+            var types: [tag_fields.len + 1]type = undefined;
+            var attrs: [tag_fields.len + 1]std.builtin.Type.UnionField.Attributes = undefined;
+
             for (tag_fields, 0..) |field, i| {
                 const action = @unionInit(Union, field.name, undefined);
                 const Type = t: {
@@ -74,25 +77,16 @@ pub fn TaggedUnion(
                     break :t Type;
                 };
 
-                union_fields[i] = .{
-                    .name = field.name,
-                    .type = Type,
-                    .alignment = @alignOf(Type),
-                };
+                names[i] = field.name;
+                types[i] = Type;
+                attrs[i] = .{ .@"align" = @alignOf(Type) };
             }
 
-            union_fields[tag_fields.len] = .{
-                .name = "_padding",
-                .type = Padding,
-                .alignment = @alignOf(Padding),
-            };
+            names[tag_fields.len] = "_padding";
+            types[tag_fields.len] = Padding;
+            attrs[tag_fields.len] = .{ .@"align" = @alignOf(Padding) };
 
-            break :cvalue @Type(.{ .@"union" = .{
-                .layout = .@"extern",
-                .tag_type = null,
-                .fields = &union_fields,
-                .decls = &.{},
-            } });
+            break :cvalue @Union(.@"extern", null, &names, &types, &attrs);
         };
 
         /// Convert to C union.

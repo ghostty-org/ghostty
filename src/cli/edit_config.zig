@@ -6,6 +6,7 @@ const Allocator = std.mem.Allocator;
 const Action = @import("ghostty.zig").Action;
 const configpkg = @import("../config.zig");
 const internal_os = @import("../os/main.zig");
+const compat_exec = @import("../lib/compat/exec.zig");
 const Config = configpkg.Config;
 
 pub const Options = struct {
@@ -48,7 +49,7 @@ pub fn run(alloc: Allocator) !u8 {
     // critical where setting up the defer cleanup is a problem.
 
     var buffer: [1024]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&buffer);
+    var stderr_writer = std.Io.File.stderr().writer(std.Io.Threaded.global_single_threaded.io(), &buffer);
     const stderr = &stderr_writer.interface;
 
     var opts: Options = .{};
@@ -137,7 +138,7 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
     }
 
     const command = command: {
-        var buffer: std.io.Writer.Allocating = .init(alloc);
+        var buffer: std.Io.Writer.Allocating = .init(alloc);
         defer buffer.deinit();
         const writer = &buffer.writer;
         try writer.writeAll(editor);
@@ -158,7 +159,7 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
     // so this is not a big deal.
     comptime assert(builtin.link_libc);
 
-    const err = std.posix.execvpeZ(
+    const err = compat_exec.execvpeZ(
         "/bin/sh",
         &.{ "/bin/sh", "-c", command },
         std.c.environ,

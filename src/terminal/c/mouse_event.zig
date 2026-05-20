@@ -51,7 +51,7 @@ pub fn free(event_: Event) callconv(lib.calling_conv) void {
 
 pub fn set_action(event_: Event, action: Action) callconv(lib.calling_conv) void {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(Action, @intFromEnum(action)) catch {
+        _ = std.enums.fromInt(Action, @intFromEnum(action)) orelse {
             log.warn("set_action invalid action value={d}", .{@intFromEnum(action)});
             return;
         };
@@ -66,7 +66,7 @@ pub fn get_action(event_: Event) callconv(lib.calling_conv) Action {
 
 pub fn set_button(event_: Event, button: Button) callconv(lib.calling_conv) void {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(Button, @intFromEnum(button)) catch {
+        _ = std.enums.fromInt(Button, @intFromEnum(button)) orelse {
             log.warn("set_button invalid button value={d}", .{@intFromEnum(button)});
             return;
         };

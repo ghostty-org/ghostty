@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const formatterpkg = @import("formatter.zig");
+const compat_args = @import("../lib/compat/args.zig");
 
 /// A command to execute (argv0 and args).
 ///
@@ -123,7 +124,7 @@ pub const Command = union(enum) {
 
     /// Iterates over each argument in the command.
     pub const ArgIterator = union(enum) {
-        shell: std.process.ArgIteratorGeneral(.{}),
+        shell: compat_args.ArgIteratorGeneral(.{}),
         direct: struct {
             i: usize = 0,
             args: []const [:0]const u8,
