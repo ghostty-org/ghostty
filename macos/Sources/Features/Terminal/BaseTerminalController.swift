@@ -766,7 +766,8 @@ class BaseTerminalController: NSWindowController,
             ghostty,
             tree: newTree,
             position: notification.userInfo?[Notification.Name.ghosttySurfaceDragEndedNoTargetPointKey] as? NSPoint,
-            confirmUndo: false)
+            confirmUndo: false,
+            inheritBackgroundOpacity: isBackgroundOpaque)
     }
 
     // MARK: Local Events
@@ -990,11 +991,15 @@ class BaseTerminalController: NSWindowController,
         // Do nothing if in fullscreen (transparency doesn't apply in fullscreen)
         guard let window, !window.styleMask.contains(.fullScreen) else { return }
 
-        // Toggle between transparent and opaque
-        isBackgroundOpaque.toggle()
+        let newValue = !isBackgroundOpaque
+        let controllers = NSApplication.shared.windows.compactMap {
+            $0.windowController as? BaseTerminalController
+        }
 
-        // Update our appearance
-        syncAppearance()
+        for controller in controllers {
+            controller.isBackgroundOpaque = newValue
+            controller.syncAppearance()
+        }
     }
 
     /// Override this to resync any appearance related properties. This will be called automatically

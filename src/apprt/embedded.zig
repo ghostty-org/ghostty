@@ -336,6 +336,7 @@ pub const App = struct {
     ) (Allocator.Error || std.posix.WriteError || apprt.ipc.Errors)!bool {
         switch (action) {
             .new_window => return false,
+            .toggle_quick_terminal => return false,
         }
     }
 };

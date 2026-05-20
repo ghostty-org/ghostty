@@ -53,6 +53,7 @@ unset GIO_EXTRA_MODULES
 export GST_PLUGIN_SYSTEM_PATH="${SNAP}/usr/lib/${ARCH}/gstreamer-1.0"
 export GST_PLUGIN_SCANNER="${SNAP}/usr/lib/${ARCH}/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner"
 export GST_REGISTRY="${SNAP_USER_COMMON}/.cache/gstreamer-1.0-registry.bin"
+export TERMINFO_DIRS="${SNAP}/share/terminfo${TERMINFO_DIRS:+:$TERMINFO_DIRS}"
 
 # Gdk-pixbuf loaders
 mkdir -p "$SNAP_USER_COMMON/.cache"
