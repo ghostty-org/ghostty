@@ -1,6 +1,8 @@
 #pragma once
 
+#include <QMetaType>
 #include <QPoint>
+#include <QString>
 #include <QTabBar>
 #include <QTabWidget>
 
@@ -8,10 +10,20 @@ class QDragEnterEvent;
 class QDropEvent;
 class QMouseEvent;
 
-// MIME type marking a Ghostty tab tear-off drag. Recognised by tab bars
+// MIME type marking a Ghastty tab tear-off drag. Recognised by tab bars
 // (to cancel the tear-off) and by terminal surfaces (to accept the drag
-// so no "forbidden" cursor is shown over a Ghostty window).
-inline constexpr char kGhosttyTabMime[] = "application/x-ghostty-tab";
+// so no "forbidden" cursor is shown over a Ghastty window).
+inline constexpr char kGhosttyTabMime[] = "application/x-ghastty-tab";
+
+// Per-tab data stored in QTabBar::tabData. `base` is the terminal-set
+// title (libghostty SET_TITLE); `override` is a manual user-set title
+// (libghostty SET_TAB_TITLE). updateTabText shows override when set,
+// otherwise base.
+struct TabData {
+  QString base;
+  QString override_;  // `override` is a reserved C++ identifier
+};
+Q_DECLARE_METATYPE(TabData)
 
 // A QTabBar that tears a tab off into its own window when it is dragged
 // clear of the bar. QTabBar's built-in movable behaviour still handles
@@ -41,6 +53,7 @@ private:
   int m_pressIndex = -1;   // tab under the press, or -1
   QPoint m_pressPos;       // press point, for the drag hot spot
   bool m_tearing = false;  // a tear-off QDrag is in progress
+  bool m_dropHandled = false;  // a TabBar dropEvent caught our tear-off
 };
 
 // A QTabWidget wired to the tear-off-aware TabBar.
