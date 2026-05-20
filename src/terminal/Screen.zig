@@ -2506,6 +2506,164 @@ pub fn selectionString(
     return text;
 }
 
+// ---------------------------------------------------------------
+// Accessibility helpers
+// ---------------------------------------------------------------
+
+/// Pre-computed accessibility snapshot containing the full terminal
+/// text and the byte offsets delimiting the visible viewport.
+/// Contains only owned data — no Pins or page pointers — so it is
+/// safe to cache and use without holding the terminal mutex.
+pub const AccessibilityContext = struct {
+    alloc: Allocator,
+
+    /// The terminal text (all scrollback + active area).
+    text: [:0]const u8,
+
+    /// Byte offsets within `text` that delimit the visible viewport.
+    viewport_start: usize,
+    viewport_end: usize,
+
+    pub fn deinit(self: *AccessibilityContext) void {
+        self.alloc.free(self.text);
+        self.alloc.destroy(self);
+    }
+};
+
+/// Builds an AccessibilityContext: generates the terminal text with
+/// a PinMap, computes viewport byte boundaries, then discards the
+/// PinMap. The returned context is fully self-contained and can be
+/// used without the terminal mutex.
+pub fn createAccessibilityContext(
+    self: *Screen,
+    alloc: Allocator,
+) !*AccessibilityContext {
+    // Empty screen fast path.
+    const screen_tl = self.pages.getTopLeft(.screen);
+    const screen_br = self.pages.getBottomRight(.screen) orelse {
+        return try self.createEmptyContext(alloc);
+    };
+
+    const sel = Selection.init(screen_tl, screen_br, false);
+
+    // Generate text with a pin map so we can locate viewport boundaries.
+    var string_map: StringMap = undefined;
+    const text = try self.selectionString(alloc, .{
+        .sel = sel,
+        .trim = false,
+        .map = &string_map,
+    });
+    errdefer alloc.free(text);
+    defer {
+        alloc.free(string_map.string);
+        alloc.free(string_map.map);
+    }
+
+    // Build a node → cumulative-row-offset lookup so we can
+    // convert any Pin to an absolute screen row in O(1).
+    var node_offsets = std.AutoHashMap(*PageList.List.Node, usize).init(alloc);
+    defer node_offsets.deinit();
+    {
+        var total: usize = 0;
+        var it = self.pages.pages.first;
+        while (it) |node| : (it = node.next) {
+            try node_offsets.put(node, total);
+            total += node.data.size.rows;
+        }
+    }
+
+    // Determine viewport boundaries by scanning the pin map. A binary
+    // search is possible (rows are monotonically non-decreasing) but
+    // wouldn't change overall complexity since building the PinMap is
+    // already O(n).
+    const vp_tl = self.pages.getTopLeft(.viewport);
+    const vp_br = self.pages.getBottomRight(.viewport);
+
+    var vp_start: usize = text.len;
+    var vp_end: usize = text.len;
+
+    if (vp_br != null) {
+        const vp_tl_screen = self.pages.pointFromPin(.screen, vp_tl);
+        const vp_br_screen = self.pages.pointFromPin(.screen, vp_br.?);
+
+        if (vp_tl_screen != null and vp_br_screen != null) {
+            const vp_tl_row = vp_tl_screen.?.coord().y;
+            const vp_br_row = vp_br_screen.?.coord().y;
+
+            for (string_map.map, 0..) |pin, i| {
+                const row_offset = node_offsets.get(pin.node) orelse continue;
+                const abs_row = row_offset + pin.y;
+
+                if (abs_row < vp_tl_row) continue;
+                // We'd expect the viewport to always start at column 0,
+                // but guard against the general case.
+                if (abs_row == vp_tl_row and pin.x < vp_tl.x) continue;
+
+                if (abs_row > vp_br_row or (abs_row == vp_br_row and pin.x > vp_br.?.x)) {
+                    vp_end = i;
+                    break;
+                }
+
+                if (vp_start > i) vp_start = i;
+            }
+        }
+    }
+
+    if (vp_start >= string_map.map.len) vp_start = text.len;
+    if (vp_end >= string_map.map.len) vp_end = text.len;
+
+    const ctx = try alloc.create(AccessibilityContext);
+    ctx.* = .{
+        .alloc = alloc,
+        .text = text,
+        .viewport_start = vp_start,
+        .viewport_end = vp_end,
+    };
+    return ctx;
+}
+
+fn createEmptyContext(
+    self: *Screen,
+    alloc: Allocator,
+) !*AccessibilityContext {
+    _ = self;
+    const ctx = try alloc.create(AccessibilityContext);
+    ctx.* = .{
+        .alloc = alloc,
+        .text = try alloc.dupeZ(u8, ""),
+        .viewport_start = 0,
+        .viewport_end = 0,
+    };
+    return ctx;
+}
+
+/// Convenience wrapper that returns the text and viewport range
+/// without exposing the full context object to callers that only
+/// need these values.
+pub const AccessibilityText = struct {
+    text: [:0]const u8,
+    viewport_start: usize,
+    viewport_end: usize,
+
+    pub fn deinit(self: *AccessibilityText, alloc: Allocator) void {
+        alloc.free(self.text);
+    }
+};
+
+pub fn accessibilityText(
+    self: *Screen,
+    alloc: Allocator,
+) !AccessibilityText {
+    const ctx = try self.createAccessibilityContext(alloc);
+    defer alloc.destroy(ctx);
+    // Keep the text alive; only free the context wrapper.
+    return .{
+        .text = ctx.text,
+        .viewport_start = ctx.viewport_start,
+        .viewport_end = ctx.viewport_end,
+    };
+}
+
 pub const SelectLine = struct {
     /// The pin of some part of the line to select.
     pin: Pin,
@@ -10441,4 +10599,132 @@ test "Screen: promptClickMove click right of input cursor on last char" {
 
     try testing.expectEqual(@as(usize, 1), result.right);
     try testing.expectEqual(@as(usize, 0), result.left);
+}
+
+// ---------------------------------------------------------------
+// Accessibility tests
+// ---------------------------------------------------------------
+
+test "Screen: accessibilityText basic no scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello\nworld\nfoo");
+
+    var result = try s.accessibilityText(alloc);
+    defer result.deinit(alloc);
+
+    try testing.expectEqualStrings("hello\nworld\nfoo", result.text);
+    // No scrollback: viewport == entire screen.
+    try testing.expectEqual(@as(usize, 0), result.viewport_start);
+    try testing.expectEqual(result.text.len, result.viewport_end);
+}
+
+test "Screen: accessibilityText scrollback viewport at bottom" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 10 });
+    defer s.deinit();
+    // Write 5 lines into a 3-row screen: lines 0-1 go to scrollback,
+    // lines 2-4 are in the active/viewport area.
+    try s.testWriteString("line0\nline1\nline2\nline3\nline4");
+
+    var result = try s.accessibilityText(alloc);
+    defer result.deinit(alloc);
+
+    // Full text includes all 5 lines.
+    try testing.expectEqualStrings("line0\nline1\nline2\nline3\nline4", result.text);
+
+    // Viewport should cover lines 2-4 (the bottom 3 rows).
+    const vp_text = result.text[result.viewport_start..result.viewport_end];
+    try testing.expectEqualStrings("line2\nline3\nline4", vp_text);
+}
+
+test "Screen: accessibilityText scrollback scrolled up" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 10 });
+    defer s.deinit();
+    try s.testWriteString("line0\nline1\nline2\nline3\nline4");
+
+    // Scroll up by 2 rows so viewport shows lines 0-2.
+    s.scroll(.{ .delta_row = -2 });
+
+    var result = try s.accessibilityText(alloc);
+    defer result.deinit(alloc);
+
+    try testing.expectEqualStrings("line0\nline1\nline2\nline3\nline4", result.text);
+
+    const vp_text = result.text[result.viewport_start..result.viewport_end];
+    // The trailing newline is included because the newline between
+    // the last visible row and the first non-visible row is still
+    // mapped to a pin within the viewport's row range.
+    try testing.expectEqualStrings("line0\nline1\nline2\n", vp_text);
+}
+
+test "Screen: accessibilityText wide characters" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 2, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("A⚡B");
+
+    var result = try s.accessibilityText(alloc);
+    defer result.deinit(alloc);
+
+    try testing.expectEqualStrings("A⚡B", result.text);
+    try testing.expectEqual(@as(usize, 0), result.viewport_start);
+    try testing.expectEqual(result.text.len, result.viewport_end);
+}
+
+test "Screen: accessibilityText soft wrap" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // 5 columns, so "1234567890" soft-wraps across 2 rows.
+    var s = try init(alloc, .{ .cols = 5, .rows = 2, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("1234567890");
+
+    var result = try s.accessibilityText(alloc);
+    defer result.deinit(alloc);
+
+    // Soft-wrapped lines do NOT produce a '\n' in the output.
+    try testing.expectEqualStrings("1234567890", result.text);
+}
+
+test "Screen: accessibilityText empty screen" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
+    defer s.deinit();
+
+    var result = try s.accessibilityText(alloc);
+    defer result.deinit(alloc);
+
+    try testing.expectEqualStrings("", result.text);
+    try testing.expectEqual(@as(usize, 0), result.viewport_start);
+    try testing.expectEqual(@as(usize, 0), result.viewport_end);
+}
+
+test "Screen: accessibilityText partially filled" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello");
+
+    var result = try s.accessibilityText(alloc);
+    defer result.deinit(alloc);
+
+    try testing.expectEqualStrings("hello", result.text);
+    try testing.expectEqual(@as(usize, 0), result.viewport_start);
+    try testing.expectEqual(result.text.len, result.viewport_end);
 }
