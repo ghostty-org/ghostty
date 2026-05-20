@@ -1522,6 +1522,24 @@ fn searchCallback_(
     }
 }
 
+/// Call this when modifiers change without forwarding a key event to the PTY.
+/// This is used by apprts to update UI state such as link highlighting for
+/// surfaces that aren't receiving keyboard input.
+pub fn modsCallback(self: *Surface, mods: input.Mods) !void {
+    // Crash metadata in case we crash in here
+    crash.sentry.thread_state = self.crashThreadState();
+    defer crash.sentry.thread_state = null;
+
+    var translated_mods = mods;
+    if (self.config.key_remaps.isRemapped(mods)) {
+        translated_mods = self.config.key_remaps.apply(mods);
+    }
+
+    const mouse_mods = self.mouse.mods;
+    try self.handleModsChanged(translated_mods);
+    if (!mouse_mods.equal(self.mouse.mods)) try self.updateMouseShape(null);
+}
+
 /// Call this when modifiers change. This is safe to call even if modifiers
 /// match the previous state.
 ///
@@ -1556,6 +1574,72 @@ fn modsChanged(self: *Surface, mods: input.Mods) void {
             log.warn("failed to notify renderer of mods change err={}", .{err});
         };
     }
+}
+
+/// Handle modifier changes that may affect mouse/link UI state without
+/// implying that a key input should be sent to the terminal.
+fn handleModsChanged(self: *Surface, mods: input.Mods) !void {
+    if (self.mouse.mods.equal(mods)) return;
+
+    // Update our modifiers, this will update mouse mods too.
+    self.modsChanged(mods);
+
+    // We only refresh links if
+    // 1. mouse reporting is off
+    // OR
+    // 2. mouse reporting is on and we are not reporting shift to the terminal
+    if (self.io.terminal.flags.mouse_event == .none or
+        (self.mouse.mods.shift and !self.mouseShiftCapture(false)))
+    mouse_mods: {
+        // Refresh our link state
+        const pos = self.rt_surface.getCursorPos() catch break :mouse_mods;
+        self.renderer_state.mutex.lock();
+        defer self.renderer_state.mutex.unlock();
+        self.mouseRefreshLinks(
+            pos,
+            self.posToViewport(pos.x, pos.y),
+            self.mouse.over_link,
+        ) catch |err| {
+            log.warn("failed to refresh links err={}", .{err});
+            break :mouse_mods;
+        };
+    } else if (self.io.terminal.flags.mouse_event != .none and !self.mouse.mods.shift) {
+        // If we have mouse reports on and we don't have shift pressed, we reset state
+        _ = try self.rt_app.performAction(
+            .{ .surface = self },
+            .mouse_shape,
+            self.io.terminal.mouse_shape,
+        );
+        _ = try self.rt_app.performAction(
+            .{ .surface = self },
+            .mouse_over_link,
+            .{ .url = "" },
+        );
+        try self.queueRender();
+    }
+}
+
+/// Update the mouse shape for modifier-dependent cursor states.
+fn updateMouseShape(self: *Surface, physical_key: ?input.Key) !void {
+    const state: SurfaceMouse = .{
+        .physical_key = physical_key orelse .unidentified,
+        .mouse_event = self.io.terminal.flags.mouse_event,
+        .mouse_shape = self.io.terminal.mouse_shape,
+        .mods = self.mouse.mods,
+        .over_link = self.mouse.over_link,
+        .hidden = self.mouse.hidden,
+    };
+
+    const shape = if (physical_key != null)
+        state.keyToMouseShape()
+    else
+        state.modsToMouseShape();
+
+    if (shape) |v| _ = try self.rt_app.performAction(
+        .{ .surface = self },
+        .mouse_shape,
+        v,
+    );
 }
 
 /// Call this whenever the mouse moves or mods changed. The time
@@ -2693,59 +2777,11 @@ pub fn keyCallback(
 
     // If our mouse modifiers change we may need to change our
     // link highlight state.
-    if (!self.mouse.mods.equal(event.mods)) mouse_mods: {
-        // Update our modifiers, this will update mouse mods too
-        self.modsChanged(event.mods);
-
-        // We only refresh links if
-        // 1. mouse reporting is off
-        // OR
-        // 2. mouse reporting is on and we are not reporting shift to the terminal
-        if (self.io.terminal.flags.mouse_event == .none or
-            (self.mouse.mods.shift and !self.mouseShiftCapture(false)))
-        {
-            // Refresh our link state
-            const pos = self.rt_surface.getCursorPos() catch break :mouse_mods;
-            self.renderer_state.mutex.lock();
-            defer self.renderer_state.mutex.unlock();
-            self.mouseRefreshLinks(
-                pos,
-                self.posToViewport(pos.x, pos.y),
-                self.mouse.over_link,
-            ) catch |err| {
-                log.warn("failed to refresh links err={}", .{err});
-                break :mouse_mods;
-            };
-        } else if (self.io.terminal.flags.mouse_event != .none and !self.mouse.mods.shift) {
-            // If we have mouse reports on and we don't have shift pressed, we reset state
-            _ = try self.rt_app.performAction(
-                .{ .surface = self },
-                .mouse_shape,
-                self.io.terminal.mouse_shape,
-            );
-            _ = try self.rt_app.performAction(
-                .{ .surface = self },
-                .mouse_over_link,
-                .{ .url = "" },
-            );
-            try self.queueRender();
-        }
-    }
+    try self.handleModsChanged(event.mods);
 
     // Process the cursor state logic. This will update the cursor shape if
     // needed, depending on the key state.
-    if ((SurfaceMouse{
-        .physical_key = event.key,
-        .mouse_event = self.io.terminal.flags.mouse_event,
-        .mouse_shape = self.io.terminal.mouse_shape,
-        .mods = self.mouse.mods,
-        .over_link = self.mouse.over_link,
-        .hidden = self.mouse.hidden,
-    }).keyToMouseShape()) |shape| _ = try self.rt_app.performAction(
-        .{ .surface = self },
-        .mouse_shape,
-        shape,
-    );
+    try self.updateMouseShape(event.key);
 
     // We've processed a key event that produced some data so we want to
     // track the last pressed key.
