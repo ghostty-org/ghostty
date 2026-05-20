@@ -507,6 +507,12 @@ fn drawFrame(self: *Thread, now: bool) void {
     } else {
         self.renderer.drawFrame(false) catch |err|
             log.warn("error drawing err={}", .{err});
+
+        // On Win32, we need to explicitly swap buffers after rendering
+        // since there's no toolkit managing the GL context for us.
+        if (comptime @hasDecl(apprt.runtime.Surface, "swapBuffers")) {
+            self.surface.swapBuffers();
+        }
     }
 }
 
