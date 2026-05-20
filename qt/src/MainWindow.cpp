@@ -10,9 +10,11 @@
 #include <QClipboard>
 #include <QCursor>
 #include <QCloseEvent>
+#include <QCoreApplication>
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDesktopServices>
+#include <QEvent>
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
@@ -106,8 +108,8 @@ MainWindow::~MainWindow() {
   if (s_windows.isEmpty()) {
     if (s_frameTimer) {
       // The timer is parented to qApp; stop it so a final tick can't
-      // fire after s_app is freed below. delete leaves qApp's child
-      // list to clean up at process exit.
+      // fire after s_app is freed below. The QObject destructor
+      // unparents it from qApp.
       s_frameTimer->stop();
       delete s_frameTimer;
       s_frameTimer = nullptr;
@@ -116,6 +118,18 @@ MainWindow::~MainWindow() {
       delete s_quitTimer;
       s_quitTimer = nullptr;
     }
+    // Drain qApp-targeted MetaCalls posted by worker-thread libghostty
+    // callbacks (closeAllWindows, refreshChrome, OPEN_URL, postProgress,
+    // handleQuitTimer, NEW_WINDOW, CONFIG_CHANGE, ...) — these are the
+    // ones that can still touch s_app/s_config after their original
+    // window has gone. Lambdas posted to per-window/per-surface
+    // receivers are auto-cancelled by Qt when those receivers were
+    // deleted above (qDeleteAll above and the broader Qt object tree
+    // teardown), so they don't need draining.
+    //
+    // sendPostedEvents only drains the named receiver, not its
+    // children — which is exactly what we want here.
+    QCoreApplication::sendPostedEvents(qApp, QEvent::MetaCall);
     if (s_app) {
       ghostty_app_free(s_app);
       s_app = nullptr;
@@ -414,6 +428,16 @@ void MainWindow::removeSurface(GhosttySurface *surface) {
     } else if (splitterParent && splitterParent->layout()) {
       delete splitterParent->layout()->replaceWidget(splitter, sibling);
     }
+    // Drop split-zoom stash if any of its widgets is about to die.
+    // m_zoomSplitter (the splitter the zoomed surface came from) and
+    // m_zoomRoot (the page's tree root) can both be reached by
+    // collapsing siblings, leaving the stash dangling for the next
+    // toggleSplitZoom.
+    if (m_zoomed && (splitter == m_zoomSplitter || splitter == m_zoomRoot)) {
+      m_zoomed = nullptr;
+      m_zoomRoot = nullptr;
+      m_zoomSplitter = nullptr;
+    }
     // Deleting the orphaned splitter also deletes `surface`.
     splitter->deleteLater();
     return;
@@ -436,6 +460,13 @@ void MainWindow::closeTab(int index) {
   if (!page) return;
   const auto inTab = page->findChildren<GhosttySurface *>();
   for (GhosttySurface *s : inTab) m_surfaces.removeOne(s);
+  // If the zoomed surface was in this tab, clear the stash so a later
+  // toggleSplitZoom doesn't dereference a deleted page tree.
+  if (m_zoomed && inTab.contains(m_zoomed)) {
+    m_zoomed = nullptr;
+    m_zoomRoot = nullptr;
+    m_zoomSplitter = nullptr;
+  }
   m_tabs->removeTab(index);
   page->deleteLater();  // destroys every surface in the tab
   if (m_tabs->count() == 0) {
@@ -450,7 +481,16 @@ void MainWindow::adoptTab(MainWindow *src, QWidget *page) {
 
   // Re-home every surface in the tab — the libghostty surfaces are
   // unaffected (the app is shared), only the owning window changes.
-  for (GhosttySurface *s : page->findChildren<GhosttySurface *>()) {
+  const auto adopted = page->findChildren<GhosttySurface *>();
+  // If the source's zoomed surface lived in this tab, clear src's
+  // zoom stash before transferring — the stashed root/splitter
+  // pointers belong to widgets we're about to reparent away.
+  if (src->m_zoomed && adopted.contains(src->m_zoomed)) {
+    src->m_zoomed = nullptr;
+    src->m_zoomRoot = nullptr;
+    src->m_zoomSplitter = nullptr;
+  }
+  for (GhosttySurface *s : adopted) {
     src->m_surfaces.removeOne(s);
     if (!m_surfaces.contains(s)) m_surfaces.append(s);
     s->setOwner(this);
@@ -703,7 +743,9 @@ void MainWindow::handleQuitTimer(bool start) {
   if (s_quitDelayMs <= 0) return;
   if (start) {
     if (!s_quitTimer) {
-      s_quitTimer = new QTimer;
+      // Parent to qApp for consistency with s_frameTimer; the dtor
+      // still deletes it explicitly when the last window closes.
+      s_quitTimer = new QTimer(qApp);
       s_quitTimer->setSingleShot(true);
       QObject::connect(s_quitTimer, &QTimer::timeout, qApp,
                        &QApplication::quit);
@@ -916,6 +958,10 @@ void MainWindow::playBellAudio() {
     m_bellPlayer->setAudioOutput(m_bellAudio);
   }
   m_bellAudio->setVolume(ok ? volume : 0.5);
+  // Stop first so a back-to-back bell restarts the clip from the
+  // beginning. Without this, calling play() on an already-playing
+  // QMediaPlayer is a no-op and rapid bells get silently swallowed.
+  m_bellPlayer->stop();
   m_bellPlayer->setSource(QUrl::fromLocalFile(path));
   m_bellPlayer->play();
 }

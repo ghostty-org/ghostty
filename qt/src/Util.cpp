@@ -3,6 +3,15 @@
 #include <QChar>
 #include <QStringLiteral>
 
+// We index libghostty's GHOSTTY_KEY_DIGIT_0..9 and GHOSTTY_KEY_A..Z
+// enum ranges by arithmetic offset. If libghostty ever inserts an
+// entry into either range the math goes wrong silently — pin the
+// contiguity at compile time.
+static_assert(GHOSTTY_KEY_DIGIT_9 - GHOSTTY_KEY_DIGIT_0 == 9,
+              "ghostty_input_key_e DIGIT_0..9 must be contiguous");
+static_assert(GHOSTTY_KEY_Z - GHOSTTY_KEY_A == 25,
+              "ghostty_input_key_e A..Z must be contiguous");
+
 QString triggerKeyName(const ghostty_input_trigger_s &t) {
   switch (t.tag) {
     case GHOSTTY_TRIGGER_UNICODE:

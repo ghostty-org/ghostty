@@ -8,6 +8,7 @@
 #include "Util.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 #include <QByteArray>
@@ -120,14 +121,18 @@ GhosttySurface::~GhosttySurface() {
   // QPointer auto-nulls on a destroyed QObject, so .data() is safe.
   delete m_inspectorWindow.data();
 
-  // Release GL-owning objects with the context current.
-  if (makeCurrent()) {
-    if (m_surface) ghostty_surface_free(m_surface);
-    delete m_fbo;
-    delete m_premultProg;
-    delete m_premultVao;
-    m_context->doneCurrent();
-  }
+  // GL teardown must happen with the context current. If makeCurrent
+  // fails (e.g. the ctor failed before m_context could be created), we
+  // still free m_surface — it carries no GL state of its own — and we
+  // still delete the FBO and premult helpers. Deleting QOpenGL* objects
+  // without a current context leaks the GL-side resource but is safe
+  // CPU-side; that's the best we can do when the context is gone.
+  const bool current = makeCurrent();
+  if (m_surface) ghostty_surface_free(m_surface);
+  delete m_fbo;
+  delete m_premultProg;
+  delete m_premultVao;
+  if (current) m_context->doneCurrent();
 }
 
 bool GhosttySurface::makeCurrent() {
@@ -149,9 +154,11 @@ void GhosttySurface::syncSurfaceSize() {
   // PassThrough rounding policy.
   const double dpr = devicePixelRatioF();
   // The terminal fills the full width; the scrollbar is a thin overlay
-  // floating on top, so it does not subtract from the grid.
-  const int w = std::max(1, static_cast<int>(width() * dpr));
-  const int h = std::max(1, static_cast<int>(height() * dpr));
+  // floating on top, so it does not subtract from the grid. Round-to-
+  // nearest rather than truncate so a fractional DPR (e.g. 1.5) doesn't
+  // shave a pixel off the framebuffer relative to the QImage blit.
+  const int w = std::max(1, static_cast<int>(std::lround(width() * dpr)));
+  const int h = std::max(1, static_cast<int>(std::lround(height() * dpr)));
   if (w == m_fbw && h == m_fbh && dpr == m_fbDpr) return;
   m_fbw = w;
   m_fbh = h;
@@ -985,10 +992,12 @@ QVariant GhosttySurface::inputMethodQuery(Qt::InputMethodQuery query) const {
       if (!m_surface) return QRect();
       const ghostty_surface_cursor_position_s c =
           ghostty_surface_cursor_position(m_surface);
-      const double dpr = m_fbDpr > 0 ? m_fbDpr : 1.0;
-      return QRect(static_cast<int>(c.x / dpr), static_cast<int>(c.y / dpr),
-                   std::max(1, static_cast<int>(c.width / dpr)),
-                   std::max(1, static_cast<int>(c.height / dpr)));
+      // m_fbDpr defaults to 1.0 and only ever takes positive values
+      // from syncSurfaceSize, so dividing is always safe.
+      return QRect(static_cast<int>(c.x / m_fbDpr),
+                   static_cast<int>(c.y / m_fbDpr),
+                   std::max(1, static_cast<int>(c.width / m_fbDpr)),
+                   std::max(1, static_cast<int>(c.height / m_fbDpr)));
     }
     default:
       return QWidget::inputMethodQuery(query);

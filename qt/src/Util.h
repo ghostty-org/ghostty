@@ -41,6 +41,10 @@ QString formatTrigger(const ghostty_input_trigger_s &t);
 
 // Wrapper around ghostty_config_get that infers the value's length
 // from a string literal, so call sites stop repeating qstrlen().
+//
+// The template only binds to char-array references (string literals);
+// passing a `const char*` is intentionally a compile error — runtime-
+// length keys must call ghostty_config_get directly with qstrlen.
 template <typename T, size_t N>
 inline bool configGet(ghostty_config_t cfg, T *out, const char (&key)[N]) {
   return cfg && ghostty_config_get(cfg, out, key, N - 1);

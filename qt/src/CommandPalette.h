@@ -8,6 +8,7 @@ class QLineEdit;
 class QListView;
 class QSortFilterProxyModel;
 class QStandardItemModel;
+class QTimer;
 
 // A searchable command palette (the TOGGLE_COMMAND_PALETTE action).
 //
@@ -35,10 +36,14 @@ private:
   void moveSelection(int delta);
   void selectFirstRow();
 
-  QWidget *m_owner;      // the window the palette centres over
+  // Owner window the palette centres over. QPointer so a window
+  // closed while the palette is hidden doesn't leave us with a
+  // dangling raw pointer (toggleFor dereferences it for placement).
+  QPointer<QWidget> m_owner;
   QLineEdit *m_search = nullptr;
   QListView *m_list = nullptr;
   QStandardItemModel *m_model = nullptr;
   QSortFilterProxyModel *m_filter = nullptr;
+  QTimer *m_filterDebounce = nullptr;  // coalesces rapid keystrokes
   QPointer<GhosttySurface> m_surface;  // active surface; may go away
 };

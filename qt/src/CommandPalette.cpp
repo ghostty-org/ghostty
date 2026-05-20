@@ -8,6 +8,7 @@
 #include <QListView>
 #include <QSortFilterProxyModel>
 #include <QStandardItemModel>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include "GhosttySurface.h"
@@ -48,10 +49,18 @@ CommandPalette::CommandPalette(QWidget *owner)
   layout->addWidget(m_search);
   layout->addWidget(m_list);
 
-  connect(m_search, &QLineEdit::textChanged, this, [this](const QString &t) {
-    m_filter->setFilterFixedString(t);
+  // Debounce filter updates so a fast typist on a long
+  // command-palette-entry list doesn't thrash QSortFilterProxyModel.
+  // 80ms feels live without flooring slow systems.
+  m_filterDebounce = new QTimer(this);
+  m_filterDebounce->setSingleShot(true);
+  m_filterDebounce->setInterval(80);
+  connect(m_filterDebounce, &QTimer::timeout, this, [this]() {
+    m_filter->setFilterFixedString(m_search->text());
     selectFirstRow();
   });
+  connect(m_search, &QLineEdit::textChanged, this,
+          [this]() { m_filterDebounce->start(); });
   connect(m_list, &QListView::activated, this,
           [this](const QModelIndex &) { runSelected(); });
   hide();
@@ -62,6 +71,12 @@ void CommandPalette::toggleFor(GhosttySurface *surface) {
     hide();
     return;
   }
+  // If the owner window is gone (closed while we were hidden), the
+  // QPointer auto-nulled — we can't place ourselves sensibly without
+  // it, so bail. The next initialize on a new window creates a fresh
+  // palette.
+  if (!m_owner) return;
+
   m_surface = surface;
   populate();
   m_search->clear();
@@ -70,10 +85,8 @@ void CommandPalette::toggleFor(GhosttySurface *surface) {
   // Centre over the owner, biased toward the top. As a Qt::Popup the
   // position is interpreted relative to the parent window, so this
   // places correctly on Wayland too.
-  if (m_owner) {
-    const QPoint p((m_owner->width() - width()) / 2, m_owner->height() / 6);
-    move(m_owner->mapToGlobal(p));
-  }
+  const QPoint p((m_owner->width() - width()) / 2, m_owner->height() / 6);
+  move(m_owner->mapToGlobal(p));
   show();
   m_search->setFocus();
   selectFirstRow();

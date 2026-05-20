@@ -81,6 +81,11 @@ void applyWayland(QWindow *window, bool enabled) {
   if (!manager) return;  // compositor advertises no blur support
 
   auto &blurs = waylandBlurs();
+  // `take` returns and removes the prior blur if any. Knowing whether
+  // we're seeing this window for the first time decides whether we
+  // need a fresh `destroyed` connection — re-applying blur on an
+  // already-tracked window must NOT add a second connection.
+  const bool firstTime = !blurs.contains(window);
   if (org_kde_kwin_blur *old = blurs.take(window))
     org_kde_kwin_blur_release(old);
 
@@ -91,14 +96,16 @@ void applyWayland(QWindow *window, bool enabled) {
     org_kde_kwin_blur_commit(blur);
     blurs.insert(window, blur);
 
-    // Release the blur object when the window goes away. Without this,
-    // a closed window leaves its org_kde_kwin_blur leaked and the
-    // QWindow* key in the hash dangles.
-    QObject::connect(window, &QWindow::destroyed, qApp, [window]() {
-      auto &b = waylandBlurs();
-      if (org_kde_kwin_blur *old = b.take(window))
-        org_kde_kwin_blur_release(old);
-    });
+    // Release the blur object when the window goes away. Connect once
+    // per window — repeated applyBlur(window, true) calls would
+    // otherwise stack N stale lambdas on the destroyed signal.
+    if (firstTime) {
+      QObject::connect(window, &QWindow::destroyed, qApp, [window]() {
+        auto &b = waylandBlurs();
+        if (org_kde_kwin_blur *old = b.take(window))
+          org_kde_kwin_blur_release(old);
+      });
+    }
   } else {
     org_kde_kwin_blur_manager_unset(manager, surface);
   }

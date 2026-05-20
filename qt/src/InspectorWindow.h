@@ -33,6 +33,9 @@ protected:
   // GhosttySurface owns the inspector's lifetime; closing here would
   // dangle its QPointer and skip libghostty inspector teardown.
   void closeEvent(QCloseEvent *) override;
+  // Restart the redraw timer when the inspector becomes visible
+  // again; closeEvent stops it to avoid CPU waste while hidden.
+  void showEvent(QShowEvent *) override;
   void paintEvent(QPaintEvent *) override;
   void resizeEvent(QResizeEvent *) override;
   void mouseMoveEvent(QMouseEvent *) override;

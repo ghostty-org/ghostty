@@ -80,7 +80,8 @@ void GlobalShortcuts::portalCall(const QString &method, QVariantList args,
   const QString token = nextToken();
   options[QStringLiteral("handle_token")] = token;
   args.append(QVariant(options));  // the trailing a{sv} every method takes
-  m_requests.insert(requestPath(token), method);
+  const QString path = requestPath(token);
+  m_requests.insert(path, method);
 
   QDBusMessage msg = QDBusMessage::createMethodCall(
       QString::fromLatin1(kService), QString::fromLatin1(kPath),
@@ -88,16 +89,20 @@ void GlobalShortcuts::portalCall(const QString &method, QVariantList args,
   msg.setArguments(args);
 
   // The real result arrives via the Response signal; watch the call
-  // itself only so a failed invocation is not silently swallowed.
+  // itself so a failed invocation is not silently swallowed AND the
+  // m_requests entry is dropped (otherwise an errored portal call
+  // would leak a Request entry forever).
   auto *watcher = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(msg), this);
   connect(watcher, &QDBusPendingCallWatcher::finished, this,
-          [method](QDBusPendingCallWatcher *w) {
+          [this, method, path](QDBusPendingCallWatcher *w) {
             QDBusPendingReply<QDBusObjectPath> reply = *w;
-            if (reply.isError())
+            if (reply.isError()) {
               std::fprintf(stderr, "[ghastty] portal %s failed: %s\n",
                            method.toUtf8().constData(),
                            reply.error().message().toUtf8().constData());
+              m_requests.remove(path);
+            }
             w->deleteLater();
           });
 }

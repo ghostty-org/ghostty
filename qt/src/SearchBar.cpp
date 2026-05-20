@@ -80,7 +80,9 @@ SearchBar::SearchBar(GhosttySurface *surface)
   connect(close, &QToolButton::clicked, this, [this]() {
     runAction("end_search");
     hide();
-    m_surface->setFocus();
+    // m_surface is the parent so it normally outlives the bar, but
+    // during a window teardown Qt may deliver this signal mid-cascade.
+    if (m_surface) m_surface->setFocus();
   });
   hide();
 }
@@ -159,7 +161,7 @@ bool SearchBar::eventFilter(QObject *obj, QEvent *event) {
         case Qt::Key_Escape:
           runAction("end_search");
           hide();
-          m_surface->setFocus();
+          if (m_surface) m_surface->setFocus();
           return true;
         case Qt::Key_Return:
         case Qt::Key_Enter:

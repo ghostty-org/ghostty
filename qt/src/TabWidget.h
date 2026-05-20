@@ -33,7 +33,8 @@ class TabBar : public QTabBar {
   Q_OBJECT
 
 public:
-  explicit TabBar(QWidget *parent = nullptr) : QTabBar(parent) {}
+  explicit TabBar(QWidget *parent = nullptr);
+  ~TabBar() override;
 
 signals:
   // The tab was dragged off and released clear of its window.

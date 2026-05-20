@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include <QByteArray>
+#include <QCoreApplication>
 #include <QDataStream>
 #include <QDrag>
 #include <QDragEnterEvent>
@@ -12,30 +13,52 @@
 #include <QPixmap>
 #include <QPointer>
 #include <QRect>
+#include <QSet>
 
 namespace {
-// MIME role carrying a pointer-to-originating-TabBar so a receiving
-// bar's dropEvent can mark the originator's m_dropHandled. We can't
-// rely on QDrag::exec()'s return value on Wayland, and a process-wide
-// "drop handled" flag races with simultaneous tear-offs in different
-// windows.
+// MIME role carrying a tagged origin record so a receiving bar's
+// dropEvent can mark the originator's m_dropHandled. Can't rely on
+// QDrag::exec()'s return value on Wayland, and a process-wide "drop
+// handled" flag races simultaneous tear-offs in different windows.
 constexpr char kTearOffOriginRole[] = "application/x-ghastty-tab-origin";
 
+// Process-local set of live TabBars so decodeOrigin can validate the
+// pointer before dereferencing it (cross-process Wayland delivery, or
+// the originating bar dying during drag->exec, would otherwise UAF).
+QSet<TabBar *> &liveTabBars() {
+  static QSet<TabBar *> s;
+  return s;
+}
+
+// Origin payload: the source PID followed by the originating TabBar*.
+// The PID rejects cross-process delivery; the live-set check rejects
+// same-process pointers whose target was destroyed mid-drag.
+struct OriginPayload {
+  qint64 pid;
+  TabBar *bar;
+};
+
 QByteArray encodeOrigin(TabBar *bar) {
-  // Pack the raw pointer; the source process owns it for the lifetime
-  // of the drag. We never dereference unless we're in the same process,
-  // and a tear-off across processes is meaningless.
-  QByteArray bytes(reinterpret_cast<const char *>(&bar), sizeof(bar));
+  OriginPayload p{QCoreApplication::applicationPid(), bar};
+  QByteArray bytes(reinterpret_cast<const char *>(&p), sizeof(p));
   return bytes;
 }
 
 TabBar *decodeOrigin(const QByteArray &bytes) {
-  if (bytes.size() != sizeof(TabBar *)) return nullptr;
-  TabBar *bar;
-  std::memcpy(&bar, bytes.constData(), sizeof(bar));
-  return bar;
+  if (bytes.size() != sizeof(OriginPayload)) return nullptr;
+  OriginPayload p;
+  std::memcpy(&p, bytes.constData(), sizeof(p));
+  if (p.pid != QCoreApplication::applicationPid()) return nullptr;
+  if (!liveTabBars().contains(p.bar)) return nullptr;
+  return p.bar;
 }
 }  // namespace
+
+TabBar::TabBar(QWidget *parent) : QTabBar(parent) {
+  liveTabBars().insert(this);
+}
+
+TabBar::~TabBar() { liveTabBars().remove(this); }
 
 void TabBar::mousePressEvent(QMouseEvent *e) {
   if (e->button() == Qt::LeftButton) {
@@ -106,8 +129,16 @@ void TabBar::startTearOff(QMouseEvent *e) {
   // window. m_dropHandled — set by a TabBar::dropEvent on the
   // originating bar — is the signal, since QDrag::exec()'s result is
   // unreliable across surfaces on Wayland.
+  //
+  // drag->exec spins a nested event loop. Anything queued onto this
+  // bar's window — a libghostty close action, the user closing the
+  // window mid-drag — can `delete this` while exec runs. Watch our own
+  // lifetime via QPointer and bail out before any post-exec member
+  // access if we've been deleted.
   m_dropHandled = false;
+  QPointer<TabBar> self(this);
   drag->exec(Qt::MoveAction);
+  if (!self) return;
 
   m_tearing = false;
   m_pressIndex = -1;

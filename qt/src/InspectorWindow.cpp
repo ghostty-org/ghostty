@@ -1,8 +1,11 @@
 #include "InspectorWindow.h"
 
+#include <cstdio>
+
 #include <QCloseEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QShowEvent>
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
 #include <QOpenGLFramebufferObject>
@@ -55,12 +58,27 @@ InspectorWindow::InspectorWindow(ghostty_surface_t surface)
 }
 
 InspectorWindow::~InspectorWindow() {
-  if (m_inspector && makeCurrent()) {
+  // ghostty_inspector_free runs the ImGui OpenGL backend shutdown
+  // (ImGui_ImplOpenGL3_ShutdownWithLoaderCleanup), which needs the GL
+  // context current. Keep the context current across that call, then
+  // release it.
+  //
+  // If makeCurrent fails (display already gone on Wayland teardown,
+  // GPU reset, or the ctor failed before m_context was created) and
+  // the OpenGL backend had been initialized (m_glReady), the backend
+  // shutdown will run without a current context — accepting a
+  // GL-side resource leak. The process is exiting; the OS reclaims.
+  const bool current = m_inspector && makeCurrent();
+  if (current) {
     ghostty_inspector_opengl_shutdown(m_inspector);
     delete m_fbo;
-    m_context->doneCurrent();
+  } else if (m_glReady) {
+    std::fprintf(stderr,
+                 "[ghastty] inspector dtor: GL context unavailable; "
+                 "leaking inspector GL resources at shutdown\n");
   }
   if (m_surface) ghostty_inspector_free(m_surface);
+  if (current) m_context->doneCurrent();
   delete m_offscreen;
 }
 
@@ -129,9 +147,16 @@ void InspectorWindow::resizeEvent(QResizeEvent *) { syncSize(); }
 void InspectorWindow::closeEvent(QCloseEvent *e) {
   // Hide rather than destroy: the owning GhosttySurface keeps a
   // QPointer to this window across show/hide cycles. The window is
-  // deleted only when the surface is destroyed.
+  // deleted only when the surface is destroyed. Stop the redraw
+  // timer too — a hidden inspector has no work to do.
+  if (m_timer) m_timer->stop();
   hide();
   e->ignore();
+}
+
+void InspectorWindow::showEvent(QShowEvent *e) {
+  QWidget::showEvent(e);
+  if (m_timer && !m_timer->isActive()) m_timer->start(33);
 }
 
 void InspectorWindow::sendMouseButton(QMouseEvent *ev,
@@ -175,10 +200,17 @@ void InspectorWindow::keyPressEvent(QKeyEvent *ev) {
   if (key != GHOSTTY_KEY_UNIDENTIFIED)
     ghostty_inspector_key(m_inspector, GHOSTTY_ACTION_PRESS, key,
                           translateMods(ev->modifiers()));
-  // Printable text drives ImGui's text input.
+  // Printable text drives ImGui's text input. Reject the whole string
+  // if any byte is a C0 control or DEL — checking only the first byte
+  // would let multi-char text starting with a printable then a newline
+  // sneak control codes through.
   const QByteArray text = ev->text().toUtf8();
-  if (!text.isEmpty() && static_cast<unsigned char>(text.at(0)) >= 0x20)
-    ghostty_inspector_text(m_inspector, text.constData());
+  if (text.isEmpty()) return;
+  for (char c : text) {
+    const auto u = static_cast<unsigned char>(c);
+    if (u < 0x20 || u == 0x7f) return;
+  }
+  ghostty_inspector_text(m_inspector, text.constData());
 }
 
 void InspectorWindow::keyReleaseEvent(QKeyEvent *ev) {
