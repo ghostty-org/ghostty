@@ -377,7 +377,18 @@ pub fn present(self: *OpenGL, target: Target) !void {
     // writes the default framebuffer, so ask the host to swap buffers.
     // (GTK presents implicitly via its GLArea, so this is embedded-only.)
     if (apprt.runtime == apprt.embedded) {
-        if (gl_host) |host| host.present(host.userdata);
+        if (gl_host) |host| {
+            host.present(host.userdata);
+        } else {
+            // We're being driven from a thread that never ran
+            // surfaceInit, so the threadlocal is empty. The host's
+            // present can't be called and the frame won't surface;
+            // log instead of silently dropping it.
+            log.warn(
+                "present called on a thread without an embedded GL host bound",
+                .{},
+            );
+        }
     }
 }
 

@@ -108,7 +108,10 @@ pub fn step(self: *Self, s: Step) void {
             .target => |t| .{ t.width, t.height },
             .texture => |t| .{ t.width, t.height },
         };
-        gl.viewport(0, 0, @intCast(vp_w), @intCast(vp_h)) catch return;
+        gl.viewport(0, 0, @intCast(vp_w), @intCast(vp_h)) catch |err| {
+            log.warn("render pass: viewport failed err={}", .{err});
+            return;
+        };
     }
 
     // If we have a clear color and this is the
@@ -120,18 +123,30 @@ pub fn step(self: *Self, s: Step) void {
 
     // Bind the uniform buffer we bind at index 1 to align with Metal.
     if (s.uniforms) |ubo| {
-        _ = ubo.bindBase(.uniform, 1) catch return;
+        _ = ubo.bindBase(.uniform, 1) catch |err| {
+            log.warn("render pass: UBO bindBase failed err={}", .{err});
+            return;
+        };
     }
 
     // Bind relevant texture units.
     for (s.textures, 0..) |t, i| if (t) |tex| {
-        gl.Texture.active(@intCast(i)) catch return;
-        _ = tex.texture.bind(tex.target) catch return;
+        gl.Texture.active(@intCast(i)) catch |err| {
+            log.warn("render pass: texture active({d}) failed err={}", .{ i, err });
+            return;
+        };
+        _ = tex.texture.bind(tex.target) catch |err| {
+            log.warn("render pass: texture bind({d}) failed err={}", .{ i, err });
+            return;
+        };
     };
 
     // Bind relevant samplers.
     for (s.samplers, 0..) |s_, i| if (s_) |sampler| {
-        _ = sampler.sampler.bind(@intCast(i)) catch return;
+        _ = sampler.sampler.bind(@intCast(i)) catch |err| {
+            log.warn("render pass: sampler bind({d}) failed err={}", .{ i, err });
+            return;
+        };
     };
 
     // Bind 0th buffer as the vertex buffer,
@@ -142,18 +157,33 @@ pub fn step(self: *Self, s: Step) void {
             vbo.id,
             0,
             @intCast(s.pipeline.stride),
-        ) catch return;
+        ) catch |err| {
+            log.warn("render pass: VBO bindVertexBuffer failed err={}", .{err});
+            return;
+        };
 
         for (s.buffers[1..], 1..) |b, i| if (b) |buf| {
-            _ = buf.bindBase(.storage, @intCast(i)) catch return;
+            _ = buf.bindBase(.storage, @intCast(i)) catch |err| {
+                log.warn("render pass: SSBO bindBase({d}) failed err={}", .{ i, err });
+                return;
+            };
         };
     }
 
     if (s.pipeline.blending_enabled) {
-        gl.enable(gl.c.GL_BLEND) catch return;
-        gl.blendFunc(gl.c.GL_ONE, gl.c.GL_ONE_MINUS_SRC_ALPHA) catch return;
+        gl.enable(gl.c.GL_BLEND) catch |err| {
+            log.warn("render pass: enable BLEND failed err={}", .{err});
+            return;
+        };
+        gl.blendFunc(gl.c.GL_ONE, gl.c.GL_ONE_MINUS_SRC_ALPHA) catch |err| {
+            log.warn("render pass: blendFunc failed err={}", .{err});
+            return;
+        };
     } else {
-        gl.disable(gl.c.GL_BLEND) catch return;
+        gl.disable(gl.c.GL_BLEND) catch |err| {
+            log.warn("render pass: disable BLEND failed err={}", .{err});
+            return;
+        };
     }
 
     gl.drawArraysInstanced(
@@ -161,7 +191,10 @@ pub fn step(self: *Self, s: Step) void {
         0,
         @intCast(s.draw.vertex_count),
         @intCast(s.draw.instance_count),
-    ) catch return;
+    ) catch |err| {
+        log.warn("render pass: drawArraysInstanced failed err={}", .{err});
+        return;
+    };
 }
 
 /// Complete this render pass.
