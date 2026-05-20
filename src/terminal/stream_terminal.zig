@@ -10,6 +10,7 @@ const Action = stream.Action;
 const Screen = @import("Screen.zig");
 const modes = @import("modes.zig");
 const osc_color = @import("osc/parsers/color.zig");
+const osc = @import("osc.zig");
 const kitty_color = @import("kitty/color.zig");
 const size_report = @import("size_report.zig");
 const Terminal = @import("Terminal.zig");
@@ -233,7 +234,7 @@ pub const Handler = struct {
             .end_hyperlink => self.terminal.screens.active.endHyperlink(),
             .semantic_prompt => try self.terminal.semanticPrompt(value),
             .mouse_shape => self.terminal.mouse_shape = value,
-            .color_operation => try self.colorOperation(value.op, &value.requests),
+            .color_operation => try self.colorOperation(value.op, &value.requests, value.terminator),
             .kitty_color_report => try self.kittyColorOperation(value),
 
             // APC
@@ -552,9 +553,18 @@ pub const Handler = struct {
         self: *Handler,
         op: osc_color.Operation,
         requests: *const osc_color.List,
+        terminator: osc.Terminator,
     ) !void {
         _ = op;
         if (requests.count() == 0) return;
+
+        var stack = std.heap.stackFallback(256, self.terminal.gpa());
+        const alloc = stack.get();
+
+        var aw: std.Io.Writer.Allocating = .init(alloc);
+        defer aw.deinit();
+
+        var wrote_response = false;
 
         var it = requests.constIterator(0);
         while (it.next()) |req| {
@@ -613,11 +623,51 @@ pub const Handler = struct {
                     mask.* = .initEmpty();
                 },
 
-                .query,
+                .query => |kind| report: {
+                    if (self.effects.write_pty == null) break :report;
+                    if (!try self.colorQuery(kind, &aw.writer)) break :report;
+                    try aw.writer.writeAll(terminator.string());
+                    wrote_response = true;
+                },
+
                 .reset_special,
                 => {},
             }
         }
+
+        if (wrote_response) {
+            const resp = aw.toOwnedSliceSentinel(0) catch return;
+            defer alloc.free(resp);
+            self.writePty(resp);
+        }
+    }
+
+    fn colorQuery(
+        self: *Handler,
+        kind: osc_color.Target,
+        writer: *std.Io.Writer,
+    ) !bool {
+        const color = switch (kind) {
+            .palette => |i| self.terminal.colors.palette.current[i],
+            .dynamic => |dynamic| switch (dynamic) {
+                .foreground => self.terminal.colors.foreground.get() orelse return false,
+                .background => self.terminal.colors.background.get() orelse return false,
+                .cursor => self.terminal.colors.cursor.get() orelse
+                    self.terminal.colors.foreground.get() orelse return false,
+                .pointer_foreground,
+                .pointer_background,
+                .tektronix_foreground,
+                .tektronix_background,
+                .highlight_background,
+                .tektronix_cursor,
+                .highlight_foreground,
+                => return false,
+            },
+            .special => return false,
+        };
+
+        try osc_color.formatReport(writer, .@"16-bit", kind, color);
+        return true;
     }
 
     fn kittyColorOperation(
@@ -1018,6 +1068,37 @@ test "OSC 11 set and reset background color" {
     // Reset background
     s.nextSlice("\x1b]111\x1b\\");
     try testing.expect(t.colors.background.get() == null);
+}
+
+test "OSC 10/11 queries write color reports" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    t.colors.foreground.default = .{ .r = 0x12, .g = 0x34, .b = 0x56 };
+    t.colors.background.default = .{ .r = 0xaa, .g = 0xbb, .b = 0xcc };
+
+    const S = struct {
+        var buf: [128]u8 = undefined;
+        var written: []const u8 = "";
+
+        fn writePty(_: *Handler, data: [:0]const u8) void {
+            @memcpy(buf[0..data.len], data);
+            written = buf[0..data.len];
+        }
+    };
+    S.written = "";
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+
+    var s: Stream = .initAlloc(testing.allocator, handler);
+    defer s.deinit();
+
+    s.nextSlice("\x1b]10;?\x1b\\");
+    try testing.expectEqualStrings("\x1b]10;rgb:1212/3434/5656\x1b\\", S.written);
+
+    s.nextSlice("\x1b]11;?\x07");
+    try testing.expectEqualStrings("\x1b]11;rgb:aaaa/bbbb/cccc\x07", S.written);
 }
 
 test "OSC 12 set and reset cursor color" {
