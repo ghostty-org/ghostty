@@ -108,6 +108,9 @@ pub const Message = union(enum) {
     /// Selected search index change
     search_selected: ?usize,
 
+    /// Terminal content has changed (new output was rendered).
+    content_changed: void,
+
     pub const ReportTitleStyle = enum {
         csi_21_t,
 
