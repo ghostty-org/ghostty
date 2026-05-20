@@ -275,16 +275,15 @@ void GhosttySurface::renderTerminal() {
 }
 
 void GhosttySurface::paintEvent(QPaintEvent *) {
-  if (m_image.isNull()) return;
   QPainter painter(this);
-  // Blit the framebuffer 1:1. m_image carries the device pixel ratio, so
-  // the QPointF overload draws it at its true logical size: when in sync
-  // that exactly fills the widget, and mid-resize the content keeps its
-  // real size instead of stretching to the (already-resized) widget.
-  // CompositionMode_Source replaces the transparent widget pixels with
-  // the terminal image, alpha included, so its translucency is kept.
-  painter.setCompositionMode(QPainter::CompositionMode_Source);
-  painter.drawImage(QPointF(0, 0), m_image);
+  // Blit the framebuffer 1:1 if we have one. m_image carries the
+  // device pixel ratio, so the QPointF overload draws it at its true
+  // logical size. CompositionMode_Source replaces the transparent
+  // widget pixels with the terminal image (alpha included).
+  if (!m_image.isNull()) {
+    painter.setCompositionMode(QPainter::CompositionMode_Source);
+    painter.drawImage(QPointF(0, 0), m_image);
+  }
 
   // Unfocused-split dimming: a translucent fill over an inactive pane.
   // Only split panes (a QSplitter parent) are dimmed, matching GTK.
@@ -470,23 +469,26 @@ void GhosttySurface::showResizeOverlay() {
   const QString mode = cfgString(cfg, "resize-overlay");
   if (mode == QLatin1String("never")) return;
 
-  // The "after-first" mode hides the overlay until the grid has
-  // stepped at least once after the surface was created.
-  const bool gridChanged =
-      sz.columns != m_lastCols || sz.rows != m_lastRows;
-  if (gridChanged) {
-    const bool first = !m_firstGridSeen;
+  // First-call short-circuit. resizeEvent fires once when the
+  // surface is first laid out, before the user has done any
+  // resizing. Per `resize-overlay = after-first` (the default),
+  // we suppress that initial show — record the grid size and
+  // bail. Subsequent resizes always flow through.
+  if (!m_firstGridSeen) {
+    m_firstGridSeen = true;
     m_lastCols = sz.columns;
     m_lastRows = sz.rows;
-    m_firstGridSeen = true;
-    m_resizeOverlayText =
-        QStringLiteral("%1 × %2").arg(sz.columns).arg(sz.rows);
-    if (mode == QLatin1String("after-first") && first) return;
-  } else if (m_resizeOverlayText.isEmpty()) {
-    // No grid step has happened yet AND no overlay text is cached —
-    // nothing to display.
-    return;
+    if (mode == QLatin1String("after-first")) return;
+    // mode == "always": fall through and show the initial size too.
   }
+
+  // Update the cached text whenever the grid actually steps.
+  if (sz.columns != m_lastCols || sz.rows != m_lastRows) {
+    m_lastCols = sz.columns;
+    m_lastRows = sz.rows;
+  }
+  m_resizeOverlayText =
+      QStringLiteral("%1 × %2").arg(sz.columns).arg(sz.rows);
 
   // Push the hide deadline forward on every resizeEvent so the
   // overlay stays visible until the user actually stops resizing.
