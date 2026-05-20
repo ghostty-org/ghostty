@@ -139,6 +139,7 @@ private:
   void flashScrollbar();           // reveal the overlay scrollbar, arm hide
   void buildExitOverlay(int exitCode);
   void showResizeOverlay();        // transient grid-size overlay on resize
+  void repositionResizeOverlay();  // re-place overlay for current widget size
   void layoutSearchBar();          // position the search bar at the top edge
   void sendKey(QKeyEvent *, ghostty_input_action_e action);
   void commitText(const QString &text);

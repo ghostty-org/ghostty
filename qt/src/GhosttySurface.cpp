@@ -418,38 +418,16 @@ void GhosttySurface::layoutSearchBar() {
 void GhosttySurface::showResizeOverlay() {
   if (!m_surface || !m_owner) return;
   const ghostty_surface_size_s sz = ghostty_surface_size(m_surface);
-  // Only a grid-size change is a "resize" worth announcing.
-  if (sz.columns == m_lastCols && sz.rows == m_lastRows) return;
-  m_lastCols = sz.columns;
-  m_lastRows = sz.rows;
-
   ghostty_config_t cfg = m_owner->config();
   const QString mode = cfgString(cfg, "resize-overlay");
-  const bool first = !m_firstGridSeen;
-  m_firstGridSeen = true;
   if (mode == QLatin1String("never")) return;
-  if (mode == QLatin1String("after-first") && first) return;
 
-  if (!m_resizeOverlay) m_resizeOverlay = makeOverlayLabel(this);
-  m_resizeOverlay->setText(
-      QStringLiteral("%1 × %2").arg(sz.columns).arg(sz.rows));
-  m_resizeOverlay->adjustSize();
-
-  // resize-overlay-position: center / {top,bottom}-{left,center,right}.
-  const QString pos = cfgString(cfg, "resize-overlay-position");
-  const int m = 8;
-  int x = (width() - m_resizeOverlay->width()) / 2;
-  int y = (height() - m_resizeOverlay->height()) / 2;
-  if (pos.contains(QLatin1String("left"))) x = m;
-  else if (pos.contains(QLatin1String("right")))
-    x = width() - m_resizeOverlay->width() - m;
-  if (pos.contains(QLatin1String("top"))) y = m;
-  else if (pos.contains(QLatin1String("bottom")))
-    y = height() - m_resizeOverlay->height() - m;
-  m_resizeOverlay->move(x, y);
-  m_resizeOverlay->show();
-  m_resizeOverlay->raise();
-
+  // Reset the hide timer on EVERY resize event, not just on grid-size
+  // boundaries. Without this, slow window drags only triggered the
+  // overlay when the grid happened to step (e.g. crossing a cell
+  // height), so the overlay flashed for ~750ms then disappeared even
+  // though the user was still dragging. Reading the duration here
+  // also picks up any config reload during a resize.
   unsigned long long durNs = 0;
   configGet(cfg, &durNs, "resize-overlay-duration");
   const int durMs = durNs ? static_cast<int>(durNs / 1000000ULL) : 750;
@@ -461,6 +439,52 @@ void GhosttySurface::showResizeOverlay() {
     });
   }
   m_resizeHideTimer->start(durMs);
+
+  // The overlay TEXT only changes when the grid steps. Suppress the
+  // "after-first" mode's first-show, then track each grid step.
+  const bool gridChanged =
+      sz.columns != m_lastCols || sz.rows != m_lastRows;
+  if (gridChanged) {
+    const bool first = !m_firstGridSeen;
+    m_lastCols = sz.columns;
+    m_lastRows = sz.rows;
+    m_firstGridSeen = true;
+    if (mode == QLatin1String("after-first") && first) return;
+  } else if (m_resizeOverlay && m_resizeOverlay->isVisible()) {
+    // Overlay already visible with the right text; just reposition
+    // for the new widget size and we're done.
+    if (!m_resizeOverlay) return;
+    repositionResizeOverlay();
+    return;
+  } else if (!m_firstGridSeen) {
+    // Haven't seen a grid step yet AND no overlay is currently up.
+    // Don't show stale 0×0 text.
+    return;
+  }
+
+  if (!m_resizeOverlay) m_resizeOverlay = makeOverlayLabel(this);
+  m_resizeOverlay->setText(
+      QStringLiteral("%1 × %2").arg(sz.columns).arg(sz.rows));
+  m_resizeOverlay->adjustSize();
+  repositionResizeOverlay();
+  m_resizeOverlay->show();
+  m_resizeOverlay->raise();
+}
+
+void GhosttySurface::repositionResizeOverlay() {
+  if (!m_resizeOverlay || !m_owner) return;
+  ghostty_config_t cfg = m_owner->config();
+  const QString pos = cfgString(cfg, "resize-overlay-position");
+  const int m = 8;
+  int x = (width() - m_resizeOverlay->width()) / 2;
+  int y = (height() - m_resizeOverlay->height()) / 2;
+  if (pos.contains(QLatin1String("left"))) x = m;
+  else if (pos.contains(QLatin1String("right")))
+    x = width() - m_resizeOverlay->width() - m;
+  if (pos.contains(QLatin1String("top"))) y = m;
+  else if (pos.contains(QLatin1String("bottom")))
+    y = height() - m_resizeOverlay->height() - m;
+  m_resizeOverlay->move(x, y);
 }
 
 void GhosttySurface::showChildExited(int exitCode) {
