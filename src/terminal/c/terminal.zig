@@ -259,6 +259,11 @@ fn new_(
     });
     errdefer t.deinit(alloc);
 
+    // libghostty-vt embedders don't necessarily install Ghostty's shell
+    // integration, so don't assume OSC 133 prompts can be redrawn on resize.
+    // Shells can still opt in with OSC 133;A;redraw=1.
+    t.flags.shell_redraws_prompt = .false;
+
     // Setup our stream with trampolines always installed so that
     // setting C callbacks at any time takes effect immediately.
     var handler: Stream.Handler = t.vtHandler();
