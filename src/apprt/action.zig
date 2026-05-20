@@ -455,7 +455,7 @@ pub const Action = union(Key) {
         // At the time of writing, we don't promise ABI compatibility
         // so we can change this but I want to be aware of it.
         assert(@sizeOf(CValue) == switch (@sizeOf(usize)) {
-            4 => 16,
+            4 => 24,
             8 => 24,
             else => unreachable,
         });

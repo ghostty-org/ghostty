@@ -387,8 +387,18 @@ pub const Window = extern struct {
     /// Create a new tab with the given parent. The tab will be inserted
     /// at the position dictated by the `window-new-tab-position` config.
     /// The new tab will be selected.
-    pub fn newTab(self: *Self, parent_: ?*CoreSurface) void {
-        _ = self.newTabPage(parent_, .tab, .none);
+    pub fn newTab(self: *Self, parent_: ?*CoreSurface, overrides: struct {
+        command: ?configpkg.Command = null,
+        working_directory: ?[:0]const u8 = null,
+        title: ?[:0]const u8 = null,
+
+        pub const none: @This() = .{};
+    }) void {
+        _ = self.newTabPage(parent_, .tab, .{
+            .command = overrides.command,
+            .working_directory = overrides.working_directory,
+            .title = overrides.title,
+        });
     }
 
     pub fn newTabForWindow(
