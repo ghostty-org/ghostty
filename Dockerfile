@@ -119,8 +119,7 @@ WORKDIR /src/qt
 # materialises libghostty.so as a build-tree symlink (see qt/CMakeLists.txt).
 # `--install` lays the binary, .so, .desktop entry and icon into /out
 # under the standard FHS layout (bin/, lib/, share/...).
-RUN --mount=type=cache,target=/root/.cache/cmake \
-    set -eux; \
+RUN set -eux; \
     cmake -S /src/qt -B /src/qt/build -G Ninja \
       -DCMAKE_BUILD_TYPE=Release; \
     cmake --build /src/qt/build --parallel "$(nproc)"; \

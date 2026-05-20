@@ -16,7 +16,7 @@ if [[ ! -f "$lib" ]]; then
   exit 1
 fi
 
-cc -std=c11 -Wall -Wextra -g \
+"${CC:-cc}" -std=c11 -Wall -Wextra -g \
   -o "$here/harness" \
   "$here/main.c" \
   -I "$root/include" \

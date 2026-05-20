@@ -141,12 +141,15 @@ else()
   # parent dir as a private include (the header lives at
   # <prefix>/QtGui/<version>/QtGui/qpa/qplatformnativeinterface.h, so we
   # add the dir containing the `qpa` subfolder).
+  # Multi-arch Debian uses ${CMAKE_LIBRARY_ARCHITECTURE} (e.g.
+  # aarch64-linux-gnu) for include and lib subdirs. Hardcoding a list
+  # missed armhf/riscv64; deriving from the toolchain handles every
+  # arch the Qt 6 packages support.
   find_path(QT_QPA_INCLUDE_DIR
     NAMES qpa/qplatformnativeinterface.h
     HINTS
       "${Qt6Gui_PRIVATE_INCLUDE_DIRS}"
-      "${Qt6_DIR}/../../../include/aarch64-linux-gnu/qt6/QtGui/${Qt6_VERSION}/QtGui"
-      "${Qt6_DIR}/../../../include/x86_64-linux-gnu/qt6/QtGui/${Qt6_VERSION}/QtGui"
+      "${Qt6_DIR}/../../../include/${CMAKE_LIBRARY_ARCHITECTURE}/qt6/QtGui/${Qt6_VERSION}/QtGui"
       "${Qt6_DIR}/../../../include/qt6/QtGui/${Qt6_VERSION}/QtGui"
     PATH_SUFFIXES
       "qt6/QtGui/${Qt6_VERSION}/QtGui"

@@ -27,7 +27,10 @@ typedef struct {
 static ghostty_surface_t g_surface = NULL;
 
 // Set when libghostty asks for a redraw; the main loop then draws.
-static int g_needs_draw = 1;
+// libghostty action callbacks may run on a worker thread, so this
+// must be atomic to pair the write in on_action with the read in
+// the main loop.
+static atomic_int g_needs_draw = 1;
 
 // Count of presented frames. A nonzero value confirms the OpenGL
 // embedded render path is producing frames.
@@ -74,7 +77,7 @@ static bool on_action(ghostty_app_t app, ghostty_target_s target,
   // libghostty requests a redraw via the render action; the main loop
   // services it. Other actions are ignored by this harness.
   if (action.tag == GHOSTTY_ACTION_RENDER) {
-    g_needs_draw = 1;
+    atomic_store(&g_needs_draw, 1);
     return true;
   }
   return false;
@@ -143,7 +146,7 @@ static void on_framebuffer_size(GLFWwindow *win, int w, int h) {
   (void)win;
   if (g_surface && w > 0 && h > 0) {
     ghostty_surface_set_size(g_surface, (uint32_t)w, (uint32_t)h);
-    g_needs_draw = 1;
+    atomic_store(&g_needs_draw, 1);
   }
 }
 
@@ -252,9 +255,10 @@ int main(int argc, char **argv) {
     }
 
     // libghostty requested a draw (via the render action); service it
-    // on this thread.
-    if (g_needs_draw) {
-      g_needs_draw = 0;
+    // on this thread. atomic_exchange clears the flag and reads it in
+    // one step, so a wakeup setting it again between the read and
+    // the draw is preserved for the next iteration.
+    if (atomic_exchange(&g_needs_draw, 0)) {
       ghostty_surface_draw(surface);
     }
 
