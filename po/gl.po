@@ -194,11 +194,11 @@ msgstr "Xanela"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:212
 msgid "New Window"
-msgstr "Nova Xanela"
+msgstr "Nova xanela"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:350 src/apprt/gtk/ui/1.5/window.blp:217
 msgid "Close Window"
-msgstr "Pechar Xanela"
+msgstr "Pechar xanela"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:358
 msgid "Config"
