@@ -5,7 +5,7 @@ extension Ghostty {
     /// Represents the inspector for a surface within Ghostty.
     ///
     /// Wraps a `ghostty_inspector_t`
-    final class Inspector: Sendable {
+    final class Inspector: @unchecked Sendable {
         private let inspector: ghostty_inspector_t
 
         /// Read the underlying C value for this inspector. This is unsafe because the value will be

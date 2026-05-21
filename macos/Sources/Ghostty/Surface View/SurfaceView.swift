@@ -937,7 +937,7 @@ extension Ghostty {
                                 .opacity(dotOpacity(for: index))
                         }
                     }
-                    .onChange(of: context.date.timeIntervalSinceReferenceDate) { newValue in
+                    .backport.onChange(of: context.date.timeIntervalSinceReferenceDate) { newValue in
                         animationPhase = newValue
                     }
                 }
@@ -1011,7 +1011,7 @@ extension Ghostty {
             .allowsHitTesting(false)
             .opacity(highlighted ? 1.0 : 0.0)
             .animation(.easeOut(duration: 0.4), value: highlighted)
-            .onChange(of: highlighted) { newValue in
+            .backport.onChange(of: highlighted) { newValue in
                 if newValue {
                     withAnimation(.easeInOut(duration: 0.4).repeatForever(autoreverses: true)) {
                         borderPulse = true

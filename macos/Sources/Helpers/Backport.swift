@@ -25,6 +25,39 @@ enum BackportKeyPressResult {
 }
 
 extension Backport where Content: View {
+    /// Backported onChange that uses the modern two-parameter closure on
+    /// platforms that provide it while preserving macOS 13 support.
+    func onChange<Value: Equatable>(
+        of value: Value,
+        _ action: @escaping (Value) -> Void
+    ) -> some View {
+        if #available(iOS 17, macOS 14, *) {
+            return content.onChange(of: value) { _, newValue in
+                action(newValue)
+            }
+        } else {
+            return content.onChange(of: value) { newValue in
+                action(newValue)
+            }
+        }
+    }
+
+    /// Backported onChange variant for handlers that do not need the new value.
+    func onChange<Value: Equatable>(
+        of value: Value,
+        _ action: @escaping () -> Void
+    ) -> some View {
+        if #available(iOS 17, macOS 14, *) {
+            return content.onChange(of: value) { _, _ in
+                action()
+            }
+        } else {
+            return content.onChange(of: value) { _ in
+                action()
+            }
+        }
+    }
+
     func pointerVisibility(_ v: BackportVisibility) -> some View {
         #if canImport(AppKit)
         if #available(macOS 15, *) {

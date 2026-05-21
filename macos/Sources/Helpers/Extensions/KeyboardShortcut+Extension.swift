@@ -47,6 +47,8 @@ extension KeyboardShortcut: @retroactive CustomStringConvertible {
 }
 
 // This is available in macOS 14 so this only applies to early macOS versions.
+@available(macOS, introduced: 10.15, obsoleted: 14.0)
+@available(iOS, introduced: 13.0, obsoleted: 17.0)
 extension KeyEquivalent: @retroactive Equatable {
     public static func == (lhs: KeyEquivalent, rhs: KeyEquivalent) -> Bool {
         lhs.character == rhs.character

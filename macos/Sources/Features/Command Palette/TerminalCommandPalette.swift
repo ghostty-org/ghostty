@@ -41,7 +41,7 @@ struct TerminalCommandPaletteView: View {
                 }
             }
         }
-        .onChange(of: isPresented) { newValue in
+        .backport.onChange(of: isPresented) { newValue in
             // When the command palette disappears we need to send focus back to the
             // surface view we were overlaid on top of. There's probably a better way
             // to handle the first responder state here but I don't know it.

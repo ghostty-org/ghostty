@@ -86,7 +86,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         .ghosttyLastFocusedSurface(lastFocusedSurface)
                         .focused($focused)
                         .onAppear { self.focused = true }
-                        .onChange(of: focusedSurface) { newValue in
+                        .backport.onChange(of: focusedSurface) { newValue in
                             // We want to keep track of our last focused surface so even if
                             // we lose focus we keep this set to the last non-nil value.
                             if newValue != nil {
@@ -94,10 +94,10 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                                 self.delegate?.focusedSurfaceDidChange(to: newValue)
                             }
                         }
-                        .onChange(of: pwdURL) { newValue in
+                        .backport.onChange(of: pwdURL) { newValue in
                             self.delegate?.pwdDidChange(to: newValue)
                         }
-                        .onChange(of: cellSize) { newValue in
+                        .backport.onChange(of: cellSize) { newValue in
                             guard let size = newValue else { return }
                             self.delegate?.cellSizeDidChange(to: size)
                         }

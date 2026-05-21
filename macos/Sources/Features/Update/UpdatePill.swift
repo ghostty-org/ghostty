@@ -21,7 +21,7 @@ struct UpdatePill: View {
                     UpdatePopoverView(model: model)
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                .onChange(of: model.state) { newState in
+                .backport.onChange(of: model.state) { newState in
                     resetTask?.cancel()
                     if case .notFound(let notFound) = newState {
                         resetTask = Task { [weak model] in

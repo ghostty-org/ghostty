@@ -39,7 +39,7 @@ extension Ghostty {
                 }
             }
             .onReceive(pubInspector) { onControlInspector($0) }
-            .onChange(of: surfaceView.inspectorVisible) { inspectorVisible in
+            .backport.onChange(of: surfaceView.inspectorVisible) { inspectorVisible in
                 // When we show the inspector, we want to focus on the inspector.
                 // When we hide the inspector, we want to move focus back to the surface.
                 if inspectorVisible {
