@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 
 #include <QByteArray>
 #include <QClipboard>
@@ -527,8 +528,14 @@ void GhosttySurface::showResizeOverlay() {
   // vanished the instant it appeared.
   unsigned long long durCfgMs = 0;
   const bool durOk = configGet(cfg, &durCfgMs, "resize-overlay-duration");
+  // Clamp before narrowing: a Duration's millisecond value can exceed
+  // INT_MAX, and a wrapped negative int would make QTimer::start()
+  // reject the interval, leaving the overlay stuck on screen.
   const int durMs =
-      (durOk && durCfgMs > 0) ? static_cast<int>(durCfgMs) : 750;
+      (durOk && durCfgMs > 0)
+          ? static_cast<int>(std::min<unsigned long long>(
+                durCfgMs, std::numeric_limits<int>::max()))
+          : 750;
   if (!m_resizeHideTimer) {
     m_resizeHideTimer = new QTimer(this);
     m_resizeHideTimer->setSingleShot(true);
