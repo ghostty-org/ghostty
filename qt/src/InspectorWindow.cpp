@@ -11,6 +11,7 @@
 #include <QOpenGLFramebufferObject>
 #include <QOpenGLFunctions>
 #include <QPainter>
+#include <QSettings>
 #include <QSurfaceFormat>
 #include <QTimer>
 #include <QWheelEvent>
@@ -46,7 +47,15 @@ InspectorWindow::InspectorWindow(ghostty_surface_t surface)
   setWindowTitle(QStringLiteral("Ghastty Inspector"));
   setFocusPolicy(Qt::StrongFocus);
   setMouseTracking(true);
-  resize(800, 600);
+
+  // Restore the last saved size/position. macOS uses NSWindow's
+  // autosaveName; Qt has no built-in equivalent, so we persist via
+  // QSettings ourselves. First-run default matches the prior
+  // hard-coded 800x600.
+  QSettings s;
+  const QByteArray geom =
+      s.value(QStringLiteral("inspector/geometry")).toByteArray();
+  if (!restoreGeometry(geom)) resize(800, 600);
 
   m_inspector = ghostty_surface_inspector(m_surface);
 
@@ -150,6 +159,8 @@ void InspectorWindow::closeEvent(QCloseEvent *e) {
   // deleted only when the surface is destroyed. Stop the redraw
   // timer too — a hidden inspector has no work to do.
   if (m_timer) m_timer->stop();
+  // Persist size + position so the next reveal restores them.
+  QSettings().setValue(QStringLiteral("inspector/geometry"), saveGeometry());
   hide();
   e->ignore();
 }

@@ -74,6 +74,15 @@ public:
   // The live libghostty config (for keybind lookups, etc.).
   ghostty_config_t config() const { return s_config; }
 
+  // initial-window config plumbing. The libghostty app+config is
+  // built by the first MainWindow::initialize, so main.cpp opens a
+  // bootstrap window and asks afterwards whether the user actually
+  // wanted one — closing it cleanly if not. Headless start-up is
+  // how a user runs ghastty as a daemon for the global quick-
+  // terminal shortcut.
+  static bool wantsInitialWindow();
+  static void closeInitialWindow();
+
   // UNDO / REDO close-tab/window. The libghostty actions carry no
   // payload — the apprt is responsible for tracking what was closed
   // and reviving it. macOS uses NSUndoManager; we keep a small bounded

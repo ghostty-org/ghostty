@@ -943,7 +943,23 @@ void MainWindow::setupLayerShell() {
       : ki == QLatin1String("none")    ? LSW::KeyboardInteractivityNone
                                        : LSW::KeyboardInteractivityOnDemand);
 
+  // quick-terminal-screen: pick which output to anchor on. `main`
+  // (the default) maps to the primary screen; `mouse` to the screen
+  // under the cursor; `macos-menu-bar` is macOS-only and falls
+  // through to primary on Linux. LayerShellQt reads the QWindow's
+  // QScreen when ScreenFromQWindow is set, so we just set the
+  // window's screen before anchoring.
+  const QString screenMode = configString("quick-terminal-screen");
   QScreen *screen = handle->screen();
+  if (screenMode == QLatin1String("mouse")) {
+    if (QScreen *s = QGuiApplication::screenAt(QCursor::pos())) screen = s;
+  } else if (screenMode == QLatin1String("main") ||
+             screenMode == QLatin1String("macos-menu-bar")) {
+    if (QScreen *s = QGuiApplication::primaryScreen()) screen = s;
+  }
+  if (screen && handle->screen() != screen) handle->setScreen(screen);
+  ls->setScreenConfiguration(LSW::ScreenFromQWindow);
+
   const QSize scr = screen ? screen->size() : QSize(1920, 1080);
 
   // quick-terminal-size: primary is the edge-perpendicular extent.
@@ -1268,12 +1284,66 @@ void MainWindow::playBellAudio() {
   m_bellPlayer->play();
 }
 
-// Refresh every window's chrome (tab-bar policy, colour scheme, blur)
-// from the current s_config.
+// Refresh every window's chrome from the current s_config: tab-bar
+// policy, colour scheme, blur — plus window-level state that
+// previously only applied at startup (window-decoration, fullscreen,
+// maximize) and the quit-after-last-window-closed delay.
 void MainWindow::refreshChrome() {
+  // Refresh app-scoped state. quit-after-last-window-closed[-delay]
+  // can change the delay or the quitOnLastWindowClosed strategy at
+  // runtime; mirrors the calculation in initialize().
+  if (s_config) {
+    bool quitAfter = true;
+    configGet(s_config, &quitAfter, "quit-after-last-window-closed");
+    unsigned long long delayNs = 0;
+    configGet(s_config, &delayNs, "quit-after-last-window-closed-delay");
+    s_quitDelayMs = quitAfter ? static_cast<int>(delayNs / 1000000ULL) : 0;
+    QApplication::setQuitOnLastWindowClosed(quitAfter && s_quitDelayMs == 0);
+  }
+
   for (MainWindow *w : s_windows) {
     w->applyWindowConfig();
     w->applyBlur();
+
+    // Quick terminal is layer-shell-anchored and window flags don't
+    // apply; the rest of the per-window state is config-driven and
+    // only the static initialize() ever touched it before. This
+    // brings reload-time changes through to live windows.
+    if (w->m_quickTerminal) continue;
+
+    // window-decoration: `none` → frameless, anything else → decorated.
+    // Toggling Qt::FramelessWindowHint hides+reshows the window, so
+    // gate on a real change.
+    const bool wantFrameless =
+        w->configString("window-decoration") == QLatin1String("none");
+    const bool isFrameless =
+        w->windowFlags().testFlag(Qt::FramelessWindowHint);
+    if (wantFrameless != isFrameless) {
+      const bool wasVisible = w->isVisible();
+      w->setWindowFlag(Qt::FramelessWindowHint, wantFrameless);
+      if (wasVisible) {
+        w->show();
+        w->activateWindow();
+      }
+    }
+
+    // fullscreen / maximize: `fullscreen=true` wins over `maximize`.
+    // Setting back to a non-fullscreen window goes through showNormal
+    // first so the WM lets us out of fullscreen cleanly.
+    const QString fs = w->configString("fullscreen");
+    const bool wantFullscreen = !fs.isEmpty() && fs != QLatin1String("false");
+    const bool wantMax = w->configBool("maximize", false);
+    if (wantFullscreen) {
+      if (!w->isFullScreen()) w->showFullScreen();
+    } else if (w->isFullScreen()) {
+      w->showNormal();
+    }
+    if (!wantFullscreen) {
+      if (wantMax && !w->isMaximized()) w->showMaximized();
+      // No "un-maximize on reload" path: a user who removed `maximize`
+      // from their config probably doesn't want their existing
+      // maximized window snapped back to its non-maximized geometry.
+    }
   }
 }
 
@@ -1301,6 +1371,26 @@ void MainWindow::reloadConfigGlobal() {
   s_needsPremultiply = configHasCustomShader();
 
   refreshChrome();
+}
+
+bool MainWindow::wantsInitialWindow() {
+  // s_config exists once the bootstrap window has called initialize().
+  if (!s_config) return true;
+  bool wanted = true;
+  configGet(s_config, &wanted, "initial-window");
+  return wanted;
+}
+
+void MainWindow::closeInitialWindow() {
+  if (s_windows.isEmpty()) return;
+  // Close the bootstrap window without re-prompting; nothing has run
+  // in it yet so confirmCloseSurfaces would return true anyway, but
+  // m_skipCloseConfirm avoids any chrome flicker. closeAllWindows
+  // also resets the quit-on-last-window flag to keep the process
+  // alive until the user binds the quick-terminal shortcut.
+  MainWindow *first = s_windows.first();
+  first->m_skipCloseConfirm = true;
+  first->close();
 }
 
 QString MainWindow::configString(const char *key) const {
@@ -2353,15 +2443,22 @@ void MainWindow::onConfirmReadClipboard(void *ud, const char *str, void *state,
           while (cut > 0 && preview.at(cut - 1).isHighSurrogate()) --cut;
           preview = preview.left(cut) + QStringLiteral("…");
         }
-        const auto reply = QMessageBox::warning(
-            sp->owner(), QStringLiteral("Confirm Paste"),
-            QStringLiteral("The text being pasted may be unsafe:\n\n%1\n\n"
-                           "Paste anyway?")
-                .arg(preview),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        // Destructive Paste / Cancel buttons, default Cancel —
+        // mirrors the close-confirmation styling.
+        QMessageBox box(sp->owner());
+        box.setIcon(QMessageBox::Warning);
+        box.setWindowTitle(QStringLiteral("Confirm Paste"));
+        box.setText(QStringLiteral("The text being pasted may be unsafe."));
+        box.setInformativeText(preview);
+        QPushButton *paste = box.addButton(QStringLiteral("Paste"),
+                                           QMessageBox::DestructiveRole);
+        QPushButton *cancel = box.addButton(QStringLiteral("Cancel"),
+                                            QMessageBox::RejectRole);
+        box.setDefaultButton(cancel);
+        box.exec();
         ghostty_surface_complete_clipboard_request(
             sp->surface(), content.constData(), state,
-            reply == QMessageBox::Yes);
+            box.clickedButton() == paste);
       },
       Qt::QueuedConnection);
 }
