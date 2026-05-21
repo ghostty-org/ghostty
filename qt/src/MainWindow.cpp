@@ -21,9 +21,12 @@
 #include <QList>
 #include <QMap>
 #include <QMediaPlayer>
+#include <QMenu>
 #include <QMessageBox>
+#include <QEasingCurve>
 #include <QPoint>
 #include <QPointer>
+#include <QPropertyAnimation>
 #include <QRect>
 #include <QScreen>
 #include <QShowEvent>
@@ -93,6 +96,8 @@ MainWindow::MainWindow() {
   connect(m_tabs, &QTabWidget::currentChanged, this,
           &MainWindow::onCurrentChanged);
   connect(m_tabs, &TabWidget::tabTornOff, this, &MainWindow::detachTab);
+  connect(m_tabs, &TabWidget::tabContextMenuRequested, this,
+          &MainWindow::showTabContextMenu);
 }
 
 MainWindow::~MainWindow() {
@@ -319,7 +324,32 @@ MainWindow *MainWindow::newWindow(ghostty_surface_t parent) {
     delete w;
     return nullptr;
   }
+
+  // Default initial size. window-width / window-height (in cells) is
+  // honored by libghostty: surface init fires INITIAL_SIZE with the
+  // correct pixel rect, which our action handler picks up. So we don't
+  // re-read those here; this 800x600 only applies until INITIAL_SIZE
+  // arrives (typically a single frame).
   w->resize(800, 600);
+
+  // Window position: window-position-x/y are optional (?i16 in
+  // Config.zig). configGet writes the value and returns true when the
+  // optional is present. Both must be set to take effect (matching
+  // the Config.zig doc comment). On Wayland the compositor may
+  // ignore; X11 honors. If unset, fall back to a cascade offset from
+  // the previous window so Cmd+N spam doesn't pile every window at
+  // the same origin — macOS does this via NSWindow.cascadeTopLeft.
+  int16_t posX = 0, posY = 0;
+  const bool haveX = configGet(s_config, &posX, "window-position-x");
+  const bool haveY = configGet(s_config, &posY, "window-position-y");
+  if (haveX && haveY) {
+    w->move(posX, posY);
+  } else if (s_windows.size() > 1) {
+    if (MainWindow *prev = s_windows.value(s_windows.size() - 2)) {
+      w->move(prev->pos() + QPoint(30, 30));
+    }
+  }
+
   w->show();
   return w;
 }
@@ -526,6 +556,37 @@ void MainWindow::closeTabsByMode(GhosttySurface *src,
   for (int i : indices) closeTab(i);
 }
 
+// Right-click on a tab brings up Close / Close Others / Close Right /
+// Rename — matching macOS's NSTabViewController menu and GTK's
+// adw.TabView setup-menu (window.zig:1588).
+void MainWindow::showTabContextMenu(int index, const QPoint &globalPos) {
+  if (index < 0 || index >= m_tabs->count()) return;
+  GhosttySurface *src = surfaceAt(index);
+  if (!src) return;
+
+  QMenu menu(this);
+  QAction *aClose = menu.addAction(QStringLiteral("Close Tab"));
+  QAction *aOther = menu.addAction(QStringLiteral("Close Other Tabs"));
+  QAction *aRight = menu.addAction(QStringLiteral("Close Tabs to the Right"));
+  // "Other" / "Right" are no-ops with only one tab or the rightmost
+  // tab respectively.
+  aOther->setEnabled(m_tabs->count() > 1);
+  aRight->setEnabled(index < m_tabs->count() - 1);
+  menu.addSeparator();
+  QAction *aRename = menu.addAction(QStringLiteral("Rename Tab…"));
+
+  QAction *chosen = menu.exec(globalPos);
+  if (!chosen || !surfaceAlive(src)) return;
+  if (chosen == aClose)
+    closeTabsByMode(src, GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS);
+  else if (chosen == aOther)
+    closeTabsByMode(src, GHOSTTY_ACTION_CLOSE_TAB_MODE_OTHER);
+  else if (chosen == aRight)
+    closeTabsByMode(src, GHOSTTY_ACTION_CLOSE_TAB_MODE_RIGHT);
+  else if (chosen == aRename)
+    src->promptTitle(/*tabScope=*/true);
+}
+
 void MainWindow::adoptTab(MainWindow *src, QWidget *page) {
   const int srcIndex = src->m_tabs->indexOf(page);
   if (srcIndex < 0 || src == this) return;
@@ -710,11 +771,9 @@ void MainWindow::toggleVisibility() {
 void MainWindow::toggleQuickTerminal() {
   if (s_quickTerminal) {
     if (s_quickTerminal->isVisible()) {
-      s_quickTerminal->hide();
+      s_quickTerminal->animateQuickTerminalOut();
     } else {
-      s_quickTerminal->show();
-      s_quickTerminal->raise();
-      s_quickTerminal->activateWindow();
+      s_quickTerminal->animateQuickTerminalIn();
     }
     return;
   }
@@ -728,7 +787,62 @@ void MainWindow::toggleQuickTerminal() {
   }
   s_quickTerminal = w;
   w->setupLayerShell();
-  w->show();
+  w->animateQuickTerminalIn();
+}
+
+// Read quick-terminal-animation-duration (seconds) and convert to ms.
+static int quickTerminalAnimationMs(ghostty_config_t cfg) {
+  double secs = 0.2;  // matches Config.zig default
+  configGet(cfg, &secs, "quick-terminal-animation-duration");
+  // Clamp to a sane range so a misconfigured 0 or negative value
+  // doesn't make the window appear/disappear instantly without an
+  // animation, and a very large value doesn't lock the user out.
+  if (secs <= 0.0) return 0;
+  return std::clamp(static_cast<int>(secs * 1000.0), 1, 1000);
+}
+
+void MainWindow::animateQuickTerminalIn() {
+  setWindowOpacity(0.0);
+  show();
+  raise();
+  activateWindow();
+  const int ms = quickTerminalAnimationMs(s_config);
+  if (ms <= 0) {
+    setWindowOpacity(1.0);
+    return;
+  }
+  // Stop any running fade so toggling rapidly doesn't stack
+  // animations. The animation is parented to `this` so it dies
+  // with the window.
+  if (m_quickTerminalAnim) m_quickTerminalAnim->stop();
+  else m_quickTerminalAnim = new QPropertyAnimation(this, "windowOpacity", this);
+  m_quickTerminalAnim->setDuration(ms);
+  m_quickTerminalAnim->setStartValue(0.0);
+  m_quickTerminalAnim->setEndValue(1.0);
+  m_quickTerminalAnim->setEasingCurve(QEasingCurve::OutCubic);
+  m_quickTerminalAnim->start();
+}
+
+void MainWindow::animateQuickTerminalOut() {
+  const int ms = quickTerminalAnimationMs(s_config);
+  if (ms <= 0) {
+    hide();
+    return;
+  }
+  if (m_quickTerminalAnim) m_quickTerminalAnim->stop();
+  else m_quickTerminalAnim = new QPropertyAnimation(this, "windowOpacity", this);
+  m_quickTerminalAnim->setDuration(ms);
+  m_quickTerminalAnim->setStartValue(windowOpacity());
+  m_quickTerminalAnim->setEndValue(0.0);
+  m_quickTerminalAnim->setEasingCurve(QEasingCurve::InCubic);
+  // Disconnect any previous handler before reconnecting; otherwise a
+  // toggle-out-then-in cycle accumulates handlers that all fire on
+  // the next out.
+  disconnect(m_quickTerminalAnim, &QPropertyAnimation::finished,
+             this, nullptr);
+  connect(m_quickTerminalAnim, &QPropertyAnimation::finished, this,
+          [this]() { hide(); });
+  m_quickTerminalAnim->start();
 }
 
 void MainWindow::setupLayerShell() {
@@ -797,11 +911,13 @@ void MainWindow::setupLayerShell() {
 }
 
 void MainWindow::changeEvent(QEvent *e) {
-  // quick-terminal-autohide: drop the dropdown when it loses focus.
+  // quick-terminal-autohide: fade out the dropdown when it loses
+  // focus (use the configured animation duration so this matches
+  // an explicit toggle).
   if (e->type() == QEvent::ActivationChange && m_quickTerminal &&
       isVisible() && !isActiveWindow() &&
       configBool("quick-terminal-autohide", true))
-    hide();
+    animateQuickTerminalOut();
   QWidget::changeEvent(e);
 }
 
@@ -951,14 +1067,40 @@ void MainWindow::resizeSplit(GhosttySurface *from,
   splitter->setSizes(sizes);
 }
 
+// Count the number of GhosttySurface leaves under `widget`, recursively.
+// Used by equalizeSplits to weight splitter children by leaf count so a
+// 3-pane sibling gets 3x the size of a 1-pane sibling — matching macOS's
+// surfaceTree.equalized() and GTK's split_tree weight model.
+static int countLeaves(QWidget *widget) {
+  if (!widget) return 0;
+  if (qobject_cast<GhosttySurface *>(widget)) return 1;
+  if (auto *splitter = qobject_cast<QSplitter *>(widget)) {
+    int n = 0;
+    for (int i = 0; i < splitter->count(); ++i)
+      n += countLeaves(splitter->widget(i));
+    return std::max(1, n);
+  }
+  // For containers like the tab page, recurse into direct children.
+  int n = 0;
+  for (QObject *c : widget->children())
+    if (auto *w = qobject_cast<QWidget *>(c)) n += countLeaves(w);
+  return n;
+}
+
 void MainWindow::equalizeSplits(GhosttySurface *from) {
   const int tab = tabIndexForSurface(from);
   if (tab < 0) return;
   QWidget *page = m_tabs->widget(tab);
+  // Weight each splitter child by its leaf count so equalize means
+  // "every pane gets the same area," not "every direct child of each
+  // splitter gets the same area." A 3-pane vertical split next to a
+  // 1-pane sibling now ends up 3:1 at the top level (and 1:1:1
+  // within the 3-pane child), giving every pane the same final size.
   const auto splitters = page->findChildren<QSplitter *>();
   for (QSplitter *splitter : splitters) {
     QList<int> sizes;
-    for (int i = 0; i < splitter->count(); ++i) sizes.append(1 << 20);
+    for (int i = 0; i < splitter->count(); ++i)
+      sizes.append(countLeaves(splitter->widget(i)) * (1 << 16));
     splitter->setSizes(sizes);
   }
 }

@@ -14,6 +14,7 @@ class QMediaPlayer;
 class QShowEvent;
 class QSplitter;
 class TabWidget;
+class QPropertyAnimation;
 class QTimer;
 class CommandPalette;
 class GhosttySurface;
@@ -46,6 +47,12 @@ public:
   // Show/hide the dropdown quick terminal, creating it on first use
   // (TOGGLE_QUICK_TERMINAL). There is at most one per process.
   static void toggleQuickTerminal();
+
+  // Quick-terminal slide/fade animation per quick-terminal-animation-
+  // duration. Implemented as a windowOpacity fade because Qt's layer-
+  // shell doesn't expose a usable position-based slide API.
+  void animateQuickTerminalIn();
+  void animateQuickTerminalOut();
 
   // Open a new tab. `parent` (may be null) is the surface whose working
   // directory etc. the new surface should inherit.
@@ -101,6 +108,10 @@ private:
   // Honor close-tab-mode (THIS / OTHER / RIGHT) from libghostty.
   void closeTabsByMode(GhosttySurface *src,
                        ghostty_action_close_tab_mode_e mode);
+  // Right-click context menu over a tab (Close / Close Others /
+  // Close Tabs to the Right / Rename), wired from
+  // TabWidget::tabContextMenuRequested.
+  void showTabContextMenu(int index, const QPoint &globalPos);
   // Tear tab `index` out into a new window (tabTornOff signal).
   void detachTab(int index);
   // Move `page` (a tab and its surfaces) from `src` into this window.
@@ -207,6 +218,9 @@ private:
   ghostty_surface_t m_firstTabParent = nullptr;  // inherited by the 1st tab
   bool m_skipCloseConfirm = false;     // close already confirmed elsewhere
   bool m_quickTerminal = false;        // this is the dropdown quick terminal
+  // Per-window opacity animation for the quick terminal (fade in/out
+  // using quick-terminal-animation-duration). Lazily created.
+  QPropertyAnimation *m_quickTerminalAnim = nullptr;
   QSize m_defaultWindowSize;           // for RESET_WINDOW_SIZE; from INITIAL_SIZE
 
   // Process-shared libghostty state: one app and config drive every

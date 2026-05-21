@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include <QByteArray>
+#include <QContextMenuEvent>
 #include <QCoreApplication>
 #include <QDataStream>
 #include <QDrag>
@@ -191,9 +192,21 @@ void TabBar::dropEvent(QDropEvent *e) {
   }
 }
 
+void TabBar::contextMenuEvent(QContextMenuEvent *e) {
+  // Find which tab the right-click landed on; if it missed every
+  // tab, do nothing (no menu over empty bar area). globalPos() is
+  // ready for QMenu::exec on the parent side.
+  const int idx = tabAt(e->pos());
+  if (idx < 0) return;
+  emit tabContextMenuRequested(idx, e->globalPos());
+  e->accept();
+}
+
 TabWidget::TabWidget(QWidget *parent) : QTabWidget(parent) {
   auto *bar = new TabBar(this);
   bar->setAcceptDrops(true);  // so a tear-off can be dropped back on it
   setTabBar(bar);  // protected on QTabWidget; accessible to this subclass
   connect(bar, &TabBar::tabTornOff, this, &TabWidget::tabTornOff);
+  connect(bar, &TabBar::tabContextMenuRequested,
+          this, &TabWidget::tabContextMenuRequested);
 }

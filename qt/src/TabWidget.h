@@ -39,6 +39,11 @@ public:
 signals:
   // The tab was dragged off and released clear of its window.
   void tabTornOff(int index);
+  // The user right-clicked a tab; the parent should show a context
+  // menu (Close / Close Others / Close Tabs to the Right / Rename).
+  // index is the tab index under the click; globalPos is screen-
+  // space and ready to pass to QMenu::exec.
+  void tabContextMenuRequested(int index, const QPoint &globalPos);
 
 protected:
   void mousePressEvent(QMouseEvent *) override;
@@ -47,6 +52,9 @@ protected:
   // Accept a tear-off drag dropped back on a tab bar (cancels it).
   void dragEnterEvent(QDragEnterEvent *) override;
   void dropEvent(QDropEvent *) override;
+  // Right-click on a tab → emit tabContextMenuRequested. Matches
+  // macOS+GTK's tab context menus.
+  void contextMenuEvent(QContextMenuEvent *) override;
 
   // Cap a tab's width so a single long terminal title can't take the
   // entire bar. Matches the GTK frontend's Adw.TabBar (which clamps
@@ -74,4 +82,5 @@ public:
 
 signals:
   void tabTornOff(int index);
+  void tabContextMenuRequested(int index, const QPoint &globalPos);
 };
