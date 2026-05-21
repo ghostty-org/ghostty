@@ -9,7 +9,44 @@
 #include "MainWindow.h"
 #include "ghostty.h"
 
+// True when any argv entry starts with `+` — i.e. the user invoked a
+// libghostty CLI action (`+show-config`, `+list-fonts`, `+version`, …).
+// We detect early so the CLI path can run without paying the cost of
+// constructing a QApplication (which opens a Wayland/X11 connection
+// only to exit).
+static bool isCliActionInvocation(int argc, char **argv) {
+  for (int i = 1; i < argc; ++i) {
+    if (argv[i] && argv[i][0] == '+') return true;
+  }
+  return false;
+}
+
 int main(int argc, char **argv) {
+  // CLI action fast path: skip Qt entirely. ghostty_init parses argv
+  // for the `+action`; ghostty_cli_try_action runs it and exits the
+  // process. If something fails (unknown action, multiple actions),
+  // ghostty_init returns non-zero and we surface the same help hint
+  // macOS does.
+  if (isCliActionInvocation(argc, argv)) {
+    if (ghostty_init(static_cast<uintptr_t>(argc), argv) != GHOSTTY_SUCCESS) {
+      std::fprintf(
+          stderr,
+          "Ghastty failed to initialize! If you're executing Ghastty from\n"
+          "the command line then this is usually because an invalid action\n"
+          "or multiple actions were specified. Actions start with the `+`\n"
+          "character.\n\n"
+          "View all available actions by running `ghastty +help`.\n");
+      return 1;
+    }
+    ghostty_cli_try_action();
+    // ghostty_cli_try_action exits the process when an action ran; if
+    // it returned, no `+action` was actually parseable from argv —
+    // bail out rather than fall through to the GUI with leftover
+    // junk in argv.
+    std::fprintf(stderr, "[ghastty] no CLI action ran; aborting\n");
+    return 1;
+  }
+
   // Use the display's true fractional scale rather than rounding it up
   // (Wayland otherwise reports e.g. 2.0 for a 1.2x display, which scales
   // the terminal up).
@@ -57,9 +94,12 @@ int main(int argc, char **argv) {
   // ghostty_init must run *after* QApplication: QApplication strips its
   // own options (e.g. -style) out of argv in place, and libghostty later
   // re-scans that array for CLI config — scanning the pre-strip array
-  // would walk past its end into freed/null entries.
+  // would walk past its end into freed/null entries. The CLI-action
+  // fast path above already initialised libghostty for `+action`
+  // invocations and exited; everything reaching here is a GUI launch.
   if (ghostty_init(static_cast<uintptr_t>(argc), argv) != GHOSTTY_SUCCESS) {
-    std::fprintf(stderr, "[ghastty] ghostty_init failed\n");
+    std::fprintf(stderr,
+                 "[ghastty] ghostty_init failed; check `ghastty +help`\n");
     return 1;
   }
 
