@@ -183,6 +183,12 @@ void GhosttySurface::resizeEvent(QResizeEvent *) {
   if (m_exitOverlay) m_exitOverlay->setGeometry(rect());
   if (m_keySeqOverlay && m_keySeqOverlay->isVisible())
     m_keySeqOverlay->move(8, height() - m_keySeqOverlay->height() - 8);
+  if (m_linkOverlay && m_linkOverlay->isVisible()) {
+    int y = height() - m_linkOverlay->height() - 8;
+    if (m_keySeqOverlay && m_keySeqOverlay->isVisible())
+      y -= m_keySeqOverlay->height() + 4;
+    m_linkOverlay->move(8, y);
+  }
   layoutSearchBar();
   showResizeOverlay();
 }
@@ -380,6 +386,35 @@ void GhosttySurface::pushKeySequence(const QString &chord) {
 void GhosttySurface::endKeySequence() {
   m_keySeq.clear();
   if (m_keySeqOverlay) m_keySeqOverlay->hide();
+}
+
+void GhosttySurface::setLinkOverlay(const QString &url) {
+  if (url.isEmpty()) {
+    if (m_linkOverlay) m_linkOverlay->hide();
+    return;
+  }
+  if (!m_linkOverlay) m_linkOverlay = makeOverlayLabel(this);
+  // Cap very long URLs so the overlay doesn't span the whole pane.
+  // 80 chars is enough to recognise hostnames + the path prefix; an
+  // ellipsis in the middle preserves both halves so a query string
+  // reveal still includes the host.
+  QString display = url;
+  constexpr int kCap = 80;
+  if (display.size() > kCap) {
+    const int half = (kCap - 1) / 2;
+    display = display.left(half) + QStringLiteral("…") +
+              display.right(kCap - 1 - half);
+  }
+  m_linkOverlay->setText(display);
+  m_linkOverlay->adjustSize();
+  // Bottom-left, but offset upward when the keybind-chord overlay is
+  // visible so they don't stack on top of each other.
+  int yBase = height() - m_linkOverlay->height() - 8;
+  if (m_keySeqOverlay && m_keySeqOverlay->isVisible())
+    yBase -= m_keySeqOverlay->height() + 4;
+  m_linkOverlay->move(8, yBase);
+  m_linkOverlay->show();
+  m_linkOverlay->raise();
 }
 
 void GhosttySurface::toggleInspector(ghostty_action_inspector_e mode) {

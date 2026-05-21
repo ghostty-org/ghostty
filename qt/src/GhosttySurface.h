@@ -117,6 +117,13 @@ public:
   // Hide or show the mouse cursor without changing its shape.
   void setMouseVisible(bool visible);
 
+  // Show / hide the dedicated MOUSE_OVER_LINK URL overlay (a small
+  // pill at the surface's bottom-left). Replaces the prior
+  // setToolTip-based hint, which followed the cursor and only
+  // appeared after the OS hover delay. macOS + GTK both render a
+  // dedicated overlay.
+  void setLinkOverlay(const QString &url);
+
 protected:
   bool event(QEvent *) override;
   void paintEvent(QPaintEvent *) override;
@@ -196,6 +203,7 @@ private:
 
   QLabel *m_exitOverlay = nullptr;     // "process exited" banner; lazily made
   QLabel *m_keySeqOverlay = nullptr;   // pending keybind chord; lazily made
+  QLabel *m_linkOverlay = nullptr;     // MOUSE_OVER_LINK URL hint; lazily made
   QStringList m_keySeq;                // accumulated pending chords
   QLabel *m_resizeOverlay = nullptr;   // transient "cols x rows"; lazily made
   QTimer *m_resizeHideTimer = nullptr; // auto-hides m_resizeOverlay

@@ -17,9 +17,14 @@
 #include <QEvent>
 #include <QDir>
 #include <QFile>
+#include <QColor>
 #include <QGuiApplication>
+#include <QIcon>
 #include <QList>
 #include <QMap>
+#include <QPainter>
+#include <QPalette>
+#include <QPixmap>
 #include <QMediaPlayer>
 #include <QMenu>
 #include <QMessageBox>
@@ -53,8 +58,31 @@
 #include "Util.h"
 #include "WindowBlur.h"
 
-// Prefix marking a tab with an unacknowledged bell (bell-features title).
-static const QString kBellMark = QStringLiteral("● ");
+// Small accent-coloured dot icon shown in a tab while the tab has an
+// unacknowledged bell (bell-features title). Replaces the prior
+// inline "● " text prefix — that prefix shifted the title text and
+// fought our title-elide cap.  macOS uses a yellow tab dot;
+// GTK uses Adw.TabPage.needs-attention which renders as an accent
+// dot in the tab strip. Built lazily from an in-memory pixmap so we
+// don't ship an SVG asset for one glyph.
+static QIcon bellAttentionIcon() {
+  static QIcon cached;
+  if (cached.isNull()) {
+    QPixmap pm(16, 16);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(Qt::NoPen);
+    // System highlight colour; falls back to a warm accent if a
+    // theme returns black.
+    QColor accent = QGuiApplication::palette().color(QPalette::Highlight);
+    if (accent.lightness() < 40) accent = QColor(0xff, 0x9f, 0x1c);
+    p.setBrush(accent);
+    p.drawEllipse(QRectF(3.0, 3.0, 10.0, 10.0));
+    cached = QIcon(pm);
+  }
+  return cached;
+}
 
 // Process-shared libghostty state — see MainWindow.h.
 ghostty_app_t MainWindow::s_app = nullptr;
@@ -1226,6 +1254,11 @@ void MainWindow::equalizeSplits(GhosttySurface *from) {
 }
 
 void MainWindow::moveTab(int amount) {
+  // Out-of-range moves clamp to the first/last tab. Qt clamps; macOS
+  // clamps; GTK wraps around. The audit (I3) flagged the GTK
+  // mismatch — we deliberately match macOS here: a wrap means
+  // `move-tab:99` on a 3-tab window silently lands on tab 1, which
+  // is rarely what a user means.
   const int n = m_tabs->count();
   if (n < 2 || amount == 0) return;
   const int from = m_tabs->currentIndex();
@@ -1273,7 +1306,12 @@ void MainWindow::updateTabText(int tab) {
   QString text = !data.override_.isEmpty() ? data.override_
                  : !data.base.isEmpty()    ? data.base
                                            : QStringLiteral("Ghastty");
-  m_tabs->setTabText(tab, tabBellMarked(tab) ? kBellMark + text : text);
+  m_tabs->setTabText(tab, text);
+  // Show an accent dot icon while the tab has an unacknowledged bell.
+  // macOS uses a yellow tab dot; GTK uses adw.TabPage.needs-attention.
+  // The earlier "● " text prefix shifted the title and fought our
+  // tab-elide cap.
+  m_tabs->setTabIcon(tab, tabBellMarked(tab) ? bellAttentionIcon() : QIcon());
   if (tab == m_tabs->currentIndex())
     setWindowTitle(text + QStringLiteral(" — Ghastty"));
 }
@@ -2124,7 +2162,7 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       const QString url =
           l.url && l.len ? QString::fromUtf8(l.url, l.len) : QString();
       post(src, [srcp, url]() {
-        if (srcp) srcp->setToolTip(url);
+        if (srcp) srcp->setLinkOverlay(url);
       });
       return true;
     }
