@@ -220,9 +220,13 @@ private:
   // Returns true if the close may proceed.
   bool confirmCloseSurfaces(const QList<GhosttySurface *> &surfaces);
 
-  // Close every window, optionally quitting the process; prompts once
-  // via ghostty_app_needs_confirm_quit.
-  static void closeAllWindows();
+  // Close every window, optionally quitting the process. Prompts once
+  // via ghostty_app_needs_confirm_quit. `thenQuit=true` is the QUIT
+  // action's behavior (close everything and end the process);
+  // `thenQuit=false` is CLOSE_ALL_WINDOWS, which leaves the process
+  // alive when `quit-after-last-window-closed=false` is set —
+  // matching macOS where close-all and quit are distinct.
+  static void closeAllWindows(bool thenQuit);
 
   // Wire the libghostty quit_timer action to a delayed QApplication
   // quit, gated on `quit-after-last-window-closed`.

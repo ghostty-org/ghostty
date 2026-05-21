@@ -800,7 +800,13 @@ void MainWindow::onTabCloseRequested(int index) {
 void MainWindow::closeEvent(QCloseEvent *e) {
   // confirm-close-surface: prompt once for the whole window unless this
   // close was already confirmed (e.g. the last tab/surface closing).
-  if (!m_skipCloseConfirm && !confirmCloseSurfaces(m_surfaces)) {
+  // The skip flag is consumed for THIS close attempt only — if the
+  // close goes on to be ignored (it shouldn't here, but a future
+  // closeEvent override could), the next attempt re-prompts. macOS
+  // resets per-action, mirroring this.
+  const bool skip = m_skipCloseConfirm;
+  m_skipCloseConfirm = false;
+  if (!skip && !confirmCloseSurfaces(m_surfaces)) {
     e->ignore();
     return;
   }
@@ -849,23 +855,28 @@ bool MainWindow::confirmCloseSurfaces(
   return box.clickedButton() == close;
 }
 
-void MainWindow::closeAllWindows() {
-  // One process-level prompt covers every window. Destructive Quit
-  // button + plain Cancel default — same style as confirmCloseSurfaces.
+void MainWindow::closeAllWindows(bool thenQuit) {
+  // One process-level prompt covers every window. Destructive button
+  // + Cancel default — same style as confirmCloseSurfaces. Title /
+  // verb track whether this is a Quit (process ends) or a
+  // Close All Windows (process may stay alive).
   if (s_app && ghostty_app_needs_confirm_quit(s_app)) {
+    const QString title = thenQuit ? QStringLiteral("Quit")
+                                   : QStringLiteral("Close All Windows");
+    const QString verb = thenQuit ? QStringLiteral("Quit")
+                                  : QStringLiteral("Close All");
     QMessageBox box(s_windows.isEmpty() ? nullptr : s_windows.first());
     box.setIcon(QMessageBox::Warning);
-    box.setWindowTitle(QStringLiteral("Quit"));
+    box.setWindowTitle(title);
     box.setText(QStringLiteral("There are still running processes."));
-    box.setInformativeText(
-        QStringLiteral("Quitting will terminate the running processes."));
-    QPushButton *quit = box.addButton(QStringLiteral("Quit"),
-                                      QMessageBox::DestructiveRole);
+    box.setInformativeText(QStringLiteral(
+        "%1 will terminate the running processes.").arg(title));
+    QPushButton *go = box.addButton(verb, QMessageBox::DestructiveRole);
     QPushButton *cancel = box.addButton(QStringLiteral("Cancel"),
                                         QMessageBox::RejectRole);
     box.setDefaultButton(cancel);
     box.exec();
-    if (box.clickedButton() != quit) return;
+    if (box.clickedButton() != go) return;
   }
   // Copy: each close() may delete the window and mutate s_windows.
   const QList<MainWindow *> windows = s_windows;
@@ -873,9 +884,22 @@ void MainWindow::closeAllWindows() {
     w->m_skipCloseConfirm = true;
     w->close();
   }
-  // An explicit quit/close-all should end the process even when
-  // quit-after-last-window-closed left quitOnLastWindowClosed off.
-  qApp->quit();
+  if (thenQuit) {
+    // QUIT explicitly ends the process even when
+    // quit-after-last-window-closed left quitOnLastWindowClosed off.
+    qApp->quit();
+  } else {
+    // CLOSE_ALL_WINDOWS without a delay still ends the process if
+    // the user wants quit-on-last-window. With a delay configured,
+    // the QUIT_TIMER action from libghostty drives the eventual
+    // termination, matching the natural-close path. Otherwise the
+    // process stays alive (macOS close-all has the same semantics —
+    // the app remains in the dock and a launcher / global keybind
+    // can re-open windows).
+    bool quitAfter = true;
+    configGet(s_config, &quitAfter, "quit-after-last-window-closed");
+    if (quitAfter && s_quitDelayMs == 0) qApp->quit();
+  }
 }
 
 void MainWindow::toggleVisibility() {
@@ -980,7 +1004,29 @@ void MainWindow::setupLayerShell() {
   QWindow *handle = windowHandle();
   if (!handle) return;
   LayerShellQt::Window *ls = LayerShellQt::Window::get(handle);
-  if (!ls) return;
+  if (!ls) {
+    // Non-Wayland (XWayland / X11 / nested) or a compositor without
+    // the wlr-layer-shell protocol. Fall back to a regular always-
+    // on-top, undecorated, top-anchored window so the quick
+    // terminal still works as a dropdown — just without
+    // workspace-spanning behaviour. macOS gets a Cocoa window from
+    // the same code path; the quick terminal there is the
+    // equivalent fallback.
+    setWindowFlag(Qt::FramelessWindowHint, true);
+    setWindowFlag(Qt::WindowStaysOnTopHint, true);
+    setWindowFlag(Qt::Tool, true);  // stay out of the taskbar
+    if (QScreen *screen = handle->screen()) {
+      const QSize scr = screen->size();
+      // 60% width, 40% height, top-centered — close enough to the
+      // primary layer-shell layout (top-anchored full-width) without
+      // the protocol's fancier anchoring.
+      const QSize size(scr.width() * 6 / 10, scr.height() * 4 / 10);
+      const QRect g = screen->geometry();
+      move(g.left() + (g.width() - size.width()) / 2, g.top());
+      resize(size);
+    }
+    return;
+  }
   using LSW = LayerShellQt::Window;
 
   ls->setLayer(LSW::LayerTop);
@@ -1006,6 +1052,15 @@ void MainWindow::setupLayerShell() {
   }
   if (screen && handle->screen() != screen) handle->setScreen(screen);
   ls->setScreenConfiguration(LSW::ScreenFromQWindow);
+
+  // quick-terminal-space-behavior (`remain` / `move`): macOS
+  // controls whether the dropdown follows the active Space or pins
+  // to the one it was opened on. Wayland's wlr-layer-shell has no
+  // equivalent — the compositor always renders the surface on the
+  // active workspace (KWin behaviour), which corresponds to `move`.
+  // Achieving `remain` would need a per-workspace pin that no
+  // mainstream compositor exposes; honour by no-op and document.
+  Q_UNUSED(configString("quick-terminal-space-behavior"));
 
   const QSize scr = screen ? screen->size() : QSize(1920, 1080);
 
@@ -1760,24 +1815,58 @@ void MainWindow::applyWindowConfig() {
   for (QSplitter *s : findChildren<QSplitter *>())
     s->setStyleSheet(splitterCss);
 
-  // window-theme: force a light/dark scheme, or follow the OS. `auto`
-  // is rewritten to `system` on Linux by libghostty; `ghostty` follows
-  // the configured background colour's luminance.
-#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+  // window-theme: force a light/dark scheme, or follow the OS.
+  //
+  //   `auto` / `system` — follow the OS (Qt 6.8+ honours the platform
+  //   colour scheme automatically; pre-6.8 we don't override).
+  //   `dark` / `light` — force the explicit scheme.
+  //   `ghostty` — derive from the configured background colour's
+  //   luminance (Rec.601 weighting).
+  //
+  // Qt 6.8 added QStyleHints::setColorScheme. Before that, the only
+  // portable knob is QPalette: derive a dark/light palette and apply
+  // it process-wide. We set the palette in both branches so a forced
+  // theme actually changes button / text colours, not just the
+  // colour-scheme hint that nothing in our chrome reads on its own.
   const QString theme = configString("window-theme");
-  Qt::ColorScheme scheme = Qt::ColorScheme::Unknown;  // Unknown = follow OS
-  if (theme == QLatin1String("dark")) {
-    scheme = Qt::ColorScheme::Dark;
-  } else if (theme == QLatin1String("light")) {
-    scheme = Qt::ColorScheme::Light;
-  } else if (theme == QLatin1String("ghostty")) {
+  enum class Want { Follow, Dark, Light };
+  Want want = Want::Follow;
+  if (theme == QLatin1String("dark")) want = Want::Dark;
+  else if (theme == QLatin1String("light")) want = Want::Light;
+  else if (theme == QLatin1String("ghostty")) {
     ghostty_config_color_s bg{};
     if (configGet(s_config, &bg, "background")) {
       const double luma = 0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b;
-      scheme = luma < 128.0 ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light;
+      want = luma < 128.0 ? Want::Dark : Want::Light;
     }
   }
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+  Qt::ColorScheme scheme = Qt::ColorScheme::Unknown;
+  if (want == Want::Dark) scheme = Qt::ColorScheme::Dark;
+  else if (want == Want::Light) scheme = Qt::ColorScheme::Light;
   QGuiApplication::styleHints()->setColorScheme(scheme);
+#else
+  // Pre-6.8 fallback: synthesize a palette by hand. The forced
+  // light/dark palettes here approximate Qt 6.8's defaults closely
+  // enough for chrome (tab bar, dialogs); the terminal itself
+  // honours its own theme via libghostty. Want::Follow leaves the
+  // application palette untouched so the desktop's choice wins.
+  if (want != Want::Follow) {
+    QPalette p;
+    if (want == Want::Dark) {
+      p.setColor(QPalette::Window, QColor(0x2b, 0x2b, 0x2b));
+      p.setColor(QPalette::WindowText, QColor(0xee, 0xee, 0xee));
+      p.setColor(QPalette::Base, QColor(0x1e, 0x1e, 0x1e));
+      p.setColor(QPalette::AlternateBase, QColor(0x33, 0x33, 0x33));
+      p.setColor(QPalette::Text, QColor(0xee, 0xee, 0xee));
+      p.setColor(QPalette::Button, QColor(0x2b, 0x2b, 0x2b));
+      p.setColor(QPalette::ButtonText, QColor(0xee, 0xee, 0xee));
+      p.setColor(QPalette::Highlight, QColor(0x2a, 0x82, 0xda));
+      p.setColor(QPalette::HighlightedText, Qt::white);
+    }  // else: a default-constructed QPalette is light-friendly.
+    QApplication::setPalette(p);
+  }
 #endif
 }
 
@@ -2116,8 +2205,14 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       return true;
 
     case GHOSTTY_ACTION_QUIT:
+      post(qApp, []() { MainWindow::closeAllWindows(/*thenQuit=*/true); });
+      return true;
     case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:
-      post(qApp, []() { MainWindow::closeAllWindows(); });
+      // Distinct from QUIT: close-all-windows leaves the process
+      // alive when quit-after-last-window-closed is false. macOS
+      // makes the same distinction.
+      post(qApp,
+           []() { MainWindow::closeAllWindows(/*thenQuit=*/false); });
       return true;
 
     case GHOSTTY_ACTION_QUIT_TIMER: {
