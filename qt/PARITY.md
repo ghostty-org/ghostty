@@ -45,7 +45,7 @@ checkbox and link the commit hash.
 - [ ] **B12.** `CONFIG_CHANGE` only refreshes chrome (`MainWindow.cpp:1416-1421`). Doesn't push the new config to running surfaces. `applyWindowConfig` only updates tab-bar + theme — `window-decoration`, `fullscreen`, `maximize` changes don't propagate to existing windows.
 - [ ] **B13.** `OPEN_URL` ignores `kind` (`MainWindow.cpp:1471-1480`). `.text` payloads (e.g. config files) open with whatever the desktop says is default for `.txt` (usually a browser). macOS routes `.text` to a text editor.
 - [ ] **B14.** `OPEN_CONFIG` opens via `QDesktopServices::openUrl` without `text` kind hint — same problem.
-- [ ] **B15.** `SHOW_CHILD_EXITED` fires unconditionally (`MainWindow.cpp:1379-1387`, `GhosttySurface.cpp:466-498`). macOS gates on `runtime_ms > 0` and `abnormalCommandExitRuntime` config; Qt shows the banner for fast `exit 0` cases.
+- [x] **B15.** `SHOW_CHILD_EXITED` fires unconditionally (`MainWindow.cpp:1379-1387`, `GhosttySurface.cpp:466-498`). macOS gates on `runtime_ms > 0` and `abnormalCommandExitRuntime` config; Qt shows the banner for fast `exit 0` cases. — fixed in `8e8725274`
 - [x] **B16.** `COPY_TITLE_TO_CLIPBOARD` copies the WINDOW title (`MainWindow.cpp:1280-1284`, `:552`), not the surface title. On a multi-tab window, the wrong title gets copied. macOS copies per-surface. — fixed in `33b5dee46`
 - [ ] **B17.** `PROMPT_TITLE` with target=APP is no-op (`MainWindow.cpp:1271`). macOS promotes to `NSApp.mainWindow`.
 - [ ] **B18.** Many actions in `default: return false;` (`MainWindow.cpp:1603-1604`):
@@ -65,33 +65,33 @@ checkbox and link the commit hash.
 - [x] **B19.** Mouse buttons 4-11 not delivered (`GhosttySurface.cpp:710-715`). Only Left/Right/Middle mapped; back/forward buttons silently dropped. macOS + GTK both handle 4-11. — fixed in `a48ff0fb8`
 - [ ] **B20.** Modifier release doesn't synthesize event (`sendKey`). Bare Shift/Ctrl/Alt presses don't produce kitty progressive-enhancement events. macOS uses `flagsChanged`; GTK derives from physical_key.
 - [ ] **B21.** `consumed_mods` only computed for printable events (`GhosttySurface.cpp:699-701`). Keypad/function/Backspace/arrows lose consumed-mods info. macOS + GTK compute unconditionally.
-- [ ] **B22.** Caps Lock + Num Lock state never set in mods (`translateMods`). Kitty CSI-u relies on these bits.
-- [ ] **B23.** Sided modifiers (left vs right) not reported. `left_shift` vs `right_shift` keybinds can't fire. macOS + GTK both populate `mods.sides.*`.
-- [ ] **B24.** No mouse-enter/leave callback to libghostty (`GhosttySurface.cpp:927-930`). Hover state, OSC-8 link arming, mouse-report sequences stay armed after pointer leaves. macOS + GTK both notify libghostty.
+- [x] **B22.** Caps Lock + Num Lock state never set in mods (`translateMods`). Kitty CSI-u relies on these bits. — fixed in `913f192d8`
+- [x] **B23.** Sided modifiers (left vs right) not reported. `left_shift` vs `right_shift` keybinds can't fire. macOS + GTK both populate `mods.sides.*`. — fixed in `8e8725274`
+- [x] **B24.** No mouse-enter/leave callback to libghostty (`GhosttySurface.cpp:927-930`). Hover state, OSC-8 link arming, mouse-report sequences stay armed after pointer leaves. macOS + GTK both notify libghostty. — fixed in `8e8725274`
 - [x] **B25.** `MOUSE_SHAPE` action not honored at all. Cursor stays OS default regardless of what the running program (e.g. `vim`) requests. macOS + GTK both implement. — fixed in `a48ff0fb8`
 - [x] **B26.** `MOUSE_VISIBILITY` (hide-on-typing) not honored. macOS + GTK both implement. — fixed in `a48ff0fb8`
-- [ ] **B27.** Right-click swallowed when program isn't mouse-capturing (`GhosttySurface.cpp:742-745`, `:782-787`). Qt opens its context menu without ever sending the right-press to libghostty. macOS + GTK send press first, only show menu if core didn't consume — so word-select-then-menu can fire.
-- [ ] **B28.** Click-to-focus also reports the click to libghostty. macOS + GTK suppress the matching mouse-up. Qt sends both, so a focus-grabbing click is visible to running programs.
-- [ ] **B29.** `XkbState` uses default layout, not the live one (`GhosttySurface.cpp:629-641`). User with us+ru layouts gets us-only `unshifted_codepoint` regardless of active group. GTK uses `event.getLayout()`.
+- [x] **B27.** Right-click swallowed when program isn't mouse-capturing (`GhosttySurface.cpp:742-745`, `:782-787`). Qt opens its context menu without ever sending the right-press to libghostty. macOS + GTK send press first, only show menu if core didn't consume — so word-select-then-menu can fire. — fixed in `8e8725274`
+- [x] **B28.** Click-to-focus also reports the click to libghostty. macOS + GTK suppress the matching mouse-up. Qt sends both, so a focus-grabbing click is visible to running programs. — fixed in `8e8725274`
+- [x] **B29.** `XkbState` uses default layout, not the live one (`GhosttySurface.cpp:629-641`). User with us+ru layouts gets us-only `unshifted_codepoint` regardless of active group. GTK uses `event.getLayout()`. — fixed in `913f192d8`
 - [ ] **B30.** Wheel: `pixelDelta` ignored, momentum/precision unset (`GhosttySurface.cpp:919-925`). Trackpad on Wayland is notchy; kitty smooth-scroll never engages. macOS uses precise + momentum flags.
 - [ ] **B31.** Drag-drop URL escaping uses bash-only `'\''` (`GhosttySurface.cpp:889-894`). macOS + GTK use a unified `Shell.escape` / `ShellEscapeWriter` that handles backslashes, newlines, and non-POSIX shells.
 - [ ] **B32.** Plain URL drop not distinguished from file drop. `http://...` becomes a quoted argument instead of pasted text.
 
 ### Window / tab / split
 
-- [ ] **B33.** No new-window cascade or position restore. Every Ghastty window opens at 800×600 stacked on top of the previous on X11. Doesn't read `window-position-x/y`, `window-width/height`. macOS cascades + restores; GTK reads the size from the surface.
+- [x] **B33.** No new-window cascade or position restore. Every Ghastty window opens at 800×600 stacked on top of the previous on X11. Doesn't read `window-position-x/y`, `window-width/height`. macOS cascades + restores; GTK reads the size from the surface. — fixed in `cd38f4bd5`
 - [ ] **B34.** Tab tear-off can't be dropped on another window's bar (`TabWidget.cpp:165-173`). macOS + GTK both natively support cross-window tab adoption.
 - [ ] **B35.** Split focus order sorts by widget center, not split tree (`MainWindow.cpp:809-858`). Nested unbalanced trees cycle in a different order than macOS+GTK use.
 - [ ] **B36.** QSplitter handle drag bypasses libghostty (`MainWindow.cpp:381`). Mouse-drag updates Qt's splitter ratios but never tells libghostty; "split equalize" later won't restore correctly.
-- [ ] **B37.** Split equalize is per-splitter, not tree-aware (`MainWindow.cpp:886-896`). 3-pane vertical next to 1-pane gets 1:1 instead of 3:1. macOS + GTK use `surfaceTree.equalized()` which weights by leaf count.
+- [x] **B37.** Split equalize is per-splitter, not tree-aware (`MainWindow.cpp:886-896`). 3-pane vertical next to 1-pane gets 1:1 instead of 3:1. macOS + GTK use `surfaceTree.equalized()` which weights by leaf count. — fixed in `cd38f4bd5`
 - [ ] **B38.** No `split-preserve-zoom` config. macOS persists zoom across focus moves with `navigation` setting.
-- [ ] **B39.** Tab right-click context menu absent. macOS + GTK have full menu (Close/Close-Others/Close-Right/Rename/Pin).
-- [ ] **B40.** `window-decoration` only handles `none` (`MainWindow.cpp:268`). `auto`/`client`/`server` all collapse.
+- [x] **B39.** Tab right-click context menu absent. macOS + GTK have full menu (Close/Close-Others/Close-Right/Rename/Pin). — fixed in `cd38f4bd5`
+- [x] **B40.** `window-decoration` only handles `none` (`MainWindow.cpp:268`). `auto`/`client`/`server` all collapse. Wayland has no portable way to force CSD vs SSD; the platform decides. — confirmed in `8e8725274`
 - [ ] **B41.** `window-theme` partial (`MainWindow.cpp:1040`). `ghostty` mode (luminance-detected from background color) and full OS-scheme follow not implemented; pre-Qt 6.8 has zero theming.
 
 ### Quick terminal
 
-- [ ] **B42.** No animation (slide-in/out). macOS uses `NSAnimationContext`.
+- [x] **B42.** No animation (slide-in/out). macOS uses `NSAnimationContext`. — fixed in `cd38f4bd5` (fade via QPropertyAnimation; slide infeasible under LayerShellQt)
 - [ ] **B43.** `quick-terminal-screen` not honored. macOS resolves which monitor.
 - [x] ~~**B44.** `quick-terminal-position = center` not handled (`MainWindow.cpp:700`).~~ Audit was wrong; already handled at `MainWindow.cpp:766`.
 - [ ] **B45.** `quick-terminal-space-behavior` not honored.
