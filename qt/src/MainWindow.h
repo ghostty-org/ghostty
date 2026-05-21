@@ -298,9 +298,15 @@ private:
   };
   // Bounded undo/redo stacks (tail = most recent). Each tab/window
   // close pushes an entry, capped at kUndoCap; opening a new
-  // tab/window via undo pushes onto the redo stack.
+  // tab/window via undo pushes onto the redo stack. While
+  // `s_redoInProgress` is true, the close paths that normally
+  // mutate these stacks (pushTabUndo / pushWindowUndo) become
+  // no-ops — a redo is replaying a previous close and shouldn't
+  // also feed itself a fresh undo entry that the user will then
+  // unwind into a loop.
   static QList<UndoEntry> s_undoStack;
   static QList<UndoEntry> s_redoStack;
+  static bool s_redoInProgress;
   static constexpr int kUndoCap = 16;
   // Push a snapshot for the tab at `index` onto s_undoStack and
   // clear the redo stack (a new close invalidates a forward redo).

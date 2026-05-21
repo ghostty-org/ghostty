@@ -270,13 +270,18 @@ static uint64_t parseDurationNs(const QString &s, uint64_t fallback) {
     const uint64_t value = s.mid(start, i - start).toULongLong(&ok);
     if (!ok) return fallback;
     while (i < n && s.at(i).isSpace()) ++i;
-    // Match the longest unit prefix at i.
+    // Match the longest unit prefix at i. unitLen is counted in
+    // QChar (UTF-16 code unit) length, NOT byte length, because `i`
+    // and `s.size()` are QChar-counted. `µs` is 3 UTF-8 bytes but
+    // 2 QChars (µ + s); using qstrlen here over-advanced past the
+    // input.
     const QString rest = s.mid(i);
     uint64_t factor = 0;
     int unitLen = 0;
     for (const auto &u : kUnits) {
-      const int ulen = static_cast<int>(qstrlen(u.name));
-      if (rest.startsWith(QString::fromUtf8(u.name)) && ulen > unitLen) {
+      const QString unit = QString::fromUtf8(u.name);
+      const int ulen = unit.size();  // QChar count, matches `i`
+      if (rest.startsWith(unit) && ulen > unitLen) {
         factor = u.factor;
         unitLen = ulen;
       }
@@ -886,14 +891,22 @@ void MainWindow::frame() {
   if (!s_app) return;
   ghostty_app_tick(s_app);
   // Rendering happens only here, so a flood of RENDER actions cannot
-  // saturate the GUI thread — each surface renders at most once a frame.
-  // One pass across every window: the shared ghostty_app_t was already
-  // ticked once above. Iterate a snapshot in case rendering triggers
-  // a window close (renderer-unhealthy chain, etc.) — QList iterators
-  // are invalidated by removeOne; copying is cheap (vector of pointers).
+  // saturate the GUI thread — each surface renders at most once a
+  // frame. One pass across every window: the shared ghostty_app_t was
+  // already ticked once above. Iterate snapshots of both the window
+  // list and each window's surface list — a render can trigger a
+  // close (renderer-unhealthy chain, child-exited press, etc.) which
+  // mutates these QLists, invalidating in-place iterators.
   const QList<MainWindow *> windows = s_windows;
-  for (MainWindow *w : windows)
-    for (GhosttySurface *s : w->m_surfaces) s->renderIfDirty();
+  for (MainWindow *w : windows) {
+    const QList<GhosttySurface *> surfaces = w->m_surfaces;
+    for (GhosttySurface *s : surfaces) {
+      // After the snapshot, the window may already have removed `s`
+      // from m_surfaces (deferred-deleted). Skip if so.
+      if (!w->m_surfaces.contains(s)) continue;
+      s->renderIfDirty();
+    }
+  }
 }
 
 void MainWindow::onTabCloseRequested(int index) {
@@ -993,16 +1006,20 @@ void MainWindow::closeAllWindows(bool thenQuit) {
     // quit-after-last-window-closed left quitOnLastWindowClosed off.
     qApp->quit();
   } else {
-    // CLOSE_ALL_WINDOWS without a delay still ends the process if
-    // the user wants quit-on-last-window. With a delay configured,
-    // the QUIT_TIMER action from libghostty drives the eventual
-    // termination, matching the natural-close path. Otherwise the
-    // process stays alive (macOS close-all has the same semantics —
-    // the app remains in the dock and a launcher / global keybind
-    // can re-open windows).
-    bool quitAfter = true;
-    configGet(s_config, &quitAfter, "quit-after-last-window-closed");
-    if (quitAfter && s_quitDelayMs == 0) qApp->quit();
+    // CLOSE_ALL_WINDOWS leaves the process alive when
+    // quit-after-last-window-closed=false. When true with a delay,
+    // libghostty's QUIT_TIMER action drives the eventual termination
+    // (matching the natural-close path). When true without a delay,
+    // Qt's quitOnLastWindowClosed terminates as the last window's
+    // close event runs. We read both decisions off the *cached*
+    // QApplication state so they stay consistent: refreshChrome
+    // sets quitOnLastWindowClosed and s_quitDelayMs together.
+    if (QApplication::quitOnLastWindowClosed() && s_quitDelayMs == 0) {
+      qApp->quit();
+    }
+    // Else: the close loop above already triggered the natural-close
+    // teardown path; either Qt will terminate as quitOnLastWindowClosed
+    // arms, or the QUIT_TIMER fires, or we stay alive headless.
   }
 }
 
@@ -1760,11 +1777,13 @@ void MainWindow::setCellSize(uint32_t w, uint32_t h) {
 // Process-wide undo state — see MainWindow.h.
 QList<MainWindow::UndoEntry> MainWindow::s_undoStack;
 QList<MainWindow::UndoEntry> MainWindow::s_redoStack;
+bool MainWindow::s_redoInProgress = false;
 
 // Snapshot the tab at `index` (its tab text — last-known title) onto
 // the undo stack. Called from closeTab / closeTabsByMode / right
-// before the tab is removed.
+// before the tab is removed. No-op while a redo is replaying.
 void MainWindow::pushTabUndo(int index) {
+  if (s_redoInProgress) return;
   if (index < 0 || index >= m_tabs->count()) return;
   UndoEntry e;
   e.kind = UndoEntry::Kind::Tab;
@@ -1777,8 +1796,10 @@ void MainWindow::pushTabUndo(int index) {
 }
 
 // Snapshot every tab in this window before it goes away. Called from
-// closeAllWindows and from closeEvent for the user-driven X.
+// closeAllWindows and from closeEvent for the user-driven X. No-op
+// while a redo is replaying.
 void MainWindow::pushWindowUndo() {
+  if (s_redoInProgress) return;
   if (m_quickTerminal || m_tabs->count() == 0) return;
   UndoEntry e;
   e.kind = UndoEntry::Kind::Window;
@@ -1858,24 +1879,30 @@ void MainWindow::undoLastClose() {
 }
 
 // Redo: re-close whatever undo just opened. We don't have a handle on
-// the revived widgets so we close the active window's current tab (or
-// the active window itself for a Window entry); pragmatic, matches
-// what a user normally means by "redo close-tab".
+// the revived widgets so we close the active window's current tab
+// (or the active window itself for a Window entry); pragmatic,
+// matches what a user normally means by "redo close-tab".
 //
-// Save the rest of s_redoStack before re-closing — pushTabUndo /
-// pushWindowUndo unconditionally clear s_redoStack (a fresh close
-// invalidates pending redos), and we want to preserve a chain of
-// redos beyond the first.
+// pushTabUndo / pushWindowUndo are no-ops while s_redoInProgress is
+// true, so the close paths below don't:
+//   (a) clear s_redoStack — preserving the rest of the redo chain
+//       so a sequence of REDOs works.
+//   (b) push a fresh undo entry — a redo that re-closes shouldn't
+//       feed itself a new undo or the user can ping-pong undo/redo
+//       on a single past close indefinitely.
 void MainWindow::redoLastClose() {
   if (s_redoStack.isEmpty()) return;
-  const UndoEntry e = s_redoStack.takeLast();
-  // Stash the remaining redo stack so we can restore it after the
-  // re-close (which clears s_redoStack via pushTabUndo / pushWindowUndo).
-  const QList<UndoEntry> savedRedo = s_redoStack;
+  UndoEntry e = s_redoStack.takeLast();
 
   MainWindow *active = qobject_cast<MainWindow *>(qApp->activeWindow());
   if (!active && !s_windows.isEmpty()) active = s_windows.last();
-  if (!active) return;
+  if (!active) {
+    // No window to act on — restore the entry so the user can retry.
+    s_redoStack.append(std::move(e));
+    return;
+  }
+
+  s_redoInProgress = true;
   if (e.kind == UndoEntry::Kind::Tab) {
     const int idx = active->m_tabs->currentIndex();
     if (idx >= 0) active->closeTab(idx);
@@ -1883,8 +1910,7 @@ void MainWindow::redoLastClose() {
     active->m_skipCloseConfirm = true;
     active->close();
   }
-  // Restore the rest of the redo chain so a sequence of REDOs works.
-  s_redoStack = savedRedo;
+  s_redoInProgress = false;
 }
 
 void MainWindow::applyWindowConfig() {

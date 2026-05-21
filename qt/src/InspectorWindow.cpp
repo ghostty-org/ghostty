@@ -59,17 +59,21 @@ InspectorWindow::InspectorWindow(ghostty_surface_t surface)
       s.value(QStringLiteral("inspector/geometry")).toByteArray();
   if (!restoreGeometry(geom)) {
     resize(800, 600);
-  } else {
+  } else if (QScreen *primary = QGuiApplication::primaryScreen()) {
     // restoreGeometry happily restores positions on a screen that no
-    // longer exists (monitor unplugged, scaled away, etc.). Validate
-    // the centre point lands on a current screen and re-centre on
-    // the primary screen if not — otherwise the window is invisible
-    // and there's no UI to reach it.
-    if (!QGuiApplication::screenAt(frameGeometry().center())) {
-      if (QScreen *primary = QGuiApplication::primaryScreen()) {
-        const QRect g = primary->availableGeometry();
-        move(g.center() - QPoint(width() / 2, height() / 2));
-      }
+    // longer exists (monitor unplugged, scaled away) and sizes that
+    // exceed the current screen layout. Validate both: re-centre when
+    // the centre is off any screen, and clamp the size to fit the
+    // primary screen so the window can't extend past the visible
+    // area on a smaller-than-saved monitor.
+    const QRect g = primary->availableGeometry();
+    QSize sz = size();
+    if (sz.width() > g.width() || sz.height() > g.height()) {
+      sz = sz.boundedTo(g.size());
+      resize(sz);
+    }
+    if (!QGuiApplication::screenAt(geometry().center())) {
+      move(g.center() - QPoint(sz.width() / 2, sz.height() / 2));
     }
   }
 
