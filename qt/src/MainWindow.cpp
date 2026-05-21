@@ -104,6 +104,17 @@ MainWindow::~MainWindow() {
   qDeleteAll(m_surfaces);
   m_surfaces.clear();
 
+  // If this was the last window and a quit delay is configured, arm
+  // the natural-close quit timer instead of tearing down immediately.
+  // Qt's setQuitOnLastWindowClosed is off (we did that in initialize
+  // so the delay can run), so without this the process would stay
+  // alive forever after closing the final window via the WM.
+  // Mirrors GTK's application.zig:820-862 startQuitTimer wiring.
+  if (s_windows.isEmpty() && s_quitDelayMs > 0) {
+    handleQuitTimer(true);
+    return;  // keep s_app + s_config alive until the timer fires
+  }
+
   // The shared app and config outlive every window but the last.
   if (s_windows.isEmpty()) {
     if (s_frameTimer) {
@@ -295,6 +306,12 @@ bool MainWindow::initialize() {
 }
 
 MainWindow *MainWindow::newWindow(ghostty_surface_t parent) {
+  // If the natural-close quit timer is running (because the last
+  // window was closed and we're inside the configured delay), cancel
+  // it now: the process is no longer headless. macOS/GTK do the
+  // same.
+  if (s_quitTimer) handleQuitTimer(false);
+
   auto *w = new MainWindow;
   w->setAttribute(Qt::WA_DeleteOnClose);  // self-destruct when closed
   w->m_firstTabParent = parent;           // first tab inherits from `parent`
@@ -957,9 +974,15 @@ void MainWindow::moveTab(int amount) {
 
 void MainWindow::ringBell(GhosttySurface *surface) {
   // bell-features is a packed struct returned by ghostty_config_get as
-  // a bitfield (see BellFeature in Util.h).
-  unsigned int features = BellAttention;  // fallback if config-get fails
-  configGet(s_config, &features, "bell-features");
+  // a bitfield (see BellFeature in Util.h). If the config-get call
+  // itself fails (e.g. an ABI drift between Qt frontend and libghostty
+  // dropping the field), use BellAttention as a sane minimum fallback.
+  // If config-get succeeds with features=0, the user explicitly opted
+  // out of every bell feature and we honor that.
+  unsigned int features = 0;
+  if (!configGet(s_config, &features, "bell-features")) {
+    features = BellAttention;
+  }
   if (features & BellAttention) QApplication::alert(this);
   if (features & BellSystem) QApplication::beep();
   if (features & BellAudio) playBellAudio();
