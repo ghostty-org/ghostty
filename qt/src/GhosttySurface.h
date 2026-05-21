@@ -103,6 +103,15 @@ public:
   void setBellTitle(bool marked) { m_bellTitle = marked; }
   bool bellTitle() const { return m_bellTitle; }
 
+  // Set the cursor shape from the libghostty MOUSE_SHAPE action.
+  // Tracks the requested shape so MOUSE_VISIBILITY toggles can hide
+  // and restore without forgetting it. macOS+GTK preserve shape
+  // across visibility changes; the previous Qt code clobbered it
+  // with Qt::ArrowCursor on un-hide.
+  void setShape(Qt::CursorShape shape);
+  // Hide or show the mouse cursor without changing its shape.
+  void setMouseVisible(bool visible);
+
 protected:
   bool event(QEvent *) override;
   void paintEvent(QPaintEvent *) override;
@@ -197,6 +206,11 @@ private:
   bool m_notifyOnCommand = false;      // one-shot: notify on next cmd finish
   bool m_bellFlash = false;            // bell `border` flash in progress
   bool m_bellTitle = false;            // unacknowledged bell `title` mark
+  // Last requested cursor shape (from MOUSE_SHAPE) and visibility
+  // (from MOUSE_VISIBILITY). Tracked separately so toggling
+  // visibility doesn't reset the shape.
+  Qt::CursorShape m_cursorShape = Qt::IBeamCursor;
+  bool m_mouseVisible = true;
   // Tracks whether the prior inputMethodEvent reported active preedit.
   // Used to distinguish a real post-composition commit (forward to the
   // terminal) from the duplicate ASCII commit that Wayland's

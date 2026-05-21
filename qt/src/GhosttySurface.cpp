@@ -319,6 +319,17 @@ void GhosttySurface::flashBorder() {
   });
 }
 
+void GhosttySurface::setShape(Qt::CursorShape shape) {
+  m_cursorShape = shape;
+  if (m_mouseVisible) setCursor(shape);
+}
+
+void GhosttySurface::setMouseVisible(bool visible) {
+  if (m_mouseVisible == visible) return;
+  m_mouseVisible = visible;
+  setCursor(visible ? m_cursorShape : Qt::BlankCursor);
+}
+
 // A small translucent overlay label (key-sequence / resize display).
 static QLabel *makeOverlayLabel(QWidget *parent) {
   auto *label = new QLabel(parent);
@@ -712,6 +723,18 @@ void GhosttySurface::sendMouseButton(QMouseEvent *ev,
     case Qt::LeftButton: button = GHOSTTY_MOUSE_LEFT; break;
     case Qt::RightButton: button = GHOSTTY_MOUSE_RIGHT; break;
     case Qt::MiddleButton: button = GHOSTTY_MOUSE_MIDDLE; break;
+    // Side / extra buttons (back, forward, etc.). macOS handles
+    // NSEvent buttonNumber 3-10 and GTK handles GDK button 4-11;
+    // Qt's ExtraButton1..ExtraButton8 cover the same hardware. The
+    // libghostty C ABI defines FOUR..ELEVEN, so map by index.
+    case Qt::ExtraButton1: button = GHOSTTY_MOUSE_FOUR; break;
+    case Qt::ExtraButton2: button = GHOSTTY_MOUSE_FIVE; break;
+    case Qt::ExtraButton3: button = GHOSTTY_MOUSE_SIX; break;
+    case Qt::ExtraButton4: button = GHOSTTY_MOUSE_SEVEN; break;
+    case Qt::ExtraButton5: button = GHOSTTY_MOUSE_EIGHT; break;
+    case Qt::ExtraButton6: button = GHOSTTY_MOUSE_NINE; break;
+    case Qt::ExtraButton7: button = GHOSTTY_MOUSE_TEN; break;
+    case Qt::ExtraButton8: button = GHOSTTY_MOUSE_ELEVEN; break;
     default: button = GHOSTTY_MOUSE_UNKNOWN; break;
   }
   ghostty_surface_mouse_button(m_surface, state, button,

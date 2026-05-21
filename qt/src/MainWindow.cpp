@@ -1511,7 +1511,7 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       const Qt::CursorShape shape =
           mouseShapeToCursor(action.action.mouse_shape);
       post(src, [srcp, shape]() {
-        if (srcp) srcp->setCursor(shape);
+        if (srcp) srcp->setShape(shape);
       });
       return true;
     }
@@ -1570,10 +1570,12 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
 
     case GHOSTTY_ACTION_MOUSE_VISIBILITY: {
       if (!src) return false;
-      const bool hidden =
-          action.action.mouse_visibility == GHOSTTY_MOUSE_HIDDEN;
-      post(src, [srcp, hidden]() {
-        if (srcp) srcp->setCursor(hidden ? Qt::BlankCursor : Qt::ArrowCursor);
+      const bool visible =
+          action.action.mouse_visibility != GHOSTTY_MOUSE_HIDDEN;
+      post(src, [srcp, visible]() {
+        // setMouseVisible preserves the requested shape so toggling
+        // doesn't reset to ArrowCursor.
+        if (srcp) srcp->setMouseVisible(visible);
       });
       return true;
     }
