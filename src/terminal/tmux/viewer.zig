@@ -894,8 +894,11 @@ pub const Viewer = struct {
         }
 
         // Setup our windows action so the caller can process GUI
-        // window changes.
-        try actions.append(arena_alloc, .{ .windows = windows.items });
+        // window changes. We must dupe into the arena because `windows`
+        // is a local ArrayList whose backing memory is freed by the
+        // defer above when this function returns.
+        const arena_windows = try arena_alloc.dupe(Window, windows.items);
+        try actions.append(arena_alloc, .{ .windows = arena_windows });
 
         // Sync up our layouts. This will populate unknown panes, prune, etc.
         try self.syncLayouts(windows.items);
@@ -2272,6 +2275,62 @@ test "two pane flow with pane state" {
                         try testing.expect(!t.modes.get(.keypad_keys));
                         try testing.expect(!t.modes.get(.cursor_keys));
                     }
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .exit },
+            .contains_tags = &.{.exit},
+        },
+    });
+}
+
+test "list-windows action data survives function return" {
+    // Regression test: receivedListWindows used to store windows.items
+    // (a slice into a local ArrayList) directly into the action. The
+    // ArrayList backing memory was freed by defer on function return,
+    // leaving the action holding a dangling pointer. The fix dupes the
+    // slice into the arena so it survives.
+    var viewer = try Viewer.init(testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        // Startup sequence: block_end -> session_changed -> version -> list-windows
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 1,
+                .name = "test",
+            } } },
+            .contains_command = "display-message",
+        },
+        .{
+            .input = .{ .tmux = .{ .block_end = "3.5a" } },
+            .contains_command = "list-windows",
+        },
+        // Receive list-windows response with a single window.
+        // Format: session_id window_id width height layout
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\$1 @5 120 40 ab00,120x40,0,0,3
+                ,
+            } },
+            .contains_tags = &.{ .windows, .command },
+            .check = (struct {
+                fn check(_: *Viewer, actions: []const Viewer.Action) anyerror!void {
+                    // Find the .windows action and dereference the slice
+                    // contents. Before the fix, this read freed memory.
+                    for (actions) |action| {
+                        if (action == .windows) {
+                            try testing.expectEqual(1, action.windows.len);
+                            try testing.expectEqual(5, action.windows[0].id);
+                            try testing.expectEqual(120, action.windows[0].width);
+                            try testing.expectEqual(40, action.windows[0].height);
+                            return;
+                        }
+                    }
+                    return error.TestExpectedEqual;
                 }
             }).check,
         },
