@@ -40,7 +40,7 @@ template $GhosttyWindow: Adw.ApplicationWindow {
         visible: bind template.headerbar-visible;
 
         title-widget: Adw.WindowTitle {
-          title: bind template.title;
+          title: bind $computed_title(template.config, template.title, template.title-override) as <string>;
           // Blueprint auto-formatter won't let me split this into multiple
           // lines. Let me explain myself. All parameters to a closure are used
           // as notifications to recompute the value of the closure. All
@@ -208,6 +208,11 @@ menu main_menu {
   }
 
   section {
+    item {
+      label: _("Change Window Title…");
+      action: "win.prompt-window-title";
+    }
+
     item {
       label: _("New Window");
       action: "win.new-window";
