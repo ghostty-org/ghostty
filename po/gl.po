@@ -27,7 +27,7 @@ msgstr "Abrir en Ghostty"
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:197
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:201
 msgid "Authorize Clipboard Access"
-msgstr "Autorizar acceso a Portapapeis"
+msgstr "Autorizar acceso a portapapeis"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:17
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:17
@@ -77,7 +77,7 @@ msgstr "Ignorar"
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:11
 #: src/apprt/gtk/ui/1.2/surface.blp:366 src/apprt/gtk/ui/1.5/window.blp:300
 msgid "Reload Configuration"
-msgstr "Recargar Configuración"
+msgstr "Recargar configuración"
 
 #: src/apprt/gtk/ui/1.2/debug-warning.blp:7
 #: src/apprt/gtk/ui/1.3/debug-warning.blp:6
@@ -95,11 +95,11 @@ msgstr "Atopar…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:64
 msgid "Previous Match"
-msgstr "Coincidencia Anterior"
+msgstr "Coincidencia anterior"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:74
 msgid "Next Match"
-msgstr "Seguinte Coincidencia"
+msgstr "Seguinte coincidencia"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:6
 msgid "Oh, no."
@@ -132,7 +132,7 @@ msgstr "Pegar"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:270
 msgid "Notify on Next Command Finish"
-msgstr "Notificar Cando Remate a Seguinte Orde"
+msgstr "Notificar cando remate a seguinte orde"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:273
 msgid "Clear"
@@ -140,7 +140,7 @@ msgstr "Limpar"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:282 src/apprt/gtk/ui/1.5/window.blp:278
 msgid "Reset"
-msgstr "Restabelecer"
+msgstr "Restablecer"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:289 src/apprt/gtk/ui/1.5/window.blp:242
 msgid "Split"
@@ -148,7 +148,7 @@ msgstr "Dividir"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:292 src/apprt/gtk/ui/1.5/window.blp:245
 msgid "Change Title…"
-msgstr "Cambiar o Título…"
+msgstr "Cambiar o título…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:297 src/apprt/gtk/ui/1.5/window.blp:177
 #: src/apprt/gtk/ui/1.5/window.blp:250
@@ -158,17 +158,17 @@ msgstr "Dividir cara arriba"
 #: src/apprt/gtk/ui/1.2/surface.blp:303 src/apprt/gtk/ui/1.5/window.blp:182
 #: src/apprt/gtk/ui/1.5/window.blp:255
 msgid "Split Down"
-msgstr "Dividir cara Abaixo"
+msgstr "Dividir cara abaixo"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:309 src/apprt/gtk/ui/1.5/window.blp:187
 #: src/apprt/gtk/ui/1.5/window.blp:260
 msgid "Split Left"
-msgstr "Dividir cara á Esquerda"
+msgstr "Dividir cara á esquerda"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:315 src/apprt/gtk/ui/1.5/window.blp:192
 #: src/apprt/gtk/ui/1.5/window.blp:265
 msgid "Split Right"
-msgstr "Dividir cara á Dereita"
+msgstr "Dividir cara á dereita"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:322
 msgid "Tab"
@@ -177,16 +177,16 @@ msgstr "Lapela"
 #: src/apprt/gtk/ui/1.2/surface.blp:325 src/apprt/gtk/ui/1.5/window.blp:224
 #: src/apprt/gtk/ui/1.5/window.blp:320
 msgid "Change Tab Title…"
-msgstr "Cambiar o Título da Lapela…"
+msgstr "Cambiar o título da lapela…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:57
 #: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:229
 msgid "New Tab"
-msgstr "Nova Lapela"
+msgstr "Nova lapela"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:335 src/apprt/gtk/ui/1.5/window.blp:234
 msgid "Close Tab"
-msgstr "Pechar Lapela"
+msgstr "Pechar lapela"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:342
 msgid "Window"
@@ -206,7 +206,7 @@ msgstr "Configuración"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:361 src/apprt/gtk/ui/1.5/window.blp:295
 msgid "Open Configuration"
-msgstr "Abrir Configuración"
+msgstr "Abrir configuración"
 
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:5
 msgid "Leave blank to restore the default title."
@@ -218,23 +218,23 @@ msgstr "Aceptar"
 
 #: src/apprt/gtk/ui/1.5/window.blp:58 src/apprt/gtk/ui/1.5/window.blp:108
 msgid "New Split"
-msgstr "Nova División"
+msgstr "Nova división"
 
 #: src/apprt/gtk/ui/1.5/window.blp:68 src/apprt/gtk/ui/1.5/window.blp:126
 msgid "View Open Tabs"
-msgstr "Ver as Lapelas Abertas"
+msgstr "Ver as lapelas abertas"
 
 #: src/apprt/gtk/ui/1.5/window.blp:78 src/apprt/gtk/ui/1.5/window.blp:140
 msgid "Main Menu"
-msgstr "Menú Principal"
+msgstr "Menú principal"
 
 #: src/apprt/gtk/ui/1.5/window.blp:285
 msgid "Command Palette"
-msgstr "Paleta de Comandos"
+msgstr "Paleta de comandos"
 
 #: src/apprt/gtk/ui/1.5/window.blp:290
 msgid "Terminal Inspector"
-msgstr "Inspector do Terminal"
+msgstr "Inspector do terminal"
 
 #: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1727
 msgid "About Ghostty"
@@ -246,7 +246,7 @@ msgstr "Saír"
 
 #: src/apprt/gtk/ui/1.5/command-palette.blp:17
 msgid "Execute a command…"
-msgstr "Executar un Comando…"
+msgstr "Executar un comando…"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:198
 msgid ""
@@ -282,11 +282,11 @@ msgstr "Saír de Ghostty?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Tab?"
-msgstr "Pechar a Lapela?"
+msgstr "Pechar a lapela?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:186
 msgid "Close Window?"
-msgstr "Pechar a Xanela?"
+msgstr "Pechar a xanela?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:187
 msgid "Close Split?"
@@ -310,43 +310,43 @@ msgstr "O proceso que se está a executar actualmente nesta división será pech
 
 #: src/apprt/gtk/class/surface.zig:1108
 msgid "Command Finished"
-msgstr "Comando Finalizado"
+msgstr "Comando finalizado"
 
 #: src/apprt/gtk/class/surface.zig:1109
 msgid "Command Succeeded"
-msgstr "Comando Rematou con Éxito"
+msgstr "Comando rematou con éxito"
 
 #: src/apprt/gtk/class/surface.zig:1110
 msgid "Command Failed"
-msgstr "O Comando Fallou"
+msgstr "O comando fallou"
 
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command succeeded"
-msgstr "O Comando Rematou con Éxito"
+msgstr "O comando rematou con éxito"
 
 #: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command failed"
-msgstr "O Comando Fallou"
+msgstr "O comando fallou"
 
 #: src/apprt/gtk/class/title_dialog.zig:225
 msgid "Change Terminal Title"
-msgstr "Cambiar o título da Terminal"
+msgstr "Cambiar o título da terminal"
 
 #: src/apprt/gtk/class/title_dialog.zig:226
 msgid "Change Tab Title"
-msgstr "Cambiar o Título da Lapela"
+msgstr "Cambiar o título da lapela"
 
 #: src/apprt/gtk/class/window.zig:1007
 msgid "Reloaded the configuration"
-msgstr "Recargouse a Configuración"
+msgstr "Recargouse a configuración"
 
 #: src/apprt/gtk/class/window.zig:1566
 msgid "Copied to clipboard"
-msgstr "Copiouse ao Portapapeis"
+msgstr "Copiouse ao portapapeis"
 
 #: src/apprt/gtk/class/window.zig:1568
 msgid "Cleared clipboard"
-msgstr "Limpouse o Portapapeis"
+msgstr "Limpouse o portapapeis"
 
 #: src/apprt/gtk/class/window.zig:1708
 msgid "Ghostty Developers"
