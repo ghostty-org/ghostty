@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- V1: Original dome ghost + 4 wavy feet, on the new purple CRT.
-     Wide-set >_ prompt eyes (upstream Ghostty lineage). No glitch
-     effects. Cleanest small-size legibility. -->
+<!-- V2: Original dome ghost + 4 wavy feet, on the purple CRT bezel.
+     Scaled up ~1.5x vs V1 so the ghost actually fills the screen
+     rectangle instead of floating in empty space. Eye/mouth ratios
+     preserved; the >_ prompt cue and the small mouth still read
+     correctly at small sizes (16px favicon range). -->
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024"
      viewBox="0 0 1024 1024">
   <defs>
@@ -28,7 +30,7 @@
       <stop offset="0.45" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
     <linearGradient id="ghostBody" gradientUnits="userSpaceOnUse"
-                    x1="512" y1="280" x2="512" y2="780">
+                    x1="512" y1="175" x2="512" y2="850">
       <stop offset="0" stop-color="#f4f1ea"/>
       <stop offset="0.55" stop-color="#e3ddd0"/>
       <stop offset="1" stop-color="#a89fa8"/>
@@ -44,47 +46,49 @@
   <rect x="88" y="88" width="848" height="848" rx="120" fill="url(#screenBloom)"/>
   <rect x="88" y="88" width="848" height="848" rx="120" fill="url(#screenGloss)"/>
 
-  <!-- Dome ghost: rounded top (radius 190) + straight sides + 4 wavy
-       feet at bottom. Path goes counter-clockwise from top center. -->
+  <!-- Dome ghost: rounded top (radius 285) + straight sides + 4 wavy
+       feet at bottom. 1.5x scale of V1; same anchor at x=512 but the
+       body now spans x=227..797 and y=175..850 inside the 88..936
+       screen rectangle. -->
   <path d="
-    M 322 658
-    L 322 460
-    A 190 190 0 0 1 702 460
-    L 702 658
-    Q 654 720 607 658
-    Q 559 720 512 658
-    Q 464 720 417 658
-    Q 369 720 322 658 Z
+    M 227 757
+    L 227 460
+    A 285 285 0 0 1 797 460
+    L 797 757
+    Q 726 850 654 757
+    Q 583 850 512 757
+    Q 441 850 370 757
+    Q 298 850 227 757 Z
   " fill="url(#ghostBody)"/>
   <path d="
-    M 322 658
-    L 322 460
-    A 190 190 0 0 1 702 460
-    L 702 658
-    Q 654 720 607 658
-    Q 559 720 512 658
-    Q 464 720 417 658
-    Q 369 720 322 658 Z
+    M 227 757
+    L 227 460
+    A 285 285 0 0 1 797 460
+    L 797 757
+    Q 726 850 654 757
+    Q 583 850 512 757
+    Q 441 850 370 757
+    Q 298 850 227 757 Z
   " fill="none" stroke="#0a0c14" stroke-opacity="0.55"
-        stroke-width="9" stroke-linejoin="round"/>
+        stroke-width="14" stroke-linejoin="round"/>
 
-  <!-- > _ prompt eyes, centered on ghost x=512. Pair geometry:
-       chevron 66 wide (L-arm tip to apex), gap 68, cursor 98 wide.
-       Total 232; leftmost = 512 - 116 = 396.
-         chevron: x=396..462 (apex at 462)
-         cursor:  x=530..628
-       Pair midpoint = (396+628)/2 = 512  ✓
-       Vertical center y=496. -->
-  <ellipse cx="512" cy="496" rx="200" ry="80" fill="url(#mouthGlow)"/>
-  <path d="M 396 458 L 462 496 L 396 534"
-        fill="none" stroke="#e63232" stroke-width="28"
+  <!-- > _ prompt eyes, centered on ghost x=512. Pair geometry
+       (1.5x V1):
+         chevron: x=338..437 (apex at 437), 99 wide
+         gap:     102
+         cursor:  x=539..686, 147 wide
+         total:   338..686, midpoint 512 ✓
+       Vertical center y=514. -->
+  <ellipse cx="512" cy="514" rx="300" ry="120" fill="url(#mouthGlow)"/>
+  <path d="M 338 457 L 437 514 L 338 571"
+        fill="none" stroke="#e63232" stroke-width="42"
         stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="530" y="478" width="98" height="36" rx="6" fill="#e63232"/>
+  <rect x="539" y="487" width="147" height="54" rx="9" fill="#e63232"/>
 
-  <!-- Small mouth: sits just below the eyes, above the feet trough.
-       The dome's straight-side region ends at y=658 where the feet
-       begin; placing the mouth at y=580..612 keeps it on the body
-       proper, not in the foot scallops. -->
-  <ellipse cx="512" cy="596" rx="56" ry="32" fill="url(#mouthGlow)"/>
-  <rect x="492" y="580" width="40" height="32" rx="4" fill="#e63232"/>
+  <!-- Small mouth: sits below the eyes, above the foot trough.
+       Straight-body region ends at y=757 where the feet begin;
+       placing the mouth at y=640..688 keeps it on the body proper,
+       not in the foot scallops. -->
+  <ellipse cx="512" cy="664" rx="84" ry="48" fill="url(#mouthGlow)"/>
+  <rect x="482" y="640" width="60" height="48" rx="6" fill="#e63232"/>
 </svg>
