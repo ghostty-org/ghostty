@@ -734,6 +734,11 @@ extension Ghostty {
                     self?.backgroundColor = change.color
                 }
 
+            case .tab:
+                DispatchQueue.main.async { [weak self] in
+                    (self?.window as? TerminalWindow)?.tabColor = TerminalTabColor(color: change.color)
+                }
+
             default:
                 // We don't do anything for the other colors yet.
                 break
