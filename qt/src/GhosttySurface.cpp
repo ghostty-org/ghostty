@@ -200,6 +200,24 @@ bool GhosttySurface::event(QEvent *e) {
   // that same ratio; otherwise paintEvent blits the frame at the wrong
   // size (the FBO was sized at one DPR, the image tagged with another).
   if (e->type() == QEvent::DevicePixelRatioChange) syncSurfaceSize();
+  // Visibility transitions: tell libghostty so its renderer thread
+  // can bail out of updateFrame while the surface is hidden (a
+  // non-current tab, a minimised window, the quick terminal faded
+  // out). On visibility regain libghostty rebuilds + draws to catch
+  // up. Mirrors the GTK frontend's glareaMap / glareaUnmap →
+  // updateOcclusion path (ghostty-org/ghostty#12760) — keeps idle
+  // background tabs at ~0% CPU instead of churning the renderer.
+  //
+  // Qt fires QEvent::Show / QEvent::Hide when the widget itself
+  // becomes effectively visible to the user, including transitively
+  // via parent hide / tab switch on QTabWidget. The GLArea-style
+  // map/unmap signals are the same semantic.
+  if (m_surface) {
+    if (e->type() == QEvent::Show)
+      ghostty_surface_set_occlusion(m_surface, true);
+    else if (e->type() == QEvent::Hide)
+      ghostty_surface_set_occlusion(m_surface, false);
+  }
   return QWidget::event(e);
 }
 
