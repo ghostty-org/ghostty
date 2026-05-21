@@ -56,9 +56,36 @@ TabBar *decodeOrigin(const QByteArray &bytes) {
 
 TabBar::TabBar(QWidget *parent) : QTabBar(parent) {
   liveTabBars().insert(this);
+  // Truncate long titles with an ellipsis instead of letting a single
+  // tab consume the whole bar. Matches the upstream GTK frontend
+  // (Adw.TabBar, which clamps + ellipsizes) and macOS (Cocoa tabs use
+  // lineBreakMode = byTruncatingTail).
+  setElideMode(Qt::ElideRight);
+  // Tabs size to content (subject to the per-tab cap from tabSizeHint
+  // below), leaving room on the bar rather than expanding to fill.
+  setExpanding(false);
+  // When tabs still don't fit (many tabs, all near the cap), Qt
+  // shows left/right scroll arrows instead of shrinking each tab to
+  // an unreadable sliver.
+  setUsesScrollButtons(true);
 }
 
 TabBar::~TabBar() { liveTabBars().remove(this); }
+
+QSize TabBar::tabSizeHint(int index) const {
+  // Cap at ~28em — wide enough for a typical "shell — repo (branch)"
+  // title, narrow enough that 5+ tabs fit on a 1280-px window without
+  // triggering scroll arrows. Below the cap, fall back to Qt's
+  // content-fit hint so short titles still get short tabs.
+  const QSize base = QTabBar::tabSizeHint(index);
+  const int cap = fontMetrics().averageCharWidth() * 28 +
+                  // include the close-button width when the tab is
+                  // closable, so the title clamp matches actual
+                  // available text space.
+                  (tabsClosable() ? 28 : 0);
+  if (base.width() <= cap) return base;
+  return QSize(cap, base.height());
+}
 
 void TabBar::mousePressEvent(QMouseEvent *e) {
   if (e->button() == Qt::LeftButton) {

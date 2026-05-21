@@ -48,6 +48,14 @@ protected:
   void dragEnterEvent(QDragEnterEvent *) override;
   void dropEvent(QDropEvent *) override;
 
+  // Cap a tab's width so a single long terminal title can't take the
+  // entire bar. Matches the GTK frontend's Adw.TabBar (which clamps
+  // width and ellipsizes) and the macOS Cocoa tabs (which use
+  // lineBreakMode = byTruncatingTail). Without this, Qt's default is
+  // "size to fit full text," and a long working-directory title
+  // pushes every other tab off-screen.
+  QSize tabSizeHint(int index) const override;
+
 private:
   void startTearOff(QMouseEvent *e);
 
