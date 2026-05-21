@@ -11,6 +11,8 @@ const Texture = @import("Texture.zig");
 const Pipeline = @import("Pipeline.zig");
 const Buffer = @import("buffer.zig").Buffer;
 
+const log = std.log.scoped(.opengl);
+
 /// Options for beginning a render pass.
 pub const Options = struct {
     /// Color attachments for this render pass.
@@ -58,21 +60,35 @@ pub fn begin(
 
 /// Add a step to this render pass.
 ///
-/// TODO: Errors are silently ignored in this function, maybe they shouldn't be?
+/// Errors during GL bind / state setup short-circuit the step (we have
+/// no recovery story mid-pass) but are logged so they're not silent.
 pub fn step(self: *Self, s: Step) void {
     if (s.draw.instance_count == 0) return;
 
-    const pbind = s.pipeline.program.use() catch return;
+    const pbind = s.pipeline.program.use() catch |err| {
+        log.warn("render pass: program bind failed err={}", .{err});
+        return;
+    };
     defer pbind.unbind();
 
-    const vaobind = s.pipeline.vao.bind() catch return;
+    const vaobind = s.pipeline.vao.bind() catch |err| {
+        log.warn("render pass: VAO bind failed err={}", .{err});
+        return;
+    };
     defer vaobind.unbind();
 
     const fbobind = switch (self.attachments[0].target) {
-        .target => |t| t.framebuffer.bind(.framebuffer) catch return,
+        .target => |t| t.framebuffer.bind(.framebuffer) catch |err| {
+            log.warn("render pass: framebuffer bind failed err={}", .{err});
+            return;
+        },
         .texture => |t| bind: {
-            const fbobind = s.pipeline.fbo.bind(.framebuffer) catch return;
-            fbobind.texture2D(.color0, t.target, t.texture, 0) catch {
+            const fbobind = s.pipeline.fbo.bind(.framebuffer) catch |err| {
+                log.warn("render pass: pipeline fbo bind failed err={}", .{err});
+                return;
+            };
+            fbobind.texture2D(.color0, t.target, t.texture, 0) catch |err| {
+                log.warn("render pass: texture2D attach failed err={}", .{err});
                 fbobind.unbind();
                 return;
             };
@@ -83,6 +99,21 @@ pub fn step(self: *Self, s: Step) void {
 
     defer self.step_number += 1;
 
+    // Set the viewport to match the attachment we're rendering into.
+    // Ghostty's GTK apprt keeps the GL viewport in sync via GLArea, but
+    // other apprts (e.g. embedded) do not, so we set it explicitly for
+    // every step rather than relying on external viewport state.
+    {
+        const vp_w, const vp_h = switch (self.attachments[0].target) {
+            .target => |t| .{ t.width, t.height },
+            .texture => |t| .{ t.width, t.height },
+        };
+        gl.viewport(0, 0, @intCast(vp_w), @intCast(vp_h)) catch |err| {
+            log.warn("render pass: viewport failed err={}", .{err});
+            return;
+        };
+    }
+
     // If we have a clear color and this is the
     // first step in the pass, go ahead and clear.
     if (self.step_number == 0) if (self.attachments[0].clear_color) |c| {
@@ -92,18 +123,30 @@ pub fn step(self: *Self, s: Step) void {
 
     // Bind the uniform buffer we bind at index 1 to align with Metal.
     if (s.uniforms) |ubo| {
-        _ = ubo.bindBase(.uniform, 1) catch return;
+        _ = ubo.bindBase(.uniform, 1) catch |err| {
+            log.warn("render pass: UBO bindBase failed err={}", .{err});
+            return;
+        };
     }
 
     // Bind relevant texture units.
     for (s.textures, 0..) |t, i| if (t) |tex| {
-        gl.Texture.active(@intCast(i)) catch return;
-        _ = tex.texture.bind(tex.target) catch return;
+        gl.Texture.active(@intCast(i)) catch |err| {
+            log.warn("render pass: texture active({d}) failed err={}", .{ i, err });
+            return;
+        };
+        _ = tex.texture.bind(tex.target) catch |err| {
+            log.warn("render pass: texture bind({d}) failed err={}", .{ i, err });
+            return;
+        };
     };
 
     // Bind relevant samplers.
     for (s.samplers, 0..) |s_, i| if (s_) |sampler| {
-        _ = sampler.sampler.bind(@intCast(i)) catch return;
+        _ = sampler.sampler.bind(@intCast(i)) catch |err| {
+            log.warn("render pass: sampler bind({d}) failed err={}", .{ i, err });
+            return;
+        };
     };
 
     // Bind 0th buffer as the vertex buffer,
@@ -114,18 +157,33 @@ pub fn step(self: *Self, s: Step) void {
             vbo.id,
             0,
             @intCast(s.pipeline.stride),
-        ) catch return;
+        ) catch |err| {
+            log.warn("render pass: VBO bindVertexBuffer failed err={}", .{err});
+            return;
+        };
 
         for (s.buffers[1..], 1..) |b, i| if (b) |buf| {
-            _ = buf.bindBase(.storage, @intCast(i)) catch return;
+            _ = buf.bindBase(.storage, @intCast(i)) catch |err| {
+                log.warn("render pass: SSBO bindBase({d}) failed err={}", .{ i, err });
+                return;
+            };
         };
     }
 
     if (s.pipeline.blending_enabled) {
-        gl.enable(gl.c.GL_BLEND) catch return;
-        gl.blendFunc(gl.c.GL_ONE, gl.c.GL_ONE_MINUS_SRC_ALPHA) catch return;
+        gl.enable(gl.c.GL_BLEND) catch |err| {
+            log.warn("render pass: enable BLEND failed err={}", .{err});
+            return;
+        };
+        gl.blendFunc(gl.c.GL_ONE, gl.c.GL_ONE_MINUS_SRC_ALPHA) catch |err| {
+            log.warn("render pass: blendFunc failed err={}", .{err});
+            return;
+        };
     } else {
-        gl.disable(gl.c.GL_BLEND) catch return;
+        gl.disable(gl.c.GL_BLEND) catch |err| {
+            log.warn("render pass: disable BLEND failed err={}", .{err});
+            return;
+        };
     }
 
     gl.drawArraysInstanced(
@@ -133,7 +191,10 @@ pub fn step(self: *Self, s: Step) void {
         0,
         @intCast(s.draw.vertex_count),
         @intCast(s.draw.instance_count),
-    ) catch return;
+    ) catch |err| {
+        log.warn("render pass: drawArraysInstanced failed err={}", .{err});
+        return;
+    };
 }
 
 /// Complete this render pass.

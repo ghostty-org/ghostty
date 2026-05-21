@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- V1: Original dome ghost + 4 wavy feet, on the new purple CRT.
+     Wide-set >_ prompt eyes (upstream Ghostty lineage). No glitch
+     effects. Cleanest small-size legibility. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024"
+     viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bezel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a2c5e"/>
+      <stop offset="0.5" stop-color="#1c1430"/>
+      <stop offset="1" stop-color="#08060f"/>
+    </linearGradient>
+    <linearGradient id="bezelSheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7d6cb0" stop-opacity="0.4"/>
+      <stop offset="0.15" stop-color="#7d6cb0" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="screen" cx="0.5" cy="0.35" r="0.85">
+      <stop offset="0" stop-color="#221d52"/>
+      <stop offset="0.6" stop-color="#0f0c2a"/>
+      <stop offset="1" stop-color="#040312"/>
+    </radialGradient>
+    <radialGradient id="screenBloom" cx="0.5" cy="0.3" r="0.55">
+      <stop offset="0" stop-color="#8a4ad8" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#8a4ad8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="screenGloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.10"/>
+      <stop offset="0.45" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="ghostBody" gradientUnits="userSpaceOnUse"
+                    x1="512" y1="280" x2="512" y2="780">
+      <stop offset="0" stop-color="#f4f1ea"/>
+      <stop offset="0.55" stop-color="#e3ddd0"/>
+      <stop offset="1" stop-color="#a89fa8"/>
+    </linearGradient>
+    <radialGradient id="mouthGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ff4838" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#ff4838" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" rx="200" fill="url(#bezel)"/>
+  <rect x="0" y="0" width="1024" height="1024" rx="200" fill="url(#bezelSheen)"/>
+  <rect x="88" y="88" width="848" height="848" rx="120" fill="url(#screen)"/>
+  <rect x="88" y="88" width="848" height="848" rx="120" fill="url(#screenBloom)"/>
+  <rect x="88" y="88" width="848" height="848" rx="120" fill="url(#screenGloss)"/>
+
+  <!-- Dome ghost: rounded top (radius 190) + straight sides + 4 wavy
+       feet at bottom. Path goes counter-clockwise from top center. -->
+  <path d="
+    M 322 658
+    L 322 460
+    A 190 190 0 0 1 702 460
+    L 702 658
+    Q 654 720 607 658
+    Q 559 720 512 658
+    Q 464 720 417 658
+    Q 369 720 322 658 Z
+  " fill="url(#ghostBody)"/>
+  <path d="
+    M 322 658
+    L 322 460
+    A 190 190 0 0 1 702 460
+    L 702 658
+    Q 654 720 607 658
+    Q 559 720 512 658
+    Q 464 720 417 658
+    Q 369 720 322 658 Z
+  " fill="none" stroke="#0a0c14" stroke-opacity="0.55"
+        stroke-width="9" stroke-linejoin="round"/>
+
+  <!-- > _ prompt eyes, centered on ghost x=512. Pair geometry:
+       chevron 66 wide (L-arm tip to apex), gap 68, cursor 98 wide.
+       Total 232; leftmost = 512 - 116 = 396.
+         chevron: x=396..462 (apex at 462)
+         cursor:  x=530..628
+       Pair midpoint = (396+628)/2 = 512  ✓
+       Vertical center y=496. -->
+  <ellipse cx="512" cy="496" rx="200" ry="80" fill="url(#mouthGlow)"/>
+  <path d="M 396 458 L 462 496 L 396 534"
+        fill="none" stroke="#e63232" stroke-width="28"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="530" y="478" width="98" height="36" rx="6" fill="#e63232"/>
+
+  <!-- Small mouth: sits just below the eyes, above the feet trough.
+       The dome's straight-side region ends at y=658 where the feet
+       begin; placing the mouth at y=580..612 keeps it on the body
+       proper, not in the foot scallops. -->
+  <ellipse cx="512" cy="596" rx="56" ry="32" fill="url(#mouthGlow)"/>
+  <rect x="492" y="580" width="40" height="32" rx="4" fill="#e63232"/>
+</svg>

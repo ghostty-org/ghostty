@@ -19,6 +19,7 @@ const CoreApp = @import("../App.zig");
 const CoreInspector = @import("../inspector/main.zig").Inspector;
 const CoreSurface = @import("../Surface.zig");
 const configpkg = @import("../config.zig");
+const build_config = @import("../build_config.zig");
 const Config = configpkg.Config;
 const String = @import("../main_c.zig").String;
 
@@ -27,6 +28,12 @@ const log = std.log.scoped(.embedded_window);
 pub const resourcesDir = internal_os.resourcesDir;
 
 pub const App = struct {
+    /// Whether drawing must happen on the app (GUI) thread rather than a
+    /// dedicated renderer thread. The OpenGL renderer renders into the
+    /// host's GL context, which the host owns on its GUI thread (e.g. a
+    /// QOpenGLWidget); Metal keeps its own renderer thread.
+    pub const must_draw_from_app_thread = build_config.renderer == .opengl;
+
     /// Because we only expect the embedding API to be used in embedded
     /// environments, the options are extern so that we can expose it
     /// directly to a C callconv and not pay for any translation costs.
@@ -345,6 +352,7 @@ pub const App = struct {
 pub const Platform = union(PlatformTag) {
     macos: MacOS,
     ios: IOS,
+    opengl: OpenGL,
 
     // If our build target for libghostty is not darwin then we do
     // not include macos support at all.
@@ -358,6 +366,35 @@ pub const Platform = union(PlatformTag) {
         uiview: objc.Object,
     } else void;
 
+    /// Configuration for a host that provides its own OpenGL context
+    /// (e.g. a Qt, X11, or Wayland application embedding libghostty).
+    ///
+    /// libghostty draws on the app (GUI) thread for the OpenGL renderer
+    /// (the embedded apprt sets `must_draw_from_app_thread` for OpenGL),
+    /// so these callbacks all run on the same thread that calls
+    /// `ghostty_surface_new` and `ghostty_surface_draw`. The context
+    /// only needs to be usable from that thread; it does not need to
+    /// be thread-portable.
+    pub const OpenGL = struct {
+        /// Userdata passed as the first argument to every callback.
+        userdata: ?*anyopaque,
+
+        /// Resolve the address of an OpenGL function by name.
+        get_proc_address: *const fn (
+            ?*anyopaque,
+            [*:0]const u8,
+        ) callconv(.c) ?*anyopaque,
+
+        /// Make the host's OpenGL context current on the calling thread.
+        make_current: *const fn (?*anyopaque) callconv(.c) void,
+
+        /// Release the host's OpenGL context from the calling thread.
+        release_current: *const fn (?*anyopaque) callconv(.c) void,
+
+        /// Present the most recently rendered frame (e.g. swap buffers).
+        present: *const fn (?*anyopaque) callconv(.c) void,
+    };
+
     // The C ABI compatible version of this union. The tag is expected
     // to be stored elsewhere.
     pub const C = extern union {
@@ -367,6 +404,17 @@ pub const Platform = union(PlatformTag) {
 
         ios: extern struct {
             uiview: ?*anyopaque,
+        },
+
+        opengl: extern struct {
+            userdata: ?*anyopaque,
+            get_proc_address: ?*const fn (
+                ?*anyopaque,
+                [*:0]const u8,
+            ) callconv(.c) ?*anyopaque,
+            make_current: ?*const fn (?*anyopaque) callconv(.c) void,
+            release_current: ?*const fn (?*anyopaque) callconv(.c) void,
+            present: ?*const fn (?*anyopaque) callconv(.c) void,
         },
     };
 
@@ -387,6 +435,21 @@ pub const Platform = union(PlatformTag) {
                     break :ios error.UIViewMustBeSet);
                 break :ios .{ .ios = .{ .uiview = uiview } };
             } else error.UnsupportedPlatform,
+
+            .opengl => opengl: {
+                const config = c_platform.opengl;
+                break :opengl .{ .opengl = .{
+                    .userdata = config.userdata,
+                    .get_proc_address = config.get_proc_address orelse
+                        break :opengl error.GetProcAddressMustBeSet,
+                    .make_current = config.make_current orelse
+                        break :opengl error.MakeCurrentMustBeSet,
+                    .release_current = config.release_current orelse
+                        break :opengl error.ReleaseCurrentMustBeSet,
+                    .present = config.present orelse
+                        break :opengl error.PresentMustBeSet,
+                } };
+            },
         };
     }
 };
@@ -397,6 +460,7 @@ pub const PlatformTag = enum(c_int) {
 
     macos = 1,
     ios = 2,
+    opengl = 3,
 };
 
 pub const EnvVar = extern struct {
@@ -1004,10 +1068,12 @@ pub const Inspector = struct {
 
     const Backend = enum {
         metal,
+        opengl,
 
         pub fn deinit(self: Backend) void {
             switch (self) {
                 .metal => if (builtin.target.os.tag.isDarwin()) cimgui.ImGui_ImplMetal_Shutdown(),
+                .opengl => if (!builtin.target.os.tag.isDarwin()) cimgui.ImGui_ImplOpenGL3_ShutdownWithLoaderCleanup(),
             }
         }
     };
@@ -1034,6 +1100,11 @@ pub const Inspector = struct {
     pub fn deinit(self: *Inspector) void {
         self.surface.core_surface.deactivateInspector();
         cimgui.c.ImGui_SetCurrentContext(self.ig_ctx);
+        // backend.deinit calls the ImGui backend shutdown
+        // (ImGui_ImplOpenGL3_ShutdownWithLoaderCleanup for `.opengl`,
+        // ImGui_ImplMetal_Shutdown for `.metal`). The OpenGL backend
+        // requires the host's GL context to be current on this thread;
+        // hosts must arrange that before calling ghostty_inspector_free.
         if (self.backend) |v| v.deinit();
         cimgui.c.ImGui_DestroyContext(self.ig_ctx);
     }
@@ -1108,6 +1179,52 @@ pub const Inspector = struct {
         );
     }
 
+    /// Initialize the inspector for an OpenGL backend. The ImGui OpenGL3
+    /// backend self-loads GL symbols and renders into the bound
+    /// framebuffer, so no device handle is needed.
+    pub fn initOpenGL(self: *Inspector) bool {
+        if (comptime builtin.target.os.tag.isDarwin()) return false;
+        cimgui.c.ImGui_SetCurrentContext(self.ig_ctx);
+
+        if (self.backend) |v| {
+            v.deinit();
+            self.backend = null;
+        }
+
+        if (!cimgui.ImGui_ImplOpenGL3_Init(null)) {
+            log.warn("failed to initialize OpenGL backend", .{});
+            return false;
+        }
+        self.backend = .opengl;
+
+        log.debug("initialized OpenGL backend", .{});
+        return true;
+    }
+
+    /// Render the inspector into the currently bound GL framebuffer.
+    pub fn renderOpenGL(self: *Inspector) !void {
+        if (comptime builtin.target.os.tag.isDarwin()) return;
+        assert(self.backend == .opengl);
+
+        // Render twice so ImGui completes its state processing (this
+        // mirrors renderMetal).
+        for (0..2) |_| {
+            cimgui.ImGui_ImplOpenGL3_NewFrame();
+            try self.newFrame();
+            cimgui.c.ImGui_NewFrame();
+
+            render: {
+                const surface = &self.surface.core_surface;
+                const inspector = surface.inspector orelse break :render;
+                inspector.render(surface);
+            }
+
+            cimgui.c.ImGui_Render();
+        }
+
+        cimgui.ImGui_ImplOpenGL3_RenderDrawData(cimgui.c.ImGui_GetDrawData());
+    }
+
     pub fn updateContentScale(self: *Inspector, x: f64, y: f64) void {
         _ = y;
         cimgui.c.ImGui_SetCurrentContext(self.ig_ctx);
@@ -1121,6 +1238,13 @@ pub const Inspector = struct {
         var style: cimgui.c.ImGuiStyle = undefined;
         cimgui.ext.ImGuiStyle_ImGuiStyle(&style);
         cimgui.c.ImGuiStyle_ScaleAllSizes(&style, @floatCast(x));
+
+        // The embedded inspector font is baked at a 2x content scale
+        // (see Inspector.setup); FontScaleMain scales the glyphs to the
+        // real DPI so the text matches the scaled widget style instead
+        // of assuming 2x. (io.FontGlobalScale was removed in ImGui 1.92.)
+        style.FontScaleMain = @floatCast(x / 2.0);
+
         const active_style = cimgui.c.ImGui_GetStyle();
         active_style.* = style;
     }
@@ -1281,6 +1405,14 @@ pub const CAPI = struct {
         height_px: u32,
         cell_width_px: u32,
         cell_height_px: u32,
+    };
+
+    // Sync with ghostty_surface_cursor_position_s
+    const SurfaceCursorPosition = extern struct {
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
     };
 
     // ghostty_clipboard_content_s
@@ -1711,6 +1843,26 @@ pub const CAPI = struct {
         };
     }
 
+    /// Return the terminal cursor's pixel rectangle in the surface's
+    /// device-pixel coordinate space. Used to place an IME candidate
+    /// window at the cursor.
+    export fn ghostty_surface_cursor_position(
+        surface: *Surface,
+    ) SurfaceCursorPosition {
+        const core = &surface.core_surface;
+        core.renderer_state.mutex.lock();
+        defer core.renderer_state.mutex.unlock();
+        const cursor = core.renderer_state.terminal.screens.active.cursor;
+        const cell = core.size.cell;
+        const pad = core.size.padding;
+        return .{
+            .x = @as(u32, cursor.x) * cell.width + pad.left,
+            .y = @as(u32, cursor.y) * cell.height + pad.top,
+            .width = cell.width,
+            .height = cell.height,
+        };
+    }
+
     /// Returns the PID of the foreground process for the surface PTY.
     export fn ghostty_surface_foreground_pid(surface: *Surface) u64 {
         return surface.core_surface.getProcessInfo(.foreground_pid) orelse 0;
@@ -2097,6 +2249,23 @@ pub const CAPI = struct {
 
     export fn ghostty_inspector_set_focus(ptr: *Inspector, focused: bool) void {
         ptr.focusCallback(focused);
+    }
+
+    export fn ghostty_inspector_opengl_init(ptr: *Inspector) bool {
+        return ptr.initOpenGL();
+    }
+
+    export fn ghostty_inspector_opengl_render(ptr: *Inspector) void {
+        ptr.renderOpenGL() catch |err| {
+            log.err("error rendering inspector err={}", .{err});
+        };
+    }
+
+    export fn ghostty_inspector_opengl_shutdown(ptr: *Inspector) void {
+        if (ptr.backend) |v| {
+            v.deinit();
+            ptr.backend = null;
+        }
     }
 
     /// Sets the window background blur on macOS to the desired value.

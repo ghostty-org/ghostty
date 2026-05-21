@@ -1,0 +1,58 @@
+# Keep the build context small. Anything Docker doesn't need to see
+# during `docker build` belongs here — the image's libghostty stage
+# COPYs the entire repo, so untracked dev cruft would otherwise bloat
+# the layer and bust the build cache on every run.
+
+# Version control + IDE/editor metadata.
+.git
+.gitignore
+.gitattributes
+.github
+.vscode
+.direnv
+.envrc
+.envrc.local
+
+# Build outputs (we run zig/cmake fresh inside the container).
+zig-cache
+.zig-cache
+zig-out
+build
+build-cmake
+qt/build
+CMakeCache.txt
+CMakeFiles
+*.o
+*.so
+*.dylib
+
+# Test artefacts and crash dumps.
+test/ghostty
+test/cases/**/*.actual.png
+vgcore.*
+/Box_test.ppm
+/Box_test_diff.ppm
+/ghostty.qcow2
+
+# Flatpak/Nix scratch — not needed in the image.
+.flatpak-builder
+flatpak/builddir
+flatpak/repo
+result
+result-*
+
+# Per-user agent state from this repo's session, not part of the build.
+.claude
+.claude-flow
+.hive-mind
+.mcp.json
+.swarm
+CLAUDE.md
+MEMORY.md
+
+# OS noise.
+.DS_Store
+*~
+*.swp
+.*.swp
+*.log

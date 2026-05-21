@@ -45,6 +45,11 @@ blending: configpkg.Config.AlphaBlending,
 /// The most recently presented target, in case we need to present it again.
 last_target: ?Target = null,
 
+/// The apprt surface. Used by the embedded runtime to query the drawable
+/// size (GTK instead reads it from the GL viewport, which its GLArea
+/// keeps in sync).
+rt_surface: *apprt.Surface,
+
 /// NOTE: This is an error{}!OpenGL instead of just OpenGL for parity with
 ///       Metal, since it needs to be fallible so does this, even though it
 ///       can't actually fail.
@@ -52,6 +57,7 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) error{}!OpenGL {
     return .{
         .alloc = alloc,
         .blending = opts.config.blending,
+        .rt_surface = opts.rt_surface,
     };
 }
 
@@ -158,10 +164,35 @@ fn prepareContext(getProcAddress: anytype) !void {
     try gl.enable(gl.c.GL_FRAMEBUFFER_SRGB);
 }
 
+/// Host-provided OpenGL callbacks for the embedded apprt.
+///
+/// libghostty draws on the app thread for the OpenGL renderer
+/// (`must_draw_from_app_thread`), so these callbacks are set in
+/// `surfaceInit` and read by `present` on that same thread. The
+/// renderer thread is a no-op for OpenGL (see threadEnter/threadExit).
+/// `threadlocal` keeps the bookkeeping per-thread without an explicit
+/// hand-off, and avoids threading the callbacks through `*const OpenGL`.
+///
+/// Never set for non-embedded runtimes.
+threadlocal var gl_host: ?apprt.embedded.Platform.OpenGL = null;
+
+/// Adapts the host's `get_proc_address` (which takes a userdata argument)
+/// to glad's GLFW-style loader signature (which does not). Reads the host
+/// callbacks from the thread-local `gl_host`.
+fn gladHostLoader(
+    name: [*:0]const u8,
+) callconv(.c) ?*const fn () callconv(.c) void {
+    const host = gl_host orelse return null;
+    // The host returns ?*anyopaque (alignment 1); a function pointer
+    // has alignment ≥ 4 on aarch64. eglGetProcAddress / glXGetProcAddress
+    // promise the returned pointer is suitable for the OpenGL ABI, so
+    // @alignCast is the assertion we want here.
+    const raw = host.get_proc_address(host.userdata, name) orelse return null;
+    return @ptrCast(@alignCast(raw));
+}
+
 /// This is called early right after surface creation.
 pub fn surfaceInit(surface: *apprt.Surface) !void {
-    _ = surface;
-
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
 
@@ -169,10 +200,19 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         apprt.gtk,
         => try prepareContext(null),
 
-        apprt.embedded => {
-            // TODO(mitchellh): this does nothing today to allow libghostty
-            // to compile for OpenGL targets but libghostty is strictly
-            // broken for rendering on this platforms.
+        // The OpenGL embedded path draws on the app thread
+        // (must_draw_from_app_thread). Make the host context current on
+        // this — the app — thread and load GL; it stays current here for
+        // the surface's lifetime.
+        apprt.embedded => switch (surface.platform) {
+            .opengl => |host| {
+                host.make_current(host.userdata);
+                gl_host = host;
+                try prepareContext(&gladHostLoader);
+            },
+
+            // macOS and iOS use the Metal renderer.
+            .macos, .ios => return error.UnsupportedPlatform,
         },
     }
 
@@ -191,6 +231,8 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
 pub fn finalizeSurfaceInit(self: *const OpenGL, surface: *apprt.Surface) !void {
     _ = self;
     _ = surface;
+    // Nothing to do: GTK and the OpenGL embedded path both keep the GL
+    // context current on the app thread, where all drawing happens.
 }
 
 /// Callback called by renderer.Thread when it begins.
@@ -201,18 +243,10 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
 
-        apprt.gtk => {
-            // GTK doesn't support threaded OpenGL operations as far as I can
-            // tell, so we use the renderer thread to setup all the state
-            // but then do the actual draws and texture syncs and all that
-            // on the main thread. As such, we don't do anything here.
-        },
-
-        apprt.embedded => {
-            // TODO(mitchellh): this does nothing today to allow libghostty
-            // to compile for OpenGL targets but libghostty is strictly
-            // broken for rendering on this platforms.
-        },
+        // GTK and the OpenGL embedded path both draw on the app thread
+        // (must_draw_from_app_thread), so the renderer thread must not
+        // touch the GL context.
+        apprt.gtk, apprt.embedded => {},
     }
 }
 
@@ -223,14 +257,9 @@ pub fn threadExit(self: *const OpenGL) void {
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
 
-        apprt.gtk => {
-            // We don't need to do any unloading for GTK because we may
-            // be sharing the global bindings with other windows.
-        },
-
-        apprt.embedded => {
-            // TODO: see threadEnter
-        },
+        // See threadEnter: the renderer thread does not own the GL
+        // context for either runtime.
+        apprt.gtk, apprt.embedded => {},
     }
 }
 
@@ -277,13 +306,28 @@ pub fn initShaders(
 
 /// Get the current size of the runtime surface.
 pub fn surfaceSize(self: *const OpenGL) !struct { width: u32, height: u32 } {
-    _ = self;
-    var viewport: [4]gl.c.GLint = undefined;
-    gl.glad.context.GetIntegerv.?(gl.c.GL_VIEWPORT, &viewport);
-    return .{
-        .width = @intCast(viewport[2]),
-        .height = @intCast(viewport[3]),
-    };
+    switch (apprt.runtime) {
+        else => @compileError("unsupported app runtime for OpenGL"),
+
+        // GTK keeps the GL viewport in sync with the GLArea size, so it
+        // is a reliable source of the drawable size.
+        apprt.gtk => {
+            var viewport: [4]gl.c.GLint = undefined;
+            gl.glad.context.GetIntegerv.?(gl.c.GL_VIEWPORT, &viewport);
+            return .{
+                .width = @intCast(viewport[2]),
+                .height = @intCast(viewport[3]),
+            };
+        },
+
+        // The embedded host owns the drawable. Nothing keeps the GL
+        // viewport in sync with it, so use the pixel size the host
+        // reports through ghostty_surface_set_size.
+        apprt.embedded => {
+            const size = self.rt_surface.size;
+            return .{ .width = size.width, .height = size.height };
+        },
+    }
 }
 
 /// Initialize a new render target which can be presented by this API.
@@ -328,6 +372,24 @@ pub fn present(self: *OpenGL, target: Target) !void {
 
     // Keep track of this target in case we need to repeat it.
     self.last_target = target;
+
+    // Embedded OpenGL hosts own buffer presentation: the blit above only
+    // writes the default framebuffer, so ask the host to swap buffers.
+    // (GTK presents implicitly via its GLArea, so this is embedded-only.)
+    if (apprt.runtime == apprt.embedded) {
+        if (gl_host) |host| {
+            host.present(host.userdata);
+        } else {
+            // We're being driven from a thread that never ran
+            // surfaceInit, so the threadlocal is empty. The host's
+            // present can't be called and the frame won't surface;
+            // log instead of silently dropping it.
+            log.warn(
+                "present called on a thread without an embedded GL host bound",
+                .{},
+            );
+        }
+    }
 }
 
 /// Present the last presented target again.

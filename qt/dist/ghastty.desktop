@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Ghastty
+GenericName=Terminal
+Comment=A terminal emulator
+Exec=ghastty
+Icon=ghastty
+Categories=System;TerminalEmulator;
+Keywords=terminal;tty;pty;
+StartupNotify=true
+StartupWMClass=ghastty
+Terminal=false

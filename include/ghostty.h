@@ -66,6 +66,7 @@ typedef enum {
   GHOSTTY_PLATFORM_INVALID,
   GHOSTTY_PLATFORM_MACOS,
   GHOSTTY_PLATFORM_IOS,
+  GHOSTTY_PLATFORM_OPENGL,
 } ghostty_platform_e;
 
 typedef enum {
@@ -453,9 +454,37 @@ typedef struct {
   void* uiview;
 } ghostty_platform_ios_s;
 
+// Platform configuration for a host that provides its own OpenGL
+// context (e.g. a Qt, X11, or Wayland application embedding libghostty).
+//
+// The host owns the OpenGL context and windowing. libghostty draws on
+// the app (GUI) thread for the OpenGL renderer (the embedded apprt
+// sets must_draw_from_app_thread for OpenGL), so these callbacks all
+// run on the same thread that calls ghostty_surface_new and
+// ghostty_surface_draw. The context only needs to be usable from that
+// thread; it does not need to be thread-portable.
+typedef struct {
+  // Userdata passed as the first argument to every callback below.
+  void* userdata;
+
+  // Return the address of the named OpenGL function, or NULL if it is
+  // not available. Used to load the GL function pointers.
+  void* (*get_proc_address)(void* userdata, const char* name);
+
+  // Make the host's OpenGL context current on the calling thread.
+  void (*make_current)(void* userdata);
+
+  // Release the host's OpenGL context from the calling thread.
+  void (*release_current)(void* userdata);
+
+  // Present the most recently rendered frame (e.g. swap buffers).
+  void (*present)(void* userdata);
+} ghostty_platform_opengl_s;
+
 typedef union {
   ghostty_platform_macos_s macos;
   ghostty_platform_ios_s ios;
+  ghostty_platform_opengl_s opengl;
 } ghostty_platform_u;
 
 typedef enum {
@@ -487,6 +516,13 @@ typedef struct {
   uint32_t cell_width_px;
   uint32_t cell_height_px;
 } ghostty_surface_size_s;
+
+typedef struct {
+  uint32_t x;
+  uint32_t y;
+  uint32_t width;
+  uint32_t height;
+} ghostty_surface_cursor_position_s;
 
 // Config types
 
@@ -831,7 +867,7 @@ typedef enum {
 // apprt.surface.Message.ChildExited
 typedef struct {
   uint32_t exit_code;
-  uint64_t timetime_ms;
+  uint64_t runtime_ms;
 } ghostty_surface_message_childexited_s;
 
 // terminal.osc.Command.ProgressReport.State
@@ -1039,7 +1075,7 @@ typedef union {
 typedef struct {
   ghostty_ipc_target_tag_e tag;
   ghostty_ipc_target_u target;
-} chostty_ipc_target_s;
+} ghostty_ipc_target_s;
 
 // apprt.ipc.Action.NewWindow
 typedef struct {
@@ -1115,6 +1151,8 @@ GHOSTTY_API void ghostty_surface_set_focus(ghostty_surface_t, bool);
 GHOSTTY_API void ghostty_surface_set_occlusion(ghostty_surface_t, bool);
 GHOSTTY_API void ghostty_surface_set_size(ghostty_surface_t, uint32_t, uint32_t);
 GHOSTTY_API ghostty_surface_size_s ghostty_surface_size(ghostty_surface_t);
+GHOSTTY_API ghostty_surface_cursor_position_s
+    ghostty_surface_cursor_position(ghostty_surface_t);
 GHOSTTY_API uint64_t ghostty_surface_foreground_pid(ghostty_surface_t);
 GHOSTTY_API ghostty_string_s ghostty_surface_tty_name(ghostty_surface_t);
 GHOSTTY_API void ghostty_surface_set_color_scheme(ghostty_surface_t,
@@ -1193,6 +1231,18 @@ GHOSTTY_API bool ghostty_inspector_metal_init(ghostty_inspector_t, void*);
 GHOSTTY_API void ghostty_inspector_metal_render(ghostty_inspector_t, void*, void*);
 GHOSTTY_API bool ghostty_inspector_metal_shutdown(ghostty_inspector_t);
 #endif
+
+// Inspector rendering for the embedded OpenGL platform. init/shutdown
+// manage the ImGui OpenGL backend; render draws the inspector into the
+// currently bound GL framebuffer (the host makes its context current
+// and binds the target framebuffer first).
+//
+// On Apple targets these symbols are present but no-op: Apple builds
+// use the Metal inspector path above and the ImGui OpenGL3 backend is
+// not compiled into libghostty there.
+GHOSTTY_API bool ghostty_inspector_opengl_init(ghostty_inspector_t);
+GHOSTTY_API void ghostty_inspector_opengl_render(ghostty_inspector_t);
+GHOSTTY_API void ghostty_inspector_opengl_shutdown(ghostty_inspector_t);
 
 // APIs I'd like to get rid of eventually but are still needed for now.
 // Don't use these unless you know what you're doing.
