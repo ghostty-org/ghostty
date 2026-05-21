@@ -316,8 +316,9 @@ extension Ghostty {
 
     /// Enum for the macos-titlebar-proxy-icon config option
     enum MacOSTitlebarProxyIcon: String {
-        case visible
-        case hidden
+        case visible = "visible"
+        case hidden = "hidden"
+        case disabled = "disabled"
     }
 
     /// Enum for auto-update-channel config option

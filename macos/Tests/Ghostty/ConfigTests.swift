@@ -106,6 +106,21 @@ struct ConfigTests {
         #expect(config.macosTitlebarStyle == expected)
     }
 
+    @Test func macosTitlebarProxyIconDefaultsToHidden() throws {
+        let config = try TemporaryConfig("")
+        #expect(config.macosTitlebarProxyIcon == .hidden)
+    }
+
+    @Test(arguments: [
+        ("visible", Ghostty.Config.MacOSTitlebarProxyIcon.visible),
+        ("hidden", Ghostty.Config.MacOSTitlebarProxyIcon.hidden),
+        ("disabled", Ghostty.Config.MacOSTitlebarProxyIcon.disabled),
+    ])
+    func macosTitlebarProxyIconValues(raw: String, expected: Ghostty.Config.MacOSTitlebarProxyIcon) throws {
+        let config = try TemporaryConfig("macos-titlebar-proxy-icon = \(raw)")
+        #expect(config.macosTitlebarProxyIcon == expected)
+    }
+
     @Test func resizeOverlayDefaultsToAfterFirst() throws {
         let config = try TemporaryConfig("")
         #expect(config.resizeOverlay == .after_first)
