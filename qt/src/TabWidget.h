@@ -39,6 +39,13 @@ public:
 signals:
   // The tab was dragged off and released clear of its window.
   void tabTornOff(int index);
+  // A tear-off from a *different* window's bar was dropped onto this
+  // one. `originBar` is the source TabBar; the receiving MainWindow
+  // looks up the originating window/page and adopts it. Both
+  // pointers stay valid for the duration of the signal handler —
+  // the drag's nested event loop has just exited and the source
+  // window can't have been deleted mid-emit.
+  void tabAdoptRequested(TabBar *originBar);
   // The user right-clicked a tab; the parent should show a context
   // menu (Close / Close Others / Close Tabs to the Right / Rename).
   // index is the tab index under the click; globalPos is screen-
@@ -82,5 +89,6 @@ public:
 
 signals:
   void tabTornOff(int index);
+  void tabAdoptRequested(TabBar *originBar);
   void tabContextMenuRequested(int index, const QPoint &globalPos);
 };

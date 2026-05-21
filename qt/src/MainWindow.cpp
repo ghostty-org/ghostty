@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <climits>
 #include <cstdio>
+#include <functional>
 
 #include <QApplication>
 #include <QAudioOutput>
@@ -130,6 +131,28 @@ MainWindow::MainWindow() {
   connect(m_tabs, &TabWidget::tabTornOff, this, &MainWindow::detachTab);
   connect(m_tabs, &TabWidget::tabContextMenuRequested, this,
           &MainWindow::showTabContextMenu);
+  // Cross-window tab adoption: a TabBar dropEvent emits this when a
+  // tear-off from a different window's bar lands on ours. Resolve
+  // the source window via TabBar::parentWidget()->parent() and
+  // call adoptTab.
+  connect(m_tabs, &TabWidget::tabAdoptRequested, this,
+          [this](TabBar *origin) {
+            if (!origin) return;
+            // The TabBar's grandparent is the source MainWindow
+            // (TabBar -> TabWidget -> MainWindow).
+            auto *srcTabs = qobject_cast<TabWidget *>(origin->parentWidget());
+            if (!srcTabs) return;
+            auto *srcWin = qobject_cast<MainWindow *>(srcTabs->parentWidget());
+            if (!srcWin || srcWin == this) return;
+            // Adopt the source's currently-dragged tab. The current
+            // index is the tab being dragged at the time the drop
+            // landed on our bar (startTearOff settled in-bar
+            // reorder before exec, so currentIndex is stable).
+            const int idx = srcTabs->currentIndex();
+            if (idx < 0) return;
+            QWidget *page = srcTabs->widget(idx);
+            if (page) adoptTab(srcWin, page);
+          });
 }
 
 MainWindow::~MainWindow() {
@@ -1219,15 +1242,30 @@ void MainWindow::gotoSplit(GhosttySurface *from,
   GhosttySurface *target = nullptr;
   if (dir == GHOSTTY_GOTO_SPLIT_PREVIOUS ||
       dir == GHOSTTY_GOTO_SPLIT_NEXT) {
-    // Cycle through panes in reading order.
-    std::sort(panes.begin(), panes.end(),
-              [&](GhosttySurface *a, GhosttySurface *b) {
-                const QPoint pa = centerOf(a), pb = centerOf(b);
-                return pa.y() != pb.y() ? pa.y() < pb.y() : pa.x() < pb.x();
-              });
-    const int i = panes.indexOf(from);
+    // Cycle in split-tree order, not screen-position order. macOS
+    // and GTK both walk the surface tree depth-first; sorting by
+    // widget center put nested unbalanced trees in a different
+    // order than the user's mental model of "the next pane in the
+    // tree." A flat sort got 3/4 right by accident — fixing it for
+    // the asymmetric case.
+    QList<GhosttySurface *> order;
+    std::function<void(QWidget *)> walk = [&](QWidget *w) {
+      if (auto *s = qobject_cast<GhosttySurface *>(w)) {
+        order.append(s);
+      } else if (auto *sp = qobject_cast<QSplitter *>(w)) {
+        for (int i = 0; i < sp->count(); ++i) walk(sp->widget(i));
+      } else if (w) {
+        // The tab page itself: descend into its child layout.
+        for (QObject *c : w->children())
+          if (auto *cw = qobject_cast<QWidget *>(c)) walk(cw);
+      }
+    };
+    walk(m_tabs->widget(tab));
+    if (order.isEmpty()) return;
+    const int i = order.indexOf(from);
+    if (i < 0) return;
     const int step = dir == GHOSTTY_GOTO_SPLIT_NEXT ? 1 : -1;
-    target = panes[(i + step + panes.size()) % panes.size()];
+    target = order[(i + step + order.size()) % order.size()];
   } else {
     // Directional: the nearest pane whose center lies that way.
     const QPoint fc = centerOf(from);

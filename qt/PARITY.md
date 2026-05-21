@@ -29,10 +29,10 @@ checkbox and link the commit hash.
 ### Lifecycle / quit
 
 - [x] **B1.** `quit-after-last-window-closed-delay` does nothing on natural close (`MainWindow.cpp:255`). Delay timer only fires when libghostty issues `QUIT_TIMER`, but closing the last window via the title-bar X keeps the process alive forever (since Qt's `quitOnLastWindowClosed` was set false to allow the delay path). macOS handles via `applicationShouldTerminateAfterLastWindowClosed`; GTK wires last-window-close → `startQuitTimer` (`application.zig:820-862`). — fixed in `7c3868b5b`
-- [ ] **B2.** `CLOSE_ALL_WINDOWS` always force-terminates (`MainWindow.cpp:1367-1370`, `:602-621`). Qt collapses `QUIT` and `CLOSE_ALL_WINDOWS` into the same path, both calling `qApp->quit()`. macOS keeps them distinct (close-all doesn't terminate). User binds close-all-windows → app quits unexpectedly.
-- [ ] **B3.** `m_skipCloseConfirm` never cleared (`MainWindow.cpp:577-585`, `:454`, `:474`, `:509`). After one skip-confirmed close, if the window is re-shown via `toggleVisibility`, the next close also skips confirmation. macOS resets per-action.
+- [x] **B2.** `CLOSE_ALL_WINDOWS` always force-terminates. — fixed in `4c903802a` (split QUIT vs CLOSE_ALL_WINDOWS via thenQuit param).
+- [x] **B3.** `m_skipCloseConfirm` never cleared. — fixed in `4c903802a` (closeEvent consumes the flag for THIS attempt only).
 - [x] **B4.** `confirm-close-surface` config option ignored (`MainWindow.cpp:587-599`). Qt always uses libghostty's `needs_confirm_quit`. User setting `false` / `always` / `always-cwd` has no effect. — fixed in `33b5dee46`
-- [ ] **B5.** `closeAllWindows` ignores `quit-after-last-window-closed=false` — windowless keep-alive impossible after close-all.
+- [x] **B5.** `closeAllWindows` ignores `quit-after-last-window-closed=false` — fixed in `4c903802a` (CLOSE_ALL_WINDOWS path now reads quit-after-last-window-closed; `false` keeps the process alive after close-all).
 
 ### Action coverage
 
@@ -69,7 +69,7 @@ checkbox and link the commit hash.
 ### Input / keyboard / mouse
 
 - [x] **B19.** Mouse buttons 4-11 not delivered (`GhosttySurface.cpp:710-715`). Only Left/Right/Middle mapped; back/forward buttons silently dropped. macOS + GTK both handle 4-11. — fixed in `a48ff0fb8`
-- [ ] **B20.** Modifier release doesn't synthesize event (`sendKey`). Bare Shift/Ctrl/Alt presses don't produce kitty progressive-enhancement events. macOS uses `flagsChanged`; GTK derives from physical_key.
+- [x] **B20.** Modifier release doesn't synthesize event (`sendKey`). Bare Shift/Ctrl/Alt presses don't produce kitty progressive-enhancement events. macOS uses `flagsChanged`; GTK derives from physical_key. — confirmed honored: Qt's xcb/wayland plugins do deliver QKeyEvent with `Qt::Key_Shift`/`Key_Control`/etc. and `nativeScanCode` populated for bare modifier transitions; sendKey forwards them. libghostty's kitty encoder uses the XKB keycode to identify the modifier. No Ghastty-side change needed.
 - [x] **B21.** `consumed_mods` only computed for printable events (`GhosttySurface.cpp:699-701`). Keypad/function/Backspace/arrows lose consumed-mods info. macOS + GTK compute unconditionally. — fixed in `13d4353b1`
 - [x] **B22.** Caps Lock + Num Lock state never set in mods (`translateMods`). Kitty CSI-u relies on these bits. — fixed in `913f192d8`
 - [x] **B23.** Sided modifiers (left vs right) not reported. `left_shift` vs `right_shift` keybinds can't fire. macOS + GTK both populate `mods.sides.*`. — fixed in `8e8725274`
@@ -90,18 +90,18 @@ checkbox and link the commit hash.
 - [ ] **B35.** Split focus order sorts by widget center, not split tree (`MainWindow.cpp:809-858`). Nested unbalanced trees cycle in a different order than macOS+GTK use.
 - [ ] **B36.** QSplitter handle drag bypasses libghostty (`MainWindow.cpp:381`). Mouse-drag updates Qt's splitter ratios but never tells libghostty; "split equalize" later won't restore correctly.
 - [x] **B37.** Split equalize is per-splitter, not tree-aware (`MainWindow.cpp:886-896`). 3-pane vertical next to 1-pane gets 1:1 instead of 3:1. macOS + GTK use `surfaceTree.equalized()` which weights by leaf count. — fixed in `cd38f4bd5`
-- [ ] **B38.** No `split-preserve-zoom` config. macOS persists zoom across focus moves with `navigation` setting.
+- [x] **B38.** No `split-preserve-zoom` config. macOS persists zoom across focus moves with `navigation` setting. — fixed in `8bd64d0fa` (same site as C19).
 - [x] **B39.** Tab right-click context menu absent. macOS + GTK have full menu (Close/Close-Others/Close-Right/Rename/Pin). — fixed in `cd38f4bd5`
 - [x] **B40.** `window-decoration` only handles `none` (`MainWindow.cpp:268`). `auto`/`client`/`server` all collapse. Wayland has no portable way to force CSD vs SSD; the platform decides. — confirmed in `8e8725274`
-- [ ] **B41.** `window-theme` partial (`MainWindow.cpp:1040`). `ghostty` mode (luminance-detected from background color) and full OS-scheme follow not implemented; pre-Qt 6.8 has zero theming.
+- [x] **B41.** `window-theme` partial (`MainWindow.cpp:1040`). `ghostty` mode (luminance-detected from background color) and full OS-scheme follow not implemented; pre-Qt 6.8 has zero theming. — fixed in `4c903802a` (`ghostty` mode was already implemented; pre-6.8 fallback now synthesizes a QApplication palette for forced light/dark/ghostty).
 
 ### Quick terminal
 
 - [x] **B42.** No animation (slide-in/out). macOS uses `NSAnimationContext`. — fixed in `cd38f4bd5` (fade via QPropertyAnimation; slide infeasible under LayerShellQt)
 - [x] **B43.** `quick-terminal-screen` not honored. macOS resolves which monitor. — fixed in `6d700c36b` (handle->setScreen() before LayerShellQt anchoring; honors `main` / `mouse`; `macos-menu-bar` falls through to primary)
 - [x] ~~**B44.** `quick-terminal-position = center` not handled (`MainWindow.cpp:700`).~~ Audit was wrong; already handled at `MainWindow.cpp:766`.
-- [ ] **B45.** `quick-terminal-space-behavior` not honored.
-- [ ] **B46.** No fallback for non-Wayland — `LayerShellQt::Window::get()` returning null leaves a regular window without telling libghostty.
+- [x] **B45.** `quick-terminal-space-behavior` not honored. — confirmed in `4c903802a` as a no-op. Wayland's wlr-layer-shell has no per-workspace pin; KWin always renders layer surfaces on the active workspace (= `move`). `remain` semantics are not achievable on Linux/Wayland.
+- [x] **B46.** No fallback for non-Wayland — `LayerShellQt::Window::get()` returning null leaves a regular window without telling libghostty. — fixed in `4c903802a` (XWayland / X11 fall back to FramelessWindowHint + StaysOnTop + Tool with a 60%/40% top-centered placement).
 
 ### Misc
 

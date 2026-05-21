@@ -179,15 +179,27 @@ void TabBar::dragEnterEvent(QDragEnterEvent *e) {
 }
 
 void TabBar::dropEvent(QDropEvent *e) {
-  // Dropping a tear-off back on a tab bar cancels it. Mark the flag on
-  // the *originating* bar (carried in the MIME payload), not this one
-  // — a tear-off can be dropped onto a different window's bar.
+  // Dropping a tear-off on a tab bar cancels the tear-off. Two cases:
+  //   - dropped on the originating bar (or anywhere we can't decode):
+  //     mark m_dropHandled so the source's startTearOff loop drops
+  //     the tab back into place.
+  //   - dropped on a *different* window's bar: cancel the tear-off
+  //     AND ask the parent TabWidget to adopt the source tab into
+  //     this window. macOS + GTK both support cross-window tab
+  //     adoption this way.
   if (e->mimeData()->hasFormat(QString::fromLatin1(kGhosttyTabMime))) {
-    if (TabBar *origin = decodeOrigin(
-            e->mimeData()->data(QString::fromLatin1(kTearOffOriginRole))))
-      origin->m_dropHandled = true;
-    else
-      m_dropHandled = true;  // fallback: mark ourselves
+    TabBar *origin = decodeOrigin(
+        e->mimeData()->data(QString::fromLatin1(kTearOffOriginRole)));
+    if (origin) origin->m_dropHandled = true;
+    else m_dropHandled = true;
+    if (origin && origin != this) {
+      // Cross-window adoption. The parent QTabWidget signal carries
+      // the origin bar; the MainWindow on the receiving side resolves
+      // it to a source window + page and calls adoptTab. We emit
+      // through the TabWidget so MainWindow only listens at one site.
+      if (auto *tw = qobject_cast<TabWidget *>(parentWidget()))
+        emit tw->tabAdoptRequested(origin);
+    }
     e->acceptProposedAction();
   }
 }
