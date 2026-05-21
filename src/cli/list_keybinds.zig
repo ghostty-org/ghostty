@@ -35,12 +35,12 @@ pub const Options = struct {
 };
 
 /// The `list-keybinds` command is used to list all the available keybinds for
-/// Ghastty.
+/// Ghostty.
 ///
 /// When executed without any arguments this will list the current keybinds
 /// loaded by the config file. If no config file is found or there aren't any
 /// changes to the keybinds it will print out the default ones configured for
-/// Ghastty
+/// Ghostty
 ///
 /// Flags:
 ///

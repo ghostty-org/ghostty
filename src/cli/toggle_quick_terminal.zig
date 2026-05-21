@@ -4,7 +4,7 @@ const Action = @import("../cli.zig").ghostty.Action;
 const apprt = @import("../apprt.zig");
 
 pub const Options = struct {
-    /// If set, connect to a custom instance of Ghastty.
+    /// If set, connect to a custom instance of Ghostty.
     class: ?[:0]const u8 = null,
 
     pub fn deinit(self: *Options) void {
@@ -19,13 +19,13 @@ pub const Options = struct {
 };
 
 /// The `+toggle-quick-terminal` command will use native platform IPC to toggle
-/// the quick terminal in a running instance of Ghastty.
+/// the quick terminal in a running instance of Ghostty.
 ///
 /// If the `--class` flag is not set, the command will try and connect to the
-/// default running Ghastty instance. Otherwise it will contact a Ghastty
+/// default running Ghostty instance. Otherwise it will contact a Ghostty
 /// instance configured with the given `class`.
 ///
-/// On GTK, D-Bus activation must be properly configured. Ghastty does not need
+/// On GTK, D-Bus activation must be properly configured. Ghostty does not need
 /// to be running, as D-Bus will handle launching a new instance if it is not
 /// already running.
 ///
@@ -33,7 +33,7 @@ pub const Options = struct {
 ///
 /// Flags:
 ///
-///   * `--class=<class>`: If set, connect to a custom instance of Ghastty.
+///   * `--class=<class>`: If set, connect to a custom instance of Ghostty.
 ///     The class must be a valid GTK application ID.
 ///
 /// Available since: 1.4.0

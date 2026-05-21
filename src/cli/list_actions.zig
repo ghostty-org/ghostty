@@ -21,7 +21,7 @@ pub const Options = struct {
 };
 
 /// The `list-actions` command is used to list all the available keybind
-/// actions for Ghastty. These are distinct from the CLI Actions which can
+/// actions for Ghostty. These are distinct from the CLI Actions which can
 /// be listed via `+help`
 ///
 /// Flags:

@@ -26,7 +26,7 @@ pub const Options = struct {
 /// Manage the SSH terminfo cache for automatic remote host setup.
 ///
 /// When SSH integration is enabled with `shell-integration-features = ssh-terminfo`,
-/// Ghastty automatically installs its terminfo on remote hosts. This command
+/// Ghostty automatically installs its terminfo on remote hosts. This command
 /// manages the cache of successful installations to avoid redundant uploads.
 ///
 /// The cache stores hostnames (or user@hostname combinations) along with timestamps.
@@ -162,13 +162,13 @@ pub fn runInner(
 
         if (cached) {
             try stdout.print(
-                "'{s}' has Ghastty terminfo installed.\n",
+                "'{s}' has Ghostty terminfo installed.\n",
                 .{host},
             );
             return 0;
         } else {
             try stdout.print(
-                "'{s}' does not have Ghastty terminfo installed.\n",
+                "'{s}' does not have Ghostty terminfo installed.\n",
                 .{host},
             );
             return 1;

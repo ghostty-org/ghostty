@@ -40,11 +40,11 @@ pub const Options = struct {
     }
 };
 
-/// The `show-face` command shows what font face Ghastty will use to render a
+/// The `show-face` command shows what font face Ghostty will use to render a
 /// specific codepoint. Note that this command does not take into consideration
 /// grapheme clustering or any other Unicode features that might modify the
 /// presentation of a codepoint, so this may show a different font face than
-/// Ghastty uses to render a codepoint in a terminal session.
+/// Ghostty uses to render a codepoint in a terminal session.
 ///
 /// Flags:
 ///
@@ -90,11 +90,11 @@ fn runArgs(
     stdout: *std.Io.Writer,
     stderr: *std.Io.Writer,
 ) !u8 {
-    // Its possible to build Ghastty without font discovery!
+    // Its possible to build Ghostty without font discovery!
     if (comptime font.Discover == void) {
         try stderr.print(
-            \\Ghastty was built without a font discovery mechanism. This is a compile-time
-            \\option. Please review how Ghastty was built from source, contact the
+            \\Ghostty was built without a font discovery mechanism. This is a compile-time
+            \\option. Please review how Ghostty was built from source, contact the
             \\maintainer to enable a font discovery mechanism, and try again.
         ,
             .{},
@@ -218,7 +218,7 @@ fn lookup(
 
     const face = font_grid.resolver.collection.getFace(idx) catch |err| switch (err) {
         error.SpecialHasNoFace => {
-            try stdout.print("U+{0X:0>2} « {0u} » is handled by Ghastty's internal sprites.\n", .{cp});
+            try stdout.print("U+{0X:0>2} « {0u} » is handled by Ghostty's internal sprites.\n", .{cp});
             return null;
         },
         else => {
