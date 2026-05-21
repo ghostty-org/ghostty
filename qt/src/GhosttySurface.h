@@ -25,6 +25,7 @@ class QOpenGLContext;
 class QOpenGLFramebufferObject;
 class QOpenGLShaderProgram;
 class QOpenGLVertexArrayObject;
+class QPainter;
 class OverlayScrollbar;
 
 // One Ghostty terminal pane.
@@ -161,6 +162,7 @@ private:
   void flashScrollbar();           // reveal the overlay scrollbar, arm hide
   void buildExitOverlay(int exitCode);
   void showResizeOverlay();        // transient grid-size overlay on resize
+  void paintResizeOverlay(QPainter &painter);  // draws ^ in paintEvent
   void layoutSearchBar();          // position the search bar at the top edge
   void sendKey(QKeyEvent *, ghostty_input_action_e action);
   void commitText(const QString &text);
@@ -205,8 +207,14 @@ private:
   QLabel *m_keySeqOverlay = nullptr;   // pending keybind chord; lazily made
   QLabel *m_linkOverlay = nullptr;     // MOUSE_OVER_LINK URL hint; lazily made
   QStringList m_keySeq;                // accumulated pending chords
-  QLabel *m_resizeOverlay = nullptr;   // transient "cols x rows"; lazily made
-  QTimer *m_resizeHideTimer = nullptr; // auto-hides m_resizeOverlay
+  // The transient "cols × rows" overlay is painted directly in
+  // paintEvent (not a child widget) so it is part of the terminal frame
+  // and cannot be covered or flicker while the surface repaints during
+  // a resize. m_resizeHideTimer clears m_resizeOverlayVisible when the
+  // resize stops; m_resizeOverlayText is the text to draw.
+  QTimer *m_resizeHideTimer = nullptr;
+  QString m_resizeOverlayText;
+  bool m_resizeOverlayVisible = false;
   bool m_firstGridSeen = false;        // for `resize-overlay = after-first`
   int m_lastCols = 0;                  // last grid size, to detect changes
   int m_lastRows = 0;

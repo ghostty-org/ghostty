@@ -18,6 +18,8 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFocusEvent>
+#include <QFont>
+#include <QFontMetrics>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QInputDialog>
@@ -333,6 +335,9 @@ void GhosttySurface::paintEvent(QPaintEvent *) {
     painter.setBrush(Qt::NoBrush);
     painter.drawRect(QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5));
   }
+
+  // Transient "cols × rows" overlay, on top of everything else.
+  paintResizeOverlay(painter);
 }
 
 void GhosttySurface::flashBorder() {
@@ -484,52 +489,93 @@ void GhosttySurface::layoutSearchBar() {
       width() - m_searchBar->width() - OverlayScrollbar::kWidth - 8, 8);
 }
 
+// Called from resizeEvent for every size change. The overlay is drawn
+// in paintEvent (see m_resizeOverlayVisible there) rather than as a
+// child QLabel: a child widget composited over this surface gets
+// covered / flickers while the surface repaints rapidly during a
+// resize. Here we just refresh the text and (re)arm the hide timer on
+// EVERY resize event, so the overlay stays up for the whole drag and
+// only fades once resizing actually stops.
 void GhosttySurface::showResizeOverlay() {
   if (!m_surface || !m_owner) return;
   const ghostty_surface_size_s sz = ghostty_surface_size(m_surface);
-  // Only a grid-size change is a "resize" worth announcing.
-  if (sz.columns == m_lastCols && sz.rows == m_lastRows) return;
-  m_lastCols = sz.columns;
-  m_lastRows = sz.rows;
 
   ghostty_config_t cfg = m_owner->config();
   const QString mode = cfgString(cfg, "resize-overlay");
-  const bool first = !m_firstGridSeen;
-  m_firstGridSeen = true;
   if (mode == QLatin1String("never")) return;
-  if (mode == QLatin1String("after-first") && first) return;
 
-  if (!m_resizeOverlay) m_resizeOverlay = makeOverlayLabel(this);
-  m_resizeOverlay->setText(
-      QStringLiteral("%1 × %2").arg(sz.columns).arg(sz.rows));
-  m_resizeOverlay->adjustSize();
+  if (sz.columns != m_lastCols || sz.rows != m_lastRows) {
+    const bool first = !m_firstGridSeen;
+    m_lastCols = sz.columns;
+    m_lastRows = sz.rows;
+    m_firstGridSeen = true;
+    // `after-first`: stay silent for the surface's very first grid.
+    if (mode == QLatin1String("after-first") && first) return;
+    m_resizeOverlayText =
+        QStringLiteral("%1 × %2").arg(sz.columns).arg(sz.rows);
+  }
+  // Nothing to announce yet (a pixel-only resize before the first grid,
+  // or `after-first` still waiting on the surface's initial grid).
+  if (m_resizeOverlayText.isEmpty()) return;
 
-  // resize-overlay-position: center / {top,bottom}-{left,center,right}.
-  const QString pos = cfgString(cfg, "resize-overlay-position");
-  const int m = 8;
-  int x = (width() - m_resizeOverlay->width()) / 2;
-  int y = (height() - m_resizeOverlay->height()) / 2;
-  if (pos.contains(QLatin1String("left"))) x = m;
-  else if (pos.contains(QLatin1String("right")))
-    x = width() - m_resizeOverlay->width() - m;
-  if (pos.contains(QLatin1String("top"))) y = m;
-  else if (pos.contains(QLatin1String("bottom")))
-    y = height() - m_resizeOverlay->height() - m;
-  m_resizeOverlay->move(x, y);
-  m_resizeOverlay->show();
-  m_resizeOverlay->raise();
+  m_resizeOverlayVisible = true;
 
-  unsigned long long durNs = 0;
-  configGet(cfg, &durNs, "resize-overlay-duration");
-  const int durMs = durNs ? static_cast<int>(durNs / 1000000ULL) : 750;
+  // ghostty_config_get returns a Duration through Duration.cval(),
+  // which is MILLISECONDS — use it as-is. Dividing by 1e6 here (the
+  // value was misnamed "durNs") turned the 750ms default into 0, so
+  // the hide timer fired on the next event-loop tick and the overlay
+  // vanished the instant it appeared.
+  unsigned long long durCfgMs = 0;
+  const bool durOk = configGet(cfg, &durCfgMs, "resize-overlay-duration");
+  const int durMs =
+      (durOk && durCfgMs > 0) ? static_cast<int>(durCfgMs) : 750;
   if (!m_resizeHideTimer) {
     m_resizeHideTimer = new QTimer(this);
     m_resizeHideTimer->setSingleShot(true);
     connect(m_resizeHideTimer, &QTimer::timeout, this, [this]() {
-      if (m_resizeOverlay) m_resizeOverlay->hide();
+      m_resizeOverlayVisible = false;
+      update();
     });
   }
   m_resizeHideTimer->start(durMs);
+  update();
+}
+
+// Draw the transient "cols × rows" overlay onto the current frame.
+// Called from paintEvent so the overlay is composited in the same pass
+// as the terminal image — it cannot be covered or flicker.
+void GhosttySurface::paintResizeOverlay(QPainter &painter) {
+  if (!m_resizeOverlayVisible || m_resizeOverlayText.isEmpty()) return;
+
+  QFont f = font();
+  f.setPixelSize(13);
+  const QFontMetrics fm(f);
+  const int padX = 10, padY = 4;
+  const QSize ts = fm.size(Qt::TextSingleLine, m_resizeOverlayText);
+  const qreal boxW = ts.width() + 2 * padX;
+  const qreal boxH = ts.height() + 2 * padY;
+
+  // resize-overlay-position: center / {top,bottom}-{left,center,right}.
+  const QString pos =
+      m_owner ? cfgString(m_owner->config(), "resize-overlay-position")
+              : QString();
+  const qreal m = 8;
+  qreal x = (width() - boxW) / 2;
+  qreal y = (height() - boxH) / 2;
+  if (pos.contains(QLatin1String("left"))) x = m;
+  else if (pos.contains(QLatin1String("right"))) x = width() - boxW - m;
+  if (pos.contains(QLatin1String("top"))) y = m;
+  else if (pos.contains(QLatin1String("bottom"))) y = height() - boxH - m;
+
+  const QRectF box(x, y, boxW, boxH);
+  painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+  painter.setRenderHint(QPainter::Antialiasing, true);
+  painter.setPen(Qt::NoPen);
+  painter.setBrush(QColor(0, 0, 0, 191));  // rgba(0,0,0,0.75)
+  painter.drawRoundedRect(box, 4, 4);
+  painter.setFont(f);
+  painter.setPen(QColor(0xf0, 0xf0, 0xf0));
+  painter.drawText(box, Qt::AlignCenter, m_resizeOverlayText);
 }
 
 void GhosttySurface::showChildExited(int exitCode) {
