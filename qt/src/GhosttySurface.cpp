@@ -401,6 +401,10 @@ void GhosttySurface::toggleInspector(ghostty_action_inspector_e mode) {
   }
 }
 
+void GhosttySurface::refreshInspector() {
+  if (m_inspectorWindow) m_inspectorWindow->update();
+}
+
 void GhosttySurface::openSearch(const QString &prefill) {
   if (!m_searchBar) m_searchBar = new SearchBar(this);
   m_searchBar->open(prefill);

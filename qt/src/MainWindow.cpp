@@ -1235,6 +1235,93 @@ bool MainWindow::focusFollowsMouse() const {
   return configBool("focus-follows-mouse", false);
 }
 
+// Bring this window forward and focus the surface inside it. Mirrors
+// macOS PRESENT_TERMINAL (NSApp.activate / makeKeyAndOrderFront) and
+// GTK presentTerminal (window.present()).
+void MainWindow::presentTerminal(GhosttySurface *surface) {
+  show();
+  raise();
+  activateWindow();
+  if (surface) surface->setFocus();
+}
+
+// Cycle through s_windows. The libghostty target picks a starting
+// window (the one whose surface fired the action); GOTO_WINDOW_NEXT
+// goes forward, PREVIOUS goes backward, wrapping at the ends.
+void MainWindow::gotoWindow(MainWindow *from,
+                            ghostty_action_goto_window_e dir) {
+  const int n = s_windows.size();
+  if (n <= 1) return;
+  const int idx = from ? s_windows.indexOf(from) : 0;
+  if (idx < 0) return;
+  const int step = (dir == GHOSTTY_GOTO_WINDOW_NEXT) ? 1 : -1;
+  const int next = (idx + step + n) % n;
+  if (MainWindow *w = s_windows.value(next)) w->presentTerminal(nullptr);
+}
+
+// FLOAT_WINDOW: keep this window above other windows (Qt::
+// WindowStaysOnTopHint). Resetting flags hides+reshows the window;
+// preserve its prior visibility/maximized/fullscreen state. macOS uses
+// NSWindow.level = .floating; GTK toggles GtkWindow:keep-above.
+void MainWindow::setFloating(ghostty_action_float_window_e mode) {
+  bool target = false;
+  switch (mode) {
+    case GHOSTTY_FLOAT_WINDOW_ON: target = true; break;
+    case GHOSTTY_FLOAT_WINDOW_OFF: target = false; break;
+    case GHOSTTY_FLOAT_WINDOW_TOGGLE: target = !m_floating; break;
+  }
+  if (target == m_floating) return;
+  m_floating = target;
+  // setWindowFlag preserves visibility but hides+reshows; re-activate
+  // so we don't drop focus.
+  setWindowFlag(Qt::WindowStaysOnTopHint, target);
+  if (isVisible()) {
+    show();
+    activateWindow();
+  }
+}
+
+// TOGGLE_WINDOW_DECORATIONS: flip the frameless flag at runtime. Same
+// hide+reshow caveat as setFloating. The compositor decides how to
+// render the resulting window on Wayland.
+void MainWindow::toggleWindowDecorations() {
+  m_decorationsHidden = !m_decorationsHidden;
+  setWindowFlag(Qt::FramelessWindowHint, m_decorationsHidden);
+  if (isVisible()) {
+    show();
+    activateWindow();
+  }
+}
+
+// TOGGLE_BACKGROUND_OPACITY: flip between honoring the configured
+// background-opacity (translucent window) and forcing the window
+// opaque. Implemented via WA_TranslucentBackground because libghostty
+// owns the per-pixel alpha; this just controls whether Qt composites
+// the window onto the desktop translucently.
+void MainWindow::toggleBackgroundOpacity() {
+  m_opacityForcedOpaque = !m_opacityForcedOpaque;
+  setAttribute(Qt::WA_TranslucentBackground, !m_opacityForcedOpaque);
+  update();
+}
+
+// SIZE_LIMIT: clamp the window's resizable range. libghostty derives
+// these from the surface's cell-grid limits; honoring them prevents a
+// user from shrinking a window below one cell or expanding past the
+// terminal's max grid size. A zero max means "no upper bound".
+void MainWindow::setSizeLimits(uint32_t minW, uint32_t minH, uint32_t maxW,
+                               uint32_t maxH) {
+  if (minW || minH) setMinimumSize(QSize(minW, minH));
+  // Treat 0 as "no constraint" — Qt's QWIDGETSIZE_MAX is the upper bound.
+  setMaximumSize(QSize(maxW ? int(maxW) : QWIDGETSIZE_MAX,
+                       maxH ? int(maxH) : QWIDGETSIZE_MAX));
+}
+
+// CELL_SIZE: just store the value for later. Snap-to-grid resizing is
+// not implemented yet.
+void MainWindow::setCellSize(uint32_t w, uint32_t h) {
+  m_cellSize = QSize(int(w), int(h));
+}
+
 void MainWindow::applyWindowConfig() {
   // window-show-tab-bar: always shown / auto-hidden with a lone tab /
   // never shown.
@@ -1489,11 +1576,21 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
     }
 
     case GHOSTTY_ACTION_PROMPT_TITLE: {
-      if (!src) return true;
       const bool tabScope =
           action.action.prompt_title == GHOSTTY_PROMPT_TITLE_TAB;
-      post(src, [srcp, tabScope]() {
-        if (srcp) srcp->promptTitle(tabScope);
+      // App-target: promote to the active window's current surface so a
+      // global keybind can rename even when no surface is the action's
+      // explicit target. Mirrors macOS NSApp.mainWindow promotion.
+      GhosttySurface *target = src;
+      if (!target && !s_windows.isEmpty()) {
+        MainWindow *active = qobject_cast<MainWindow *>(qApp->activeWindow());
+        if (!active) active = s_windows.first();
+        if (active) target = active->surfaceAt(active->m_tabs->currentIndex());
+      }
+      if (!target) return false;
+      QPointer<GhosttySurface> tp(target);
+      post(target, [tp, tabScope]() {
+        if (tp) tp->promptTitle(tabScope);
       });
       return true;
     }
@@ -1530,7 +1627,10 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
     }
 
     case GHOSTTY_ACTION_GOTO_TAB: {
-      if (!win) return false;
+      // Performable: return false on a single tab so the chord falls
+      // through to the terminal. macOS does the same; GTK gates on
+      // tabPage count > 1.
+      if (!win || win->m_tabs->count() <= 1) return false;
       const ghostty_action_goto_tab_e tab = action.action.goto_tab;
       post(win, [winp, tab]() {
         if (winp) winp->gotoTab(tab);
@@ -1539,7 +1639,12 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
     }
 
     case GHOSTTY_ACTION_GOTO_SPLIT: {
-      if (!src) return false;
+      // Performable: return false when the surface has no split sibling
+      // — otherwise navigation chords (e.g. ctrl+alt+arrows) eat their
+      // own keystrokes on an unsplit surface.
+      if (!src ||
+          !qobject_cast<QSplitter *>(src->parentWidget()))
+        return false;
       const ghostty_action_goto_split_e dir = action.action.goto_split;
       post(win, [winp, srcp, dir]() {
         if (winp && srcp) winp->gotoSplit(srcp, dir);
@@ -1548,7 +1653,9 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
     }
 
     case GHOSTTY_ACTION_RESIZE_SPLIT: {
-      if (!src) return false;
+      if (!src ||
+          !qobject_cast<QSplitter *>(src->parentWidget()))
+        return false;
       const ghostty_action_resize_split_s rs = action.action.resize_split;
       post(win, [winp, srcp, rs]() {
         if (winp && srcp) winp->resizeSplit(srcp, rs);
@@ -1557,10 +1664,12 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
     }
 
     case GHOSTTY_ACTION_EQUALIZE_SPLITS:
-      if (src)
-        post(win, [winp, srcp]() {
-          if (winp && srcp) winp->equalizeSplits(srcp);
-        });
+      if (!src ||
+          !qobject_cast<QSplitter *>(src->parentWidget()))
+        return false;
+      post(win, [winp, srcp]() {
+        if (winp && srcp) winp->equalizeSplits(srcp);
+      });
       return true;
 
     case GHOSTTY_ACTION_TOGGLE_FULLSCREEN:
@@ -1617,10 +1726,13 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
     }
 
     case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
-      if (src)
-        post(win, [winp, srcp]() {
-          if (winp && srcp) winp->toggleSplitZoom(srcp);
-        });
+      // Performable: only meaningful inside a split tree.
+      if (!src ||
+          !qobject_cast<QSplitter *>(src->parentWidget()))
+        return false;
+      post(win, [winp, srcp]() {
+        if (winp && srcp) winp->toggleSplitZoom(srcp);
+      });
       return true;
 
     case GHOSTTY_ACTION_OPEN_CONFIG: {
@@ -1735,6 +1847,13 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
     }
 
     case GHOSTTY_ACTION_MOVE_TAB: {
+      // Surface-target only: an app-target MOVE_TAB has no meaningful
+      // window to apply to (we'd just pick s_windows.first() arbitrarily).
+      // macOS returns false here — performable falls through to the
+      // running terminal on no live window.
+      if (target.tag != GHOSTTY_TARGET_SURFACE || !src) return false;
+      // Performable: a single tab can't be reordered.
+      if (!win || win->m_tabs->count() <= 1) return false;
       const int amount = static_cast<int>(action.action.move_tab.amount);
       post(win, [winp, amount]() {
         if (winp) winp->moveTab(amount);
@@ -1834,6 +1953,151 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       });
       return true;
     }
+
+    case GHOSTTY_ACTION_RENDER_INSPECTOR: {
+      // libghostty already has its own inspector redraw timer, but a
+      // wakeup here keeps it tight.
+      if (src)
+        post(src, [srcp]() {
+          if (srcp) srcp->refreshInspector();
+        });
+      return true;
+    }
+
+    case GHOSTTY_ACTION_PRESENT_TERMINAL:
+      if (!win) return false;
+      post(win, [winp, srcp]() {
+        if (winp) winp->presentTerminal(srcp.data());
+      });
+      return true;
+
+    case GHOSTTY_ACTION_GOTO_WINDOW: {
+      // Performable: return false on a single window so the chord
+      // falls through to the terminal.
+      if (s_windows.size() <= 1) return false;
+      const ghostty_action_goto_window_e dir = action.action.goto_window;
+      post(qApp,
+           [winp, dir]() { MainWindow::gotoWindow(winp.data(), dir); });
+      return true;
+    }
+
+    case GHOSTTY_ACTION_FLOAT_WINDOW: {
+      if (!win) return false;
+      const ghostty_action_float_window_e mode = action.action.float_window;
+      post(win, [winp, mode]() {
+        if (winp) winp->setFloating(mode);
+      });
+      return true;
+    }
+
+    case GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS:
+      if (!win) return false;
+      post(win, [winp]() {
+        if (winp) winp->toggleWindowDecorations();
+      });
+      return true;
+
+    case GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY:
+      if (!win) return false;
+      post(win, [winp]() {
+        if (winp) winp->toggleBackgroundOpacity();
+      });
+      return true;
+
+    case GHOSTTY_ACTION_SIZE_LIMIT: {
+      if (!win) return false;
+      const ghostty_action_size_limit_s sl = action.action.size_limit;
+      post(win, [winp, sl]() {
+        if (winp)
+          winp->setSizeLimits(sl.min_width, sl.min_height,
+                              sl.max_width, sl.max_height);
+      });
+      return true;
+    }
+
+    case GHOSTTY_ACTION_CELL_SIZE: {
+      if (!win) return false;
+      const ghostty_action_cell_size_s cs = action.action.cell_size;
+      post(win, [winp, cs]() {
+        if (winp) winp->setCellSize(cs.width, cs.height);
+      });
+      return true;
+    }
+
+    case GHOSTTY_ACTION_KEY_TABLE: {
+      if (!src) return true;
+      // KeyTable is libghostty's bindable-mode mechanism: ACTIVATE
+      // pushes a named table onto the binding stack, DEACTIVATE pops
+      // one, DEACTIVATE_ALL clears them. Reuse the keybind chord
+      // overlay to surface "we're in mode X" to the user — not as
+      // pretty as macOS's dedicated badge but adequate.
+      const ghostty_action_key_table_s kt = action.action.key_table;
+      QString label;
+      if (kt.tag == GHOSTTY_KEY_TABLE_ACTIVATE && kt.value.activate.name &&
+          kt.value.activate.len) {
+        label = QString::fromUtf8(kt.value.activate.name,
+                                  static_cast<int>(kt.value.activate.len));
+      }
+      post(src, [srcp, label]() {
+        if (!srcp) return;
+        if (label.isEmpty())
+          srcp->endKeySequence();
+        else
+          srcp->pushKeySequence(QStringLiteral("[%1]").arg(label));
+      });
+      return true;
+    }
+
+    case GHOSTTY_ACTION_PWD: {
+      // libghostty inherits a child's pwd through the surface tree
+      // itself (ghostty_surface_inherited_config carries it across
+      // splits/tabs) — the apprt only needs to acknowledge the
+      // notification. macOS also stashes it on the window for proxy
+      // icon / titlebar; we have no such UI yet so just consume it.
+      return true;
+    }
+
+    case GHOSTTY_ACTION_COLOR_CHANGE:
+      // OSC 4/10/11/12 colour change. libghostty already updates its
+      // internal palette; the next render will reflect it. Just dirty
+      // the surface so the change is visible promptly.
+      if (src) src->markDirty();
+      return true;
+
+    case GHOSTTY_ACTION_READONLY:
+      // Read-only mode: libghostty itself drops keystrokes; we have
+      // no UI affordance (e.g. a padlock icon) so just acknowledge.
+      return true;
+
+    case GHOSTTY_ACTION_SECURE_INPUT:
+      // Secure-input: macOS-only enable_secure_event_input() that
+      // hides keystrokes from other apps. Wayland has no equivalent
+      // (the compositor mediates input), so this is a documented
+      // platform gap; acknowledge so the keybind isn't reported as
+      // unhandled.
+      return true;
+
+    case GHOSTTY_ACTION_CHECK_FOR_UPDATES:
+      // No in-app updater on Linux (distros / package managers handle
+      // updates). Acknowledge so the keybind isn't unhandled.
+      return true;
+
+    case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:
+      // Tab overview is GTK's adw.TabOverview — a thumbnail grid of
+      // tabs. Qt has no built-in equivalent and an ad-hoc Qt port
+      // would be a feature in its own right; acknowledge for now.
+      return true;
+
+    case GHOSTTY_ACTION_SHOW_GTK_INSPECTOR:
+      // GTK-only debug action; no analogue.
+      return true;
+
+    case GHOSTTY_ACTION_UNDO:
+    case GHOSTTY_ACTION_REDO:
+      // Tier 3 batch 3 implements undo close-tab/close-window. Until
+      // then we acknowledge so the binding isn't reported unhandled
+      // — its absence is documented in PARITY.md (B18 UNDO/REDO).
+      return false;
 
     default:
       return false;

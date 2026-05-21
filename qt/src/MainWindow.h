@@ -72,6 +72,23 @@ public:
   // The live libghostty config (for keybind lookups, etc.).
   ghostty_config_t config() const { return s_config; }
 
+  // PRESENT_TERMINAL: bring this window to front and focus the surface.
+  void presentTerminal(GhosttySurface *surface);
+  // GOTO_WINDOW: cycle to the previous/next window in s_windows order.
+  static void gotoWindow(MainWindow *from,
+                         ghostty_action_goto_window_e dir);
+  // FLOAT_WINDOW / TOGGLE_WINDOW_DECORATIONS / TOGGLE_BACKGROUND_OPACITY:
+  // simple per-window toggles with the requested mode.
+  void setFloating(ghostty_action_float_window_e mode);
+  void toggleWindowDecorations();
+  void toggleBackgroundOpacity();
+  // SIZE_LIMIT: clamp the window's resizable range to libghostty's
+  // computed cell-based limits. CELL_SIZE: store the cell size for
+  // future grid-snap resizing (no-op until a resize-snap feature lands).
+  void setSizeLimits(uint32_t minW, uint32_t minH, uint32_t maxW,
+                     uint32_t maxH);
+  void setCellSize(uint32_t w, uint32_t h);
+
   // Whether a custom shader is configured. With one, libghostty's final
   // framebuffer is non-premultiplied and surfaces must premultiply it
   // before Qt composites (see GhosttySurface::premultiplyFramebuffer).
@@ -222,6 +239,21 @@ private:
   // using quick-terminal-animation-duration). Lazily created.
   QPropertyAnimation *m_quickTerminalAnim = nullptr;
   QSize m_defaultWindowSize;           // for RESET_WINDOW_SIZE; from INITIAL_SIZE
+  // Last cell size reported by libghostty for this window's surfaces
+  // (CELL_SIZE action). Stored so future grid-snap resizing can use
+  // it; not used yet beyond bookkeeping.
+  QSize m_cellSize;
+  // Floating-window state: set when the user toggles via FLOAT_WINDOW.
+  // Tracked separately from windowFlags() because Qt's
+  // WindowStaysOnTopHint pokes other state on Wayland.
+  bool m_floating = false;
+  // Tracks whether window decorations are currently suppressed via
+  // TOGGLE_WINDOW_DECORATIONS (separate from the config-driven init).
+  bool m_decorationsHidden = false;
+  // Tracks whether background-opacity is currently bypassed via
+  // TOGGLE_BACKGROUND_OPACITY (forces the window opaque regardless
+  // of `background-opacity`).
+  bool m_opacityForcedOpaque = false;
 
   // Process-shared libghostty state: one app and config drive every
   // window. Created by the first initialize(), freed with the last

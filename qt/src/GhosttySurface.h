@@ -87,6 +87,11 @@ public:
 
   // Show/hide/toggle the terminal inspector window (INSPECTOR action).
   void toggleInspector(ghostty_action_inspector_e mode);
+  // Force an extra inspector repaint (RENDER_INSPECTOR action). The
+  // inspector window has its own ~30Hz redraw timer; this just kicks
+  // a Qt update so a libghostty-driven invalidation is visible
+  // promptly.
+  void refreshInspector();
 
   // In-terminal search (the *_SEARCH actions): openSearch shows the
   // search bar (optionally pre-filled), closeSearch hides it, and the
