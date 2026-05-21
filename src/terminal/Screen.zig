@@ -55,6 +55,13 @@ saved_cursor: ?SavedCursor = null,
 /// automatically setup tracking.
 selection: ?Selection = null,
 
+/// True when caret (keyboard navigation) mode is active.
+caret_mode: bool = false,
+
+/// Tracked position of the caret for keyboard navigation. Always a tracked
+/// pin so it stays valid as the buffer scrolls. Null when caret_mode is false.
+caret_pin: ?*Pin = null,
+
 /// The charset state
 charset: CharsetState = .{},
 
@@ -89,6 +96,9 @@ pub const Dirty = packed struct {
     /// When an OSC8 hyperlink is hovered, we set the full screen as dirty
     /// because links can span multiple lines.
     hyperlink_hover: bool = false,
+
+    /// Set when the caret position changes or caret mode is toggled.
+    caret: bool = false,
 };
 
 pub const SemanticPrompt = struct {
@@ -2433,6 +2443,95 @@ pub fn clearSelection(self: *Screen) void {
         self.dirty.selection = true;
     }
     self.selection = null;
+}
+
+/// Enter caret mode. The caret is initialized at the current terminal
+/// cursor position. If already in caret mode this is a no-op.
+pub fn enterCaretMode(self: *Screen) Allocator.Error!void {
+    if (self.caret_mode) return;
+    const tracked = try self.pages.trackPin(self.cursor.page_pin.*);
+    self.caret_pin = tracked;
+    self.caret_mode = true;
+    self.dirty.caret = true;
+}
+
+/// Exit caret mode, releasing the tracked caret pin and clearing any
+/// active selection. Copy before exiting if you want to keep the selection.
+pub fn exitCaretMode(self: *Screen) void {
+    if (!self.caret_mode) return;
+    if (self.caret_pin) |pin| {
+        self.pages.untrackPin(pin);
+        self.caret_pin = null;
+    }
+    self.caret_mode = false;
+    self.dirty.caret = true;
+    self.clearSelection();
+}
+
+/// Move the caret by the given adjustment. If a selection is active its
+/// end point is updated to follow the caret. No-op if caret mode is inactive.
+pub fn moveCaret(self: *Screen, adjustment: Selection.Adjustment) void {
+    const pin = self.caret_pin orelse return;
+    switch (adjustment) {
+        .up => if (pin.up(1)) |new_pin| {
+            pin.* = new_pin;
+        },
+
+        .down => if (pin.down(1)) |new_pin| {
+            pin.* = new_pin;
+        },
+
+        .left => {
+            var it = pin.cellIterator(.left_up, null);
+            _ = it.next();
+            if (it.next()) |next| pin.* = next;
+        },
+
+        .right => {
+            var it = pin.cellIterator(.right_down, null);
+            _ = it.next();
+            if (it.next()) |next| pin.* = next;
+        },
+
+        .page_up => if (pin.up(self.pages.rows)) |new_pin| {
+            pin.* = new_pin;
+        } else {
+            while (pin.up(1)) |new_pin| pin.* = new_pin;
+        },
+
+        .page_down => if (pin.down(self.pages.rows)) |new_pin| {
+            pin.* = new_pin;
+        } else {
+            while (pin.down(1)) |new_pin| pin.* = new_pin;
+        },
+
+        .home => pin.* = self.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?,
+
+        .end => {
+            var it = self.pages.rowIterator(.left_up, .{ .screen = .{} }, null);
+            while (it.next()) |next| {
+                const rac = next.rowAndCell();
+                const cells = next.node.data.getCells(rac.row);
+                if (Cell.hasTextAny(cells)) {
+                    pin.* = next;
+                    pin.x = @intCast(cells.len - 1);
+                    break;
+                }
+            }
+        },
+
+        .beginning_of_line => pin.x = 0,
+
+        .end_of_line => pin.x = pin.node.data.size.cols - 1,
+    }
+
+    self.dirty.caret = true;
+
+    // If a selection is active, extend its end to follow the caret.
+    if (self.selection) |*sel| {
+        sel.endPtr().* = pin.*;
+        self.dirty.selection = true;
+    }
 }
 
 pub const SelectionString = struct {
