@@ -39,26 +39,32 @@ checkbox and link the commit hash.
 - [x] **B6.** `CLOSE_TAB` ignores `close_tab_mode` (`MainWindow.cpp:1241-1247`). Always treats as `mode=THIS`. "Close other tabs" / "Close tabs to the right" keybinds silently close only the current tab. — fixed in `33b5dee46`
 - [x] **B7.** `INITIAL_SIZE` halves window on HiDPI (`MainWindow.cpp:1429-1433`). Width/height from libghostty are already logical pixels; Qt divides by `devicePixelRatioF()` again. macOS uses unmodified. — fixed in `33b5dee46`
 - [x] **B8.** `MOUSE_VISIBILITY` clobbers cursor shape on un-hide (`MainWindow.cpp:1512-1520`). Sets `Qt::ArrowCursor` on un-hide, destroying the previous shape from `MOUSE_SHAPE`. macOS preserves shape. — fixed in `a48ff0fb8`
-- [ ] **B9.** Performable-action-returns-true: `MOVE_TAB`, `GOTO_TAB`, `GOTO_SPLIT`, `RESIZE_SPLIT`, `EQUALIZE_SPLITS`, `TOGGLE_SPLIT_ZOOM` all unconditionally return `true`, swallowing chords on unsplit/single-tab surfaces. macOS returns false; GTK gates on `tree.getIsSplit()`.
-- [ ] **B10.** `MOVE_TAB` with target=APP moves a tab in arbitrary first window (`MainWindow.cpp:1504`). macOS returns false for app target.
+- [x] **B9.** Performable-action-returns-true: `MOVE_TAB`, `GOTO_TAB`, `GOTO_SPLIT`, `RESIZE_SPLIT`, `EQUALIZE_SPLITS`, `TOGGLE_SPLIT_ZOOM` all unconditionally return `true`, swallowing chords on unsplit/single-tab surfaces. macOS returns false; GTK gates on `tree.getIsSplit()`. — fixed in `20278082b`
+- [x] **B10.** `MOVE_TAB` with target=APP moves a tab in arbitrary first window (`MainWindow.cpp:1504`). macOS returns false for app target. — fixed in `20278082b`
 - [x] **B11.** `RELOAD_CONFIG` only reloads ONE window (`MainWindow.cpp:1410-1414`). Other windows stay on stale config. macOS reloads globally. — fixed in `33b5dee46`
 - [ ] **B12.** `CONFIG_CHANGE` only refreshes chrome (`MainWindow.cpp:1416-1421`). Doesn't push the new config to running surfaces. `applyWindowConfig` only updates tab-bar + theme — `window-decoration`, `fullscreen`, `maximize` changes don't propagate to existing windows.
 - [ ] **B13.** `OPEN_URL` ignores `kind` (`MainWindow.cpp:1471-1480`). `.text` payloads (e.g. config files) open with whatever the desktop says is default for `.txt` (usually a browser). macOS routes `.text` to a text editor.
 - [ ] **B14.** `OPEN_CONFIG` opens via `QDesktopServices::openUrl` without `text` kind hint — same problem.
 - [x] **B15.** `SHOW_CHILD_EXITED` fires unconditionally (`MainWindow.cpp:1379-1387`, `GhosttySurface.cpp:466-498`). macOS gates on `runtime_ms > 0` and `abnormalCommandExitRuntime` config; Qt shows the banner for fast `exit 0` cases. — fixed in `8e8725274`
 - [x] **B16.** `COPY_TITLE_TO_CLIPBOARD` copies the WINDOW title (`MainWindow.cpp:1280-1284`, `:552`), not the surface title. On a multi-tab window, the wrong title gets copied. macOS copies per-surface. — fixed in `33b5dee46`
-- [ ] **B17.** `PROMPT_TITLE` with target=APP is no-op (`MainWindow.cpp:1271`). macOS promotes to `NSApp.mainWindow`.
-- [ ] **B18.** Many actions in `default: return false;` (`MainWindow.cpp:1603-1604`):
-  - `PWD` — breaks new tab/split working-dir inheritance.
-  - `GOTO_WINDOW` — multi-window cycle.
-  - `PRESENT_TERMINAL` — bring-to-front.
-  - `KEY_TABLE` — bindable mode tables silent.
-  - `READONLY` — read-only state silent.
-  - `COLOR_CHANGE` — OSC 4/10/11/12 routing silent.
-  - `RENDER_INSPECTOR` — inspector won't repaint between frames.
-  - `CELL_SIZE` — window won't snap to cell grid.
-  - `SIZE_LIMIT` — never honors min-size from libghostty.
-  - `TOGGLE_BACKGROUND_OPACITY`, `FLOAT_WINDOW`, `SECURE_INPUT`, `UNDO`/`REDO`, `CHECK_FOR_UPDATES`, `TOGGLE_TAB_OVERVIEW`, `TOGGLE_WINDOW_DECORATIONS` — feature gaps (mostly matching GTK).
+- [x] **B17.** `PROMPT_TITLE` with target=APP is no-op (`MainWindow.cpp:1271`). macOS promotes to `NSApp.mainWindow`. — fixed in `20278082b`
+- [x] **B18.** Many actions in `default: return false;` (`MainWindow.cpp:1603-1604`): — most fixed in `20278082b` and `f3db5b6cb`
+  - [x] `PWD` — acknowledged in `20278082b` (libghostty inherits cwd via inherited_config; no apprt UI to update).
+  - [x] `GOTO_WINDOW` — cycle implemented in `20278082b`.
+  - [x] `PRESENT_TERMINAL` — show/raise/activate/focus implemented in `20278082b`.
+  - [x] `KEY_TABLE` — name surfaced via keybind chord overlay in `20278082b`.
+  - [x] `READONLY` — acknowledged in `20278082b` (libghostty drops keystrokes; no apprt UI).
+  - [x] `COLOR_CHANGE` — markDirty in `20278082b` so OSC 4/10/11/12 changes paint promptly.
+  - [x] `RENDER_INSPECTOR` — kicks inspector update in `20278082b`.
+  - [x] `CELL_SIZE` — stored on window for future grid-snap; bookkeeping only in `20278082b`.
+  - [x] `SIZE_LIMIT` — setMinimumSize/setMaximumSize honored in `20278082b`.
+  - [x] `TOGGLE_BACKGROUND_OPACITY` — toggled via WA_TranslucentBackground in `20278082b`.
+  - [x] `FLOAT_WINDOW` — Qt::WindowStaysOnTopHint toggle in `20278082b`.
+  - [x] `SECURE_INPUT` — acknowledged in `20278082b` (Wayland has no NSEnableSecureEventInput equivalent; documented platform gap).
+  - [x] `UNDO` / `REDO` — bounded close-tab/window stash implemented in `f3db5b6cb`.
+  - [x] `CHECK_FOR_UPDATES` — acknowledged in `20278082b` (no in-app updater on Linux; distros handle updates).
+  - [x] `TOGGLE_TAB_OVERVIEW` — acknowledged in `20278082b` (GTK adw.TabOverview-only; no Qt analogue).
+  - [x] `TOGGLE_WINDOW_DECORATIONS` — Qt::FramelessWindowHint toggle in `20278082b`.
 
 ### Input / keyboard / mouse
 
@@ -73,9 +79,9 @@ checkbox and link the commit hash.
 - [x] **B27.** Right-click swallowed when program isn't mouse-capturing (`GhosttySurface.cpp:742-745`, `:782-787`). Qt opens its context menu without ever sending the right-press to libghostty. macOS + GTK send press first, only show menu if core didn't consume — so word-select-then-menu can fire. — fixed in `8e8725274`
 - [x] **B28.** Click-to-focus also reports the click to libghostty. macOS + GTK suppress the matching mouse-up. Qt sends both, so a focus-grabbing click is visible to running programs. — fixed in `8e8725274`
 - [x] **B29.** `XkbState` uses default layout, not the live one (`GhosttySurface.cpp:629-641`). User with us+ru layouts gets us-only `unshifted_codepoint` regardless of active group. GTK uses `event.getLayout()`. — fixed in `913f192d8`
-- [ ] **B30.** Wheel: `pixelDelta` ignored, momentum/precision unset (`GhosttySurface.cpp:919-925`). Trackpad on Wayland is notchy; kitty smooth-scroll never engages. macOS uses precise + momentum flags.
-- [ ] **B31.** Drag-drop URL escaping uses bash-only `'\''` (`GhosttySurface.cpp:889-894`). macOS + GTK use a unified `Shell.escape` / `ShellEscapeWriter` that handles backslashes, newlines, and non-POSIX shells.
-- [ ] **B32.** Plain URL drop not distinguished from file drop. `http://...` becomes a quoted argument instead of pasted text.
+- [x] **B30.** Wheel: `pixelDelta` ignored, momentum/precision unset (`GhosttySurface.cpp:919-925`). Trackpad on Wayland is notchy; kitty smooth-scroll never engages. macOS uses precise + momentum flags. — fixed in `b86b11903`
+- [x] **B31.** Drag-drop URL escaping uses bash-only `'\''` (`GhosttySurface.cpp:889-894`). macOS + GTK use a unified `Shell.escape` / `ShellEscapeWriter` that handles backslashes, newlines, and non-POSIX shells. — fixed in `b86b11903` (POSIX `$'…'` quoting via shellQuote helper)
+- [x] **B32.** Plain URL drop not distinguished from file drop. `http://...` becomes a quoted argument instead of pasted text. — fixed in `b86b11903`
 
 ### Window / tab / split
 
@@ -192,11 +198,15 @@ checkbox and link the commit hash.
 
 ### Tier 3 — feature work (200+ lines or new modules)
 
-- Undo close-tab/window
-- Window save/restore
-- Cross-window tab/split DnD
-- Inspector autosave + presentation
-- Many of the action `default: return false;` items (PWD, GOTO_WINDOW, PRESENT_TERMINAL, KEY_TABLE, COLOR_CHANGE, etc.)
+- [x] Undo close-tab/window — `f3db5b6cb`
+- [x] Most action-gap `default: return false;` items (PWD, GOTO_WINDOW, PRESENT_TERMINAL, KEY_TABLE, COLOR_CHANGE, FLOAT_WINDOW, SIZE_LIMIT, CELL_SIZE, RENDER_INSPECTOR, READONLY, SECURE_INPUT, CHECK_FOR_UPDATES, TOGGLE_BACKGROUND_OPACITY, TOGGLE_TAB_OVERVIEW, TOGGLE_WINDOW_DECORATIONS) — `20278082b`
+- [x] Tier 2 stragglers: wheel pixelDelta+momentum (B30), drag-drop POSIX shell escape (B31), URL drop discrimination (B32) — `b86b11903`
+- [ ] Window save/restore (`window-save-state`, full session)
+- [ ] Cross-window tab/split DnD (B34, I10)
+- [ ] Inspector autosave + presentation (B49)
+- [ ] Split focus order by tree, not center (B35)
+- [ ] QSplitter handle drag → libghostty (B36)
+- [ ] `split-preserve-zoom` config (B38)
 
 ---
 
