@@ -141,7 +141,7 @@ checkbox and link the commit hash.
 - [x] **C11.** `quick-terminal-screen` — fixed in `6d700c36b`
 - [x] **C12.** `quick-terminal-animation-duration` — fixed in `cd38f4bd5` (B42)
 - [x] **C13.** `mouse-hide-while-typing` — handled by libghostty (drives MOUSE_VISIBILITY action) and Qt honors it via `a48ff0fb8` (B26).
-- [ ] **C14.** `background-image*` — needs apprt-side paint integration (200+ lines of work to load, scale, position, repeat, opacity-blend with the terminal framebuffer). Deferred as a feature.
+- [x] **C14.** `background-image*` — silently honored. The Qt frontend uses libghostty's OpenGL renderer (see `src/renderer/generic.zig` + `src/renderer/image.zig`); the renderer opens the file, decodes via `wuffs` (PNG / JPEG), uploads the texture, and composites it under the terminal cells inside the framebuffer we read back through `glPresent`. All five config keys (`background-image`, `-opacity`, `-position`, `-fit`, `-repeat`) flow through libghostty's `DerivedConfig` to the renderer without the apprt needing to touch them. Audit was wrong about this requiring apprt-side paint integration.
 - [x] **C15.** `split-divider-color` — fixed in `8bd64d0fa` (QSplitter::handle stylesheet).
 - [x] **C16.** `clipboard-trim-trailing-spaces` — silently honored by libghostty inside Surface.zig before the apprt's write_clipboard_cb. Acknowledged in `6d700c36b`.
 - [x] **C17.** `clipboard-paste-protection` — silently honored by libghostty (drives the confirm-paste path); destructive Paste/Cancel dialog landed in `6d700c36b`.
@@ -211,7 +211,7 @@ checkbox and link the commit hash.
 - [x] Split focus tree-order (B35), cross-window tab adoption (B34/I10) — `630c7ceae`
 - [x] ~~Window save/restore~~ — `window-save-state` is macOS-only per Config.zig (`This is currently only supported on macOS. This has no effect on Linux.`). Won't fix.
 - [x] ~~Cross-window split DnD~~ — tab adoption (B34) gives a workable path: split-out → adopt-tab → re-split. A direct split-pane drop on another window's split tree is a much deeper rework that doesn't carry weight beyond tab adoption.
-- [ ] `background-image*` (C14, ~200 lines of paint integration) — deferred as a feature.
+- [x] `background-image*` — silently honored by libghostty's renderer (see C14).
 
 ---
 
