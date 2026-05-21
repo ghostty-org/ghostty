@@ -1584,10 +1584,20 @@ void MainWindow::setSizeLimits(uint32_t minW, uint32_t minH, uint32_t maxW,
                        maxH ? int(maxH) : QWIDGETSIZE_MAX));
 }
 
-// CELL_SIZE: just store the value for later. Snap-to-grid resizing is
-// not implemented yet.
+// CELL_SIZE: store the value and apply window-step-resize. The
+// `window-step-resize` config asks Qt to resize in cell increments;
+// QWidget::setSizeIncrement is honored on X11 by most WMs but is
+// usually ignored by Wayland compositors (the protocol has no
+// equivalent of WM_NORMAL_HINTS step). Best-effort: it works where
+// it works, no-op otherwise. Config docs explicitly say "currently
+// only supported on macOS / has no effect on Linux," so this is
+// strictly a bonus.
 void MainWindow::setCellSize(uint32_t w, uint32_t h) {
   m_cellSize = QSize(int(w), int(h));
+  if (configBool("window-step-resize", false))
+    setSizeIncrement(int(w), int(h));
+  else
+    setSizeIncrement(0, 0);  // back to pixel-precise
 }
 
 // Process-wide undo state — see MainWindow.h.
