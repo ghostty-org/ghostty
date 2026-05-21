@@ -753,16 +753,21 @@ private:
     }
 
     // The live keymap was rebuilt by the tracker (or we're picking
-    // up the first one). Drop our derived states and rebuild.
+    // up the first one). Drop our derived states and rebuild. Take
+    // an extra ref on the keymap while it's our cached identity so
+    // the xkb allocator can't free it and reuse the same address
+    // for a different keymap (the ABA hazard the previous comment
+    // hand-waved away).
     if (m_unshifted) xkb_state_unref(m_unshifted);
     if (m_query) xkb_state_unref(m_query);
+    if (m_keymap) xkb_keymap_unref(m_keymap);
+    m_keymap = xkb_keymap_ref(km);
     m_unshifted = xkb_state_new(km);
     m_query = xkb_state_new(km);
     m_idxShift = xkb_keymap_mod_get_index(km, XKB_MOD_NAME_SHIFT);
     m_idxCtrl = xkb_keymap_mod_get_index(km, XKB_MOD_NAME_CTRL);
     m_idxAlt = xkb_keymap_mod_get_index(km, XKB_MOD_NAME_ALT);
     m_idxSuper = xkb_keymap_mod_get_index(km, XKB_MOD_NAME_LOGO);
-    m_keymap = km;  // pointer-identity comparison only; no ref taken
     if (t)
       xkb_state_update_mask(m_unshifted, 0, 0, 0, 0, 0, t->activeGroup());
   }
@@ -775,14 +780,17 @@ private:
     // and documents the ownership chain.
     if (m_query) xkb_state_unref(m_query);
     if (m_unshifted) xkb_state_unref(m_unshifted);
+    if (m_keymap) xkb_keymap_unref(m_keymap);
     if (m_fallbackKeymap) xkb_keymap_unref(m_fallbackKeymap);
   }
 
   XkbState(const XkbState &) = delete;
   XkbState &operator=(const XkbState &) = delete;
 
-  // Pointer-identity reference to the keymap our derived states were
-  // built from. NOT owned (the tracker or m_fallbackKeymap owns).
+  // The keymap our derived states were built from. We hold a ref
+  // here (taken in syncFromTracker, released on rebuild and in dtor)
+  // so the xkb allocator can't free + reuse the address while we
+  // still cache it as our identity.
   mutable struct xkb_keymap *m_keymap = nullptr;
   // Throwaway keymap from XKB defaults, built when the live keymap
   // hasn't arrived yet. Owned. Released in dtor; never replaced.

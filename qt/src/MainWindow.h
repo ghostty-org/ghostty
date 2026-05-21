@@ -74,15 +74,6 @@ public:
   // The live libghostty config (for keybind lookups, etc.).
   ghostty_config_t config() const { return s_config; }
 
-  // initial-window config plumbing. The libghostty app+config is
-  // built by the first MainWindow::initialize, so main.cpp opens a
-  // bootstrap window and asks afterwards whether the user actually
-  // wanted one — closing it cleanly if not. Headless start-up is
-  // how a user runs ghastty as a daemon for the global quick-
-  // terminal shortcut.
-  static bool wantsInitialWindow();
-  static void closeInitialWindow();
-
   // UNDO / REDO close-tab/window. The libghostty actions carry no
   // payload — the apprt is responsible for tracking what was closed
   // and reviving it. macOS uses NSUndoManager; we keep a small bounded
@@ -330,8 +321,13 @@ private:
   int m_zoomIndex = 0;
 
   // Bell audio playback; created lazily on the first audio bell.
+  // The bell-audio-path / -volume values are cached at window setup
+  // and refreshed on reload so the bell hot path doesn't re-scan
+  // the on-disk config file.
   QMediaPlayer *m_bellPlayer = nullptr;
   QAudioOutput *m_bellAudio = nullptr;
+  QString m_bellAudioPath;       // expanded; empty if no clip configured
+  double m_bellAudioVolume = 0.5;
 
   // The command palette; created lazily on first use.
   CommandPalette *m_commandPalette = nullptr;

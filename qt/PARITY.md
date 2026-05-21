@@ -101,7 +101,7 @@ checkbox and link the commit hash.
 - [x] **B43.** `quick-terminal-screen` not honored. macOS resolves which monitor. — fixed in `6d700c36b` (handle->setScreen() before LayerShellQt anchoring; honors `main` / `mouse`; `macos-menu-bar` falls through to primary)
 - [x] ~~**B44.** `quick-terminal-position = center` not handled (`MainWindow.cpp:700`).~~ Audit was wrong; already handled at `MainWindow.cpp:766`.
 - [x] **B45.** `quick-terminal-space-behavior` not honored. — confirmed in `4c903802a` as a no-op. Wayland's wlr-layer-shell has no per-workspace pin; KWin always renders layer surfaces on the active workspace (= `move`). `remain` semantics are not achievable on Linux/Wayland.
-- [x] **B46.** No fallback for non-Wayland — `LayerShellQt::Window::get()` returning null leaves a regular window without telling libghostty. — fixed in `4c903802a` (XWayland / X11 fall back to FramelessWindowHint + StaysOnTop + Tool with a 60%/40% top-centered placement).
+- [x] ~~**B46.** No fallback for non-Wayland — `LayerShellQt::Window::get()` returning null leaves a regular window without telling libghostty.~~ Won't fix: the Qt frontend is Wayland-only by design (depends on LayerShellQt + xkbcommon + wl_seat). The setupLayerShell null-handle path now logs and bails so failures are diagnosed instead of silently producing a non-functional regular window.
 
 ### Misc
 

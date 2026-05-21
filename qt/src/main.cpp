@@ -29,12 +29,14 @@ int main(int argc, char **argv) {
 
   QApplication app(argc, argv);
 
-  // QSettings storage path keys: applicationName + organizationDomain.
+  // QSettings storage path keys: applicationName + organizationName.
   // Used by the inspector window's geometry autosave (and any future
   // QSettings-backed UI state) — the keys go to
-  // ~/.config/ghastty/ghastty.conf.
+  // ~/.config/ghastty/ghastty.conf. We pass the same string to both
+  // because we don't run a multi-app suite under a parent
+  // organization.
   QCoreApplication::setApplicationName(QStringLiteral("ghastty"));
-  QCoreApplication::setOrganizationDomain(QStringLiteral("ghastty"));
+  QCoreApplication::setOrganizationName(QStringLiteral("ghastty"));
 
   // Match the installed ghastty.desktop: this becomes the Wayland app-id
   // (and X11 WM_CLASS), so the compositor associates the window with the
@@ -61,22 +63,16 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // initial-window: when false, start headless (no window opens at
+  // initial-window: when false, start headless (no window mapped at
   // launch). Combined with quit-after-last-window-closed=false this
   // is how a user runs ghastty as a daemon for the global quick-
-  // terminal shortcut. We need the libghostty app first, so spin up
-  // a temporary "config bootstrap" by opening + immediately closing
-  // a window — but cheaper: peek at the config directly here.
-  // ghostty_init has already run, but the libghostty app is built
-  // by the first MainWindow::initialize. There is no app-less
-  // accessor for the config, so we open the window and close if the
-  // bool is false. Cheaper alternative: set a static flag and have
-  // initialize() bail before show.
+  // terminal shortcut. The first MainWindow::newWindow internally
+  // checks the config and skips show() — so the libghostty app +
+  // config still get built, but no QWindow ever appears.
   if (!MainWindow::newWindow(nullptr)) {
     std::fprintf(stderr, "[ghastty] window initialization failed\n");
     return 1;
   }
-  if (!MainWindow::wantsInitialWindow()) MainWindow::closeInitialWindow();
 
   // Register global shortcuts via the XDG portal so the quick terminal
   // can be toggled while Ghostty is unfocused. Keys are assigned by the

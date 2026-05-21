@@ -232,6 +232,63 @@ static bool configHasCustomShader() {
   return false;
 }
 
+// Parse a libghostty duration string into nanoseconds. The format is
+// concatenated `<n><unit>` segments per Config.zig's Duration.parseCLI:
+//   y w d h m s ms µs us ns
+// Each segment is added to the total. Returns the supplied default if
+// parsing fails or the input is empty. libghostty exposes Duration via
+// ghostty_config_get as a non-extern non-packed struct, which c_get
+// silently rejects; we fall back to scanning the config file text.
+static uint64_t parseDurationNs(const QString &s, uint64_t fallback) {
+  if (s.isEmpty()) return fallback;
+  // Order matters: longer units first so `ms` is matched before `s`,
+  // `us` before `s`, etc. Mirrors Config.zig's units array.
+  static constexpr struct { const char *name; uint64_t factor; } kUnits[] = {
+      {"ns", 1ULL},
+      {"us", 1000ULL},
+      {"µs", 1000ULL},
+      {"ms", 1000000ULL},
+      {"s",  1000000000ULL},
+      {"m",  60ULL * 1000000000ULL},
+      {"h",  3600ULL * 1000000000ULL},
+      {"d",  86400ULL * 1000000000ULL},
+      {"w",  7ULL * 86400ULL * 1000000000ULL},
+      {"y",  365ULL * 86400ULL * 1000000000ULL},
+  };
+  uint64_t total = 0;
+  int i = 0;
+  const int n = s.size();
+  bool anyMatched = false;
+  while (i < n) {
+    while (i < n && s.at(i).isSpace()) ++i;
+    if (i >= n) break;
+    // Parse an integer.
+    int start = i;
+    while (i < n && s.at(i).isDigit()) ++i;
+    if (i == start) return fallback;  // expected a number
+    bool ok = false;
+    const uint64_t value = s.mid(start, i - start).toULongLong(&ok);
+    if (!ok) return fallback;
+    while (i < n && s.at(i).isSpace()) ++i;
+    // Match the longest unit prefix at i.
+    const QString rest = s.mid(i);
+    uint64_t factor = 0;
+    int unitLen = 0;
+    for (const auto &u : kUnits) {
+      const int ulen = static_cast<int>(qstrlen(u.name));
+      if (rest.startsWith(QString::fromUtf8(u.name)) && ulen > unitLen) {
+        factor = u.factor;
+        unitLen = ulen;
+      }
+    }
+    if (unitLen == 0) return fallback;  // no unit
+    total += value * factor;
+    i += unitLen;
+    anyMatched = true;
+  }
+  return anyMatched ? total : fallback;
+}
+
 // Scan the primary Ghostty config file for `key = value`, returning the
 // last matching value (empty if absent). For keys not cleanly exposed by
 // ghostty_config_get.
@@ -394,9 +451,15 @@ bool MainWindow::initialize() {
     // covers the common (no-delay) case; a configured delay is honored
     // through the libghostty quit_timer action (see handleQuitTimer).
     const bool quitAfter = configBool("quit-after-last-window-closed", true);
-    unsigned long long delayNs = 0;
-    configGet(s_config, &delayNs, "quit-after-last-window-closed-delay");
-    s_quitDelayMs = quitAfter ? static_cast<int>(delayNs / 1000000ULL) : 0;
+    // quit-after-last-window-closed-delay is a `?Duration` and Duration
+    // is neither extern nor packed, so libghostty's ghostty_config_get
+    // returns false for it. Read from disk and parse.
+    const uint64_t delayNs = parseDurationNs(
+        configValue(QStringLiteral("quit-after-last-window-closed-delay")), 0);
+    const uint64_t delayMs = delayNs / 1000000ULL;
+    s_quitDelayMs = quitAfter
+        ? static_cast<int>(std::min(delayMs, uint64_t(INT_MAX)))
+        : 0;
     QApplication::setQuitOnLastWindowClosed(quitAfter && s_quitDelayMs == 0);
   }
 
@@ -460,10 +523,11 @@ MainWindow *MainWindow::newWindow(ghostty_surface_t parent) {
   // Window position: window-position-x/y are optional (?i16 in
   // Config.zig). configGet writes the value and returns true when the
   // optional is present. Both must be set to take effect (matching
-  // the Config.zig doc comment). On Wayland the compositor may
-  // ignore; X11 honors. If unset, fall back to a cascade offset from
-  // the previous window so Cmd+N spam doesn't pile every window at
-  // the same origin — macOS does this via NSWindow.cascadeTopLeft.
+  // the Config.zig doc comment). If unset, fall back to a cascade
+  // offset from the previous window so Cmd+N spam doesn't pile every
+  // window at the same origin — macOS does this via
+  // NSWindow.cascadeTopLeft. Wayland compositors typically ignore
+  // window placement requests; this is a hint at most.
   int16_t posX = 0, posY = 0;
   const bool haveX = configGet(s_config, &posX, "window-position-x");
   const bool haveY = configGet(s_config, &posY, "window-position-y");
@@ -475,7 +539,21 @@ MainWindow *MainWindow::newWindow(ghostty_surface_t parent) {
     }
   }
 
-  w->show();
+  // initial-window: when false the very first window is bootstrap
+  // only — built so libghostty's app + config exists, then closed
+  // immediately without ever being mapped. Skipping show() here
+  // (instead of show-then-close) keeps the daemon-mode startup
+  // flicker-free. After the bootstrap, `initial-window` is no
+  // longer load-bearing — every subsequent newWindow() shows.
+  static bool s_initialWindowConsumed = false;
+  bool wantsShow = true;
+  if (!s_initialWindowConsumed) {
+    s_initialWindowConsumed = true;
+    bool initialWindow = true;
+    configGet(s_config, &initialWindow, "initial-window");
+    wantsShow = initialWindow;
+  }
+  if (wantsShow) w->show();
   return w;
 }
 
@@ -810,8 +888,11 @@ void MainWindow::frame() {
   // Rendering happens only here, so a flood of RENDER actions cannot
   // saturate the GUI thread — each surface renders at most once a frame.
   // One pass across every window: the shared ghostty_app_t was already
-  // ticked once above.
-  for (MainWindow *w : s_windows)
+  // ticked once above. Iterate a snapshot in case rendering triggers
+  // a window close (renderer-unhealthy chain, etc.) — QList iterators
+  // are invalidated by removeOne; copying is cheap (vector of pointers).
+  const QList<MainWindow *> windows = s_windows;
+  for (MainWindow *w : windows)
     for (GhosttySurface *s : w->m_surfaces) s->renderIfDirty();
 }
 
@@ -1028,26 +1109,15 @@ void MainWindow::setupLayerShell() {
   if (!handle) return;
   LayerShellQt::Window *ls = LayerShellQt::Window::get(handle);
   if (!ls) {
-    // Non-Wayland (XWayland / X11 / nested) or a compositor without
-    // the wlr-layer-shell protocol. Fall back to a regular always-
-    // on-top, undecorated, top-anchored window so the quick
-    // terminal still works as a dropdown — just without
-    // workspace-spanning behaviour. macOS gets a Cocoa window from
-    // the same code path; the quick terminal there is the
-    // equivalent fallback.
-    setWindowFlag(Qt::FramelessWindowHint, true);
-    setWindowFlag(Qt::WindowStaysOnTopHint, true);
-    setWindowFlag(Qt::Tool, true);  // stay out of the taskbar
-    if (QScreen *screen = handle->screen()) {
-      const QSize scr = screen->size();
-      // 60% width, 40% height, top-centered — close enough to the
-      // primary layer-shell layout (top-anchored full-width) without
-      // the protocol's fancier anchoring.
-      const QSize size(scr.width() * 6 / 10, scr.height() * 4 / 10);
-      const QRect g = screen->geometry();
-      move(g.left() + (g.width() - size.width()) / 2, g.top());
-      resize(size);
-    }
+    // The Qt frontend targets Wayland exclusively (the project
+    // builds against LayerShellQt for the dropdown). If we can't
+    // get a layer-shell handle the platform isn't supported — log
+    // and bail rather than silently degrading to a non-functional
+    // regular window.
+    std::fprintf(stderr,
+                 "[ghastty] LayerShellQt::Window::get returned null; "
+                 "the quick terminal needs a Wayland session with "
+                 "wlr-layer-shell support (e.g. KWin, sway).\n");
     return;
   }
   using LSW = LayerShellQt::Window;
@@ -1180,8 +1250,11 @@ GhosttySurface *MainWindow::surfaceAt(int index) const {
 }
 
 int MainWindow::tabIndexForSurface(GhosttySurface *surface) const {
-  for (int i = 0; i < m_tabs->count(); ++i)
-    if (m_tabs->widget(i)->isAncestorOf(surface)) return i;
+  if (!surface) return -1;
+  for (int i = 0; i < m_tabs->count(); ++i) {
+    QWidget *page = m_tabs->widget(i);
+    if (page && page->isAncestorOf(surface)) return i;
+  }
   return -1;
 }
 
@@ -1228,12 +1301,16 @@ void MainWindow::gotoSplit(GhosttySurface *from,
   // zoomed and the config asks to preserve zoom across navigation,
   // we'll re-zoom the destination once the focus moves. Otherwise
   // the existing semantics of dropping zoom on navigation apply.
-  // The struct is { navigation: bool, _padding: u7 }; configGet
-  // writes the bool into the first byte.
-  struct PreserveZoom { bool navigation; };
-  PreserveZoom pz{false};
-  configGet(s_config, &pz, "split-preserve-zoom");
-  const bool preserveZoom = pz.navigation && m_zoomed == from;
+  //
+  // libghostty serializes packed structs into a c_uint bitfield via
+  // c_get.zig: `ptr.* = @intCast(@as(Backing, @bitCast(value)));`.
+  // SplitPreserveZoom = packed struct { navigation: bool } so bit 0
+  // is `navigation`. Reading into a smaller C struct (sizeof
+  // `bool`==1) under-sized the buffer and corrupted adjacent stack;
+  // read into c_uint and mask the bits.
+  unsigned int pzBits = 0;
+  configGet(s_config, &pzBits, "split-preserve-zoom");
+  const bool preserveZoom = (pzBits & 0x1) != 0 && m_zoomed == from;
 
   const auto centerOf = [](GhosttySurface *s) {
     return QRect(s->mapToGlobal(QPoint(0, 0)), s->size()).center();
@@ -1323,8 +1400,16 @@ void MainWindow::resizeSplit(GhosttySurface *from,
                     rs.direction == GHOSTTY_RESIZE_SPLIT_DOWN;
   const int delta = grow ? rs.amount : -static_cast<int>(rs.amount);
   const int other = idx == 0 ? 1 : idx - 1;
-  sizes[idx] = std::max(0, sizes[idx] + delta);
-  sizes[other] = std::max(0, sizes[other] - delta);
+  // Clamp the delta against both panes' minimum size (0) before
+  // applying so total area is conserved. Without this, a clamp on
+  // sizes[idx] would still subtract the unclamped delta from `other`,
+  // shrinking the total area QSplitter sees and forcing it to
+  // renormalise inconsistently.
+  int appliedDelta = delta;
+  if (sizes[idx] + appliedDelta < 0) appliedDelta = -sizes[idx];
+  if (sizes[other] - appliedDelta < 0) appliedDelta = sizes[other];
+  sizes[idx] += appliedDelta;
+  sizes[other] -= appliedDelta;
   splitter->setSizes(sizes);
 }
 
@@ -1430,26 +1515,18 @@ void MainWindow::updateTabText(int tab) {
 }
 
 void MainWindow::playBellAudio() {
-  QString path = configValue(QStringLiteral("bell-audio-path"));
-  if (path.isEmpty()) return;
-  if (path.startsWith(QLatin1String("~/")))
-    path = QDir::homePath() + path.mid(1);
-
-  bool ok = false;
-  const double volume =
-      configValue(QStringLiteral("bell-audio-volume")).toDouble(&ok);
-
+  if (m_bellAudioPath.isEmpty()) return;
   if (!m_bellPlayer) {
     m_bellAudio = new QAudioOutput(this);
     m_bellPlayer = new QMediaPlayer(this);
     m_bellPlayer->setAudioOutput(m_bellAudio);
   }
-  m_bellAudio->setVolume(ok ? volume : 0.5);
+  m_bellAudio->setVolume(m_bellAudioVolume);
   // Stop first so a back-to-back bell restarts the clip from the
   // beginning. Without this, calling play() on an already-playing
   // QMediaPlayer is a no-op and rapid bells get silently swallowed.
   m_bellPlayer->stop();
-  m_bellPlayer->setSource(QUrl::fromLocalFile(path));
+  m_bellPlayer->setSource(QUrl::fromLocalFile(m_bellAudioPath));
   m_bellPlayer->play();
 }
 
@@ -1464,9 +1541,13 @@ void MainWindow::refreshChrome() {
   if (s_config) {
     bool quitAfter = true;
     configGet(s_config, &quitAfter, "quit-after-last-window-closed");
-    unsigned long long delayNs = 0;
-    configGet(s_config, &delayNs, "quit-after-last-window-closed-delay");
-    s_quitDelayMs = quitAfter ? static_cast<int>(delayNs / 1000000ULL) : 0;
+    // Same Duration-decode workaround as initialize().
+    const uint64_t delayNs = parseDurationNs(
+        configValue(QStringLiteral("quit-after-last-window-closed-delay")), 0);
+    const uint64_t delayMs = delayNs / 1000000ULL;
+    s_quitDelayMs = quitAfter
+        ? static_cast<int>(std::min(delayMs, uint64_t(INT_MAX)))
+        : 0;
     QApplication::setQuitOnLastWindowClosed(quitAfter && s_quitDelayMs == 0);
   }
 
@@ -1542,40 +1623,23 @@ void MainWindow::reloadConfigGlobal() {
   refreshChrome();
 
   // app-notifications.config-reload: post a desktop notification so
-  // the user has a visible cue that the reload landed. The config is
-  // a packed-bool struct { clipboard-copy: bool, config-reload: bool };
-  // configGet writes both bytes. Default is true for both.
-  // app-notifications.clipboard-copy is currently unused — the Qt
-  // frontend doesn't post a notification on terminal-driven copy
-  // operations. The bit is read for forward compatibility so a
-  // future copy-toast can be gated by the same config without
-  // touching this site.
-  struct AppNotifications { bool clipboardCopy; bool configReload; };
-  AppNotifications n{true, true};
-  configGet(s_config, &n, "app-notifications");
-  if (n.configReload)
+  // the user has a visible cue that the reload landed.
+  //
+  // AppNotifications = packed struct { clipboard-copy: bool = true,
+  // config-reload: bool = true }. libghostty serializes packed
+  // structs as c_uint (see c_get.zig). Bit 0 = clipboard-copy,
+  // bit 1 = config-reload. The clipboard-copy bit is read for
+  // forward compatibility — Qt doesn't currently post a copy
+  // toast, but a future one will pick up the same gate.
+  unsigned int notifBits = 0;
+  const bool notifOk = configGet(s_config, &notifBits, "app-notifications");
+  // configGet failure → defaults (both bits set) so the feature
+  // still works as documented.
+  if (!notifOk) notifBits = 0x3;
+  const bool wantConfigReload = (notifBits & 0x2) != 0;
+  if (wantConfigReload)
     postNotification(QStringLiteral("Ghostty"),
                      QStringLiteral("Configuration reloaded."));
-}
-
-bool MainWindow::wantsInitialWindow() {
-  // s_config exists once the bootstrap window has called initialize().
-  if (!s_config) return true;
-  bool wanted = true;
-  configGet(s_config, &wanted, "initial-window");
-  return wanted;
-}
-
-void MainWindow::closeInitialWindow() {
-  if (s_windows.isEmpty()) return;
-  // Close the bootstrap window without re-prompting; nothing has run
-  // in it yet so confirmCloseSurfaces would return true anyway, but
-  // m_skipCloseConfirm avoids any chrome flicker. closeAllWindows
-  // also resets the quit-on-last-window flag to keep the process
-  // alive until the user binds the quick-terminal shortcut.
-  MainWindow *first = s_windows.first();
-  first->m_skipCloseConfirm = true;
-  first->close();
 }
 
 QString MainWindow::configString(const char *key) const {
@@ -1735,8 +1799,23 @@ void MainWindow::undoLastClose() {
   if (s_undoStack.isEmpty()) return;
   const UndoEntry e = s_undoStack.takeLast();
 
+  // The active window picks the new tab's parent surface for cwd
+  // inheritance. Skip the quick terminal — it doesn't push undo
+  // entries and isn't a meaningful target. Fall back to the most
+  // recent regular window in s_windows order.
+  auto isUndoTarget = [](MainWindow *w) {
+    return w && !w->m_quickTerminal;
+  };
   MainWindow *active = qobject_cast<MainWindow *>(qApp->activeWindow());
-  if (!active && !s_windows.isEmpty()) active = s_windows.first();
+  if (!isUndoTarget(active)) {
+    active = nullptr;
+    for (int i = s_windows.size() - 1; i >= 0; --i) {
+      if (isUndoTarget(s_windows.at(i))) {
+        active = s_windows.at(i);
+        break;
+      }
+    }
+  }
   GhosttySurface *parent = active
       ? active->surfaceAt(active->m_tabs->currentIndex())
       : nullptr;
@@ -1782,34 +1861,30 @@ void MainWindow::undoLastClose() {
 // the revived widgets so we close the active window's current tab (or
 // the active window itself for a Window entry); pragmatic, matches
 // what a user normally means by "redo close-tab".
+//
+// Save the rest of s_redoStack before re-closing — pushTabUndo /
+// pushWindowUndo unconditionally clear s_redoStack (a fresh close
+// invalidates pending redos), and we want to preserve a chain of
+// redos beyond the first.
 void MainWindow::redoLastClose() {
   if (s_redoStack.isEmpty()) return;
   const UndoEntry e = s_redoStack.takeLast();
+  // Stash the remaining redo stack so we can restore it after the
+  // re-close (which clears s_redoStack via pushTabUndo / pushWindowUndo).
+  const QList<UndoEntry> savedRedo = s_redoStack;
+
   MainWindow *active = qobject_cast<MainWindow *>(qApp->activeWindow());
   if (!active && !s_windows.isEmpty()) active = s_windows.last();
   if (!active) return;
   if (e.kind == UndoEntry::Kind::Tab) {
     const int idx = active->m_tabs->currentIndex();
-    if (idx >= 0) {
-      // Push back onto the undo stack — closeTab won't, since we're
-      // doing it programmatically.
-      active->pushTabUndo(idx);
-      // pushTabUndo cleared s_redoStack; we just popped from it, so
-      // restore everything that was below `e` in the redo stack.
-      // (Simpler: keep the pre-clear contents.) Easiest fix is to
-      // not clear here — pushTabUndo always clears, so just rebuild.
-      // For our purposes, REDO chains are rare; accept the simpler
-      // semantics.
-      active->closeTab(idx);
-    }
+    if (idx >= 0) active->closeTab(idx);
   } else {
-    active->pushWindowUndo();
     active->m_skipCloseConfirm = true;
     active->close();
   }
-  // Note: a redo doesn't restore the redo stack; the user has to start
-  // a fresh close to fill it again. macOS UndoManager has the same
-  // semantics.
+  // Restore the rest of the redo chain so a sequence of REDOs works.
+  s_redoStack = savedRedo;
 }
 
 void MainWindow::applyWindowConfig() {
@@ -1827,6 +1902,20 @@ void MainWindow::applyWindowConfig() {
     // setTabBarAutoHide does not retroactively correct an explicitly
     // shown/hidden bar, so set the right state for the current count.
     m_tabs->tabBar()->setVisible(m_tabs->count() > 1);
+  }
+
+  // bell-audio-path / -volume: cached on the window so playBellAudio
+  // doesn't re-scan the on-disk config on every bell. Refreshed on
+  // each applyWindowConfig (i.e. at init and on reload).
+  {
+    QString path = configValue(QStringLiteral("bell-audio-path"));
+    if (path.startsWith(QLatin1String("~/")))
+      path = QDir::homePath() + path.mid(1);
+    m_bellAudioPath = path;
+    bool volOk = false;
+    const double v =
+        configValue(QStringLiteral("bell-audio-volume")).toDouble(&volOk);
+    m_bellAudioVolume = volOk ? v : 0.5;
   }
 
   // window-title-font-family: apply to the tab bar (and the WM
@@ -1856,56 +1945,29 @@ void MainWindow::applyWindowConfig() {
   // window-theme: force a light/dark scheme, or follow the OS.
   //
   //   `auto` / `system` — follow the OS (Qt 6.8+ honours the platform
-  //   colour scheme automatically; pre-6.8 we don't override).
+  //   colour scheme automatically).
   //   `dark` / `light` — force the explicit scheme.
   //   `ghostty` — derive from the configured background colour's
   //   luminance (Rec.601 weighting).
   //
-  // Qt 6.8 added QStyleHints::setColorScheme. Before that, the only
-  // portable knob is QPalette: derive a dark/light palette and apply
-  // it process-wide. We set the palette in both branches so a forced
-  // theme actually changes button / text colours, not just the
-  // colour-scheme hint that nothing in our chrome reads on its own.
+  // We require Qt 6.8+ (Debian trixie ships 6.8.2; the project's
+  // CMake doesn't compile against older Qt). The setColorScheme
+  // hint propagates to chrome (tab bar, dialogs); the terminal
+  // itself honours its own theme via libghostty.
   const QString theme = configString("window-theme");
-  enum class Want { Follow, Dark, Light };
-  Want want = Want::Follow;
-  if (theme == QLatin1String("dark")) want = Want::Dark;
-  else if (theme == QLatin1String("light")) want = Want::Light;
-  else if (theme == QLatin1String("ghostty")) {
+  Qt::ColorScheme scheme = Qt::ColorScheme::Unknown;
+  if (theme == QLatin1String("dark")) {
+    scheme = Qt::ColorScheme::Dark;
+  } else if (theme == QLatin1String("light")) {
+    scheme = Qt::ColorScheme::Light;
+  } else if (theme == QLatin1String("ghostty")) {
     ghostty_config_color_s bg{};
     if (configGet(s_config, &bg, "background")) {
       const double luma = 0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b;
-      want = luma < 128.0 ? Want::Dark : Want::Light;
+      scheme = luma < 128.0 ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light;
     }
   }
-
-#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
-  Qt::ColorScheme scheme = Qt::ColorScheme::Unknown;
-  if (want == Want::Dark) scheme = Qt::ColorScheme::Dark;
-  else if (want == Want::Light) scheme = Qt::ColorScheme::Light;
   QGuiApplication::styleHints()->setColorScheme(scheme);
-#else
-  // Pre-6.8 fallback: synthesize a palette by hand. The forced
-  // light/dark palettes here approximate Qt 6.8's defaults closely
-  // enough for chrome (tab bar, dialogs); the terminal itself
-  // honours its own theme via libghostty. Want::Follow leaves the
-  // application palette untouched so the desktop's choice wins.
-  if (want != Want::Follow) {
-    QPalette p;
-    if (want == Want::Dark) {
-      p.setColor(QPalette::Window, QColor(0x2b, 0x2b, 0x2b));
-      p.setColor(QPalette::WindowText, QColor(0xee, 0xee, 0xee));
-      p.setColor(QPalette::Base, QColor(0x1e, 0x1e, 0x1e));
-      p.setColor(QPalette::AlternateBase, QColor(0x33, 0x33, 0x33));
-      p.setColor(QPalette::Text, QColor(0xee, 0xee, 0xee));
-      p.setColor(QPalette::Button, QColor(0x2b, 0x2b, 0x2b));
-      p.setColor(QPalette::ButtonText, QColor(0xee, 0xee, 0xee));
-      p.setColor(QPalette::Highlight, QColor(0x2a, 0x82, 0xda));
-      p.setColor(QPalette::HighlightedText, Qt::white);
-    }  // else: a default-constructed QPalette is light-friendly.
-    QApplication::setPalette(p);
-  }
-#endif
 }
 
 void MainWindow::toggleCommandPalette(GhosttySurface *surface) {
@@ -2415,16 +2477,28 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
             fire = true;
         }
         if (!fire) return;
-        // -after duration (ns); default 5s.
-        uint64_t afterNs = 5ULL * 1000 * 1000 * 1000;
-        configGet(s_config, &afterNs, "notify-on-command-finish-after");
+        // -after Duration; default 5s. Duration isn't decodable via
+        // ghostty_config_get (non-extern non-packed struct), so parse
+        // from the on-disk config.
+        const uint64_t afterNs = parseDurationNs(
+            configValue(QStringLiteral("notify-on-command-finish-after")),
+            5ULL * 1000 * 1000 * 1000);
         if (duration < afterNs) return;
-        // -action packed bools { bell, notify } — default bell=true.
-        struct NotifyAction { bool bell; bool notify; };
-        NotifyAction act{true, false};
-        configGet(s_config, &act, "notify-on-command-finish-action");
-        if (act.bell) winp->ringBell(srcp);
-        if (act.notify || armed) {
+        // -action: NotifyOnCommandFinishAction = packed struct
+        // { bell: bool = true, notify: bool = false }. Serialized
+        // as c_uint via c_get.zig; bit 0 = bell, bit 1 = notify.
+        // A zero-init reads as no-bell-no-notify, which matches the
+        // "configGet failed; nothing to do" semantics.
+        unsigned int actBits = 0;
+        const bool actOk =
+            configGet(s_config, &actBits, "notify-on-command-finish-action");
+        // configGet failure → fall back to the documented defaults
+        // (bell=true, notify=false) so the feature still works.
+        if (!actOk) actBits = 0x1;
+        const bool actBell = (actBits & 0x1) != 0;
+        const bool actNotify = (actBits & 0x2) != 0;
+        if (actBell) winp->ringBell(srcp);
+        if (actNotify || armed) {
           QString title;
           if (code < 0) title = QStringLiteral("Command Finished");
           else if (code == 0) title = QStringLiteral("Command Succeeded");

@@ -11,6 +11,8 @@
 #include <QOpenGLFramebufferObject>
 #include <QOpenGLFunctions>
 #include <QPainter>
+#include <QGuiApplication>
+#include <QScreen>
 #include <QSettings>
 #include <QSurfaceFormat>
 #include <QTimer>
@@ -55,7 +57,21 @@ InspectorWindow::InspectorWindow(ghostty_surface_t surface)
   QSettings s;
   const QByteArray geom =
       s.value(QStringLiteral("inspector/geometry")).toByteArray();
-  if (!restoreGeometry(geom)) resize(800, 600);
+  if (!restoreGeometry(geom)) {
+    resize(800, 600);
+  } else {
+    // restoreGeometry happily restores positions on a screen that no
+    // longer exists (monitor unplugged, scaled away, etc.). Validate
+    // the centre point lands on a current screen and re-centre on
+    // the primary screen if not — otherwise the window is invisible
+    // and there's no UI to reach it.
+    if (!QGuiApplication::screenAt(frameGeometry().center())) {
+      if (QScreen *primary = QGuiApplication::primaryScreen()) {
+        const QRect g = primary->availableGeometry();
+        move(g.center() - QPoint(width() / 2, height() / 2));
+      }
+    }
+  }
 
   m_inspector = ghostty_surface_inspector(m_surface);
 
