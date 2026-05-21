@@ -6,6 +6,7 @@
 #include "SearchBar.h"
 #include "TabWidget.h"
 #include "Util.h"
+#include "XkbTracker.h"
 
 #include <algorithm>
 #include <cmath>
@@ -595,7 +596,12 @@ public:
 
   // Level-0 (unshifted) Unicode codepoint for `keycode`, or 0 if the
   // key has no associated UTF-32 (function keys, modifiers, etc.).
+  //
+  // Uses the live keymap from XkbTracker (synced via wl_keyboard) so
+  // the active layout group is honored. A us+ru user gets the
+  // correct codepoint per active group, instead of always us.
   uint32_t unshiftedCodepoint(uint32_t keycode) const {
+    syncFromTracker();
     if (!m_unshifted) return 0;
     const xkb_keysym_t sym =
         xkb_state_key_get_one_sym(m_unshifted, keycode);
@@ -611,6 +617,7 @@ public:
   // bindings that distinguish left-vs-right modifier keys couldn't
   // fire.
   ghostty_input_mods_e sideBitsForKeycode(uint32_t keycode) const {
+    syncFromTracker();
     if (!m_unshifted) return GHOSTTY_MODS_NONE;
     const xkb_keysym_t sym =
         xkb_state_key_get_one_sym(m_unshifted, keycode);
@@ -629,12 +636,23 @@ public:
     return static_cast<ghostty_input_mods_e>(r);
   }
 
+  // Caps Lock / Num Lock state from the live wl_keyboard tracker.
+  ghostty_input_mods_e lockMods() const {
+    int r = GHOSTTY_MODS_NONE;
+    if (XkbTracker *t = XkbTracker::instance()) {
+      if (t->capsLockOn()) r |= GHOSTTY_MODS_CAPS;
+      if (t->numLockOn()) r |= GHOSTTY_MODS_NUM;
+    }
+    return static_cast<ghostty_input_mods_e>(r);
+  }
+
   // Modifiers consumed by the layout to produce `keycode`'s text given
   // `mods` are depressed. Returns the consumed subset, expressed as
   // ghostty mod bits. Mutates m_query (mutable) — see thread-safety
   // note on the class.
   ghostty_input_mods_e consumedMods(uint32_t keycode,
                                     ghostty_input_mods_e mods) const {
+    syncFromTracker();
     if (!m_query) return GHOSTTY_MODS_NONE;
     xkb_mod_mask_t depressed = 0;
     if ((mods & GHOSTTY_MODS_SHIFT) && m_idxShift != XKB_MOD_INVALID)
@@ -645,11 +663,15 @@ public:
       depressed |= (1u << m_idxAlt);
     if ((mods & GHOSTTY_MODS_SUPER) && m_idxSuper != XKB_MOD_INVALID)
       depressed |= (1u << m_idxSuper);
-    xkb_state_update_mask(m_query, depressed, 0, 0, 0, 0, 0);
+    // Use the live group from the tracker so a layout switch (e.g.
+    // us↔ru) takes effect immediately.
+    const uint32_t group =
+        XkbTracker::instance() ? XkbTracker::instance()->activeGroup() : 0;
+    xkb_state_update_mask(m_query, depressed, 0, 0, 0, 0, group);
     const xkb_mod_mask_t consumed = xkb_state_key_get_consumed_mods2(
         m_query, keycode, XKB_CONSUMED_MODE_XKB);
     // Reset so the next query starts from no-mods.
-    xkb_state_update_mask(m_query, 0, 0, 0, 0, 0, 0);
+    xkb_state_update_mask(m_query, 0, 0, 0, 0, 0, group);
     int r = GHOSTTY_MODS_NONE;
     if (m_idxShift != XKB_MOD_INVALID && (consumed & (1u << m_idxShift)))
       r |= GHOSTTY_MODS_SHIFT;
@@ -663,19 +685,50 @@ public:
   }
 
 private:
-  XkbState() {
-    m_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-    if (!m_ctx) return;
-    m_keymap = xkb_keymap_new_from_names(m_ctx, nullptr,
-                                         XKB_KEYMAP_COMPILE_NO_FLAGS);
-    if (!m_keymap) return;
-    m_unshifted = xkb_state_new(m_keymap);
-    m_query = xkb_state_new(m_keymap);
-    m_idxShift = xkb_keymap_mod_get_index(m_keymap, XKB_MOD_NAME_SHIFT);
-    m_idxCtrl = xkb_keymap_mod_get_index(m_keymap, XKB_MOD_NAME_CTRL);
-    m_idxAlt = xkb_keymap_mod_get_index(m_keymap, XKB_MOD_NAME_ALT);
-    m_idxSuper = xkb_keymap_mod_get_index(m_keymap, XKB_MOD_NAME_LOGO);
+  // Lazy: build/rebuild m_unshifted + m_query from the live keymap.
+  // Called from every public method; cheap when the keymap pointer
+  // hasn't changed (a single comparison + early-return).
+  void syncFromTracker() const {
+    XkbTracker *t = XkbTracker::instance();
+    xkb_keymap *liveKm = t ? t->keymap() : nullptr;
+    xkb_keymap *km = liveKm ? liveKm : m_fallbackKeymap;
+
+    if (!km && t && t->ctx()) {
+      // Compositor hasn't sent a keymap yet (early startup). Build a
+      // throwaway from XKB defaults so the first key event isn't
+      // dropped; it will be replaced on the next syncFromTracker
+      // call once the tracker has the live keymap.
+      m_fallbackKeymap = xkb_keymap_new_from_names(
+          t->ctx(), nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
+      km = m_fallbackKeymap;
+    }
+    if (!km || km == m_keymap) {
+      // Already synced (or no keymap available at all).
+      // Update the live group on m_unshifted so the level-0 lookup
+      // honors the active layout, even when the keymap pointer
+      // hasn't changed.
+      if (m_unshifted && t) {
+        xkb_state_update_mask(m_unshifted, 0, 0, 0, 0, 0, t->activeGroup());
+      }
+      return;
+    }
+
+    // The live keymap was rebuilt by the tracker (or we're picking
+    // up the first one). Drop our derived states and rebuild.
+    if (m_unshifted) xkb_state_unref(m_unshifted);
+    if (m_query) xkb_state_unref(m_query);
+    m_unshifted = xkb_state_new(km);
+    m_query = xkb_state_new(km);
+    m_idxShift = xkb_keymap_mod_get_index(km, XKB_MOD_NAME_SHIFT);
+    m_idxCtrl = xkb_keymap_mod_get_index(km, XKB_MOD_NAME_CTRL);
+    m_idxAlt = xkb_keymap_mod_get_index(km, XKB_MOD_NAME_ALT);
+    m_idxSuper = xkb_keymap_mod_get_index(km, XKB_MOD_NAME_LOGO);
+    m_keymap = km;  // pointer-identity comparison only; no ref taken
+    if (t)
+      xkb_state_update_mask(m_unshifted, 0, 0, 0, 0, 0, t->activeGroup());
   }
+
+  XkbState() = default;
 
   ~XkbState() {
     // Run on process exit when the static is destroyed. The OS would
@@ -683,23 +736,25 @@ private:
     // and documents the ownership chain.
     if (m_query) xkb_state_unref(m_query);
     if (m_unshifted) xkb_state_unref(m_unshifted);
-    if (m_keymap) xkb_keymap_unref(m_keymap);
-    if (m_ctx) xkb_context_unref(m_ctx);
+    if (m_fallbackKeymap) xkb_keymap_unref(m_fallbackKeymap);
   }
 
   XkbState(const XkbState &) = delete;
   XkbState &operator=(const XkbState &) = delete;
 
-  struct xkb_context *m_ctx = nullptr;
-  struct xkb_keymap *m_keymap = nullptr;
-  struct xkb_state *m_unshifted = nullptr;  // permanent no-mods state
-  // Reused across consumedMods calls (mutated then reset). Mutable so
-  // consumedMods can stay logically const.
+  // Pointer-identity reference to the keymap our derived states were
+  // built from. NOT owned (the tracker or m_fallbackKeymap owns).
+  mutable struct xkb_keymap *m_keymap = nullptr;
+  // Throwaway keymap from XKB defaults, built when the live keymap
+  // hasn't arrived yet. Owned. Released in dtor; never replaced.
+  mutable struct xkb_keymap *m_fallbackKeymap = nullptr;
+  mutable struct xkb_state *m_unshifted = nullptr;  // no-mods state
+  // Reused across consumedMods calls (mutated then reset).
   mutable struct xkb_state *m_query = nullptr;
-  xkb_mod_index_t m_idxShift = XKB_MOD_INVALID;
-  xkb_mod_index_t m_idxCtrl = XKB_MOD_INVALID;
-  xkb_mod_index_t m_idxAlt = XKB_MOD_INVALID;
-  xkb_mod_index_t m_idxSuper = XKB_MOD_INVALID;
+  mutable xkb_mod_index_t m_idxShift = XKB_MOD_INVALID;
+  mutable xkb_mod_index_t m_idxCtrl = XKB_MOD_INVALID;
+  mutable xkb_mod_index_t m_idxAlt = XKB_MOD_INVALID;
+  mutable xkb_mod_index_t m_idxSuper = XKB_MOD_INVALID;
 };
 
 void GhosttySurface::sendKey(QKeyEvent *ev, ghostty_input_action_e action) {
@@ -725,11 +780,13 @@ void GhosttySurface::sendKey(QKeyEvent *ev, ghostty_input_action_e action) {
   k.action = action;
   k.mods = translateMods(ev->modifiers());
   // OR in any right-side bit for this keycode (e.g. Right-Shift sets
-  // SHIFT_RIGHT alongside SHIFT). macOS + GTK populate these; without
+  // SHIFT_RIGHT alongside SHIFT) and the live Caps/Num lock state
+  // from XkbTracker. macOS + GTK populate all of these; without
   // them, keybinds like `right_shift+x` can't distinguish from
-  // `left_shift+x`.
+  // `left_shift+x` and the kitty CSI-u encoding loses the lock bits.
   k.mods = static_cast<ghostty_input_mods_e>(
-      k.mods | XkbState::instance().sideBitsForKeycode(keycode));
+      k.mods | XkbState::instance().sideBitsForKeycode(keycode) |
+      XkbState::instance().lockMods());
   k.keycode = keycode;
   k.text = printable ? text.constData() : nullptr;
   // XKB lookups: unshifted codepoint (what this physical key would

@@ -102,6 +102,7 @@ add_executable(ghastty
   src/TabWidget.cpp
   src/Util.cpp
   src/WindowBlur.cpp
+  src/XkbTracker.cpp
   "${BLUR_CODE}"
   "${BLUR_HEADER}"
 )
