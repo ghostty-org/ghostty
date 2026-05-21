@@ -475,6 +475,40 @@ void MainWindow::closeTab(int index) {
   }
 }
 
+// Honor libghostty's close_tab_mode (THIS / OTHER / RIGHT) for the
+// CLOSE_TAB action. macOS supports all three; GTK supports all three
+// via adw.TabView.closeOtherPages / closePagesAfter.
+void MainWindow::closeTabsByMode(GhosttySurface *src,
+                                 ghostty_action_close_tab_mode_e mode) {
+  const int srcTab = tabIndexForSurface(src);
+  if (srcTab < 0) return;
+
+  // Build the list of tab indices to close, in DESCENDING order so
+  // removeTab doesn't shift later indices out from under us.
+  QList<int> indices;
+  switch (mode) {
+    case GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS:
+      indices = {srcTab};
+      break;
+    case GHOSTTY_ACTION_CLOSE_TAB_MODE_OTHER:
+      for (int i = m_tabs->count() - 1; i >= 0; --i)
+        if (i != srcTab) indices.append(i);
+      break;
+    case GHOSTTY_ACTION_CLOSE_TAB_MODE_RIGHT:
+      for (int i = m_tabs->count() - 1; i > srcTab; --i) indices.append(i);
+      break;
+  }
+  if (indices.isEmpty()) return;
+
+  // Single confirm prompt covering every surface affected.
+  QList<GhosttySurface *> affected;
+  for (int i : indices)
+    for (GhosttySurface *s : surfacesInTab(i)) affected.append(s);
+  if (!confirmCloseSurfaces(affected)) return;
+
+  for (int i : indices) closeTab(i);
+}
+
 void MainWindow::adoptTab(MainWindow *src, QWidget *page) {
   const int srcIndex = src->m_tabs->indexOf(page);
   if (srcIndex < 0 || src == this) return;
@@ -549,8 +583,13 @@ void MainWindow::setTabTitleOverride(GhosttySurface *surface,
   updateTabText(index);
 }
 
-void MainWindow::copyTitleToClipboard() {
-  const int tab = m_tabs->currentIndex();
+void MainWindow::copyTitleToClipboard(GhosttySurface *src) {
+  // Per-surface: copy the title of the tab containing `src`, not
+  // whatever tab is currently visible. macOS does the same; otherwise
+  // a binding triggered from a non-current tab copies the wrong title.
+  // Falls back to the current tab if the source is unknown.
+  int tab = src ? tabIndexForSurface(src) : -1;
+  if (tab < 0) tab = m_tabs->currentIndex();
   if (tab < 0) return;
   const TabData data = m_tabs->tabBar()->tabData(tab).value<TabData>();
   const QString title =
@@ -586,10 +625,22 @@ void MainWindow::closeEvent(QCloseEvent *e) {
 
 bool MainWindow::confirmCloseSurfaces(
     const QList<GhosttySurface *> &surfaces) {
-  bool needsConfirm = false;
-  for (GhosttySurface *s : surfaces)
-    if (s->surface() && ghostty_surface_needs_confirm_quit(s->surface()))
-      needsConfirm = true;
+  // Honor the `confirm-close-surface` config:
+  //   false  -> never prompt
+  //   true   -> prompt only when libghostty says a process is running
+  //   always -> always prompt, even for surfaces with no live process
+  // (libghostty Config.zig: ConfirmCloseSurface enum.)
+  const QString mode = configString("confirm-close-surface");
+  if (mode == QLatin1String("false")) return true;
+
+  bool needsConfirm = (mode == QLatin1String("always"));
+  if (!needsConfirm) {
+    for (GhosttySurface *s : surfaces)
+      if (s->surface() && ghostty_surface_needs_confirm_quit(s->surface())) {
+        needsConfirm = true;
+        break;
+      }
+  }
   if (!needsConfirm) return true;
 
   const auto choice = QMessageBox::question(
@@ -975,7 +1026,10 @@ void MainWindow::refreshChrome() {
   }
 }
 
-void MainWindow::reloadConfig() {
+void MainWindow::reloadConfig() { reloadConfigGlobal(); }
+
+void MainWindow::reloadConfigGlobal() {
+  if (!s_app) return;
   // Re-read the config from disk in the same order as initialize().
   ghostty_config_t config = ghostty_config_new();
   ghostty_config_load_default_files(config);
@@ -1238,13 +1292,15 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       return true;
     }
 
-    case GHOSTTY_ACTION_CLOSE_TAB:
-      if (src)
-        post(win, [winp, srcp]() {
-          if (!winp || !srcp) return;
-          if (winp->confirmCloseSurfaces({srcp})) winp->removeSurface(srcp);
-        });
+    case GHOSTTY_ACTION_CLOSE_TAB: {
+      if (!src) return false;
+      const ghostty_action_close_tab_mode_e mode = action.action.close_tab_mode;
+      post(win, [winp, srcp, mode]() {
+        if (!winp || !srcp) return;
+        winp->closeTabsByMode(srcp, mode);
+      });
       return true;
+    }
 
     case GHOSTTY_ACTION_SET_TITLE: {
       const char *title = action.action.set_title.title;
@@ -1278,8 +1334,8 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
     }
 
     case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
-      post(win, [winp]() {
-        if (winp) winp->copyTitleToClipboard();
+      post(win, [winp, srcp]() {
+        if (winp) winp->copyTitleToClipboard(srcp);
       });
       return true;
 
@@ -1408,9 +1464,11 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
     }
 
     case GHOSTTY_ACTION_RELOAD_CONFIG:
-      post(win, [winp]() {
-        if (winp) winp->reloadConfig();
-      });
+      // Reload is app-scoped (the config is process-wide). Post to
+      // qApp instead of the originating window so the reload still
+      // happens if the window that issued the action is closed
+      // between the dispatch and the queued slot.
+      post(qApp, []() { MainWindow::reloadConfigGlobal(); });
       return true;
 
     case GHOSTTY_ACTION_CONFIG_CHANGE:
@@ -1425,10 +1483,11 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       const ghostty_action_initial_size_s sz = action.action.initial_size;
       post(win, [winp, sz]() {
         if (!winp) return;
-        // The action carries device pixels; resize() takes logical.
-        const double dpr = winp->devicePixelRatioF();
-        const QSize logical(static_cast<int>(sz.width / dpr),
-                            static_cast<int>(sz.height / dpr));
+        // The action carries logical pixels; resize() takes the same.
+        // The previous code divided by devicePixelRatioF, halving the
+        // window on a 2x display.
+        const QSize logical(static_cast<int>(sz.width),
+                            static_cast<int>(sz.height));
         winp->m_defaultWindowSize = logical;  // for RESET_WINDOW_SIZE
         winp->resize(logical);
       });

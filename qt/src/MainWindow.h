@@ -98,6 +98,9 @@ private:
   static void frame();
 
   void closeTab(int index);
+  // Honor close-tab-mode (THIS / OTHER / RIGHT) from libghostty.
+  void closeTabsByMode(GhosttySurface *src,
+                       ghostty_action_close_tab_mode_e mode);
   // Tear tab `index` out into a new window (tabTornOff signal).
   void detachTab(int index);
   // Move `page` (a tab and its surfaces) from `src` into this window.
@@ -129,10 +132,15 @@ private:
   // while set, SET_TITLE no longer changes the tab text.
   void setTabTitleOverride(GhosttySurface *surface, const QString &title);
   // Copy the current tab's effective title to the clipboard.
-  void copyTitleToClipboard();
+  void copyTitleToClipboard(GhosttySurface *src);
 
   // Rebuild the config from disk and push it to libghostty.
   void reloadConfig();
+  // App-scoped reload entry point. The config is process-wide (statics
+  // in this class), so reload from any window has the same effect; the
+  // RELOAD_CONFIG action posts to qApp via this static so the reload
+  // can't be cancelled by the source window closing mid-dispatch.
+  static void reloadConfigGlobal();
   // Refresh every window's chrome from the current config (used after a
   // reload and on the CONFIG_CHANGE notification).
   static void refreshChrome();
