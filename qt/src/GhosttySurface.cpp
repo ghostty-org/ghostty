@@ -800,9 +800,13 @@ void GhosttySurface::sendKey(QKeyEvent *ev, ghostty_input_action_e action) {
   // the shell can't decode; with it set, libghostty's encoder falls
   // back to plain text correctly.
   k.unshifted_codepoint = XkbState::instance().unshiftedCodepoint(keycode);
-  k.consumed_mods = printable
-                        ? XkbState::instance().consumedMods(keycode, k.mods)
-                        : GHOSTTY_MODS_NONE;
+  // consumed_mods is computed for every event, not just printable ones.
+  // Function/keypad/Backspace/arrows can also have layout-consumed
+  // modifiers (e.g. Caps Lock affecting case for letter keys, Mode_Switch
+  // for layout shifts on Backspace) that the kitty encoder needs to
+  // strip. macOS + GTK both compute it unconditionally; gating on
+  // printable lost that info on non-text keys.
+  k.consumed_mods = XkbState::instance().consumedMods(keycode, k.mods);
   k.composing = false;
 
   ghostty_surface_key(m_surface, k);

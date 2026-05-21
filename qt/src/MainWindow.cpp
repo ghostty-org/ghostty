@@ -223,14 +223,32 @@ static void postNotification(const QString &title, const QString &body) {
 
 // Drive the taskbar progress bar via the Unity LauncherEntry D-Bus API
 // (honored by the KDE task manager), keyed to ghastty.desktop.
-static void postProgress(bool visible, double fraction) {
+//
+// Unity LauncherEntry does not have first-class ERROR / PAUSE /
+// INDETERMINATE states. We approximate per progress-style:
+//   - REMOVE: progress-visible=false
+//   - SET / ERROR / PAUSE: progress-visible=true, progress=fraction;
+//     ERROR + PAUSE additionally flag urgent=true so the launcher
+//     marks attention (KDE/Plasma renders this as a bouncing icon).
+//   - INDETERMINATE: progress-visible=true with fraction=0 — Unity
+//     has no indeterminate phase, so a 0 progress is the closest
+//     we can do. Plasma renders this as an empty bar; better than
+//     dropping the state entirely.
+static void postProgress(ghostty_action_progress_report_state_e state,
+                         double fraction) {
   QDBusMessage msg = QDBusMessage::createSignal(
       QStringLiteral("/com/canonical/unity/launcherentry/ghastty"),
       QStringLiteral("com.canonical.Unity.LauncherEntry"),
       QStringLiteral("Update"));
   QVariantMap props;
+  const bool visible = state != GHOSTTY_PROGRESS_STATE_REMOVE;
+  if (state == GHOSTTY_PROGRESS_STATE_INDETERMINATE) fraction = 0.0;
   props[QStringLiteral("progress")] = fraction;
   props[QStringLiteral("progress-visible")] = visible;
+  if (state == GHOSTTY_PROGRESS_STATE_ERROR ||
+      state == GHOSTTY_PROGRESS_STATE_PAUSE) {
+    props[QStringLiteral("urgent")] = true;
+  }
   msg.setArguments(
       {QStringLiteral("application://ghastty.desktop"), QVariant(props)});
   QDBusConnection::sessionBus().send(msg);
@@ -2125,19 +2143,56 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
           action.action.desktop_notification;
       const QString title = QString::fromUtf8(n.title ? n.title : "");
       const QString body = QString::fromUtf8(n.body ? n.body : "");
-      post(qApp, [title, body]() { postNotification(title, body); });
+      // Suppress notifications from the focused surface — the user
+      // is already looking at it and the popup just doubles up.
+      // macOS does the same gate; GTK gates on surface focus too.
+      // App-target (no `src`) always fires.
+      post(qApp, [title, body, srcp]() {
+        if (srcp && srcp->hasFocus()) return;
+        postNotification(title, body);
+      });
       return true;
     }
 
     case GHOSTTY_ACTION_COMMAND_FINISHED: {
+      // libghostty fires this for every command end; the apprt is
+      // responsible for the notify-on-command-finish gate.
       if (!src) return true;
       const int code = action.action.command_finished.exit_code;
-      post(src, [srcp, code]() {
-        if (!srcp || !srcp->consumeCommandNotify()) return;
-        postNotification(
-            QStringLiteral("Command finished"),
-            code >= 0 ? QStringLiteral("Exited with code %1").arg(code)
-                      : QStringLiteral("The command completed."));
+      const uint64_t duration = action.action.command_finished.duration;
+      post(src, [srcp, winp, code, duration]() {
+        if (!srcp || !winp) return;
+        // The per-command "armed via context menu" path overrides
+        // the never/unfocused gate (matches GTK's setup-menu).
+        const bool armed = srcp->consumeCommandNotify();
+        // notify-on-command-finish enum (string).
+        const QString mode = winp->configString("notify-on-command-finish");
+        bool fire = armed;
+        if (!fire) {
+          if (mode == QLatin1String("always")) fire = true;
+          else if (mode == QLatin1String("unfocused") && !srcp->hasFocus())
+            fire = true;
+        }
+        if (!fire) return;
+        // -after duration (ns); default 5s.
+        uint64_t afterNs = 5ULL * 1000 * 1000 * 1000;
+        configGet(s_config, &afterNs, "notify-on-command-finish-after");
+        if (duration < afterNs) return;
+        // -action packed bools { bell, notify } — default bell=true.
+        struct NotifyAction { bool bell; bool notify; };
+        NotifyAction act{true, false};
+        configGet(s_config, &act, "notify-on-command-finish-action");
+        if (act.bell) winp->ringBell(srcp);
+        if (act.notify || armed) {
+          QString title;
+          if (code < 0) title = QStringLiteral("Command Finished");
+          else if (code == 0) title = QStringLiteral("Command Succeeded");
+          else title = QStringLiteral("Command Failed");
+          const QString body = code >= 0
+              ? QStringLiteral("Exited with code %1").arg(code)
+              : QStringLiteral("The command completed.");
+          postNotification(title, body);
+        }
       });
       return true;
     }
@@ -2184,10 +2239,18 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
     }
 
     case GHOSTTY_ACTION_PROGRESS_REPORT: {
+      // Honor `progress-style`: `none` suppresses the taskbar entry.
+      // The default is to drive Unity LauncherEntry; future styles
+      // (e.g. an in-window inline bar) would branch off here.
+      const QString style =
+          win ? win->configString("progress-style") : QStringLiteral("");
+      if (style == QLatin1String("no") || style == QLatin1String("none"))
+        return true;
       const ghostty_action_progress_report_s p = action.action.progress_report;
-      const bool visible = p.state != GHOSTTY_PROGRESS_STATE_REMOVE;
+      const ghostty_action_progress_report_state_e state = p.state;
       const double fraction = p.progress >= 0 ? p.progress / 100.0 : 0.0;
-      post(qApp, [visible, fraction]() { postProgress(visible, fraction); });
+      post(qApp,
+           [state, fraction]() { postProgress(state, fraction); });
       return true;
     }
 
