@@ -28,25 +28,25 @@ checkbox and link the commit hash.
 
 ### Lifecycle / quit
 
-- [ ] **B1.** `quit-after-last-window-closed-delay` does nothing on natural close (`MainWindow.cpp:255`). Delay timer only fires when libghostty issues `QUIT_TIMER`, but closing the last window via the title-bar X keeps the process alive forever (since Qt's `quitOnLastWindowClosed` was set false to allow the delay path). macOS handles via `applicationShouldTerminateAfterLastWindowClosed`; GTK wires last-window-close → `startQuitTimer` (`application.zig:820-862`).
+- [x] **B1.** `quit-after-last-window-closed-delay` does nothing on natural close (`MainWindow.cpp:255`). Delay timer only fires when libghostty issues `QUIT_TIMER`, but closing the last window via the title-bar X keeps the process alive forever (since Qt's `quitOnLastWindowClosed` was set false to allow the delay path). macOS handles via `applicationShouldTerminateAfterLastWindowClosed`; GTK wires last-window-close → `startQuitTimer` (`application.zig:820-862`). — fixed in `7c3868b5b`
 - [ ] **B2.** `CLOSE_ALL_WINDOWS` always force-terminates (`MainWindow.cpp:1367-1370`, `:602-621`). Qt collapses `QUIT` and `CLOSE_ALL_WINDOWS` into the same path, both calling `qApp->quit()`. macOS keeps them distinct (close-all doesn't terminate). User binds close-all-windows → app quits unexpectedly.
 - [ ] **B3.** `m_skipCloseConfirm` never cleared (`MainWindow.cpp:577-585`, `:454`, `:474`, `:509`). After one skip-confirmed close, if the window is re-shown via `toggleVisibility`, the next close also skips confirmation. macOS resets per-action.
-- [ ] **B4.** `confirm-close-surface` config option ignored (`MainWindow.cpp:587-599`). Qt always uses libghostty's `needs_confirm_quit`. User setting `false` / `always` / `always-cwd` has no effect.
+- [x] **B4.** `confirm-close-surface` config option ignored (`MainWindow.cpp:587-599`). Qt always uses libghostty's `needs_confirm_quit`. User setting `false` / `always` / `always-cwd` has no effect. — fixed in `33b5dee46`
 - [ ] **B5.** `closeAllWindows` ignores `quit-after-last-window-closed=false` — windowless keep-alive impossible after close-all.
 
 ### Action coverage
 
-- [ ] **B6.** `CLOSE_TAB` ignores `close_tab_mode` (`MainWindow.cpp:1241-1247`). Always treats as `mode=THIS`. "Close other tabs" / "Close tabs to the right" keybinds silently close only the current tab.
-- [ ] **B7.** `INITIAL_SIZE` halves window on HiDPI (`MainWindow.cpp:1429-1433`). Width/height from libghostty are already logical pixels; Qt divides by `devicePixelRatioF()` again. macOS uses unmodified.
-- [ ] **B8.** `MOUSE_VISIBILITY` clobbers cursor shape on un-hide (`MainWindow.cpp:1512-1520`). Sets `Qt::ArrowCursor` on un-hide, destroying the previous shape from `MOUSE_SHAPE`. macOS preserves shape.
+- [x] **B6.** `CLOSE_TAB` ignores `close_tab_mode` (`MainWindow.cpp:1241-1247`). Always treats as `mode=THIS`. "Close other tabs" / "Close tabs to the right" keybinds silently close only the current tab. — fixed in `33b5dee46`
+- [x] **B7.** `INITIAL_SIZE` halves window on HiDPI (`MainWindow.cpp:1429-1433`). Width/height from libghostty are already logical pixels; Qt divides by `devicePixelRatioF()` again. macOS uses unmodified. — fixed in `33b5dee46`
+- [x] **B8.** `MOUSE_VISIBILITY` clobbers cursor shape on un-hide (`MainWindow.cpp:1512-1520`). Sets `Qt::ArrowCursor` on un-hide, destroying the previous shape from `MOUSE_SHAPE`. macOS preserves shape. — fixed in `a48ff0fb8`
 - [ ] **B9.** Performable-action-returns-true: `MOVE_TAB`, `GOTO_TAB`, `GOTO_SPLIT`, `RESIZE_SPLIT`, `EQUALIZE_SPLITS`, `TOGGLE_SPLIT_ZOOM` all unconditionally return `true`, swallowing chords on unsplit/single-tab surfaces. macOS returns false; GTK gates on `tree.getIsSplit()`.
 - [ ] **B10.** `MOVE_TAB` with target=APP moves a tab in arbitrary first window (`MainWindow.cpp:1504`). macOS returns false for app target.
-- [ ] **B11.** `RELOAD_CONFIG` only reloads ONE window (`MainWindow.cpp:1410-1414`). Other windows stay on stale config. macOS reloads globally.
+- [x] **B11.** `RELOAD_CONFIG` only reloads ONE window (`MainWindow.cpp:1410-1414`). Other windows stay on stale config. macOS reloads globally. — fixed in `33b5dee46`
 - [ ] **B12.** `CONFIG_CHANGE` only refreshes chrome (`MainWindow.cpp:1416-1421`). Doesn't push the new config to running surfaces. `applyWindowConfig` only updates tab-bar + theme — `window-decoration`, `fullscreen`, `maximize` changes don't propagate to existing windows.
 - [ ] **B13.** `OPEN_URL` ignores `kind` (`MainWindow.cpp:1471-1480`). `.text` payloads (e.g. config files) open with whatever the desktop says is default for `.txt` (usually a browser). macOS routes `.text` to a text editor.
 - [ ] **B14.** `OPEN_CONFIG` opens via `QDesktopServices::openUrl` without `text` kind hint — same problem.
 - [ ] **B15.** `SHOW_CHILD_EXITED` fires unconditionally (`MainWindow.cpp:1379-1387`, `GhosttySurface.cpp:466-498`). macOS gates on `runtime_ms > 0` and `abnormalCommandExitRuntime` config; Qt shows the banner for fast `exit 0` cases.
-- [ ] **B16.** `COPY_TITLE_TO_CLIPBOARD` copies the WINDOW title (`MainWindow.cpp:1280-1284`, `:552`), not the surface title. On a multi-tab window, the wrong title gets copied. macOS copies per-surface.
+- [x] **B16.** `COPY_TITLE_TO_CLIPBOARD` copies the WINDOW title (`MainWindow.cpp:1280-1284`, `:552`), not the surface title. On a multi-tab window, the wrong title gets copied. macOS copies per-surface. — fixed in `33b5dee46`
 - [ ] **B17.** `PROMPT_TITLE` with target=APP is no-op (`MainWindow.cpp:1271`). macOS promotes to `NSApp.mainWindow`.
 - [ ] **B18.** Many actions in `default: return false;` (`MainWindow.cpp:1603-1604`):
   - `PWD` — breaks new tab/split working-dir inheritance.
@@ -62,14 +62,14 @@ checkbox and link the commit hash.
 
 ### Input / keyboard / mouse
 
-- [ ] **B19.** Mouse buttons 4-11 not delivered (`GhosttySurface.cpp:710-715`). Only Left/Right/Middle mapped; back/forward buttons silently dropped. macOS + GTK both handle 4-11.
+- [x] **B19.** Mouse buttons 4-11 not delivered (`GhosttySurface.cpp:710-715`). Only Left/Right/Middle mapped; back/forward buttons silently dropped. macOS + GTK both handle 4-11. — fixed in `a48ff0fb8`
 - [ ] **B20.** Modifier release doesn't synthesize event (`sendKey`). Bare Shift/Ctrl/Alt presses don't produce kitty progressive-enhancement events. macOS uses `flagsChanged`; GTK derives from physical_key.
 - [ ] **B21.** `consumed_mods` only computed for printable events (`GhosttySurface.cpp:699-701`). Keypad/function/Backspace/arrows lose consumed-mods info. macOS + GTK compute unconditionally.
 - [ ] **B22.** Caps Lock + Num Lock state never set in mods (`translateMods`). Kitty CSI-u relies on these bits.
 - [ ] **B23.** Sided modifiers (left vs right) not reported. `left_shift` vs `right_shift` keybinds can't fire. macOS + GTK both populate `mods.sides.*`.
 - [ ] **B24.** No mouse-enter/leave callback to libghostty (`GhosttySurface.cpp:927-930`). Hover state, OSC-8 link arming, mouse-report sequences stay armed after pointer leaves. macOS + GTK both notify libghostty.
-- [ ] **B25.** `MOUSE_SHAPE` action not honored at all. Cursor stays OS default regardless of what the running program (e.g. `vim`) requests. macOS + GTK both implement.
-- [ ] **B26.** `MOUSE_VISIBILITY` (hide-on-typing) not honored. macOS + GTK both implement.
+- [x] **B25.** `MOUSE_SHAPE` action not honored at all. Cursor stays OS default regardless of what the running program (e.g. `vim`) requests. macOS + GTK both implement. — fixed in `a48ff0fb8`
+- [x] **B26.** `MOUSE_VISIBILITY` (hide-on-typing) not honored. macOS + GTK both implement. — fixed in `a48ff0fb8`
 - [ ] **B27.** Right-click swallowed when program isn't mouse-capturing (`GhosttySurface.cpp:742-745`, `:782-787`). Qt opens its context menu without ever sending the right-press to libghostty. macOS + GTK send press first, only show menu if core didn't consume — so word-select-then-menu can fire.
 - [ ] **B28.** Click-to-focus also reports the click to libghostty. macOS + GTK suppress the matching mouse-up. Qt sends both, so a focus-grabbing click is visible to running programs.
 - [ ] **B29.** `XkbState` uses default layout, not the live one (`GhosttySurface.cpp:629-641`). User with us+ru layouts gets us-only `unshifted_codepoint` regardless of active group. GTK uses `event.getLayout()`.
@@ -93,7 +93,7 @@ checkbox and link the commit hash.
 
 - [ ] **B42.** No animation (slide-in/out). macOS uses `NSAnimationContext`.
 - [ ] **B43.** `quick-terminal-screen` not honored. macOS resolves which monitor.
-- [ ] **B44.** `quick-terminal-position = center` not handled (`MainWindow.cpp:700`).
+- [x] ~~**B44.** `quick-terminal-position = center` not handled (`MainWindow.cpp:700`).~~ Audit was wrong; already handled at `MainWindow.cpp:766`.
 - [ ] **B45.** `quick-terminal-space-behavior` not honored.
 - [ ] **B46.** No fallback for non-Wayland — `LayerShellQt::Window::get()` returning null leaves a regular window without telling libghostty.
 
@@ -115,7 +115,7 @@ checkbox and link the commit hash.
 - [ ] **I6.** `PROGRESS_REPORT` collapses ERROR/PAUSE/INDETERMINATE to a boolean.
 - [ ] **I7.** `COMMAND_FINISHED` ignores `notify-on-command-finish` config (`.never`/`.unfocused`/`.always`), `notify-on-command-finish-after`, and bell mode.
 - [ ] **I8.** `DESKTOP_NOTIFICATION` is app-target only; `requireFocus` not honored.
-- [ ] **I9.** Bell `attention` fallback hardcoded (`MainWindow.cpp:910`) — `configGet` failing silently falls back to `BellAttention`, ignoring user config.
+- [x] **I9.** Bell `attention` fallback hardcoded (`MainWindow.cpp:910`) — `configGet` failing silently falls back to `BellAttention`, ignoring user config. — fixed in `7c3868b5b`
 - [ ] **I10.** Cross-window split DnD unsupported. GTK matches; macOS has it.
 
 ---
