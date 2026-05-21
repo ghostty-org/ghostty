@@ -700,6 +700,13 @@ void MainWindow::removeSurface(GhosttySurface *surface) {
 
   // Otherwise this surface is the whole tab.
   const int index = m_tabs->indexOf(parent);
+  // Push to undo so a shell-exited tab close is symmetric with a
+  // user-initiated tab close (closeTab pushes too). Skip the last
+  // tab — its closeEvent runs pushWindowUndo and we don't want to
+  // double-stack. Also skip the quick terminal (which doesn't push
+  // to either stack by design).
+  if (index >= 0 && m_tabs->count() > 1 && !m_quickTerminal)
+    pushTabUndo(index);
   if (index >= 0) m_tabs->removeTab(index);
   if (parent) parent->deleteLater();  // page; destroys the surface too
   // The surface close was already confirmed; don't re-prompt on the
@@ -2812,10 +2819,14 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
 
 bool MainWindow::onReadClipboard(void *ud, ghostty_clipboard_e loc,
                                  void *state) {
-  // surface userdata. Called synchronously when libghostty needs
-  // clipboard contents (paste). May arrive on a worker thread, so
-  // surfaceAlive validates the pointer first — the GhosttySurface
-  // could be mid-destruction.
+  // surface userdata. Called synchronously by libghostty when a
+  // surface needs clipboard contents (paste). This runs on the GUI
+  // thread by construction: every libghostty entry point that
+  // surfaces a paste lives behind ghostty_app_tick, which the
+  // process-wide frame timer drives — and that timer is on the GUI
+  // thread. QClipboard is GUI-thread-only, so reading directly here
+  // is safe; surfaceAlive still validates the pointer in case a
+  // surface is mid-destruction on this same thread.
   auto *surface = static_cast<GhosttySurface *>(ud);
   if (!surfaceAlive(surface) || !surface->surface()) return false;
 
