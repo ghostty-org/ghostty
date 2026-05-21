@@ -114,10 +114,10 @@ checkbox and link the commit hash.
 ## 🟡 Inconsistent (works, but feels wrong)
 
 - [x] **I1.** Close-confirmation buttons "Yes/No" instead of "Cancel/Close" with destructive style. Not localized. macOS uses native NSAlert; GTK uses Adw.MessageDialog with `close-response: cancel`. — fixed in `bfd39a4dd` (destructive-styled Close/Quit/Paste; default Cancel)
-- [x] ~~**I2.** Bell mark `"● "` prefix vs macOS 🔔 vs GTK `setNeedsAttention`.~~ Cosmetic; current prefix matches GTK's text-mode behavior. Closed as won't-fix without user feedback.
-- [x] ~~**I3.** `MOVE_TAB` clamps; GTK wraps. Qt matches macOS but mismatches GTK.~~ Qt matches macOS — won't fix; GTK is the outlier.
+- [x] **I2.** Bell mark `"● "` prefix vs macOS 🔔 vs GTK `setNeedsAttention`. — fixed in `ca52a39dc` (accent-dot tab icon instead of inline text prefix; QApplication::alert already provided WM urgency)
+- [x] **I3.** `MOVE_TAB` clamps; GTK wraps. Qt matches macOS but mismatches GTK. — confirmed in `ca52a39dc` (clamp is the intentional choice; documented in moveTab)
 - [x] **I4.** `GOTO_TAB:99` does nothing; macOS clamps to last tab; GTK clamps via `@min`. — fixed in `bfd39a4dd`
-- [x] ~~**I5.** `MOUSE_OVER_LINK` becomes a Qt tooltip; macOS+GTK use a dedicated overlay.~~ Closed as won't-fix; Qt tooltip is sufficient and consistent with native Qt apps.
+- [x] **I5.** `MOUSE_OVER_LINK` becomes a Qt tooltip; macOS+GTK use a dedicated overlay. — fixed in `ca52a39dc` (bottom-left URL pill via setLinkOverlay)
 - [x] **I6.** `PROGRESS_REPORT` collapses ERROR/PAUSE/INDETERMINATE to a boolean. — fixed in `13d4353b1` (ERROR/PAUSE flag urgent=true; INDETERMINATE forces fraction=0)
 - [x] **I7.** `COMMAND_FINISHED` ignores `notify-on-command-finish` config (`.never`/`.unfocused`/`.always`), `notify-on-command-finish-after`, and bell mode. — fixed in `13d4353b1`
 - [x] **I8.** `DESKTOP_NOTIFICATION` is app-target only; `requireFocus` not honored. — fixed in `13d4353b1` (suppress on focused surface; matches macOS gate)
