@@ -36,13 +36,13 @@ pub const Options = struct {
 };
 
 /// The `list-fonts` command is used to list all the available fonts for
-/// Ghostty. This uses the exact same font discovery mechanism Ghostty uses to
+/// Ghastty. This uses the exact same font discovery mechanism Ghastty uses to
 /// find fonts to use.
 ///
 /// When executed with no arguments, this will list all available fonts, sorted
 /// by family name, then font name. If a family name is given with `--family`,
 /// the sorting will be disabled and the results instead will be shown in the
-/// same priority order Ghostty would use to pick a font.
+/// same priority order Ghastty would use to pick a font.
 ///
 /// Flags:
 ///
@@ -57,7 +57,7 @@ pub const Options = struct {
 ///     prioritized.
 ///
 ///   * `--family`: Filter results to a specific font family. The family handling
-///     is identical to the `font-family` set of Ghostty configuration values, so
+///     is identical to the `font-family` set of Ghastty configuration values, so
 ///     this can be used to debug why your desired font may not be loading.
 pub fn run(alloc: Allocator) !u8 {
     var iter = try args.argsIterator(alloc);
@@ -75,14 +75,14 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    // Its possible to build Ghostty without font discovery!
+    // Its possible to build Ghastty without font discovery!
     if (comptime font.Discover == void) {
         var buffer: [1024]u8 = undefined;
         var stderr_writer = std.fs.File.stderr().writer(&buffer);
         const stderr = &stderr_writer.interface;
         try stderr.print(
-            \\Ghostty was built without a font discovery mechanism. This is a compile-time
-            \\option. Please review how Ghostty was built from source, contact the
+            \\Ghastty was built without a font discovery mechanism. This is a compile-time
+            \\option. Please review how Ghastty was built from source, contact the
             \\maintainer to enable a font discovery mechanism, and try again.
         ,
             .{},

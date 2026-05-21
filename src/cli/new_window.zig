@@ -12,7 +12,7 @@ pub const Options = struct {
     /// This is set by the CLI parser for deinit.
     _arena: ?ArenaAllocator = null,
 
-    /// If set, open up a new window in a custom instance of Ghostty.
+    /// If set, open up a new window in a custom instance of Ghastty.
     class: ?[:0]const u8 = null,
 
     /// Did the user specify a `--working-directory` argument on the command line?
@@ -85,16 +85,16 @@ pub const Options = struct {
 };
 
 /// The `new-window` will use native platform IPC to open up a new window in a
-/// running instance of Ghostty.
+/// running instance of Ghastty.
 ///
 /// If the `--class` flag is not set, the `new-window` command will try and
-/// connect to a running instance of Ghostty based on what optimizations the
-/// Ghostty CLI was compiled with. Otherwise the `new-window` command will try
-/// and contact a running Ghostty instance that was configured with the same
+/// connect to a running instance of Ghastty based on what optimizations the
+/// Ghastty CLI was compiled with. Otherwise the `new-window` command will try
+/// and contact a running Ghastty instance that was configured with the same
 /// `class` as was given on the command line.
 ///
 /// All of the arguments after the `+new-window` argument (except for the
-/// `--class` flag) will be sent to the remote Ghostty instance and will be
+/// `--class` flag) will be sent to the remote Ghastty instance and will be
 /// parsed as command line flags. These flags will override certain settings
 /// when creating the first surface in the new window. Currently, only
 /// `--working-directory`, `--command`, and `--title` are supported. `-e` will
@@ -104,27 +104,27 @@ pub const Options = struct {
 ///
 /// If `--working-directory` is found on the command line and is a relative
 /// path (i.e. doesn't start with `/`) it will be resolved to an absolute path
-/// relative to the current working directory that the `ghostty +new-window`
+/// relative to the current working directory that the `ghastty +new-window`
 /// command is run from. `~/` prefixes will also be expanded to the user's home
 /// directory.
 ///
 /// If `--working-directory` is _not_ found on the command line, the working
-/// directory that `ghostty +new-window` is run from will be passed to Ghostty.
+/// directory that `ghastty +new-window` is run from will be passed to Ghastty.
 ///
-/// GTK uses an application ID to identify instances of applications. If Ghostty
+/// GTK uses an application ID to identify instances of applications. If Ghastty
 /// is compiled with release optimizations, the default application ID will be
-/// `com.mitchellh.ghostty`. If Ghostty is compiled with debug optimizations,
+/// `com.mitchellh.ghostty`. If Ghastty is compiled with debug optimizations,
 /// the default application ID will be `com.mitchellh.ghostty-debug`.  The
 /// `class` configuration entry can be used to set up a custom application
 /// ID. The class name must follow the requirements defined [in the GTK
 /// documentation](https://docs.gtk.org/gio/type_func.Application.id_is_valid.html)
-/// or it will be ignored and Ghostty will use the default as defined above.
+/// or it will be ignored and Ghastty will use the default as defined above.
 ///
-/// On GTK, D-Bus activation must be properly configured. Ghostty does not need
+/// On GTK, D-Bus activation must be properly configured. Ghastty does not need
 /// to be running for this to open a new window, making it suitable for binding
 /// to keys in your window manager (if other methods for configuring global
 /// shortcuts are unavailable). D-Bus will handle launching a new instance
-/// of Ghostty if it is not already running. See the Ghostty website for
+/// of Ghastty if it is not already running. See the Ghastty website for
 /// information on properly configuring D-Bus activation.
 ///
 /// Only supported on GTK.
@@ -132,11 +132,11 @@ pub const Options = struct {
 /// Flags:
 ///
 ///   * `--class=<class>`: If set, open up a new window in a custom instance of
-///     Ghostty. The class must be a valid GTK application ID.
+///     Ghastty. The class must be a valid GTK application ID.
 ///
 ///   * `--command`: The command to be executed in the first surface of the new window.
 ///
-///   * `--working-directory=<directory>`: The working directory to pass to Ghostty.
+///   * `--working-directory=<directory>`: The working directory to pass to Ghastty.
 ///
 ///   * `--title`: A title that will override the title of the first surface in
 ///     the new window. The title override may be edited or removed later.

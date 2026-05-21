@@ -73,7 +73,7 @@ pub fn SpecialCase(comptime E: type) type {
 
         /// If there is no pending action (we haven't seen an action yet)
         /// then we should return no action. This is kind of weird but is
-        /// a special case to allow "-e" in Ghostty.
+        /// a special case to allow "-e" in Ghastty.
         abort_if_no_action,
     };
 }
