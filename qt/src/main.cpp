@@ -1,6 +1,7 @@
 #include <cstdio>
 
 #include <QApplication>
+#include <QCoreApplication>
 #include <QIcon>
 #include <QSurfaceFormat>
 
@@ -28,6 +29,15 @@ int main(int argc, char **argv) {
 
   QApplication app(argc, argv);
 
+  // QSettings storage path keys: applicationName + organizationName.
+  // Used by the inspector window's geometry autosave (and any future
+  // QSettings-backed UI state) — the keys go to
+  // ~/.config/ghastty/ghastty.conf. We pass the same string to both
+  // because we don't run a multi-app suite under a parent
+  // organization.
+  QCoreApplication::setApplicationName(QStringLiteral("ghastty"));
+  QCoreApplication::setOrganizationName(QStringLiteral("ghastty"));
+
   // Match the installed ghastty.desktop: this becomes the Wayland app-id
   // (and X11 WM_CLASS), so the compositor associates the window with the
   // desktop entry — taskbar icon, launcher identity.
@@ -53,8 +63,12 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // The first window; further windows are opened on demand by the
-  // new_window action. Each window owns itself (WA_DeleteOnClose).
+  // initial-window: when false, start headless (no window mapped at
+  // launch). Combined with quit-after-last-window-closed=false this
+  // is how a user runs ghastty as a daemon for the global quick-
+  // terminal shortcut. The first MainWindow::newWindow internally
+  // checks the config and skips show() — so the libghostty app +
+  // config still get built, but no QWindow ever appears.
   if (!MainWindow::newWindow(nullptr)) {
     std::fprintf(stderr, "[ghastty] window initialization failed\n");
     return 1;

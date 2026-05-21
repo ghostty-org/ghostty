@@ -31,12 +31,18 @@ include(GNUInstallDirs)
 
 find_package(Qt6 REQUIRED COMPONENTS Gui Widgets OpenGL DBus
   Multimedia Svg)
-# WindowBlur uses qpa/qplatformnativeinterface.h to reach the wl_display
-# / wl_surface / xcb_connection_t for the native compositor blur calls.
-# Qt's official path is `find_package(Qt6 COMPONENTS GuiPrivate)`, but
-# Debian's qt6-base-private-dev ships the private headers without the
-# matching Qt6GuiPrivateConfig.cmake. Detect the component when present;
-# otherwise fall back to wiring the private include dir by hand.
+# WindowBlur + XkbTracker use qpa/qplatformnativeinterface.h to reach
+# the wl_display / wl_surface / xcb_connection_t / wl_seat for native
+# compositor calls (blur, layer-shell screen pinning, raw wl_keyboard
+# listeners). The Qt-internal GuiPrivate module is tied to a specific
+# Qt build, but every consumer of these headers ends up here — there
+# is no public alternative. Suppress the cosmetic
+# `_qt_internal_show_private_module_warning` so the build is silent
+# unless something genuinely fails. Detect the component when
+# present; some distros ship the headers without the matching
+# CMake config (older Debian) and we fall back to hand-wiring the
+# include dir below.
+set(QT_NO_PRIVATE_MODULE_WARNING ON)
 find_package(Qt6 QUIET OPTIONAL_COMPONENTS GuiPrivate)
 
 # LayerShellQt: the quick terminal is a wlr-layer-shell dropdown window.
@@ -102,6 +108,7 @@ add_executable(ghastty
   src/TabWidget.cpp
   src/Util.cpp
   src/WindowBlur.cpp
+  src/XkbTracker.cpp
   "${BLUR_CODE}"
   "${BLUR_HEADER}"
 )

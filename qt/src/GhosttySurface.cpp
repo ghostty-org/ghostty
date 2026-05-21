@@ -6,6 +6,7 @@
 #include "SearchBar.h"
 #include "TabWidget.h"
 #include "Util.h"
+#include "XkbTracker.h"
 
 #include <algorithm>
 #include <cmath>
@@ -182,6 +183,12 @@ void GhosttySurface::resizeEvent(QResizeEvent *) {
   if (m_exitOverlay) m_exitOverlay->setGeometry(rect());
   if (m_keySeqOverlay && m_keySeqOverlay->isVisible())
     m_keySeqOverlay->move(8, height() - m_keySeqOverlay->height() - 8);
+  if (m_linkOverlay && m_linkOverlay->isVisible()) {
+    int y = height() - m_linkOverlay->height() - 8;
+    if (m_keySeqOverlay && m_keySeqOverlay->isVisible())
+      y -= m_keySeqOverlay->height() + 4;
+    m_linkOverlay->move(8, y);
+  }
   layoutSearchBar();
   showResizeOverlay();
 }
@@ -319,6 +326,17 @@ void GhosttySurface::flashBorder() {
   });
 }
 
+void GhosttySurface::setShape(Qt::CursorShape shape) {
+  m_cursorShape = shape;
+  if (m_mouseVisible) setCursor(shape);
+}
+
+void GhosttySurface::setMouseVisible(bool visible) {
+  if (m_mouseVisible == visible) return;
+  m_mouseVisible = visible;
+  setCursor(visible ? m_cursorShape : Qt::BlankCursor);
+}
+
 // A small translucent overlay label (key-sequence / resize display).
 static QLabel *makeOverlayLabel(QWidget *parent) {
   auto *label = new QLabel(parent);
@@ -370,6 +388,35 @@ void GhosttySurface::endKeySequence() {
   if (m_keySeqOverlay) m_keySeqOverlay->hide();
 }
 
+void GhosttySurface::setLinkOverlay(const QString &url) {
+  if (url.isEmpty()) {
+    if (m_linkOverlay) m_linkOverlay->hide();
+    return;
+  }
+  if (!m_linkOverlay) m_linkOverlay = makeOverlayLabel(this);
+  // Cap very long URLs so the overlay doesn't span the whole pane.
+  // 80 chars is enough to recognise hostnames + the path prefix; an
+  // ellipsis in the middle preserves both halves so a query string
+  // reveal still includes the host.
+  QString display = url;
+  constexpr int kCap = 80;
+  if (display.size() > kCap) {
+    const int half = (kCap - 1) / 2;
+    display = display.left(half) + QStringLiteral("…") +
+              display.right(kCap - 1 - half);
+  }
+  m_linkOverlay->setText(display);
+  m_linkOverlay->adjustSize();
+  // Bottom-left, but offset upward when the keybind-chord overlay is
+  // visible so they don't stack on top of each other.
+  int yBase = height() - m_linkOverlay->height() - 8;
+  if (m_keySeqOverlay && m_keySeqOverlay->isVisible())
+    yBase -= m_keySeqOverlay->height() + 4;
+  m_linkOverlay->move(8, yBase);
+  m_linkOverlay->show();
+  m_linkOverlay->raise();
+}
+
 void GhosttySurface::toggleInspector(ghostty_action_inspector_e mode) {
   const bool visible = m_inspectorWindow && m_inspectorWindow->isVisible();
   bool show;
@@ -387,6 +434,10 @@ void GhosttySurface::toggleInspector(ghostty_action_inspector_e mode) {
   } else if (m_inspectorWindow) {
     m_inspectorWindow->hide();
   }
+}
+
+void GhosttySurface::refreshInspector() {
+  if (m_inspectorWindow) m_inspectorWindow->update();
 }
 
 void GhosttySurface::openSearch(const QString &prefill) {
@@ -584,12 +635,54 @@ public:
 
   // Level-0 (unshifted) Unicode codepoint for `keycode`, or 0 if the
   // key has no associated UTF-32 (function keys, modifiers, etc.).
+  //
+  // Uses the live keymap from XkbTracker (synced via wl_keyboard) so
+  // the active layout group is honored. A us+ru user gets the
+  // correct codepoint per active group, instead of always us.
   uint32_t unshiftedCodepoint(uint32_t keycode) const {
+    syncFromTracker();
     if (!m_unshifted) return 0;
     const xkb_keysym_t sym =
         xkb_state_key_get_one_sym(m_unshifted, keycode);
     if (sym == XKB_KEY_NoSymbol) return 0;
     return xkb_keysym_to_utf32(sym);
+  }
+
+  // Side bits for the libghostty mods bitfield, derived from a
+  // keycode — used so that pressing Right-Shift sets BOTH the
+  // unsided GHOSTTY_MODS_SHIFT and the GHOSTTY_MODS_SHIFT_RIGHT bit
+  // (a left-side keycode sets only the unsided bit). macOS and GTK
+  // populate sided bits this way; Qt was leaving them empty so
+  // bindings that distinguish left-vs-right modifier keys couldn't
+  // fire.
+  ghostty_input_mods_e sideBitsForKeycode(uint32_t keycode) const {
+    syncFromTracker();
+    if (!m_unshifted) return GHOSTTY_MODS_NONE;
+    const xkb_keysym_t sym =
+        xkb_state_key_get_one_sym(m_unshifted, keycode);
+    int r = GHOSTTY_MODS_NONE;
+    switch (sym) {
+      case XKB_KEY_Shift_R: r |= GHOSTTY_MODS_SHIFT_RIGHT; break;
+      case XKB_KEY_Control_R: r |= GHOSTTY_MODS_CTRL_RIGHT; break;
+      // Both Alt_R and ISO_Level3_Shift (AltGr) are right-Alt physically.
+      case XKB_KEY_Alt_R:
+      case XKB_KEY_ISO_Level3_Shift: r |= GHOSTTY_MODS_ALT_RIGHT; break;
+      case XKB_KEY_Super_R:
+      case XKB_KEY_Hyper_R:
+      case XKB_KEY_Meta_R: r |= GHOSTTY_MODS_SUPER_RIGHT; break;
+      default: break;
+    }
+    return static_cast<ghostty_input_mods_e>(r);
+  }
+
+  // Caps Lock / Num Lock state from the live wl_keyboard tracker.
+  ghostty_input_mods_e lockMods() const {
+    int r = GHOSTTY_MODS_NONE;
+    if (XkbTracker *t = XkbTracker::instance()) {
+      if (t->capsLockOn()) r |= GHOSTTY_MODS_CAPS;
+      if (t->numLockOn()) r |= GHOSTTY_MODS_NUM;
+    }
+    return static_cast<ghostty_input_mods_e>(r);
   }
 
   // Modifiers consumed by the layout to produce `keycode`'s text given
@@ -598,6 +691,7 @@ public:
   // note on the class.
   ghostty_input_mods_e consumedMods(uint32_t keycode,
                                     ghostty_input_mods_e mods) const {
+    syncFromTracker();
     if (!m_query) return GHOSTTY_MODS_NONE;
     xkb_mod_mask_t depressed = 0;
     if ((mods & GHOSTTY_MODS_SHIFT) && m_idxShift != XKB_MOD_INVALID)
@@ -608,11 +702,15 @@ public:
       depressed |= (1u << m_idxAlt);
     if ((mods & GHOSTTY_MODS_SUPER) && m_idxSuper != XKB_MOD_INVALID)
       depressed |= (1u << m_idxSuper);
-    xkb_state_update_mask(m_query, depressed, 0, 0, 0, 0, 0);
+    // Use the live group from the tracker so a layout switch (e.g.
+    // us↔ru) takes effect immediately.
+    const uint32_t group =
+        XkbTracker::instance() ? XkbTracker::instance()->activeGroup() : 0;
+    xkb_state_update_mask(m_query, depressed, 0, 0, 0, 0, group);
     const xkb_mod_mask_t consumed = xkb_state_key_get_consumed_mods2(
         m_query, keycode, XKB_CONSUMED_MODE_XKB);
     // Reset so the next query starts from no-mods.
-    xkb_state_update_mask(m_query, 0, 0, 0, 0, 0, 0);
+    xkb_state_update_mask(m_query, 0, 0, 0, 0, 0, group);
     int r = GHOSTTY_MODS_NONE;
     if (m_idxShift != XKB_MOD_INVALID && (consumed & (1u << m_idxShift)))
       r |= GHOSTTY_MODS_SHIFT;
@@ -626,19 +724,55 @@ public:
   }
 
 private:
-  XkbState() {
-    m_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-    if (!m_ctx) return;
-    m_keymap = xkb_keymap_new_from_names(m_ctx, nullptr,
-                                         XKB_KEYMAP_COMPILE_NO_FLAGS);
-    if (!m_keymap) return;
-    m_unshifted = xkb_state_new(m_keymap);
-    m_query = xkb_state_new(m_keymap);
-    m_idxShift = xkb_keymap_mod_get_index(m_keymap, XKB_MOD_NAME_SHIFT);
-    m_idxCtrl = xkb_keymap_mod_get_index(m_keymap, XKB_MOD_NAME_CTRL);
-    m_idxAlt = xkb_keymap_mod_get_index(m_keymap, XKB_MOD_NAME_ALT);
-    m_idxSuper = xkb_keymap_mod_get_index(m_keymap, XKB_MOD_NAME_LOGO);
+  // Lazy: build/rebuild m_unshifted + m_query from the live keymap.
+  // Called from every public method; cheap when the keymap pointer
+  // hasn't changed (a single comparison + early-return).
+  void syncFromTracker() const {
+    XkbTracker *t = XkbTracker::instance();
+    xkb_keymap *liveKm = t ? t->keymap() : nullptr;
+    xkb_keymap *km = liveKm ? liveKm : m_fallbackKeymap;
+
+    if (!km && t && t->ctx()) {
+      // Compositor hasn't sent a keymap yet (early startup). Build a
+      // throwaway from XKB defaults so the first key event isn't
+      // dropped; it will be replaced on the next syncFromTracker
+      // call once the tracker has the live keymap.
+      m_fallbackKeymap = xkb_keymap_new_from_names(
+          t->ctx(), nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
+      km = m_fallbackKeymap;
+    }
+    if (!km || km == m_keymap) {
+      // Already synced (or no keymap available at all).
+      // Update the live group on m_unshifted so the level-0 lookup
+      // honors the active layout, even when the keymap pointer
+      // hasn't changed.
+      if (m_unshifted && t) {
+        xkb_state_update_mask(m_unshifted, 0, 0, 0, 0, 0, t->activeGroup());
+      }
+      return;
+    }
+
+    // The live keymap was rebuilt by the tracker (or we're picking
+    // up the first one). Drop our derived states and rebuild. Take
+    // an extra ref on the keymap while it's our cached identity so
+    // the xkb allocator can't free it and reuse the same address
+    // for a different keymap (the ABA hazard the previous comment
+    // hand-waved away).
+    if (m_unshifted) xkb_state_unref(m_unshifted);
+    if (m_query) xkb_state_unref(m_query);
+    if (m_keymap) xkb_keymap_unref(m_keymap);
+    m_keymap = xkb_keymap_ref(km);
+    m_unshifted = xkb_state_new(km);
+    m_query = xkb_state_new(km);
+    m_idxShift = xkb_keymap_mod_get_index(km, XKB_MOD_NAME_SHIFT);
+    m_idxCtrl = xkb_keymap_mod_get_index(km, XKB_MOD_NAME_CTRL);
+    m_idxAlt = xkb_keymap_mod_get_index(km, XKB_MOD_NAME_ALT);
+    m_idxSuper = xkb_keymap_mod_get_index(km, XKB_MOD_NAME_LOGO);
+    if (t)
+      xkb_state_update_mask(m_unshifted, 0, 0, 0, 0, 0, t->activeGroup());
   }
+
+  XkbState() = default;
 
   ~XkbState() {
     // Run on process exit when the static is destroyed. The OS would
@@ -647,22 +781,27 @@ private:
     if (m_query) xkb_state_unref(m_query);
     if (m_unshifted) xkb_state_unref(m_unshifted);
     if (m_keymap) xkb_keymap_unref(m_keymap);
-    if (m_ctx) xkb_context_unref(m_ctx);
+    if (m_fallbackKeymap) xkb_keymap_unref(m_fallbackKeymap);
   }
 
   XkbState(const XkbState &) = delete;
   XkbState &operator=(const XkbState &) = delete;
 
-  struct xkb_context *m_ctx = nullptr;
-  struct xkb_keymap *m_keymap = nullptr;
-  struct xkb_state *m_unshifted = nullptr;  // permanent no-mods state
-  // Reused across consumedMods calls (mutated then reset). Mutable so
-  // consumedMods can stay logically const.
+  // The keymap our derived states were built from. We hold a ref
+  // here (taken in syncFromTracker, released on rebuild and in dtor)
+  // so the xkb allocator can't free + reuse the address while we
+  // still cache it as our identity.
+  mutable struct xkb_keymap *m_keymap = nullptr;
+  // Throwaway keymap from XKB defaults, built when the live keymap
+  // hasn't arrived yet. Owned. Released in dtor; never replaced.
+  mutable struct xkb_keymap *m_fallbackKeymap = nullptr;
+  mutable struct xkb_state *m_unshifted = nullptr;  // no-mods state
+  // Reused across consumedMods calls (mutated then reset).
   mutable struct xkb_state *m_query = nullptr;
-  xkb_mod_index_t m_idxShift = XKB_MOD_INVALID;
-  xkb_mod_index_t m_idxCtrl = XKB_MOD_INVALID;
-  xkb_mod_index_t m_idxAlt = XKB_MOD_INVALID;
-  xkb_mod_index_t m_idxSuper = XKB_MOD_INVALID;
+  mutable xkb_mod_index_t m_idxShift = XKB_MOD_INVALID;
+  mutable xkb_mod_index_t m_idxCtrl = XKB_MOD_INVALID;
+  mutable xkb_mod_index_t m_idxAlt = XKB_MOD_INVALID;
+  mutable xkb_mod_index_t m_idxSuper = XKB_MOD_INVALID;
 };
 
 void GhosttySurface::sendKey(QKeyEvent *ev, ghostty_input_action_e action) {
@@ -687,6 +826,14 @@ void GhosttySurface::sendKey(QKeyEvent *ev, ghostty_input_action_e action) {
   ghostty_input_key_s k = {};
   k.action = action;
   k.mods = translateMods(ev->modifiers());
+  // OR in any right-side bit for this keycode (e.g. Right-Shift sets
+  // SHIFT_RIGHT alongside SHIFT) and the live Caps/Num lock state
+  // from XkbTracker. macOS + GTK populate all of these; without
+  // them, keybinds like `right_shift+x` can't distinguish from
+  // `left_shift+x` and the kitty CSI-u encoding loses the lock bits.
+  k.mods = static_cast<ghostty_input_mods_e>(
+      k.mods | XkbState::instance().sideBitsForKeycode(keycode) |
+      XkbState::instance().lockMods());
   k.keycode = keycode;
   k.text = printable ? text.constData() : nullptr;
   // XKB lookups: unshifted codepoint (what this physical key would
@@ -696,9 +843,13 @@ void GhosttySurface::sendKey(QKeyEvent *ev, ghostty_input_action_e action) {
   // the shell can't decode; with it set, libghostty's encoder falls
   // back to plain text correctly.
   k.unshifted_codepoint = XkbState::instance().unshiftedCodepoint(keycode);
-  k.consumed_mods = printable
-                        ? XkbState::instance().consumedMods(keycode, k.mods)
-                        : GHOSTTY_MODS_NONE;
+  // consumed_mods is computed for every event, not just printable ones.
+  // Function/keypad/Backspace/arrows can also have layout-consumed
+  // modifiers (e.g. Caps Lock affecting case for letter keys, Mode_Switch
+  // for layout shifts on Backspace) that the kitty encoder needs to
+  // strip. macOS + GTK both compute it unconditionally; gating on
+  // printable lost that info on non-text keys.
+  k.consumed_mods = XkbState::instance().consumedMods(keycode, k.mods);
   k.composing = false;
 
   ghostty_surface_key(m_surface, k);
@@ -712,6 +863,18 @@ void GhosttySurface::sendMouseButton(QMouseEvent *ev,
     case Qt::LeftButton: button = GHOSTTY_MOUSE_LEFT; break;
     case Qt::RightButton: button = GHOSTTY_MOUSE_RIGHT; break;
     case Qt::MiddleButton: button = GHOSTTY_MOUSE_MIDDLE; break;
+    // Side / extra buttons (back, forward, etc.). macOS handles
+    // NSEvent buttonNumber 3-10 and GTK handles GDK button 4-11;
+    // Qt's ExtraButton1..ExtraButton8 cover the same hardware. The
+    // libghostty C ABI defines FOUR..ELEVEN, so map by index.
+    case Qt::ExtraButton1: button = GHOSTTY_MOUSE_FOUR; break;
+    case Qt::ExtraButton2: button = GHOSTTY_MOUSE_FIVE; break;
+    case Qt::ExtraButton3: button = GHOSTTY_MOUSE_SIX; break;
+    case Qt::ExtraButton4: button = GHOSTTY_MOUSE_SEVEN; break;
+    case Qt::ExtraButton5: button = GHOSTTY_MOUSE_EIGHT; break;
+    case Qt::ExtraButton6: button = GHOSTTY_MOUSE_NINE; break;
+    case Qt::ExtraButton7: button = GHOSTTY_MOUSE_TEN; break;
+    case Qt::ExtraButton8: button = GHOSTTY_MOUSE_ELEVEN; break;
     default: button = GHOSTTY_MOUSE_UNKNOWN; break;
   }
   ghostty_surface_mouse_button(m_surface, state, button,
@@ -749,13 +912,30 @@ void GhosttySurface::mousePressEvent(QMouseEvent *ev) {
     m_owner->removeSurface(this);
     return;
   }
+  // Click-to-focus: if the surface didn't have focus, this click is
+  // grabbing focus rather than a real interaction with the running
+  // program. macOS + GTK suppress the matching mouse-up so vim, less,
+  // etc. don't see a stray button-up event. We mirror that by setting
+  // a one-shot flag the matching release consults.
+  const bool wasFocused = hasFocus();
   setFocus();
-  if (rightClickOpensMenu(ev)) return;
+  if (!wasFocused && ev->button() == Qt::LeftButton)
+    m_suppressNextLeftRelease = true;
+
+  // Right-click: send the press to libghostty BEFORE deciding to
+  // open the context menu. macOS + GTK both do this so the core can
+  // word-select on right-press and then we open the menu over the
+  // selection. If the running program is mouse-captured, the press
+  // is forwarded as a real button event.
   sendMouseButton(ev, GHOSTTY_MOUSE_PRESS);
 }
 
 void GhosttySurface::mouseReleaseEvent(QMouseEvent *ev) {
-  if (rightClickOpensMenu(ev)) return;
+  // Suppress the release of a focus-grabbing click — see press above.
+  if (ev->button() == Qt::LeftButton && m_suppressNextLeftRelease) {
+    m_suppressNextLeftRelease = false;
+    return;
+  }
   sendMouseButton(ev, GHOSTTY_MOUSE_RELEASE);
 }
 
@@ -874,6 +1054,33 @@ void GhosttySurface::dragEnterEvent(QDragEnterEvent *ev) {
     ev->acceptProposedAction();
 }
 
+// Quote `s` for a POSIX shell using $'…' encoding. Mirrors
+// macOS Ghostty.Shell.escape and GTK ShellEscapeWriter — handles
+// embedded quotes, backslashes, newlines, and control chars; bash's
+// `'\''` trick fails on dash/zsh + non-printable bytes.
+static QString shellQuote(const QString &s) {
+  QString out;
+  out.reserve(s.size() + 4);
+  out += QLatin1String("$'");
+  for (QChar ch : s) {
+    const ushort c = ch.unicode();
+    if (c == '\\' || c == '\'')
+      out += QLatin1Char('\\'), out += ch;
+    else if (c == '\n')
+      out += QLatin1String("\\n");
+    else if (c == '\r')
+      out += QLatin1String("\\r");
+    else if (c == '\t')
+      out += QLatin1String("\\t");
+    else if (c < 0x20)
+      out += QString::asprintf("\\x%02x", c);
+    else
+      out += ch;
+  }
+  out += QLatin1Char('\'');
+  return out;
+}
+
 void GhosttySurface::dropEvent(QDropEvent *ev) {
   const QMimeData *mime = ev->mimeData();
   // A tab tear-off released on the terminal: accept it cleanly and let
@@ -884,14 +1091,19 @@ void GhosttySurface::dropEvent(QDropEvent *ev) {
   }
   QString text;
   if (mime->hasUrls()) {
-    // Dropped files are inserted as shell-quoted, space-separated paths.
-    QStringList paths;
+    // Distinguish file URLs from non-file URLs (http://, etc). File
+    // URLs become shell-quoted paths joined with spaces; non-file URLs
+    // paste as plain text. macOS + GTK both make this distinction
+    // (otherwise dragging a link from a browser yields a quoted
+    // command-line argument instead of pasting the URL).
+    QStringList parts;
     for (const QUrl &url : mime->urls()) {
-      QString p = url.isLocalFile() ? url.toLocalFile() : url.toString();
-      p.replace(QLatin1String("'"), QLatin1String("'\\''"));
-      paths << QLatin1Char('\'') + p + QLatin1Char('\'');
+      if (url.isLocalFile())
+        parts << shellQuote(url.toLocalFile());
+      else
+        parts << url.toString();
     }
-    text = paths.join(QLatin1Char(' '));
+    text = parts.join(QLatin1Char(' '));
   } else if (mime->hasText()) {
     text = mime->text();
   }
@@ -918,15 +1130,66 @@ void GhosttySurface::mouseMoveEvent(QMouseEvent *ev) {
 
 void GhosttySurface::wheelEvent(QWheelEvent *ev) {
   if (!m_surface) return;
-  // angleDelta is in eighths of a degree; 120 units == one wheel notch.
-  const QPoint d = ev->angleDelta();
-  ghostty_surface_mouse_scroll(m_surface, d.x() / 120.0, d.y() / 120.0, 0);
+  // libghostty's ScrollMods is a packed u8: bit 0 = precision (high-res
+  // / pixel-precise), bits 1-3 = momentum phase (none/began/changed/
+  // ended/cancelled/may_begin) per src/input/mouse.zig.
+  //
+  // Trackpads and high-resolution mice fill in pixelDelta; classic
+  // notched wheels only fill angleDelta (120 units per notch). When
+  // pixelDelta is present we feed that, divide by an approximate cell
+  // height (we don't have it from libghostty here, so use 16 logical
+  // pixels — close enough for smooth-scroll feel) and flag the event
+  // as precision so kitty's smooth-scroll engages. Otherwise we fall
+  // back to the classic "120 units == one notch" path.
+  double dx = 0.0, dy = 0.0;
+  int mods = 0;
+  const QPoint pd = ev->pixelDelta();
+  if (!pd.isNull()) {
+    constexpr double kCellPx = 16.0;
+    dx = pd.x() / kCellPx;
+    dy = pd.y() / kCellPx;
+    mods |= 1;  // ScrollMods.precision
+  } else {
+    const QPoint a = ev->angleDelta();
+    dx = a.x() / 120.0;
+    dy = a.y() / 120.0;
+  }
+
+  // ScrollMods.momentum (3-bit field at bit 1). Qt only signals the
+  // ScrollBegin/ScrollUpdate/ScrollEnd phases on trackpads.
+  switch (ev->phase()) {
+    case Qt::ScrollBegin:    mods |= (1 /*began*/) << 1; break;
+    case Qt::ScrollUpdate:   mods |= (3 /*changed*/) << 1; break;
+    case Qt::ScrollEnd:      mods |= (4 /*ended*/) << 1; break;
+    case Qt::ScrollMomentum: mods |= (3 /*changed*/) << 1; break;
+    default: break;  // NoScrollPhase: treat as a discrete notch
+  }
+  ghostty_surface_mouse_scroll(m_surface, dx, dy, mods);
   flashScrollbar();  // mouse-wheel scrolling reveals the overlay scrollbar
 }
 
-void GhosttySurface::enterEvent(QEnterEvent *) {
+void GhosttySurface::enterEvent(QEnterEvent *ev) {
   // focus-follows-mouse: take focus when the pointer enters this pane.
   if (m_owner && m_owner->focusFollowsMouse() && !hasFocus()) setFocus();
+  // Tell libghostty about the actual cursor position so hover state
+  // and OSC-8 link arming reset from any stale (-1, -1) sentinel.
+  // macOS does this in mouseEntered (SurfaceView_AppKit.swift:920);
+  // GTK does it in ecMouseEnter (apprt/gtk/class/surface.zig).
+  if (m_surface)
+    ghostty_surface_mouse_pos(m_surface, ev->position().x(),
+                              ev->position().y(),
+                              translateMods(QGuiApplication::keyboardModifiers()));
+}
+
+void GhosttySurface::leaveEvent(QEvent *) {
+  // libghostty's "no cursor here" sentinel: pass (-1, -1) so any
+  // hover-armed state (URL underline, mouse-report sequences for an
+  // OSC-8 link) clears once the pointer leaves the pane. macOS and
+  // GTK both do this; without it the arm state would survive until
+  // the next move event.
+  if (m_surface)
+    ghostty_surface_mouse_pos(m_surface, -1, -1,
+                              translateMods(QGuiApplication::keyboardModifiers()));
 }
 
 void GhosttySurface::focusInEvent(QFocusEvent *) {

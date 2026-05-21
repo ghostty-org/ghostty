@@ -11,6 +11,9 @@
 #include <QOpenGLFramebufferObject>
 #include <QOpenGLFunctions>
 #include <QPainter>
+#include <QGuiApplication>
+#include <QScreen>
+#include <QSettings>
 #include <QSurfaceFormat>
 #include <QTimer>
 #include <QWheelEvent>
@@ -46,7 +49,33 @@ InspectorWindow::InspectorWindow(ghostty_surface_t surface)
   setWindowTitle(QStringLiteral("Ghastty Inspector"));
   setFocusPolicy(Qt::StrongFocus);
   setMouseTracking(true);
-  resize(800, 600);
+
+  // Restore the last saved size/position. macOS uses NSWindow's
+  // autosaveName; Qt has no built-in equivalent, so we persist via
+  // QSettings ourselves. First-run default matches the prior
+  // hard-coded 800x600.
+  QSettings s;
+  const QByteArray geom =
+      s.value(QStringLiteral("inspector/geometry")).toByteArray();
+  if (!restoreGeometry(geom)) {
+    resize(800, 600);
+  } else if (QScreen *primary = QGuiApplication::primaryScreen()) {
+    // restoreGeometry happily restores positions on a screen that no
+    // longer exists (monitor unplugged, scaled away) and sizes that
+    // exceed the current screen layout. Validate both: re-centre when
+    // the centre is off any screen, and clamp the size to fit the
+    // primary screen so the window can't extend past the visible
+    // area on a smaller-than-saved monitor.
+    const QRect g = primary->availableGeometry();
+    QSize sz = size();
+    if (sz.width() > g.width() || sz.height() > g.height()) {
+      sz = sz.boundedTo(g.size());
+      resize(sz);
+    }
+    if (!QGuiApplication::screenAt(geometry().center())) {
+      move(g.center() - QPoint(sz.width() / 2, sz.height() / 2));
+    }
+  }
 
   m_inspector = ghostty_surface_inspector(m_surface);
 
@@ -150,6 +179,8 @@ void InspectorWindow::closeEvent(QCloseEvent *e) {
   // deleted only when the surface is destroyed. Stop the redraw
   // timer too — a hidden inspector has no work to do.
   if (m_timer) m_timer->stop();
+  // Persist size + position so the next reveal restores them.
+  QSettings().setValue(QStringLiteral("inspector/geometry"), saveGeometry());
   hide();
   e->ignore();
 }

@@ -87,6 +87,11 @@ public:
 
   // Show/hide/toggle the terminal inspector window (INSPECTOR action).
   void toggleInspector(ghostty_action_inspector_e mode);
+  // Force an extra inspector repaint (RENDER_INSPECTOR action). The
+  // inspector window has its own ~30Hz redraw timer; this just kicks
+  // a Qt update so a libghostty-driven invalidation is visible
+  // promptly.
+  void refreshInspector();
 
   // In-terminal search (the *_SEARCH actions): openSearch shows the
   // search bar (optionally pre-filled), closeSearch hides it, and the
@@ -102,6 +107,22 @@ public:
   // prefixes the tab title while any surface in the tab is marked.
   void setBellTitle(bool marked) { m_bellTitle = marked; }
   bool bellTitle() const { return m_bellTitle; }
+
+  // Set the cursor shape from the libghostty MOUSE_SHAPE action.
+  // Tracks the requested shape so MOUSE_VISIBILITY toggles can hide
+  // and restore without forgetting it. macOS+GTK preserve shape
+  // across visibility changes; the previous Qt code clobbered it
+  // with Qt::ArrowCursor on un-hide.
+  void setShape(Qt::CursorShape shape);
+  // Hide or show the mouse cursor without changing its shape.
+  void setMouseVisible(bool visible);
+
+  // Show / hide the dedicated MOUSE_OVER_LINK URL overlay (a small
+  // pill at the surface's bottom-left). Replaces the prior
+  // setToolTip-based hint, which followed the cursor and only
+  // appeared after the OS hover delay. macOS + GTK both render a
+  // dedicated overlay.
+  void setLinkOverlay(const QString &url);
 
 protected:
   bool event(QEvent *) override;
@@ -122,6 +143,7 @@ protected:
   void dropEvent(QDropEvent *) override;
   void wheelEvent(QWheelEvent *) override;
   void enterEvent(QEnterEvent *) override;  // focus-follows-mouse
+  void leaveEvent(QEvent *) override;       // libghostty hover reset
   void focusInEvent(QFocusEvent *) override;
   void focusOutEvent(QFocusEvent *) override;
 
@@ -181,6 +203,7 @@ private:
 
   QLabel *m_exitOverlay = nullptr;     // "process exited" banner; lazily made
   QLabel *m_keySeqOverlay = nullptr;   // pending keybind chord; lazily made
+  QLabel *m_linkOverlay = nullptr;     // MOUSE_OVER_LINK URL hint; lazily made
   QStringList m_keySeq;                // accumulated pending chords
   QLabel *m_resizeOverlay = nullptr;   // transient "cols x rows"; lazily made
   QTimer *m_resizeHideTimer = nullptr; // auto-hides m_resizeOverlay
@@ -197,6 +220,16 @@ private:
   bool m_notifyOnCommand = false;      // one-shot: notify on next cmd finish
   bool m_bellFlash = false;            // bell `border` flash in progress
   bool m_bellTitle = false;            // unacknowledged bell `title` mark
+  // Set when a left-click grabbed focus from elsewhere; cleared on
+  // the matching mouse-up so the click that grabbed focus isn't
+  // also reported to the running program. macOS + GTK do the same
+  // (suppressNextLeftMouseUp / suppress_left_mouse_release).
+  bool m_suppressNextLeftRelease = false;
+  // Last requested cursor shape (from MOUSE_SHAPE) and visibility
+  // (from MOUSE_VISIBILITY). Tracked separately so toggling
+  // visibility doesn't reset the shape.
+  Qt::CursorShape m_cursorShape = Qt::IBeamCursor;
+  bool m_mouseVisible = true;
   // Tracks whether the prior inputMethodEvent reported active preedit.
   // Used to distinguish a real post-composition commit (forward to the
   // terminal) from the duplicate ASCII commit that Wayland's
