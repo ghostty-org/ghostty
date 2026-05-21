@@ -3,7 +3,9 @@
 #include <atomic>
 
 #include <QList>
+#include <QRect>
 #include <QSize>
+#include <QStringList>
 #include <QWidget>
 
 #include "ghostty.h"
@@ -71,6 +73,17 @@ public:
 
   // The live libghostty config (for keybind lookups, etc.).
   ghostty_config_t config() const { return s_config; }
+
+  // UNDO / REDO close-tab/window. The libghostty actions carry no
+  // payload — the apprt is responsible for tracking what was closed
+  // and reviving it. macOS uses NSUndoManager; we keep a small bounded
+  // stack of "snapshots" per kind. Surfaces themselves can't be
+  // revived (the child PTY is gone) — undo opens a fresh tab/window
+  // and reapplies the saved title; the new surface inherits cwd from
+  // the active surface (matching macOS, which also spawns a fresh
+  // shell rather than re-attaching).
+  static void undoLastClose();
+  static void redoLastClose();
 
   // PRESENT_TERMINAL: bring this window to front and focus the surface.
   void presentTerminal(GhosttySurface *surface);
@@ -269,6 +282,28 @@ private:
   // windows do not produce N ghostty_app_tick calls every 16ms for the
   // same shared app.
   static QTimer *s_frameTimer;
+
+  // Snapshot of a closed tab or window for undo/redo. `pageTitles`
+  // holds each tab's last-known title (window snapshots have N tabs;
+  // tab snapshots have one). `geometry` is unused for tab snapshots.
+  // `kind` distinguishes the two so REDO can reclose the right thing.
+  struct UndoEntry {
+    enum class Kind { Tab, Window } kind = Kind::Tab;
+    QStringList pageTitles;
+    QRect geometry;
+  };
+  // Bounded undo/redo stacks (tail = most recent). Each tab/window
+  // close pushes an entry, capped at kUndoCap; opening a new
+  // tab/window via undo pushes onto the redo stack.
+  static QList<UndoEntry> s_undoStack;
+  static QList<UndoEntry> s_redoStack;
+  static constexpr int kUndoCap = 16;
+  // Push a snapshot for the tab at `index` onto s_undoStack and
+  // clear the redo stack (a new close invalidates a forward redo).
+  void pushTabUndo(int index);
+  // Push a snapshot of every tab in this window onto s_undoStack as a
+  // single Window entry; called from closeAllWindows / closeEvent.
+  void pushWindowUndo();
 
   // Coalesces wakeup-driven ticks: a tick is queued at most once at a
   // time, so a busy surface can't flood the event loop.
