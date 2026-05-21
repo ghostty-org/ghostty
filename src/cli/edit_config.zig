@@ -20,13 +20,13 @@ pub const Options = struct {
     }
 };
 
-/// The `edit-config` command opens the Ghostty configuration file in the
+/// The `edit-config` command opens the Ghastty configuration file in the
 /// editor specified by the `$VISUAL` or `$EDITOR` environment variables.
 ///
 /// IMPORTANT: This command will not reload the configuration after
 /// editing. You will need to manually reload the configuration using the
-/// application menu, configured keybind, or by restarting Ghostty. We
-/// plan to auto-reload in the future, but Ghostty isn't capable of
+/// application menu, configured keybind, or by restarting Ghastty. We
+/// plan to auto-reload in the future, but Ghastty isn't capable of
 /// this yet.
 ///
 /// The filepath opened is the default user-specific configuration
@@ -79,7 +79,7 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
     // We don't currently support Windows because we use the exec syscall.
     if (comptime builtin.os.tag == .windows) {
         try stderr.print(
-            \\The `ghostty +edit-config` command is not supported on Windows.
+            \\The `ghastty +edit-config` command is not supported on Windows.
             \\Please edit the configuration file manually at the following path:
             \\
             \\{s}
@@ -113,7 +113,7 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
     if (editor.len == 0) {
         try stderr.print(
             \\The $EDITOR or $VISUAL environment variable is not set or is empty.
-            \\This environment variable is required to edit the Ghostty configuration
+            \\This environment variable is required to edit the Ghastty configuration
             \\via this CLI command.
             \\
             \\Please set the environment variable to your preferred terminal
@@ -154,7 +154,7 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
 
     // We require libc because we want to use std.c.environ for envp
     // and not have to build that ourselves. We can remove this
-    // limitation later but Ghostty already heavily requires libc
+    // limitation later but Ghastty already heavily requires libc
     // so this is not a big deal.
     comptime assert(builtin.link_libc);
 

@@ -1,4 +1,4 @@
-// This is the main file for the C API. The C API is used to embed Ghostty
+// This is the main file for the C API. The C API is used to embed Ghastty
 // within other applications. Depending on the build settings some APIs
 // may not be available (i.e. embedding into macOS exposes various Metal
 // support).
@@ -127,7 +127,7 @@ pub export fn ghostty_cli_try_action() void {
     posix.exit(0);
 }
 
-/// Return metadata about Ghostty, such as version, build mode, etc.
+/// Return metadata about Ghastty, such as version, build mode, etc.
 pub export fn ghostty_info() Info {
     return .{
         .mode = switch (builtin.mode) {
@@ -146,12 +146,12 @@ pub export fn ghostty_info() Info {
 /// if no translation is found, so the pointer must be stable through
 /// the function call.
 ///
-/// This should only be used for singular strings maintained by Ghostty.
+/// This should only be used for singular strings maintained by Ghastty.
 pub export fn ghostty_translate(msgid: [*:0]const u8) [*:0]const u8 {
     return internal_os.i18n._(msgid);
 }
 
-/// Free a string allocated by Ghostty.
+/// Free a string allocated by Ghastty.
 pub export fn ghostty_string_free(str: String) void {
     str.deinit();
 }

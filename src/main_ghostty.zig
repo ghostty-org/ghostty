@@ -44,7 +44,7 @@ pub fn main() !MainReturn {
             error.InvalidAction => try stderr.print(
                 "Error: unknown CLI action specified. CLI actions are specified with\n" ++
                     "the '+' character.\n\n" ++
-                    "All valid CLI actions can be listed with `ghostty +help`\n",
+                    "All valid CLI actions can be listed with `ghastty +help`\n",
                 .{},
             ),
 
@@ -57,7 +57,7 @@ pub fn main() !MainReturn {
 
     if (comptime builtin.mode == .Debug) {
         std.log.warn("This is a debug build. Performance will be very poor.", .{});
-        std.log.warn("You should only use a debug build for developing Ghostty.", .{});
+        std.log.warn("You should only use a debug build for developing Ghastty.", .{});
         std.log.warn("Otherwise, please rebuild in a release mode.", .{});
     }
 
@@ -73,18 +73,14 @@ pub fn main() !MainReturn {
 
     if (comptime build_config.app_runtime == .none) {
         const stdout = std.io.getStdOut().writer();
-        try stdout.print("Usage: ghostty +<action> [flags]\n\n", .{});
+        try stdout.print("Usage: ghastty +<action> [flags]\n\n", .{});
         try stdout.print(
-            \\This is the Ghostty helper CLI that accompanies the graphical Ghostty app.
-            \\To launch the terminal directly, please launch the graphical app
-            \\(i.e. Ghostty.app on macOS). This CLI can be used to perform various
-            \\actions such as inspecting the version, listing fonts, etc.
+            \\This is the Ghastty helper CLI that accompanies the graphical Ghastty app.
+            \\To launch the terminal directly, please launch the graphical app.
+            \\This CLI can be used to perform various actions such as inspecting
+            \\the version, listing fonts, etc.
             \\
-            \\On macOS, the terminal can also be launched using `open -na Ghostty.app`,
-            \\or `open -na Ghostty.app --args --foo=bar --baz=qux` to pass arguments.
-            \\
-            \\We don't have proper help output yet, sorry! Please refer to the
-            \\source code or Discord community for help for now. We'll fix this in time.
+            \\Run `ghastty +help` for the full list of CLI actions.
             \\
         ,
             .{},
