@@ -2501,7 +2501,7 @@ fn balancePaddingIfNeeded(self: *Surface) void {
 /// the preedit state correctly.
 ///
 /// The preedit input must be UTF-8 encoded.
-pub fn preeditCallback(self: *Surface, preedit_: ?[]const u8) !void {
+pub fn preeditCallback(self: *Surface, preedit_: ?[]const u8, cursor_pos: i32) !void {
     // log.debug("text preeditCallback value={any}", .{preedit_});
 
     // Crash metadata in case we crash in here
@@ -2568,6 +2568,7 @@ pub fn preeditCallback(self: *Surface, preedit_: ?[]const u8) !void {
 
     self.renderer_state.preedit = .{
         .codepoints = try codepoints.toOwnedSlice(self.alloc),
+        .cursor_pos = cursor_pos
     };
     try self.queueRender();
 }
