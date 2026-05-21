@@ -518,6 +518,12 @@ pub const Viewer = struct {
             // We don't use window names for anything, currently.
             .window_renamed => {},
 
+            // A window was closed or a session-window link changed.
+            // These are currently no-ops; proper handling is pending
+            // viewer correctness work.
+            .window_close => {},
+            .session_window_changed => {},
+
             // This is for other clients, which we don't do anything about.
             // For us, we'll get `exit` or `session_changed`, respectively.
             .client_detached,
