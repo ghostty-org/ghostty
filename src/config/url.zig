@@ -69,7 +69,7 @@ const dotted_path_space_segments =
 ;
 
 const any_path_space_segments =
-    \\(?:(?<!:) (?!\w+:\/\/)(?!\.{0,2}\/)(?!~\/)[\w\-.~:\/?#@!$&*+;=%]+)*
+    \\(?:(?<!:) (?!\w+:\/\/)(?!\.{0,2}\/)(?!~\/)(?:[\w\-.~:\/?#@!$&*+;=%]*[\/.][\w\-.~:\/?#@!$&*+;=%]*|[\w\-.~:\/?#@!$&*+;=%]+(?=[,:]| *$)))*
 ;
 
 // Branch 1: URLs with explicit schemes (http, mailto, ftp, etc.).
@@ -113,12 +113,35 @@ const bare_relative_path_branch =
     no_trailing_colon ++
     trailing_spaces_at_eol;
 
+// Branch 4: Bare filenames with an extension and optional `:line[:column]`
+// suffix, e.g. `build.zig`, `main.rs:42`, `mod.swift:10:3`.
+//
+// We exclude matches that are clearly inside paths (`/`, `~/`, `$VAR/`) by
+// requiring a non-path prefix via lookbehind.
+const bare_filename_branch =
+    \\(?<![\w\/~$.,-])(?>[\w][\w\-.]*\.[\w\-.]+)(?::\d+(?::\d+)?)?(?!:)
+;
+
+// Branch 5: `ls -l` line entries where the path appears as a plain trailing
+// name (e.g. `build.zig`, `macos`) without any slash prefix.
+//
+// We use `\K` so only the filename/directory token is returned as the match.
+// This intentionally treats the entry as a non-space token to avoid matching
+// terminal row padding spaces.
+const ls_long_listing_branch =
+    \\(?:^|[\r\n])(?:[-bcdlps][rwx-]{9}[@+]? +\d+ +\S+ +\S+ +\d+ +\S+ +\d{1,2} +(?:\d{2}:\d{2}|\d{4}) +)\K[^\s\x00]+(?:(?= +-> +)|(?=[\r\n]|$))
+;
+
 pub const regex =
     scheme_url_branch ++
     "|" ++
     rooted_or_relative_path_branch ++
     "|" ++
-    bare_relative_path_branch;
+    bare_relative_path_branch ++
+    "|" ++
+    bare_filename_branch ++
+    "|" ++
+    ls_long_listing_branch;
 
 test "url regex" {
     const testing = std.testing;
@@ -417,6 +440,34 @@ test "url regex" {
         .{
             .input = "directory: ~/src/ghostty-org/ghostty",
             .expect = "~/src/ghostty-org/ghostty",
+        },
+        .{
+            .input = "(base) foo@bar|~/Documents/proj on main!?",
+            .expect = "~/Documents/proj",
+        },
+        .{
+            .input = "-rw-r--r--@  1 user  staff   11213 Mar  4 22:42 build.zig",
+            .expect = "build.zig",
+        },
+        .{
+            .input = "-rw-r--r--@  1 user  staff   11213 Mar  4 22:42 build.zig                                      ",
+            .expect = "build.zig",
+        },
+        .{
+            .input = "-rw-r--r--@  1 user  staff   11213 Mar  4 22:42 build.zig\x00\x00\x00",
+            .expect = "build.zig",
+        },
+        .{
+            .input = "drwxr-xr-x@ 16 user  staff     512 Mar  5 11:03 macos",
+            .expect = "macos",
+        },
+        .{
+            .input = "echo build.zig",
+            .expect = "build.zig",
+        },
+        .{
+            .input = "build.zig:12:5",
+            .expect = "build.zig:12:5",
         },
         .{
             .input = "$HOME/src/config/url.zig",
