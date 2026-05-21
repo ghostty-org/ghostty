@@ -128,27 +128,27 @@ checkbox and link the commit hash.
 
 ## ⚪ Missing config options (silently dropped)
 
-- [ ] **C1.** `window-save-state`
-- [ ] **C2.** `window-step-resize`
-- [ ] **C3.** `window-width`, `window-height`
+- [x] ~~**C1.** `window-save-state`~~ macOS-only per Config.zig (`This is currently only supported on macOS. This has no effect on Linux.`); won't fix.
+- [x] **C2.** `window-step-resize` — fixed in `8b3877d67` via setSizeIncrement at CELL_SIZE-action time. Honored on X11; Wayland has no protocol equivalent. Config docs: "currently only supported on macOS / has no effect on Linux" — this is a bonus where the WM honors it.
+- [x] **C3.** `window-width`, `window-height` — silently honored. libghostty fires INITIAL_SIZE on surface init with the cell-derived pixel size; the Qt handler resizes the window. Already working since `33b5dee46` (B7).
 - [x] **C4.** `window-position-x`, `window-position-y` — fixed in `cd38f4bd5` (B33)
-- [ ] **C5.** `window-padding-balance`, `window-padding-color`
-- [ ] **C6.** `window-colorspace`
-- [ ] **C7.** `window-inherit-working-directory`
-- [ ] **C8.** `window-inherit-font-size`
-- [ ] **C9.** `window-title-font-family`
-- [ ] **C10.** `bell-audio-path`, `bell-audio-volume`
+- [x] **C5.** `window-padding-balance`, `window-padding-color` — silently honored (consumed by libghostty's renderer in `src/renderer/generic.zig` and `src/Surface.zig`).
+- [x] **C6.** `window-colorspace` — silently honored by libghostty's renderer.
+- [x] **C7.** `window-inherit-working-directory` — silently honored via `ghostty_surface_inherited_config` (libghostty's `apprt/surface.zig` reads it). Qt new-tab/new-split paths pass `parent_surface`.
+- [x] **C8.** `window-inherit-font-size` — silently honored via `apprt/embedded.zig` newSurfaceOptions reading the same config.
+- [x] **C9.** `window-title-font-family` — fixed in `8bd64d0fa` (applies to the tab bar font; tab title is what the user actually sees).
+- [x] **C10.** `bell-audio-path`, `bell-audio-volume` — already wired in `playBellAudio` (QMediaPlayer + QAudioOutput; reads `bell-audio-path` and `-volume` via configValue, expands `~/`, restarts on back-to-back bells). Audit was wrong about this one.
 - [x] **C11.** `quick-terminal-screen` — fixed in `6d700c36b`
 - [x] **C12.** `quick-terminal-animation-duration` — fixed in `cd38f4bd5` (B42)
 - [x] **C13.** `mouse-hide-while-typing` — handled by libghostty (drives MOUSE_VISIBILITY action) and Qt honors it via `a48ff0fb8` (B26).
-- [ ] **C14.** `background-image*`
-- [ ] **C15.** `split-divider-color`
+- [ ] **C14.** `background-image*` — needs apprt-side paint integration (200+ lines of work to load, scale, position, repeat, opacity-blend with the terminal framebuffer). Deferred as a feature.
+- [x] **C15.** `split-divider-color` — fixed in `8bd64d0fa` (QSplitter::handle stylesheet).
 - [x] **C16.** `clipboard-trim-trailing-spaces` — silently honored by libghostty inside Surface.zig before the apprt's write_clipboard_cb. Acknowledged in `6d700c36b`.
 - [x] **C17.** `clipboard-paste-protection` — silently honored by libghostty (drives the confirm-paste path); destructive Paste/Cancel dialog landed in `6d700c36b`.
 - [x] **C18.** `progress-style` — fixed in `13d4353b1` (`no`/`none` suppresses the taskbar entry).
-- [ ] **C19.** `split-preserve-zoom`
+- [x] **C19.** `split-preserve-zoom` — fixed in `8bd64d0fa` (`navigation` bit re-zooms destination on goto-split).
 - [x] **C20.** `initial-window` — fixed in `6d700c36b`
-- [ ] **C21.** `app-notifications` (per-category gating)
+- [x] **C21.** `app-notifications` (per-category gating) — fixed in `8bd64d0fa`. `config-reload` bit gates a freshly added "Configuration reloaded" toast on every reloadConfigGlobal. `clipboard-copy` bit is read for forward-compat — Qt doesn't currently post a copy toast, so the gate is trivially honored, but a future copy notification will pick this site up without code changes.
 
 ---
 
