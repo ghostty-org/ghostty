@@ -26,7 +26,10 @@
 #include <QEasingCurve>
 #include <QPoint>
 #include <QPointer>
+#include <QProcess>
 #include <QPropertyAnimation>
+#include <QPushButton>
+#include <QStandardPaths>
 #include <QRect>
 #include <QScreen>
 #include <QShowEvent>
@@ -231,6 +234,58 @@ static void postProgress(bool visible, double fraction) {
   msg.setArguments(
       {QStringLiteral("application://ghastty.desktop"), QVariant(props)});
   QDBusConnection::sessionBus().send(msg);
+}
+
+// Open a URL through the desktop, routed by libghostty's open_url
+// kind. The default `QDesktopServices::openUrl` for `text` payloads
+// (e.g. the config file) lands in whatever the user has registered
+// for `.txt`, which on most Linux desktops is a browser. xdg-open
+// `--type=text` doesn't exist, but we can resolve the user's
+// preferred text editor via `xdg-mime query default text/plain`,
+// fall back to `$VISUAL` / `$EDITOR`, and finally let
+// QDesktopServices try.
+static void openUrlByKind(const QString &url,
+                          ghostty_action_open_url_kind_e kind) {
+  if (kind != GHOSTTY_ACTION_OPEN_URL_KIND_TEXT) {
+    QDesktopServices::openUrl(
+        QUrl::fromUserInput(url, QString(), QUrl::AssumeLocalFile));
+    return;
+  }
+  // Try to launch a registered text/plain handler. xdg-mime returns
+  // a `.desktop` file id; gtk-launch (Debian) or dex (KDE) executes
+  // it. If that fails, fall through to the env-editor path.
+  const QString path =
+      QUrl::fromUserInput(url, QString(), QUrl::AssumeLocalFile).toLocalFile();
+  const QString target = path.isEmpty() ? url : path;
+  QProcess mime;
+  mime.start(QStringLiteral("xdg-mime"),
+             {QStringLiteral("query"), QStringLiteral("default"),
+              QStringLiteral("text/plain")});
+  mime.waitForFinished(500);
+  const QString desktopId =
+      QString::fromUtf8(mime.readAllStandardOutput()).trimmed();
+  if (!desktopId.isEmpty()) {
+    if (QProcess::startDetached(QStringLiteral("gtk-launch"),
+                                {desktopId, target}))
+      return;
+    if (QProcess::startDetached(QStringLiteral("dex"),
+                                {desktopId, target}))
+      return;
+  }
+  // $VISUAL / $EDITOR fall-back, but only if it's a GUI editor: a
+  // tty-only `vi` would steal the controlling terminal. We can't
+  // know for certain, so try a curated list (mate-, gedit, kate,
+  // gnome-text-editor, code) before bailing to QDesktopServices.
+  static const char *kGuiEditors[] = {
+      "gnome-text-editor", "gedit", "kate",  "kwrite",
+      "code",              "mousepad", "leafpad", nullptr};
+  for (const char **e = kGuiEditors; *e; ++e) {
+    if (QStandardPaths::findExecutable(QString::fromLatin1(*e)).isEmpty())
+      continue;
+    if (QProcess::startDetached(QString::fromLatin1(*e), {target})) return;
+  }
+  QDesktopServices::openUrl(
+      QUrl::fromUserInput(url, QString(), QUrl::AssumeLocalFile));
 }
 
 bool MainWindow::initialize() {
@@ -729,22 +784,41 @@ bool MainWindow::confirmCloseSurfaces(
   }
   if (!needsConfirm) return true;
 
-  const auto choice = QMessageBox::question(
-      this, QStringLiteral("Close"),
-      QStringLiteral("There are still running processes. Close anyway?"),
-      QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-  return choice == QMessageBox::Yes;
+  // Destructive-styled dialog with Cancel/Close, matching macOS
+  // NSAlert and GTK Adw.MessageDialog (`close-response: cancel`,
+  // destructive class on the close button).
+  QMessageBox box(this);
+  box.setIcon(QMessageBox::Warning);
+  box.setWindowTitle(QStringLiteral("Close"));
+  box.setText(QStringLiteral("There are still running processes."));
+  box.setInformativeText(
+      QStringLiteral("Closing will terminate the running processes."));
+  QPushButton *close = box.addButton(QStringLiteral("Close"),
+                                     QMessageBox::DestructiveRole);
+  QPushButton *cancel = box.addButton(QStringLiteral("Cancel"),
+                                      QMessageBox::RejectRole);
+  box.setDefaultButton(cancel);
+  box.exec();
+  return box.clickedButton() == close;
 }
 
 void MainWindow::closeAllWindows() {
-  // One process-level prompt covers every window.
+  // One process-level prompt covers every window. Destructive Quit
+  // button + plain Cancel default — same style as confirmCloseSurfaces.
   if (s_app && ghostty_app_needs_confirm_quit(s_app)) {
-    const auto choice = QMessageBox::question(
-        s_windows.isEmpty() ? nullptr : s_windows.first(),
-        QStringLiteral("Quit"),
-        QStringLiteral("There are still running processes. Quit anyway?"),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (choice != QMessageBox::Yes) return;
+    QMessageBox box(s_windows.isEmpty() ? nullptr : s_windows.first());
+    box.setIcon(QMessageBox::Warning);
+    box.setWindowTitle(QStringLiteral("Quit"));
+    box.setText(QStringLiteral("There are still running processes."));
+    box.setInformativeText(
+        QStringLiteral("Quitting will terminate the running processes."));
+    QPushButton *quit = box.addButton(QStringLiteral("Quit"),
+                                      QMessageBox::DestructiveRole);
+    QPushButton *cancel = box.addButton(QStringLiteral("Cancel"),
+                                        QMessageBox::RejectRole);
+    box.setDefaultButton(cancel);
+    box.exec();
+    if (box.clickedButton() != quit) return;
   }
   // Copy: each close() may delete the window and mutate s_windows.
   const QList<MainWindow *> windows = s_windows;
@@ -991,8 +1065,12 @@ void MainWindow::gotoTab(ghostty_action_goto_tab_e tab) {
       index = n - 1;
       break;
     default:
-      // A positive value is a 1-based tab number.
+      // A positive value is a 1-based tab number; clamp out-of-range
+      // values to the last tab so `goto-tab:99` lands on the rightmost
+      // tab instead of being silently dropped. macOS clamps the same
+      // way; GTK clamps via `@min`.
       index = static_cast<int>(tab) - 1;
+      if (index >= n) index = n - 1;
       break;
   }
   if (index >= 0 && index < n) m_tabs->setCurrentIndex(index);
@@ -1864,13 +1942,16 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
 
     case GHOSTTY_ACTION_OPEN_CONFIG: {
       // ghostty_config_open_path creates the config file if missing and
-      // returns its path; opening it is the apprt's job.
+      // returns its path; opening it is the apprt's job. Route through
+      // the text-kind opener so the user's configured editor (not a
+      // browser via "text/plain → .txt") gets the file.
       ghostty_string_s path = ghostty_config_open_path();
       if (path.ptr && path.len) {
         const QString p =
             QString::fromUtf8(path.ptr, static_cast<int>(path.len));
-        post(qApp,
-             [p]() { QDesktopServices::openUrl(QUrl::fromLocalFile(p)); });
+        post(qApp, [p]() {
+          openUrlByKind(p, GHOSTTY_ACTION_OPEN_URL_KIND_TEXT);
+        });
       }
       ghostty_string_free(path);
       return true;
@@ -1944,10 +2025,8 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       const ghostty_action_open_url_s u = action.action.open_url;
       if (!u.url || !u.len) return true;
       const QString s = QString::fromUtf8(u.url, static_cast<int>(u.len));
-      post(qApp, [s]() {
-        QDesktopServices::openUrl(
-            QUrl::fromUserInput(s, QString(), QUrl::AssumeLocalFile));
-      });
+      const ghostty_action_open_url_kind_e kind = u.kind;
+      post(qApp, [s, kind]() { openUrlByKind(s, kind); });
       return true;
     }
 
