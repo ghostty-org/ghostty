@@ -1457,8 +1457,17 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
 
     case GHOSTTY_ACTION_SHOW_CHILD_EXITED: {
       if (!src) return false;
-      const int code =
-          static_cast<int>(action.action.child_exited.exit_code);
+      const ghostty_surface_message_childexited_s ce =
+          action.action.child_exited;
+      // Suppress the banner for fast-exiting children (e.g. an
+      // intentional `exit 0` after a quick command). Match the macOS
+      // gate: only show when runtime_ms is at least the configured
+      // abnormal threshold (default 250ms). Banner = "the process
+      // died unexpectedly," not "the process exited."
+      uint32_t threshold = 250;
+      configGet(s_config, &threshold, "abnormal-command-exit-runtime");
+      if (ce.runtime_ms < threshold) return true;
+      const int code = static_cast<int>(ce.exit_code);
       post(src, [srcp, code]() {
         if (srcp) srcp->showChildExited(code);
       });

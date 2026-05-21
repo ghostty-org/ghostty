@@ -603,6 +603,32 @@ public:
     return xkb_keysym_to_utf32(sym);
   }
 
+  // Side bits for the libghostty mods bitfield, derived from a
+  // keycode — used so that pressing Right-Shift sets BOTH the
+  // unsided GHOSTTY_MODS_SHIFT and the GHOSTTY_MODS_SHIFT_RIGHT bit
+  // (a left-side keycode sets only the unsided bit). macOS and GTK
+  // populate sided bits this way; Qt was leaving them empty so
+  // bindings that distinguish left-vs-right modifier keys couldn't
+  // fire.
+  ghostty_input_mods_e sideBitsForKeycode(uint32_t keycode) const {
+    if (!m_unshifted) return GHOSTTY_MODS_NONE;
+    const xkb_keysym_t sym =
+        xkb_state_key_get_one_sym(m_unshifted, keycode);
+    int r = GHOSTTY_MODS_NONE;
+    switch (sym) {
+      case XKB_KEY_Shift_R: r |= GHOSTTY_MODS_SHIFT_RIGHT; break;
+      case XKB_KEY_Control_R: r |= GHOSTTY_MODS_CTRL_RIGHT; break;
+      // Both Alt_R and ISO_Level3_Shift (AltGr) are right-Alt physically.
+      case XKB_KEY_Alt_R:
+      case XKB_KEY_ISO_Level3_Shift: r |= GHOSTTY_MODS_ALT_RIGHT; break;
+      case XKB_KEY_Super_R:
+      case XKB_KEY_Hyper_R:
+      case XKB_KEY_Meta_R: r |= GHOSTTY_MODS_SUPER_RIGHT; break;
+      default: break;
+    }
+    return static_cast<ghostty_input_mods_e>(r);
+  }
+
   // Modifiers consumed by the layout to produce `keycode`'s text given
   // `mods` are depressed. Returns the consumed subset, expressed as
   // ghostty mod bits. Mutates m_query (mutable) — see thread-safety
@@ -698,6 +724,12 @@ void GhosttySurface::sendKey(QKeyEvent *ev, ghostty_input_action_e action) {
   ghostty_input_key_s k = {};
   k.action = action;
   k.mods = translateMods(ev->modifiers());
+  // OR in any right-side bit for this keycode (e.g. Right-Shift sets
+  // SHIFT_RIGHT alongside SHIFT). macOS + GTK populate these; without
+  // them, keybinds like `right_shift+x` can't distinguish from
+  // `left_shift+x`.
+  k.mods = static_cast<ghostty_input_mods_e>(
+      k.mods | XkbState::instance().sideBitsForKeycode(keycode));
   k.keycode = keycode;
   k.text = printable ? text.constData() : nullptr;
   // XKB lookups: unshifted codepoint (what this physical key would
@@ -772,13 +804,30 @@ void GhosttySurface::mousePressEvent(QMouseEvent *ev) {
     m_owner->removeSurface(this);
     return;
   }
+  // Click-to-focus: if the surface didn't have focus, this click is
+  // grabbing focus rather than a real interaction with the running
+  // program. macOS + GTK suppress the matching mouse-up so vim, less,
+  // etc. don't see a stray button-up event. We mirror that by setting
+  // a one-shot flag the matching release consults.
+  const bool wasFocused = hasFocus();
   setFocus();
-  if (rightClickOpensMenu(ev)) return;
+  if (!wasFocused && ev->button() == Qt::LeftButton)
+    m_suppressNextLeftRelease = true;
+
+  // Right-click: send the press to libghostty BEFORE deciding to
+  // open the context menu. macOS + GTK both do this so the core can
+  // word-select on right-press and then we open the menu over the
+  // selection. If the running program is mouse-captured, the press
+  // is forwarded as a real button event.
   sendMouseButton(ev, GHOSTTY_MOUSE_PRESS);
 }
 
 void GhosttySurface::mouseReleaseEvent(QMouseEvent *ev) {
-  if (rightClickOpensMenu(ev)) return;
+  // Suppress the release of a focus-grabbing click — see press above.
+  if (ev->button() == Qt::LeftButton && m_suppressNextLeftRelease) {
+    m_suppressNextLeftRelease = false;
+    return;
+  }
   sendMouseButton(ev, GHOSTTY_MOUSE_RELEASE);
 }
 
@@ -947,9 +996,28 @@ void GhosttySurface::wheelEvent(QWheelEvent *ev) {
   flashScrollbar();  // mouse-wheel scrolling reveals the overlay scrollbar
 }
 
-void GhosttySurface::enterEvent(QEnterEvent *) {
+void GhosttySurface::enterEvent(QEnterEvent *ev) {
   // focus-follows-mouse: take focus when the pointer enters this pane.
   if (m_owner && m_owner->focusFollowsMouse() && !hasFocus()) setFocus();
+  // Tell libghostty about the actual cursor position so hover state
+  // and OSC-8 link arming reset from any stale (-1, -1) sentinel.
+  // macOS does this in mouseEntered (SurfaceView_AppKit.swift:920);
+  // GTK does it in ecMouseEnter (apprt/gtk/class/surface.zig).
+  if (m_surface)
+    ghostty_surface_mouse_pos(m_surface, ev->position().x(),
+                              ev->position().y(),
+                              translateMods(QGuiApplication::keyboardModifiers()));
+}
+
+void GhosttySurface::leaveEvent(QEvent *) {
+  // libghostty's "no cursor here" sentinel: pass (-1, -1) so any
+  // hover-armed state (URL underline, mouse-report sequences for an
+  // OSC-8 link) clears once the pointer leaves the pane. macOS and
+  // GTK both do this; without it the arm state would survive until
+  // the next move event.
+  if (m_surface)
+    ghostty_surface_mouse_pos(m_surface, -1, -1,
+                              translateMods(QGuiApplication::keyboardModifiers()));
 }
 
 void GhosttySurface::focusInEvent(QFocusEvent *) {

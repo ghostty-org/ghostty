@@ -131,6 +131,7 @@ protected:
   void dropEvent(QDropEvent *) override;
   void wheelEvent(QWheelEvent *) override;
   void enterEvent(QEnterEvent *) override;  // focus-follows-mouse
+  void leaveEvent(QEvent *) override;       // libghostty hover reset
   void focusInEvent(QFocusEvent *) override;
   void focusOutEvent(QFocusEvent *) override;
 
@@ -206,6 +207,11 @@ private:
   bool m_notifyOnCommand = false;      // one-shot: notify on next cmd finish
   bool m_bellFlash = false;            // bell `border` flash in progress
   bool m_bellTitle = false;            // unacknowledged bell `title` mark
+  // Set when a left-click grabbed focus from elsewhere; cleared on
+  // the matching mouse-up so the click that grabbed focus isn't
+  // also reported to the running program. macOS + GTK do the same
+  // (suppressNextLeftMouseUp / suppress_left_mouse_release).
+  bool m_suppressNextLeftRelease = false;
   // Last requested cursor shape (from MOUSE_SHAPE) and visibility
   // (from MOUSE_VISIBILITY). Tracked separately so toggling
   // visibility doesn't reset the shape.
