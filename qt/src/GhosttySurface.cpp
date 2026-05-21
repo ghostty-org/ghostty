@@ -1003,6 +1003,33 @@ void GhosttySurface::dragEnterEvent(QDragEnterEvent *ev) {
     ev->acceptProposedAction();
 }
 
+// Quote `s` for a POSIX shell using $'…' encoding. Mirrors
+// macOS Ghostty.Shell.escape and GTK ShellEscapeWriter — handles
+// embedded quotes, backslashes, newlines, and control chars; bash's
+// `'\''` trick fails on dash/zsh + non-printable bytes.
+static QString shellQuote(const QString &s) {
+  QString out;
+  out.reserve(s.size() + 4);
+  out += QLatin1String("$'");
+  for (QChar ch : s) {
+    const ushort c = ch.unicode();
+    if (c == '\\' || c == '\'')
+      out += QLatin1Char('\\'), out += ch;
+    else if (c == '\n')
+      out += QLatin1String("\\n");
+    else if (c == '\r')
+      out += QLatin1String("\\r");
+    else if (c == '\t')
+      out += QLatin1String("\\t");
+    else if (c < 0x20)
+      out += QString::asprintf("\\x%02x", c);
+    else
+      out += ch;
+  }
+  out += QLatin1Char('\'');
+  return out;
+}
+
 void GhosttySurface::dropEvent(QDropEvent *ev) {
   const QMimeData *mime = ev->mimeData();
   // A tab tear-off released on the terminal: accept it cleanly and let
@@ -1013,14 +1040,19 @@ void GhosttySurface::dropEvent(QDropEvent *ev) {
   }
   QString text;
   if (mime->hasUrls()) {
-    // Dropped files are inserted as shell-quoted, space-separated paths.
-    QStringList paths;
+    // Distinguish file URLs from non-file URLs (http://, etc). File
+    // URLs become shell-quoted paths joined with spaces; non-file URLs
+    // paste as plain text. macOS + GTK both make this distinction
+    // (otherwise dragging a link from a browser yields a quoted
+    // command-line argument instead of pasting the URL).
+    QStringList parts;
     for (const QUrl &url : mime->urls()) {
-      QString p = url.isLocalFile() ? url.toLocalFile() : url.toString();
-      p.replace(QLatin1String("'"), QLatin1String("'\\''"));
-      paths << QLatin1Char('\'') + p + QLatin1Char('\'');
+      if (url.isLocalFile())
+        parts << shellQuote(url.toLocalFile());
+      else
+        parts << url.toString();
     }
-    text = paths.join(QLatin1Char(' '));
+    text = parts.join(QLatin1Char(' '));
   } else if (mime->hasText()) {
     text = mime->text();
   }
@@ -1047,9 +1079,41 @@ void GhosttySurface::mouseMoveEvent(QMouseEvent *ev) {
 
 void GhosttySurface::wheelEvent(QWheelEvent *ev) {
   if (!m_surface) return;
-  // angleDelta is in eighths of a degree; 120 units == one wheel notch.
-  const QPoint d = ev->angleDelta();
-  ghostty_surface_mouse_scroll(m_surface, d.x() / 120.0, d.y() / 120.0, 0);
+  // libghostty's ScrollMods is a packed u8: bit 0 = precision (high-res
+  // / pixel-precise), bits 1-3 = momentum phase (none/began/changed/
+  // ended/cancelled/may_begin) per src/input/mouse.zig.
+  //
+  // Trackpads and high-resolution mice fill in pixelDelta; classic
+  // notched wheels only fill angleDelta (120 units per notch). When
+  // pixelDelta is present we feed that, divide by an approximate cell
+  // height (we don't have it from libghostty here, so use 16 logical
+  // pixels — close enough for smooth-scroll feel) and flag the event
+  // as precision so kitty's smooth-scroll engages. Otherwise we fall
+  // back to the classic "120 units == one notch" path.
+  double dx = 0.0, dy = 0.0;
+  int mods = 0;
+  const QPoint pd = ev->pixelDelta();
+  if (!pd.isNull()) {
+    constexpr double kCellPx = 16.0;
+    dx = pd.x() / kCellPx;
+    dy = pd.y() / kCellPx;
+    mods |= 1;  // ScrollMods.precision
+  } else {
+    const QPoint a = ev->angleDelta();
+    dx = a.x() / 120.0;
+    dy = a.y() / 120.0;
+  }
+
+  // ScrollMods.momentum (3-bit field at bit 1). Qt only signals the
+  // ScrollBegin/ScrollUpdate/ScrollEnd phases on trackpads.
+  switch (ev->phase()) {
+    case Qt::ScrollBegin:    mods |= (1 /*began*/) << 1; break;
+    case Qt::ScrollUpdate:   mods |= (3 /*changed*/) << 1; break;
+    case Qt::ScrollEnd:      mods |= (4 /*ended*/) << 1; break;
+    case Qt::ScrollMomentum: mods |= (3 /*changed*/) << 1; break;
+    default: break;  // NoScrollPhase: treat as a discrete notch
+  }
+  ghostty_surface_mouse_scroll(m_surface, dx, dy, mods);
   flashScrollbar();  // mouse-wheel scrolling reveals the overlay scrollbar
 }
 
