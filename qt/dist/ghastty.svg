@@ -1,318 +1,90 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  Ghastty app icon: a Ghast inside a CRT terminal.
-
-  Layered tribute to the upstream Ghostty icon, in Ghastty's palette.
-  Reads as "terminal emulator app" at every freedesktop bucket from
-  16 px upward; reads as "Ghast" from ~32 px and reads as a polished
-  CRT scene from ~128 px upward.
-
-  Layer order (back to front):
-    1. Outer chrome bezel — dark purple gradient with a top sheen
-    2. Inner screen surface — deep purple-navy radial
-    3. CRT corner glow — soft violet at the top center
-    4. Sparse violet scanlines (low opacity, ~28 px spacing)
-    5. Top gloss sweep — a single highlight band
-    6. Cubic Ghast body (smaller now: fills ~62% of the screen)
-    7. >_ prompt face on the Ghast (chevron + block cursor)
-
-  All layers are large, low-frequency, and fall back gracefully under
-  downscale: at 16 px the bezel + dark purple silhouette + a hint of
-  red survive; at 32 px the Ghast silhouette + the prompt face appear;
-  full layered scene reads at 64+.
-
-  Authored for QtSvg (no clipPath / mask / filter / blend modes).
--->
+<!-- V1: Original dome ghost + 4 wavy feet, on the new purple CRT.
+     Wide-set >_ prompt eyes (upstream Ghostty lineage). No glitch
+     effects. Cleanest small-size legibility. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024"
      viewBox="0 0 1024 1024">
   <defs>
-    <!-- Chrome bezel: a deep purple metal gradient. Brighter at the
-         top so it looks lit from above. -->
     <linearGradient id="bezel" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#3a2c5e"/>
       <stop offset="0.5" stop-color="#1c1430"/>
       <stop offset="1" stop-color="#08060f"/>
     </linearGradient>
-
-    <!-- A subtle top-edge sheen on the bezel itself, sitting just
-         inside the outer rounded square. -->
     <linearGradient id="bezelSheen" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#7d6cb0" stop-opacity="0.4"/>
       <stop offset="0.15" stop-color="#7d6cb0" stop-opacity="0"/>
     </linearGradient>
-
-    <!-- Screen surface: deep purple-navy with a subtle radial
-         brightening near the top center, suggesting cathode glow. -->
     <radialGradient id="screen" cx="0.5" cy="0.35" r="0.85">
       <stop offset="0" stop-color="#221d52"/>
       <stop offset="0.6" stop-color="#0f0c2a"/>
       <stop offset="1" stop-color="#040312"/>
     </radialGradient>
-
-    <!-- Soft violet bloom at the top of the screen — atmosphere,
-         not a discrete light source. -->
     <radialGradient id="screenBloom" cx="0.5" cy="0.3" r="0.55">
       <stop offset="0" stop-color="#8a4ad8" stop-opacity="0.30"/>
       <stop offset="1" stop-color="#8a4ad8" stop-opacity="0"/>
     </radialGradient>
-
-    <!-- Top gloss sweep on the screen glass — a vertical fade that
-         gives the surface its CRT-glass feel. -->
     <linearGradient id="screenGloss" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ffffff" stop-opacity="0.10"/>
       <stop offset="0.45" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
-
-    <!-- Ghast body — same warm bone-paper shading as before. -->
-    <linearGradient id="body" gradientUnits="userSpaceOnUse"
+    <linearGradient id="ghostBody" gradientUnits="userSpaceOnUse"
                     x1="512" y1="280" x2="512" y2="780">
       <stop offset="0" stop-color="#f4f1ea"/>
       <stop offset="0.55" stop-color="#e3ddd0"/>
       <stop offset="1" stop-color="#a89fa8"/>
     </linearGradient>
-
-    <!-- Soft red bloom around the prompt face. -->
     <radialGradient id="mouthGlow" cx="0.5" cy="0.5" r="0.5">
       <stop offset="0" stop-color="#ff4838" stop-opacity="0.55"/>
       <stop offset="1" stop-color="#ff4838" stop-opacity="0"/>
     </radialGradient>
   </defs>
-
-  <!-- ============================================================
-       1. Outer chrome bezel
-       ============================================================ -->
   <rect x="0" y="0" width="1024" height="1024" rx="200" fill="url(#bezel)"/>
-
-  <!-- 1a. Top sheen on the bezel — a thin highlight along the top
-       edge, fading down. Sits inside the bezel rect. -->
   <rect x="0" y="0" width="1024" height="1024" rx="200" fill="url(#bezelSheen)"/>
-
-  <!-- ============================================================
-       2. Inner screen surface
-       ============================================================ -->
-  <!-- Screen rect, inset from the bezel by 88 px on every side.
-       Corner radius matched to the bezel's so the inner corners
-       feel parallel. -->
   <rect x="88" y="88" width="848" height="848" rx="120" fill="url(#screen)"/>
-
-  <!-- 3. CRT corner glow — a soft violet bloom near the top of
-       the screen, suggesting the cathode-ray brightest point. -->
   <rect x="88" y="88" width="848" height="848" rx="120" fill="url(#screenBloom)"/>
-
-  <!-- ============================================================
-       4. Sparse violet scanlines
-
-       28 px spacing on a 1024 source. At 256 px each line is ~7 px
-       apart with 1 px line height — visible. At 64 px they alias
-       into a faint horizontal texture. At 32 px they vanish into a
-       slight tonal shift, which is fine. Opacity is intentionally
-       low so they read as atmosphere, not as a stripe pattern.
-       ============================================================ -->
-  <g fill="#7848d8" opacity="0.07">
-    <rect x="88" y="120" width="848" height="3"/>
-    <rect x="88" y="160" width="848" height="3"/>
-    <rect x="88" y="200" width="848" height="3"/>
-    <rect x="88" y="240" width="848" height="3"/>
-    <rect x="88" y="280" width="848" height="3"/>
-    <rect x="88" y="320" width="848" height="3"/>
-    <rect x="88" y="360" width="848" height="3"/>
-    <rect x="88" y="400" width="848" height="3"/>
-    <rect x="88" y="440" width="848" height="3"/>
-    <rect x="88" y="480" width="848" height="3"/>
-    <rect x="88" y="520" width="848" height="3"/>
-    <rect x="88" y="560" width="848" height="3"/>
-    <rect x="88" y="600" width="848" height="3"/>
-    <rect x="88" y="640" width="848" height="3"/>
-    <rect x="88" y="680" width="848" height="3"/>
-    <rect x="88" y="720" width="848" height="3"/>
-    <rect x="88" y="760" width="848" height="3"/>
-    <rect x="88" y="800" width="848" height="3"/>
-    <rect x="88" y="840" width="848" height="3"/>
-    <rect x="88" y="880" width="848" height="3"/>
-  </g>
-
-  <!-- ============================================================
-       5. Top gloss sweep on the screen glass
-       ============================================================ -->
   <rect x="88" y="88" width="848" height="848" rx="120" fill="url(#screenGloss)"/>
 
-  <!-- ============================================================
-       6. Cubic Ghast body
-
-       Sized to fit inside the screen with breathing room: 580 wide,
-       560 tall, centered horizontally. The whole figure (head +
-       tentacles) lives between y=260 and y=908, which leaves about
-       170 px of screen below the bezel ring — enough for the CRT
-       to feel like a screen, not a frame.
-
-       Tentacles are 9-in-3x3 with center longest; same structural
-       choice as before so the Ghast reads correctly.
-       ============================================================ -->
+  <!-- Dome ghost: rounded top (radius 190) + straight sides + 4 wavy
+       feet at bottom. Path goes counter-clockwise from top center. -->
   <path d="
-    M 270 260
-    Q 252 260 252 278
-    L 252 712
-    Q 252 728 264 736
-    L 286 748
-    L 294 748
-    L 294 824
-    Q 294 842 312 842
-    Q 330 842 330 824
-    L 330 752
-    L 354 752
-    L 354 802
-    Q 354 820 372 820
-    Q 390 820 390 802
-    L 390 752
-    L 414 752
-    L 414 866
-    Q 414 884 432 884
-    Q 450 884 450 866
-    L 450 752
-    L 472 752
-    L 472 814
-    Q 472 832 490 832
-    Q 508 832 508 814
-    L 508 752
-    L 530 752
-    L 530 894
-    Q 530 912 548 912
-    Q 566 912 566 894
-    L 566 752
-    L 588 752
-    L 588 814
-    Q 588 832 606 832
-    Q 624 832 624 814
-    L 624 752
-    L 646 752
-    L 646 866
-    Q 646 884 664 884
-    Q 682 884 682 866
-    L 682 752
-    L 706 752
-    L 706 802
-    Q 706 820 724 820
-    Q 742 820 742 802
-    L 742 752
-    L 766 752
-    L 766 824
-    Q 766 842 784 842
-    Q 802 842 802 824
-    L 802 748
-    L 810 748
-    L 832 736
-    Q 844 728 844 712
-    L 844 278
-    Q 844 260 826 260
-    L 270 260
-    Z
-  " fill="url(#body)"/>
-
-  <!-- Silhouette anchor (thin dark stroke around the body) — keeps
-       the figure crisp at 16-32 px. -->
+    M 322 658
+    L 322 460
+    A 190 190 0 0 1 702 460
+    L 702 658
+    Q 654 720 607 658
+    Q 559 720 512 658
+    Q 464 720 417 658
+    Q 369 720 322 658 Z
+  " fill="url(#ghostBody)"/>
   <path d="
-    M 270 260
-    Q 252 260 252 278
-    L 252 712
-    Q 252 728 264 736
-    L 286 748
-    L 294 748
-    L 294 824
-    Q 294 842 312 842
-    Q 330 842 330 824
-    L 330 752
-    L 354 752
-    L 354 802
-    Q 354 820 372 820
-    Q 390 820 390 802
-    L 390 752
-    L 414 752
-    L 414 866
-    Q 414 884 432 884
-    Q 450 884 450 866
-    L 450 752
-    L 472 752
-    L 472 814
-    Q 472 832 490 832
-    Q 508 832 508 814
-    L 508 752
-    L 530 752
-    L 530 894
-    Q 530 912 548 912
-    Q 566 912 566 894
-    L 566 752
-    L 588 752
-    L 588 814
-    Q 588 832 606 832
-    Q 624 832 624 814
-    L 624 752
-    L 646 752
-    L 646 866
-    Q 646 884 664 884
-    Q 682 884 682 866
-    L 682 752
-    L 706 752
-    L 706 802
-    Q 706 820 724 820
-    Q 742 820 742 802
-    L 742 752
-    L 766 752
-    L 766 824
-    Q 766 842 784 842
-    Q 802 842 802 824
-    L 802 748
-    L 810 748
-    L 832 736
-    Q 844 728 844 712
-    L 844 278
-    Q 844 260 826 260
-    L 270 260
-    Z
-  " fill="none" stroke="#0a0c14" stroke-opacity="0.6"
+    M 322 658
+    L 322 460
+    A 190 190 0 0 1 702 460
+    L 702 658
+    Q 654 720 607 658
+    Q 559 720 512 658
+    Q 464 720 417 658
+    Q 369 720 322 658 Z
+  " fill="none" stroke="#0a0c14" stroke-opacity="0.55"
         stroke-width="9" stroke-linejoin="round"/>
 
-  <!-- ============================================================
-       7. >_ prompt face — the upstream-Ghostty signature, kept for
-       fork lineage. The chevron `>` is the left "eye"; the block
-       cursor `_` is the right "eye". Drawn red instead of upstream's
-       black-on-white: that gives us our single bright accent and
-       evokes the Ghast's fire-shooting trait at the same time.
-       ============================================================ -->
-  <!-- The `>_` prompt sits like a pair of eyes on the head, with
-       a wide gap between the chevron and the cursor — matching
-       upstream Ghostty's ghost-mascot proportions where the two
-       glyphs are clearly two separate "eyes," not adjacent
-       characters in a typed prompt.
-       Layout: chevron 70 wide, gap 120, cursor 104 wide — total
-       294 wide, centered on the head's x=548 (leftmost x=401).
+  <!-- > _ prompt eyes, centered on ghost x=512. Pair geometry:
+       chevron 66 wide (L-arm tip to apex), gap 68, cursor 98 wide.
+       Total 232; leftmost = 512 - 116 = 396.
+         chevron: x=396..462 (apex at 462)
+         cursor:  x=530..628
+       Pair midpoint = (396+628)/2 = 512  ✓
        Vertical center y=496. -->
-
-  <!-- Soft red bloom behind the face, sized to span the full
-       width of the prompt pair. -->
-  <ellipse cx="548" cy="496" rx="240" ry="100" fill="url(#mouthGlow)"/>
-
-  <!-- > chevron, apex pointing right. From x=401 to x=471. -->
-  <path d="M 401 458
-           L 471 496
-           L 401 534"
-        fill="none" stroke="#e63232" stroke-width="32"
+  <ellipse cx="512" cy="496" rx="200" ry="80" fill="url(#mouthGlow)"/>
+  <path d="M 396 458 L 462 496 L 396 534"
+        fill="none" stroke="#e63232" stroke-width="28"
         stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="530" y="478" width="98" height="36" rx="6" fill="#e63232"/>
 
-  <!-- _ block cursor: a filled rounded square. From x=591 to x=695,
-       y=478 to y=514. -->
-  <rect x="591" y="478" width="104" height="36" rx="6" fill="#e63232"/>
-
-  <!-- Inner highlight on the cursor — depth at large sizes,
-       vanishes cleanly at small. -->
-  <rect x="599" y="484" width="88" height="8" rx="3"
-        fill="#ff8c42" opacity="0.7"/>
-
-  <!-- Mouth: a small red square below the prompt eyes. Echoes the
-       Ghast's signature open-square mouth and the red of the eyes,
-       sized smaller than them so it sits in the visual hierarchy
-       below. Centered on x=548, sits at y=600..656. -->
-  <ellipse cx="548" cy="628" rx="80" ry="50" fill="url(#mouthGlow)"/>
-  <rect x="516" y="600" width="64" height="56" rx="6" fill="#e63232"/>
-  <rect x="524" y="608" width="48" height="10" rx="3"
-        fill="#ff8c42" opacity="0.7"/>
+  <!-- Small mouth: sits just below the eyes, above the feet trough.
+       The dome's straight-side region ends at y=658 where the feet
+       begin; placing the mouth at y=580..612 keeps it on the body
+       proper, not in the foot scallops. -->
+  <ellipse cx="512" cy="596" rx="56" ry="32" fill="url(#mouthGlow)"/>
+  <rect x="492" y="580" width="40" height="32" rx="4" fill="#e63232"/>
 </svg>
