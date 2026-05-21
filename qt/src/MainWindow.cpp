@@ -1158,22 +1158,26 @@ void MainWindow::setupLayerShell() {
       : ki == QLatin1String("none")    ? LSW::KeyboardInteractivityNone
                                        : LSW::KeyboardInteractivityOnDemand);
 
-  // quick-terminal-screen: pick which output to anchor on. `main`
-  // (the default) maps to the primary screen; `mouse` to the screen
-  // under the cursor; `macos-menu-bar` is macOS-only and falls
-  // through to primary on Linux. LayerShellQt reads the QWindow's
-  // QScreen when ScreenFromQWindow is set, so we just set the
-  // window's screen before anchoring.
+  // quick-terminal-screen: pick which output to anchor on.
+  //   `main`            → primary screen.
+  //   `mouse`           → the screen the pointer is currently on.
+  //   `macos-menu-bar`  → macOS-only; falls through to primary on
+  //                       Linux.
+  // LayerShellQt 6.6+ exposes setScreen(QScreen*) on the layer-shell
+  // window directly; the older setScreenConfiguration is deprecated.
+  // Pass null to fall back to the QWindow's screen (LayerShellQt's
+  // documented default when neither setScreen nor
+  // setWantsToBeOnActiveScreen is set).
   const QString screenMode = configString("quick-terminal-screen");
-  QScreen *screen = handle->screen();
+  QScreen *screen = nullptr;
   if (screenMode == QLatin1String("mouse")) {
-    if (QScreen *s = QGuiApplication::screenAt(QCursor::pos())) screen = s;
+    screen = QGuiApplication::screenAt(QCursor::pos());
   } else if (screenMode == QLatin1String("main") ||
              screenMode == QLatin1String("macos-menu-bar")) {
-    if (QScreen *s = QGuiApplication::primaryScreen()) screen = s;
+    screen = QGuiApplication::primaryScreen();
   }
-  if (screen && handle->screen() != screen) handle->setScreen(screen);
-  ls->setScreenConfiguration(LSW::ScreenFromQWindow);
+  ls->setScreen(screen);
+  if (!screen) screen = handle->screen();
 
   // quick-terminal-space-behavior (`remain` / `move`): macOS
   // controls whether the dropdown follows the active Space or pins
