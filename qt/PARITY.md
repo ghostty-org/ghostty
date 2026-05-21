@@ -42,9 +42,9 @@ checkbox and link the commit hash.
 - [x] **B9.** Performable-action-returns-true: `MOVE_TAB`, `GOTO_TAB`, `GOTO_SPLIT`, `RESIZE_SPLIT`, `EQUALIZE_SPLITS`, `TOGGLE_SPLIT_ZOOM` all unconditionally return `true`, swallowing chords on unsplit/single-tab surfaces. macOS returns false; GTK gates on `tree.getIsSplit()`. — fixed in `20278082b`
 - [x] **B10.** `MOVE_TAB` with target=APP moves a tab in arbitrary first window (`MainWindow.cpp:1504`). macOS returns false for app target. — fixed in `20278082b`
 - [x] **B11.** `RELOAD_CONFIG` only reloads ONE window (`MainWindow.cpp:1410-1414`). Other windows stay on stale config. macOS reloads globally. — fixed in `33b5dee46`
-- [ ] **B12.** `CONFIG_CHANGE` only refreshes chrome (`MainWindow.cpp:1416-1421`). Doesn't push the new config to running surfaces. `applyWindowConfig` only updates tab-bar + theme — `window-decoration`, `fullscreen`, `maximize` changes don't propagate to existing windows.
-- [ ] **B13.** `OPEN_URL` ignores `kind` (`MainWindow.cpp:1471-1480`). `.text` payloads (e.g. config files) open with whatever the desktop says is default for `.txt` (usually a browser). macOS routes `.text` to a text editor.
-- [ ] **B14.** `OPEN_CONFIG` opens via `QDesktopServices::openUrl` without `text` kind hint — same problem.
+- [x] **B12.** `CONFIG_CHANGE` only refreshes chrome (`MainWindow.cpp:1416-1421`). Doesn't push the new config to running surfaces. — fixed in `6d700c36b` (refreshChrome now propagates window-decoration / fullscreen / maximize / quit-delay to running windows)
+- [x] **B13.** `OPEN_URL` ignores `kind` (`MainWindow.cpp:1471-1480`). `.text` payloads (e.g. config files) open with whatever the desktop says is default for `.txt` (usually a browser). macOS routes `.text` to a text editor. — fixed in `bfd39a4dd` (openUrlByKind via xdg-mime + GUI editor fallback)
+- [x] **B14.** `OPEN_CONFIG` opens via `QDesktopServices::openUrl` without `text` kind hint — same problem. — fixed in `bfd39a4dd`
 - [x] **B15.** `SHOW_CHILD_EXITED` fires unconditionally (`MainWindow.cpp:1379-1387`, `GhosttySurface.cpp:466-498`). macOS gates on `runtime_ms > 0` and `abnormalCommandExitRuntime` config; Qt shows the banner for fast `exit 0` cases. — fixed in `8e8725274`
 - [x] **B16.** `COPY_TITLE_TO_CLIPBOARD` copies the WINDOW title (`MainWindow.cpp:1280-1284`, `:552`), not the surface title. On a multi-tab window, the wrong title gets copied. macOS copies per-surface. — fixed in `33b5dee46`
 - [x] **B17.** `PROMPT_TITLE` with target=APP is no-op (`MainWindow.cpp:1271`). macOS promotes to `NSApp.mainWindow`. — fixed in `20278082b`
@@ -70,7 +70,7 @@ checkbox and link the commit hash.
 
 - [x] **B19.** Mouse buttons 4-11 not delivered (`GhosttySurface.cpp:710-715`). Only Left/Right/Middle mapped; back/forward buttons silently dropped. macOS + GTK both handle 4-11. — fixed in `a48ff0fb8`
 - [ ] **B20.** Modifier release doesn't synthesize event (`sendKey`). Bare Shift/Ctrl/Alt presses don't produce kitty progressive-enhancement events. macOS uses `flagsChanged`; GTK derives from physical_key.
-- [ ] **B21.** `consumed_mods` only computed for printable events (`GhosttySurface.cpp:699-701`). Keypad/function/Backspace/arrows lose consumed-mods info. macOS + GTK compute unconditionally.
+- [x] **B21.** `consumed_mods` only computed for printable events (`GhosttySurface.cpp:699-701`). Keypad/function/Backspace/arrows lose consumed-mods info. macOS + GTK compute unconditionally. — fixed in `13d4353b1`
 - [x] **B22.** Caps Lock + Num Lock state never set in mods (`translateMods`). Kitty CSI-u relies on these bits. — fixed in `913f192d8`
 - [x] **B23.** Sided modifiers (left vs right) not reported. `left_shift` vs `right_shift` keybinds can't fire. macOS + GTK both populate `mods.sides.*`. — fixed in `8e8725274`
 - [x] **B24.** No mouse-enter/leave callback to libghostty (`GhosttySurface.cpp:927-930`). Hover state, OSC-8 link arming, mouse-report sequences stay armed after pointer leaves. macOS + GTK both notify libghostty. — fixed in `8e8725274`
@@ -98,29 +98,29 @@ checkbox and link the commit hash.
 ### Quick terminal
 
 - [x] **B42.** No animation (slide-in/out). macOS uses `NSAnimationContext`. — fixed in `cd38f4bd5` (fade via QPropertyAnimation; slide infeasible under LayerShellQt)
-- [ ] **B43.** `quick-terminal-screen` not honored. macOS resolves which monitor.
+- [x] **B43.** `quick-terminal-screen` not honored. macOS resolves which monitor. — fixed in `6d700c36b` (handle->setScreen() before LayerShellQt anchoring; honors `main` / `mouse`; `macos-menu-bar` falls through to primary)
 - [x] ~~**B44.** `quick-terminal-position = center` not handled (`MainWindow.cpp:700`).~~ Audit was wrong; already handled at `MainWindow.cpp:766`.
 - [ ] **B45.** `quick-terminal-space-behavior` not honored.
 - [ ] **B46.** No fallback for non-Wayland — `LayerShellQt::Window::get()` returning null leaves a regular window without telling libghostty.
 
 ### Misc
 
-- [ ] **B47.** `reload-config` doesn't propagate `window-decoration` / `fullscreen` / `maximize` to existing windows.
-- [ ] **B48.** `s_quitDelayMs` cached at init — runtime config reload doesn't update it.
-- [ ] **B49.** Inspector window: hard-coded 800×600 each time — no autosave.
+- [x] **B47.** `reload-config` doesn't propagate `window-decoration` / `fullscreen` / `maximize` to existing windows. — fixed in `6d700c36b` (refreshChrome now applies them; same site as B12)
+- [x] **B48.** `s_quitDelayMs` cached at init — runtime config reload doesn't update it. — fixed in `6d700c36b`
+- [x] **B49.** Inspector window: hard-coded 800×600 each time — no autosave. — fixed in `6d700c36b` (QSettings restore/save under `inspector/geometry`)
 
 ---
 
 ## 🟡 Inconsistent (works, but feels wrong)
 
-- [ ] **I1.** Close-confirmation buttons "Yes/No" instead of "Cancel/Close" with destructive style. Not localized. macOS uses native NSAlert; GTK uses Adw.MessageDialog with `close-response: cancel`.
-- [ ] **I2.** Bell mark `"● "` prefix vs macOS 🔔 vs GTK `setNeedsAttention`.
-- [ ] **I3.** `MOVE_TAB` clamps; GTK wraps. Qt matches macOS but mismatches GTK.
-- [ ] **I4.** `GOTO_TAB:99` does nothing; macOS clamps to last tab; GTK clamps via `@min`.
-- [ ] **I5.** `MOUSE_OVER_LINK` becomes a Qt tooltip; macOS+GTK use a dedicated overlay.
-- [ ] **I6.** `PROGRESS_REPORT` collapses ERROR/PAUSE/INDETERMINATE to a boolean.
-- [ ] **I7.** `COMMAND_FINISHED` ignores `notify-on-command-finish` config (`.never`/`.unfocused`/`.always`), `notify-on-command-finish-after`, and bell mode.
-- [ ] **I8.** `DESKTOP_NOTIFICATION` is app-target only; `requireFocus` not honored.
+- [x] **I1.** Close-confirmation buttons "Yes/No" instead of "Cancel/Close" with destructive style. Not localized. macOS uses native NSAlert; GTK uses Adw.MessageDialog with `close-response: cancel`. — fixed in `bfd39a4dd` (destructive-styled Close/Quit/Paste; default Cancel)
+- [x] ~~**I2.** Bell mark `"● "` prefix vs macOS 🔔 vs GTK `setNeedsAttention`.~~ Cosmetic; current prefix matches GTK's text-mode behavior. Closed as won't-fix without user feedback.
+- [x] ~~**I3.** `MOVE_TAB` clamps; GTK wraps. Qt matches macOS but mismatches GTK.~~ Qt matches macOS — won't fix; GTK is the outlier.
+- [x] **I4.** `GOTO_TAB:99` does nothing; macOS clamps to last tab; GTK clamps via `@min`. — fixed in `bfd39a4dd`
+- [x] ~~**I5.** `MOUSE_OVER_LINK` becomes a Qt tooltip; macOS+GTK use a dedicated overlay.~~ Closed as won't-fix; Qt tooltip is sufficient and consistent with native Qt apps.
+- [x] **I6.** `PROGRESS_REPORT` collapses ERROR/PAUSE/INDETERMINATE to a boolean. — fixed in `13d4353b1` (ERROR/PAUSE flag urgent=true; INDETERMINATE forces fraction=0)
+- [x] **I7.** `COMMAND_FINISHED` ignores `notify-on-command-finish` config (`.never`/`.unfocused`/`.always`), `notify-on-command-finish-after`, and bell mode. — fixed in `13d4353b1`
+- [x] **I8.** `DESKTOP_NOTIFICATION` is app-target only; `requireFocus` not honored. — fixed in `13d4353b1` (suppress on focused surface; matches macOS gate)
 - [x] **I9.** Bell `attention` fallback hardcoded (`MainWindow.cpp:910`) — `configGet` failing silently falls back to `BellAttention`, ignoring user config. — fixed in `7c3868b5b`
 - [ ] **I10.** Cross-window split DnD unsupported. GTK matches; macOS has it.
 
@@ -131,23 +131,23 @@ checkbox and link the commit hash.
 - [ ] **C1.** `window-save-state`
 - [ ] **C2.** `window-step-resize`
 - [ ] **C3.** `window-width`, `window-height`
-- [ ] **C4.** `window-position-x`, `window-position-y`
+- [x] **C4.** `window-position-x`, `window-position-y` — fixed in `cd38f4bd5` (B33)
 - [ ] **C5.** `window-padding-balance`, `window-padding-color`
 - [ ] **C6.** `window-colorspace`
 - [ ] **C7.** `window-inherit-working-directory`
 - [ ] **C8.** `window-inherit-font-size`
 - [ ] **C9.** `window-title-font-family`
 - [ ] **C10.** `bell-audio-path`, `bell-audio-volume`
-- [ ] **C11.** `quick-terminal-screen`
-- [ ] **C12.** `quick-terminal-animation-duration`
-- [ ] **C13.** `mouse-hide-while-typing`
+- [x] **C11.** `quick-terminal-screen` — fixed in `6d700c36b`
+- [x] **C12.** `quick-terminal-animation-duration` — fixed in `cd38f4bd5` (B42)
+- [x] **C13.** `mouse-hide-while-typing` — handled by libghostty (drives MOUSE_VISIBILITY action) and Qt honors it via `a48ff0fb8` (B26).
 - [ ] **C14.** `background-image*`
 - [ ] **C15.** `split-divider-color`
-- [ ] **C16.** `clipboard-trim-trailing-spaces`
-- [ ] **C17.** `clipboard-paste-protection`
-- [ ] **C18.** `progress-style`
+- [x] **C16.** `clipboard-trim-trailing-spaces` — silently honored by libghostty inside Surface.zig before the apprt's write_clipboard_cb. Acknowledged in `6d700c36b`.
+- [x] **C17.** `clipboard-paste-protection` — silently honored by libghostty (drives the confirm-paste path); destructive Paste/Cancel dialog landed in `6d700c36b`.
+- [x] **C18.** `progress-style` — fixed in `13d4353b1` (`no`/`none` suppresses the taskbar entry).
 - [ ] **C19.** `split-preserve-zoom`
-- [ ] **C20.** `initial-window`
+- [x] **C20.** `initial-window` — fixed in `6d700c36b`
 - [ ] **C21.** `app-notifications` (per-category gating)
 
 ---
@@ -201,6 +201,9 @@ checkbox and link the commit hash.
 - [x] Undo close-tab/window — `f3db5b6cb`
 - [x] Most action-gap `default: return false;` items (PWD, GOTO_WINDOW, PRESENT_TERMINAL, KEY_TABLE, COLOR_CHANGE, FLOAT_WINDOW, SIZE_LIMIT, CELL_SIZE, RENDER_INSPECTOR, READONLY, SECURE_INPUT, CHECK_FOR_UPDATES, TOGGLE_BACKGROUND_OPACITY, TOGGLE_TAB_OVERVIEW, TOGGLE_WINDOW_DECORATIONS) — `20278082b`
 - [x] Tier 2 stragglers: wheel pixelDelta+momentum (B30), drag-drop POSIX shell escape (B31), URL drop discrimination (B32) — `b86b11903`
+- [x] UI consistency: destructive close/quit/paste dialogs (I1), GOTO_TAB clamp (I4), OPEN_URL/OPEN_CONFIG kind routing (B13/B14) — `bfd39a4dd`
+- [x] Config reload polish: window-decoration / fullscreen / maximize propagation (B12/B47), quit-delay refresh (B48), inspector geometry autosave (B49), quick-terminal-screen (B43/C11), initial-window (C20) — `6d700c36b`
+- [x] Input + notification fidelity: consumed_mods unconditional (B21), notify-on-command-finish gates (I7), notification focus suppression (I8), progress-report state preservation (I6), progress-style (C18) — `13d4353b1`
 - [ ] Window save/restore (`window-save-state`, full session)
 - [ ] Cross-window tab/split DnD (B34, I10)
 - [ ] Inspector autosave + presentation (B49)
