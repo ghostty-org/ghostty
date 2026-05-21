@@ -18,6 +18,7 @@
 #include <QDir>
 #include <QFile>
 #include <QColor>
+#include <QFont>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QList>
@@ -1145,6 +1146,17 @@ void MainWindow::gotoSplit(GhosttySurface *from,
   QList<GhosttySurface *> panes = surfacesInTab(tab);
   if (panes.size() < 2) return;
 
+  // split-preserve-zoom.navigation: if the source pane is currently
+  // zoomed and the config asks to preserve zoom across navigation,
+  // we'll re-zoom the destination once the focus moves. Otherwise
+  // the existing semantics of dropping zoom on navigation apply.
+  // The struct is { navigation: bool, _padding: u7 }; configGet
+  // writes the bool into the first byte.
+  struct PreserveZoom { bool navigation; };
+  PreserveZoom pz{false};
+  configGet(s_config, &pz, "split-preserve-zoom");
+  const bool preserveZoom = pz.navigation && m_zoomed == from;
+
   const auto centerOf = [](GhosttySurface *s) {
     return QRect(s->mapToGlobal(QPoint(0, 0)), s->size()).center();
   };
@@ -1186,7 +1198,15 @@ void MainWindow::gotoSplit(GhosttySurface *from,
     }
   }
 
-  if (target) target->setFocus();
+  if (target) {
+    // If a zoom was active on `from` and split-preserve-zoom.navigation
+    // is on, unzoom-then-rezoom on the destination so the new pane is
+    // the one filling the tab. toggleSplitZoom on a different pane
+    // while one is zoomed first restores then zooms — exactly what we
+    // want.
+    if (preserveZoom) toggleSplitZoom(target);
+    target->setFocus();
+  }
 }
 
 void MainWindow::resizeSplit(GhosttySurface *from,
@@ -1427,6 +1447,22 @@ void MainWindow::reloadConfigGlobal() {
   s_needsPremultiply = configHasCustomShader();
 
   refreshChrome();
+
+  // app-notifications.config-reload: post a desktop notification so
+  // the user has a visible cue that the reload landed. The config is
+  // a packed-bool struct { clipboard-copy: bool, config-reload: bool };
+  // configGet writes both bytes. Default is true for both.
+  // app-notifications.clipboard-copy is currently unused — the Qt
+  // frontend doesn't post a notification on terminal-driven copy
+  // operations. The bit is read for forward compatibility so a
+  // future copy-toast can be gated by the same config without
+  // touching this site.
+  struct AppNotifications { bool clipboardCopy; bool configReload; };
+  AppNotifications n{true, true};
+  configGet(s_config, &n, "app-notifications");
+  if (n.configReload)
+    postNotification(QStringLiteral("Ghostty"),
+                     QStringLiteral("Configuration reloaded."));
 }
 
 bool MainWindow::wantsInitialWindow() {
@@ -1689,6 +1725,30 @@ void MainWindow::applyWindowConfig() {
     // shown/hidden bar, so set the right state for the current count.
     m_tabs->tabBar()->setVisible(m_tabs->count() > 1);
   }
+
+  // window-title-font-family: apply to the tab bar (and the WM
+  // title via Qt's window-title system font is harder to override
+  // portably; the tab bar is what users actually look at). Empty /
+  // unset reverts to the application font.
+  const QString titleFamily = configValue(QStringLiteral("window-title-font-family"));
+  if (m_tabs && m_tabs->tabBar()) {
+    QFont tf = QApplication::font();
+    if (!titleFamily.isEmpty()) tf.setFamily(titleFamily);
+    m_tabs->tabBar()->setFont(tf);
+  }
+
+  // split-divider-color: style the QSplitter handles. Stored as a
+  // CSS-form string in the user's config (e.g. "#ff00ff"). Empty
+  // leaves Qt's default. Applied via setStyleSheet on this window's
+  // QSplitter children since splitters can be added/removed at any
+  // time, walk them on each apply.
+  const QString divider = configValue(QStringLiteral("split-divider-color"));
+  const QString splitterCss = divider.isEmpty()
+      ? QString()
+      : QStringLiteral("QSplitter::handle { background-color: %1; }")
+            .arg(divider);
+  for (QSplitter *s : findChildren<QSplitter *>())
+    s->setStyleSheet(splitterCss);
 
   // window-theme: force a light/dark scheme, or follow the OS. `auto`
   // is rewritten to `system` on Linux by libghostty; `ghostty` follows
