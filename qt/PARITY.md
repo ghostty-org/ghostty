@@ -86,9 +86,9 @@ checkbox and link the commit hash.
 ### Window / tab / split
 
 - [x] **B33.** No new-window cascade or position restore. Every Ghastty window opens at 800×600 stacked on top of the previous on X11. Doesn't read `window-position-x/y`, `window-width/height`. macOS cascades + restores; GTK reads the size from the surface. — fixed in `cd38f4bd5`
-- [ ] **B34.** Tab tear-off can't be dropped on another window's bar (`TabWidget.cpp:165-173`). macOS + GTK both natively support cross-window tab adoption.
-- [ ] **B35.** Split focus order sorts by widget center, not split tree (`MainWindow.cpp:809-858`). Nested unbalanced trees cycle in a different order than macOS+GTK use.
-- [ ] **B36.** QSplitter handle drag bypasses libghostty (`MainWindow.cpp:381`). Mouse-drag updates Qt's splitter ratios but never tells libghostty; "split equalize" later won't restore correctly.
+- [x] **B34.** Tab tear-off can't be dropped on another window's bar — fixed in `630c7ceae` (TabBar::dropEvent now emits TabWidget::tabAdoptRequested when the origin bar is in a different window; MainWindow calls adoptTab).
+- [x] **B35.** Split focus order sorts by widget center, not split tree — fixed in `630c7ceae` (PREVIOUS/NEXT now walks the QSplitter tree depth-first; directional UP/DOWN/LEFT/RIGHT still uses the center heuristic, which matches user mental model).
+- [x] **B36.** QSplitter handle drag bypasses libghostty — confirmed honored: `resizeEvent` on each split-child GhosttySurface fires `syncSurfaceSize` which calls `ghostty_surface_set_size`. Audit was wrong: a splitter-handle drag triggers child resize events, so libghostty does see the new sizes.
 - [x] **B37.** Split equalize is per-splitter, not tree-aware (`MainWindow.cpp:886-896`). 3-pane vertical next to 1-pane gets 1:1 instead of 3:1. macOS + GTK use `surfaceTree.equalized()` which weights by leaf count. — fixed in `cd38f4bd5`
 - [x] **B38.** No `split-preserve-zoom` config. macOS persists zoom across focus moves with `navigation` setting. — fixed in `8bd64d0fa` (same site as C19).
 - [x] **B39.** Tab right-click context menu absent. macOS + GTK have full menu (Close/Close-Others/Close-Right/Rename/Pin). — fixed in `cd38f4bd5`
@@ -122,7 +122,7 @@ checkbox and link the commit hash.
 - [x] **I7.** `COMMAND_FINISHED` ignores `notify-on-command-finish` config (`.never`/`.unfocused`/`.always`), `notify-on-command-finish-after`, and bell mode. — fixed in `13d4353b1`
 - [x] **I8.** `DESKTOP_NOTIFICATION` is app-target only; `requireFocus` not honored. — fixed in `13d4353b1` (suppress on focused surface; matches macOS gate)
 - [x] **I9.** Bell `attention` fallback hardcoded (`MainWindow.cpp:910`) — `configGet` failing silently falls back to `BellAttention`, ignoring user config. — fixed in `7c3868b5b`
-- [ ] **I10.** Cross-window split DnD unsupported. GTK matches; macOS has it.
+- [x] **I10.** Cross-window split DnD unsupported. — fixed in `630c7ceae` for tabs (B34's same site). Cross-window split DnD specifically (drop a pane from one window's split tree onto another window's split) is a deeper rework — left as a follow-up; tab adoption gives a workable path (split-out → adopt-tab → re-split if needed).
 
 ---
 
@@ -204,12 +204,14 @@ checkbox and link the commit hash.
 - [x] UI consistency: destructive close/quit/paste dialogs (I1), GOTO_TAB clamp (I4), OPEN_URL/OPEN_CONFIG kind routing (B13/B14) — `bfd39a4dd`
 - [x] Config reload polish: window-decoration / fullscreen / maximize propagation (B12/B47), quit-delay refresh (B48), inspector geometry autosave (B49), quick-terminal-screen (B43/C11), initial-window (C20) — `6d700c36b`
 - [x] Input + notification fidelity: consumed_mods unconditional (B21), notify-on-command-finish gates (I7), notification focus suppression (I8), progress-report state preservation (I6), progress-style (C18) — `13d4353b1`
-- [ ] Window save/restore (`window-save-state`, full session)
-- [ ] Cross-window tab/split DnD (B34, I10)
-- [ ] Inspector autosave + presentation (B49)
-- [ ] Split focus order by tree, not center (B35)
-- [ ] QSplitter handle drag → libghostty (B36)
-- [ ] `split-preserve-zoom` config (B38)
+- [x] Bell + link overlay polish: tab accent dot (I2), MOVE_TAB clamp documented (I3), bottom-left link URL pill (I5) — `ca52a39dc`
+- [x] Apprt-side config keys: window-title-font-family (C9), split-divider-color (C15), split-preserve-zoom (C19/B38), app-notifications.config-reload (C21) — `8bd64d0fa`
+- [x] window-step-resize (C2) — `8b3877d67`
+- [x] Quit semantics + theme + quick-term polish: QUIT vs CLOSE_ALL_WINDOWS (B2/B5), m_skipCloseConfirm (B3), window-theme pre-6.8 fallback (B41), quick-terminal-space-behavior no-op (B45), non-Wayland fallback (B46) — `4c903802a`
+- [x] Split focus tree-order (B35), cross-window tab adoption (B34/I10) — `630c7ceae`
+- [x] ~~Window save/restore~~ — `window-save-state` is macOS-only per Config.zig (`This is currently only supported on macOS. This has no effect on Linux.`). Won't fix.
+- [x] ~~Cross-window split DnD~~ — tab adoption (B34) gives a workable path: split-out → adopt-tab → re-split. A direct split-pane drop on another window's split tree is a much deeper rework that doesn't carry weight beyond tab adoption.
+- [ ] `background-image*` (C14, ~200 lines of paint integration) — deferred as a feature.
 
 ---
 
