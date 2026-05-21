@@ -892,19 +892,24 @@ void MainWindow::frame() {
   ghostty_app_tick(s_app);
   // Rendering happens only here, so a flood of RENDER actions cannot
   // saturate the GUI thread — each surface renders at most once a
-  // frame. One pass across every window: the shared ghostty_app_t was
-  // already ticked once above. Iterate snapshots of both the window
-  // list and each window's surface list — a render can trigger a
-  // close (renderer-unhealthy chain, child-exited press, etc.) which
-  // mutates these QLists, invalidating in-place iterators.
-  const QList<MainWindow *> windows = s_windows;
-  for (MainWindow *w : windows) {
-    const QList<GhosttySurface *> surfaces = w->m_surfaces;
-    for (GhosttySurface *s : surfaces) {
-      // After the snapshot, the window may already have removed `s`
-      // from m_surfaces (deferred-deleted). Skip if so.
-      if (!w->m_surfaces.contains(s)) continue;
-      s->renderIfDirty();
+  // frame. One pass across every window: the shared ghostty_app_t
+  // was already ticked once above.
+  //
+  // Iterate via QPointer snapshots so a render-driven close
+  // (renderer-unhealthy chain, child-exited press, etc.) that
+  // destroys a window or surface mid-frame can't UAF the iterator
+  // or the inner-loop receiver.
+  QList<QPointer<MainWindow>> windows;
+  windows.reserve(s_windows.size());
+  for (MainWindow *w : s_windows) windows.append(w);
+  for (const QPointer<MainWindow> &wp : windows) {
+    if (!wp) continue;
+    QList<QPointer<GhosttySurface>> surfaces;
+    surfaces.reserve(wp->m_surfaces.size());
+    for (GhosttySurface *s : wp->m_surfaces) surfaces.append(s);
+    for (const QPointer<GhosttySurface> &sp : surfaces) {
+      if (!wp || !sp) continue;
+      sp->renderIfDirty();
     }
   }
 }
