@@ -7,6 +7,7 @@ import SwiftUI
 enum TerminalSplitOperation {
     case resize(Resize)
     case drop(Drop)
+    case close(Ghostty.SurfaceView)
 
     struct Resize {
         let node: SplitTree<Ghostty.SurfaceView>.Node
@@ -95,6 +96,26 @@ private struct TerminalSplitLeaf: View {
     @State private var isSelfDragging: Bool = false
 
     var body: some View {
+        if let viewerURL = surfaceView.viewerFileURL {
+            // Non-terminal viewer pane: render the HTML/Markdown file.
+            ViewerWebView(fileURL: viewerURL, persistentHost: surfaceView)
+                .overlay(alignment: .topTrailing) {
+                    Button {
+                        action(.close(surfaceView))
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(.secondary)
+                            .padding(6)
+                            .background(.regularMaterial, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(8)
+                    .help("Close viewer pane")
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Viewer pane")
+        } else {
         GeometryReader { geometry in
             Ghostty.InspectableSurface(
                 surfaceView: surfaceView,
@@ -127,6 +148,7 @@ private struct TerminalSplitLeaf: View {
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Terminal pane")
+        }
         }
     }
 

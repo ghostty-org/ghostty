@@ -16,7 +16,17 @@ struct ViewerView: View {
 struct ViewerWebView: NSViewRepresentable {
     let fileURL: URL
 
+    /// When set (split-pane usage), the web view is cached on the surface so it
+    /// survives SwiftUI rebuilds of the split tree. nil for standalone tabs.
+    var persistentHost: Ghostty.SurfaceView? = nil
+
     func makeNSView(context: Context) -> WKWebView {
+        // Reuse a cached web view so content does not reload (flicker) when the
+        // split tree rebuilds, e.g. after another pane is closed.
+        if let cached = persistentHost?.viewerWebView as? WKWebView {
+            return cached
+        }
+
         let config = WKWebViewConfiguration()
         // A viewer never needs cookies or localStorage; a non-persistent store
         // skips disk I/O on init.
@@ -24,7 +34,8 @@ struct ViewerWebView: NSViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsMagnification = true
-        load(into: webView)
+        ViewerWebView.load(url: fileURL, into: webView)
+        persistentHost?.viewerWebView = webView
         return webView
     }
 
@@ -32,19 +43,21 @@ struct ViewerWebView: NSViewRepresentable {
         // The file URL is fixed for the lifetime of the view; nothing to do.
     }
 
-    private func load(into webView: WKWebView) {
-        let ext = fileURL.pathExtension.lowercased()
-        let dir = fileURL.deletingLastPathComponent()
+    /// Renders `url` into `webView`: Markdown is converted to HTML, everything
+    /// else (HTML, etc.) is loaded directly.
+    static func load(url: URL, into webView: WKWebView) {
+        let ext = url.pathExtension.lowercased()
+        let dir = url.deletingLastPathComponent()
 
         switch ext {
         case "md", "markdown", "mdown", "mkd", "mkdn":
-            let text = (try? String(contentsOf: fileURL, encoding: .utf8))
-                ?? "# Could not read file\n\n`\(fileURL.path)`"
+            let text = (try? String(contentsOf: url, encoding: .utf8))
+                ?? "# Could not read file\n\n`\(url.path)`"
             webView.loadHTMLString(ViewerHTML.markdownPage(markdown: text), baseURL: dir)
         default:
             // html, htm, or anything else: render the file directly. Grant
             // read access to the directory so relative assets resolve.
-            webView.loadFileURL(fileURL, allowingReadAccessTo: dir)
+            webView.loadFileURL(url, allowingReadAccessTo: dir)
         }
     }
 }

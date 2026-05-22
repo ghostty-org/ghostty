@@ -269,6 +269,51 @@ class BaseTerminalController: NSWindowController,
         return newView
     }
 
+    /// Create a new non-terminal viewer split rendering the HTML/Markdown file
+    /// at `url`, beside `oldView`.
+    @discardableResult
+    func newViewerSplit(
+        at oldView: Ghostty.SurfaceView,
+        direction: SplitTree<Ghostty.SurfaceView>.NewDirection = .right,
+        url: URL
+    ) -> Ghostty.SurfaceView? {
+        // We can only create new splits for surfaces in our tree.
+        guard surfaceTree.root?.node(view: oldView) != nil else { return nil }
+
+        // Create a viewer surface (no terminal/pty is created).
+        let newView = Ghostty.SurfaceView(viewerFile: url)
+
+        let newTree: SplitTree<Ghostty.SurfaceView>
+        do {
+            newTree = try surfaceTree.inserting(
+                view: newView,
+                at: oldView,
+                direction: direction)
+        } catch {
+            Ghostty.logger.warning("failed to insert viewer split: \(error)")
+            return nil
+        }
+
+        replaceSurfaceTree(
+            newTree,
+            moveFocusTo: newView,
+            moveFocusFrom: oldView,
+            undoAction: "New Viewer Split")
+
+        return newView
+    }
+
+    /// Show `url` in this window's viewer pane: reuse an existing viewer pane
+    /// if there is one, otherwise create a new viewer split.
+    func showViewer(url: URL) {
+        if let existing = surfaceTree.first(where: { $0.viewerFileURL != nil }) {
+            existing.setViewerFile(url)
+            return
+        }
+        guard let target = focusedSurface ?? surfaceTree.root?.leftmostLeaf() else { return }
+        newViewerSplit(at: target, url: url)
+    }
+
     /// Move focus to a surface view.
     func focusSurface(_ view: Ghostty.SurfaceView) {
         // Check if target surface is in our tree
@@ -879,6 +924,8 @@ class BaseTerminalController: NSWindowController,
             splitDidResize(node: resize.node, to: resize.ratio)
         case .drop(let drop):
             splitDidDrop(source: drop.payload, destination: drop.destination, zone: drop.zone)
+        case .close(let view):
+            closeSurface(view, withConfirmation: false)
         }
     }
 

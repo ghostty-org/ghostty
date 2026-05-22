@@ -3,6 +3,7 @@ import Combine
 import SwiftUI
 import CoreText
 import UserNotifications
+import WebKit
 import GhosttyKit
 
 extension Ghostty {
@@ -167,6 +168,17 @@ extension Ghostty {
         override var surface: ghostty_surface_t? {
             surfaceModel?.unsafeCValue
         }
+
+        /// When non-nil, this is a non-terminal "viewer" pane that renders the
+        /// HTML/Markdown file at this URL instead of a terminal. Viewer panes
+        /// have no `surfaceModel` / pty; terminal code paths that guard on
+        /// `surface` simply no-op for them.
+        private(set) var viewerFileURL: URL?
+
+        /// Persistent web view for a viewer pane, retained here so the rendered
+        /// content survives SwiftUI rebuilds of the split tree (e.g. when
+        /// another pane is closed). Typed as `NSView` to avoid a WebKit import.
+        var viewerWebView: NSView?
         /// Current scrollbar state, cached here for persistence across rebuilds
         /// of the SwiftUI view hierarchy, for example when changing splits
         var scrollbar: Ghostty.Action.Scrollbar?
@@ -356,6 +368,38 @@ extension Ghostty {
 
             // The UTTypes that can be dragged onto this view.
             registerForDraggedTypes(Array(Self.dropTypes))
+        }
+
+        /// Creates a non-terminal "viewer" surface that renders the HTML or
+        /// Markdown file at `url`. No terminal surface or pty is created, so
+        /// this is a lightweight leaf for the split tree.
+        init(viewerFile url: URL, uuid: UUID? = nil) {
+            self.viewerFileURL = url
+            self.markedText = NSMutableAttributedString()
+
+            if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
+                self.derivedConfig = DerivedConfig(appDelegate.ghostty.config)
+            } else {
+                self.derivedConfig = DerivedConfig()
+            }
+
+            self.cachedScreenContents = .init(duration: .milliseconds(500)) { "" }
+            self.cachedVisibleContents = self.cachedScreenContents
+
+            super.init(id: uuid, frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+
+            // The pane/tab title is the file name.
+            self.title = url.lastPathComponent
+        }
+
+        /// Updates this viewer pane to render a different file, reloading the
+        /// cached web view in place (no new pane is created).
+        func setViewerFile(_ url: URL) {
+            self.viewerFileURL = url
+            self.title = url.lastPathComponent
+            if let webView = viewerWebView as? WKWebView {
+                ViewerWebView.load(url: url, into: webView)
+            }
         }
 
         required init?(coder: NSCoder) {
@@ -1799,6 +1843,7 @@ extension Ghostty {
             case uuid
             case title
             case isUserSetTitle
+            case viewerURL
         }
 
         required convenience init(from decoder: Decoder) throws {
@@ -1811,6 +1856,13 @@ extension Ghostty {
 
             let container = try decoder.container(keyedBy: CodingKeys.self)
             let uuid = UUID(uuidString: try container.decode(String.self, forKey: .uuid))
+
+            // Viewer panes are non-terminal; recreate them directly.
+            if let viewerPath = try container.decodeIfPresent(String.self, forKey: .viewerURL) {
+                self.init(viewerFile: URL(fileURLWithPath: viewerPath), uuid: uuid)
+                return
+            }
+
             var config = Ghostty.SurfaceConfiguration()
             config.workingDirectory = try container.decode(String?.self, forKey: .pwd)
             let savedTitle = try container.decodeIfPresent(String.self, forKey: .title)
@@ -1830,6 +1882,7 @@ extension Ghostty {
 
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encodeIfPresent(viewerFileURL?.path, forKey: .viewerURL)
             try container.encode(pwd, forKey: .pwd)
             try container.encode(id.uuidString, forKey: .uuid)
             try container.encode(title, forKey: .title)
