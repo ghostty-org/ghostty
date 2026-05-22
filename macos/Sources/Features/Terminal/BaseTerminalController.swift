@@ -306,12 +306,10 @@ class BaseTerminalController: NSWindowController,
     /// Show `url` in this window's viewer pane: reuse an existing viewer pane
     /// if there is one, otherwise create a new viewer split.
     func showViewer(url: URL) {
-        if let existing = surfaceTree.first(where: { $0.viewerFileURL != nil }) {
-            existing.setViewerFile(url)
-            return
-        }
+        // Render the file in-place, filling the focused pane (no split). The
+        // pane's terminal, if any, stays alive underneath and can be restored.
         guard let target = focusedSurface ?? surfaceTree.root?.leftmostLeaf() else { return }
-        newViewerSplit(at: target, url: url)
+        target.setViewerFile(url)
     }
 
     /// Move focus to a surface view.

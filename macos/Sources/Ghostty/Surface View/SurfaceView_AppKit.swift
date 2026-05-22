@@ -173,7 +173,7 @@ extension Ghostty {
         /// HTML/Markdown file at this URL instead of a terminal. Viewer panes
         /// have no `surfaceModel` / pty; terminal code paths that guard on
         /// `surface` simply no-op for them.
-        private(set) var viewerFileURL: URL?
+        @Published private(set) var viewerFileURL: URL?
 
         /// Persistent web view for a viewer pane, retained here so the rendered
         /// content survives SwiftUI rebuilds of the split tree (e.g. when
@@ -400,6 +400,12 @@ extension Ghostty {
             if let webView = viewerWebView as? WKWebView {
                 ViewerWebView.load(url: url, into: webView)
             }
+        }
+
+        /// Reverts a pane showing a viewer back to its terminal (if any).
+        func clearViewer() {
+            self.viewerFileURL = nil
+            self.viewerWebView = nil
         }
 
         required init?(coder: NSCoder) {

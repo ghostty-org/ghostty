@@ -88,7 +88,7 @@ private struct TerminalSplitSubtreeView: View {
 }
 
 private struct TerminalSplitLeaf: View {
-    let surfaceView: Ghostty.SurfaceView
+    @ObservedObject var surfaceView: Ghostty.SurfaceView
     let isSplit: Bool
     let action: (TerminalSplitOperation) -> Void
 
@@ -101,7 +101,13 @@ private struct TerminalSplitLeaf: View {
             ViewerWebView(fileURL: viewerURL, persistentHost: surfaceView)
                 .overlay(alignment: .topTrailing) {
                     Button {
-                        action(.close(surfaceView))
+                        if surfaceView.surfaceModel != nil {
+                            // Terminal underneath: revert this pane to it.
+                            surfaceView.clearViewer()
+                        } else {
+                            // Dedicated viewer pane: remove it from the tree.
+                            action(.close(surfaceView))
+                        }
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 16))

@@ -222,7 +222,7 @@ class AppDelegate: NSObject,
             fileMenu.insertItem(viewerItem, at: fileMenu.index(of: newTabItem) + 1)
 
             let splitItem = NSMenuItem(
-                title: "Open Viewer in Split…",
+                title: "Open Viewer…",
                 action: #selector(openViewerSplit(_:)),
                 keyEquivalent: "")
             splitItem.target = self
