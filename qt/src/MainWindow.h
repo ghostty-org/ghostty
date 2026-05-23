@@ -116,6 +116,13 @@ public:
   // private m_surfaces member.
   const QList<GhosttySurface *> &surfaces() const { return m_surfaces; }
 
+  // Whether `s` is one of this window's surfaces. Used by
+  // GhosttyApp::surfaceAlive to validate libghostty userdata pointers
+  // against a destruction race on worker-thread callbacks.
+  bool ownsSurface(GhosttySurface *s) const {
+    return m_surfaces.contains(s);
+  }
+
 protected:
   bool event(QEvent *) override;
   void showEvent(QShowEvent *) override;
@@ -232,24 +239,14 @@ private:
   // / back into the splitter tree.
   void toggleSplitZoom(GhosttySurface *surface);
 
-  // Runtime callbacks dispatched by libghostty. action is app-level
-  // (routed via the target surface or the GhosttyApp window
-  // registry); clipboard/close carry the surface userdata. wakeup
-  // moved to GhosttyApp::onWakeup in phase 1.2.
+  // The libghostty action callback. Stays here because its switch
+  // body still needs private MainWindow access; phase 2 retires it
+  // for an ActionDispatcher. The other five runtime callbacks
+  // (onWakeup + clipboard quartet) live on GhosttyApp.
   static bool onAction(ghostty_app_t, ghostty_target_s, ghostty_action_s);
-  static bool onReadClipboard(void *ud, ghostty_clipboard_e, void *state);
-  static void onConfirmReadClipboard(void *ud, const char *, void *state,
-                                     ghostty_clipboard_request_e);
-  static void onWriteClipboard(void *ud, ghostty_clipboard_e,
-                               const ghostty_clipboard_content_s *, size_t,
-                               bool);
-  static void onCloseSurface(void *ud, bool process_active);
 
-  // True if `s` is still owned by some live MainWindow. The surface
-  // userdata callbacks above use this to validate a libghostty-supplied
-  // pointer before dereferencing — a worker-thread callback can race
-  // the GhosttySurface destructor.
-  static bool surfaceAlive(GhosttySurface *s);
+  // surfaceAlive moved to GhosttyApp::surfaceAlive (it iterates the
+  // live window registry, which is owned by the singleton).
 
   TabWidget *m_tabs = nullptr;
   QList<GhosttySurface *> m_surfaces;  // every live surface in this window

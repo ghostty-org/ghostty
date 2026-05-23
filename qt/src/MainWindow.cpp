@@ -742,7 +742,7 @@ void MainWindow::showTabContextMenu(int index, const QPoint &globalPos) {
   QAction *aRename = menu.addAction(QStringLiteral("Rename Tab…"));
 
   QAction *chosen = menu.exec(globalPos);
-  if (!chosen || !surfaceAlive(src)) return;
+  if (!chosen || !GhosttyApp::instance().surfaceAlive(src)) return;
   if (chosen == aClose)
     closeTabsByMode(src, GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS);
   else if (chosen == aOther)
@@ -1952,13 +1952,8 @@ void MainWindow::toggleSplitZoom(GhosttySurface *surface) {
 }
 
 // --- libghostty runtime callbacks ------------------------------------
-
-bool MainWindow::surfaceAlive(GhosttySurface *s) {
-  if (!s) return false;
-  for (MainWindow *w : GhosttyApp::instance().windows())
-    if (w->m_surfaces.contains(s)) return true;
-  return false;
-}
+// All five non-action callbacks (onWakeup + the clipboard / close
+// quartet) live on GhosttyApp now. onAction stays here until phase 2.
 
 // Map a libghostty mouse shape to the nearest Qt cursor.
 static Qt::CursorShape mouseShapeToCursor(ghostty_action_mouse_shape_e s) {
@@ -2743,104 +2738,5 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
   }
 }
 
-bool MainWindow::onReadClipboard(void *ud, ghostty_clipboard_e loc,
-                                 void *state) {
-  // surface userdata. Called synchronously by libghostty when a
-  // surface needs clipboard contents (paste). This runs on the GUI
-  // thread by construction: every libghostty entry point that
-  // surfaces a paste lives behind ghostty_app_tick, which the
-  // process-wide frame timer drives — and that timer is on the GUI
-  // thread. QClipboard is GUI-thread-only, so reading directly here
-  // is safe; surfaceAlive still validates the pointer in case a
-  // surface is mid-destruction on this same thread.
-  auto *surface = static_cast<GhosttySurface *>(ud);
-  if (!surfaceAlive(surface) || !surface->surface()) return false;
-
-  const QClipboard::Mode mode = loc == GHOSTTY_CLIPBOARD_SELECTION
-                                    ? QClipboard::Selection
-                                    : QClipboard::Clipboard;
-  const QByteArray text = QGuiApplication::clipboard()->text(mode).toUtf8();
-  ghostty_surface_complete_clipboard_request(surface->surface(),
-                                             text.constData(), state, true);
-  return true;
-}
-
-void MainWindow::onConfirmReadClipboard(void *ud, const char *str, void *state,
-                                        ghostty_clipboard_request_e) {
-  // libghostty asks for confirmation when a paste looks unsafe. The
-  // dialog MUST be deferred: this callback runs inside libghostty, and a
-  // modal dialog here spins a nested event loop that re-enters libghostty
-  // through the render tick — a crash/freeze. `state` is a completion
-  // token valid until used; `str` is not, so copy it.
-  auto *surface = static_cast<GhosttySurface *>(ud);
-  if (!surfaceAlive(surface) || !surface->surface()) return;
-
-  QPointer<GhosttySurface> sp(surface);
-  const QByteArray content(str);
-  QMetaObject::invokeMethod(
-      surface->owner(),
-      [sp, content, state]() {
-        if (!sp || !sp->surface()) return;
-        QString preview = QString::fromUtf8(content);
-        // Truncate by code unit but back off to a non-surrogate boundary
-        // so we don't slice a surrogate pair half.
-        if (preview.size() > 200) {
-          int cut = 200;
-          while (cut > 0 && preview.at(cut - 1).isHighSurrogate()) --cut;
-          preview = preview.left(cut) + QStringLiteral("…");
-        }
-        // Destructive Paste / Cancel buttons, default Cancel —
-        // mirrors the close-confirmation styling.
-        QMessageBox box(sp->owner());
-        box.setIcon(QMessageBox::Warning);
-        box.setWindowTitle(QStringLiteral("Confirm Paste"));
-        box.setText(QStringLiteral("The text being pasted may be unsafe."));
-        box.setInformativeText(preview);
-        QPushButton *paste = box.addButton(QStringLiteral("Paste"),
-                                           QMessageBox::DestructiveRole);
-        QPushButton *cancel = box.addButton(QStringLiteral("Cancel"),
-                                            QMessageBox::RejectRole);
-        box.setDefaultButton(cancel);
-        box.exec();
-        ghostty_surface_complete_clipboard_request(
-            sp->surface(), content.constData(), state,
-            box.clickedButton() == paste);
-      },
-      Qt::QueuedConnection);
-}
-
-void MainWindow::onWriteClipboard(void *ud, ghostty_clipboard_e loc,
-                                  const ghostty_clipboard_content_s *content,
-                                  size_t n, bool) {
-  if (n == 0 || !content[0].data) return;
-  auto *surface = static_cast<GhosttySurface *>(ud);
-  if (!surfaceAlive(surface)) return;
-
-  const QClipboard::Mode mode = loc == GHOSTTY_CLIPBOARD_SELECTION
-                                    ? QClipboard::Selection
-                                    : QClipboard::Clipboard;
-  const QString text = QString::fromUtf8(content[0].data);
-  // The clipboard is process-global; route via qApp so a window dying
-  // mid-flight does not strand the write.
-  QMetaObject::invokeMethod(
-      qApp,
-      [text, mode]() { QGuiApplication::clipboard()->setText(text, mode); },
-      Qt::QueuedConnection);
-}
-
-void MainWindow::onCloseSurface(void *ud, bool) {
-  // surface userdata. Deferred out of this callback so the confirm
-  // dialog cannot spin a nested event loop back into libghostty.
-  auto *surface = static_cast<GhosttySurface *>(ud);
-  if (!surfaceAlive(surface)) return;
-  MainWindow *self = surface->owner();
-  QPointer<MainWindow> selfp(self);
-  QPointer<GhosttySurface> sp(surface);
-  QMetaObject::invokeMethod(
-      self,
-      [selfp, sp]() {
-        if (!selfp || !sp) return;
-        if (selfp->confirmCloseSurfaces({sp})) selfp->removeSurface(sp);
-      },
-      Qt::QueuedConnection);
-}
+// onReadClipboard / onConfirmReadClipboard / onWriteClipboard /
+// onCloseSurface all moved to GhosttyApp in phase 1.3b.

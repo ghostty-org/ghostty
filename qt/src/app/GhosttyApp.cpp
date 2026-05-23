@@ -4,11 +4,16 @@
 
 #include <QApplication>
 #include <QByteArray>
+#include <QClipboard>
 #include <QCoreApplication>
 #include <QDir>
 #include <QEvent>
 #include <QFile>
+#include <QGuiApplication>
+#include <QMessageBox>
+#include <QMetaObject>
 #include <QPointer>
+#include <QPushButton>
 #include <QString>
 #include <QTimer>
 
@@ -73,15 +78,14 @@ bool GhosttyApp::ensureInitialized() {
   // surface, and app-level actions via the GhosttyApp window registry.
   rt.userdata = nullptr;
   rt.supports_selection_clipboard = true;
-  // onWakeup migrated in phase 1.2; the rest still live on
-  // MainWindow and migrate alongside the action dispatcher in
-  // phase 1.3+.
+  // onAction stays on MainWindow until phase 2 introduces the
+  // ActionDispatcher; the rest are owned by GhosttyApp.
   rt.wakeup_cb = GhosttyApp::onWakeup;
   rt.action_cb = MainWindow::onAction;
-  rt.read_clipboard_cb = MainWindow::onReadClipboard;
-  rt.confirm_read_clipboard_cb = MainWindow::onConfirmReadClipboard;
-  rt.write_clipboard_cb = MainWindow::onWriteClipboard;
-  rt.close_surface_cb = MainWindow::onCloseSurface;
+  rt.read_clipboard_cb = GhosttyApp::onReadClipboard;
+  rt.confirm_read_clipboard_cb = GhosttyApp::onConfirmReadClipboard;
+  rt.write_clipboard_cb = GhosttyApp::onWriteClipboard;
+  rt.close_surface_cb = GhosttyApp::onCloseSurface;
 
   m_app = ghostty_app_new(&rt, m_config);
   if (!m_app) {
@@ -259,4 +263,114 @@ void GhosttyApp::teardown() {
     m_config = nullptr;
   }
   m_needsPremultiply = false;
+}
+
+bool GhosttyApp::surfaceAlive(GhosttySurface *s) const {
+  if (!s) return false;
+  for (MainWindow *w : m_windows)
+    if (w->ownsSurface(s)) return true;
+  return false;
+}
+
+bool GhosttyApp::onReadClipboard(void *ud, ghostty_clipboard_e loc,
+                                 void *state) {
+  // surface userdata. Called synchronously by libghostty when a
+  // surface needs clipboard contents (paste). This runs on the GUI
+  // thread by construction: every libghostty entry point that
+  // surfaces a paste lives behind ghostty_app_tick, which the
+  // process-wide frame timer drives — and that timer is on the GUI
+  // thread. QClipboard is GUI-thread-only, so reading directly here
+  // is safe; surfaceAlive still validates the pointer in case a
+  // surface is mid-destruction on this same thread.
+  auto *surface = static_cast<GhosttySurface *>(ud);
+  if (!instance().surfaceAlive(surface) || !surface->surface()) return false;
+
+  const QClipboard::Mode mode = loc == GHOSTTY_CLIPBOARD_SELECTION
+                                    ? QClipboard::Selection
+                                    : QClipboard::Clipboard;
+  const QByteArray text = QGuiApplication::clipboard()->text(mode).toUtf8();
+  ghostty_surface_complete_clipboard_request(surface->surface(),
+                                             text.constData(), state, true);
+  return true;
+}
+
+void GhosttyApp::onConfirmReadClipboard(void *ud, const char *str,
+                                        void *state,
+                                        ghostty_clipboard_request_e) {
+  // libghostty asks for confirmation when a paste looks unsafe. The
+  // dialog MUST be deferred: this callback runs inside libghostty,
+  // and a modal dialog here spins a nested event loop that re-enters
+  // libghostty through the render tick — a crash/freeze. `state` is
+  // a completion token valid until used; `str` is not, so copy it.
+  auto *surface = static_cast<GhosttySurface *>(ud);
+  if (!instance().surfaceAlive(surface) || !surface->surface()) return;
+
+  QPointer<GhosttySurface> sp(surface);
+  const QByteArray content(str);
+  QMetaObject::invokeMethod(
+      surface->owner(),
+      [sp, content, state]() {
+        if (!sp || !sp->surface()) return;
+        QString preview = QString::fromUtf8(content);
+        // Truncate by code unit but back off to a non-surrogate
+        // boundary so we don't slice a surrogate pair half.
+        if (preview.size() > 200) {
+          int cut = 200;
+          while (cut > 0 && preview.at(cut - 1).isHighSurrogate()) --cut;
+          preview = preview.left(cut) + QStringLiteral("…");
+        }
+        // Destructive Paste / Cancel buttons, default Cancel —
+        // mirrors the close-confirmation styling.
+        QMessageBox box(sp->owner());
+        box.setIcon(QMessageBox::Warning);
+        box.setWindowTitle(QStringLiteral("Confirm Paste"));
+        box.setText(QStringLiteral("The text being pasted may be unsafe."));
+        box.setInformativeText(preview);
+        QPushButton *paste = box.addButton(QStringLiteral("Paste"),
+                                           QMessageBox::DestructiveRole);
+        QPushButton *cancel = box.addButton(QStringLiteral("Cancel"),
+                                            QMessageBox::RejectRole);
+        box.setDefaultButton(cancel);
+        box.exec();
+        ghostty_surface_complete_clipboard_request(
+            sp->surface(), content.constData(), state,
+            box.clickedButton() == paste);
+      },
+      Qt::QueuedConnection);
+}
+
+void GhosttyApp::onWriteClipboard(void *ud, ghostty_clipboard_e loc,
+                                  const ghostty_clipboard_content_s *content,
+                                  size_t n, bool) {
+  if (n == 0 || !content[0].data) return;
+  auto *surface = static_cast<GhosttySurface *>(ud);
+  if (!instance().surfaceAlive(surface)) return;
+
+  const QClipboard::Mode mode = loc == GHOSTTY_CLIPBOARD_SELECTION
+                                    ? QClipboard::Selection
+                                    : QClipboard::Clipboard;
+  const QString text = QString::fromUtf8(content[0].data);
+  // The clipboard is process-global; route via qApp so a window
+  // dying mid-flight does not strand the write.
+  QMetaObject::invokeMethod(
+      qApp,
+      [text, mode]() { QGuiApplication::clipboard()->setText(text, mode); },
+      Qt::QueuedConnection);
+}
+
+void GhosttyApp::onCloseSurface(void *ud, bool) {
+  // surface userdata. Deferred out of this callback so the confirm
+  // dialog cannot spin a nested event loop back into libghostty.
+  auto *surface = static_cast<GhosttySurface *>(ud);
+  if (!instance().surfaceAlive(surface)) return;
+  MainWindow *self = surface->owner();
+  QPointer<MainWindow> selfp(self);
+  QPointer<GhosttySurface> sp(surface);
+  QMetaObject::invokeMethod(
+      self,
+      [selfp, sp]() {
+        if (!selfp || !sp) return;
+        if (selfp->confirmCloseSurfaces({sp})) selfp->removeSurface(sp);
+      },
+      Qt::QueuedConnection);
 }

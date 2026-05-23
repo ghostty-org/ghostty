@@ -90,8 +90,19 @@ public:
   void setQuitDelayMs(int ms) { m_quitDelayMs = ms; }
 
   // ---- libghostty runtime callbacks (registered in ensureInitialized).
-  // Phase 1.2 ports onWakeup; the others still live on MainWindow.
   static void onWakeup(void *ud);
+  static bool onReadClipboard(void *ud, ghostty_clipboard_e, void *state);
+  static void onConfirmReadClipboard(void *ud, const char *, void *state,
+                                     ghostty_clipboard_request_e);
+  static void onWriteClipboard(void *ud, ghostty_clipboard_e,
+                               const ghostty_clipboard_content_s *, size_t,
+                               bool);
+  static void onCloseSurface(void *ud, bool process_active);
+
+  // True if the surface pointer (a libghostty userdata) is still owned
+  // by a live MainWindow. Worker-thread callbacks use this to gate
+  // against a destruction race.
+  bool surfaceAlive(GhosttySurface *s) const;
 
 private:
   GhosttyApp() = default;
