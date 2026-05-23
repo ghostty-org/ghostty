@@ -2581,10 +2581,20 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       return true;
     }
 
-    case GHOSTTY_ACTION_RENDERER_HEALTH:
-      if (action.action.renderer_health == GHOSTTY_RENDERER_HEALTH_UNHEALTHY)
+    case GHOSTTY_ACTION_RENDERER_HEALTH: {
+      const bool unhealthy =
+          action.action.renderer_health == GHOSTTY_RENDERER_HEALTH_UNHEALTHY;
+      if (unhealthy)
         std::fprintf(stderr, "[ghastty] renderer reported unhealthy\n");
+      // Surface the state in the affected pane so the user sees it
+      // without watching stderr. The overlay is a simple per-surface
+      // pill (see GhosttySurface::setRendererHealth); it clears as
+      // soon as libghostty reports HEALTHY again.
+      if (src) post(src, [srcp, unhealthy]() {
+        if (srcp) srcp->setRendererHealth(unhealthy);
+      });
       return true;
+    }
 
     case GHOSTTY_ACTION_SCROLLBAR: {
       if (!src) return false;
@@ -2766,19 +2776,54 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
 
     case GHOSTTY_ACTION_PWD: {
       // libghostty inherits a child's pwd through the surface tree
-      // itself (ghostty_surface_inherited_config carries it across
-      // splits/tabs) — the apprt only needs to acknowledge the
-      // notification. macOS also stashes it on the window for proxy
-      // icon / titlebar; we have no such UI yet so just consume it.
+      // (ghostty_surface_inherited_config carries it across splits /
+      // tabs), and re-fires this action whenever the cwd changes via
+      // OSC 7 / shell integration. Stash it on the surface so future
+      // chrome (worktree-aware tab decoration, "new tab here") can
+      // read it without parsing /proc/<pid>/cwd. Empty pwd from
+      // libghostty means "unknown / cleared" — pass it through so the
+      // surface can drop a stale value.
+      if (!src) return true;
+      // libghostty's pwd is a sentinel-terminated Zig slice (see
+      // src/apprt/action.zig:Pwd) — its C ptr is always non-null;
+      // an "unknown / cleared" cwd is encoded as "".
+      const QString s = QString::fromUtf8(action.action.pwd.pwd);
+      post(src, [srcp, s]() {
+        if (srcp) srcp->setPwd(s);
+      });
       return true;
     }
 
-    case GHOSTTY_ACTION_COLOR_CHANGE:
+    case GHOSTTY_ACTION_COLOR_CHANGE: {
       // OSC 4/10/11/12 colour change. libghostty already updates its
-      // internal palette; the next render will reflect it. Just dirty
-      // the surface so the change is visible promptly.
+      // internal palette; the next render will reflect it. Dirty the
+      // surface so the change is visible promptly.
       if (src) src->markDirty();
+      // OSC 11 flips the effective background, which under
+      // `window-theme = ghostty` controls the chrome's light/dark
+      // scheme. The config-file `background` hasn't changed, so we
+      // can't go through refreshChrome; instead, derive the scheme
+      // straight from the action's RGB payload. macOS does the
+      // analogous thing in its color-change handler.
+      //
+      // Note: Qt's setColorScheme is a process-global style hint, so
+      // an OSC 11 from any window flips chrome on every window. This
+      // matches applyWindowConfig (also a global call) and is the
+      // documented Qt 6.8+ behaviour.
+      if (action.action.color_change.kind ==
+          GHOSTTY_ACTION_COLOR_KIND_BACKGROUND) {
+        const ghostty_action_color_change_s c = action.action.color_change;
+        post(qApp, [winp, c]() {
+          if (!winp) return;
+          if (winp->configString("window-theme") != QLatin1String("ghostty"))
+            return;
+          const double luma = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
+          QGuiApplication::styleHints()->setColorScheme(
+              luma < 128.0 ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
+        });
+      }
       return true;
+    }
 
     case GHOSTTY_ACTION_READONLY:
       // Read-only mode: libghostty itself drops keystrokes; we have
@@ -2806,6 +2851,14 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
 
     case GHOSTTY_ACTION_SHOW_GTK_INSPECTOR:
       // GTK-only debug action; no analogue.
+      return true;
+
+    case GHOSTTY_ACTION_SHOW_ON_SCREEN_KEYBOARD:
+      // libghostty defines this for iOS / on-screen-keyboard apprts.
+      // Linux desktops have a system-managed virtual keyboard (e.g.
+      // KDE's vkbd, GNOME's caribou) that the user toggles
+      // out-of-band; nothing for the apprt to do. Acknowledge so the
+      // keybind isn't reported as unhandled.
       return true;
 
     case GHOSTTY_ACTION_UNDO:

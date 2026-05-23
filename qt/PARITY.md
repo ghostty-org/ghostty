@@ -49,12 +49,12 @@ checkbox and link the commit hash.
 - [x] **B16.** `COPY_TITLE_TO_CLIPBOARD` copies the WINDOW title (`MainWindow.cpp:1280-1284`, `:552`), not the surface title. On a multi-tab window, the wrong title gets copied. macOS copies per-surface. — fixed in `33b5dee46`
 - [x] **B17.** `PROMPT_TITLE` with target=APP is no-op (`MainWindow.cpp:1271`). macOS promotes to `NSApp.mainWindow`. — fixed in `20278082b`
 - [x] **B18.** Many actions in `default: return false;` (`MainWindow.cpp:1603-1604`): — most fixed in `20278082b` and `f3db5b6cb`
-  - [x] `PWD` — acknowledged in `20278082b` (libghostty inherits cwd via inherited_config; no apprt UI to update).
+  - [x] `PWD` — stash on the surface for chrome/worktree integration to read (foundation for the upcoming worktree-aware tab decoration).
   - [x] `GOTO_WINDOW` — cycle implemented in `20278082b`.
   - [x] `PRESENT_TERMINAL` — show/raise/activate/focus implemented in `20278082b`.
   - [x] `KEY_TABLE` — name surfaced via keybind chord overlay in `20278082b`.
   - [x] `READONLY` — acknowledged in `20278082b` (libghostty drops keystrokes; no apprt UI).
-  - [x] `COLOR_CHANGE` — markDirty in `20278082b` so OSC 4/10/11/12 changes paint promptly.
+  - [x] `COLOR_CHANGE` — markDirty in `20278082b` so OSC 4/10/11/12 changes paint promptly; OSC 11 (background) now also re-derives the chrome light/dark scheme under `window-theme = ghostty`.
   - [x] `RENDER_INSPECTOR` — kicks inspector update in `20278082b`.
   - [x] `CELL_SIZE` — stored on window for future grid-snap; bookkeeping only in `20278082b`.
   - [x] `SIZE_LIMIT` — setMinimumSize/setMaximumSize honored in `20278082b`.

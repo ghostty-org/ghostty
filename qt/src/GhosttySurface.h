@@ -4,6 +4,7 @@
 
 #include <QImage>
 #include <QPointer>
+#include <QString>
 #include <QStringList>
 #include <QWidget>
 
@@ -125,6 +126,21 @@ public:
   // dedicated overlay.
   void setLinkOverlay(const QString &url);
 
+  // Set / clear the renderer-health overlay. Driven by the
+  // RENDERER_HEALTH action: the prior implementation only logged to
+  // stderr, so a user whose GPU dropped the renderer never knew. A
+  // small red pill at the surface's top-right surfaces the state.
+  void setRendererHealth(bool unhealthy);
+
+  // Tracked working directory (from the PWD action). Updated whenever
+  // libghostty notifies the apprt that the surface's cwd has changed —
+  // either at spawn (from inherited config) or via shell integration /
+  // OSC 7. The value is currently stored only; future chrome
+  // (worktree-aware tab decoration, "new tab here", proxy icon) reads
+  // it via pwd().
+  void setPwd(const QString &pwd);
+  const QString &pwd() const { return m_pwd; }
+
 protected:
   bool event(QEvent *) override;
   void paintEvent(QPaintEvent *) override;
@@ -206,6 +222,7 @@ private:
   QLabel *m_exitOverlay = nullptr;     // "process exited" banner; lazily made
   QLabel *m_keySeqOverlay = nullptr;   // pending keybind chord; lazily made
   QLabel *m_linkOverlay = nullptr;     // MOUSE_OVER_LINK URL hint; lazily made
+  QLabel *m_healthOverlay = nullptr;   // RENDERER_HEALTH=unhealthy; lazily made
   QStringList m_keySeq;                // accumulated pending chords
   // The transient "cols × rows" overlay is painted directly in
   // paintEvent (not a child widget) so it is part of the terminal frame
@@ -245,4 +262,8 @@ private:
   // event will deliver the same text).
   bool m_hadPreedit = false;
   std::atomic<bool> m_dirty{false};    // a frame render is pending
+  // Tracked working directory from the PWD action; empty until the
+  // first PWD notification (libghostty fires one at spawn from the
+  // inherited config, then on every cwd change).
+  QString m_pwd;
 };
