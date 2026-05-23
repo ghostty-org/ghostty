@@ -11,8 +11,6 @@
 #include <QCursor>
 #include <QCloseEvent>
 #include <QCoreApplication>
-#include <QDBusConnection>
-#include <QDBusMessage>
 #include <QDesktopServices>
 #include <QEvent>
 #include <QColor>
@@ -869,14 +867,14 @@ void MainWindow::setupLayerShell() {
   ls->setScreen(screen);
   if (!screen) screen = handle->screen();
 
-  // quick-terminal-space-behavior (`remain` / `move`): macOS
-  // controls whether the dropdown follows the active Space or pins
-  // to the one it was opened on. Wayland's wlr-layer-shell has no
-  // equivalent — the compositor always renders the surface on the
-  // active workspace (KWin behaviour), which corresponds to `move`.
-  // Achieving `remain` would need a per-workspace pin that no
-  // mainstream compositor exposes; honour by no-op and document.
-  Q_UNUSED(config::string("quick-terminal-space-behavior"));
+  // quick-terminal-space-behavior (`remain` / `move`) is intentionally
+  // not read: macOS controls whether the dropdown follows the active
+  // Space or pins to the one it was opened on, but Wayland's
+  // wlr-layer-shell has no equivalent — the compositor always renders
+  // the surface on the active workspace (KWin behaviour), which
+  // corresponds to `move`. Achieving `remain` would need a
+  // per-workspace pin that no mainstream compositor exposes; honour
+  // by no-op and document.
 
   const QSize scr = screen ? screen->size() : QSize(1920, 1080);
 
