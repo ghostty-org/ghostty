@@ -110,6 +110,19 @@ uint64_t durationNs(const char *key, uint64_t fallbackNs) {
   return parseDurationNs(diskValue(key), fallbackNs);
 }
 
+unsigned int bitfield(const char *key, unsigned int fallbackBits) {
+  unsigned int bits = 0;
+  ghostty_config_t cfg = handle();
+  if (cfg && ghostty_config_get(cfg, &bits, key, qstrlen(key))) return bits;
+  return fallbackBits;
+}
+
+QString expandedPath(const char *key) {
+  QString p = diskValue(key);
+  if (p.startsWith(QLatin1String("~/"))) p = QDir::homePath() + p.mid(1);
+  return p;
+}
+
 bool hasCustomShader() {
   // libghostty does not expose this through ghostty_config_get
   // (`custom-shader` is a repeatable path), so scan the primary

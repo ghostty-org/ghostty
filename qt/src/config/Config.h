@@ -49,6 +49,22 @@ QString diskValue(const char *key);
 // the on-disk config text directly.
 bool hasCustomShader();
 
+// Read a packed-bitfield config key. libghostty serializes packed
+// structs as a c_uint via c_get.zig (`ptr.* = @intCast(@as(Backing,
+// @bitCast(value)))`), so the returned bits are flag-indexed by the
+// struct field order. Reading into a smaller buffer (e.g. a `bool`
+// for a one-field packed struct) under-sizes the write and corrupts
+// adjacent stack — always go through this. Returns `fallbackBits`
+// when ghostty_config_get fails.
+unsigned int bitfield(const char *key, unsigned int fallbackBits);
+
+// Read a path-valued disk config and expand a leading `~/` to the
+// user's home directory. Returns empty when the key is absent.
+// Path-valued keys are read off-disk (libghostty doesn't surface
+// them through ghostty_config_get) so this is just diskValue() with
+// a tilde-expansion pass.
+QString expandedPath(const char *key);
+
 // Wrapper around ghostty_config_get that infers the value's length
 // from a string literal so call sites stop repeating qstrlen(). The
 // template only binds to char-array references (string literals);

@@ -15,7 +15,6 @@
 #include <QDBusMessage>
 #include <QDesktopServices>
 #include <QEvent>
-#include <QDir>
 #include <QColor>
 #include <QFont>
 #include <QGuiApplication>
@@ -1013,14 +1012,10 @@ void MainWindow::gotoSplit(GhosttySurface *from,
   // we'll re-zoom the destination once the focus moves. Otherwise
   // the existing semantics of dropping zoom on navigation apply.
   //
-  // libghostty serializes packed structs into a c_uint bitfield via
-  // c_get.zig: `ptr.* = @intCast(@as(Backing, @bitCast(value)));`.
   // SplitPreserveZoom = packed struct { navigation: bool } so bit 0
-  // is `navigation`. Reading into a smaller C struct (sizeof
-  // `bool`==1) under-sized the buffer and corrupted adjacent stack;
-  // read into c_uint and mask the bits.
-  unsigned int pzBits = 0;
-  config::get(&pzBits, "split-preserve-zoom");
+  // is `navigation`. config::bitfield handles the c_uint sizing
+  // dance documented there.
+  const unsigned int pzBits = config::bitfield("split-preserve-zoom", 0);
   const bool preserveZoom = (pzBits & 0x1) != 0 && m_zoomed == from;
 
   const auto centerOf = [](GhosttySurface *s) {
@@ -1183,10 +1178,8 @@ void MainWindow::ringBell(GhosttySurface *surface) {
   // dropping the field), use BellAttention as a sane minimum fallback.
   // If config-get succeeds with features=0, the user explicitly opted
   // out of every bell feature and we honor that.
-  unsigned int features = 0;
-  if (!config::get(&features, "bell-features")) {
-    features = BellAttention;
-  }
+  const unsigned int features =
+      config::bitfield("bell-features", BellAttention);
   if (features & BellAttention) QApplication::alert(this);
   if (features & BellSystem) QApplication::beep();
   if (features & BellAudio) playBellAudio();
@@ -1341,11 +1334,9 @@ void MainWindow::reloadConfigGlobal() {
   // bit 1 = config-reload. The clipboard-copy bit is read for
   // forward compatibility — Qt doesn't currently post a copy
   // toast, but a future one will pick up the same gate.
-  unsigned int notifBits = 0;
-  const bool notifOk = config::get(&notifBits, "app-notifications");
-  // config::get failure → defaults (both bits set) so the feature
-  // still works as documented.
-  if (!notifOk) notifBits = 0x3;
+  // config::bitfield failure → defaults (both bits set) so the
+  // feature still works as documented.
+  const unsigned int notifBits = config::bitfield("app-notifications", 0x3);
   const bool wantConfigReload = (notifBits & 0x2) != 0;
   if (wantConfigReload)
     postNotification(QStringLiteral("Ghostty"),
@@ -1619,10 +1610,7 @@ void MainWindow::applyWindowConfig() {
   // doesn't re-scan the on-disk config on every bell. Refreshed on
   // each applyWindowConfig (i.e. at init and on reload).
   {
-    QString path = config::diskValue("bell-audio-path");
-    if (path.startsWith(QLatin1String("~/")))
-      path = QDir::homePath() + path.mid(1);
-    m_bellAudioPath = path;
+    m_bellAudioPath = config::expandedPath("bell-audio-path");
     bool volOk = false;
     const double v =
         config::diskValue("bell-audio-volume").toDouble(&volOk);

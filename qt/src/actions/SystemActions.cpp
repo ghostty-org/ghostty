@@ -164,16 +164,11 @@ bool handleSystem(const Context &ctx, const ghostty_action_s &action) {
             5ULL * 1000 * 1000 * 1000);
         if (duration < afterNs) return;
         // -action: NotifyOnCommandFinishAction = packed struct
-        // { bell: bool = true, notify: bool = false }. Serialized
-        // as c_uint via c_get.zig; bit 0 = bell, bit 1 = notify.
-        // A zero-init reads as no-bell-no-notify, which matches the
-        // "config::get failed; nothing to do" semantics.
-        unsigned int actBits = 0;
-        const bool actOk =
-            config::get(&actBits, "notify-on-command-finish-action");
-        // config::get failure → fall back to the documented defaults
-        // (bell=true, notify=false) so the feature still works.
-        if (!actOk) actBits = 0x1;
+        // { bell: bool = true, notify: bool = false }. Bit 0 = bell,
+        // bit 1 = notify. Fallback (config::bitfield read failure)
+        // is bell=true so the feature still works.
+        const unsigned int actBits =
+            config::bitfield("notify-on-command-finish-action", 0x1);
         const bool actBell = (actBits & 0x1) != 0;
         const bool actNotify = (actBits & 0x2) != 0;
         if (actBell) winp->ringBell(srcp);
