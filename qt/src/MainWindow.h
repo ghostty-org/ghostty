@@ -126,12 +126,6 @@ public:
     return m_surfaces.contains(s);
   }
 
-  // The libghostty action callback. Public so actions::dispatch in
-  // ActionDispatcher.cpp can forward to it during phase 2.0; phase
-  // 2.1+ progressively migrate the switch body and this method goes
-  // away entirely in phase 2.9.
-  static bool onAction(ghostty_app_t, ghostty_target_s, ghostty_action_s);
-
   // ---- libghostty-driven mutations -------------------------------
   //
   // These are called from actions::dispatch (or the per-domain
@@ -158,6 +152,9 @@ public:
 
   // Tab count, used by GOTO_TAB / MOVE_TAB performable checks.
   int tabCount() const;
+  // First surface in the currently-visible tab, or nullptr. Used by
+  // PROMPT_TITLE app-target promotion.
+  GhosttySurface *currentSurface() const;
   // Default size cached on INITIAL_SIZE for RESET_WINDOW_SIZE.
   QSize defaultWindowSize() const { return m_defaultWindowSize; }
   void setDefaultWindowSize(QSize s) { m_defaultWindowSize = s; }
@@ -167,6 +164,16 @@ public:
   // Public so handler files can read config without friending.
   QString configString(const char *key) const;
   bool configBool(const char *key, bool fallback) const;
+
+  // App-scoped reload entry point and chrome refresh. Both are
+  // called from actions::dispatch (RELOAD_CONFIG, CONFIG_CHANGE).
+  static void reloadConfigGlobal();
+  static void refreshChrome();
+
+  // Close every window, optionally quitting the process. Prompts
+  // once via ghostty_app_needs_confirm_quit. `thenQuit=true` is the
+  // QUIT action's behavior; `thenQuit=false` is CLOSE_ALL_WINDOWS.
+  static void closeAllWindows(bool thenQuit);
 
 protected:
   bool event(QEvent *) override;
@@ -211,15 +218,7 @@ private:
 
   // Rebuild the config from disk and push it to libghostty.
   void reloadConfig();
-  // App-scoped reload entry point. The config is process-wide (held
-  // by GhosttyApp), so a reload from any window has the same effect;
-  // the RELOAD_CONFIG action posts to qApp via this static so the
-  // reload can't be cancelled by the source window closing
-  // mid-dispatch.
-  static void reloadConfigGlobal();
-  // Refresh every window's chrome from the current config (used after a
-  // reload and on the CONFIG_CHANGE notification).
-  static void refreshChrome();
+  // (reloadConfigGlobal / refreshChrome are public above)
 
   // Apply config-driven window settings that may change on reload: the
   // tab-bar visibility policy and the light/dark colour scheme.
@@ -232,14 +231,6 @@ private:
   // Turn this window into a layer-shell dropdown anchored to a screen
   // edge, per the `quick-terminal-*` config. Quick-terminal only.
   void setupLayerShell();
-
-  // Close every window, optionally quitting the process. Prompts once
-  // via ghostty_app_needs_confirm_quit. `thenQuit=true` is the QUIT
-  // action's behavior (close everything and end the process);
-  // `thenQuit=false` is CLOSE_ALL_WINDOWS, which leaves the process
-  // alive when `quit-after-last-window-closed=false` is set —
-  // matching macOS where close-all and quit are distinct.
-  static void closeAllWindows(bool thenQuit);
 
   TabWidget *m_tabs = nullptr;
   QList<GhosttySurface *> m_surfaces;  // every live surface in this window

@@ -36,6 +36,22 @@ inline ghostty_input_mods_e translateMods(Qt::KeyboardModifiers m) {
 // (CATCH_ALL, an unmapped physical key, etc.).
 QString triggerKeyName(const ghostty_input_trigger_s &t);
 
+// Parse a libghostty duration string ("750ms", "1s500us", "2h", ...)
+// into nanoseconds. Returns `fallback` if parsing fails or the input
+// is empty. libghostty exposes Duration via ghostty_config_get as a
+// non-extern non-packed struct, which c_get silently rejects; we
+// fall back to scanning the config file text.
+uint64_t parseDurationNs(const QString &s, uint64_t fallback);
+
+// Scan the primary Ghostty config file for `key = value`, returning
+// the last matching value (empty if absent). For keys not cleanly
+// exposed by ghostty_config_get (Duration, paths, ...).
+QString configValue(const QString &key);
+
+// Post a desktop notification via the freedesktop D-Bus service.
+// Fire-and-forget; no return code (notifications are best-effort).
+void postNotification(const QString &title, const QString &body);
+
 // Format a libghostty trigger as a human-readable chord (e.g. "Ctrl+B").
 // Used for context-menu shortcut hints and the key-sequence overlay.
 // Unmapped physical keys render as "•"; trigger.tag CATCH_ALL renders
