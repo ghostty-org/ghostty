@@ -317,8 +317,10 @@ void GhosttySurface::paintEvent(QPaintEvent *) {
   // Unfocused-split dimming: a translucent fill over an inactive pane.
   // Only split panes (a QSplitter parent) are dimmed, matching GTK.
   if (!hasFocus() && qobject_cast<QSplitter *>(parentWidget())) {
-    double opacity = 0.7;
-    config::get(&opacity, "unfocused-split-opacity");
+    double opacity = 0.7;  // default: 70% opaque
+    // On read failure opacity keeps the default; the success bit
+    // isn't load-bearing.
+    (void)config::get(&opacity, "unfocused-split-opacity");
     if (opacity < 1.0) {
       QColor fill(0, 0, 0);  // default: dim toward black
       ghostty_config_color_s c{};
@@ -714,35 +716,36 @@ void GhosttySurface::sendKey(QKeyEvent *ev, ghostty_input_action_e action) {
   // likewise reports the XKB keycode, which is libghostty's Linux native.
   const uint32_t keycode = ev->nativeScanCode();
 
-  ghostty_input_key_s k = {};
-  k.action = action;
-  k.mods = translateMods(ev->modifiers());
   // OR in any right-side bit for this keycode (e.g. Right-Shift sets
   // SHIFT_RIGHT alongside SHIFT) and the live Caps/Num lock state
   // from XkbTracker. macOS + GTK populate all of these; without
   // them, keybinds like `right_shift+x` can't distinguish from
   // `left_shift+x` and the kitty CSI-u encoding loses the lock bits.
-  k.mods = static_cast<ghostty_input_mods_e>(
-      k.mods | XkbState::instance().sideBitsForKeycode(keycode) |
+  const ghostty_input_mods_e mods = static_cast<ghostty_input_mods_e>(
+      translateMods(ev->modifiers()) |
+      XkbState::instance().sideBitsForKeycode(keycode) |
       XkbState::instance().lockMods());
-  k.keycode = keycode;
-  k.text = printable ? text.constData() : nullptr;
-  // XKB lookups: unshifted codepoint (what this physical key would
-  // produce with no mods, e.g. ';' for the Shift+; → ':' event) and the
-  // modifiers the layout consumed to produce the event's text. Without
-  // consumed_mods, Shift+punctuation is emitted as a kitty CSI sequence
-  // the shell can't decode; with it set, libghostty's encoder falls
-  // back to plain text correctly.
-  k.unshifted_codepoint = XkbState::instance().unshiftedCodepoint(keycode);
-  // consumed_mods is computed for every event, not just printable ones.
-  // Function/keypad/Backspace/arrows can also have layout-consumed
-  // modifiers (e.g. Caps Lock affecting case for letter keys, Mode_Switch
-  // for layout shifts on Backspace) that the kitty encoder needs to
-  // strip. macOS + GTK both compute it unconditionally; gating on
-  // printable lost that info on non-text keys.
-  k.consumed_mods = XkbState::instance().consumedMods(keycode, k.mods);
-  k.composing = false;
 
+  // XKB lookups:
+  //   unshifted_codepoint — what this physical key would produce with
+  //   no mods (e.g. ';' for the Shift+; → ':' event). Without it
+  //   libghostty's kitty encoder mis-handles punctuation release
+  //   events.
+  //   consumed_mods — modifiers the layout consumed to produce the
+  //   event's text. Computed for every event, not just printable
+  //   ones: function / keypad / Backspace / arrows can have layout-
+  //   consumed mods (Caps Lock for letter case, Mode_Switch for
+  //   layout shifts on Backspace) the encoder needs to strip. macOS
+  //   + GTK both compute it unconditionally.
+  const ghostty_input_key_s k{
+      .action = action,
+      .mods = mods,
+      .consumed_mods = XkbState::instance().consumedMods(keycode, mods),
+      .keycode = keycode,
+      .text = printable ? text.constData() : nullptr,
+      .unshifted_codepoint = XkbState::instance().unshiftedCodepoint(keycode),
+      .composing = false,
+  };
   ghostty_surface_key(m_surface, k);
 }
 
@@ -1097,14 +1100,15 @@ void GhosttySurface::focusOutEvent(QFocusEvent *) {
 void GhosttySurface::commitText(const QString &text) {
   if (!m_surface || text.isEmpty()) return;
   const QByteArray utf8 = text.toUtf8();
-  ghostty_input_key_s k = {};
-  k.action = GHOSTTY_ACTION_PRESS;
-  k.mods = GHOSTTY_MODS_NONE;
-  k.consumed_mods = GHOSTTY_MODS_NONE;
-  k.keycode = 0;
-  k.text = utf8.constData();
-  k.unshifted_codepoint = 0;
-  k.composing = false;
+  const ghostty_input_key_s k{
+      .action = GHOSTTY_ACTION_PRESS,
+      .mods = GHOSTTY_MODS_NONE,
+      .consumed_mods = GHOSTTY_MODS_NONE,
+      .keycode = 0,
+      .text = utf8.constData(),
+      .unshifted_codepoint = 0,
+      .composing = false,
+  };
   ghostty_surface_key(m_surface, k);
 }
 

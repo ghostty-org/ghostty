@@ -36,7 +36,9 @@ constexpr const char *kAnimProperty = "ghastty.quickterm.anim";
 // and a very large value doesn't lock the user out.
 int animationMs() {
   double secs = 0.2;  // matches Config.zig default
-  config::get(&secs, "quick-terminal-animation-duration");
+  // On read failure secs keeps the default; the success bit isn't
+  // load-bearing.
+  (void)config::get(&secs, "quick-terminal-animation-duration");
   if (secs <= 0.0) return 0;
   return std::clamp(static_cast<int>(secs * 1000.0), 1, 1000);
 }
@@ -117,8 +119,10 @@ void setupLayerShell(QWidget *window) {
   const QSize scr = screen ? screen->size() : QSize(1920, 1080);
 
   // quick-terminal-size: primary is the edge-perpendicular extent.
+  // On read failure qsz stays zero-initialized and toPx falls back to
+  // its `fallback` argument; the success bit isn't load-bearing.
   ghostty_config_quick_terminal_size_s qsz = {};
-  config::get(&qsz, "quick-terminal-size");
+  (void)config::get(&qsz, "quick-terminal-size");
   const auto toPx = [](const ghostty_quick_terminal_size_s &s, int dim,
                        int fallback) -> int {
     switch (s.tag) {

@@ -289,7 +289,8 @@ MainWindow *MainWindow::newWindow(ghostty_surface_t parent) {
   if (!s_initialWindowConsumed) {
     s_initialWindowConsumed = true;
     bool initialWindow = true;
-    config::get(&initialWindow, "initial-window");
+    // Default-on; the success bit isn't load-bearing.
+    (void)config::get(&initialWindow, "initial-window");
     wantsShow = initialWindow;
   }
   if (wantsShow) w->show();
@@ -1068,7 +1069,8 @@ void MainWindow::refreshChrome() {
   // runtime; mirrors the calculation in initialize().
   if (GhosttyApp::instance().config()) {
     bool quitAfter = true;
-    config::get(&quitAfter, "quit-after-last-window-closed");
+    // Default-on; the success bit isn't load-bearing.
+    (void)config::get(&quitAfter, "quit-after-last-window-closed");
     // Same Duration-decode workaround as initialize().
     const uint64_t delayNs =
         config::durationNs("quit-after-last-window-closed-delay", 0);
@@ -1370,9 +1372,10 @@ void MainWindow::toggleCommandPalette(GhosttySurface *surface) {
 void MainWindow::applyBlur() {
   // background-blur is a union whose C value is an i16: 0 (and the
   // macOS-only negatives) means off, a positive radius means on. KWin
-  // uses its own configured radius, so only on/off matters here.
+  // uses its own configured radius, so only on/off matters here. On
+  // read failure blur stays 0 (off).
   short blur = 0;
-  config::get(&blur, "background-blur");
+  (void)config::get(&blur, "background-blur");
   applyWindowBlur(this, blur > 0);
 }
 
