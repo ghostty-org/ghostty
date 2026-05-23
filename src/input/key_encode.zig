@@ -232,15 +232,31 @@ fn kitty(
     // If this is just a modifier we require "report all" to send the sequence.
     if (entry.modifier and !opts.kitty_flags.report_all) return;
 
+    // The mods we encode for this are just the input mods (shift, ctrl,
+    // super, alt unless it is actually option).
+    const mods = mods: {
+            var mods_input: KittyMods = .fromInput(
+                event.action,
+                event.key,
+                all_mods,
+            );
+            if (comptime builtin.target.os.tag.isDarwin()) alt: {
+                switch (opts.macos_option_as_alt) {
+                    .false => {},
+                    .true => break :alt,
+                    .left => if (event.mods.sides.alt == .left) break :alt,
+                    .right => if (event.mods.sides.alt == .right) break :alt,
+                }
+                mods_input.alt = false;
+            }
+            break :mods mods_input;
+        };
+
     const seq: KittySequence = seq: {
         var seq: KittySequence = .{
             .key = entry.code,
             .final = entry.final,
-            .mods = .fromInput(
-                event.action,
-                event.key,
-                all_mods,
-            ),
+            .mods = mods,
         };
 
         if (opts.kitty_flags.report_events) {
