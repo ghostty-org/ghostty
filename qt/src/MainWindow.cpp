@@ -7,17 +7,12 @@
 
 #include <QApplication>
 #include <QAudioOutput>
-#include <QByteArray>
 #include <QClipboard>
 #include <QCursor>
 #include <QCloseEvent>
 #include <QCoreApplication>
-#include <QDBusConnection>
-#include <QDBusMessage>
 #include <QDesktopServices>
 #include <QEvent>
-#include <QDir>
-#include <QFile>
 #include <QColor>
 #include <QFont>
 #include <QGuiApplication>
@@ -55,6 +50,7 @@
 #include <LayerShellQt/window.h>
 
 #include "app/GhosttyApp.h"
+#include "config/Config.h"
 #include "CommandPalette.h"
 #include "GhosttySurface.h"
 #include "TabWidget.h"
@@ -203,12 +199,12 @@ bool MainWindow::initialize() {
     // quit-after-last-window-closed: Qt's native "quit on last window"
     // covers the common (no-delay) case; a configured delay is honored
     // through the libghostty quit_timer action (see handleQuitTimer).
-    const bool quitAfter = configBool("quit-after-last-window-closed", true);
+    const bool quitAfter = config::boolean("quit-after-last-window-closed", true);
     // quit-after-last-window-closed-delay is a `?Duration` and Duration
     // is neither extern nor packed, so libghostty's ghostty_config_get
     // returns false for it. Read from disk and parse.
-    const uint64_t delayNs = parseDurationNs(
-        configValue(QStringLiteral("quit-after-last-window-closed-delay")), 0);
+    const uint64_t delayNs =
+        config::durationNs("quit-after-last-window-closed-delay", 0);
     const uint64_t delayMs = delayNs / 1000000ULL;
     const int delayMsInt = quitAfter
         ? static_cast<int>(std::min(delayMs, uint64_t(INT_MAX)))
@@ -223,13 +219,13 @@ bool MainWindow::initialize() {
     // window-decoration `none` drops the native frame; `auto`/`server`/
     // `client` keep a decorated window (the compositor picks the side
     // on Wayland).
-    if (configString("window-decoration") == QLatin1String("none"))
+    if (config::string("window-decoration") == QLatin1String("none"))
       setWindowFlag(Qt::FramelessWindowHint, true);
     // fullscreen wins over maximize; its enum is `false` when unset.
-    const QString fullscreen = configString("fullscreen");
+    const QString fullscreen = config::string("fullscreen");
     if (!fullscreen.isEmpty() && fullscreen != QLatin1String("false"))
       setWindowState(windowState() | Qt::WindowFullScreen);
-    else if (configBool("maximize", false))
+    else if (config::boolean("maximize", false))
       setWindowState(windowState() | Qt::WindowMaximized);
   }
 
@@ -268,17 +264,16 @@ MainWindow *MainWindow::newWindow(ghostty_surface_t parent) {
   w->resize(800, 600);
 
   // Window position: window-position-x/y are optional (?i16 in
-  // Config.zig). configGet writes the value and returns true when the
-  // optional is present. Both must be set to take effect (matching
+  // Config.zig). config::get writes the value and returns true when
+  // the optional is present. Both must be set to take effect (matching
   // the Config.zig doc comment). If unset, fall back to a cascade
   // offset from the previous window so Cmd+N spam doesn't pile every
   // window at the same origin — macOS does this via
   // NSWindow.cascadeTopLeft. Wayland compositors typically ignore
   // window placement requests; this is a hint at most.
-  ghostty_config_t cfg = GhosttyApp::instance().config();
   int16_t posX = 0, posY = 0;
-  const bool haveX = configGet(cfg, &posX, "window-position-x");
-  const bool haveY = configGet(cfg, &posY, "window-position-y");
+  const bool haveX = config::get(&posX, "window-position-x");
+  const bool haveY = config::get(&posY, "window-position-y");
   if (haveX && haveY) {
     w->move(posX, posY);
   } else {
@@ -300,7 +295,7 @@ MainWindow *MainWindow::newWindow(ghostty_surface_t parent) {
   if (!s_initialWindowConsumed) {
     s_initialWindowConsumed = true;
     bool initialWindow = true;
-    configGet(cfg, &initialWindow, "initial-window");
+    config::get(&initialWindow, "initial-window");
     wantsShow = initialWindow;
   }
   if (wantsShow) w->show();
@@ -354,7 +349,7 @@ GhosttySurface *MainWindow::newTab(ghostty_surface_t parent) {
   // window-new-tab-position: place the tab right after the current one,
   // or append it at the end (the default).
   int index;
-  if (configString("window-new-tab-position") == QLatin1String("current") &&
+  if (config::string("window-new-tab-position") == QLatin1String("current") &&
       m_tabs->count() > 0)
     index = m_tabs->insertTab(m_tabs->currentIndex() + 1, page,
                               QStringLiteral("Ghastty"));
@@ -671,7 +666,7 @@ bool MainWindow::confirmCloseSurfaces(
   //   true   -> prompt only when libghostty says a process is running
   //   always -> always prompt, even for surfaces with no live process
   // (libghostty Config.zig: ConfirmCloseSurface enum.)
-  const QString mode = configString("confirm-close-surface");
+  const QString mode = config::string("confirm-close-surface");
   if (mode == QLatin1String("false")) return true;
 
   bool needsConfirm = (mode == QLatin1String("always"));
@@ -770,9 +765,9 @@ MainWindow *MainWindow::makeQuickTerminal() {
 }
 
 // Read quick-terminal-animation-duration (seconds) and convert to ms.
-static int quickTerminalAnimationMs(ghostty_config_t cfg) {
+static int quickTerminalAnimationMs() {
   double secs = 0.2;  // matches Config.zig default
-  configGet(cfg, &secs, "quick-terminal-animation-duration");
+  config::get(&secs, "quick-terminal-animation-duration");
   // Clamp to a sane range so a misconfigured 0 or negative value
   // doesn't make the window appear/disappear instantly without an
   // animation, and a very large value doesn't lock the user out.
@@ -785,7 +780,7 @@ void MainWindow::animateQuickTerminalIn() {
   show();
   raise();
   activateWindow();
-  const int ms = quickTerminalAnimationMs(GhosttyApp::instance().config());
+  const int ms = quickTerminalAnimationMs();
   if (ms <= 0) {
     setWindowOpacity(1.0);
     return;
@@ -803,7 +798,7 @@ void MainWindow::animateQuickTerminalIn() {
 }
 
 void MainWindow::animateQuickTerminalOut() {
-  const int ms = quickTerminalAnimationMs(GhosttyApp::instance().config());
+  const int ms = quickTerminalAnimationMs();
   if (ms <= 0) {
     hide();
     return;
@@ -845,7 +840,7 @@ void MainWindow::setupLayerShell() {
   using LSW = LayerShellQt::Window;
 
   ls->setLayer(LSW::LayerTop);
-  const QString ki = configString("quick-terminal-keyboard-interactivity");
+  const QString ki = config::string("quick-terminal-keyboard-interactivity");
   ls->setKeyboardInteractivity(
       ki == QLatin1String("exclusive") ? LSW::KeyboardInteractivityExclusive
       : ki == QLatin1String("none")    ? LSW::KeyboardInteractivityNone
@@ -861,7 +856,7 @@ void MainWindow::setupLayerShell() {
   // Pass null to fall back to the QWindow's screen (LayerShellQt's
   // documented default when neither setScreen nor
   // setWantsToBeOnActiveScreen is set).
-  const QString screenMode = configString("quick-terminal-screen");
+  const QString screenMode = config::string("quick-terminal-screen");
   QScreen *screen = nullptr;
   if (screenMode == QLatin1String("mouse")) {
     screen = QGuiApplication::screenAt(QCursor::pos());
@@ -872,20 +867,20 @@ void MainWindow::setupLayerShell() {
   ls->setScreen(screen);
   if (!screen) screen = handle->screen();
 
-  // quick-terminal-space-behavior (`remain` / `move`): macOS
-  // controls whether the dropdown follows the active Space or pins
-  // to the one it was opened on. Wayland's wlr-layer-shell has no
-  // equivalent — the compositor always renders the surface on the
-  // active workspace (KWin behaviour), which corresponds to `move`.
-  // Achieving `remain` would need a per-workspace pin that no
-  // mainstream compositor exposes; honour by no-op and document.
-  Q_UNUSED(configString("quick-terminal-space-behavior"));
+  // quick-terminal-space-behavior (`remain` / `move`) is intentionally
+  // not read: macOS controls whether the dropdown follows the active
+  // Space or pins to the one it was opened on, but Wayland's
+  // wlr-layer-shell has no equivalent — the compositor always renders
+  // the surface on the active workspace (KWin behaviour), which
+  // corresponds to `move`. Achieving `remain` would need a
+  // per-workspace pin that no mainstream compositor exposes; honour
+  // by no-op and document.
 
   const QSize scr = screen ? screen->size() : QSize(1920, 1080);
 
   // quick-terminal-size: primary is the edge-perpendicular extent.
   ghostty_config_quick_terminal_size_s qsz = {};
-  configGet(GhosttyApp::instance().config(), &qsz, "quick-terminal-size");
+  config::get(&qsz, "quick-terminal-size");
   const auto toPx = [](const ghostty_quick_terminal_size_s &s, int dim,
                        int fallback) -> int {
     switch (s.tag) {
@@ -898,7 +893,7 @@ void MainWindow::setupLayerShell() {
     }
   };
 
-  const QString pos = configString("quick-terminal-position");
+  const QString pos = config::string("quick-terminal-position");
   LSW::Anchors anchors;
   QSize size;
   if (pos == QLatin1String("bottom")) {
@@ -935,7 +930,7 @@ void MainWindow::changeEvent(QEvent *e) {
   // an explicit toggle).
   if (e->type() == QEvent::ActivationChange && m_quickTerminal &&
       isVisible() && !isActiveWindow() &&
-      configBool("quick-terminal-autohide", true))
+      config::boolean("quick-terminal-autohide", true))
     animateQuickTerminalOut();
   QWidget::changeEvent(e);
 }
@@ -1015,14 +1010,10 @@ void MainWindow::gotoSplit(GhosttySurface *from,
   // we'll re-zoom the destination once the focus moves. Otherwise
   // the existing semantics of dropping zoom on navigation apply.
   //
-  // libghostty serializes packed structs into a c_uint bitfield via
-  // c_get.zig: `ptr.* = @intCast(@as(Backing, @bitCast(value)));`.
   // SplitPreserveZoom = packed struct { navigation: bool } so bit 0
-  // is `navigation`. Reading into a smaller C struct (sizeof
-  // `bool`==1) under-sized the buffer and corrupted adjacent stack;
-  // read into c_uint and mask the bits.
-  unsigned int pzBits = 0;
-  configGet(GhosttyApp::instance().config(), &pzBits, "split-preserve-zoom");
+  // is `navigation`. config::bitfield handles the c_uint sizing
+  // dance documented there.
+  const unsigned int pzBits = config::bitfield("split-preserve-zoom", 0);
   const bool preserveZoom = (pzBits & 0x1) != 0 && m_zoomed == from;
 
   const auto centerOf = [](GhosttySurface *s) {
@@ -1185,10 +1176,8 @@ void MainWindow::ringBell(GhosttySurface *surface) {
   // dropping the field), use BellAttention as a sane minimum fallback.
   // If config-get succeeds with features=0, the user explicitly opted
   // out of every bell feature and we honor that.
-  unsigned int features = 0;
-  if (!configGet(GhosttyApp::instance().config(), &features, "bell-features")) {
-    features = BellAttention;
-  }
+  const unsigned int features =
+      config::bitfield("bell-features", BellAttention);
   if (features & BellAttention) QApplication::alert(this);
   if (features & BellSystem) QApplication::beep();
   if (features & BellAudio) playBellAudio();
@@ -1251,12 +1240,12 @@ void MainWindow::refreshChrome() {
   // Refresh app-scoped state. quit-after-last-window-closed[-delay]
   // can change the delay or the quitOnLastWindowClosed strategy at
   // runtime; mirrors the calculation in initialize().
-  if (ghostty_config_t cfg = GhosttyApp::instance().config()) {
+  if (GhosttyApp::instance().config()) {
     bool quitAfter = true;
-    configGet(cfg, &quitAfter, "quit-after-last-window-closed");
+    config::get(&quitAfter, "quit-after-last-window-closed");
     // Same Duration-decode workaround as initialize().
-    const uint64_t delayNs = parseDurationNs(
-        configValue(QStringLiteral("quit-after-last-window-closed-delay")), 0);
+    const uint64_t delayNs =
+        config::durationNs("quit-after-last-window-closed-delay", 0);
     const uint64_t delayMs = delayNs / 1000000ULL;
     const int delayMsInt = quitAfter
         ? static_cast<int>(std::min(delayMs, uint64_t(INT_MAX)))
@@ -1279,7 +1268,7 @@ void MainWindow::refreshChrome() {
     // Toggling Qt::FramelessWindowHint hides+reshows the window, so
     // gate on a real change.
     const bool wantFrameless =
-        w->configString("window-decoration") == QLatin1String("none");
+        config::string("window-decoration") == QLatin1String("none");
     const bool isFrameless =
         w->windowFlags().testFlag(Qt::FramelessWindowHint);
     if (wantFrameless != isFrameless) {
@@ -1294,9 +1283,9 @@ void MainWindow::refreshChrome() {
     // fullscreen / maximize: `fullscreen=true` wins over `maximize`.
     // Setting back to a non-fullscreen window goes through showNormal
     // first so the WM lets us out of fullscreen cleanly.
-    const QString fs = w->configString("fullscreen");
+    const QString fs = config::string("fullscreen");
     const bool wantFullscreen = !fs.isEmpty() && fs != QLatin1String("false");
-    const bool wantMax = w->configBool("maximize", false);
+    const bool wantMax = config::boolean("maximize", false);
     if (wantFullscreen) {
       if (!w->isFullScreen()) w->showFullScreen();
     } else if (w->isFullScreen()) {
@@ -1343,34 +1332,17 @@ void MainWindow::reloadConfigGlobal() {
   // bit 1 = config-reload. The clipboard-copy bit is read for
   // forward compatibility — Qt doesn't currently post a copy
   // toast, but a future one will pick up the same gate.
-  unsigned int notifBits = 0;
-  const bool notifOk = configGet(GhosttyApp::instance().config(), &notifBits, "app-notifications");
-  // configGet failure → defaults (both bits set) so the feature
-  // still works as documented.
-  if (!notifOk) notifBits = 0x3;
+  // config::bitfield failure → defaults (both bits set) so the
+  // feature still works as documented.
+  const unsigned int notifBits = config::bitfield("app-notifications", 0x3);
   const bool wantConfigReload = (notifBits & 0x2) != 0;
   if (wantConfigReload)
     postNotification(QStringLiteral("Ghostty"),
                      QStringLiteral("Configuration reloaded."));
 }
 
-QString MainWindow::configString(const char *key) const {
-  ghostty_config_t cfg = GhosttyApp::instance().config();
-  const char *value = nullptr;
-  if (!cfg || !ghostty_config_get(cfg, &value, key, qstrlen(key)) || !value)
-    return {};
-  return QString::fromUtf8(value);
-}
-
-bool MainWindow::configBool(const char *key, bool fallback) const {
-  bool value = fallback;  // ghostty_config_get leaves it untouched if absent
-  if (ghostty_config_t cfg = GhosttyApp::instance().config())
-    ghostty_config_get(cfg, &value, key, qstrlen(key));
-  return value;
-}
-
 bool MainWindow::focusFollowsMouse() const {
-  return configBool("focus-follows-mouse", false);
+  return config::boolean("focus-follows-mouse", false);
 }
 
 // Bring this window forward and focus the surface inside it. Mirrors
@@ -1466,7 +1438,7 @@ void MainWindow::setSizeLimits(uint32_t minW, uint32_t minH, uint32_t maxW,
 // strictly a bonus.
 void MainWindow::setCellSize(uint32_t w, uint32_t h) {
   m_cellSize = QSize(int(w), int(h));
-  if (configBool("window-step-resize", false))
+  if (config::boolean("window-step-resize", false))
     setSizeIncrement(int(w), int(h));
   else
     setSizeIncrement(0, 0);  // back to pixel-precise
@@ -1618,7 +1590,7 @@ void MainWindow::redoLastClose() {
 void MainWindow::applyWindowConfig() {
   // window-show-tab-bar: always shown / auto-hidden with a lone tab /
   // never shown.
-  const QString tabBar = configString("window-show-tab-bar");
+  const QString tabBar = config::string("window-show-tab-bar");
   if (tabBar == QLatin1String("never")) {
     m_tabs->setTabBarAutoHide(false);
     m_tabs->tabBar()->hide();
@@ -1636,13 +1608,10 @@ void MainWindow::applyWindowConfig() {
   // doesn't re-scan the on-disk config on every bell. Refreshed on
   // each applyWindowConfig (i.e. at init and on reload).
   {
-    QString path = configValue(QStringLiteral("bell-audio-path"));
-    if (path.startsWith(QLatin1String("~/")))
-      path = QDir::homePath() + path.mid(1);
-    m_bellAudioPath = path;
+    m_bellAudioPath = config::expandedPath("bell-audio-path");
     bool volOk = false;
     const double v =
-        configValue(QStringLiteral("bell-audio-volume")).toDouble(&volOk);
+        config::diskValue("bell-audio-volume").toDouble(&volOk);
     m_bellAudioVolume = volOk ? v : 0.5;
   }
 
@@ -1650,7 +1619,7 @@ void MainWindow::applyWindowConfig() {
   // title via Qt's window-title system font is harder to override
   // portably; the tab bar is what users actually look at). Empty /
   // unset reverts to the application font.
-  const QString titleFamily = configValue(QStringLiteral("window-title-font-family"));
+  const QString titleFamily = config::diskValue("window-title-font-family");
   if (m_tabs && m_tabs->tabBar()) {
     QFont tf = QApplication::font();
     if (!titleFamily.isEmpty()) tf.setFamily(titleFamily);
@@ -1662,7 +1631,7 @@ void MainWindow::applyWindowConfig() {
   // leaves Qt's default. Applied via setStyleSheet on this window's
   // QSplitter children since splitters can be added/removed at any
   // time, walk them on each apply.
-  const QString divider = configValue(QStringLiteral("split-divider-color"));
+  const QString divider = config::diskValue("split-divider-color");
   const QString splitterCss = divider.isEmpty()
       ? QString()
       : QStringLiteral("QSplitter::handle { background-color: %1; }")
@@ -1682,7 +1651,7 @@ void MainWindow::applyWindowConfig() {
   // CMake doesn't compile against older Qt). The setColorScheme
   // hint propagates to chrome (tab bar, dialogs); the terminal
   // itself honours its own theme via libghostty.
-  const QString theme = configString("window-theme");
+  const QString theme = config::string("window-theme");
   Qt::ColorScheme scheme = Qt::ColorScheme::Unknown;
   if (theme == QLatin1String("dark")) {
     scheme = Qt::ColorScheme::Dark;
@@ -1690,7 +1659,7 @@ void MainWindow::applyWindowConfig() {
     scheme = Qt::ColorScheme::Light;
   } else if (theme == QLatin1String("ghostty")) {
     ghostty_config_color_s bg{};
-    if (configGet(GhosttyApp::instance().config(), &bg, "background")) {
+    if (config::get(&bg, "background")) {
       const double luma = 0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b;
       scheme = luma < 128.0 ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light;
     }
@@ -1708,7 +1677,7 @@ void MainWindow::applyBlur() {
   // macOS-only negatives) means off, a positive radius means on. KWin
   // uses its own configured radius, so only on/off matters here.
   short blur = 0;
-  configGet(GhosttyApp::instance().config(), &blur, "background-blur");
+  config::get(&blur, "background-blur");
   applyWindowBlur(this, blur > 0);
 }
 

@@ -15,6 +15,7 @@
 #include <QVariantMap>
 
 #include "../app/GhosttyApp.h"
+#include "../config/Config.h"
 #include "../GhosttySurface.h"
 #include "../MainWindow.h"
 #include "../Util.h"
@@ -147,7 +148,7 @@ bool handleSystem(const Context &ctx, const ghostty_action_s &action) {
         // the never/unfocused gate (matches GTK's setup-menu).
         const bool armed = srcp->consumeCommandNotify();
         // notify-on-command-finish enum (string).
-        const QString mode = winp->configString("notify-on-command-finish");
+        const QString mode = config::string("notify-on-command-finish");
         bool fire = armed;
         if (!fire) {
           if (mode == QLatin1String("always")) fire = true;
@@ -158,22 +159,16 @@ bool handleSystem(const Context &ctx, const ghostty_action_s &action) {
         // -after Duration; default 5s. Duration isn't decodable via
         // ghostty_config_get (non-extern non-packed struct), so parse
         // from the on-disk config.
-        const uint64_t afterNs = parseDurationNs(
-            configValue(QStringLiteral("notify-on-command-finish-after")),
+        const uint64_t afterNs = config::durationNs(
+            "notify-on-command-finish-after",
             5ULL * 1000 * 1000 * 1000);
         if (duration < afterNs) return;
         // -action: NotifyOnCommandFinishAction = packed struct
-        // { bell: bool = true, notify: bool = false }. Serialized
-        // as c_uint via c_get.zig; bit 0 = bell, bit 1 = notify.
-        // A zero-init reads as no-bell-no-notify, which matches the
-        // "configGet failed; nothing to do" semantics.
-        unsigned int actBits = 0;
-        const bool actOk = configGet(
-            GhosttyApp::instance().config(), &actBits,
-            "notify-on-command-finish-action");
-        // configGet failure → fall back to the documented defaults
-        // (bell=true, notify=false) so the feature still works.
-        if (!actOk) actBits = 0x1;
+        // { bell: bool = true, notify: bool = false }. Bit 0 = bell,
+        // bit 1 = notify. Fallback (config::bitfield read failure)
+        // is bell=true so the feature still works.
+        const unsigned int actBits =
+            config::bitfield("notify-on-command-finish-action", 0x1);
         const bool actBell = (actBits & 0x1) != 0;
         const bool actNotify = (actBits & 0x2) != 0;
         if (actBell) winp->ringBell(srcp);
@@ -193,13 +188,9 @@ bool handleSystem(const Context &ctx, const ghostty_action_s &action) {
 
     case GHOSTTY_ACTION_PROGRESS_REPORT: {
       // Honor `progress-style`: when false, OSC 9;4 progress
-      // sequences are silently ignored (no taskbar entry). It is a
-      // *bool* in Config.zig — it MUST be read with configBool.
-      // configString would hand ghostty_config_get a `const char**`;
-      // the 1-byte bool write leaves a `0x1` pointer that
-      // QString::fromUtf8 then dereferences and crashes on (e.g.
-      // when Claude emits progress).
-      if (win && !win->configBool("progress-style", true)) return true;
+      // sequences are silently ignored (no taskbar entry). The gate
+      // is process-wide (a config setting, not a per-window setting).
+      if (!config::boolean("progress-style", true)) return true;
       const ghostty_action_progress_report_s p = action.action.progress_report;
       const ghostty_action_progress_report_state_e state = p.state;
       const double fraction = p.progress >= 0 ? p.progress / 100.0 : 0.0;
@@ -260,8 +251,7 @@ bool handleSystem(const Context &ctx, const ghostty_action_s &action) {
       // abnormal threshold (default 250ms). Banner = "the process
       // died unexpectedly," not "the process exited."
       uint32_t threshold = 250;
-      configGet(GhosttyApp::instance().config(), &threshold,
-                "abnormal-command-exit-runtime");
+      config::get(&threshold, "abnormal-command-exit-runtime");
       if (ce.runtime_ms < threshold) return true;
       const int code = static_cast<int>(ce.exit_code);
       post(src, [srcp, code]() {

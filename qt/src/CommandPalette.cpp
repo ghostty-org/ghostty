@@ -11,6 +11,7 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
+#include "config/Config.h"
 #include "GhosttySurface.h"
 #include "MainWindow.h"
 #include "Util.h"
@@ -95,12 +96,10 @@ void CommandPalette::toggleFor(GhosttySurface *surface) {
 void CommandPalette::populate() {
   m_model->clear();
   if (!m_surface || !m_surface->owner()) return;
-  ghostty_config_t cfg = m_surface->owner()->config();
-  if (!cfg) return;
 
   // command-palette-entry defaults to a large built-in command set.
   ghostty_config_command_list_s list = {};
-  if (!configGet(cfg, &list, "command-palette-entry")) return;
+  if (!config::get(&list, "command-palette-entry")) return;
   for (size_t i = 0; i < list.len; ++i) {
     const ghostty_command_s &c = list.commands[i];
     const QString title = QString::fromUtf8(c.title ? c.title : "");

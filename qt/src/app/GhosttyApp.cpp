@@ -6,9 +6,7 @@
 #include <QByteArray>
 #include <QClipboard>
 #include <QCoreApplication>
-#include <QDir>
 #include <QEvent>
-#include <QFile>
 #include <QGuiApplication>
 #include <QMessageBox>
 #include <QMetaObject>
@@ -18,35 +16,13 @@
 #include <QTimer>
 
 #include "../actions/ActionDispatcher.h"
+#include "../config/Config.h"
 #include "../GhosttySurface.h"
 #include "../MainWindow.h"
 
 // Process-wide libghostty state and the runtime callbacks libghostty
-// hands back. onAction stays on MainWindow until phase 2 introduces
-// the ActionDispatcher; everything else is here. The undo/redo stack
-// stays on MainWindow as well.
-
-// Whether the Ghostty config enables a custom shader. libghostty does
-// not expose this through ghostty_config_get (`custom-shader` is a
-// repeatable path), so scan the primary config file directly. Same
-// implementation MainWindow had before — moved here because
-// needsPremultiply is now an app-level fact.
-static bool configHasCustomShader() {
-  QString dir = qEnvironmentVariable("XDG_CONFIG_HOME");
-  if (dir.isEmpty()) dir = QDir::homePath() + QStringLiteral("/.config");
-
-  QFile f(dir + QStringLiteral("/ghostty/config"));
-  if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
-
-  while (!f.atEnd()) {
-    const QByteArray line = f.readLine().trimmed();
-    if (!line.startsWith("custom-shader")) continue;
-    // Require a non-empty value: `custom-shader =` alone clears it.
-    const int eq = line.indexOf('=');
-    if (eq >= 0 && !line.mid(eq + 1).trimmed().isEmpty()) return true;
-  }
-  return false;
-}
+// hands back. Action dispatch is handled by actions::dispatch (see
+// qt/src/actions/); the undo/redo stack stays on MainWindow.
 
 GhosttyApp &GhosttyApp::instance() {
   // Static-local singleton: deterministic destruction at process exit
@@ -81,7 +57,7 @@ bool GhosttyApp::ensureInitialized() {
   ghostty_config_load_cli_args(m_config);
   ghostty_config_load_recursive_files(m_config);
   ghostty_config_finalize(m_config);
-  m_needsPremultiply = configHasCustomShader();
+  m_needsPremultiply = config::hasCustomShader();
 
   ghostty_runtime_config_s rt = {};
   // No app userdata: actions are routed to a window via their target
@@ -115,7 +91,7 @@ void GhosttyApp::replaceConfig(ghostty_config_t new_config) {
   // the queue has adopted the new config and the old is safe to free.
   if (m_config && m_config != new_config) ghostty_config_free(m_config);
   m_config = new_config;
-  m_needsPremultiply = configHasCustomShader();
+  m_needsPremultiply = config::hasCustomShader();
 }
 
 void GhosttyApp::registerWindow(MainWindow *w) {
