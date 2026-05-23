@@ -15,6 +15,7 @@
 #include <QVariantMap>
 
 #include "../app/GhosttyApp.h"
+#include "../config/Config.h"
 #include "../GhosttySurface.h"
 #include "../MainWindow.h"
 #include "../Util.h"
@@ -158,20 +159,19 @@ bool handleSystem(const Context &ctx, const ghostty_action_s &action) {
         // -after Duration; default 5s. Duration isn't decodable via
         // ghostty_config_get (non-extern non-packed struct), so parse
         // from the on-disk config.
-        const uint64_t afterNs = parseDurationNs(
-            configValue(QStringLiteral("notify-on-command-finish-after")),
+        const uint64_t afterNs = config::durationNs(
+            "notify-on-command-finish-after",
             5ULL * 1000 * 1000 * 1000);
         if (duration < afterNs) return;
         // -action: NotifyOnCommandFinishAction = packed struct
         // { bell: bool = true, notify: bool = false }. Serialized
         // as c_uint via c_get.zig; bit 0 = bell, bit 1 = notify.
         // A zero-init reads as no-bell-no-notify, which matches the
-        // "configGet failed; nothing to do" semantics.
+        // "config::get failed; nothing to do" semantics.
         unsigned int actBits = 0;
-        const bool actOk = configGet(
-            GhosttyApp::instance().config(), &actBits,
-            "notify-on-command-finish-action");
-        // configGet failure → fall back to the documented defaults
+        const bool actOk =
+            config::get(&actBits, "notify-on-command-finish-action");
+        // config::get failure → fall back to the documented defaults
         // (bell=true, notify=false) so the feature still works.
         if (!actOk) actBits = 0x1;
         const bool actBell = (actBits & 0x1) != 0;
@@ -260,8 +260,7 @@ bool handleSystem(const Context &ctx, const ghostty_action_s &action) {
       // abnormal threshold (default 250ms). Banner = "the process
       // died unexpectedly," not "the process exited."
       uint32_t threshold = 250;
-      configGet(GhosttyApp::instance().config(), &threshold,
-                "abnormal-command-exit-runtime");
+      config::get(&threshold, "abnormal-command-exit-runtime");
       if (ce.runtime_ms < threshold) return true;
       const int code = static_cast<int>(ce.exit_code);
       post(src, [srcp, code]() {

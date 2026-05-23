@@ -1,5 +1,6 @@
 #include "GhosttySurface.h"
 
+#include "config/Config.h"
 #include "InspectorWindow.h"
 #include "MainWindow.h"
 #include "OverlayScrollbar.h"
@@ -243,7 +244,7 @@ void GhosttySurface::layoutScrollbar() {
 bool GhosttySurface::scrollbarAllowed() const {
   if (!m_owner || !m_owner->config()) return true;
   const char *value = nullptr;
-  if (configGet(m_owner->config(), &value, "scrollbar") && value)
+  if (config::get(&value, "scrollbar") && value)
     return qstrcmp(value, "never") != 0;
   return true;  // unknown — default to showing
 }
@@ -270,7 +271,7 @@ void GhosttySurface::flashScrollbar() {
   if (!m_scrollbar || !scrollbarAllowed()) return;
   // Handle colour: light on a dark terminal, dark on a light one.
   ghostty_config_color_s bg{};
-  if (m_owner && configGet(m_owner->config(), &bg, "background")) {
+  if (m_owner && config::get(&bg, "background")) {
     const double luma = 0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b;
     m_scrollbar->setHandleColor(luma < 128.0 ? QColor(235, 235, 235)
                                              : QColor(45, 45, 45));
@@ -317,13 +318,12 @@ void GhosttySurface::paintEvent(QPaintEvent *) {
   // Unfocused-split dimming: a translucent fill over an inactive pane.
   // Only split panes (a QSplitter parent) are dimmed, matching GTK.
   if (!hasFocus() && qobject_cast<QSplitter *>(parentWidget())) {
-    ghostty_config_t cfg = m_owner ? m_owner->config() : nullptr;
     double opacity = 0.7;
-    configGet(cfg, &opacity, "unfocused-split-opacity");
+    config::get(&opacity, "unfocused-split-opacity");
     if (opacity < 1.0) {
       QColor fill(0, 0, 0);  // default: dim toward black
       ghostty_config_color_s c{};
-      if (configGet(cfg, &c, "unfocused-split-fill"))
+      if (config::get(&c, "unfocused-split-fill"))
         fill = QColor(c.r, c.g, c.b);
       fill.setAlphaF(1.0 - opacity);
       painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
@@ -372,14 +372,6 @@ static QLabel *makeOverlayLabel(QWidget *parent) {
       "padding: 4px 10px; border-radius: 4px;"));
   label->hide();
   return label;
-}
-
-// Read a string/enum config value (enums arrive as their tag name).
-static QString cfgString(ghostty_config_t cfg, const char *key) {
-  const char *v = nullptr;
-  if (cfg && ghostty_config_get(cfg, &v, key, qstrlen(key)) && v)
-    return QString::fromUtf8(v);
-  return {};
 }
 
 void GhosttySurface::promptTitle(bool tabScope) {
@@ -530,8 +522,7 @@ void GhosttySurface::showResizeOverlay() {
   if (!m_surface || !m_owner) return;
   const ghostty_surface_size_s sz = ghostty_surface_size(m_surface);
 
-  ghostty_config_t cfg = m_owner->config();
-  const QString mode = cfgString(cfg, "resize-overlay");
+  const QString mode = config::string("resize-overlay");
   if (mode == QLatin1String("never")) return;
 
   if (sz.columns != m_lastCols || sz.rows != m_lastRows) {
@@ -556,7 +547,7 @@ void GhosttySurface::showResizeOverlay() {
   // the hide timer fired on the next event-loop tick and the overlay
   // vanished the instant it appeared.
   unsigned long long durCfgMs = 0;
-  const bool durOk = configGet(cfg, &durCfgMs, "resize-overlay-duration");
+  const bool durOk = config::get(&durCfgMs, "resize-overlay-duration");
   // Clamp before narrowing: a Duration's millisecond value can exceed
   // INT_MAX, and a wrapped negative int would make QTimer::start()
   // reject the interval, leaving the overlay stuck on screen.
@@ -593,8 +584,7 @@ void GhosttySurface::paintResizeOverlay(QPainter &painter) {
 
   // resize-overlay-position: center / {top,bottom}-{left,center,right}.
   const QString pos =
-      m_owner ? cfgString(m_owner->config(), "resize-overlay-position")
-              : QString();
+      m_owner ? config::string("resize-overlay-position") : QString();
   const qreal m = 8;
   qreal x = (width() - boxW) / 2;
   qreal y = (height() - boxH) / 2;
