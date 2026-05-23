@@ -131,3 +131,49 @@ enum BackportNSGlassStyle {
     }
     #endif
 }
+
+/// Backported `TextField` that supports text selection on macOS 15/iOS 18 and up. The `selection`
+/// has no effect on versions below macOS 15/iOS 18.
+struct BackportSelectionTextField: View {
+    private let titleKey: LocalizedStringKey
+    @Binding private var text: String
+    @Binding private var textSelection: Range<String.Index>?
+
+    init(
+        _ titleKey: LocalizedStringKey,
+        text: Binding<String>,
+        selection: Binding<Range<String.Index>?>
+    ) {
+        self.titleKey = titleKey
+        self._text = text
+        self._textSelection = selection
+    }
+
+    var body: some View {
+        if #available(iOS 18.0, macOS 15, *) {
+            TextField(
+                titleKey,
+                text: _text,
+                selection: Binding(
+                    get: {
+                        if let textSelection {
+                            TextSelection(range: textSelection)
+                        } else {
+                            nil
+                        }
+                    },
+                    set: { selection in
+                        if let selection,
+                           case .selection(let range) = selection.indices {
+                            self.textSelection = range
+                        } else {
+                            self.textSelection = nil
+                        }
+                    }
+                )
+            )
+        } else {
+            TextField(titleKey, text: _text)
+        }
+    }
+}

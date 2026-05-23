@@ -29,5 +29,6 @@ class ConfigurationErrorsController: NSWindowController, NSWindowDelegate, Confi
         window.center()
         window.level = .popUpMenu
         window.contentView = NSHostingView(rootView: ConfigurationErrorsView(model: self))
+        window.titlebarAppearsTransparent = true
     }
 }

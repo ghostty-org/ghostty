@@ -11,6 +11,7 @@ typealias OSView = NSView
 typealias OSColor = NSColor
 typealias OSSize = NSSize
 typealias OSPasteboard = NSPasteboard
+typealias OSApplication = NSApplication
 
 protocol OSViewRepresentable: NSViewRepresentable where NSViewType == OSViewType {
     associatedtype OSViewType: NSView
@@ -36,6 +37,7 @@ typealias OSView = UIView
 typealias OSColor = UIColor
 typealias OSSize = CGSize
 typealias OSPasteboard = UIPasteboard
+typealias OSApplication = UIApplication
 
 protocol OSViewRepresentable: UIViewRepresentable {
     associatedtype OSViewType: UIView

@@ -3283,6 +3283,7 @@ pub const Surface = extern struct {
         self: *Self,
     ) callconv(.c) void {
         self.updateMapped(true);
+        self.updateOcclusion(true);
     }
 
     fn glareaUnmap(
@@ -3290,12 +3291,20 @@ pub const Surface = extern struct {
         self: *Self,
     ) callconv(.c) void {
         self.updateMapped(false);
+        self.updateOcclusion(false);
     }
 
     fn updateMapped(self: *Self, mapped: bool) void {
         const priv = self.private();
         priv.mapped = mapped;
         self.as(gobject.Object).notifyByPspec(properties.mapped.impl.param_spec);
+    }
+
+    fn updateOcclusion(self: *Self, visible: bool) void {
+        const surface = self.core() orelse return;
+        surface.occlusionCallback(visible) catch |err| {
+            log.warn("error in occlusion callback err={}", .{err});
+        };
     }
 
     fn glareaRender(

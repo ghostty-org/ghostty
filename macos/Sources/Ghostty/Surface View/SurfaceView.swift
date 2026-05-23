@@ -377,7 +377,11 @@ extension Ghostty {
         var body: some View {
             GeometryReader { geo in
                 HStack(spacing: 4) {
-                    TextField("Search", text: $searchState.needle)
+                    BackportSelectionTextField(
+                        "Search",
+                        text: $searchState.needle,
+                        selection: $searchState.needleSelection
+                    )
                     .textFieldStyle(.plain)
                     .frame(width: 180)
                     .padding(.leading, 8)
@@ -400,6 +404,18 @@ extension Ghostty {
                                 .monospacedDigit()
                                 .padding(.trailing, 8)
                         }
+                    }
+                    .onChange(of: searchState.needle) { _ in
+                        searchState.writePasteboardNeedle()
+                    }
+                    .onReceive(
+                        NotificationCenter.default.publisher(
+                            for: OSApplication.didBecomeActiveNotification
+                        )
+                    ) { _ in
+                        // When the app becomes active, we want to check for external changes
+                        // to our synced needle.
+                        searchState.readPasteboardNeedle()
                     }
 #if canImport(AppKit)
                     .onExitCommand {
