@@ -1,7 +1,5 @@
 #pragma once
 
-#include <atomic>
-
 #include <QList>
 #include <QRect>
 #include <QSize>
@@ -71,8 +69,11 @@ public:
   // Update the tab label and window title for `surface`.
   void setSurfaceTitle(GhosttySurface *surface, const QString &title);
 
-  // The live libghostty config (for keybind lookups, etc.).
-  ghostty_config_t config() const { return s_config; }
+  // The live libghostty config (for keybind lookups, etc.). Forwards
+  // to GhosttyApp::instance().config(); kept on MainWindow as a thin
+  // shim so external callers (GhosttySurface, InspectorWindow) don't
+  // need to take a dependency on app/GhosttyApp.h.
+  ghostty_config_t config() const;
 
   // UNDO / REDO close-tab/window. The libghostty actions carry no
   // payload — the apprt is responsible for tracking what was closed
@@ -105,7 +106,8 @@ public:
   // Whether a custom shader is configured. With one, libghostty's final
   // framebuffer is non-premultiplied and surfaces must premultiply it
   // before Qt composites (see GhosttySurface::premultiplyFramebuffer).
-  bool needsPremultiply() const { return s_needsPremultiply; }
+  // Forwards to GhosttyApp::instance().needsPremultiply().
+  bool needsPremultiply() const;
 
   // Whether `focus-follows-mouse` is enabled — a GhosttySurface grabs
   // focus when the pointer enters it.
@@ -274,18 +276,9 @@ private:
   // of `background-opacity`).
   bool m_opacityForcedOpaque = false;
 
-  // Process-shared libghostty state: one app and config drive every
-  // window. Created by the first initialize(), freed with the last
-  // window. The live window list lives on GhosttyApp; the s_app /
-  // s_config / s_needsPremultiply statics here are mirror caches kept
-  // in sync with GhosttyApp::instance() to limit phase-1 callsite
-  // churn — they retire as call sites move to the singleton.
-  static ghostty_app_t s_app;
-  static ghostty_config_t s_config;
-  static bool s_needsPremultiply;      // a custom shader is configured
-  // Mirror of GhosttyApp::quitDelayMs; phase 1.3 retires it when the
-  // remaining call site (closeAllWindows) moves to the singleton.
-  static int s_quitDelayMs;            // 0 = no delay configured
+  // The libghostty app + config + derived state all live on
+  // GhosttyApp::instance(). MainWindow's config() / needsPremultiply()
+  // accessors forward to it.
 
   // Snapshot of a closed tab or window for undo/redo. `pageTitles`
   // holds each tab's last-known title (window snapshots have N tabs;

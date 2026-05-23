@@ -6,6 +6,7 @@
 
 #include "ghostty.h"
 
+class GhosttySurface;
 class MainWindow;
 class QTimer;
 
