@@ -88,10 +88,14 @@ static QIcon bellAttentionIcon() {
 }
 
 // Process-shared libghostty state — see MainWindow.h.
+//
+// s_app / s_config / s_needsPremultiply mirror GhosttyApp::instance()
+// so the rest of this file (and GhosttySurface) keep their existing
+// access patterns. Phase 1.2+ will retire them as call sites move
+// over to the singleton directly.
 ghostty_app_t MainWindow::s_app = nullptr;
 ghostty_config_t MainWindow::s_config = nullptr;
 bool MainWindow::s_needsPremultiply = false;
-QList<MainWindow *> MainWindow::s_windows;
 QTimer *MainWindow::s_quitTimer = nullptr;
 int MainWindow::s_quitDelayMs = 0;
 MainWindow *MainWindow::s_quickTerminal = nullptr;
@@ -157,7 +161,7 @@ MainWindow::MainWindow() {
 }
 
 MainWindow::~MainWindow() {
-  s_windows.removeOne(this);
+  GhosttyApp::instance().unregisterWindow(this);
   if (this == s_quickTerminal) s_quickTerminal = nullptr;
 
   // Destroy this window's surfaces (freeing their ghostty_surface_t)
@@ -171,13 +175,14 @@ MainWindow::~MainWindow() {
   // so the delay can run), so without this the process would stay
   // alive forever after closing the final window via the WM.
   // Mirrors GTK's application.zig:820-862 startQuitTimer wiring.
-  if (s_windows.isEmpty() && s_quitDelayMs > 0) {
+  const bool wasLast = GhosttyApp::instance().windows().isEmpty();
+  if (wasLast && s_quitDelayMs > 0) {
     handleQuitTimer(true);
-    return;  // keep s_app + s_config alive until the timer fires
+    return;  // keep the app + config alive until the timer fires
   }
 
   // The shared app and config outlive every window but the last.
-  if (s_windows.isEmpty()) {
+  if (wasLast) {
     if (s_frameTimer) {
       // The timer is parented to qApp; stop it so a final tick can't
       // fire after the app is freed below. The QObject destructor
@@ -405,13 +410,13 @@ bool MainWindow::initialize() {
   s_config = GhosttyApp::instance().config();
   s_needsPremultiply = GhosttyApp::instance().needsPremultiply();
 
-  s_windows.append(this);
+  GhosttyApp::instance().registerWindow(this);
 
   // First window also caches the quit-after-last-window-closed state.
   // Subsequent windows skip it (the singleton already holds the live
   // value via its config; only the QApplication quit strategy is set
   // once here).
-  if (s_windows.size() == 1) {
+  if (GhosttyApp::instance().windows().size() == 1) {
     // quit-after-last-window-closed: Qt's native "quit on last window"
     // covers the common (no-delay) case; a configured delay is honored
     // through the libghostty quit_timer action (see handleQuitTimer).
@@ -498,9 +503,11 @@ MainWindow *MainWindow::newWindow(ghostty_surface_t parent) {
   const bool haveY = configGet(s_config, &posY, "window-position-y");
   if (haveX && haveY) {
     w->move(posX, posY);
-  } else if (s_windows.size() > 1) {
-    if (MainWindow *prev = s_windows.value(s_windows.size() - 2)) {
-      w->move(prev->pos() + QPoint(30, 30));
+  } else {
+    const QList<MainWindow *> &all = GhosttyApp::instance().windows();
+    if (all.size() > 1) {
+      if (MainWindow *prev = all.value(all.size() - 2))
+        w->move(prev->pos() + QPoint(30, 30));
     }
   }
 
@@ -867,8 +874,9 @@ void MainWindow::frame() {
   // destroys a window or surface mid-frame can't UAF the iterator
   // or the inner-loop receiver.
   QList<QPointer<MainWindow>> windows;
-  windows.reserve(s_windows.size());
-  for (MainWindow *w : s_windows) windows.append(w);
+  const QList<MainWindow *> &live = GhosttyApp::instance().windows();
+  windows.reserve(live.size());
+  for (MainWindow *w : live) windows.append(w);
   for (const QPointer<MainWindow> &wp : windows) {
     if (!wp) continue;
     QList<QPointer<GhosttySurface>> surfaces;
@@ -954,7 +962,8 @@ void MainWindow::closeAllWindows(bool thenQuit) {
                                    : QStringLiteral("Close All Windows");
     const QString verb = thenQuit ? QStringLiteral("Quit")
                                   : QStringLiteral("Close All");
-    QMessageBox box(s_windows.isEmpty() ? nullptr : s_windows.first());
+    const QList<MainWindow *> &live = GhosttyApp::instance().windows();
+    QMessageBox box(live.isEmpty() ? nullptr : live.first());
     box.setIcon(QMessageBox::Warning);
     box.setWindowTitle(title);
     box.setText(QStringLiteral("There are still running processes."));
@@ -967,8 +976,8 @@ void MainWindow::closeAllWindows(bool thenQuit) {
     box.exec();
     if (box.clickedButton() != go) return;
   }
-  // Copy: each close() may delete the window and mutate s_windows.
-  const QList<MainWindow *> windows = s_windows;
+  // Copy: each close() may delete the window and mutate the live list.
+  const QList<MainWindow *> windows = GhosttyApp::instance().windows();
   for (MainWindow *w : windows) {
     w->m_skipCloseConfirm = true;
     w->close();
@@ -997,13 +1006,14 @@ void MainWindow::closeAllWindows(bool thenQuit) {
 
 void MainWindow::toggleVisibility() {
   // If anything is showing, hide everything; otherwise reveal it all.
+  const QList<MainWindow *> &live = GhosttyApp::instance().windows();
   bool anyVisible = false;
-  for (MainWindow *w : s_windows)
+  for (MainWindow *w : live)
     if (w->isVisible()) {
       anyVisible = true;
       break;
     }
-  for (MainWindow *w : s_windows) {
+  for (MainWindow *w : live) {
     if (anyVisible) {
       w->hide();
     } else {
@@ -1544,7 +1554,7 @@ void MainWindow::refreshChrome() {
     QApplication::setQuitOnLastWindowClosed(quitAfter && s_quitDelayMs == 0);
   }
 
-  for (MainWindow *w : s_windows) {
+  for (MainWindow *w : GhosttyApp::instance().windows()) {
     w->applyWindowConfig();
     w->applyBlur();
 
@@ -1663,18 +1673,20 @@ void MainWindow::presentTerminal(GhosttySurface *surface) {
   if (surface) surface->setFocus();
 }
 
-// Cycle through s_windows. The libghostty target picks a starting
-// window (the one whose surface fired the action); GOTO_WINDOW_NEXT
-// goes forward, PREVIOUS goes backward, wrapping at the ends.
+// Cycle through the live window list. The libghostty target picks a
+// starting window (the one whose surface fired the action);
+// GOTO_WINDOW_NEXT goes forward, PREVIOUS goes backward, wrapping at
+// the ends.
 void MainWindow::gotoWindow(MainWindow *from,
                             ghostty_action_goto_window_e dir) {
-  const int n = s_windows.size();
+  const QList<MainWindow *> &live = GhosttyApp::instance().windows();
+  const int n = live.size();
   if (n <= 1) return;
-  const int idx = from ? s_windows.indexOf(from) : 0;
+  const int idx = from ? live.indexOf(from) : 0;
   if (idx < 0) return;
   const int step = (dir == GHOSTTY_GOTO_WINDOW_NEXT) ? 1 : -1;
   const int next = (idx + step + n) % n;
-  if (MainWindow *w = s_windows.value(next)) w->presentTerminal(nullptr);
+  if (MainWindow *w = live.value(next)) w->presentTerminal(nullptr);
 }
 
 // FLOAT_WINDOW: keep this window above other windows (Qt::
@@ -1799,16 +1811,17 @@ void MainWindow::undoLastClose() {
   // The active window picks the new tab's parent surface for cwd
   // inheritance. Skip the quick terminal — it doesn't push undo
   // entries and isn't a meaningful target. Fall back to the most
-  // recent regular window in s_windows order.
+  // recent regular window in registration order.
   auto isUndoTarget = [](MainWindow *w) {
     return w && !w->m_quickTerminal;
   };
   MainWindow *active = qobject_cast<MainWindow *>(qApp->activeWindow());
   if (!isUndoTarget(active)) {
     active = nullptr;
-    for (int i = s_windows.size() - 1; i >= 0; --i) {
-      if (isUndoTarget(s_windows.at(i))) {
-        active = s_windows.at(i);
+    const QList<MainWindow *> &live = GhosttyApp::instance().windows();
+    for (int i = live.size() - 1; i >= 0; --i) {
+      if (isUndoTarget(live.at(i))) {
+        active = live.at(i);
         break;
       }
     }
@@ -1871,7 +1884,10 @@ void MainWindow::redoLastClose() {
   UndoEntry e = s_redoStack.takeLast();
 
   MainWindow *active = qobject_cast<MainWindow *>(qApp->activeWindow());
-  if (!active && !s_windows.isEmpty()) active = s_windows.last();
+  if (!active) {
+    const QList<MainWindow *> &live = GhosttyApp::instance().windows();
+    if (!live.isEmpty()) active = live.last();
+  }
   if (!active) {
     // No window to act on — restore the entry so the user can retry.
     s_redoStack.append(std::move(e));
@@ -2049,7 +2065,7 @@ void MainWindow::onWakeup(void *) {
 
 bool MainWindow::surfaceAlive(GhosttySurface *s) {
   if (!s) return false;
-  for (MainWindow *w : s_windows)
+  for (MainWindow *w : GhosttyApp::instance().windows())
     if (w->m_surfaces.contains(s)) return true;
   return false;
 }
@@ -2115,8 +2131,9 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
   // *cross*-captured pointers (e.g. `src` when posting to `win`) are
   // wrapped in QPointer so they're checked at lambda-execution time —
   // a multi-window + tear-off + close race could otherwise UAF.
+  const QList<MainWindow *> &live_ = GhosttyApp::instance().windows();
   MainWindow *win = src ? src->owner()
-                        : (s_windows.isEmpty() ? nullptr : s_windows.first());
+                        : (live_.isEmpty() ? nullptr : live_.first());
   QPointer<MainWindow> winp(win);
   QPointer<GhosttySurface> srcp(src);
 
@@ -2194,9 +2211,10 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       // global keybind can rename even when no surface is the action's
       // explicit target. Mirrors macOS NSApp.mainWindow promotion.
       GhosttySurface *target = src;
-      if (!target && !s_windows.isEmpty()) {
+      const QList<MainWindow *> &live_pt = GhosttyApp::instance().windows();
+      if (!target && !live_pt.isEmpty()) {
         MainWindow *active = qobject_cast<MainWindow *>(qApp->activeWindow());
-        if (!active) active = s_windows.first();
+        if (!active) active = live_pt.first();
         if (active) target = active->surfaceAt(active->m_tabs->currentIndex());
       }
       if (!target) return false;
@@ -2516,7 +2534,7 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
 
     case GHOSTTY_ACTION_MOVE_TAB: {
       // Surface-target only: an app-target MOVE_TAB has no meaningful
-      // window to apply to (we'd just pick s_windows.first() arbitrarily).
+      // window to apply to (we'd just pick the first live one arbitrarily).
       // macOS returns false here — performable falls through to the
       // running terminal on no live window.
       if (target.tag != GHOSTTY_TARGET_SURFACE || !src) return false;
@@ -2660,7 +2678,7 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
     case GHOSTTY_ACTION_GOTO_WINDOW: {
       // Performable: return false on a single window so the chord
       // falls through to the terminal.
-      if (s_windows.size() <= 1) return false;
+      if (GhosttyApp::instance().windows().size() <= 1) return false;
       const ghostty_action_goto_window_e dir = action.action.goto_window;
       post(qApp,
            [winp, dir]() { MainWindow::gotoWindow(winp.data(), dir); });

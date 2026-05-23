@@ -87,7 +87,7 @@ public:
 
   // PRESENT_TERMINAL: bring this window to front and focus the surface.
   void presentTerminal(GhosttySurface *surface);
-  // GOTO_WINDOW: cycle to the previous/next window in s_windows order.
+  // GOTO_WINDOW: cycle to the previous/next window in registration order.
   static void gotoWindow(MainWindow *from,
                          ghostty_action_goto_window_e dir);
   // FLOAT_WINDOW / TOGGLE_WINDOW_DECORATIONS / TOGGLE_BACKGROUND_OPACITY:
@@ -233,7 +233,8 @@ private:
   void toggleSplitZoom(GhosttySurface *surface);
 
   // Runtime callbacks dispatched by libghostty. wakeup/action are
-  // app-level (routed via the target surface or s_windows); clipboard/
+  // app-level (routed via the target surface or the GhosttyApp window
+  // registry); clipboard/
   // close carry the surface userdata.
   static void onWakeup(void *ud);
   static bool onAction(ghostty_app_t, ghostty_target_s, ghostty_action_s);
@@ -279,11 +280,13 @@ private:
 
   // Process-shared libghostty state: one app and config drive every
   // window. Created by the first initialize(), freed with the last
-  // window. s_windows tracks every live window.
+  // window. The live window list lives on GhosttyApp; the s_app /
+  // s_config / s_needsPremultiply statics here are mirror caches kept
+  // in sync with GhosttyApp::instance() to limit phase-1 callsite
+  // churn — they retire as call sites move to the singleton.
   static ghostty_app_t s_app;
   static ghostty_config_t s_config;
   static bool s_needsPremultiply;      // a custom shader is configured
-  static QList<MainWindow *> s_windows;
   static QTimer *s_quitTimer;          // delayed quit-after-last-window
   static int s_quitDelayMs;            // 0 = no delay configured
   static MainWindow *s_quickTerminal;  // the one quick terminal, if any

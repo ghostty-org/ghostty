@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QList>
+
 #include "ghostty.h"
 
 class MainWindow;
@@ -47,6 +49,16 @@ public:
   // the last window goes away. Idempotent.
   void teardown();
 
+  // ---- window registry --------------------------------------------
+  //
+  // Every live MainWindow registers itself here at construction and
+  // removes itself at destruction. Replaces the MainWindow::s_windows
+  // static.
+
+  void registerWindow(MainWindow *w);
+  void unregisterWindow(MainWindow *w);
+  const QList<MainWindow *> &windows() const { return m_windows; }
+
 private:
   GhosttyApp() = default;
   ~GhosttyApp();
@@ -56,4 +68,10 @@ private:
   ghostty_app_t m_app = nullptr;
   ghostty_config_t m_config = nullptr;
   bool m_needsPremultiply = false;
+
+  // Live MainWindow list. Order is registration order; MainWindow
+  // relies on that for cascade-position fallback (see newWindow), the
+  // GOTO_WINDOW cycle, and the "most recent regular window" lookup
+  // in undoLastClose. Migrated wholesale from MainWindow::s_windows.
+  QList<MainWindow *> m_windows;
 };

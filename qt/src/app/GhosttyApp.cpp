@@ -98,6 +98,14 @@ void GhosttyApp::replaceConfig(ghostty_config_t new_config) {
   m_needsPremultiply = configHasCustomShader();
 }
 
+void GhosttyApp::registerWindow(MainWindow *w) {
+  m_windows.append(w);
+}
+
+void GhosttyApp::unregisterWindow(MainWindow *w) {
+  m_windows.removeOne(w);
+}
+
 void GhosttyApp::teardown() {
   // Drain qApp-targeted MetaCalls posted by worker-thread libghostty
   // callbacks (closeAllWindows, refreshChrome, OPEN_URL, postProgress,
