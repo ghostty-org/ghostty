@@ -17,6 +17,7 @@
 #include <QString>
 #include <QTimer>
 
+#include "../actions/ActionDispatcher.h"
 #include "../GhosttySurface.h"
 #include "../MainWindow.h"
 
@@ -87,10 +88,10 @@ bool GhosttyApp::ensureInitialized() {
   // surface, and app-level actions via the GhosttyApp window registry.
   rt.userdata = nullptr;
   rt.supports_selection_clipboard = true;
-  // onAction stays on MainWindow until phase 2 introduces the
-  // ActionDispatcher; the rest are owned by GhosttyApp.
+  // Action dispatch lives in actions::dispatch (qt/src/actions/);
+  // every other runtime callback lives on GhosttyApp.
   rt.wakeup_cb = GhosttyApp::onWakeup;
-  rt.action_cb = MainWindow::onAction;
+  rt.action_cb = actions::dispatch;
   rt.read_clipboard_cb = GhosttyApp::onReadClipboard;
   rt.confirm_read_clipboard_cb = GhosttyApp::onConfirmReadClipboard;
   rt.write_clipboard_cb = GhosttyApp::onWriteClipboard;

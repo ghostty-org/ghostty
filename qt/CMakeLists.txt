@@ -98,6 +98,13 @@ add_custom_target(ghostty_link DEPENDS "${GHOSTTY_LINK_SO}")
 
 add_executable(ghastty
   src/main.cpp
+  src/actions/ActionDispatcher.cpp
+  src/actions/ChromeActions.cpp
+  src/actions/InputActions.cpp
+  src/actions/SplitActions.cpp
+  src/actions/SystemActions.cpp
+  src/actions/TabActions.cpp
+  src/actions/WindowActions.cpp
   src/app/GhosttyApp.cpp
   src/CommandPalette.cpp
   src/GhosttySurface.cpp
