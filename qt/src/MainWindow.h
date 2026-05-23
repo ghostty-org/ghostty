@@ -144,7 +144,14 @@ public:
   void copyTitleToClipboard(GhosttySurface *src);
   void toggleCommandPalette(GhosttySurface *surface);
   void toggleSplitZoom(GhosttySurface *surface);
-  bool confirmCloseSurfaces(const QList<GhosttySurface *> &surfaces);
+  enum class CloseTarget {
+    Window,  // closing the whole window
+    Tab,     // closing a single tab
+    Tabs,    // closing multiple tabs (Close Other / Close Right)
+    Split,   // closing a single surface in a split
+  };
+  bool confirmCloseSurfaces(const QList<GhosttySurface *> &surfaces,
+                            CloseTarget target);
 
   // ---- libghostty-driven gating accessors ------------------------
 

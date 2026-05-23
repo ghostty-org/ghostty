@@ -14,6 +14,8 @@
 #include <QEvent>
 #include <QColor>
 #include <QFont>
+#include <QFontMetrics>
+#include <QGridLayout>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QList>
@@ -30,6 +32,7 @@
 #include <QStandardPaths>
 #include <QRect>
 #include <QShowEvent>
+#include <QSpacerItem>
 #include <QSplitter>
 #include <QStringList>
 #include <QString>
@@ -506,7 +509,9 @@ void MainWindow::closeTabsByMode(GhosttySurface *src,
   QList<GhosttySurface *> affected;
   for (int i : indices)
     for (GhosttySurface *s : surfacesInTab(i)) affected.append(s);
-  if (!confirmCloseSurfaces(affected)) return;
+  const CloseTarget target =
+      indices.size() == 1 ? CloseTarget::Tab : CloseTarget::Tabs;
+  if (!confirmCloseSurfaces(affected, target)) return;
 
   for (int i : indices) closeTab(i);
 }
@@ -631,7 +636,7 @@ void MainWindow::copyTitleToClipboard(GhosttySurface *src) {
 }
 
 void MainWindow::onTabCloseRequested(int index) {
-  if (!confirmCloseSurfaces(surfacesInTab(index))) return;
+  if (!confirmCloseSurfaces(surfacesInTab(index), CloseTarget::Tab)) return;
   closeTab(index);
 }
 
@@ -644,7 +649,7 @@ void MainWindow::closeEvent(QCloseEvent *e) {
   // resets per-action, mirroring this.
   const bool skip = m_skipCloseConfirm;
   m_skipCloseConfirm = false;
-  if (!skip && !confirmCloseSurfaces(m_surfaces)) {
+  if (!skip && !confirmCloseSurfaces(m_surfaces, CloseTarget::Window)) {
     e->ignore();
     return;
   }
@@ -659,8 +664,24 @@ void MainWindow::closeEvent(QCloseEvent *e) {
   e->accept();
 }
 
+// Force a QMessageBox to be wide enough that `text` fits on one line.
+// QMessageBox ignores setMinimumWidth because its inner QGridLayout
+// drives sizing from its contents — adding a 0-height spacer in a
+// row that spans the layout's columns forces that minimum.
+static void widenForText(QMessageBox &box, const QString &text) {
+  auto *grid = qobject_cast<QGridLayout *>(box.layout());
+  if (!grid) return;
+  const QFontMetrics fm(box.font());
+  // Icon + grid margins + a little breathing room.
+  const int padding = 96;
+  const int minWidth = fm.horizontalAdvance(text) + padding;
+  grid->addItem(new QSpacerItem(minWidth, 0, QSizePolicy::Minimum,
+                                QSizePolicy::Fixed),
+                grid->rowCount(), 0, 1, grid->columnCount());
+}
+
 bool MainWindow::confirmCloseSurfaces(
-    const QList<GhosttySurface *> &surfaces) {
+    const QList<GhosttySurface *> &surfaces, CloseTarget target) {
   // Honor the `confirm-close-surface` config:
   //   false  -> never prompt
   //   true   -> prompt only when libghostty says a process is running
@@ -681,18 +702,50 @@ bool MainWindow::confirmCloseSurfaces(
 
   // Destructive-styled dialog with Cancel/Close, matching macOS
   // NSAlert and GTK Adw.MessageDialog (`close-response: cancel`,
-  // destructive class on the close button).
+  // destructive class on the close button). Per-target wording
+  // mirrors GTK's close_confirmation_dialog so the message reads
+  // naturally on one line instead of splitting "the running
+  // processes" across two lines.
+  QString question;
+  QString body;
+  QString verb;
+  switch (target) {
+    case CloseTarget::Window:
+      question = QStringLiteral("Close Window?");
+      body = QStringLiteral(
+          "All terminal sessions in this window will be terminated.");
+      verb = QStringLiteral("Close");
+      break;
+    case CloseTarget::Tab:
+      question = QStringLiteral("Close Tab?");
+      body = QStringLiteral(
+          "All terminal sessions in this tab will be terminated.");
+      verb = QStringLiteral("Close");
+      break;
+    case CloseTarget::Tabs:
+      question = QStringLiteral("Close Tabs?");
+      body = QStringLiteral(
+          "All terminal sessions in these tabs will be terminated.");
+      verb = QStringLiteral("Close");
+      break;
+    case CloseTarget::Split:
+      question = QStringLiteral("Close Split?");
+      body = QStringLiteral(
+          "The currently running process in this split will be terminated.");
+      verb = QStringLiteral("Close");
+      break;
+  }
+
   QMessageBox box(this);
   box.setIcon(QMessageBox::Warning);
-  box.setWindowTitle(QStringLiteral("Close"));
-  box.setText(QStringLiteral("There are still running processes."));
-  box.setInformativeText(
-      QStringLiteral("Closing will terminate the running processes."));
-  QPushButton *close = box.addButton(QStringLiteral("Close"),
-                                     QMessageBox::DestructiveRole);
+  box.setWindowTitle(question);
+  box.setText(question);
+  box.setInformativeText(body);
+  QPushButton *close = box.addButton(verb, QMessageBox::DestructiveRole);
   QPushButton *cancel = box.addButton(QStringLiteral("Cancel"),
                                       QMessageBox::RejectRole);
   box.setDefaultButton(cancel);
+  widenForText(box, body);
   box.exec();
   return box.clickedButton() == close;
 }
@@ -704,21 +757,24 @@ void MainWindow::closeAllWindows(bool thenQuit) {
   // Close All Windows (process may stay alive).
   ghostty_app_t app = GhosttyApp::instance().app();
   if (app && ghostty_app_needs_confirm_quit(app)) {
-    const QString title = thenQuit ? QStringLiteral("Quit")
-                                   : QStringLiteral("Close All Windows");
+    const QString question = thenQuit
+        ? QStringLiteral("Quit Ghastty?")
+        : QStringLiteral("Close All Windows?");
+    const QString body =
+        QStringLiteral("All terminal sessions will be terminated.");
     const QString verb = thenQuit ? QStringLiteral("Quit")
                                   : QStringLiteral("Close All");
     const QList<MainWindow *> &live = GhosttyApp::instance().windows();
     QMessageBox box(live.isEmpty() ? nullptr : live.first());
     box.setIcon(QMessageBox::Warning);
-    box.setWindowTitle(title);
-    box.setText(QStringLiteral("There are still running processes."));
-    box.setInformativeText(QStringLiteral(
-        "%1 will terminate the running processes.").arg(title));
+    box.setWindowTitle(question);
+    box.setText(question);
+    box.setInformativeText(body);
     QPushButton *go = box.addButton(verb, QMessageBox::DestructiveRole);
     QPushButton *cancel = box.addButton(QStringLiteral("Cancel"),
                                         QMessageBox::RejectRole);
     box.setDefaultButton(cancel);
+    widenForText(box, body);
     box.exec();
     if (box.clickedButton() != go) return;
   }

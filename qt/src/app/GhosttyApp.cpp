@@ -358,7 +358,8 @@ void GhosttyApp::onCloseSurface(void *ud, bool) {
       self,
       [selfp, sp]() {
         if (!selfp || !sp) return;
-        if (selfp->confirmCloseSurfaces({sp})) selfp->removeSurface(sp);
+        if (selfp->confirmCloseSurfaces({sp}, MainWindow::CloseTarget::Split))
+          selfp->removeSurface(sp);
       },
       Qt::QueuedConnection);
 }
