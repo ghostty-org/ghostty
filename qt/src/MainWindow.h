@@ -8,9 +8,8 @@
 
 #include "ghostty.h"
 
-class QAudioOutput;
+class BellPlayer;
 class QCloseEvent;
-class QMediaPlayer;
 class QShowEvent;
 class QSplitter;
 class TabWidget;
@@ -202,8 +201,6 @@ private:
   int tabIndexForSurface(GhosttySurface *surface) const;
   QList<GhosttySurface *> surfacesInTab(int index) const;
 
-  void playBellAudio();
-
   // Bell `title` feature: prefix a tab's title while any surface in it
   // has an unacknowledged bell.
   bool tabBellMarked(int tab) const;
@@ -266,14 +263,10 @@ private:
   QSplitter *m_zoomSplitter = nullptr;
   int m_zoomIndex = 0;
 
-  // Bell audio playback; created lazily on the first audio bell.
-  // The bell-audio-path / -volume values are cached at window setup
-  // and refreshed on reload so the bell hot path doesn't re-scan
-  // the on-disk config file.
-  QMediaPlayer *m_bellPlayer = nullptr;
-  QAudioOutput *m_bellAudio = nullptr;
-  QString m_bellAudioPath;       // expanded; empty if no clip configured
-  double m_bellAudioVolume = 0.5;
+  // Bell audio playback; lives in qt/src/bell/BellPlayer. Created
+  // lazily on the first applyWindowConfig pass so refreshFromConfig
+  // can prime its cached path/volume.
+  BellPlayer *m_bellPlayer = nullptr;
 
   // The command palette; created lazily on first use.
   CommandPalette *m_commandPalette = nullptr;

@@ -6,7 +6,6 @@
 #include <functional>
 
 #include <QApplication>
-#include <QAudioOutput>
 #include <QClipboard>
 #include <QCursor>
 #include <QCloseEvent>
@@ -22,7 +21,6 @@
 #include <QPainter>
 #include <QPalette>
 #include <QPixmap>
-#include <QMediaPlayer>
 #include <QMenu>
 #include <QMessageBox>
 #include <QPoint>
@@ -34,7 +32,6 @@
 #include <QShowEvent>
 #include <QSplitter>
 #include <QStringList>
-#include <QUrl>
 #include <QString>
 #include <QStyleHints>
 #include <QTabBar>
@@ -44,6 +41,7 @@
 #include <QVBoxLayout>
 
 #include "app/GhosttyApp.h"
+#include "bell/BellPlayer.h"
 #include "config/Config.h"
 #include "CommandPalette.h"
 #include "GhosttySurface.h"
@@ -1024,7 +1022,7 @@ void MainWindow::ringBell(GhosttySurface *surface) {
       config::bitfield("bell-features", BellAttention);
   if (features & BellAttention) QApplication::alert(this);
   if (features & BellSystem) QApplication::beep();
-  if (features & BellAudio) playBellAudio();
+  if (features & BellAudio && m_bellPlayer) m_bellPlayer->play();
 
   if (!surface) return;
   if (features & BellBorder) surface->flashBorder();
@@ -1058,22 +1056,6 @@ void MainWindow::updateTabText(int tab) {
   m_tabs->setTabIcon(tab, tabBellMarked(tab) ? bellAttentionIcon() : QIcon());
   if (tab == m_tabs->currentIndex())
     setWindowTitle(text + QStringLiteral(" — Ghastty"));
-}
-
-void MainWindow::playBellAudio() {
-  if (m_bellAudioPath.isEmpty()) return;
-  if (!m_bellPlayer) {
-    m_bellAudio = new QAudioOutput(this);
-    m_bellPlayer = new QMediaPlayer(this);
-    m_bellPlayer->setAudioOutput(m_bellAudio);
-  }
-  m_bellAudio->setVolume(m_bellAudioVolume);
-  // Stop first so a back-to-back bell restarts the clip from the
-  // beginning. Without this, calling play() on an already-playing
-  // QMediaPlayer is a no-op and rapid bells get silently swallowed.
-  m_bellPlayer->stop();
-  m_bellPlayer->setSource(QUrl::fromLocalFile(m_bellAudioPath));
-  m_bellPlayer->play();
 }
 
 // Refresh every window's chrome from the current GhosttyApp config: tab-bar
@@ -1323,16 +1305,10 @@ void MainWindow::applyWindowConfig() {
     m_tabs->tabBar()->setVisible(m_tabs->count() > 1);
   }
 
-  // bell-audio-path / -volume: cached on the window so playBellAudio
-  // doesn't re-scan the on-disk config on every bell. Refreshed on
-  // each applyWindowConfig (i.e. at init and on reload).
-  {
-    m_bellAudioPath = config::expandedPath("bell-audio-path");
-    bool volOk = false;
-    const double v =
-        config::diskValue("bell-audio-volume").toDouble(&volOk);
-    m_bellAudioVolume = volOk ? v : 0.5;
-  }
+  // bell-audio: BellPlayer caches the path/volume so the bell hot
+  // path doesn't re-scan the on-disk config on every ring.
+  if (!m_bellPlayer) m_bellPlayer = new BellPlayer(this);
+  m_bellPlayer->refreshFromConfig();
 
   // window-title-font-family: apply to the tab bar (and the WM
   // title via Qt's window-title system font is harder to override

@@ -106,6 +106,7 @@ add_executable(ghastty
   src/actions/TabActions.cpp
   src/actions/WindowActions.cpp
   src/app/GhosttyApp.cpp
+  src/bell/BellPlayer.cpp
   src/config/Config.cpp
   src/CommandPalette.cpp
   src/GhosttySurface.cpp
