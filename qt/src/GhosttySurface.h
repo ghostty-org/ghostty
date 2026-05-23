@@ -61,6 +61,8 @@ public:
   // Arm a one-shot desktop notification for the next command to finish
   // (context-menu item); consumeCommandNotify reads-and-clears the flag.
   void armCommandNotify() { m_notifyOnCommand = true; }
+  void clearCommandNotify() { m_notifyOnCommand = false; }
+  bool commandNotifyArmed() const { return m_notifyOnCommand; }
   bool consumeCommandNotify() {
     const bool armed = m_notifyOnCommand;
     m_notifyOnCommand = false;

@@ -882,8 +882,26 @@ void GhosttySurface::contextMenuEvent(QContextMenuEvent *ev) {
       !QGuiApplication::clipboard()->text().isEmpty());
   add(&menu, "Select All", "edit-select-all", "select_all", true);
   add(&menu, "Find…", "edit-find", "start_search", true);
-  add(&menu, "Notify on Next Command Finish",
-      "preferences-desktop-notification", "@notify-command", true);
+  // "Notify on Next Command Finish" is a togglable arm. We render the
+  // checked state with a themed checkmark icon in the regular icon
+  // column rather than QAction::setCheckable() — Breeze/KDE draws the
+  // checkable indicator in its own column, misaligned with the rest
+  // of the menu's icons. The bell icon previously used here was also
+  // misleading (suggested a stateless trigger, not a one-shot flag).
+  {
+    QAction *notify = menu.addAction(
+        QStringLiteral("Notify on Next Command Finish"));
+    notify->setData(QStringLiteral("@notify-command"));
+    if (commandNotifyArmed()) {
+      QIcon ok = QIcon::fromTheme(QStringLiteral("emblem-ok"));
+      if (ok.isNull())
+        ok = QIcon::fromTheme(QStringLiteral("object-select"));
+      if (ok.isNull()) ok = QIcon::fromTheme(QStringLiteral("dialog-ok"));
+      if (!ok.isNull()) notify->setIcon(ok);
+    }
+    if (QKeySequence sc = shortcutFor("@notify-command"); !sc.isEmpty())
+      notify->setShortcut(sc);
+  }
   menu.addSeparator();
   add(&menu, "Clear", "edit-clear-all", "clear_screen", true);
   add(&menu, "Reset", "view-refresh", "reset", true);
@@ -919,9 +937,15 @@ void GhosttySurface::contextMenuEvent(QContextMenuEvent *ev) {
   if (!chosen || !m_surface) return;
   const QString data = chosen->data().toString();
 
-  // Arm the one-shot "command finished" notification (no keybind action).
+  // Toggle the one-shot "command finished" notification (no keybind
+  // action). Not a checkable QAction — see the icon-column comment in
+  // the menu-build section above — so flip by reading the current
+  // armed state.
   if (data == QLatin1String("@notify-command")) {
-    armCommandNotify();
+    if (commandNotifyArmed())
+      clearCommandNotify();
+    else
+      armCommandNotify();
     return;
   }
 
