@@ -1,7 +1,6 @@
 #include "ActionDispatcher.h"
 
 #include <QString>
-#include <QStringLiteral>
 
 #include "../GhosttySurface.h"
 #include "../MainWindow.h"
@@ -51,11 +50,12 @@ bool handleTab(const Context &ctx, const ghostty_action_s &action) {
     }
 
     case GHOSTTY_ACTION_MOVE_TAB: {
-      // Surface-target only: an app-target MOVE_TAB has no
-      // meaningful window to apply to (we'd just pick the first
-      // live one arbitrarily). macOS returns false here —
-      // performable falls through to the running terminal on no
-      // live window.
+      // src non-null implies the action's target was a surface
+      // (dispatch only populates ctx.src on GHOSTTY_TARGET_SURFACE).
+      // App-target MOVE_TAB has no meaningful window to apply to
+      // (we'd just pick the first live one arbitrarily). macOS
+      // returns false here — performable falls through to the
+      // running terminal on no live window.
       if (!src) return false;
       // Performable: a single tab can't be reordered.
       if (!win || win->tabCount() <= 1) return false;

@@ -50,7 +50,7 @@ bool dispatch(ghostty_app_t /*app*/, ghostty_target_s target,
     case GHOSTTY_ACTION_QUIT_TIMER:
     case GHOSTTY_ACTION_TOGGLE_VISIBILITY:
     case GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL:
-      return handleWindow(ctx, action, target);
+      return handleWindow(ctx, action);
 
     // --- TabActions.cpp ---
     case GHOSTTY_ACTION_NEW_TAB:

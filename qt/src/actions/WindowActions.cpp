@@ -2,7 +2,6 @@
 
 #include <QApplication>
 #include <QSize>
-#include <QTimer>
 
 #include "../app/GhosttyApp.h"
 #include "../GhosttySurface.h"
@@ -11,14 +10,13 @@
 
 namespace actions {
 
-bool handleWindow(const Context &ctx, const ghostty_action_s &action,
-                  ghostty_target_s target) {
-  // Captures referenced by the queued lambdas below.
+bool handleWindow(const Context &ctx, const ghostty_action_s &action) {
+  // Window-domain actions never read the raw `src` pointer — only
+  // the QPointer copy survives into the queued lambdas — so we
+  // unpack just the three fields that get captured.
   MainWindow *win = ctx.win;
-  GhosttySurface *src = ctx.src;
   QPointer<MainWindow> winp = ctx.winp;
   QPointer<GhosttySurface> srcp = ctx.srcp;
-  (void)target;  // (only used by tab actions)
 
   switch (action.tag) {
     case GHOSTTY_ACTION_NEW_WINDOW:
@@ -171,9 +169,6 @@ bool handleWindow(const Context &ctx, const ghostty_action_s &action,
       // Unreachable — dispatch() routes only window-domain tags here.
       return false;
   }
-  // Mark `src` used (silences -Wunused-variable when no case touches
-  // the surface; some window actions ignore it).
-  (void)src;
 }
 
 }  // namespace actions

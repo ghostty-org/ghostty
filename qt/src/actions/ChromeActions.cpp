@@ -1,5 +1,7 @@
 #include "ActionDispatcher.h"
 
+#include <cstdio>
+
 #include <QApplication>
 #include <QGuiApplication>
 #include <QString>

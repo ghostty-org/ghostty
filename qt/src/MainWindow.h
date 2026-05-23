@@ -128,11 +128,11 @@ public:
 
   // ---- libghostty-driven mutations -------------------------------
   //
-  // These are called from actions::dispatch (or the per-domain
-  // handlers in qt/src/actions/) in response to libghostty actions.
-  // They are not part of the user-facing keybind/menu API; they need
-  // public visibility only so the dispatcher can route to them
-  // without befriending its handler classes.
+  // Called from the per-domain handlers in qt/src/actions/ in
+  // response to libghostty actions. They are not part of the
+  // user-facing keybind/menu API; they need public visibility so
+  // the dispatcher can route to them through the public surface
+  // (no friend declarations).
   void closeTabsByMode(GhosttySurface *src,
                        ghostty_action_close_tab_mode_e mode);
   void gotoTab(ghostty_action_goto_tab_e tab);
@@ -145,7 +145,6 @@ public:
   void copyTitleToClipboard(GhosttySurface *src);
   void toggleCommandPalette(GhosttySurface *surface);
   void toggleSplitZoom(GhosttySurface *surface);
-  // (removeSurface is already public, declared near newTab/splitSurface)
   bool confirmCloseSurfaces(const QList<GhosttySurface *> &surfaces);
 
   // ---- libghostty-driven gating accessors ------------------------
@@ -218,7 +217,6 @@ private:
 
   // Rebuild the config from disk and push it to libghostty.
   void reloadConfig();
-  // (reloadConfigGlobal / refreshChrome are public above)
 
   // Apply config-driven window settings that may change on reload: the
   // tab-bar visibility policy and the light/dark colour scheme.

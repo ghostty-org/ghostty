@@ -66,12 +66,9 @@ bool dispatch(ghostty_app_t app,
 // ghostty_action_s so it can pull out the action-specific union
 // member it needs. Each returns true/false per the libghostty
 // action-cb contract (false = "not handled, let the chord fall
-// through to the terminal"). Domains that don't recognize the action
+// through to the terminal"). Domains that don't recognise the action
 // tag should not be called — dispatch() routes by tag.
-//
-// Tags routed to each handler are declared in the domain header.
-bool handleWindow(const Context &ctx, const ghostty_action_s &action,
-                  ghostty_target_s target);
+bool handleWindow(const Context &ctx, const ghostty_action_s &action);
 bool handleTab(const Context &ctx, const ghostty_action_s &action);
 bool handleSplit(const Context &ctx, const ghostty_action_s &action);
 bool handleChrome(const Context &ctx, const ghostty_action_s &action);

@@ -1,7 +1,6 @@
 #include "ActionDispatcher.h"
 
 #include <QSplitter>
-#include <QWidget>
 
 #include "../GhosttySurface.h"
 #include "../MainWindow.h"
@@ -10,11 +9,10 @@
 namespace actions {
 
 bool handleSplit(const Context &ctx, const ghostty_action_s &action) {
+  MainWindow *win = ctx.win;
   GhosttySurface *src = ctx.src;
   QPointer<MainWindow> winp = ctx.winp;
   QPointer<GhosttySurface> srcp = ctx.srcp;
-  MainWindow *win = ctx.win;
-  (void)win;
 
   switch (action.tag) {
     case GHOSTTY_ACTION_NEW_SPLIT: {

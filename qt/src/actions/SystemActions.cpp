@@ -3,14 +3,12 @@
 #include <cstdio>
 
 #include <QApplication>
-#include <QByteArray>
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDesktopServices>
 #include <QProcess>
 #include <QStandardPaths>
 #include <QString>
-#include <QStringList>
 #include <QStringLiteral>
 #include <QUrl>
 #include <QVariant>
