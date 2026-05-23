@@ -1,10 +1,13 @@
 #pragma once
 
+#include <atomic>
+
 #include <QList>
 
 #include "ghostty.h"
 
 class MainWindow;
+class QTimer;
 
 // Process-wide libghostty integration.
 //
@@ -59,11 +62,40 @@ public:
   void unregisterWindow(MainWindow *w);
   const QList<MainWindow *> &windows() const { return m_windows; }
 
+  // The dropdown quick terminal, if it exists. There is at most one
+  // per process. Owned by Qt (WA_DeleteOnClose); GhosttyApp holds a
+  // non-owning pointer so toggleQuickTerminal can find it.
+  MainWindow *quickTerminal() const { return m_quickTerminal; }
+  void setQuickTerminal(MainWindow *w) { m_quickTerminal = w; }
+
+  // ---- frame + quit timers ----------------------------------------
+
+  // Build the process-wide 60Hz frame timer if not already running.
+  // Idempotent. Called from MainWindow::initialize() on first window.
+  void ensureFrameTimer();
+
+  // Start / stop the natural-close quit timer per
+  // quit-after-last-window-closed-delay. No-op when delay is 0.
+  void handleQuitTimer(bool start);
+
+  // quit-after-last-window-closed-delay (ms). 0 means no delay.
+  int quitDelayMs() const { return m_quitDelayMs; }
+  void setQuitDelayMs(int ms) { m_quitDelayMs = ms; }
+
+  // ---- libghostty runtime callbacks (registered in ensureInitialized).
+  // Phase 1.2 ports onWakeup; the others still live on MainWindow.
+  static void onWakeup(void *ud);
+
 private:
   GhosttyApp() = default;
   ~GhosttyApp();
   GhosttyApp(const GhosttyApp &) = delete;
   GhosttyApp &operator=(const GhosttyApp &) = delete;
+
+  // Frame-timer body: ticks libghostty once and renders every dirty
+  // surface across every window. Process-wide so N windows don't
+  // produce N ticks per 16ms for the same shared app.
+  void frame();
 
   ghostty_app_t m_app = nullptr;
   ghostty_config_t m_config = nullptr;
@@ -74,4 +106,21 @@ private:
   // GOTO_WINDOW cycle, and the "most recent regular window" lookup
   // in undoLastClose. Migrated wholesale from MainWindow::s_windows.
   QList<MainWindow *> m_windows;
+
+  // The dropdown quick terminal, if any. Non-owning.
+  MainWindow *m_quickTerminal = nullptr;
+
+  // Process-wide 60Hz frame timer (parented to qApp). Replaces a
+  // per-window timer so N windows don't fire N ticks at the same
+  // shared ghostty_app_t.
+  QTimer *m_frameTimer = nullptr;
+
+  // Delayed quit-after-last-window-closed timer (parented to qApp).
+  // m_quitDelayMs is the configured delay in milliseconds; 0 disables.
+  QTimer *m_quitTimer = nullptr;
+  int m_quitDelayMs = 0;
+
+  // Coalesces wakeup-driven ticks: at most one tick is queued at a
+  // time so a busy surface can't flood the event loop.
+  std::atomic<bool> m_tickPending{false};
 };

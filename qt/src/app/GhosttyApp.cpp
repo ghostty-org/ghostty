@@ -2,13 +2,17 @@
 
 #include <cstdio>
 
+#include <QApplication>
 #include <QByteArray>
 #include <QCoreApplication>
 #include <QDir>
 #include <QEvent>
 #include <QFile>
+#include <QPointer>
 #include <QString>
+#include <QTimer>
 
+#include "../GhosttySurface.h"
 #include "../MainWindow.h"
 
 // Process-wide libghostty state. Only the libghostty handles + their
@@ -66,13 +70,13 @@ bool GhosttyApp::ensureInitialized() {
 
   ghostty_runtime_config_s rt = {};
   // No app userdata: actions are routed to a window via their target
-  // surface, and app-level actions via the MainWindow window registry.
+  // surface, and app-level actions via the GhosttyApp window registry.
   rt.userdata = nullptr;
   rt.supports_selection_clipboard = true;
-  // Phase 1.0: every callback still lives on MainWindow. Phase 1.1
-  // moves them onto GhosttyApp and the registration switches to
-  // GhosttyApp::onWakeup et al.
-  rt.wakeup_cb = MainWindow::onWakeup;
+  // onWakeup migrated in phase 1.2; the rest still live on
+  // MainWindow and migrate alongside the action dispatcher in
+  // phase 1.3+.
+  rt.wakeup_cb = GhosttyApp::onWakeup;
   rt.action_cb = MainWindow::onAction;
   rt.read_clipboard_cb = MainWindow::onReadClipboard;
   rt.confirm_read_clipboard_cb = MainWindow::onConfirmReadClipboard;
@@ -106,7 +110,100 @@ void GhosttyApp::unregisterWindow(MainWindow *w) {
   m_windows.removeOne(w);
 }
 
+void GhosttyApp::ensureFrameTimer() {
+  if (m_frameTimer) return;
+  // Process-wide 60fps frame timer: a backstop tick plus rendering.
+  // onWakeup drives extra ticks between frames for input
+  // responsiveness. One timer covers every window — N windows would
+  // otherwise produce N ticks per 16ms for the same shared
+  // ghostty_app_t.
+  m_frameTimer = new QTimer(qApp);
+  QObject::connect(m_frameTimer, &QTimer::timeout, qApp,
+                   [this]() { frame(); });
+  m_frameTimer->start(16);
+}
+
+void GhosttyApp::handleQuitTimer(bool start) {
+  // Only meaningful when a delay is configured; otherwise Qt's
+  // quitOnLastWindowClosed already handles the quit.
+  if (m_quitDelayMs <= 0) return;
+  if (start) {
+    if (!m_quitTimer) {
+      // Parent to qApp for consistency with m_frameTimer; teardown()
+      // still deletes it explicitly when the last window closes.
+      m_quitTimer = new QTimer(qApp);
+      m_quitTimer->setSingleShot(true);
+      QObject::connect(m_quitTimer, &QTimer::timeout, qApp,
+                       &QApplication::quit);
+    }
+    m_quitTimer->start(m_quitDelayMs);
+  } else if (m_quitTimer) {
+    m_quitTimer->stop();
+  }
+}
+
+void GhosttyApp::frame() {
+  if (!m_app) return;
+  ghostty_app_tick(m_app);
+  // Rendering happens only here, so a flood of RENDER actions cannot
+  // saturate the GUI thread — each surface renders at most once a
+  // frame. One pass across every window: the shared ghostty_app_t
+  // was already ticked once above.
+  //
+  // Iterate via QPointer snapshots so a render-driven close
+  // (renderer-unhealthy chain, child-exited press, etc.) that
+  // destroys a window or surface mid-frame can't UAF the iterator
+  // or the inner-loop receiver.
+  QList<QPointer<MainWindow>> windows;
+  windows.reserve(m_windows.size());
+  for (MainWindow *w : m_windows) windows.append(w);
+  for (const QPointer<MainWindow> &wp : windows) {
+    if (!wp) continue;
+    QList<QPointer<GhosttySurface>> surfaces;
+    const QList<GhosttySurface *> &surfList = wp->surfaces();
+    surfaces.reserve(surfList.size());
+    for (GhosttySurface *s : surfList) surfaces.append(s);
+    for (const QPointer<GhosttySurface> &sp : surfaces) {
+      if (!wp || !sp) continue;
+      sp->renderIfDirty();
+    }
+  }
+}
+
+void GhosttyApp::onWakeup(void *) {
+  // Coalesce: queue a shared-app tick only when one is not already
+  // pending, so a chatty surface cannot flood the event loop. May be
+  // called off-thread, so it marshals onto qApp (always alive) rather
+  // than any particular window. The m_app check inside the lambda
+  // guards against the last window being destroyed (which calls
+  // teardown and frees m_app) between this wakeup and the queued
+  // tick draining.
+  GhosttyApp &self = instance();
+  if (self.m_tickPending.exchange(true)) return;
+  QMetaObject::invokeMethod(
+      qApp,
+      []() {
+        GhosttyApp &s = instance();
+        s.m_tickPending.store(false);
+        if (s.m_app) ghostty_app_tick(s.m_app);
+      },
+      Qt::QueuedConnection);
+}
+
 void GhosttyApp::teardown() {
+  // Stop and free the timers BEFORE draining queued events: a final
+  // frame timeout could otherwise dispatch through the queue and
+  // tick the about-to-be-freed app.
+  if (m_frameTimer) {
+    m_frameTimer->stop();
+    delete m_frameTimer;
+    m_frameTimer = nullptr;
+  }
+  if (m_quitTimer) {
+    delete m_quitTimer;
+    m_quitTimer = nullptr;
+  }
+
   // Drain qApp-targeted MetaCalls posted by worker-thread libghostty
   // callbacks (closeAllWindows, refreshChrome, OPEN_URL, postProgress,
   // handleQuitTimer, NEW_WINDOW, CONFIG_CHANGE, ...) — these are the

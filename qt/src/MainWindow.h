@@ -111,6 +111,11 @@ public:
   // focus when the pointer enters it.
   bool focusFollowsMouse() const;
 
+  // Live surface list owned by this window. Read by GhosttyApp::frame
+  // to walk every surface for renderIfDirty without exposing the
+  // private m_surfaces member.
+  const QList<GhosttySurface *> &surfaces() const { return m_surfaces; }
+
 protected:
   bool event(QEvent *) override;
   void showEvent(QShowEvent *) override;
@@ -133,11 +138,7 @@ private:
   // Create the first tab once the device pixel ratio has settled.
   void createFirstTab();
 
-  // 60fps frame timer body. Static because there is only one timer
-  // per process — N windows pointing at the same shared ghostty_app_t.
-  // Ticks libghostty once and renders any dirty surface across every
-  // window.
-  static void frame();
+  // The frame-timer body lives on GhosttyApp::frame (process-wide).
 
   void closeTab(int index);
   // Honor close-tab-mode (THIS / OTHER / RIGHT) from libghostty.
@@ -224,19 +225,17 @@ private:
   // matching macOS where close-all and quit are distinct.
   static void closeAllWindows(bool thenQuit);
 
-  // Wire the libghostty quit_timer action to a delayed QApplication
-  // quit, gated on `quit-after-last-window-closed`.
-  static void handleQuitTimer(bool start);
+  // The quit-after-last-window-closed timer lives on
+  // GhosttyApp::handleQuitTimer.
 
   // Toggle a split pane filling its tab. Re-parents the surface out of
   // / back into the splitter tree.
   void toggleSplitZoom(GhosttySurface *surface);
 
-  // Runtime callbacks dispatched by libghostty. wakeup/action are
-  // app-level (routed via the target surface or the GhosttyApp window
-  // registry); clipboard/
-  // close carry the surface userdata.
-  static void onWakeup(void *ud);
+  // Runtime callbacks dispatched by libghostty. action is app-level
+  // (routed via the target surface or the GhosttyApp window
+  // registry); clipboard/close carry the surface userdata. wakeup
+  // moved to GhosttyApp::onWakeup in phase 1.2.
   static bool onAction(ghostty_app_t, ghostty_target_s, ghostty_action_s);
   static bool onReadClipboard(void *ud, ghostty_clipboard_e, void *state);
   static void onConfirmReadClipboard(void *ud, const char *, void *state,
@@ -287,13 +286,10 @@ private:
   static ghostty_app_t s_app;
   static ghostty_config_t s_config;
   static bool s_needsPremultiply;      // a custom shader is configured
-  static QTimer *s_quitTimer;          // delayed quit-after-last-window
+  // Mirror of GhosttyApp::quitDelayMs; phase 1.3 retires it when the
+  // remaining call site (closeAllWindows) moves to the singleton.
   static int s_quitDelayMs;            // 0 = no delay configured
   static MainWindow *s_quickTerminal;  // the one quick terminal, if any
-  // Process-wide 60Hz frame timer. Replaces a per-window timer, so N
-  // windows do not produce N ghostty_app_tick calls every 16ms for the
-  // same shared app.
-  static QTimer *s_frameTimer;
 
   // Snapshot of a closed tab or window for undo/redo. `pageTitles`
   // holds each tab's last-known title (window snapshots have N tabs;
@@ -323,9 +319,7 @@ private:
   // single Window entry; called from closeAllWindows / closeEvent.
   void pushWindowUndo();
 
-  // Coalesces wakeup-driven ticks: a tick is queued at most once at a
-  // time, so a busy surface can't flood the event loop.
-  static std::atomic<bool> s_tickPending;
+  // Wakeup tick coalescing lives on GhosttyApp::m_tickPending.
 
   // Split-zoom state: the surface temporarily filling its tab, the
   // splitter it came from, its index there, and the stashed tree root.

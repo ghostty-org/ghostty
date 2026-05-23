@@ -96,11 +96,8 @@ static QIcon bellAttentionIcon() {
 ghostty_app_t MainWindow::s_app = nullptr;
 ghostty_config_t MainWindow::s_config = nullptr;
 bool MainWindow::s_needsPremultiply = false;
-QTimer *MainWindow::s_quitTimer = nullptr;
 int MainWindow::s_quitDelayMs = 0;
 MainWindow *MainWindow::s_quickTerminal = nullptr;
-QTimer *MainWindow::s_frameTimer = nullptr;
-std::atomic<bool> MainWindow::s_tickPending{false};
 
 MainWindow::MainWindow() {
   setWindowTitle(QStringLiteral("Ghastty"));
@@ -176,30 +173,18 @@ MainWindow::~MainWindow() {
   // alive forever after closing the final window via the WM.
   // Mirrors GTK's application.zig:820-862 startQuitTimer wiring.
   const bool wasLast = GhosttyApp::instance().windows().isEmpty();
-  if (wasLast && s_quitDelayMs > 0) {
-    handleQuitTimer(true);
+  if (wasLast && GhosttyApp::instance().quitDelayMs() > 0) {
+    GhosttyApp::instance().handleQuitTimer(true);
     return;  // keep the app + config alive until the timer fires
   }
 
   // The shared app and config outlive every window but the last.
   if (wasLast) {
-    if (s_frameTimer) {
-      // The timer is parented to qApp; stop it so a final tick can't
-      // fire after the app is freed below. The QObject destructor
-      // unparents it from qApp.
-      s_frameTimer->stop();
-      delete s_frameTimer;
-      s_frameTimer = nullptr;
-    }
-    if (s_quitTimer) {
-      delete s_quitTimer;
-      s_quitTimer = nullptr;
-    }
-    // GhosttyApp::teardown drains qApp-targeted MetaCalls (so worker
-    // callbacks can't touch a freed app) and ghostty_app_frees /
-    // ghostty_config_frees the live handles. The local s_app /
-    // s_config statics are mirrors that still source from the
-    // singleton; null them so they match the singleton state.
+    // GhosttyApp::teardown stops + frees the frame and quit timers,
+    // drains qApp-targeted MetaCalls (so worker callbacks can't touch
+    // a freed app), and ghostty_app_frees + ghostty_config_frees the
+    // live handles. The local s_app / s_config mirrors are still in
+    // use across this file; null them so they match the singleton.
     GhosttyApp::instance().teardown();
     s_app = nullptr;
     s_config = nullptr;
@@ -427,10 +412,12 @@ bool MainWindow::initialize() {
     const uint64_t delayNs = parseDurationNs(
         configValue(QStringLiteral("quit-after-last-window-closed-delay")), 0);
     const uint64_t delayMs = delayNs / 1000000ULL;
-    s_quitDelayMs = quitAfter
+    const int delayMsInt = quitAfter
         ? static_cast<int>(std::min(delayMs, uint64_t(INT_MAX)))
         : 0;
-    QApplication::setQuitOnLastWindowClosed(quitAfter && s_quitDelayMs == 0);
+    GhosttyApp::instance().setQuitDelayMs(delayMsInt);
+    s_quitDelayMs = delayMsInt;  // mirror; phase 1.3 retires the static
+    QApplication::setQuitOnLastWindowClosed(quitAfter && delayMsInt == 0);
   }
 
   // Per-window startup window state, applied before show(). None of it
@@ -452,17 +439,9 @@ bool MainWindow::initialize() {
   // Tab-bar policy and colour scheme.
   applyWindowConfig();
 
-  // Process-wide 60fps frame timer (created on the first window): a
-  // backstop tick plus rendering. onWakeup drives extra ticks between
-  // frames for input responsiveness. One timer covers every window —
-  // N windows would otherwise produce N ticks per 16ms for the same
-  // shared ghostty_app_t.
-  if (!s_frameTimer) {
-    s_frameTimer = new QTimer(qApp);
-    QObject::connect(s_frameTimer, &QTimer::timeout, qApp,
-                     &MainWindow::frame);
-    s_frameTimer->start(16);
-  }
+  // Process-wide 60fps frame timer + libghostty wakeup coalescing
+  // both live on GhosttyApp now.
+  GhosttyApp::instance().ensureFrameTimer();
 
   // The first tab is created in showEvent, not here: see below.
   return true;
@@ -472,8 +451,9 @@ MainWindow *MainWindow::newWindow(ghostty_surface_t parent) {
   // If the natural-close quit timer is running (because the last
   // window was closed and we're inside the configured delay), cancel
   // it now: the process is no longer headless. macOS/GTK do the
-  // same.
-  if (s_quitTimer) handleQuitTimer(false);
+  // same. handleQuitTimer is a no-op when no delay is configured, so
+  // calling it unconditionally is safe.
+  GhosttyApp::instance().handleQuitTimer(false);
 
   auto *w = new MainWindow;
   w->setAttribute(Qt::WA_DeleteOnClose);  // self-destruct when closed
@@ -861,34 +841,6 @@ void MainWindow::copyTitleToClipboard(GhosttySurface *src) {
   if (!title.isEmpty()) QGuiApplication::clipboard()->setText(title);
 }
 
-void MainWindow::frame() {
-  if (!s_app) return;
-  ghostty_app_tick(s_app);
-  // Rendering happens only here, so a flood of RENDER actions cannot
-  // saturate the GUI thread — each surface renders at most once a
-  // frame. One pass across every window: the shared ghostty_app_t
-  // was already ticked once above.
-  //
-  // Iterate via QPointer snapshots so a render-driven close
-  // (renderer-unhealthy chain, child-exited press, etc.) that
-  // destroys a window or surface mid-frame can't UAF the iterator
-  // or the inner-loop receiver.
-  QList<QPointer<MainWindow>> windows;
-  const QList<MainWindow *> &live = GhosttyApp::instance().windows();
-  windows.reserve(live.size());
-  for (MainWindow *w : live) windows.append(w);
-  for (const QPointer<MainWindow> &wp : windows) {
-    if (!wp) continue;
-    QList<QPointer<GhosttySurface>> surfaces;
-    surfaces.reserve(wp->m_surfaces.size());
-    for (GhosttySurface *s : wp->m_surfaces) surfaces.append(s);
-    for (const QPointer<GhosttySurface> &sp : surfaces) {
-      if (!wp || !sp) continue;
-      sp->renderIfDirty();
-    }
-  }
-}
-
 void MainWindow::onTabCloseRequested(int index) {
   if (!confirmCloseSurfaces(surfacesInTab(index))) return;
   closeTab(index);
@@ -994,8 +946,9 @@ void MainWindow::closeAllWindows(bool thenQuit) {
     // Qt's quitOnLastWindowClosed terminates as the last window's
     // close event runs. We read both decisions off the *cached*
     // QApplication state so they stay consistent: refreshChrome
-    // sets quitOnLastWindowClosed and s_quitDelayMs together.
-    if (QApplication::quitOnLastWindowClosed() && s_quitDelayMs == 0) {
+    // sets quitOnLastWindowClosed and the singleton's delay together.
+    if (QApplication::quitOnLastWindowClosed() &&
+        GhosttyApp::instance().quitDelayMs() == 0) {
       qApp->quit();
     }
     // Else: the close loop above already triggered the natural-close
@@ -1215,25 +1168,6 @@ void MainWindow::changeEvent(QEvent *e) {
       configBool("quick-terminal-autohide", true))
     animateQuickTerminalOut();
   QWidget::changeEvent(e);
-}
-
-void MainWindow::handleQuitTimer(bool start) {
-  // Only meaningful when a delay is configured; otherwise Qt's
-  // quitOnLastWindowClosed already handles the quit.
-  if (s_quitDelayMs <= 0) return;
-  if (start) {
-    if (!s_quitTimer) {
-      // Parent to qApp for consistency with s_frameTimer; the dtor
-      // still deletes it explicitly when the last window closes.
-      s_quitTimer = new QTimer(qApp);
-      s_quitTimer->setSingleShot(true);
-      QObject::connect(s_quitTimer, &QTimer::timeout, qApp,
-                       &QApplication::quit);
-    }
-    s_quitTimer->start(s_quitDelayMs);
-  } else if (s_quitTimer) {
-    s_quitTimer->stop();
-  }
 }
 
 void MainWindow::onCurrentChanged(int index) {
@@ -1548,10 +1482,12 @@ void MainWindow::refreshChrome() {
     const uint64_t delayNs = parseDurationNs(
         configValue(QStringLiteral("quit-after-last-window-closed-delay")), 0);
     const uint64_t delayMs = delayNs / 1000000ULL;
-    s_quitDelayMs = quitAfter
+    const int delayMsInt = quitAfter
         ? static_cast<int>(std::min(delayMs, uint64_t(INT_MAX)))
         : 0;
-    QApplication::setQuitOnLastWindowClosed(quitAfter && s_quitDelayMs == 0);
+    GhosttyApp::instance().setQuitDelayMs(delayMsInt);
+    s_quitDelayMs = delayMsInt;  // mirror; phase 1.3 retires the static
+    QApplication::setQuitOnLastWindowClosed(quitAfter && delayMsInt == 0);
   }
 
   for (MainWindow *w : GhosttyApp::instance().windows()) {
@@ -2046,23 +1982,6 @@ void MainWindow::toggleSplitZoom(GhosttySurface *surface) {
 
 // --- libghostty runtime callbacks ------------------------------------
 
-void MainWindow::onWakeup(void *) {
-  // Coalesce: queue a shared-app tick only when one is not already
-  // pending, so a chatty surface cannot flood the event loop. May be
-  // called off-thread, so it marshals onto qApp (always alive) rather
-  // than any particular window. The s_app check inside the lambda
-  // guards against the last window being destroyed (which frees s_app)
-  // between this wakeup and the queued tick draining.
-  if (s_tickPending.exchange(true)) return;
-  QMetaObject::invokeMethod(
-      qApp,
-      []() {
-        s_tickPending.store(false);
-        if (s_app) ghostty_app_tick(s_app);
-      },
-      Qt::QueuedConnection);
-}
-
 bool MainWindow::surfaceAlive(GhosttySurface *s) {
   if (!s) return false;
   for (MainWindow *w : GhosttyApp::instance().windows())
@@ -2338,7 +2257,8 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
     case GHOSTTY_ACTION_QUIT_TIMER: {
       const bool start =
           action.action.quit_timer == GHOSTTY_QUIT_TIMER_START;
-      post(qApp, [start]() { MainWindow::handleQuitTimer(start); });
+      post(qApp,
+           [start]() { GhosttyApp::instance().handleQuitTimer(start); });
       return true;
     }
 
