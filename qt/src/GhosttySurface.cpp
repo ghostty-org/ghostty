@@ -317,8 +317,10 @@ void GhosttySurface::paintEvent(QPaintEvent *) {
   // Unfocused-split dimming: a translucent fill over an inactive pane.
   // Only split panes (a QSplitter parent) are dimmed, matching GTK.
   if (!hasFocus() && qobject_cast<QSplitter *>(parentWidget())) {
-    double opacity = 0.7;
-    config::get(&opacity, "unfocused-split-opacity");
+    double opacity = 0.7;  // default: 70% opaque
+    // On read failure opacity keeps the default; the success bit
+    // isn't load-bearing.
+    (void)config::get(&opacity, "unfocused-split-opacity");
     if (opacity < 1.0) {
       QColor fill(0, 0, 0);  // default: dim toward black
       ghostty_config_color_s c{};
