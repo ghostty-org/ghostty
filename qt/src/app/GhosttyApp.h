@@ -14,16 +14,16 @@ class QTimer;
 //
 // Owns the single ghostty_app_t and ghostty_config_t instances that
 // drive every window in the process, plus the derived needsPremultiply
-// flag that the surfaces' renderer reads when blitting frames.
+// flag that the surfaces' renderer reads when blitting frames. Hosts
+// the live MainWindow registry, the 60Hz frame timer, the
+// quit-after-last-window-closed timer, the wakeup tick coalescer, and
+// every libghostty runtime callback except onAction (which still
+// lives on MainWindow for private-member access until phase 2's
+// ActionDispatcher).
 //
 // Singleton — there is never more than one libghostty app per
 // process. Construction is deferred to the first instance() call so
 // QApplication can exist before the singleton is built.
-//
-// Phase 1.0 scope: only the libghostty handles + bring-up / teardown
-// live here. The frame timer, runtime callbacks, window registry,
-// undo stack, quit-timer state, and action dispatch all stay on
-// MainWindow for now; subsequent phases migrate them.
 class GhosttyApp {
 public:
   static GhosttyApp &instance();

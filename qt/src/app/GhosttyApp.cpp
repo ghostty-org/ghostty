@@ -20,11 +20,10 @@
 #include "../GhosttySurface.h"
 #include "../MainWindow.h"
 
-// Process-wide libghostty state. Only the libghostty handles + their
-// bring-up / teardown lifecycle live here in phase 1.0; the runtime
-// callbacks (onWakeup, onAction, onReadClipboard, ...) and the window
-// registry, undo stack, frame timer, etc. all still live on
-// MainWindow and migrate in subsequent phases.
+// Process-wide libghostty state and the runtime callbacks libghostty
+// hands back. onAction stays on MainWindow until phase 2 introduces
+// the ActionDispatcher; everything else is here. The undo/redo stack
+// stays on MainWindow as well.
 
 // Whether the Ghostty config enables a custom shader. libghostty does
 // not expose this through ghostty_config_get (`custom-shader` is a
@@ -57,9 +56,19 @@ GhosttyApp &GhosttyApp::instance() {
 }
 
 GhosttyApp::~GhosttyApp() {
-  // Backstop for an early-exit path (ghostty_init failure inside
-  // main()). The normal teardown runs from the last MainWindow's dtor.
-  teardown();
+  // Process-exit ordering: this static-local destructor runs AFTER
+  // main() returns and the stack-allocated QApplication has been
+  // destroyed, so qApp is null and the Qt event system is gone.
+  // Calling teardown() here would invoke
+  // QCoreApplication::sendPostedEvents on a dangling qApp.
+  //
+  // The normal shutdown path runs teardown() from the last
+  // MainWindow's dtor (while QApplication is still alive); by the
+  // time we get here, m_app / m_config / m_frameTimer / m_quitTimer
+  // are already null. A second teardown() would be redundant and
+  // unsafe. The early-exit case (ghostty_init failure in main, before
+  // any window is constructed) never calls instance(), so this
+  // destructor never runs in that path either.
 }
 
 bool GhosttyApp::ensureInitialized() {
@@ -98,9 +107,11 @@ bool GhosttyApp::ensureInitialized() {
 }
 
 void GhosttyApp::replaceConfig(ghostty_config_t new_config) {
-  // libghostty keeps borrowed references to the previous config (the
-  // surface message queue), so the new must be installed and the old
-  // freed in this order.
+  // PRECONDITION: the caller has already pushed `new_config` to
+  // libghostty via ghostty_app_update_config. libghostty's surface
+  // message queue may still hold borrowed references to the old
+  // config until that update completes — by the time we get here,
+  // the queue has adopted the new config and the old is safe to free.
   if (m_config && m_config != new_config) ghostty_config_free(m_config);
   m_config = new_config;
   m_needsPremultiply = configHasCustomShader();

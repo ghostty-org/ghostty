@@ -189,9 +189,6 @@ MainWindow::~MainWindow() {
   }
 }
 
-// configHasCustomShader moved to GhosttyApp.cpp (custom-shader is an
-// app-level fact: it drives needsPremultiply for every surface).
-
 // Parse a libghostty duration string into nanoseconds. The format is
 // concatenated `<n><unit>` segments per Config.zig's Duration.parseCLI:
 //   y w d h m s ms µs us ns
@@ -466,9 +463,10 @@ MainWindow *MainWindow::newWindow(ghostty_surface_t parent) {
   // window at the same origin — macOS does this via
   // NSWindow.cascadeTopLeft. Wayland compositors typically ignore
   // window placement requests; this is a hint at most.
+  ghostty_config_t cfg = GhosttyApp::instance().config();
   int16_t posX = 0, posY = 0;
-  const bool haveX = configGet(GhosttyApp::instance().config(), &posX, "window-position-x");
-  const bool haveY = configGet(GhosttyApp::instance().config(), &posY, "window-position-y");
+  const bool haveX = configGet(cfg, &posX, "window-position-x");
+  const bool haveY = configGet(cfg, &posY, "window-position-y");
   if (haveX && haveY) {
     w->move(posX, posY);
   } else {
@@ -490,7 +488,7 @@ MainWindow *MainWindow::newWindow(ghostty_surface_t parent) {
   if (!s_initialWindowConsumed) {
     s_initialWindowConsumed = true;
     bool initialWindow = true;
-    configGet(GhosttyApp::instance().config(), &initialWindow, "initial-window");
+    configGet(cfg, &initialWindow, "initial-window");
     wantsShow = initialWindow;
   }
   if (wantsShow) w->show();
@@ -1435,9 +1433,9 @@ void MainWindow::refreshChrome() {
   // Refresh app-scoped state. quit-after-last-window-closed[-delay]
   // can change the delay or the quitOnLastWindowClosed strategy at
   // runtime; mirrors the calculation in initialize().
-  if (GhosttyApp::instance().config()) {
+  if (ghostty_config_t cfg = GhosttyApp::instance().config()) {
     bool quitAfter = true;
-    configGet(GhosttyApp::instance().config(), &quitAfter, "quit-after-last-window-closed");
+    configGet(cfg, &quitAfter, "quit-after-last-window-closed");
     // Same Duration-decode workaround as initialize().
     const uint64_t delayNs = parseDurationNs(
         configValue(QStringLiteral("quit-after-last-window-closed-delay")), 0);
@@ -2003,9 +2001,9 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
   // *cross*-captured pointers (e.g. `src` when posting to `win`) are
   // wrapped in QPointer so they're checked at lambda-execution time —
   // a multi-window + tear-off + close race could otherwise UAF.
-  const QList<MainWindow *> &live_ = GhosttyApp::instance().windows();
+  const QList<MainWindow *> &live = GhosttyApp::instance().windows();
   MainWindow *win = src ? src->owner()
-                        : (live_.isEmpty() ? nullptr : live_.first());
+                        : (live.isEmpty() ? nullptr : live.first());
   QPointer<MainWindow> winp(win);
   QPointer<GhosttySurface> srcp(src);
 
@@ -2083,10 +2081,10 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       // global keybind can rename even when no surface is the action's
       // explicit target. Mirrors macOS NSApp.mainWindow promotion.
       GhosttySurface *target = src;
-      const QList<MainWindow *> &live_pt = GhosttyApp::instance().windows();
-      if (!target && !live_pt.isEmpty()) {
+      const QList<MainWindow *> &allWindows = GhosttyApp::instance().windows();
+      if (!target && !allWindows.isEmpty()) {
         MainWindow *active = qobject_cast<MainWindow *>(qApp->activeWindow());
-        if (!active) active = live_pt.first();
+        if (!active) active = allWindows.first();
         if (active) target = active->surfaceAt(active->m_tabs->currentIndex());
       }
       if (!target) return false;

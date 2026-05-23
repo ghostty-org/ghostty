@@ -21,7 +21,8 @@ class GhosttySurface;
 
 // A top-level window presenting terminal surfaces as tabs; each tab may
 // be subdivided into splits. The libghostty app and config are shared
-// process-wide across every window (the static s_* members below).
+// process-wide via GhosttyApp::instance(); MainWindow's config() and
+// needsPremultiply() forward there.
 //
 // Widget tree: QTabWidget -> tab page (QWidget) -> split tree, where a
 // node is either a GhosttySurface (a QOpenGLWidget) or a QSplitter of
@@ -139,9 +140,10 @@ private slots:
   void onCurrentChanged(int index);
 
 private:
-  // GhosttyApp registers our static runtime callbacks (onWakeup,
-  // onAction, ...) with libghostty. Phase 1.0 only — phase 1.1
-  // moves the callbacks onto GhosttyApp itself and drops this.
+  // GhosttyApp::onCloseSurface needs to call confirmCloseSurfaces /
+  // removeSurface (both private) on the target window from a deferred
+  // queued slot. Phase 2's ActionDispatcher refactor will replace
+  // this with public predicates on the per-window API.
   friend class GhosttyApp;
 
   // Create the first tab once the device pixel ratio has settled.
@@ -192,10 +194,11 @@ private:
 
   // Rebuild the config from disk and push it to libghostty.
   void reloadConfig();
-  // App-scoped reload entry point. The config is process-wide (statics
-  // in this class), so reload from any window has the same effect; the
-  // RELOAD_CONFIG action posts to qApp via this static so the reload
-  // can't be cancelled by the source window closing mid-dispatch.
+  // App-scoped reload entry point. The config is process-wide (held
+  // by GhosttyApp), so a reload from any window has the same effect;
+  // the RELOAD_CONFIG action posts to qApp via this static so the
+  // reload can't be cancelled by the source window closing
+  // mid-dispatch.
   static void reloadConfigGlobal();
   // Refresh every window's chrome from the current config (used after a
   // reload and on the CONFIG_CHANGE notification).
