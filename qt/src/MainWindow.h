@@ -125,6 +125,11 @@ private slots:
   void onCurrentChanged(int index);
 
 private:
+  // GhosttyApp registers our static runtime callbacks (onWakeup,
+  // onAction, ...) with libghostty. Phase 1.0 only — phase 1.1
+  // moves the callbacks onto GhosttyApp itself and drops this.
+  friend class GhosttyApp;
+
   // Create the first tab once the device pixel ratio has settled.
   void createFirstTab();
 

@@ -54,6 +54,7 @@
 
 #include <LayerShellQt/window.h>
 
+#include "app/GhosttyApp.h"
 #include "CommandPalette.h"
 #include "GhosttySurface.h"
 #include "TabWidget.h"
@@ -179,7 +180,7 @@ MainWindow::~MainWindow() {
   if (s_windows.isEmpty()) {
     if (s_frameTimer) {
       // The timer is parented to qApp; stop it so a final tick can't
-      // fire after s_app is freed below. The QObject destructor
+      // fire after the app is freed below. The QObject destructor
       // unparents it from qApp.
       s_frameTimer->stop();
       delete s_frameTimer;
@@ -189,48 +190,19 @@ MainWindow::~MainWindow() {
       delete s_quitTimer;
       s_quitTimer = nullptr;
     }
-    // Drain qApp-targeted MetaCalls posted by worker-thread libghostty
-    // callbacks (closeAllWindows, refreshChrome, OPEN_URL, postProgress,
-    // handleQuitTimer, NEW_WINDOW, CONFIG_CHANGE, ...) — these are the
-    // ones that can still touch s_app/s_config after their original
-    // window has gone. Lambdas posted to per-window/per-surface
-    // receivers are auto-cancelled by Qt when those receivers were
-    // deleted above (qDeleteAll above and the broader Qt object tree
-    // teardown), so they don't need draining.
-    //
-    // sendPostedEvents only drains the named receiver, not its
-    // children — which is exactly what we want here.
-    QCoreApplication::sendPostedEvents(qApp, QEvent::MetaCall);
-    if (s_app) {
-      ghostty_app_free(s_app);
-      s_app = nullptr;
-    }
-    if (s_config) {
-      ghostty_config_free(s_config);
-      s_config = nullptr;
-    }
+    // GhosttyApp::teardown drains qApp-targeted MetaCalls (so worker
+    // callbacks can't touch a freed app) and ghostty_app_frees /
+    // ghostty_config_frees the live handles. The local s_app /
+    // s_config statics are mirrors that still source from the
+    // singleton; null them so they match the singleton state.
+    GhosttyApp::instance().teardown();
+    s_app = nullptr;
+    s_config = nullptr;
   }
 }
 
-// Whether the Ghostty config enables a custom shader. libghostty does
-// not expose this through ghostty_config_get (`custom-shader` is a
-// repeatable path), so scan the primary config file directly.
-static bool configHasCustomShader() {
-  QString dir = qEnvironmentVariable("XDG_CONFIG_HOME");
-  if (dir.isEmpty()) dir = QDir::homePath() + QStringLiteral("/.config");
-
-  QFile f(dir + QStringLiteral("/ghostty/config"));
-  if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
-
-  while (!f.atEnd()) {
-    const QByteArray line = f.readLine().trimmed();
-    if (!line.startsWith("custom-shader")) continue;
-    // Require a non-empty value: `custom-shader =` alone clears it.
-    const int eq = line.indexOf('=');
-    if (eq >= 0 && !line.mid(eq + 1).trimmed().isEmpty()) return true;
-  }
-  return false;
-}
+// configHasCustomShader moved to GhosttyApp.cpp (custom-shader is an
+// app-level fact: it drives needsPremultiply for every surface).
 
 // Parse a libghostty duration string into nanoseconds. The format is
 // concatenated `<n><unit>` segments per Config.zig's Duration.parseCLI:
@@ -421,37 +393,25 @@ static void openUrlByKind(const QString &url,
 }
 
 bool MainWindow::initialize() {
+  // First-call: build libghostty app + config via the singleton. The
+  // singleton holds m_app / m_config / m_needsPremultiply; the
+  // MainWindow s_app / s_config / s_needsPremultiply statics are now
+  // forwarders that read it.
+  if (!GhosttyApp::instance().ensureInitialized()) return false;
+  // Mirror the singleton's pointers into the legacy statics so the
+  // existing call sites (the rest of MainWindow.cpp + GhosttySurface)
+  // keep working unchanged. Phases 1.1+ swap them out.
+  s_app = GhosttyApp::instance().app();
+  s_config = GhosttyApp::instance().config();
+  s_needsPremultiply = GhosttyApp::instance().needsPremultiply();
+
   s_windows.append(this);
 
-  // The first window builds the shared libghostty app and config; every
-  // later window reuses them.
-  if (!s_app) {
-    // Load configuration in the same order as the reference apprt.
-    s_config = ghostty_config_new();
-    ghostty_config_load_default_files(s_config);
-    ghostty_config_load_cli_args(s_config);
-    ghostty_config_load_recursive_files(s_config);
-    ghostty_config_finalize(s_config);
-    s_needsPremultiply = configHasCustomShader();
-
-    ghostty_runtime_config_s rt = {};
-    // No app userdata: actions are routed to a window via their target
-    // surface, and app-level actions via the s_windows registry.
-    rt.userdata = nullptr;
-    rt.supports_selection_clipboard = true;
-    rt.wakeup_cb = onWakeup;
-    rt.action_cb = onAction;
-    rt.read_clipboard_cb = onReadClipboard;
-    rt.confirm_read_clipboard_cb = onConfirmReadClipboard;
-    rt.write_clipboard_cb = onWriteClipboard;
-    rt.close_surface_cb = onCloseSurface;
-
-    s_app = ghostty_app_new(&rt, s_config);
-    if (!s_app) {
-      std::fprintf(stderr, "[ghastty] ghostty_app_new failed\n");
-      return false;
-    }
-
+  // First window also caches the quit-after-last-window-closed state.
+  // Subsequent windows skip it (the singleton already holds the live
+  // value via its config; only the QApplication quit strategy is set
+  // once here).
+  if (s_windows.size() == 1) {
     // quit-after-last-window-closed: Qt's native "quit on last window"
     // covers the common (no-delay) case; a configured delay is honored
     // through the libghostty quit_timer action (see handleQuitTimer).
@@ -1646,12 +1606,12 @@ void MainWindow::reloadConfigGlobal() {
   // chrome, never re-pushes, so this does not loop.
   ghostty_app_update_config(s_app, config);
 
-  // Adopt the new config. libghostty keeps borrowed references to it
-  // (the surface message queue), so it must outlive this call — which
-  // it does, as the live s_config.
-  if (s_config && s_config != config) ghostty_config_free(s_config);
-  s_config = config;
-  s_needsPremultiply = configHasCustomShader();
+  // Hand the new config to the singleton, which frees the previous one
+  // (in the right order — libghostty borrows the previous until update
+  // completes) and recomputes needsPremultiply.
+  GhosttyApp::instance().replaceConfig(config);
+  s_config = GhosttyApp::instance().config();
+  s_needsPremultiply = GhosttyApp::instance().needsPremultiply();
 
   refreshChrome();
 
