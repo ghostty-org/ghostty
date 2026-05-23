@@ -1153,6 +1153,8 @@ int MainWindow::tabIndexForSurface(GhosttySurface *surface) const {
   return -1;
 }
 
+int MainWindow::tabCount() const { return m_tabs->count(); }
+
 QList<GhosttySurface *> MainWindow::surfacesInTab(int index) const {
   QWidget *page = m_tabs->widget(index);
   if (!page) return {};

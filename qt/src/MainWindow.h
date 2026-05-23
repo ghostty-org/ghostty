@@ -132,6 +132,42 @@ public:
   // away entirely in phase 2.9.
   static bool onAction(ghostty_app_t, ghostty_target_s, ghostty_action_s);
 
+  // ---- libghostty-driven mutations -------------------------------
+  //
+  // These are called from actions::dispatch (or the per-domain
+  // handlers in qt/src/actions/) in response to libghostty actions.
+  // They are not part of the user-facing keybind/menu API; they need
+  // public visibility only so the dispatcher can route to them
+  // without befriending its handler classes.
+  void closeTabsByMode(GhosttySurface *src,
+                       ghostty_action_close_tab_mode_e mode);
+  void gotoTab(ghostty_action_goto_tab_e tab);
+  void gotoSplit(GhosttySurface *from, ghostty_action_goto_split_e dir);
+  void resizeSplit(GhosttySurface *from, ghostty_action_resize_split_s rs);
+  void equalizeSplits(GhosttySurface *from);
+  void moveTab(int amount);
+  void ringBell(GhosttySurface *surface);
+  void setTabTitleOverride(GhosttySurface *surface, const QString &title);
+  void copyTitleToClipboard(GhosttySurface *src);
+  void toggleCommandPalette(GhosttySurface *surface);
+  void toggleSplitZoom(GhosttySurface *surface);
+  // (removeSurface is already public, declared near newTab/splitSurface)
+  bool confirmCloseSurfaces(const QList<GhosttySurface *> &surfaces);
+
+  // ---- libghostty-driven gating accessors ------------------------
+
+  // Tab count, used by GOTO_TAB / MOVE_TAB performable checks.
+  int tabCount() const;
+  // Default size cached on INITIAL_SIZE for RESET_WINDOW_SIZE.
+  QSize defaultWindowSize() const { return m_defaultWindowSize; }
+  void setDefaultWindowSize(QSize s) { m_defaultWindowSize = s; }
+
+  // Typed wrappers over ghostty_config_get. configString also serves
+  // enum keys — libghostty returns an enum as its tag name string.
+  // Public so handler files can read config without friending.
+  QString configString(const char *key) const;
+  bool configBool(const char *key, bool fallback) const;
+
 protected:
   bool event(QEvent *) override;
   void showEvent(QShowEvent *) override;
@@ -146,21 +182,10 @@ private slots:
   void onCurrentChanged(int index);
 
 private:
-  // GhosttyApp::onCloseSurface needs to call confirmCloseSurfaces /
-  // removeSurface (both private) on the target window from a deferred
-  // queued slot. Phase 2's ActionDispatcher refactor will replace
-  // this with public predicates on the per-window API.
-  friend class GhosttyApp;
-
   // Create the first tab once the device pixel ratio has settled.
   void createFirstTab();
 
-  // The frame-timer body lives on GhosttyApp::frame (process-wide).
-
   void closeTab(int index);
-  // Honor close-tab-mode (THIS / OTHER / RIGHT) from libghostty.
-  void closeTabsByMode(GhosttySurface *src,
-                       ghostty_action_close_tab_mode_e mode);
   // Right-click context menu over a tab (Close / Close Others /
   // Close Tabs to the Right / Rename), wired from
   // TabWidget::tabContextMenuRequested.
@@ -173,15 +198,6 @@ private:
   int tabIndexForSurface(GhosttySurface *surface) const;
   QList<GhosttySurface *> surfacesInTab(int index) const;
 
-  // Keybind-driven navigation between tabs and split panes.
-  void gotoTab(ghostty_action_goto_tab_e tab);
-  void gotoSplit(GhosttySurface *from, ghostty_action_goto_split_e dir);
-  void resizeSplit(GhosttySurface *from, ghostty_action_resize_split_s rs);
-  void equalizeSplits(GhosttySurface *from);
-  void moveTab(int amount);  // reorder the current tab by `amount`
-
-  // Ring the terminal bell, honoring the `bell-features` config.
-  void ringBell(GhosttySurface *surface);
   void playBellAudio();
 
   // Bell `title` feature: prefix a tab's title while any surface in it
@@ -192,11 +208,6 @@ private:
   // title and manual override, plus any bell mark. Tab data holds a
   // {base, override} QStringList.
   void updateTabText(int tab);
-  // Set/clear a tab's manual title override (empty string clears it);
-  // while set, SET_TITLE no longer changes the tab text.
-  void setTabTitleOverride(GhosttySurface *surface, const QString &title);
-  // Copy the current tab's effective title to the clipboard.
-  void copyTitleToClipboard(GhosttySurface *src);
 
   // Rebuild the config from disk and push it to libghostty.
   void reloadConfig();
@@ -210,11 +221,6 @@ private:
   // reload and on the CONFIG_CHANGE notification).
   static void refreshChrome();
 
-  // Typed wrappers over ghostty_config_get. configString also serves
-  // enum keys — libghostty returns an enum as its tag name string.
-  QString configString(const char *key) const;
-  bool configBool(const char *key, bool fallback) const;
-
   // Apply config-driven window settings that may change on reload: the
   // tab-bar visibility policy and the light/dark colour scheme.
   void applyWindowConfig();
@@ -227,14 +233,6 @@ private:
   // edge, per the `quick-terminal-*` config. Quick-terminal only.
   void setupLayerShell();
 
-  // Show/hide the command palette (TOGGLE_COMMAND_PALETTE), scoped to
-  // `surface` for executing the chosen command.
-  void toggleCommandPalette(GhosttySurface *surface);
-
-  // Prompt (per `confirm-close-surface`) before closing `surfaces`.
-  // Returns true if the close may proceed.
-  bool confirmCloseSurfaces(const QList<GhosttySurface *> &surfaces);
-
   // Close every window, optionally quitting the process. Prompts once
   // via ghostty_app_needs_confirm_quit. `thenQuit=true` is the QUIT
   // action's behavior (close everything and end the process);
@@ -242,17 +240,6 @@ private:
   // alive when `quit-after-last-window-closed=false` is set —
   // matching macOS where close-all and quit are distinct.
   static void closeAllWindows(bool thenQuit);
-
-  // The quit-after-last-window-closed timer lives on
-  // GhosttyApp::handleQuitTimer.
-
-  // Toggle a split pane filling its tab. Re-parents the surface out of
-  // / back into the splitter tree.
-  void toggleSplitZoom(GhosttySurface *surface);
-
-  // onAction is public above (forwarder for ActionDispatcher during
-  // phase 2.0; deleted in phase 2.9). surfaceAlive moved to
-  // GhosttyApp::surfaceAlive.
 
   TabWidget *m_tabs = nullptr;
   QList<GhosttySurface *> m_surfaces;  // every live surface in this window
