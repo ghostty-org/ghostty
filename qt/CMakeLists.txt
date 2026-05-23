@@ -32,9 +32,9 @@ include(GNUInstallDirs)
 find_package(Qt6 REQUIRED COMPONENTS Gui Widgets OpenGL DBus
   Multimedia Svg)
 # WindowBlur + XkbTracker use qpa/qplatformnativeinterface.h to reach
-# the wl_display / wl_surface / xcb_connection_t / wl_seat for native
-# compositor calls (blur, layer-shell screen pinning, raw wl_keyboard
-# listeners). The Qt-internal GuiPrivate module is tied to a specific
+# the wl_display / wl_surface / wl_seat for native compositor calls
+# (blur, layer-shell screen pinning, raw wl_keyboard listeners). The
+# Qt-internal GuiPrivate module is tied to a specific
 # Qt build, but every consumer of these headers ends up here — there
 # is no public alternative. Suppress the cosmetic
 # `_qt_internal_show_private_module_warning` so the build is silent
@@ -48,12 +48,11 @@ find_package(Qt6 QUIET OPTIONAL_COMPONENTS GuiPrivate)
 # LayerShellQt: the quick terminal is a wlr-layer-shell dropdown window.
 find_package(LayerShellQt REQUIRED)
 
-# KWin background-blur is applied through the native compositor: the
-# org_kde_kwin_blur Wayland protocol and the _KDE_NET_WM_BLUR atom on
-# X11. Qt6::GuiPrivate gives the QPA native-handle accessors.
+# KWin background-blur is applied through the native compositor via
+# the org_kde_kwin_blur Wayland protocol. Qt6::GuiPrivate gives the
+# QPA native-handle accessors.
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
-pkg_check_modules(XCB REQUIRED IMPORTED_TARGET xcb)
 # libxkbcommon: derive the unshifted Unicode codepoint for a key event
 # from its XKB keycode, so libghostty's kitty encoder finds an entry for
 # punctuation keys (Qt's ev->key() reports the SHIFTED symbol, e.g.
@@ -147,7 +146,6 @@ target_link_libraries(ghastty PRIVATE
   Qt6::Multimedia
   Qt6::Svg
   PkgConfig::WAYLAND_CLIENT
-  PkgConfig::XCB
   PkgConfig::XKBCOMMON
   LayerShellQt::Interface
   "${GHOSTTY_LINK_SO}"

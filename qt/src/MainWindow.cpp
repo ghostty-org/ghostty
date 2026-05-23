@@ -310,8 +310,8 @@ void MainWindow::showEvent(QShowEvent *event) {
   if (m_firstTabPending)
     QTimer::singleShot(250, this, [this] { createFirstTab(); });
 
-  // Apply background blur once the native (Wayland/X11) surface exists;
-  // a zero-delay timer defers past the platform-window creation.
+  // Apply background blur once the native Wayland surface exists; a
+  // zero-delay timer defers past the platform-window creation.
   QTimer::singleShot(0, this, [this] { applyBlur(); });
 }
 
@@ -1257,13 +1257,11 @@ void MainWindow::setSizeLimits(uint32_t minW, uint32_t minH, uint32_t maxW,
 }
 
 // CELL_SIZE: store the value and apply window-step-resize. The
-// `window-step-resize` config asks Qt to resize in cell increments;
-// QWidget::setSizeIncrement is honored on X11 by most WMs but is
-// usually ignored by Wayland compositors (the protocol has no
-// equivalent of WM_NORMAL_HINTS step). Best-effort: it works where
-// it works, no-op otherwise. Config docs explicitly say "currently
-// only supported on macOS / has no effect on Linux," so this is
-// strictly a bonus.
+// `window-step-resize` config asks Qt to resize in cell increments
+// via QWidget::setSizeIncrement, but Wayland has no equivalent of
+// WM_NORMAL_HINTS step so compositors typically ignore it. Config
+// docs explicitly say "currently only supported on macOS / has no
+// effect on Linux," so this is strictly a bonus.
 void MainWindow::setCellSize(uint32_t w, uint32_t h) {
   m_cellSize = QSize(int(w), int(h));
   if (config::boolean("window-step-resize", false))

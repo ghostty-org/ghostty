@@ -13,7 +13,7 @@
 // True when any argv entry starts with `+` — i.e. the user invoked a
 // libghostty CLI action (`+show-config`, `+list-fonts`, `+version`, …).
 // We detect early so the CLI path can run without paying the cost of
-// constructing a QApplication (which opens a Wayland/X11 connection
+// constructing a QApplication (which opens a Wayland connection
 // only to exit).
 static bool isCliActionInvocation(int argc, char **argv) {
   for (int i = 1; i < argc; ++i) {
@@ -77,8 +77,8 @@ int main(int argc, char **argv) {
   QCoreApplication::setOrganizationName(QStringLiteral("ghastty"));
 
   // Match the installed ghastty.desktop: this becomes the Wayland app-id
-  // (and X11 WM_CLASS), so the compositor associates the window with the
-  // desktop entry — taskbar icon, launcher identity.
+  // so the compositor associates the window with the desktop entry —
+  // taskbar icon, launcher identity.
   QGuiApplication::setDesktopFileName(QStringLiteral("ghastty"));
 
   // The window icon, embedded so it works even running from the build
