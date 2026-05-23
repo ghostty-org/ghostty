@@ -32,10 +32,15 @@ QString string(const char *key);
 // strict bools, NOT packed bitfields — see bitfield<>() for those.
 bool boolean(const char *key, bool fallback);
 
-// Parse a duration config key as nanoseconds. Always reads through
-// the disk-fallback (configDiskValue) because libghostty's
-// ghostty_config_get rejects Duration types (non-extern non-packed
-// struct). Returns `fallbackNs` on parse failure or absent key.
+// Parse a duration config key as nanoseconds via the on-disk
+// fallback. Use this for `?Duration` (optional) keys: c_get.zig
+// returns false for a null optional, so the disk text is the only
+// way to recover the configured value. Non-optional `Duration` keys
+// surface through ghostty_config_get directly (it returns the value
+// in *milliseconds*, per Duration.cval()) and should use config::get
+// with `unsigned long long` and a manual ms→ns multiplication, NOT
+// this wrapper, to avoid a redundant disk re-scan on every read.
+// Returns `fallbackNs` on parse failure or absent key.
 uint64_t durationNs(const char *key, uint64_t fallbackNs);
 
 // Scan the user's primary on-disk config file for `key = value`
@@ -77,6 +82,7 @@ QString expandedPath(const char *key);
 // fails.
 template <typename T, size_t N>
 inline bool get(T *out, const char (&key)[N]) {
+  static_assert(N > 1, "config::get requires a non-empty key literal");
   ghostty_config_t cfg = handle();
   return cfg && ghostty_config_get(cfg, out, key, N - 1);
 }

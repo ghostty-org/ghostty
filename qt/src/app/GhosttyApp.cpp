@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include <QApplication>
+#include <QByteArray>
 #include <QClipboard>
 #include <QCoreApplication>
 #include <QEvent>

@@ -188,12 +188,8 @@ bool handleSystem(const Context &ctx, const ghostty_action_s &action) {
 
     case GHOSTTY_ACTION_PROGRESS_REPORT: {
       // Honor `progress-style`: when false, OSC 9;4 progress
-      // sequences are silently ignored (no taskbar entry). It is a
-      // *bool* in Config.zig — it MUST be read with config::boolean.
-      // config::string would hand ghostty_config_get a `const char**`;
-      // the 1-byte bool write leaves a `0x1` pointer that
-      // QString::fromUtf8 then dereferences and crashes on (e.g.
-      // when Claude emits progress).
+      // sequences are silently ignored (no taskbar entry). The gate
+      // is process-wide (a config setting, not a per-window setting).
       if (!config::boolean("progress-style", true)) return true;
       const ghostty_action_progress_report_s p = action.action.progress_report;
       const ghostty_action_progress_report_state_e state = p.state;

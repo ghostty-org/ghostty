@@ -1,5 +1,7 @@
 #include "Config.h"
 
+#include <climits>
+
 #include <QByteArray>
 #include <QChar>
 #include <QDir>
@@ -51,11 +53,13 @@ QString diskValue(const char *key) {
 // concatenated `<n><unit>` segments per Config.zig's Duration.parseCLI:
 //   y w d h m s ms µs us ns
 // Each segment is added to the total. Returns the supplied fallback
-// when parsing fails or the input is empty.
+// when parsing fails, when the input is empty, or when the running
+// total would overflow uint64 (Config.zig rejects this; we mirror).
 static uint64_t parseDurationNs(const QString &s, uint64_t fallback) {
   if (s.isEmpty()) return fallback;
-  // Order matters: longer units first so `ms` is matched before `s`,
-  // `us` before `s`, etc. Mirrors Config.zig's units array.
+  // kUnits mirrors Config.zig's units array; the longest-prefix match
+  // at the matching site below makes table order semantically
+  // irrelevant (kept aligned with Zig for diffability).
   static constexpr struct { const char *name; uint64_t factor; } kUnits[] = {
       {"ns", 1ULL},
       {"us", 1000ULL},
@@ -99,7 +103,13 @@ static uint64_t parseDurationNs(const QString &s, uint64_t fallback) {
       }
     }
     if (unitLen == 0) return fallback;
-    total += value * factor;
+    // Reject overflow on multiply or running-sum: a typo like
+    // `1000000000y` would otherwise wrap into a small bogus value
+    // that callers treat as a real (tiny) duration.
+    if (factor && value > ULLONG_MAX / factor) return fallback;
+    const uint64_t segment = value * factor;
+    if (segment > ULLONG_MAX - total) return fallback;
+    total += segment;
     i += unitLen;
     anyMatched = true;
   }
@@ -125,22 +135,12 @@ QString expandedPath(const char *key) {
 
 bool hasCustomShader() {
   // libghostty does not expose this through ghostty_config_get
-  // (`custom-shader` is a repeatable path), so scan the primary
-  // config file directly.
-  QString dir = qEnvironmentVariable("XDG_CONFIG_HOME");
-  if (dir.isEmpty()) dir = QDir::homePath() + QStringLiteral("/.config");
-
-  QFile f(dir + QStringLiteral("/ghostty/config"));
-  if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
-
-  while (!f.atEnd()) {
-    const QByteArray line = f.readLine().trimmed();
-    if (!line.startsWith("custom-shader")) continue;
-    // Require a non-empty value: `custom-shader =` alone clears it.
-    const int eq = line.indexOf('=');
-    if (eq >= 0 && !line.mid(eq + 1).trimmed().isEmpty()) return true;
-  }
-  return false;
+  // (`custom-shader` is a repeatable path), so scan the on-disk
+  // config text. diskValue does the exact-key match (so
+  // `custom-shader-animation = …` is not mistaken for our key) and
+  // last-write-wins (so `custom-shader =` clears any earlier
+  // assignment, matching libghostty's repeating-key semantics).
+  return !diskValue("custom-shader").isEmpty();
 }
 
 }  // namespace config

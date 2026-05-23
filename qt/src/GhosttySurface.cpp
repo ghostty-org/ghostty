@@ -242,7 +242,8 @@ void GhosttySurface::layoutScrollbar() {
 // `scrollbar = never` in the config hides the scrollbar unconditionally;
 // `system` (the default) shows it whenever there is scrollback.
 bool GhosttySurface::scrollbarAllowed() const {
-  if (!m_owner || !m_owner->config()) return true;
+  // config::get is null-safe (returns false when handle() is null),
+  // so we only need the "could not read" → default-to-showing path.
   const char *value = nullptr;
   if (config::get(&value, "scrollbar") && value)
     return qstrcmp(value, "never") != 0;
@@ -271,7 +272,7 @@ void GhosttySurface::flashScrollbar() {
   if (!m_scrollbar || !scrollbarAllowed()) return;
   // Handle colour: light on a dark terminal, dark on a light one.
   ghostty_config_color_s bg{};
-  if (m_owner && config::get(&bg, "background")) {
+  if (config::get(&bg, "background")) {
     const double luma = 0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b;
     m_scrollbar->setHandleColor(luma < 128.0 ? QColor(235, 235, 235)
                                              : QColor(45, 45, 45));
@@ -583,8 +584,7 @@ void GhosttySurface::paintResizeOverlay(QPainter &painter) {
   const qreal boxH = ts.height() + 2 * padY;
 
   // resize-overlay-position: center / {top,bottom}-{left,center,right}.
-  const QString pos =
-      m_owner ? config::string("resize-overlay-position") : QString();
+  const QString pos = config::string("resize-overlay-position");
   const qreal m = 8;
   qreal x = (width() - boxW) / 2;
   qreal y = (height() - boxH) / 2;
