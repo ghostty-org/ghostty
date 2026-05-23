@@ -66,7 +66,14 @@ public:
   // per process. Owned by Qt (WA_DeleteOnClose); GhosttyApp holds a
   // non-owning pointer so toggleQuickTerminal can find it.
   MainWindow *quickTerminal() const { return m_quickTerminal; }
-  void setQuickTerminal(MainWindow *w) { m_quickTerminal = w; }
+
+  // App-scoped show/hide of every regular window. Replaces
+  // MainWindow::toggleVisibility().
+  void toggleVisibility();
+
+  // Show/hide the dropdown, creating it on first use. Replaces
+  // MainWindow::toggleQuickTerminal().
+  void toggleQuickTerminal();
 
   // ---- frame + quit timers ----------------------------------------
 

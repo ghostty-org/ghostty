@@ -97,7 +97,6 @@ ghostty_app_t MainWindow::s_app = nullptr;
 ghostty_config_t MainWindow::s_config = nullptr;
 bool MainWindow::s_needsPremultiply = false;
 int MainWindow::s_quitDelayMs = 0;
-MainWindow *MainWindow::s_quickTerminal = nullptr;
 
 MainWindow::MainWindow() {
   setWindowTitle(QStringLiteral("Ghastty"));
@@ -158,8 +157,9 @@ MainWindow::MainWindow() {
 }
 
 MainWindow::~MainWindow() {
+  // unregisterWindow also clears GhosttyApp's quick-terminal pointer
+  // if this was it.
   GhosttyApp::instance().unregisterWindow(this);
-  if (this == s_quickTerminal) s_quickTerminal = nullptr;
 
   // Destroy this window's surfaces (freeing their ghostty_surface_t)
   // before any app teardown; Qt's own child cleanup runs after this body.
@@ -957,46 +957,17 @@ void MainWindow::closeAllWindows(bool thenQuit) {
   }
 }
 
-void MainWindow::toggleVisibility() {
-  // If anything is showing, hide everything; otherwise reveal it all.
-  const QList<MainWindow *> &live = GhosttyApp::instance().windows();
-  bool anyVisible = false;
-  for (MainWindow *w : live)
-    if (w->isVisible()) {
-      anyVisible = true;
-      break;
-    }
-  for (MainWindow *w : live) {
-    if (anyVisible) {
-      w->hide();
-    } else {
-      w->show();
-      w->raise();
-      w->activateWindow();
-    }
-  }
-}
-
-void MainWindow::toggleQuickTerminal() {
-  if (s_quickTerminal) {
-    if (s_quickTerminal->isVisible()) {
-      s_quickTerminal->animateQuickTerminalOut();
-    } else {
-      s_quickTerminal->animateQuickTerminalIn();
-    }
-    return;
-  }
-  // First use: build the dedicated quick-terminal window.
+MainWindow *MainWindow::makeQuickTerminal() {
   auto *w = new MainWindow;
   w->m_quickTerminal = true;
   w->setAttribute(Qt::WA_DeleteOnClose);
   if (!w->initialize()) {
     delete w;
-    return;
+    return nullptr;
   }
-  s_quickTerminal = w;
   w->setupLayerShell();
   w->animateQuickTerminalIn();
+  return w;
 }
 
 // Read quick-terminal-animation-duration (seconds) and convert to ms.
@@ -2520,11 +2491,11 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
     }
 
     case GHOSTTY_ACTION_TOGGLE_VISIBILITY:
-      post(qApp, []() { MainWindow::toggleVisibility(); });
+      post(qApp, []() { GhosttyApp::instance().toggleVisibility(); });
       return true;
 
     case GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL:
-      post(qApp, []() { MainWindow::toggleQuickTerminal(); });
+      post(qApp, []() { GhosttyApp::instance().toggleQuickTerminal(); });
       return true;
 
     case GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE:

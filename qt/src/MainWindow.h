@@ -43,18 +43,18 @@ public:
   // tab whose surface inherits from `parent` (may be null).
   static MainWindow *newWindow(ghostty_surface_t parent);
 
-  // Show or hide every window at once (TOGGLE_VISIBILITY).
-  static void toggleVisibility();
-
-  // Show/hide the dropdown quick terminal, creating it on first use
-  // (TOGGLE_QUICK_TERMINAL). There is at most one per process.
-  static void toggleQuickTerminal();
+  // Build the process's single quick-terminal MainWindow on demand:
+  // a layer-shell dropdown anchored to a screen edge, faded in
+  // immediately. Called from GhosttyApp::toggleQuickTerminal on first
+  // use. Returns nullptr on init failure.
+  static MainWindow *makeQuickTerminal();
 
   // Quick-terminal slide/fade animation per quick-terminal-animation-
   // duration. Implemented as a windowOpacity fade because Qt's layer-
   // shell doesn't expose a usable position-based slide API.
   void animateQuickTerminalIn();
   void animateQuickTerminalOut();
+  bool isQuickTerminal() const { return m_quickTerminal; }
 
   // Open a new tab. `parent` (may be null) is the surface whose working
   // directory etc. the new surface should inherit.
@@ -289,7 +289,6 @@ private:
   // Mirror of GhosttyApp::quitDelayMs; phase 1.3 retires it when the
   // remaining call site (closeAllWindows) moves to the singleton.
   static int s_quitDelayMs;            // 0 = no delay configured
-  static MainWindow *s_quickTerminal;  // the one quick terminal, if any
 
   // Snapshot of a closed tab or window for undo/redo. `pageTitles`
   // holds each tab's last-known title (window snapshots have N tabs;

@@ -108,6 +108,41 @@ void GhosttyApp::registerWindow(MainWindow *w) {
 
 void GhosttyApp::unregisterWindow(MainWindow *w) {
   m_windows.removeOne(w);
+  if (m_quickTerminal == w) m_quickTerminal = nullptr;
+}
+
+void GhosttyApp::toggleVisibility() {
+  // If anything is showing, hide everything; otherwise reveal it all.
+  bool anyVisible = false;
+  for (MainWindow *w : m_windows)
+    if (w->isVisible()) {
+      anyVisible = true;
+      break;
+    }
+  for (MainWindow *w : m_windows) {
+    if (anyVisible) {
+      w->hide();
+    } else {
+      w->show();
+      w->raise();
+      w->activateWindow();
+    }
+  }
+}
+
+void GhosttyApp::toggleQuickTerminal() {
+  if (m_quickTerminal) {
+    if (m_quickTerminal->isVisible())
+      m_quickTerminal->animateQuickTerminalOut();
+    else
+      m_quickTerminal->animateQuickTerminalIn();
+    return;
+  }
+  // First use: build the dedicated quick-terminal window. It registers
+  // itself via the standard registerWindow path; we additionally
+  // remember it as the singleton dropdown so a second toggle-call
+  // animates rather than building another window.
+  m_quickTerminal = MainWindow::makeQuickTerminal();
 }
 
 void GhosttyApp::ensureFrameTimer() {
