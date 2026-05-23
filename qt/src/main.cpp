@@ -5,6 +5,7 @@
 #include <QIcon>
 #include <QSurfaceFormat>
 
+#include "app/GhosttyApp.h"
 #include "GlobalShortcuts.h"
 #include "MainWindow.h"
 #include "ghostty.h"
@@ -121,9 +122,9 @@ int main(int argc, char **argv) {
   QObject::connect(&globalShortcuts, &GlobalShortcuts::activated,
                    [](const QString &id) {
                      if (id == QLatin1String("toggle-quick-terminal"))
-                       MainWindow::toggleQuickTerminal();
+                       GhosttyApp::instance().toggleQuickTerminal();
                      else if (id == QLatin1String("toggle-visibility"))
-                       MainWindow::toggleVisibility();
+                       GhosttyApp::instance().toggleVisibility();
                    });
 
   return app.exec();
