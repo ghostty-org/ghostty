@@ -192,6 +192,8 @@ void GhosttySurface::resizeEvent(QResizeEvent *) {
       y -= m_keySeqOverlay->height() + 4;
     m_linkOverlay->move(8, y);
   }
+  if (m_healthOverlay && m_healthOverlay->isVisible())
+    m_healthOverlay->move(width() - m_healthOverlay->width() - 8, 8);
   layoutSearchBar();
   showResizeOverlay();
 }
@@ -439,6 +441,37 @@ void GhosttySurface::setLinkOverlay(const QString &url) {
   m_linkOverlay->move(8, yBase);
   m_linkOverlay->show();
   m_linkOverlay->raise();
+}
+
+void GhosttySurface::setRendererHealth(bool unhealthy) {
+  if (!unhealthy) {
+    if (m_healthOverlay) m_healthOverlay->hide();
+    return;
+  }
+  if (!m_healthOverlay) {
+    // Reuses the standard overlay style but with a destructive accent;
+    // top-right rather than the bottom-left that key-chord/link share so
+    // it doesn't fight them when both are visible at once.
+    m_healthOverlay = new QLabel(this);
+    m_healthOverlay->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_healthOverlay->setStyleSheet(QStringLiteral(
+        "background: rgba(180,30,30,0.85); color: #ffffff;"
+        "font-size: 12px; padding: 4px 10px; border-radius: 4px;"));
+  }
+  m_healthOverlay->setText(QStringLiteral("renderer unhealthy"));
+  m_healthOverlay->adjustSize();
+  m_healthOverlay->move(width() - m_healthOverlay->width() - 8, 8);
+  m_healthOverlay->show();
+  m_healthOverlay->raise();
+}
+
+void GhosttySurface::setPwd(const QString &pwd) {
+  if (m_pwd == pwd) return;
+  m_pwd = pwd;
+  // Future work: when the worktree integration lands, this is the
+  // notification site that triggers the worktree-aware tab decoration.
+  // For now the value is held on the surface; setSurfaceTitle continues
+  // to drive the tab text on its own.
 }
 
 void GhosttySurface::toggleInspector(ghostty_action_inspector_e mode) {
