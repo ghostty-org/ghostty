@@ -1,5 +1,8 @@
 #pragma once
 
+#include <utility>
+
+#include <QMetaObject>
 #include <QString>
 #include <Qt>
 
@@ -48,4 +51,14 @@ QString formatTrigger(const ghostty_input_trigger_s &t);
 template <typename T, size_t N>
 inline bool configGet(ghostty_config_t cfg, T *out, const char (&key)[N]) {
   return cfg && ghostty_config_get(cfg, out, key, N - 1);
+}
+
+// Queue `f` on `target`'s thread, but only if `target` is still alive
+// when the slot runs (Qt cancels queued slots whose receiver was
+// deleted). Cross-captured pointers must be wrapped in QPointer
+// separately — `target` only protects itself.
+template <class Target, class F>
+inline void post(Target *target, F &&f) {
+  if (!target) return;
+  QMetaObject::invokeMethod(target, std::forward<F>(f), Qt::QueuedConnection);
 }

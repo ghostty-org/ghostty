@@ -126,6 +126,12 @@ public:
     return m_surfaces.contains(s);
   }
 
+  // The libghostty action callback. Public so actions::dispatch in
+  // ActionDispatcher.cpp can forward to it during phase 2.0; phase
+  // 2.1+ progressively migrate the switch body and this method goes
+  // away entirely in phase 2.9.
+  static bool onAction(ghostty_app_t, ghostty_target_s, ghostty_action_s);
+
 protected:
   bool event(QEvent *) override;
   void showEvent(QShowEvent *) override;
@@ -244,14 +250,9 @@ private:
   // / back into the splitter tree.
   void toggleSplitZoom(GhosttySurface *surface);
 
-  // The libghostty action callback. Stays here because its switch
-  // body still needs private MainWindow access; phase 2 retires it
-  // for an ActionDispatcher. The other five runtime callbacks
-  // (onWakeup + clipboard quartet) live on GhosttyApp.
-  static bool onAction(ghostty_app_t, ghostty_target_s, ghostty_action_s);
-
-  // surfaceAlive moved to GhosttyApp::surfaceAlive (it iterates the
-  // live window registry, which is owned by the singleton).
+  // onAction is public above (forwarder for ActionDispatcher during
+  // phase 2.0; deleted in phase 2.9). surfaceAlive moved to
+  // GhosttyApp::surfaceAlive.
 
   TabWidget *m_tabs = nullptr;
   QList<GhosttySurface *> m_surfaces;  // every live surface in this window

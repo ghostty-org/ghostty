@@ -1977,15 +1977,8 @@ static Qt::CursorShape mouseShapeToCursor(ghostty_action_mouse_shape_e s) {
   }
 }
 
-// Queue `f` on `target`'s thread, but only if `target` is still alive
-// when the slot runs (Qt cancels queued slots whose receiver was
-// deleted). Cross-captured pointers must be wrapped in QPointer
-// separately — `target` only protects itself.
-template <class Target, class F>
-static void post(Target *target, F &&f) {
-  if (!target) return;
-  QMetaObject::invokeMethod(target, std::forward<F>(f), Qt::QueuedConnection);
-}
+// post() lives in Util.h now (used by both MainWindow and the
+// ActionDispatcher handler files).
 
 bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
                           ghostty_action_s action) {
