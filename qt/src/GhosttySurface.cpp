@@ -468,10 +468,6 @@ void GhosttySurface::setRendererHealth(bool unhealthy) {
 void GhosttySurface::setPwd(const QString &pwd) {
   if (m_pwd == pwd) return;
   m_pwd = pwd;
-  // Future work: when the worktree integration lands, this is the
-  // notification site that triggers the worktree-aware tab decoration.
-  // For now the value is held on the surface; setSurfaceTitle continues
-  // to drive the tab text on its own.
 }
 
 void GhosttySurface::toggleInspector(ghostty_action_inspector_e mode) {

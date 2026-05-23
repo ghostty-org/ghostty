@@ -135,9 +135,9 @@ public:
   // Tracked working directory (from the PWD action). Updated whenever
   // libghostty notifies the apprt that the surface's cwd has changed —
   // either at spawn (from inherited config) or via shell integration /
-  // OSC 7. Used by MainWindow for the tab-title fallback when no
-  // terminal title has been set, and is the foundation for the
-  // worktree-aware tab decoration that lands on top of this branch.
+  // OSC 7. The value is currently stored only; future chrome
+  // (worktree-aware tab decoration, "new tab here", proxy icon) reads
+  // it via pwd().
   void setPwd(const QString &pwd);
   const QString &pwd() const { return m_pwd; }
 

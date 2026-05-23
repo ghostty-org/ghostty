@@ -2784,8 +2784,10 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       // libghostty means "unknown / cleared" — pass it through so the
       // surface can drop a stale value.
       if (!src) return true;
-      const ghostty_action_pwd_s p = action.action.pwd;
-      const QString s = p.pwd ? QString::fromUtf8(p.pwd) : QString();
+      // libghostty's pwd is a sentinel-terminated Zig slice (see
+      // src/apprt/action.zig:Pwd) — its C ptr is always non-null;
+      // an "unknown / cleared" cwd is encoded as "".
+      const QString s = QString::fromUtf8(action.action.pwd.pwd);
       post(src, [srcp, s]() {
         if (srcp) srcp->setPwd(s);
       });
@@ -2803,6 +2805,11 @@ bool MainWindow::onAction(ghostty_app_t, ghostty_target_s target,
       // can't go through refreshChrome; instead, derive the scheme
       // straight from the action's RGB payload. macOS does the
       // analogous thing in its color-change handler.
+      //
+      // Note: Qt's setColorScheme is a process-global style hint, so
+      // an OSC 11 from any window flips chrome on every window. This
+      // matches applyWindowConfig (also a global call) and is the
+      // documented Qt 6.8+ behaviour.
       if (action.action.color_change.kind ==
           GHOSTTY_ACTION_COLOR_KIND_BACKGROUND) {
         const ghostty_action_color_change_s c = action.action.color_change;
