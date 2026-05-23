@@ -202,7 +202,7 @@ bool MainWindow::initialize() {
     // quit-after-last-window-closed: Qt's native "quit on last window"
     // covers the common (no-delay) case; a configured delay is honored
     // through the libghostty quit_timer action (see handleQuitTimer).
-    const bool quitAfter = configBool("quit-after-last-window-closed", true);
+    const bool quitAfter = config::boolean("quit-after-last-window-closed", true);
     // quit-after-last-window-closed-delay is a `?Duration` and Duration
     // is neither extern nor packed, so libghostty's ghostty_config_get
     // returns false for it. Read from disk and parse.
@@ -222,13 +222,13 @@ bool MainWindow::initialize() {
     // window-decoration `none` drops the native frame; `auto`/`server`/
     // `client` keep a decorated window (the compositor picks the side
     // on Wayland).
-    if (configString("window-decoration") == QLatin1String("none"))
+    if (config::string("window-decoration") == QLatin1String("none"))
       setWindowFlag(Qt::FramelessWindowHint, true);
     // fullscreen wins over maximize; its enum is `false` when unset.
-    const QString fullscreen = configString("fullscreen");
+    const QString fullscreen = config::string("fullscreen");
     if (!fullscreen.isEmpty() && fullscreen != QLatin1String("false"))
       setWindowState(windowState() | Qt::WindowFullScreen);
-    else if (configBool("maximize", false))
+    else if (config::boolean("maximize", false))
       setWindowState(windowState() | Qt::WindowMaximized);
   }
 
@@ -352,7 +352,7 @@ GhosttySurface *MainWindow::newTab(ghostty_surface_t parent) {
   // window-new-tab-position: place the tab right after the current one,
   // or append it at the end (the default).
   int index;
-  if (configString("window-new-tab-position") == QLatin1String("current") &&
+  if (config::string("window-new-tab-position") == QLatin1String("current") &&
       m_tabs->count() > 0)
     index = m_tabs->insertTab(m_tabs->currentIndex() + 1, page,
                               QStringLiteral("Ghastty"));
@@ -669,7 +669,7 @@ bool MainWindow::confirmCloseSurfaces(
   //   true   -> prompt only when libghostty says a process is running
   //   always -> always prompt, even for surfaces with no live process
   // (libghostty Config.zig: ConfirmCloseSurface enum.)
-  const QString mode = configString("confirm-close-surface");
+  const QString mode = config::string("confirm-close-surface");
   if (mode == QLatin1String("false")) return true;
 
   bool needsConfirm = (mode == QLatin1String("always"));
@@ -843,7 +843,7 @@ void MainWindow::setupLayerShell() {
   using LSW = LayerShellQt::Window;
 
   ls->setLayer(LSW::LayerTop);
-  const QString ki = configString("quick-terminal-keyboard-interactivity");
+  const QString ki = config::string("quick-terminal-keyboard-interactivity");
   ls->setKeyboardInteractivity(
       ki == QLatin1String("exclusive") ? LSW::KeyboardInteractivityExclusive
       : ki == QLatin1String("none")    ? LSW::KeyboardInteractivityNone
@@ -859,7 +859,7 @@ void MainWindow::setupLayerShell() {
   // Pass null to fall back to the QWindow's screen (LayerShellQt's
   // documented default when neither setScreen nor
   // setWantsToBeOnActiveScreen is set).
-  const QString screenMode = configString("quick-terminal-screen");
+  const QString screenMode = config::string("quick-terminal-screen");
   QScreen *screen = nullptr;
   if (screenMode == QLatin1String("mouse")) {
     screen = QGuiApplication::screenAt(QCursor::pos());
@@ -877,7 +877,7 @@ void MainWindow::setupLayerShell() {
   // active workspace (KWin behaviour), which corresponds to `move`.
   // Achieving `remain` would need a per-workspace pin that no
   // mainstream compositor exposes; honour by no-op and document.
-  Q_UNUSED(configString("quick-terminal-space-behavior"));
+  Q_UNUSED(config::string("quick-terminal-space-behavior"));
 
   const QSize scr = screen ? screen->size() : QSize(1920, 1080);
 
@@ -896,7 +896,7 @@ void MainWindow::setupLayerShell() {
     }
   };
 
-  const QString pos = configString("quick-terminal-position");
+  const QString pos = config::string("quick-terminal-position");
   LSW::Anchors anchors;
   QSize size;
   if (pos == QLatin1String("bottom")) {
@@ -933,7 +933,7 @@ void MainWindow::changeEvent(QEvent *e) {
   // an explicit toggle).
   if (e->type() == QEvent::ActivationChange && m_quickTerminal &&
       isVisible() && !isActiveWindow() &&
-      configBool("quick-terminal-autohide", true))
+      config::boolean("quick-terminal-autohide", true))
     animateQuickTerminalOut();
   QWidget::changeEvent(e);
 }
@@ -1277,7 +1277,7 @@ void MainWindow::refreshChrome() {
     // Toggling Qt::FramelessWindowHint hides+reshows the window, so
     // gate on a real change.
     const bool wantFrameless =
-        w->configString("window-decoration") == QLatin1String("none");
+        config::string("window-decoration") == QLatin1String("none");
     const bool isFrameless =
         w->windowFlags().testFlag(Qt::FramelessWindowHint);
     if (wantFrameless != isFrameless) {
@@ -1292,9 +1292,9 @@ void MainWindow::refreshChrome() {
     // fullscreen / maximize: `fullscreen=true` wins over `maximize`.
     // Setting back to a non-fullscreen window goes through showNormal
     // first so the WM lets us out of fullscreen cleanly.
-    const QString fs = w->configString("fullscreen");
+    const QString fs = config::string("fullscreen");
     const bool wantFullscreen = !fs.isEmpty() && fs != QLatin1String("false");
-    const bool wantMax = w->configBool("maximize", false);
+    const bool wantMax = config::boolean("maximize", false);
     if (wantFullscreen) {
       if (!w->isFullScreen()) w->showFullScreen();
     } else if (w->isFullScreen()) {
@@ -1350,19 +1350,6 @@ void MainWindow::reloadConfigGlobal() {
   if (wantConfigReload)
     postNotification(QStringLiteral("Ghostty"),
                      QStringLiteral("Configuration reloaded."));
-}
-
-// configString / configBool are forwarders to config::string /
-// config::boolean. Kept for now so external callers (GhosttySurface,
-// CommandPalette) don't have to migrate their existing
-// `m_owner->configString(...)` callsites in this commit; phase 3.1
-// retires the forwarders.
-QString MainWindow::configString(const char *key) const {
-  return config::string(key);
-}
-
-bool MainWindow::configBool(const char *key, bool fallback) const {
-  return config::boolean(key, fallback);
 }
 
 bool MainWindow::focusFollowsMouse() const {
@@ -1462,7 +1449,7 @@ void MainWindow::setSizeLimits(uint32_t minW, uint32_t minH, uint32_t maxW,
 // strictly a bonus.
 void MainWindow::setCellSize(uint32_t w, uint32_t h) {
   m_cellSize = QSize(int(w), int(h));
-  if (configBool("window-step-resize", false))
+  if (config::boolean("window-step-resize", false))
     setSizeIncrement(int(w), int(h));
   else
     setSizeIncrement(0, 0);  // back to pixel-precise
@@ -1614,7 +1601,7 @@ void MainWindow::redoLastClose() {
 void MainWindow::applyWindowConfig() {
   // window-show-tab-bar: always shown / auto-hidden with a lone tab /
   // never shown.
-  const QString tabBar = configString("window-show-tab-bar");
+  const QString tabBar = config::string("window-show-tab-bar");
   if (tabBar == QLatin1String("never")) {
     m_tabs->setTabBarAutoHide(false);
     m_tabs->tabBar()->hide();
@@ -1678,7 +1665,7 @@ void MainWindow::applyWindowConfig() {
   // CMake doesn't compile against older Qt). The setColorScheme
   // hint propagates to chrome (tab bar, dialogs); the terminal
   // itself honours its own theme via libghostty.
-  const QString theme = configString("window-theme");
+  const QString theme = config::string("window-theme");
   Qt::ColorScheme scheme = Qt::ColorScheme::Unknown;
   if (theme == QLatin1String("dark")) {
     scheme = Qt::ColorScheme::Dark;

@@ -148,7 +148,7 @@ bool handleSystem(const Context &ctx, const ghostty_action_s &action) {
         // the never/unfocused gate (matches GTK's setup-menu).
         const bool armed = srcp->consumeCommandNotify();
         // notify-on-command-finish enum (string).
-        const QString mode = winp->configString("notify-on-command-finish");
+        const QString mode = config::string("notify-on-command-finish");
         bool fire = armed;
         if (!fire) {
           if (mode == QLatin1String("always")) fire = true;
@@ -194,12 +194,12 @@ bool handleSystem(const Context &ctx, const ghostty_action_s &action) {
     case GHOSTTY_ACTION_PROGRESS_REPORT: {
       // Honor `progress-style`: when false, OSC 9;4 progress
       // sequences are silently ignored (no taskbar entry). It is a
-      // *bool* in Config.zig — it MUST be read with configBool.
-      // configString would hand ghostty_config_get a `const char**`;
+      // *bool* in Config.zig — it MUST be read with config::boolean.
+      // config::string would hand ghostty_config_get a `const char**`;
       // the 1-byte bool write leaves a `0x1` pointer that
       // QString::fromUtf8 then dereferences and crashes on (e.g.
       // when Claude emits progress).
-      if (win && !win->configBool("progress-style", true)) return true;
+      if (!config::boolean("progress-style", true)) return true;
       const ghostty_action_progress_report_s p = action.action.progress_report;
       const ghostty_action_progress_report_state_e state = p.state;
       const double fraction = p.progress >= 0 ? p.progress / 100.0 : 0.0;

@@ -10,6 +10,7 @@
 #include <Qt>
 
 #include "../app/GhosttyApp.h"
+#include "../config/Config.h"
 #include "../GhosttySurface.h"
 #include "../MainWindow.h"
 #include "../Util.h"
@@ -87,8 +88,10 @@ bool handleChrome(const Context &ctx, const ghostty_action_s &action) {
           GHOSTTY_ACTION_COLOR_KIND_BACKGROUND) {
         const ghostty_action_color_change_s c = action.action.color_change;
         post(qApp, [winp, c]() {
+          // Bail if the originating window was closed between the
+          // action posting and this slot — no chrome to flip.
           if (!winp) return;
-          if (winp->configString("window-theme") != QLatin1String("ghostty"))
+          if (config::string("window-theme") != QLatin1String("ghostty"))
             return;
           const double luma = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
           QGuiApplication::styleHints()->setColorScheme(

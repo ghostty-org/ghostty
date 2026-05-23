@@ -158,12 +158,6 @@ public:
   QSize defaultWindowSize() const { return m_defaultWindowSize; }
   void setDefaultWindowSize(QSize s) { m_defaultWindowSize = s; }
 
-  // Typed wrappers over ghostty_config_get. configString also serves
-  // enum keys — libghostty returns an enum as its tag name string.
-  // Public so handler files can read config without friending.
-  QString configString(const char *key) const;
-  bool configBool(const char *key, bool fallback) const;
-
   // App-scoped reload entry point and chrome refresh. Both are
   // called from actions::dispatch (RELOAD_CONFIG, CONFIG_CHANGE).
   static void reloadConfigGlobal();
