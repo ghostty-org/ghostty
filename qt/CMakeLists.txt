@@ -115,6 +115,7 @@ add_executable(ghastty
   src/OverlayScrollbar.cpp
   src/SearchBar.cpp
   src/TabWidget.cpp
+  src/undo/UndoStack.cpp
   src/Util.cpp
   src/WindowBlur.cpp
   src/XkbTracker.cpp

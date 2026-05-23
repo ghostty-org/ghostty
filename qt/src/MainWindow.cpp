@@ -54,6 +54,7 @@
 #include "CommandPalette.h"
 #include "GhosttySurface.h"
 #include "TabWidget.h"
+#include "undo/UndoStack.h"
 #include "Util.h"
 #include "WindowBlur.h"
 
@@ -442,11 +443,11 @@ void MainWindow::removeSurface(GhosttySurface *surface) {
   const int index = m_tabs->indexOf(parent);
   // Push to undo so a shell-exited tab close is symmetric with a
   // user-initiated tab close (closeTab pushes too). Skip the last
-  // tab — its closeEvent runs pushWindowUndo and we don't want to
+  // tab — its closeEvent runs undo::pushWindow and we don't want to
   // double-stack. Also skip the quick terminal (which doesn't push
   // to either stack by design).
   if (index >= 0 && m_tabs->count() > 1 && !m_quickTerminal)
-    pushTabUndo(index);
+    undo::pushTab(m_tabs->tabText(index), m_quickTerminal);
   if (index >= 0) m_tabs->removeTab(index);
   if (parent) parent->deleteLater();  // page; destroys the surface too
   // The surface close was already confirmed; don't re-prompt on the
@@ -461,9 +462,10 @@ void MainWindow::closeTab(int index) {
   QWidget *page = m_tabs->widget(index);
   if (!page) return;
   // Snapshot the tab's title for undo before we lose the reference.
-  // pushTabUndo is no-op for the last tab in a window — that close
-  // ends up triggering pushWindowUndo via closeEvent instead.
-  if (m_tabs->count() > 1 && !m_quickTerminal) pushTabUndo(index);
+  // undo::pushTab is no-op for the last tab in a window — that close
+  // ends up triggering undo::pushWindow via closeEvent instead.
+  if (m_tabs->count() > 1 && !m_quickTerminal)
+    undo::pushTab(m_tabs->tabText(index), m_quickTerminal);
   const auto inTab = page->findChildren<GhosttySurface *>();
   for (GhosttySurface *s : inTab) m_surfaces.removeOne(s);
   // If the zoomed surface was in this tab, clear the stash so a later
@@ -655,7 +657,11 @@ void MainWindow::closeEvent(QCloseEvent *e) {
   // Snapshot for undo. We push the window's full tab list so undo
   // restores all of them; closeTab paths skip the per-tab push when
   // they reach the last tab so we don't double-stack the same close.
-  pushWindowUndo();
+  QStringList titles;
+  titles.reserve(m_tabs->count());
+  for (int i = 0; i < m_tabs->count(); ++i)
+    titles << m_tabs->tabText(i);
+  undo::pushWindow(titles, geometry(), m_quickTerminal);
   e->accept();
 }
 
@@ -1444,147 +1450,22 @@ void MainWindow::setCellSize(uint32_t w, uint32_t h) {
     setSizeIncrement(0, 0);  // back to pixel-precise
 }
 
-// Process-wide undo state — see MainWindow.h.
-QList<MainWindow::UndoEntry> MainWindow::s_undoStack;
-QList<MainWindow::UndoEntry> MainWindow::s_redoStack;
-bool MainWindow::s_redoInProgress = false;
+void MainWindow::undoLastClose() { undo::undoLast(); }
+void MainWindow::redoLastClose() { undo::redoLast(); }
 
-// Snapshot the tab at `index` (its tab text — last-known title) onto
-// the undo stack. Called from closeTab / closeTabsByMode / right
-// before the tab is removed. No-op while a redo is replaying.
-void MainWindow::pushTabUndo(int index) {
-  if (s_redoInProgress) return;
-  if (index < 0 || index >= m_tabs->count()) return;
-  UndoEntry e;
-  e.kind = UndoEntry::Kind::Tab;
-  e.pageTitles << m_tabs->tabText(index);
-  s_undoStack.append(std::move(e));
-  if (s_undoStack.size() > kUndoCap) s_undoStack.removeFirst();
-  // A fresh close invalidates any pending redo: the new "future" no
-  // longer matches what the redo stack would re-close.
-  s_redoStack.clear();
+// Close the active tab without prompting. Called from
+// undo::redoLast for a Tab redo: the user already accepted the
+// original close, so re-closing carries the same prior consent.
+void MainWindow::closeCurrentTabForRedo() {
+  const int idx = m_tabs->currentIndex();
+  if (idx >= 0) closeTab(idx);
 }
 
-// Snapshot every tab in this window before it goes away. Called from
-// closeAllWindows and from closeEvent for the user-driven X. No-op
-// while a redo is replaying.
-void MainWindow::pushWindowUndo() {
-  if (s_redoInProgress) return;
-  if (m_quickTerminal || m_tabs->count() == 0) return;
-  UndoEntry e;
-  e.kind = UndoEntry::Kind::Window;
-  for (int i = 0; i < m_tabs->count(); ++i)
-    e.pageTitles << m_tabs->tabText(i);
-  e.geometry = geometry();
-  s_undoStack.append(std::move(e));
-  if (s_undoStack.size() > kUndoCap) s_undoStack.removeFirst();
-  s_redoStack.clear();
-}
-
-// Pop the most recent undo entry and revive it. A new tab/window is
-// opened that inherits cwd from the active surface (libghostty
-// supplies the cwd via inherited_config), and the saved title is
-// reapplied as a manual tab-title override so it persists across
-// shell prompts.
-void MainWindow::undoLastClose() {
-  if (s_undoStack.isEmpty()) return;
-  const UndoEntry e = s_undoStack.takeLast();
-
-  // The active window picks the new tab's parent surface for cwd
-  // inheritance. Skip the quick terminal — it doesn't push undo
-  // entries and isn't a meaningful target. Fall back to the most
-  // recent regular window in registration order.
-  auto isUndoTarget = [](MainWindow *w) {
-    return w && !w->m_quickTerminal;
-  };
-  MainWindow *active = qobject_cast<MainWindow *>(qApp->activeWindow());
-  if (!isUndoTarget(active)) {
-    active = nullptr;
-    const QList<MainWindow *> &live = GhosttyApp::instance().windows();
-    for (int i = live.size() - 1; i >= 0; --i) {
-      if (isUndoTarget(live.at(i))) {
-        active = live.at(i);
-        break;
-      }
-    }
-  }
-  GhosttySurface *parent = active
-      ? active->surfaceAt(active->m_tabs->currentIndex())
-      : nullptr;
-
-  if (e.kind == UndoEntry::Kind::Tab) {
-    if (!active) return;
-    GhosttySurface *s = active->newTab(parent ? parent->surface() : nullptr);
-    if (s && !e.pageTitles.isEmpty())
-      active->setTabTitleOverride(s, e.pageTitles.first());
-  } else {
-    // Window: open a fresh window, then add additional tabs to match
-    // the saved tab count. We don't try to recreate the split tree
-    // — that would require a real session save mechanism.
-    MainWindow *w = MainWindow::newWindow(parent ? parent->surface() : nullptr);
-    if (!w) return;
-    if (e.geometry.isValid()) w->setGeometry(e.geometry);
-    // Title for the (eventually created) first tab.
-    if (!e.pageTitles.isEmpty()) {
-      const QString first = e.pageTitles.first();
-      QPointer<MainWindow> wp(w);
-      QTimer::singleShot(0, w, [wp, first]() {
-        if (!wp) return;
-        if (auto *s = wp->surfaceAt(0)) wp->setTabTitleOverride(s, first);
-      });
-    }
-    // Additional tabs for the rest of the saved set.
-    for (int i = 1; i < e.pageTitles.size(); ++i) {
-      const QString t = e.pageTitles.at(i);
-      QPointer<MainWindow> wp(w);
-      QTimer::singleShot(0, w, [wp, t]() {
-        if (!wp) return;
-        GhosttySurface *s =
-            wp->newTab(wp->surfaceAt(0) ? wp->surfaceAt(0)->surface() : nullptr);
-        if (s) wp->setTabTitleOverride(s, t);
-      });
-    }
-  }
-  s_redoStack.append(e);
-  if (s_redoStack.size() > kUndoCap) s_redoStack.removeFirst();
-}
-
-// Redo: re-close whatever undo just opened. We don't have a handle on
-// the revived widgets so we close the active window's current tab
-// (or the active window itself for a Window entry); pragmatic,
-// matches what a user normally means by "redo close-tab".
-//
-// pushTabUndo / pushWindowUndo are no-ops while s_redoInProgress is
-// true, so the close paths below don't:
-//   (a) clear s_redoStack — preserving the rest of the redo chain
-//       so a sequence of REDOs works.
-//   (b) push a fresh undo entry — a redo that re-closes shouldn't
-//       feed itself a new undo or the user can ping-pong undo/redo
-//       on a single past close indefinitely.
-void MainWindow::redoLastClose() {
-  if (s_redoStack.isEmpty()) return;
-  UndoEntry e = s_redoStack.takeLast();
-
-  MainWindow *active = qobject_cast<MainWindow *>(qApp->activeWindow());
-  if (!active) {
-    const QList<MainWindow *> &live = GhosttyApp::instance().windows();
-    if (!live.isEmpty()) active = live.last();
-  }
-  if (!active) {
-    // No window to act on — restore the entry so the user can retry.
-    s_redoStack.append(std::move(e));
-    return;
-  }
-
-  s_redoInProgress = true;
-  if (e.kind == UndoEntry::Kind::Tab) {
-    const int idx = active->m_tabs->currentIndex();
-    if (idx >= 0) active->closeTab(idx);
-  } else {
-    active->m_skipCloseConfirm = true;
-    active->close();
-  }
-  s_redoInProgress = false;
+// Close the entire window without re-prompting. Called from
+// undo::redoLast for a Window redo.
+void MainWindow::closeForRedo() {
+  m_skipCloseConfirm = true;
+  close();
 }
 
 void MainWindow::applyWindowConfig() {
