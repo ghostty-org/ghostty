@@ -112,6 +112,7 @@ add_executable(ghastty
   src/GhosttySurface.cpp
   src/GlobalShortcuts.cpp
   src/InspectorWindow.cpp
+  src/input/XkbState.cpp
   src/MainWindow.cpp
   src/OverlayScrollbar.cpp
   src/quickterm/QuickTerminal.cpp
