@@ -1,14 +1,16 @@
-# Qt Frontend — Platform Parity Tracker
+# Qt Frontend — Platform Parity Log (closed)
 
-This document tracks where the Qt frontend lacks consistency with the
-upstream Ghostty macOS and GTK frontends. It came out of a four-agent
-parallel audit that compared every action handler, input event,
+This document is a completed record of the parity gap between the Qt
+frontend and the upstream Ghostty macOS / GTK frontends. It originated
+as a four-agent audit that compared every action handler, input event,
 window/tab/split lifecycle path, and config option across the three
-implementations.
+implementations, and was used as the work tracker until every finding
+either landed or was justified as won't-fix.
 
-Findings are deduplicated, grouped by severity, and ordered by
-implementation effort within each tier. As items land, tick the
-checkbox and link the commit hash.
+All items are now closed: every `B*` bug, `I*` inconsistency, and `C*`
+missing-config entry below is either `[x]` with the commit that fixed
+it, or struck through with a one-line explanation. New parity issues
+should not be appended here — open them as new work instead.
 
 **Authoritative sources of truth used during the audit:**
 
@@ -165,59 +167,3 @@ checkbox and link the commit hash.
 - Frame timer single-shared
 - `unfocused-split-opacity` + `unfocused-split-fill`
 
----
-
-## Recommended fix order
-
-### Tier 1 — short (≤30 lines each), user-visible
-
-- B1 quit-timer on natural close
-- B4 `confirm-close-surface` config read
-- B6 `CLOSE_TAB` mode
-- B7 `INITIAL_SIZE` HiDPI
-- B11 `RELOAD_CONFIG` global
-- B16 `COPY_TITLE_TO_CLIPBOARD` per-surface
-- B19 mouse buttons 4-11
-- B25 `MOUSE_SHAPE`
-- B26 `MOUSE_VISIBILITY`
-- B29 XKB live layout
-- B44 `quick-terminal-position = center`
-- I9 bell-attention fallback
-
-### Tier 2 — medium (50-150 lines), user-visible
-
-- B15 child-exited gating
-- B22-23 modifier mods (caps/num/sided)
-- B24 mouse-enter/leave callbacks
-- B27-28 right-click + click-to-focus suppression
-- B33 window placement (cascade + position config)
-- B37 tree-aware equalize
-- B39 tab right-click menu
-- B40 window-decoration full enum
-- B42 quick-terminal animation
-
-### Tier 3 — feature work (200+ lines or new modules)
-
-- [x] Undo close-tab/window — `f3db5b6cb`
-- [x] Most action-gap `default: return false;` items (PWD, GOTO_WINDOW, PRESENT_TERMINAL, KEY_TABLE, COLOR_CHANGE, FLOAT_WINDOW, SIZE_LIMIT, CELL_SIZE, RENDER_INSPECTOR, READONLY, SECURE_INPUT, CHECK_FOR_UPDATES, TOGGLE_BACKGROUND_OPACITY, TOGGLE_TAB_OVERVIEW, TOGGLE_WINDOW_DECORATIONS) — `20278082b`
-- [x] Tier 2 stragglers: wheel pixelDelta+momentum (B30), drag-drop POSIX shell escape (B31), URL drop discrimination (B32) — `b86b11903`
-- [x] UI consistency: destructive close/quit/paste dialogs (I1), GOTO_TAB clamp (I4), OPEN_URL/OPEN_CONFIG kind routing (B13/B14) — `bfd39a4dd`
-- [x] Config reload polish: window-decoration / fullscreen / maximize propagation (B12/B47), quit-delay refresh (B48), inspector geometry autosave (B49), quick-terminal-screen (B43/C11), initial-window (C20) — `6d700c36b`
-- [x] Input + notification fidelity: consumed_mods unconditional (B21), notify-on-command-finish gates (I7), notification focus suppression (I8), progress-report state preservation (I6), progress-style (C18) — `13d4353b1`
-- [x] Bell + link overlay polish: tab accent dot (I2), MOVE_TAB clamp documented (I3), bottom-left link URL pill (I5) — `ca52a39dc`
-- [x] Apprt-side config keys: window-title-font-family (C9), split-divider-color (C15), split-preserve-zoom (C19/B38), app-notifications.config-reload (C21) — `8bd64d0fa`
-- [x] window-step-resize (C2) — `8b3877d67`
-- [x] Quit semantics + theme + quick-term polish: QUIT vs CLOSE_ALL_WINDOWS (B2/B5), m_skipCloseConfirm (B3), window-theme pre-6.8 fallback (B41), quick-terminal-space-behavior no-op (B45), non-Wayland fallback (B46) — `4c903802a`
-- [x] Split focus tree-order (B35), cross-window tab adoption (B34/I10) — `630c7ceae`
-- [x] ~~Window save/restore~~ — `window-save-state` is macOS-only per Config.zig (`This is currently only supported on macOS. This has no effect on Linux.`). Won't fix.
-- [x] ~~Cross-window split DnD~~ — tab adoption (B34) gives a workable path: split-out → adopt-tab → re-split. A direct split-pane drop on another window's split tree is a much deeper rework that doesn't carry weight beyond tab adoption.
-- [x] `background-image*` — silently honored by libghostty's renderer (see C14).
-
----
-
-## How to use this document
-
-1. Pick an item and tick `[ ]` → `[x]` when the commit lands.
-2. Append the commit hash next to the line: `[x] **B7.** ... — fixed in abc1234`.
-3. If a finding turns out to be wrong on closer inspection, strike it through with `~~B7.~~ ...` and add a one-line explanation.
-4. New parity issues discovered during implementation: add to the appropriate section with the next ID in sequence.
