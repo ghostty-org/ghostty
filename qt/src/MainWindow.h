@@ -1,20 +1,16 @@
 #pragma once
 
 #include <QList>
-#include <QRect>
 #include <QSize>
-#include <QStringList>
 #include <QWidget>
 
 #include "ghostty.h"
 
-class QAudioOutput;
+class BellPlayer;
 class QCloseEvent;
-class QMediaPlayer;
 class QShowEvent;
 class QSplitter;
 class TabWidget;
-class QPropertyAnimation;
 class QTimer;
 class CommandPalette;
 class GhosttySurface;
@@ -76,16 +72,19 @@ public:
   // need to take a dependency on app/GhosttyApp.h.
   ghostty_config_t config() const;
 
-  // UNDO / REDO close-tab/window. The libghostty actions carry no
-  // payload — the apprt is responsible for tracking what was closed
-  // and reviving it. macOS uses NSUndoManager; we keep a small bounded
-  // stack of "snapshots" per kind. Surfaces themselves can't be
-  // revived (the child PTY is gone) — undo opens a fresh tab/window
-  // and reapplies the saved title; the new surface inherits cwd from
-  // the active surface (matching macOS, which also spawns a fresh
-  // shell rather than re-attaching).
+  // UNDO / REDO close-tab/window action handlers — thin wrappers that
+  // drive undo::undoLast / undo::redoLast. The undo state lives in
+  // qt/src/undo/UndoStack; the comment there explains the lifetime
+  // and replay model.
   static void undoLastClose();
   static void redoLastClose();
+
+  // Replay-side hooks used by undo::redoLast. closeCurrentTabForRedo
+  // closes whichever tab is currently active (Tab redo); closeForRedo
+  // closes the entire window (Window redo). Both bypass the
+  // close-confirm prompt — the user already accepted the close once.
+  void closeCurrentTabForRedo();
+  void closeForRedo();
 
   // PRESENT_TERMINAL: bring this window to front and focus the surface.
   void presentTerminal(GhosttySurface *surface);
@@ -154,6 +153,9 @@ public:
   // First surface in the currently-visible tab, or nullptr. Used by
   // PROMPT_TITLE app-target promotion.
   GhosttySurface *currentSurface() const;
+  // First surface in the tab at `index`, or nullptr. Used by
+  // undo::undoLast to title-tag the revived tab/window.
+  GhosttySurface *surfaceAt(int index) const;
   // Default size cached on INITIAL_SIZE for RESET_WINDOW_SIZE.
   QSize defaultWindowSize() const { return m_defaultWindowSize; }
   void setDefaultWindowSize(QSize s) { m_defaultWindowSize = s; }
@@ -194,11 +196,8 @@ private:
   void detachTab(int index);
   // Move `page` (a tab and its surfaces) from `src` into this window.
   void adoptTab(MainWindow *src, QWidget *page);
-  GhosttySurface *surfaceAt(int index) const;
   int tabIndexForSurface(GhosttySurface *surface) const;
   QList<GhosttySurface *> surfacesInTab(int index) const;
-
-  void playBellAudio();
 
   // Bell `title` feature: prefix a tab's title while any surface in it
   // has an unacknowledged bell.
@@ -220,19 +219,12 @@ private:
   // compositor (see WindowBlur).
   void applyBlur();
 
-  // Turn this window into a layer-shell dropdown anchored to a screen
-  // edge, per the `quick-terminal-*` config. Quick-terminal only.
-  void setupLayerShell();
-
   TabWidget *m_tabs = nullptr;
   QList<GhosttySurface *> m_surfaces;  // every live surface in this window
   bool m_firstTabPending = true;       // first tab is created on show()
   ghostty_surface_t m_firstTabParent = nullptr;  // inherited by the 1st tab
   bool m_skipCloseConfirm = false;     // close already confirmed elsewhere
   bool m_quickTerminal = false;        // this is the dropdown quick terminal
-  // Per-window opacity animation for the quick terminal (fade in/out
-  // using quick-terminal-animation-duration). Lazily created.
-  QPropertyAnimation *m_quickTerminalAnim = nullptr;
   QSize m_defaultWindowSize;           // for RESET_WINDOW_SIZE; from INITIAL_SIZE
   // Last cell size reported by libghostty for this window's surfaces
   // (CELL_SIZE action). Stored so future grid-snap resizing can use
@@ -254,33 +246,8 @@ private:
   // GhosttyApp::instance(). MainWindow's config() / needsPremultiply()
   // accessors forward to it.
 
-  // Snapshot of a closed tab or window for undo/redo. `pageTitles`
-  // holds each tab's last-known title (window snapshots have N tabs;
-  // tab snapshots have one). `geometry` is unused for tab snapshots.
-  // `kind` distinguishes the two so REDO can reclose the right thing.
-  struct UndoEntry {
-    enum class Kind { Tab, Window } kind = Kind::Tab;
-    QStringList pageTitles;
-    QRect geometry;
-  };
-  // Bounded undo/redo stacks (tail = most recent). Each tab/window
-  // close pushes an entry, capped at kUndoCap; opening a new
-  // tab/window via undo pushes onto the redo stack. While
-  // `s_redoInProgress` is true, the close paths that normally
-  // mutate these stacks (pushTabUndo / pushWindowUndo) become
-  // no-ops — a redo is replaying a previous close and shouldn't
-  // also feed itself a fresh undo entry that the user will then
-  // unwind into a loop.
-  static QList<UndoEntry> s_undoStack;
-  static QList<UndoEntry> s_redoStack;
-  static bool s_redoInProgress;
-  static constexpr int kUndoCap = 16;
-  // Push a snapshot for the tab at `index` onto s_undoStack and
-  // clear the redo stack (a new close invalidates a forward redo).
-  void pushTabUndo(int index);
-  // Push a snapshot of every tab in this window onto s_undoStack as a
-  // single Window entry; called from closeAllWindows / closeEvent.
-  void pushWindowUndo();
+  // The undo/redo stacks live in qt/src/undo/UndoStack — see comment
+  // there for the lifecycle and replay semantics.
 
   // Wakeup tick coalescing lives on GhosttyApp::m_tickPending.
 
@@ -291,14 +258,10 @@ private:
   QSplitter *m_zoomSplitter = nullptr;
   int m_zoomIndex = 0;
 
-  // Bell audio playback; created lazily on the first audio bell.
-  // The bell-audio-path / -volume values are cached at window setup
-  // and refreshed on reload so the bell hot path doesn't re-scan
-  // the on-disk config file.
-  QMediaPlayer *m_bellPlayer = nullptr;
-  QAudioOutput *m_bellAudio = nullptr;
-  QString m_bellAudioPath;       // expanded; empty if no clip configured
-  double m_bellAudioVolume = 0.5;
+  // Bell audio playback; lives in qt/src/bell/BellPlayer. Created
+  // lazily on the first applyWindowConfig pass so refreshFromConfig
+  // can prime its cached path/volume.
+  BellPlayer *m_bellPlayer = nullptr;
 
   // The command palette; created lazily on first use.
   CommandPalette *m_commandPalette = nullptr;

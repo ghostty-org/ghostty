@@ -106,15 +106,19 @@ add_executable(ghastty
   src/actions/TabActions.cpp
   src/actions/WindowActions.cpp
   src/app/GhosttyApp.cpp
+  src/bell/BellPlayer.cpp
   src/config/Config.cpp
   src/CommandPalette.cpp
   src/GhosttySurface.cpp
   src/GlobalShortcuts.cpp
   src/InspectorWindow.cpp
+  src/input/XkbState.cpp
   src/MainWindow.cpp
   src/OverlayScrollbar.cpp
+  src/quickterm/QuickTerminal.cpp
   src/SearchBar.cpp
   src/TabWidget.cpp
+  src/undo/UndoStack.cpp
   src/Util.cpp
   src/WindowBlur.cpp
   src/XkbTracker.cpp

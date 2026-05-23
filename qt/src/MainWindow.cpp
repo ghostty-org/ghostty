@@ -6,7 +6,6 @@
 #include <functional>
 
 #include <QApplication>
-#include <QAudioOutput>
 #include <QClipboard>
 #include <QCursor>
 #include <QCloseEvent>
@@ -22,22 +21,17 @@
 #include <QPainter>
 #include <QPalette>
 #include <QPixmap>
-#include <QMediaPlayer>
 #include <QMenu>
 #include <QMessageBox>
-#include <QEasingCurve>
 #include <QPoint>
 #include <QPointer>
 #include <QProcess>
-#include <QPropertyAnimation>
 #include <QPushButton>
 #include <QStandardPaths>
 #include <QRect>
-#include <QScreen>
 #include <QShowEvent>
 #include <QSplitter>
 #include <QStringList>
-#include <QUrl>
 #include <QString>
 #include <QStyleHints>
 #include <QTabBar>
@@ -45,15 +39,15 @@
 #include <QTimer>
 #include <QVariant>
 #include <QVBoxLayout>
-#include <QWindow>
-
-#include <LayerShellQt/window.h>
 
 #include "app/GhosttyApp.h"
+#include "bell/BellPlayer.h"
 #include "config/Config.h"
 #include "CommandPalette.h"
 #include "GhosttySurface.h"
+#include "quickterm/QuickTerminal.h"
 #include "TabWidget.h"
+#include "undo/UndoStack.h"
 #include "Util.h"
 #include "WindowBlur.h"
 
@@ -442,11 +436,11 @@ void MainWindow::removeSurface(GhosttySurface *surface) {
   const int index = m_tabs->indexOf(parent);
   // Push to undo so a shell-exited tab close is symmetric with a
   // user-initiated tab close (closeTab pushes too). Skip the last
-  // tab — its closeEvent runs pushWindowUndo and we don't want to
+  // tab — its closeEvent runs undo::pushWindow and we don't want to
   // double-stack. Also skip the quick terminal (which doesn't push
   // to either stack by design).
   if (index >= 0 && m_tabs->count() > 1 && !m_quickTerminal)
-    pushTabUndo(index);
+    undo::pushTab(m_tabs->tabText(index));
   if (index >= 0) m_tabs->removeTab(index);
   if (parent) parent->deleteLater();  // page; destroys the surface too
   // The surface close was already confirmed; don't re-prompt on the
@@ -461,9 +455,10 @@ void MainWindow::closeTab(int index) {
   QWidget *page = m_tabs->widget(index);
   if (!page) return;
   // Snapshot the tab's title for undo before we lose the reference.
-  // pushTabUndo is no-op for the last tab in a window — that close
-  // ends up triggering pushWindowUndo via closeEvent instead.
-  if (m_tabs->count() > 1 && !m_quickTerminal) pushTabUndo(index);
+  // undo::pushTab is no-op for the last tab in a window — that close
+  // ends up triggering undo::pushWindow via closeEvent instead.
+  if (m_tabs->count() > 1 && !m_quickTerminal)
+    undo::pushTab(m_tabs->tabText(index));
   const auto inTab = page->findChildren<GhosttySurface *>();
   for (GhosttySurface *s : inTab) m_surfaces.removeOne(s);
   // If the zoomed surface was in this tab, clear the stash so a later
@@ -655,7 +650,11 @@ void MainWindow::closeEvent(QCloseEvent *e) {
   // Snapshot for undo. We push the window's full tab list so undo
   // restores all of them; closeTab paths skip the per-tab push when
   // they reach the last tab so we don't double-stack the same close.
-  pushWindowUndo();
+  QStringList titles;
+  titles.reserve(m_tabs->count());
+  for (int i = 0; i < m_tabs->count(); ++i)
+    titles << m_tabs->tabText(i);
+  undo::pushWindow(titles, geometry(), m_quickTerminal);
   e->accept();
 }
 
@@ -759,170 +758,13 @@ MainWindow *MainWindow::makeQuickTerminal() {
     delete w;
     return nullptr;
   }
-  w->setupLayerShell();
-  w->animateQuickTerminalIn();
+  quickterm::setupLayerShell(w);
+  quickterm::animateIn(w);
   return w;
 }
 
-// Read quick-terminal-animation-duration (seconds) and convert to ms.
-static int quickTerminalAnimationMs() {
-  double secs = 0.2;  // matches Config.zig default
-  config::get(&secs, "quick-terminal-animation-duration");
-  // Clamp to a sane range so a misconfigured 0 or negative value
-  // doesn't make the window appear/disappear instantly without an
-  // animation, and a very large value doesn't lock the user out.
-  if (secs <= 0.0) return 0;
-  return std::clamp(static_cast<int>(secs * 1000.0), 1, 1000);
-}
-
-void MainWindow::animateQuickTerminalIn() {
-  setWindowOpacity(0.0);
-  show();
-  raise();
-  activateWindow();
-  const int ms = quickTerminalAnimationMs();
-  if (ms <= 0) {
-    setWindowOpacity(1.0);
-    return;
-  }
-  // Stop any running fade so toggling rapidly doesn't stack
-  // animations. The animation is parented to `this` so it dies
-  // with the window.
-  if (m_quickTerminalAnim) m_quickTerminalAnim->stop();
-  else m_quickTerminalAnim = new QPropertyAnimation(this, "windowOpacity", this);
-  m_quickTerminalAnim->setDuration(ms);
-  m_quickTerminalAnim->setStartValue(0.0);
-  m_quickTerminalAnim->setEndValue(1.0);
-  m_quickTerminalAnim->setEasingCurve(QEasingCurve::OutCubic);
-  m_quickTerminalAnim->start();
-}
-
-void MainWindow::animateQuickTerminalOut() {
-  const int ms = quickTerminalAnimationMs();
-  if (ms <= 0) {
-    hide();
-    return;
-  }
-  if (m_quickTerminalAnim) m_quickTerminalAnim->stop();
-  else m_quickTerminalAnim = new QPropertyAnimation(this, "windowOpacity", this);
-  m_quickTerminalAnim->setDuration(ms);
-  m_quickTerminalAnim->setStartValue(windowOpacity());
-  m_quickTerminalAnim->setEndValue(0.0);
-  m_quickTerminalAnim->setEasingCurve(QEasingCurve::InCubic);
-  // Disconnect any previous handler before reconnecting; otherwise a
-  // toggle-out-then-in cycle accumulates handlers that all fire on
-  // the next out.
-  disconnect(m_quickTerminalAnim, &QPropertyAnimation::finished,
-             this, nullptr);
-  connect(m_quickTerminalAnim, &QPropertyAnimation::finished, this,
-          [this]() { hide(); });
-  m_quickTerminalAnim->start();
-}
-
-void MainWindow::setupLayerShell() {
-  // LayerShellQt attaches to the native window; force it into being.
-  winId();
-  QWindow *handle = windowHandle();
-  if (!handle) return;
-  LayerShellQt::Window *ls = LayerShellQt::Window::get(handle);
-  if (!ls) {
-    // The Qt frontend targets Wayland exclusively (the project
-    // builds against LayerShellQt for the dropdown). If we can't
-    // get a layer-shell handle the platform isn't supported — log
-    // and bail rather than silently degrading to a non-functional
-    // regular window.
-    std::fprintf(stderr,
-                 "[ghastty] LayerShellQt::Window::get returned null; "
-                 "the quick terminal needs a Wayland session with "
-                 "wlr-layer-shell support (e.g. KWin, sway).\n");
-    return;
-  }
-  using LSW = LayerShellQt::Window;
-
-  ls->setLayer(LSW::LayerTop);
-  const QString ki = config::string("quick-terminal-keyboard-interactivity");
-  ls->setKeyboardInteractivity(
-      ki == QLatin1String("exclusive") ? LSW::KeyboardInteractivityExclusive
-      : ki == QLatin1String("none")    ? LSW::KeyboardInteractivityNone
-                                       : LSW::KeyboardInteractivityOnDemand);
-
-  // quick-terminal-screen: pick which output to anchor on.
-  //   `main`            → primary screen.
-  //   `mouse`           → the screen the pointer is currently on.
-  //   `macos-menu-bar`  → macOS-only; falls through to primary on
-  //                       Linux.
-  // LayerShellQt 6.6+ exposes setScreen(QScreen*) on the layer-shell
-  // window directly; the older setScreenConfiguration is deprecated.
-  // Pass null to fall back to the QWindow's screen (LayerShellQt's
-  // documented default when neither setScreen nor
-  // setWantsToBeOnActiveScreen is set).
-  const QString screenMode = config::string("quick-terminal-screen");
-  QScreen *screen = nullptr;
-  if (screenMode == QLatin1String("mouse")) {
-    screen = QGuiApplication::screenAt(QCursor::pos());
-  } else if (screenMode == QLatin1String("main") ||
-             screenMode == QLatin1String("macos-menu-bar")) {
-    screen = QGuiApplication::primaryScreen();
-  }
-  ls->setScreen(screen);
-  if (!screen) screen = handle->screen();
-
-  // quick-terminal-space-behavior (`remain` / `move`) is intentionally
-  // not read: macOS controls whether the dropdown follows the active
-  // Space or pins to the one it was opened on, but Wayland's
-  // wlr-layer-shell has no equivalent — the compositor always renders
-  // the surface on the active workspace (KWin behaviour), which
-  // corresponds to `move`. Achieving `remain` would need a
-  // per-workspace pin that no mainstream compositor exposes; honour
-  // by no-op and document.
-
-  const QSize scr = screen ? screen->size() : QSize(1920, 1080);
-
-  // quick-terminal-size: primary is the edge-perpendicular extent.
-  ghostty_config_quick_terminal_size_s qsz = {};
-  config::get(&qsz, "quick-terminal-size");
-  const auto toPx = [](const ghostty_quick_terminal_size_s &s, int dim,
-                       int fallback) -> int {
-    switch (s.tag) {
-      case GHOSTTY_QUICK_TERMINAL_SIZE_PERCENTAGE:
-        return static_cast<int>(s.value.percentage / 100.0f * dim);
-      case GHOSTTY_QUICK_TERMINAL_SIZE_PIXELS:
-        return static_cast<int>(s.value.pixels);
-      default:
-        return fallback;
-    }
-  };
-
-  const QString pos = config::string("quick-terminal-position");
-  LSW::Anchors anchors;
-  QSize size;
-  if (pos == QLatin1String("bottom")) {
-    anchors = LSW::Anchors(LSW::AnchorBottom) | LSW::AnchorLeft |
-              LSW::AnchorRight;
-    size = {scr.width(), toPx(qsz.primary, scr.height(), 400)};
-  } else if (pos == QLatin1String("left")) {
-    anchors = LSW::Anchors(LSW::AnchorLeft) | LSW::AnchorTop |
-              LSW::AnchorBottom;
-    size = {toPx(qsz.primary, scr.width(), 400), scr.height()};
-  } else if (pos == QLatin1String("right")) {
-    anchors = LSW::Anchors(LSW::AnchorRight) | LSW::AnchorTop |
-              LSW::AnchorBottom;
-    size = {toPx(qsz.primary, scr.width(), 400), scr.height()};
-  } else if (pos == QLatin1String("center")) {
-    anchors = LSW::Anchors(LSW::AnchorNone);
-    size = {toPx(qsz.primary, scr.width(), 800),
-            toPx(qsz.secondary, scr.height(), 400)};
-  } else {  // top (the default)
-    anchors = LSW::Anchors(LSW::AnchorTop) | LSW::AnchorLeft |
-              LSW::AnchorRight;
-    size = {scr.width(), toPx(qsz.primary, scr.height(), 400)};
-  }
-  ls->setAnchors(anchors);
-  // The layer-shell protocol takes the size from the underlying
-  // wl_surface (i.e. the QWindow's size); LayerShellQt has no
-  // setDesiredSize on this Qt branch.
-  resize(size);
-}
+void MainWindow::animateQuickTerminalIn() { quickterm::animateIn(this); }
+void MainWindow::animateQuickTerminalOut() { quickterm::animateOut(this); }
 
 void MainWindow::changeEvent(QEvent *e) {
   // quick-terminal-autohide: fade out the dropdown when it loses
@@ -1180,7 +1022,7 @@ void MainWindow::ringBell(GhosttySurface *surface) {
       config::bitfield("bell-features", BellAttention);
   if (features & BellAttention) QApplication::alert(this);
   if (features & BellSystem) QApplication::beep();
-  if (features & BellAudio) playBellAudio();
+  if (features & BellAudio && m_bellPlayer) m_bellPlayer->play();
 
   if (!surface) return;
   if (features & BellBorder) surface->flashBorder();
@@ -1214,22 +1056,6 @@ void MainWindow::updateTabText(int tab) {
   m_tabs->setTabIcon(tab, tabBellMarked(tab) ? bellAttentionIcon() : QIcon());
   if (tab == m_tabs->currentIndex())
     setWindowTitle(text + QStringLiteral(" — Ghastty"));
-}
-
-void MainWindow::playBellAudio() {
-  if (m_bellAudioPath.isEmpty()) return;
-  if (!m_bellPlayer) {
-    m_bellAudio = new QAudioOutput(this);
-    m_bellPlayer = new QMediaPlayer(this);
-    m_bellPlayer->setAudioOutput(m_bellAudio);
-  }
-  m_bellAudio->setVolume(m_bellAudioVolume);
-  // Stop first so a back-to-back bell restarts the clip from the
-  // beginning. Without this, calling play() on an already-playing
-  // QMediaPlayer is a no-op and rapid bells get silently swallowed.
-  m_bellPlayer->stop();
-  m_bellPlayer->setSource(QUrl::fromLocalFile(m_bellAudioPath));
-  m_bellPlayer->play();
 }
 
 // Refresh every window's chrome from the current GhosttyApp config: tab-bar
@@ -1444,147 +1270,22 @@ void MainWindow::setCellSize(uint32_t w, uint32_t h) {
     setSizeIncrement(0, 0);  // back to pixel-precise
 }
 
-// Process-wide undo state — see MainWindow.h.
-QList<MainWindow::UndoEntry> MainWindow::s_undoStack;
-QList<MainWindow::UndoEntry> MainWindow::s_redoStack;
-bool MainWindow::s_redoInProgress = false;
+void MainWindow::undoLastClose() { undo::undoLast(); }
+void MainWindow::redoLastClose() { undo::redoLast(); }
 
-// Snapshot the tab at `index` (its tab text — last-known title) onto
-// the undo stack. Called from closeTab / closeTabsByMode / right
-// before the tab is removed. No-op while a redo is replaying.
-void MainWindow::pushTabUndo(int index) {
-  if (s_redoInProgress) return;
-  if (index < 0 || index >= m_tabs->count()) return;
-  UndoEntry e;
-  e.kind = UndoEntry::Kind::Tab;
-  e.pageTitles << m_tabs->tabText(index);
-  s_undoStack.append(std::move(e));
-  if (s_undoStack.size() > kUndoCap) s_undoStack.removeFirst();
-  // A fresh close invalidates any pending redo: the new "future" no
-  // longer matches what the redo stack would re-close.
-  s_redoStack.clear();
+// Close the active tab without prompting. Called from
+// undo::redoLast for a Tab redo: the user already accepted the
+// original close, so re-closing carries the same prior consent.
+void MainWindow::closeCurrentTabForRedo() {
+  const int idx = m_tabs->currentIndex();
+  if (idx >= 0) closeTab(idx);
 }
 
-// Snapshot every tab in this window before it goes away. Called from
-// closeAllWindows and from closeEvent for the user-driven X. No-op
-// while a redo is replaying.
-void MainWindow::pushWindowUndo() {
-  if (s_redoInProgress) return;
-  if (m_quickTerminal || m_tabs->count() == 0) return;
-  UndoEntry e;
-  e.kind = UndoEntry::Kind::Window;
-  for (int i = 0; i < m_tabs->count(); ++i)
-    e.pageTitles << m_tabs->tabText(i);
-  e.geometry = geometry();
-  s_undoStack.append(std::move(e));
-  if (s_undoStack.size() > kUndoCap) s_undoStack.removeFirst();
-  s_redoStack.clear();
-}
-
-// Pop the most recent undo entry and revive it. A new tab/window is
-// opened that inherits cwd from the active surface (libghostty
-// supplies the cwd via inherited_config), and the saved title is
-// reapplied as a manual tab-title override so it persists across
-// shell prompts.
-void MainWindow::undoLastClose() {
-  if (s_undoStack.isEmpty()) return;
-  const UndoEntry e = s_undoStack.takeLast();
-
-  // The active window picks the new tab's parent surface for cwd
-  // inheritance. Skip the quick terminal — it doesn't push undo
-  // entries and isn't a meaningful target. Fall back to the most
-  // recent regular window in registration order.
-  auto isUndoTarget = [](MainWindow *w) {
-    return w && !w->m_quickTerminal;
-  };
-  MainWindow *active = qobject_cast<MainWindow *>(qApp->activeWindow());
-  if (!isUndoTarget(active)) {
-    active = nullptr;
-    const QList<MainWindow *> &live = GhosttyApp::instance().windows();
-    for (int i = live.size() - 1; i >= 0; --i) {
-      if (isUndoTarget(live.at(i))) {
-        active = live.at(i);
-        break;
-      }
-    }
-  }
-  GhosttySurface *parent = active
-      ? active->surfaceAt(active->m_tabs->currentIndex())
-      : nullptr;
-
-  if (e.kind == UndoEntry::Kind::Tab) {
-    if (!active) return;
-    GhosttySurface *s = active->newTab(parent ? parent->surface() : nullptr);
-    if (s && !e.pageTitles.isEmpty())
-      active->setTabTitleOverride(s, e.pageTitles.first());
-  } else {
-    // Window: open a fresh window, then add additional tabs to match
-    // the saved tab count. We don't try to recreate the split tree
-    // — that would require a real session save mechanism.
-    MainWindow *w = MainWindow::newWindow(parent ? parent->surface() : nullptr);
-    if (!w) return;
-    if (e.geometry.isValid()) w->setGeometry(e.geometry);
-    // Title for the (eventually created) first tab.
-    if (!e.pageTitles.isEmpty()) {
-      const QString first = e.pageTitles.first();
-      QPointer<MainWindow> wp(w);
-      QTimer::singleShot(0, w, [wp, first]() {
-        if (!wp) return;
-        if (auto *s = wp->surfaceAt(0)) wp->setTabTitleOverride(s, first);
-      });
-    }
-    // Additional tabs for the rest of the saved set.
-    for (int i = 1; i < e.pageTitles.size(); ++i) {
-      const QString t = e.pageTitles.at(i);
-      QPointer<MainWindow> wp(w);
-      QTimer::singleShot(0, w, [wp, t]() {
-        if (!wp) return;
-        GhosttySurface *s =
-            wp->newTab(wp->surfaceAt(0) ? wp->surfaceAt(0)->surface() : nullptr);
-        if (s) wp->setTabTitleOverride(s, t);
-      });
-    }
-  }
-  s_redoStack.append(e);
-  if (s_redoStack.size() > kUndoCap) s_redoStack.removeFirst();
-}
-
-// Redo: re-close whatever undo just opened. We don't have a handle on
-// the revived widgets so we close the active window's current tab
-// (or the active window itself for a Window entry); pragmatic,
-// matches what a user normally means by "redo close-tab".
-//
-// pushTabUndo / pushWindowUndo are no-ops while s_redoInProgress is
-// true, so the close paths below don't:
-//   (a) clear s_redoStack — preserving the rest of the redo chain
-//       so a sequence of REDOs works.
-//   (b) push a fresh undo entry — a redo that re-closes shouldn't
-//       feed itself a new undo or the user can ping-pong undo/redo
-//       on a single past close indefinitely.
-void MainWindow::redoLastClose() {
-  if (s_redoStack.isEmpty()) return;
-  UndoEntry e = s_redoStack.takeLast();
-
-  MainWindow *active = qobject_cast<MainWindow *>(qApp->activeWindow());
-  if (!active) {
-    const QList<MainWindow *> &live = GhosttyApp::instance().windows();
-    if (!live.isEmpty()) active = live.last();
-  }
-  if (!active) {
-    // No window to act on — restore the entry so the user can retry.
-    s_redoStack.append(std::move(e));
-    return;
-  }
-
-  s_redoInProgress = true;
-  if (e.kind == UndoEntry::Kind::Tab) {
-    const int idx = active->m_tabs->currentIndex();
-    if (idx >= 0) active->closeTab(idx);
-  } else {
-    active->m_skipCloseConfirm = true;
-    active->close();
-  }
-  s_redoInProgress = false;
+// Close the entire window without re-prompting. Called from
+// undo::redoLast for a Window redo.
+void MainWindow::closeForRedo() {
+  m_skipCloseConfirm = true;
+  close();
 }
 
 void MainWindow::applyWindowConfig() {
@@ -1604,16 +1305,10 @@ void MainWindow::applyWindowConfig() {
     m_tabs->tabBar()->setVisible(m_tabs->count() > 1);
   }
 
-  // bell-audio-path / -volume: cached on the window so playBellAudio
-  // doesn't re-scan the on-disk config on every bell. Refreshed on
-  // each applyWindowConfig (i.e. at init and on reload).
-  {
-    m_bellAudioPath = config::expandedPath("bell-audio-path");
-    bool volOk = false;
-    const double v =
-        config::diskValue("bell-audio-volume").toDouble(&volOk);
-    m_bellAudioVolume = volOk ? v : 0.5;
-  }
+  // bell-audio: BellPlayer caches the path/volume so the bell hot
+  // path doesn't re-scan the on-disk config on every ring.
+  if (!m_bellPlayer) m_bellPlayer = new BellPlayer(this);
+  m_bellPlayer->refreshFromConfig();
 
   // window-title-font-family: apply to the tab bar (and the WM
   // title via Qt's window-title system font is harder to override
