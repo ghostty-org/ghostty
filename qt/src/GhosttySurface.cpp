@@ -712,8 +712,8 @@ void GhosttySurface::sendKey(QKeyEvent *ev, ghostty_input_action_e action) {
       static_cast<unsigned char>(text.front()) >= 0x20 &&
       static_cast<unsigned char>(text.front()) != 0x7f;
 
-  // On xcb nativeScanCode() is the X11/XKB keycode; the Wayland plugin
-  // likewise reports the XKB keycode, which is libghostty's Linux native.
+  // The Wayland plugin reports the XKB keycode via nativeScanCode(),
+  // which is libghostty's Linux-native input format.
   const uint32_t keycode = ev->nativeScanCode();
 
   // OR in any right-side bit for this keycode (e.g. Right-Shift sets

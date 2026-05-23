@@ -1,6 +1,5 @@
 #include "WindowBlur.h"
 
-#include <cstdlib>
 #include <cstring>
 
 #include <QGuiApplication>
@@ -11,8 +10,6 @@
 #include <qpa/qplatformnativeinterface.h>
 
 #include <wayland-client.h>
-
-#include <xcb/xcb.h>
 
 #include "blur-client-protocol.h"
 
@@ -112,32 +109,6 @@ void applyWayland(QWindow *window, bool enabled) {
   wl_display_flush(display);
 }
 
-// --- X11 (_KDE_NET_WM_BLUR_BEHIND_REGION) ----------------------------
-
-void applyX11(QWindow *window, bool enabled) {
-  QPlatformNativeInterface *native = QGuiApplication::platformNativeInterface();
-  if (!native) return;
-  auto *conn = static_cast<xcb_connection_t *>(
-      native->nativeResourceForIntegration("connection"));
-  if (!conn) return;
-  const auto xid = static_cast<xcb_window_t>(window->winId());
-
-  static const char kName[] = "_KDE_NET_WM_BLUR_BEHIND_REGION";
-  xcb_intern_atom_reply_t *reply = xcb_intern_atom_reply(
-      conn, xcb_intern_atom(conn, 0, std::strlen(kName), kName), nullptr);
-  if (!reply) return;
-  const xcb_atom_t atom = reply->atom;
-  std::free(reply);
-
-  if (enabled)
-    // An empty region property blurs the whole window.
-    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, xid, atom,
-                        XCB_ATOM_CARDINAL, 32, 0, nullptr);
-  else
-    xcb_delete_property(conn, xid, atom);
-  xcb_flush(conn);
-}
-
 }  // namespace
 
 void applyWindowBlur(QWidget *window, bool enabled) {
@@ -145,9 +116,10 @@ void applyWindowBlur(QWidget *window, bool enabled) {
   QWindow *handle = window->windowHandle();
   if (!handle) return;  // not a native window yet
 
-  const QString platform = QGuiApplication::platformName();
-  if (platform.startsWith(QLatin1String("wayland")))
+  // The Qt frontend is Wayland-only (LayerShellQt + XkbTracker both
+  // require it). On any other QPA, blur is a no-op rather than a
+  // platform-specific port — the rest of the app would not function
+  // there in the first place.
+  if (QGuiApplication::platformName().startsWith(QLatin1String("wayland")))
     applyWayland(handle, enabled);
-  else if (platform == QLatin1String("xcb"))
-    applyX11(handle, enabled);
 }
