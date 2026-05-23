@@ -74,9 +74,8 @@ void pushUndo(Entry e) {
 
 }  // namespace
 
-void pushTab(const QString &tabText, bool quickTerminal) {
+void pushTab(const QString &tabText) {
   if (g_redoInProgress) return;
-  if (quickTerminal) return;
   Entry e;
   e.kind = Entry::Kind::Tab;
   e.pageTitles << tabText;

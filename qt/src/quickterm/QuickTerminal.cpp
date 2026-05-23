@@ -25,8 +25,10 @@ namespace {
 
 // Anim and toggle live on the QObject child tree of `window`, so
 // they die with it. We keep the QPropertyAnimation as a dynamic
-// property so callers don't need to thread it through.
-constexpr const char *kAnimProperty = "_ghastty_qt_anim";
+// property so callers don't need to thread it through. The "_q_"
+// underscore-prefix space is reserved by Qt; any other prefix is
+// fine and the dotted form keeps it visibly application-scoped.
+constexpr const char *kAnimProperty = "ghastty.quickterm.anim";
 
 // Read quick-terminal-animation-duration (seconds) and convert to ms.
 // Clamps to a sane range so a misconfigured 0/negative value doesn't
@@ -98,6 +100,9 @@ void setupLayerShell(QWidget *window) {
     screen = QGuiApplication::primaryScreen();
   }
   ls->setScreen(screen);
+  // For sizing only — LayerShellQt already has the anchor screen above
+  // (or fell back to the QWindow's screen via setScreen(nullptr)). We
+  // need a non-null QScreen below to read its pixel dimensions.
   if (!screen) screen = handle->screen();
 
   // quick-terminal-space-behavior (`remain` / `move`) is intentionally
@@ -171,6 +176,12 @@ void animateIn(QWidget *window) {
   // animations.
   QPropertyAnimation *anim = animFor(window);
   anim->stop();
+  // animateOut leaves a `finished -> hide()` handler attached to the
+  // shared animation object. If a fade-out was interrupted by this
+  // fade-in (rapid out/in cycle), the leftover handler would fire at
+  // the end of the in-fade and silently hide the just-revealed
+  // window — clear it before starting.
+  QObject::disconnect(anim, &QPropertyAnimation::finished, window, nullptr);
   anim->setDuration(ms);
   anim->setStartValue(0.0);
   anim->setEndValue(1.0);

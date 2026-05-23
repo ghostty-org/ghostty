@@ -440,7 +440,7 @@ void MainWindow::removeSurface(GhosttySurface *surface) {
   // double-stack. Also skip the quick terminal (which doesn't push
   // to either stack by design).
   if (index >= 0 && m_tabs->count() > 1 && !m_quickTerminal)
-    undo::pushTab(m_tabs->tabText(index), m_quickTerminal);
+    undo::pushTab(m_tabs->tabText(index));
   if (index >= 0) m_tabs->removeTab(index);
   if (parent) parent->deleteLater();  // page; destroys the surface too
   // The surface close was already confirmed; don't re-prompt on the
@@ -458,7 +458,7 @@ void MainWindow::closeTab(int index) {
   // undo::pushTab is no-op for the last tab in a window — that close
   // ends up triggering undo::pushWindow via closeEvent instead.
   if (m_tabs->count() > 1 && !m_quickTerminal)
-    undo::pushTab(m_tabs->tabText(index), m_quickTerminal);
+    undo::pushTab(m_tabs->tabText(index));
   const auto inTab = page->findChildren<GhosttySurface *>();
   for (GhosttySurface *s : inTab) m_surfaces.removeOne(s);
   // If the zoomed surface was in this tab, clear the stash so a later

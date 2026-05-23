@@ -8,7 +8,6 @@
 #include "SearchBar.h"
 #include "TabWidget.h"
 #include "Util.h"
-#include "XkbTracker.h"
 
 #include <algorithm>
 #include <cmath>

@@ -1,9 +1,7 @@
 #pragma once
 
 #include <QList>
-#include <QRect>
 #include <QSize>
-#include <QStringList>
 #include <QWidget>
 
 #include "ghostty.h"
@@ -227,9 +225,6 @@ private:
   ghostty_surface_t m_firstTabParent = nullptr;  // inherited by the 1st tab
   bool m_skipCloseConfirm = false;     // close already confirmed elsewhere
   bool m_quickTerminal = false;        // this is the dropdown quick terminal
-  // Per-window opacity animation for the quick terminal (fade in/out
-  // using quick-terminal-animation-duration). Owned by quickterm/'s
-  // dynamic-property cache on this widget; cleared on widget delete.
   QSize m_defaultWindowSize;           // for RESET_WINDOW_SIZE; from INITIAL_SIZE
   // Last cell size reported by libghostty for this window's surfaces
   // (CELL_SIZE action). Stored so future grid-snap resizing can use

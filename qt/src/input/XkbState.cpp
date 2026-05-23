@@ -1,5 +1,7 @@
 #include "XkbState.h"
 
+#include <xkbcommon/xkbcommon.h>
+
 #include "../XkbTracker.h"
 
 XkbState &XkbState::instance() {
@@ -70,8 +72,8 @@ ghostty_input_mods_e XkbState::consumedMods(uint32_t keycode,
     depressed |= (1u << m_idxSuper);
   // Use the live group from the tracker so a layout switch (e.g.
   // us↔ru) takes effect immediately.
-  const uint32_t group =
-      XkbTracker::instance() ? XkbTracker::instance()->activeGroup() : 0;
+  XkbTracker *t = XkbTracker::instance();
+  const uint32_t group = t ? t->activeGroup() : 0;
   xkb_state_update_mask(m_query, depressed, 0, 0, 0, 0, group);
   const xkb_mod_mask_t consumed = xkb_state_key_get_consumed_mods2(
       m_query, keycode, XKB_CONSUMED_MODE_XKB);

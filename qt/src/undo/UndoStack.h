@@ -30,11 +30,10 @@ struct Entry {
   QRect geometry;
 };
 
-// Snapshot the tab at `index` — single title — onto the undo stack.
-// `tabText` is the tab's last-known display text; `quickTerminal` is
-// the window's quick-terminal flag (quick-terminal tabs are excluded
-// from the stack, mirroring the prior MainWindow behavior).
-void pushTab(const QString &tabText, bool quickTerminal);
+// Snapshot a closed tab — its last-known display text — onto the
+// undo stack. Callers MUST exclude quick-terminal and last-tab
+// closes (the latter routes through pushWindow via closeEvent).
+void pushTab(const QString &tabText);
 
 // Snapshot every tab's title plus the window's geometry as a single
 // Window entry. Excluded for the quick terminal and for empty
