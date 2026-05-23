@@ -25,15 +25,12 @@
 #include <QMediaPlayer>
 #include <QMenu>
 #include <QMessageBox>
-#include <QEasingCurve>
 #include <QPoint>
 #include <QPointer>
 #include <QProcess>
-#include <QPropertyAnimation>
 #include <QPushButton>
 #include <QStandardPaths>
 #include <QRect>
-#include <QScreen>
 #include <QShowEvent>
 #include <QSplitter>
 #include <QStringList>
@@ -45,14 +42,12 @@
 #include <QTimer>
 #include <QVariant>
 #include <QVBoxLayout>
-#include <QWindow>
-
-#include <LayerShellQt/window.h>
 
 #include "app/GhosttyApp.h"
 #include "config/Config.h"
 #include "CommandPalette.h"
 #include "GhosttySurface.h"
+#include "quickterm/QuickTerminal.h"
 #include "TabWidget.h"
 #include "undo/UndoStack.h"
 #include "Util.h"
@@ -765,170 +760,13 @@ MainWindow *MainWindow::makeQuickTerminal() {
     delete w;
     return nullptr;
   }
-  w->setupLayerShell();
-  w->animateQuickTerminalIn();
+  quickterm::setupLayerShell(w);
+  quickterm::animateIn(w);
   return w;
 }
 
-// Read quick-terminal-animation-duration (seconds) and convert to ms.
-static int quickTerminalAnimationMs() {
-  double secs = 0.2;  // matches Config.zig default
-  config::get(&secs, "quick-terminal-animation-duration");
-  // Clamp to a sane range so a misconfigured 0 or negative value
-  // doesn't make the window appear/disappear instantly without an
-  // animation, and a very large value doesn't lock the user out.
-  if (secs <= 0.0) return 0;
-  return std::clamp(static_cast<int>(secs * 1000.0), 1, 1000);
-}
-
-void MainWindow::animateQuickTerminalIn() {
-  setWindowOpacity(0.0);
-  show();
-  raise();
-  activateWindow();
-  const int ms = quickTerminalAnimationMs();
-  if (ms <= 0) {
-    setWindowOpacity(1.0);
-    return;
-  }
-  // Stop any running fade so toggling rapidly doesn't stack
-  // animations. The animation is parented to `this` so it dies
-  // with the window.
-  if (m_quickTerminalAnim) m_quickTerminalAnim->stop();
-  else m_quickTerminalAnim = new QPropertyAnimation(this, "windowOpacity", this);
-  m_quickTerminalAnim->setDuration(ms);
-  m_quickTerminalAnim->setStartValue(0.0);
-  m_quickTerminalAnim->setEndValue(1.0);
-  m_quickTerminalAnim->setEasingCurve(QEasingCurve::OutCubic);
-  m_quickTerminalAnim->start();
-}
-
-void MainWindow::animateQuickTerminalOut() {
-  const int ms = quickTerminalAnimationMs();
-  if (ms <= 0) {
-    hide();
-    return;
-  }
-  if (m_quickTerminalAnim) m_quickTerminalAnim->stop();
-  else m_quickTerminalAnim = new QPropertyAnimation(this, "windowOpacity", this);
-  m_quickTerminalAnim->setDuration(ms);
-  m_quickTerminalAnim->setStartValue(windowOpacity());
-  m_quickTerminalAnim->setEndValue(0.0);
-  m_quickTerminalAnim->setEasingCurve(QEasingCurve::InCubic);
-  // Disconnect any previous handler before reconnecting; otherwise a
-  // toggle-out-then-in cycle accumulates handlers that all fire on
-  // the next out.
-  disconnect(m_quickTerminalAnim, &QPropertyAnimation::finished,
-             this, nullptr);
-  connect(m_quickTerminalAnim, &QPropertyAnimation::finished, this,
-          [this]() { hide(); });
-  m_quickTerminalAnim->start();
-}
-
-void MainWindow::setupLayerShell() {
-  // LayerShellQt attaches to the native window; force it into being.
-  winId();
-  QWindow *handle = windowHandle();
-  if (!handle) return;
-  LayerShellQt::Window *ls = LayerShellQt::Window::get(handle);
-  if (!ls) {
-    // The Qt frontend targets Wayland exclusively (the project
-    // builds against LayerShellQt for the dropdown). If we can't
-    // get a layer-shell handle the platform isn't supported — log
-    // and bail rather than silently degrading to a non-functional
-    // regular window.
-    std::fprintf(stderr,
-                 "[ghastty] LayerShellQt::Window::get returned null; "
-                 "the quick terminal needs a Wayland session with "
-                 "wlr-layer-shell support (e.g. KWin, sway).\n");
-    return;
-  }
-  using LSW = LayerShellQt::Window;
-
-  ls->setLayer(LSW::LayerTop);
-  const QString ki = config::string("quick-terminal-keyboard-interactivity");
-  ls->setKeyboardInteractivity(
-      ki == QLatin1String("exclusive") ? LSW::KeyboardInteractivityExclusive
-      : ki == QLatin1String("none")    ? LSW::KeyboardInteractivityNone
-                                       : LSW::KeyboardInteractivityOnDemand);
-
-  // quick-terminal-screen: pick which output to anchor on.
-  //   `main`            → primary screen.
-  //   `mouse`           → the screen the pointer is currently on.
-  //   `macos-menu-bar`  → macOS-only; falls through to primary on
-  //                       Linux.
-  // LayerShellQt 6.6+ exposes setScreen(QScreen*) on the layer-shell
-  // window directly; the older setScreenConfiguration is deprecated.
-  // Pass null to fall back to the QWindow's screen (LayerShellQt's
-  // documented default when neither setScreen nor
-  // setWantsToBeOnActiveScreen is set).
-  const QString screenMode = config::string("quick-terminal-screen");
-  QScreen *screen = nullptr;
-  if (screenMode == QLatin1String("mouse")) {
-    screen = QGuiApplication::screenAt(QCursor::pos());
-  } else if (screenMode == QLatin1String("main") ||
-             screenMode == QLatin1String("macos-menu-bar")) {
-    screen = QGuiApplication::primaryScreen();
-  }
-  ls->setScreen(screen);
-  if (!screen) screen = handle->screen();
-
-  // quick-terminal-space-behavior (`remain` / `move`) is intentionally
-  // not read: macOS controls whether the dropdown follows the active
-  // Space or pins to the one it was opened on, but Wayland's
-  // wlr-layer-shell has no equivalent — the compositor always renders
-  // the surface on the active workspace (KWin behaviour), which
-  // corresponds to `move`. Achieving `remain` would need a
-  // per-workspace pin that no mainstream compositor exposes; honour
-  // by no-op and document.
-
-  const QSize scr = screen ? screen->size() : QSize(1920, 1080);
-
-  // quick-terminal-size: primary is the edge-perpendicular extent.
-  ghostty_config_quick_terminal_size_s qsz = {};
-  config::get(&qsz, "quick-terminal-size");
-  const auto toPx = [](const ghostty_quick_terminal_size_s &s, int dim,
-                       int fallback) -> int {
-    switch (s.tag) {
-      case GHOSTTY_QUICK_TERMINAL_SIZE_PERCENTAGE:
-        return static_cast<int>(s.value.percentage / 100.0f * dim);
-      case GHOSTTY_QUICK_TERMINAL_SIZE_PIXELS:
-        return static_cast<int>(s.value.pixels);
-      default:
-        return fallback;
-    }
-  };
-
-  const QString pos = config::string("quick-terminal-position");
-  LSW::Anchors anchors;
-  QSize size;
-  if (pos == QLatin1String("bottom")) {
-    anchors = LSW::Anchors(LSW::AnchorBottom) | LSW::AnchorLeft |
-              LSW::AnchorRight;
-    size = {scr.width(), toPx(qsz.primary, scr.height(), 400)};
-  } else if (pos == QLatin1String("left")) {
-    anchors = LSW::Anchors(LSW::AnchorLeft) | LSW::AnchorTop |
-              LSW::AnchorBottom;
-    size = {toPx(qsz.primary, scr.width(), 400), scr.height()};
-  } else if (pos == QLatin1String("right")) {
-    anchors = LSW::Anchors(LSW::AnchorRight) | LSW::AnchorTop |
-              LSW::AnchorBottom;
-    size = {toPx(qsz.primary, scr.width(), 400), scr.height()};
-  } else if (pos == QLatin1String("center")) {
-    anchors = LSW::Anchors(LSW::AnchorNone);
-    size = {toPx(qsz.primary, scr.width(), 800),
-            toPx(qsz.secondary, scr.height(), 400)};
-  } else {  // top (the default)
-    anchors = LSW::Anchors(LSW::AnchorTop) | LSW::AnchorLeft |
-              LSW::AnchorRight;
-    size = {scr.width(), toPx(qsz.primary, scr.height(), 400)};
-  }
-  ls->setAnchors(anchors);
-  // The layer-shell protocol takes the size from the underlying
-  // wl_surface (i.e. the QWindow's size); LayerShellQt has no
-  // setDesiredSize on this Qt branch.
-  resize(size);
-}
+void MainWindow::animateQuickTerminalIn() { quickterm::animateIn(this); }
+void MainWindow::animateQuickTerminalOut() { quickterm::animateOut(this); }
 
 void MainWindow::changeEvent(QEvent *e) {
   // quick-terminal-autohide: fade out the dropdown when it loses

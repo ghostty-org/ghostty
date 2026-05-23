@@ -113,6 +113,7 @@ add_executable(ghastty
   src/InspectorWindow.cpp
   src/MainWindow.cpp
   src/OverlayScrollbar.cpp
+  src/quickterm/QuickTerminal.cpp
   src/SearchBar.cpp
   src/TabWidget.cpp
   src/undo/UndoStack.cpp

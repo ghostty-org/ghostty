@@ -14,7 +14,6 @@ class QMediaPlayer;
 class QShowEvent;
 class QSplitter;
 class TabWidget;
-class QPropertyAnimation;
 class QTimer;
 class CommandPalette;
 class GhosttySurface;
@@ -225,10 +224,6 @@ private:
   // compositor (see WindowBlur).
   void applyBlur();
 
-  // Turn this window into a layer-shell dropdown anchored to a screen
-  // edge, per the `quick-terminal-*` config. Quick-terminal only.
-  void setupLayerShell();
-
   TabWidget *m_tabs = nullptr;
   QList<GhosttySurface *> m_surfaces;  // every live surface in this window
   bool m_firstTabPending = true;       // first tab is created on show()
@@ -236,8 +231,8 @@ private:
   bool m_skipCloseConfirm = false;     // close already confirmed elsewhere
   bool m_quickTerminal = false;        // this is the dropdown quick terminal
   // Per-window opacity animation for the quick terminal (fade in/out
-  // using quick-terminal-animation-duration). Lazily created.
-  QPropertyAnimation *m_quickTerminalAnim = nullptr;
+  // using quick-terminal-animation-duration). Owned by quickterm/'s
+  // dynamic-property cache on this widget; cleared on widget delete.
   QSize m_defaultWindowSize;           // for RESET_WINDOW_SIZE; from INITIAL_SIZE
   // Last cell size reported by libghostty for this window's surfaces
   // (CELL_SIZE action). Stored so future grid-snap resizing can use
