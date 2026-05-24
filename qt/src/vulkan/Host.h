@@ -35,8 +35,12 @@ public:
   static Host *instance();
 
   /// Build a `ghostty_platform_vulkan_s` callback struct populated
-  /// with this host's handles. Pass to `ghostty_surface_config_s`.
-  ghostty_platform_vulkan_s asPlatform(void *userdata) const;
+  /// with this host's handles. `surface_userdata` is round-tripped
+  /// through as the `userdata` field — used by the `present`
+  /// callback to identify which `GhosttySurface` the dmabuf is for.
+  /// The other handle-lookup callbacks ignore it and route through
+  /// `Host::instance()`.
+  ghostty_platform_vulkan_s asPlatform(void *surface_userdata) const;
 
   VkInstance vkInstance() const { return m_instance; }
   VkPhysicalDevice vkPhysicalDevice() const { return m_physicalDevice; }

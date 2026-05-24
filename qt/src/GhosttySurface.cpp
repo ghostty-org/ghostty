@@ -11,11 +11,14 @@
 #include "vulkan/Host.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+
+#include <sys/mman.h>
 
 #include <QByteArray>
 #include <QClipboard>
@@ -189,6 +192,18 @@ void GhosttySurface::syncSurfaceSize() {
   m_fbh = h;
   m_fbDpr = dpr;
 
+  // Vulkan path: libghostty manages the target image itself (it
+  // allocates the dmabuf-exportable VkImage). We just need to tell
+  // it the new pixel size + DPR and kick a first render — same
+  // shape as the OpenGL path below, minus the FBO bookkeeping.
+  if (m_useVulkan) {
+    ghostty_surface_set_content_scale(m_surface, dpr, dpr);
+    ghostty_surface_set_size(m_surface, static_cast<uint32_t>(w),
+                             static_cast<uint32_t>(h));
+    renderTerminal();
+    return;
+  }
+
   if (!makeCurrent()) return;
   delete m_fbo;
   QOpenGLFramebufferObjectFormat fmt;
@@ -302,7 +317,18 @@ void GhosttySurface::flashScrollbar() {
 }
 
 void GhosttySurface::renderTerminal() {
-  if (!m_surface || !m_fbo || !makeCurrent()) return;
+  if (!m_surface) return;
+
+  // Vulkan path: libghostty owns its target VkImage; it renders into
+  // it directly and presents via the apprt dmabuf callback. No GL
+  // context, no FBO, no readback — just kick the draw and let the
+  // platform-side `present` machinery wire the result back to us.
+  if (m_useVulkan) {
+    ghostty_surface_draw(m_surface);
+    return;
+  }
+
+  if (!m_fbo || !makeCurrent()) return;
 
   // libghostty renders into its own target and blits the result to the
   // currently bound framebuffer — bind ours so we get the final image.
@@ -325,19 +351,18 @@ void GhosttySurface::renderTerminal() {
 }
 
 void GhosttySurface::paintEvent(QPaintEvent *) {
-  // Vulkan-backed surface: libghostty hands frames to the host via
-  // a dmabuf fd; we don't yet composite them back into this widget.
-  // Paint a visible placeholder so the (translucent) MainWindow
-  // isn't completely invisible. Replace with the imported
-  // QRhiTexture once the dmabuf-import path lands.
-  if (m_useVulkan) {
+  // Vulkan-backed surface, no frame imported yet: paint a visible
+  // placeholder so the (translucent) MainWindow isn't completely
+  // invisible. Once `presentVulkanDmabuf` lands a frame, fall
+  // through to the regular blit path below.
+  if (m_useVulkan && m_image.isNull()) {
     QPainter painter(this);
     painter.setCompositionMode(QPainter::CompositionMode_Source);
     painter.fillRect(rect(), QColor(40, 22, 56)); // muted purple — debug placeholder
     painter.setPen(QColor(220, 220, 220));
     painter.drawText(rect(),
                      Qt::AlignCenter,
-                     QStringLiteral("Vulkan renderer\n(dmabuf import not yet wired)"));
+                     QStringLiteral("Vulkan renderer\n(awaiting first dmabuf frame)"));
     paintResizeOverlay(painter);
     return;
   }
@@ -1243,3 +1268,91 @@ void GhosttySurface::glReleaseCurrent(void *) {
 void GhosttySurface::glPresent(void *) {
   // No-op: the frame is read back from the framebuffer, not swapped.
 }
+
+// --- libghostty Vulkan present path ----------------------------------
+
+void GhosttySurface::presentVulkanDmabuf(
+    int dmabuf_fd,
+    quint32 drm_format,
+    quint64 drm_modifier,
+    quint32 width,
+    quint32 height,
+    quint32 stride) {
+  // Called from the renderer thread. We mmap the dmabuf, copy the
+  // bytes into a QImage, and hand the QImage to the GUI thread for
+  // paint via `QMetaObject::invokeMethod`. The fd is a borrow (per
+  // the `ghostty_platform_vulkan_s` contract); libghostty closes it
+  // when the underlying memory is freed.
+  (void)drm_modifier;  // LINEAR for v1; not used here.
+
+  // First-frame breadcrumb so we know the dmabuf hand-off is firing.
+  static bool first_frame = true;
+  if (first_frame) {
+    first_frame = false;
+    std::fprintf(stderr,
+                 "[ghastty] first Vulkan frame: %ux%u stride=%u fourcc=0x%08x\n",
+                 width, height, stride, drm_format);
+  }
+
+  // sanity check the size before we allocate / mmap.
+  if (dmabuf_fd < 0 || width == 0 || height == 0 || stride < width * 4)
+    return;
+
+  const size_t bytes = static_cast<size_t>(stride) * height;
+  void *mapped = ::mmap(nullptr, bytes, PROT_READ, MAP_SHARED, dmabuf_fd, 0);
+  if (mapped == MAP_FAILED) {
+    std::fprintf(stderr, "[ghastty] mmap of dmabuf fd=%d failed: %s\n",
+                 dmabuf_fd, std::strerror(errno));
+    return;
+  }
+  // QImage holds the pixel data by copying when constructed with
+  // `Format_ARGB32` from a buffer with explicit stride. We then
+  // detach (copy()) so the QImage survives the unmap.
+  //
+  // drm_format ARGB8888 (0x34325241 = "AR24") matches QImage's
+  // Format_ARGB32 byte order on little-endian (B,G,R,A in memory).
+  // We unconditionally use ARGB32 here because the renderer currently
+  // emits BGRA only — extend with a format switch when other formats
+  // come online.
+  (void)drm_format;
+  const QImage stamped(
+      static_cast<const uchar *>(mapped),
+      static_cast<int>(width),
+      static_cast<int>(height),
+      static_cast<int>(stride),
+      QImage::Format_ARGB32);
+  QImage owned = stamped.copy();
+  ::munmap(mapped, bytes);
+
+  // Marshal to the GUI thread. The lambda captures `owned` by value.
+  QPointer<GhosttySurface> selfp(this);
+  QMetaObject::invokeMethod(
+      this,
+      [selfp, owned]() mutable {
+        if (!selfp) return;
+        selfp->m_image = std::move(owned);
+        selfp->update();
+      },
+      Qt::QueuedConnection);
+}
+
+// Trampoline so `Host.cpp` doesn't need to include the full
+// `GhosttySurface.h`. The forward declaration lives in
+// `vulkan/Host.cpp` (namespace scope, not anonymous, so the linker
+// resolves this definition).
+namespace vulkan {
+
+void presentToGhosttySurface(
+    void *surface,
+    int dmabuf_fd,
+    uint32_t drm_format,
+    uint64_t drm_modifier,
+    uint32_t width,
+    uint32_t height,
+    uint32_t stride) {
+  if (surface == nullptr) return;
+  static_cast<GhosttySurface *>(surface)->presentVulkanDmabuf(
+      dmabuf_fd, drm_format, drm_modifier, width, height, stride);
+}
+
+} // namespace vulkan

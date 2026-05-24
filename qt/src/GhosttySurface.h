@@ -143,6 +143,21 @@ public:
   void setPwd(const QString &pwd);
   const QString &pwd() const { return m_pwd; }
 
+  // Apprt-side entry point for the Vulkan `present` callback.
+  // libghostty hands us a dmabuf fd pointing at the rendered
+  // VkImage's memory; we mmap it (LINEAR tiling means the bytes
+  // are directly readable as BGRA), copy the pixels into a QImage,
+  // and schedule a repaint. Thread-safe: the callback fires from
+  // the renderer thread; the QImage handoff goes through
+  // `QMetaObject::invokeMethod` to the GUI thread.
+  Q_INVOKABLE void presentVulkanDmabuf(
+      int dmabuf_fd,
+      quint32 drm_format,
+      quint64 drm_modifier,
+      quint32 width,
+      quint32 height,
+      quint32 stride);
+
 protected:
   bool event(QEvent *) override;
   void paintEvent(QPaintEvent *) override;
@@ -216,10 +231,10 @@ private:
   QImage m_image;                      // last frame, read back from m_fbo
 
   // True when this surface is using the Vulkan platform. The
-  // paintEvent uses this to draw a visible placeholder until the
-  // host-side dmabuf-import + composite work lands; otherwise the
-  // widget would paint nothing on a translucent window and look
-  // invisible.
+  // paintEvent uses this to draw a visible placeholder when no
+  // dmabuf has been imported yet; once
+  // `presentVulkanDmabuf` has filled `m_image` the placeholder
+  // gives way to the actual rendered content.
   bool m_useVulkan = false;
 
   // GL objects for the alpha-premultiply pass.

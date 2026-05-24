@@ -146,6 +146,13 @@ pub fn complete(self: *const Self, sync: bool) void {
             log.err("vkWaitForFences (frame) failed: result={}", .{r});
         }
     }
+
+    // Hand the rendered target off to the host. This mirrors what
+    // `opengl/Frame.zig`'s `complete` does at the same point: it
+    // calls `self.renderer.api.present(self.target.*)`. Our analog
+    // is `Target.present()`, which routes through the platform's
+    // `present` callback (the apprt-side dmabuf consumer).
+    self.target.present();
 }
 
 /// Begin a render pass recording into this frame's command buffer.

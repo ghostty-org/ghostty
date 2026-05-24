@@ -11,6 +11,19 @@
 
 namespace vulkan {
 
+// Forward declaration of the entry point in `GhosttySurface.cpp` that
+// receives a presented frame. Declared here at namespace scope (not
+// in the anonymous namespace below) so its external definition in
+// the other TU resolves at link time.
+void presentToGhosttySurface(
+    void *surface,
+    int dmabuf_fd,
+    uint32_t drm_format,
+    uint64_t drm_modifier,
+    uint32_t width,
+    uint32_t height,
+    uint32_t stride);
+
 namespace {
 
 constexpr const char *kRequiredDeviceExtensions[] = {
@@ -51,39 +64,49 @@ std::optional<uint32_t> findGraphicsQueueFamily(VkPhysicalDevice pd) {
 
 // ---- Platform callback trampolines ----------------------------------
 //
-// `ghostty_platform_vulkan_s` is a plain C ABI; the callback
-// signatures take a `void *userdata` that libghostty hands back to
-// each callback. We use that as our `Host *`.
+// `ghostty_platform_vulkan_s` is a plain C ABI; the callback signatures
+// take a `void *userdata` that libghostty hands back to each callback.
+// The handle-lookup callbacks (instance / physical_device / device /
+// queue / queue_family_index / get_instance_proc_addr) ignore the
+// userdata and resolve through the process singleton — there's only
+// one Vulkan setup per process. The `present` callback DOES use the
+// userdata: it's the `GhosttySurface *` that owns the rendered
+// target, so we can hand the dmabuf back to the right widget.
 
 void *cbGetInstanceProcAddr(void *ud, const char *name) {
-  auto *self = static_cast<Host *>(ud);
-  // Cast through `void(*)()` to silence strict-aliasing concerns
-  // about converting a function pointer to `void *` (the ABI we
-  // exposed in include/ghostty.h returns `void *` for portability,
-  // matching the OpenGL `get_proc_address` callback shape).
-  auto fp = vkGetInstanceProcAddr(self->vkInstance(), name);
+  (void)ud;
+  auto *host = Host::instance();
+  if (host == nullptr) return nullptr;
+  auto fp = vkGetInstanceProcAddr(host->vkInstance(), name);
   return reinterpret_cast<void *>(fp);
 }
 
 void *cbInstance(void *ud) {
-  return static_cast<Host *>(ud)->vkInstance();
+  (void)ud;
+  auto *host = Host::instance();
+  return host != nullptr ? host->vkInstance() : nullptr;
 }
 void *cbPhysicalDevice(void *ud) {
-  return static_cast<Host *>(ud)->vkPhysicalDevice();
+  (void)ud;
+  auto *host = Host::instance();
+  return host != nullptr ? host->vkPhysicalDevice() : nullptr;
 }
 void *cbDevice(void *ud) {
-  return static_cast<Host *>(ud)->vkDevice();
+  (void)ud;
+  auto *host = Host::instance();
+  return host != nullptr ? host->vkDevice() : nullptr;
 }
 void *cbQueue(void *ud) {
-  return static_cast<Host *>(ud)->vkQueue();
+  (void)ud;
+  auto *host = Host::instance();
+  return host != nullptr ? host->vkQueue() : nullptr;
 }
 uint32_t cbQueueFamilyIndex(void *ud) {
-  return static_cast<Host *>(ud)->vkQueueFamilyIndex();
+  (void)ud;
+  auto *host = Host::instance();
+  return host != nullptr ? host->vkQueueFamilyIndex() : 0;
 }
 
-// Present: libghostty hands us the rendered frame as a dmabuf fd.
-// For now this just logs — actual import + display via QRhiTexture
-// is the next chunk of Qt-side work.
 void cbPresent(
     void *ud,
     int dmabuf_fd,
@@ -92,12 +115,9 @@ void cbPresent(
     uint32_t width,
     uint32_t height,
     uint32_t stride) {
-  (void)ud;
-  std::fprintf(
-      stderr,
-      "[vulkan] present cb: fd=%d fourcc=0x%08x mod=0x%016lx %ux%u stride=%u\n",
-      dmabuf_fd, drm_format, static_cast<unsigned long>(drm_modifier),
-      width, height, stride);
+  if (ud == nullptr) return;
+  ::vulkan::presentToGhosttySurface(ud, dmabuf_fd, drm_format,
+                                    drm_modifier, width, height, stride);
 }
 
 } // namespace
@@ -188,10 +208,9 @@ Host::~Host() {
   if (m_instance != VK_NULL_HANDLE) vkDestroyInstance(m_instance, nullptr);
 }
 
-ghostty_platform_vulkan_s Host::asPlatform(void *userdata) const {
-  (void)userdata;
+ghostty_platform_vulkan_s Host::asPlatform(void *surface_userdata) const {
   ghostty_platform_vulkan_s p{};
-  p.userdata = const_cast<Host *>(this);
+  p.userdata = surface_userdata;
   p.get_instance_proc_addr = cbGetInstanceProcAddr;
   p.instance = cbInstance;
   p.physical_device = cbPhysicalDevice;
