@@ -109,6 +109,7 @@
 				Helpers/CrossKit.swift,
 				"Helpers/Extensions/NSImage+Extension.swift",
 				"Helpers/Extensions/OSColor+Extension.swift",
+				"Helpers/Extensions/OSPasteboard+Extension.swift",
 			);
 			target = 8193244C2F24E6C000A9ED8F /* DockTilePlugin */;
 		};

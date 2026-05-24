@@ -23,6 +23,8 @@ Overlay terminal_page {
     GLArea gl_area {
       realize => $gl_realize();
       unrealize => $gl_unrealize();
+      map => $gl_map();
+      unmap => $gl_unmap();
       render => $gl_render();
       resize => $gl_resize();
       hexpand: true;

@@ -240,6 +240,7 @@ comptime {
         @export(&c.terminal_get, .{ .name = "ghostty_terminal_get" });
         @export(&c.terminal_get_multi, .{ .name = "ghostty_terminal_get_multi" });
         @export(&c.terminal_grid_ref, .{ .name = "ghostty_terminal_grid_ref" });
+        @export(&c.terminal_grid_ref_track, .{ .name = "ghostty_terminal_grid_ref_track" });
         @export(&c.terminal_point_from_grid_ref, .{ .name = "ghostty_terminal_point_from_grid_ref" });
         @export(&c.kitty_graphics_get, .{ .name = "ghostty_kitty_graphics_get" });
         @export(&c.kitty_graphics_image, .{ .name = "ghostty_kitty_graphics_image" });
@@ -262,6 +263,11 @@ comptime {
         @export(&c.grid_ref_graphemes, .{ .name = "ghostty_grid_ref_graphemes" });
         @export(&c.grid_ref_hyperlink_uri, .{ .name = "ghostty_grid_ref_hyperlink_uri" });
         @export(&c.grid_ref_style, .{ .name = "ghostty_grid_ref_style" });
+        @export(&c.tracked_grid_ref_free, .{ .name = "ghostty_tracked_grid_ref_free" });
+        @export(&c.tracked_grid_ref_has_value, .{ .name = "ghostty_tracked_grid_ref_has_value" });
+        @export(&c.tracked_grid_ref_point, .{ .name = "ghostty_tracked_grid_ref_point" });
+        @export(&c.tracked_grid_ref_set, .{ .name = "ghostty_tracked_grid_ref_set" });
+        @export(&c.tracked_grid_ref_snapshot, .{ .name = "ghostty_tracked_grid_ref_snapshot" });
         @export(&c.build_info, .{ .name = "ghostty_build_info" });
         @export(&c.type_json, .{ .name = "ghostty_type_json" });
         @export(&c.alloc_alloc, .{ .name = "ghostty_alloc" });

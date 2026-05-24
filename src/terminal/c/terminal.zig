@@ -19,6 +19,7 @@ const size_report = @import("../size_report.zig");
 const cell_c = @import("cell.zig");
 const row_c = @import("row.zig");
 const grid_ref_c = @import("grid_ref.zig");
+const grid_ref_tracked_c = @import("grid_ref_tracked.zig");
 const style_c = @import("style.zig");
 const color = @import("../color.zig");
 const Result = @import("result.zig").Result;
@@ -723,15 +724,41 @@ pub fn grid_ref(
     out_ref: ?*grid_ref_c.CGridRef,
 ) callconv(lib.calling_conv) Result {
     const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
-    const zig_pt: point.Point = switch (pt.tag) {
-        .active => .{ .active = pt.value.active },
-        .viewport => .{ .viewport = pt.value.viewport },
-        .screen => .{ .screen = pt.value.screen },
-        .history => .{ .history = pt.value.history },
-    };
+    const zig_pt: point.Point = .fromC(pt);
     const p = t.screens.active.pages.pin(zig_pt) orelse
         return .invalid_value;
     if (out_ref) |out| out.* = grid_ref_c.CGridRef.fromPin(p);
+    return .success;
+}
+
+pub fn grid_ref_track(
+    terminal_: Terminal,
+    pt: point.Point.C,
+    out_ref: ?*grid_ref_tracked_c.CTrackedGridRef,
+) callconv(lib.calling_conv) Result {
+    const wrapper = terminal_ orelse return .invalid_value;
+    const out = out_ref orelse return .invalid_value;
+    out.* = null;
+
+    const t: *ZigTerminal = wrapper.terminal;
+    const list = &t.screens.active.pages;
+    const p = list.pin(.fromC(pt)) orelse return .invalid_value;
+    const tracked_pin = list.trackPin(p) catch return .out_of_memory;
+
+    const alloc = t.gpa();
+    const ref = alloc.create(grid_ref_tracked_c.TrackedGridRef) catch {
+        list.untrackPin(tracked_pin);
+        return .out_of_memory;
+    };
+    ref.* = .{
+        .alloc = alloc,
+        .terminal = wrapper,
+        .screen_key = t.screens.active_key,
+        .screen_generation = t.screens.generation(t.screens.active_key),
+        .pin = tracked_pin,
+    };
+
+    out.* = ref;
     return .success;
 }
 

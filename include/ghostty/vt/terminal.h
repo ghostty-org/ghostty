@@ -1121,6 +1121,37 @@ GHOSTTY_API GhosttyResult ghostty_terminal_grid_ref(GhosttyTerminal terminal,
                                         GhosttyGridRef *out_ref);
 
 /**
+ * Create an owned tracked grid reference for a terminal point.
+ *
+ * This is the tracked variant of ghostty_terminal_grid_ref(). The returned
+ * handle follows the referenced cell as the terminal's page list is modified:
+ * scrolling, pruning, resize/reflow, and other page-list operations update the
+ * tracked reference automatically.
+ *
+ * The reference is attached to the terminal screen/page-list that is active at
+ * creation time.
+ *
+ * If the point is outside the requested coordinate space, this returns
+ * GHOSTTY_INVALID_VALUE and writes NULL to out_ref.
+ *
+ * The returned handle must be freed with ghostty_tracked_grid_ref_free() before
+ * the terminal is freed.
+ *
+ * @param terminal Terminal instance.
+ * @param point Point to track.
+ * @param[out] out_ref On success, receives the tracked reference handle.
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if terminal,
+ *         point, or out_ref is invalid, or GHOSTTY_OUT_OF_MEMORY if allocation
+ *         fails.
+ *
+ * @ingroup terminal
+ */
+GHOSTTY_API GhosttyResult ghostty_terminal_grid_ref_track(
+    GhosttyTerminal terminal,
+    GhosttyPoint point,
+    GhosttyTrackedGridRef *out_ref);
+
+/**
  * Convert a grid reference back to a point in the given coordinate system.
  *
  * This is the inverse of ghostty_terminal_grid_ref(): given a grid reference,

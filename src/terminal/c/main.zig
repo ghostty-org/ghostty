@@ -8,6 +8,7 @@ pub const color = @import("color.zig");
 pub const focus = @import("focus.zig");
 pub const formatter = @import("formatter.zig");
 pub const grid_ref = @import("grid_ref.zig");
+pub const grid_ref_tracked = @import("grid_ref_tracked.zig");
 pub const kitty_graphics = @import("kitty_graphics.zig");
 pub const kitty_graphics_get = kitty_graphics.get;
 pub const kitty_graphics_image = kitty_graphics.image_get_handle;
@@ -170,6 +171,7 @@ pub const terminal_mode_set = terminal.mode_set;
 pub const terminal_get = terminal.get;
 pub const terminal_get_multi = terminal.get_multi;
 pub const terminal_grid_ref = terminal.grid_ref;
+pub const terminal_grid_ref_track = terminal.grid_ref_track;
 pub const terminal_point_from_grid_ref = terminal.point_from_grid_ref;
 
 pub const type_json = types.get_json;
@@ -179,6 +181,11 @@ pub const grid_ref_row = grid_ref.grid_ref_row;
 pub const grid_ref_graphemes = grid_ref.grid_ref_graphemes;
 pub const grid_ref_hyperlink_uri = grid_ref.grid_ref_hyperlink_uri;
 pub const grid_ref_style = grid_ref.grid_ref_style;
+pub const tracked_grid_ref_free = grid_ref_tracked.tracked_grid_ref_free;
+pub const tracked_grid_ref_has_value = grid_ref_tracked.tracked_grid_ref_has_value;
+pub const tracked_grid_ref_point = grid_ref_tracked.tracked_grid_ref_point;
+pub const tracked_grid_ref_set = grid_ref_tracked.tracked_grid_ref_set;
+pub const tracked_grid_ref_snapshot = grid_ref_tracked.tracked_grid_ref_snapshot;
 
 test {
     _ = allocator;
@@ -186,6 +193,7 @@ test {
     _ = cell;
     _ = color;
     _ = grid_ref;
+    _ = grid_ref_tracked;
     _ = kitty_graphics;
     _ = row;
     _ = focus;

@@ -12,5 +12,6 @@
         },
 
         .android_ndk = .{ .path = "../android-ndk" },
+        .apple_sdk = .{ .path = "../apple-sdk" },
     },
 }

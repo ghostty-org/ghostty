@@ -228,6 +228,7 @@ const Mouse = struct {
     /// coordinates so that scrolling preserves the location.
     left_click_pin: ?*terminal.Pin = null,
     left_click_screen: terminal.ScreenSet.Key = .primary,
+    left_click_screen_generation: usize = 0,
 
     /// The starting xpos/ypos of the left click. Note that if scrolling occurs,
     /// these will point to different "cells", but the xpos/ypos will stay
@@ -261,6 +262,22 @@ const Mouse = struct {
     /// The last x/y in the cursor position for links. We use this to
     /// only process link hover events when the mouse actually moves cells.
     link_point: ?terminal.point.Coordinate = null,
+
+    /// Return the PageList that owns the left-click pin, or null if the screen
+    /// has been removed/reinitialized since the pin was tracked.
+    fn leftClickPageList(self: *const Mouse, screens: *const terminal.ScreenSet) ?*terminal.PageList {
+        if (screens.generation(self.left_click_screen) != self.left_click_screen_generation) return null;
+        const screen = screens.get(self.left_click_screen) orelse return null;
+        return &screen.pages;
+    }
+
+    /// Return the left-click pin only if it still belongs to the active screen.
+    fn activeLeftClickPin(self: *const Mouse, screens: *const terminal.ScreenSet) ?*terminal.Pin {
+        const pin = self.left_click_pin orelse return null;
+        if (self.left_click_screen != screens.active_key) return null;
+        _ = self.leftClickPageList(screens) orelse return null;
+        return pin;
+    }
 };
 
 /// Keyboard state for the surface.
@@ -1192,9 +1209,9 @@ fn selectionScrollTick(self: *Surface) !void {
     defer self.renderer_state.mutex.unlock();
     const t: *terminal.Terminal = self.renderer_state.terminal;
 
-    // If our screen changed while this is happening, we stop our
-    // selection scroll.
-    if (self.mouse.left_click_screen != t.screens.active_key) {
+    // If our left-click pin no longer belongs to the active screen, we stop
+    // our selection scroll.
+    if (self.mouse.activeLeftClickPin(&t.screens) == null) {
         self.queueIo(
             .{ .selection_scroll = false },
             .locked,
@@ -1592,7 +1609,7 @@ fn mouseRefreshLinks(
         // mouse actions.
         const left_idx = @intFromEnum(input.MouseButton.left);
         if (self.mouse.click_state[left_idx] == .press) click: {
-            const pin = self.mouse.left_click_pin orelse break :click;
+            const pin = self.mouse.activeLeftClickPin(&self.io.terminal.screens) orelse break :click;
             const click_pt = self.io.terminal.screens.active.pages.pointFromPin(
                 .viewport,
                 pin.*,
@@ -3927,15 +3944,14 @@ pub fn mouseButtonCallback(
         }
 
         if (self.mouse.left_click_pin) |prev| {
-            if (t.screens.get(self.mouse.left_click_screen)) |pin_screen| {
-                pin_screen.pages.untrackPin(prev);
-            }
+            if (self.mouse.leftClickPageList(&t.screens)) |pages| pages.untrackPin(prev);
             self.mouse.left_click_pin = null;
         }
 
         // Store it
         self.mouse.left_click_pin = pin;
         self.mouse.left_click_screen = t.screens.active_key;
+        self.mouse.left_click_screen_generation = t.screens.generation(t.screens.active_key);
         self.mouse.left_click_xpos = pos.x;
         self.mouse.left_click_ypos = pos.y;
 
@@ -4466,7 +4482,7 @@ pub fn mousePressureCallback(
 
         // This should always be set in this state but we don't want
         // to handle state inconsistency here.
-        const pin = self.mouse.left_click_pin orelse break :select;
+        const pin = self.mouse.activeLeftClickPin(&self.io.terminal.screens) orelse break :select;
         const sel = self.io.terminal.screens.active.selectWord(
             pin.*,
             self.config.selection_word_chars,
@@ -4631,11 +4647,12 @@ pub fn cursorPosCallback(
         // count because we don't want to handle selection.
         if (self.mouse.left_click_count == 0) break :select;
 
-        // If our terminal screen changed then we don't process this. We don't
-        // invalidate our pin or mouse state because if the screen switches
-        // back then we can continue our selection.
+        // If our left-click pin no longer belongs to the active screen then we
+        // don't process this. We don't invalidate our pin or mouse state
+        // because if the same screen switches back then we can continue our
+        // selection.
         const t: *terminal.Terminal = self.renderer_state.terminal;
-        if (self.mouse.left_click_screen != t.screens.active_key) break :select;
+        if (self.mouse.activeLeftClickPin(&t.screens) == null) break :select;
 
         // All roads lead to requiring a re-render at this point.
         try self.queueRender();
@@ -4690,7 +4707,7 @@ fn dragLeftClickDouble(
     drag_pin: terminal.Pin,
 ) !void {
     const screen: *terminal.Screen = self.io.terminal.screens.active;
-    const click_pin = self.mouse.left_click_pin.?.*;
+    const click_pin = (self.mouse.activeLeftClickPin(&self.io.terminal.screens) orelse return).*;
 
     // Get the word closest to our starting click.
     const word_start = screen.selectWordBetween(
@@ -4735,7 +4752,11 @@ fn dragLeftClickTriple(
     drag_pin: terminal.Pin,
 ) !void {
     const screen: *terminal.Screen = self.io.terminal.screens.active;
-    const click_pin = self.mouse.left_click_pin.?.*;
+    const click_pin: terminal.Pin = pin: {
+        const set: *terminal.ScreenSet = &self.io.terminal.screens;
+        const tracked = self.mouse.activeLeftClickPin(set) orelse return;
+        break :pin tracked.*;
+    };
 
     // Get the line selection under our current drag point. If there isn't a
     // line, do nothing.
@@ -4762,8 +4783,13 @@ fn dragLeftClickSingle(
     drag_x: f64,
 ) !void {
     // This logic is in a separate function so that it can be unit tested.
+    const click_pin: terminal.Pin = pin: {
+        const set: *terminal.ScreenSet = &self.io.terminal.screens;
+        const tracked = self.mouse.activeLeftClickPin(set) orelse return;
+        break :pin tracked.*;
+    };
     try self.io.terminal.screens.active.select(mouseSelection(
-        self.mouse.left_click_pin.?.*,
+        click_pin,
         drag_pin,
         @intFromFloat(@max(0.0, self.mouse.left_click_xpos)),
         @intFromFloat(@max(0.0, drag_x)),

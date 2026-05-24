@@ -37,6 +37,13 @@ pub fn build(b: *std.Build) !void {
         try android_ndk.addPaths(b, lib);
     }
 
+    // Mainly for iOS simulators, but we add for all Darwin target for
+    // consistency.
+    if (target.result.os.tag.isDarwin()) {
+        const apple_sdk = @import("apple_sdk");
+        try apple_sdk.addPaths(b, lib);
+    }
+
     var flags: std.ArrayList([]const u8) = .empty;
     defer flags.deinit(b.allocator);
     try flags.appendSlice(b.allocator, &.{
