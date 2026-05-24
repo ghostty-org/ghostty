@@ -121,6 +121,21 @@ pub fn begin(opts: Options) Self {
         .texture => |t| .{ t.view, t.image, @intCast(t.width), @intCast(t.height) },
         .target => |t| .{ t.view, t.image, t.width, t.height },
     };
+    // Y-flip only when writing to a final `Target` (the dmabuf that
+    // Qt mmaps and paints with origin-upper-left). Intermediate
+    // `Texture` targets (the custom-shader back_texture) stay in
+    // OpenGL-style Y-up orientation so the shadertoy `mainImage`'s
+    // `uv = fragCoord/iResolution` sampling lands on the right row
+    // — the shader's flipped `fragCoord` (set by the
+    // `GHASTTY_VULKAN` define in the shadertoy prefix) cancels with
+    // the un-flipped texture orientation. Without this distinction
+    // the terminal CONTENT inside the custom shader shows
+    // upside-down because the back_texture was already y-flipped at
+    // render time AND the shader then samples with a flipped uv.
+    const y_flip_viewport: bool = switch (attach.target) {
+        .target => true,
+        .texture => false,
+    };
 
     // Transition to COLOR_ATTACHMENT_OPTIMAL. Sources from
     // UNDEFINED (fresh target) or whatever — we always discard
@@ -202,11 +217,21 @@ pub fn begin(opts: Options) Self {
     // top of the window appears at the bottom. `gl_FragCoord` still
     // reports origin-upper-left, matching `cell_bg.f.glsl`'s
     // `layout(origin_upper_left)` request.
-    const viewport: vk.VkViewport = .{
+    //
+    // See `y_flip_viewport` above for why intermediate textures
+    // (custom-shader back_texture) opt out of the flip.
+    const viewport: vk.VkViewport = if (y_flip_viewport) .{
         .x = 0,
         .y = @floatFromInt(height),
         .width = @floatFromInt(width),
         .height = -@as(f32, @floatFromInt(height)),
+        .minDepth = 0,
+        .maxDepth = 1,
+    } else .{
+        .x = 0,
+        .y = 0,
+        .width = @floatFromInt(width),
+        .height = @floatFromInt(height),
         .minDepth = 0,
         .maxDepth = 1,
     };

@@ -301,12 +301,24 @@ pub fn drawFrameEnd(self: *OpenGL) void {
 pub fn initShaders(
     self: *const OpenGL,
     alloc: Allocator,
-    custom_shaders: []const [:0]const u8,
+    custom_shaders: []const []const u8,
 ) !shaders.Shaders {
     _ = alloc;
+    // `loadFromFiles` returns `[]const []const u8` so the SPV-target
+    // Vulkan path can share the loader, but for `.glsl` the underlying
+    // allocation IS null-terminated (`glslFromSpv` returns
+    // `[:0]const u8` and writes a trailing null one past `.len`).
+    // Cast each entry back to `[:0]const u8` so the downstream
+    // `Pipeline.init` calls that expect a sentinel-terminated string
+    // keep working without changing their signatures.
+    const z_shaders = try self.alloc.alloc([:0]const u8, custom_shaders.len);
+    defer self.alloc.free(z_shaders);
+    for (custom_shaders, z_shaders) |bytes, *out| {
+        out.* = @ptrCast(bytes);
+    }
     return try shaders.Shaders.init(
         self.alloc,
-        custom_shaders,
+        z_shaders,
     );
 }
 

@@ -49,4 +49,14 @@ layout(location = 0) out vec4 _fragColor;
 #define texture2D texture
 
 void mainImage( out vec4 fragColor, in vec2 fragCoord );
-void main() { mainImage (_fragColor, gl_FragCoord.xy); }
+void main() {
+    // Vulkan's `gl_FragCoord` origin is upper-left, OpenGL's is
+    // lower-left; ShaderToy convention is lower-left, so on Vulkan
+    // we mirror y. The backend (`renderer/shadertoy.zig`) injects
+    // `#define GHASTTY_VULKAN 1` only for `.spv` targets.
+#ifdef GHASTTY_VULKAN
+    mainImage(_fragColor, vec2(gl_FragCoord.x, iResolution.y - gl_FragCoord.y));
+#else
+    mainImage(_fragColor, gl_FragCoord.xy);
+#endif
+}

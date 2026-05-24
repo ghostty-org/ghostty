@@ -40,16 +40,34 @@ pub const Uniforms = extern struct {
 };
 
 /// The target to load shaders for.
-pub const Target = enum { glsl, msl };
+///
+///   - `.glsl`: roundtripped through SPIR-V back to GLSL via
+///     spirv-cross. Normalizes/validates the source. The OpenGL
+///     backend consumes this.
+///   - `.msl`: spirv-cross translation to Metal Shading Language.
+///   - `.spv`: raw SPIR-V binary (no spirv-cross roundtrip). The
+///     Vulkan backend consumes this — Vulkan compiles GLSL → SPIR-V
+///     itself via glslang for its built-in shaders, and feeding
+///     the user shader through GLSL→SPIR-V→GLSL→SPIR-V again costs
+///     2× the compile work AND loses the original source structure
+///     (which broke our `gl_FragCoord` Y-flip rewrite when the
+///     spirv-cross-emitted main() didn't match the upstream prefix).
+pub const Target = enum { glsl, msl, spv };
 
 /// Load a set of shaders from files and convert them to the target
 /// format. The shader order is preserved.
+///
+/// Result element type depends on `target`: `.glsl`/`.msl` produce
+/// null-terminated UTF-8 source strings; `.spv` produces SPIR-V
+/// binary bytes (4-byte-aligned, no trailing null). We unify the
+/// return type as `[]const []const u8` and have the caller cast/
+/// reinterpret as needed.
 pub fn loadFromFiles(
     alloc_gpa: Allocator,
     paths: configpkg.RepeatablePath,
     target: Target,
-) ![]const [:0]const u8 {
-    var list: std.ArrayList([:0]const u8) = .empty;
+) ![]const []const u8 {
+    var list: std.ArrayList([]const u8) = .empty;
     defer list.deinit(alloc_gpa);
     errdefer for (list.items) |shader| alloc_gpa.free(shader);
 
@@ -75,11 +93,16 @@ pub fn loadFromFiles(
 
 /// Load a single shader from a file and convert it to the target language
 /// ready to be used with renderers.
+///
+/// For `.glsl` / `.msl` the returned slice is a null-terminated UTF-8
+/// source string; the underlying allocation is `[:0]const u8` and
+/// callers that need the sentinel may safely cast. For `.spv` the
+/// returned slice is raw SPIR-V bytes — no terminator, 4-byte aligned.
 pub fn loadFromFile(
     alloc_gpa: Allocator,
     path: []const u8,
     target: Target,
-) ![:0]const u8 {
+) ![]const u8 {
     var arena = ArenaAllocator.init(alloc_gpa);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -97,13 +120,35 @@ pub fn loadFromFile(
         );
     };
 
-    // Convert to full GLSL
-    const glsl: [:0]const u8 = glsl: {
+    // Convert to full GLSL. For `.spv` we inject a
+    // `#define GHASTTY_VULKAN 1` so the prefix's `main()` can flip
+    // `gl_FragCoord.y` (Vulkan's origin is upper-left vs OpenGL's
+    // lower-left, which would otherwise paint custom shaders upside
+    // down).
+    const glsl_raw: [:0]const u8 = glsl: {
         var stream: std.Io.Writer.Allocating = .init(alloc);
-        try glslFromShader(&stream.writer, src);
+        const defines: []const []const u8 = if (target == .spv)
+            &.{"GHASTTY_VULKAN 1"}
+        else
+            &.{};
+        try glslFromShader(&stream.writer, src, defines);
         try stream.writer.writeByte(0);
         break :glsl stream.written()[0 .. stream.written().len - 1 :0];
     };
+
+    // For `.spv` we also run `vulkanizeGlsl` on the source so the
+    // resulting SPIR-V uses the renderer's multi-set descriptor
+    // layout (UBO=set 0, samplers=set 1, storage=set 2). Without
+    // this, glslang assigns everything to `set 0` and our post
+    // pipeline's descriptor set layout (one set per resource type)
+    // would point at the wrong slots — the shader's `iChannel0` ends
+    // up at set 0 binding 0 while our pipeline binds it at set 1
+    // binding 0, sampling returns garbage / zero, output is
+    // transparent.
+    const glsl: [:0]const u8 = if (target == .spv) blk: {
+        const vshaders = @import("vulkan/shaders.zig");
+        break :blk try vshaders.vulkanizeGlsl(alloc, glsl_raw);
+    } else glsl_raw;
 
     // Convert to SPIR-V
     const spirv: []const u8 = spirv: {
@@ -129,12 +174,22 @@ pub fn loadFromFile(
         break :spirv list.items;
     };
 
-    // Convert to MSL
+    // Important: using the alloc_gpa here on purpose because this is
+    // the final result that will be returned to the caller (the arena
+    // gets torn down on function exit).
     return switch (target) {
-        // Important: using the alloc_gpa here on purpose because this
-        // is the final result that will be returned to the caller.
         .glsl => try glslFromSpv(alloc_gpa, spirv),
         .msl => try mslFromSpv(alloc_gpa, spirv),
+        .spv => spv: {
+            // Copy the SPIR-V binary out of the arena into a
+            // 4-byte-aligned allocation under `alloc_gpa`. Vulkan
+            // expects `pCode: []const u32`, so over-aligning is safe;
+            // we return as `[]const u8` to share the unified return
+            // type with the GLSL/MSL paths.
+            const dst = try alloc_gpa.alignedAlloc(u8, .of(u32), spirv.len);
+            @memcpy(dst, spirv);
+            break :spv dst;
+        },
     };
 }
 
@@ -144,9 +199,33 @@ pub fn loadFromFile(
 /// mainImage function and don't define any of the uniforms. This function
 /// will convert the ShaderToy shader into a valid GLSL shader that can be
 /// compiled and linked.
-pub fn glslFromShader(writer: *std.Io.Writer, src: []const u8) !void {
+pub fn glslFromShader(
+    writer: *std.Io.Writer,
+    src: []const u8,
+    /// Macros to inject as `#define <body>` lines after the prefix's
+    /// `#version` directive (GLSL requires `#version` first, so we
+    /// can't simply prepend). Empty for the default OpenGL/MSL paths;
+    /// the Vulkan SPV path uses this to flag the prefix's `main()`
+    /// to Y-flip `gl_FragCoord`.
+    defines: []const []const u8,
+) !void {
     const prefix = @embedFile("shaders/shadertoy_prefix.glsl");
-    try writer.writeAll(prefix);
+    if (defines.len == 0) {
+        try writer.writeAll(prefix);
+    } else {
+        // Find the first newline after `#version ...` and inject the
+        // defines on the following line. We assume the prefix begins
+        // with a `#version` directive on its own line (true today;
+        // the comptime split below would crash loudly otherwise).
+        const first_nl = std.mem.indexOfScalar(u8, prefix, '\n').?;
+        try writer.writeAll(prefix[0 .. first_nl + 1]);
+        for (defines) |def| {
+            try writer.writeAll("#define ");
+            try writer.writeAll(def);
+            try writer.writeAll("\n");
+        }
+        try writer.writeAll(prefix[first_nl + 1 ..]);
+    }
     try writer.writeAll("\n\n");
     try writer.writeAll(src);
 }
@@ -348,7 +427,7 @@ fn spvCross(
 fn testGlslZ(alloc: Allocator, src: []const u8) ![:0]const u8 {
     var buf: std.Io.Writer.Allocating = .init(alloc);
     defer buf.deinit();
-    try glslFromShader(&buf.writer, src);
+    try glslFromShader(&buf.writer, src, &.{});
     return try buf.toOwnedSliceSentinel(0);
 }
 

@@ -77,18 +77,25 @@ pub const Buffer = bufferpkg.Buffer;
 
 // ---- comptime contract --------------------------------------------------
 
-/// Custom user shaders (`shadertoy.zig`) target GLSL — same as OpenGL.
-pub const custom_shader_target: shadertoy.Target = .glsl;
+/// Custom user shaders compile to SPIR-V directly — skip the
+/// GLSL → SPIR-V → GLSL roundtrip that `.glsl` would do. The
+/// roundtrip exists for backends that consume GLSL (OpenGL, Metal
+/// via MSL), but Vulkan ingests SPIR-V natively and we already have
+/// a glslang shim for the renderer's built-in shaders. Bypassing
+/// the roundtrip halves the per-shader compile cost AND avoids the
+/// spirv-cross-emitted main() losing the upstream `gl_FragCoord.xy`
+/// pattern we hook for the Y-flip fix.
+pub const custom_shader_target: shadertoy.Target = .spv;
 
-/// Custom shaders are not yet supported on the Vulkan backend. The
-/// renderer's first pass draws into `CustomShaderState.back_texture`
-/// when custom shaders are configured, and a second "post" pass is
-/// expected to composite back_texture → frame.target through the
-/// user's shader. We haven't built that second pass for Vulkan yet,
-/// so enabling custom shaders here would leave `frame.target` empty
-/// and the window blank. Until the post pipeline lands, the generic
-/// renderer skips loading custom shaders for Vulkan and warns once.
-pub const supports_custom_shaders: bool = false;
+/// Custom shaders ARE now supported on the Vulkan backend.
+/// `shaders.Shaders.init` builds one post pipeline per user shader
+/// (UBO at set 0 binding 1, iChannel0 sampler at set 1 binding 0,
+/// matching `shadertoy_prefix.glsl` after `vulkanizeGlsl` rewrites
+/// the layouts). The renderer's post pass at the end of `drawFrame`
+/// chains them — first pipeline samples `back_texture` and writes
+/// `front_texture`, swap, repeat; the last one writes
+/// `frame.target` instead.
+pub const supports_custom_shaders: bool = true;
 
 /// Vulkan's clip-space Y axis points down (unlike OpenGL).
 pub const custom_shader_y_is_down = true;
@@ -257,7 +264,10 @@ pub fn drawFrameEnd(self: *Vulkan) void {
 pub fn initShaders(
     self: *const Vulkan,
     alloc: Allocator,
-    custom_shaders: []const [:0]const u8,
+    /// For Vulkan these are SPIR-V binaries (loaded with
+    /// `shadertoy.Target = .spv`), not GLSL strings — see
+    /// `custom_shader_target` above.
+    custom_shaders: []const []const u8,
 ) !shaders.Shaders {
     _ = self;
     return try shaders.Shaders.init(alloc, devicePtr(), custom_shaders);

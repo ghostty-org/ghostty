@@ -153,7 +153,12 @@ const ResourceSet = enum(u8) {
 /// authoring.
 ///
 /// Caller frees the returned buffer with the same allocator.
-fn vulkanizeGlsl(
+///
+/// Also called from `shadertoy.zig` when building SPIR-V for the
+/// Vulkan backend's custom-shader path, so the binding layouts in the
+/// user's shader come out in the same set/binding scheme the
+/// renderer's pipelines wire up.
+pub fn vulkanizeGlsl(
     alloc: std.mem.Allocator,
     src: []const u8,
 ) std.mem.Allocator.Error![:0]const u8 {
@@ -193,14 +198,20 @@ fn vulkanizeGlsl(
                 } else if (std.mem.eql(u8, ident, "sampler2DRect")) {
                     try out.appendSlice(alloc, "sampler2D");
                 } else if (std.mem.eql(u8, ident, "texture") and
-                    nextNonSpaceIsOpenParen(src, i))
+                    nextSamplerIsUnnormalized(src, i))
                 {
-                    // Replace `texture(args)` with `textureLod(args, 0.0)`.
+                    // Replace `texture(args)` with `textureLod(args, 0.0)`
+                    // ONLY when the sampler argument is one we created
+                    // with `unnormalized_coordinates = true` (the atlas
+                    // samplers in cell_text.f). Vulkan forbids implicit-LOD
+                    // sampling for those — see VUID-vkCmdDraw-None-08610.
+                    // For every other sampler (cell_bg.f's storage, the
+                    // shadertoy `iChannel0`, etc.) leave `texture()` alone:
+                    // it's the faster opcode the driver wants for normal
+                    // mipmapped or LOD-derivative sampling.
                     try out.appendSlice(alloc, "textureLod(");
-                    // Skip past the `(`.
                     while (i < src.len and src[i] != '(') : (i += 1) {}
                     i += 1; // consume the '('
-                    // Copy the args verbatim until the matching `)`.
                     var depth: i32 = 1;
                     while (i < src.len and depth > 0) {
                         const cc = src[i];
@@ -212,7 +223,6 @@ fn vulkanizeGlsl(
                         try out.append(alloc, cc);
                         i += 1;
                     }
-                    // Insert the explicit LOD argument and the closing `)`.
                     try out.appendSlice(alloc, ", 0.0)");
                     if (i < src.len) i += 1; // consume the closing `)`
                 } else {
@@ -311,6 +321,39 @@ fn nextNonSpaceIsOpenParen(src: []const u8, i: usize) bool {
     var p = i;
     while (p < src.len and isAnySpace(src[p])) : (p += 1) {}
     return p < src.len and src[p] == '(';
+}
+
+/// Names of samplers we create with `unnormalized_coordinates =
+/// VK_TRUE`. The shaders here all use only the two atlas samplers
+/// for cell_text; if more get added (or renamed) update this list.
+/// The fragment shader `cell_text.f.glsl` is the only renderer
+/// shader that references either name, so this list is intentionally
+/// tiny — broader matching would force `textureLod` on the custom
+/// shader's `iChannel0`, which is normalized, and bypassing the
+/// implicit-LOD opcode path makes the driver work harder per call.
+const unnormalized_sampler_names = [_][]const u8{
+    "atlas_grayscale",
+    "atlas_color",
+};
+
+/// True when `texture(IDENT, ...)` at position `i` (positioned right
+/// after the `texture` identifier) names an unnormalized sampler.
+/// Walks past whitespace and the `(`, then reads the next identifier
+/// and matches it against `unnormalized_sampler_names`.
+fn nextSamplerIsUnnormalized(src: []const u8, i: usize) bool {
+    var p = i;
+    while (p < src.len and isAnySpace(src[p])) : (p += 1) {}
+    if (p >= src.len or src[p] != '(') return false;
+    p += 1;
+    while (p < src.len and isAnySpace(src[p])) : (p += 1) {}
+    if (p >= src.len or !isIdentChar(src[p])) return false;
+    const start = p;
+    while (p < src.len and isIdentChar(src[p])) : (p += 1) {}
+    const name = src[start..p];
+    for (unnormalized_sampler_names) |needle| {
+        if (std.mem.eql(u8, name, needle)) return true;
+    }
+    return false;
 }
 
 fn isHorizSpace(c: u8) bool {
@@ -632,7 +675,16 @@ const empty_pipeline: Pipeline = .{
 ///     follow-up commit once the rest of the integration is wired.
 pub const Shaders = struct {
     pipelines: PipelineCollection,
-    post_pipelines: []const Pipeline,
+    /// One per user-supplied custom shader. Built by `Shaders.init`
+    /// from the `post_shaders` arg — empty when no custom shaders.
+    /// Owned by `Shaders` (deinit destroys each).
+    post_pipelines: []Pipeline,
+    /// Allocator used to allocate `post_pipelines`; held so deinit
+    /// can free the slice.
+    post_alloc: ?Allocator = null,
+    /// Compiled `VkShaderModule`s for each user shader, parallel to
+    /// `post_pipelines`. Owned by `Shaders` (deinit destroys each).
+    post_modules: []Module = &.{},
     modules: Modules,
 
     /// Process-wide descriptor pool. Sized for one set per pipeline
@@ -685,10 +737,13 @@ pub const Shaders = struct {
     pub fn init(
         alloc: Allocator,
         device: *const @import("Device.zig"),
-        post_shaders: []const [:0]const u8,
+        // SPIR-V binaries (4-byte-aligned) from
+        // `shadertoy.loadFromFiles` with `target = .spv`. The Vulkan
+        // backend bypasses the spirv-cross GLSL roundtrip the other
+        // backends use, so each entry here is the SPIR-V the
+        // built-in glslang shim would have produced.
+        post_shaders: []const []const u8,
     ) !Shaders {
-        _ = post_shaders;
-
         // Compile each built-in shader. Errors are fatal — the
         // renderer can't run without these. The `errdefer` chain
         // tears down any successfully-compiled modules if a later
@@ -987,9 +1042,92 @@ pub const Shaders = struct {
         pipelines.cell_bg = cell_bg_pipeline;
         pipelines.cell_text = cell_text_pipeline;
 
+        // ---- post (custom shader) pipelines ----------------------
+        //
+        // One pipeline per user shader source in `post_shaders`. Each
+        // pipeline is the same shape:
+        //
+        //   set 0 binding 1  Globals UBO (shadertoy uniforms)
+        //   set 1 binding 0  iChannel0 combined image sampler
+        //                    (the prior pass's back_texture +
+        //                    `state.sampler` from CustomShaderState)
+        //
+        // The vertex shader is the same `full_screen_vert` triangle
+        // generator we use for bg_color; the user-supplied source IS
+        // the fragment shader (run through `vulkanizeGlsl` and the
+        // glslang shim — same path the built-in shaders take).
+        // Color format matches `textureOptions()` and `initTarget`
+        // (BGRA SRGB) since post passes write to either a
+        // back_texture or `frame.target` and both use that format.
+        //
+        // Shadertoy shaders sample with normalized coordinates so the
+        // post pipeline's sampler is the normalized `state.sampler`,
+        // not the atlas sampler.
+        var post_pipelines: []Pipeline = &.{};
+        var post_modules: []Module = &.{};
+        if (post_shaders.len > 0) {
+            post_pipelines = try alloc.alloc(Pipeline, post_shaders.len);
+            errdefer alloc.free(post_pipelines);
+            post_modules = try alloc.alloc(Module, post_shaders.len);
+            errdefer alloc.free(post_modules);
+
+            // Init counter so partial failures can deinit only what
+            // was built.
+            var built: usize = 0;
+            errdefer {
+                for (post_pipelines[0..built]) |p| p.deinit();
+                for (post_modules[0..built]) |m| m.deinit();
+            }
+
+            // Shared descriptor set layouts across post pipelines.
+            // Tracked in `set_layouts` so deinit destroys once.
+            const post_ubo_dsl = try createSingleBindingDsl(
+                device,
+                1,
+                vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+            );
+            tracker.track(post_ubo_dsl);
+            const post_sampler_dsl = try createSingleBindingDsl(
+                device,
+                0,
+                vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+            );
+            tracker.track(post_sampler_dsl);
+
+            for (post_shaders, 0..) |spv_bytes, i| {
+                // Reinterpret the binary as the 32-bit word slice
+                // Vulkan's VkShaderModuleCreateInfo wants. The
+                // allocation is over-aligned to `u32` in shadertoy.zig
+                // so this cast is safe.
+                if (spv_bytes.len % 4 != 0) {
+                    log.err("custom shader SPIR-V size {} not a multiple of 4", .{spv_bytes.len});
+                    return error.VulkanFailed;
+                }
+                const spv_words: []const u32 = std.mem.bytesAsSlice(u32, @as([]align(@alignOf(u32)) const u8, @alignCast(spv_bytes)));
+                post_modules[i] = try Module.initFromSpirv(device, spv_words, .fragment);
+                post_pipelines[i] = try Pipeline.init(.{
+                    .device = device,
+                    .descriptor_pool = &pool,
+                    .vertex_module = modules.full_screen_vert.handle,
+                    .fragment_module = post_modules[i].handle,
+                    .vertex_input = null,
+                    .descriptor_set_layouts = &.{ post_ubo_dsl, post_sampler_dsl },
+                    .empty_set_layout = empty_dsl,
+                    .color_format = vk.VK_FORMAT_B8G8R8A8_SRGB,
+                    .blending_enabled = false,
+                    .topology = vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+                });
+                built = i + 1;
+            }
+        }
+
         return .{
             .pipelines = pipelines,
-            .post_pipelines = &.{},
+            .post_pipelines = post_pipelines,
+            .post_alloc = if (post_shaders.len > 0) alloc else null,
+            .post_modules = post_modules,
             .modules = modules,
             .descriptor_pool = pool,
             .set_layouts = set_layouts,
@@ -1051,6 +1189,16 @@ pub const Shaders = struct {
             &self.pipelines.image,
         }) |p_ptr| {
             if (p_ptr.pipeline != null) p_ptr.deinit();
+        }
+
+        // Post (custom shader) pipelines + their fragment modules.
+        // Same teardown order as the built-in pipelines/modules:
+        // pipeline first (holds VkPipelineLayout), then shader module.
+        for (self.post_pipelines) |p| p.deinit();
+        for (self.post_modules) |m| m.deinit();
+        if (self.post_alloc) |a| {
+            a.free(self.post_pipelines);
+            a.free(self.post_modules);
         }
 
         // Atlas sampler held by `Shaders` for the cell_text pipeline's

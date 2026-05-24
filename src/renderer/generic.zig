@@ -852,7 +852,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // ignored.
             const can_use_custom = !@hasDecl(GraphicsAPI, "supports_custom_shaders") or
                 GraphicsAPI.supports_custom_shaders;
-            const custom_shaders: []const [:0]const u8 = if (can_use_custom)
+            const custom_shaders: []const []const u8 = if (can_use_custom)
                 (shadertoy.loadFromFiles(
                     arena_alloc,
                     self.config.custom_shaders,
