@@ -429,9 +429,9 @@ fn renderAndVerify(device: *const Device, target: *Target) !void {
         \\}
     ;
 
-    var vs = try shaders.Module.init(device, vs_src, .vertex);
+    var vs = try shaders.Module.init(std.testing.allocator, device, vs_src, .vertex);
     defer vs.deinit();
-    var fs = try shaders.Module.init(device, fs_src, .fragment);
+    var fs = try shaders.Module.init(std.testing.allocator, device, fs_src, .fragment);
     defer fs.deinit();
 
     // Pipeline: dynamic rendering, no vertex input, no descriptors.
@@ -690,9 +690,9 @@ fn renderToFile(device: *const Device, path: []const u8) !void {
         \\}
     ;
 
-    var vs = try shaders.Module.init(device, vs_src, .vertex);
+    var vs = try shaders.Module.init(std.testing.allocator, device, vs_src, .vertex);
     defer vs.deinit();
-    var fs = try shaders.Module.init(device, fs_src, .fragment);
+    var fs = try shaders.Module.init(std.testing.allocator, device, fs_src, .fragment);
     defer fs.deinit();
 
     const push_range: vk.VkPushConstantRange = .{
@@ -944,9 +944,9 @@ fn renderTexturedToFile(device: *const Device, path: []const u8) !void {
         \\}
     ;
 
-    var vs = try shaders.Module.init(device, vs_src, .vertex);
+    var vs = try shaders.Module.init(std.testing.allocator, device, vs_src, .vertex);
     defer vs.deinit();
-    var fs = try shaders.Module.init(device, fs_src, .fragment);
+    var fs = try shaders.Module.init(std.testing.allocator, device, fs_src, .fragment);
     defer fs.deinit();
 
     // Descriptor set layout: one combined image sampler at binding 0.
@@ -1220,7 +1220,7 @@ fn probeGhosttyShaders(device: *const Device) !void {
             .stage = .fragment,
         },
     }) |entry| {
-        if (shaders.Module.init(device, entry.src, entry.stage)) |mod| {
+        if (shaders.Module.init(std.testing.allocator, device, entry.src, entry.stage)) |mod| {
             defer mod.deinit();
             std.debug.print("  Shader compile ✓ {s}\n", .{entry.name});
         } else |err| {

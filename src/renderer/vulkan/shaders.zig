@@ -75,7 +75,66 @@ pub const Error = error{
     GlslangFailed,
     /// `vkCreateShaderModule` returned a non-success status.
     VulkanFailed,
-};
+} || std.mem.Allocator.Error;
+
+/// Translate OpenGL-flavored GLSL to its Vulkan equivalent in the
+/// places glslang doesn't auto-translate. Currently:
+///
+///   - `gl_VertexID` → `gl_VertexIndex`
+///   - `gl_InstanceID` → `gl_InstanceIndex`
+///
+/// glslang's source/target environment system handles a lot but NOT
+/// these builtin renames — they're an OpenGL-vs-Vulkan source-level
+/// difference, not a compile flag. Matches what
+/// `glslangValidator -V` would require the user to do manually, and
+/// what Qt's QShaderBaker users do in their GLSL-flavored sources.
+///
+/// Caller frees the returned buffer with the same allocator.
+fn vulkanizeGlsl(
+    alloc: std.mem.Allocator,
+    src: []const u8,
+) std.mem.Allocator.Error![:0]const u8 {
+    var out = std.ArrayList(u8){};
+    errdefer out.deinit(alloc);
+
+    var i: usize = 0;
+    while (i < src.len) {
+        // Find the start of an identifier. Replacements are
+        // boundary-aware so `my_gl_VertexID_x` doesn't match.
+        const c = src[i];
+        const is_ident = (c >= 'a' and c <= 'z') or
+            (c >= 'A' and c <= 'Z') or
+            (c >= '0' and c <= '9') or
+            c == '_';
+
+        if (is_ident) {
+            // Step past the whole identifier.
+            const start = i;
+            while (i < src.len) {
+                const cc = src[i];
+                const cont = (cc >= 'a' and cc <= 'z') or
+                    (cc >= 'A' and cc <= 'Z') or
+                    (cc >= '0' and cc <= '9') or
+                    cc == '_';
+                if (!cont) break;
+                i += 1;
+            }
+            const ident = src[start..i];
+            if (std.mem.eql(u8, ident, "gl_VertexID")) {
+                try out.appendSlice(alloc, "gl_VertexIndex");
+            } else if (std.mem.eql(u8, ident, "gl_InstanceID")) {
+                try out.appendSlice(alloc, "gl_InstanceIndex");
+            } else {
+                try out.appendSlice(alloc, ident);
+            }
+        } else {
+            try out.append(alloc, c);
+            i += 1;
+        }
+    }
+
+    return try out.toOwnedSliceSentinel(alloc, 0);
+}
 
 /// A compiled `VkShaderModule` plus its stage flag.
 pub const Module = struct {
@@ -83,12 +142,19 @@ pub const Module = struct {
     stage: vk.VkShaderStageFlagBits,
     device: *const Device,
 
-    /// Compile GLSL → SPIR-V → `VkShaderModule` in a single pass. No
-    /// allocator parameter because we hand glslang's SPIR-V buffer
-    /// directly to `vkCreateShaderModule`; per the Vulkan spec, the
-    /// driver copies the bytes during the call so the source buffer
-    /// can be freed (via glslang's `defer delete`) immediately after.
+    /// Compile GLSL → SPIR-V → `VkShaderModule` in a single pass.
+    ///
+    /// The source is run through `vulkanizeGlsl` to swap OpenGL-only
+    /// builtins for their Vulkan equivalents (`gl_VertexID` →
+    /// `gl_VertexIndex`, `gl_InstanceID` → `gl_InstanceIndex`); then
+    /// the Ghastty Vulkan compile shim
+    /// (`pkg/glslang/override/ghastty_vk_shim.cpp`) finishes the job
+    /// with auto-map bindings / locations enabled. Same path covers
+    /// the renderer's built-in shaders AND user-supplied custom
+    /// shaders, so the OpenGL-flavored GLSL Ghostty already speaks
+    /// keeps working.
     pub fn init(
+        alloc: std.mem.Allocator,
         device: *const Device,
         src: [:0]const u8,
         stage: Stage,
@@ -99,59 +165,42 @@ pub const Module = struct {
             return error.GlslangFailed;
         };
 
+        const translated = vulkanizeGlsl(alloc, src) catch {
+            return error.GlslangFailed;
+        };
+        defer alloc.free(translated);
+
         const c = glslang.c;
-        const input: c.glslang_input_t = .{
-            .language = c.GLSLANG_SOURCE_GLSL,
-            .stage = stage.glslangStage(),
-            .client = c.GLSLANG_CLIENT_VULKAN,
-            .client_version = c.GLSLANG_TARGET_VULKAN_1_3,
-            .target_language = c.GLSLANG_TARGET_SPV,
-            .target_language_version = c.GLSLANG_TARGET_SPV_1_6,
-            .code = src.ptr,
-            .default_version = 450,
-            .default_profile = c.GLSLANG_NO_PROFILE,
-            .force_default_version_and_profile = 0,
-            .forward_compatible = 0,
-            .messages = c.GLSLANG_MSG_DEFAULT_BIT |
-                c.GLSLANG_MSG_SPV_RULES_BIT |
-                c.GLSLANG_MSG_VULKAN_RULES_BIT,
-            .resource = c.glslang_default_resource(),
+        const c_stage: c.ghastty_glslang_stage_t = switch (stage) {
+            .vertex => c.GHASTTY_GLSLANG_STAGE_VERTEX,
+            .fragment => c.GHASTTY_GLSLANG_STAGE_FRAGMENT,
         };
 
-        const shader = glslang.Shader.create(&input) catch {
+        var spv_ptr: [*c]u32 = undefined;
+        var spv_len: usize = 0;
+        var err_ptr: [*c]u8 = undefined;
+        const rc = c.ghastty_glslang_compile_vulkan(
+            translated.ptr,
+            c_stage,
+            &spv_ptr,
+            &spv_len,
+            &err_ptr,
+        );
+        if (rc != 0) {
+            if (err_ptr != null) {
+                log.err("ghastty_glslang_compile_vulkan: {s}", .{
+                    std.mem.span(@as([*:0]const u8, @ptrCast(err_ptr))),
+                });
+                c.ghastty_glslang_free_error(err_ptr);
+            } else {
+                log.err("ghastty_glslang_compile_vulkan: unspecified failure", .{});
+            }
             return error.GlslangFailed;
-        };
-        defer shader.delete();
+        }
+        defer c.ghastty_glslang_free_spirv(spv_ptr);
 
-        shader.preprocess(&input) catch {
-            logShaderInfo(shader);
-            return error.GlslangFailed;
-        };
-        shader.parse(&input) catch {
-            logShaderInfo(shader);
-            return error.GlslangFailed;
-        };
-
-        const program = glslang.Program.create() catch {
-            return error.GlslangFailed;
-        };
-        defer program.delete();
-        program.addShader(shader);
-        program.link(
-            c.GLSLANG_MSG_SPV_RULES_BIT |
-                c.GLSLANG_MSG_VULKAN_RULES_BIT,
-        ) catch {
-            logProgramInfo(program);
-            return error.GlslangFailed;
-        };
-
-        program.spirvGenerate(stage.glslangStage());
-        const word_count = program.spirvGetSize();
-        const word_ptr = program.spirvGetPtr() catch {
-            return error.GlslangFailed;
-        };
-
-        return try initFromSpirv(device, word_ptr[0..word_count], stage);
+        const spv: []const u32 = spv_ptr[0..spv_len];
+        return try initFromSpirv(device, spv, stage);
     }
 
     /// Wrap pre-compiled SPIR-V as a `VkShaderModule`. Useful for the
@@ -194,22 +243,6 @@ pub const Module = struct {
         );
     }
 };
-
-fn logShaderInfo(shader: *glslang.Shader) void {
-    const info = shader.getInfoLog() catch "";
-    const debug = shader.getDebugInfoLog() catch "";
-    if (info.len > 0 or debug.len > 0) {
-        log.err("glslang shader: info='{s}' debug='{s}'", .{ info, debug });
-    }
-}
-
-fn logProgramInfo(program: *glslang.Program) void {
-    const info = program.getInfoLog() catch "";
-    const debug = program.getDebugInfoLog() catch "";
-    if (info.len > 0 or debug.len > 0) {
-        log.err("glslang program: info='{s}' debug='{s}'", .{ info, debug });
-    }
-}
 
 // ---- shader data types ----------------------------------------------
 //
