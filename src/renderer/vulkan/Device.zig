@@ -147,6 +147,14 @@ pub const Dispatch = struct {
     // device-level resolution like any other device function.
     getMemoryFdKHR: std.meta.Child(vk.PFN_vkGetMemoryFdKHR),
     getImageSubresourceLayout: std.meta.Child(vk.PFN_vkGetImageSubresourceLayout),
+
+    // Per-frame sync (fence + command-buffer reset) — used by
+    // `vulkan/Frame.zig`.
+    createFence: std.meta.Child(vk.PFN_vkCreateFence),
+    destroyFence: std.meta.Child(vk.PFN_vkDestroyFence),
+    waitForFences: std.meta.Child(vk.PFN_vkWaitForFences),
+    resetFences: std.meta.Child(vk.PFN_vkResetFences),
+    resetCommandBuffer: std.meta.Child(vk.PFN_vkResetCommandBuffer),
 };
 
 // ---- fields ---------------------------------------------------------
@@ -379,6 +387,16 @@ pub fn init(
         try dl.load(vk.PFN_vkGetMemoryFdKHR, "vkGetMemoryFdKHR");
     const get_image_subresource_layout =
         try dl.load(vk.PFN_vkGetImageSubresourceLayout, "vkGetImageSubresourceLayout");
+    const create_fence =
+        try dl.load(vk.PFN_vkCreateFence, "vkCreateFence");
+    const destroy_fence =
+        try dl.load(vk.PFN_vkDestroyFence, "vkDestroyFence");
+    const wait_for_fences =
+        try dl.load(vk.PFN_vkWaitForFences, "vkWaitForFences");
+    const reset_fences =
+        try dl.load(vk.PFN_vkResetFences, "vkResetFences");
+    const reset_command_buffer =
+        try dl.load(vk.PFN_vkResetCommandBuffer, "vkResetCommandBuffer");
 
     return .{
         .platform = platform,
@@ -431,6 +449,11 @@ pub fn init(
             .destroyPipeline = destroy_pipeline,
             .getMemoryFdKHR = get_memory_fd_khr,
             .getImageSubresourceLayout = get_image_subresource_layout,
+            .createFence = create_fence,
+            .destroyFence = destroy_fence,
+            .waitForFences = wait_for_fences,
+            .resetFences = reset_fences,
+            .resetCommandBuffer = reset_command_buffer,
         },
     };
 }

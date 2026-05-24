@@ -69,6 +69,7 @@ pub const Texture = @import("vulkan/Texture.zig");
 pub const Target = @import("vulkan/Target.zig");
 pub const CommandPool = @import("vulkan/CommandPool.zig");
 pub const Pipeline = @import("vulkan/Pipeline.zig");
+pub const Frame = @import("vulkan/Frame.zig");
 pub const shaders = @import("vulkan/shaders.zig");
 
 const bufferpkg = @import("vulkan/buffer.zig");
