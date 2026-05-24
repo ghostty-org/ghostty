@@ -377,21 +377,13 @@ void GhosttySurface::renderTerminal() {
 }
 
 void GhosttySurface::paintEvent(QPaintEvent *) {
-  // Even when on the Vulkan path with a frame imported, the
-  // widget can still hit a `paintEvent` before the dmabuf has
-  // landed. Show a placeholder until we have one.
-  if (m_useVulkan && m_image.isNull()) {
-    QPainter painter(this);
-    painter.setCompositionMode(QPainter::CompositionMode_Source);
-    painter.fillRect(rect(), QColor(40, 22, 56)); // muted purple — debug placeholder
-    painter.setPen(QColor(220, 220, 220));
-    painter.drawText(rect(),
-                     Qt::AlignCenter,
-                     QStringLiteral("Vulkan renderer\n(awaiting first dmabuf frame)"));
-    paintResizeOverlay(painter);
-    return;
-  }
-
+  // No frame yet — leave the widget background untouched. With
+  // `WA_TranslucentBackground` set the area is transparent until
+  // the first frame imports, matching the OpenGL path. New surfaces
+  // (splits, tabs) hit paintEvent before libghostty's renderer
+  // thread has emitted its first frame; the gap is short enough
+  // that flashing a debug placeholder is more jarring than the
+  // brief see-through.
   if (m_image.isNull()) return;
   QPainter painter(this);
   // Blit the framebuffer 1:1. m_image carries the device pixel ratio, so
