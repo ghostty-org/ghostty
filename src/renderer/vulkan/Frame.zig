@@ -140,7 +140,10 @@ pub fn complete(self: *const Self, sync: bool) void {
         .pSignalSemaphores = null,
     };
     {
-        const r = dev.dispatch.queueSubmit(dev.queue, 1, &submit_info, self.fence);
+        // Externally-synchronized via `Device.queueSubmit` — splits
+        // and tabs share the host's VkQueue and Vulkan rejects
+        // concurrent unsynchronized access.
+        const r = dev.queueSubmit(1, &submit_info, self.fence);
         if (r != vk.VK_SUCCESS) {
             log.err("vkQueueSubmit (frame) failed: result={}", .{r});
             return;
@@ -169,7 +172,7 @@ pub fn complete(self: *const Self, sync: bool) void {
     // `present` callback (the apprt-side dmabuf consumer). Also
     // stash on the renderer's `last_target` for `presentLastTarget`
     // re-presents on no-op frames.
-    self.renderer.api.present(self.target.*) catch |err| {
+    self.renderer.api.present(self.target) catch |err| {
         log.err("present failed: {}", .{err});
     };
 

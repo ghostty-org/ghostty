@@ -119,10 +119,17 @@ rt_surface: *apprt.Surface,
 /// platform callbacks are read on the same thread that set them).
 var device: ?Device = null;
 
-/// Most recently presented target, in case `presentLastTarget` is
-/// called between frames (resize / redraw). Threadlocal for the same
-/// reason as `device`.
-threadlocal var last_target: ?Target = null;
+/// Most recently presented target, used by `presentLastTarget` when
+/// the renderer decides nothing new needs drawing. Stored as a
+/// POINTER (not a value copy) into the FrameState's `target` slot
+/// so it follows the target through a resize: `frame.resize` calls
+/// `target.deinit()` on the old Target and overwrites the slot with
+/// a new one — a value copy would now reference a closed fd and
+/// freed VkImage/VkBuffer/VkDeviceMemory handles, and Qt's mmap on
+/// the closed fd could read whatever a later open() recycled the fd
+/// for. Following the pointer instead always re-presents the
+/// currently-live target.
+threadlocal var last_target: ?*Target = null;
 
 /// Per-surface (per-thread) command pool used for the frame's
 /// command buffer. Lazily created in `beginFrame` on the first call;
@@ -185,7 +192,10 @@ pub fn deinit(self: *Vulkan) void {
             frame_pool = null;
         }
     }
-    if (last_target) |*t| t.deinit();
+    // `last_target` is a borrow into the FrameState's target slot,
+    // not an owned value — the SwapChain teardown destroys those.
+    // Just clear our reference so a re-init doesn't see a stale
+    // pointer.
     last_target = null;
     if (device) |*d| d.deinit();
     device = null;
@@ -296,16 +306,19 @@ pub fn surfaceSize(self: *const Vulkan) !struct { width: u32, height: u32 } {
     return .{ .width = size.width, .height = size.height };
 }
 
-pub fn present(self: *Vulkan, target: Target) !void {
+pub fn present(self: *Vulkan, target: *Target) !void {
     _ = self;
     // The target is already populated by the time we get here:
     // `Frame.complete` ended the command buffer, submitted with the
     // fence, and waited for the GPU to finish before returning. So
     // the dmabuf fd is safe to hand off.
     target.present();
-    // Stash for `presentLastTarget`. We copy by value — `Target`'s
-    // handles are POD pointers/ids, so a value copy is fine and the
-    // original `Target` ownership stays with the caller.
+    // Remember the target's address so `presentLastTarget` can
+    // re-present it on no-op frames. We store the pointer — not a
+    // value copy — so a subsequent `frame.resize` (which destroys
+    // the old Target and overwrites the FrameState's slot with a
+    // new one) is transparently followed. A value copy would leave
+    // us holding a closed fd and freed VkImage handles.
     last_target = target;
 }
 

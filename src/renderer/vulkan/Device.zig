@@ -203,6 +203,37 @@ api_version: u32,
 
 dispatch: Dispatch,
 
+/// Process-wide mutex protecting access to `queue`. Vulkan requires
+/// external synchronization of `VkQueue` — `vkQueueSubmit` and
+/// `vkQueueWaitIdle` from multiple threads must not overlap. Splits
+/// and tabs share the host's single queue (one VkQueue per process),
+/// so the mutex serializes submissions across all renderer threads.
+/// Use via `Device.queueSubmit` / `Device.queueWaitIdle`.
+var queue_mutex: std.Thread.Mutex = .{};
+
+/// Externally-synchronized `vkQueueSubmit`. ALL submissions to the
+/// host queue (Frame, atlas upload, etc.) MUST go through this so
+/// concurrent renderer threads from splits/tabs don't race the
+/// driver into a hang.
+pub fn queueSubmit(
+    self: *const Device,
+    submit_count: u32,
+    submits: [*c]const vk.VkSubmitInfo,
+    fence: vk.VkFence,
+) vk.VkResult {
+    queue_mutex.lock();
+    defer queue_mutex.unlock();
+    return self.dispatch.queueSubmit(self.queue, submit_count, submits, fence);
+}
+
+/// Externally-synchronized `vkQueueWaitIdle`. Same reasoning as
+/// `queueSubmit`.
+pub fn queueWaitIdle(self: *const Device) vk.VkResult {
+    queue_mutex.lock();
+    defer queue_mutex.unlock();
+    return self.dispatch.queueWaitIdle(self.queue);
+}
+
 // ---- API ------------------------------------------------------------
 
 /// Build a `Device` from the host's platform callbacks. Performs:

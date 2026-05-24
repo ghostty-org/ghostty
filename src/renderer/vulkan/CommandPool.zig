@@ -89,7 +89,11 @@ pub const OneShot = struct {
             .pSignalSemaphores = null,
         };
         {
-            const r = dev.dispatch.queueSubmit(dev.queue, 1, &submit_info, null);
+            // Externally-synchronized via `Device.queueSubmit` —
+            // see the note there. Splits/tabs both submit here for
+            // atlas uploads, and the per-frame Frame.complete path
+            // also uses the same queue.
+            const r = dev.queueSubmit(1, &submit_info, null);
             if (r != vk.VK_SUCCESS) {
                 log.err("vkQueueSubmit failed: result={}", .{r});
                 return error.VulkanFailed;
@@ -101,7 +105,7 @@ pub const OneShot = struct {
         // to stall). Per-frame command submission will use fences
         // and never queueWaitIdle.
         {
-            const r = dev.dispatch.queueWaitIdle(dev.queue);
+            const r = dev.queueWaitIdle();
             if (r != vk.VK_SUCCESS) {
                 log.err("vkQueueWaitIdle failed: result={}", .{r});
                 return error.VulkanFailed;

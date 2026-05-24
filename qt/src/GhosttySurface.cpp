@@ -220,13 +220,20 @@ void GhosttySurface::syncSurfaceSize() {
   // it the new pixel size + DPR — the renderer thread picks up
   // the new size and produces frames on its own clock; the
   // GUI-thread polling timer (`m_vulkanPollTimer`) picks them up.
-  // We deliberately do NOT call `renderTerminal()` here: doing so
-  // synchronously from inside `resizeEvent` was deadlocking with
-  // Qt's first-show event delivery during bring-up.
+  //
+  // We deliberately do NOT call `renderTerminal()` synchronously
+  // from inside `resizeEvent`: that was deadlocking with Qt's
+  // first-show event delivery during bring-up. Instead we mark the
+  // surface dirty so the next 60Hz frame-timer tick triggers a
+  // render at the new size. Without this, a resize would only
+  // re-render if something else (PTY output, cursor blink, etc.)
+  // happened to flag the surface dirty later, which can leave the
+  // old frame stretched across the new widget for a long time.
   if (m_useVulkan) {
     ghostty_surface_set_content_scale(m_surface, dpr, dpr);
     ghostty_surface_set_size(m_surface, static_cast<uint32_t>(w),
                              static_cast<uint32_t>(h));
+    markDirty();
     return;
   }
 
@@ -387,9 +394,11 @@ void GhosttySurface::paintEvent(QPaintEvent *) {
   if (m_image.isNull()) return;
   QPainter painter(this);
   // Blit the framebuffer 1:1. m_image carries the device pixel ratio, so
-  // the QPointF overload draws it at its true logical size: when in sync
-  // that exactly fills the widget, and mid-resize the content keeps its
-  // real size instead of stretching to the (already-resized) widget.
+  // the QPointF overload draws it at its true logical size. When in
+  // sync that exactly fills the widget; mid-resize, the previous frame
+  // stays at its real size in the top-left corner (rather than being
+  // stretched to the new widget rect, which the user dislikes more
+  // than the transient gap).
   // CompositionMode_Source replaces the transparent widget pixels with
   // the terminal image, alpha included, so its translucency is kept.
   painter.setCompositionMode(QPainter::CompositionMode_Source);
