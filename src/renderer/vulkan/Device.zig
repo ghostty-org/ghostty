@@ -127,6 +127,15 @@ pub const Dispatch = struct {
     // Shader modules — used by `vulkan/shaders.zig`.
     createShaderModule: std.meta.Child(vk.PFN_vkCreateShaderModule),
     destroyShaderModule: std.meta.Child(vk.PFN_vkDestroyShaderModule),
+
+    // Graphics pipeline + descriptor set layout —
+    // used by `vulkan/Pipeline.zig`.
+    createDescriptorSetLayout: std.meta.Child(vk.PFN_vkCreateDescriptorSetLayout),
+    destroyDescriptorSetLayout: std.meta.Child(vk.PFN_vkDestroyDescriptorSetLayout),
+    createPipelineLayout: std.meta.Child(vk.PFN_vkCreatePipelineLayout),
+    destroyPipelineLayout: std.meta.Child(vk.PFN_vkDestroyPipelineLayout),
+    createGraphicsPipelines: std.meta.Child(vk.PFN_vkCreateGraphicsPipelines),
+    destroyPipeline: std.meta.Child(vk.PFN_vkDestroyPipeline),
 };
 
 // ---- fields ---------------------------------------------------------
@@ -343,6 +352,18 @@ pub fn init(
         try dl.load(vk.PFN_vkCreateShaderModule, "vkCreateShaderModule");
     const destroy_shader_module =
         try dl.load(vk.PFN_vkDestroyShaderModule, "vkDestroyShaderModule");
+    const create_descriptor_set_layout =
+        try dl.load(vk.PFN_vkCreateDescriptorSetLayout, "vkCreateDescriptorSetLayout");
+    const destroy_descriptor_set_layout =
+        try dl.load(vk.PFN_vkDestroyDescriptorSetLayout, "vkDestroyDescriptorSetLayout");
+    const create_pipeline_layout =
+        try dl.load(vk.PFN_vkCreatePipelineLayout, "vkCreatePipelineLayout");
+    const destroy_pipeline_layout =
+        try dl.load(vk.PFN_vkDestroyPipelineLayout, "vkDestroyPipelineLayout");
+    const create_graphics_pipelines =
+        try dl.load(vk.PFN_vkCreateGraphicsPipelines, "vkCreateGraphicsPipelines");
+    const destroy_pipeline =
+        try dl.load(vk.PFN_vkDestroyPipeline, "vkDestroyPipeline");
 
     return .{
         .platform = platform,
@@ -387,6 +408,12 @@ pub fn init(
             .cmdCopyBufferToImage = cmd_copy_buffer_to_image,
             .createShaderModule = create_shader_module,
             .destroyShaderModule = destroy_shader_module,
+            .createDescriptorSetLayout = create_descriptor_set_layout,
+            .destroyDescriptorSetLayout = destroy_descriptor_set_layout,
+            .createPipelineLayout = create_pipeline_layout,
+            .destroyPipelineLayout = destroy_pipeline_layout,
+            .createGraphicsPipelines = create_graphics_pipelines,
+            .destroyPipeline = destroy_pipeline,
         },
     };
 }
