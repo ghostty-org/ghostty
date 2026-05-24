@@ -17,14 +17,15 @@ const Device = @import("Device.zig");
 
 const log = std.log.scoped(.vulkan);
 
-/// Texel filter mode. Maps 1:1 to `VkFilter`.
-pub const Filter = enum(c_int) {
+/// Texel filter mode. Maps 1:1 to `VkFilter` (which is a `c_uint`).
+pub const Filter = enum(c_uint) {
     nearest = vk.VK_FILTER_NEAREST,
     linear = vk.VK_FILTER_LINEAR,
 };
 
-/// Texture coordinate wrap mode. Maps 1:1 to `VkSamplerAddressMode`.
-pub const AddressMode = enum(c_int) {
+/// Texture coordinate wrap mode. Maps 1:1 to `VkSamplerAddressMode`
+/// (a `c_uint`).
+pub const AddressMode = enum(c_uint) {
     repeat = vk.VK_SAMPLER_ADDRESS_MODE_REPEAT,
     mirrored_repeat = vk.VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT,
     clamp_to_edge = vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,

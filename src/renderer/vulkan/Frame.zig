@@ -37,6 +37,7 @@ const vk = @import("vulkan").c;
 
 const Device = @import("Device.zig");
 const Target = @import("Target.zig");
+const RenderPass = @import("RenderPass.zig");
 
 const log = std.log.scoped(.vulkan);
 
@@ -145,6 +146,24 @@ pub fn complete(self: *const Self, sync: bool) void {
             log.err("vkWaitForFences (frame) failed: result={}", .{r});
         }
     }
+}
+
+/// Begin a render pass recording into this frame's command buffer.
+/// The returned `RenderPass` accepts `step()` calls for the
+/// per-pipeline draw work, and is finalized with `complete()`.
+///
+/// Currently delegates straight to `RenderPass.begin` which is itself
+/// a stub for the recording layer — actual command-recording lives
+/// in a follow-up commit on `qt-vulkan-renderer`. The plumbing is
+/// here so `GenericRenderer(Vulkan)` resolves at comptime.
+pub inline fn renderPass(
+    self: *const Self,
+    attachments: []const RenderPass.Options.Attachment,
+) RenderPass {
+    return RenderPass.begin(.{
+        .cb = self.cb,
+        .attachments = attachments,
+    });
 }
 
 test {

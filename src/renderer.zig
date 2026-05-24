@@ -17,12 +17,7 @@ pub const Backend = @import("renderer/backend.zig").Backend;
 pub const GenericRenderer = @import("renderer/generic.zig").Renderer;
 pub const Metal = @import("renderer/Metal.zig");
 pub const OpenGL = @import("renderer/OpenGL.zig");
-// `Vulkan = @import("renderer/Vulkan.zig")` is intentionally absent
-// until the renderer body lands. Importing it would force
-// `@import("vulkan")` in Device.zig (and any later submodule) to
-// resolve, but `pkg/vulkan` is only added to the dep graph when
-// `config.renderer == .vulkan` (see `src/build/SharedDeps.zig`).
-// The `.vulkan` switch arm below `@compileError`s before this matters.
+pub const Vulkan = @import("renderer/Vulkan.zig");
 pub const WebGL = @import("renderer/WebGL.zig");
 pub const Options = @import("renderer/Options.zig");
 pub const Overlay = @import("renderer/Overlay.zig");
@@ -45,13 +40,7 @@ pub const Renderer = switch (build_config.renderer) {
     .metal => GenericRenderer(Metal),
     .opengl => GenericRenderer(OpenGL),
     .webgl => WebGL,
-    .vulkan => @compileError(
-        "Vulkan renderer is not yet implemented. The backend is declared " ++
-            "and the apprt platform callbacks exist as a stub; the renderer " ++
-            "itself lands in follow-up commits on `qt-vulkan-renderer`. " ++
-            "Build with `-Drenderer=opengl` (default on Linux) until the " ++
-            "implementation lands.",
-    ),
+    .vulkan => GenericRenderer(Vulkan),
 };
 
 /// The health status of a renderer. These must be shared across all
