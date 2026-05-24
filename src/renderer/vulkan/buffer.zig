@@ -85,8 +85,26 @@ pub fn Buffer(comptime T: type) type {
 
         pub fn deinit(self: Self) void {
             const dev = self.opts.device;
-            dev.dispatch.destroyBuffer(dev.device, self.buffer, null);
-            dev.dispatch.freeMemory(dev.device, self.memory, null);
+            // Queue for destruction after the next frame's fence
+            // signals. `renderer/image.zig` creates a temp Buffer
+            // per kitty-image draw with `defer buf.deinit()` — that
+            // pattern is fine on OpenGL (GL defers deletion of
+            // in-flight buffers itself) but use-after-free on
+            // Vulkan, where the command buffer recorded against
+            // `self.buffer` hasn't been submitted yet at the point
+            // of deinit. The deferred queue keeps the VkBuffer +
+            // VkDeviceMemory alive until `Frame.complete` waits the
+            // fence; only then is destruction safe.
+            const deferred = @import("../Vulkan.zig").deferred_destruction;
+            deferred.queueBuffer(dev, self.buffer, self.memory) catch {
+                // OOM growing the queue — fall back to immediate
+                // destroy. Probably crashes the GPU; logging from
+                // here is awkward (no logger in scope) so we accept
+                // the leak / crash and let stderr from Vulkan
+                // diagnose.
+                dev.dispatch.destroyBuffer(dev.device, self.buffer, null);
+                dev.dispatch.freeMemory(dev.device, self.memory, null);
+            };
         }
 
         /// Replace the buffer's contents. Grows (doubles) if needed —

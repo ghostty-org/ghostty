@@ -126,6 +126,50 @@ rt_surface: *apprt.Surface,
 /// platform callbacks are read on the same thread that set them).
 var device: ?Device = null;
 
+/// Per-frame deferred destruction queue for Vulkan resources whose
+/// lifetime needs to outlast their Zig-side `deinit` call. Used by
+/// `vulkan/buffer.zig`'s `Buffer.deinit`: the renderer's
+/// `image.zig:draw` allocates a small per-instance vertex buffer per
+/// kitty-image, records a draw against it, then `defer buf.deinit()`s
+/// it before the frame's command buffer is submitted. On OpenGL the
+/// driver tracks the in-flight reference and defers actual freeing;
+/// Vulkan does not, and naive immediate destroy yields use-after-free
+/// on submit (GPU hang or close-time crash). The queue accumulates
+/// pending (VkBuffer, VkDeviceMemory) pairs as they are "deinit'd"
+/// and `Frame.complete` drains it after `vkWaitForFences` proves the
+/// GPU is done with them.
+pub const deferred_destruction = struct {
+    const Entry = struct {
+        buffer: vk.VkBuffer,
+        memory: vk.VkDeviceMemory,
+    };
+
+    threadlocal var pending: std.ArrayList(Entry) = .{};
+
+    pub fn queueBuffer(
+        dev: *const Device,
+        buffer: vk.VkBuffer,
+        memory: vk.VkDeviceMemory,
+    ) !void {
+        _ = dev;
+        try pending.append(std.heap.smp_allocator, .{
+            .buffer = buffer,
+            .memory = memory,
+        });
+    }
+
+    /// Drain the queue. Caller must ensure the GPU is done with
+    /// every queued resource (i.e. call only after a fence-wait or
+    /// `vkDeviceWaitIdle`).
+    pub fn drain(dev: *const Device) void {
+        for (pending.items) |e| {
+            dev.dispatch.destroyBuffer(dev.device, e.buffer, null);
+            dev.dispatch.freeMemory(dev.device, e.memory, null);
+        }
+        pending.clearRetainingCapacity();
+    }
+};
+
 /// Most recently presented target, used by `presentLastTarget` when
 /// the renderer decides nothing new needs drawing. Stored as a
 /// POINTER (not a value copy) into the FrameState's `target` slot
