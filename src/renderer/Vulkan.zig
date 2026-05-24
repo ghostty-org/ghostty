@@ -48,6 +48,12 @@
 //!   - `must_draw_from_app_thread`: Vulkan is thread-friendly but the
 //!     apprt API contract should be made explicit here.
 //!
+//! Submodules landed so far:
+//!   - `vulkan/Device.zig` — wraps the host-provided VkInstance /
+//!     VkPhysicalDevice / VkDevice / VkQueue. Validates the API
+//!     version and required extensions, and resolves the function-
+//!     pointer dispatch table. Re-exported as `Device` below.
+//!
 //! Binding: the Vulkan C API ships as the `vulkan` Zig module from
 //! `pkg/vulkan/` (mirrors the `pkg/opengl/` pattern — a thin
 //! `@cImport` wrapper over the system `vulkan/vulkan.h`). It is only
@@ -56,3 +62,5 @@
 //! linked at the same gate.
 //!
 //! See the parity branch description in `qt/PARITY.md` once it lands.
+
+pub const Device = @import("vulkan/Device.zig");

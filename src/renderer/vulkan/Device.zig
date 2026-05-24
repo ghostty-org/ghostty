@@ -1,0 +1,285 @@
+//! Host-provided Vulkan device wrapper.
+//!
+//! libghostty does NOT call `vkCreateInstance` / `vkCreateDevice` for
+//! the Vulkan renderer: per `ghostty_platform_vulkan_s` in
+//! `include/ghostty.h`, the host (the apprt embedding libghostty —
+//! e.g. the Qt frontend) owns the entire Vulkan setup. We consume
+//! its handles via the platform callbacks, validate the version /
+//! extensions we need, and build a function-pointer dispatch table
+//! the rest of the renderer can use.
+//!
+//! Why host-owned? The host already has a Vulkan instance/device for
+//! its own compositing (Qt's RHI). Asking the host to share its
+//! device means rendered frames can be handed back as raw `VkImage`
+//! handles or dmabuf fds without a CPU readback or a second Vulkan
+//! instance fighting for the same GPU resources.
+//!
+//! Vulkan version: 1.3 (Jan 2022). Promotes dynamic rendering,
+//! sync2, extended dynamic state — all of which simplify a
+//! dirty-rect-style terminal renderer. Driver coverage is fine on
+//! every distro currently in support.
+//!
+//! Required device extensions (must be enabled on the host's
+//! VkDevice; we verify each on init):
+//!   - VK_KHR_external_memory_fd
+//!   - VK_EXT_external_memory_dma_buf
+//!   - VK_EXT_image_drm_format_modifier
+//!
+//! These are what let libghostty export the rendered VkImage memory
+//! as a dmabuf fd so the host can import it for zero-copy
+//! presentation (path 3 in the qt-vulkan-renderer scoping log:
+//! preserves Qt's QWidget composition model AND avoids the CPU
+//! readback the OpenGL path currently does).
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+const apprt = @import("../../apprt.zig");
+const vk = @import("vulkan").c;
+
+const log = std.log.scoped(.vulkan);
+
+const Device = @This();
+
+/// Minimum Vulkan API version the renderer requires.
+pub const MIN_API_VERSION = vk.VK_API_VERSION_1_3;
+
+/// Device extensions libghostty enables on top of the host's
+/// VkDevice setup. The host must have created its VkDevice with
+/// these enabled; we only verify availability here.
+pub const REQUIRED_DEVICE_EXTENSIONS = [_][:0]const u8{
+    "VK_KHR_external_memory_fd",
+    "VK_EXT_external_memory_dma_buf",
+    "VK_EXT_image_drm_format_modifier",
+};
+
+/// Errors that can come out of `init`.
+pub const Error = error{
+    /// The host returned a null handle for `instance` / `device` /
+    /// `queue` / `physical_device`, or `get_instance_proc_addr`
+    /// failed to resolve a core Vulkan function we need to bootstrap.
+    HostHandleMissing,
+
+    /// The host's VkPhysicalDevice doesn't report a Vulkan API version
+    /// >= MIN_API_VERSION. Detected via `vkGetPhysicalDeviceProperties`.
+    UnsupportedVulkanVersion,
+
+    /// At least one entry in `REQUIRED_DEVICE_EXTENSIONS` was not
+    /// listed in `vkEnumerateDeviceExtensionProperties` for the
+    /// host's VkPhysicalDevice.
+    MissingRequiredExtension,
+};
+
+/// The function-pointer dispatch table libghostty resolves against the
+/// host's instance / device. We only enumerate the entry points the
+/// renderer actually uses; extending the table is the supported way
+/// for follow-up renderer code to call additional Vulkan functions.
+pub const Dispatch = struct {
+    // ---- instance-level -----------------------------------------
+    getPhysicalDeviceProperties: std.meta.Child(vk.PFN_vkGetPhysicalDeviceProperties),
+    enumerateDeviceExtensionProperties: std.meta.Child(vk.PFN_vkEnumerateDeviceExtensionProperties),
+    getDeviceProcAddr: std.meta.Child(vk.PFN_vkGetDeviceProcAddr),
+
+    // ---- device-level (resolved via getDeviceProcAddr) ----------
+    // Intentionally narrow for now — every additional renderer-side
+    // call adds a field here and a `loadDevice` lookup in `init`.
+    getDeviceQueue: std.meta.Child(vk.PFN_vkGetDeviceQueue),
+    deviceWaitIdle: std.meta.Child(vk.PFN_vkDeviceWaitIdle),
+};
+
+// ---- fields ---------------------------------------------------------
+
+/// The callbacks the apprt handed us. Held by value (not pointer)
+/// because the apprt's `Platform.Vulkan` is itself stored by value
+/// inside the `Surface`.
+platform: apprt.embedded.Platform.Vulkan,
+
+instance: vk.VkInstance,
+physical_device: vk.VkPhysicalDevice,
+device: vk.VkDevice,
+queue: vk.VkQueue,
+queue_family_index: u32,
+
+/// The Vulkan API version the host's physical device reports. Always
+/// >= `MIN_API_VERSION` (if it were lower, `init` returns
+/// `error.UnsupportedVulkanVersion`).
+api_version: u32,
+
+dispatch: Dispatch,
+
+// ---- API ------------------------------------------------------------
+
+/// Build a `Device` from the host's platform callbacks. Performs:
+///   1. Pull host handles via the callbacks. Any null returns ->
+///      `error.HostHandleMissing`.
+///   2. Load the instance-level dispatch via `vkGetInstanceProcAddr`.
+///   3. Verify `physicalDeviceProperties.apiVersion >= 1.3`.
+///   4. Verify every entry in `REQUIRED_DEVICE_EXTENSIONS` is present
+///      on the physical device.
+///   5. Load the device-level dispatch via `vkGetDeviceProcAddr`.
+///
+/// On success the returned `Device` is ready for the renderer to
+/// build pipelines / images / command buffers against. The host
+/// retains ownership of `instance` / `device` / `queue` — `deinit`
+/// is a no-op stub for symmetry.
+pub fn init(
+    alloc: Allocator,
+    platform: apprt.embedded.Platform.Vulkan,
+) (Error || Allocator.Error)!Device {
+    // ---- 1. resolve host handles ---------------------------------
+    const instance_handle = platform.instance(platform.userdata) orelse
+        return error.HostHandleMissing;
+    const physical_device_handle = platform.physical_device(platform.userdata) orelse
+        return error.HostHandleMissing;
+    const device_handle = platform.device(platform.userdata) orelse
+        return error.HostHandleMissing;
+    const queue_handle = platform.queue(platform.userdata) orelse
+        return error.HostHandleMissing;
+
+    const instance: vk.VkInstance = @ptrCast(instance_handle);
+    const physical_device: vk.VkPhysicalDevice = @ptrCast(physical_device_handle);
+    const device: vk.VkDevice = @ptrCast(device_handle);
+    const queue: vk.VkQueue = @ptrCast(queue_handle);
+    const queue_family_index = platform.queue_family_index(platform.userdata);
+
+    // ---- 2. instance-level dispatch ------------------------------
+    // The host's get_instance_proc_addr is our root entry point. We
+    // resolve other functions via vkGetInstanceProcAddr (instance,
+    // name); per the Vulkan spec, passing a non-null instance is
+    // valid for any function that takes an instance, physical
+    // device, device, or child object of any of these — i.e.
+    // everything we care about.
+    const get_instance_proc_addr_raw =
+        platform.get_instance_proc_addr(
+            platform.userdata,
+            "vkGetInstanceProcAddr",
+        ) orelse return error.HostHandleMissing;
+    const get_instance_proc_addr: std.meta.Child(vk.PFN_vkGetInstanceProcAddr) =
+        @ptrCast(@alignCast(get_instance_proc_addr_raw));
+
+    const InstanceLoader = struct {
+        instance: vk.VkInstance,
+        get_instance_proc_addr: std.meta.Child(vk.PFN_vkGetInstanceProcAddr),
+
+        fn load(self: @This(), comptime T: type, name: [*:0]const u8) Error!std.meta.Child(T) {
+            const fp = self.get_instance_proc_addr(self.instance, name) orelse {
+                log.err("vkGetInstanceProcAddr returned null for {s}", .{name});
+                return error.HostHandleMissing;
+            };
+            return @ptrCast(fp);
+        }
+    };
+    const il: InstanceLoader = .{
+        .instance = instance,
+        .get_instance_proc_addr = get_instance_proc_addr,
+    };
+
+    const get_physical_device_properties =
+        try il.load(vk.PFN_vkGetPhysicalDeviceProperties, "vkGetPhysicalDeviceProperties");
+    const enumerate_device_extension_properties =
+        try il.load(vk.PFN_vkEnumerateDeviceExtensionProperties, "vkEnumerateDeviceExtensionProperties");
+    const get_device_proc_addr =
+        try il.load(vk.PFN_vkGetDeviceProcAddr, "vkGetDeviceProcAddr");
+
+    // ---- 3. version check ----------------------------------------
+    var props: vk.VkPhysicalDeviceProperties = std.mem.zeroes(vk.VkPhysicalDeviceProperties);
+    get_physical_device_properties(physical_device, &props);
+    if (props.apiVersion < MIN_API_VERSION) {
+        log.err(
+            "host VkPhysicalDevice reports Vulkan {}.{}.{}, need >= {}.{}.{}",
+            .{
+                vk.VK_API_VERSION_MAJOR(props.apiVersion),
+                vk.VK_API_VERSION_MINOR(props.apiVersion),
+                vk.VK_API_VERSION_PATCH(props.apiVersion),
+                vk.VK_API_VERSION_MAJOR(MIN_API_VERSION),
+                vk.VK_API_VERSION_MINOR(MIN_API_VERSION),
+                vk.VK_API_VERSION_PATCH(MIN_API_VERSION),
+            },
+        );
+        return error.UnsupportedVulkanVersion;
+    }
+
+    // ---- 4. extension check --------------------------------------
+    var ext_count: u32 = 0;
+    _ = enumerate_device_extension_properties(physical_device, null, &ext_count, null);
+    const exts = try alloc.alloc(vk.VkExtensionProperties, ext_count);
+    defer alloc.free(exts);
+    _ = enumerate_device_extension_properties(physical_device, null, &ext_count, exts.ptr);
+
+    inline for (REQUIRED_DEVICE_EXTENSIONS) |required| {
+        var found = false;
+        for (exts) |ext| {
+            const name_cstr: [*:0]const u8 = @ptrCast(&ext.extensionName);
+            if (std.mem.eql(u8, std.mem.span(name_cstr), required)) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            log.err("required Vulkan device extension missing: {s}", .{required});
+            return error.MissingRequiredExtension;
+        }
+    }
+
+    // ---- 5. device-level dispatch --------------------------------
+    const DeviceLoader = struct {
+        device: vk.VkDevice,
+        get_device_proc_addr: std.meta.Child(vk.PFN_vkGetDeviceProcAddr),
+
+        fn load(self: @This(), comptime T: type, name: [*:0]const u8) Error!std.meta.Child(T) {
+            const fp = self.get_device_proc_addr(self.device, name) orelse {
+                log.err("vkGetDeviceProcAddr returned null for {s}", .{name});
+                return error.HostHandleMissing;
+            };
+            return @ptrCast(fp);
+        }
+    };
+    const dl: DeviceLoader = .{
+        .device = device,
+        .get_device_proc_addr = get_device_proc_addr,
+    };
+
+    const get_device_queue =
+        try dl.load(vk.PFN_vkGetDeviceQueue, "vkGetDeviceQueue");
+    const device_wait_idle =
+        try dl.load(vk.PFN_vkDeviceWaitIdle, "vkDeviceWaitIdle");
+
+    return .{
+        .platform = platform,
+        .instance = instance,
+        .physical_device = physical_device,
+        .device = device,
+        .queue = queue,
+        .queue_family_index = queue_family_index,
+        .api_version = props.apiVersion,
+        .dispatch = .{
+            .getPhysicalDeviceProperties = get_physical_device_properties,
+            .enumerateDeviceExtensionProperties = enumerate_device_extension_properties,
+            .getDeviceProcAddr = get_device_proc_addr,
+            .getDeviceQueue = get_device_queue,
+            .deviceWaitIdle = device_wait_idle,
+        },
+    };
+}
+
+/// Symmetry-only: every handle is host-owned. Provided so callers
+/// can `defer device.deinit()` without special-casing.
+pub fn deinit(self: *Device) void {
+    self.* = undefined;
+}
+
+/// Block until the device is idle. Useful before tearing down
+/// renderer resources to make sure no command buffers are in flight.
+pub fn waitIdle(self: *const Device) void {
+    _ = self.dispatch.deviceWaitIdle(self.device);
+}
+
+test {
+    // Force type-checking of every decl in this file so the renderer
+    // bring-up catches signature mismatches against the Vulkan
+    // binding before the apprt-side wiring lands. The actual init
+    // path requires a real host-provided Vulkan device and is
+    // exercised end-to-end once the Qt frontend wires up
+    // `ghostty_platform_vulkan_s`.
+    std.testing.refAllDecls(@This());
+}
