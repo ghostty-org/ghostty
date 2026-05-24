@@ -54,14 +54,20 @@ pub const VertexInput = struct {
     attributes: []const vk.VkVertexInputAttributeDescription,
 };
 
+/// Maximum descriptor sets a single pipeline can address. The
+/// preprocessor in `shaders.zig` bins resources into 3 sets (UBO=0,
+/// sampler=1, storage=2), so 3 is sufficient. Bump if/when a fourth
+/// resource class is introduced.
+pub const MAX_DESCRIPTOR_SETS: usize = 3;
+
 pub const Options = struct {
     device: *const Device,
 
-    /// Optional descriptor pool. If provided alongside a non-empty
-    /// `descriptor_set_layouts` slice, `Pipeline.init` allocates one
-    /// descriptor set against the first layout and stores it on
-    /// `Pipeline.descriptor_set` so `RenderPass.step` can bind it
-    /// without a separate plumbing step.
+    /// Optional descriptor pool. If provided, `Pipeline.init`
+    /// allocates one descriptor set per non-null entry in
+    /// `descriptor_set_layouts` and stores them on
+    /// `Pipeline.descriptor_sets[i]`, indexed by set number.
+    /// `RenderPass.step` updates + binds them per frame.
     descriptor_pool: ?*DescriptorPool = null,
 
     /// Shader modules. The caller owns these — Pipeline does not
@@ -73,8 +79,18 @@ pub const Options = struct {
     /// Optional vertex input. `null` ⇒ no vertex bindings.
     vertex_input: ?VertexInput = null,
 
-    /// Descriptor set layouts referenced by the shaders.
-    descriptor_set_layouts: []const vk.VkDescriptorSetLayout = &.{},
+    /// Per-set descriptor layouts. Element i corresponds to `set = i`
+    /// in the shader. `null` slots are placeholders for sets the
+    /// pipeline doesn't actually use — Vulkan requires the pipeline
+    /// layout's `pSetLayouts` to be contiguous up to the max used
+    /// set number, so we substitute `empty_set_layout` for nulls.
+    descriptor_set_layouts: []const ?vk.VkDescriptorSetLayout = &.{},
+
+    /// 0-binding placeholder layout used to fill `null` entries in
+    /// `descriptor_set_layouts`. Required when any entry is null;
+    /// can stay null when every entry is non-null. Owned by the
+    /// caller (`Shaders.init` caches one and reuses it).
+    empty_set_layout: vk.VkDescriptorSetLayout = null,
 
     /// Push constant ranges referenced by the shaders.
     push_constant_ranges: []const vk.VkPushConstantRange = &.{},
@@ -103,38 +119,59 @@ device: *const Device,
 pipeline: vk.VkPipeline,
 layout: vk.VkPipelineLayout,
 
-/// Cached copy of the single `VkDescriptorSetLayout` this pipeline
-/// was built with (when one was provided). `Shaders.init` owns the
-/// layout's lifetime; storing the handle here lets `RenderPass.step`
-/// allocate descriptor sets matching this pipeline without threading
-/// the layout separately.
-descriptor_set_layout: vk.VkDescriptorSetLayout = null,
+/// Descriptor sets allocated from `opts.descriptor_pool`, indexed by
+/// set number. `descriptor_sets[i]` is the set bound at `set = i` in
+/// the shader; `null` means the pipeline doesn't use that set (so
+/// `RenderPass.step` skips updating/binding it). `set_count` is one
+/// past the last non-null index, matching what
+/// `vkCmdBindDescriptorSets` needs as `setCount`.
+descriptor_sets: [MAX_DESCRIPTOR_SETS]vk.VkDescriptorSet = .{ null, null, null },
+set_count: u32 = 0,
 
-/// Optional descriptor set bundled with this pipeline. When set,
-/// `RenderPass.step` updates it with the Step's `uniforms`/textures
-/// and binds it before drawing. Allocated from a pool at
-/// `Pipeline.init` time when `opts.descriptor_pool` is provided.
-/// Null for pipelines that take no descriptor inputs (e.g. the
-/// smoke-test's solid-color pipeline).
-descriptor_set: vk.VkDescriptorSet = null,
-/// Binding number that `uniforms` writes to. Defaults to 1 to match
-/// the GLSL `layout(binding = 1)` on the Globals UBO. Override per
-/// pipeline if/when glslang's auto-map picks a different slot.
+/// Binding number that `Step.uniforms` writes to within set 0.
+/// Defaults to 1 to match `common.glsl`'s
+/// `layout(binding = 1, std140) uniform Globals`. Override per
+/// pipeline if a different shader uses a different slot.
 uniforms_binding: u32 = 1,
 
 pub fn init(opts: Options) Error!Self {
     const dev = opts.device;
 
+    if (opts.descriptor_set_layouts.len > MAX_DESCRIPTOR_SETS) {
+        log.err(
+            "Pipeline.init: {} descriptor sets exceeds MAX_DESCRIPTOR_SETS={}",
+            .{ opts.descriptor_set_layouts.len, MAX_DESCRIPTOR_SETS },
+        );
+        return error.VulkanFailed;
+    }
+
     // ---- pipeline layout ---------------------------------------
+    //
+    // Build a flat array of VkDescriptorSetLayout where index i is
+    // the layout for set=i. Null entries in `opts.descriptor_set_layouts`
+    // get substituted with `opts.empty_set_layout` — Vulkan rejects
+    // VK_NULL_HANDLE in `pSetLayouts`. `Shaders.init` always supplies
+    // an empty layout when any null appears.
+    var flat_dsls: [MAX_DESCRIPTOR_SETS]vk.VkDescriptorSetLayout = .{ null, null, null };
+    for (opts.descriptor_set_layouts, 0..) |maybe_dsl, i| {
+        if (maybe_dsl) |dsl| {
+            flat_dsls[i] = dsl;
+        } else if (opts.empty_set_layout != null) {
+            flat_dsls[i] = opts.empty_set_layout;
+        } else {
+            log.err(
+                "Pipeline.init: set {} is null but no empty_set_layout was provided",
+                .{i},
+            );
+            return error.VulkanFailed;
+        }
+    }
     const layout_info: vk.VkPipelineLayoutCreateInfo = .{
         .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .pNext = null,
         .flags = 0,
         .setLayoutCount = @intCast(opts.descriptor_set_layouts.len),
-        .pSetLayouts = if (opts.descriptor_set_layouts.len > 0)
-            opts.descriptor_set_layouts.ptr
-        else
-            null,
+        .pSetLayouts = if (opts.descriptor_set_layouts.len > 0) &flat_dsls else null,
         .pushConstantRangeCount = @intCast(opts.push_constant_ranges.len),
         .pPushConstantRanges = if (opts.push_constant_ranges.len > 0)
             opts.push_constant_ranges.ptr
@@ -339,16 +376,21 @@ pub fn init(opts: Options) Error!Self {
         }
     }
 
-    const dsl_first: vk.VkDescriptorSetLayout =
-        if (opts.descriptor_set_layouts.len > 0) opts.descriptor_set_layouts[0] else null;
-
-    var dset: vk.VkDescriptorSet = null;
+    // Allocate one descriptor set per non-null entry in
+    // `opts.descriptor_set_layouts`. Null entries are placeholder
+    // (the shader's set=i isn't actually used) — nothing to allocate.
+    var dsets: [MAX_DESCRIPTOR_SETS]vk.VkDescriptorSet = .{ null, null, null };
     if (opts.descriptor_pool) |pool_ptr| {
-        if (dsl_first != null) {
-            dset = pool_ptr.allocate(dsl_first) catch |err| {
-                log.err("Pipeline.init: descriptor set allocation failed: {}", .{err});
-                return error.VulkanFailed;
-            };
+        for (opts.descriptor_set_layouts, 0..) |maybe_dsl, i| {
+            if (maybe_dsl) |dsl| {
+                dsets[i] = pool_ptr.allocate(dsl) catch |err| {
+                    log.err(
+                        "Pipeline.init: descriptor set {} allocation failed: {}",
+                        .{ i, err },
+                    );
+                    return error.VulkanFailed;
+                };
+            }
         }
     }
 
@@ -356,8 +398,8 @@ pub fn init(opts: Options) Error!Self {
         .device = dev,
         .pipeline = pipeline,
         .layout = layout,
-        .descriptor_set_layout = dsl_first,
-        .descriptor_set = dset,
+        .descriptor_sets = dsets,
+        .set_count = @intCast(opts.descriptor_set_layouts.len),
     };
 }
 

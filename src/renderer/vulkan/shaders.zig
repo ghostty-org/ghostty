@@ -593,12 +593,20 @@ pub const Shaders = struct {
     /// the next frame begins).
     descriptor_pool: ?DescriptorPool = null,
 
-    /// One descriptor set + layout per pipeline. The layout is also
-    /// stored on `Pipeline.descriptor_set_layout` so `RenderPass.step`
-    /// can re-fetch from `step.pipeline`; the set lives here because
-    /// it's allocated once and updated per-frame.
-    bg_color_set_layout: vk.VkDescriptorSetLayout = null,
-    bg_color_set: vk.VkDescriptorSet = null,
+    /// Descriptor set layouts created by `init`, kept alive for the
+    /// lifetime of `Shaders` and destroyed in `deinit`. Each pipeline
+    /// holds raw `VkDescriptorSetLayout` handles into this array —
+    /// `Shaders` owns the lifetime so individual pipelines don't have
+    /// to. Fixed-size because the pipeline set is small and known.
+    set_layouts: [16]vk.VkDescriptorSetLayout = [_]vk.VkDescriptorSetLayout{null} ** 16,
+    set_layouts_len: usize = 0,
+
+    /// 0-binding placeholder descriptor set layout. Vulkan requires
+    /// `pSetLayouts[i]` in the pipeline layout to be non-null for
+    /// every set up to the max used. When a pipeline uses sets 0 and
+    /// 2 but not 1, we substitute this layout for the set-1 slot.
+    /// Also tracked in `set_layouts` for deinit.
+    empty_set_layout: vk.VkDescriptorSetLayout = null,
 
     defunct: bool = false,
 
@@ -665,17 +673,67 @@ pub const Shaders = struct {
             }
         }
 
-        // Build a descriptor pool sized for one descriptor set per
-        // pipeline (we currently only construct bg_color; size for the
-        // full set so adding new pipelines doesn't require pool
-        // resizing).
+        // Descriptor pool. Each pipeline allocates one set per
+        // resource bucket it uses (UBO / sampler / storage). Size
+        // generously — these are tiny and rebuilding the pool would
+        // force us to recreate all the sets too.
         var pool = try DescriptorPool.init(.{
             .device = device,
-            .max_sets = 5,
-            .uniform_buffers = 5,
-            .combined_image_samplers = 8,
+            .max_sets = 32,
+            .uniform_buffers = 16,
+            .combined_image_samplers = 16,
+            .storage_buffers = 16,
         });
         errdefer pool.deinit();
+
+        // ---- 0-binding placeholder DSL ---------------------------
+        //
+        // Used to fill `pSetLayouts[i]` for set indices a pipeline
+        // doesn't actually use (e.g. cell_bg uses set 0 and set 2,
+        // so set 1 needs a non-null placeholder).
+        const empty_dsl_info: vk.VkDescriptorSetLayoutCreateInfo = .{
+            .sType = vk.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .pNext = null,
+            .flags = 0,
+            .bindingCount = 0,
+            .pBindings = null,
+        };
+        var empty_dsl: vk.VkDescriptorSetLayout = undefined;
+        if (device.dispatch.createDescriptorSetLayout(
+            device.device,
+            &empty_dsl_info,
+            null,
+            &empty_dsl,
+        ) != vk.VK_SUCCESS) {
+            return error.VulkanFailed;
+        }
+
+        // Layout tracker — captures every DSL we create so deinit
+        // can tear them down without per-pipeline bookkeeping.
+        var set_layouts: [16]vk.VkDescriptorSetLayout = [_]vk.VkDescriptorSetLayout{null} ** 16;
+        var set_layouts_len: usize = 0;
+        set_layouts[set_layouts_len] = empty_dsl;
+        set_layouts_len += 1;
+        errdefer {
+            for (set_layouts[0..set_layouts_len]) |dsl| {
+                if (dsl != null) device.dispatch.destroyDescriptorSetLayout(
+                    device.device,
+                    dsl,
+                    null,
+                );
+            }
+        }
+
+        // Helper: track + return.
+        const Tracker = struct {
+            arr: *[16]vk.VkDescriptorSetLayout,
+            len: *usize,
+            fn track(t: @This(), dsl: vk.VkDescriptorSetLayout) void {
+                t.arr.*[t.len.*] = dsl;
+                t.len.* += 1;
+            }
+        };
+        const tracker = Tracker{ .arr = &set_layouts, .len = &set_layouts_len };
 
         // ---- bg_color pipeline -----------------------------------
         //
@@ -684,62 +742,119 @@ pub const Shaders = struct {
         // synthesizes a covering triangle from `gl_VertexIndex`, so
         // there's no vertex input.
         //
-        // Descriptor set layout: one UBO binding for Globals. The
-        // existing OpenGL shader declares it at `binding = 1`; with
-        // glslang's `setAutoMapBindings(true)` (in our shim) the
-        // binding may be remapped, but for v1 we declare it at
-        // binding 1 to match. Layout fragment-stage only — the
-        // vertex shader for bg_color doesn't use the UBO.
-        const bg_color_bindings = [_]vk.VkDescriptorSetLayoutBinding{.{
-            .binding = 1,
-            .descriptorType = vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            .descriptorCount = 1,
-            .stageFlags = vk.VK_SHADER_STAGE_FRAGMENT_BIT,
-            .pImmutableSamplers = null,
-        }};
-        const bg_color_dsl_info: vk.VkDescriptorSetLayoutCreateInfo = .{
-            .sType = vk.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-            .pNext = null,
-            .flags = 0,
-            .bindingCount = bg_color_bindings.len,
-            .pBindings = &bg_color_bindings,
-        };
-        var bg_color_dsl: vk.VkDescriptorSetLayout = undefined;
-        if (device.dispatch.createDescriptorSetLayout(
-            device.device,
-            &bg_color_dsl_info,
-            null,
-            &bg_color_dsl,
-        ) != vk.VK_SUCCESS) {
-            return error.VulkanFailed;
-        }
-        errdefer device.dispatch.destroyDescriptorSetLayout(device.device, bg_color_dsl, null);
-
-        const bg_color_dsls = [_]vk.VkDescriptorSetLayout{bg_color_dsl};
+        // After `vulkanizeGlsl`, the Globals UBO lives at set=0,
+        // binding=1. bg_color doesn't use samplers or storage
+        // buffers, so the pipeline needs only one descriptor set
+        // layout.
+        const bg_color_ubo_dsl = try createSingleBindingDsl(
+            device,
+            1,
+            vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+        );
+        tracker.track(bg_color_ubo_dsl);
         const bg_color_pipeline = try Pipeline.init(.{
             .device = device,
             .descriptor_pool = &pool,
             .vertex_module = modules.full_screen_vert.handle,
             .fragment_module = modules.bg_color_frag.handle,
             .vertex_input = null,
-            .descriptor_set_layouts = &bg_color_dsls,
+            .descriptor_set_layouts = &.{bg_color_ubo_dsl},
+            .empty_set_layout = empty_dsl,
             .color_format = vk.VK_FORMAT_B8G8R8A8_SRGB,
             .blending_enabled = false,
             .topology = vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
         });
         errdefer bg_color_pipeline.deinit();
 
+        // ---- cell_bg pipeline ------------------------------------
+        //
+        // Full-screen fragment shader that reads per-cell background
+        // colors out of `bg_cells` (storage buffer) and the Globals
+        // UBO. After `vulkanizeGlsl`:
+        //
+        //   set 0 binding 1  Globals UBO  (fragment stage)
+        //   set 2 binding 1  bg_cells storage buffer (fragment stage)
+        //
+        // Set 1 is unused — the empty DSL fills the slot so the
+        // pipeline layout's `pSetLayouts` is contiguous.
+        const cell_bg_ubo_dsl = try createSingleBindingDsl(
+            device,
+            1,
+            vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+        );
+        tracker.track(cell_bg_ubo_dsl);
+        const cell_bg_storage_dsl = try createSingleBindingDsl(
+            device,
+            1,
+            vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+        );
+        tracker.track(cell_bg_storage_dsl);
+        const cell_bg_pipeline = try Pipeline.init(.{
+            .device = device,
+            .descriptor_pool = &pool,
+            .vertex_module = modules.full_screen_vert.handle,
+            .fragment_module = modules.cell_bg_frag.handle,
+            .vertex_input = null,
+            .descriptor_set_layouts = &.{ cell_bg_ubo_dsl, null, cell_bg_storage_dsl },
+            .empty_set_layout = empty_dsl,
+            .color_format = vk.VK_FORMAT_B8G8R8A8_SRGB,
+            .blending_enabled = true,
+            .topology = vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        });
+        errdefer cell_bg_pipeline.deinit();
+
         var pipelines: PipelineCollection = .{};
         pipelines.bg_color = bg_color_pipeline;
+        pipelines.cell_bg = cell_bg_pipeline;
 
         return .{
             .pipelines = pipelines,
             .post_pipelines = &.{},
             .modules = modules,
             .descriptor_pool = pool,
-            .bg_color_set_layout = bg_color_dsl,
-            .bg_color_set = bg_color_pipeline.descriptor_set,
+            .set_layouts = set_layouts,
+            .set_layouts_len = set_layouts_len,
+            .empty_set_layout = empty_dsl,
         };
+    }
+
+    /// Construct a single-binding `VkDescriptorSetLayout`. The vast
+    /// majority of our per-set layouts have exactly one binding
+    /// (Globals UBO, bg_cells SSBO, individual sampler) so a helper
+    /// keeps the call sites short.
+    fn createSingleBindingDsl(
+        device: *const @import("Device.zig"),
+        binding: u32,
+        descriptor_type: vk.VkDescriptorType,
+        stage_flags: vk.VkShaderStageFlags,
+    ) !vk.VkDescriptorSetLayout {
+        const bindings = [_]vk.VkDescriptorSetLayoutBinding{.{
+            .binding = binding,
+            .descriptorType = descriptor_type,
+            .descriptorCount = 1,
+            .stageFlags = stage_flags,
+            .pImmutableSamplers = null,
+        }};
+        const info: vk.VkDescriptorSetLayoutCreateInfo = .{
+            .sType = vk.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .pNext = null,
+            .flags = 0,
+            .bindingCount = bindings.len,
+            .pBindings = &bindings,
+        };
+        var dsl: vk.VkDescriptorSetLayout = undefined;
+        if (device.dispatch.createDescriptorSetLayout(
+            device.device,
+            &info,
+            null,
+            &dsl,
+        ) != vk.VK_SUCCESS) {
+            return error.VulkanFailed;
+        }
+        return dsl;
     }
 
     pub fn deinit(self: *Shaders, alloc: Allocator) void {
@@ -747,27 +862,39 @@ pub const Shaders = struct {
         if (self.defunct) return;
         self.defunct = true;
 
-        // Real pipeline (bg_color) — destroy first since it
-        // references the descriptor set layout.
-        const bg_color_real = self.pipelines.bg_color.pipeline != null;
-        if (bg_color_real) self.pipelines.bg_color.deinit();
+        // Pipelines first — each holds a VkPipelineLayout that
+        // references the descriptor set layouts we're about to
+        // destroy. Skip default-null sentinel slots.
+        inline for (.{
+            &self.pipelines.bg_color,
+            &self.pipelines.bg_image,
+            &self.pipelines.cell_bg,
+            &self.pipelines.cell_text,
+            &self.pipelines.image,
+        }) |p_ptr| {
+            if (p_ptr.pipeline != null) p_ptr.deinit();
+        }
 
-        // The descriptor pool reclaims all sets allocated from it,
-        // including `bg_color_set`. Destroy the standalone layout
-        // separately.
+        // Descriptor pool reclaims every set allocated from it
+        // (including the per-pipeline sets); the standalone layouts
+        // are tracked separately in `set_layouts`.
         if (self.descriptor_pool) |*p| p.deinit();
-        if (self.bg_color_set_layout != null) {
-            self.modules.bg_color_frag.device.dispatch.destroyDescriptorSetLayout(
-                self.modules.bg_color_frag.device.device,
-                self.bg_color_set_layout,
+
+        // Destroy every descriptor set layout we created. The empty
+        // placeholder is one of the entries.
+        const dev = self.modules.full_screen_vert.device;
+        for (self.set_layouts[0..self.set_layouts_len]) |dsl| {
+            if (dsl != null) dev.dispatch.destroyDescriptorSetLayout(
+                dev.device,
+                dsl,
                 null,
             );
         }
 
         // Destroy every compiled module. Modules whose handle is
-        // null (not compiled in v1) skip destruction — vkDestroy*
-        // is null-safe per the Vulkan spec but we check explicitly
-        // so we don't even pass null through the dispatch.
+        // null skip destruction — vkDestroy* is null-safe per the
+        // Vulkan spec but we check explicitly so we don't pass null
+        // through the dispatch.
         inline for (.{
             &self.modules.bg_color_frag,
             &self.modules.bg_image_frag,

@@ -213,25 +213,35 @@ pub fn begin(opts: Options) Self {
 
 /// Record one step of the pass.
 ///
-/// Skips silently when the pipeline isn't yet real (`VkPipeline ==
-/// null`) — `Shaders.init` only constructs bg_color so far; the
-/// other 4 pipeline slots are default-undefined and we filter them
-/// out here rather than crashing on a null handle.
+/// Updates the pipeline's descriptor sets from the Step's resources
+/// and emits the draw call. Resource → (set, binding) mapping
+/// matches the `vulkanizeGlsl` preprocessor's bucketing scheme:
+///
+///   - `uniforms`     → set 0, binding `pipeline.uniforms_binding`
+///                      (UBO; the Globals block from `common.glsl`)
+///   - `buffers[i]`   → set 2, binding `i` (storage buffer)
+///   - `textures[i]` + `samplers[i]`
+///                    → set 1, binding `i` (combined image sampler)
+///
+/// Skips silently when the pipeline hasn't been constructed yet
+/// (`VkPipeline == null`) — pipelines for shaders we haven't wired
+/// up are default-null and we filter them out instead of crashing
+/// on a null handle.
 pub fn step(self: *Self, s: Step) void {
-    // Skip pipelines that haven't been constructed yet — only
-    // `bg_color` is real today; the other 4 slots in
-    // `PipelineCollection` are default-initialized (VkPipeline ==
-    // null) and we filter them out instead of crashing on a null
-    // handle.
     if (s.pipeline.pipeline == null) return;
     if (s.draw.vertex_count == 0) return;
 
     const dev = self.device;
 
-    // Update + bind the pipeline's descriptor set if it has one
-    // AND the step is passing a uniforms buffer. Today this only
-    // fires for the bg_color path.
-    if (s.pipeline.descriptor_set != null) if (s.uniforms) |ubo_buffer| {
+    // ---- update descriptor sets ---------------------------------
+    //
+    // We do one vkUpdateDescriptorSets call per descriptor write to
+    // keep the code straightforward; the total writes per frame are
+    // tiny (1 UBO + a handful of storage buffers + a handful of
+    // samplers) so batching wouldn't move the needle.
+
+    // UBO (set 0)
+    if (s.pipeline.descriptor_sets[0] != null) if (s.uniforms) |ubo_buffer| {
         const buffer_info: vk.VkDescriptorBufferInfo = .{
             .buffer = ubo_buffer,
             .offset = 0,
@@ -240,7 +250,7 @@ pub fn step(self: *Self, s: Step) void {
         const write: vk.VkWriteDescriptorSet = .{
             .sType = vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .pNext = null,
-            .dstSet = s.pipeline.descriptor_set,
+            .dstSet = s.pipeline.descriptor_sets[0],
             .dstBinding = s.pipeline.uniforms_binding,
             .dstArrayElement = 0,
             .descriptorCount = 1,
@@ -250,19 +260,88 @@ pub fn step(self: *Self, s: Step) void {
             .pTexelBufferView = null,
         };
         dev.dispatch.updateDescriptorSets(dev.device, 1, &write, 0, null);
+    };
 
-        var sets = [_]vk.VkDescriptorSet{s.pipeline.descriptor_set};
+    // Samplers (set 1)
+    if (s.pipeline.descriptor_sets[1] != null) {
+        const slot_count = @max(s.textures.len, s.samplers.len);
+        for (0..slot_count) |slot| {
+            const tex_opt: ?Texture = if (slot < s.textures.len) s.textures[slot] else null;
+            const samp_opt: ?Sampler = if (slot < s.samplers.len) s.samplers[slot] else null;
+            const tex = tex_opt orelse continue;
+            const samp = samp_opt orelse continue;
+            const image_info: vk.VkDescriptorImageInfo = .{
+                .sampler = samp.sampler,
+                .imageView = tex.view,
+                .imageLayout = vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            };
+            const write: vk.VkWriteDescriptorSet = .{
+                .sType = vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .pNext = null,
+                .dstSet = s.pipeline.descriptor_sets[1],
+                .dstBinding = @intCast(slot),
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .pImageInfo = &image_info,
+                .pBufferInfo = null,
+                .pTexelBufferView = null,
+            };
+            dev.dispatch.updateDescriptorSets(dev.device, 1, &write, 0, null);
+        }
+    }
+
+    // Storage buffers (set 2)
+    if (s.pipeline.descriptor_sets[2] != null) {
+        for (s.buffers, 0..) |maybe_buf, slot| {
+            const buf = maybe_buf orelse continue;
+            const buffer_info: vk.VkDescriptorBufferInfo = .{
+                .buffer = buf,
+                .offset = 0,
+                .range = vk.VK_WHOLE_SIZE,
+            };
+            const write: vk.VkWriteDescriptorSet = .{
+                .sType = vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .pNext = null,
+                .dstSet = s.pipeline.descriptor_sets[2],
+                .dstBinding = @intCast(slot),
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pImageInfo = null,
+                .pBufferInfo = &buffer_info,
+                .pTexelBufferView = null,
+            };
+            dev.dispatch.updateDescriptorSets(dev.device, 1, &write, 0, null);
+        }
+    }
+
+    // ---- bind descriptor sets -----------------------------------
+    //
+    // `cmdBindDescriptorSets` only accepts contiguous, non-null
+    // handles starting at `firstSet`. To handle the cell_bg case
+    // (sets 0 and 2, no set 1), we make one call per maximal
+    // contiguous run of non-null sets.
+    var start: usize = 0;
+    while (start < s.pipeline.set_count) {
+        if (s.pipeline.descriptor_sets[start] == null) {
+            start += 1;
+            continue;
+        }
+        var end = start + 1;
+        while (end < s.pipeline.set_count and s.pipeline.descriptor_sets[end] != null) : (end += 1) {}
         dev.dispatch.cmdBindDescriptorSets(
             self.cb,
             vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
             s.pipeline.layout,
-            0, // first set
-            1, // set count
-            &sets,
-            0, // dynamic offset count
+            @intCast(start),
+            @intCast(end - start),
+            &s.pipeline.descriptor_sets[start],
+            0,
             null,
         );
-    };
+        start = end;
+    }
 
     dev.dispatch.cmdBindPipeline(
         self.cb,
