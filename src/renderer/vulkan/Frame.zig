@@ -161,6 +161,7 @@ pub inline fn renderPass(
     attachments: []const RenderPass.Options.Attachment,
 ) RenderPass {
     return RenderPass.begin(.{
+        .device = self.device,
         .cb = self.cb,
         .attachments = attachments,
     });

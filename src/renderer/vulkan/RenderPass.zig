@@ -50,6 +50,8 @@ pub const Primitive = enum {
 };
 
 pub const Options = struct {
+    /// Device + dispatch table for recording commands.
+    device: *const Device,
     /// Caller-recorded command buffer to emit commands into. Provided
     /// by the enclosing `Frame`.
     cb: vk.VkCommandBuffer,
@@ -94,22 +96,119 @@ pub const Error = error{
 
 attachments: []const Options.Attachment,
 cb: vk.VkCommandBuffer,
-device: ?*const Device = null,
+device: *const Device,
 step_number: usize = 0,
 
+/// Begin a render pass. Transitions the first attachment to
+/// `COLOR_ATTACHMENT_OPTIMAL` and opens a `vkCmdBeginRendering`
+/// scope with the caller's clear color (defaults to opaque black).
+///
+/// We only act on attachments[0] for now — the renderer's calls
+/// always pass exactly one attachment per pass, matching the
+/// OpenGL backend's `RenderPass.Options.attachments` use.
 pub fn begin(opts: Options) Self {
-    return .{
+    const self: Self = .{
         .attachments = opts.attachments,
         .cb = opts.cb,
+        .device = opts.device,
     };
-}
 
-/// Bind the pass's first attachment and start a `vkCmdBeginRendering`
-/// scope. Caller wires the device in via `setDevice` before drawing
-/// — until that's done this is a no-op so the renderer's frame loop
-/// doesn't crash mid-bring-up.
-pub fn setDevice(self: *Self, dev: *const Device) void {
-    self.device = dev;
+    if (opts.attachments.len == 0) return self;
+
+    const attach = opts.attachments[0];
+    const view: vk.VkImageView, const image: vk.VkImage,
+    const width: u32, const height: u32 = switch (attach.target) {
+        .texture => |t| .{ t.view, t.image, @intCast(t.width), @intCast(t.height) },
+        .target => |t| .{ t.view, t.image, t.width, t.height },
+    };
+
+    // Transition to COLOR_ATTACHMENT_OPTIMAL. Sources from
+    // UNDEFINED (fresh target) or whatever — we always discard
+    // prior contents (loadOp = CLEAR / LOAD covered below; here we
+    // just need write access).
+    {
+        const barrier: vk.VkImageMemoryBarrier = .{
+            .sType = vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .pNext = null,
+            .srcAccessMask = 0,
+            .dstAccessMask = vk.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .oldLayout = vk.VK_IMAGE_LAYOUT_UNDEFINED,
+            .newLayout = vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .srcQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
+            .image = image,
+            .subresourceRange = .{
+                .aspectMask = vk.VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+        };
+        opts.device.dispatch.cmdPipelineBarrier(
+            opts.cb,
+            vk.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            0,
+            0, null,
+            0, null,
+            1, &barrier,
+        );
+    }
+
+    const clear_value: vk.VkClearValue = if (attach.clear_color) |c| .{
+        .color = .{ .float32 = c },
+    } else .{ .color = .{ .float32 = .{ 0, 0, 0, 1 } } };
+
+    const color_attachment: vk.VkRenderingAttachmentInfo = .{
+        .sType = vk.VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        .pNext = null,
+        .imageView = view,
+        .imageLayout = vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .resolveMode = vk.VK_RESOLVE_MODE_NONE,
+        .resolveImageView = null,
+        .resolveImageLayout = vk.VK_IMAGE_LAYOUT_UNDEFINED,
+        // Always clear: the renderer redraws every cell each frame,
+        // so prior contents are never useful. CLEAR is also free on
+        // tiled GPUs (avoids a full attachment load).
+        .loadOp = vk.VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = vk.VK_ATTACHMENT_STORE_OP_STORE,
+        .clearValue = clear_value,
+    };
+    const info: vk.VkRenderingInfo = .{
+        .sType = vk.VK_STRUCTURE_TYPE_RENDERING_INFO,
+        .pNext = null,
+        .flags = 0,
+        .renderArea = .{
+            .offset = .{ .x = 0, .y = 0 },
+            .extent = .{ .width = width, .height = height },
+        },
+        .layerCount = 1,
+        .viewMask = 0,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &color_attachment,
+        .pDepthAttachment = null,
+        .pStencilAttachment = null,
+    };
+    opts.device.dispatch.cmdBeginRendering(opts.cb, &info);
+
+    // Dynamic state: viewport + scissor follow the attachment size.
+    const viewport: vk.VkViewport = .{
+        .x = 0,
+        .y = 0,
+        .width = @floatFromInt(width),
+        .height = @floatFromInt(height),
+        .minDepth = 0,
+        .maxDepth = 1,
+    };
+    opts.device.dispatch.cmdSetViewport(opts.cb, 0, 1, &viewport);
+    const scissor: vk.VkRect2D = .{
+        .offset = .{ .x = 0, .y = 0 },
+        .extent = .{ .width = width, .height = height },
+    };
+    opts.device.dispatch.cmdSetScissor(opts.cb, 0, 1, &scissor);
+
+    return self;
 }
 
 /// Record one step of the pass.
@@ -117,10 +216,10 @@ pub fn setDevice(self: *Self, dev: *const Device) void {
 /// **Body is a stub.** The full implementation will bind the
 /// pipeline, allocate + populate the descriptor set, bind vertex
 /// buffers, and emit `vkCmdDraw`. Until that lands, step records
-/// nothing — the frame loop runs end-to-end without drawing any
-/// real terminal content but doesn't crash either, so the rest of
-/// the Vulkan integration (per-surface CB + fence, target dmabuf
-/// handoff, Qt-side import) can be developed in parallel.
+/// nothing — the frame loop runs end-to-end without drawing real
+/// terminal content but doesn't crash either, so the rest of the
+/// Vulkan integration (Qt-side QRhiWidget + dmabuf import) can
+/// proceed in parallel against a known-color clear frame.
 pub fn step(self: *Self, s: Step) void {
     _ = self;
     _ = s;
@@ -129,12 +228,48 @@ pub fn step(self: *Self, s: Step) void {
     // integration lands.
 }
 
-/// Close the rendering scope. Currently a no-op — `RenderPass.begin`
-/// never opens one because step is also a no-op. Real implementation
-/// will pair `vkCmdEndRendering` here with the matching
-/// `vkCmdBeginRendering` in `begin`.
+/// Close the rendering scope and leave the attachment in a layout
+/// the host can read back via the dmabuf export. `GENERAL` is the
+/// safest choice for unknown consumer access patterns; the host
+/// (Qt RHI) can transition again if it wants something more
+/// specific.
 pub fn complete(self: *const Self) void {
-    _ = self;
+    if (self.attachments.len == 0) return;
+
+    self.device.dispatch.cmdEndRendering(self.cb);
+
+    const image: vk.VkImage = switch (self.attachments[0].target) {
+        .texture => |t| t.image,
+        .target => |t| t.image,
+    };
+
+    const barrier: vk.VkImageMemoryBarrier = .{
+        .sType = vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .pNext = null,
+        .srcAccessMask = vk.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        .dstAccessMask = 0,
+        .oldLayout = vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .newLayout = vk.VK_IMAGE_LAYOUT_GENERAL,
+        .srcQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
+        .image = image,
+        .subresourceRange = .{
+            .aspectMask = vk.VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+    };
+    self.device.dispatch.cmdPipelineBarrier(
+        self.cb,
+        vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        vk.VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+        0,
+        0, null,
+        0, null,
+        1, &barrier,
+    );
 }
 
 test {
