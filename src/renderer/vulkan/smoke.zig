@@ -366,7 +366,20 @@ test "smoke" {
     //         vkCmdBeginRendering → draw → readback → verify) -----
     try renderAndVerify(&device, &target);
 
+    // ---- 5. Render a bigger image to a file for visual review --
+    //
+    // The pixel readback in step 4 already verifies correctness
+    // numerically, but it's nice to be able to actually *see* what
+    // the GPU drew. Render a 256x256 gradient and save as PPM (the
+    // simplest image format — any viewer opens it: `xdg-open`,
+    // `feh`, `eog`, `gimp`, etc.).
+    try renderToFile(&device, "/tmp/ghastty-vulkan-smoke.ppm");
+
     std.debug.print("\n  All Vulkan smoke checks passed.\n", .{});
+    std.debug.print(
+        "  Visual: view /tmp/ghastty-vulkan-smoke.ppm (e.g. `xdg-open` or `feh`)\n",
+        .{},
+    );
 }
 
 /// The full GPU pipeline test: compile a tiny vertex+fragment shader
@@ -625,4 +638,254 @@ fn renderAndVerify(device: *const Device, target: *Target) !void {
     try std.testing.expect(@abs(@as(i32, g) - 128) <= 1);
     try std.testing.expect(@abs(@as(i32, r) - 255) <= 1);
     try std.testing.expectEqual(@as(u8, 255), a);
+}
+
+/// Render a 256x256 gradient image and save it as a PPM file for
+/// visual inspection. Same pipeline shape as `renderAndVerify` but
+/// with a UV-driven fragment shader so the output has visible spatial
+/// variation, and at a size you can actually look at.
+fn renderToFile(device: *const Device, path: []const u8) !void {
+    const width: u32 = 256;
+    const height: u32 = 256;
+
+    // A pretty gradient: R follows X, G follows Y, B is the inverse
+    // diagonal, A is opaque. Gives an unambiguous "yes the GPU
+    // sampled my fragment coordinates" image.
+    const vs_src: [:0]const u8 =
+        \\#version 450
+        \\void main() {
+        \\    vec2 pos = vec2(
+        \\        float((gl_VertexIndex << 1) & 2),
+        \\        float(gl_VertexIndex & 2)
+        \\    );
+        \\    gl_Position = vec4(pos * 2.0 - 1.0, 0.0, 1.0);
+        \\}
+    ;
+    const fs_src: [:0]const u8 =
+        \\#version 450
+        \\layout(location = 0) out vec4 frag_color;
+        \\layout(push_constant) uniform PC { vec2 size; } pc;
+        \\void main() {
+        \\    vec2 uv = gl_FragCoord.xy / pc.size;
+        \\    frag_color = vec4(uv.x, uv.y, 1.0 - (uv.x + uv.y) * 0.5, 1.0);
+        \\}
+    ;
+
+    var vs = try shaders.Module.init(device, vs_src, .vertex);
+    defer vs.deinit();
+    var fs = try shaders.Module.init(device, fs_src, .fragment);
+    defer fs.deinit();
+
+    const push_range: vk.VkPushConstantRange = .{
+        .stageFlags = vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+        .offset = 0,
+        .size = @sizeOf([2]f32),
+    };
+    var pipeline = try Pipeline.init(.{
+        .device = device,
+        .vertex_module = vs.handle,
+        .fragment_module = fs.handle,
+        .vertex_input = null,
+        .push_constant_ranges = &[_]vk.VkPushConstantRange{push_range},
+        .color_format = vk.VK_FORMAT_B8G8R8A8_UNORM,
+        .blending_enabled = false,
+        .topology = vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+    });
+    defer pipeline.deinit();
+
+    var target = try Target.init(.{
+        .device = device,
+        .format = vk.VK_FORMAT_B8G8R8A8_UNORM,
+        .width = width,
+        .height = height,
+    });
+    defer target.deinit();
+
+    const pixel_count: usize = @as(usize, width) * height * 4;
+    var readback = try bufferpkg.Buffer(u8).init(
+        .{
+            .device = device,
+            .usage = vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        },
+        pixel_count,
+    );
+    defer readback.deinit();
+
+    var pool = try CommandPool.init(device);
+    defer pool.deinit();
+    const session = try pool.beginOneShot();
+
+    // Barrier in.
+    imageBarrier(
+        device,
+        session.cb,
+        target.image,
+        vk.VK_IMAGE_LAYOUT_UNDEFINED,
+        vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        0,
+        vk.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        vk.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+    );
+
+    // Begin rendering.
+    {
+        const clear: vk.VkClearValue = .{ .color = .{ .float32 = .{ 0, 0, 0, 1 } } };
+        const attach: vk.VkRenderingAttachmentInfo = .{
+            .sType = vk.VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .pNext = null,
+            .imageView = target.view,
+            .imageLayout = vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .resolveMode = vk.VK_RESOLVE_MODE_NONE,
+            .resolveImageView = null,
+            .resolveImageLayout = vk.VK_IMAGE_LAYOUT_UNDEFINED,
+            .loadOp = vk.VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = vk.VK_ATTACHMENT_STORE_OP_STORE,
+            .clearValue = clear,
+        };
+        const info: vk.VkRenderingInfo = .{
+            .sType = vk.VK_STRUCTURE_TYPE_RENDERING_INFO,
+            .pNext = null,
+            .flags = 0,
+            .renderArea = .{ .offset = .{ .x = 0, .y = 0 }, .extent = .{ .width = width, .height = height } },
+            .layerCount = 1,
+            .viewMask = 0,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &attach,
+            .pDepthAttachment = null,
+            .pStencilAttachment = null,
+        };
+        device.dispatch.cmdBeginRendering(session.cb, &info);
+    }
+    {
+        const vp: vk.VkViewport = .{ .x = 0, .y = 0, .width = @floatFromInt(width), .height = @floatFromInt(height), .minDepth = 0, .maxDepth = 1 };
+        device.dispatch.cmdSetViewport(session.cb, 0, 1, &vp);
+        const sc: vk.VkRect2D = .{ .offset = .{ .x = 0, .y = 0 }, .extent = .{ .width = width, .height = height } };
+        device.dispatch.cmdSetScissor(session.cb, 0, 1, &sc);
+    }
+    device.dispatch.cmdBindPipeline(session.cb, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+    // Push the target size for UV normalization.
+    const size_pc: [2]f32 = .{ @floatFromInt(width), @floatFromInt(height) };
+    vk.vkCmdPushConstants(
+        session.cb,
+        pipeline.layout,
+        vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+        0,
+        @sizeOf([2]f32),
+        &size_pc,
+    );
+    device.dispatch.cmdDraw(session.cb, 3, 1, 0, 0);
+    device.dispatch.cmdEndRendering(session.cb);
+
+    // Barrier out → TRANSFER_SRC for the copy.
+    imageBarrier(
+        device,
+        session.cb,
+        target.image,
+        vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        vk.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        vk.VK_ACCESS_TRANSFER_READ_BIT,
+        vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
+    );
+
+    // Copy.
+    {
+        const region: vk.VkBufferImageCopy = .{
+            .bufferOffset = 0,
+            .bufferRowLength = 0,
+            .bufferImageHeight = 0,
+            .imageSubresource = .{
+                .aspectMask = vk.VK_IMAGE_ASPECT_COLOR_BIT,
+                .mipLevel = 0,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+            .imageOffset = .{ .x = 0, .y = 0, .z = 0 },
+            .imageExtent = .{ .width = width, .height = height, .depth = 1 },
+        };
+        device.dispatch.cmdCopyImageToBuffer(
+            session.cb,
+            target.image,
+            vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            readback.buffer,
+            1,
+            &region,
+        );
+    }
+
+    try session.endAndSubmit();
+
+    // Write PPM. Format: "P6\n<w> <h>\n255\n" + raw RGB bytes.
+    var mapped: ?*anyopaque = null;
+    if (device.dispatch.mapMemory(device.device, readback.memory, 0, pixel_count, 0, &mapped) != vk.VK_SUCCESS) {
+        return error.VulkanFailed;
+    }
+    defer device.dispatch.unmapMemory(device.device, readback.memory);
+
+    const bgra: [*]const u8 = @ptrCast(mapped.?);
+    var file = try std.fs.createFileAbsolute(path, .{});
+    defer file.close();
+    var buf: [128]u8 = undefined;
+    const header = try std.fmt.bufPrint(&buf, "P6\n{} {}\n255\n", .{ width, height });
+    try file.writeAll(header);
+
+    // Swizzle BGRA -> RGB into a stack buffer + flush per row.
+    var row: [256 * 3]u8 = undefined;
+    var y: usize = 0;
+    while (y < height) : (y += 1) {
+        var x: usize = 0;
+        while (x < width) : (x += 1) {
+            const src = (y * @as(usize, width) + x) * 4;
+            row[x * 3 + 0] = bgra[src + 2]; // R
+            row[x * 3 + 1] = bgra[src + 1]; // G
+            row[x * 3 + 2] = bgra[src + 0]; // B
+        }
+        try file.writeAll(row[0 .. @as(usize, width) * 3]);
+    }
+    std.debug.print("  Wrote {}x{} PPM to {s}\n", .{ width, height, path });
+}
+
+fn imageBarrier(
+    device: *const Device,
+    cb: vk.VkCommandBuffer,
+    image: vk.VkImage,
+    old_layout: vk.VkImageLayout,
+    new_layout: vk.VkImageLayout,
+    src_access: vk.VkAccessFlags,
+    dst_access: vk.VkAccessFlags,
+    src_stage: vk.VkPipelineStageFlags,
+    dst_stage: vk.VkPipelineStageFlags,
+) void {
+    const barrier: vk.VkImageMemoryBarrier = .{
+        .sType = vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .pNext = null,
+        .srcAccessMask = src_access,
+        .dstAccessMask = dst_access,
+        .oldLayout = old_layout,
+        .newLayout = new_layout,
+        .srcQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
+        .image = image,
+        .subresourceRange = .{
+            .aspectMask = vk.VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+    };
+    device.dispatch.cmdPipelineBarrier(
+        cb,
+        src_stage,
+        dst_stage,
+        0,
+        0,
+        null,
+        0,
+        null,
+        1,
+        &barrier,
+    );
 }
