@@ -47,10 +47,15 @@ pub const MIN_API_VERSION = vk.VK_API_VERSION_1_3;
 /// Device extensions libghostty enables on top of the host's
 /// VkDevice setup. The host must have created its VkDevice with
 /// these enabled; we only verify availability here.
+///
+/// Note: `VK_EXT_image_drm_format_modifier` is intentionally NOT
+/// required yet — `vulkan/Target.zig` currently uses
+/// `VK_IMAGE_TILING_LINEAR` for dmabuf export, which only needs the
+/// two extensions below. When the driver-chosen modifier path lands,
+/// add the modifier extension back here.
 pub const REQUIRED_DEVICE_EXTENSIONS = [_][:0]const u8{
     "VK_KHR_external_memory_fd",
     "VK_EXT_external_memory_dma_buf",
-    "VK_EXT_image_drm_format_modifier",
 };
 
 /// Errors that can come out of `init`.
@@ -136,6 +141,12 @@ pub const Dispatch = struct {
     destroyPipelineLayout: std.meta.Child(vk.PFN_vkDestroyPipelineLayout),
     createGraphicsPipelines: std.meta.Child(vk.PFN_vkCreateGraphicsPipelines),
     destroyPipeline: std.meta.Child(vk.PFN_vkDestroyPipeline),
+
+    // External memory fd export — used by `vulkan/Target.zig`.
+    // `vkGetMemoryFdKHR` is from `VK_KHR_external_memory_fd`; needs
+    // device-level resolution like any other device function.
+    getMemoryFdKHR: std.meta.Child(vk.PFN_vkGetMemoryFdKHR),
+    getImageSubresourceLayout: std.meta.Child(vk.PFN_vkGetImageSubresourceLayout),
 };
 
 // ---- fields ---------------------------------------------------------
@@ -364,6 +375,10 @@ pub fn init(
         try dl.load(vk.PFN_vkCreateGraphicsPipelines, "vkCreateGraphicsPipelines");
     const destroy_pipeline =
         try dl.load(vk.PFN_vkDestroyPipeline, "vkDestroyPipeline");
+    const get_memory_fd_khr =
+        try dl.load(vk.PFN_vkGetMemoryFdKHR, "vkGetMemoryFdKHR");
+    const get_image_subresource_layout =
+        try dl.load(vk.PFN_vkGetImageSubresourceLayout, "vkGetImageSubresourceLayout");
 
     return .{
         .platform = platform,
@@ -414,6 +429,8 @@ pub fn init(
             .destroyPipelineLayout = destroy_pipeline_layout,
             .createGraphicsPipelines = create_graphics_pipelines,
             .destroyPipeline = destroy_pipeline,
+            .getMemoryFdKHR = get_memory_fd_khr,
+            .getImageSubresourceLayout = get_image_subresource_layout,
         },
     };
 }
