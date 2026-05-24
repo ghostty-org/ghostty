@@ -452,6 +452,14 @@ pub fn add(
     if (b.lazyDependency("opengl", .{})) |dep| {
         step.root_module.addImport("opengl", dep.module("opengl"));
     }
+    // The Vulkan binding is only loaded when the renderer is .vulkan
+    // (still in development — see `src/renderer/Vulkan.zig`). Linking
+    // libvulkan happens further down in `linkSystemDeps`.
+    if (self.config.renderer == .vulkan) {
+        if (b.lazyDependency("vulkan", .{})) |dep| {
+            step.root_module.addImport("vulkan", dep.module("vulkan"));
+        }
+    }
     if (b.lazyDependency("vaxis", .{})) |dep| {
         step.root_module.addImport("vaxis", dep.module("vaxis"));
     }
@@ -598,6 +606,15 @@ pub fn add(
             .file = b.path("vendor/glad/src/gl.c"),
             .flags = &.{},
         });
+    }
+
+    // Link the system Vulkan loader for the Vulkan renderer. The
+    // bindings themselves are in `pkg/vulkan` (added above as a Zig
+    // module). On Linux this resolves to libvulkan.so via the standard
+    // dynamic linker; Vulkan headers (`vulkan/vulkan.h`) come from the
+    // standard system include path (`vulkan-headers` package).
+    if (self.config.renderer == .vulkan) {
+        step.linkSystemLibrary2("vulkan", dynamic_link_opts);
     }
 
     // If we're building an exe then we have additional dependencies.

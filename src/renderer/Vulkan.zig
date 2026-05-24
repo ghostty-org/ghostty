@@ -48,4 +48,11 @@
 //!   - `must_draw_from_app_thread`: Vulkan is thread-friendly but the
 //!     apprt API contract should be made explicit here.
 //!
+//! Binding: the Vulkan C API ships as the `vulkan` Zig module from
+//! `pkg/vulkan/` (mirrors the `pkg/opengl/` pattern — a thin
+//! `@cImport` wrapper over the system `vulkan/vulkan.h`). It is only
+//! pulled into the dependency graph when `build_config.renderer ==
+//! .vulkan` (see `src/build/SharedDeps.zig`), and libvulkan is
+//! linked at the same gate.
+//!
 //! See the parity branch description in `qt/PARITY.md` once it lands.

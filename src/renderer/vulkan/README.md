@@ -22,6 +22,17 @@ currently fails at comptime with a pointer back to the
 contract `GenericRenderer(Vulkan)` expects this directory's modules
 to satisfy.
 
+## Binding
+
+The Vulkan C API ships as the `vulkan` Zig module from `pkg/vulkan/`
+(thin `@cImport` of the system `vulkan/vulkan.h`). It is registered
+in `build.zig.zon` as a lazy dependency and only pulled in when
+`-Drenderer=vulkan` is selected, at which point `libvulkan` is also
+linked (see `src/build/SharedDeps.zig`). The system needs
+`vulkan-headers` (`/usr/include/vulkan/vulkan.h`) and `libvulkan.so`
+present — both are stock on every Linux distro and already required
+by the Qt RHI side of the renderer.
+
 ## Why dmabuf, not Vulkan swapchains?
 
 The Qt frontend wants to keep `GhosttySurface` as a `QWidget` so that
