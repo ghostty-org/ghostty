@@ -89,7 +89,12 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                 HStack(spacing: 0) {
                     // Left vertical tab sidebar
                     if showLeftTabs {
-                        VerticalTabSidebar(tabColorEnabled: ghostty.config.macosTabColor, windowController: windowController, isRightSide: false)
+                        VerticalTabSidebar(
+                            tabColorEnabled: ghostty.config.macosTabColor,
+                            selectedBorderColor: ghostty.config.macosTabBorderColor,
+                            windowController: windowController,
+                            isRightSide: false
+                        )
                     }
                     
                     VStack(spacing: 0) {
@@ -126,7 +131,12 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                     
                     // Right vertical tab sidebar
                     if showRightTabs {
-                        VerticalTabSidebar(tabColorEnabled: ghostty.config.macosTabColor, windowController: windowController, isRightSide: true)
+                        VerticalTabSidebar(
+                            tabColorEnabled: ghostty.config.macosTabColor,
+                            selectedBorderColor: ghostty.config.macosTabBorderColor,
+                            windowController: windowController,
+                            isRightSide: true
+                        )
                     }
                 }
                 // Ignore safe area to extend up in to the titlebar region if we have the "hidden" titlebar style

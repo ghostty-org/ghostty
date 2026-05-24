@@ -7,6 +7,9 @@ struct VerticalTabSidebar: View {
     /// Whether tab color-coding is enabled (read from config by the parent view)
     var tabColorEnabled: Bool
 
+    /// Border color for the selected tab row.
+    var selectedBorderColor: Color
+
     /// The window controller that manages the tabs
     weak var windowController: BaseTerminalController?
 
@@ -34,8 +37,14 @@ struct VerticalTabSidebar: View {
     private let minWidth: CGFloat = 120
     private let maxWidth: CGFloat = 400
 
-    init(tabColorEnabled: Bool, windowController: BaseTerminalController?, isRightSide: Bool = false) {
+    init(
+        tabColorEnabled: Bool,
+        selectedBorderColor: Color,
+        windowController: BaseTerminalController?,
+        isRightSide: Bool = false
+    ) {
         self.tabColorEnabled = tabColorEnabled
+        self.selectedBorderColor = selectedBorderColor
         self.windowController = windowController
         self.isRightSide = isRightSide
         self._tabModel = ObservedObject(
@@ -60,8 +69,9 @@ struct VerticalTabSidebar: View {
                                 title: tab.title,
                                 isSelected: tab.isSelected,
                                 keyEquivalent: tab.index < 9 ? "\(tab.index + 1)" : nil,
-                                hasCustomTitle: tabModel.getCustomTitle(for: tab.window) != nil,
+                                hasCustomTitle: tab.hasCustomTitle,
                                 color: tabColorEnabled ? tab.color : nil,
+                                selectedBorderColor: selectedBorderColor,
                                 onSelect: {
                                     selectTab(tab.window)
                                 },
@@ -70,11 +80,12 @@ struct VerticalTabSidebar: View {
                                 },
                                 onRename: {
                                     windowToRename = tab.window
-                                    renameText = tabModel.getCustomTitle(for: tab.window) ?? tab.title
+                                    renameText = tab.titleOverride ?? tab.title
                                     isShowingRenameDialog = true
                                 },
                                 onClearCustomTitle: {
-                                    tabModel.clearCustomTitle(for: tab.window)
+                                    (tab.window.windowController as? BaseTerminalController)?
+                                        .titleOverride = nil
                                     refreshTabs()
                                 }
                             )
@@ -120,7 +131,8 @@ struct VerticalTabSidebar: View {
                 isPresented: $isShowingRenameDialog,
                 onSave: {
                     if let window = windowToRename {
-                        tabModel.setCustomTitle(renameText.isEmpty ? nil : renameText, for: window)
+                        (window.windowController as? BaseTerminalController)?
+                            .titleOverride = renameText.isEmpty ? nil : renameText
                         refreshTabs()
                     }
                 }
@@ -228,59 +240,58 @@ struct VerticalTabSidebar: View {
     struct TabData: Identifiable {
         let id: ObjectIdentifier
         let window: NSWindow
+        let titleOverride: String?
         let title: String
         let index: Int
         let isSelected: Bool
         let color: Color
+        let colorIndex: Int
+        let hasCustomTitle: Bool
 
-        init(window: NSWindow, index: Int, isSelected: Bool, customTitles: [ObjectIdentifier: String], resolvedTitle: String, color: Color) {
+        init(
+            window: NSWindow,
+            controller: BaseTerminalController?,
+            index: Int,
+            isSelected: Bool,
+            resolvedTitle: String,
+            colorIndex: Int
+        ) {
             self.window = window
+            self.titleOverride = controller?.titleOverride
             self.index = index
             self.isSelected = isSelected
-            self.color = color
+            self.color = VerticalTabSidebar.tabColor(at: colorIndex)
+            self.colorIndex = colorIndex
             self.id = ObjectIdentifier(window)
-
-            // Use custom title if set, otherwise use resolved title.
-            let windowId = ObjectIdentifier(window)
-            if let customTitle = customTitles[windowId], !customTitle.isEmpty {
-                self.title = customTitle
-            } else {
-                self.title = resolvedTitle
-            }
+            self.hasCustomTitle = self.titleOverride != nil
+            self.title = self.titleOverride ?? resolvedTitle
         }
     }
 
-    /// Observable model that holds the tab list and custom titles
+    /// Observable model that holds the tab list and shared sidebar state.
     class TabModel: ObservableObject {
         @Published var tabs: [TabData] = []
-        /// Custom titles set by the user (keyed by window ObjectIdentifier)
-        var customTitles: [ObjectIdentifier: String] = [:]
-        /// Persistent color assigned to each window for the session
-        var tabColors: [ObjectIdentifier: Color] = [:]
-        /// Index for the next generated tab color
+        /// Persistent generated color index assigned to each window for the session.
+        var tabColorIndexes: [ObjectIdentifier: Int] = [:]
+        /// Index for the next generated tab color.
         var nextColorIndex: Int = 0
 
-        func setCustomTitle(_ title: String?, for window: NSWindow) {
+        func colorIndex(for window: NSWindow) -> Int {
             let id = ObjectIdentifier(window)
-            if let title = title, !title.isEmpty {
-                customTitles[id] = title
-            } else {
-                customTitles.removeValue(forKey: id)
+            if let index = tabColorIndexes[id] {
+                return index
             }
-        }
 
-        func getCustomTitle(for window: NSWindow) -> String? {
-            return customTitles[ObjectIdentifier(window)]
-        }
-
-        func clearCustomTitle(for window: NSWindow) {
-            customTitles.removeValue(forKey: ObjectIdentifier(window))
+            let index = nextColorIndex
+            tabColorIndexes[id] = index
+            nextColorIndex += 1
+            return index
         }
     }
 
     /// Get the title for a window
     private func resolveTitle(for window: NSWindow, controller: BaseTerminalController?) -> String {
-        return window.title
+        return controller?.titleOverride ?? window.title
     }
 
     // MARK: - Tab Row
@@ -291,6 +302,7 @@ struct VerticalTabSidebar: View {
         let keyEquivalent: String?
         let hasCustomTitle: Bool
         let color: Color?
+        let selectedBorderColor: Color
         let onSelect: () -> Void
         let onClose: () -> Void
         let onRename: () -> Void
@@ -305,6 +317,11 @@ struct VerticalTabSidebar: View {
             if isSelected { return Color.accentColor.opacity(0.2) }
             if isHovering { return Color.primary.opacity(0.05) }
             return Color.clear
+        }
+
+        private var borderColor: Color {
+            guard isSelected else { return Color.clear }
+            return selectedBorderColor
         }
 
         var body: some View {
@@ -349,6 +366,10 @@ struct VerticalTabSidebar: View {
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(backgroundFill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(borderColor, lineWidth: isSelected ? 2.5 : 0)
             )
             .contentShape(Rectangle())
             .onTapGesture {
@@ -411,29 +432,19 @@ struct VerticalTabSidebar: View {
             if hasLivingMissingWindow { return }
         }
 
-        // Assign a persistent color to each window the first time it's seen
-        for win in windows {
-            let winId = ObjectIdentifier(win)
-            if tabModel.tabColors[winId] == nil {
-                tabModel.tabColors[winId] = VerticalTabSidebar.tabColor(at: tabModel.nextColorIndex)
-                tabModel.nextColorIndex += 1
-            }
-        }
-
         // Build the tab data with current titles
         let newTabs = windows.enumerated().map { index, win in
             let controller = win.windowController as? BaseTerminalController
             let resolvedTitle = resolveTitle(for: win, controller: controller)
-            let winId = ObjectIdentifier(win)
-            let color = tabModel.tabColors[winId] ?? VerticalTabSidebar.tabColor(at: 0)
+            let colorIndex = tabModel.colorIndex(for: win)
 
             return TabData(
                 window: win,
+                controller: controller,
                 index: index,
                 isSelected: win == selectedWindow,
-                customTitles: tabModel.customTitles,
                 resolvedTitle: resolvedTitle,
-                color: color
+                colorIndex: colorIndex
             )
         }
 
@@ -441,7 +452,9 @@ struct VerticalTabSidebar: View {
             zip(newTabs, tabModel.tabs).contains { new, old in
                 new.id != old.id ||
                 new.isSelected != old.isSelected ||
-                new.title != old.title
+                new.title != old.title ||
+                new.hasCustomTitle != old.hasCustomTitle ||
+                new.colorIndex != old.colorIndex
             }
 
         if changed {
@@ -500,7 +513,11 @@ struct VerticalTabSidebar: View {
 #if DEBUG
 struct VerticalTabSidebar_Previews: PreviewProvider {
     static var previews: some View {
-        VerticalTabSidebar(tabColorEnabled: true, windowController: nil)
+        VerticalTabSidebar(
+            tabColorEnabled: true,
+            selectedBorderColor: Color(red: Double(0x39) / 255, green: 1, blue: Double(0x14) / 255),
+            windowController: nil
+        )
             .frame(height: 400)
     }
 }

@@ -380,6 +380,30 @@ extension Ghostty {
             return v
         }
 
+        private static let defaultMacOSTabBorderColor = Color(
+            red: Double(0x39) / 255,
+            green: 1,
+            blue: Double(0x14) / 255
+        )
+
+        var macosTabBorderColor: Color {
+            guard let config = self.config else {
+                return Self.defaultMacOSTabBorderColor
+            }
+
+            var color: ghostty_config_color_s = .init()
+            let key = "macos-tab-border-color"
+            if !ghostty_config_get(config, &color, key, UInt(key.lengthOfBytes(using: .utf8))) {
+                return Self.defaultMacOSTabBorderColor
+            }
+
+            return .init(
+                red: Double(color.r) / 255,
+                green: Double(color.g) / 255,
+                blue: Double(color.b) / 255
+            )
+        }
+
         var macosTitlebarProxyIcon: MacOSTitlebarProxyIcon {
             let defaultValue = MacOSTitlebarProxyIcon.visible
             guard let config = self.config else { return defaultValue }

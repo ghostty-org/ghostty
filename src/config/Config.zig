@@ -3413,6 +3413,14 @@ keybind: Keybinds = .{},
 /// The default value is `true`.
 @"macos-tab-color": bool = true,
 
+/// The border color for the active tab in the vertical tab sidebar.
+///
+/// This option only has an effect when `macos-tabs-location` is set to
+/// `left` or `right`.
+///
+/// The default value is a fluorescent green.
+@"macos-tab-border-color": Color = .{ .r = 0x39, .g = 0xFF, .b = 0x14 },
+
 /// Whether the proxy icon in the macOS titlebar is visible. The proxy icon
 /// is the icon that represents the folder of the current working directory.
 /// You can see this very clearly in the macOS built-in Terminal.app
