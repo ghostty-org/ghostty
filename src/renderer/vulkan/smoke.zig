@@ -383,6 +383,13 @@ test "smoke" {
     // it + a sampler, render a quad sampling from it, save as PPM.
     try renderTexturedToFile(&device, "/tmp/ghastty-vulkan-smoke-textured.ppm");
 
+    // ---- 7. Try compiling the real Ghostty shaders ---------------
+    // Tests whether the existing OpenGL GLSL sources compile cleanly
+    // through glslang to Vulkan SPIR-V, or whether they hit binding
+    // namespace conflicts (Vulkan shares one namespace per descriptor
+    // set; OpenGL has separate ones per resource type).
+    try probeGhosttyShaders(&device);
+
     std.debug.print("\n  All Vulkan smoke checks passed.\n", .{});
     std.debug.print(
         "  Visual (gradient): /tmp/ghastty-vulkan-smoke.ppm\n",
@@ -1154,6 +1161,91 @@ fn renderTexturedToFile(device: *const Device, path: []const u8) !void {
         try file.writeAll(row[0 .. @as(usize, out_w) * 3]);
     }
     std.debug.print("  Textured: wrote {}x{} PPM to {s}\n", .{ out_w, out_h, path });
+}
+
+/// Compile each of the renderer's actual GLSL shaders (with the
+/// existing `#include` preprocessor splicing in `common.glsl`) and
+/// report which ones glslang accepts as Vulkan-targeted SPIR-V. The
+/// expected failure mode is a binding namespace collision on the
+/// shaders that combine the Globals UBO with texture samplers.
+fn probeGhosttyShaders(device: *const Device) !void {
+    // The full source files post-include-preprocessing. Computed at
+    // comptime via the same `processIncludes` trick as
+    // `opengl/shaders.zig`'s `loadShaderCode`.
+    const common = @embedFile("../shaders/glsl/common.glsl");
+    inline for (&[_]struct { name: []const u8, src: [:0]const u8, stage: shaders.Stage }{
+        .{
+            .name = "bg_color.f.glsl",
+            .src = comptime spliceCommon(@embedFile("../shaders/glsl/bg_color.f.glsl")),
+            .stage = .fragment,
+        },
+        .{
+            .name = "cell_bg.f.glsl",
+            .src = comptime spliceCommon(@embedFile("../shaders/glsl/cell_bg.f.glsl")),
+            .stage = .fragment,
+        },
+        .{
+            .name = "full_screen.v.glsl",
+            .src = comptime spliceCommon(@embedFile("../shaders/glsl/full_screen.v.glsl")),
+            .stage = .vertex,
+        },
+        .{
+            .name = "cell_text.v.glsl",
+            .src = comptime spliceCommon(@embedFile("../shaders/glsl/cell_text.v.glsl")),
+            .stage = .vertex,
+        },
+        .{
+            .name = "cell_text.f.glsl",
+            .src = comptime spliceCommon(@embedFile("../shaders/glsl/cell_text.f.glsl")),
+            .stage = .fragment,
+        },
+        .{
+            .name = "image.v.glsl",
+            .src = comptime spliceCommon(@embedFile("../shaders/glsl/image.v.glsl")),
+            .stage = .vertex,
+        },
+        .{
+            .name = "image.f.glsl",
+            .src = comptime spliceCommon(@embedFile("../shaders/glsl/image.f.glsl")),
+            .stage = .fragment,
+        },
+        .{
+            .name = "bg_image.v.glsl",
+            .src = comptime spliceCommon(@embedFile("../shaders/glsl/bg_image.v.glsl")),
+            .stage = .vertex,
+        },
+        .{
+            .name = "bg_image.f.glsl",
+            .src = comptime spliceCommon(@embedFile("../shaders/glsl/bg_image.f.glsl")),
+            .stage = .fragment,
+        },
+    }) |entry| {
+        if (shaders.Module.init(device, entry.src, entry.stage)) |mod| {
+            defer mod.deinit();
+            std.debug.print("  Shader compile ✓ {s}\n", .{entry.name});
+        } else |err| {
+            std.debug.print("  Shader compile ✗ {s} → {}\n", .{ entry.name, err });
+        }
+    }
+
+    _ = common;
+}
+
+/// Tiny comptime preprocessor: replace `#include "common.glsl"` with
+/// the contents of `common.glsl`. The real Ghostty shaders all use
+/// exactly that one include, so this is a sufficient stub.
+fn spliceCommon(comptime contents: [:0]const u8) [:0]const u8 {
+    const needle = "#include \"common.glsl\"";
+    if (std.mem.indexOf(u8, contents, needle)) |idx| {
+        const common = @embedFile("../shaders/glsl/common.glsl");
+        return std.fmt.comptimePrint("{s}{s}{s}", .{
+            contents[0..idx],
+            common,
+            contents[idx + needle.len ..],
+        });
+    } else {
+        return contents;
+    }
 }
 
 fn imageBarrier(
