@@ -77,6 +77,7 @@ pub const Error = error{
 pub const Dispatch = struct {
     // ---- instance-level -----------------------------------------
     getPhysicalDeviceProperties: std.meta.Child(vk.PFN_vkGetPhysicalDeviceProperties),
+    getPhysicalDeviceMemoryProperties: std.meta.Child(vk.PFN_vkGetPhysicalDeviceMemoryProperties),
     enumerateDeviceExtensionProperties: std.meta.Child(vk.PFN_vkEnumerateDeviceExtensionProperties),
     getDeviceProcAddr: std.meta.Child(vk.PFN_vkGetDeviceProcAddr),
 
@@ -89,6 +90,16 @@ pub const Dispatch = struct {
     // Sampler — used by `vulkan/Sampler.zig`.
     createSampler: std.meta.Child(vk.PFN_vkCreateSampler),
     destroySampler: std.meta.Child(vk.PFN_vkDestroySampler),
+
+    // Texture (image + memory + view) — used by `vulkan/Texture.zig`.
+    createImage: std.meta.Child(vk.PFN_vkCreateImage),
+    destroyImage: std.meta.Child(vk.PFN_vkDestroyImage),
+    getImageMemoryRequirements: std.meta.Child(vk.PFN_vkGetImageMemoryRequirements),
+    allocateMemory: std.meta.Child(vk.PFN_vkAllocateMemory),
+    freeMemory: std.meta.Child(vk.PFN_vkFreeMemory),
+    bindImageMemory: std.meta.Child(vk.PFN_vkBindImageMemory),
+    createImageView: std.meta.Child(vk.PFN_vkCreateImageView),
+    destroyImageView: std.meta.Child(vk.PFN_vkDestroyImageView),
 };
 
 // ---- fields ---------------------------------------------------------
@@ -180,6 +191,8 @@ pub fn init(
 
     const get_physical_device_properties =
         try il.load(vk.PFN_vkGetPhysicalDeviceProperties, "vkGetPhysicalDeviceProperties");
+    const get_physical_device_memory_properties =
+        try il.load(vk.PFN_vkGetPhysicalDeviceMemoryProperties, "vkGetPhysicalDeviceMemoryProperties");
     const enumerate_device_extension_properties =
         try il.load(vk.PFN_vkEnumerateDeviceExtensionProperties, "vkEnumerateDeviceExtensionProperties");
     const get_device_proc_addr =
@@ -251,6 +264,22 @@ pub fn init(
         try dl.load(vk.PFN_vkCreateSampler, "vkCreateSampler");
     const destroy_sampler =
         try dl.load(vk.PFN_vkDestroySampler, "vkDestroySampler");
+    const create_image =
+        try dl.load(vk.PFN_vkCreateImage, "vkCreateImage");
+    const destroy_image =
+        try dl.load(vk.PFN_vkDestroyImage, "vkDestroyImage");
+    const get_image_memory_requirements =
+        try dl.load(vk.PFN_vkGetImageMemoryRequirements, "vkGetImageMemoryRequirements");
+    const allocate_memory =
+        try dl.load(vk.PFN_vkAllocateMemory, "vkAllocateMemory");
+    const free_memory =
+        try dl.load(vk.PFN_vkFreeMemory, "vkFreeMemory");
+    const bind_image_memory =
+        try dl.load(vk.PFN_vkBindImageMemory, "vkBindImageMemory");
+    const create_image_view =
+        try dl.load(vk.PFN_vkCreateImageView, "vkCreateImageView");
+    const destroy_image_view =
+        try dl.load(vk.PFN_vkDestroyImageView, "vkDestroyImageView");
 
     return .{
         .platform = platform,
@@ -262,12 +291,21 @@ pub fn init(
         .api_version = props.apiVersion,
         .dispatch = .{
             .getPhysicalDeviceProperties = get_physical_device_properties,
+            .getPhysicalDeviceMemoryProperties = get_physical_device_memory_properties,
             .enumerateDeviceExtensionProperties = enumerate_device_extension_properties,
             .getDeviceProcAddr = get_device_proc_addr,
             .getDeviceQueue = get_device_queue,
             .deviceWaitIdle = device_wait_idle,
             .createSampler = create_sampler,
             .destroySampler = destroy_sampler,
+            .createImage = create_image,
+            .destroyImage = destroy_image,
+            .getImageMemoryRequirements = get_image_memory_requirements,
+            .allocateMemory = allocate_memory,
+            .freeMemory = free_memory,
+            .bindImageMemory = bind_image_memory,
+            .createImageView = create_image_view,
+            .destroyImageView = destroy_image_view,
         },
     };
 }
@@ -282,6 +320,30 @@ pub fn deinit(self: *Device) void {
 /// renderer resources to make sure no command buffers are in flight.
 pub fn waitIdle(self: *const Device) void {
     _ = self.dispatch.deviceWaitIdle(self.device);
+}
+
+/// Find a `VkMemoryType` index satisfying the requirements from a
+/// `VkMemoryRequirements.memoryTypeBits` bitmask AND with all of
+/// `required_props` set. Returns null if nothing matches.
+///
+/// Used by `vulkan/Texture.zig` (and later `vulkan/Buffer.zig`) to
+/// pick an appropriate heap for a freshly created image/buffer.
+pub fn findMemoryType(
+    self: *const Device,
+    type_bits: u32,
+    required_props: vk.VkMemoryPropertyFlags,
+) ?u32 {
+    var props: vk.VkPhysicalDeviceMemoryProperties = undefined;
+    self.dispatch.getPhysicalDeviceMemoryProperties(self.physical_device, &props);
+    var i: u32 = 0;
+    while (i < props.memoryTypeCount) : (i += 1) {
+        const bit: u32 = @as(u32, 1) << @intCast(i);
+        if (type_bits & bit == 0) continue;
+        if (props.memoryTypes[i].propertyFlags & required_props == required_props) {
+            return i;
+        }
+    }
+    return null;
 }
 
 test {
