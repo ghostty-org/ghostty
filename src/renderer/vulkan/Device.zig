@@ -100,6 +100,15 @@ pub const Dispatch = struct {
     bindImageMemory: std.meta.Child(vk.PFN_vkBindImageMemory),
     createImageView: std.meta.Child(vk.PFN_vkCreateImageView),
     destroyImageView: std.meta.Child(vk.PFN_vkDestroyImageView),
+
+    // Buffer (host-visible vertex / uniform / cell-data storage) —
+    // used by `vulkan/buffer.zig`.
+    createBuffer: std.meta.Child(vk.PFN_vkCreateBuffer),
+    destroyBuffer: std.meta.Child(vk.PFN_vkDestroyBuffer),
+    getBufferMemoryRequirements: std.meta.Child(vk.PFN_vkGetBufferMemoryRequirements),
+    bindBufferMemory: std.meta.Child(vk.PFN_vkBindBufferMemory),
+    mapMemory: std.meta.Child(vk.PFN_vkMapMemory),
+    unmapMemory: std.meta.Child(vk.PFN_vkUnmapMemory),
 };
 
 // ---- fields ---------------------------------------------------------
@@ -280,6 +289,18 @@ pub fn init(
         try dl.load(vk.PFN_vkCreateImageView, "vkCreateImageView");
     const destroy_image_view =
         try dl.load(vk.PFN_vkDestroyImageView, "vkDestroyImageView");
+    const create_buffer =
+        try dl.load(vk.PFN_vkCreateBuffer, "vkCreateBuffer");
+    const destroy_buffer =
+        try dl.load(vk.PFN_vkDestroyBuffer, "vkDestroyBuffer");
+    const get_buffer_memory_requirements =
+        try dl.load(vk.PFN_vkGetBufferMemoryRequirements, "vkGetBufferMemoryRequirements");
+    const bind_buffer_memory =
+        try dl.load(vk.PFN_vkBindBufferMemory, "vkBindBufferMemory");
+    const map_memory =
+        try dl.load(vk.PFN_vkMapMemory, "vkMapMemory");
+    const unmap_memory =
+        try dl.load(vk.PFN_vkUnmapMemory, "vkUnmapMemory");
 
     return .{
         .platform = platform,
@@ -306,6 +327,12 @@ pub fn init(
             .bindImageMemory = bind_image_memory,
             .createImageView = create_image_view,
             .destroyImageView = destroy_image_view,
+            .createBuffer = create_buffer,
+            .destroyBuffer = destroy_buffer,
+            .getBufferMemoryRequirements = get_buffer_memory_requirements,
+            .bindBufferMemory = bind_buffer_memory,
+            .mapMemory = map_memory,
+            .unmapMemory = unmap_memory,
         },
     };
 }
