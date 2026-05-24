@@ -193,11 +193,20 @@ pub fn begin(opts: Options) Self {
     opts.device.dispatch.cmdBeginRendering(opts.cb, &info);
 
     // Dynamic state: viewport + scissor follow the attachment size.
+    //
+    // Negative `height` (Vulkan 1.1 maintenance1 / core) flips the Y
+    // axis at viewport time so the renderer's OpenGL-style projection
+    // matrices (Y-up clip space, `ortho2d` with bottom > top) keep
+    // producing pixels at the expected location on screen. Without
+    // this, everything renders upside-down — text intended for the
+    // top of the window appears at the bottom. `gl_FragCoord` still
+    // reports origin-upper-left, matching `cell_bg.f.glsl`'s
+    // `layout(origin_upper_left)` request.
     const viewport: vk.VkViewport = .{
         .x = 0,
-        .y = 0,
+        .y = @floatFromInt(height),
         .width = @floatFromInt(width),
-        .height = @floatFromInt(height),
+        .height = -@as(f32, @floatFromInt(height)),
         .minDepth = 0,
         .maxDepth = 1,
     };
@@ -214,14 +223,23 @@ pub fn begin(opts: Options) Self {
 /// Record one step of the pass.
 ///
 /// Updates the pipeline's descriptor sets from the Step's resources
-/// and emits the draw call. Resource → (set, binding) mapping
-/// matches the `vulkanizeGlsl` preprocessor's bucketing scheme:
+/// and emits the draw call. Resource conventions match the OpenGL
+/// backend (so `generic.zig` call sites work unchanged):
 ///
 ///   - `uniforms`     → set 0, binding `pipeline.uniforms_binding`
 ///                      (UBO; the Globals block from `common.glsl`)
-///   - `buffers[i]`   → set 2, binding `i` (storage buffer)
-///   - `textures[i]` + `samplers[i]`
-///                    → set 1, binding `i` (combined image sampler)
+///   - `buffers[0]`   → vertex buffer at binding 0 (when the pipeline
+///                      has a non-zero `vertex_stride`; ignored
+///                      otherwise). Matches OpenGL's "0th buffer is
+///                      the VBO" convention.
+///   - `buffers[i]`, i≥1
+///                    → set 2, binding `i` (storage buffer)
+///   - `textures[i]`  → set 1, binding `i` (combined image sampler).
+///                      The sampler is `samplers[i]` if provided,
+///                      otherwise the pipeline's owned fallback
+///                      `pipeline.sampler` (so the renderer can pass
+///                      plain textures and let the pipeline pick the
+///                      sampler config it needs).
 ///
 /// Skips silently when the pipeline hasn't been constructed yet
 /// (`VkPipeline == null`) — pipelines for shaders we haven't wired
@@ -232,6 +250,21 @@ pub fn step(self: *Self, s: Step) void {
     if (s.draw.vertex_count == 0) return;
 
     const dev = self.device;
+
+    // ---- vertex buffer (buffers[0]) ----------------------------
+    if (s.pipeline.vertex_stride > 0 and s.buffers.len > 0) {
+        if (s.buffers[0]) |vbo| {
+            const offsets = [_]vk.VkDeviceSize{0};
+            const bufs = [_]vk.VkBuffer{vbo};
+            dev.dispatch.cmdBindVertexBuffers(
+                self.cb,
+                0, // first binding
+                1, // binding count
+                &bufs,
+                &offsets,
+            );
+        }
+    }
 
     // ---- update descriptor sets ---------------------------------
     //
@@ -267,11 +300,16 @@ pub fn step(self: *Self, s: Step) void {
         const slot_count = @max(s.textures.len, s.samplers.len);
         for (0..slot_count) |slot| {
             const tex_opt: ?Texture = if (slot < s.textures.len) s.textures[slot] else null;
-            const samp_opt: ?Sampler = if (slot < s.samplers.len) s.samplers[slot] else null;
             const tex = tex_opt orelse continue;
-            const samp = samp_opt orelse continue;
+            const samp_opt: ?Sampler = if (slot < s.samplers.len) s.samplers[slot] else null;
+            const sampler_handle: vk.VkSampler = if (samp_opt) |samp|
+                samp.sampler
+            else if (s.pipeline.sampler != null)
+                s.pipeline.sampler
+            else
+                continue;
             const image_info: vk.VkDescriptorImageInfo = .{
-                .sampler = samp.sampler,
+                .sampler = sampler_handle,
                 .imageView = tex.view,
                 .imageLayout = vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             };
@@ -291,9 +329,10 @@ pub fn step(self: *Self, s: Step) void {
         }
     }
 
-    // Storage buffers (set 2)
-    if (s.pipeline.descriptor_sets[2] != null) {
-        for (s.buffers, 0..) |maybe_buf, slot| {
+    // Storage buffers (set 2). `buffers[0]` is reserved for the
+    // vertex buffer (handled above), so storage starts at slot 1.
+    if (s.pipeline.descriptor_sets[2] != null and s.buffers.len > 1) {
+        for (s.buffers[1..], 1..) |maybe_buf, slot| {
             const buf = maybe_buf orelse continue;
             const buffer_info: vk.VkDescriptorBufferInfo = .{
                 .buffer = buf,

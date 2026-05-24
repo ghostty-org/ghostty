@@ -131,6 +131,7 @@ pub const Dispatch = struct {
     cmdCopyBufferToImage: std.meta.Child(vk.PFN_vkCmdCopyBufferToImage),
     cmdFillBuffer: std.meta.Child(vk.PFN_vkCmdFillBuffer),
     cmdClearColorImage: std.meta.Child(vk.PFN_vkCmdClearColorImage),
+    cmdBindVertexBuffers: std.meta.Child(vk.PFN_vkCmdBindVertexBuffers),
 
     // Shader modules — used by `vulkan/shaders.zig`.
     createShaderModule: std.meta.Child(vk.PFN_vkCreateShaderModule),
@@ -398,6 +399,8 @@ pub fn init(
         try dl.load(vk.PFN_vkCmdFillBuffer, "vkCmdFillBuffer");
     const cmd_clear_color_image =
         try dl.load(vk.PFN_vkCmdClearColorImage, "vkCmdClearColorImage");
+    const cmd_bind_vertex_buffers =
+        try dl.load(vk.PFN_vkCmdBindVertexBuffers, "vkCmdBindVertexBuffers");
     const create_shader_module =
         try dl.load(vk.PFN_vkCreateShaderModule, "vkCreateShaderModule");
     const destroy_shader_module =
@@ -497,6 +500,7 @@ pub fn init(
             .cmdCopyBufferToImage = cmd_copy_buffer_to_image,
             .cmdFillBuffer = cmd_fill_buffer,
             .cmdClearColorImage = cmd_clear_color_image,
+            .cmdBindVertexBuffers = cmd_bind_vertex_buffers,
             .createShaderModule = create_shader_module,
             .destroyShaderModule = destroy_shader_module,
             .createDescriptorSetLayout = create_descriptor_set_layout,

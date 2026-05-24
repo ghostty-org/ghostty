@@ -298,7 +298,6 @@ pub fn beginFrame(
     renderer: *rendererpkg.Renderer,
     target: *Target,
 ) !Frame {
-    _ = renderer;
     const dev = devicePtr();
 
     // Lazy per-thread resource init. The first call to `beginFrame`
@@ -337,6 +336,7 @@ pub fn beginFrame(
     return try Frame.begin(
         .{ .cb = frame_cb, .fence = frame_fence },
         dev,
+        renderer,
         target,
     );
 }
@@ -390,8 +390,16 @@ pub fn fgBufferOptions(self: *const Vulkan) bufferpkg.Options {
     return self.instanceBufferOptions();
 }
 
-pub fn bgBufferOptions(self: *const Vulkan) bufferpkg.Options {
-    return self.instanceBufferOptions();
+pub fn bgBufferOptions(_: *const Vulkan) bufferpkg.Options {
+    // The bg cells buffer is consumed as a STORAGE BUFFER by the
+    // cell_bg fragment shader (binding `bg_cells`) and the cell_text
+    // vertex shader (same binding). The OpenGL backend doesn't
+    // distinguish — every buffer is reusable across roles — but
+    // Vulkan validates usage flags at descriptor-write time.
+    return .{
+        .device = devicePtr(),
+        .usage = vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+    };
 }
 
 pub fn imageBufferOptions(self: *const Vulkan) bufferpkg.Options {

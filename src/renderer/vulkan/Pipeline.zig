@@ -95,6 +95,17 @@ pub const Options = struct {
     /// Push constant ranges referenced by the shaders.
     push_constant_ranges: []const vk.VkPushConstantRange = &.{},
 
+    /// Default sampler the pipeline owns and uses for every
+    /// combined-image-sampler binding the caller doesn't supply a
+    /// sampler for. Lets the renderer pass plain `textures` (parallel
+    /// to OpenGL's per-texture `glBindTextureUnit` model) without
+    /// having to also track per-binding samplers; the pipeline knows
+    /// the right sampler for its own atlases (e.g. cell_text uses
+    /// unnormalized coords for `sampler2D` standing in for the old
+    /// `sampler2DRect`). The handle is borrowed, not owned by
+    /// `Pipeline` — `Shaders.init` owns the lifetime.
+    sampler: vk.VkSampler = null,
+
     /// Color attachment format. With dynamic rendering this must
     /// match the format of the image the renderer eventually targets
     /// in `vkCmdBeginRendering`.
@@ -133,6 +144,15 @@ set_count: u32 = 0,
 /// `layout(binding = 1, std140) uniform Globals`. Override per
 /// pipeline if a different shader uses a different slot.
 uniforms_binding: u32 = 1,
+
+/// Pipeline-owned fallback sampler. See `Options.sampler`.
+sampler: vk.VkSampler = null,
+
+/// Vertex buffer stride (bytes). Needed so `RenderPass.step` can
+/// bind a vertex buffer with the right per-instance/per-vertex
+/// stride. Defaults to 0 (no vertex buffer); set automatically when
+/// `Options.vertex_input` is non-null.
+vertex_stride: u32 = 0,
 
 pub fn init(opts: Options) Error!Self {
     const dev = opts.device;
@@ -400,6 +420,8 @@ pub fn init(opts: Options) Error!Self {
         .layout = layout,
         .descriptor_sets = dsets,
         .set_count = @intCast(opts.descriptor_set_layouts.len),
+        .sampler = opts.sampler,
+        .vertex_stride = if (opts.vertex_input) |vi| vi.stride else 0,
     };
 }
 

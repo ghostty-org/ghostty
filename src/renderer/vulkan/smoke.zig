@@ -1001,7 +1001,7 @@ fn renderTexturedToFile(device: *const Device, path: []const u8) !void {
     }
 
     // Pipeline with this descriptor set layout.
-    const dsls = [_]vk.VkDescriptorSetLayout{dsl};
+    const dsls = [_]?vk.VkDescriptorSetLayout{dsl};
     var pipeline = try Pipeline.init(.{
         .device = device,
         .vertex_module = vs.handle,

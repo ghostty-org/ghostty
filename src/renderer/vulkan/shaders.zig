@@ -25,6 +25,7 @@ const glslang = @import("glslang");
 
 const Device = @import("Device.zig");
 const Pipeline = @import("Pipeline.zig");
+const Sampler = @import("Sampler.zig");
 const DescriptorPool = @import("DescriptorPool.zig");
 const math = @import("../../math.zig");
 
@@ -156,7 +157,16 @@ fn vulkanizeGlsl(
     alloc: std.mem.Allocator,
     src: []const u8,
 ) std.mem.Allocator.Error![:0]const u8 {
-    // First pass: identifier-level rewrites (renames + sampler2DRect).
+    // First pass: identifier-level rewrites (renames + sampler2DRect)
+    // plus `texture(` → `textureLod(...,0.0)`. The `texture()` rewrite
+    // is needed because Vulkan forbids the SPIR-V OpImageSampleImplicitLod
+    // opcode (what `texture()` compiles to) when the sampler has
+    // `unnormalizedCoordinates = VK_TRUE` — which our cell_text atlas
+    // sampler does so its pixel-coord math (inherited from
+    // `sampler2DRect`) keeps working. `textureLod(s, uv, 0.0)`
+    // compiles to OpImageSampleExplicitLod, which IS allowed with
+    // unnormalized samplers and reads the same texel at LOD 0 for our
+    // non-mipmapped atlases.
     const pass1 = pass1: {
         var out = std.ArrayList(u8){};
         errdefer out.deinit(alloc);
@@ -169,12 +179,42 @@ fn vulkanizeGlsl(
                 const start = i;
                 while (i < src.len and isIdentChar(src[i])) : (i += 1) {}
                 const ident = src[start..i];
+                // Special-case `texture` followed by `(`: rewrite to
+                // `textureLod(...,0.0)`. Other identifiers starting
+                // with "texture" (e.g. `texture2D` if we ever see it,
+                // or local variable names) are NOT rewritten because
+                // the check requires the next non-space char to be
+                // exactly `(` AND the rewrite injects an extra
+                // argument before the matching `)`.
                 if (std.mem.eql(u8, ident, "gl_VertexID")) {
                     try out.appendSlice(alloc, "gl_VertexIndex");
                 } else if (std.mem.eql(u8, ident, "gl_InstanceID")) {
                     try out.appendSlice(alloc, "gl_InstanceIndex");
                 } else if (std.mem.eql(u8, ident, "sampler2DRect")) {
                     try out.appendSlice(alloc, "sampler2D");
+                } else if (std.mem.eql(u8, ident, "texture") and
+                    nextNonSpaceIsOpenParen(src, i))
+                {
+                    // Replace `texture(args)` with `textureLod(args, 0.0)`.
+                    try out.appendSlice(alloc, "textureLod(");
+                    // Skip past the `(`.
+                    while (i < src.len and src[i] != '(') : (i += 1) {}
+                    i += 1; // consume the '('
+                    // Copy the args verbatim until the matching `)`.
+                    var depth: i32 = 1;
+                    while (i < src.len and depth > 0) {
+                        const cc = src[i];
+                        if (cc == '(') depth += 1;
+                        if (cc == ')') {
+                            depth -= 1;
+                            if (depth == 0) break;
+                        }
+                        try out.append(alloc, cc);
+                        i += 1;
+                    }
+                    // Insert the explicit LOD argument and the closing `)`.
+                    try out.appendSlice(alloc, ", 0.0)");
+                    if (i < src.len) i += 1; // consume the closing `)`
                 } else {
                     try out.appendSlice(alloc, ident);
                 }
@@ -262,6 +302,15 @@ fn isIdentChar(c: u8) bool {
         (c >= 'A' and c <= 'Z') or
         (c >= '0' and c <= '9') or
         c == '_';
+}
+
+/// True if the first non-space, non-comment character at or after
+/// position `i` in `src` is `(`. Used to recognize a function call
+/// when the caller is positioned right after the identifier name.
+fn nextNonSpaceIsOpenParen(src: []const u8, i: usize) bool {
+    var p = i;
+    while (p < src.len and isAnySpace(src[p])) : (p += 1) {}
+    return p < src.len and src[p] == '(';
 }
 
 fn isHorizSpace(c: u8) bool {
@@ -608,6 +657,13 @@ pub const Shaders = struct {
     /// Also tracked in `set_layouts` for deinit.
     empty_set_layout: vk.VkDescriptorSetLayout = null,
 
+    /// Sampler used by the cell_text pipeline for both atlas
+    /// textures. Unnormalized coordinates so `texture(s, pixel_xy)`
+    /// keeps the OpenGL `sampler2DRect` semantics the shaders were
+    /// authored against. Owned by `Shaders` and destroyed in
+    /// `deinit`.
+    atlas_sampler: ?Sampler = null,
+
     defunct: bool = false,
 
     /// The compiled `VkShaderModule`s for the renderer's built-in
@@ -806,9 +862,130 @@ pub const Shaders = struct {
         });
         errdefer cell_bg_pipeline.deinit();
 
+        // ---- cell_text pipeline ----------------------------------
+        //
+        // The big one: actual glyph rendering. After `vulkanizeGlsl`:
+        //
+        //   set 0 binding 1  Globals UBO  (both stages)
+        //   set 1 binding 0  atlas_grayscale combined sampler (frag)
+        //   set 1 binding 1  atlas_color combined sampler (frag)
+        //   set 2 binding 1  bg_cells storage buffer (vertex stage)
+        //
+        // Vertex input is the per-instance `CellText` struct from
+        // this file (above), one instance per visible glyph. The
+        // vertex shader is a 4-vertex triangle strip producing the
+        // glyph quad.
+        //
+        // Sampler: an unnormalized-coordinate sampler shared between
+        // the two atlases. `vulkanizeGlsl` rewrote `sampler2DRect` to
+        // `sampler2D`; the matching VkSampler uses
+        // unnormalizedCoordinates so `texture(s, pixel_xy)` keeps the
+        // OpenGL `sampler2DRect` semantics the shaders were written
+        // against.
+        const atlas_sampler = try Sampler.init(.{
+            .device = device,
+            .min_filter = .nearest,
+            .mag_filter = .nearest,
+            .wrap_s = .clamp_to_edge,
+            .wrap_t = .clamp_to_edge,
+            .unnormalized_coordinates = true,
+        });
+        errdefer atlas_sampler.deinit();
+
+        const cell_text_ubo_dsl = try createSingleBindingDsl(
+            device,
+            1,
+            vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            vk.VK_SHADER_STAGE_VERTEX_BIT | vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+        );
+        tracker.track(cell_text_ubo_dsl);
+
+        // Set 1: two combined-image-sampler bindings (atlas_grayscale
+        // at binding 0, atlas_color at binding 1). Both fragment stage.
+        const cell_text_sampler_bindings = [_]vk.VkDescriptorSetLayoutBinding{
+            .{
+                .binding = 0,
+                .descriptorType = vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = 1,
+                .stageFlags = vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+                .pImmutableSamplers = null,
+            },
+            .{
+                .binding = 1,
+                .descriptorType = vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = 1,
+                .stageFlags = vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+                .pImmutableSamplers = null,
+            },
+        };
+        const cell_text_sampler_dsl_info: vk.VkDescriptorSetLayoutCreateInfo = .{
+            .sType = vk.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .pNext = null,
+            .flags = 0,
+            .bindingCount = cell_text_sampler_bindings.len,
+            .pBindings = &cell_text_sampler_bindings,
+        };
+        var cell_text_sampler_dsl: vk.VkDescriptorSetLayout = undefined;
+        if (device.dispatch.createDescriptorSetLayout(
+            device.device,
+            &cell_text_sampler_dsl_info,
+            null,
+            &cell_text_sampler_dsl,
+        ) != vk.VK_SUCCESS) {
+            return error.VulkanFailed;
+        }
+        tracker.track(cell_text_sampler_dsl);
+
+        const cell_text_storage_dsl = try createSingleBindingDsl(
+            device,
+            1,
+            vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            vk.VK_SHADER_STAGE_VERTEX_BIT,
+        );
+        tracker.track(cell_text_storage_dsl);
+
+        // Vertex input. The 7 attributes match the fields of
+        // `CellText` declared above (size 32 bytes). Each field's
+        // VkFormat is picked to match the GLSL `in` type:
+        //   glyph_pos uvec2  → R32G32_UINT     (offset 0)
+        //   glyph_size uvec2 → R32G32_UINT     (offset 8)
+        //   bearings ivec2   → R16G16_SINT     (offset 16)
+        //   grid_pos uvec2   → R16G16_UINT     (offset 20)
+        //   color uvec4      → R8G8B8A8_UINT   (offset 24)
+        //   atlas uint       → R8_UINT         (offset 28)
+        //   glyph_bools uint → R8_UINT         (offset 29)
+        const cell_text_attrs = [_]vk.VkVertexInputAttributeDescription{
+            .{ .location = 0, .binding = 0, .format = vk.VK_FORMAT_R32G32_UINT, .offset = 0 },
+            .{ .location = 1, .binding = 0, .format = vk.VK_FORMAT_R32G32_UINT, .offset = 8 },
+            .{ .location = 2, .binding = 0, .format = vk.VK_FORMAT_R16G16_SINT, .offset = 16 },
+            .{ .location = 3, .binding = 0, .format = vk.VK_FORMAT_R16G16_UINT, .offset = 20 },
+            .{ .location = 4, .binding = 0, .format = vk.VK_FORMAT_R8G8B8A8_UINT, .offset = 24 },
+            .{ .location = 5, .binding = 0, .format = vk.VK_FORMAT_R8_UINT, .offset = 28 },
+            .{ .location = 6, .binding = 0, .format = vk.VK_FORMAT_R8_UINT, .offset = 29 },
+        };
+        const cell_text_pipeline = try Pipeline.init(.{
+            .device = device,
+            .descriptor_pool = &pool,
+            .vertex_module = modules.cell_text_vert.handle,
+            .fragment_module = modules.cell_text_frag.handle,
+            .vertex_input = .{
+                .stride = @sizeOf(CellText),
+                .step_fn = .per_instance,
+                .attributes = &cell_text_attrs,
+            },
+            .descriptor_set_layouts = &.{ cell_text_ubo_dsl, cell_text_sampler_dsl, cell_text_storage_dsl },
+            .empty_set_layout = empty_dsl,
+            .sampler = atlas_sampler.sampler,
+            .color_format = vk.VK_FORMAT_B8G8R8A8_SRGB,
+            .blending_enabled = true,
+            .topology = vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,
+        });
+        errdefer cell_text_pipeline.deinit();
+
         var pipelines: PipelineCollection = .{};
         pipelines.bg_color = bg_color_pipeline;
         pipelines.cell_bg = cell_bg_pipeline;
+        pipelines.cell_text = cell_text_pipeline;
 
         return .{
             .pipelines = pipelines,
@@ -818,6 +995,7 @@ pub const Shaders = struct {
             .set_layouts = set_layouts,
             .set_layouts_len = set_layouts_len,
             .empty_set_layout = empty_dsl,
+            .atlas_sampler = atlas_sampler,
         };
     }
 
@@ -874,6 +1052,10 @@ pub const Shaders = struct {
         }) |p_ptr| {
             if (p_ptr.pipeline != null) p_ptr.deinit();
         }
+
+        // Atlas sampler held by `Shaders` for the cell_text pipeline's
+        // texture bindings.
+        if (self.atlas_sampler) |samp| samp.deinit();
 
         // Descriptor pool reclaims every set allocated from it
         // (including the per-pipeline sets); the standalone layouts
@@ -990,6 +1172,29 @@ test "vulkanizeGlsl: location-only layout passes through" {
     // No `set = ` insertion because there's no `binding = `.
     try std.testing.expect(std.mem.indexOf(u8, out, "set =") == null);
     try std.testing.expect(std.mem.indexOf(u8, out, "layout(location = 0) in vec2 in_grid_pos") != null);
+}
+
+test "vulkanizeGlsl: texture() becomes textureLod(...,0.0)" {
+    const out = try vulkanizeGlsl(std.testing.allocator,
+        \\float a = texture(atlas_grayscale, in_data.tex_coord).r;
+        \\vec4 c = texture(atlas_color, vec2(1.0, 2.0));
+    );
+    defer std.testing.allocator.free(out);
+    try std.testing.expect(std.mem.indexOf(u8, out, "textureLod(atlas_grayscale, in_data.tex_coord, 0.0)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "textureLod(atlas_color, vec2(1.0, 2.0), 0.0)") != null);
+    // No naked `texture(` remains.
+    try std.testing.expect(std.mem.indexOf(u8, out, " texture(") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "=texture(") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "= texture(") == null);
+}
+
+test "vulkanizeGlsl: textureLod is left alone" {
+    const out = try vulkanizeGlsl(std.testing.allocator,
+        \\float a = textureLod(atlas, uv, 1.0).r;
+    );
+    defer std.testing.allocator.free(out);
+    // No double-injection.
+    try std.testing.expect(std.mem.indexOf(u8, out, "textureLod(atlas, uv, 1.0)") != null);
 }
 
 test "vulkanizeGlsl: layout with pre-existing set qualifier is unchanged" {

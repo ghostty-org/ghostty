@@ -39,6 +39,10 @@ const Device = @import("Device.zig");
 const Target = @import("Target.zig");
 const RenderPass = @import("RenderPass.zig");
 
+const Vulkan = @import("../Vulkan.zig");
+const Renderer = @import("../generic.zig").Renderer(Vulkan);
+const Health = @import("../../renderer.zig").Health;
+
 const log = std.log.scoped(.vulkan);
 
 pub const Options = struct {
@@ -59,6 +63,7 @@ pub const Error = error{
 };
 
 device: *const Device,
+renderer: *Renderer,
 target: *Target,
 cb: vk.VkCommandBuffer,
 fence: vk.VkFence,
@@ -69,6 +74,7 @@ fence: vk.VkFence,
 pub fn begin(
     opts: Options,
     device: *const Device,
+    renderer: *Renderer,
     target: *Target,
 ) Error!Self {
     const begin_info: vk.VkCommandBufferBeginInfo = .{
@@ -85,6 +91,7 @@ pub fn begin(
 
     return .{
         .device = device,
+        .renderer = renderer,
         .target = target,
         .cb = opts.cb,
         .fence = opts.fence,
@@ -159,8 +166,18 @@ pub fn complete(self: *const Self, sync: bool) void {
     // `opengl/Frame.zig`'s `complete` does at the same point: it
     // calls `self.renderer.api.present(self.target.*)`. Our analog
     // is `Target.present()`, which routes through the platform's
-    // `present` callback (the apprt-side dmabuf consumer).
-    self.target.present();
+    // `present` callback (the apprt-side dmabuf consumer). Also
+    // stash on the renderer's `last_target` for `presentLastTarget`
+    // re-presents on no-op frames.
+    self.renderer.api.present(self.target.*) catch |err| {
+        log.err("present failed: {}", .{err});
+    };
+
+    // Tell the generic renderer the frame is done so it releases the
+    // swap-chain semaphore. Without this, `SwapChain.nextFrame()`
+    // blocks the second call to `drawFrame` forever (one buffer in
+    // the chain, never freed).
+    self.renderer.frameCompleted(.healthy);
 }
 
 /// Begin a render pass recording into this frame's command buffer.
