@@ -76,6 +76,33 @@ get_filename_component(GHOSTTY_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 set(GHOSTTY_LIB_DIR "${GHOSTTY_ROOT}/zig-out/lib")
 set(GHOSTTY_SO "${GHOSTTY_LIB_DIR}/ghostty-internal.so")
 
+# Variant: which renderer libghostty was built with. Drives the
+# installed executable name and (for the Vulkan variant) the
+# libghostty install location, so the two builds can coexist
+# side-by-side under the same `~/.local` prefix:
+#
+#   GHASTTY_VARIANT=opengl (default) →
+#       ~/.local/bin/ghastty
+#       ~/.local/lib/libghostty.so
+#   GHASTTY_VARIANT=vulkan →
+#       ~/.local/bin/ghastty-vulkan
+#       ~/.local/lib/ghastty-vulkan/libghostty.so
+#       (and the binary's INSTALL_RPATH points into the subdir
+#        so the two .so files never conflict.)
+#
+# Set via `cmake -DGHASTTY_VARIANT=vulkan -S qt -B qt/build-vulkan`.
+set(GHASTTY_VARIANT "opengl" CACHE STRING
+    "Renderer variant: opengl (default) or vulkan")
+set_property(CACHE GHASTTY_VARIANT PROPERTY STRINGS opengl vulkan)
+if(GHASTTY_VARIANT STREQUAL "vulkan")
+  set(GHASTTY_EXE_NAME "ghastty-vulkan")
+  set(GHASTTY_LIB_SUBDIR "ghastty-vulkan")
+  message(STATUS "Building Vulkan variant — exe=${GHASTTY_EXE_NAME}, lib=lib/${GHASTTY_LIB_SUBDIR}/")
+else()
+  set(GHASTTY_EXE_NAME "ghastty")
+  set(GHASTTY_LIB_SUBDIR "")
+endif()
+
 if(NOT EXISTS "${GHOSTTY_SO}")
   message(FATAL_ERROR
     "libghostty not found at ${GHOSTTY_SO}\n"
@@ -189,9 +216,24 @@ endif()
 #   actual zig-out artifact), and the .so's NEEDED entries also point
 #   into zig-out/lib for transitive deps.
 # - Installed: libghostty.so lives next to the binary ($ORIGIN/../lib).
+# Vulkan variant lives at lib/ghastty-vulkan/libghostty.so so it can
+# coexist with the OpenGL build's lib/libghostty.so under the same
+# install prefix. The INSTALL_RPATH steers each variant's binary at
+# its own .so without polluting the other's lookup.
+if(GHASTTY_VARIANT STREQUAL "vulkan")
+  set(GHASTTY_INSTALL_RPATH
+      "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}/${GHASTTY_LIB_SUBDIR}")
+  set(GHASTTY_LIB_INSTALL_DIR
+      "${CMAKE_INSTALL_LIBDIR}/${GHASTTY_LIB_SUBDIR}")
+else()
+  set(GHASTTY_INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+  set(GHASTTY_LIB_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}")
+endif()
+
 set_target_properties(ghastty PROPERTIES
+  OUTPUT_NAME "${GHASTTY_EXE_NAME}"
   BUILD_RPATH "${GHOSTTY_LINK_DIR};${GHOSTTY_LIB_DIR}"
-  INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}"
+  INSTALL_RPATH "${GHASTTY_INSTALL_RPATH}"
 )
 
 # --- install ---------------------------------------------------------
@@ -199,12 +241,18 @@ install(TARGETS ghastty RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 
 # libghostty.so the binary links against (SONAME is libghostty.so).
 install(FILES "${GHOSTTY_SO}"
-  DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+  DESTINATION "${GHASTTY_LIB_INSTALL_DIR}"
   RENAME libghostty.so)
 
-install(FILES dist/ghastty.desktop
-  DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+# Desktop entry + icon: only install for the OpenGL variant — the
+# Vulkan binary is a developer-facing side-by-side build, not a
+# user-facing app. Avoids duplicating the .desktop file with a
+# different Exec= line.
+if(GHASTTY_VARIANT STREQUAL "opengl")
+  install(FILES dist/ghastty.desktop
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
 
-# The custom scalable app icon.
-install(FILES dist/ghastty.svg
-  DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps")
+  # The custom scalable app icon.
+  install(FILES dist/ghastty.svg
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps")
+endif()
