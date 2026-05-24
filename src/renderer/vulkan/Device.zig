@@ -109,6 +109,20 @@ pub const Dispatch = struct {
     bindBufferMemory: std.meta.Child(vk.PFN_vkBindBufferMemory),
     mapMemory: std.meta.Child(vk.PFN_vkMapMemory),
     unmapMemory: std.meta.Child(vk.PFN_vkUnmapMemory),
+
+    // Command pool / buffer + queue submit + recording —
+    // used by `vulkan/CommandPool.zig` and (later) per-frame command
+    // recording in `vulkan/Frame.zig`.
+    createCommandPool: std.meta.Child(vk.PFN_vkCreateCommandPool),
+    destroyCommandPool: std.meta.Child(vk.PFN_vkDestroyCommandPool),
+    allocateCommandBuffers: std.meta.Child(vk.PFN_vkAllocateCommandBuffers),
+    freeCommandBuffers: std.meta.Child(vk.PFN_vkFreeCommandBuffers),
+    beginCommandBuffer: std.meta.Child(vk.PFN_vkBeginCommandBuffer),
+    endCommandBuffer: std.meta.Child(vk.PFN_vkEndCommandBuffer),
+    queueSubmit: std.meta.Child(vk.PFN_vkQueueSubmit),
+    queueWaitIdle: std.meta.Child(vk.PFN_vkQueueWaitIdle),
+    cmdPipelineBarrier: std.meta.Child(vk.PFN_vkCmdPipelineBarrier),
+    cmdCopyBufferToImage: std.meta.Child(vk.PFN_vkCmdCopyBufferToImage),
 };
 
 // ---- fields ---------------------------------------------------------
@@ -301,6 +315,26 @@ pub fn init(
         try dl.load(vk.PFN_vkMapMemory, "vkMapMemory");
     const unmap_memory =
         try dl.load(vk.PFN_vkUnmapMemory, "vkUnmapMemory");
+    const create_command_pool =
+        try dl.load(vk.PFN_vkCreateCommandPool, "vkCreateCommandPool");
+    const destroy_command_pool =
+        try dl.load(vk.PFN_vkDestroyCommandPool, "vkDestroyCommandPool");
+    const allocate_command_buffers =
+        try dl.load(vk.PFN_vkAllocateCommandBuffers, "vkAllocateCommandBuffers");
+    const free_command_buffers =
+        try dl.load(vk.PFN_vkFreeCommandBuffers, "vkFreeCommandBuffers");
+    const begin_command_buffer =
+        try dl.load(vk.PFN_vkBeginCommandBuffer, "vkBeginCommandBuffer");
+    const end_command_buffer =
+        try dl.load(vk.PFN_vkEndCommandBuffer, "vkEndCommandBuffer");
+    const queue_submit =
+        try dl.load(vk.PFN_vkQueueSubmit, "vkQueueSubmit");
+    const queue_wait_idle =
+        try dl.load(vk.PFN_vkQueueWaitIdle, "vkQueueWaitIdle");
+    const cmd_pipeline_barrier =
+        try dl.load(vk.PFN_vkCmdPipelineBarrier, "vkCmdPipelineBarrier");
+    const cmd_copy_buffer_to_image =
+        try dl.load(vk.PFN_vkCmdCopyBufferToImage, "vkCmdCopyBufferToImage");
 
     return .{
         .platform = platform,
@@ -333,6 +367,16 @@ pub fn init(
             .bindBufferMemory = bind_buffer_memory,
             .mapMemory = map_memory,
             .unmapMemory = unmap_memory,
+            .createCommandPool = create_command_pool,
+            .destroyCommandPool = destroy_command_pool,
+            .allocateCommandBuffers = allocate_command_buffers,
+            .freeCommandBuffers = free_command_buffers,
+            .beginCommandBuffer = begin_command_buffer,
+            .endCommandBuffer = end_command_buffer,
+            .queueSubmit = queue_submit,
+            .queueWaitIdle = queue_wait_idle,
+            .cmdPipelineBarrier = cmd_pipeline_barrier,
+            .cmdCopyBufferToImage = cmd_copy_buffer_to_image,
         },
     };
 }
