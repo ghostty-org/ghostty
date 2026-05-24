@@ -33,6 +33,7 @@ const Self = @This();
 const std = @import("std");
 const vk = @import("vulkan").c;
 
+const apprt = @import("../../apprt.zig");
 const Device = @import("Device.zig");
 
 const log = std.log.scoped(.vulkan);
@@ -51,6 +52,15 @@ pub const Options = struct {
     /// defaults (`COLOR_ATTACHMENT_BIT | SAMPLED_BIT |
     /// TRANSFER_SRC_BIT`). Rarely needed.
     extra_usage: vk.VkImageUsageFlags = 0,
+
+    /// Per-surface platform callbacks. `Device.platform` is also a
+    /// `Platform.Vulkan`, but it's the singleton's copy — its
+    /// `userdata` points at whichever surface initialized the
+    /// device first. Splits/tabs share the device but each gets its
+    /// own platform with the right `userdata`, so `present()` reaches
+    /// the right window. Falls back to `device.platform` when
+    /// null (e.g. smoke test).
+    platform: ?apprt.embedded.Platform.Vulkan = null,
 };
 
 pub const Error = error{
@@ -60,6 +70,10 @@ pub const Error = error{
 };
 
 device: *const Device,
+
+/// Per-surface platform — see `Options.platform`. Null means "use
+/// `device.platform`" (the singleton's copy from the first surface).
+platform: ?apprt.embedded.Platform.Vulkan = null,
 
 // ---- render image (OPTIMAL, internal) -------------------------------
 image: vk.VkImage,
@@ -250,6 +264,7 @@ pub fn init(opts: Options) Error!Self {
 
     return .{
         .device = dev,
+        .platform = opts.platform,
         .image = image,
         .image_memory = image_memory,
         .view = view,
@@ -375,8 +390,13 @@ pub fn recordCopyToDmabuf(self: *Self, cb: vk.VkCommandBuffer) void {
 }
 
 pub fn present(self: *const Self) void {
-    self.device.platform.present(
-        self.device.platform.userdata,
+    // Prefer the per-surface platform — its `userdata` points at THIS
+    // surface's GhosttySurface, so present reaches the right window.
+    // Fall back to the device's singleton copy when no platform was
+    // attached (only the smoke test does this).
+    const platform = if (self.platform) |p| p else self.device.platform;
+    platform.present(
+        platform.userdata,
         self.fd,
         self.drm_format,
         self.drm_modifier,

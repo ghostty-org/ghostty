@@ -254,7 +254,6 @@ pub fn initShaders(
 }
 
 pub fn initTarget(self: *const Vulkan, width: usize, height: usize) !Target {
-    _ = self;
     // SRGB format so the hardware gamma-encodes the linear premultiplied
     // shader output at framebuffer-write time. The renderer's shaders
     // produce linear premultiplied alpha; without an sRGB format the
@@ -263,12 +262,33 @@ pub fn initTarget(self: *const Vulkan, width: usize, height: usize) !Target {
     // encoded — colors would look way too dark. The DRM fourcc the
     // host sees is still ARGB8888; SRGB encoding is a Vulkan-side
     // concern only.
+    //
+    // Per-surface platform: pulled from rt_surface so the `present`
+    // callback's `userdata` points at THIS surface's window. The
+    // process-global Device has its own `platform` copy from
+    // whichever surface first initialized it; splits and tabs would
+    // otherwise route their dmabuf frames to the wrong window.
+    const platform = surfacePlatform(self.rt_surface);
     return try Target.init(.{
         .device = devicePtr(),
         .format = vk.VK_FORMAT_B8G8R8A8_SRGB,
         .width = @intCast(width),
         .height = @intCast(height),
+        .platform = platform,
     });
+}
+
+/// Extract the Vulkan platform callbacks from a surface, when the
+/// surface was created with the Vulkan platform tag. Returns null
+/// otherwise (smoke test / OpenGL surfaces).
+fn surfacePlatform(rt_surface: *apprt.Surface) ?apprt.embedded.Platform.Vulkan {
+    return switch (apprt.runtime) {
+        else => null,
+        apprt.embedded => switch (rt_surface.platform) {
+            .vulkan => |p| p,
+            else => null,
+        },
+    };
 }
 
 pub fn surfaceSize(self: *const Vulkan) !struct { width: u32, height: u32 } {
