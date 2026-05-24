@@ -20,24 +20,78 @@ extern "C" {
 
 /** @defgroup grid_ref Grid Reference
  *
- * A grid reference is a resolved reference to a specific cell position in the
- * terminal's internal page structure. Obtain a grid reference from
- * ghostty_terminal_grid_ref(), then extract the cell or row via
- * ghostty_grid_ref_cell() and ghostty_grid_ref_row().
+ * A grid reference is a reference to a specific cell position in the 
+ * terminal. Obtain a grid reference from `ghostty_terminal_grid_ref`
+ * for untracked or `ghostty_terminal_grid_ref_track` for tracked. Untracked
+ * vs tracked is explained next.
  *
- * A grid reference is only valid until the next update to the terminal
- * instance. There is no guarantee that a grid reference will remain
- * valid after ANY operation, even if a seemingly unrelated part of
- * the grid is changed, so any information related to the grid reference
- * should be read and cached immediately after obtaining the grid reference.
+ * Important: The grid reference APIs are not meant to be used as the core of a render
+ * loop. They are not built to sustain the framerates needed for rendering large
+ * screens. Use the render state API for that.
  *
- * This API is not meant to be used as the core of render loop. It isn't 
- * built to sustain the framerates needed for rendering large screens. 
- * Use the render state API for that. 
+ * ## Untracked vs Tracked References
+ *  
+ * ### Untracked Reference
  *
- * ## Example
+ * An untracked grid reference is a value type that snapshots a specific
+ * cell. It is only valid until the next update to the terminal instance.
+ * There is no guarantee that it will remain valid after any operation,
+ * even if a seemingly unrelated part of the grid is changed. These are meant
+ * to be read and have their values cached immediately after obtaining it.
+ *
+ * An untracked grid reference has a performance cost in its initial lookup,
+ * but doesn't affect the ongoing performance of the terminal in any way,
+ * since it is a one-time snapshot.
+ *
+ * ### Tracked Reference
+ *
+ * A tracked grid reference follows its cell across normal screen operations.
+ * For example scrolling, scrollback pruning, resize/reflow, and other
+ * terminal mutations update the tracked reference automatically.
+ * 
+ * A tracked reference can still lose its original semantic location. This can
+ * happen when the underlying grid is reset, pruned, or otherwise discarded in a
+ * way that cannot be mapped to a meaningful new cell. In that state,
+ * ghostty_tracked_grid_ref_has_value() returns false and
+ * ghostty_tracked_grid_ref_snapshot() / ghostty_tracked_grid_ref_point() return
+ * GHOSTTY_NO_VALUE. The handle remains valid, and callers may move it to a new
+ * point with ghostty_tracked_grid_ref_set().
+ *
+ * To read cell data from a tracked reference, first snapshot it with
+ * ghostty_tracked_grid_ref_snapshot(). The returned `GhosttyGridRef` is again
+ * an untracked reference and follows the same short lifetime rules as any other
+ * untracked grid reference.
+ *
+ * A tracked reference belongs to the terminal screen/page-list that was active
+ * when it was created or last set. Converting it to a point uses that owning
+ * screen/page-list, even if the terminal has since switched between primary and
+ * alternate screens. Calling ghostty_tracked_grid_ref_set() resolves the new
+ * point against the terminal's currently active screen/page-list and may move
+ * the tracked reference between screens.
+ *
+ * Tracked references are owned by the caller and must be freed with
+ * ghostty_tracked_grid_ref_free() before the terminal that created them is
+ * freed. 
+ *
+ * Each tracked reference adds bookkeeping to terminal mutations. Use them 
+ * sparingly for long-lived anchors such as selections, search state, marks, 
+ * or application-side bookmarks.
+ *
+ * ## Lifetime
+ *
+ * An untracked reference is a snapshot. It doesn't need to be freed.
+ * The safety of accessing the value is documented explicitly above: it
+ * is only safe to access any data until the next terminal mutating
+ * operation (including free).
+ *
+ * A tracked reference is allocated and must be freed when it is no
+ * longer needed. All tracked references must be freed prior to the
+ * terminal being freed.
+ *
+ * ## Examples
  *
  * @snippet c-vt-grid-traverse/src/main.c grid-ref-traverse
+ * @snippet c-vt-grid-ref-tracked/src/main.c grid-ref-tracked
  *
  * @{
  */

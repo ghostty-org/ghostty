@@ -95,6 +95,16 @@ typedef enum GHOSTTY_ENUM_TYPED {
 typedef struct GhosttyTerminalImpl* GhosttyTerminal;
 
 /**
+ * Opaque handle to a tracked grid reference.
+ *
+ * A tracked grid reference is owned by the caller and must be freed with
+ * ghostty_tracked_grid_ref_free() before the terminal that created it is freed.
+ *
+ * @ingroup grid_ref
+ */
+typedef struct GhosttyTrackedGridRefImpl* GhosttyTrackedGridRef;
+
+/**
  * Opaque handle to a Kitty graphics image storage.
  *
  * Obtained via ghostty_terminal_get() with

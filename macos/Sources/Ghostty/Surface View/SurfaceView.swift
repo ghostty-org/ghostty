@@ -417,6 +417,9 @@ extension Ghostty {
                         // to our synced needle.
                         searchState.readPasteboardNeedle()
                     }
+                    .onSubmit {
+                        _ = surfaceView.navigateSearchToNext()
+                    }
 #if canImport(AppKit)
                     .onExitCommand {
                         if searchState.needle.isEmpty {
@@ -429,10 +432,9 @@ extension Ghostty {
                     .backport.onKeyPress(.return) { modifiers in
                         if modifiers.contains(.shift) {
                             _ = surfaceView.navigateSearchToPrevious()
-                        } else {
-                            _ = surfaceView.navigateSearchToNext()
+                            return .handled
                         }
-                        return .handled
+                        return .ignored
                     }
 
                     Button(action: {

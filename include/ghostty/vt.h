@@ -54,6 +54,7 @@
  * - @ref c-vt-sgr/src/main.c - SGR parser example
  * - @ref c-vt-formatter/src/main.c - Terminal formatter example
  * - @ref c-vt-grid-traverse/src/main.c - Grid traversal example using grid refs
+ * - @ref c-vt-grid-ref-tracked/src/main.c - Tracked grid ref example
  *
  */
 
@@ -98,6 +99,11 @@
  * grid refs to inspect cell codepoints, row wrap state, and cell styles.
  */
 
+/** @example c-vt-grid-ref-tracked/src/main.c
+ * This example demonstrates how to track a grid ref as the terminal scrolls,
+ * detect when it loses its value, and move it to a new point.
+ */
+
 /** @example c-vt-kitty-graphics/src/main.c
  * This example demonstrates how to use the system interface to install a
  * PNG decoder callback and send a Kitty Graphics Protocol image.
@@ -120,6 +126,7 @@ extern "C" {
 #include <ghostty/vt/render.h>
 #include <ghostty/vt/terminal.h>
 #include <ghostty/vt/grid_ref.h>
+#include <ghostty/vt/grid_ref_tracked.h>
 #include <ghostty/vt/osc.h>
 #include <ghostty/vt/sgr.h>
 #include <ghostty/vt/style.h>
