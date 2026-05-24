@@ -75,29 +75,41 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
   // translucent background lets that alpha reach the desktop.
   setAttribute(Qt::WA_TranslucentBackground);
 
-  // A private OpenGL context for libghostty's renderer. It is never made
-  // current on a window — rendering goes to an offscreen framebuffer —
-  // so an unparented QOffscreenSurface is enough to satisfy makeCurrent.
-  m_context = new QOpenGLContext(this);
-  m_context->setFormat(QSurfaceFormat::defaultFormat());
-  if (!m_context->create()) {
-    std::fprintf(stderr, "[ghastty] GL context creation failed\n");
-    return;
-  }
-  m_offscreen = new QOffscreenSurface(nullptr, this);
-  m_offscreen->setFormat(m_context->format());
-  m_offscreen->create();
-
-  if (!makeCurrent()) {
-    std::fprintf(stderr, "[ghastty] makeCurrent failed\n");
-    return;
+  // Pick the renderer up-front so the rest of the surface setup
+  // (GL context vs. Vulkan host) only touches the path we'll
+  // actually use. Mixing the two on the same process can confuse
+  // some drivers (NVIDIA's GL+VK coexistence on a single Wayland
+  // surface is reportedly fragile); keep them disjoint.
+  vulkan::Host *vk_host = nullptr;
+  if (const char *r = std::getenv("GHASTTY_RENDERER");
+      r != nullptr && std::strcmp(r, "vulkan") == 0) {
+    vk_host = vulkan::Host::instance();
   }
 
-  // A placeholder framebuffer; resizeEvent installs the real size.
-  QOpenGLFramebufferObjectFormat fmt;
-  fmt.setInternalTextureFormat(GL_RGBA8);
-  m_fbw = m_fbh = 16;
-  m_fbo = new QOpenGLFramebufferObject(QSize(m_fbw, m_fbh), fmt);
+  if (vk_host == nullptr) {
+    // OpenGL path: stand up the private context + offscreen FBO
+    // libghostty's GL renderer draws into.
+    m_context = new QOpenGLContext(this);
+    m_context->setFormat(QSurfaceFormat::defaultFormat());
+    if (!m_context->create()) {
+      std::fprintf(stderr, "[ghastty] GL context creation failed\n");
+      return;
+    }
+    m_offscreen = new QOffscreenSurface(nullptr, this);
+    m_offscreen->setFormat(m_context->format());
+    m_offscreen->create();
+
+    if (!makeCurrent()) {
+      std::fprintf(stderr, "[ghastty] makeCurrent failed\n");
+      return;
+    }
+
+    // A placeholder framebuffer; resizeEvent installs the real size.
+    QOpenGLFramebufferObjectFormat fmt;
+    fmt.setInternalTextureFormat(GL_RGBA8);
+    m_fbw = m_fbh = 16;
+    m_fbo = new QOpenGLFramebufferObject(QSize(m_fbw, m_fbh), fmt);
+  }
 
   ghostty_surface_config_s sc =
       m_parentSurface
@@ -105,20 +117,8 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
                                              GHOSTTY_SURFACE_CONTEXT_TAB)
           : ghostty_surface_config_new();
 
-  // Vulkan path: if the user opted in with `GHASTTY_RENDERER=vulkan`
-  // AND the process-wide Vulkan host came up at launch (see
-  // `main.cpp`), use the Vulkan platform plumbing. Otherwise fall
-  // back to the existing OpenGL path. The Vulkan-side rendering is
-  // still bring-up — frames are exported as dmabuf fds via the
-  // host's `present` callback (currently just logged); display via
-  // QRhiTexture import is the next chunk of Qt-side work.
-  vulkan::Host *vk_host = nullptr;
-  if (const char *r = std::getenv("GHASTTY_RENDERER");
-      r != nullptr && std::strcmp(r, "vulkan") == 0) {
-    vk_host = vulkan::Host::instance();
-  }
-
   if (vk_host != nullptr) {
+    m_useVulkan = true;
     sc.platform_tag = GHOSTTY_PLATFORM_VULKAN;
     sc.platform.vulkan = vk_host->asPlatform(this);
   } else {
@@ -325,6 +325,23 @@ void GhosttySurface::renderTerminal() {
 }
 
 void GhosttySurface::paintEvent(QPaintEvent *) {
+  // Vulkan-backed surface: libghostty hands frames to the host via
+  // a dmabuf fd; we don't yet composite them back into this widget.
+  // Paint a visible placeholder so the (translucent) MainWindow
+  // isn't completely invisible. Replace with the imported
+  // QRhiTexture once the dmabuf-import path lands.
+  if (m_useVulkan) {
+    QPainter painter(this);
+    painter.setCompositionMode(QPainter::CompositionMode_Source);
+    painter.fillRect(rect(), QColor(40, 22, 56)); // muted purple — debug placeholder
+    painter.setPen(QColor(220, 220, 220));
+    painter.drawText(rect(),
+                     Qt::AlignCenter,
+                     QStringLiteral("Vulkan renderer\n(dmabuf import not yet wired)"));
+    paintResizeOverlay(painter);
+    return;
+  }
+
   if (m_image.isNull()) return;
   QPainter painter(this);
   // Blit the framebuffer 1:1. m_image carries the device pixel ratio, so

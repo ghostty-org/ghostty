@@ -207,11 +207,20 @@ private:
   ghostty_surface_t m_parentSurface;   // inherited-config source; may be null
   ghostty_surface_t m_surface = nullptr;
 
-  // Private offscreen GL context libghostty renders into.
+  // Private offscreen GL context libghostty renders into. Null for
+  // the Vulkan-backed renderer (libghostty hands frames back via a
+  // dmabuf fd to the apprt's `present` callback — no GL involved).
   QOpenGLContext *m_context = nullptr;
   QOffscreenSurface *m_offscreen = nullptr;
   QOpenGLFramebufferObject *m_fbo = nullptr;
   QImage m_image;                      // last frame, read back from m_fbo
+
+  // True when this surface is using the Vulkan platform. The
+  // paintEvent uses this to draw a visible placeholder until the
+  // host-side dmabuf-import + composite work lands; otherwise the
+  // widget would paint nothing on a translucent window and look
+  // invisible.
+  bool m_useVulkan = false;
 
   // GL objects for the alpha-premultiply pass.
   QOpenGLShaderProgram *m_premultProg = nullptr;
