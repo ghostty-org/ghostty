@@ -353,6 +353,7 @@ pub const Platform = union(PlatformTag) {
     macos: MacOS,
     ios: IOS,
     opengl: OpenGL,
+    vulkan: Vulkan,
 
     // If our build target for libghostty is not darwin then we do
     // not include macos support at all.
@@ -395,6 +396,50 @@ pub const Platform = union(PlatformTag) {
         present: *const fn (?*anyopaque) callconv(.c) void,
     };
 
+    /// Configuration for a host that owns a Vulkan device libghostty
+    /// should render against (fork-only, in progress). The host owns
+    /// the VkInstance / VkPhysicalDevice / VkDevice / VkQueue — same
+    /// ownership model as `OpenGL` above. Frames are handed back to
+    /// the host as dmabuf file descriptors so the host can sample
+    /// them without a CPU readback.
+    ///
+    /// Handles are `?*anyopaque` here so callers don't need Vulkan
+    /// headers to compile against the C API; treat them as VkInstance,
+    /// VkPhysicalDevice, VkDevice, VkQueue respectively.
+    pub const Vulkan = struct {
+        userdata: ?*anyopaque,
+
+        /// Resolve `vkGetInstanceProcAddr` (returned as `?*anyopaque`).
+        /// libghostty bootstraps the rest of the Vulkan loader from it.
+        get_instance_proc_addr: *const fn (
+            ?*anyopaque,
+            [*:0]const u8,
+        ) callconv(.c) ?*anyopaque,
+
+        /// Host-owned Vulkan handles. libghostty does not destroy
+        /// these.
+        instance: *const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+        physical_device: *const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+        device: *const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+        queue: *const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+        queue_family_index: *const fn (?*anyopaque) callconv(.c) u32,
+
+        /// Hand off a rendered frame to the host as a dmabuf fd. The
+        /// host imports it for composition; libghostty retains
+        /// ownership of the underlying VkDeviceMemory and the fd is
+        /// valid only for the duration of the call (host must `dup()`
+        /// if it needs to hold the fd longer).
+        present: *const fn (
+            ?*anyopaque,
+            i32, // dmabuf fd
+            u32, // DRM_FORMAT_*
+            u64, // DRM modifier
+            u32, // width (pixels)
+            u32, // height (pixels)
+            u32, // stride (bytes)
+        ) callconv(.c) void,
+    };
+
     // The C ABI compatible version of this union. The tag is expected
     // to be stored elsewhere.
     pub const C = extern union {
@@ -415,6 +460,28 @@ pub const Platform = union(PlatformTag) {
             make_current: ?*const fn (?*anyopaque) callconv(.c) void,
             release_current: ?*const fn (?*anyopaque) callconv(.c) void,
             present: ?*const fn (?*anyopaque) callconv(.c) void,
+        },
+
+        vulkan: extern struct {
+            userdata: ?*anyopaque,
+            get_instance_proc_addr: ?*const fn (
+                ?*anyopaque,
+                [*:0]const u8,
+            ) callconv(.c) ?*anyopaque,
+            instance: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+            physical_device: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+            device: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+            queue: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+            queue_family_index: ?*const fn (?*anyopaque) callconv(.c) u32,
+            present: ?*const fn (
+                ?*anyopaque,
+                i32,
+                u32,
+                u64,
+                u32,
+                u32,
+                u32,
+            ) callconv(.c) void,
         },
     };
 
@@ -450,6 +517,27 @@ pub const Platform = union(PlatformTag) {
                         break :opengl error.PresentMustBeSet,
                 } };
             },
+
+            .vulkan => vulkan: {
+                const config = c_platform.vulkan;
+                break :vulkan .{ .vulkan = .{
+                    .userdata = config.userdata,
+                    .get_instance_proc_addr = config.get_instance_proc_addr orelse
+                        break :vulkan error.GetInstanceProcAddrMustBeSet,
+                    .instance = config.instance orelse
+                        break :vulkan error.InstanceMustBeSet,
+                    .physical_device = config.physical_device orelse
+                        break :vulkan error.PhysicalDeviceMustBeSet,
+                    .device = config.device orelse
+                        break :vulkan error.DeviceMustBeSet,
+                    .queue = config.queue orelse
+                        break :vulkan error.QueueMustBeSet,
+                    .queue_family_index = config.queue_family_index orelse
+                        break :vulkan error.QueueFamilyIndexMustBeSet,
+                    .present = config.present orelse
+                        break :vulkan error.PresentMustBeSet,
+                } };
+            },
         };
     }
 };
@@ -461,6 +549,10 @@ pub const PlatformTag = enum(c_int) {
     macos = 1,
     ios = 2,
     opengl = 3,
+    // Fork-only, in progress: the platform plumbing is here so the C
+    // ABI is stable, but the renderer is currently a stub. Selecting
+    // `-Drenderer=vulkan` fails at comptime in `src/renderer.zig`.
+    vulkan = 4,
 };
 
 pub const EnvVar = extern struct {

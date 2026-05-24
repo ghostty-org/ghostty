@@ -211,8 +211,9 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
                 try prepareContext(&gladHostLoader);
             },
 
-            // macOS and iOS use the Metal renderer.
-            .macos, .ios => return error.UnsupportedPlatform,
+            // macOS and iOS use the Metal renderer; the Vulkan platform
+            // is only valid with the Vulkan renderer (currently a stub).
+            .macos, .ios, .vulkan => return error.UnsupportedPlatform,
         },
     }
 

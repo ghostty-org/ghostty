@@ -39,6 +39,13 @@ pub const Renderer = switch (build_config.renderer) {
     .metal => GenericRenderer(Metal),
     .opengl => GenericRenderer(OpenGL),
     .webgl => WebGL,
+    .vulkan => @compileError(
+        "Vulkan renderer is not yet implemented. The backend is declared " ++
+            "and the apprt platform callbacks exist as a stub; the renderer " ++
+            "itself lands in follow-up commits on `qt-vulkan-renderer`. " ++
+            "Build with `-Drenderer=opengl` (default on Linux) until the " ++
+            "implementation lands.",
+    ),
 };
 
 /// The health status of a renderer. These must be shared across all

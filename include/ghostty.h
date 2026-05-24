@@ -67,6 +67,11 @@ typedef enum {
   GHOSTTY_PLATFORM_MACOS,
   GHOSTTY_PLATFORM_IOS,
   GHOSTTY_PLATFORM_OPENGL,
+  // Vulkan is a fork-only addition (in-progress). The platform plumbing
+  // and callback shape are stable; the renderer itself is currently a
+  // stub and selecting it at build time fails with a compile error
+  // pointing at the qt-vulkan-renderer branch.
+  GHOSTTY_PLATFORM_VULKAN,
 } ghostty_platform_e;
 
 typedef enum {
@@ -481,10 +486,52 @@ typedef struct {
   void (*present)(void* userdata);
 } ghostty_platform_opengl_s;
 
+// Vulkan host integration (fork-only, in progress). The host owns the
+// VkInstance / VkPhysicalDevice / VkDevice / VkQueue (same ownership
+// model as the OpenGL host); libghostty creates pipelines, command
+// pools, and images against that device. Frames are handed back to the
+// host as dmabuf file descriptors so a compositor-side toolkit (e.g.
+// Qt RHI via QRhiTexture) can sample them without a CPU readback.
+//
+// Handles are typed as void* here so consumers don't need the Vulkan
+// headers to compile the public C API; callers should treat them as
+// VkInstance, VkPhysicalDevice, VkDevice, VkQueue respectively.
+typedef struct {
+  // Userdata passed as the first argument to every callback below.
+  void* userdata;
+
+  // Return the address of vkGetInstanceProcAddr (as void*). libghostty
+  // uses this as the loader entry point for every other Vulkan
+  // function it needs.
+  void* (*get_instance_proc_addr)(void* userdata, const char* name);
+
+  // Host-owned Vulkan handles. libghostty does not destroy these; they
+  // remain owned by the host for the surface's lifetime.
+  void* (*instance)(void* userdata);          // VkInstance
+  void* (*physical_device)(void* userdata);   // VkPhysicalDevice
+  void* (*device)(void* userdata);            // VkDevice
+  void* (*queue)(void* userdata);             // VkQueue
+  uint32_t (*queue_family_index)(void* userdata);
+
+  // Hand off a rendered frame to the host as a dmabuf fd. The host
+  // imports it (e.g. into Qt's RHI as a QRhiTexture) and composites.
+  // libghostty retains ownership of the underlying VkDeviceMemory;
+  // the host must dup() the fd if it needs to hold it past the call.
+  void (*present)(
+      void* userdata,
+      int dmabuf_fd,
+      uint32_t drm_format,
+      uint64_t drm_modifier,
+      uint32_t width,
+      uint32_t height,
+      uint32_t stride);
+} ghostty_platform_vulkan_s;
+
 typedef union {
   ghostty_platform_macos_s macos;
   ghostty_platform_ios_s ios;
   ghostty_platform_opengl_s opengl;
+  ghostty_platform_vulkan_s vulkan;
 } ghostty_platform_u;
 
 typedef enum {
