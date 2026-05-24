@@ -364,5 +364,15 @@ pub fn initAtlasTexture(
 }
 
 test {
-    std.testing.refAllDecls(@This());
+    // Don't `refAllDecls` here — some methods (like `surfaceSize`)
+    // @compileError when `apprt.runtime` is `.none`, which is the
+    // runtime used by `zig build test`. Force-resolving every decl
+    // would trip those errors before tests can run. The OpenGL and
+    // Metal backends sidestep this by not having a `test {}` block
+    // at all.
+    //
+    // We DO want to pull in the smoke test (gated on
+    // `GHOSTTY_VULKAN_SMOKE` env var so it doesn't run resource-
+    // creating tests by default).
+    _ = @import("vulkan/smoke.zig");
 }
