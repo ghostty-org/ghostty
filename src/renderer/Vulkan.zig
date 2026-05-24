@@ -109,6 +109,20 @@ threadlocal var device: ?Device = null;
 /// reason as `device`.
 threadlocal var last_target: ?Target = null;
 
+/// Per-surface (per-thread) command pool used for the frame's
+/// command buffer. Lazily created in `beginFrame` on the first call;
+/// destroyed in `deinit`.
+threadlocal var frame_pool: ?CommandPool = null;
+
+/// The single command buffer allocated from `frame_pool` and reused
+/// across frames. `vkResetCommandBuffer` is called at the start of
+/// each `beginFrame` to clear prior recording.
+threadlocal var frame_cb: vk.VkCommandBuffer = null;
+
+/// Fence signaled when each frame's submit completes. We wait on it
+/// in `Frame.complete` before handing the target dmabuf to the host.
+threadlocal var frame_fence: vk.VkFence = null;
+
 // ---- lifecycle ----------------------------------------------------------
 
 pub fn init(alloc: Allocator, opts: rendererpkg.Options) error{}!Vulkan {
@@ -120,6 +134,23 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) error{}!Vulkan {
 }
 
 pub fn deinit(self: *Vulkan) void {
+    // Tear down per-frame state in the right order: wait for any
+    // in-flight submit, then destroy fence, free CB, destroy pool.
+    if (device) |*d| {
+        d.waitIdle();
+        if (frame_fence != null) {
+            d.dispatch.destroyFence(d.device, frame_fence, null);
+            frame_fence = null;
+        }
+        if (frame_pool != null and frame_cb != null) {
+            d.dispatch.freeCommandBuffers(d.device, frame_pool.?.pool, 1, &frame_cb);
+            frame_cb = null;
+        }
+        if (frame_pool) |*p| {
+            p.deinit();
+            frame_pool = null;
+        }
+    }
     if (last_target) |*t| t.deinit();
     last_target = null;
     if (device) |*d| d.deinit();
@@ -210,10 +241,15 @@ pub fn initTarget(self: *const Vulkan, width: usize, height: usize) !Target {
 
 pub fn present(self: *Vulkan, target: Target) !void {
     _ = self;
-    _ = target;
-    @panic("Vulkan.present: not yet implemented — the per-frame " ++
-        "draw recording in `RenderPass.step` has to land first. " ++
-        "See `qt-vulkan-renderer` branch follow-ups.");
+    // The target is already populated by the time we get here:
+    // `Frame.complete` ended the command buffer, submitted with the
+    // fence, and waited for the GPU to finish before returning. So
+    // the dmabuf fd is safe to hand off.
+    target.present();
+    // Stash for `presentLastTarget`. We copy by value — `Target`'s
+    // handles are POD pointers/ids, so a value copy is fine and the
+    // original `Target` ownership stays with the caller.
+    last_target = target;
 }
 
 pub fn presentLastTarget(self: *Vulkan) !void {
@@ -225,12 +261,47 @@ pub fn beginFrame(
     renderer: *rendererpkg.Renderer,
     target: *Target,
 ) !Frame {
-    _ = self;
     _ = renderer;
-    _ = target;
-    @panic("Vulkan.beginFrame: not yet implemented — the per-surface " ++
-        "command pool / command buffer / fence aren't wired in yet. " ++
-        "See `qt-vulkan-renderer` branch follow-ups.");
+    const dev = devicePtr();
+
+    // Lazy per-thread resource init. The first call to `beginFrame`
+    // on a renderer thread sets up the command pool + buffer + fence
+    // that get reused for every subsequent frame.
+    if (frame_pool == null) {
+        frame_pool = try CommandPool.init(dev);
+        const alloc_info: vk.VkCommandBufferAllocateInfo = .{
+            .sType = vk.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .pNext = null,
+            .commandPool = frame_pool.?.pool,
+            .level = vk.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            .commandBufferCount = 1,
+        };
+        if (dev.dispatch.allocateCommandBuffers(dev.device, &alloc_info, &frame_cb) != vk.VK_SUCCESS)
+            return error.VulkanFailed;
+
+        const fence_info: vk.VkFenceCreateInfo = .{
+            .sType = vk.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+            .pNext = null,
+            // Created signaled so the very first `Frame.complete`
+            // doesn't try to reset an unsignaled fence.
+            .flags = vk.VK_FENCE_CREATE_SIGNALED_BIT,
+        };
+        if (dev.dispatch.createFence(dev.device, &fence_info, null, &frame_fence) != vk.VK_SUCCESS)
+            return error.VulkanFailed;
+    }
+
+    _ = self;
+    // Reset the command buffer + fence so this frame starts clean.
+    if (dev.dispatch.resetCommandBuffer(frame_cb, 0) != vk.VK_SUCCESS)
+        return error.VulkanFailed;
+    if (dev.dispatch.resetFences(dev.device, 1, &frame_fence) != vk.VK_SUCCESS)
+        return error.VulkanFailed;
+
+    return try Frame.begin(
+        .{ .cb = frame_cb, .fence = frame_fence },
+        dev,
+        target,
+    );
 }
 
 // ---- buffer / texture / sampler option getters --------------------------

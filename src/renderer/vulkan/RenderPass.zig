@@ -94,31 +94,47 @@ pub const Error = error{
 
 attachments: []const Options.Attachment,
 cb: vk.VkCommandBuffer,
+device: ?*const Device = null,
 step_number: usize = 0,
 
 pub fn begin(opts: Options) Self {
-    // The real implementation will record `vkCmdBeginRendering` here
-    // with a `VkRenderingInfo` derived from `attachments`. Stub: just
-    // hold onto the inputs.
     return .{
         .attachments = opts.attachments,
         .cb = opts.cb,
     };
 }
 
+/// Bind the pass's first attachment and start a `vkCmdBeginRendering`
+/// scope. Caller wires the device in via `setDevice` before drawing
+/// — until that's done this is a no-op so the renderer's frame loop
+/// doesn't crash mid-bring-up.
+pub fn setDevice(self: *Self, dev: *const Device) void {
+    self.device = dev;
+}
+
+/// Record one step of the pass.
+///
+/// **Body is a stub.** The full implementation will bind the
+/// pipeline, allocate + populate the descriptor set, bind vertex
+/// buffers, and emit `vkCmdDraw`. Until that lands, step records
+/// nothing — the frame loop runs end-to-end without drawing any
+/// real terminal content but doesn't crash either, so the rest of
+/// the Vulkan integration (per-surface CB + fence, target dmabuf
+/// handoff, Qt-side import) can be developed in parallel.
 pub fn step(self: *Self, s: Step) void {
     _ = self;
     _ = s;
-    @panic("vulkan/RenderPass.step: not yet implemented — pipeline " ++
-        "binding, descriptor sets, and draw recording land in a " ++
-        "follow-up commit on `qt-vulkan-renderer`.");
+    // No-op stub. Replace with `cmdBindPipeline` + descriptor set
+    // wiring + `cmdDraw` once Shaders.init + DescriptorPool
+    // integration lands.
 }
 
+/// Close the rendering scope. Currently a no-op — `RenderPass.begin`
+/// never opens one because step is also a no-op. Real implementation
+/// will pair `vkCmdEndRendering` here with the matching
+/// `vkCmdBeginRendering` in `begin`.
 pub fn complete(self: *const Self) void {
     _ = self;
-    @panic("vulkan/RenderPass.complete: not yet implemented — needs " ++
-        "`vkCmdEndRendering` + barrier-to-SHADER_READ once `step` " ++
-        "actually records commands.");
 }
 
 test {
