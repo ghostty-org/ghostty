@@ -99,6 +99,16 @@ cb: vk.VkCommandBuffer,
 device: *const Device,
 step_number: usize = 0,
 
+/// Last `Step.uniforms` value seen in this pass. The OpenGL backend
+/// keeps the bound UBO across draw calls implicitly (GL state
+/// persists), and the renderer's image/overlay draw calls in
+/// `image.zig` don't pass `uniforms` at all — they expect the
+/// previously-bound UBO to still be live. Vulkan needs explicit
+/// descriptor-set updates per pipeline, so we cache the last UBO
+/// buffer here and reuse it when a step doesn't supply one. Reset
+/// to null at `begin`.
+last_uniforms: ?vk.VkBuffer = null,
+
 /// Begin a render pass. Transitions the first attachment to
 /// `COLOR_ATTACHMENT_OPTIMAL` and opens a `vkCmdBeginRendering`
 /// scope with the caller's clear color (defaults to opaque black).
@@ -298,8 +308,13 @@ pub fn step(self: *Self, s: Step) void {
     // tiny (1 UBO + a handful of storage buffers + a handful of
     // samplers) so batching wouldn't move the needle.
 
-    // UBO (set 0)
-    if (s.pipeline.descriptor_sets[0] != null) if (s.uniforms) |ubo_buffer| {
+    // UBO (set 0). The OpenGL backend's image/overlay draws don't
+    // pass `uniforms` — they expect the previously-bound UBO to
+    // persist. Fall back to `last_uniforms` when the Step doesn't
+    // supply one. Track the new one for later steps.
+    const ubo: ?vk.VkBuffer = s.uniforms orelse self.last_uniforms;
+    if (s.uniforms) |b| self.last_uniforms = b;
+    if (s.pipeline.descriptor_sets[0] != null) if (ubo) |ubo_buffer| {
         const buffer_info: vk.VkDescriptorBufferInfo = .{
             .buffer = ubo_buffer,
             .offset = 0,
@@ -333,6 +348,7 @@ pub fn step(self: *Self, s: Step) void {
                 s.pipeline.sampler
             else
                 continue;
+
             const image_info: vk.VkDescriptorImageInfo = .{
                 .sampler = sampler_handle,
                 .imageView = tex.view,
@@ -432,18 +448,39 @@ pub fn complete(self: *const Self) void {
 
     self.device.dispatch.cmdEndRendering(self.cb);
 
-    const image: vk.VkImage = switch (self.attachments[0].target) {
-        .texture => |t| t.image,
-        .target => |t| t.image,
-    };
+    // Final layout depends on what consumes the attachment next.
+    // A `.texture` attachment is the custom-shader back_texture, read
+    // by the post pass's sampler — transition to SHADER_READ_ONLY so
+    // the descriptor write's declared layout matches reality
+    // (otherwise validation flags VUID-vkCmdDraw-imageLayout-00344
+    // and some drivers can mishandle sampling from an out-of-spec
+    // layout). A `.target` attachment is the dmabuf-backed
+    // `frame.target`; the next op is
+    // `Target.recordCopyToDmabuf` which transitions from GENERAL
+    // anyway, so leave it in GENERAL here.
+    const image: vk.VkImage, const new_layout: vk.VkImageLayout, const dst_stage: vk.VkPipelineStageFlags, const dst_access: vk.VkAccessFlags =
+        switch (self.attachments[0].target) {
+            .texture => |t| .{
+                t.image,
+                vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                vk.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                vk.VK_ACCESS_SHADER_READ_BIT,
+            },
+            .target => |t| .{
+                t.image,
+                vk.VK_IMAGE_LAYOUT_GENERAL,
+                vk.VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                0,
+            },
+        };
 
     const barrier: vk.VkImageMemoryBarrier = .{
         .sType = vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
         .pNext = null,
         .srcAccessMask = vk.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-        .dstAccessMask = 0,
+        .dstAccessMask = dst_access,
         .oldLayout = vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        .newLayout = vk.VK_IMAGE_LAYOUT_GENERAL,
+        .newLayout = new_layout,
         .srcQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
         .image = image,
@@ -458,7 +495,7 @@ pub fn complete(self: *const Self) void {
     self.device.dispatch.cmdPipelineBarrier(
         self.cb,
         vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        vk.VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+        dst_stage,
         0,
         0, null,
         0, null,

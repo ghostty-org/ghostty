@@ -716,6 +716,14 @@ pub const Shaders = struct {
     /// `deinit`.
     atlas_sampler: ?Sampler = null,
 
+    /// Sampler used by the image + bg_image pipelines. Normalized,
+    /// linear filter, clamp-to-edge — sampled in shadertoy/normal
+    /// 2D fashion. Separate from `atlas_sampler` because that one
+    /// uses unnormalized coords for the cell-text glyph atlases;
+    /// the two requirements are mutually exclusive in a single
+    /// `VkSampler`.
+    image_sampler: ?Sampler = null,
+
     defunct: bool = false,
 
     /// The compiled `VkShaderModule`s for the renderer's built-in
@@ -1037,10 +1045,136 @@ pub const Shaders = struct {
         });
         errdefer cell_text_pipeline.deinit();
 
+        // ---- image pipeline (kitty graphics, overlay) ------------
+        //
+        // Per-instance fullscreen quad (triangle-strip, 4 verts) that
+        // draws ONE image rectangle into the grid. The renderer's
+        // `image.zig:draw` records one Step per visible image
+        // placement, each with its own VkBuffer (single
+        // `Image`-struct instance) and texture.
+        //
+        // Bindings after `vulkanizeGlsl`:
+        //   set 0 binding 1  Globals UBO (vertex stage:
+        //                    projection_matrix + cell_size; fragment
+        //                    stage: `bools` for linear-blending check)
+        //   set 1 binding 0  combined image sampler (the kitty image
+        //                    texture — sampled normalized; pipeline's
+        //                    owned `image_sampler` is the fallback
+        //                    since the renderer doesn't pass a
+        //                    Sampler with the Step).
+        const image_ubo_dsl = try createSingleBindingDsl(
+            device,
+            1,
+            vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            vk.VK_SHADER_STAGE_VERTEX_BIT | vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+        );
+        tracker.track(image_ubo_dsl);
+        const image_sampler_dsl = try createSingleBindingDsl(
+            device,
+            0,
+            vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            vk.VK_SHADER_STAGE_VERTEX_BIT | vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+        );
+        tracker.track(image_sampler_dsl);
+
+        // Vertex input: `Image` struct (48 bytes after alignment).
+        // Attributes match the GLSL `layout(location = N) in ...`
+        // declarations in `image.v.glsl`.
+        const image_attrs = [_]vk.VkVertexInputAttributeDescription{
+            .{ .location = 0, .binding = 0, .format = vk.VK_FORMAT_R32G32_SFLOAT, .offset = @offsetOf(Image, "grid_pos") },
+            .{ .location = 1, .binding = 0, .format = vk.VK_FORMAT_R32G32_SFLOAT, .offset = @offsetOf(Image, "cell_offset") },
+            .{ .location = 2, .binding = 0, .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT, .offset = @offsetOf(Image, "source_rect") },
+            .{ .location = 3, .binding = 0, .format = vk.VK_FORMAT_R32G32_SFLOAT, .offset = @offsetOf(Image, "dest_size") },
+        };
+
+        // Normalized linear sampler shared by image + bg_image. Kept
+        // alongside `atlas_sampler` (which is unnormalized) so the
+        // two consumers don't fight over a single shared sampler's
+        // properties.
+        const image_sampler = try Sampler.init(.{
+            .device = device,
+            .min_filter = .linear,
+            .mag_filter = .linear,
+            .wrap_s = .clamp_to_edge,
+            .wrap_t = .clamp_to_edge,
+        });
+        errdefer image_sampler.deinit();
+
+        const image_pipeline = try Pipeline.init(.{
+            .device = device,
+            .descriptor_pool = &pool,
+            .vertex_module = modules.image_vert.handle,
+            .fragment_module = modules.image_frag.handle,
+            .vertex_input = .{
+                .stride = @sizeOf(Image),
+                .step_fn = .per_instance,
+                .attributes = &image_attrs,
+            },
+            .descriptor_set_layouts = &.{ image_ubo_dsl, image_sampler_dsl },
+            .empty_set_layout = empty_dsl,
+            .sampler = image_sampler.sampler,
+            .color_format = vk.VK_FORMAT_B8G8R8A8_SRGB,
+            .blending_enabled = true,
+            .topology = vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,
+        });
+        errdefer image_pipeline.deinit();
+
+        // ---- bg_image pipeline -----------------------------------
+        //
+        // The user's `background-image` config. One full-screen
+        // triangle that samples the image with cover/contain/etc.
+        // layout math driven by per-instance `BgImage` attributes.
+        //
+        // Bindings after `vulkanizeGlsl`:
+        //   set 0 binding 1  Globals UBO
+        //   set 1 binding 0  combined image sampler (the
+        //                    user-supplied background image)
+        //
+        // Vertex input: `BgImage` struct, per-instance. Locations 0
+        // (opacity, float) and 1 (info, uint).
+        const bg_image_ubo_dsl = try createSingleBindingDsl(
+            device,
+            1,
+            vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            vk.VK_SHADER_STAGE_VERTEX_BIT | vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+        );
+        tracker.track(bg_image_ubo_dsl);
+        const bg_image_sampler_dsl = try createSingleBindingDsl(
+            device,
+            0,
+            vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            vk.VK_SHADER_STAGE_VERTEX_BIT | vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+        );
+        tracker.track(bg_image_sampler_dsl);
+        const bg_image_attrs = [_]vk.VkVertexInputAttributeDescription{
+            .{ .location = 0, .binding = 0, .format = vk.VK_FORMAT_R32_SFLOAT, .offset = @offsetOf(BgImage, "opacity") },
+            .{ .location = 1, .binding = 0, .format = vk.VK_FORMAT_R8_UINT, .offset = @offsetOf(BgImage, "info") },
+        };
+        const bg_image_pipeline = try Pipeline.init(.{
+            .device = device,
+            .descriptor_pool = &pool,
+            .vertex_module = modules.bg_image_vert.handle,
+            .fragment_module = modules.bg_image_frag.handle,
+            .vertex_input = .{
+                .stride = @sizeOf(BgImage),
+                .step_fn = .per_instance,
+                .attributes = &bg_image_attrs,
+            },
+            .descriptor_set_layouts = &.{ bg_image_ubo_dsl, bg_image_sampler_dsl },
+            .empty_set_layout = empty_dsl,
+            .sampler = image_sampler.sampler,
+            .color_format = vk.VK_FORMAT_B8G8R8A8_SRGB,
+            .blending_enabled = true,
+            .topology = vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        });
+        errdefer bg_image_pipeline.deinit();
+
         var pipelines: PipelineCollection = .{};
         pipelines.bg_color = bg_color_pipeline;
         pipelines.cell_bg = cell_bg_pipeline;
         pipelines.cell_text = cell_text_pipeline;
+        pipelines.image = image_pipeline;
+        pipelines.bg_image = bg_image_pipeline;
 
         // ---- post (custom shader) pipelines ----------------------
         //
@@ -1134,6 +1268,7 @@ pub const Shaders = struct {
             .set_layouts_len = set_layouts_len,
             .empty_set_layout = empty_dsl,
             .atlas_sampler = atlas_sampler,
+            .image_sampler = image_sampler,
         };
     }
 
@@ -1204,6 +1339,7 @@ pub const Shaders = struct {
         // Atlas sampler held by `Shaders` for the cell_text pipeline's
         // texture bindings.
         if (self.atlas_sampler) |samp| samp.deinit();
+        if (self.image_sampler) |samp| samp.deinit();
 
         // Descriptor pool reclaims every set allocated from it
         // (including the per-pipeline sets); the standalone layouts
