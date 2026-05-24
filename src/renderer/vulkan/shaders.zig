@@ -112,63 +112,228 @@ pub const Error = error{
     VulkanFailed,
 } || std.mem.Allocator.Error;
 
+/// Resource type, used to assign disjoint descriptor sets when
+/// rewriting GLSL `layout(...)` declarations for Vulkan. The shaders
+/// were authored against OpenGL where each resource type has its own
+/// binding space; Vulkan shares a single binding namespace within a
+/// descriptor set. We bucket each resource type into its own set so
+/// the original OpenGL binding numbers don't collide.
+const ResourceSet = enum(u8) {
+    /// Uniform blocks. `Globals` (binding=1) goes here.
+    ubo = 0,
+    /// Combined image samplers (`sampler2D`, `sampler2DRect`-was, ...).
+    sampler = 1,
+    /// SSBOs (`readonly buffer`, `buffer`). `bg_cells` (binding=1) goes here.
+    storage = 2,
+};
+
 /// Translate OpenGL-flavored GLSL to its Vulkan equivalent in the
-/// places glslang doesn't auto-translate. Currently:
+/// places glslang doesn't auto-translate:
 ///
-///   - `gl_VertexID` → `gl_VertexIndex`
-///   - `gl_InstanceID` → `gl_InstanceIndex`
+///   1. `gl_VertexID`   → `gl_VertexIndex`
+///   2. `gl_InstanceID` → `gl_InstanceIndex`
+///   3. `sampler2DRect` → `sampler2D` (Vulkan 1.3 doesn't allow the
+///      `SampledRect` SPIR-V capability; the sampler-side workaround
+///      is `unnormalizedCoordinates = VK_TRUE` so the shader's
+///      texture()/texelFetch() pixel-coord math keeps working).
+///   4. `layout(binding = N, ...) <decl>` →
+///      `layout(set = S, binding = N, ...) <decl>`, where S is the
+///      descriptor set for the resource type of `<decl>`:
+///        - UBO blocks            → set 0
+///        - sampler-family decls  → set 1
+///        - storage buffers       → set 2
+///      Other `layout(...)` qualifiers (e.g. `location = 0`) are
+///      passed through unchanged.
 ///
-/// glslang's source/target environment system handles a lot but NOT
-/// these builtin renames — they're an OpenGL-vs-Vulkan source-level
-/// difference, not a compile flag. Matches what
-/// `glslangValidator -V` would require the user to do manually, and
-/// what Qt's QShaderBaker users do in their GLSL-flavored sources.
+/// glslang's `setEnvInput(EShClientVulkan)` handles a lot but not
+/// these source-level renames or the descriptor-set assignment —
+/// `setAutoMapBindings(true)` only remaps *unbound* resources, and
+/// our shaders all use explicit `binding = N` from their OpenGL
+/// authoring.
 ///
 /// Caller frees the returned buffer with the same allocator.
 fn vulkanizeGlsl(
     alloc: std.mem.Allocator,
     src: []const u8,
 ) std.mem.Allocator.Error![:0]const u8 {
+    // First pass: identifier-level rewrites (renames + sampler2DRect).
+    const pass1 = pass1: {
+        var out = std.ArrayList(u8){};
+        errdefer out.deinit(alloc);
+
+        var i: usize = 0;
+        while (i < src.len) {
+            const c = src[i];
+            const is_ident_start = isIdentChar(c);
+            if (is_ident_start) {
+                const start = i;
+                while (i < src.len and isIdentChar(src[i])) : (i += 1) {}
+                const ident = src[start..i];
+                if (std.mem.eql(u8, ident, "gl_VertexID")) {
+                    try out.appendSlice(alloc, "gl_VertexIndex");
+                } else if (std.mem.eql(u8, ident, "gl_InstanceID")) {
+                    try out.appendSlice(alloc, "gl_InstanceIndex");
+                } else if (std.mem.eql(u8, ident, "sampler2DRect")) {
+                    try out.appendSlice(alloc, "sampler2D");
+                } else {
+                    try out.appendSlice(alloc, ident);
+                }
+            } else {
+                try out.append(alloc, c);
+                i += 1;
+            }
+        }
+        break :pass1 try out.toOwnedSlice(alloc);
+    };
+    defer alloc.free(pass1);
+
+    // Second pass: layout(...) qualifier rewrites. We need the rect→2D
+    // rename from pass 1 to have already happened so that the
+    // resource-type sniff sees `sampler2D` rather than `sampler2DRect`.
     var out = std.ArrayList(u8){};
     errdefer out.deinit(alloc);
 
     var i: usize = 0;
-    while (i < src.len) {
-        // Find the start of an identifier. Replacements are
-        // boundary-aware so `my_gl_VertexID_x` doesn't match.
-        const c = src[i];
-        const is_ident = (c >= 'a' and c <= 'z') or
-            (c >= 'A' and c <= 'Z') or
-            (c >= '0' and c <= '9') or
-            c == '_';
+    while (i < pass1.len) {
+        if (matchKeyword(pass1, i, "layout")) |layout_end| {
+            // Skip whitespace between `layout` and `(`.
+            var p = layout_end;
+            while (p < pass1.len and isHorizSpace(pass1[p])) p += 1;
+            if (p >= pass1.len or pass1[p] != '(') {
+                try out.appendSlice(alloc, pass1[i..p]);
+                i = p;
+                continue;
+            }
+            // Find the matching ')'. layout() never nests parens in
+            // these shaders, but track depth defensively.
+            const body_start = p + 1;
+            var body_end = body_start;
+            var depth: i32 = 1;
+            while (body_end < pass1.len and depth > 0) : (body_end += 1) {
+                switch (pass1[body_end]) {
+                    '(' => depth += 1,
+                    ')' => depth -= 1,
+                    else => {},
+                }
+            }
+            // body_end now points one past the closing ')'. The body
+            // itself is pass1[body_start .. body_end - 1].
+            if (depth != 0) {
+                // Unbalanced — bail and emit the rest verbatim.
+                try out.appendSlice(alloc, pass1[i..]);
+                i = pass1.len;
+                continue;
+            }
+            const body = pass1[body_start .. body_end - 1];
+            const has_binding = containsKeyword(body, "binding");
+            const has_set_already = containsKeyword(body, "set");
+            if (!has_binding or has_set_already) {
+                // Either no `binding =` (e.g. `layout(location = 0)`),
+                // or someone already specified `set = N` — pass through.
+                try out.appendSlice(alloc, pass1[i..body_end]);
+                i = body_end;
+                continue;
+            }
+            // Look past the ')' for the resource type.
+            const set = detectResourceSet(pass1, body_end) orelse {
+                try out.appendSlice(alloc, pass1[i..body_end]);
+                i = body_end;
+                continue;
+            };
 
-        if (is_ident) {
-            // Step past the whole identifier.
-            const start = i;
-            while (i < src.len) {
-                const cc = src[i];
-                const cont = (cc >= 'a' and cc <= 'z') or
-                    (cc >= 'A' and cc <= 'Z') or
-                    (cc >= '0' and cc <= '9') or
-                    cc == '_';
-                if (!cont) break;
-                i += 1;
-            }
-            const ident = src[start..i];
-            if (std.mem.eql(u8, ident, "gl_VertexID")) {
-                try out.appendSlice(alloc, "gl_VertexIndex");
-            } else if (std.mem.eql(u8, ident, "gl_InstanceID")) {
-                try out.appendSlice(alloc, "gl_InstanceIndex");
-            } else {
-                try out.appendSlice(alloc, ident);
-            }
+            // Emit: `layout(set = <S>, <body>)`.
+            try out.appendSlice(alloc, "layout(set = ");
+            try out.writer(alloc).print("{d}", .{@intFromEnum(set)});
+            try out.appendSlice(alloc, ", ");
+            try out.appendSlice(alloc, body);
+            try out.append(alloc, ')');
+            i = body_end;
         } else {
-            try out.append(alloc, c);
+            try out.append(alloc, pass1[i]);
             i += 1;
         }
     }
 
     return try out.toOwnedSliceSentinel(alloc, 0);
+}
+
+fn isIdentChar(c: u8) bool {
+    return (c >= 'a' and c <= 'z') or
+        (c >= 'A' and c <= 'Z') or
+        (c >= '0' and c <= '9') or
+        c == '_';
+}
+
+fn isHorizSpace(c: u8) bool {
+    return c == ' ' or c == '\t';
+}
+
+fn isAnySpace(c: u8) bool {
+    return c == ' ' or c == '\t' or c == '\n' or c == '\r';
+}
+
+/// Match `keyword` as a whole-word token starting at `i`. Returns
+/// the offset one past the end of the match, or null if no match.
+/// Whole-word means the character before `i` (if any) and the
+/// character after the match must NOT be identifier-continuation
+/// characters.
+fn matchKeyword(src: []const u8, i: usize, keyword: []const u8) ?usize {
+    if (i + keyword.len > src.len) return null;
+    if (!std.mem.eql(u8, src[i .. i + keyword.len], keyword)) return null;
+    if (i > 0 and isIdentChar(src[i - 1])) return null;
+    const end = i + keyword.len;
+    if (end < src.len and isIdentChar(src[end])) return null;
+    return end;
+}
+
+/// Whole-word containment check for substring search inside a
+/// `layout(...)` body.
+fn containsKeyword(body: []const u8, keyword: []const u8) bool {
+    var i: usize = 0;
+    while (i < body.len) : (i += 1) {
+        if (matchKeyword(body, i, keyword) != null) return true;
+    }
+    return false;
+}
+
+/// Look past the `)` that closed a `layout(...)` qualifier to figure
+/// out what kind of resource the declaration introduces. Returns
+/// null if it isn't a descriptor-bound resource (e.g. an `in` /
+/// `out` varying that incidentally had `binding =` — none of our
+/// shaders do this, but be defensive).
+fn detectResourceSet(src: []const u8, after_close_paren: usize) ?ResourceSet {
+    var i = after_close_paren;
+    while (i < src.len and isAnySpace(src[i])) : (i += 1) {}
+    if (i >= src.len) return null;
+    if (!isIdentChar(src[i])) return null;
+    const tok1_start = i;
+    while (i < src.len and isIdentChar(src[i])) : (i += 1) {}
+    const tok1 = src[tok1_start..i];
+
+    // Storage buffers: `readonly buffer NAME { ... };` or
+    // `buffer NAME { ... };`. The `readonly` qualifier is optional
+    // but always present in our shaders.
+    if (std.mem.eql(u8, tok1, "buffer")) return .storage;
+    if (std.mem.eql(u8, tok1, "readonly")) return .storage;
+    if (std.mem.eql(u8, tok1, "writeonly")) return .storage;
+    if (std.mem.eql(u8, tok1, "coherent")) return .storage;
+
+    // `uniform <something>`: distinguish sampler-family from UBO block.
+    if (!std.mem.eql(u8, tok1, "uniform")) return null;
+
+    while (i < src.len and isAnySpace(src[i])) : (i += 1) {}
+    if (i >= src.len or !isIdentChar(src[i])) return null;
+    const tok2_start = i;
+    while (i < src.len and isIdentChar(src[i])) : (i += 1) {}
+    const tok2 = src[tok2_start..i];
+
+    // Sampler family: `sampler*`, `texture*`, `image*`.
+    if (std.mem.startsWith(u8, tok2, "sampler")) return .sampler;
+    if (std.mem.startsWith(u8, tok2, "texture")) return .sampler;
+    if (std.mem.startsWith(u8, tok2, "image")) return .sampler;
+
+    // Otherwise treat it as a UBO block.
+    return .ubo;
 }
 
 /// A compiled `VkShaderModule` plus its stage flag.
@@ -465,33 +630,40 @@ pub const Shaders = struct {
         // tears down any successfully-compiled modules if a later
         // one fails so we don't leak `VkShaderModule` handles on
         // partial failure.
-        // For v1 we only compile the modules needed by the bg_color
-        // pipeline (`full_screen.v.glsl` + `bg_color.f.glsl`). The
-        // other shaders use OpenGL-only constructs (`sampler2DRect`)
-        // that aren't valid SPIR-V capabilities in Vulkan 1.3 — they
-        // need source-level conversion to `sampler2D` before we can
-        // compile them. The unused modules stay null-handle
-        // sentinels and `Shaders.deinit` skips them.
-        const empty_module: Module = .{
-            .handle = null,
-            .stage = vk.VK_SHADER_STAGE_VERTEX_BIT,
-            .device = device,
-        };
+        //
+        // All 9 modules compile now that `vulkanizeGlsl` rewrites
+        // OpenGL-only constructs (`sampler2DRect` → `sampler2D` and
+        // disjoint descriptor sets per resource type). Pipelines are
+        // built incrementally as the per-pipeline descriptor layouts
+        // get wired up; today only bg_color has its pipeline. The
+        // unused pipeline slots stay null-handle sentinels and
+        // `RenderPass.step` skips them.
         var modules: Modules = .{
-            .bg_color_frag = empty_module,
-            .bg_image_frag = empty_module,
-            .bg_image_vert = empty_module,
-            .cell_bg_frag = empty_module,
-            .cell_text_frag = empty_module,
-            .cell_text_vert = empty_module,
-            .full_screen_vert = empty_module,
-            .image_frag = empty_module,
-            .image_vert = empty_module,
+            .bg_color_frag = try Module.init(alloc, device, source.bg_color_frag, .fragment),
+            .bg_image_frag = try Module.init(alloc, device, source.bg_image_frag, .fragment),
+            .bg_image_vert = try Module.init(alloc, device, source.bg_image_vert, .vertex),
+            .cell_bg_frag = try Module.init(alloc, device, source.cell_bg_frag, .fragment),
+            .cell_text_frag = try Module.init(alloc, device, source.cell_text_frag, .fragment),
+            .cell_text_vert = try Module.init(alloc, device, source.cell_text_vert, .vertex),
+            .full_screen_vert = try Module.init(alloc, device, source.full_screen_vert, .vertex),
+            .image_frag = try Module.init(alloc, device, source.image_frag, .fragment),
+            .image_vert = try Module.init(alloc, device, source.image_vert, .vertex),
         };
-        modules.full_screen_vert = try Module.init(alloc, device, source.full_screen_vert, .vertex);
-        errdefer modules.full_screen_vert.deinit();
-        modules.bg_color_frag = try Module.init(alloc, device, source.bg_color_frag, .fragment);
-        errdefer modules.bg_color_frag.deinit();
+        errdefer {
+            inline for (.{
+                &modules.bg_color_frag,
+                &modules.bg_image_frag,
+                &modules.bg_image_vert,
+                &modules.cell_bg_frag,
+                &modules.cell_text_frag,
+                &modules.cell_text_vert,
+                &modules.full_screen_vert,
+                &modules.image_frag,
+                &modules.image_vert,
+            }) |m_ptr| {
+                if (m_ptr.handle != null) m_ptr.deinit();
+            }
+        }
 
         // Build a descriptor pool sized for one descriptor set per
         // pipeline (we currently only construct bg_color; size for the
@@ -614,4 +786,93 @@ pub const Shaders = struct {
 
 test {
     std.testing.refAllDecls(@This());
+}
+
+test "vulkanizeGlsl: gl_VertexID and gl_InstanceID rename" {
+    const out = try vulkanizeGlsl(std.testing.allocator,
+        \\void main() {
+        \\    int vid = gl_VertexID;
+        \\    int iid = gl_InstanceID;
+        \\    // gl_VertexID_x stays unchanged (not whole-word)
+        \\    int x = my_gl_VertexID_x;
+        \\}
+    );
+    defer std.testing.allocator.free(out);
+    try std.testing.expect(std.mem.indexOf(u8, out, "gl_VertexIndex") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "gl_InstanceIndex") != null);
+    // Whole-word: gl_VertexID itself must be gone.
+    try std.testing.expect(std.mem.indexOf(u8, out, " gl_VertexID;") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, " gl_InstanceID;") == null);
+    // But my_gl_VertexID_x is a different identifier — must survive intact.
+    try std.testing.expect(std.mem.indexOf(u8, out, "my_gl_VertexID_x") != null);
+}
+
+test "vulkanizeGlsl: sampler2DRect to sampler2D" {
+    const out = try vulkanizeGlsl(std.testing.allocator,
+        \\layout(binding = 0) uniform sampler2DRect atlas_grayscale;
+        \\layout(binding = 1) uniform sampler2DRect atlas_color;
+    );
+    defer std.testing.allocator.free(out);
+    try std.testing.expect(std.mem.indexOf(u8, out, "sampler2DRect") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "sampler2D atlas_grayscale") != null);
+}
+
+test "vulkanizeGlsl: UBO block gets set=0" {
+    const out = try vulkanizeGlsl(std.testing.allocator,
+        \\layout(binding = 1, std140) uniform Globals {
+        \\    float x;
+        \\};
+    );
+    defer std.testing.allocator.free(out);
+    try std.testing.expect(std.mem.indexOf(u8, out, "layout(set = 0, binding = 1, std140) uniform Globals") != null);
+}
+
+test "vulkanizeGlsl: sampler gets set=1" {
+    const out = try vulkanizeGlsl(std.testing.allocator,
+        \\layout(binding = 0) uniform sampler2D image;
+    );
+    defer std.testing.allocator.free(out);
+    try std.testing.expect(std.mem.indexOf(u8, out, "layout(set = 1, binding = 0) uniform sampler2D image") != null);
+}
+
+test "vulkanizeGlsl: rewritten sampler2DRect still gets set=1" {
+    const out = try vulkanizeGlsl(std.testing.allocator,
+        \\layout(binding = 1) uniform sampler2DRect atlas;
+    );
+    defer std.testing.allocator.free(out);
+    // After pass 1, type is sampler2D; pass 2 sees sampler*, sets set=1.
+    try std.testing.expect(std.mem.indexOf(u8, out, "layout(set = 1, binding = 1) uniform sampler2D atlas") != null);
+}
+
+test "vulkanizeGlsl: storage buffer gets set=2" {
+    const out = try vulkanizeGlsl(std.testing.allocator,
+        \\layout(binding = 1, std430) readonly buffer bg_cells {
+        \\    uint cells[];
+        \\};
+    );
+    defer std.testing.allocator.free(out);
+    try std.testing.expect(std.mem.indexOf(u8, out, "layout(set = 2, binding = 1, std430) readonly buffer bg_cells") != null);
+}
+
+test "vulkanizeGlsl: location-only layout passes through" {
+    const out = try vulkanizeGlsl(std.testing.allocator,
+        \\layout(location = 0) in vec2 in_grid_pos;
+        \\layout(location = 0) out vec4 out_FragColor;
+    );
+    defer std.testing.allocator.free(out);
+    // No `set = ` insertion because there's no `binding = `.
+    try std.testing.expect(std.mem.indexOf(u8, out, "set =") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "layout(location = 0) in vec2 in_grid_pos") != null);
+}
+
+test "vulkanizeGlsl: layout with pre-existing set qualifier is unchanged" {
+    const src =
+        \\layout(set = 3, binding = 0) uniform sampler2D image;
+    ;
+    const out = try vulkanizeGlsl(std.testing.allocator, src);
+    defer std.testing.allocator.free(out);
+    // We never collapse a user-specified set, even if it disagrees
+    // with our resource-type heuristic — better to surface a glslang
+    // error than to silently rewrite.
+    try std.testing.expect(std.mem.indexOf(u8, out, "set = 3") != null);
 }
