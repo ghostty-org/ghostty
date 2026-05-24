@@ -97,6 +97,7 @@ add_custom_target(ghostty_link DEPENDS "${GHOSTTY_LINK_SO}")
 
 add_executable(ghastty
   src/main.cpp
+  src/vulkan/Host.cpp
   src/actions/ActionDispatcher.cpp
   src/actions/ChromeActions.cpp
   src/actions/InputActions.cpp
@@ -148,6 +149,7 @@ target_link_libraries(ghastty PRIVATE
   PkgConfig::WAYLAND_CLIENT
   PkgConfig::XKBCOMMON
   LayerShellQt::Interface
+  vulkan
   "${GHOSTTY_LINK_SO}"
 )
 

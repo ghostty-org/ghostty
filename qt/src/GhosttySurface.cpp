@@ -8,10 +8,13 @@
 #include "SearchBar.h"
 #include "TabWidget.h"
 #include "Util.h"
+#include "vulkan/Host.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <limits>
 
 #include <QByteArray>
@@ -101,12 +104,31 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
           ? ghostty_surface_inherited_config(m_parentSurface,
                                              GHOSTTY_SURFACE_CONTEXT_TAB)
           : ghostty_surface_config_new();
-  sc.platform_tag = GHOSTTY_PLATFORM_OPENGL;
-  sc.platform.opengl.userdata = this;
-  sc.platform.opengl.get_proc_address = glGetProcAddress;
-  sc.platform.opengl.make_current = glMakeCurrent;
-  sc.platform.opengl.release_current = glReleaseCurrent;
-  sc.platform.opengl.present = glPresent;
+
+  // Vulkan path: if the user opted in with `GHASTTY_RENDERER=vulkan`
+  // AND the process-wide Vulkan host came up at launch (see
+  // `main.cpp`), use the Vulkan platform plumbing. Otherwise fall
+  // back to the existing OpenGL path. The Vulkan-side rendering is
+  // still bring-up — frames are exported as dmabuf fds via the
+  // host's `present` callback (currently just logged); display via
+  // QRhiTexture import is the next chunk of Qt-side work.
+  vulkan::Host *vk_host = nullptr;
+  if (const char *r = std::getenv("GHASTTY_RENDERER");
+      r != nullptr && std::strcmp(r, "vulkan") == 0) {
+    vk_host = vulkan::Host::instance();
+  }
+
+  if (vk_host != nullptr) {
+    sc.platform_tag = GHOSTTY_PLATFORM_VULKAN;
+    sc.platform.vulkan = vk_host->asPlatform(this);
+  } else {
+    sc.platform_tag = GHOSTTY_PLATFORM_OPENGL;
+    sc.platform.opengl.userdata = this;
+    sc.platform.opengl.get_proc_address = glGetProcAddress;
+    sc.platform.opengl.make_current = glMakeCurrent;
+    sc.platform.opengl.release_current = glReleaseCurrent;
+    sc.platform.opengl.present = glPresent;
+  }
   sc.userdata = this;
   sc.scale_factor = devicePixelRatioF();
 

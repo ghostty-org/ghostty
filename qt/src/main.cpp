@@ -1,4 +1,6 @@
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 #include <QApplication>
 #include <QCoreApplication>
@@ -9,6 +11,7 @@
 #include "GlobalShortcuts.h"
 #include "MainWindow.h"
 #include "ghostty.h"
+#include "vulkan/Host.h"
 
 // True when any argv entry starts with `+` — i.e. the user invoked a
 // libghostty CLI action (`+show-config`, `+list-fonts`, `+version`, …).
@@ -102,6 +105,24 @@ int main(int argc, char **argv) {
     std::fprintf(stderr,
                  "[ghastty] ghostty_init failed; check `ghastty +help`\n");
     return 1;
+  }
+
+  // GHASTTY_RENDERER=vulkan opts into the Vulkan path. When set, we
+  // bootstrap the process-wide Vulkan host (`vulkan::Host::instance`)
+  // up-front so failures (no loader, no suitable device) surface at
+  // launch and the user can drop the env var rather than waiting for
+  // the first surface to fail. The OpenGL path continues to work
+  // without the env var or if Vulkan bring-up fails.
+  if (const char *r = std::getenv("GHASTTY_RENDERER"); r != nullptr &&
+      std::strcmp(r, "vulkan") == 0) {
+    if (vulkan::Host::instance() == nullptr) {
+      std::fprintf(
+          stderr,
+          "[ghastty] GHASTTY_RENDERER=vulkan but Vulkan setup failed; "
+          "falling back to OpenGL.\n"
+          "          Try `unset GHASTTY_RENDERER` or install vulkan-loader / "
+          "vulkan-headers.\n");
+    }
   }
 
   // initial-window: when false, start headless (no window mapped at

@@ -95,14 +95,19 @@ alloc: Allocator,
 blending: configpkg.Config.AlphaBlending,
 rt_surface: *apprt.Surface,
 
-/// Per-thread Vulkan device state. The renderer holds `*const Vulkan`
-/// from `generic.zig` and so can't mutate fields on the value — same
-/// constraint OpenGL works around with `threadlocal var gl_host`.
-/// `Device` is host-shared across all surfaces in the process, and
-/// each renderer runs on its own thread, so a per-thread slot is the
-/// natural fit: `threadEnter` populates it, the rest of the renderer
-/// reads through `devicePtr`.
-threadlocal var device: ?Device = null;
+/// Process-wide Vulkan device. The host owns one VkDevice shared
+/// across every surface, so we mirror that as a single global slot
+/// (not threadlocal — the renderer thread is distinct from the main
+/// thread that constructs the surface, and threadlocal doesn't
+/// survive that boundary).
+///
+/// Initialized in `Vulkan.init` on the surface-construction thread;
+/// read by every other thread via `devicePtr` after that. The renderer
+/// holds `*const Vulkan` from `generic.zig` so we can't mutate fields
+/// on the value — same reason OpenGL uses a `threadlocal var gl_host`
+/// (though OpenGL gets away with threadlocal because the OpenGL
+/// platform callbacks are read on the same thread that set them).
+var device: ?Device = null;
 
 /// Most recently presented target, in case `presentLastTarget` is
 /// called between frames (resize / redraw). Threadlocal for the same
@@ -125,7 +130,26 @@ threadlocal var frame_fence: vk.VkFence = null;
 
 // ---- lifecycle ----------------------------------------------------------
 
-pub fn init(alloc: Allocator, opts: rendererpkg.Options) error{}!Vulkan {
+pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Vulkan {
+    // Vulkan needs the device populated before the renderer's
+    // `FrameState.init` starts asking for buffer/texture options.
+    // Process-wide (not threadlocal): the renderer thread is
+    // distinct from the main thread that constructs the surface.
+    if (device == null) {
+        switch (apprt.runtime) {
+            else => return error.UnsupportedRuntime,
+            apprt.embedded => switch (opts.rt_surface.platform) {
+                .vulkan => |platform| {
+                    device = try Device.init(alloc, platform);
+                    log.info(
+                        "Vulkan device ready (api=0x{x})",
+                        .{device.?.api_version},
+                    );
+                },
+                .opengl, .macos, .ios => return error.UnsupportedPlatform,
+            },
+        }
+    }
     return .{
         .alloc = alloc,
         .blending = opts.config.blending,
@@ -177,17 +201,14 @@ pub fn finalizeSurfaceInit(self: *const Vulkan, surface: *apprt.Surface) !void {
 }
 
 pub fn threadEnter(self: *const Vulkan, surface: *apprt.Surface) !void {
-    if (device != null) return;
-
-    switch (apprt.runtime) {
-        else => return error.UnsupportedRuntime,
-        apprt.embedded => switch (surface.platform) {
-            .vulkan => |platform| {
-                device = try Device.init(self.alloc, platform);
-            },
-            .opengl, .macos, .ios => return error.UnsupportedPlatform,
-        },
-    }
+    _ = self;
+    _ = surface;
+    // Device is brought up in `init` (the renderer's FrameState init
+    // path calls options getters before threadEnter, and our options
+    // need the device — so it has to be ready earlier than OpenGL
+    // wants). Nothing to do here; left in place so
+    // `@hasDecl(GraphicsAPI, "threadEnter")` keeps returning true in
+    // `generic.zig`.
 }
 
 pub fn threadExit(self: *const Vulkan) void {
@@ -222,21 +243,19 @@ pub fn initShaders(
     return try shaders.Shaders.init(alloc, devicePtr(), custom_shaders);
 }
 
-pub fn surfaceSize(self: *const Vulkan) !struct { width: u32, height: u32 } {
-    const size = self.rt_surface.size;
-    return .{ .width = size.width, .height = size.height };
-}
-
 pub fn initTarget(self: *const Vulkan, width: usize, height: usize) !Target {
     _ = self;
-    // The renderer requests `initTarget(1, 1)` at FrameState.init and
-    // resizes later — that's fine, the dmabuf is just very small.
     return try Target.init(.{
         .device = devicePtr(),
         .format = vk.VK_FORMAT_B8G8R8A8_UNORM,
         .width = @intCast(width),
         .height = @intCast(height),
     });
+}
+
+pub fn surfaceSize(self: *const Vulkan) !struct { width: u32, height: u32 } {
+    const size = self.rt_surface.size;
+    return .{ .width = size.width, .height = size.height };
 }
 
 pub fn present(self: *Vulkan, target: Target) !void {

@@ -38,16 +38,49 @@ const log = std.log.scoped(.vulkan);
 /// shaders are expected to splice it in via their existing
 /// preprocessor pattern, the same way `opengl/shaders.zig` does.)
 pub const source = struct {
-    pub const bg_color_frag = @embedFile("../shaders/glsl/bg_color.f.glsl");
-    pub const bg_image_frag = @embedFile("../shaders/glsl/bg_image.f.glsl");
-    pub const bg_image_vert = @embedFile("../shaders/glsl/bg_image.v.glsl");
-    pub const cell_bg_frag = @embedFile("../shaders/glsl/cell_bg.f.glsl");
-    pub const cell_text_frag = @embedFile("../shaders/glsl/cell_text.f.glsl");
-    pub const cell_text_vert = @embedFile("../shaders/glsl/cell_text.v.glsl");
-    pub const full_screen_vert = @embedFile("../shaders/glsl/full_screen.v.glsl");
-    pub const image_frag = @embedFile("../shaders/glsl/image.f.glsl");
-    pub const image_vert = @embedFile("../shaders/glsl/image.v.glsl");
+    // Each source is the file with all `#include "..."` directives
+    // expanded at comptime. glslang's preprocessor doesn't handle
+    // GLSL includes without `GL_GOOGLE_include_directive`; rather
+    // than enable that and provide a callback, we splice the
+    // include contents inline — same approach `opengl/shaders.zig`
+    // uses via its `loadShaderCode`.
+    pub const bg_color_frag = processIncludes(@embedFile("../shaders/glsl/bg_color.f.glsl"));
+    pub const bg_image_frag = processIncludes(@embedFile("../shaders/glsl/bg_image.f.glsl"));
+    pub const bg_image_vert = processIncludes(@embedFile("../shaders/glsl/bg_image.v.glsl"));
+    pub const cell_bg_frag = processIncludes(@embedFile("../shaders/glsl/cell_bg.f.glsl"));
+    pub const cell_text_frag = processIncludes(@embedFile("../shaders/glsl/cell_text.f.glsl"));
+    pub const cell_text_vert = processIncludes(@embedFile("../shaders/glsl/cell_text.v.glsl"));
+    pub const full_screen_vert = processIncludes(@embedFile("../shaders/glsl/full_screen.v.glsl"));
+    pub const image_frag = processIncludes(@embedFile("../shaders/glsl/image.f.glsl"));
+    pub const image_vert = processIncludes(@embedFile("../shaders/glsl/image.v.glsl"));
 };
+
+/// Comptime `#include` preprocessor. Mirrors `opengl/shaders.zig`'s
+/// `processIncludes` but specialized to the single `common.glsl`
+/// include the renderer's shaders all use (so it doesn't need to
+/// take a `basedir` parameter).
+fn processIncludes(comptime contents: [:0]const u8) [:0]const u8 {
+    @setEvalBranchQuota(100_000);
+    var i: usize = 0;
+    while (i < contents.len) {
+        if (std.mem.startsWith(u8, contents[i..], "#include")) {
+            std.debug.assert(std.mem.startsWith(u8, contents[i..], "#include \""));
+            const start = i + "#include \"".len;
+            const end = std.mem.indexOfScalarPos(u8, contents, start, '"').?;
+            return std.fmt.comptimePrint("{s}{s}{s}", .{
+                contents[0..i],
+                @embedFile("../shaders/glsl/" ++ contents[start..end]),
+                processIncludes(contents[end + 1 ..]),
+            });
+        }
+        if (std.mem.indexOfPos(u8, contents, i, "\n#")) |j| {
+            i = (j + 1);
+        } else {
+            break;
+        }
+    }
+    return contents;
+}
 
 pub const Stage = enum {
     vertex,
