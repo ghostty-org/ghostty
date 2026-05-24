@@ -33,6 +33,10 @@ const apprt = @import("../../apprt.zig");
 const Device = @import("Device.zig");
 const Texture = @import("Texture.zig");
 const Target = @import("Target.zig");
+const Pipeline = @import("Pipeline.zig");
+const CommandPool = @import("CommandPool.zig");
+const shaders = @import("shaders.zig");
+const bufferpkg = @import("buffer.zig");
 
 const log = std.log.scoped(.vulkan_smoke);
 
@@ -358,5 +362,267 @@ test "smoke" {
         .{ target.fd, target.drm_format, target.stride, target.width, target.height },
     );
 
+    // ---- 4. End-to-end render (compile shaders → pipeline →
+    //         vkCmdBeginRendering → draw → readback → verify) -----
+    try renderAndVerify(&device, &target);
+
     std.debug.print("\n  All Vulkan smoke checks passed.\n", .{});
+}
+
+/// The full GPU pipeline test: compile a tiny vertex+fragment shader
+/// pair that draws a fullscreen triangle of solid color, set up a
+/// pipeline, render into `target`, copy the result to a host-visible
+/// buffer, and verify the readback pixel matches the expected color.
+fn renderAndVerify(device: *const Device, target: *Target) !void {
+    // Shaders: hard-coded GLSL strings. Vertex synthesizes a
+    // fullscreen triangle from gl_VertexIndex (no vertex input);
+    // fragment outputs a fixed RGBA. Keeps the test independent of
+    // the renderer's actual shader set + descriptor / uniform infra.
+    const vs_src: [:0]const u8 =
+        \\#version 450
+        \\void main() {
+        \\    vec2 pos = vec2(
+        \\        float((gl_VertexIndex << 1) & 2),
+        \\        float(gl_VertexIndex & 2)
+        \\    );
+        \\    gl_Position = vec4(pos * 2.0 - 1.0, 0.0, 1.0);
+        \\}
+    ;
+    const fs_src: [:0]const u8 =
+        \\#version 450
+        \\layout(location = 0) out vec4 frag_color;
+        \\void main() {
+        \\    // Distinct color: red=255 green=128 blue=64 alpha=255.
+        \\    frag_color = vec4(1.0, 128.0 / 255.0, 64.0 / 255.0, 1.0);
+        \\}
+    ;
+
+    var vs = try shaders.Module.init(device, vs_src, .vertex);
+    defer vs.deinit();
+    var fs = try shaders.Module.init(device, fs_src, .fragment);
+    defer fs.deinit();
+
+    // Pipeline: dynamic rendering, no vertex input, no descriptors.
+    // Color attachment format must match the target's format.
+    var pipeline = try Pipeline.init(.{
+        .device = device,
+        .vertex_module = vs.handle,
+        .fragment_module = fs.handle,
+        .vertex_input = null,
+        .color_format = target.format,
+        .blending_enabled = false,
+        .topology = vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+    });
+    defer pipeline.deinit();
+
+    // Host-visible readback buffer sized to the target's dmabuf.
+    // The target uses linear tiling, but copyImageToBuffer writes a
+    // tightly-packed image, so the buffer size is just `width * height
+    // * 4`.
+    const readback_size: usize = @as(usize, target.width) * target.height * 4;
+    var readback = try bufferpkg.Buffer(u8).init(
+        .{
+            .device = device,
+            .usage = vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        },
+        readback_size,
+    );
+    defer readback.deinit();
+
+    var pool = try CommandPool.init(device);
+    defer pool.deinit();
+
+    const session = try pool.beginOneShot();
+
+    // Barrier: UNDEFINED → COLOR_ATTACHMENT_OPTIMAL
+    {
+        const barrier: vk.VkImageMemoryBarrier = .{
+            .sType = vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .pNext = null,
+            .srcAccessMask = 0,
+            .dstAccessMask = vk.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .oldLayout = vk.VK_IMAGE_LAYOUT_UNDEFINED,
+            .newLayout = vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .srcQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
+            .image = target.image,
+            .subresourceRange = .{
+                .aspectMask = vk.VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+        };
+        device.dispatch.cmdPipelineBarrier(
+            session.cb,
+            vk.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            0,
+            0, null,
+            0, null,
+            1, &barrier,
+        );
+    }
+
+    // vkCmdBeginRendering — Vulkan 1.3 dynamic rendering, no
+    // VkRenderPass object.
+    {
+        const clear_value: vk.VkClearValue = .{ .color = .{ .float32 = .{ 0, 0, 0, 1 } } };
+        const color_attachment: vk.VkRenderingAttachmentInfo = .{
+            .sType = vk.VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .pNext = null,
+            .imageView = target.view,
+            .imageLayout = vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .resolveMode = vk.VK_RESOLVE_MODE_NONE,
+            .resolveImageView = null,
+            .resolveImageLayout = vk.VK_IMAGE_LAYOUT_UNDEFINED,
+            .loadOp = vk.VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = vk.VK_ATTACHMENT_STORE_OP_STORE,
+            .clearValue = clear_value,
+        };
+        const rendering_info: vk.VkRenderingInfo = .{
+            .sType = vk.VK_STRUCTURE_TYPE_RENDERING_INFO,
+            .pNext = null,
+            .flags = 0,
+            .renderArea = .{
+                .offset = .{ .x = 0, .y = 0 },
+                .extent = .{ .width = target.width, .height = target.height },
+            },
+            .layerCount = 1,
+            .viewMask = 0,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &color_attachment,
+            .pDepthAttachment = null,
+            .pStencilAttachment = null,
+        };
+        device.dispatch.cmdBeginRendering(session.cb, &rendering_info);
+    }
+
+    // Set dynamic state (we declared viewport + scissor dynamic in
+    // Pipeline.zig).
+    {
+        const viewport: vk.VkViewport = .{
+            .x = 0,
+            .y = 0,
+            .width = @floatFromInt(target.width),
+            .height = @floatFromInt(target.height),
+            .minDepth = 0,
+            .maxDepth = 1,
+        };
+        device.dispatch.cmdSetViewport(session.cb, 0, 1, &viewport);
+        const scissor: vk.VkRect2D = .{
+            .offset = .{ .x = 0, .y = 0 },
+            .extent = .{ .width = target.width, .height = target.height },
+        };
+        device.dispatch.cmdSetScissor(session.cb, 0, 1, &scissor);
+    }
+
+    // Bind pipeline + draw 3 vertices.
+    device.dispatch.cmdBindPipeline(
+        session.cb,
+        vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
+        pipeline.pipeline,
+    );
+    device.dispatch.cmdDraw(session.cb, 3, 1, 0, 0);
+
+    device.dispatch.cmdEndRendering(session.cb);
+
+    // Barrier: COLOR_ATTACHMENT → TRANSFER_SRC for the readback.
+    {
+        const barrier: vk.VkImageMemoryBarrier = .{
+            .sType = vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .pNext = null,
+            .srcAccessMask = vk.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .dstAccessMask = vk.VK_ACCESS_TRANSFER_READ_BIT,
+            .oldLayout = vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .newLayout = vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            .srcQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
+            .image = target.image,
+            .subresourceRange = .{
+                .aspectMask = vk.VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+        };
+        device.dispatch.cmdPipelineBarrier(
+            session.cb,
+            vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0,
+            0, null,
+            0, null,
+            1, &barrier,
+        );
+    }
+
+    // Copy image → buffer.
+    {
+        const region: vk.VkBufferImageCopy = .{
+            .bufferOffset = 0,
+            .bufferRowLength = 0,
+            .bufferImageHeight = 0,
+            .imageSubresource = .{
+                .aspectMask = vk.VK_IMAGE_ASPECT_COLOR_BIT,
+                .mipLevel = 0,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+            .imageOffset = .{ .x = 0, .y = 0, .z = 0 },
+            .imageExtent = .{
+                .width = target.width,
+                .height = target.height,
+                .depth = 1,
+            },
+        };
+        device.dispatch.cmdCopyImageToBuffer(
+            session.cb,
+            target.image,
+            vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            readback.buffer,
+            1,
+            &region,
+        );
+    }
+
+    try session.endAndSubmit();
+
+    // Map + verify. The target uses VK_FORMAT_B8G8R8A8_UNORM, so the
+    // bytes in memory are [B, G, R, A] per pixel.
+    var mapped: ?*anyopaque = null;
+    {
+        const r = device.dispatch.mapMemory(
+            device.device,
+            readback.memory,
+            0,
+            readback_size,
+            0,
+            &mapped,
+        );
+        if (r != vk.VK_SUCCESS) {
+            std.debug.print("vkMapMemory(readback) failed: result={}\n", .{r});
+            return error.VulkanFailed;
+        }
+    }
+    defer device.dispatch.unmapMemory(device.device, readback.memory);
+
+    const pixels: [*]const u8 = @ptrCast(mapped.?);
+    // Pixel (0,0): B=64, G=128, R=255, A=255 (matches the fragment
+    // shader output). Allow ±1 to absorb any nearest-byte rounding.
+    const b = pixels[0];
+    const g = pixels[1];
+    const r = pixels[2];
+    const a = pixels[3];
+
+    std.debug.print(
+        "  Rendered pixel (0,0): BGRA=({},{},{},{}) expected≈(64,128,255,255)\n",
+        .{ b, g, r, a },
+    );
+    try std.testing.expect(@abs(@as(i32, b) - 64) <= 1);
+    try std.testing.expect(@abs(@as(i32, g) - 128) <= 1);
+    try std.testing.expect(@abs(@as(i32, r) - 255) <= 1);
+    try std.testing.expectEqual(@as(u8, 255), a);
 }

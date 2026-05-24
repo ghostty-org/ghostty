@@ -155,6 +155,19 @@ pub const Dispatch = struct {
     waitForFences: std.meta.Child(vk.PFN_vkWaitForFences),
     resetFences: std.meta.Child(vk.PFN_vkResetFences),
     resetCommandBuffer: std.meta.Child(vk.PFN_vkResetCommandBuffer),
+
+    // Drawing — used by `vulkan/RenderPass.zig` (and the smoke
+    // test's renderTriangle helper). Vulkan 1.3 promoted
+    // `vkCmdBeginRendering` / `vkCmdEndRendering` from the
+    // `VK_KHR_dynamic_rendering` extension into core, so they're
+    // available without an extension opt-in.
+    cmdBeginRendering: std.meta.Child(vk.PFN_vkCmdBeginRendering),
+    cmdEndRendering: std.meta.Child(vk.PFN_vkCmdEndRendering),
+    cmdBindPipeline: std.meta.Child(vk.PFN_vkCmdBindPipeline),
+    cmdSetViewport: std.meta.Child(vk.PFN_vkCmdSetViewport),
+    cmdSetScissor: std.meta.Child(vk.PFN_vkCmdSetScissor),
+    cmdDraw: std.meta.Child(vk.PFN_vkCmdDraw),
+    cmdCopyImageToBuffer: std.meta.Child(vk.PFN_vkCmdCopyImageToBuffer),
 };
 
 // ---- fields ---------------------------------------------------------
@@ -397,6 +410,20 @@ pub fn init(
         try dl.load(vk.PFN_vkResetFences, "vkResetFences");
     const reset_command_buffer =
         try dl.load(vk.PFN_vkResetCommandBuffer, "vkResetCommandBuffer");
+    const cmd_begin_rendering =
+        try dl.load(vk.PFN_vkCmdBeginRendering, "vkCmdBeginRendering");
+    const cmd_end_rendering =
+        try dl.load(vk.PFN_vkCmdEndRendering, "vkCmdEndRendering");
+    const cmd_bind_pipeline =
+        try dl.load(vk.PFN_vkCmdBindPipeline, "vkCmdBindPipeline");
+    const cmd_set_viewport =
+        try dl.load(vk.PFN_vkCmdSetViewport, "vkCmdSetViewport");
+    const cmd_set_scissor =
+        try dl.load(vk.PFN_vkCmdSetScissor, "vkCmdSetScissor");
+    const cmd_draw =
+        try dl.load(vk.PFN_vkCmdDraw, "vkCmdDraw");
+    const cmd_copy_image_to_buffer =
+        try dl.load(vk.PFN_vkCmdCopyImageToBuffer, "vkCmdCopyImageToBuffer");
 
     return .{
         .platform = platform,
@@ -454,6 +481,13 @@ pub fn init(
             .waitForFences = wait_for_fences,
             .resetFences = reset_fences,
             .resetCommandBuffer = reset_command_buffer,
+            .cmdBeginRendering = cmd_begin_rendering,
+            .cmdEndRendering = cmd_end_rendering,
+            .cmdBindPipeline = cmd_bind_pipeline,
+            .cmdSetViewport = cmd_set_viewport,
+            .cmdSetScissor = cmd_set_scissor,
+            .cmdDraw = cmd_draw,
+            .cmdCopyImageToBuffer = cmd_copy_image_to_buffer,
         },
     };
 }
