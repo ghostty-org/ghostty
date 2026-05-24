@@ -1355,6 +1355,15 @@ void GhosttySurface::presentVulkanDmabuf(
   QImage owned = stamped.copy();
   ::munmap(mapped, bytes);
 
+  // Tell QPainter the image's pixels are device pixels at the same
+  // DPR the framebuffer was sized at. Without this, `drawImage` would
+  // treat the image as logical pixels and re-scale to framebuffer
+  // pixels on a HiDPI display (DPR>1) — glyphs come out 2× too big.
+  // `m_fbDpr` is the DPR `syncSurfaceSize` used when telling
+  // libghostty the framebuffer size, so it matches what the renderer
+  // actually drew.
+  if (m_fbDpr > 0) owned.setDevicePixelRatio(m_fbDpr);
+
   // Stash for the GUI-thread polling timer to pick up.
   {
     QMutexLocker lock(&m_pendingMutex);
