@@ -22,6 +22,7 @@
 
 #include <QByteArray>
 #include <QClipboard>
+#include <QThread>
 #include <QContextMenuEvent>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -124,6 +125,23 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
     m_useVulkan = true;
     sc.platform_tag = GHOSTTY_PLATFORM_VULKAN;
     sc.platform.vulkan = vk_host->asPlatform(this);
+
+    // Polling timer on the GUI thread: every 16ms, check if the
+    // renderer thread parked a new frame in `m_pending` and swap
+    // it into `m_image` for paintEvent to pick up.
+    m_vulkanPollTimer = new QTimer(this);
+    m_vulkanPollTimer->setInterval(16);  // ≈60 Hz
+    connect(m_vulkanPollTimer, &QTimer::timeout, this, [this]() {
+      QImage frame;
+      {
+        QMutexLocker lock(&m_pendingMutex);
+        if (m_pending.isNull()) return;
+        frame = std::move(m_pending);
+      }
+      m_image = std::move(frame);
+      update();
+    });
+    m_vulkanPollTimer->start();
   } else {
     sc.platform_tag = GHOSTTY_PLATFORM_OPENGL;
     sc.platform.opengl.userdata = this;
@@ -141,7 +159,12 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
     return;
   }
 
-  if (m_owner->needsPremultiply()) initPremultiply();
+  // initPremultiply creates a `QOpenGLVertexArrayObject` against the
+  // private GL context. That context doesn't exist on the Vulkan
+  // path, so skip the setup. The Vulkan renderer handles alpha
+  // pre-multiplication itself (or doesn't need to — the dmabuf
+  // contents are already in the host's expected order).
+  if (!m_useVulkan && m_owner->needsPremultiply()) initPremultiply();
 }
 
 GhosttySurface::~GhosttySurface() {
@@ -194,13 +217,16 @@ void GhosttySurface::syncSurfaceSize() {
 
   // Vulkan path: libghostty manages the target image itself (it
   // allocates the dmabuf-exportable VkImage). We just need to tell
-  // it the new pixel size + DPR and kick a first render — same
-  // shape as the OpenGL path below, minus the FBO bookkeeping.
+  // it the new pixel size + DPR — the renderer thread picks up
+  // the new size and produces frames on its own clock; the
+  // GUI-thread polling timer (`m_vulkanPollTimer`) picks them up.
+  // We deliberately do NOT call `renderTerminal()` here: doing so
+  // synchronously from inside `resizeEvent` was deadlocking with
+  // Qt's first-show event delivery during bring-up.
   if (m_useVulkan) {
     ghostty_surface_set_content_scale(m_surface, dpr, dpr);
     ghostty_surface_set_size(m_surface, static_cast<uint32_t>(w),
                              static_cast<uint32_t>(h));
-    renderTerminal();
     return;
   }
 
@@ -351,10 +377,9 @@ void GhosttySurface::renderTerminal() {
 }
 
 void GhosttySurface::paintEvent(QPaintEvent *) {
-  // Vulkan-backed surface, no frame imported yet: paint a visible
-  // placeholder so the (translucent) MainWindow isn't completely
-  // invisible. Once `presentVulkanDmabuf` lands a frame, fall
-  // through to the regular blit path below.
+  // Even when on the Vulkan path with a frame imported, the
+  // widget can still hit a `paintEvent` before the dmabuf has
+  // landed. Show a placeholder until we have one.
   if (m_useVulkan && m_image.isNull()) {
     QPainter painter(this);
     painter.setCompositionMode(QPainter::CompositionMode_Source);
@@ -1285,13 +1310,15 @@ void GhosttySurface::presentVulkanDmabuf(
   // when the underlying memory is freed.
   (void)drm_modifier;  // LINEAR for v1; not used here.
 
-  // First-frame breadcrumb so we know the dmabuf hand-off is firing.
-  static bool first_frame = true;
-  if (first_frame) {
-    first_frame = false;
+  // One-shot breadcrumb so logs confirm the dmabuf hand-off is
+  // wired. Subsequent frames are silent so we don't spam stderr.
+  static bool logged_first = false;
+  if (!logged_first) {
+    logged_first = true;
     std::fprintf(stderr,
-                 "[ghastty] first Vulkan frame: %ux%u stride=%u fourcc=0x%08x\n",
-                 width, height, stride, drm_format);
+                 "[ghastty] first Vulkan dmabuf frame: fd=%d %ux%u stride=%u fourcc=0x%08x mod=0x%lx\n",
+                 dmabuf_fd, width, height, stride, drm_format,
+                 static_cast<unsigned long>(drm_modifier));
   }
 
   // sanity check the size before we allocate / mmap.
@@ -1324,16 +1351,11 @@ void GhosttySurface::presentVulkanDmabuf(
   QImage owned = stamped.copy();
   ::munmap(mapped, bytes);
 
-  // Marshal to the GUI thread. The lambda captures `owned` by value.
-  QPointer<GhosttySurface> selfp(this);
-  QMetaObject::invokeMethod(
-      this,
-      [selfp, owned]() mutable {
-        if (!selfp) return;
-        selfp->m_image = std::move(owned);
-        selfp->update();
-      },
-      Qt::QueuedConnection);
+  // Stash for the GUI-thread polling timer to pick up.
+  {
+    QMutexLocker lock(&m_pendingMutex);
+    m_pending = std::move(owned);
+  }
 }
 
 // Trampoline so `Host.cpp` doesn't need to include the full

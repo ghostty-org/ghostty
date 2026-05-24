@@ -3,9 +3,11 @@
 #include <atomic>
 
 #include <QImage>
+#include <QMutex>
 #include <QPointer>
 #include <QString>
 #include <QStringList>
+#include <QTimer>
 #include <QWidget>
 
 #include "ghostty.h"
@@ -236,6 +238,19 @@ private:
   // `presentVulkanDmabuf` has filled `m_image` the placeholder
   // gives way to the actual rendered content.
   bool m_useVulkan = false;
+
+  // Cross-thread frame handoff for the Vulkan path. `presentVulkanDmabuf`
+  // (renderer thread) writes a freshly-imported QImage to `m_pending`
+  // under `m_pendingMutex`; a 16 ms `QTimer` on the GUI thread checks
+  // `m_pending`, atomically swaps it into `m_image`, and triggers a
+  // repaint. The polling timer is the simplest reliable cross-thread
+  // path we could land — the obvious Qt mechanisms
+  // (QMetaObject::invokeMethod / postEvent) were both not firing
+  // their queued lambdas under the renderer-thread → GUI-thread
+  // handoff, see the commit message for diagnostics.
+  QImage m_pending;
+  QMutex m_pendingMutex;
+  QTimer *m_vulkanPollTimer = nullptr;
 
   // GL objects for the alpha-premultiply pass.
   QOpenGLShaderProgram *m_premultProg = nullptr;

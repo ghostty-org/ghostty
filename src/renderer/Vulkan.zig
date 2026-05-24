@@ -260,18 +260,6 @@ pub fn surfaceSize(self: *const Vulkan) !struct { width: u32, height: u32 } {
 
 pub fn present(self: *Vulkan, target: Target) !void {
     _ = self;
-    // Breadcrumb for the bring-up — flag the first present so we can
-    // tell from logs whether the frame loop is actually firing.
-    const first_present = struct {
-        var yes: bool = true;
-    };
-    if (first_present.yes) {
-        first_present.yes = false;
-        std.debug.print(
-            "[ghastty] Vulkan.present: first frame, fd={} stride={} {}x{}\n",
-            .{ target.fd, target.stride, target.width, target.height },
-        );
-    }
     // The target is already populated by the time we get here:
     // `Frame.complete` ended the command buffer, submitted with the
     // fence, and waited for the GPU to finish before returning. So
@@ -293,16 +281,6 @@ pub fn beginFrame(
     target: *Target,
 ) !Frame {
     _ = renderer;
-    // Breadcrumb so we can see in logs when the renderer actually
-    // starts a frame (which calls our beginFrame). One-shot per
-    // process to avoid spamming.
-    const first_begin = struct {
-        var yes: bool = true;
-    };
-    if (first_begin.yes) {
-        first_begin.yes = false;
-        std.debug.print("[ghastty] Vulkan.beginFrame: first call, target {}x{}\n", .{ target.width, target.height });
-    }
     const dev = devicePtr();
 
     // Lazy per-thread resource init. The first call to `beginFrame`
