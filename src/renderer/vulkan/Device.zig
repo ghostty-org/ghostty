@@ -123,6 +123,10 @@ pub const Dispatch = struct {
     queueWaitIdle: std.meta.Child(vk.PFN_vkQueueWaitIdle),
     cmdPipelineBarrier: std.meta.Child(vk.PFN_vkCmdPipelineBarrier),
     cmdCopyBufferToImage: std.meta.Child(vk.PFN_vkCmdCopyBufferToImage),
+
+    // Shader modules — used by `vulkan/shaders.zig`.
+    createShaderModule: std.meta.Child(vk.PFN_vkCreateShaderModule),
+    destroyShaderModule: std.meta.Child(vk.PFN_vkDestroyShaderModule),
 };
 
 // ---- fields ---------------------------------------------------------
@@ -335,6 +339,10 @@ pub fn init(
         try dl.load(vk.PFN_vkCmdPipelineBarrier, "vkCmdPipelineBarrier");
     const cmd_copy_buffer_to_image =
         try dl.load(vk.PFN_vkCmdCopyBufferToImage, "vkCmdCopyBufferToImage");
+    const create_shader_module =
+        try dl.load(vk.PFN_vkCreateShaderModule, "vkCreateShaderModule");
+    const destroy_shader_module =
+        try dl.load(vk.PFN_vkDestroyShaderModule, "vkDestroyShaderModule");
 
     return .{
         .platform = platform,
@@ -377,6 +385,8 @@ pub fn init(
             .queueWaitIdle = queue_wait_idle,
             .cmdPipelineBarrier = cmd_pipeline_barrier,
             .cmdCopyBufferToImage = cmd_copy_buffer_to_image,
+            .createShaderModule = create_shader_module,
+            .destroyShaderModule = destroy_shader_module,
         },
     };
 }

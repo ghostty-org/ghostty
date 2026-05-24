@@ -67,6 +67,7 @@ pub const Device = @import("vulkan/Device.zig");
 pub const Sampler = @import("vulkan/Sampler.zig");
 pub const Texture = @import("vulkan/Texture.zig");
 pub const CommandPool = @import("vulkan/CommandPool.zig");
+pub const shaders = @import("vulkan/shaders.zig");
 
 const bufferpkg = @import("vulkan/buffer.zig");
 pub const Buffer = bufferpkg.Buffer;
