@@ -85,6 +85,10 @@ pub const Dispatch = struct {
     // call adds a field here and a `loadDevice` lookup in `init`.
     getDeviceQueue: std.meta.Child(vk.PFN_vkGetDeviceQueue),
     deviceWaitIdle: std.meta.Child(vk.PFN_vkDeviceWaitIdle),
+
+    // Sampler — used by `vulkan/Sampler.zig`.
+    createSampler: std.meta.Child(vk.PFN_vkCreateSampler),
+    destroySampler: std.meta.Child(vk.PFN_vkDestroySampler),
 };
 
 // ---- fields ---------------------------------------------------------
@@ -243,6 +247,10 @@ pub fn init(
         try dl.load(vk.PFN_vkGetDeviceQueue, "vkGetDeviceQueue");
     const device_wait_idle =
         try dl.load(vk.PFN_vkDeviceWaitIdle, "vkDeviceWaitIdle");
+    const create_sampler =
+        try dl.load(vk.PFN_vkCreateSampler, "vkCreateSampler");
+    const destroy_sampler =
+        try dl.load(vk.PFN_vkDestroySampler, "vkDestroySampler");
 
     return .{
         .platform = platform,
@@ -258,6 +266,8 @@ pub fn init(
             .getDeviceProcAddr = get_device_proc_addr,
             .getDeviceQueue = get_device_queue,
             .deviceWaitIdle = device_wait_idle,
+            .createSampler = create_sampler,
+            .destroySampler = destroy_sampler,
         },
     };
 }

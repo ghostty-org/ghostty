@@ -64,3 +64,4 @@
 //! See the parity branch description in `qt/PARITY.md` once it lands.
 
 pub const Device = @import("vulkan/Device.zig");
+pub const Sampler = @import("vulkan/Sampler.zig");
