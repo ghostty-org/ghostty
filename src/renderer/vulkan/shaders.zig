@@ -356,28 +356,76 @@ pub const PipelineCollection = struct {
 /// `opengl/shaders.zig`'s `Shaders` so the generic renderer's call
 /// sites work without per-backend branching.
 ///
-/// **Stub `init`.** The current implementation returns a shell with
-/// `undefined` pipelines so the comptime contract for
-/// `GenericRenderer(Vulkan)` resolves and `-Drenderer=vulkan` builds.
-/// The actual pipeline construction (compile each GLSL via
-/// `Module.init`, build descriptor set layouts, assemble
-/// `Pipeline.Options`, instantiate via `Pipeline.init`) lands in a
-/// follow-up commit alongside the integration smoke test on real
-/// hardware.
+/// What's wired:
+///   - Compiles all 9 built-in GLSL sources at init time via
+///     `Module.init` (which runs the glslang shim — same code path
+///     user shaders go through). The compiled `VkShaderModule`
+///     handles are held in `modules` for the lifetime of the
+///     `Shaders` struct.
+///
+/// What's stubbed:
+///   - `pipelines` is still `undefined`. Building real pipelines
+///     needs the per-pipeline descriptor-set layout (which depends
+///     on what `setAutoMapBindings` picked) and the vertex input
+///     description for the instanced pipelines. Constructed in a
+///     follow-up commit once the rest of the integration is wired.
 pub const Shaders = struct {
     pipelines: PipelineCollection,
     post_pipelines: []const Pipeline,
+    modules: Modules,
     defunct: bool = false,
+
+    /// The compiled `VkShaderModule`s for the renderer's built-in
+    /// shaders. One entry per source file. Held by `Shaders` so the
+    /// (eventual) per-pipeline `Pipeline.init` can reference them
+    /// without re-compiling on every assemble.
+    pub const Modules = struct {
+        bg_color_frag: Module,
+        bg_image_frag: Module,
+        bg_image_vert: Module,
+        cell_bg_frag: Module,
+        cell_text_frag: Module,
+        cell_text_vert: Module,
+        full_screen_vert: Module,
+        image_frag: Module,
+        image_vert: Module,
+    };
 
     pub fn init(
         alloc: Allocator,
+        device: *const @import("Device.zig"),
         post_shaders: []const [:0]const u8,
     ) !Shaders {
-        _ = alloc;
         _ = post_shaders;
+
+        // Compile each built-in shader. Errors are fatal — the
+        // renderer can't run without these. The `errdefer` chain
+        // tears down any successfully-compiled modules if a later
+        // one fails so we don't leak `VkShaderModule` handles on
+        // partial failure.
+        var modules: Modules = undefined;
+        modules.bg_color_frag = try Module.init(alloc, device, source.bg_color_frag, .fragment);
+        errdefer modules.bg_color_frag.deinit();
+        modules.bg_image_frag = try Module.init(alloc, device, source.bg_image_frag, .fragment);
+        errdefer modules.bg_image_frag.deinit();
+        modules.bg_image_vert = try Module.init(alloc, device, source.bg_image_vert, .vertex);
+        errdefer modules.bg_image_vert.deinit();
+        modules.cell_bg_frag = try Module.init(alloc, device, source.cell_bg_frag, .fragment);
+        errdefer modules.cell_bg_frag.deinit();
+        modules.cell_text_frag = try Module.init(alloc, device, source.cell_text_frag, .fragment);
+        errdefer modules.cell_text_frag.deinit();
+        modules.cell_text_vert = try Module.init(alloc, device, source.cell_text_vert, .vertex);
+        errdefer modules.cell_text_vert.deinit();
+        modules.full_screen_vert = try Module.init(alloc, device, source.full_screen_vert, .vertex);
+        errdefer modules.full_screen_vert.deinit();
+        modules.image_frag = try Module.init(alloc, device, source.image_frag, .fragment);
+        errdefer modules.image_frag.deinit();
+        modules.image_vert = try Module.init(alloc, device, source.image_vert, .vertex);
+
         return .{
             .pipelines = .{},
             .post_pipelines = &.{},
+            .modules = modules,
         };
     }
 
@@ -385,10 +433,21 @@ pub const Shaders = struct {
         _ = alloc;
         if (self.defunct) return;
         self.defunct = true;
-        // No pipeline destruction yet — `init` returns undefined
-        // pipelines. Real `deinit` will iterate `inline for` over
-        // PipelineCollection's fields and destroy each one, plus
-        // free `post_pipelines`.
+
+        // Destroy every compiled module.
+        self.modules.bg_color_frag.deinit();
+        self.modules.bg_image_frag.deinit();
+        self.modules.bg_image_vert.deinit();
+        self.modules.cell_bg_frag.deinit();
+        self.modules.cell_text_frag.deinit();
+        self.modules.cell_text_vert.deinit();
+        self.modules.full_screen_vert.deinit();
+        self.modules.image_frag.deinit();
+        self.modules.image_vert.deinit();
+
+        // No pipeline destruction yet — `init` doesn't construct
+        // real pipelines. Real `deinit` will iterate `inline for`
+        // over PipelineCollection's fields once those exist.
     }
 };
 

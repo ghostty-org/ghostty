@@ -219,7 +219,7 @@ pub fn initShaders(
     custom_shaders: []const [:0]const u8,
 ) !shaders.Shaders {
     _ = self;
-    return try shaders.Shaders.init(alloc, custom_shaders);
+    return try shaders.Shaders.init(alloc, devicePtr(), custom_shaders);
 }
 
 pub fn surfaceSize(self: *const Vulkan) !struct { width: u32, height: u32 } {
