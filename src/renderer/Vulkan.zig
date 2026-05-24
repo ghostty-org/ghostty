@@ -255,9 +255,17 @@ pub fn initShaders(
 
 pub fn initTarget(self: *const Vulkan, width: usize, height: usize) !Target {
     _ = self;
+    // SRGB format so the hardware gamma-encodes the linear premultiplied
+    // shader output at framebuffer-write time. The renderer's shaders
+    // produce linear premultiplied alpha; without an sRGB format the
+    // bytes in memory would be linear and Qt (which expects sRGB
+    // premultiplied) would render them as if they were already gamma
+    // encoded — colors would look way too dark. The DRM fourcc the
+    // host sees is still ARGB8888; SRGB encoding is a Vulkan-side
+    // concern only.
     return try Target.init(.{
         .device = devicePtr(),
-        .format = vk.VK_FORMAT_B8G8R8A8_UNORM,
+        .format = vk.VK_FORMAT_B8G8R8A8_SRGB,
         .width = @intCast(width),
         .height = @intCast(height),
     });
@@ -400,11 +408,11 @@ pub fn textureOptions(_: *const Vulkan) Texture.Options {
     // back_texture (which is BOTH sampled AND a render target).
     // We hand back the wider usage set so both work. The format
     // matches the renderer's `initTarget` choice
-    // (`B8G8R8A8_UNORM`) so a render → sample → render chain
+    // (`B8G8R8A8_SRGB`) so a render → sample → render chain
     // through the custom-shader pass keeps the same color format.
     return .{
         .device = devicePtr(),
-        .format = vk.VK_FORMAT_B8G8R8A8_UNORM,
+        .format = vk.VK_FORMAT_B8G8R8A8_SRGB,
         .usage = vk.VK_IMAGE_USAGE_SAMPLED_BIT |
             vk.VK_IMAGE_USAGE_TRANSFER_DST_BIT |
             vk.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,

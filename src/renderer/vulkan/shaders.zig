@@ -46,35 +46,13 @@ pub const source = struct {
     // include contents inline — same approach `opengl/shaders.zig`
     // uses via its `loadShaderCode`.
 
-    // DIAGNOSTIC: override bg_color.f.glsl with a hardcoded purple
-    // color so we can verify the pipeline + descriptor binding +
-    // draw recording work end-to-end without depending on the
-    // Uniforms.bg_color data path being correct. Once a colored
-    // window confirms the pipeline runs, revert to the real
-    // include-expanded source.
-    pub const bg_color_frag: [:0]const u8 =
-        \\#version 450
-        \\layout(location = 0) out vec4 out_FragColor;
-        \\void main() {
-        \\    out_FragColor = vec4(0.5, 0.0, 0.5, 1.0); // debug: opaque purple
-        \\}
-    ;
-    pub const bg_color_frag_real = processIncludes(@embedFile("../shaders/glsl/bg_color.f.glsl"));
+    pub const bg_color_frag = processIncludes(@embedFile("../shaders/glsl/bg_color.f.glsl"));
     pub const bg_image_frag = processIncludes(@embedFile("../shaders/glsl/bg_image.f.glsl"));
     pub const bg_image_vert = processIncludes(@embedFile("../shaders/glsl/bg_image.v.glsl"));
     pub const cell_bg_frag = processIncludes(@embedFile("../shaders/glsl/cell_bg.f.glsl"));
     pub const cell_text_frag = processIncludes(@embedFile("../shaders/glsl/cell_text.f.glsl"));
     pub const cell_text_vert = processIncludes(@embedFile("../shaders/glsl/cell_text.v.glsl"));
-    // DIAGNOSTIC: inline a known-good fullscreen-triangle vertex
-    // shader to rule out any vulkanizeGlsl rewrite issues.
-    pub const full_screen_vert: [:0]const u8 =
-        \\#version 450
-        \\void main() {
-        \\    vec2 pos[3] = vec2[3](vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
-        \\    gl_Position = vec4(pos[gl_VertexIndex], 0.0, 1.0);
-        \\}
-    ;
-    pub const full_screen_vert_real = processIncludes(@embedFile("../shaders/glsl/full_screen.v.glsl"));
+    pub const full_screen_vert = processIncludes(@embedFile("../shaders/glsl/full_screen.v.glsl"));
     pub const image_frag = processIncludes(@embedFile("../shaders/glsl/image.f.glsl"));
     pub const image_vert = processIncludes(@embedFile("../shaders/glsl/image.v.glsl"));
 };
@@ -565,17 +543,15 @@ pub const Shaders = struct {
         }
         errdefer device.dispatch.destroyDescriptorSetLayout(device.device, bg_color_dsl, null);
 
-        // DIAGNOSTIC: the debug bg_color shader has no inputs, so
-        // build the pipeline WITHOUT a descriptor set layout. The
-        // `bg_color_dsl` is still kept around — it gets stored in
-        // `Shaders.bg_color_set_layout` and torn down on deinit.
+        const bg_color_dsls = [_]vk.VkDescriptorSetLayout{bg_color_dsl};
         const bg_color_pipeline = try Pipeline.init(.{
             .device = device,
+            .descriptor_pool = &pool,
             .vertex_module = modules.full_screen_vert.handle,
             .fragment_module = modules.bg_color_frag.handle,
             .vertex_input = null,
-            .descriptor_set_layouts = &.{},
-            .color_format = vk.VK_FORMAT_B8G8R8A8_UNORM,
+            .descriptor_set_layouts = &bg_color_dsls,
+            .color_format = vk.VK_FORMAT_B8G8R8A8_SRGB,
             .blending_enabled = false,
             .topology = vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
         });

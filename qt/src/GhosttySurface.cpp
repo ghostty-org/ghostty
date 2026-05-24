@@ -1333,21 +1333,25 @@ void GhosttySurface::presentVulkanDmabuf(
     return;
   }
   // QImage holds the pixel data by copying when constructed with
-  // `Format_ARGB32` from a buffer with explicit stride. We then
-  // detach (copy()) so the QImage survives the unmap.
+  // `Format_ARGB32_Premultiplied` from a buffer with explicit stride.
+  // We then detach (copy()) so the QImage survives the unmap.
   //
   // drm_format ARGB8888 (0x34325241 = "AR24") matches QImage's
-  // Format_ARGB32 byte order on little-endian (B,G,R,A in memory).
-  // We unconditionally use ARGB32 here because the renderer currently
-  // emits BGRA only — extend with a format switch when other formats
-  // come online.
+  // ARGB32 byte order on little-endian (B,G,R,A in memory).
+  //
+  // We use the *premultiplied* variant because the renderer's
+  // fragment shaders output premultiplied alpha and the render
+  // target is `VK_FORMAT_B8G8R8A8_SRGB` (hardware gamma-encodes the
+  // linear shader output at framebuffer-write time). The bytes
+  // landing in this buffer are therefore sRGB-encoded premultiplied
+  // ARGB — exactly what Format_ARGB32_Premultiplied expects.
   (void)drm_format;
   const QImage stamped(
       static_cast<const uchar *>(mapped),
       static_cast<int>(width),
       static_cast<int>(height),
       static_cast<int>(stride),
-      QImage::Format_ARGB32);
+      QImage::Format_ARGB32_Premultiplied);
   QImage owned = stamped.copy();
   ::munmap(mapped, bytes);
 
