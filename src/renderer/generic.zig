@@ -1455,15 +1455,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self: *Self,
             sync: bool,
         ) !void {
-            // const start = std.time.Instant.now() catch unreachable;
-            // const start_micro = std.time.microTimestamp();
-            // defer {
-            //     const end = std.time.Instant.now() catch unreachable;
-            //     log.warn(
-            //         "[drawFrame time] start_micro={} duration={}ns",
-            //         .{ start_micro, end.since(start) / std.time.ns_per_us },
-            //     );
-            // }
 
             // We hold a the draw mutex to prevent changes to any
             // data we access while we're in the middle of drawing.

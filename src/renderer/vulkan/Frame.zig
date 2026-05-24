@@ -113,11 +113,7 @@ pub fn complete(self: *const Self, sync: bool) void {
     const dev = self.device;
 
     // Copy the just-rendered OPTIMAL-tiled image into the
-    // dmabuf-exported LINEAR pixel buffer. NVIDIA (and most
-    // discrete GPUs) refuse `FORMAT_FEATURE_COLOR_ATTACHMENT_BIT`
-    // on linear-tiled images, so the renderer draws into an
-    // OPTIMAL image and a transfer copy bridges to the dmabuf
-    // consumer. See `Target.zig` for the full rationale.
+    // dmabuf-exported LINEAR pixel buffer. See `Target.zig` for why.
     self.target.recordCopyToDmabuf(self.cb);
 
     {
@@ -165,13 +161,9 @@ pub fn complete(self: *const Self, sync: bool) void {
         }
     }
 
-    // Hand the rendered target off to the host. This mirrors what
-    // `opengl/Frame.zig`'s `complete` does at the same point: it
-    // calls `self.renderer.api.present(self.target.*)`. Our analog
-    // is `Target.present()`, which routes through the platform's
-    // `present` callback (the apprt-side dmabuf consumer). Also
-    // stash on the renderer's `last_target` for `presentLastTarget`
-    // re-presents on no-op frames.
+    // Hand the rendered target off to the host via `Vulkan.present`,
+    // which both calls the platform's present callback AND records
+    // the target pointer for `presentLastTarget` no-op republishes.
     self.renderer.api.present(self.target) catch |err| {
         log.err("present failed: {}", .{err});
     };

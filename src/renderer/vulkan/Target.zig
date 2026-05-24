@@ -213,20 +213,31 @@ pub fn init(opts: Options) Error!Self {
 
     var buf_reqs: vk.VkMemoryRequirements = undefined;
     dev.dispatch.getBufferMemoryRequirements(dev.device, dmabuf_buffer, &buf_reqs);
-    // Must be HOST_VISIBLE | HOST_COHERENT so the dmabuf fd is
-    // mmap-able from userspace. NVIDIA's dmabuf-exportable memory
-    // includes a host-visible type alongside the device-local ones;
-    // we explicitly request both flags so we don't accidentally pick
-    // a VRAM-only type whose mmap returns garbage.
-    const host_flags = @as(vk.VkMemoryPropertyFlags, vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) |
+    // Prefer HOST_CACHED so reads from the mmap'd dmabuf are fast.
+    // Without it (HOST_VISIBLE | HOST_COHERENT only), NVIDIA gives
+    // back write-combining memory: GPU writes are fast but HOST reads
+    // crawl (~10 MB/s) because the mapping is uncached. The Qt
+    // `presentVulkanDmabuf` `QImage::copy()` reads every pixel, so a
+    // small ~3 MB frame took ~260 ms there. HOST_COHERENT is still
+    // requested so we don't need explicit flushes between GPU writes
+    // and host reads; HOST_CACHED on top makes the host reads
+    // cacheable.
+    const host_flags_cached =
+        @as(vk.VkMemoryPropertyFlags, vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) |
+        vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+        vk.VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+    const host_flags_uncached =
+        @as(vk.VkMemoryPropertyFlags, vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) |
         vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-    const dmabuf_mem_idx = dev.findMemoryType(buf_reqs.memoryTypeBits, host_flags) orelse {
-        log.err(
-            "no HOST_VISIBLE | HOST_COHERENT memory type for dmabuf (typeBits=0x{x})",
-            .{buf_reqs.memoryTypeBits},
-        );
-        return error.NoSuitableMemoryType;
-    };
+    const dmabuf_mem_idx = dev.findMemoryType(buf_reqs.memoryTypeBits, host_flags_cached) orelse
+        dev.findMemoryType(buf_reqs.memoryTypeBits, host_flags_uncached) orelse
+        {
+            log.err(
+                "no HOST_VISIBLE memory type for dmabuf (typeBits=0x{x})",
+                .{buf_reqs.memoryTypeBits},
+            );
+            return error.NoSuitableMemoryType;
+        };
     const export_info: vk.VkExportMemoryAllocateInfo = .{
         .sType = vk.VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO,
         .pNext = null,
