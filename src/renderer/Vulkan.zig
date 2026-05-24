@@ -80,6 +80,16 @@ pub const Buffer = bufferpkg.Buffer;
 /// Custom user shaders (`shadertoy.zig`) target GLSL — same as OpenGL.
 pub const custom_shader_target: shadertoy.Target = .glsl;
 
+/// Custom shaders are not yet supported on the Vulkan backend. The
+/// renderer's first pass draws into `CustomShaderState.back_texture`
+/// when custom shaders are configured, and a second "post" pass is
+/// expected to composite back_texture → frame.target through the
+/// user's shader. We haven't built that second pass for Vulkan yet,
+/// so enabling custom shaders here would leave `frame.target` empty
+/// and the window blank. Until the post pipeline lands, the generic
+/// renderer skips loading custom shaders for Vulkan and warns once.
+pub const supports_custom_shaders: bool = false;
+
 /// Vulkan's clip-space Y axis points down (unlike OpenGL).
 pub const custom_shader_y_is_down = true;
 

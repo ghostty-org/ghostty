@@ -83,6 +83,7 @@ pub const Dispatch = struct {
     // ---- instance-level -----------------------------------------
     getPhysicalDeviceProperties: std.meta.Child(vk.PFN_vkGetPhysicalDeviceProperties),
     getPhysicalDeviceMemoryProperties: std.meta.Child(vk.PFN_vkGetPhysicalDeviceMemoryProperties),
+    getPhysicalDeviceFormatProperties: std.meta.Child(vk.PFN_vkGetPhysicalDeviceFormatProperties),
     enumerateDeviceExtensionProperties: std.meta.Child(vk.PFN_vkEnumerateDeviceExtensionProperties),
     getDeviceProcAddr: std.meta.Child(vk.PFN_vkGetDeviceProcAddr),
 
@@ -128,6 +129,8 @@ pub const Dispatch = struct {
     queueWaitIdle: std.meta.Child(vk.PFN_vkQueueWaitIdle),
     cmdPipelineBarrier: std.meta.Child(vk.PFN_vkCmdPipelineBarrier),
     cmdCopyBufferToImage: std.meta.Child(vk.PFN_vkCmdCopyBufferToImage),
+    cmdFillBuffer: std.meta.Child(vk.PFN_vkCmdFillBuffer),
+    cmdClearColorImage: std.meta.Child(vk.PFN_vkCmdClearColorImage),
 
     // Shader modules — used by `vulkan/shaders.zig`.
     createShaderModule: std.meta.Child(vk.PFN_vkCreateShaderModule),
@@ -270,6 +273,8 @@ pub fn init(
         try il.load(vk.PFN_vkGetPhysicalDeviceProperties, "vkGetPhysicalDeviceProperties");
     const get_physical_device_memory_properties =
         try il.load(vk.PFN_vkGetPhysicalDeviceMemoryProperties, "vkGetPhysicalDeviceMemoryProperties");
+    const get_physical_device_format_properties =
+        try il.load(vk.PFN_vkGetPhysicalDeviceFormatProperties, "vkGetPhysicalDeviceFormatProperties");
     const enumerate_device_extension_properties =
         try il.load(vk.PFN_vkEnumerateDeviceExtensionProperties, "vkEnumerateDeviceExtensionProperties");
     const get_device_proc_addr =
@@ -389,6 +394,10 @@ pub fn init(
         try dl.load(vk.PFN_vkCmdPipelineBarrier, "vkCmdPipelineBarrier");
     const cmd_copy_buffer_to_image =
         try dl.load(vk.PFN_vkCmdCopyBufferToImage, "vkCmdCopyBufferToImage");
+    const cmd_fill_buffer =
+        try dl.load(vk.PFN_vkCmdFillBuffer, "vkCmdFillBuffer");
+    const cmd_clear_color_image =
+        try dl.load(vk.PFN_vkCmdClearColorImage, "vkCmdClearColorImage");
     const create_shader_module =
         try dl.load(vk.PFN_vkCreateShaderModule, "vkCreateShaderModule");
     const destroy_shader_module =
@@ -455,6 +464,7 @@ pub fn init(
         .dispatch = .{
             .getPhysicalDeviceProperties = get_physical_device_properties,
             .getPhysicalDeviceMemoryProperties = get_physical_device_memory_properties,
+            .getPhysicalDeviceFormatProperties = get_physical_device_format_properties,
             .enumerateDeviceExtensionProperties = enumerate_device_extension_properties,
             .getDeviceProcAddr = get_device_proc_addr,
             .getDeviceQueue = get_device_queue,
@@ -485,6 +495,8 @@ pub fn init(
             .queueWaitIdle = queue_wait_idle,
             .cmdPipelineBarrier = cmd_pipeline_barrier,
             .cmdCopyBufferToImage = cmd_copy_buffer_to_image,
+            .cmdFillBuffer = cmd_fill_buffer,
+            .cmdClearColorImage = cmd_clear_color_image,
             .createShaderModule = create_shader_module,
             .destroyShaderModule = destroy_shader_module,
             .createDescriptorSetLayout = create_descriptor_set_layout,

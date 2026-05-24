@@ -838,14 +838,38 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             defer arena.deinit();
             const arena_alloc = arena.allocator();
 
-            // Load our custom shaders
-            const custom_shaders: []const [:0]const u8 = shadertoy.loadFromFiles(
-                arena_alloc,
-                self.config.custom_shaders,
-                GraphicsAPI.custom_shader_target,
-            ) catch |err| err: {
-                log.warn("error loading custom shaders err={}", .{err});
-                break :err &.{};
+            // Load our custom shaders.
+            //
+            // GraphicsAPI advertises whether it can actually run them
+            // (`supports_custom_shaders`). The Vulkan backend currently
+            // can't — its post-pass / compositor pipeline that wires
+            // CustomShaderState.back_texture → frame.target through the
+            // user's shader hasn't been built yet. Loading + flagging
+            // `has_custom_shaders` anyway would route bg_color into the
+            // back_texture and leave frame.target blank. Skip the load
+            // when the backend can't consume the result, and emit a
+            // one-line warning so the user knows their config item was
+            // ignored.
+            const can_use_custom = !@hasDecl(GraphicsAPI, "supports_custom_shaders") or
+                GraphicsAPI.supports_custom_shaders;
+            const custom_shaders: []const [:0]const u8 = if (can_use_custom)
+                (shadertoy.loadFromFiles(
+                    arena_alloc,
+                    self.config.custom_shaders,
+                    GraphicsAPI.custom_shader_target,
+                ) catch |err| err: {
+                    log.warn("error loading custom shaders err={}", .{err});
+                    break :err &.{};
+                })
+            else custom: {
+                if (self.config.custom_shaders.value.items.len > 0) {
+                    log.warn(
+                        "custom-shader config ignored: backend lacks " ++
+                            "post-pipeline support (Vulkan TODO)",
+                        .{},
+                    );
+                }
+                break :custom &.{};
             };
 
             const has_custom_shaders = custom_shaders.len > 0;

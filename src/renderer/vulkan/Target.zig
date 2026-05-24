@@ -1,26 +1,30 @@
-//! Render target: an exportable `VkImage` backed by linear-tiled,
-//! externally-shareable `VkDeviceMemory` whose dmabuf fd is the
+//! Render target: an OPTIMAL-tiled `VkImage` (the actual color
+//! attachment) plus a dmabuf-exported `VkBuffer` containing the
+//! rendered bytes in linear BGRA layout. The buffer's fd is the
 //! payload of `ghostty_platform_vulkan_s.present`.
 //!
-//! This is what makes the whole Vulkan port worthwhile: instead of
-//! reading the frame back into a `QImage` like the OpenGL path does,
-//! the host (Qt RHI via `QRhiTexture`) imports our memory directly
-//! and composites it in-GPU. Zero-copy, no readback.
+//! Why both an image AND a buffer?
 //!
-//! Layout: **linear tiling** for v1. Linear is the safest cross-
-//! driver choice for dmabuf consumers — every Wayland compositor,
-//! every Qt RHI backend, every reader can accept linear without
-//! modifier negotiation. The cost is reduced rasterization perf vs
-//! `VK_IMAGE_TILING_OPTIMAL`. For a terminal at ~60Hz with a few
-//! megapixels of fill, linear is fine. Driver-chosen DRM format
-//! modifiers (the "optimal+exportable" path via
-//! `VK_EXT_image_drm_format_modifier`) is a contained follow-up.
+//! NVIDIA (and probably others) do NOT expose
+//! `FORMAT_FEATURE_COLOR_ATTACHMENT_BIT` for `linearTilingFeatures`.
+//! That means a LINEAR-tiled `VkImage` cannot be used as a color
+//! attachment — the driver accepts the image creation and the draw
+//! recording, but actually rasterizes nothing. We confirmed this by
+//! probing `vkGetPhysicalDeviceFormatProperties` for
+//! `VK_FORMAT_B8G8R8A8_UNORM` (linearTilingFeatures=0x1dc03 without
+//! the COLOR_ATTACHMENT bit).
 //!
-//! Ownership: libghostty owns the `VkImage`, `VkDeviceMemory`, and
-//! the dmabuf fd for the lifetime of the `Target`. The fd is passed
-//! to the host via `present` as a borrow; the host must `dup()` if
-//! it needs to hold it past the call. `deinit` closes the fd and
-//! frees the memory.
+//! So the renderer draws into an OPTIMAL-tiled image (the format the
+//! GPU is happy to rasterize into), then copies the result into a
+//! LINEAR-laid-out exportable `VkBuffer` via `vkCmdCopyImageToBuffer`.
+//! The Qt host mmaps the buffer's dmabuf fd and reads BGRA bytes with
+//! the stride we report.
+//!
+//! Ownership: libghostty owns the image, buffer, all memory, and the
+//! dmabuf fd for the lifetime of the `Target`. The fd is passed to
+//! the host via `present` as a borrow; the host must `dup()` if it
+//! needs to hold it past the call. `deinit` closes the fd and frees
+//! all the memory.
 //!
 //! Counterpart: `src/renderer/opengl/Target.zig`.
 
@@ -40,89 +44,63 @@ pub const DRM_FORMAT_MOD_LINEAR: u64 = 0;
 
 pub const Options = struct {
     device: *const Device,
-
-    /// Color format. The DRM fourcc the host receives is derived
-    /// from this — see `vkFormatToDrmFourcc` below.
     format: vk.VkFormat,
-
-    /// Render target dimensions, in pixels.
     width: u32,
     height: u32,
-
-    /// Extra `VkImageUsageFlagBits` beyond the defaults
-    /// (`COLOR_ATTACHMENT_BIT | SAMPLED_BIT`). Rarely needed; left
-    /// as an escape hatch for things like a transfer source for
-    /// debug captures.
+    /// Extra `VkImageUsageFlagBits` for the render image, beyond the
+    /// defaults (`COLOR_ATTACHMENT_BIT | SAMPLED_BIT |
+    /// TRANSFER_SRC_BIT`). Rarely needed.
     extra_usage: vk.VkImageUsageFlags = 0,
 };
 
 pub const Error = error{
-    /// A `vkCreate*` / `vkAllocate*` / `vkBind*` / `vkGetMemoryFdKHR`
-    /// returned a non-success status.
     VulkanFailed,
-    /// `Device.findMemoryType` couldn't find a memory type matching
-    /// the image's requirements and the export memory flag bit.
     NoSuitableMemoryType,
-    /// The provided `VkFormat` doesn't map to a known DRM fourcc.
-    /// Currently the renderer only ever uses
-    /// `VK_FORMAT_B8G8R8A8_UNORM` / `_R8G8B8A8_UNORM` so this is a
-    /// guard against config drift rather than a real failure mode.
     UnsupportedFormat,
 };
 
 device: *const Device,
 
+// ---- render image (OPTIMAL, internal) -------------------------------
 image: vk.VkImage,
-memory: vk.VkDeviceMemory,
+image_memory: vk.VkDeviceMemory,
 view: vk.VkImageView,
+
+// ---- dmabuf buffer (LINEAR pixel bytes, exported) -------------------
+dmabuf_buffer: vk.VkBuffer,
+dmabuf_memory: vk.VkDeviceMemory,
 
 format: vk.VkFormat,
 width: u32,
 height: u32,
 
-/// dmabuf fd. Owned by `Target` until `deinit`; the host must
-/// `dup()` if it wants to hold it past a `present` call.
 fd: i32,
-
-/// DRM fourcc the host should interpret the dmabuf as. Derived from
-/// `format` at construction time so the apprt callback can pass it
-/// straight through.
 drm_format: u32,
-
-/// DRM modifier. Always `DRM_FORMAT_MOD_LINEAR` for v1.
 drm_modifier: u64,
-
-/// Row stride in bytes — `vkGetImageSubresourceLayout` tells us the
-/// driver's actual rowPitch (which may include alignment padding).
-/// The host needs this for the dmabuf import.
 stride: u32,
 
-/// Current image layout, mirroring the same field on `Texture`.
-/// Starts at `UNDEFINED`; the renderer transitions it as needed
-/// across the frame.
+/// Current layout of the render image. Tracked so `recordCopyToDmabuf`
+/// knows what oldLayout to use in its `COLOR_ATTACHMENT → TRANSFER_SRC`
+/// barrier. The renderer transitions it elsewhere too (RenderPass).
 layout: vk.VkImageLayout = vk.VK_IMAGE_LAYOUT_UNDEFINED,
 
 pub fn init(opts: Options) Error!Self {
     const dev = opts.device;
     const drm_format = try vkFormatToDrmFourcc(opts.format);
 
-    // COLOR_ATTACHMENT — we render into this via dynamic rendering.
-    // SAMPLED — the renderer's custom-shader path samples the target.
-    // TRANSFER_SRC — readback for debug / screenshot tooling.
-    const usage = @as(vk.VkImageUsageFlags, vk.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) |
+    // BGRA8 — 4 bytes/pixel, packed (no per-row padding).
+    const bytes_per_pixel: u32 = 4;
+    const stride: u32 = opts.width * bytes_per_pixel;
+    const buffer_size: vk.VkDeviceSize = @as(vk.VkDeviceSize, stride) * opts.height;
+
+    // ---- 1. Render image: OPTIMAL tiling, internal memory ----------
+    const image_usage = @as(vk.VkImageUsageFlags, vk.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) |
         vk.VK_IMAGE_USAGE_SAMPLED_BIT |
         vk.VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
         opts.extra_usage;
-
-    // ---- 1. VkImage (with external-memory chain) ----------------
-    const external_memory_image_info: vk.VkExternalMemoryImageCreateInfo = .{
-        .sType = vk.VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
-        .pNext = null,
-        .handleTypes = vk.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
-    };
     const image_info: vk.VkImageCreateInfo = .{
         .sType = vk.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        .pNext = &external_memory_image_info,
+        .pNext = null,
         .flags = 0,
         .imageType = vk.VK_IMAGE_TYPE_2D,
         .format = opts.format,
@@ -130,95 +108,44 @@ pub fn init(opts: Options) Error!Self {
         .mipLevels = 1,
         .arrayLayers = 1,
         .samples = vk.VK_SAMPLE_COUNT_1_BIT,
-        .tiling = vk.VK_IMAGE_TILING_LINEAR,
-        .usage = usage,
+        .tiling = vk.VK_IMAGE_TILING_OPTIMAL,
+        .usage = image_usage,
         .sharingMode = vk.VK_SHARING_MODE_EXCLUSIVE,
         .queueFamilyIndexCount = 0,
         .pQueueFamilyIndices = null,
         .initialLayout = vk.VK_IMAGE_LAYOUT_UNDEFINED,
     };
     var image: vk.VkImage = undefined;
-    {
-        const r = dev.dispatch.createImage(dev.device, &image_info, null, &image);
-        if (r != vk.VK_SUCCESS) {
-            log.err("vkCreateImage (Target) failed: result={}", .{r});
-            return error.VulkanFailed;
-        }
+    if (dev.dispatch.createImage(dev.device, &image_info, null, &image) != vk.VK_SUCCESS) {
+        log.err("vkCreateImage (Target render) failed", .{});
+        return error.VulkanFailed;
     }
     errdefer dev.dispatch.destroyImage(dev.device, image, null);
 
-    // ---- 2. VkDeviceMemory (with export chain) ------------------
-    var reqs: vk.VkMemoryRequirements = undefined;
-    dev.dispatch.getImageMemoryRequirements(dev.device, image, &reqs);
-
-    // DEVICE_LOCAL is preferred but not required for linear export
-    // memory — some drivers only expose HOST_VISIBLE memory types
-    // matching the requirements bitmask for linear tiling. We don't
-    // care which heap as long as it's exportable.
-    const memory_type_index = dev.findMemoryType(reqs.memoryTypeBits, 0) orelse {
-        log.err(
-            "no exportable memory type for Target (typeBits=0x{x})",
-            .{reqs.memoryTypeBits},
-        );
-        return error.NoSuitableMemoryType;
-    };
-
-    const export_info: vk.VkExportMemoryAllocateInfo = .{
-        .sType = vk.VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO,
-        .pNext = null,
-        .handleTypes = vk.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
-    };
-    const alloc_info: vk.VkMemoryAllocateInfo = .{
+    var image_reqs: vk.VkMemoryRequirements = undefined;
+    dev.dispatch.getImageMemoryRequirements(dev.device, image, &image_reqs);
+    const image_mem_idx = dev.findMemoryType(
+        image_reqs.memoryTypeBits,
+        vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+    ) orelse return error.NoSuitableMemoryType;
+    const image_alloc: vk.VkMemoryAllocateInfo = .{
         .sType = vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .pNext = &export_info,
-        .allocationSize = reqs.size,
-        .memoryTypeIndex = memory_type_index,
-    };
-    var memory: vk.VkDeviceMemory = undefined;
-    {
-        const r = dev.dispatch.allocateMemory(dev.device, &alloc_info, null, &memory);
-        if (r != vk.VK_SUCCESS) {
-            log.err("vkAllocateMemory (Target) failed: result={}", .{r});
-            return error.VulkanFailed;
-        }
-    }
-    errdefer dev.dispatch.freeMemory(dev.device, memory, null);
-
-    {
-        const r = dev.dispatch.bindImageMemory(dev.device, image, memory, 0);
-        if (r != vk.VK_SUCCESS) {
-            log.err("vkBindImageMemory (Target) failed: result={}", .{r});
-            return error.VulkanFailed;
-        }
-    }
-
-    // ---- 3. Export the dmabuf fd --------------------------------
-    const fd_info: vk.VkMemoryGetFdInfoKHR = .{
-        .sType = vk.VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR,
         .pNext = null,
-        .memory = memory,
-        .handleType = vk.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+        .allocationSize = image_reqs.size,
+        .memoryTypeIndex = image_mem_idx,
     };
-    var fd: c_int = -1;
-    {
-        const r = dev.dispatch.getMemoryFdKHR(dev.device, &fd_info, &fd);
-        if (r != vk.VK_SUCCESS or fd < 0) {
-            log.err("vkGetMemoryFdKHR failed: result={} fd={}", .{ r, fd });
-            return error.VulkanFailed;
-        }
+    var image_memory: vk.VkDeviceMemory = undefined;
+    if (dev.dispatch.allocateMemory(dev.device, &image_alloc, null, &image_memory) != vk.VK_SUCCESS) {
+        log.err("vkAllocateMemory (Target render image) failed", .{});
+        return error.VulkanFailed;
     }
-    errdefer std.posix.close(fd);
+    errdefer dev.dispatch.freeMemory(dev.device, image_memory, null);
+    if (dev.dispatch.bindImageMemory(dev.device, image, image_memory, 0) != vk.VK_SUCCESS) {
+        log.err("vkBindImageMemory (Target render image) failed", .{});
+        return error.VulkanFailed;
+    }
 
-    // ---- 4. Stride from the driver's subresource layout ---------
-    const subresource: vk.VkImageSubresource = .{
-        .aspectMask = vk.VK_IMAGE_ASPECT_COLOR_BIT,
-        .mipLevel = 0,
-        .arrayLayer = 0,
-    };
-    var sub_layout: vk.VkSubresourceLayout = undefined;
-    dev.dispatch.getImageSubresourceLayout(dev.device, image, &subresource, &sub_layout);
-
-    // ---- 5. VkImageView -----------------------------------------
+    // ---- 2. ImageView on the render image -------------------------
     const view_info: vk.VkImageViewCreateInfo = .{
         .sType = vk.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         .pNext = null,
@@ -241,42 +168,212 @@ pub fn init(opts: Options) Error!Self {
         },
     };
     var view: vk.VkImageView = undefined;
-    {
-        const r = dev.dispatch.createImageView(dev.device, &view_info, null, &view);
-        if (r != vk.VK_SUCCESS) {
-            log.err("vkCreateImageView (Target) failed: result={}", .{r});
-            return error.VulkanFailed;
-        }
+    if (dev.dispatch.createImageView(dev.device, &view_info, null, &view) != vk.VK_SUCCESS) {
+        log.err("vkCreateImageView (Target) failed", .{});
+        return error.VulkanFailed;
     }
+    errdefer dev.dispatch.destroyImageView(dev.device, view, null);
+
+    // ---- 3. Dmabuf buffer: LINEAR pixel data, external memory -----
+    const ext_buffer_info: vk.VkExternalMemoryBufferCreateInfo = .{
+        .sType = vk.VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
+        .pNext = null,
+        .handleTypes = vk.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+    };
+    const buffer_info: vk.VkBufferCreateInfo = .{
+        .sType = vk.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .pNext = &ext_buffer_info,
+        .flags = 0,
+        .size = buffer_size,
+        .usage = vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        .sharingMode = vk.VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 0,
+        .pQueueFamilyIndices = null,
+    };
+    var dmabuf_buffer: vk.VkBuffer = undefined;
+    if (dev.dispatch.createBuffer(dev.device, &buffer_info, null, &dmabuf_buffer) != vk.VK_SUCCESS) {
+        log.err("vkCreateBuffer (Target dmabuf) failed", .{});
+        return error.VulkanFailed;
+    }
+    errdefer dev.dispatch.destroyBuffer(dev.device, dmabuf_buffer, null);
+
+    var buf_reqs: vk.VkMemoryRequirements = undefined;
+    dev.dispatch.getBufferMemoryRequirements(dev.device, dmabuf_buffer, &buf_reqs);
+    // Must be HOST_VISIBLE | HOST_COHERENT so the dmabuf fd is
+    // mmap-able from userspace. NVIDIA's dmabuf-exportable memory
+    // includes a host-visible type alongside the device-local ones;
+    // we explicitly request both flags so we don't accidentally pick
+    // a VRAM-only type whose mmap returns garbage.
+    const host_flags = @as(vk.VkMemoryPropertyFlags, vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) |
+        vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    const dmabuf_mem_idx = dev.findMemoryType(buf_reqs.memoryTypeBits, host_flags) orelse {
+        log.err(
+            "no HOST_VISIBLE | HOST_COHERENT memory type for dmabuf (typeBits=0x{x})",
+            .{buf_reqs.memoryTypeBits},
+        );
+        return error.NoSuitableMemoryType;
+    };
+    const export_info: vk.VkExportMemoryAllocateInfo = .{
+        .sType = vk.VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO,
+        .pNext = null,
+        .handleTypes = vk.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+    };
+    const buf_alloc: vk.VkMemoryAllocateInfo = .{
+        .sType = vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .pNext = &export_info,
+        .allocationSize = buf_reqs.size,
+        .memoryTypeIndex = dmabuf_mem_idx,
+    };
+    var dmabuf_memory: vk.VkDeviceMemory = undefined;
+    if (dev.dispatch.allocateMemory(dev.device, &buf_alloc, null, &dmabuf_memory) != vk.VK_SUCCESS) {
+        log.err("vkAllocateMemory (Target dmabuf) failed", .{});
+        return error.VulkanFailed;
+    }
+    errdefer dev.dispatch.freeMemory(dev.device, dmabuf_memory, null);
+    if (dev.dispatch.bindBufferMemory(dev.device, dmabuf_buffer, dmabuf_memory, 0) != vk.VK_SUCCESS) {
+        log.err("vkBindBufferMemory (Target dmabuf) failed", .{});
+        return error.VulkanFailed;
+    }
+
+    const fd_info: vk.VkMemoryGetFdInfoKHR = .{
+        .sType = vk.VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR,
+        .pNext = null,
+        .memory = dmabuf_memory,
+        .handleType = vk.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+    };
+    var fd: c_int = -1;
+    if (dev.dispatch.getMemoryFdKHR(dev.device, &fd_info, &fd) != vk.VK_SUCCESS or fd < 0) {
+        log.err("vkGetMemoryFdKHR (Target dmabuf) failed: fd={}", .{fd});
+        return error.VulkanFailed;
+    }
+    errdefer std.posix.close(fd);
 
     return .{
         .device = dev,
         .image = image,
-        .memory = memory,
+        .image_memory = image_memory,
         .view = view,
+        .dmabuf_buffer = dmabuf_buffer,
+        .dmabuf_memory = dmabuf_memory,
         .format = opts.format,
         .width = opts.width,
         .height = opts.height,
         .fd = fd,
         .drm_format = drm_format,
         .drm_modifier = DRM_FORMAT_MOD_LINEAR,
-        .stride = @intCast(sub_layout.rowPitch),
+        .stride = stride,
     };
 }
 
 pub fn deinit(self: *Self) void {
     const dev = self.device;
+    if (self.fd >= 0) std.posix.close(self.fd);
+    dev.dispatch.destroyBuffer(dev.device, self.dmabuf_buffer, null);
+    dev.dispatch.freeMemory(dev.device, self.dmabuf_memory, null);
     dev.dispatch.destroyImageView(dev.device, self.view, null);
     dev.dispatch.destroyImage(dev.device, self.image, null);
-    dev.dispatch.freeMemory(dev.device, self.memory, null);
-    if (self.fd >= 0) std.posix.close(self.fd);
+    dev.dispatch.freeMemory(dev.device, self.image_memory, null);
     self.* = undefined;
 }
 
-/// Hand the target's dmabuf fd to the host's `present` callback. The
-/// fd is a temporary borrow valid only until this call returns; the
-/// host must `dup()` if it needs to hold it past then. The
-/// underlying memory remains owned by libghostty.
+/// Record the GPU commands that copy the render image into the
+/// dmabuf-exported buffer. Call this AFTER all RenderPass work has
+/// been recorded but BEFORE `vkEndCommandBuffer`.
+///
+/// Barriers: render image must transition from whatever the
+/// RenderPass left it in (`GENERAL` after `RenderPass.complete`) to
+/// `TRANSFER_SRC_OPTIMAL`. The dmabuf buffer doesn't have layouts;
+/// we just add a memory barrier so the host's later read sees the
+/// transferred bytes.
+pub fn recordCopyToDmabuf(self: *Self, cb: vk.VkCommandBuffer) void {
+    const dev = self.device;
+
+    // Image: GENERAL → TRANSFER_SRC_OPTIMAL (the RenderPass leaves us
+    // in GENERAL on complete, but if it was UNDEFINED for some reason
+    // we still need a valid transition; UNDEFINED is also legal).
+    const img_barrier: vk.VkImageMemoryBarrier = .{
+        .sType = vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .pNext = null,
+        .srcAccessMask = vk.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        .dstAccessMask = vk.VK_ACCESS_TRANSFER_READ_BIT,
+        .oldLayout = vk.VK_IMAGE_LAYOUT_GENERAL,
+        .newLayout = vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        .srcQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
+        .image = self.image,
+        .subresourceRange = .{
+            .aspectMask = vk.VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+    };
+    dev.dispatch.cmdPipelineBarrier(
+        cb,
+        vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0,
+        0, null,
+        0, null,
+        1, &img_barrier,
+    );
+
+    // Copy image → buffer. BGRA8, packed (stride = width*4).
+    const region: vk.VkBufferImageCopy = .{
+        .bufferOffset = 0,
+        .bufferRowLength = 0, // 0 = tightly packed (uses imageExtent.width)
+        .bufferImageHeight = 0,
+        .imageSubresource = .{
+            .aspectMask = vk.VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+        .imageOffset = .{ .x = 0, .y = 0, .z = 0 },
+        .imageExtent = .{ .width = self.width, .height = self.height, .depth = 1 },
+    };
+    dev.dispatch.cmdCopyImageToBuffer(
+        cb,
+        self.image,
+        vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        self.dmabuf_buffer,
+        1,
+        &region,
+    );
+
+    // Memory barrier so the host's later mmap read sees the bytes.
+    // HOST_READ_BIT is the destination access; HOST_BIT is the
+    // destination stage. (External fd consumers may need an explicit
+    // sync2 release barrier, but for an mmap-based read after a
+    // fence-wait this is sufficient on the GPU side.)
+    const buf_barrier: vk.VkBufferMemoryBarrier = .{
+        .sType = vk.VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+        .pNext = null,
+        .srcAccessMask = vk.VK_ACCESS_TRANSFER_WRITE_BIT,
+        .dstAccessMask = vk.VK_ACCESS_HOST_READ_BIT,
+        .srcQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
+        .buffer = self.dmabuf_buffer,
+        .offset = 0,
+        .size = vk.VK_WHOLE_SIZE,
+    };
+    dev.dispatch.cmdPipelineBarrier(
+        cb,
+        vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
+        vk.VK_PIPELINE_STAGE_HOST_BIT,
+        0,
+        0, null,
+        1, &buf_barrier,
+        0, null,
+    );
+
+    // Track the new image layout so the next frame's RenderPass.begin
+    // doesn't see stale state (it currently transitions from UNDEFINED
+    // unconditionally, but be defensive).
+    self.layout = vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+}
+
 pub fn present(self: *const Self) void {
     self.device.platform.present(
         self.device.platform.userdata,
@@ -289,13 +386,7 @@ pub fn present(self: *const Self) void {
     );
 }
 
-/// Map a `VkFormat` to its DRM fourcc. Vulkan and DRM disagree on
-/// byte order naming: Vulkan format names are in memory order, DRM
-/// names are little-endian from MSB. The mapping table here covers
-/// the formats the renderer actually targets — extend as new ones
-/// are added.
 fn vkFormatToDrmFourcc(format: vk.VkFormat) Error!u32 {
-    // DRM fourcc helpers — packing 4 ASCII chars LSB-first.
     const fourcc = struct {
         fn make(a: u8, b: u8, c: u8, d: u8) u32 {
             return (@as(u32, a)) |
@@ -305,12 +396,9 @@ fn vkFormatToDrmFourcc(format: vk.VkFormat) Error!u32 {
         }
     };
     return switch (format) {
-        // Vulkan B,G,R,A in memory = DRM_FORMAT_ARGB8888 ("AR24").
-        // This is what Wayland compositors prefer.
         vk.VK_FORMAT_B8G8R8A8_UNORM,
         vk.VK_FORMAT_B8G8R8A8_SRGB,
         => fourcc.make('A', 'R', '2', '4'),
-        // Vulkan R,G,B,A in memory = DRM_FORMAT_ABGR8888 ("AB24").
         vk.VK_FORMAT_R8G8B8A8_UNORM,
         vk.VK_FORMAT_R8G8B8A8_SRGB,
         => fourcc.make('A', 'B', '2', '4'),

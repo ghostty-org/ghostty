@@ -105,6 +105,14 @@ pub fn complete(self: *const Self, sync: bool) void {
     _ = sync;
     const dev = self.device;
 
+    // Copy the just-rendered OPTIMAL-tiled image into the
+    // dmabuf-exported LINEAR pixel buffer. NVIDIA (and most
+    // discrete GPUs) refuse `FORMAT_FEATURE_COLOR_ATTACHMENT_BIT`
+    // on linear-tiled images, so the renderer draws into an
+    // OPTIMAL image and a transfer copy bridges to the dmabuf
+    // consumer. See `Target.zig` for the full rationale.
+    self.target.recordCopyToDmabuf(self.cb);
+
     {
         const r = dev.dispatch.endCommandBuffer(self.cb);
         if (r != vk.VK_SUCCESS) {

@@ -27,6 +27,11 @@ pub const custom_shader_target: shadertoy.Target = .glsl;
 // The fragCoord for OpenGL shaders is +Y = up.
 pub const custom_shader_y_is_down = false;
 
+/// Custom shaders are supported (the renderer ships a working "post"
+/// pass that composites `CustomShaderState.back_texture` through the
+/// user's shader into `frame.target`).
+pub const supports_custom_shaders: bool = true;
+
 /// Because OpenGL's frame completion is always
 /// sync, we have no need for multi-buffering.
 pub const swap_chain_count = 1;
