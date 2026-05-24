@@ -25,6 +25,7 @@ const glslang = @import("glslang");
 
 const Device = @import("Device.zig");
 const Pipeline = @import("Pipeline.zig");
+const DescriptorPool = @import("DescriptorPool.zig");
 const math = @import("../../math.zig");
 
 const log = std.log.scoped(.vulkan);
@@ -377,12 +378,24 @@ pub const BgImage = extern struct {
 
 /// Pipeline collection shape (matches `opengl/shaders.zig`). Each
 /// field is the Vulkan `Pipeline` instance for that named shader.
+///
+/// Default-init to all-null handles: pipelines that haven't been
+/// constructed yet have `pipeline == null`, which `RenderPass.step`
+/// detects and silently skips. Using `Pipeline = undefined` instead
+/// would leak Debug-mode 0xAA poison bytes into VkPipeline / VkDevice
+/// handles, which validation rightly flags as invalid.
 pub const PipelineCollection = struct {
-    bg_color: Pipeline = undefined,
-    cell_bg: Pipeline = undefined,
-    cell_text: Pipeline = undefined,
-    image: Pipeline = undefined,
-    bg_image: Pipeline = undefined,
+    bg_color: Pipeline = empty_pipeline,
+    cell_bg: Pipeline = empty_pipeline,
+    cell_text: Pipeline = empty_pipeline,
+    image: Pipeline = empty_pipeline,
+    bg_image: Pipeline = empty_pipeline,
+};
+
+const empty_pipeline: Pipeline = .{
+    .device = undefined, // unused — gated behind pipeline-handle null checks
+    .pipeline = null,
+    .layout = null,
 };
 
 /// Top-level renderer shader state. Same shape as
@@ -406,6 +419,21 @@ pub const Shaders = struct {
     pipelines: PipelineCollection,
     post_pipelines: []const Pipeline,
     modules: Modules,
+
+    /// Process-wide descriptor pool. Sized for one set per pipeline
+    /// at startup; `RenderPass.step` updates the sets in place each
+    /// frame (we wait on the fence in `Frame.complete`, so reuse is
+    /// safe — no command buffer using these sets is in flight when
+    /// the next frame begins).
+    descriptor_pool: ?DescriptorPool = null,
+
+    /// One descriptor set + layout per pipeline. The layout is also
+    /// stored on `Pipeline.descriptor_set_layout` so `RenderPass.step`
+    /// can re-fetch from `step.pipeline`; the set lives here because
+    /// it's allocated once and updated per-frame.
+    bg_color_set_layout: vk.VkDescriptorSetLayout = null,
+    bg_color_set: vk.VkDescriptorSet = null,
+
     defunct: bool = false,
 
     /// The compiled `VkShaderModule`s for the renderer's built-in
@@ -436,29 +464,108 @@ pub const Shaders = struct {
         // tears down any successfully-compiled modules if a later
         // one fails so we don't leak `VkShaderModule` handles on
         // partial failure.
-        var modules: Modules = undefined;
-        modules.bg_color_frag = try Module.init(alloc, device, source.bg_color_frag, .fragment);
-        errdefer modules.bg_color_frag.deinit();
-        modules.bg_image_frag = try Module.init(alloc, device, source.bg_image_frag, .fragment);
-        errdefer modules.bg_image_frag.deinit();
-        modules.bg_image_vert = try Module.init(alloc, device, source.bg_image_vert, .vertex);
-        errdefer modules.bg_image_vert.deinit();
-        modules.cell_bg_frag = try Module.init(alloc, device, source.cell_bg_frag, .fragment);
-        errdefer modules.cell_bg_frag.deinit();
-        modules.cell_text_frag = try Module.init(alloc, device, source.cell_text_frag, .fragment);
-        errdefer modules.cell_text_frag.deinit();
-        modules.cell_text_vert = try Module.init(alloc, device, source.cell_text_vert, .vertex);
-        errdefer modules.cell_text_vert.deinit();
+        // For v1 we only compile the modules needed by the bg_color
+        // pipeline (`full_screen.v.glsl` + `bg_color.f.glsl`). The
+        // other shaders use OpenGL-only constructs (`sampler2DRect`)
+        // that aren't valid SPIR-V capabilities in Vulkan 1.3 — they
+        // need source-level conversion to `sampler2D` before we can
+        // compile them. The unused modules stay null-handle
+        // sentinels and `Shaders.deinit` skips them.
+        const empty_module: Module = .{
+            .handle = null,
+            .stage = vk.VK_SHADER_STAGE_VERTEX_BIT,
+            .device = device,
+        };
+        var modules: Modules = .{
+            .bg_color_frag = empty_module,
+            .bg_image_frag = empty_module,
+            .bg_image_vert = empty_module,
+            .cell_bg_frag = empty_module,
+            .cell_text_frag = empty_module,
+            .cell_text_vert = empty_module,
+            .full_screen_vert = empty_module,
+            .image_frag = empty_module,
+            .image_vert = empty_module,
+        };
         modules.full_screen_vert = try Module.init(alloc, device, source.full_screen_vert, .vertex);
         errdefer modules.full_screen_vert.deinit();
-        modules.image_frag = try Module.init(alloc, device, source.image_frag, .fragment);
-        errdefer modules.image_frag.deinit();
-        modules.image_vert = try Module.init(alloc, device, source.image_vert, .vertex);
+        modules.bg_color_frag = try Module.init(alloc, device, source.bg_color_frag, .fragment);
+        errdefer modules.bg_color_frag.deinit();
+
+        // Build a descriptor pool sized for one descriptor set per
+        // pipeline (we currently only construct bg_color; size for the
+        // full set so adding new pipelines doesn't require pool
+        // resizing).
+        var pool = try DescriptorPool.init(.{
+            .device = device,
+            .max_sets = 5,
+            .uniform_buffers = 5,
+            .combined_image_samplers = 8,
+        });
+        errdefer pool.deinit();
+
+        // ---- bg_color pipeline -----------------------------------
+        //
+        // Full-screen fragment shader that reads the bg color out of
+        // the Globals UBO. The vertex shader (`full_screen.v.glsl`)
+        // synthesizes a covering triangle from `gl_VertexIndex`, so
+        // there's no vertex input.
+        //
+        // Descriptor set layout: one UBO binding for Globals. The
+        // existing OpenGL shader declares it at `binding = 1`; with
+        // glslang's `setAutoMapBindings(true)` (in our shim) the
+        // binding may be remapped, but for v1 we declare it at
+        // binding 1 to match. Layout fragment-stage only — the
+        // vertex shader for bg_color doesn't use the UBO.
+        const bg_color_bindings = [_]vk.VkDescriptorSetLayoutBinding{.{
+            .binding = 1,
+            .descriptorType = vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = null,
+        }};
+        const bg_color_dsl_info: vk.VkDescriptorSetLayoutCreateInfo = .{
+            .sType = vk.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .pNext = null,
+            .flags = 0,
+            .bindingCount = bg_color_bindings.len,
+            .pBindings = &bg_color_bindings,
+        };
+        var bg_color_dsl: vk.VkDescriptorSetLayout = undefined;
+        if (device.dispatch.createDescriptorSetLayout(
+            device.device,
+            &bg_color_dsl_info,
+            null,
+            &bg_color_dsl,
+        ) != vk.VK_SUCCESS) {
+            return error.VulkanFailed;
+        }
+        errdefer device.dispatch.destroyDescriptorSetLayout(device.device, bg_color_dsl, null);
+
+        const bg_color_dsls = [_]vk.VkDescriptorSetLayout{bg_color_dsl};
+        const bg_color_pipeline = try Pipeline.init(.{
+            .device = device,
+            .descriptor_pool = &pool,
+            .vertex_module = modules.full_screen_vert.handle,
+            .fragment_module = modules.bg_color_frag.handle,
+            .vertex_input = null,
+            .descriptor_set_layouts = &bg_color_dsls,
+            .color_format = vk.VK_FORMAT_B8G8R8A8_UNORM,
+            .blending_enabled = false,
+            .topology = vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        });
+        errdefer bg_color_pipeline.deinit();
+
+        var pipelines: PipelineCollection = .{};
+        pipelines.bg_color = bg_color_pipeline;
 
         return .{
-            .pipelines = .{},
+            .pipelines = pipelines,
             .post_pipelines = &.{},
             .modules = modules,
+            .descriptor_pool = pool,
+            .bg_color_set_layout = bg_color_dsl,
+            .bg_color_set = bg_color_pipeline.descriptor_set,
         };
     }
 
@@ -467,20 +574,40 @@ pub const Shaders = struct {
         if (self.defunct) return;
         self.defunct = true;
 
-        // Destroy every compiled module.
-        self.modules.bg_color_frag.deinit();
-        self.modules.bg_image_frag.deinit();
-        self.modules.bg_image_vert.deinit();
-        self.modules.cell_bg_frag.deinit();
-        self.modules.cell_text_frag.deinit();
-        self.modules.cell_text_vert.deinit();
-        self.modules.full_screen_vert.deinit();
-        self.modules.image_frag.deinit();
-        self.modules.image_vert.deinit();
+        // Real pipeline (bg_color) — destroy first since it
+        // references the descriptor set layout.
+        const bg_color_real = self.pipelines.bg_color.pipeline != null;
+        if (bg_color_real) self.pipelines.bg_color.deinit();
 
-        // No pipeline destruction yet — `init` doesn't construct
-        // real pipelines. Real `deinit` will iterate `inline for`
-        // over PipelineCollection's fields once those exist.
+        // The descriptor pool reclaims all sets allocated from it,
+        // including `bg_color_set`. Destroy the standalone layout
+        // separately.
+        if (self.descriptor_pool) |*p| p.deinit();
+        if (self.bg_color_set_layout != null) {
+            self.modules.bg_color_frag.device.dispatch.destroyDescriptorSetLayout(
+                self.modules.bg_color_frag.device.device,
+                self.bg_color_set_layout,
+                null,
+            );
+        }
+
+        // Destroy every compiled module. Modules whose handle is
+        // null (not compiled in v1) skip destruction — vkDestroy*
+        // is null-safe per the Vulkan spec but we check explicitly
+        // so we don't even pass null through the dispatch.
+        inline for (.{
+            &self.modules.bg_color_frag,
+            &self.modules.bg_image_frag,
+            &self.modules.bg_image_vert,
+            &self.modules.cell_bg_frag,
+            &self.modules.cell_text_frag,
+            &self.modules.cell_text_vert,
+            &self.modules.full_screen_vert,
+            &self.modules.image_frag,
+            &self.modules.image_vert,
+        }) |m_ptr| {
+            if (m_ptr.handle != null) m_ptr.deinit();
+        }
     }
 };
 

@@ -385,11 +385,19 @@ pub fn bgImageBufferOptions(self: *const Vulkan) bufferpkg.Options {
 }
 
 pub fn textureOptions(_: *const Vulkan) Texture.Options {
+    // The renderer uses `textureOptions()`-shaped textures both for
+    // glyph atlases (sampled-only) AND for the custom-shader
+    // back_texture (which is BOTH sampled AND a render target).
+    // We hand back the wider usage set so both work. The format
+    // matches the renderer's `initTarget` choice
+    // (`B8G8R8A8_UNORM`) so a render → sample → render chain
+    // through the custom-shader pass keeps the same color format.
     return .{
         .device = devicePtr(),
-        .format = vk.VK_FORMAT_R8G8B8A8_UNORM,
+        .format = vk.VK_FORMAT_B8G8R8A8_UNORM,
         .usage = vk.VK_IMAGE_USAGE_SAMPLED_BIT |
-            vk.VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+            vk.VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+            vk.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
     };
 }
 

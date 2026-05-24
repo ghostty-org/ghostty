@@ -106,8 +106,12 @@ pub fn init(opts: Options) Error!Self {
     const dev = opts.device;
     const drm_format = try vkFormatToDrmFourcc(opts.format);
 
+    // COLOR_ATTACHMENT — we render into this via dynamic rendering.
+    // SAMPLED — the renderer's custom-shader path samples the target.
+    // TRANSFER_SRC — readback for debug / screenshot tooling.
     const usage = @as(vk.VkImageUsageFlags, vk.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) |
         vk.VK_IMAGE_USAGE_SAMPLED_BIT |
+        vk.VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
         opts.extra_usage;
 
     // ---- 1. VkImage (with external-memory chain) ----------------

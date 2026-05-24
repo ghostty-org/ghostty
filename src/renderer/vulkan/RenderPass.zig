@@ -213,19 +213,70 @@ pub fn begin(opts: Options) Self {
 
 /// Record one step of the pass.
 ///
-/// **Body is a stub.** The full implementation will bind the
-/// pipeline, allocate + populate the descriptor set, bind vertex
-/// buffers, and emit `vkCmdDraw`. Until that lands, step records
-/// nothing — the frame loop runs end-to-end without drawing real
-/// terminal content but doesn't crash either, so the rest of the
-/// Vulkan integration (Qt-side QRhiWidget + dmabuf import) can
-/// proceed in parallel against a known-color clear frame.
+/// Skips silently when the pipeline isn't yet real (`VkPipeline ==
+/// null`) — `Shaders.init` only constructs bg_color so far; the
+/// other 4 pipeline slots are default-undefined and we filter them
+/// out here rather than crashing on a null handle.
 pub fn step(self: *Self, s: Step) void {
-    _ = self;
-    _ = s;
-    // No-op stub. Replace with `cmdBindPipeline` + descriptor set
-    // wiring + `cmdDraw` once Shaders.init + DescriptorPool
-    // integration lands.
+    // Skip pipelines that haven't been constructed yet — only
+    // `bg_color` is real today; the other 4 slots in
+    // `PipelineCollection` are default-initialized (VkPipeline ==
+    // null) and we filter them out instead of crashing on a null
+    // handle.
+    if (s.pipeline.pipeline == null) return;
+    if (s.draw.vertex_count == 0) return;
+
+    const dev = self.device;
+
+    // Update + bind the pipeline's descriptor set if it has one
+    // AND the step is passing a uniforms buffer. Today this only
+    // fires for the bg_color path.
+    if (s.pipeline.descriptor_set != null) if (s.uniforms) |ubo_buffer| {
+        const buffer_info: vk.VkDescriptorBufferInfo = .{
+            .buffer = ubo_buffer,
+            .offset = 0,
+            .range = vk.VK_WHOLE_SIZE,
+        };
+        const write: vk.VkWriteDescriptorSet = .{
+            .sType = vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext = null,
+            .dstSet = s.pipeline.descriptor_set,
+            .dstBinding = s.pipeline.uniforms_binding,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .pImageInfo = null,
+            .pBufferInfo = &buffer_info,
+            .pTexelBufferView = null,
+        };
+        dev.dispatch.updateDescriptorSets(dev.device, 1, &write, 0, null);
+
+        var sets = [_]vk.VkDescriptorSet{s.pipeline.descriptor_set};
+        dev.dispatch.cmdBindDescriptorSets(
+            self.cb,
+            vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            s.pipeline.layout,
+            0, // first set
+            1, // set count
+            &sets,
+            0, // dynamic offset count
+            null,
+        );
+    };
+
+    dev.dispatch.cmdBindPipeline(
+        self.cb,
+        vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
+        s.pipeline.pipeline,
+    );
+    dev.dispatch.cmdDraw(
+        self.cb,
+        @intCast(s.draw.vertex_count),
+        @intCast(s.draw.instance_count),
+        0,
+        0,
+    );
+    self.step_number += 1;
 }
 
 /// Close the rendering scope and leave the attachment in a layout

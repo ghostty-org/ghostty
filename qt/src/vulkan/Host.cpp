@@ -176,8 +176,18 @@ bool Host::init() {
   qci.queueCount = 1;
   qci.pQueuePriorities = &queuePriority;
 
+  // libghostty's Vulkan renderer uses Vulkan 1.3 dynamic rendering
+  // (vkCmdBeginRendering / vkCmdEndRendering, no VkRenderPass).
+  // That feature has to be explicitly enabled at device creation
+  // time via VkPhysicalDeviceVulkan13Features.
+  VkPhysicalDeviceVulkan13Features vk13features{};
+  vk13features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+  vk13features.dynamicRendering = VK_TRUE;
+  vk13features.synchronization2 = VK_TRUE;
+
   VkDeviceCreateInfo dci{};
   dci.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+  dci.pNext = &vk13features;
   dci.queueCreateInfoCount = 1;
   dci.pQueueCreateInfos = &qci;
   dci.enabledExtensionCount =

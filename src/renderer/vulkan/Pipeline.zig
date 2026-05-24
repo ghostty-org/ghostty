@@ -25,6 +25,7 @@ const std = @import("std");
 const vk = @import("vulkan").c;
 
 const Device = @import("Device.zig");
+const DescriptorPool = @import("DescriptorPool.zig");
 
 const log = std.log.scoped(.vulkan);
 
@@ -55,6 +56,13 @@ pub const VertexInput = struct {
 
 pub const Options = struct {
     device: *const Device,
+
+    /// Optional descriptor pool. If provided alongside a non-empty
+    /// `descriptor_set_layouts` slice, `Pipeline.init` allocates one
+    /// descriptor set against the first layout and stores it on
+    /// `Pipeline.descriptor_set` so `RenderPass.step` can bind it
+    /// without a separate plumbing step.
+    descriptor_pool: ?*DescriptorPool = null,
 
     /// Shader modules. The caller owns these — Pipeline does not
     /// destroy them on deinit (they're typically reused across
@@ -94,6 +102,25 @@ pub const Error = error{
 device: *const Device,
 pipeline: vk.VkPipeline,
 layout: vk.VkPipelineLayout,
+
+/// Cached copy of the single `VkDescriptorSetLayout` this pipeline
+/// was built with (when one was provided). `Shaders.init` owns the
+/// layout's lifetime; storing the handle here lets `RenderPass.step`
+/// allocate descriptor sets matching this pipeline without threading
+/// the layout separately.
+descriptor_set_layout: vk.VkDescriptorSetLayout = null,
+
+/// Optional descriptor set bundled with this pipeline. When set,
+/// `RenderPass.step` updates it with the Step's `uniforms`/textures
+/// and binds it before drawing. Allocated from a pool at
+/// `Pipeline.init` time when `opts.descriptor_pool` is provided.
+/// Null for pipelines that take no descriptor inputs (e.g. the
+/// smoke-test's solid-color pipeline).
+descriptor_set: vk.VkDescriptorSet = null,
+/// Binding number that `uniforms` writes to. Defaults to 1 to match
+/// the GLSL `layout(binding = 1)` on the Globals UBO. Override per
+/// pipeline if/when glslang's auto-map picks a different slot.
+uniforms_binding: u32 = 1,
 
 pub fn init(opts: Options) Error!Self {
     const dev = opts.device;
@@ -312,10 +339,25 @@ pub fn init(opts: Options) Error!Self {
         }
     }
 
+    const dsl_first: vk.VkDescriptorSetLayout =
+        if (opts.descriptor_set_layouts.len > 0) opts.descriptor_set_layouts[0] else null;
+
+    var dset: vk.VkDescriptorSet = null;
+    if (opts.descriptor_pool) |pool_ptr| {
+        if (dsl_first != null) {
+            dset = pool_ptr.allocate(dsl_first) catch |err| {
+                log.err("Pipeline.init: descriptor set allocation failed: {}", .{err});
+                return error.VulkanFailed;
+            };
+        }
+    }
+
     return .{
         .device = dev,
         .pipeline = pipeline,
         .layout = layout,
+        .descriptor_set_layout = dsl_first,
+        .descriptor_set = dset,
     };
 }
 
