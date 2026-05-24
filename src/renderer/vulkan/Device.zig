@@ -168,6 +168,15 @@ pub const Dispatch = struct {
     cmdSetScissor: std.meta.Child(vk.PFN_vkCmdSetScissor),
     cmdDraw: std.meta.Child(vk.PFN_vkCmdDraw),
     cmdCopyImageToBuffer: std.meta.Child(vk.PFN_vkCmdCopyImageToBuffer),
+
+    // Descriptor sets — used by `vulkan/DescriptorPool.zig`. Per-
+    // surface lifetime today; per-frame pooling will follow when
+    // the actual renderer integration lands.
+    createDescriptorPool: std.meta.Child(vk.PFN_vkCreateDescriptorPool),
+    destroyDescriptorPool: std.meta.Child(vk.PFN_vkDestroyDescriptorPool),
+    allocateDescriptorSets: std.meta.Child(vk.PFN_vkAllocateDescriptorSets),
+    updateDescriptorSets: std.meta.Child(vk.PFN_vkUpdateDescriptorSets),
+    cmdBindDescriptorSets: std.meta.Child(vk.PFN_vkCmdBindDescriptorSets),
 };
 
 // ---- fields ---------------------------------------------------------
@@ -424,6 +433,16 @@ pub fn init(
         try dl.load(vk.PFN_vkCmdDraw, "vkCmdDraw");
     const cmd_copy_image_to_buffer =
         try dl.load(vk.PFN_vkCmdCopyImageToBuffer, "vkCmdCopyImageToBuffer");
+    const create_descriptor_pool =
+        try dl.load(vk.PFN_vkCreateDescriptorPool, "vkCreateDescriptorPool");
+    const destroy_descriptor_pool =
+        try dl.load(vk.PFN_vkDestroyDescriptorPool, "vkDestroyDescriptorPool");
+    const allocate_descriptor_sets =
+        try dl.load(vk.PFN_vkAllocateDescriptorSets, "vkAllocateDescriptorSets");
+    const update_descriptor_sets =
+        try dl.load(vk.PFN_vkUpdateDescriptorSets, "vkUpdateDescriptorSets");
+    const cmd_bind_descriptor_sets =
+        try dl.load(vk.PFN_vkCmdBindDescriptorSets, "vkCmdBindDescriptorSets");
 
     return .{
         .platform = platform,
@@ -488,6 +507,11 @@ pub fn init(
             .cmdSetScissor = cmd_set_scissor,
             .cmdDraw = cmd_draw,
             .cmdCopyImageToBuffer = cmd_copy_image_to_buffer,
+            .createDescriptorPool = create_descriptor_pool,
+            .destroyDescriptorPool = destroy_descriptor_pool,
+            .allocateDescriptorSets = allocate_descriptor_sets,
+            .updateDescriptorSets = update_descriptor_sets,
+            .cmdBindDescriptorSets = cmd_bind_descriptor_sets,
         },
     };
 }

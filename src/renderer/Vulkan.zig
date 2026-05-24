@@ -69,6 +69,7 @@ pub const CommandPool = @import("vulkan/CommandPool.zig");
 pub const Pipeline = @import("vulkan/Pipeline.zig");
 pub const RenderPass = @import("vulkan/RenderPass.zig");
 pub const Frame = @import("vulkan/Frame.zig");
+pub const DescriptorPool = @import("vulkan/DescriptorPool.zig");
 pub const shaders = @import("vulkan/shaders.zig");
 
 const bufferpkg = @import("vulkan/buffer.zig");

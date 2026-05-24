@@ -35,6 +35,8 @@ const Texture = @import("Texture.zig");
 const Target = @import("Target.zig");
 const Pipeline = @import("Pipeline.zig");
 const CommandPool = @import("CommandPool.zig");
+const DescriptorPool = @import("DescriptorPool.zig");
+const Sampler = @import("Sampler.zig");
 const shaders = @import("shaders.zig");
 const bufferpkg = @import("buffer.zig");
 
@@ -375,9 +377,19 @@ test "smoke" {
     // `feh`, `eog`, `gimp`, etc.).
     try renderToFile(&device, "/tmp/ghastty-vulkan-smoke.ppm");
 
+    // ---- 6. Textured-quad render to file ------------------------
+    // Proves the descriptor-set lifecycle works end-to-end: create
+    // a texture, upload data, allocate a descriptor set bound to
+    // it + a sampler, render a quad sampling from it, save as PPM.
+    try renderTexturedToFile(&device, "/tmp/ghastty-vulkan-smoke-textured.ppm");
+
     std.debug.print("\n  All Vulkan smoke checks passed.\n", .{});
     std.debug.print(
-        "  Visual: view /tmp/ghastty-vulkan-smoke.ppm (e.g. `xdg-open` or `feh`)\n",
+        "  Visual (gradient): /tmp/ghastty-vulkan-smoke.ppm\n",
+        .{},
+    );
+    std.debug.print(
+        "  Visual (textured): /tmp/ghastty-vulkan-smoke-textured.ppm\n",
         .{},
     );
 }
@@ -845,6 +857,303 @@ fn renderToFile(device: *const Device, path: []const u8) !void {
         try file.writeAll(row[0 .. @as(usize, width) * 3]);
     }
     std.debug.print("  Wrote {}x{} PPM to {s}\n", .{ width, height, path });
+}
+
+/// Render a quad sampling from a small uploaded checkerboard texture
+/// — proves the descriptor-set + combined-image-sampler binding path
+/// works end-to-end. The fragment shader samples the bound texture
+/// at its fragment UV and writes the result to the color attachment.
+fn renderTexturedToFile(device: *const Device, path: []const u8) !void {
+    const out_w: u32 = 256;
+    const out_h: u32 = 256;
+
+    // Source texture: 8x8 RGBA checkerboard. Even cells red, odd cells cyan.
+    const tex_size: u32 = 8;
+    var checker: [tex_size * tex_size * 4]u8 = undefined;
+    {
+        var y: u32 = 0;
+        while (y < tex_size) : (y += 1) {
+            var x: u32 = 0;
+            while (x < tex_size) : (x += 1) {
+                const i = (y * tex_size + x) * 4;
+                const odd = ((x + y) & 1) == 1;
+                if (odd) {
+                    checker[i + 0] = 0; // R
+                    checker[i + 1] = 200; // G
+                    checker[i + 2] = 200; // B
+                } else {
+                    checker[i + 0] = 220; // R
+                    checker[i + 1] = 30; // G
+                    checker[i + 2] = 30; // B
+                }
+                checker[i + 3] = 255;
+            }
+        }
+    }
+
+    var tex = try Texture.init(
+        .{
+            .device = device,
+            .format = vk.VK_FORMAT_R8G8B8A8_UNORM,
+            .usage = vk.VK_IMAGE_USAGE_SAMPLED_BIT,
+        },
+        tex_size,
+        tex_size,
+        &checker,
+    );
+    defer tex.deinit();
+
+    var sampler = try Sampler.init(.{
+        .device = device,
+        .min_filter = .nearest,
+        .mag_filter = .nearest,
+        .wrap_s = .repeat,
+        .wrap_t = .repeat,
+    });
+    defer sampler.deinit();
+
+    // Vertex shader: fullscreen triangle + pass UV.
+    const vs_src: [:0]const u8 =
+        \\#version 450
+        \\layout(location = 0) out vec2 v_uv;
+        \\void main() {
+        \\    vec2 pos = vec2(
+        \\        float((gl_VertexIndex << 1) & 2),
+        \\        float(gl_VertexIndex & 2)
+        \\    );
+        \\    v_uv = pos;
+        \\    gl_Position = vec4(pos * 2.0 - 1.0, 0.0, 1.0);
+        \\}
+    ;
+    // Fragment shader: sample the bound texture at UV * 4 so the
+    // 8x8 checkerboard tiles 4x across the output.
+    const fs_src: [:0]const u8 =
+        \\#version 450
+        \\layout(location = 0) in vec2 v_uv;
+        \\layout(location = 0) out vec4 frag_color;
+        \\layout(set = 0, binding = 0) uniform sampler2D tex;
+        \\void main() {
+        \\    frag_color = texture(tex, v_uv * 4.0);
+        \\}
+    ;
+
+    var vs = try shaders.Module.init(device, vs_src, .vertex);
+    defer vs.deinit();
+    var fs = try shaders.Module.init(device, fs_src, .fragment);
+    defer fs.deinit();
+
+    // Descriptor set layout: one combined image sampler at binding 0.
+    const layout_bindings = [_]vk.VkDescriptorSetLayoutBinding{.{
+        .binding = 0,
+        .descriptorType = vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .descriptorCount = 1,
+        .stageFlags = vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+        .pImmutableSamplers = null,
+    }};
+    const dsl_info: vk.VkDescriptorSetLayoutCreateInfo = .{
+        .sType = vk.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext = null,
+        .flags = 0,
+        .bindingCount = layout_bindings.len,
+        .pBindings = &layout_bindings,
+    };
+    var dsl: vk.VkDescriptorSetLayout = undefined;
+    if (device.dispatch.createDescriptorSetLayout(device.device, &dsl_info, null, &dsl) != vk.VK_SUCCESS)
+        return error.VulkanFailed;
+    defer device.dispatch.destroyDescriptorSetLayout(device.device, dsl, null);
+
+    // Descriptor pool: capacity for one combined-image-sampler descriptor.
+    var pool = try DescriptorPool.init(.{
+        .device = device,
+        .max_sets = 1,
+        .combined_image_samplers = 1,
+    });
+    defer pool.deinit();
+
+    // Allocate and populate the descriptor set.
+    const set = try pool.allocate(dsl);
+    {
+        const image_info: vk.VkDescriptorImageInfo = .{
+            .sampler = sampler.sampler,
+            .imageView = tex.view,
+            .imageLayout = vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        };
+        const write: vk.VkWriteDescriptorSet = .{
+            .sType = vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext = null,
+            .dstSet = set,
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo = &image_info,
+            .pBufferInfo = null,
+            .pTexelBufferView = null,
+        };
+        device.dispatch.updateDescriptorSets(device.device, 1, &write, 0, null);
+    }
+
+    // Pipeline with this descriptor set layout.
+    const dsls = [_]vk.VkDescriptorSetLayout{dsl};
+    var pipeline = try Pipeline.init(.{
+        .device = device,
+        .vertex_module = vs.handle,
+        .fragment_module = fs.handle,
+        .vertex_input = null,
+        .descriptor_set_layouts = &dsls,
+        .color_format = vk.VK_FORMAT_B8G8R8A8_UNORM,
+        .blending_enabled = false,
+        .topology = vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+    });
+    defer pipeline.deinit();
+
+    var target = try Target.init(.{
+        .device = device,
+        .format = vk.VK_FORMAT_B8G8R8A8_UNORM,
+        .width = out_w,
+        .height = out_h,
+    });
+    defer target.deinit();
+
+    const px: usize = @as(usize, out_w) * out_h * 4;
+    var readback = try bufferpkg.Buffer(u8).init(
+        .{
+            .device = device,
+            .usage = vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        },
+        px,
+    );
+    defer readback.deinit();
+
+    var cb_pool = try CommandPool.init(device);
+    defer cb_pool.deinit();
+    const session = try cb_pool.beginOneShot();
+
+    imageBarrier(
+        device,
+        session.cb,
+        target.image,
+        vk.VK_IMAGE_LAYOUT_UNDEFINED,
+        vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        0,
+        vk.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        vk.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+    );
+
+    {
+        const clear: vk.VkClearValue = .{ .color = .{ .float32 = .{ 0, 0, 0, 1 } } };
+        const attach: vk.VkRenderingAttachmentInfo = .{
+            .sType = vk.VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .pNext = null,
+            .imageView = target.view,
+            .imageLayout = vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .resolveMode = vk.VK_RESOLVE_MODE_NONE,
+            .resolveImageView = null,
+            .resolveImageLayout = vk.VK_IMAGE_LAYOUT_UNDEFINED,
+            .loadOp = vk.VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = vk.VK_ATTACHMENT_STORE_OP_STORE,
+            .clearValue = clear,
+        };
+        const info: vk.VkRenderingInfo = .{
+            .sType = vk.VK_STRUCTURE_TYPE_RENDERING_INFO,
+            .pNext = null,
+            .flags = 0,
+            .renderArea = .{ .offset = .{ .x = 0, .y = 0 }, .extent = .{ .width = out_w, .height = out_h } },
+            .layerCount = 1,
+            .viewMask = 0,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &attach,
+            .pDepthAttachment = null,
+            .pStencilAttachment = null,
+        };
+        device.dispatch.cmdBeginRendering(session.cb, &info);
+    }
+    {
+        const vp: vk.VkViewport = .{ .x = 0, .y = 0, .width = @floatFromInt(out_w), .height = @floatFromInt(out_h), .minDepth = 0, .maxDepth = 1 };
+        device.dispatch.cmdSetViewport(session.cb, 0, 1, &vp);
+        const sc: vk.VkRect2D = .{ .offset = .{ .x = 0, .y = 0 }, .extent = .{ .width = out_w, .height = out_h } };
+        device.dispatch.cmdSetScissor(session.cb, 0, 1, &sc);
+    }
+    device.dispatch.cmdBindPipeline(session.cb, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+    var sets = [_]vk.VkDescriptorSet{set};
+    device.dispatch.cmdBindDescriptorSets(
+        session.cb,
+        vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
+        pipeline.layout,
+        0, // first set
+        1, // set count
+        &sets,
+        0, // dynamic offset count
+        null,
+    );
+    device.dispatch.cmdDraw(session.cb, 3, 1, 0, 0);
+    device.dispatch.cmdEndRendering(session.cb);
+
+    imageBarrier(
+        device,
+        session.cb,
+        target.image,
+        vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        vk.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        vk.VK_ACCESS_TRANSFER_READ_BIT,
+        vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
+    );
+
+    {
+        const region: vk.VkBufferImageCopy = .{
+            .bufferOffset = 0,
+            .bufferRowLength = 0,
+            .bufferImageHeight = 0,
+            .imageSubresource = .{
+                .aspectMask = vk.VK_IMAGE_ASPECT_COLOR_BIT,
+                .mipLevel = 0,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+            .imageOffset = .{ .x = 0, .y = 0, .z = 0 },
+            .imageExtent = .{ .width = out_w, .height = out_h, .depth = 1 },
+        };
+        device.dispatch.cmdCopyImageToBuffer(
+            session.cb,
+            target.image,
+            vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            readback.buffer,
+            1,
+            &region,
+        );
+    }
+
+    try session.endAndSubmit();
+
+    // Map + write PPM.
+    var mapped: ?*anyopaque = null;
+    if (device.dispatch.mapMemory(device.device, readback.memory, 0, px, 0, &mapped) != vk.VK_SUCCESS)
+        return error.VulkanFailed;
+    defer device.dispatch.unmapMemory(device.device, readback.memory);
+
+    const bgra: [*]const u8 = @ptrCast(mapped.?);
+    var file = try std.fs.createFileAbsolute(path, .{});
+    defer file.close();
+    var hdr_buf: [128]u8 = undefined;
+    const header = try std.fmt.bufPrint(&hdr_buf, "P6\n{} {}\n255\n", .{ out_w, out_h });
+    try file.writeAll(header);
+
+    var row: [256 * 3]u8 = undefined;
+    var y: usize = 0;
+    while (y < out_h) : (y += 1) {
+        var x: usize = 0;
+        while (x < out_w) : (x += 1) {
+            const src = (y * @as(usize, out_w) + x) * 4;
+            row[x * 3 + 0] = bgra[src + 2]; // R
+            row[x * 3 + 1] = bgra[src + 1]; // G
+            row[x * 3 + 2] = bgra[src + 0]; // B
+        }
+        try file.writeAll(row[0 .. @as(usize, out_w) * 3]);
+    }
+    std.debug.print("  Textured: wrote {}x{} PPM to {s}\n", .{ out_w, out_h, path });
 }
 
 fn imageBarrier(
