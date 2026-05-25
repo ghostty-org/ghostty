@@ -109,8 +109,13 @@ public:
   // units of 1/120 (e.g. 144 = 1.2, 180 = 1.5, 240 = 2.0). Returns
   // 120 (= 1.0) until the compositor sends its first
   // wp_fractional_scale_v1.preferred_scale event for our surface.
-  // Renderer / GhosttySurface size their buffers at
-  // `logical * preferredScale120() / 120` device pixels.
+  //
+  // Currently INFORMATIONAL only: GhosttySurface uses Qt's
+  // devicePixelRatioF() for buffer sizing (which Qt derives from
+  // the same protocol on Wayland), so the two values agree at
+  // steady state. Exposed for diagnostics + a future direct-
+  // protocol path that bypasses Qt's DPR cache lag during a
+  // screen-change race.
   uint32_t preferredScale120() const { return m_preferredScale120; }
 
   // Stretch the existing subsurface buffer to a new destination

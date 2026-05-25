@@ -47,6 +47,28 @@ device: *const Device,
 pool: vk.VkDescriptorPool,
 
 pub fn init(opts: Options) Error!Self {
+    // Vulkan spec requires `maxSets > 0` and `poolSizeCount > 0` —
+    // a pool that vends N sets but doesn't admit any descriptor
+    // type would be useless and is rejected by some drivers
+    // (loose drivers accept it and fail at allocation time). Catch
+    // both shapes here so the caller gets a clear error instead of
+    // a downstream allocation failure.
+    if (opts.max_sets == 0) {
+        log.err("DescriptorPool.init: max_sets must be > 0", .{});
+        return error.VulkanFailed;
+    }
+    if (opts.uniform_buffers == 0 and
+        opts.combined_image_samplers == 0 and
+        opts.storage_buffers == 0)
+    {
+        log.err(
+            "DescriptorPool.init: at least one per-type cap must be > 0 " ++
+                "(uniform_buffers, combined_image_samplers, storage_buffers)",
+            .{},
+        );
+        return error.VulkanFailed;
+    }
+
     // Build a small VkDescriptorPoolSize array from whichever caps
     // are non-zero. Vulkan accepts an array; we cap at 3 entries
     // matching the three types `Options` exposes.
@@ -78,11 +100,12 @@ pub fn init(opts: Options) Error!Self {
         .sType = vk.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
         .pNext = null,
         // No FREE_DESCRIPTOR_SET_BIT — we tear down by destroying
-        // the pool, which matches the per-frame reset pattern.
+        // the pool (or `vkResetDescriptorPool` for the per-frame
+        // step pool).
         .flags = 0,
         .maxSets = opts.max_sets,
         .poolSizeCount = n,
-        .pPoolSizes = if (n > 0) &sizes else null,
+        .pPoolSizes = &sizes,
     };
     var pool: vk.VkDescriptorPool = undefined;
     const r = opts.device.dispatch.createDescriptorPool(

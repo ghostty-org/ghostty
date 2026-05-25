@@ -49,9 +49,13 @@ void dmabufFormat(void *, zwp_linux_dmabuf_v1 *, uint32_t /*format*/) {}
 
 // `modifier` event: compositor advertises one (format, modifier) it
 // can scan out. Fires once per pair during the bind roundtrip; we
-// stash them all in the per-format vector. Duplicate-keyed inserts
-// are theoretically possible across compositor restarts but won't
-// happen within a single bind round, so we don't dedupe.
+// stash them all in the per-format vector. Only fires from inside
+// `discoverGlobals` because we keep the dmabuf proxy on a private
+// queue that's never dispatched after discovery — see the queue-
+// retention comment in `discoverGlobals`. That guarantee is what
+// lets the renderer thread read `globals.modifiers` without a
+// lock, and is also why we don't bother deduping (one bind round
+// only fires each pair once).
 void dmabufModifier(void *data, zwp_linux_dmabuf_v1 *, uint32_t format,
                     uint32_t modifier_hi, uint32_t modifier_lo) {
   auto *g = static_cast<PresenterGlobals *>(data);
@@ -140,21 +144,32 @@ PresenterGlobals *discoverGlobals(wl_display *display) {
   // Move the bound proxies back to the default queue so Qt's main
   // dispatch drives subsequent events on them, then drop the private
   // queue. (Same lifecycle dance as `blurManager`.)
+  //
+  // EXCEPT the dmabuf proxy: its listener mutates `globals.modifiers`
+  // on every `modifier` event, and the renderer thread reads that
+  // map from `supportedDmabufModifiers` without locking. If we
+  // moved the proxy back to the default queue, a compositor
+  // restart / hot-plug fires more `modifier` events that would
+  // race the reader. Keep the proxy on `queue` and intentionally
+  // never dispatch that queue again — the events queue up
+  // harmlessly and are reaped at proxy destruction. The map is
+  // genuinely frozen post-discovery now.
   if (globals.compositor)
     wl_proxy_set_queue(reinterpret_cast<wl_proxy *>(globals.compositor),
                        nullptr);
   if (globals.subcompositor)
     wl_proxy_set_queue(reinterpret_cast<wl_proxy *>(globals.subcompositor),
                        nullptr);
-  if (globals.dmabuf)
-    wl_proxy_set_queue(reinterpret_cast<wl_proxy *>(globals.dmabuf), nullptr);
   if (globals.viewporter)
     wl_proxy_set_queue(reinterpret_cast<wl_proxy *>(globals.viewporter),
                        nullptr);
   if (globals.fractionalScale)
     wl_proxy_set_queue(reinterpret_cast<wl_proxy *>(globals.fractionalScale),
                        nullptr);
-  wl_event_queue_destroy(queue);
+  // We deliberately leak `queue` (and leave globals.dmabuf attached
+  // to it) for the process lifetime — it has no resources beyond a
+  // small kernel-side buffer and going away would put dmabuf events
+  // back on the default queue.
 
   return &globals;
 }
@@ -402,6 +417,33 @@ void SubsurfacePresenter::presentDmabuf(int fd, uint32_t drm_format,
   if (fd < 0 || !m_dmabuf || !m_childSurface || !m_viewport) return;
   if (dest_width <= 0) dest_width = 1;
   if (dest_height <= 0) dest_height = 1;
+
+  // Validate the (format, modifier) pair against the compositor's
+  // advertised list before handing it to `create_immed`. If the
+  // pair isn't on the list, the compositor will reject the
+  // subsequent `create_immed` with `invalid_format` — a FATAL
+  // protocol error that kills the entire wl_display, taking down
+  // every window in the process. Better to drop this single frame
+  // than to take down the app.
+  {
+    const PresenterGlobals &g = globalState();
+    const auto it = g.modifiers.find(drm_format);
+    bool ok = false;
+    if (it != g.modifiers.end()) {
+      for (const uint64_t m : it->second) {
+        if (m == drm_modifier) { ok = true; break; }
+      }
+    }
+    if (!ok) {
+      std::fprintf(stderr,
+                   "[ghastty] SubsurfacePresenter: refusing dmabuf "
+                   "(fourcc=0x%08x mod=0x%llx) — compositor doesn't "
+                   "advertise this (format, modifier) pair\n",
+                   drm_format,
+                   static_cast<unsigned long long>(drm_modifier));
+      return;
+    }
+  }
 
   // Wrap libghostty's borrowed fd in a wl_buffer.
   zwp_linux_buffer_params_v1 *params =

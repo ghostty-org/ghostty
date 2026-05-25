@@ -217,17 +217,28 @@ pub fn glslFromShader(
         try writer.writeAll(prefix);
     } else {
         // Find the first newline after `#version ...` and inject the
-        // defines on the following line. We assume the prefix begins
-        // with a `#version` directive on its own line (true today;
-        // the comptime split below would crash loudly otherwise).
-        const first_nl = std.mem.indexOfScalar(u8, prefix, '\n').?;
-        try writer.writeAll(prefix[0 .. first_nl + 1]);
-        for (defines) |def| {
-            try writer.writeAll("#define ");
-            try writer.writeAll(def);
-            try writer.writeAll("\n");
+        // defines on the following line. The prefix is expected to
+        // start with `#version` followed by a newline; if a future
+        // edit ever drops that newline (e.g. a single-line prefix)
+        // we inject the defines BEFORE the prefix so glslang sees
+        // the directives on their own lines and reports a clear
+        // error instead of us crashing on a `null.?` unwrap.
+        if (std.mem.indexOfScalar(u8, prefix, '\n')) |first_nl| {
+            try writer.writeAll(prefix[0 .. first_nl + 1]);
+            for (defines) |def| {
+                try writer.writeAll("#define ");
+                try writer.writeAll(def);
+                try writer.writeAll("\n");
+            }
+            try writer.writeAll(prefix[first_nl + 1 ..]);
+        } else {
+            for (defines) |def| {
+                try writer.writeAll("#define ");
+                try writer.writeAll(def);
+                try writer.writeAll("\n");
+            }
+            try writer.writeAll(prefix);
         }
-        try writer.writeAll(prefix[first_nl + 1 ..]);
     }
     try writer.writeAll("\n\n");
     try writer.writeAll(src);
@@ -506,4 +517,3 @@ test "shadertoy to glsl" {
 
 const test_crt = @embedFile("shaders/test_shadertoy_crt.glsl");
 const test_invalid = @embedFile("shaders/test_shadertoy_invalid.glsl");
-const test_focus = @embedFile("shaders/test_shadertoy_focus.glsl");

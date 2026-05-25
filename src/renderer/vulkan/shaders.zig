@@ -67,9 +67,20 @@ fn processIncludes(comptime contents: [:0]const u8) [:0]const u8 {
     var i: usize = 0;
     while (i < contents.len) {
         if (std.mem.startsWith(u8, contents[i..], "#include")) {
-            std.debug.assert(std.mem.startsWith(u8, contents[i..], "#include \""));
-            const start = i + "#include \"".len;
-            const end = std.mem.indexOfScalarPos(u8, contents, start, '"').?;
+            // Skip whitespace (space or tab) between `#include` and
+            // the opening quote. The previous literal-prefix
+            // `startsWith("#include \"")` assert tripped on legal
+            // `#include\t"…"` and `#include  "…"` variants. Accept
+            // any horizontal whitespace and require exactly one
+            // double-quoted path.
+            var p = i + "#include".len;
+            while (p < contents.len and (contents[p] == ' ' or contents[p] == '\t')) : (p += 1) {}
+            if (p >= contents.len or contents[p] != '"') {
+                @compileError("processIncludes: malformed #include directive in shader");
+            }
+            const start = p + 1;
+            const end = std.mem.indexOfScalarPos(u8, contents, start, '"') orelse
+                @compileError("processIncludes: unterminated #include path");
             return std.fmt.comptimePrint("{s}{s}{s}", .{
                 contents[0..i],
                 @embedFile("../shaders/glsl/" ++ contents[start..end]),
@@ -178,6 +189,12 @@ pub fn vulkanizeGlsl(
 
         var i: usize = 0;
         while (i < src.len) {
+            // Skip comments + string literals verbatim — anything
+            // that looks like an identifier inside one of those is
+            // not a real token, and rewriting it (e.g. a comment
+            // that mentions `gl_VertexID` or `texture(atlas_*, ...)`)
+            // would silently corrupt the shader source.
+            if (try copySkippable(alloc, &out, src, &i)) continue;
             const c = src[i];
             const is_ident_start = isIdentChar(c);
             if (is_ident_start) {
@@ -245,6 +262,11 @@ pub fn vulkanizeGlsl(
 
     var i: usize = 0;
     while (i < pass1.len) {
+        // Skip comments + string literals verbatim, same reason as
+        // pass 1 — rewriting `layout(binding=…)` text inside a
+        // comment would inject a `set =` qualifier into a comment
+        // that's never compiled, harmless today but a footgun.
+        if (try copySkippable(alloc, &out, pass1, &i)) continue;
         if (matchKeyword(pass1, i, "layout")) |layout_end| {
             // Skip whitespace between `layout` and `(`.
             var p = layout_end;
@@ -307,20 +329,57 @@ pub fn vulkanizeGlsl(
     return try out.toOwnedSliceSentinel(alloc, 0);
 }
 
+/// If position `i` in `src` is the start of a GLSL line comment
+/// (`//...\n`), block comment (`/* ... */`), or `"..."` string
+/// literal, copy the whole token verbatim into `out`, advance
+/// `*i` past it, and return true. Otherwise `*i` is unchanged
+/// and we return false.
+///
+/// Strings are unusual in GLSL but `#extension` directives can
+/// quote in some preprocessor flavors, and the safe thing is to
+/// leave any quoted run untouched.
+fn copySkippable(
+    alloc: std.mem.Allocator,
+    out: *std.ArrayList(u8),
+    src: []const u8,
+    i: *usize,
+) std.mem.Allocator.Error!bool {
+    const start = i.*;
+    if (start >= src.len) return false;
+    if (start + 1 < src.len and src[start] == '/' and src[start + 1] == '/') {
+        var p = start;
+        while (p < src.len and src[p] != '\n') : (p += 1) {}
+        try out.appendSlice(alloc, src[start..p]);
+        i.* = p;
+        return true;
+    }
+    if (start + 1 < src.len and src[start] == '/' and src[start + 1] == '*') {
+        var p = start + 2;
+        while (p + 1 < src.len and !(src[p] == '*' and src[p + 1] == '/')) : (p += 1) {}
+        // Include the closing `*/` if found; otherwise consume to EOF.
+        const end = if (p + 1 < src.len) p + 2 else src.len;
+        try out.appendSlice(alloc, src[start..end]);
+        i.* = end;
+        return true;
+    }
+    if (src[start] == '"') {
+        var p = start + 1;
+        while (p < src.len and src[p] != '"') : (p += 1) {
+            if (src[p] == '\\' and p + 1 < src.len) p += 1;
+        }
+        const end = if (p < src.len) p + 1 else src.len;
+        try out.appendSlice(alloc, src[start..end]);
+        i.* = end;
+        return true;
+    }
+    return false;
+}
+
 fn isIdentChar(c: u8) bool {
     return (c >= 'a' and c <= 'z') or
         (c >= 'A' and c <= 'Z') or
         (c >= '0' and c <= '9') or
         c == '_';
-}
-
-/// True if the first non-space, non-comment character at or after
-/// position `i` in `src` is `(`. Used to recognize a function call
-/// when the caller is positioned right after the identifier name.
-fn nextNonSpaceIsOpenParen(src: []const u8, i: usize) bool {
-    var p = i;
-    while (p < src.len and isAnySpace(src[p])) : (p += 1) {}
-    return p < src.len and src[p] == '(';
 }
 
 /// Names of samplers we create with `unnormalized_coordinates =
@@ -457,9 +516,11 @@ pub const Module = struct {
             return error.GlslangFailed;
         };
 
-        const translated = vulkanizeGlsl(alloc, src) catch {
-            return error.GlslangFailed;
-        };
+        // vulkanizeGlsl returns `Allocator.Error` only — surface it
+        // via `try` (Module.Error includes Allocator.Error) so OOM
+        // doesn't get reported as `error.GlslangFailed`. Conflating
+        // them masked the actual failure mode in earlier diagnostics.
+        const translated = try vulkanizeGlsl(alloc, src);
         defer alloc.free(translated);
 
         const c = glslang.c;
@@ -671,14 +732,19 @@ const empty_pipeline: Pipeline = .{
 /// `Shaders.deinit` walks the same set in reverse to destroy
 /// pipelines, layouts, samplers, the descriptor pool, and modules.
 pub const Shaders = struct {
+    /// Borrowed pointer to the host-owned VkDevice wrapper. Stored
+    /// so `deinit` can reach the device dispatch table without
+    /// reaching into an arbitrary module's `.device` field (which
+    /// would silently break if `Modules` is restructured). The
+    /// pointer outlives `Shaders` because the device is process-
+    /// global in `Vulkan.zig`.
+    device: *const Device,
     pipelines: PipelineCollection,
     /// One per user-supplied custom shader. Built by `Shaders.init`
     /// from the `post_shaders` arg — empty when no custom shaders.
-    /// Owned by `Shaders` (deinit destroys each).
+    /// Owned by `Shaders` (deinit destroys each + frees the slice
+    /// using the allocator passed to `deinit`).
     post_pipelines: []Pipeline,
-    /// Allocator used to allocate `post_pipelines`; held so deinit
-    /// can free the slice.
-    post_alloc: ?Allocator = null,
     /// Compiled `VkShaderModule`s for each user shader, parallel to
     /// `post_pipelines`. Owned by `Shaders` (deinit destroys each).
     post_modules: []Module = &.{},
@@ -1188,12 +1254,17 @@ pub const Shaders = struct {
             post_modules = try alloc.alloc(Module, post_shaders.len);
             errdefer alloc.free(post_modules);
 
-            // Init counter so partial failures can deinit only what
-            // was built.
-            var built: usize = 0;
+            // Init counters so partial failures deinit exactly what
+            // was built. We track modules and pipelines separately
+            // because the inner loop creates a module first, then
+            // tries to build a pipeline against it — if Pipeline.init
+            // fails after Module.initFromSpirv succeeded, the module
+            // is populated but the pipeline isn't.
+            var modules_built: usize = 0;
+            var pipelines_built: usize = 0;
             errdefer {
-                for (post_pipelines[0..built]) |p| p.deinit();
-                for (post_modules[0..built]) |m| m.deinit();
+                for (post_pipelines[0..pipelines_built]) |p| p.deinit();
+                for (post_modules[0..modules_built]) |m| m.deinit();
             }
 
             // Shared descriptor set layouts across post pipelines.
@@ -1224,6 +1295,7 @@ pub const Shaders = struct {
                 }
                 const spv_words: []const u32 = std.mem.bytesAsSlice(u32, @as([]align(@alignOf(u32)) const u8, @alignCast(spv_bytes)));
                 post_modules[i] = try Module.initFromSpirv(device, spv_words, .fragment);
+                modules_built = i + 1;
                 post_pipelines[i] = try Pipeline.init(.{
                     .device = device,
                     .descriptor_pool = &pool,
@@ -1236,14 +1308,14 @@ pub const Shaders = struct {
                     .blending_enabled = false,
                     .topology = vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
                 });
-                built = i + 1;
+                pipelines_built = i + 1;
             }
         }
 
         return .{
+            .device = device,
             .pipelines = pipelines,
             .post_pipelines = post_pipelines,
-            .post_alloc = if (post_shaders.len > 0) alloc else null,
             .post_modules = post_modules,
             .modules = modules,
             .descriptor_pool = pool,
@@ -1292,7 +1364,6 @@ pub const Shaders = struct {
     }
 
     pub fn deinit(self: *Shaders, alloc: Allocator) void {
-        _ = alloc;
         if (self.defunct) return;
         self.defunct = true;
 
@@ -1314,10 +1385,12 @@ pub const Shaders = struct {
         // pipeline first (holds VkPipelineLayout), then shader module.
         for (self.post_pipelines) |p| p.deinit();
         for (self.post_modules) |m| m.deinit();
-        if (self.post_alloc) |a| {
-            a.free(self.post_pipelines);
-            a.free(self.post_modules);
-        }
+        // The slices were allocated from the same allocator the
+        // caller hands to deinit (the renderer's `self.alloc`).
+        // Use it directly — the previous `post_alloc` field was
+        // an extra source of truth for the same value.
+        if (self.post_pipelines.len > 0) alloc.free(self.post_pipelines);
+        if (self.post_modules.len > 0) alloc.free(self.post_modules);
 
         // Atlas sampler held by `Shaders` for the cell_text pipeline's
         // texture bindings.
@@ -1331,7 +1404,7 @@ pub const Shaders = struct {
 
         // Destroy every descriptor set layout we created. The empty
         // placeholder is one of the entries.
-        const dev = self.modules.full_screen_vert.device;
+        const dev = self.device;
         for (self.set_layouts[0..self.set_layouts_len]) |dsl| {
             if (dsl != null) dev.dispatch.destroyDescriptorSetLayout(
                 dev.device,

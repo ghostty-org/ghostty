@@ -8,7 +8,9 @@
 #include "SearchBar.h"
 #include "TabWidget.h"
 #include "Util.h"
+#ifdef GHASTTY_USE_VULKAN
 #include "vulkan/Host.h"
+#endif
 #include "wayland/EglDmabufTarget.h"
 #include "wayland/SubsurfacePresenter.h"
 
@@ -112,12 +114,43 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
   // produce a mismatch crash. Mixing GL+VK on the same process
   // (e.g. NVIDIA's coexistence on one Wayland surface) is also
   // reportedly fragile.
-  vulkan::Host *vk_host = nullptr;
-#ifdef GHASTTY_USE_VULKAN
-  vk_host = vulkan::Host::instance();
-#endif
+  // The "use Vulkan" decision is purely compile-time on this fork:
+  // each binary is linked against exactly one libghostty.so variant
+  // (opengl or vulkan). A runtime fallback would just mis-initialize
+  // the surface against the wrong renderer.
+  ghostty_surface_config_s sc =
+      m_parentSurface
+          ? ghostty_surface_inherited_config(m_parentSurface,
+                                             GHOSTTY_SURFACE_CONTEXT_TAB)
+          : ghostty_surface_config_new();
 
-  if (vk_host == nullptr) {
+#ifdef GHASTTY_USE_VULKAN
+  {
+    vulkan::Host *vk_host = vulkan::Host::instance();
+    if (vk_host == nullptr) {
+      // libghostty was compiled with -Drenderer=vulkan and there's
+      // no GL fallback available: libghostty's GL surface init
+      // would crash on the first call. Fail loudly here.
+      std::fprintf(stderr,
+                   "[ghastty] Vulkan host bring-up failed (no Vulkan 1.3 "
+                   "GPU with VK_KHR_external_memory_fd + "
+                   "VK_EXT_external_memory_dma_buf). The Vulkan variant "
+                   "of libghostty has no OpenGL fallback — exiting.\n");
+      std::abort();
+    }
+    m_useVulkan = true;
+    sc.platform_tag = GHOSTTY_PLATFORM_VULKAN;
+    sc.platform.vulkan = vk_host->asPlatform(this);
+
+    // GUI-thread frame delivery is driven by
+    // `QMetaObject::invokeMethod` (Qt::QueuedConnection) from
+    // `presentVulkanDmabuf`. The earlier 2 ms safety-net polling
+    // timer was removed once delivery was shown to be reliable;
+    // any genuine loss is visible via the dropped-frame counter
+    // logged from `presentVulkanDmabuf`.
+  }
+#else
+  {
     // OpenGL path: stand up the private context + offscreen FBO
     // libghostty's GL renderer draws into.
     m_context = new QOpenGLContext(this);
@@ -140,33 +173,7 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
     fmt.setInternalTextureFormat(GL_RGBA8);
     m_fbw = m_fbh = 16;
     m_fbo = new QOpenGLFramebufferObject(QSize(m_fbw, m_fbh), fmt);
-  }
 
-  ghostty_surface_config_s sc =
-      m_parentSurface
-          ? ghostty_surface_inherited_config(m_parentSurface,
-                                             GHOSTTY_SURFACE_CONTEXT_TAB)
-          : ghostty_surface_config_new();
-
-  if (vk_host != nullptr) {
-    m_useVulkan = true;
-    sc.platform_tag = GHOSTTY_PLATFORM_VULKAN;
-    sc.platform.vulkan = vk_host->asPlatform(this);
-
-    // GUI-thread frame drain. The renderer thread wakes us per frame
-    // via QMetaObject::invokeMethod (Qt::QueuedConnection) on each
-    // present — see `presentVulkanDmabuf`. The 2 ms timer is a
-    // safety net: if `invokeMethod` ever fails to deliver (the
-    // earlier QImage-handoff diagnostics suggested this could
-    // happen), the next tick drains the parked frame within at most
-    // 2 ms. Idle case has negligible CPU cost because `drainVulkan`
-    // returns immediately when nothing is pending.
-    m_vulkanPollTimer = new QTimer(this);
-    m_vulkanPollTimer->setInterval(2);
-    connect(m_vulkanPollTimer, &QTimer::timeout, this,
-            [this]() { drainVulkan(); });
-    m_vulkanPollTimer->start();
-  } else {
     sc.platform_tag = GHOSTTY_PLATFORM_OPENGL;
     sc.platform.opengl.userdata = this;
     sc.platform.opengl.get_proc_address = glGetProcAddress;
@@ -174,6 +181,7 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
     sc.platform.opengl.release_current = glReleaseCurrent;
     sc.platform.opengl.present = glPresent;
   }
+#endif
   sc.userdata = this;
   sc.scale_factor = devicePixelRatioF();
 
@@ -234,10 +242,12 @@ void GhosttySurface::syncSurfaceSize() {
   // shave a pixel off the framebuffer relative to the QImage blit.
   const int w = std::max(1, static_cast<int>(std::lround(width() * dpr)));
   const int h = std::max(1, static_cast<int>(std::lround(height() * dpr)));
-  if (w == m_fbw && h == m_fbh && dpr == m_fbDpr) return;
+  if (w == m_fbw && h == m_fbh &&
+      dpr == m_fbDpr.load(std::memory_order_relaxed))
+    return;
   m_fbw = w;
   m_fbh = h;
-  m_fbDpr = dpr;
+  m_fbDpr.store(dpr, std::memory_order_release);
 
   // Vulkan path: libghostty manages the target image itself (it
   // allocates the dmabuf-exportable VkImage). Tell it the new
@@ -405,7 +415,19 @@ bool GhosttySurface::event(QEvent *e) {
         static_cast<QPlatformSurfaceEvent *>(e)->surfaceEventType();
     if (type == QPlatformSurfaceEvent::SurfaceAboutToBeDestroyed) {
       m_useSubsurface.store(false, std::memory_order_release);
-      m_eglTarget.reset();
+      // EglDmabufTarget's destructor deletes a GL framebuffer +
+      // texture allocated against `m_context`; without that
+      // context current its `QOpenGLContext::currentContext()`
+      // check sees the wrong (or no) context and silently skips
+      // the gl* calls, leaking the resources every time Qt
+      // re-creates the QPA window (QSplitter reparent, fullscreen
+      // toggle, screen change). Make the owning context current
+      // before tearing down. Vulkan-variant builds have no
+      // `m_context` and skip the makeCurrent.
+      if (m_eglTarget) {
+        if (m_context) makeCurrent();
+        m_eglTarget.reset();
+      }
       m_subsurfacePresenter.reset();
     }
     // SurfaceCreated is handled implicitly: the next QEvent::Show
@@ -623,7 +645,7 @@ void GhosttySurface::renderTerminal() {
   // (Scaling it to the widget instead made the whole frame — images
   // included — rubber-band while a resize was in flight.)
   m_image = m_fbo->toImage();
-  m_image.setDevicePixelRatio(m_fbDpr);
+  m_image.setDevicePixelRatio(m_fbDpr.load(std::memory_order_acquire));
   m_fbo->release();
 
   update();
@@ -1537,10 +1559,11 @@ QVariant GhosttySurface::inputMethodQuery(Qt::InputMethodQuery query) const {
           ghostty_surface_cursor_position(m_surface);
       // m_fbDpr defaults to 1.0 and only ever takes positive values
       // from syncSurfaceSize, so dividing is always safe.
-      return QRect(static_cast<int>(c.x / m_fbDpr),
-                   static_cast<int>(c.y / m_fbDpr),
-                   std::max(1, static_cast<int>(c.width / m_fbDpr)),
-                   std::max(1, static_cast<int>(c.height / m_fbDpr)));
+      const double dpr = m_fbDpr.load(std::memory_order_acquire);
+      return QRect(static_cast<int>(c.x / dpr),
+                   static_cast<int>(c.y / dpr),
+                   std::max(1, static_cast<int>(c.width / dpr)),
+                   std::max(1, static_cast<int>(c.height / dpr)));
     }
     default:
       return QWidget::inputMethodQuery(query);
@@ -1621,8 +1644,25 @@ void GhosttySurface::presentVulkanDmabuf(
                  image_backed ? 1 : 0, useSubsurface ? "subsurface" : "qimage");
   }
 
-  if (dmabuf_fd < 0 || width == 0 || height == 0 || stride < width * 4)
-    return;
+  // Validate the renderer-supplied dimensions. width / height /
+  // stride are all u32 and the multiplications below would wrap if
+  // they're hostile/buggy:
+  //   - `width * 4` (the minimum acceptable stride) wraps for
+  //     width >= 0x40000000, accepting any stride.
+  //   - `stride * height` (the legacy mmap path's byte count) wraps
+  //     to a small size_t when promoted on platforms where size_t
+  //     is 32-bit, causing an under-mapped buffer that we then
+  //     read past.
+  // Cap on a sane upper bound — 65536×65536 dwarfs any plausible
+  // terminal — and check that stride*height doesn't exceed
+  // SIZE_MAX before promoting.
+  constexpr quint32 MAX_DIM = 65536;
+  if (dmabuf_fd < 0 || width == 0 || height == 0) return;
+  if (width > MAX_DIM || height > MAX_DIM) return;
+  if (stride < static_cast<quint64>(width) * 4) return;
+  // stride*height as 64-bit and check the size_t fit explicitly.
+  const quint64 bytes64 = static_cast<quint64>(stride) * height;
+  if (bytes64 > std::numeric_limits<std::size_t>::max()) return;
 
   // Don't park / dispatch frames while we're hidden — racing the
   // renderer's final post-Hide frame past presenter.hide() is what
@@ -1670,8 +1710,9 @@ void GhosttySurface::presentVulkanDmabuf(
     return;
   }
 
-  // Fallback: mmap + memcpy into a QImage.
-  const size_t bytes = static_cast<size_t>(stride) * height;
+  // Fallback: mmap + memcpy into a QImage. `bytes64` was computed
+  // and bounds-checked above.
+  const size_t bytes = static_cast<size_t>(bytes64);
   void *mapped = ::mmap(nullptr, bytes, PROT_READ, MAP_SHARED, dmabuf_fd, 0);
   if (mapped == MAP_FAILED) {
     std::fprintf(stderr, "[ghastty] mmap of dmabuf fd=%d failed: %s\n",
@@ -1694,7 +1735,8 @@ void GhosttySurface::presentVulkanDmabuf(
   QImage owned = stamped.copy();
   ::munmap(mapped, bytes);
 
-  if (m_fbDpr > 0) owned.setDevicePixelRatio(m_fbDpr);
+  const double dpr_now = m_fbDpr.load(std::memory_order_acquire);
+  if (dpr_now > 0) owned.setDevicePixelRatio(dpr_now);
   {
     QMutexLocker lock(&m_pendingMutex);
     m_pending = std::move(owned);

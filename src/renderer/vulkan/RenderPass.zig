@@ -18,6 +18,7 @@ const Self = @This();
 const std = @import("std");
 const vk = @import("vulkan").c;
 
+const DescriptorPool = @import("DescriptorPool.zig");
 const Device = @import("Device.zig");
 const Pipeline = @import("Pipeline.zig");
 const Sampler = @import("Sampler.zig");
@@ -56,6 +57,16 @@ pub const Options = struct {
     /// Caller-recorded command buffer to emit commands into. Provided
     /// by the enclosing `Frame`.
     cb: vk.VkCommandBuffer,
+
+    /// Per-frame descriptor pool. Used by `step` to allocate fresh
+    /// descriptor sets on the SECOND and later step() calls that
+    /// bind the same pipeline within this pass — without it,
+    /// mutating the pipeline's static `descriptor_sets[i]` for the
+    /// second call would overwrite the first call's bindings before
+    /// the GPU has read them (vkCmdDraw reads at submit time).
+    /// Optional: passes that never re-use a pipeline (bg_color,
+    /// cell_bg, cell_text) work without it.
+    step_pool: ?*DescriptorPool = null,
 
     /// Color attachments for the pass. With dynamic rendering each
     /// attachment is a render target + optional clear color.
@@ -114,7 +125,20 @@ pub const Error = error{
 attachments: []const Options.Attachment,
 cb: vk.VkCommandBuffer,
 device: *const Device,
+step_pool: ?*DescriptorPool = null,
 step_number: usize = 0,
+
+/// VkPipeline handles already used by an earlier `step` in this
+/// pass. On second-and-later use of the same pipeline we allocate
+/// a fresh per-call descriptor set from `step_pool` instead of
+/// mutating `pipeline.descriptor_sets[i]` (vkCmdDraw reads at
+/// submit time, so re-updating the same set in place would
+/// overwrite the prior call's bindings before the GPU has read
+/// them). Capacity covers our worst case: per-pass image draws
+/// can fire dozens of pipeline reuses. The slice is empty when no
+/// step_pool was provided.
+seen_pipelines: [MAX_SEEN_PIPELINES]vk.VkPipeline = .{null} ** MAX_SEEN_PIPELINES,
+seen_pipelines_len: usize = 0,
 
 /// Last `Step.uniforms` value seen in this pass. The OpenGL backend
 /// keeps the bound UBO across draw calls implicitly (GL state
@@ -125,6 +149,13 @@ step_number: usize = 0,
 /// buffer here and reuse it when a step doesn't supply one. Reset
 /// to null at `begin`.
 last_uniforms: ?vk.VkBuffer = null,
+
+/// Cap on the number of distinct pipelines we'll track per pass
+/// for "first-use vs re-use" detection. The renderer's pass shape
+/// is: bg_color (1), cell_bg (1), cell_text (1), bg_image (1),
+/// image (varies). 8 is generous; we degrade gracefully to "always
+/// allocate fresh" past this cap.
+const MAX_SEEN_PIPELINES: usize = 8;
 
 /// Begin a render pass. Transitions the first attachment to
 /// `COLOR_ATTACHMENT_OPTIMAL` and opens a `vkCmdBeginRendering`
@@ -138,6 +169,7 @@ pub fn begin(opts: Options) Self {
         .attachments = opts.attachments,
         .cb = opts.cb,
         .device = opts.device,
+        .step_pool = opts.step_pool,
     };
 
     if (opts.attachments.len == 0) return self;
@@ -340,6 +372,48 @@ pub fn step(self: *Self, s: Step) void {
         }
     }
 
+    // Pick effective descriptor sets for this step.
+    //
+    // First time we see a given pipeline within this pass, we use
+    // its pre-allocated `descriptor_sets[]` slots and update them
+    // in place — cheap and avoids a per-pass-pool allocation in
+    // the common single-step case (bg_color/cell_bg/cell_text).
+    //
+    // SECOND-and-later use of the same pipeline within the same
+    // pass requires fresh sets: vkCmdDraw reads the descriptor
+    // contents at SUBMIT time, so re-updating the static sets in
+    // place would silently make every prior draw bound to this
+    // pipeline read the LAST update's UBO/sampler/storage. The
+    // image / kitty path issues N draws on the same `image`
+    // pipeline with per-call vertex buffers and textures — without
+    // this fix every kitty image rendered with the FINAL image's
+    // texture and the final draw's vertex buffer.
+    //
+    // The fresh sets come from `step_pool`, owned by the enclosing
+    // Frame and reset at frame start. When `step_pool` is null
+    // (test harnesses, smoke tests) we fall back to the static
+    // sets and accept the limitation.
+    var effective_sets: [Pipeline.MAX_DESCRIPTOR_SETS]vk.VkDescriptorSet =
+        s.pipeline.descriptor_sets;
+    const reused = self.markPipelineUsed(s.pipeline.pipeline);
+    if (reused) if (self.step_pool) |pool| {
+        for (s.pipeline.descriptor_set_layouts, 0..) |maybe_dsl, i| {
+            if (i >= s.pipeline.set_count) break;
+            const dsl = maybe_dsl orelse continue;
+            if (pool.allocate(dsl)) |fresh| {
+                effective_sets[i] = fresh;
+            } else |err| {
+                log.err(
+                    "RenderPass.step: per-call descriptor set " ++
+                        "allocation for set {} failed ({}); falling " ++
+                        "back to the pipeline's static set, which " ++
+                        "may corrupt prior draws on this pipeline",
+                    .{ i, err },
+                );
+            }
+        }
+    };
+
     // ---- update descriptor sets ---------------------------------
     //
     // We do one vkUpdateDescriptorSets call per descriptor write to
@@ -353,7 +427,7 @@ pub fn step(self: *Self, s: Step) void {
     // supply one. Track the new one for later steps.
     const ubo: ?vk.VkBuffer = s.uniforms orelse self.last_uniforms;
     if (s.uniforms) |b| self.last_uniforms = b;
-    if (s.pipeline.descriptor_sets[0] != null) if (ubo) |ubo_buffer| {
+    if (effective_sets[0] != null) if (ubo) |ubo_buffer| {
         const buffer_info: vk.VkDescriptorBufferInfo = .{
             .buffer = ubo_buffer,
             .offset = 0,
@@ -362,7 +436,7 @@ pub fn step(self: *Self, s: Step) void {
         const write: vk.VkWriteDescriptorSet = .{
             .sType = vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .pNext = null,
-            .dstSet = s.pipeline.descriptor_sets[0],
+            .dstSet = effective_sets[0],
             .dstBinding = s.pipeline.uniforms_binding,
             .dstArrayElement = 0,
             .descriptorCount = 1,
@@ -375,7 +449,7 @@ pub fn step(self: *Self, s: Step) void {
     };
 
     // Samplers (set 1)
-    if (s.pipeline.descriptor_sets[1] != null) {
+    if (effective_sets[1] != null) {
         const slot_count = @max(s.textures.len, s.samplers.len);
         for (0..slot_count) |slot| {
             const tex_opt: ?Texture = if (slot < s.textures.len) s.textures[slot] else null;
@@ -396,7 +470,7 @@ pub fn step(self: *Self, s: Step) void {
             const write: vk.VkWriteDescriptorSet = .{
                 .sType = vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                 .pNext = null,
-                .dstSet = s.pipeline.descriptor_sets[1],
+                .dstSet = effective_sets[1],
                 .dstBinding = @intCast(slot),
                 .dstArrayElement = 0,
                 .descriptorCount = 1,
@@ -411,7 +485,7 @@ pub fn step(self: *Self, s: Step) void {
 
     // Storage buffers (set 2). `buffers[0]` is reserved for the
     // vertex buffer (handled above), so storage starts at slot 1.
-    if (s.pipeline.descriptor_sets[2] != null and s.buffers.len > 1) {
+    if (effective_sets[2] != null and s.buffers.len > 1) {
         for (s.buffers[1..], 1..) |maybe_buf, slot| {
             const buf = maybe_buf orelse continue;
             const buffer_info: vk.VkDescriptorBufferInfo = .{
@@ -422,7 +496,7 @@ pub fn step(self: *Self, s: Step) void {
             const write: vk.VkWriteDescriptorSet = .{
                 .sType = vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                 .pNext = null,
-                .dstSet = s.pipeline.descriptor_sets[2],
+                .dstSet = effective_sets[2],
                 .dstBinding = @intCast(slot),
                 .dstArrayElement = 0,
                 .descriptorCount = 1,
@@ -443,19 +517,19 @@ pub fn step(self: *Self, s: Step) void {
     // contiguous run of non-null sets.
     var start: usize = 0;
     while (start < s.pipeline.set_count) {
-        if (s.pipeline.descriptor_sets[start] == null) {
+        if (effective_sets[start] == null) {
             start += 1;
             continue;
         }
         var end = start + 1;
-        while (end < s.pipeline.set_count and s.pipeline.descriptor_sets[end] != null) : (end += 1) {}
+        while (end < s.pipeline.set_count and effective_sets[end] != null) : (end += 1) {}
         dev.dispatch.cmdBindDescriptorSets(
             self.cb,
             vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
             s.pipeline.layout,
             @intCast(start),
             @intCast(end - start),
-            &s.pipeline.descriptor_sets[start],
+            &effective_sets[start],
             0,
             null,
         );
@@ -475,6 +549,26 @@ pub fn step(self: *Self, s: Step) void {
         0,
     );
     self.step_number += 1;
+}
+
+/// Mark `pipeline` as used in this pass and report whether it was
+/// already seen. Returns `false` on the FIRST call (so `step` can
+/// safely update the pipeline's static descriptor sets in place);
+/// `true` on every subsequent call (so `step` allocates fresh sets
+/// from `step_pool` to avoid clobbering the prior call's bindings).
+///
+/// Beyond `MAX_SEEN_PIPELINES` we conservatively report `true` so
+/// callers always allocate fresh — the alternative (silently
+/// reverting to in-place updates) is the bug this whole mechanism
+/// exists to prevent.
+fn markPipelineUsed(self: *Self, pipeline: vk.VkPipeline) bool {
+    for (self.seen_pipelines[0..self.seen_pipelines_len]) |seen| {
+        if (seen == pipeline) return true;
+    }
+    if (self.seen_pipelines_len >= MAX_SEEN_PIPELINES) return true;
+    self.seen_pipelines[self.seen_pipelines_len] = pipeline;
+    self.seen_pipelines_len += 1;
+    return false;
 }
 
 /// Close the rendering scope and leave the attachment in a layout

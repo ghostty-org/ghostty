@@ -288,13 +288,14 @@ private:
   bool m_useVulkan = false;
 
   // Cross-thread frame handoff for the Vulkan path. The renderer
-  // thread calls `presentVulkanDmabuf` with a borrowed dmabuf fd; a
-  // 16 ms `QTimer` on the GUI thread drains the pending frame and
-  // routes it through the wl_subsurface (zero-copy) when the
-  // SubsurfacePresenter is available, or falls back to the
-  // mmap+memcpy+QImage path otherwise. The polling timer was kept
-  // (rather than QMetaObject::invokeMethod) because queued lambdas
-  // from the renderer thread were unreliable in earlier diagnostics.
+  // thread calls `presentVulkanDmabuf` with a borrowed dmabuf fd
+  // and posts a queued `drainVulkan` invocation; the GUI thread
+  // runs `drainVulkan` and routes the parked descriptor through
+  // either the wl_subsurface presenter (zero-copy) or the
+  // mmap+memcpy+QImage fallback. The dropped-frame counter
+  // (`m_droppedFrames`) surfaces any queue-loss that ever happens
+  // in practice — the earlier safety-net polling timer was
+  // removed once delivery was shown to be reliable.
   //
   // `m_useSubsurface` is set once on the GUI thread when the
   // presenter comes up; the renderer thread reads it acquire-style
@@ -318,7 +319,6 @@ private:
   // null and paintEvent skips its blit.
   QImage m_pending;
   QMutex m_pendingMutex;
-  QTimer *m_vulkanPollTimer = nullptr;
 
   // GL objects for the alpha-premultiply pass.
   QOpenGLShaderProgram *m_premultProg = nullptr;
@@ -326,7 +326,13 @@ private:
 
   int m_fbw = 0;                       // framebuffer size, device pixels
   int m_fbh = 0;
-  double m_fbDpr = 1.0;                // DPR the framebuffer was sized at
+  // DPR the framebuffer was sized at. Atomic because the renderer
+  // thread reads it from `presentVulkanDmabuf` to tag the legacy
+  // QImage path while the GUI thread writes it from
+  // `syncSurfaceSize`. `double` writes aren't guaranteed atomic
+  // across threads on every architecture; std::atomic<double> uses
+  // CAS-loop fallbacks where needed.
+  std::atomic<double> m_fbDpr{1.0};    // DPR the framebuffer was sized at
 
   QLabel *m_exitOverlay = nullptr;     // "process exited" banner; lazily made
   QLabel *m_keySeqOverlay = nullptr;   // pending keybind chord; lazily made

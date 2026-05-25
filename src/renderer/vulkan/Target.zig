@@ -198,12 +198,17 @@ fn pickModifier(
     // work for AMD/Intel LINEAR but the compositor attach would
     // fail, so treat it as "no intersection."
     var host_mods: [MAX_MODIFIERS]u64 = undefined;
-    const host_count = dev.platform.get_supported_modifiers(
+    const host_returned = dev.platform.get_supported_modifiers(
         dev.platform.userdata,
         drm_format,
         &host_mods,
         MAX_MODIFIERS,
     );
+    // Clamp defensively. The C ABI contract is "host returns ≤ capacity",
+    // but we don't get to assume the host's implementation is correct
+    // — and in safe builds an OOB read on `host_mods[..host_returned]`
+    // panics, hiding the real diagnostic.
+    const host_count: usize = @min(host_returned, MAX_MODIFIERS);
     if (host_count == 0) {
         log.warn(
             "host advertises no dmabuf modifiers for format 0x{x}; " ++
@@ -465,7 +470,22 @@ fn initDirect(opts: Options, drm_format: u32, chosen_mod: u64) Error!Self {
         .fd = fd,
         .drm_format = drm_format,
         .drm_modifier = actual_mod,
-        .stride = @intCast(layout.rowPitch),
+        .stride = stride: {
+            // VkSubresourceLayout.rowPitch is u64 but the platform
+            // present callback accepts u32 stride. For a sanely-
+            // sized terminal target stride fits comfortably in u32,
+            // but vendor-tiled drivers at exotic resolutions could
+            // legitimately exceed it. Fail the init explicitly
+            // instead of letting `@intCast` panic in safe builds.
+            if (layout.rowPitch > std.math.maxInt(u32)) {
+                log.err(
+                    "Target.initDirect: rowPitch {} > u32 max; refusing direct mode",
+                    .{layout.rowPitch},
+                );
+                return error.UnsupportedFormat;
+            }
+            break :stride @intCast(layout.rowPitch);
+        },
     };
 }
 

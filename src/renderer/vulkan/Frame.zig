@@ -37,6 +37,7 @@ const vk = @import("vulkan").c;
 
 const Device = @import("Device.zig");
 const Target = @import("Target.zig");
+const DescriptorPool = @import("DescriptorPool.zig");
 const RenderPass = @import("RenderPass.zig");
 
 const Vulkan = @import("../Vulkan.zig");
@@ -53,6 +54,15 @@ pub const Options = struct {
     /// Fence that gets signaled when the submit completes. Caller
     /// resets it to unsignaled before `begin` is called.
     fence: vk.VkFence,
+
+    /// Per-frame descriptor pool. `RenderPass.step` borrows it for
+    /// the per-call descriptor sets it allocates whenever a
+    /// pipeline is re-used within a single pass. The pool is
+    /// caller-owned (top-level `Vulkan.zig` keeps it threadlocal)
+    /// and must be reset (`vkResetDescriptorPool`) by the caller
+    /// before each Frame.begin so this frame's allocations don't
+    /// pile on the previous frame's.
+    step_pool: ?*DescriptorPool = null,
 };
 
 pub const Error = error{
@@ -67,6 +77,7 @@ renderer: *Renderer,
 target: *Target,
 cb: vk.VkCommandBuffer,
 fence: vk.VkFence,
+step_pool: ?*DescriptorPool = null,
 
 /// Begin recording a frame. The command buffer is reset and started
 /// with `ONE_TIME_SUBMIT` since we always submit before the next
@@ -95,6 +106,7 @@ pub fn begin(
         .target = target,
         .cb = opts.cb,
         .fence = opts.fence,
+        .step_pool = opts.step_pool,
     };
 }
 
@@ -112,75 +124,102 @@ pub fn complete(self: *const Self, sync: bool) void {
     _ = sync;
     const dev = self.device;
 
+    // `health` becomes `.unhealthy` on any GPU-side error below. We
+    // ALWAYS run `buffer_pool.cycle` and `frameCompleted` on the
+    // way out — skipping them on error left every retired buffer
+    // stuck in `pending` (unbounded growth) and held the renderer's
+    // swap-chain semaphore forever, so the NEXT `drawFrame` would
+    // hang with no diagnostic.
+    var health: Health = .healthy;
+    var submitted = false;
+
     // Make the rendered pixels visible to the host's mmap read. In
     // `.direct` mode this is just a memory barrier; in `.legacy_copy`
     // mode it also runs `vkCmdCopyImageToBuffer`. See `Target.zig`.
     self.target.recordPresentBarrier(self.cb);
 
-    {
+    end_cb: {
         const r = dev.dispatch.endCommandBuffer(self.cb);
         if (r != vk.VK_SUCCESS) {
             log.err("vkEndCommandBuffer (frame) failed: result={}", .{r});
-            return;
+            health = .unhealthy;
+            break :end_cb;
         }
-    }
 
-    const submit_info: vk.VkSubmitInfo = .{
-        .sType = vk.VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .pNext = null,
-        .waitSemaphoreCount = 0,
-        .pWaitSemaphores = null,
-        .pWaitDstStageMask = null,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &self.cb,
-        .signalSemaphoreCount = 0,
-        .pSignalSemaphores = null,
-    };
-    {
+        const submit_info: vk.VkSubmitInfo = .{
+            .sType = vk.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .pNext = null,
+            .waitSemaphoreCount = 0,
+            .pWaitSemaphores = null,
+            .pWaitDstStageMask = null,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &self.cb,
+            .signalSemaphoreCount = 0,
+            .pSignalSemaphores = null,
+        };
         // Externally-synchronized via `Device.queueSubmit` — splits
         // and tabs share the host's VkQueue and Vulkan rejects
         // concurrent unsynchronized access.
-        const r = dev.queueSubmit(1, &submit_info, self.fence);
-        if (r != vk.VK_SUCCESS) {
-            log.err("vkQueueSubmit (frame) failed: result={}", .{r});
-            return;
+        const sr = dev.queueSubmit(1, &submit_info, self.fence);
+        if (sr != vk.VK_SUCCESS) {
+            log.err("vkQueueSubmit (frame) failed: result={}", .{sr});
+            health = .unhealthy;
+            break :end_cb;
         }
-    }
+        submitted = true;
 
-    // Wait for the GPU to finish writing the target before letting
-    // the host import the dmabuf. UINT64_MAX = "wait indefinitely".
-    {
-        const r = dev.dispatch.waitForFences(
+        // Wait for the GPU to finish writing the target before letting
+        // the host import the dmabuf. UINT64_MAX = "wait indefinitely".
+        const wr = dev.dispatch.waitForFences(
             dev.device,
             1,
             &self.fence,
             vk.VK_TRUE,
             std.math.maxInt(u64),
         );
-        if (r != vk.VK_SUCCESS) {
-            log.err("vkWaitForFences (frame) failed: result={}", .{r});
+        if (wr != vk.VK_SUCCESS) {
+            log.err("vkWaitForFences (frame) failed: result={}", .{wr});
+            health = .unhealthy;
         }
     }
 
-    // Recycle the per-frame Buffer pool now that the fence has
-    // signaled — every VkBuffer queued during this frame's
-    // recording is provably no longer in use by the GPU and is
-    // safe to hand to the next `Buffer.create` call. See
-    // `Vulkan.buffer_pool` for the lifecycle.
-    Vulkan.buffer_pool.cycle(dev);
+    // Recycle the per-frame Buffer pool. Even on the error path we
+    // still want to cycle: buffers that the failed submit referenced
+    // are now stuck (we can't prove the GPU is done with them), so
+    // we conservatively wait the device idle on the unhealthy path
+    // before draining. Without this, every failed submit leaks
+    // every buffer the renderer queued for that frame.
+    if (health == .unhealthy and !submitted) {
+        // Submit never happened — nothing in flight references
+        // recorded buffers, safe to cycle directly.
+        Vulkan.buffer_pool.cycle(dev);
+    } else if (health == .unhealthy) {
+        // Submit happened but fence wait failed (DEVICE_LOST etc.).
+        // Drain the device before recycling to avoid use-after-free
+        // on whatever queue is still ticking.
+        _ = dev.dispatch.deviceWaitIdle(dev.device);
+        Vulkan.buffer_pool.cycle(dev);
+    } else {
+        Vulkan.buffer_pool.cycle(dev);
+    }
 
-    // Hand the rendered target off to the host via `Vulkan.present`,
-    // which both calls the platform's present callback AND records
-    // the target pointer for `presentLastTarget` no-op republishes.
-    self.renderer.api.present(self.target) catch |err| {
-        log.err("present failed: {}", .{err});
-    };
+    // Hand the rendered target off to the host. On the unhealthy
+    // path we skip present — the dmabuf may be partially written
+    // and the host should see the previous frame instead (the
+    // generic renderer's no-op-frame logic re-presents
+    // `last_target`).
+    if (health == .healthy) {
+        self.renderer.api.present(self.target) catch |err| {
+            log.err("present failed: {}", .{err});
+            health = .unhealthy;
+        };
+    }
 
     // Tell the generic renderer the frame is done so it releases the
     // swap-chain semaphore. Without this, `SwapChain.nextFrame()`
     // blocks the second call to `drawFrame` forever (one buffer in
-    // the chain, never freed).
-    self.renderer.frameCompleted(.healthy);
+    // the chain, never freed). MUST run regardless of `health`.
+    self.renderer.frameCompleted(health);
 }
 
 /// Begin a render pass recording into this frame's command buffer.
@@ -193,6 +232,7 @@ pub inline fn renderPass(
     return RenderPass.begin(.{
         .device = self.device,
         .cb = self.cb,
+        .step_pool = self.step_pool,
         .attachments = attachments,
     });
 }

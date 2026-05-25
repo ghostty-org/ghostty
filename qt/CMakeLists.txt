@@ -143,6 +143,15 @@ set(GHOSTTY_SO "${GHOSTTY_LIB_DIR}/ghostty-internal.so")
 set(GHASTTY_VARIANT "opengl" CACHE STRING
     "Renderer variant: opengl (default) or vulkan")
 set_property(CACHE GHASTTY_VARIANT PROPERTY STRINGS opengl vulkan)
+# Validate the cache value: STRINGS only constrains the cmake-gui
+# dropdown, not the command-line. `-DGHASTTY_VARIANT=foo` would
+# otherwise silently fall into the OpenGL branch below.
+if(NOT GHASTTY_VARIANT STREQUAL "opengl" AND
+   NOT GHASTTY_VARIANT STREQUAL "vulkan")
+  message(FATAL_ERROR
+    "GHASTTY_VARIANT='${GHASTTY_VARIANT}' is invalid; "
+    "must be 'opengl' or 'vulkan'.")
+endif()
 if(GHASTTY_VARIANT STREQUAL "vulkan")
   set(GHASTTY_EXE_NAME "ghastty-vulkan")
   set(GHASTTY_LIB_SUBDIR "ghastty-vulkan")
@@ -189,7 +198,6 @@ add_custom_target(ghostty_link DEPENDS "${GHOSTTY_LINK_SO}")
 
 add_executable(ghastty
   src/main.cpp
-  src/vulkan/Host.cpp
   src/actions/ActionDispatcher.cpp
   src/actions/ChromeActions.cpp
   src/actions/InputActions.cpp
@@ -226,6 +234,15 @@ add_executable(ghastty
   "${FRACSCALE_HEADER}"
 )
 
+# Vulkan host glue is variant-only. Adding it to the OpenGL build
+# would force an unconditional libvulkan link on a binary that
+# never calls into Vulkan, contradicting the side-by-side
+# `~/.local/lib/libghostty.so` story that the variant block above
+# documents.
+if(GHASTTY_VARIANT STREQUAL "vulkan")
+  target_sources(ghastty PRIVATE src/vulkan/Host.cpp)
+endif()
+
 # Embed the app icon so it is available even running from the build tree.
 qt_add_resources(ghastty "appicon"
   PREFIX "/"
@@ -250,9 +267,17 @@ target_link_libraries(ghastty PRIVATE
   PkgConfig::XKBCOMMON
   PkgConfig::EGL
   LayerShellQt::Interface
-  vulkan
   "${GHOSTTY_LINK_SO}"
 )
+
+# libvulkan is Vulkan-variant only. The OpenGL variant compiles
+# nothing that references Vulkan symbols (vulkan/Host.cpp is gated
+# above), so not linking libvulkan keeps OpenGL-only systems from
+# needing the loader installed at runtime — matching the
+# documented side-by-side variant story above.
+if(GHASTTY_VARIANT STREQUAL "vulkan")
+  target_link_libraries(ghastty PRIVATE vulkan)
+endif()
 
 # Hook up the private QPA headers (see find_package above).
 #

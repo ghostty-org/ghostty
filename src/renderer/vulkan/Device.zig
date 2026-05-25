@@ -195,6 +195,7 @@ pub const Dispatch = struct {
     // the actual renderer integration lands.
     createDescriptorPool: std.meta.Child(vk.PFN_vkCreateDescriptorPool),
     destroyDescriptorPool: std.meta.Child(vk.PFN_vkDestroyDescriptorPool),
+    resetDescriptorPool: std.meta.Child(vk.PFN_vkResetDescriptorPool),
     allocateDescriptorSets: std.meta.Child(vk.PFN_vkAllocateDescriptorSets),
     updateDescriptorSets: std.meta.Child(vk.PFN_vkUpdateDescriptorSets),
     cmdBindDescriptorSets: std.meta.Child(vk.PFN_vkCmdBindDescriptorSets),
@@ -217,6 +218,12 @@ queue_family_index: u32,
 /// >= `MIN_API_VERSION` (if it were lower, `init` returns
 /// `error.UnsupportedVulkanVersion`).
 api_version: u32,
+
+/// Cached `VkPhysicalDeviceMemoryProperties`. The properties are
+/// immutable for the physical device's lifetime, so we query once
+/// at `init` time instead of on every `findMemoryType` call (which
+/// happens for every Buffer/Texture/Target allocation).
+memory_properties: vk.VkPhysicalDeviceMemoryProperties,
 
 dispatch: Dispatch,
 
@@ -351,10 +358,41 @@ pub fn init(
 
     // ---- 4. extension check --------------------------------------
     var ext_count: u32 = 0;
-    _ = enumerate_device_extension_properties(physical_device, null, &ext_count, null);
+    {
+        const r = enumerate_device_extension_properties(physical_device, null, &ext_count, null);
+        // SUCCESS or INCOMPLETE both populate `ext_count`. INCOMPLETE
+        // shouldn't happen on the count-only call (no buffer to
+        // truncate) but we accept it defensively.
+        if (r != vk.VK_SUCCESS and r != vk.VK_INCOMPLETE) {
+            log.err("vkEnumerateDeviceExtensionProperties (count) failed: result={}", .{r});
+            return error.HostHandleMissing;
+        }
+    }
     const exts = try alloc.alloc(vk.VkExtensionProperties, ext_count);
     defer alloc.free(exts);
-    _ = enumerate_device_extension_properties(physical_device, null, &ext_count, exts.ptr);
+    {
+        const r = enumerate_device_extension_properties(physical_device, null, &ext_count, exts.ptr);
+        if (r != vk.VK_SUCCESS and r != vk.VK_INCOMPLETE) {
+            log.err("vkEnumerateDeviceExtensionProperties (fill) failed: result={}", .{r});
+            return error.HostHandleMissing;
+        }
+        // VK_INCOMPLETE here means the extension list grew between
+        // the count and fill calls (race with a driver hot-reload —
+        // very unlikely in practice but spec-permitted). The
+        // partially-filled buffer is still authoritative for the
+        // entries it does contain, but a required extension not yet
+        // populated would be missed. Treat as a hard fail since the
+        // extension presence check below would silently pass on a
+        // truncated list.
+        if (r == vk.VK_INCOMPLETE) {
+            log.err(
+                "vkEnumerateDeviceExtensionProperties returned INCOMPLETE; " ++
+                    "device extension list changed between count and fill",
+                .{},
+            );
+            return error.HostHandleMissing;
+        }
+    }
 
     inline for (REQUIRED_DEVICE_EXTENSIONS) |required| {
         var found = false;
@@ -501,12 +539,20 @@ pub fn init(
         try dl.load(vk.PFN_vkCreateDescriptorPool, "vkCreateDescriptorPool");
     const destroy_descriptor_pool =
         try dl.load(vk.PFN_vkDestroyDescriptorPool, "vkDestroyDescriptorPool");
+    const reset_descriptor_pool =
+        try dl.load(vk.PFN_vkResetDescriptorPool, "vkResetDescriptorPool");
     const allocate_descriptor_sets =
         try dl.load(vk.PFN_vkAllocateDescriptorSets, "vkAllocateDescriptorSets");
     const update_descriptor_sets =
         try dl.load(vk.PFN_vkUpdateDescriptorSets, "vkUpdateDescriptorSets");
     const cmd_bind_descriptor_sets =
         try dl.load(vk.PFN_vkCmdBindDescriptorSets, "vkCmdBindDescriptorSets");
+
+    // Snapshot the memory properties once. They never change for
+    // the device's lifetime, so per-allocation re-queries (which
+    // findMemoryType used to do) were pure waste.
+    var memory_properties: vk.VkPhysicalDeviceMemoryProperties = undefined;
+    get_physical_device_memory_properties(physical_device, &memory_properties);
 
     return .{
         .platform = platform,
@@ -516,6 +562,7 @@ pub fn init(
         .queue = queue,
         .queue_family_index = queue_family_index,
         .api_version = props.apiVersion,
+        .memory_properties = memory_properties,
         .dispatch = .{
             .getPhysicalDeviceProperties = get_physical_device_properties,
             .getPhysicalDeviceMemoryProperties = get_physical_device_memory_properties,
@@ -579,6 +626,7 @@ pub fn init(
             .cmdCopyImageToBuffer = cmd_copy_image_to_buffer,
             .createDescriptorPool = create_descriptor_pool,
             .destroyDescriptorPool = destroy_descriptor_pool,
+            .resetDescriptorPool = reset_descriptor_pool,
             .allocateDescriptorSets = allocate_descriptor_sets,
             .updateDescriptorSets = update_descriptor_sets,
             .cmdBindDescriptorSets = cmd_bind_descriptor_sets,
@@ -593,9 +641,16 @@ pub fn deinit(self: *Device) void {
 }
 
 /// Block until the device is idle. Useful before tearing down
-/// renderer resources to make sure no command buffers are in flight.
+/// renderer resources to make sure no command buffers are in
+/// flight. On `VK_ERROR_DEVICE_LOST` (or any other failure) we
+/// log the result so callers proceeding to destroy resources on
+/// a dead device leave a diagnostic crumb instead of silently
+/// crashing on the subsequent vkDestroy*.
 pub fn waitIdle(self: *const Device) void {
-    _ = self.dispatch.deviceWaitIdle(self.device);
+    const r = self.dispatch.deviceWaitIdle(self.device);
+    if (r != vk.VK_SUCCESS) {
+        log.warn("vkDeviceWaitIdle returned {}; teardown proceeding anyway", .{r});
+    }
 }
 
 /// Find a `VkMemoryType` index satisfying the requirements from a
@@ -609,8 +664,7 @@ pub fn findMemoryType(
     type_bits: u32,
     required_props: vk.VkMemoryPropertyFlags,
 ) ?u32 {
-    var props: vk.VkPhysicalDeviceMemoryProperties = undefined;
-    self.dispatch.getPhysicalDeviceMemoryProperties(self.physical_device, &props);
+    const props = &self.memory_properties;
     var i: u32 = 0;
     while (i < props.memoryTypeCount) : (i += 1) {
         const bit: u32 = @as(u32, 1) << @intCast(i);

@@ -547,24 +547,42 @@ pub const Platform = union(PlatformTag) {
 
             .vulkan => vulkan: {
                 const config = c_platform.vulkan;
+                // Collapse the eight per-callback "MustBeSet"
+                // variants into a single `error.MissingVulkanCallback`.
+                // Pre-this, every caller of `Platform.init` had to
+                // handle 8 separate error tags (or `try` swallow
+                // them) — eight names that all mean "the host
+                // didn't fill out one of these fields." Log which
+                // one was null for diagnostics; the error tag
+                // itself stays narrow.
+                const which: ?[]const u8 = blk: {
+                    if (config.get_instance_proc_addr == null) break :blk "get_instance_proc_addr";
+                    if (config.instance == null) break :blk "instance";
+                    if (config.physical_device == null) break :blk "physical_device";
+                    if (config.device == null) break :blk "device";
+                    if (config.queue == null) break :blk "queue";
+                    if (config.queue_family_index == null) break :blk "queue_family_index";
+                    if (config.get_supported_modifiers == null) break :blk "get_supported_modifiers";
+                    if (config.present == null) break :blk "present";
+                    break :blk null;
+                };
+                if (which) |name| {
+                    std.log.scoped(.embedded).err(
+                        "ghostty_platform_vulkan_s.{s} is null",
+                        .{name},
+                    );
+                    break :vulkan error.MissingVulkanCallback;
+                }
                 break :vulkan .{ .vulkan = .{
                     .userdata = config.userdata,
-                    .get_instance_proc_addr = config.get_instance_proc_addr orelse
-                        break :vulkan error.GetInstanceProcAddrMustBeSet,
-                    .instance = config.instance orelse
-                        break :vulkan error.InstanceMustBeSet,
-                    .physical_device = config.physical_device orelse
-                        break :vulkan error.PhysicalDeviceMustBeSet,
-                    .device = config.device orelse
-                        break :vulkan error.DeviceMustBeSet,
-                    .queue = config.queue orelse
-                        break :vulkan error.QueueMustBeSet,
-                    .queue_family_index = config.queue_family_index orelse
-                        break :vulkan error.QueueFamilyIndexMustBeSet,
-                    .get_supported_modifiers = config.get_supported_modifiers orelse
-                        break :vulkan error.GetSupportedModifiersMustBeSet,
-                    .present = config.present orelse
-                        break :vulkan error.PresentMustBeSet,
+                    .get_instance_proc_addr = config.get_instance_proc_addr.?,
+                    .instance = config.instance.?,
+                    .physical_device = config.physical_device.?,
+                    .device = config.device.?,
+                    .queue = config.queue.?,
+                    .queue_family_index = config.queue_family_index.?,
+                    .get_supported_modifiers = config.get_supported_modifiers.?,
+                    .present = config.present.?,
                 } };
             },
         };
