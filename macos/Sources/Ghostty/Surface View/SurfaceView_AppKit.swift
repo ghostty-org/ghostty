@@ -204,7 +204,7 @@ extension Ghostty {
         // This is the title from the terminal. This is nil if we're currently using
         // the terminal title as the main title property. If the title is set manually
         // by the user, this is set to the prior value (which may be empty, but non-nil).
-        private var titleFromTerminal: String?
+        @Published private var titleFromTerminal: String?
 
         /// True when the user has manually pinned the title.
         /// `SurfaceTitleBar` reads this to decide whether to show the OSC title or CWD.
@@ -220,10 +220,10 @@ extension Ghostty {
                 }
                 title = newTitle
             } else {
-                // Clear pin — restore the last OSC-provided title.
+                // Clear pin — restore the last OSC-provided title immediately.
                 let prevTitle = titleFromTerminal ?? "👻"
                 titleFromTerminal = nil
-                setTitle(prevTitle)
+                title = prevTitle
             }
         }
 
