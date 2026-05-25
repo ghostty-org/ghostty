@@ -9,6 +9,7 @@
 #include "TabWidget.h"
 #include "Util.h"
 #include "vulkan/Host.h"
+#include "wayland/SubsurfacePresenter.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -306,10 +307,30 @@ bool GhosttySurface::event(QEvent *e) {
   // via parent hide / tab switch on QTabWidget. The GLArea-style
   // map/unmap signals are the same semantic.
   if (m_surface) {
-    if (e->type() == QEvent::Show)
+    if (e->type() == QEvent::Show) {
       ghostty_surface_set_occlusion(m_surface, true);
-    else if (e->type() == QEvent::Hide)
+      // First successful Show is also when our native QWindow exists
+      // and we can safely look up the Wayland parent wl_surface.
+      // Lazy-init the subsurface presenter once and keep it for the
+      // widget's lifetime — tying it to Show/Hide would churn the
+      // wl_subsurface on every tab switch.
+      //
+      // Phase 2 (current): scaffolding only. The presenter creates a
+      // wl_subsurface but never attaches a buffer; the existing
+      // `presentVulkanDmabuf` + `paintEvent` QPainter path is the
+      // one producing pixels. Phase 3 will route frames through the
+      // subsurface and retire the QPainter blit.
+      if (!m_subsurfacePresenter) {
+        // WA_NativeWindow ensures windowHandle() is non-null even if
+        // GhosttySurface is embedded in a non-native parent.
+        setAttribute(Qt::WA_NativeWindow);
+        if (auto *h = windowHandle())
+          m_subsurfacePresenter =
+              wayland::SubsurfacePresenter::tryCreate(h);
+      }
+    } else if (e->type() == QEvent::Hide) {
       ghostty_surface_set_occlusion(m_surface, false);
+    }
   }
   return QWidget::event(e);
 }

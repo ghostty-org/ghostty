@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <memory>
 
 #include <QImage>
 #include <QMutex>
@@ -11,6 +12,10 @@
 #include <QWidget>
 
 #include "ghostty.h"
+
+namespace wayland {
+class SubsurfacePresenter;
+}
 
 class MainWindow;
 class QContextMenuEvent;
@@ -307,4 +312,11 @@ private:
   // first PWD notification (libghostty fires one at spawn from the
   // inherited config, then on every cwd change).
   QString m_pwd;
+
+  // Wayland subsurface for the GPU-direct present path. Lazily
+  // created on first `QEvent::Show` once the native QWindow exists;
+  // null until then, null forever if creation fails (Phase 2 keeps
+  // working in that case because nothing yet depends on it). Phase 3
+  // will use this to attach dmabuf-backed `wl_buffer`s.
+  std::unique_ptr<wayland::SubsurfacePresenter> m_subsurfacePresenter;
 };
