@@ -428,4 +428,22 @@ void SubsurfacePresenter::presentDmabuf(int fd, uint32_t drm_format,
   }
 }
 
+void SubsurfacePresenter::resizeDestination(int dest_width, int dest_height) {
+  if (!m_viewport || !m_childSurface) return;
+  if (dest_width <= 0 || dest_height <= 0) return;
+  if (dest_width == m_lastDestWidth && dest_height == m_lastDestHeight) return;
+
+  // Update destination + commit child WITHOUT attaching a new buffer.
+  // In desync mode the commit applies immediately and the compositor
+  // stretches the currently-attached buffer to the new dest extent.
+  // The next presentDmabuf will overwrite this with a properly-sized
+  // buffer, but until then the subsurface fills the new area instead
+  // of leaving a transparent gap during the parent's resize commit.
+  wp_viewport_set_destination(m_viewport, dest_width, dest_height);
+  m_lastDestWidth = dest_width;
+  m_lastDestHeight = dest_height;
+  wl_surface_commit(m_childSurface);
+  wl_display_flush(m_display);
+}
+
 } // namespace wayland

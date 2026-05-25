@@ -247,8 +247,18 @@ void GhosttySurface::syncSurfaceSize() {
     // before the subsurface present path replaced the QImage one.
     if (m_useSubsurface.load(std::memory_order_acquire) &&
         m_subsurfacePresenter) {
+      // First: stretch the existing subsurface buffer to the new
+      // logical size by bumping wp_viewport.set_destination + a bare
+      // child commit. In desync mode the compositor applies this
+      // immediately, so the parent surface can grow to the new size
+      // with our subsurface already covering it (briefly stretched)
+      // instead of exposing a transparent gap. mpv's
+      // vo_dmabuf_wayland uses the same pattern for video resize.
+      m_subsurfacePresenter->resizeDestination(width(), height());
+      // Then: render at the new size and commit the proper new-size
+      // buffer, which overwrites the stretched content.
       ghostty_surface_draw(m_surface);
-      drainVulkan(); // runs presentDmabuf at the new size + commits
+      drainVulkan();
       return;
     }
 

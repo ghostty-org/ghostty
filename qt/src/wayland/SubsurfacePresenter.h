@@ -102,6 +102,24 @@ public:
   // `logical * preferredScale120() / 120` device pixels.
   uint32_t preferredScale120() const { return m_preferredScale120; }
 
+  // Stretch the existing subsurface buffer to a new destination
+  // size WITHOUT attaching a new buffer. Used at the *start* of a
+  // resize, before the renderer has produced a new-size frame:
+  // wp_viewport.set_destination is double-buffered on the child
+  // surface, so committing the child here in desync mode applies
+  // the new destination immediately and the compositor stretches
+  // the old buffer to fill it. Result: the parent surface can grow
+  // to its new size with the subsurface already covering the new
+  // area (briefly stretched), instead of leaving a one-frame
+  // transparent gap where the translucent parent shows through.
+  //
+  // The next presentDmabuf call (with the real new-size buffer)
+  // replaces the stretched content, ending the brief blur.
+  //
+  // Same pattern mpv's vo_dmabuf_wayland uses for its video
+  // subsurface during resize.
+  void resizeDestination(int dest_width, int dest_height);
+
   // Called from the wp_fractional_scale_v1.preferred_scale event.
   // Public so the C-style listener struct at file scope in the .cpp
   // can name it; not part of the API for other call sites.
