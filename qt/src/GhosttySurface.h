@@ -39,14 +39,26 @@ class OverlayScrollbar;
 
 // One Ghostty terminal pane.
 //
-// libghostty's OpenGL renderer draws the terminal into an offscreen
-// framebuffer owned by a private QOpenGLContext (there is no on-screen
-// GL surface). Each frame is read back into a QImage and painted with
-// QPainter. That keeps this an ordinary translucent QWidget, so it
-// embeds in the QTabWidget / QSplitter tree and its transparent
-// background composites to the desktop exactly like the rest of the
-// widget chrome — avoiding QOpenGLWidget (composites opaque on Wayland)
-// and an embedded QOpenGLWindow (does not present when embedded).
+// Terminal pixels reach the screen via a wl_subsurface attached to
+// the top-level QWindow's wl_surface (see wayland::SubsurfacePresenter).
+// libghostty's renderer (Vulkan or OpenGL, picked at compile time
+// via GHASTTY_USE_VULKAN) hands us a dmabuf fd per frame; we wrap
+// it in a wl_buffer via zwp_linux_dmabuf_v1 and the compositor
+// scans it out directly — no readback, no QPainter blit for the
+// terminal area. Each pane in a split is a sibling subsurface
+// under the same top-level wl_surface, positioned at its offset
+// within the top-level via setPosition.
+//
+// This QWidget itself keeps WA_TranslucentBackground so the
+// terminal area of the parent surface is transparent (the
+// subsurface below shows through) and chrome (SearchBar,
+// overlays, scrollbar) painted in paintEvent stays visible on top.
+//
+// Legacy fallback: if the compositor lacks the required Wayland
+// globals (linux-dmabuf-v1, viewporter, subcompositor) or the
+// renderer reports image_backed=false (NVIDIA Vulkan's
+// legacy_copy path on this branch), the frame goes through a
+// mmap+memcpy+QImage+QPainter::drawImage path instead.
 class GhosttySurface : public QWidget {
   Q_OBJECT
 
@@ -364,10 +376,10 @@ private:
   QString m_pwd;
 
   // Wayland subsurface for the GPU-direct present path. Lazily
-  // created on first `QEvent::Show` once the native QWindow exists;
-  // null until then, null forever if creation fails (Phase 2 keeps
-  // working in that case because nothing yet depends on it). Phase 3
-  // will use this to attach dmabuf-backed `wl_buffer`s.
+  // created on first `QEvent::Show` once the top-level QWindow
+  // exists; null if the compositor lacks the required globals
+  // (linux-dmabuf-v1, viewporter, subcompositor), in which case
+  // the legacy mmap+memcpy+QImage+QPainter path renders pixels.
   std::unique_ptr<wayland::SubsurfacePresenter> m_subsurfacePresenter;
   // Per-surface latch for the first-dmabuf log breadcrumb so each
   // pane / split prints its own line on first frame.

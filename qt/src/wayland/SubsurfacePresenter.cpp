@@ -272,10 +272,10 @@ SubsurfacePresenter::tryCreate(QWindow *topLevel) {
   // dependency but couldn't deliver lockstep resize because the
   // two surfaces commit independently in that mode.
 
-  // Subsurface covers the parent at the origin. Phase 4 will keep
-  // this in sync on splits/tabs/etc.; for now the GhosttySurface
-  // forces WA_NativeWindow so its QWindow IS the terminal's native
-  // wayland surface and (0,0) is correct.
+  // Initial subsurface position: (0,0) in parent-surface coords.
+  // GhosttySurface immediately calls setPosition after tryCreate
+  // returns with the pane's real offset within the top-level (and
+  // updates it on every moveEvent / resizeEvent).
   wl_subsurface_set_position(sub, 0, 0);
 
   // Stack the subsurface BELOW the parent so Qt's child widgets

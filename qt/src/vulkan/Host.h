@@ -8,10 +8,16 @@
 //
 // The host is process-singleton (one Vulkan instance + device shared
 // across every `GhosttySurface`), constructed lazily on first use
-// via `instance()`. If Vulkan isn't available (no loader, no
-// suitable physical device with `VK_KHR_external_memory_fd` +
-// `VK_EXT_external_memory_dma_buf`), construction fails gracefully
-// and the caller falls back to the OpenGL path.
+// via `instance()`. Requires a physical device that supports
+// VK_KHR_external_memory_fd, VK_EXT_external_memory_dma_buf, and
+// VK_EXT_image_drm_format_modifier — all three are needed for the
+// dmabuf-as-importable-image export path libghostty's Vulkan
+// renderer uses to hand frames back to the host.
+//
+// On first use Host::instance() also primes the process-wide
+// Wayland dmabuf modifier registry (see SubsurfacePresenter) on
+// the calling thread, so the renderer-thread `get_supported_modifiers`
+// callback can read it without further synchronization.
 
 #pragma once
 

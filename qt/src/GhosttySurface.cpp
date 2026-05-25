@@ -435,13 +435,9 @@ bool GhosttySurface::event(QEvent *e) {
       // and we can safely look up the Wayland parent wl_surface.
       // Lazy-init the subsurface presenter once and keep it for the
       // widget's lifetime — tying it to Show/Hide would churn the
-      // wl_subsurface on every tab switch.
-      //
-      // Phase 2 (current): scaffolding only. The presenter creates a
-      // wl_subsurface but never attaches a buffer; the existing
-      // `presentVulkanDmabuf` + `paintEvent` QPainter path is the
-      // one producing pixels. Phase 3 will route frames through the
-      // subsurface and retire the QPainter blit.
+      // wl_subsurface on every tab switch. Re-creation on real
+      // native-surface lifecycle changes is handled by the
+      // QEvent::PlatformSurface branch above.
       if (!m_subsurfacePresenter) {
         // Use the TOP-LEVEL QWindow's wl_surface as the parent for
         // our subsurface — NOT this widget's own QWindow. Each pane
