@@ -92,14 +92,18 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
 
   // Pick the renderer up-front so the rest of the surface setup
   // (GL context vs. Vulkan host) only touches the path we'll
-  // actually use. Mixing the two on the same process can confuse
-  // some drivers (NVIDIA's GL+VK coexistence on a single Wayland
-  // surface is reportedly fragile); keep them disjoint.
+  // actually use. The choice is wired in at compile time via the
+  // `GHASTTY_USE_VULKAN` definition (set by CMake when
+  // `GHASTTY_VARIANT=vulkan`), because libghostty itself is built
+  // for exactly one renderer per .so and this binary is linked
+  // against one of them — a runtime env-var override could only
+  // produce a mismatch crash. Mixing GL+VK on the same process
+  // (e.g. NVIDIA's coexistence on one Wayland surface) is also
+  // reportedly fragile.
   vulkan::Host *vk_host = nullptr;
-  if (const char *r = std::getenv("GHASTTY_RENDERER");
-      r != nullptr && std::strcmp(r, "vulkan") == 0) {
-    vk_host = vulkan::Host::instance();
-  }
+#ifdef GHASTTY_USE_VULKAN
+  vk_host = vulkan::Host::instance();
+#endif
 
   if (vk_host == nullptr) {
     // OpenGL path: stand up the private context + offscreen FBO

@@ -152,6 +152,15 @@ else()
   set(GHASTTY_LIB_SUBDIR "")
 endif()
 
+# Compile-time renderer pick. Each binary is linked against exactly
+# one libghostty.so variant (opengl or vulkan), so the renderer
+# choice is inherent to the binary — no need for a runtime env var.
+# GhosttySurface.cpp branches on GHASTTY_USE_VULKAN to spin up the
+# Vulkan host vs the OpenGL context.
+if(GHASTTY_VARIANT STREQUAL "vulkan")
+  add_compile_definitions(GHASTTY_USE_VULKAN)
+endif()
+
 if(NOT EXISTS "${GHOSTTY_SO}")
   message(FATAL_ERROR
     "libghostty not found at ${GHOSTTY_SO}\n"
