@@ -424,6 +424,20 @@ pub const Platform = union(PlatformTag) {
         queue: *const fn (?*anyopaque) callconv(.c) ?*anyopaque,
         queue_family_index: *const fn (?*anyopaque) callconv(.c) u32,
 
+        /// Query the compositor-supported DRM modifiers for a given
+        /// DRM_FORMAT_* fourcc. Two-pass usage: call with
+        /// `out=null, capacity=0` for the count, then again with a
+        /// buffer of that size. Returns the number of modifiers
+        /// actually written. The renderer intersects this with the
+        /// GPU's per-modifier feature set to pick a tiling the
+        /// compositor will accept on attach.
+        get_supported_modifiers: *const fn (
+            ?*anyopaque,
+            u32, // DRM_FORMAT_*
+            ?[*]u64, // out
+            usize, // capacity
+        ) callconv(.c) usize,
+
         /// Hand off a rendered frame to the host as a dmabuf fd. The
         /// host imports it for composition; libghostty retains
         /// ownership of the underlying VkDeviceMemory and the fd is
@@ -479,6 +493,12 @@ pub const Platform = union(PlatformTag) {
             device: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque,
             queue: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque,
             queue_family_index: ?*const fn (?*anyopaque) callconv(.c) u32,
+            get_supported_modifiers: ?*const fn (
+                ?*anyopaque,
+                u32,
+                ?[*]u64,
+                usize,
+            ) callconv(.c) usize,
             present: ?*const fn (
                 ?*anyopaque,
                 i32,
@@ -541,6 +561,8 @@ pub const Platform = union(PlatformTag) {
                         break :vulkan error.QueueMustBeSet,
                     .queue_family_index = config.queue_family_index orelse
                         break :vulkan error.QueueFamilyIndexMustBeSet,
+                    .get_supported_modifiers = config.get_supported_modifiers orelse
+                        break :vulkan error.GetSupportedModifiersMustBeSet,
                     .present = config.present orelse
                         break :vulkan error.PresentMustBeSet,
                 } };

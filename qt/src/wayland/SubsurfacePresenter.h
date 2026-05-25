@@ -6,6 +6,15 @@
 // subsurface. The compositor scans the buffers out directly — no
 // mmap, no memcpy, no QImage, no QPainter blit on the present path.
 //
+// Also exposes the process-wide compositor modifier registry
+// (`primeDmabufModifierRegistry` / `supportedDmabufModifiers`)
+// learned from zwp_linux_dmabuf_v1's format/modifier events.
+// libghostty's Vulkan renderer queries this via the
+// `get_supported_modifiers` platform callback to pick a modifier
+// the compositor will actually accept — without that intersection,
+// drivers that don't expose COLOR_ATTACHMENT for LINEAR (NVIDIA)
+// can't get into Target's direct-export mode at all.
+//
 // Wayland-only by project decision (the Qt frontend is Wayland-only;
 // see `feedback-qt-no-x11` memory). If the host isn't on a Wayland
 // QPA platform or the compositor lacks the required globals,
@@ -14,6 +23,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 
@@ -24,6 +34,28 @@ struct zwp_linux_dmabuf_v1;
 class QWindow;
 
 namespace wayland {
+
+// Eagerly discover the compositor's globals (incl. the
+// zwp_linux_dmabuf_v1 format/modifier list) on the calling thread.
+// MUST be called from the GUI thread before any
+// `supportedDmabufModifiers` reader runs (the renderer thread). Safe
+// to call multiple times — discovery happens exactly once.
+//
+// Idempotent no-op if the QPA isn't Wayland or the
+// QPlatformNativeInterface lookup fails.
+void primeDmabufModifierRegistry();
+
+// Read the cached compositor-supported DRM modifiers for the given
+// DRM_FORMAT_* fourcc. Returns the number of modifiers actually
+// written to `out` (capped at `capacity`). Pass `out=nullptr,
+// capacity=0` to query the total count.
+//
+// Thread-safe for readers once `primeDmabufModifierRegistry` has
+// returned. Returns 0 if the registry hasn't been primed yet or the
+// format isn't advertised.
+std::size_t supportedDmabufModifiers(std::uint32_t drm_format,
+                                     std::uint64_t *out,
+                                     std::size_t capacity);
 
 class SubsurfacePresenter {
 public:

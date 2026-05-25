@@ -148,34 +148,73 @@ pub fn init(opts: Options) Error!Self {
         vk.VK_FORMAT_FEATURE_TRANSFER_SRC_BIT |
         vk.VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
 
-    if (try probeLinearModifierSupported(dev, opts.format, required_features)) {
+    const picked = try pickModifier(dev, opts.format, drm_format, required_features);
+    if (picked) |m| {
+        const tag: []const u8 = if (m == DRM_FORMAT_MOD_LINEAR)
+            "LINEAR"
+        else
+            "vendor-tiled";
         log.info(
-            "Target: direct dmabuf export (LINEAR modifier) {}x{}",
-            .{ opts.width, opts.height },
+            "Target: direct dmabuf export ({s} modifier 0x{x}) {}x{}",
+            .{ tag, m, opts.width, opts.height },
         );
-        return try initDirect(opts, drm_format);
-    } else {
-        log.warn(
-            "Target: LINEAR modifier lacks COLOR_ATTACHMENT support; " ++
-                "falling back to OPTIMAL render + LINEAR-buffer copy",
-            .{},
-        );
-        return try initLegacyCopy(opts, drm_format);
+        return try initDirect(opts, drm_format, m);
     }
+    log.warn(
+        "Target: no usable single-plane modifier with COLOR_ATTACHMENT " ++
+            "in compositor ∩ GPU intersection; falling back to " ++
+            "OPTIMAL render + LINEAR-buffer copy",
+        .{},
+    );
+    return try initLegacyCopy(opts, drm_format);
 }
 
-/// Ask the driver, via `VK_EXT_image_drm_format_modifier`'s
-/// per-modifier feature list, whether `DRM_FORMAT_MOD_LINEAR`
-/// supports the format-feature flags we need to use the image as a
-/// color attachment + transfer source + sampled.
-fn probeLinearModifierSupported(
+/// Intersect the compositor's accepted modifier list (from the host
+/// callback) with the GPU's supported modifiers for `format` (queried
+/// via `VK_EXT_image_drm_format_modifier`), filtered by single-plane
+/// + the required format-feature flags. Prefer the first non-LINEAR
+/// hit (vendor-tiled — NVIDIA block-linear, AMD DCC variants, Intel
+/// Y-tiled; these are where the perf win lives on most hardware).
+/// Fall back to LINEAR if it's in the intersection. Return null when
+/// no modifier qualifies — the caller drops to `.legacy_copy`.
+///
+/// Why both intersections matter:
+///   - GPU-only: passes on AMD/Intel for LINEAR but NVIDIA never
+///     exposes COLOR_ATTACHMENT for LINEAR — direct mode would
+///     create the image OK but rasterize nothing.
+///   - Compositor-only: GPU may not be able to render into the
+///     compositor's preferred tilings (drivers don't always expose
+///     COLOR_ATTACHMENT for every modifier).
+fn pickModifier(
     dev: *const Device,
     format: vk.VkFormat,
+    drm_format: u32,
     required_features: vk.VkFormatFeatureFlags,
-) Error!bool {
-    var mods: [MAX_MODIFIERS]vk.VkDrmFormatModifierPropertiesEXT = undefined;
+) Error!?u64 {
+    // Compositor side: ask the host what it will accept on attach.
+    // Two-pass query (NULL out + capacity 0 returns count). Empty
+    // result means the compositor doesn't speak linux-dmabuf-v1 or
+    // doesn't advertise this format — direct mode would still likely
+    // work for AMD/Intel LINEAR but the compositor attach would
+    // fail, so treat it as "no intersection."
+    var host_mods: [MAX_MODIFIERS]u64 = undefined;
+    const host_count = dev.platform.get_supported_modifiers(
+        dev.platform.userdata,
+        drm_format,
+        &host_mods,
+        MAX_MODIFIERS,
+    );
+    if (host_count == 0) {
+        log.warn(
+            "host advertises no dmabuf modifiers for format 0x{x}; " ++
+                "cannot use direct mode",
+            .{drm_format},
+        );
+        return null;
+    }
 
-    // First pass: get count.
+    // GPU side: enumerate modifiers + their per-modifier feature bits.
+    var gpu_mods: [MAX_MODIFIERS]vk.VkDrmFormatModifierPropertiesEXT = undefined;
     var mod_list: vk.VkDrmFormatModifierPropertiesListEXT = .{
         .sType = vk.VK_STRUCTURE_TYPE_DRM_FORMAT_MODIFIER_PROPERTIES_LIST_EXT,
         .pNext = null,
@@ -192,43 +231,64 @@ fn probeLinearModifierSupported(
         format,
         &props2,
     );
-
-    if (mod_list.drmFormatModifierCount == 0) return false;
+    if (mod_list.drmFormatModifierCount == 0) return null;
     if (mod_list.drmFormatModifierCount > MAX_MODIFIERS) {
-        // Cap to our stack buffer; we only look for LINEAR (which
-        // tends to be first or close to it), so a truncation here is
-        // very unlikely to hide it. Log if we ever hit this.
         log.warn(
-            "modifier list truncated: driver reports {}, MAX_MODIFIERS={}",
+            "GPU modifier list truncated: driver reports {}, MAX_MODIFIERS={}",
             .{ mod_list.drmFormatModifierCount, MAX_MODIFIERS },
         );
         mod_list.drmFormatModifierCount = MAX_MODIFIERS;
     }
-
-    // Second pass: fill list.
-    mod_list.pDrmFormatModifierProperties = &mods[0];
+    mod_list.pDrmFormatModifierProperties = &gpu_mods[0];
     dev.dispatch.getPhysicalDeviceFormatProperties2(
         dev.physical_device,
         format,
         &props2,
     );
 
-    for (mods[0..mod_list.drmFormatModifierCount]) |m| {
-        if (m.drmFormatModifier != DRM_FORMAT_MOD_LINEAR) continue;
-        // Single-plane only — multi-plane modifiers need a wider
-        // present-callback ABI (one fd/offset/stride per plane).
-        if (m.drmFormatModifierPlaneCount != 1) continue;
-        if ((m.drmFormatModifierTilingFeatures & required_features) == required_features) {
-            return true;
+    var has_linear: bool = false;
+    var best_tiled: ?u64 = null;
+    for (gpu_mods[0..mod_list.drmFormatModifierCount]) |gm| {
+        // Single-plane only: present callback ABI passes one fd /
+        // offset / stride. Multi-plane (AMD AFBC, some video
+        // formats) needs a wider ABI.
+        if (gm.drmFormatModifierPlaneCount != 1) continue;
+        if ((gm.drmFormatModifierTilingFeatures & required_features) != required_features) continue;
+        // Intersect with what the compositor accepts.
+        var compositor_ok = false;
+        for (host_mods[0..host_count]) |hm| {
+            if (hm == gm.drmFormatModifier) {
+                compositor_ok = true;
+                break;
+            }
+        }
+        if (!compositor_ok) continue;
+        if (gm.drmFormatModifier == DRM_FORMAT_MOD_LINEAR) {
+            has_linear = true;
+        } else if (best_tiled == null) {
+            best_tiled = gm.drmFormatModifier;
         }
     }
-    return false;
+
+    if (best_tiled) |m| return m;
+    if (has_linear) return DRM_FORMAT_MOD_LINEAR;
+    return null;
 }
 
 /// `.direct` mode: allocate the render image with
-/// `VkImageDrmFormatModifierExplicitCreateInfoEXT` and export its own
-/// memory as the dmabuf.
-fn initDirect(opts: Options, drm_format: u32) Error!Self {
+/// `VK_EXT_image_drm_format_modifier` so its own memory can be
+/// exported as the dmabuf. Two create-info variants depending on
+/// the chosen modifier:
+///   - LINEAR: EXPLICIT layout (we know rowPitch = width*bpp).
+///     Lets us populate `stride` deterministically without a
+///     post-create driver query.
+///   - non-LINEAR (vendor-tiled): LIST with a single-modifier list.
+///     The driver picks the only option and computes its own
+///     internal layout; we recover the chosen modifier via
+///     `vkGetImageDrmFormatModifierPropertiesEXT` (sanity check —
+///     it should equal `chosen_mod`) and the per-plane layout via
+///     `vkGetImageSubresourceLayout` for the right `stride` value.
+fn initDirect(opts: Options, drm_format: u32, chosen_mod: u64) Error!Self {
     const dev = opts.device;
 
     const image_usage = @as(vk.VkImageUsageFlags, vk.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) |
@@ -236,11 +296,10 @@ fn initDirect(opts: Options, drm_format: u32) Error!Self {
         vk.VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
         opts.extra_usage;
 
-    // BGRA8, single-plane LINEAR — rowPitch is just width * bpp.
     const bytes_per_pixel: u32 = 4;
     const row_pitch: vk.VkDeviceSize = @as(vk.VkDeviceSize, opts.width) * bytes_per_pixel;
 
-    // ---- 1. Image: LINEAR-modifier, externally-shareable -----------
+    // ---- 1. Image: modifier-aware, externally-shareable -----------
     const plane_layout: vk.VkSubresourceLayout = .{
         .offset = 0,
         .size = 0, // ignored for EXPLICIT create-info
@@ -248,16 +307,30 @@ fn initDirect(opts: Options, drm_format: u32) Error!Self {
         .arrayPitch = 0,
         .depthPitch = 0,
     };
-    const mod_create: vk.VkImageDrmFormatModifierExplicitCreateInfoEXT = .{
+    const explicit_create: vk.VkImageDrmFormatModifierExplicitCreateInfoEXT = .{
         .sType = vk.VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_EXPLICIT_CREATE_INFO_EXT,
         .pNext = null,
         .drmFormatModifier = DRM_FORMAT_MOD_LINEAR,
         .drmFormatModifierPlaneCount = 1,
         .pPlaneLayouts = &plane_layout,
     };
+    // Single-modifier list — the driver "picks" the only option, but
+    // crucially computes its own opaque internal layout for the
+    // tiling, which we don't have to know.
+    const list_mod = chosen_mod;
+    const list_create: vk.VkImageDrmFormatModifierListCreateInfoEXT = .{
+        .sType = vk.VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_LIST_CREATE_INFO_EXT,
+        .pNext = null,
+        .drmFormatModifierCount = 1,
+        .pDrmFormatModifiers = &list_mod,
+    };
+    const mod_pnext: ?*const anyopaque = if (chosen_mod == DRM_FORMAT_MOD_LINEAR)
+        @ptrCast(&explicit_create)
+    else
+        @ptrCast(&list_create);
     const ext_image_info: vk.VkExternalMemoryImageCreateInfo = .{
         .sType = vk.VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
-        .pNext = &mod_create,
+        .pNext = mod_pnext,
         .handleTypes = vk.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
     };
     const image_info: vk.VkImageCreateInfo = .{
@@ -279,37 +352,33 @@ fn initDirect(opts: Options, drm_format: u32) Error!Self {
     };
     var image: vk.VkImage = undefined;
     if (dev.dispatch.createImage(dev.device, &image_info, null, &image) != vk.VK_SUCCESS) {
-        log.err("vkCreateImage (Target direct) failed", .{});
+        log.err("vkCreateImage (Target direct, mod=0x{x}) failed", .{chosen_mod});
         return error.VulkanFailed;
     }
     errdefer dev.dispatch.destroyImage(dev.device, image, null);
 
-    // ---- 2. Image memory: exportable, host-cacheable for Qt mmap ---
+    // ---- 2. Image memory: exportable ---------------------------------
     var image_reqs: vk.VkMemoryRequirements = undefined;
     dev.dispatch.getImageMemoryRequirements(dev.device, image, &image_reqs);
 
-    // HOST_CACHED matters: Qt's `presentVulkanDmabuf` mmaps and reads
-    // every pixel into a QImage. Without HOST_CACHED, NVIDIA hands
-    // back write-combining memory and that read crawls (see legacy
-    // path note for the ~260 ms regression we hit). HOST_COHERENT
-    // avoids explicit flushes. Fall back to uncached if cached isn't
-    // available for the memory type bits the image requires.
-    const host_flags_cached =
-        @as(vk.VkMemoryPropertyFlags, vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) |
-        vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
-        vk.VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
-    const host_flags_uncached =
-        @as(vk.VkMemoryPropertyFlags, vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) |
-        vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-    const image_mem_idx = dev.findMemoryType(image_reqs.memoryTypeBits, host_flags_cached) orelse
-        dev.findMemoryType(image_reqs.memoryTypeBits, host_flags_uncached) orelse
-        {
-            log.err(
-                "no HOST_VISIBLE memory type for direct dmabuf image (typeBits=0x{x})",
-                .{image_reqs.memoryTypeBits},
-            );
-            return error.NoSuitableMemoryType;
-        };
+    // In direct mode the host doesn't mmap the dmabuf — it imports it
+    // as a 2D image into the compositor (`image_backed=true` per
+    // `Target.present`). So DEVICE_LOCAL is the right choice: GPU-
+    // local memory is faster for the COLOR_ATTACHMENT_OUTPUT writes,
+    // and vendor-tiled modifiers often require it on drivers like
+    // NVIDIA (which won't expose HOST_VISIBLE memory types for the
+    // bits a tiled exportable image requires anyway).
+    const image_mem_idx = dev.findMemoryType(
+        image_reqs.memoryTypeBits,
+        vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+    ) orelse {
+        log.err(
+            "no DEVICE_LOCAL memory type for direct dmabuf image " ++
+                "(mod=0x{x} typeBits=0x{x})",
+            .{ chosen_mod, image_reqs.memoryTypeBits },
+        );
+        return error.NoSuitableMemoryType;
+    };
     const export_info: vk.VkExportMemoryAllocateInfo = .{
         .sType = vk.VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO,
         .pNext = null,
@@ -340,9 +409,39 @@ fn initDirect(opts: Options, drm_format: u32) Error!Self {
     const fd = try exportDmabufFd(dev, image_memory);
     errdefer std.posix.close(fd);
 
-    // ---- 5. Query the actual plane stride --------------------------
-    // We requested rowPitch = width * 4 via EXPLICIT create-info, but
-    // the driver can technically round up; ask for what we actually got.
+    // ---- 5. Confirm the actual modifier + plane layout -------------
+    // For non-LINEAR we used LIST create-info (one entry), so the
+    // driver "picked" the only option. We query back via
+    // `vkGetImageDrmFormatModifierPropertiesEXT` as a sanity check
+    // and log a warning if the driver returned a different modifier
+    // — that would indicate a driver bug or our list being ignored.
+    var actual_mod = chosen_mod;
+    if (chosen_mod != DRM_FORMAT_MOD_LINEAR) {
+        var mod_props: vk.VkImageDrmFormatModifierPropertiesEXT = .{
+            .sType = vk.VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_PROPERTIES_EXT,
+            .pNext = null,
+            .drmFormatModifier = 0,
+        };
+        if (dev.dispatch.getImageDrmFormatModifierPropertiesEXT(
+            dev.device,
+            image,
+            &mod_props,
+        ) == vk.VK_SUCCESS) {
+            actual_mod = mod_props.drmFormatModifier;
+            if (actual_mod != chosen_mod) {
+                log.warn(
+                    "driver chose modifier 0x{x}, we asked for 0x{x}",
+                    .{ actual_mod, chosen_mod },
+                );
+            }
+        }
+    }
+
+    // Plane 0 layout: rowPitch is what we report as `stride` to the
+    // compositor. For LINEAR this is width*bpp (possibly padded).
+    // For vendor-tiled formats the value is implementation-specific —
+    // the compositor's GPU knows how to interpret it given the
+    // modifier we report alongside.
     var subres: vk.VkImageSubresource = .{
         .aspectMask = vk.VK_IMAGE_ASPECT_MEMORY_PLANE_0_BIT_EXT,
         .mipLevel = 0,
@@ -365,7 +464,7 @@ fn initDirect(opts: Options, drm_format: u32) Error!Self {
         .height = opts.height,
         .fd = fd,
         .drm_format = drm_format,
-        .drm_modifier = DRM_FORMAT_MOD_LINEAR,
+        .drm_modifier = actual_mod,
         .stride = @intCast(layout.rowPitch),
     };
 }

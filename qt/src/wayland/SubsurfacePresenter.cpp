@@ -1,7 +1,10 @@
 #include "SubsurfacePresenter.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <unordered_map>
+#include <vector>
 
 #include <QGuiApplication>
 #include <QLatin1String>
@@ -16,23 +19,61 @@ namespace wayland {
 
 namespace {
 
-// Process-wide bindings for the Wayland globals the presenter needs.
-// Lazily discovered on first `tryCreate`, mirrors the `blurManager`
-// pattern in `qt/src/WindowBlur.cpp` — registry roundtrip happens on
-// a private event queue so we never dispatch Qt's own Wayland events.
+// Process-wide bindings for the Wayland globals the presenter needs,
+// plus the (format → modifiers) table the compositor advertises via
+// zwp_linux_dmabuf_v1's format/modifier events. Populated once by
+// `discoverGlobals` on the GUI thread; subsequent reads from the
+// renderer thread are safe because the table is never mutated after
+// the initial discovery completes.
 struct PresenterGlobals {
   wl_compositor *compositor = nullptr;
   wl_subcompositor *subcompositor = nullptr;
   zwp_linux_dmabuf_v1 *dmabuf = nullptr;
+  std::unordered_map<uint32_t, std::vector<uint64_t>> modifiers;
   bool searched = false;
 };
 
+PresenterGlobals &globalState() {
+  static PresenterGlobals g;
+  return g;
+}
+
+// Pre-v4 dmabuf format event. We ignore it: v3 also fires `modifier`
+// events for every (format, modifier) tuple including LINEAR — the
+// `format` event is legacy from v1/v2 when modifiers didn't exist.
+void dmabufFormat(void *, zwp_linux_dmabuf_v1 *, uint32_t /*format*/) {}
+
+// `modifier` event: compositor advertises one (format, modifier) it
+// can scan out. Fires once per pair during the bind roundtrip; we
+// stash them all in the per-format vector. Duplicate-keyed inserts
+// are theoretically possible across compositor restarts but won't
+// happen within a single bind round, so we don't dedupe.
+void dmabufModifier(void *data, zwp_linux_dmabuf_v1 *, uint32_t format,
+                    uint32_t modifier_hi, uint32_t modifier_lo) {
+  auto *g = static_cast<PresenterGlobals *>(data);
+  const uint64_t modifier =
+      (static_cast<uint64_t>(modifier_hi) << 32) | modifier_lo;
+  g->modifiers[format].push_back(modifier);
+}
+
+const zwp_linux_dmabuf_v1_listener kDmabufListener = {
+    dmabufFormat,
+    dmabufModifier,
+};
+
 void registryGlobal(void *data, wl_registry *registry, uint32_t name,
-                    const char *interface, uint32_t /*version*/) {
+                    const char *interface, uint32_t version) {
   auto *g = static_cast<PresenterGlobals *>(data);
   if (std::strcmp(interface, wl_compositor_interface.name) == 0) {
+    // Bind wl_compositor at version 3+ so child wl_surfaces we
+    // create support `set_buffer_scale` (added in v3, used by the
+    // presenter on HiDPI displays). Cap at v6 (the highest we've
+    // tested against); if the compositor advertises less, take
+    // what we get and `presentDmabuf` will skip the buffer_scale
+    // call on those compositors.
+    const uint32_t v = std::min<uint32_t>(version, 6u);
     g->compositor = static_cast<wl_compositor *>(
-        wl_registry_bind(registry, name, &wl_compositor_interface, 1));
+        wl_registry_bind(registry, name, &wl_compositor_interface, v));
   } else if (std::strcmp(interface, wl_subcompositor_interface.name) == 0) {
     g->subcompositor = static_cast<wl_subcompositor *>(
         wl_registry_bind(registry, name, &wl_subcompositor_interface, 1));
@@ -44,6 +85,9 @@ void registryGlobal(void *data, wl_registry *registry, uint32_t name,
     // dynamic format/modifier feedback dance; we don't need it yet.
     g->dmabuf = static_cast<zwp_linux_dmabuf_v1 *>(wl_registry_bind(
         registry, name, &zwp_linux_dmabuf_v1_interface, 3));
+    // Add the listener immediately so the modifier events queued by
+    // the bind get delivered when the dispatch loop continues.
+    zwp_linux_dmabuf_v1_add_listener(g->dmabuf, &kDmabufListener, g);
   }
 }
 void registryGlobalRemove(void *, wl_registry *, uint32_t) {}
@@ -54,7 +98,7 @@ const wl_registry_listener kRegistryListener = {
 };
 
 PresenterGlobals *discoverGlobals(wl_display *display) {
-  static PresenterGlobals globals;
+  PresenterGlobals &globals = globalState();
   if (globals.searched) return &globals;
   globals.searched = true;
 
@@ -62,8 +106,24 @@ PresenterGlobals *discoverGlobals(wl_display *display) {
   wl_registry *registry = wl_display_get_registry(display);
   wl_proxy_set_queue(reinterpret_cast<wl_proxy *>(registry), queue);
   wl_registry_add_listener(registry, &kRegistryListener, &globals);
+  // Roundtrip 1: bind compositor/subcompositor/dmabuf. Inside the
+  // registry callback we attach the dmabuf listener immediately, so
+  // any format/modifier events that arrive in the same dispatch
+  // pass fire on it.
   wl_display_roundtrip_queue(display, queue);
   wl_registry_destroy(registry);
+  // Roundtrip 2: belt-and-suspenders for any compositor that defers
+  // the modifier events past the bind reply (most don't, but some
+  // batch them). After this returns the modifier table is fully
+  // populated and frozen for the process lifetime.
+  if (globals.dmabuf) wl_display_roundtrip_queue(display, queue);
+
+  std::size_t total_mods = 0;
+  for (const auto &kv : globals.modifiers) total_mods += kv.second.size();
+  std::fprintf(stderr,
+               "[ghastty] wayland: discovered %zu dmabuf (format,modifier) "
+               "pairs across %zu formats\n",
+               total_mods, globals.modifiers.size());
 
   // Move the bound proxies back to the default queue so Qt's main
   // dispatch drives subsequent events on them, then drop the private
@@ -81,6 +141,15 @@ PresenterGlobals *discoverGlobals(wl_display *display) {
   return &globals;
 }
 
+wl_display *acquireWaylandDisplay() {
+  if (!QGuiApplication::platformName().startsWith(QLatin1String("wayland")))
+    return nullptr;
+  QPlatformNativeInterface *native = QGuiApplication::platformNativeInterface();
+  if (!native) return nullptr;
+  return static_cast<wl_display *>(
+      native->nativeResourceForIntegration("wl_display"));
+}
+
 // wl_buffer::release listener: the compositor is done sampling the
 // buffer for any committed surface state, so we can destroy our
 // client-side handle. The underlying dmabuf memory is owned by
@@ -95,6 +164,26 @@ const wl_buffer_listener kBufferListener = {
 };
 
 } // namespace
+
+void primeDmabufModifierRegistry() {
+  if (wl_display *display = acquireWaylandDisplay()) {
+    (void)discoverGlobals(display);
+  }
+}
+
+std::size_t supportedDmabufModifiers(std::uint32_t drm_format,
+                                     std::uint64_t *out,
+                                     std::size_t capacity) {
+  const PresenterGlobals &g = globalState();
+  if (!g.searched) return 0;
+  auto it = g.modifiers.find(drm_format);
+  if (it == g.modifiers.end()) return 0;
+  const std::size_t available = it->second.size();
+  if (out == nullptr || capacity == 0) return available;
+  const std::size_t copied = std::min(available, capacity);
+  std::memcpy(out, it->second.data(), copied * sizeof(std::uint64_t));
+  return copied;
+}
 
 std::unique_ptr<SubsurfacePresenter>
 SubsurfacePresenter::tryCreate(QWindow *parent) {
@@ -223,7 +312,11 @@ void SubsurfacePresenter::presentDmabuf(int fd, uint32_t drm_format,
   // is harmless but the compositor's bookkeeping is cheaper if we
   // skip the redundant request.
   if (buffer_scale != m_lastBufferScale) {
-    wl_surface_set_buffer_scale(m_childSurface, buffer_scale);
+    // set_buffer_scale was added in wl_surface v3; guard against
+    // older compositors that bind us at v1/v2 (rare but possible).
+    if (wl_proxy_get_version(reinterpret_cast<wl_proxy *>(m_childSurface)) >= 3) {
+      wl_surface_set_buffer_scale(m_childSurface, buffer_scale);
+    }
     m_lastBufferScale = buffer_scale;
   }
 

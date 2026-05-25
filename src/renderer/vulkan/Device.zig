@@ -163,6 +163,11 @@ pub const Dispatch = struct {
     // device-level resolution like any other device function.
     getMemoryFdKHR: std.meta.Child(vk.PFN_vkGetMemoryFdKHR),
     getImageSubresourceLayout: std.meta.Child(vk.PFN_vkGetImageSubresourceLayout),
+    /// From `VK_EXT_image_drm_format_modifier`. Used by
+    /// `vulkan/Target.zig` after creating an image with the LIST
+    /// variant of the modifier create-info to discover which
+    /// modifier the driver actually chose.
+    getImageDrmFormatModifierPropertiesEXT: std.meta.Child(vk.PFN_vkGetImageDrmFormatModifierPropertiesEXT),
 
     // Per-frame sync (fence + command-buffer reset) — used by
     // `vulkan/Frame.zig`.
@@ -466,6 +471,8 @@ pub fn init(
         try dl.load(vk.PFN_vkGetMemoryFdKHR, "vkGetMemoryFdKHR");
     const get_image_subresource_layout =
         try dl.load(vk.PFN_vkGetImageSubresourceLayout, "vkGetImageSubresourceLayout");
+    const get_image_drm_format_modifier_properties_ext =
+        try dl.load(vk.PFN_vkGetImageDrmFormatModifierPropertiesEXT, "vkGetImageDrmFormatModifierPropertiesEXT");
     const create_fence =
         try dl.load(vk.PFN_vkCreateFence, "vkCreateFence");
     const destroy_fence =
@@ -557,6 +564,7 @@ pub fn init(
             .destroyPipeline = destroy_pipeline,
             .getMemoryFdKHR = get_memory_fd_khr,
             .getImageSubresourceLayout = get_image_subresource_layout,
+            .getImageDrmFormatModifierPropertiesEXT = get_image_drm_format_modifier_properties_ext,
             .createFence = create_fence,
             .destroyFence = destroy_fence,
             .waitForFences = wait_for_fences,
