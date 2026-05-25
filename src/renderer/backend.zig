@@ -6,11 +6,10 @@ pub const Backend = enum {
     opengl,
     metal,
     webgl,
-    /// Vulkan is on this fork only and is a work in progress: selecting
-    /// `-Drenderer=vulkan` currently fails at comptime in `renderer.zig`.
-    /// The scaffolding (apprt platform callbacks, public C API) is in
-    /// place; the renderer itself lands in follow-up commits on
-    /// `qt-vulkan-renderer`.
+    /// Vulkan is on this fork only. Embedded-only — the host owns
+    /// the VkInstance/Device/Queue and hands them in via
+    /// `ghostty_platform_vulkan_s`; libghostty renders against
+    /// those handles and exports the result as a dmabuf fd.
     vulkan,
 
     pub fn default(

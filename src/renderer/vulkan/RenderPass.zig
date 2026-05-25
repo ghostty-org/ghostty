@@ -3,12 +3,13 @@
 //! `VkRenderPass` object needed) plus the per-`step` resource
 //! binding + draw-call emission.
 //!
-//! **Stub.** The TYPES are wired so `GenericRenderer(Vulkan)` can
-//! resolve at comptime and `-Drenderer=vulkan` builds. The bodies of
-//! `step` and `complete` @panic — the actual command-recording layer
-//! (descriptor sets, pipeline binding, vertex buffer binding, draw
-//! calls) lands in a follow-up commit once the integration is
-//! validated end-to-end.
+//! `begin` transitions the attachment from its current layout to
+//! `COLOR_ATTACHMENT_OPTIMAL` and opens a rendering scope with the
+//! caller's clear color. `step` updates the pipeline's descriptor
+//! sets from the Step's resources and records a draw call;
+//! `complete` closes the rendering scope and transitions the
+//! attachment to its consumer-facing layout (SHADER_READ_ONLY for
+//! intermediate textures, GENERAL for the dmabuf-backed target).
 //!
 //! Counterpart: `src/renderer/opengl/RenderPass.zig`.
 
@@ -61,6 +62,20 @@ pub const Options = struct {
     attachments: []const Attachment,
 
     pub const Attachment = struct {
+        // Held by value to match the OpenGL backend's Attachment
+        // shape (so `generic.zig`'s call sites remain identical).
+        // Vulkan's `Texture` and `Target` carry a `layout` field
+        // that mutates across passes — `RenderPass.begin` reads it
+        // to emit the right source-layout barrier, and
+        // `RenderPass.complete` updates the value-copy here. Because
+        // the value is a copy, that update doesn't propagate back
+        // to the caller; the call sites in `generic.zig` are
+        // intentionally fine with that — they always pass the
+        // CURRENT `frame.target` / `state.{front,back}_texture`
+        // (whose `layout` was last updated by the previous pass's
+        // `recordPresentBarrier` / pipeline-end barrier in
+        // `Target.recordPresentBarrier` / `Texture.replaceRegion`)
+        // when constructing a new pass.
         target: union(enum) {
             texture: Texture,
             target: Target,
@@ -88,9 +103,11 @@ pub const Step = struct {
 };
 
 pub const Error = error{
-    /// Reserved for actual command-recording failures once `step` is
-    /// implemented. Currently unused — the panic stub bypasses any
-    /// error path.
+    /// Reserved for command-recording failures. Currently unused —
+    /// the recorder relies on Vulkan's silent-failure model
+    /// (record bad input → validation flags it / next submit
+    /// returns DEVICE_LOST), but the slot stays open in case a
+    /// future step wants to fail-fast at record time.
     VulkanFailed,
 };
 
@@ -127,9 +144,10 @@ pub fn begin(opts: Options) Self {
 
     const attach = opts.attachments[0];
     const view: vk.VkImageView, const image: vk.VkImage,
-    const width: u32, const height: u32 = switch (attach.target) {
-        .texture => |t| .{ t.view, t.image, @intCast(t.width), @intCast(t.height) },
-        .target => |t| .{ t.view, t.image, t.width, t.height },
+    const width: u32, const height: u32,
+    const old_layout: vk.VkImageLayout = switch (attach.target) {
+        .texture => |t| .{ t.view, t.image, @intCast(t.width), @intCast(t.height), t.layout },
+        .target => |t| .{ t.view, t.image, t.width, t.height, t.layout },
     };
     // Always Y-flip the viewport regardless of attachment kind.
     //
@@ -149,17 +167,46 @@ pub fn begin(opts: Options) Self {
     // `uv = fragCoord/iResolution` + `texture(iChannel0, uv)`
     // expects in Vulkan-native convention.
 
-    // Transition to COLOR_ATTACHMENT_OPTIMAL. Sources from
-    // UNDEFINED (fresh target) or whatever — we always discard
-    // prior contents (loadOp = CLEAR / LOAD covered below; here we
-    // just need write access).
+    // Transition to COLOR_ATTACHMENT_OPTIMAL. The attachment's
+    // current layout drives the source-side of the barrier so a
+    // re-used target (e.g. `Target` in `.direct` mode after the
+    // previous frame's `recordDirectBarrier` left it in GENERAL,
+    // or `.legacy_copy` after `recordCopyToDmabuf` left it in
+    // TRANSFER_SRC_OPTIMAL, or a `Texture` after the previous
+    // pass's `complete` left it in SHADER_READ_ONLY_OPTIMAL) is
+    // transitioned correctly. UNDEFINED is the implicit-discard
+    // initial layout for a fresh image; we'd also accept it for
+    // an image whose contents we don't care about, but `loadOp =
+    // CLEAR` covers that case explicitly so we always pass a
+    // truthful old layout to validation.
     {
+        // Source access depends on what the previous owner of the
+        // layout could have left in flight. For COLOR_ATTACHMENT_*
+        // it's the color-write access; for TRANSFER_SRC the read
+        // already retired but we conservatively name it; for
+        // SHADER_READ_ONLY the prior fragment-stage read; UNDEFINED
+        // and GENERAL want a no-op source mask (GENERAL was last
+        // written by the present-barrier and `recordDirectBarrier`
+        // has already chained that visibility into HOST — the next
+        // frame doesn't need to re-flush it).
+        const src_access: vk.VkAccessFlags = switch (old_layout) {
+            vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL => vk.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL => vk.VK_ACCESS_TRANSFER_READ_BIT,
+            vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL => vk.VK_ACCESS_SHADER_READ_BIT,
+            else => 0,
+        };
+        const src_stage: vk.VkPipelineStageFlags = switch (old_layout) {
+            vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL => vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL => vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
+            vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL => vk.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            else => vk.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        };
         const barrier: vk.VkImageMemoryBarrier = .{
             .sType = vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
             .pNext = null,
-            .srcAccessMask = 0,
+            .srcAccessMask = src_access,
             .dstAccessMask = vk.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-            .oldLayout = vk.VK_IMAGE_LAYOUT_UNDEFINED,
+            .oldLayout = old_layout,
             .newLayout = vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
             .srcQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
             .dstQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
@@ -174,7 +221,7 @@ pub fn begin(opts: Options) Self {
         };
         opts.device.dispatch.cmdPipelineBarrier(
             opts.cb,
-            vk.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            src_stage,
             vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
             0,
             0, null,

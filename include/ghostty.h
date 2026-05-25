@@ -67,10 +67,10 @@ typedef enum {
   GHOSTTY_PLATFORM_MACOS,
   GHOSTTY_PLATFORM_IOS,
   GHOSTTY_PLATFORM_OPENGL,
-  // Vulkan is a fork-only addition (in-progress). The platform plumbing
-  // and callback shape are stable; the renderer itself is currently a
-  // stub and selecting it at build time fails with a compile error
-  // pointing at the qt-vulkan-renderer branch.
+  // Vulkan: fork-only platform tag. The host owns the
+  // VkInstance/Device/Queue and hands them to libghostty via
+  // `ghostty_platform_vulkan_s`. Frames come back to the host as
+  // dmabuf fds for zero-copy compositing.
   GHOSTTY_PLATFORM_VULKAN,
 } ghostty_platform_e;
 
@@ -486,7 +486,7 @@ typedef struct {
   void (*present)(void* userdata);
 } ghostty_platform_opengl_s;
 
-// Vulkan host integration (fork-only, in progress). The host owns the
+// Vulkan host integration (fork-only). The host owns the
 // VkInstance / VkPhysicalDevice / VkDevice / VkQueue (same ownership
 // model as the OpenGL host); libghostty creates pipelines, command
 // pools, and images against that device. Frames are handed back to the

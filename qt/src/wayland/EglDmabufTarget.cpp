@@ -118,6 +118,12 @@ std::unique_ptr<EglDmabufTarget> EglDmabufTarget::create(QOpenGLContext *ctx,
   auto *gl = ctx->functions();
   if (!gl) return nullptr;
 
+  // We populate `target->m_*` AS we acquire each resource; on any
+  // failure we just `return nullptr` and let the unique_ptr's
+  // destructor unwind everything that's been stored so far. This is
+  // the only cleanup path — no manual gl->glDeleteTextures /
+  // ::close(fd) on early returns, which previously double-freed the
+  // texture and made the cleanup logic asymmetric per branch.
   auto target = std::unique_ptr<EglDmabufTarget>(new EglDmabufTarget());
   target->m_eglDisplay = dpy;
   target->m_width = width_px;
@@ -127,13 +133,13 @@ std::unique_ptr<EglDmabufTarget> EglDmabufTarget::create(QOpenGLContext *ctx,
   unsigned int tex = 0;
   gl->glGenTextures(1, &tex);
   if (tex == 0) return nullptr;
+  target->m_texture = tex;
   gl->glBindTexture(GL_TEXTURE_2D, tex);
   gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   gl->glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width_px, height_px, 0, GL_RGBA,
                    GL_UNSIGNED_BYTE, nullptr);
   gl->glBindTexture(GL_TEXTURE_2D, 0);
-  target->m_texture = tex;
 
   // 2. Wrap as an EGLImage targeting the GL texture.
   EGLImageKHR img = fns.createImage(
@@ -148,7 +154,6 @@ std::unique_ptr<EglDmabufTarget> EglDmabufTarget::create(QOpenGLContext *ctx,
     std::fprintf(stderr,
                  "[ghastty] EglDmabufTarget: eglCreateImageKHR failed (0x%x)\n",
                  eglGetError());
-    gl->glDeleteTextures(1, &tex);
     return nullptr;
   }
   target->m_eglImage = img;
@@ -196,11 +201,7 @@ std::unique_ptr<EglDmabufTarget> EglDmabufTarget::create(QOpenGLContext *ctx,
   // 5. Attach to a framebuffer so libghostty can render into it.
   unsigned int fbo = 0;
   gl->glGenFramebuffers(1, &fbo);
-  if (fbo == 0) {
-    ::close(fd);
-    target->m_fd = -1;
-    return nullptr;
-  }
+  if (fbo == 0) return nullptr;
   target->m_framebuffer = fbo;
   gl->glBindFramebuffer(GL_FRAMEBUFFER, fbo);
   gl->glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,

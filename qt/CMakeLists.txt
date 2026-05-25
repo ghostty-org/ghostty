@@ -53,11 +53,11 @@ find_package(LayerShellQt REQUIRED)
 # QPA native-handle accessors.
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
-# libEGL for the OpenGL present path's dmabuf export
-# (EGL_MESA_image_dma_buf_export). Resolved at runtime via
-# eglGetProcAddress, so we only need the link for the base entry
-# points (eglQueryString, eglGetCurrentDisplay, eglGetError).
-pkg_check_modules(EGL REQUIRED IMPORTED_TARGET egl)
+# libEGL is only needed by the OpenGL variant — `EglDmabufTarget`
+# uses EGL_MESA_image_dma_buf_export to export an FBO-backed
+# texture as a dmabuf. The Vulkan variant gets dmabufs straight
+# from `VK_KHR_external_memory_fd` and never calls into EGL, so
+# the EGL pkg-config + IMPORTED_TARGET is gated below.
 # libxkbcommon: derive the unshifted Unicode codepoint for a key event
 # from its XKB keycode, so libghostty's kitty encoder finds an entry for
 # punctuation keys (Qt's ev->key() reports the SHIFTED symbol, e.g.
@@ -160,6 +160,13 @@ endif()
 if(GHASTTY_VARIANT STREQUAL "vulkan")
   add_compile_definitions(GHASTTY_USE_VULKAN)
 endif()
+
+# libEGL: needed by EglDmabufTarget.cpp for the OpenGL variant's
+# zero-copy present path. Linked on both variants because the source
+# file compiles into both (the Vulkan variant just never instantiates
+# an `EglDmabufTarget`); skipping the link would leave undefined
+# references to its destructor / static methods at link time.
+pkg_check_modules(EGL REQUIRED IMPORTED_TARGET egl)
 
 if(NOT EXISTS "${GHOSTTY_SO}")
   message(FATAL_ERROR

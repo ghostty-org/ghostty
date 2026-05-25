@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 
 #include <QImage>
@@ -382,8 +383,20 @@ private:
   // the legacy mmap+memcpy+QImage+QPainter path renders pixels.
   std::unique_ptr<wayland::SubsurfacePresenter> m_subsurfacePresenter;
   // Per-surface latch for the first-dmabuf log breadcrumb so each
-  // pane / split prints its own line on first frame.
-  bool m_loggedFirstFrame = false;
+  // pane / split prints its own line on first frame. Atomic because
+  // the renderer thread is what hits `presentVulkanDmabuf` and the
+  // first-frame check would otherwise race a sibling renderer
+  // thread on the same widget — relaxed CAS means at most one log
+  // line per surface, even under concurrent first frames.
+  std::atomic<bool> m_loggedFirstFrame{false};
+
+  // Count of frames overwritten in `m_pendingDmabuf` before the GUI
+  // thread drained them. Each overwrite is a missed compositor
+  // present — fd lifetime is unaffected (libghostty owns the
+  // dmabuf), but a sustained nonzero rate means the GUI thread is
+  // falling behind the renderer. Logged sparsely from
+  // `presentVulkanDmabuf`.
+  std::atomic<std::uint64_t> m_droppedFrames{0};
   // Set true on QEvent::Hide, false on QEvent::Show. Guards the
   // present path against a race where libghostty's renderer thread
   // fires one more frame after we've detached the subsurface

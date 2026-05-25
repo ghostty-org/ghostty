@@ -1605,9 +1605,14 @@ void GhosttySurface::presentVulkanDmabuf(
 
   // Per-surface one-shot breadcrumb so logs confirm the dmabuf
   // hand-off is wired for each pane/split independently. Subsequent
-  // frames are silent so we don't spam stderr.
-  if (!m_loggedFirstFrame) {
-    m_loggedFirstFrame = true;
+  // frames are silent so we don't spam stderr. The compare_exchange
+  // ensures exactly one thread wins the right to emit the log even
+  // if two renderer-thread frames race the first present — relaxed
+  // ordering is fine since the only state we publish is the bool
+  // itself.
+  bool expected = false;
+  if (m_loggedFirstFrame.compare_exchange_strong(
+          expected, true, std::memory_order_relaxed)) {
     std::fprintf(stderr,
                  "[ghastty] first dmabuf for surface=%p: fd=%d %ux%u "
                  "stride=%u fourcc=0x%08x mod=0x%lx image_backed=%d path=%s\n",
@@ -1628,11 +1633,38 @@ void GhosttySurface::presentVulkanDmabuf(
     // Subsurface path. Park the descriptor under the mutex (so
     // a concurrent drainVulkan sees a consistent snapshot) and
     // wake the GUI thread.
+    //
+    // Frame-drop semantics: at most one frame is parked. If
+    // drainVulkan hasn't consumed the previous one before the
+    // renderer thread arrives with a new one, the older frame is
+    // overwritten — its fd is libghostty's to close at next
+    // Target.deinit, so the descriptor doesn't leak; the user just
+    // sees a missed frame. That's the right call for a 60Hz
+    // terminal: the alternative (block the renderer thread on the
+    // GUI thread) would stall every present. We bump a counter so
+    // a sustained backlog is visible in logs/metrics; spurious
+    // drops happen on the first few frames before the GUI thread
+    // pump is hot, hence the >0 threshold.
+    bool overwrote = false;
     {
       QMutexLocker lock(&m_pendingMutex);
+      overwrote = m_pendingDmabuf.fd >= 0;
       m_pendingDmabuf = PendingDmabuf{
           dmabuf_fd, drm_format, drm_modifier, width, height, stride,
       };
+    }
+    if (overwrote) {
+      const auto count = m_droppedFrames.fetch_add(
+          1, std::memory_order_relaxed) + 1;
+      // Log the first 3 drops + every 60th thereafter — silent in
+      // the steady state, audible on sustained backlog.
+      if (count <= 3 || count % 60 == 0) {
+        std::fprintf(stderr,
+                     "[ghastty] surface=%p dropped frame "
+                     "(parked one not yet drained, total=%llu)\n",
+                     static_cast<void *>(this),
+                     static_cast<unsigned long long>(count));
+      }
     }
     QMetaObject::invokeMethod(this, "drainVulkan", Qt::QueuedConnection);
     return;

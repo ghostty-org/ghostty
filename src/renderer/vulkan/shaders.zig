@@ -660,19 +660,16 @@ const empty_pipeline: Pipeline = .{
 /// `opengl/shaders.zig`'s `Shaders` so the generic renderer's call
 /// sites work without per-backend branching.
 ///
-/// What's wired:
-///   - Compiles all 9 built-in GLSL sources at init time via
-///     `Module.init` (which runs the glslang shim — same code path
-///     user shaders go through). The compiled `VkShaderModule`
-///     handles are held in `modules` for the lifetime of the
-///     `Shaders` struct.
-///
-/// What's stubbed:
-///   - `pipelines` is still `undefined`. Building real pipelines
-///     needs the per-pipeline descriptor-set layout (which depends
-///     on what `setAutoMapBindings` picked) and the vertex input
-///     description for the instanced pipelines. Constructed in a
-///     follow-up commit once the rest of the integration is wired.
+/// `Shaders.init`:
+///   - Compiles all 9 built-in GLSL sources via `Module.init` (the
+///     glslang shim — same code path user shaders go through).
+///   - Creates per-pipeline descriptor set layouts + a single
+///     descriptor pool sized for the static pipeline set.
+///   - Builds one `Pipeline` per renderer shader (`bg_color`,
+///     `cell_bg`, `cell_text`, `image`, `bg_image`) plus one per
+///     user-supplied post-shader.
+/// `Shaders.deinit` walks the same set in reverse to destroy
+/// pipelines, layouts, samplers, the descriptor pool, and modules.
 pub const Shaders = struct {
     pipelines: PipelineCollection,
     /// One per user-supplied custom shader. Built by `Shaders.init`
@@ -1477,4 +1474,94 @@ test "vulkanizeGlsl: layout with pre-existing set qualifier is unchanged" {
     // with our resource-type heuristic — better to surface a glslang
     // error than to silently rewrite.
     try std.testing.expect(std.mem.indexOf(u8, out, "set = 3") != null);
+}
+
+// ---- glslang integration tests --------------------------------------
+//
+// `vulkanizeGlsl` unit tests above exercise the textual rewrite in
+// isolation. The integration tests below feed the rewriter's output
+// through glslang via `ghastty_glslang_compile_vulkan` and assert
+// the result is a valid SPIR-V binary. That covers the seam where
+// a syntactically-fine rewrite still produces something glslang
+// rejects (e.g. a `set = N` on a declaration glslang's
+// `--auto-map-bindings` is also trying to assign).
+
+fn compileToSpv(
+    alloc: std.mem.Allocator,
+    src: [:0]const u8,
+    stage: Stage,
+) ![]const u32 {
+    glslang.testing.ensureInit() catch return error.GlslangFailed;
+
+    const translated = try vulkanizeGlsl(alloc, src);
+    defer alloc.free(translated);
+
+    var spv_ptr: [*c]u32 = undefined;
+    var spv_len: usize = 0;
+    var err_ptr: [*c]u8 = undefined;
+    const c_stage: glslang.c.ghastty_glslang_stage_t = switch (stage) {
+        .vertex => glslang.c.GHASTTY_GLSLANG_STAGE_VERTEX,
+        .fragment => glslang.c.GHASTTY_GLSLANG_STAGE_FRAGMENT,
+    };
+    const rc = glslang.c.ghastty_glslang_compile_vulkan(
+        translated.ptr,
+        c_stage,
+        &spv_ptr,
+        &spv_len,
+        &err_ptr,
+    );
+    if (rc != 0) {
+        if (err_ptr != null) {
+            std.log.err("compileToSpv: {s}", .{
+                std.mem.span(@as([*:0]const u8, @ptrCast(err_ptr))),
+            });
+            glslang.c.ghastty_glslang_free_error(err_ptr);
+        }
+        return error.GlslangFailed;
+    }
+    // Caller owns; copy out of glslang's malloc into the test allocator
+    // so cleanup is symmetric (the caller `defer alloc.free(out)`s).
+    const spv_words = spv_ptr[0..spv_len];
+    const owned = try alloc.alloc(u32, spv_len);
+    @memcpy(owned, spv_words);
+    glslang.c.ghastty_glslang_free_spirv(spv_ptr);
+    return owned;
+}
+
+test "glslang integration: built-in bg_color fragment compiles" {
+    const alloc = std.testing.allocator;
+    const spv = try compileToSpv(alloc, source.bg_color_frag, .fragment);
+    defer alloc.free(spv);
+    // SPIR-V magic word — first 4 bytes are 0x07230203.
+    try std.testing.expect(spv.len > 0);
+    try std.testing.expectEqual(@as(u32, 0x07230203), spv[0]);
+}
+
+test "glslang integration: built-in cell_text vertex compiles" {
+    const alloc = std.testing.allocator;
+    const spv = try compileToSpv(alloc, source.cell_text_vert, .vertex);
+    defer alloc.free(spv);
+    try std.testing.expect(spv.len > 0);
+    try std.testing.expectEqual(@as(u32, 0x07230203), spv[0]);
+}
+
+test "glslang integration: cell_bg fragment compiles (non-contiguous sets)" {
+    // cell_bg uses set 0 (UBO) and set 2 (storage) — set 1 is the
+    // empty placeholder DSL. The rewriter has to produce something
+    // glslang can compile despite the gap; this test catches a
+    // regression where the rewrite emits set=1 for the storage
+    // buffer and breaks the pipeline layout assumption.
+    const alloc = std.testing.allocator;
+    const spv = try compileToSpv(alloc, source.cell_bg_frag, .fragment);
+    defer alloc.free(spv);
+    try std.testing.expect(spv.len > 0);
+    try std.testing.expectEqual(@as(u32, 0x07230203), spv[0]);
+}
+
+test "glslang integration: full_screen vertex compiles" {
+    const alloc = std.testing.allocator;
+    const spv = try compileToSpv(alloc, source.full_screen_vert, .vertex);
+    defer alloc.free(spv);
+    try std.testing.expect(spv.len > 0);
+    try std.testing.expectEqual(@as(u32, 0x07230203), spv[0]);
 }

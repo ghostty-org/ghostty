@@ -397,8 +397,8 @@ pub const Platform = union(PlatformTag) {
     };
 
     /// Configuration for a host that owns a Vulkan device libghostty
-    /// should render against (fork-only, in progress). The host owns
-    /// the VkInstance / VkPhysicalDevice / VkDevice / VkQueue — same
+    /// should render against (fork-only). The host owns the
+    /// VkInstance / VkPhysicalDevice / VkDevice / VkQueue — same
     /// ownership model as `OpenGL` above. Frames are handed back to
     /// the host as dmabuf file descriptors so the host can sample
     /// them without a CPU readback.
@@ -578,9 +578,7 @@ pub const PlatformTag = enum(c_int) {
     macos = 1,
     ios = 2,
     opengl = 3,
-    // Fork-only, in progress: the platform plumbing is here so the C
-    // ABI is stable, but the renderer is currently a stub. Selecting
-    // `-Drenderer=vulkan` fails at comptime in `src/renderer.zig`.
+    // Fork-only platform tag for hosts that drive `src/renderer/Vulkan.zig`.
     vulkan = 4,
 };
 

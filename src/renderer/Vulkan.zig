@@ -1,51 +1,29 @@
-//! Vulkan graphics API for libghostty's `GenericRenderer`.
+//! Vulkan graphics API for libghostty's `GenericRenderer`. Active
+//! on `-Drenderer=vulkan` builds; the host (e.g. the Qt frontend)
+//! supplies a VkInstance / VkDevice / VkQueue via the
+//! `ghostty_platform_vulkan_s` C ABI, libghostty drives all
+//! pipeline / image / command-buffer work against those handles,
+//! and rendered frames go back to the host as dmabuf fds for
+//! zero-copy compositing.
 //!
-//! Status: this is the **build-unblocking** version. The comptime
-//! contract `GenericRenderer(Vulkan)` requires is fully wired so
-//! `-Drenderer=vulkan` compiles cleanly; the per-frame rendering
-//! bodies (`beginFrame`, `present`, `presentLastTarget`, and the
-//! `RenderPass.step` body recording draws) are `@panic` stubs that
-//! land in follow-up commits alongside the integration smoke test
-//! on real hardware.
-//!
-//! What does work today:
-//!   - Module type contract resolves at comptime.
-//!   - The `Renderer = GenericRenderer(Vulkan)` switch arm in
-//!     `src/renderer.zig:42` goes live.
-//!   - `init` / `deinit` succeed, all option getters return sensible
-//!     defaults.
-//!   - The submodule resource wrappers (`Device`, `Texture`, `Buffer`,
-//!     `Sampler`, `Target`, `Pipeline`, `CommandPool`, `Frame`,
-//!     `shaders.Module`) all work in isolation.
-//!
-//! What doesn't work yet:
-//!   - The per-frame draw loop. The renderer's actual `beginFrame` ↔
-//!     `complete` sequence + `RenderPass.step` body don't record
-//!     real commands yet. Calling them at runtime hits an explicit
-//!     `@panic` with a pointer to the follow-up.
-//!   - Frame target presentation: `Vulkan.initTarget` exists but
-//!     the device handoff between `init` (per-surface) and
-//!     `initTarget` (per-frame) isn't wired up.
-//!
-//! Approach for the follow-up: a runtime smoke test that
-//! bootstraps Vulkan through the standard loader, constructs each
-//! resource wrapper in turn against real hardware, validates the
-//! dmabuf fd from `Target` is importable as an external `VkImage`
-//! by a second test consumer. Once that passes, we know the bottom
-//! half of the renderer is correct end-to-end and we can wire the
-//! actual draw path through `Vulkan.zig` without flying blind.
+//! Per-frame model: fence-paced submit-then-wait (one frame in
+//! flight), `Target` is the dmabuf-exportable render image,
+//! `Frame.complete` waits on the fence before handing the fd to
+//! the platform `present` callback.
 //!
 //! Submodules:
 //!   - `vulkan/Device.zig` — host-handle wrapper, dispatch table.
 //!   - `vulkan/Sampler.zig` — VkSampler.
 //!   - `vulkan/Texture.zig` — VkImage + memory + view + staging upload.
-//!   - `vulkan/Target.zig` — dmabuf-exportable render target.
+//!   - `vulkan/Target.zig` — dmabuf-exportable render target
+//!     (direct or legacy_copy mode).
 //!   - `vulkan/buffer.zig` — Buffer(T) host-coherent.
 //!   - `vulkan/CommandPool.zig` — VkCommandPool + one-shot helper.
 //!   - `vulkan/Pipeline.zig` — VkPipeline + layout (dynamic rendering).
-//!   - `vulkan/RenderPass.zig` — pass + step recording (currently stub).
+//!   - `vulkan/RenderPass.zig` — dynamic-rendering pass + step recorder.
 //!   - `vulkan/Frame.zig` — per-draw context (fence-paced).
-//!   - `vulkan/shaders.zig` — GLSL→SPIR-V→VkShaderModule.
+//!   - `vulkan/shaders.zig` — GLSL→SPIR-V→VkShaderModule + the
+//!     OpenGL-GLSL → Vulkan-GLSL rewriter.
 
 pub const Vulkan = @This();
 
@@ -206,8 +184,25 @@ pub const buffer_pool = struct {
     /// Move all `pending` entries to `ready` — the fence has
     /// signaled, so the GPU is done with them. Call from
     /// `Frame.complete` after `vkWaitForFences`.
-    pub fn cycle() void {
-        ready.appendSlice(std.heap.smp_allocator, pending.items) catch return;
+    ///
+    /// `dev` is needed only on the OOM fallback path: if `ready`
+    /// can't grow to absorb `pending`, we destroy the pending
+    /// VkBuffers / VkDeviceMemory directly instead of leaking them
+    /// (the alternative would be to leave them in `pending` forever,
+    /// where each successive frame's `cycle` would try the same
+    /// failing append on an ever-growing list — guaranteed VkDevice
+    /// memory exhaustion).
+    pub fn cycle(dev: *const Device) void {
+        ready.appendSlice(std.heap.smp_allocator, pending.items) catch {
+            // Couldn't grow `ready` — destroy the GPU resources now
+            // (the GPU is provably done with them, the fence wait
+            // already returned) so the next frame doesn't double up
+            // on a pending list that can never drain.
+            for (pending.items) |e| {
+                dev.dispatch.destroyBuffer(dev.device, e.buffer, null);
+                dev.dispatch.freeMemory(dev.device, e.memory, null);
+            }
+        };
         pending.clearRetainingCapacity();
     }
 
@@ -264,7 +259,17 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Vulkan {
     defer device_mutex.unlock();
     if (device == null) {
         switch (apprt.runtime) {
-            else => return error.UnsupportedRuntime,
+            // The Vulkan renderer is embedded-only by design: the
+            // host owns the VkInstance/Device/Queue and hands them
+            // to libghostty via `ghostty_platform_vulkan_s`. There
+            // is no Vulkan path through the GTK apprt and never
+            // will be from this side. Compile-error any other
+            // runtime so a misconfigured `-Drenderer=vulkan
+            // -Dapp-runtime=gtk` build fails loudly at compile time
+            // instead of crashing at first surface init. Mirrors
+            // OpenGL.zig's `@compileError("unsupported app
+            // runtime for OpenGL")` pattern.
+            else => @compileError("unsupported app runtime for Vulkan (embedded-only)"),
             apprt.embedded => switch (opts.rt_surface.platform) {
                 .vulkan => |platform| {
                     device = try Device.init(alloc, platform);
@@ -273,6 +278,10 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Vulkan {
                         .{device.?.api_version},
                     );
                 },
+                // The Platform union is decided at host-call time
+                // (the C ABI lets the host pick), so this arm
+                // really is a runtime check — the host plugged us
+                // into a non-Vulkan surface.
                 .opengl, .macos, .ios => return error.UnsupportedPlatform,
             },
         }
@@ -329,20 +338,20 @@ pub fn deinit(self: *Vulkan) void {
     self.* = undefined;
 }
 
-/// Early per-surface setup. Stub — Vulkan needs nothing here because
-/// the host hasn't finished installing the platform callbacks yet.
+/// Early per-surface setup hook. No-op for Vulkan: the host
+/// hasn't finished installing the platform callbacks at this
+/// point, so all device wiring waits until `Vulkan.init` (which
+/// runs after the platform is plumbed through `opts`).
 pub fn surfaceInit(surface: *apprt.Surface) !void {
     _ = surface;
 }
 
-/// Main-thread setup just before the renderer thread spins up. This is
-/// where we have valid platform callbacks, so this is where the
-/// `Device` lives.
+/// Main-thread setup just before the renderer thread spins up.
+/// No-op: device construction happens in `Vulkan.init` (the
+/// renderer's FrameState init path calls option getters before
+/// `threadEnter`, and those getters need the device — so it has
+/// to be ready earlier than OpenGL needs it to be).
 pub fn finalizeSurfaceInit(self: *const Vulkan, surface: *apprt.Surface) !void {
-    // The renderer holds a `*const Vulkan`, so we can't actually
-    // mutate self here. The renderer threads its own pointer to us
-    // via opts, so this is a no-op for now — the device construction
-    // moves into `threadEnter` where `self: *Vulkan`.
     _ = self;
     _ = surface;
 }
@@ -350,11 +359,10 @@ pub fn finalizeSurfaceInit(self: *const Vulkan, surface: *apprt.Surface) !void {
 pub fn threadEnter(self: *const Vulkan, surface: *apprt.Surface) !void {
     _ = self;
     _ = surface;
-    // Device is brought up in `init` (the renderer's FrameState init
-    // path calls options getters before threadEnter, and our options
-    // need the device — so it has to be ready earlier than OpenGL
-    // wants). Nothing to do here; left in place so
-    // `@hasDecl(GraphicsAPI, "threadEnter")` keeps returning true in
+    // No-op: device is brought up in `init` (the renderer's
+    // FrameState init path calls option getters before threadEnter
+    // and those need the device). Decl kept so
+    // `@hasDecl(GraphicsAPI, "threadEnter")` still resolves true in
     // `generic.zig`.
 }
 
@@ -422,12 +430,15 @@ pub fn initTarget(self: *const Vulkan, width: usize, height: usize) !Target {
 /// surface was created with the Vulkan platform tag. Returns null
 /// otherwise (smoke test / OpenGL surfaces).
 fn surfacePlatform(rt_surface: *apprt.Surface) ?apprt.embedded.Platform.Vulkan {
-    return switch (apprt.runtime) {
+    // `init()` already gates non-embedded runtimes with a
+    // `@compileError`, so reaching this function on anything other
+    // than `apprt.embedded` is impossible. Direct embedded match
+    // here keeps the function single-arm.
+    if (apprt.runtime != apprt.embedded)
+        @compileError("unsupported app runtime for Vulkan (embedded-only)");
+    return switch (rt_surface.platform) {
+        .vulkan => |p| p,
         else => null,
-        apprt.embedded => switch (rt_surface.platform) {
-            .vulkan => |p| p,
-            else => null,
-        },
     };
 }
 

@@ -167,7 +167,7 @@ pub fn complete(self: *const Self, sync: bool) void {
     // recording is provably no longer in use by the GPU and is
     // safe to hand to the next `Buffer.create` call. See
     // `Vulkan.buffer_pool` for the lifecycle.
-    Vulkan.buffer_pool.cycle();
+    Vulkan.buffer_pool.cycle(dev);
 
     // Hand the rendered target off to the host via `Vulkan.present`,
     // which both calls the platform's present callback AND records
@@ -186,11 +186,6 @@ pub fn complete(self: *const Self, sync: bool) void {
 /// Begin a render pass recording into this frame's command buffer.
 /// The returned `RenderPass` accepts `step()` calls for the
 /// per-pipeline draw work, and is finalized with `complete()`.
-///
-/// Currently delegates straight to `RenderPass.begin` which is itself
-/// a stub for the recording layer — actual command-recording lives
-/// in a follow-up commit on `qt-vulkan-renderer`. The plumbing is
-/// here so `GenericRenderer(Vulkan)` resolves at comptime.
 pub inline fn renderPass(
     self: *const Self,
     attachments: []const RenderPass.Options.Attachment,
