@@ -95,9 +95,15 @@ public:
   // scale; for fractional scales they're independent (set via
   // wp_viewport.set_destination, which decouples buffer dimensions
   // from surface area).
+  // `y_invert` requests the compositor flip the buffer vertically
+  // when sampling. The OpenGL renderer's coordinate convention is
+  // bottom-left origin (Y up), but Wayland/DRM samples top-down —
+  // without the flag, GL frames render upside-down. Vulkan
+  // rasterizes Y-down by default and passes false.
   void presentDmabuf(int fd, uint32_t drm_format, uint64_t drm_modifier,
                      uint32_t width, uint32_t height, uint32_t stride,
-                     int dest_width, int dest_height);
+                     int dest_width, int dest_height,
+                     bool y_invert = false);
 
   // Compositor-preferred fractional scale for this surface, in
   // units of 1/120 (e.g. 144 = 1.2, 180 = 1.5, 240 = 2.0). Returns

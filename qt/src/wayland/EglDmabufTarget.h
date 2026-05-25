@@ -57,6 +57,12 @@ public:
   std::uint32_t drmFormat() const { return m_drmFormat; }
   std::uint64_t drmModifier() const { return m_drmModifier; }
   std::uint32_t stride() const { return m_stride; }
+  // Raw GL framebuffer object id for glBlitFramebuffer callers that
+  // need to write into the dmabuf-backed FBO from a different
+  // attached target (e.g. blitting from m_fbo with an inverted dst
+  // rect to flip Y, since the linux-dmabuf-v1 Y_INVERT flag is not
+  // universally supported).
+  unsigned int framebuffer() const { return m_framebuffer; }
 
   EglDmabufTarget(const EglDmabufTarget &) = delete;
   EglDmabufTarget &operator=(const EglDmabufTarget &) = delete;

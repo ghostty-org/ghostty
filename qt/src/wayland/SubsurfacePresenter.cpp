@@ -397,7 +397,8 @@ SubsurfacePresenter::~SubsurfacePresenter() {
 void SubsurfacePresenter::presentDmabuf(int fd, uint32_t drm_format,
                                         uint64_t drm_modifier, uint32_t width,
                                         uint32_t height, uint32_t stride,
-                                        int dest_width, int dest_height) {
+                                        int dest_width, int dest_height,
+                                        bool y_invert) {
   if (fd < 0 || !m_dmabuf || !m_childSurface || !m_viewport) return;
   if (dest_width <= 0) dest_width = 1;
   if (dest_height <= 0) dest_height = 1;
@@ -410,9 +411,11 @@ void SubsurfacePresenter::presentDmabuf(int fd, uint32_t drm_format,
                                  /*offset*/ 0, stride,
                                  static_cast<uint32_t>(drm_modifier >> 32),
                                  static_cast<uint32_t>(drm_modifier & 0xFFFFFFFFu));
+  const uint32_t buffer_flags =
+      y_invert ? ZWP_LINUX_BUFFER_PARAMS_V1_FLAGS_Y_INVERT : 0;
   wl_buffer *buffer = zwp_linux_buffer_params_v1_create_immed(
       params, static_cast<int32_t>(width), static_cast<int32_t>(height),
-      drm_format, /*flags*/ 0);
+      drm_format, buffer_flags);
   zwp_linux_buffer_params_v1_destroy(params);
   if (!buffer) {
     std::fprintf(stderr,

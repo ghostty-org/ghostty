@@ -55,6 +55,7 @@
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
 #include <QOpenGLFramebufferObject>
+#include <QOpenGLExtraFunctions>
 #include <QOpenGLFunctions>
 #include <QOpenGLShaderProgram>
 #include <QOpenGLVertexArrayObject>
@@ -309,24 +310,33 @@ void GhosttySurface::syncSurfaceSize() {
   delete m_fbo;
   m_fbo = nullptr;
 
-  // Prefer the dmabuf-backed target when the wl_subsurface presenter
-  // is up and EGL_MESA_image_dma_buf_export is available — the
-  // renderer draws directly into a texture whose memory is exported
-  // as a dmabuf, and we hand the fd straight to the compositor.
-  // When that's not available (no presenter, missing EGL extension,
-  // multi-plane export, etc.) we fall back to the legacy
-  // QOpenGLFramebufferObject + toImage + QPainter blit path.
+  // The GL path always renders into m_fbo first (regular GL_RGBA8
+  // FBO, GL's native bottom-left origin). When the subsurface
+  // presenter is up + EGL_MESA_image_dma_buf_export is available,
+  // we ALSO allocate m_eglTarget (a dmabuf-backed texture+FBO) and
+  // glBlitFramebuffer m_fbo → m_eglTarget with an inverted dst rect
+  // to flip Y on the way out — Wayland/DRM samples top-down, so
+  // without the flip the terminal would render upside-down. We
+  // can't use the linux-dmabuf-v1 Y_INVERT buffer flag because
+  // some compositors (KWin) reject it with "dma-buf flags are not
+  // supported".
+  //
+  // When m_eglTarget isn't available we fall back to the legacy
+  // m_fbo->toImage() + QPainter blit path (QImage handles its own
+  // Y flip).
+  QOpenGLFramebufferObjectFormat fmt;
+  fmt.setInternalTextureFormat(GL_RGBA8);
+  m_fbo = new QOpenGLFramebufferObject(QSize(w, h), fmt);
+
   if (m_subsurfacePresenter) {
     m_eglTarget = wayland::EglDmabufTarget::create(m_context, w, h);
     if (m_eglTarget) {
       m_useSubsurface.store(true, std::memory_order_release);
+    } else {
+      m_useSubsurface.store(false, std::memory_order_release);
     }
-  }
-  if (!m_eglTarget) {
+  } else {
     m_useSubsurface.store(false, std::memory_order_release);
-    QOpenGLFramebufferObjectFormat fmt;
-    fmt.setInternalTextureFormat(GL_RGBA8);
-    m_fbo = new QOpenGLFramebufferObject(QSize(w, h), fmt);
   }
 
   ghostty_surface_set_content_scale(m_surface, dpr, dpr);
@@ -418,6 +428,10 @@ bool GhosttySurface::event(QEvent *e) {
   if (m_surface) {
     if (e->type() == QEvent::Show) {
       ghostty_surface_set_occlusion(m_surface, true);
+      std::fprintf(stderr,
+                   "[ghastty] Show surface=%p presenter=%p\n",
+                   static_cast<void *>(this),
+                   static_cast<void *>(m_subsurfacePresenter.get()));
       // First successful Show is also when our native QWindow exists
       // and we can safely look up the Wayland parent wl_surface.
       // Lazy-init the subsurface presenter once and keep it for the
@@ -468,10 +482,16 @@ bool GhosttySurface::event(QEvent *e) {
       // doesn't ghost on top of whatever the now-active tab is
       // showing. The next Show + render reattaches a buffer and
       // makes it visible again.
+      bool fpc = false;
       if (m_subsurfacePresenter) {
         m_subsurfacePresenter->hide();
-        forceParentCommit();
+        fpc = forceParentCommit();
       }
+      std::fprintf(stderr,
+                   "[ghastty] Hide surface=%p presenter=%p fpc=%d\n",
+                   static_cast<void *>(this),
+                   static_cast<void *>(m_subsurfacePresenter.get()),
+                   fpc ? 1 : 0);
     }
   }
   return QWidget::event(e);
@@ -546,41 +566,50 @@ void GhosttySurface::renderTerminal() {
   if (!makeCurrent()) return;
   if (!m_eglTarget && !m_fbo) return;
 
-  // Two render-target variants:
-  //   - EglDmabufTarget (zero-copy): libghostty draws into a
-  //     dmabuf-backed texture; we hand the fd to the subsurface
-  //     presenter and the compositor scans it out directly. No
-  //     readback, no QPainter blit for the terminal pixels.
-  //   - QOpenGLFramebufferObject (legacy): glReadPixels into a
-  //     QImage, then paintEvent blits via QPainter. Used when the
-  //     EGL dmabuf path isn't available.
-  if (m_eglTarget) {
-    m_eglTarget->bind();
-    m_context->functions()->glViewport(0, 0, m_fbw, m_fbh);
-    ghostty_surface_draw(m_surface);
-    premultiplyFramebuffer();
-    m_eglTarget->release();
-    if (m_subsurfacePresenter) {
-      m_subsurfacePresenter->presentDmabuf(
-          m_eglTarget->fd(), m_eglTarget->drmFormat(),
-          m_eglTarget->drmModifier(),
-          static_cast<quint32>(m_eglTarget->width()),
-          static_cast<quint32>(m_eglTarget->height()), m_eglTarget->stride(),
-          width(), height());
-    }
+  // Two output sinks. Both paths render into the same primary FBO
+  // first (m_fbo, regular GL_RGBA8, GL's native bottom-left origin).
+  //   - EglDmabufTarget present (zero-copy): glBlitFramebuffer
+  //     m_fbo into the dmabuf-backed FBO with an inverted dst rect
+  //     to flip Y on the way out (Wayland/DRM samples top-down;
+  //     the linux-dmabuf-v1 Y_INVERT buffer flag would do this
+  //     compositor-side but KWin and others reject it as "dma-buf
+  //     flags are not supported"). Hand the dmabuf to the
+  //     subsurface presenter.
+  //   - QImage fallback: glReadPixels into a QImage (which handles
+  //     its own Y flip) and let paintEvent blit it via QPainter.
+  //     Used when the EGL dmabuf path isn't available.
+  m_fbo->bind();
+  m_context->functions()->glViewport(0, 0, m_fbw, m_fbh);
+  ghostty_surface_draw(m_surface);
+  premultiplyFramebuffer();
+
+  if (m_eglTarget && m_subsurfacePresenter) {
+    // QOpenGLExtraFunctions exposes glBlitFramebuffer (GL 3.0+);
+    // QOpenGLFunctions doesn't. We pinned to OpenGL 4.3 elsewhere
+    // so the entry point is always available.
+    auto *xf = m_context->extraFunctions();
+    xf->glBindFramebuffer(GL_READ_FRAMEBUFFER, m_fbo->handle());
+    xf->glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_eglTarget->framebuffer());
+    // Inverted dst rect (y1 > y0) tells glBlitFramebuffer to flip
+    // vertically while copying. Matches the Y_INVERT semantic
+    // without needing compositor support for the flag.
+    xf->glBlitFramebuffer(0, 0, m_fbw, m_fbh,
+                          0, m_fbh, m_fbw, 0,
+                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    xf->glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    m_subsurfacePresenter->presentDmabuf(
+        m_eglTarget->fd(), m_eglTarget->drmFormat(),
+        m_eglTarget->drmModifier(),
+        static_cast<quint32>(m_eglTarget->width()),
+        static_cast<quint32>(m_eglTarget->height()), m_eglTarget->stride(),
+        width(), height(),
+        /*y_invert*/ false);
     // The terminal pixels reach the compositor via the subsurface,
     // not via QPainter — but chrome (overlays, dim, bell flash)
     // still goes through paintEvent. update() schedules that.
     update();
     return;
   }
-
-  // libghostty renders into its own target and blits the result to the
-  // currently bound framebuffer — bind ours so we get the final image.
-  m_fbo->bind();
-  m_context->functions()->glViewport(0, 0, m_fbw, m_fbh);
-  ghostty_surface_draw(m_surface);
-  premultiplyFramebuffer();
 
   // Read the frame back as a premultiplied, top-down QImage, tagged with
   // the ratio the framebuffer was sized at so paintEvent can blit it 1:1
