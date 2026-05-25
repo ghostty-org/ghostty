@@ -103,10 +103,15 @@ pub const Stage = enum {
     vertex,
     fragment,
 
-    fn glslangStage(self: Stage) c_uint {
+    /// Map to the binding-layer enum that `glslang.vk.compileToSpv`
+    /// accepts. Same shape, different module — keeping the enum at
+    /// this level so the renderer's `.vertex` / `.fragment` literals
+    /// stay backend-flavored (the `vk_*` field on the struct also
+    /// reads off this enum).
+    fn vkBindingStage(self: Stage) glslang.vk.Stage {
         return switch (self) {
-            .vertex => glslang.c.GLSLANG_STAGE_VERTEX,
-            .fragment => glslang.c.GLSLANG_STAGE_FRAGMENT,
+            .vertex => .vertex,
+            .fragment => .fragment,
         };
     }
 
@@ -515,12 +520,12 @@ pub const Module = struct {
     /// The source is run through `vulkanizeGlsl` to swap OpenGL-only
     /// builtins for their Vulkan equivalents (`gl_VertexID` →
     /// `gl_VertexIndex`, `gl_InstanceID` → `gl_InstanceIndex`); then
-    /// the Ghastty Vulkan compile shim
-    /// (`pkg/glslang/override/ghastty_vk_shim.cpp`) finishes the job
-    /// with auto-map bindings / locations enabled. Same path covers
-    /// the renderer's built-in shaders AND user-supplied custom
-    /// shaders, so the OpenGL-flavored GLSL Ghostty already speaks
-    /// keeps working.
+    /// `glslang.vk.compileToSpv` (typed wrapper around the Vulkan
+    /// compile shim in `pkg/glslang/override/ghastty_vk_shim.cpp`)
+    /// finishes the job with auto-map bindings / locations enabled.
+    /// Same path covers the renderer's built-in shaders AND
+    /// user-supplied custom shaders, so the OpenGL-flavored GLSL
+    /// Ghostty already speaks keeps working.
     pub fn init(
         alloc: std.mem.Allocator,
         device: *const Device,
@@ -540,36 +545,8 @@ pub const Module = struct {
         const translated = try vulkanizeGlsl(alloc, src);
         defer alloc.free(translated);
 
-        const c = glslang.c;
-        const c_stage: c.ghastty_glslang_stage_t = switch (stage) {
-            .vertex => c.GHASTTY_GLSLANG_STAGE_VERTEX,
-            .fragment => c.GHASTTY_GLSLANG_STAGE_FRAGMENT,
-        };
-
-        var spv_ptr: [*c]u32 = undefined;
-        var spv_len: usize = 0;
-        var err_ptr: [*c]u8 = undefined;
-        const rc = c.ghastty_glslang_compile_vulkan(
-            translated.ptr,
-            c_stage,
-            &spv_ptr,
-            &spv_len,
-            &err_ptr,
-        );
-        if (rc != 0) {
-            if (err_ptr != null) {
-                log.err("ghastty_glslang_compile_vulkan: {s}", .{
-                    std.mem.span(@as([*:0]const u8, @ptrCast(err_ptr))),
-                });
-                c.ghastty_glslang_free_error(err_ptr);
-            } else {
-                log.err("ghastty_glslang_compile_vulkan: unspecified failure", .{});
-            }
-            return error.GlslangFailed;
-        }
-        defer c.ghastty_glslang_free_spirv(spv_ptr);
-
-        const spv: []const u32 = spv_ptr[0..spv_len];
+        const spv = try glslang.vk.compileToSpv(alloc, translated, stage.vkBindingStage());
+        defer alloc.free(spv);
         return try initFromSpirv(device, spv, stage);
     }
 
@@ -1587,11 +1564,11 @@ test "vulkanizeGlsl: layout with pre-existing set qualifier is unchanged" {
 //
 // `vulkanizeGlsl` unit tests above exercise the textual rewrite in
 // isolation. The integration tests below feed the rewriter's output
-// through glslang via `ghastty_glslang_compile_vulkan` and assert
-// the result is a valid SPIR-V binary. That covers the seam where
-// a syntactically-fine rewrite still produces something glslang
-// rejects (e.g. a `set = N` on a declaration glslang's
-// `--auto-map-bindings` is also trying to assign).
+// through `glslang.vk.compileToSpv` and assert the result is a valid
+// SPIR-V binary. That covers the seam where a syntactically-fine
+// rewrite still produces something glslang rejects (e.g. a `set = N`
+// on a declaration glslang's `--auto-map-bindings` is also trying
+// to assign).
 
 fn compileToSpv(
     alloc: std.mem.Allocator,
@@ -1599,40 +1576,9 @@ fn compileToSpv(
     stage: Stage,
 ) ![]const u32 {
     glslang.testing.ensureInit() catch return error.GlslangFailed;
-
     const translated = try vulkanizeGlsl(alloc, src);
     defer alloc.free(translated);
-
-    var spv_ptr: [*c]u32 = undefined;
-    var spv_len: usize = 0;
-    var err_ptr: [*c]u8 = undefined;
-    const c_stage: glslang.c.ghastty_glslang_stage_t = switch (stage) {
-        .vertex => glslang.c.GHASTTY_GLSLANG_STAGE_VERTEX,
-        .fragment => glslang.c.GHASTTY_GLSLANG_STAGE_FRAGMENT,
-    };
-    const rc = glslang.c.ghastty_glslang_compile_vulkan(
-        translated.ptr,
-        c_stage,
-        &spv_ptr,
-        &spv_len,
-        &err_ptr,
-    );
-    if (rc != 0) {
-        if (err_ptr != null) {
-            std.log.err("compileToSpv: {s}", .{
-                std.mem.span(@as([*:0]const u8, @ptrCast(err_ptr))),
-            });
-            glslang.c.ghastty_glslang_free_error(err_ptr);
-        }
-        return error.GlslangFailed;
-    }
-    // Caller owns; copy out of glslang's malloc into the test allocator
-    // so cleanup is symmetric (the caller `defer alloc.free(out)`s).
-    const spv_words = spv_ptr[0..spv_len];
-    const owned = try alloc.alloc(u32, spv_len);
-    @memcpy(owned, spv_words);
-    glslang.c.ghastty_glslang_free_spirv(spv_ptr);
-    return owned;
+    return try glslang.vk.compileToSpv(alloc, translated, stage.vkBindingStage());
 }
 
 test "glslang integration: built-in bg_color fragment compiles" {
