@@ -251,7 +251,7 @@ bool handleSystem(const Context &ctx, const ghostty_action_s &action) {
       // abnormal threshold (default 250ms). Banner = "the process
       // died unexpectedly," not "the process exited."
       uint32_t threshold = 250;
-      config::get(&threshold, "abnormal-command-exit-runtime");
+      (void)config::get(&threshold, "abnormal-command-exit-runtime");
       if (ce.runtime_ms < threshold) return true;
       const int code = static_cast<int>(ce.exit_code);
       post(src, [srcp, code]() {
