@@ -90,6 +90,16 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
   // The widget paints a per-pixel-alpha QImage of the terminal; a
   // translucent background lets that alpha reach the desktop.
   setAttribute(Qt::WA_TranslucentBackground);
+  // Force a native QWindow + wl_surface for this widget from the
+  // start. Required for the wl_subsurface presenter (it parents
+  // its child surface to our windowHandle()'s wl_surface). Setting
+  // this in the ctor — not in the Show handler — guarantees that
+  // by the time the first PlatformSurface / Show event fires, the
+  // windowHandle is established. For split panes that get re-
+  // parented into a QSplitter, the Show event flow can otherwise
+  // race with WA_NativeWindow taking effect and leave the
+  // presenter never created.
+  setAttribute(Qt::WA_NativeWindow);
 
   // Pick the renderer up-front so the rest of the surface setup
   // (GL context vs. Vulkan host) only touches the path we'll
@@ -400,10 +410,17 @@ bool GhosttySurface::event(QEvent *e) {
       // one producing pixels. Phase 3 will route frames through the
       // subsurface and retire the QPainter blit.
       if (!m_subsurfacePresenter) {
-        // WA_NativeWindow ensures windowHandle() is non-null even if
-        // GhosttySurface is embedded in a non-native parent.
-        setAttribute(Qt::WA_NativeWindow);
-        if (auto *h = windowHandle()) {
+        // WA_NativeWindow was set in the ctor, so windowHandle()
+        // should be non-null by now. If it isn't, we log and try
+        // again on the next Show — the window may genuinely not
+        // have a surface yet (very early in the show cycle).
+        QWindow *h = windowHandle();
+        if (!h) {
+          std::fprintf(stderr,
+                       "[ghastty] GhosttySurface::event(Show): "
+                       "windowHandle() is null, will retry next show\n");
+        }
+        if (h) {
           m_subsurfacePresenter =
               wayland::SubsurfacePresenter::tryCreate(h);
           if (m_subsurfacePresenter) {
