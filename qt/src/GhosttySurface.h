@@ -372,4 +372,13 @@ private:
   // Per-surface latch for the first-dmabuf log breadcrumb so each
   // pane / split prints its own line on first frame.
   bool m_loggedFirstFrame = false;
+  // Set true on QEvent::Hide, false on QEvent::Show. Guards the
+  // present path against a race where libghostty's renderer thread
+  // fires one more frame after we've detached the subsurface
+  // buffer on Hide — without this gate, that stray frame re-
+  // attaches a buffer and the now-inactive tab ghosts on top of
+  // whatever tab the user just switched to. `std::atomic` because
+  // the renderer thread reads it in `presentVulkanDmabuf` /
+  // `drainVulkan` while the GUI thread writes from event().
+  std::atomic<bool> m_hidden{false};
 };

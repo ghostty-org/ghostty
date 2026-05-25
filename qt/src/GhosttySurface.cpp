@@ -428,10 +428,9 @@ bool GhosttySurface::event(QEvent *e) {
   if (m_surface) {
     if (e->type() == QEvent::Show) {
       ghostty_surface_set_occlusion(m_surface, true);
-      std::fprintf(stderr,
-                   "[ghastty] Show surface=%p presenter=%p\n",
-                   static_cast<void *>(this),
-                   static_cast<void *>(m_subsurfacePresenter.get()));
+      // Clear the present-gate latch: subsequent frames go through
+      // the subsurface as normal.
+      m_hidden.store(false, std::memory_order_release);
       // First successful Show is also when our native QWindow exists
       // and we can safely look up the Wayland parent wl_surface.
       // Lazy-init the subsurface presenter once and keep it for the
@@ -477,21 +476,20 @@ bool GhosttySurface::event(QEvent *e) {
         }
       }
     } else if (e->type() == QEvent::Hide) {
+      // Set the present-gate FIRST so any racing renderer frame
+      // (libghostty's render thread may produce one more after
+      // set_occlusion returns) is blocked from re-attaching a
+      // buffer in presentVulkanDmabuf / drainVulkan / renderTerminal.
+      m_hidden.store(true, std::memory_order_release);
       ghostty_surface_set_occlusion(m_surface, false);
       // Detach the subsurface buffer so this pane's last frame
       // doesn't ghost on top of whatever the now-active tab is
       // showing. The next Show + render reattaches a buffer and
       // makes it visible again.
-      bool fpc = false;
       if (m_subsurfacePresenter) {
         m_subsurfacePresenter->hide();
-        fpc = forceParentCommit();
+        forceParentCommit();
       }
-      std::fprintf(stderr,
-                   "[ghastty] Hide surface=%p presenter=%p fpc=%d\n",
-                   static_cast<void *>(this),
-                   static_cast<void *>(m_subsurfacePresenter.get()),
-                   fpc ? 1 : 0);
     }
   }
   return QWidget::event(e);
@@ -553,6 +551,11 @@ void GhosttySurface::flashScrollbar() {
 
 void GhosttySurface::renderTerminal() {
   if (!m_surface) return;
+
+  // Don't render / present while hidden — the subsurface is already
+  // detached from a buffer by Hide; doing more work here would just
+  // race a stale frame back into view on the next compositor cycle.
+  if (m_hidden.load(std::memory_order_acquire)) return;
 
   // Vulkan path: libghostty owns its target VkImage; it renders into
   // it directly and presents via the apprt dmabuf callback. No GL
@@ -1620,6 +1623,11 @@ void GhosttySurface::presentVulkanDmabuf(
   if (dmabuf_fd < 0 || width == 0 || height == 0 || stride < width * 4)
     return;
 
+  // Don't park / dispatch frames while we're hidden — racing the
+  // renderer's final post-Hide frame past presenter.hide() is what
+  // restores the ghost on tab switch.
+  if (m_hidden.load(std::memory_order_acquire)) return;
+
   if (useSubsurface) {
     // Subsurface path. Park the descriptor under the mutex (so
     // a concurrent drainVulkan sees a consistent snapshot) and
@@ -1671,6 +1679,7 @@ void GhosttySurface::drainVulkan() {
   // under the mutex, then dispatch it to the presenter outside the
   // lock so a renderer-thread `presentVulkanDmabuf` parking the
   // next frame doesn't block on wl_display_flush.
+  if (m_hidden.load(std::memory_order_acquire)) return;
   if (m_useSubsurface.load(std::memory_order_acquire) &&
       m_subsurfacePresenter) {
     PendingDmabuf frame;
