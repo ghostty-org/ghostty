@@ -180,33 +180,6 @@ pub const buffer_pool = struct {
     /// `acquire` them.
     var ready: std.ArrayList(Entry) = .{};
 
-    /// `drainAll` needs to walk every thread's `pending` list at
-    /// device-teardown time. We can't enumerate threadlocals
-    /// directly, so threads register their pending list pointer
-    /// here on first use. Walked under `mutex`. Lifetime is
-    /// process-wide; entries accumulate but never get removed
-    /// (renderer threads outlive any single device tear-down in
-    /// the multi-surface case).
-    var pending_lists: std.ArrayList(*std.ArrayList(Entry)) = .{};
-
-    /// Per-thread latch: have we registered this thread's `pending`
-    /// pointer with `pending_lists`? Cheap zero-overhead check on
-    /// every release.
-    threadlocal var pending_registered: bool = false;
-
-    fn ensureRegistered() void {
-        if (pending_registered) return;
-        mutex.lock();
-        defer mutex.unlock();
-        // Append the THIS thread's `pending` pointer. The
-        // process-wide allocator may OOM here; on failure we accept
-        // that drainAll won't reach this thread's pending list
-        // (worst case: this thread's leftover buffers leak at
-        // device teardown).
-        pending_lists.append(std.heap.smp_allocator, &pending) catch return;
-        pending_registered = true;
-    }
-
     /// Queue a buffer for recycling. The buffer cannot be reused
     /// until the next fence-wait (handled by `cycle`); it sits in
     /// THIS thread's `pending` until then. Bounded by THIS thread's
@@ -220,7 +193,6 @@ pub const buffer_pool = struct {
         capacity: u64,
     ) !void {
         _ = dev;
-        ensureRegistered();
         // No mutex: `pending` is threadlocal, only THIS thread
         // touches it.
         try pending.append(std.heap.smp_allocator, .{
@@ -294,20 +266,30 @@ pub const buffer_pool = struct {
         }
     }
 
-    /// Tear down `ready` plus every registered thread's `pending`.
-    /// Call only when the device is idle (`vkDeviceWaitIdle` or
-    /// final surface destroy). Holding the mutex here is fine: the
-    /// caller already serialized teardown.
-    pub fn drainAll(dev: *const Device) void {
+    /// Destroy THIS thread's `pending` entries directly. Call from
+    /// the same thread's `Vulkan.deinit` AFTER `vkWaitForFences`
+    /// on this thread's frame fence — the bounding fence has
+    /// signaled so the GPU is provably done with these buffers.
+    ///
+    /// Each renderer thread is responsible for cleaning up its own
+    /// pending list because Zig threadlocal storage is the calling
+    /// thread's; the final-refcount tear-down (`drainShared`) only
+    /// handles the process-wide `ready` list.
+    pub fn drainSelf(dev: *const Device) void {
+        for (pending.items) |e| {
+            dev.dispatch.destroyBuffer(dev.device, e.buffer, null);
+            dev.dispatch.freeMemory(dev.device, e.memory, null);
+        }
+        pending.clearRetainingCapacity();
+    }
+
+    /// Destroy every entry in the shared `ready` list. Call only
+    /// from the FINAL surface tear-down (the path that hits
+    /// `device_refcount == 0`) and only after every other renderer
+    /// thread has already run `drainSelf` on its own pending list.
+    pub fn drainShared(dev: *const Device) void {
         mutex.lock();
         defer mutex.unlock();
-        for (pending_lists.items) |list| {
-            for (list.items) |e| {
-                dev.dispatch.destroyBuffer(dev.device, e.buffer, null);
-                dev.dispatch.freeMemory(dev.device, e.memory, null);
-            }
-            list.clearRetainingCapacity();
-        }
         for (ready.items) |e| {
             dev.dispatch.destroyBuffer(dev.device, e.buffer, null);
             dev.dispatch.freeMemory(dev.device, e.memory, null);
@@ -453,6 +435,12 @@ pub fn deinit(self: *Vulkan) void {
             p.deinit();
             step_pool = null;
         }
+        // Drain THIS thread's pending buffer-pool entries. The
+        // frame-fence wait above proved the GPU is done with them,
+        // and we have to do this from THIS thread because the
+        // pending list is in this thread's threadlocal storage —
+        // the final-refcount drainShared below can't reach it.
+        buffer_pool.drainSelf(d);
         // `last_target` is a borrow into this thread's FrameState
         // target slot. The SwapChain teardown destroys the target;
         // we just drop our reference.
@@ -469,12 +457,15 @@ pub fn deinit(self: *Vulkan) void {
     std.debug.assert(device_refcount > 0);
     device_refcount -= 1;
     if (device_refcount == 0) {
-        // Last surface: NOW we can safely drain the global buffer
-        // pool and tear the device down. The waitIdle is needed
-        // because non-final deinits skipped it.
+        // Last surface: NOW we can safely drain the shared `ready`
+        // list of the buffer pool and tear the device down. The
+        // waitIdle is needed because non-final deinits skipped it.
+        // Each surface's deinit already drained its own per-thread
+        // `pending` (via buffer_pool.drainSelf above), so this
+        // path only needs to handle the cross-thread `ready`.
         if (device) |*d| {
             d.waitIdle();
-            buffer_pool.drainAll(d);
+            buffer_pool.drainShared(d);
             d.deinit();
         }
         device = null;
