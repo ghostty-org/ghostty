@@ -128,25 +128,34 @@ var device_mutex: std.Thread.Mutex = .{};
 ///      per frame, every frame. NVIDIA driver SIGSEGVs after a few
 ///      seconds of that.
 ///
-/// Lifecycle: `Buffer.deinit` pushes to `pending`. `Frame.complete`
-/// after `vkWaitForFences` moves `pending` → `ready`. `Buffer.create`
-/// scans `ready` for an entry of matching usage + size and pops it
-/// before allocating new.
+/// Multi-thread design: `pending` is THREADLOCAL (each renderer
+/// thread accumulates the buffers IT released during the current
+/// frame), while `ready` is process-wide and mutex-protected (any
+/// thread can recycle from it). Splits/tabs run independent
+/// renderer threads against the SAME shared VkDevice — a single
+/// shared `pending` list would let thread A's `Frame.complete`
+/// retire buffers thread B released but whose fence hasn't
+/// signaled yet, handing B's still-GPU-in-flight buffer back to a
+/// new `acquire`. Per-thread pending bounds the visibility of
+/// each entry to the thread that knows when its fence signals.
 ///
-/// Process-wide (not threadlocal) and mutex-protected: splits/tabs
-/// run independent renderer threads against the SAME shared
-/// VkDevice, and a per-thread pool would mean each thread leaks
-/// every staging buffer the other threads release. The mutex is
-/// uncontended in the steady state — entries are short-lived and
-/// the pool only grows.
+/// Lifecycle:
+///   - `release(dev, …)` (renderer thread) pushes to THAT thread's
+///     `pending`.
+///   - `cycle(dev)` (renderer thread, after `vkWaitForFences` on
+///     the SAME thread's per-frame fence) moves THAT thread's
+///     `pending` → shared `ready` under the mutex.
+///   - `acquire(…)` (any thread) pops a matching entry from `ready`
+///     under the mutex.
 ///
 /// Caller responsibilities:
-///   - Only call `release` from a code path whose VkBuffer reference
-///     is bounded by a fence the renderer thread will eventually
-///     wait on (i.e. the per-frame command buffer).
-///   - For one-shot uploads (e.g. atlas staging) the caller already
-///     does `vkQueueWaitIdle` post-submit; that path uses
-///     `Buffer.destroyImmediate` which bypasses this pool.
+///   - Only call `release` from the renderer thread whose fence
+///     the frame's GPU work signals; calling from a thread that
+///     never reaches its own `Frame.complete` would leak entries
+///     (they sit in that thread's `pending` forever). For one-shot
+///     uploads from a non-renderer thread (atlas staging), use
+///     `Buffer.destroyImmediate` instead, which bypasses this
+///     pool entirely.
 pub const buffer_pool = struct {
     const Entry = struct {
         buffer: vk.VkBuffer,
@@ -155,13 +164,54 @@ pub const buffer_pool = struct {
         capacity: u64,
     };
 
+    /// Mutex guards the process-wide `ready` list (and the
+    /// drainAll iteration over `pending`s — see comment there).
     var mutex: std.Thread.Mutex = .{};
-    var pending: std.ArrayList(Entry) = .{};
+
+    /// Per-thread pending list. Entries here were released by THIS
+    /// thread during the current frame and are bounded by the
+    /// fence THIS thread will wait on in `Frame.complete`. Moved
+    /// to the shared `ready` list by `cycle()` after that wait
+    /// returns.
+    threadlocal var pending: std.ArrayList(Entry) = .{};
+
+    /// Process-wide ready list. Entries here are provably retired
+    /// (the bounding fence has signaled) and any thread may
+    /// `acquire` them.
     var ready: std.ArrayList(Entry) = .{};
+
+    /// `drainAll` needs to walk every thread's `pending` list at
+    /// device-teardown time. We can't enumerate threadlocals
+    /// directly, so threads register their pending list pointer
+    /// here on first use. Walked under `mutex`. Lifetime is
+    /// process-wide; entries accumulate but never get removed
+    /// (renderer threads outlive any single device tear-down in
+    /// the multi-surface case).
+    var pending_lists: std.ArrayList(*std.ArrayList(Entry)) = .{};
+
+    /// Per-thread latch: have we registered this thread's `pending`
+    /// pointer with `pending_lists`? Cheap zero-overhead check on
+    /// every release.
+    threadlocal var pending_registered: bool = false;
+
+    fn ensureRegistered() void {
+        if (pending_registered) return;
+        mutex.lock();
+        defer mutex.unlock();
+        // Append the THIS thread's `pending` pointer. The
+        // process-wide allocator may OOM here; on failure we accept
+        // that drainAll won't reach this thread's pending list
+        // (worst case: this thread's leftover buffers leak at
+        // device teardown).
+        pending_lists.append(std.heap.smp_allocator, &pending) catch return;
+        pending_registered = true;
+    }
 
     /// Queue a buffer for recycling. The buffer cannot be reused
     /// until the next fence-wait (handled by `cycle`); it sits in
-    /// `pending` until then.
+    /// THIS thread's `pending` until then. Bounded by THIS thread's
+    /// per-frame fence — see the per-thread pending rationale at
+    /// the top of `buffer_pool`.
     pub fn release(
         dev: *const Device,
         buffer: vk.VkBuffer,
@@ -170,8 +220,9 @@ pub const buffer_pool = struct {
         capacity: u64,
     ) !void {
         _ = dev;
-        mutex.lock();
-        defer mutex.unlock();
+        ensureRegistered();
+        // No mutex: `pending` is threadlocal, only THIS thread
+        // touches it.
         try pending.append(std.heap.smp_allocator, .{
             .buffer = buffer,
             .memory = memory,
@@ -201,9 +252,10 @@ pub const buffer_pool = struct {
         return null;
     }
 
-    /// Move all `pending` entries to `ready` — the fence has
-    /// signaled, so the GPU is done with them. Call from
-    /// `Frame.complete` after `vkWaitForFences`.
+    /// Move THIS thread's `pending` entries to the shared `ready` —
+    /// THIS thread's fence has signaled, so the GPU is done with
+    /// every buffer in `pending`. Call from `Frame.complete` after
+    /// `vkWaitForFences`.
     ///
     /// `dev` is needed only on the OOM fallback path: if `ready`
     /// can't grow to absorb `pending`, we wait the device idle
@@ -211,12 +263,13 @@ pub const buffer_pool = struct {
     /// entries directly so the next frame doesn't double up on a
     /// pending list that can never drain.
     pub fn cycle(dev: *const Device) void {
-        // Try the fast path first — append `pending` to `ready`
-        // under the lock, then return. On OOM we have to destroy
-        // the pending entries, but `vkDeviceWaitIdle` is slow and
-        // holding the pool mutex across it would block every other
-        // renderer thread's release/acquire/cycle. Move the
-        // pending list into a local outside the lock, then drain.
+        // Try the fast path first — append THIS thread's `pending`
+        // to the shared `ready` under the lock, then clear pending.
+        // On OOM we have to destroy the pending entries, but
+        // `vkDeviceWaitIdle` is slow and holding the pool mutex
+        // across it would block every other renderer thread's
+        // release/acquire/cycle. Move the pending list into a
+        // local outside the lock, then drain.
         var oom_pending: std.ArrayList(Entry) = .{};
         defer oom_pending.deinit(std.heap.smp_allocator);
         {
@@ -226,8 +279,8 @@ pub const buffer_pool = struct {
                 pending.clearRetainingCapacity();
                 return;
             } else |_| {
-                // OOM. Move `pending` into our local so we can
-                // drain it without holding the mutex.
+                // OOM. Move THIS thread's `pending` into our local
+                // so we can drain without holding the mutex.
                 oom_pending = pending;
                 pending = .{};
             }
@@ -241,16 +294,20 @@ pub const buffer_pool = struct {
         }
     }
 
-    /// Tear down both lists. Call only when the device is idle
-    /// (`vkDeviceWaitIdle` or final surface destroy).
+    /// Tear down `ready` plus every registered thread's `pending`.
+    /// Call only when the device is idle (`vkDeviceWaitIdle` or
+    /// final surface destroy). Holding the mutex here is fine: the
+    /// caller already serialized teardown.
     pub fn drainAll(dev: *const Device) void {
         mutex.lock();
         defer mutex.unlock();
-        for (pending.items) |e| {
-            dev.dispatch.destroyBuffer(dev.device, e.buffer, null);
-            dev.dispatch.freeMemory(dev.device, e.memory, null);
+        for (pending_lists.items) |list| {
+            for (list.items) |e| {
+                dev.dispatch.destroyBuffer(dev.device, e.buffer, null);
+                dev.dispatch.freeMemory(dev.device, e.memory, null);
+            }
+            list.clearRetainingCapacity();
         }
-        pending.clearRetainingCapacity();
         for (ready.items) |e| {
             dev.dispatch.destroyBuffer(dev.device, e.buffer, null);
             dev.dispatch.freeMemory(dev.device, e.memory, null);
