@@ -216,23 +216,42 @@ void GhosttySurface::syncSurfaceSize() {
   m_fbDpr = dpr;
 
   // Vulkan path: libghostty manages the target image itself (it
-  // allocates the dmabuf-exportable VkImage). We just need to tell
-  // it the new pixel size + DPR — the renderer thread picks up
-  // the new size and produces frames on its own clock; the
-  // GUI-thread polling timer (`m_vulkanPollTimer`) picks them up.
+  // allocates the dmabuf-exportable VkImage). Tell it the new
+  // pixel size + DPR, then drive a synchronous draw at the new
+  // size so the QPaintEvent Qt will deliver right after this
+  // resizeEvent returns paints the new geometry — not the previous
+  // frame in the previous-size corner with the surrounding area
+  // showing the parent window background.
   //
-  // We deliberately do NOT call `renderTerminal()` synchronously
-  // from inside `resizeEvent`: that was deadlocking with Qt's
-  // first-show event delivery during bring-up. Instead we mark the
-  // surface dirty so the next 60Hz frame-timer tick triggers a
-  // render at the new size. Without this, a resize would only
-  // re-render if something else (PTY output, cursor blink, etc.)
-  // happened to flag the surface dirty later, which can leave the
-  // old frame stretched across the new widget for a long time.
+  // First-frame caveat: `ghostty_surface_draw` deadlocked during
+  // bring-up when called before the renderer thread had emitted
+  // anything (first-show races a not-yet-ready Vulkan host setup).
+  // Gate the synchronous draw on already having a frame —
+  // `m_image.isNull()` is true exclusively until the first frame
+  // imports. Before then we keep the original "mark dirty + let
+  // the timer pick it up" path.
   if (m_useVulkan) {
     ghostty_surface_set_content_scale(m_surface, dpr, dpr);
     ghostty_surface_set_size(m_surface, static_cast<uint32_t>(w),
                              static_cast<uint32_t>(h));
+    if (!m_image.isNull()) {
+      // Block until the renderer thread (or this thread, since
+      // `Surface.draw` says renderers must support being called
+      // from main) finishes a frame at the new size. The frame
+      // lands in `m_pending` via `presentVulkanDmabuf` on whichever
+      // thread runs the present; drain it into `m_image` here so
+      // we don't have to wait for the next 60Hz timer tick before
+      // the resized frame is visible.
+      ghostty_surface_draw(m_surface);
+      QImage frame;
+      {
+        QMutexLocker lock(&m_pendingMutex);
+        frame = std::move(m_pending);
+      }
+      if (!frame.isNull()) m_image = std::move(frame);
+      update();
+      return;
+    }
     markDirty();
     return;
   }
