@@ -197,6 +197,7 @@ neo773
 neurosnap
 nicholas-ochoa
 nicosuave
+nikicat
 nmggithub
 noib3
 nolinmcfarland
