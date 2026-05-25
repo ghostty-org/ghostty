@@ -213,7 +213,9 @@ extension Ghostty {
         /// - Parameter newTitle: Non-empty string to pin; nil or empty to clear and restore OSC behavior.
         func setPinnedTitle(_ newTitle: String?) {
             if let newTitle = newTitle, !newTitle.isEmpty {
-                // Save current OSC title for restoration only on first pin.
+                // Save the pre-pin OSC title for restoration, but only on first pin.
+                // On re-pin (changing an already-pinned title), titleFromTerminal already
+                // holds the original OSC title — don't overwrite it or we lose the restore point.
                 if titleFromTerminal == nil {
                     titleFromTerminal = title
                 }
@@ -1837,6 +1839,9 @@ extension Ghostty {
                 self.title = title
                 // If this was a user-set title, we need to prevent it from being overwritten
                 if isUserSetTitle {
+                    // Known limitation: after session restore, titleFromTerminal holds the pinned
+                    // string (not the original pre-pin OSC title). Un-pinning post-restore will
+                    // show the pinned title briefly until the shell emits its next OSC sequence.
                     self.titleFromTerminal = title
                     self.isUserSetTitle = true
                 }
