@@ -91,6 +91,35 @@ add_custom_command(OUTPUT "${DMABUF_CODE}"
   COMMAND "${WAYLAND_SCANNER}" private-code "${DMABUF_XML}" "${DMABUF_CODE}"
   DEPENDS "${DMABUF_XML}" VERBATIM)
 
+# wp_viewporter — lets the presenter set a destination size in
+# surface-local coords, decoupling the buffer's pixel dimensions
+# from how big the subsurface appears on screen. Needed for
+# fractional scaling.
+set(VIEWPORTER_XML "${CMAKE_CURRENT_SOURCE_DIR}/protocols/viewporter.xml")
+set(VIEWPORTER_HEADER "${CMAKE_CURRENT_BINARY_DIR}/viewporter-client-protocol.h")
+set(VIEWPORTER_CODE "${CMAKE_CURRENT_BINARY_DIR}/viewporter-protocol.c")
+add_custom_command(OUTPUT "${VIEWPORTER_HEADER}"
+  COMMAND "${WAYLAND_SCANNER}" client-header "${VIEWPORTER_XML}" "${VIEWPORTER_HEADER}"
+  DEPENDS "${VIEWPORTER_XML}" VERBATIM)
+add_custom_command(OUTPUT "${VIEWPORTER_CODE}"
+  COMMAND "${WAYLAND_SCANNER}" private-code "${VIEWPORTER_XML}" "${VIEWPORTER_CODE}"
+  DEPENDS "${VIEWPORTER_XML}" VERBATIM)
+
+# wp_fractional_scale_v1 — compositor sends the per-surface
+# preferred fractional scale (in 120ths). We use this as the
+# authoritative scale for sizing the buffer, instead of trusting
+# Qt's devicePixelRatioF() (which is the same value, but going
+# direct to the protocol avoids any sync lag with Qt's update).
+set(FRACSCALE_XML "${CMAKE_CURRENT_SOURCE_DIR}/protocols/fractional-scale-v1.xml")
+set(FRACSCALE_HEADER "${CMAKE_CURRENT_BINARY_DIR}/fractional-scale-v1-client-protocol.h")
+set(FRACSCALE_CODE "${CMAKE_CURRENT_BINARY_DIR}/fractional-scale-v1-protocol.c")
+add_custom_command(OUTPUT "${FRACSCALE_HEADER}"
+  COMMAND "${WAYLAND_SCANNER}" client-header "${FRACSCALE_XML}" "${FRACSCALE_HEADER}"
+  DEPENDS "${FRACSCALE_XML}" VERBATIM)
+add_custom_command(OUTPUT "${FRACSCALE_CODE}"
+  COMMAND "${WAYLAND_SCANNER}" private-code "${FRACSCALE_XML}" "${FRACSCALE_CODE}"
+  DEPENDS "${FRACSCALE_XML}" VERBATIM)
+
 # libghostty is built out-of-tree by Zig.
 get_filename_component(GHOSTTY_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 set(GHOSTTY_LIB_DIR "${GHOSTTY_ROOT}/zig-out/lib")
@@ -175,6 +204,10 @@ add_executable(ghastty
   "${BLUR_HEADER}"
   "${DMABUF_CODE}"
   "${DMABUF_HEADER}"
+  "${VIEWPORTER_CODE}"
+  "${VIEWPORTER_HEADER}"
+  "${FRACSCALE_CODE}"
+  "${FRACSCALE_HEADER}"
 )
 
 # Embed the app icon so it is available even running from the build tree.

@@ -13,7 +13,9 @@
 
 #include <wayland-client.h>
 
+#include "fractional-scale-v1-client-protocol.h"
 #include "linux-dmabuf-v1-client-protocol.h"
+#include "viewporter-client-protocol.h"
 
 namespace wayland {
 
@@ -29,6 +31,8 @@ struct PresenterGlobals {
   wl_compositor *compositor = nullptr;
   wl_subcompositor *subcompositor = nullptr;
   zwp_linux_dmabuf_v1 *dmabuf = nullptr;
+  wp_viewporter *viewporter = nullptr;
+  wp_fractional_scale_manager_v1 *fractionalScale = nullptr;
   std::unordered_map<uint32_t, std::vector<uint64_t>> modifiers;
   bool searched = false;
 };
@@ -88,6 +92,14 @@ void registryGlobal(void *data, wl_registry *registry, uint32_t name,
     // Add the listener immediately so the modifier events queued by
     // the bind get delivered when the dispatch loop continues.
     zwp_linux_dmabuf_v1_add_listener(g->dmabuf, &kDmabufListener, g);
+  } else if (std::strcmp(interface, wp_viewporter_interface.name) == 0) {
+    g->viewporter = static_cast<wp_viewporter *>(
+        wl_registry_bind(registry, name, &wp_viewporter_interface, 1));
+  } else if (std::strcmp(
+                 interface, wp_fractional_scale_manager_v1_interface.name) == 0) {
+    g->fractionalScale = static_cast<wp_fractional_scale_manager_v1 *>(
+        wl_registry_bind(registry, name,
+                         &wp_fractional_scale_manager_v1_interface, 1));
   }
 }
 void registryGlobalRemove(void *, wl_registry *, uint32_t) {}
@@ -136,6 +148,12 @@ PresenterGlobals *discoverGlobals(wl_display *display) {
                        nullptr);
   if (globals.dmabuf)
     wl_proxy_set_queue(reinterpret_cast<wl_proxy *>(globals.dmabuf), nullptr);
+  if (globals.viewporter)
+    wl_proxy_set_queue(reinterpret_cast<wl_proxy *>(globals.viewporter),
+                       nullptr);
+  if (globals.fractionalScale)
+    wl_proxy_set_queue(reinterpret_cast<wl_proxy *>(globals.fractionalScale),
+                       nullptr);
   wl_event_queue_destroy(queue);
 
   return &globals;
@@ -212,15 +230,19 @@ SubsurfacePresenter::tryCreate(QWindow *parent) {
   }
 
   PresenterGlobals *g = discoverGlobals(display);
-  if (!g->compositor || !g->subcompositor || !g->dmabuf) {
-    std::fprintf(stderr,
-                 "[ghastty] SubsurfacePresenter: compositor missing required "
-                 "globals (compositor=%p subcompositor=%p dmabuf=%p)\n",
-                 static_cast<void *>(g->compositor),
-                 static_cast<void *>(g->subcompositor),
-                 static_cast<void *>(g->dmabuf));
+  if (!g->compositor || !g->subcompositor || !g->dmabuf || !g->viewporter) {
+    std::fprintf(
+        stderr,
+        "[ghastty] SubsurfacePresenter: compositor missing required globals "
+        "(compositor=%p subcompositor=%p dmabuf=%p viewporter=%p)\n",
+        static_cast<void *>(g->compositor),
+        static_cast<void *>(g->subcompositor), static_cast<void *>(g->dmabuf),
+        static_cast<void *>(g->viewporter));
     return nullptr;
   }
+  // wp_fractional_scale_manager_v1 is optional — if missing we
+  // assume integer scale 1.0 and let wp_viewport.set_destination
+  // still do its job. Most modern compositors support it.
 
   wl_surface *child = wl_compositor_create_surface(g->compositor);
   if (!child) return nullptr;
@@ -244,12 +266,36 @@ SubsurfacePresenter::tryCreate(QWindow *parent) {
   // wayland surface and (0,0) is correct.
   wl_subsurface_set_position(sub, 0, 0);
 
+  // wp_viewport: per-surface object that lets us tell the compositor
+  // the destination size in surface-local coords, independent of
+  // the buffer's pixel dimensions. With fractional scaling we
+  // render at, say, 960x720 device pixels into an 800x600 surface
+  // area, and the viewport handles the mapping.
+  wp_viewport *viewport =
+      wp_viewporter_get_viewport(g->viewporter, child);
+  if (!viewport) {
+    wl_subsurface_destroy(sub);
+    wl_surface_destroy(child);
+    return nullptr;
+  }
+
+  // wp_fractional_scale_v1: subscribe to the compositor's
+  // per-surface preferred scale. Optional — if the global is
+  // missing we stick with default 120 (= 1.0×).
+  wp_fractional_scale_v1 *frac_scale = nullptr;
+  if (g->fractionalScale) {
+    frac_scale = wp_fractional_scale_manager_v1_get_fractional_scale(
+        g->fractionalScale, child);
+  }
+
   wl_display_flush(display);
   if (int err = wl_display_get_error(display); err != 0) {
     std::fprintf(stderr,
                  "[ghastty] SubsurfacePresenter: wl_display error %d after "
                  "subsurface creation\n",
                  err);
+    if (frac_scale) wp_fractional_scale_v1_destroy(frac_scale);
+    wp_viewport_destroy(viewport);
     wl_subsurface_destroy(sub);
     wl_surface_destroy(child);
     return nullptr;
@@ -257,23 +303,54 @@ SubsurfacePresenter::tryCreate(QWindow *parent) {
 
   std::fprintf(stderr,
                "[ghastty] SubsurfacePresenter: ready (parent=%p child=%p "
-               "sub=%p dmabuf=%p)\n",
+               "sub=%p dmabuf=%p viewport=%p frac_scale=%p)\n",
                static_cast<void *>(parentSurface), static_cast<void *>(child),
-               static_cast<void *>(sub), static_cast<void *>(g->dmabuf));
+               static_cast<void *>(sub), static_cast<void *>(g->dmabuf),
+               static_cast<void *>(viewport),
+               static_cast<void *>(frac_scale));
 
-  return std::unique_ptr<SubsurfacePresenter>(
-      new SubsurfacePresenter(display, child, sub, g->dmabuf));
+  return std::unique_ptr<SubsurfacePresenter>(new SubsurfacePresenter(
+      display, child, sub, g->dmabuf, viewport, frac_scale));
+}
+
+const wp_fractional_scale_v1_listener kFractionalScaleListener = {
+    SubsurfacePresenter::onPreferredScale,
+};
+
+void SubsurfacePresenter::onPreferredScale(void *data,
+                                            wp_fractional_scale_v1 *,
+                                            uint32_t scale) {
+  auto *self = static_cast<SubsurfacePresenter *>(data);
+  if (scale == 0) return; // guard against compositor bugs
+  if (scale != self->m_preferredScale120) {
+    std::fprintf(stderr,
+                 "[ghastty] SubsurfacePresenter: preferred scale %u/120 = "
+                 "%.3f\n",
+                 scale, static_cast<double>(scale) / 120.0);
+    self->m_preferredScale120 = scale;
+  }
 }
 
 SubsurfacePresenter::SubsurfacePresenter(wl_display *display, wl_surface *child,
                                          wl_subsurface *sub,
-                                         zwp_linux_dmabuf_v1 *dmabuf)
+                                         zwp_linux_dmabuf_v1 *dmabuf,
+                                         wp_viewport *viewport,
+                                         wp_fractional_scale_v1 *frac_scale)
     : m_display(display),
       m_childSurface(child),
       m_subsurface(sub),
-      m_dmabuf(dmabuf) {}
+      m_dmabuf(dmabuf),
+      m_viewport(viewport),
+      m_fractionalScale(frac_scale) {
+  if (m_fractionalScale) {
+    wp_fractional_scale_v1_add_listener(m_fractionalScale,
+                                         &kFractionalScaleListener, this);
+  }
+}
 
 SubsurfacePresenter::~SubsurfacePresenter() {
+  if (m_fractionalScale) wp_fractional_scale_v1_destroy(m_fractionalScale);
+  if (m_viewport) wp_viewport_destroy(m_viewport);
   if (m_subsurface) wl_subsurface_destroy(m_subsurface);
   if (m_childSurface) wl_surface_destroy(m_childSurface);
   if (m_display) wl_display_flush(m_display);
@@ -282,9 +359,10 @@ SubsurfacePresenter::~SubsurfacePresenter() {
 void SubsurfacePresenter::presentDmabuf(int fd, uint32_t drm_format,
                                         uint64_t drm_modifier, uint32_t width,
                                         uint32_t height, uint32_t stride,
-                                        int buffer_scale) {
-  if (fd < 0 || !m_dmabuf || !m_childSurface) return;
-  if (buffer_scale < 1) buffer_scale = 1;
+                                        int dest_width, int dest_height) {
+  if (fd < 0 || !m_dmabuf || !m_childSurface || !m_viewport) return;
+  if (dest_width <= 0) dest_width = 1;
+  if (dest_height <= 0) dest_height = 1;
 
   // Wrap libghostty's borrowed fd in a wl_buffer.
   zwp_linux_buffer_params_v1 *params =
@@ -308,24 +386,25 @@ void SubsurfacePresenter::presentDmabuf(int fd, uint32_t drm_format,
   }
   wl_buffer_add_listener(buffer, &kBufferListener, this);
 
-  // Set buffer scale only when it changes — calling on every present
-  // is harmless but the compositor's bookkeeping is cheaper if we
-  // skip the redundant request.
-  if (buffer_scale != m_lastBufferScale) {
-    // set_buffer_scale was added in wl_surface v3; guard against
-    // older compositors that bind us at v1/v2 (rare but possible).
-    if (wl_proxy_get_version(reinterpret_cast<wl_proxy *>(m_childSurface)) >= 3) {
-      wl_surface_set_buffer_scale(m_childSurface, buffer_scale);
-    }
-    m_lastBufferScale = buffer_scale;
+  // Tell the compositor the destination size in surface-local
+  // coordinates. With fractional scaling this is the logical pixel
+  // size (e.g. 800x600) while the buffer is at device pixels (e.g.
+  // 960x720 for 1.2× DPR). wp_viewport handles the mapping;
+  // wl_surface.set_buffer_scale is intentionally NOT used here
+  // because (a) it only supports integer scales, and (b) when
+  // wp_fractional_scale_v1 is active the protocol forbids using
+  // set_buffer_scale to anything other than 1.
+  if (dest_width != m_lastDestWidth || dest_height != m_lastDestHeight) {
+    wp_viewport_set_destination(m_viewport, dest_width, dest_height);
+    m_lastDestWidth = dest_width;
+    m_lastDestHeight = dest_height;
   }
 
   wl_surface_attach(m_childSurface, buffer, 0, 0);
   // Damage the full buffer extent — terminals tend to update large
   // dirty rects anyway (cursor blink, scroll, repaint) so a precise
   // damage region wouldn't save much, and `damage_buffer` (vs
-  // `damage`) uses buffer coordinates so it's resolution-correct
-  // regardless of buffer_scale.
+  // `damage`) uses buffer coordinates so it's resolution-correct.
   wl_surface_damage_buffer(m_childSurface, 0, 0, static_cast<int32_t>(width),
                            static_cast<int32_t>(height));
   wl_surface_commit(m_childSurface);

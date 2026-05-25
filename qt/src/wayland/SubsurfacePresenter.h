@@ -31,6 +31,8 @@ struct wl_display;
 struct wl_subsurface;
 struct wl_surface;
 struct zwp_linux_dmabuf_v1;
+struct wp_viewport;
+struct wp_fractional_scale_v1;
 class QWindow;
 
 namespace wayland {
@@ -82,26 +84,48 @@ public:
   // SCM_RIGHTS, so the compositor's reference survives even after
   // libghostty reuses or closes its handle.
   //
-  // `buffer_scale` is the Wayland buffer scale factor (1 for stock
-  // DPI, 2 for HiDPI, etc.) — set on the child surface so the
-  // compositor scales the buffer correctly relative to the parent's
-  // surface-local coordinates.
+  // `dest_width` / `dest_height` are the size of the subsurface in
+  // PARENT surface-local coordinates (i.e. logical pixels). For
+  // integer scales they match the buffer dimensions divided by the
+  // scale; for fractional scales they're independent (set via
+  // wp_viewport.set_destination, which decouples buffer dimensions
+  // from surface area).
   void presentDmabuf(int fd, uint32_t drm_format, uint64_t drm_modifier,
                      uint32_t width, uint32_t height, uint32_t stride,
-                     int buffer_scale);
+                     int dest_width, int dest_height);
+
+  // Compositor-preferred fractional scale for this surface, in
+  // units of 1/120 (e.g. 144 = 1.2, 180 = 1.5, 240 = 2.0). Returns
+  // 120 (= 1.0) until the compositor sends its first
+  // wp_fractional_scale_v1.preferred_scale event for our surface.
+  // Renderer / GhosttySurface size their buffers at
+  // `logical * preferredScale120() / 120` device pixels.
+  uint32_t preferredScale120() const { return m_preferredScale120; }
+
+  // Called from the wp_fractional_scale_v1.preferred_scale event.
+  // Public so the C-style listener struct at file scope in the .cpp
+  // can name it; not part of the API for other call sites.
+  static void onPreferredScale(void *data, wp_fractional_scale_v1 *,
+                                uint32_t scale);
 
   SubsurfacePresenter(const SubsurfacePresenter &) = delete;
   SubsurfacePresenter &operator=(const SubsurfacePresenter &) = delete;
 
 private:
   SubsurfacePresenter(wl_display *display, wl_surface *child,
-                      wl_subsurface *sub, zwp_linux_dmabuf_v1 *dmabuf);
+                      wl_subsurface *sub, zwp_linux_dmabuf_v1 *dmabuf,
+                      wp_viewport *viewport,
+                      wp_fractional_scale_v1 *frac_scale);
 
   wl_display *m_display;
   wl_surface *m_childSurface;
   wl_subsurface *m_subsurface;
   zwp_linux_dmabuf_v1 *m_dmabuf;
-  int m_lastBufferScale = 0;
+  wp_viewport *m_viewport;
+  wp_fractional_scale_v1 *m_fractionalScale;
+  uint32_t m_preferredScale120 = 120; // default: 1.0×
+  int m_lastDestWidth = 0;
+  int m_lastDestHeight = 0;
 };
 
 } // namespace wayland

@@ -458,14 +458,12 @@ void GhosttySurface::renderTerminal() {
     premultiplyFramebuffer();
     m_eglTarget->release();
     if (m_subsurfacePresenter) {
-      const int scale =
-          std::max(1, static_cast<int>(std::lround(devicePixelRatioF())));
       m_subsurfacePresenter->presentDmabuf(
           m_eglTarget->fd(), m_eglTarget->drmFormat(),
           m_eglTarget->drmModifier(),
           static_cast<quint32>(m_eglTarget->width()),
           static_cast<quint32>(m_eglTarget->height()), m_eglTarget->stride(),
-          scale);
+          width(), height());
     }
     // The terminal pixels reach the compositor via the subsurface,
     // not via QPainter — but chrome (overlays, dim, bell flash)
@@ -1529,11 +1527,14 @@ void GhosttySurface::drainVulkan() {
       frame = m_pendingDmabuf;
       m_pendingDmabuf.fd = -1;  // mark consumed
     }
-    const int scale =
-        std::max(1, static_cast<int>(std::lround(devicePixelRatioF())));
-    m_subsurfacePresenter->presentDmabuf(frame.fd, frame.drm_format,
-                                          frame.drm_modifier, frame.width,
-                                          frame.height, frame.stride, scale);
+    // Logical widget size = wp_viewport destination. Buffer is at
+    // device pixels (frame.width × frame.height); viewport stretches
+    // it to (width(), height()) surface-local coords. Handles
+    // fractional DPR correctly without forcing buffer_scale to an
+    // integer.
+    m_subsurfacePresenter->presentDmabuf(
+        frame.fd, frame.drm_format, frame.drm_modifier, frame.width,
+        frame.height, frame.stride, width(), height());
     return;
   }
 
