@@ -204,11 +204,10 @@ extension Ghostty {
         // This is the title from the terminal. This is nil if we're currently using
         // the terminal title as the main title property. If the title is set manually
         // by the user, this is set to the prior value (which may be empty, but non-nil).
-        @Published private var titleFromTerminal: String?
+        private var titleFromTerminal: String?
 
-        /// True when the user has manually pinned the title.
-        /// `SurfaceTitleBar` reads this to decide whether to show the OSC title or CWD.
-        var isUserSetTitle: Bool { titleFromTerminal != nil }
+        /// True when the user has manually pinned the title. @Published so SurfaceTitleBar re-renders on pin state changes.
+        @Published private(set) var isUserSetTitle: Bool = false
 
         /// Set or clear the pinned title.
         /// - Parameter newTitle: Non-empty string to pin; nil or empty to clear and restore OSC behavior.
@@ -218,11 +217,15 @@ extension Ghostty {
                 if titleFromTerminal == nil {
                     titleFromTerminal = title
                 }
+                isUserSetTitle = true
                 title = newTitle
             } else {
+                // No-op if nothing is pinned.
+                guard isUserSetTitle else { return }
                 // Clear pin — restore the last OSC-provided title immediately.
                 let prevTitle = titleFromTerminal ?? "👻"
                 titleFromTerminal = nil
+                isUserSetTitle = false
                 title = prevTitle
             }
         }
@@ -569,24 +572,8 @@ extension Ghostty {
 
             let completionHandler: (NSApplication.ModalResponse) -> Void = { [weak self] response in
                 guard let self else { return }
-
-                // Check if the user clicked "OK"
-                guard response == .alertFirstButtonReturn  else { return }
-
-                // Get the input text
-                let newTitle = textField.stringValue
-                if newTitle.isEmpty {
-                    // Empty means that user wants the title to be set automatically
-                    // We also need to reload the config for the "title" property to be
-                    // used again by this tab.
-                    let prevTitle = titleFromTerminal ?? "👻"
-                    titleFromTerminal = nil
-                    setTitle(prevTitle)
-                } else {
-                    // Set the title and prevent it from being changed automatically
-                    titleFromTerminal = title
-                    title = newTitle
-                }
+                guard response == .alertFirstButtonReturn else { return }
+                self.setPinnedTitle(textField.stringValue.isEmpty ? nil : textField.stringValue)
             }
 
             // We prefer to run our alert in a sheet modal if we have a window.
@@ -1851,6 +1838,7 @@ extension Ghostty {
                 // If this was a user-set title, we need to prevent it from being overwritten
                 if isUserSetTitle {
                     self.titleFromTerminal = title
+                    self.isUserSetTitle = true
                 }
             }
         }
@@ -1860,7 +1848,7 @@ extension Ghostty {
             try container.encode(pwd, forKey: .pwd)
             try container.encode(id.uuidString, forKey: .uuid)
             try container.encode(title, forKey: .title)
-            try container.encode(titleFromTerminal != nil, forKey: .isUserSetTitle)
+            try container.encode(isUserSetTitle, forKey: .isUserSetTitle)
         }
     }
 }
