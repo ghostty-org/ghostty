@@ -249,6 +249,17 @@ void GhosttySurface::syncSurfaceSize() {
         m_subsurfacePresenter) {
       ghostty_surface_draw(m_surface);
       drainVulkan(); // runs presentDmabuf at the new size + commits
+      // Force an immediate paintEvent — repaint() bypasses Qt's
+      // event queue and runs synchronously, which (importantly)
+      // flushes Qt's backing store and commits the PARENT
+      // wl_surface right here. In sync mode our cached child
+      // subsurface state (the new-size dmabuf we just attached
+      // in drainVulkan) applies atomically with that parent
+      // commit, matching the old QPainter-blit path's atomicity:
+      // resize + new-size terminal content land in the same
+      // compositor frame instead of update()'s "next event loop
+      // turn" deferral.
+      repaint();
       return;
     }
 
