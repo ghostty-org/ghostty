@@ -48,14 +48,19 @@ pub const MIN_API_VERSION = vk.VK_API_VERSION_1_3;
 /// VkDevice setup. The host must have created its VkDevice with
 /// these enabled; we only verify availability here.
 ///
-/// Note: `VK_EXT_image_drm_format_modifier` is intentionally NOT
-/// required yet — `vulkan/Target.zig` currently uses
-/// `VK_IMAGE_TILING_LINEAR` for dmabuf export, which only needs the
-/// two extensions below. When the driver-chosen modifier path lands,
-/// add the modifier extension back here.
+/// `VK_EXT_image_drm_format_modifier` is what lets
+/// `vulkan/Target.zig` probe the per-modifier feature set (in
+/// particular: does `DRM_FORMAT_MOD_LINEAR` advertise
+/// `COLOR_ATTACHMENT_BIT`?) and, when supported, allocate the render
+/// image with `VkImageDrmFormatModifierExplicitCreateInfoEXT` so its
+/// memory can be exported as a dmabuf directly — no separate LINEAR
+/// `VkBuffer` and no end-of-frame `vkCmdCopyImageToBuffer`. Drivers
+/// where the modifier path can't satisfy the requested features fall
+/// back to the legacy OPTIMAL-plus-copy path inside `Target`.
 pub const REQUIRED_DEVICE_EXTENSIONS = [_][:0]const u8{
     "VK_KHR_external_memory_fd",
     "VK_EXT_external_memory_dma_buf",
+    "VK_EXT_image_drm_format_modifier",
 };
 
 /// Errors that can come out of `init`.
@@ -84,6 +89,13 @@ pub const Dispatch = struct {
     getPhysicalDeviceProperties: std.meta.Child(vk.PFN_vkGetPhysicalDeviceProperties),
     getPhysicalDeviceMemoryProperties: std.meta.Child(vk.PFN_vkGetPhysicalDeviceMemoryProperties),
     getPhysicalDeviceFormatProperties: std.meta.Child(vk.PFN_vkGetPhysicalDeviceFormatProperties),
+    /// Used by `Target` to chain `VkDrmFormatModifierPropertiesListEXT`
+    /// and enumerate which DRM modifiers the device exposes for a
+    /// given format. Vulkan 1.1 promoted `vkGetPhysicalDeviceFormatProperties2`
+    /// from `VK_KHR_get_physical_device_properties2` into core, so we
+    /// resolve it under the non-suffixed name — `MIN_API_VERSION` is
+    /// 1.3 (see line 45), well past the promotion.
+    getPhysicalDeviceFormatProperties2: std.meta.Child(vk.PFN_vkGetPhysicalDeviceFormatProperties2),
     enumerateDeviceExtensionProperties: std.meta.Child(vk.PFN_vkEnumerateDeviceExtensionProperties),
     getDeviceProcAddr: std.meta.Child(vk.PFN_vkGetDeviceProcAddr),
 
@@ -307,6 +319,8 @@ pub fn init(
         try il.load(vk.PFN_vkGetPhysicalDeviceMemoryProperties, "vkGetPhysicalDeviceMemoryProperties");
     const get_physical_device_format_properties =
         try il.load(vk.PFN_vkGetPhysicalDeviceFormatProperties, "vkGetPhysicalDeviceFormatProperties");
+    const get_physical_device_format_properties_2 =
+        try il.load(vk.PFN_vkGetPhysicalDeviceFormatProperties2, "vkGetPhysicalDeviceFormatProperties2");
     const enumerate_device_extension_properties =
         try il.load(vk.PFN_vkEnumerateDeviceExtensionProperties, "vkEnumerateDeviceExtensionProperties");
     const get_device_proc_addr =
@@ -499,6 +513,7 @@ pub fn init(
             .getPhysicalDeviceProperties = get_physical_device_properties,
             .getPhysicalDeviceMemoryProperties = get_physical_device_memory_properties,
             .getPhysicalDeviceFormatProperties = get_physical_device_format_properties,
+            .getPhysicalDeviceFormatProperties2 = get_physical_device_format_properties_2,
             .enumerateDeviceExtensionProperties = enumerate_device_extension_properties,
             .getDeviceProcAddr = get_device_proc_addr,
             .getDeviceQueue = get_device_queue,

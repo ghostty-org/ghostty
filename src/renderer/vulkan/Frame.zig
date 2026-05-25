@@ -112,9 +112,10 @@ pub fn complete(self: *const Self, sync: bool) void {
     _ = sync;
     const dev = self.device;
 
-    // Copy the just-rendered OPTIMAL-tiled image into the
-    // dmabuf-exported LINEAR pixel buffer. See `Target.zig` for why.
-    self.target.recordCopyToDmabuf(self.cb);
+    // Make the rendered pixels visible to the host's mmap read. In
+    // `.direct` mode this is just a memory barrier; in `.legacy_copy`
+    // mode it also runs `vkCmdCopyImageToBuffer`. See `Target.zig`.
+    self.target.recordPresentBarrier(self.cb);
 
     {
         const r = dev.dispatch.endCommandBuffer(self.cb);

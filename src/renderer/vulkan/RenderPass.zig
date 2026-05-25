@@ -448,8 +448,9 @@ pub fn complete(self: *const Self) void {
     // and some drivers can mishandle sampling from an out-of-spec
     // layout). A `.target` attachment is the dmabuf-backed
     // `frame.target`; the next op is
-    // `Target.recordCopyToDmabuf` which transitions from GENERAL
-    // anyway, so leave it in GENERAL here.
+    // `Target.recordPresentBarrier` which expects GENERAL on entry
+    // (it either stays in GENERAL in `.direct` mode or transitions to
+    // TRANSFER_SRC_OPTIMAL in `.legacy_copy`), so leave it in GENERAL here.
     const image: vk.VkImage, const new_layout: vk.VkImageLayout, const dst_stage: vk.VkPipelineStageFlags, const dst_access: vk.VkAccessFlags =
         switch (self.attachments[0].target) {
             .texture => |t| .{
