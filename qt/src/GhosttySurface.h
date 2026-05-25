@@ -150,20 +150,30 @@ public:
   void setPwd(const QString &pwd);
   const QString &pwd() const { return m_pwd; }
 
-  // Apprt-side entry point for the Vulkan `present` callback.
-  // libghostty hands us a dmabuf fd pointing at the rendered
-  // VkImage's memory; we mmap it (LINEAR tiling means the bytes
-  // are directly readable as BGRA), copy the pixels into a QImage,
-  // and schedule a repaint. Thread-safe: the callback fires from
-  // the renderer thread; the QImage handoff goes through
-  // `QMetaObject::invokeMethod` to the GUI thread.
+  // Apprt-side entry point for the Vulkan `present` callback. Fires
+  // on the renderer thread. Parks the dmabuf descriptor under
+  // `m_pendingMutex` (plus, for the legacy fallback path, an
+  // mmap+memcpy'd QImage) and wakes the GUI thread via
+  // `QMetaObject::invokeMethod(this, drainVulkan, Qt::QueuedConnection)`.
+  // The GUI thread either commits the dmabuf to the wl_subsurface
+  // (zero-copy) or paints the QImage (fallback). A 2 ms safety-net
+  // poll catches anything `invokeMethod` ever fails to deliver.
   Q_INVOKABLE void presentVulkanDmabuf(
       int dmabuf_fd,
       quint32 drm_format,
       quint64 drm_modifier,
       quint32 width,
       quint32 height,
-      quint32 stride);
+      quint32 stride,
+      bool image_backed);
+
+  // GUI-thread drain step: hands the most recent pending frame
+  // either to the SubsurfacePresenter (zero-copy path) or the
+  // QImage paint pipeline (fallback). Idempotent: returns
+  // immediately if nothing's pending. Invoked from the polling
+  // safety net AND from queued invocations triggered by the
+  // renderer thread.
+  Q_INVOKABLE void drainVulkan();
 
 protected:
   bool event(QEvent *) override;
@@ -244,15 +254,35 @@ private:
   // gives way to the actual rendered content.
   bool m_useVulkan = false;
 
-  // Cross-thread frame handoff for the Vulkan path. `presentVulkanDmabuf`
-  // (renderer thread) writes a freshly-imported QImage to `m_pending`
-  // under `m_pendingMutex`; a 16 ms `QTimer` on the GUI thread checks
-  // `m_pending`, atomically swaps it into `m_image`, and triggers a
-  // repaint. The polling timer is the simplest reliable cross-thread
-  // path we could land — the obvious Qt mechanisms
-  // (QMetaObject::invokeMethod / postEvent) were both not firing
-  // their queued lambdas under the renderer-thread → GUI-thread
-  // handoff, see the commit message for diagnostics.
+  // Cross-thread frame handoff for the Vulkan path. The renderer
+  // thread calls `presentVulkanDmabuf` with a borrowed dmabuf fd; a
+  // 16 ms `QTimer` on the GUI thread drains the pending frame and
+  // routes it through the wl_subsurface (zero-copy) when the
+  // SubsurfacePresenter is available, or falls back to the
+  // mmap+memcpy+QImage path otherwise. The polling timer was kept
+  // (rather than QMetaObject::invokeMethod) because queued lambdas
+  // from the renderer thread were unreliable in earlier diagnostics.
+  //
+  // `m_useSubsurface` is set once on the GUI thread when the
+  // presenter comes up; the renderer thread reads it acquire-style
+  // to decide which path to populate per frame.
+  std::atomic<bool> m_useSubsurface{false};
+  // Subsurface (zero-copy) path: renderer thread parks the
+  // borrowed-fd descriptor here; GUI-thread timer hands it to the
+  // presenter.
+  struct PendingDmabuf {
+    int fd = -1;
+    quint32 drm_format = 0;
+    quint64 drm_modifier = 0;
+    quint32 width = 0;
+    quint32 height = 0;
+    quint32 stride = 0;
+  };
+  PendingDmabuf m_pendingDmabuf;
+  // Legacy (mmap+memcpy) path: kept as a fallback when the
+  // presenter isn't available (e.g. compositor missing
+  // linux-dmabuf-v1). When the subsurface path is active this stays
+  // null and paintEvent skips its blit.
   QImage m_pending;
   QMutex m_pendingMutex;
   QTimer *m_vulkanPollTimer = nullptr;

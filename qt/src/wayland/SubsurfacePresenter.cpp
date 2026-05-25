@@ -10,6 +10,8 @@
 
 #include <wayland-client.h>
 
+#include "linux-dmabuf-v1-client-protocol.h"
+
 namespace wayland {
 
 namespace {
@@ -21,6 +23,7 @@ namespace {
 struct PresenterGlobals {
   wl_compositor *compositor = nullptr;
   wl_subcompositor *subcompositor = nullptr;
+  zwp_linux_dmabuf_v1 *dmabuf = nullptr;
   bool searched = false;
 };
 
@@ -33,6 +36,14 @@ void registryGlobal(void *data, wl_registry *registry, uint32_t name,
   } else if (std::strcmp(interface, wl_subcompositor_interface.name) == 0) {
     g->subcompositor = static_cast<wl_subcompositor *>(
         wl_registry_bind(registry, name, &wl_subcompositor_interface, 1));
+  } else if (std::strcmp(interface, zwp_linux_dmabuf_v1_interface.name) == 0) {
+    // v3 has `create_immed`, which we want (synchronous wl_buffer
+    // creation — the v2 async `create` + `created`/`failed` event
+    // dance would add a layer of callback machinery for no real win
+    // in our renderer's strict-fd-validity scenario). v4 adds the
+    // dynamic format/modifier feedback dance; we don't need it yet.
+    g->dmabuf = static_cast<zwp_linux_dmabuf_v1 *>(wl_registry_bind(
+        registry, name, &zwp_linux_dmabuf_v1_interface, 3));
   }
 }
 void registryGlobalRemove(void *, wl_registry *, uint32_t) {}
@@ -63,10 +74,25 @@ PresenterGlobals *discoverGlobals(wl_display *display) {
   if (globals.subcompositor)
     wl_proxy_set_queue(reinterpret_cast<wl_proxy *>(globals.subcompositor),
                        nullptr);
+  if (globals.dmabuf)
+    wl_proxy_set_queue(reinterpret_cast<wl_proxy *>(globals.dmabuf), nullptr);
   wl_event_queue_destroy(queue);
 
   return &globals;
 }
+
+// wl_buffer::release listener: the compositor is done sampling the
+// buffer for any committed surface state, so we can destroy our
+// client-side handle. The underlying dmabuf memory is owned by
+// libghostty; we never close that fd here (the SCM_RIGHTS transfer
+// in zwp_linux_buffer_params.add gave the compositor its own
+// reference, which lives independently of our wl_buffer).
+void bufferRelease(void *, wl_buffer *buffer) {
+  wl_buffer_destroy(buffer);
+}
+const wl_buffer_listener kBufferListener = {
+    bufferRelease,
+};
 
 } // namespace
 
@@ -74,9 +100,6 @@ std::unique_ptr<SubsurfacePresenter>
 SubsurfacePresenter::tryCreate(QWindow *parent) {
   if (!parent) return nullptr;
 
-  // The Qt frontend is Wayland-only; if we're not on Wayland, the
-  // native-interface lookups below would return null anyway, but
-  // bail explicitly so the log message is useful.
   if (!QGuiApplication::platformName().startsWith(QLatin1String("wayland"))) {
     std::fprintf(stderr,
                  "[ghastty] SubsurfacePresenter: not on Wayland QPA\n");
@@ -100,13 +123,13 @@ SubsurfacePresenter::tryCreate(QWindow *parent) {
   }
 
   PresenterGlobals *g = discoverGlobals(display);
-  if (!g->compositor || !g->subcompositor) {
+  if (!g->compositor || !g->subcompositor || !g->dmabuf) {
     std::fprintf(stderr,
-                 "[ghastty] SubsurfacePresenter: compositor lacks "
-                 "wl_compositor or wl_subcompositor (compositor=%p "
-                 "subcompositor=%p)\n",
+                 "[ghastty] SubsurfacePresenter: compositor missing required "
+                 "globals (compositor=%p subcompositor=%p dmabuf=%p)\n",
                  static_cast<void *>(g->compositor),
-                 static_cast<void *>(g->subcompositor));
+                 static_cast<void *>(g->subcompositor),
+                 static_cast<void *>(g->dmabuf));
     return nullptr;
   }
 
@@ -126,18 +149,13 @@ SubsurfacePresenter::tryCreate(QWindow *parent) {
   // for the parent's next commit. `set_desync` is what allows that.
   wl_subsurface_set_desync(sub);
 
-  // Subsurface covers the parent at the origin. Phase 3 will keep
-  // this in sync on resize; for Phase 2 it doesn't matter because
-  // we never attach a buffer.
+  // Subsurface covers the parent at the origin. Phase 4 will keep
+  // this in sync on splits/tabs/etc.; for now the GhosttySurface
+  // forces WA_NativeWindow so its QWindow IS the terminal's native
+  // wayland surface and (0,0) is correct.
   wl_subsurface_set_position(sub, 0, 0);
 
-  // Flush so the compositor sees the subsurface creation. We do NOT
-  // commit the child surface — per protocol an uncommitted subsurface
-  // with no attached buffer contributes nothing to the parent's
-  // display, which is exactly the no-behavior-change state we want
-  // for Phase 2.
   wl_display_flush(display);
-
   if (int err = wl_display_get_error(display); err != 0) {
     std::fprintf(stderr,
                  "[ghastty] SubsurfacePresenter: wl_display error %d after "
@@ -149,23 +167,83 @@ SubsurfacePresenter::tryCreate(QWindow *parent) {
   }
 
   std::fprintf(stderr,
-               "[ghastty] SubsurfacePresenter: subsurface ready (parent=%p "
-               "child=%p sub=%p)\n",
-               static_cast<void *>(parentSurface),
-               static_cast<void *>(child), static_cast<void *>(sub));
+               "[ghastty] SubsurfacePresenter: ready (parent=%p child=%p "
+               "sub=%p dmabuf=%p)\n",
+               static_cast<void *>(parentSurface), static_cast<void *>(child),
+               static_cast<void *>(sub), static_cast<void *>(g->dmabuf));
 
   return std::unique_ptr<SubsurfacePresenter>(
-      new SubsurfacePresenter(display, child, sub));
+      new SubsurfacePresenter(display, child, sub, g->dmabuf));
 }
 
 SubsurfacePresenter::SubsurfacePresenter(wl_display *display, wl_surface *child,
-                                         wl_subsurface *sub)
-    : m_display(display), m_childSurface(child), m_subsurface(sub) {}
+                                         wl_subsurface *sub,
+                                         zwp_linux_dmabuf_v1 *dmabuf)
+    : m_display(display),
+      m_childSurface(child),
+      m_subsurface(sub),
+      m_dmabuf(dmabuf) {}
 
 SubsurfacePresenter::~SubsurfacePresenter() {
   if (m_subsurface) wl_subsurface_destroy(m_subsurface);
   if (m_childSurface) wl_surface_destroy(m_childSurface);
   if (m_display) wl_display_flush(m_display);
+}
+
+void SubsurfacePresenter::presentDmabuf(int fd, uint32_t drm_format,
+                                        uint64_t drm_modifier, uint32_t width,
+                                        uint32_t height, uint32_t stride,
+                                        int buffer_scale) {
+  if (fd < 0 || !m_dmabuf || !m_childSurface) return;
+  if (buffer_scale < 1) buffer_scale = 1;
+
+  // Wrap libghostty's borrowed fd in a wl_buffer.
+  zwp_linux_buffer_params_v1 *params =
+      zwp_linux_dmabuf_v1_create_params(m_dmabuf);
+  if (!params) return;
+  zwp_linux_buffer_params_v1_add(params, fd, /*plane_idx*/ 0,
+                                 /*offset*/ 0, stride,
+                                 static_cast<uint32_t>(drm_modifier >> 32),
+                                 static_cast<uint32_t>(drm_modifier & 0xFFFFFFFFu));
+  wl_buffer *buffer = zwp_linux_buffer_params_v1_create_immed(
+      params, static_cast<int32_t>(width), static_cast<int32_t>(height),
+      drm_format, /*flags*/ 0);
+  zwp_linux_buffer_params_v1_destroy(params);
+  if (!buffer) {
+    std::fprintf(stderr,
+                 "[ghastty] SubsurfacePresenter: create_immed returned null "
+                 "(fd=%d %ux%u fmt=0x%x mod=0x%llx)\n",
+                 fd, width, height, drm_format,
+                 static_cast<unsigned long long>(drm_modifier));
+    return;
+  }
+  wl_buffer_add_listener(buffer, &kBufferListener, this);
+
+  // Set buffer scale only when it changes — calling on every present
+  // is harmless but the compositor's bookkeeping is cheaper if we
+  // skip the redundant request.
+  if (buffer_scale != m_lastBufferScale) {
+    wl_surface_set_buffer_scale(m_childSurface, buffer_scale);
+    m_lastBufferScale = buffer_scale;
+  }
+
+  wl_surface_attach(m_childSurface, buffer, 0, 0);
+  // Damage the full buffer extent — terminals tend to update large
+  // dirty rects anyway (cursor blink, scroll, repaint) so a precise
+  // damage region wouldn't save much, and `damage_buffer` (vs
+  // `damage`) uses buffer coordinates so it's resolution-correct
+  // regardless of buffer_scale.
+  wl_surface_damage_buffer(m_childSurface, 0, 0, static_cast<int32_t>(width),
+                           static_cast<int32_t>(height));
+  wl_surface_commit(m_childSurface);
+
+  wl_display_flush(m_display);
+  if (int err = wl_display_get_error(m_display); err != 0) {
+    std::fprintf(
+        stderr,
+        "[ghastty] SubsurfacePresenter: wl_display error %d after present\n",
+        err);
+  }
 }
 
 } // namespace wayland

@@ -428,7 +428,12 @@ pub const Platform = union(PlatformTag) {
         /// host imports it for composition; libghostty retains
         /// ownership of the underlying VkDeviceMemory and the fd is
         /// valid only for the duration of the call (host must `dup()`
-        /// if it needs to hold the fd longer).
+        /// if it needs to hold the fd longer). `image_backed` tells
+        /// the host whether the fd was exported from a VkImage
+        /// (directly importable as a 2D image via linux-dmabuf-v1)
+        /// or from a VkBuffer (only usable via mmap + CPU readback);
+        /// see `vulkan/Target.zig` and `include/ghostty.h` for the
+        /// full rationale.
         present: *const fn (
             ?*anyopaque,
             i32, // dmabuf fd
@@ -437,6 +442,7 @@ pub const Platform = union(PlatformTag) {
             u32, // width (pixels)
             u32, // height (pixels)
             u32, // stride (bytes)
+            bool, // image_backed
         ) callconv(.c) void,
     };
 
@@ -481,6 +487,7 @@ pub const Platform = union(PlatformTag) {
                 u32,
                 u32,
                 u32,
+                bool,
             ) callconv(.c) void,
         },
     };

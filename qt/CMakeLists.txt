@@ -71,6 +71,21 @@ add_custom_command(OUTPUT "${BLUR_CODE}"
   COMMAND "${WAYLAND_SCANNER}" private-code "${BLUR_XML}" "${BLUR_CODE}"
   DEPENDS "${BLUR_XML}" VERBATIM)
 
+# Generate client glue for the linux-dmabuf-v1 protocol (used by the
+# Vulkan present path: wrap libghostty's dmabuf fd in a wl_buffer and
+# attach it to the wayland::SubsurfacePresenter's wl_surface). Vendored
+# in qt/protocols/ so the build doesn't depend on
+# /usr/share/wayland-protocols being installed.
+set(DMABUF_XML "${CMAKE_CURRENT_SOURCE_DIR}/protocols/linux-dmabuf-v1.xml")
+set(DMABUF_HEADER "${CMAKE_CURRENT_BINARY_DIR}/linux-dmabuf-v1-client-protocol.h")
+set(DMABUF_CODE "${CMAKE_CURRENT_BINARY_DIR}/linux-dmabuf-v1-protocol.c")
+add_custom_command(OUTPUT "${DMABUF_HEADER}"
+  COMMAND "${WAYLAND_SCANNER}" client-header "${DMABUF_XML}" "${DMABUF_HEADER}"
+  DEPENDS "${DMABUF_XML}" VERBATIM)
+add_custom_command(OUTPUT "${DMABUF_CODE}"
+  COMMAND "${WAYLAND_SCANNER}" private-code "${DMABUF_XML}" "${DMABUF_CODE}"
+  DEPENDS "${DMABUF_XML}" VERBATIM)
+
 # libghostty is built out-of-tree by Zig.
 get_filename_component(GHOSTTY_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 set(GHOSTTY_LIB_DIR "${GHOSTTY_ROOT}/zig-out/lib")
@@ -152,6 +167,8 @@ add_executable(ghastty
   src/XkbTracker.cpp
   "${BLUR_CODE}"
   "${BLUR_HEADER}"
+  "${DMABUF_CODE}"
+  "${DMABUF_HEADER}"
 )
 
 # Embed the app icon so it is available even running from the build tree.

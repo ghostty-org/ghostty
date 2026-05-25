@@ -747,6 +747,11 @@ pub fn present(self: *const Self) void {
     // Fall back to the device's singleton copy when no platform was
     // attached (only the smoke test does this).
     const platform = if (self.platform) |p| p else self.device.platform;
+    // `image_backed` is the host's signal that this fd is importable
+    // by a 2D-image consumer (Wayland linux-dmabuf-v1, Vulkan
+    // external image, etc.). True in `.direct` mode where the fd was
+    // exported from a VkImage; false in `.legacy_copy` where it was
+    // exported from a VkBuffer and can only be read via mmap.
     platform.present(
         platform.userdata,
         self.fd,
@@ -755,6 +760,7 @@ pub fn present(self: *const Self) void {
         self.width,
         self.height,
         self.stride,
+        self.tiling == .direct,
     );
 }
 

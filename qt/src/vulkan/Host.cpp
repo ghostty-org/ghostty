@@ -22,7 +22,8 @@ void presentToGhosttySurface(
     uint64_t drm_modifier,
     uint32_t width,
     uint32_t height,
-    uint32_t stride);
+    uint32_t stride,
+    bool image_backed);
 
 namespace {
 
@@ -114,10 +115,11 @@ void cbPresent(
     uint64_t drm_modifier,
     uint32_t width,
     uint32_t height,
-    uint32_t stride) {
+    uint32_t stride,
+    bool image_backed) {
   if (ud == nullptr) return;
-  ::vulkan::presentToGhosttySurface(ud, dmabuf_fd, drm_format,
-                                    drm_modifier, width, height, stride);
+  ::vulkan::presentToGhosttySurface(ud, dmabuf_fd, drm_format, drm_modifier,
+                                    width, height, stride, image_backed);
 }
 
 } // namespace

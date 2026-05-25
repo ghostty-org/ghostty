@@ -127,21 +127,18 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
     sc.platform_tag = GHOSTTY_PLATFORM_VULKAN;
     sc.platform.vulkan = vk_host->asPlatform(this);
 
-    // Polling timer on the GUI thread: every 16ms, check if the
-    // renderer thread parked a new frame in `m_pending` and swap
-    // it into `m_image` for paintEvent to pick up.
+    // GUI-thread frame drain. The renderer thread wakes us per frame
+    // via QMetaObject::invokeMethod (Qt::QueuedConnection) on each
+    // present — see `presentVulkanDmabuf`. The 2 ms timer is a
+    // safety net: if `invokeMethod` ever fails to deliver (the
+    // earlier QImage-handoff diagnostics suggested this could
+    // happen), the next tick drains the parked frame within at most
+    // 2 ms. Idle case has negligible CPU cost because `drainVulkan`
+    // returns immediately when nothing is pending.
     m_vulkanPollTimer = new QTimer(this);
-    m_vulkanPollTimer->setInterval(16);  // ≈60 Hz
-    connect(m_vulkanPollTimer, &QTimer::timeout, this, [this]() {
-      QImage frame;
-      {
-        QMutexLocker lock(&m_pendingMutex);
-        if (m_pending.isNull()) return;
-        frame = std::move(m_pending);
-      }
-      m_image = std::move(frame);
-      update();
-    });
+    m_vulkanPollTimer->setInterval(2);
+    connect(m_vulkanPollTimer, &QTimer::timeout, this,
+            [this]() { drainVulkan(); });
     m_vulkanPollTimer->start();
   } else {
     sc.platform_tag = GHOSTTY_PLATFORM_OPENGL;
@@ -324,9 +321,18 @@ bool GhosttySurface::event(QEvent *e) {
         // WA_NativeWindow ensures windowHandle() is non-null even if
         // GhosttySurface is embedded in a non-native parent.
         setAttribute(Qt::WA_NativeWindow);
-        if (auto *h = windowHandle())
+        if (auto *h = windowHandle()) {
           m_subsurfacePresenter =
               wayland::SubsurfacePresenter::tryCreate(h);
+          if (m_subsurfacePresenter && m_useVulkan) {
+            // Flip the Vulkan present path over to the zero-copy
+            // wl_subsurface route. Release-style store pairs with
+            // the renderer thread's acquire-load — once it observes
+            // true, it stops parking QImages and just hands us the
+            // dmabuf descriptor for compositor handoff.
+            m_useSubsurface.store(true, std::memory_order_release);
+          }
+        }
       }
     } else if (e->type() == QEvent::Hide) {
       ghostty_surface_set_occlusion(m_surface, false);
@@ -424,6 +430,14 @@ void GhosttySurface::renderTerminal() {
 }
 
 void GhosttySurface::paintEvent(QPaintEvent *) {
+  // Subsurface zero-copy path: the wl_subsurface IS the terminal
+  // pixels — they reach the compositor without ever touching our
+  // QPainter. With `WA_TranslucentBackground` set, the QWidget
+  // paints transparent over the subsurface so chrome (dim overlay,
+  // bell flash, resize hint) still composites on top.
+  const bool subsurfaceActive =
+      m_useSubsurface.load(std::memory_order_acquire) && m_subsurfacePresenter;
+
   // No frame yet — leave the widget background untouched. With
   // `WA_TranslucentBackground` set the area is transparent until
   // the first frame imports, matching the OpenGL path. New surfaces
@@ -431,18 +445,20 @@ void GhosttySurface::paintEvent(QPaintEvent *) {
   // thread has emitted its first frame; the gap is short enough
   // that flashing a debug placeholder is more jarring than the
   // brief see-through.
-  if (m_image.isNull()) return;
+  if (!subsurfaceActive && m_image.isNull()) return;
   QPainter painter(this);
-  // Blit the framebuffer 1:1. m_image carries the device pixel ratio, so
-  // the QPointF overload draws it at its true logical size. When in
-  // sync that exactly fills the widget; mid-resize, the previous frame
-  // stays at its real size in the top-left corner (rather than being
-  // stretched to the new widget rect, which the user dislikes more
-  // than the transient gap).
-  // CompositionMode_Source replaces the transparent widget pixels with
-  // the terminal image, alpha included, so its translucency is kept.
-  painter.setCompositionMode(QPainter::CompositionMode_Source);
-  painter.drawImage(QPointF(0, 0), m_image);
+  if (!subsurfaceActive) {
+    // Blit the framebuffer 1:1. m_image carries the device pixel ratio, so
+    // the QPointF overload draws it at its true logical size. When in
+    // sync that exactly fills the widget; mid-resize, the previous frame
+    // stays at its real size in the top-left corner (rather than being
+    // stretched to the new widget rect, which the user dislikes more
+    // than the transient gap).
+    // CompositionMode_Source replaces the transparent widget pixels with
+    // the terminal image, alpha included, so its translucency is kept.
+    painter.setCompositionMode(QPainter::CompositionMode_Source);
+    painter.drawImage(QPointF(0, 0), m_image);
+  }
 
   // Unfocused-split dimming: a translucent fill over an inactive pane.
   // Only split panes (a QSplitter parent) are dimmed, matching GTK.
@@ -1343,13 +1359,34 @@ void GhosttySurface::presentVulkanDmabuf(
     quint64 drm_modifier,
     quint32 width,
     quint32 height,
-    quint32 stride) {
-  // Called from the renderer thread. We mmap the dmabuf, copy the
-  // bytes into a QImage, and hand the QImage to the GUI thread for
-  // paint via `QMetaObject::invokeMethod`. The fd is a borrow (per
-  // the `ghostty_platform_vulkan_s` contract); libghostty closes it
-  // when the underlying memory is freed.
-  (void)drm_modifier;  // LINEAR for v1; not used here.
+    quint32 stride,
+    bool image_backed) {
+  // Called from the renderer thread. Two paths, picked per frame
+  // based on whether the wl_subsurface presenter is up:
+  //
+  //   Subsurface (zero-copy): park the dmabuf metadata; GUI thread
+  //   wraps the fd in a wl_buffer and attach/commits to our
+  //   wl_subsurface. The compositor scans it out directly.
+  //
+  //   Fallback (legacy mmap+memcpy): map the fd, copy into a
+  //   QImage, GUI thread paints via QPainter. Used when the
+  //   subsurface presenter failed to come up (e.g. compositor
+  //   missing linux-dmabuf-v1).
+  //
+  // The fd is a borrow per the `ghostty_platform_vulkan_s` contract;
+  // libghostty closes it when the underlying memory is freed. In
+  // the subsurface path the wayland client lib SCM_RIGHTS-dups the
+  // fd so the compositor's reference outlives our park-and-drain.
+
+  // The subsurface path requires `image_backed` (i.e. the renderer
+  // is in `.direct` mode and the fd points at a VkImage). When the
+  // renderer falls back to `.legacy_copy` — NVIDIA today, the fd is
+  // a VkBuffer — linux-dmabuf-v1 import would fail with
+  // `invalid_wl_buffer` and that's a fatal protocol error on the
+  // wl_display. So we gate per-frame and stay on the QImage path
+  // when the fd isn't compositor-importable.
+  const bool useSubsurface =
+      image_backed && m_useSubsurface.load(std::memory_order_acquire);
 
   // One-shot breadcrumb so logs confirm the dmabuf hand-off is
   // wired. Subsequent frames are silent so we don't spam stderr.
@@ -1357,15 +1394,31 @@ void GhosttySurface::presentVulkanDmabuf(
   if (!logged_first) {
     logged_first = true;
     std::fprintf(stderr,
-                 "[ghastty] first Vulkan dmabuf frame: fd=%d %ux%u stride=%u fourcc=0x%08x mod=0x%lx\n",
+                 "[ghastty] first Vulkan dmabuf frame: fd=%d %ux%u stride=%u "
+                 "fourcc=0x%08x mod=0x%lx image_backed=%d path=%s\n",
                  dmabuf_fd, width, height, stride, drm_format,
-                 static_cast<unsigned long>(drm_modifier));
+                 static_cast<unsigned long>(drm_modifier), image_backed ? 1 : 0,
+                 useSubsurface ? "subsurface" : "qimage");
   }
 
-  // sanity check the size before we allocate / mmap.
   if (dmabuf_fd < 0 || width == 0 || height == 0 || stride < width * 4)
     return;
 
+  if (useSubsurface) {
+    // Subsurface path. Park the descriptor under the mutex (so
+    // a concurrent drainVulkan sees a consistent snapshot) and
+    // wake the GUI thread.
+    {
+      QMutexLocker lock(&m_pendingMutex);
+      m_pendingDmabuf = PendingDmabuf{
+          dmabuf_fd, drm_format, drm_modifier, width, height, stride,
+      };
+    }
+    QMetaObject::invokeMethod(this, "drainVulkan", Qt::QueuedConnection);
+    return;
+  }
+
+  // Fallback: mmap + memcpy into a QImage.
   const size_t bytes = static_cast<size_t>(stride) * height;
   void *mapped = ::mmap(nullptr, bytes, PROT_READ, MAP_SHARED, dmabuf_fd, 0);
   if (mapped == MAP_FAILED) {
@@ -1373,19 +1426,12 @@ void GhosttySurface::presentVulkanDmabuf(
                  dmabuf_fd, std::strerror(errno));
     return;
   }
-  // QImage holds the pixel data by copying when constructed with
-  // `Format_ARGB32_Premultiplied` from a buffer with explicit stride.
-  // We then detach (copy()) so the QImage survives the unmap.
-  //
   // drm_format ARGB8888 (0x34325241 = "AR24") matches QImage's
-  // ARGB32 byte order on little-endian (B,G,R,A in memory).
-  //
-  // We use the *premultiplied* variant because the renderer's
-  // fragment shaders output premultiplied alpha and the render
-  // target is `VK_FORMAT_B8G8R8A8_SRGB` (hardware gamma-encodes the
-  // linear shader output at framebuffer-write time). The bytes
-  // landing in this buffer are therefore sRGB-encoded premultiplied
-  // ARGB — exactly what Format_ARGB32_Premultiplied expects.
+  // ARGB32 byte order on little-endian (B,G,R,A in memory). The
+  // renderer's fragment shaders output premultiplied alpha into
+  // `VK_FORMAT_B8G8R8A8_SRGB`, so the buffer is sRGB-encoded
+  // premultiplied ARGB — exactly what Format_ARGB32_Premultiplied
+  // expects.
   (void)drm_format;
   const QImage stamped(
       static_cast<const uchar *>(mapped),
@@ -1396,20 +1442,45 @@ void GhosttySurface::presentVulkanDmabuf(
   QImage owned = stamped.copy();
   ::munmap(mapped, bytes);
 
-  // Tell QPainter the image's pixels are device pixels at the same
-  // DPR the framebuffer was sized at. Without this, `drawImage` would
-  // treat the image as logical pixels and re-scale to framebuffer
-  // pixels on a HiDPI display (DPR>1) — glyphs come out 2× too big.
-  // `m_fbDpr` is the DPR `syncSurfaceSize` used when telling
-  // libghostty the framebuffer size, so it matches what the renderer
-  // actually drew.
   if (m_fbDpr > 0) owned.setDevicePixelRatio(m_fbDpr);
-
-  // Stash for the GUI-thread polling timer to pick up.
   {
     QMutexLocker lock(&m_pendingMutex);
     m_pending = std::move(owned);
   }
+  QMetaObject::invokeMethod(this, "drainVulkan", Qt::QueuedConnection);
+}
+
+void GhosttySurface::drainVulkan() {
+  // Subsurface (zero-copy) path: take the parked dmabuf descriptor
+  // under the mutex, then dispatch it to the presenter outside the
+  // lock so a renderer-thread `presentVulkanDmabuf` parking the
+  // next frame doesn't block on wl_display_flush.
+  if (m_useSubsurface.load(std::memory_order_acquire) &&
+      m_subsurfacePresenter) {
+    PendingDmabuf frame;
+    {
+      QMutexLocker lock(&m_pendingMutex);
+      if (m_pendingDmabuf.fd < 0) return;
+      frame = m_pendingDmabuf;
+      m_pendingDmabuf.fd = -1;  // mark consumed
+    }
+    const int scale =
+        std::max(1, static_cast<int>(std::lround(devicePixelRatioF())));
+    m_subsurfacePresenter->presentDmabuf(frame.fd, frame.drm_format,
+                                          frame.drm_modifier, frame.width,
+                                          frame.height, frame.stride, scale);
+    return;
+  }
+
+  // Fallback: hand the QImage to paintEvent.
+  QImage frame;
+  {
+    QMutexLocker lock(&m_pendingMutex);
+    if (m_pending.isNull()) return;
+    frame = std::move(m_pending);
+  }
+  m_image = std::move(frame);
+  update();
 }
 
 // Trampoline so `Host.cpp` doesn't need to include the full
@@ -1425,10 +1496,12 @@ void presentToGhosttySurface(
     uint64_t drm_modifier,
     uint32_t width,
     uint32_t height,
-    uint32_t stride) {
+    uint32_t stride,
+    bool image_backed) {
   if (surface == nullptr) return;
   static_cast<GhosttySurface *>(surface)->presentVulkanDmabuf(
-      dmabuf_fd, drm_format, drm_modifier, width, height, stride);
+      dmabuf_fd, drm_format, drm_modifier, width, height, stride,
+      image_backed);
 }
 
 } // namespace vulkan

@@ -514,7 +514,21 @@ typedef struct {
   uint32_t (*queue_family_index)(void* userdata);
 
   // Hand off a rendered frame to the host as a dmabuf fd. The host
-  // imports it (e.g. into Qt's RHI as a QRhiTexture) and composites.
+  // imports it (e.g. into Qt's RHI as a QRhiTexture, or attaches to
+  // a wl_subsurface via linux-dmabuf-v1) and composites.
+  //
+  // `image_backed` is true when the dmabuf was exported from a
+  // VkImage allocated with VK_EXT_image_drm_format_modifier — i.e.
+  // it's directly importable as a 2D image by the compositor or any
+  // GPU-side consumer. false when it was exported from a VkBuffer
+  // (the legacy NVIDIA fallback path where the driver doesn't
+  // advertise COLOR_ATTACHMENT for the LINEAR modifier on
+  // exportable images, so libghostty renders into an OPTIMAL image
+  // and copies the bytes into a linear VkBuffer for export). In the
+  // !image_backed case the fd is only usable via mmap + CPU
+  // readback — attempting a linux-dmabuf-v1 import will trigger an
+  // `invalid_wl_buffer` protocol error.
+  //
   // libghostty retains ownership of the underlying VkDeviceMemory;
   // the host must dup() the fd if it needs to hold it past the call.
   void (*present)(
@@ -524,7 +538,8 @@ typedef struct {
       uint64_t drm_modifier,
       uint32_t width,
       uint32_t height,
-      uint32_t stride);
+      uint32_t stride,
+      bool image_backed);
 } ghostty_platform_vulkan_s;
 
 typedef union {
