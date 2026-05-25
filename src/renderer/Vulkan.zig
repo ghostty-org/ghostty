@@ -206,25 +206,39 @@ pub const buffer_pool = struct {
     /// `Frame.complete` after `vkWaitForFences`.
     ///
     /// `dev` is needed only on the OOM fallback path: if `ready`
-    /// can't grow to absorb `pending`, we wait the device idle and
-    /// then destroy the pending entries directly so the next frame
-    /// doesn't double up on a pending list that can never drain.
+    /// can't grow to absorb `pending`, we wait the device idle
+    /// (OUTSIDE the mutex — see below) and then destroy the pending
+    /// entries directly so the next frame doesn't double up on a
+    /// pending list that can never drain.
     pub fn cycle(dev: *const Device) void {
-        mutex.lock();
-        defer mutex.unlock();
-        ready.appendSlice(std.heap.smp_allocator, pending.items) catch {
-            // Couldn't grow `ready` — destroy the pending GPU
-            // resources directly. Other renderer threads may still
-            // be submitting against the shared queue, so wait the
-            // device idle to make sure no command buffer in flight
-            // anywhere references these handles before we destroy.
-            _ = dev.dispatch.deviceWaitIdle(dev.device);
-            for (pending.items) |e| {
-                dev.dispatch.destroyBuffer(dev.device, e.buffer, null);
-                dev.dispatch.freeMemory(dev.device, e.memory, null);
+        // Try the fast path first — append `pending` to `ready`
+        // under the lock, then return. On OOM we have to destroy
+        // the pending entries, but `vkDeviceWaitIdle` is slow and
+        // holding the pool mutex across it would block every other
+        // renderer thread's release/acquire/cycle. Move the
+        // pending list into a local outside the lock, then drain.
+        var oom_pending: std.ArrayList(Entry) = .{};
+        defer oom_pending.deinit(std.heap.smp_allocator);
+        {
+            mutex.lock();
+            defer mutex.unlock();
+            if (ready.appendSlice(std.heap.smp_allocator, pending.items)) {
+                pending.clearRetainingCapacity();
+                return;
+            } else |_| {
+                // OOM. Move `pending` into our local so we can
+                // drain it without holding the mutex.
+                oom_pending = pending;
+                pending = .{};
             }
-        };
-        pending.clearRetainingCapacity();
+        }
+        // Mutex released. Other threads can release/acquire/cycle
+        // while we wait the device idle and destroy our slice.
+        _ = dev.dispatch.deviceWaitIdle(dev.device);
+        for (oom_pending.items) |e| {
+            dev.dispatch.destroyBuffer(dev.device, e.buffer, null);
+            dev.dispatch.freeMemory(dev.device, e.memory, null);
+        }
     }
 
     /// Tear down both lists. Call only when the device is idle
@@ -583,18 +597,47 @@ pub fn beginFrame(
     }
 
     _ = self;
-    // Reset the command buffer + fence + step descriptor pool so
-    // this frame starts clean. `vkResetDescriptorPool` returns every
-    // set the previous frame allocated to the pool — much cheaper
-    // than freeing them individually, and removes any chance of
-    // last-frame's set being bound by accident.
+    // Reset this frame's per-frame state. ORDER MATTERS: the fence
+    // reset goes LAST. If an earlier reset fails and we return an
+    // error, `Frame.begin` never runs, no submit ever happens, and
+    // the fence stays in whatever state it was in (initially
+    // signaled, or signaled by the previous frame's submit). Any
+    // subsequent `Vulkan.deinit` then waits on a SIGNALED fence
+    // and returns immediately — pre-fix, an unsignaled fence with
+    // no pending submit hung the deinit forever on
+    // waitForFences(UINT64_MAX).
     if (dev.dispatch.resetCommandBuffer(frame_cb, 0) != vk.VK_SUCCESS)
-        return error.VulkanFailed;
-    if (dev.dispatch.resetFences(dev.device, 1, &frame_fence) != vk.VK_SUCCESS)
         return error.VulkanFailed;
     if (step_pool) |*p| {
         if (dev.dispatch.resetDescriptorPool(dev.device, p.pool, 0) != vk.VK_SUCCESS)
             return error.VulkanFailed;
+    }
+    // `vkResetDescriptorPool` returns every set the previous frame
+    // allocated to the pool — much cheaper than freeing them
+    // individually, and removes any chance of last-frame's set
+    // being bound by accident.
+    if (dev.dispatch.resetFences(dev.device, 1, &frame_fence) != vk.VK_SUCCESS)
+        return error.VulkanFailed;
+    // From here on the fence is UNSIGNALED. If `Frame.begin`
+    // (vkBeginCommandBuffer) fails before any submit, we have to
+    // re-signal the fence ourselves — otherwise the next
+    // `Vulkan.deinit`'s waitForFences hangs indefinitely.
+    errdefer {
+        // Empty submit with this fence as the signal target is the
+        // simplest portable way to push it back to signaled
+        // without recording any commands.
+        const empty: vk.VkSubmitInfo = .{
+            .sType = vk.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .pNext = null,
+            .waitSemaphoreCount = 0,
+            .pWaitSemaphores = null,
+            .pWaitDstStageMask = null,
+            .commandBufferCount = 0,
+            .pCommandBuffers = null,
+            .signalSemaphoreCount = 0,
+            .pSignalSemaphores = null,
+        };
+        _ = dev.queueSubmit(1, &empty, frame_fence);
     }
 
     return try Frame.begin(

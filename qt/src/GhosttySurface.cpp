@@ -1638,9 +1638,9 @@ void GhosttySurface::presentVulkanDmabuf(
           expected, true, std::memory_order_relaxed)) {
     std::fprintf(stderr,
                  "[ghastty] first dmabuf for surface=%p: fd=%d %ux%u "
-                 "stride=%u fourcc=0x%08x mod=0x%lx image_backed=%d path=%s\n",
+                 "stride=%u fourcc=0x%08x mod=0x%llx image_backed=%d path=%s\n",
                  static_cast<void *>(this), dmabuf_fd, width, height, stride,
-                 drm_format, static_cast<unsigned long>(drm_modifier),
+                 drm_format, static_cast<unsigned long long>(drm_modifier),
                  image_backed ? 1 : 0, useSubsurface ? "subsurface" : "qimage");
   }
 
@@ -1657,9 +1657,17 @@ void GhosttySurface::presentVulkanDmabuf(
   // terminal — and check that stride*height doesn't exceed
   // SIZE_MAX before promoting.
   constexpr quint32 MAX_DIM = 65536;
+  // Cap stride at MAX_DIM × 4 (BGRA8) × a small slack factor for
+  // tiled formats: ~4× the width-derived minimum is enough for any
+  // legitimate vendor tiling, and it keeps `stride * height`
+  // below ~64 GiB even at MAX_DIM. The previous lower-only bound
+  // let a pathological renderer with stride near UINT32_MAX and
+  // height=MAX_DIM reach mmap with a ~280 TB request.
+  constexpr quint32 MAX_STRIDE = MAX_DIM * 16;
   if (dmabuf_fd < 0 || width == 0 || height == 0) return;
   if (width > MAX_DIM || height > MAX_DIM) return;
   if (stride < static_cast<quint64>(width) * 4) return;
+  if (stride > MAX_STRIDE) return;
   // stride*height as 64-bit and check the size_t fit explicitly.
   const quint64 bytes64 = static_cast<quint64>(stride) * height;
   if (bytes64 > std::numeric_limits<std::size_t>::max()) return;
@@ -1737,9 +1745,22 @@ void GhosttySurface::presentVulkanDmabuf(
 
   const double dpr_now = m_fbDpr.load(std::memory_order_acquire);
   if (dpr_now > 0) owned.setDevicePixelRatio(dpr_now);
+  bool overwrote_legacy = false;
   {
     QMutexLocker lock(&m_pendingMutex);
+    overwrote_legacy = !m_pending.isNull();
     m_pending = std::move(owned);
+  }
+  if (overwrote_legacy) {
+    const auto count = m_droppedFrames.fetch_add(
+        1, std::memory_order_relaxed) + 1;
+    if (count <= 3 || count % 60 == 0) {
+      std::fprintf(stderr,
+                   "[ghastty] surface=%p dropped frame "
+                   "(legacy QImage path, total=%llu)\n",
+                   static_cast<void *>(this),
+                   static_cast<unsigned long long>(count));
+    }
   }
   QMetaObject::invokeMethod(this, "drainVulkan", Qt::QueuedConnection);
 }
@@ -1749,7 +1770,17 @@ void GhosttySurface::drainVulkan() {
   // under the mutex, then dispatch it to the presenter outside the
   // lock so a renderer-thread `presentVulkanDmabuf` parking the
   // next frame doesn't block on wl_display_flush.
-  if (m_hidden.load(std::memory_order_acquire)) return;
+  if (m_hidden.load(std::memory_order_acquire)) {
+    // Clear the parked descriptor on hide so the next post-Show
+    // present doesn't see a "stale frame still pending" state and
+    // spuriously bump m_droppedFrames every Hide/Show cycle. The
+    // fd itself is libghostty-owned (per ABI it's only valid for
+    // the duration of the original presentVulkanDmabuf call), so
+    // there's nothing to release here beyond marking the slot empty.
+    QMutexLocker lock(&m_pendingMutex);
+    m_pendingDmabuf.fd = -1;
+    return;
+  }
   if (m_useSubsurface.load(std::memory_order_acquire) &&
       m_subsurfacePresenter) {
     PendingDmabuf frame;

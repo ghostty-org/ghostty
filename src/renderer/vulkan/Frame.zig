@@ -186,22 +186,14 @@ pub fn complete(self: *const Self, sync: bool) void {
     // Recycle the per-frame Buffer pool. Even on the error path we
     // still want to cycle: buffers that the failed submit referenced
     // are now stuck (we can't prove the GPU is done with them), so
-    // we conservatively wait the device idle on the unhealthy path
-    // before draining. Without this, every failed submit leaks
-    // every buffer the renderer queued for that frame.
-    if (health == .unhealthy and !submitted) {
-        // Submit never happened — nothing in flight references
-        // recorded buffers, safe to cycle directly.
-        Vulkan.buffer_pool.cycle(dev);
-    } else if (health == .unhealthy) {
-        // Submit happened but fence wait failed (DEVICE_LOST etc.).
-        // Drain the device before recycling to avoid use-after-free
-        // on whatever queue is still ticking.
+    // we conservatively wait the device idle when submit DID happen
+    // but the fence wait failed (DEVICE_LOST etc.) before draining.
+    // Without that wait, every failed submit could leak the buffers
+    // the renderer queued for the frame.
+    if (health == .unhealthy and submitted) {
         _ = dev.dispatch.deviceWaitIdle(dev.device);
-        Vulkan.buffer_pool.cycle(dev);
-    } else {
-        Vulkan.buffer_pool.cycle(dev);
     }
+    Vulkan.buffer_pool.cycle(dev);
 
     // Hand the rendered target off to the host. On the unhealthy
     // path we skip present — the dmabuf may be partially written

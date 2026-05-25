@@ -30,6 +30,11 @@ pub const Error = error{
     /// `vkCreateDescriptorPool` / `vkAllocateDescriptorSets` returned
     /// a non-success status.
     VulkanFailed,
+    /// Caller passed an invalid pool configuration (e.g. `max_sets ==
+    /// 0`, or every per-type cap is zero). Distinct from
+    /// `VulkanFailed` so callers can tell driver-side errors from
+    /// caller-side ones.
+    InvalidPoolConfig,
 };
 
 /// Construction caps. `max_sets` is the total number of descriptor
@@ -55,7 +60,7 @@ pub fn init(opts: Options) Error!Self {
     // a downstream allocation failure.
     if (opts.max_sets == 0) {
         log.err("DescriptorPool.init: max_sets must be > 0", .{});
-        return error.VulkanFailed;
+        return error.InvalidPoolConfig;
     }
     if (opts.uniform_buffers == 0 and
         opts.combined_image_samplers == 0 and
@@ -66,7 +71,7 @@ pub fn init(opts: Options) Error!Self {
                 "(uniform_buffers, combined_image_samplers, storage_buffers)",
             .{},
         );
-        return error.VulkanFailed;
+        return error.InvalidPoolConfig;
     }
 
     // Build a small VkDescriptorPoolSize array from whichever caps

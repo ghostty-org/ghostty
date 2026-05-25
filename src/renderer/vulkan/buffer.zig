@@ -111,13 +111,16 @@ pub fn Buffer(comptime T: type) type {
                 self.memory,
                 self.opts.usage,
                 capacity_bytes,
-            ) catch {
+            ) catch |err| {
                 // OOM growing the pool. The buffer may still be
                 // referenced by an in-flight command buffer, so we
                 // wait the entire device idle before destroying —
-                // expensive but correct. Logging here is awkward (no
-                // logger in scope) so we accept the loud failure and
-                // let Vulkan stderr diagnose anything that follows.
+                // expensive but correct.
+                log.warn(
+                    "Buffer.deinit: pool release failed ({}); falling " ++
+                        "back to vkDeviceWaitIdle + destroy",
+                    .{err},
+                );
                 _ = dev.dispatch.deviceWaitIdle(dev.device);
                 dev.dispatch.destroyBuffer(dev.device, self.buffer, null);
                 dev.dispatch.freeMemory(dev.device, self.memory, null);
@@ -261,14 +264,26 @@ pub fn Buffer(comptime T: type) type {
         }
 
         /// Grow the buffer to hold at least `new_len` Ts. Vulkan
-        /// buffers are immutable in size, so we route the old
-        /// buffer through the recycle pool (it may still be
-        /// referenced by the in-flight command buffer — destroying
-        /// it directly would race the GPU same as `deinit` would)
-        /// and create a fresh one. Contents are discarded; callers
+        /// buffers are immutable in size, so we allocate a fresh
+        /// one and then route the old one through the recycle pool
+        /// (it may still be referenced by the in-flight command
+        /// buffer — destroying it directly would race the GPU same
+        /// as `deinit` would). Contents are discarded; callers
         /// always `sync` immediately after `grow` returns.
+        ///
+        /// Order is critical: `create` first, `release` second.
+        /// If we released the old buffer first and `create`
+        /// failed, `self.{buffer,memory}` would be left dangling
+        /// at freed handles, and the caller's eventual
+        /// `self.deinit()` would double-destroy via the pool.
         fn grow(self: *Self, new_len: usize) Error!void {
             const dev = self.opts.device;
+            const replacement = try create(self.opts, new_len);
+            // From here on `self.{buffer,memory}` are the OLD pair;
+            // release them. If `release` itself OOMs, we have to
+            // destroy directly (same fallback as `deinit`), but the
+            // new pair is already constructed and `self.* =
+            // replacement` will reach a healthy state regardless.
             const bp = @import("../Vulkan.zig").buffer_pool;
             const capacity_bytes: u64 = @as(u64, self.len) * @sizeOf(T);
             bp.release(
@@ -278,13 +293,10 @@ pub fn Buffer(comptime T: type) type {
                 self.opts.usage,
                 capacity_bytes,
             ) catch {
-                // OOM appending to the pool — wait the device idle
-                // and destroy directly. Same fallback as `deinit`.
                 _ = dev.dispatch.deviceWaitIdle(dev.device);
                 dev.dispatch.destroyBuffer(dev.device, self.buffer, null);
                 dev.dispatch.freeMemory(dev.device, self.memory, null);
             };
-            const replacement = try create(self.opts, new_len);
             self.* = replacement;
         }
 

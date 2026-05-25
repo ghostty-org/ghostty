@@ -170,8 +170,9 @@ public:
   // mmap+memcpy'd QImage) and wakes the GUI thread via
   // `QMetaObject::invokeMethod(this, drainVulkan, Qt::QueuedConnection)`.
   // The GUI thread either commits the dmabuf to the wl_subsurface
-  // (zero-copy) or paints the QImage (fallback). A 2 ms safety-net
-  // poll catches anything `invokeMethod` ever fails to deliver.
+  // (zero-copy) or paints the QImage (fallback). The dropped-frame
+  // counter `m_droppedFrames` makes any genuine queue-loss visible
+  // (zero in the steady state).
   Q_INVOKABLE void presentVulkanDmabuf(
       int dmabuf_fd,
       quint32 drm_format,

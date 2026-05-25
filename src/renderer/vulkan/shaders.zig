@@ -74,7 +74,9 @@ fn processIncludes(comptime contents: [:0]const u8) [:0]const u8 {
             // any horizontal whitespace and require exactly one
             // double-quoted path.
             var p = i + "#include".len;
-            while (p < contents.len and (contents[p] == ' ' or contents[p] == '\t')) : (p += 1) {}
+            while (p < contents.len and (contents[p] == ' ' or contents[p] == '\t' or
+                contents[p] == 0x0B or contents[p] == 0x0C)) : (p += 1)
+            {}
             if (p >= contents.len or contents[p] != '"') {
                 @compileError("processIncludes: malformed #include directive in shader");
             }
@@ -231,6 +233,10 @@ pub fn vulkanizeGlsl(
                     i += 1; // consume the '('
                     var depth: i32 = 1;
                     while (i < src.len and depth > 0) {
+                        // Skip comments and string literals verbatim
+                        // — a `(` or `)` inside `/* */` or `"..."`
+                        // shouldn't move our paren depth tracker.
+                        if (try copySkippable(alloc, &out, src, &i)) continue;
                         const cc = src[i];
                         if (cc == '(') depth += 1;
                         if (cc == ')') {
@@ -390,6 +396,13 @@ fn isIdentChar(c: u8) bool {
 /// tiny — broader matching would force `textureLod` on the custom
 /// shader's `iChannel0`, which is normalized, and bypassing the
 /// implicit-LOD opcode path makes the driver work harder per call.
+///
+/// User-supplied custom shaders MUST NOT name a sampler `atlas_grayscale`
+/// or `atlas_color` — doing so will trigger this rewrite and replace
+/// `texture()` calls on that sampler with `textureLod(..., 0.0)`,
+/// which is incorrect for any normalized sampler. The shadertoy
+/// shader convention uses `iChannel0..3`, so the conflict is unlikely
+/// in practice.
 const unnormalized_sampler_names = [_][]const u8{
     "atlas_grayscale",
     "atlas_color",
@@ -416,7 +429,10 @@ fn nextSamplerIsUnnormalized(src: []const u8, i: usize) bool {
 }
 
 fn isHorizSpace(c: u8) bool {
-    return c == ' ' or c == '\t';
+    // GLSL preprocessor whitespace per the spec: space, tab,
+    // vertical tab, form feed. Newline + carriage return are
+    // separately handled as line terminators.
+    return c == ' ' or c == '\t' or c == 0x0B or c == 0x0C;
 }
 
 fn isAnySpace(c: u8) bool {
@@ -563,6 +579,24 @@ pub const Module = struct {
         spirv: []const u32,
         stage: Stage,
     ) Error!Module {
+        // Sanity-check the SPIR-V before handing it to the driver.
+        // The glslang and shadertoy paths both validate already, but
+        // a future caller wiring up the build-time-blob path could
+        // accidentally pass an empty or non-SPIR-V buffer; failing
+        // here with a clear error beats a `vkCreateShaderModule`
+        // segfault inside the loader.
+        if (spirv.len == 0) {
+            log.err("Module.initFromSpirv: zero-length SPIR-V buffer", .{});
+            return error.VulkanFailed;
+        }
+        if (spirv[0] != 0x07230203) {
+            log.err(
+                "Module.initFromSpirv: missing magic word " ++
+                    "(got 0x{x:0>8}, expected 0x07230203)",
+                .{spirv[0]},
+            );
+            return error.VulkanFailed;
+        }
         const info: vk.VkShaderModuleCreateInfo = .{
             .sType = vk.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
             .pNext = null,

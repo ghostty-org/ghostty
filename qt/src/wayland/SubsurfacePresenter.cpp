@@ -86,16 +86,29 @@ void registryGlobal(void *data, wl_registry *registry, uint32_t name,
     g->subcompositor = static_cast<wl_subcompositor *>(
         wl_registry_bind(registry, name, &wl_subcompositor_interface, 1));
   } else if (std::strcmp(interface, zwp_linux_dmabuf_v1_interface.name) == 0) {
-    // v3 has `create_immed`, which we want (synchronous wl_buffer
-    // creation — the v2 async `create` + `created`/`failed` event
-    // dance would add a layer of callback machinery for no real win
-    // in our renderer's strict-fd-validity scenario). v4 adds the
-    // dynamic format/modifier feedback dance; we don't need it yet.
-    g->dmabuf = static_cast<zwp_linux_dmabuf_v1 *>(wl_registry_bind(
-        registry, name, &zwp_linux_dmabuf_v1_interface, 3));
-    // Add the listener immediately so the modifier events queued by
-    // the bind get delivered when the dispatch loop continues.
-    zwp_linux_dmabuf_v1_add_listener(g->dmabuf, &kDmabufListener, g);
+    // We want at least v3 for `create_immed` (synchronous wl_buffer
+    // creation — v1/v2 have only the async `create` + `created`/
+    // `failed` dance). A compositor that only advertises v1/v2
+    // can't satisfy our protocol assumptions; binding at v3 against
+    // such a compositor would protocol-error and tear down the
+    // entire wl_display. Skip the bind in that case so the
+    // legacy QImage fallback engages cleanly.
+    if (version < 3) {
+      std::fprintf(stderr,
+                   "[ghastty] wayland: linux-dmabuf-v1 advertised at "
+                   "version %u; need >= 3 for create_immed, falling back "
+                   "to QImage path\n",
+                   version);
+    } else {
+      // Cap at v3 — v4 adds the dynamic format/modifier feedback
+      // dance which we don't consume.
+      const uint32_t v = std::min<uint32_t>(version, 3u);
+      g->dmabuf = static_cast<zwp_linux_dmabuf_v1 *>(wl_registry_bind(
+          registry, name, &zwp_linux_dmabuf_v1_interface, v));
+      // Add the listener immediately so the modifier events queued
+      // by the bind get delivered when the dispatch loop continues.
+      zwp_linux_dmabuf_v1_add_listener(g->dmabuf, &kDmabufListener, g);
+    }
   } else if (std::strcmp(interface, wp_viewporter_interface.name) == 0) {
     g->viewporter = static_cast<wp_viewporter *>(
         wl_registry_bind(registry, name, &wp_viewporter_interface, 1));
@@ -125,14 +138,24 @@ PresenterGlobals *discoverGlobals(wl_display *display) {
   // Roundtrip 1: bind compositor/subcompositor/dmabuf. Inside the
   // registry callback we attach the dmabuf listener immediately, so
   // any format/modifier events that arrive in the same dispatch
-  // pass fire on it.
-  wl_display_roundtrip_queue(display, queue);
+  // pass fire on it. A negative return means the wl_display
+  // disconnected mid-startup; subsequent tryCreate calls fall
+  // through to the QImage path (g->compositor etc. stay null).
+  if (wl_display_roundtrip_queue(display, queue) < 0) {
+    std::fprintf(stderr,
+                 "[ghastty] wayland: discoverGlobals roundtrip 1 failed; "
+                 "subsurface present path disabled\n");
+  }
   wl_registry_destroy(registry);
   // Roundtrip 2: belt-and-suspenders for any compositor that defers
   // the modifier events past the bind reply (most don't, but some
   // batch them). After this returns the modifier table is fully
   // populated and frozen for the process lifetime.
-  if (globals.dmabuf) wl_display_roundtrip_queue(display, queue);
+  if (globals.dmabuf && wl_display_roundtrip_queue(display, queue) < 0) {
+    std::fprintf(stderr,
+                 "[ghastty] wayland: discoverGlobals roundtrip 2 failed; "
+                 "modifier table may be incomplete\n");
+  }
 
   std::size_t total_mods = 0;
   for (const auto &kv : globals.modifiers) total_mods += kv.second.size();

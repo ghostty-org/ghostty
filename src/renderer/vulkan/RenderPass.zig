@@ -396,23 +396,42 @@ pub fn step(self: *Self, s: Step) void {
     var effective_sets: [Pipeline.MAX_DESCRIPTOR_SETS]vk.VkDescriptorSet =
         s.pipeline.descriptor_sets;
     const reused = self.markPipelineUsed(s.pipeline.pipeline);
-    if (reused) if (self.step_pool) |pool| {
+    if (reused) {
+        // No step_pool means the renderer thread has no per-frame
+        // descriptor pool wired up (test harness, smoke test). We
+        // can't safely re-use this pipeline — updating the static
+        // set in place would corrupt the prior draw's bindings.
+        // Drop the draw rather than corrupt the frame.
+        const pool = self.step_pool orelse {
+            log.err(
+                "RenderPass.step: pipeline re-used but no step_pool " ++
+                    "available; dropping draw to avoid corrupting prior draws",
+                .{},
+            );
+            return;
+        };
         for (s.pipeline.descriptor_set_layouts, 0..) |maybe_dsl, i| {
             if (i >= s.pipeline.set_count) break;
             const dsl = maybe_dsl orelse continue;
             if (pool.allocate(dsl)) |fresh| {
                 effective_sets[i] = fresh;
             } else |err| {
+                // Pool exhausted. The previous behavior was to
+                // fall back to the pipeline's static set, but that
+                // re-introduces the exact corruption the step_pool
+                // mechanism exists to prevent. Drop the draw; the
+                // user sees one missed image rather than every
+                // image rendered with the last image's bindings.
                 log.err(
                     "RenderPass.step: per-call descriptor set " ++
-                        "allocation for set {} failed ({}); falling " ++
-                        "back to the pipeline's static set, which " ++
-                        "may corrupt prior draws on this pipeline",
+                        "allocation for set {} failed ({}); dropping draw " ++
+                        "(step_pool exhausted — increase STEP_POOL_MAX_SETS)",
                     .{ i, err },
                 );
+                return;
             }
         }
-    };
+    }
 
     // ---- update descriptor sets ---------------------------------
     //
