@@ -30,7 +30,7 @@ set(CMAKE_AUTOMOC ON)
 include(GNUInstallDirs)
 
 find_package(Qt6 REQUIRED COMPONENTS Gui Widgets OpenGL DBus
-  Multimedia Svg)
+  Multimedia Svg WaylandClient)
 # WindowBlur + XkbTracker use qpa/qplatformnativeinterface.h to reach
 # the wl_display / wl_surface / wl_seat for native compositor calls
 # (blur, layer-shell screen pinning, raw wl_keyboard listeners). The
@@ -43,7 +43,7 @@ find_package(Qt6 REQUIRED COMPONENTS Gui Widgets OpenGL DBus
 # CMake config (older Debian) and we fall back to hand-wiring the
 # include dir below.
 set(QT_NO_PRIVATE_MODULE_WARNING ON)
-find_package(Qt6 QUIET OPTIONAL_COMPONENTS GuiPrivate)
+find_package(Qt6 QUIET OPTIONAL_COMPONENTS GuiPrivate WaylandClientPrivate)
 
 # LayerShellQt: the quick terminal is a wlr-layer-shell dropdown window.
 find_package(LayerShellQt REQUIRED)
@@ -239,6 +239,15 @@ target_link_libraries(ghastty PRIVATE
 )
 
 # Hook up the private QPA headers (see find_package above).
+#
+# Qt6::WaylandClientPrivate gives us QtWaylandClient::QWaylandWindow,
+# which we cast the QPA platform window to in GhosttySurface to call
+# `commit()` directly — that forces a parent wl_surface commit at the
+# moment our subsurface state is ready, instead of waiting on Qt's
+# backing-store flush which never fires for our translucent widget.
+if(TARGET Qt6::WaylandClientPrivate)
+  target_link_libraries(ghastty PRIVATE Qt6::WaylandClientPrivate)
+endif()
 if(TARGET Qt6::GuiPrivate)
   target_link_libraries(ghastty PRIVATE Qt6::GuiPrivate)
 else()

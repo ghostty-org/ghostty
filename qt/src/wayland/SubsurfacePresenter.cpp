@@ -254,21 +254,23 @@ SubsurfacePresenter::tryCreate(QWindow *parent) {
     return nullptr;
   }
 
-  // Desync mode: our wl_surface.commit applies immediately,
-  // independent of the parent's commit cycle. Required because the
-  // parent QWidget has WA_TranslucentBackground and almost nothing
-  // to paint over the terminal area — paintEvent runs but Qt's
-  // backing-store flush sees no damage and doesn't commit the parent.
-  // In sync mode that left our cached subsurface state never
-  // applying = terminal never visible. Desync keeps us decoupled
-  // from Qt's parent commit cadence so every frame becomes visible
-  // on its own.
+  // Sync mode (the wl_subsurface default): wl_surface.commit on
+  // the child caches state until the parent commits, at which point
+  // both apply atomically. This is what guarantees lockstep resize
+  // behavior — parent grows to the new size and our matching
+  // new-size buffer apply in the same compositor frame, no gap.
   //
-  // The trade-off is that resize isn't lockstep with the parent
-  // surface — the syncSurfaceSize path's synchronous-draw fix
-  // attaches the new-size buffer inside resizeEvent to minimize
-  // that gap, but the two surfaces still commit independently.
-  wl_subsurface_set_desync(sub);
+  // Sync mode requires the parent to commit for our state to
+  // apply. Qt's backing-store flush doesn't fire for our
+  // translucent QWidget (paintEvent produces no damage), so
+  // GhosttySurface forces the parent commit explicitly via
+  // QtWaylandClient::QWaylandWindow::commit() (Qt6::WaylandClient-
+  // Private) after every child commit + viewport update. See
+  // `forceParentCommit` in GhosttySurface.cpp.
+  //
+  // The earlier desync-mode attempt avoided the Qt-private
+  // dependency but couldn't deliver lockstep resize because the
+  // two surfaces commit independently in that mode.
 
   // Subsurface covers the parent at the origin. Phase 4 will keep
   // this in sync on splits/tabs/etc.; for now the GhosttySurface

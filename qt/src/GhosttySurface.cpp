@@ -12,6 +12,15 @@
 #include "wayland/EglDmabufTarget.h"
 #include "wayland/SubsurfacePresenter.h"
 
+// Qt private Wayland headers — give us QtWaylandClient::QWaylandWindow,
+// the QPA implementation for native Wayland QWindows. We cast our
+// QWindow's QPA pointer to it and call commit() directly to force a
+// parent wl_surface.commit; Qt's own backing-store flush doesn't
+// fire for our translucent QWidget so the wl_subsurface (in sync
+// mode) would never see its cached state applied otherwise. Built
+// against Qt6::WaylandClientPrivate (see qt/CMakeLists.txt).
+#include <QtWaylandClient/private/qwaylandwindow_p.h>
+
 #include <algorithm>
 #include <cerrno>
 #include <cmath>
@@ -247,16 +256,15 @@ void GhosttySurface::syncSurfaceSize() {
     // before the subsurface present path replaced the QImage one.
     if (m_useSubsurface.load(std::memory_order_acquire) &&
         m_subsurfacePresenter) {
-      // First: stretch the existing subsurface buffer to the new
-      // logical size by bumping wp_viewport.set_destination + a bare
-      // child commit. In desync mode the compositor applies this
-      // immediately, so the parent surface can grow to the new size
-      // with our subsurface already covering it (briefly stretched)
-      // instead of exposing a transparent gap. mpv's
-      // vo_dmabuf_wayland uses the same pattern for video resize.
+      // Stretch the old buffer to the new destination first — gives
+      // the compositor something to fill the new parent area with if
+      // the synchronous render below takes more than one frame.
       m_subsurfacePresenter->resizeDestination(width(), height());
-      // Then: render at the new size and commit the proper new-size
-      // buffer, which overwrites the stretched content.
+      // Render at the new size and commit the proper new-size buffer.
+      // drainVulkan calls forceParentCommit at the end, so the
+      // sync-mode child cache + parent commit land atomically — the
+      // compositor sees parent at new size + subsurface at new size
+      // in the same frame, eliminating the resize bleed entirely.
       ghostty_surface_draw(m_surface);
       drainVulkan();
       return;
@@ -1561,6 +1569,10 @@ void GhosttySurface::drainVulkan() {
     m_subsurfacePresenter->presentDmabuf(
         frame.fd, frame.drm_format, frame.drm_modifier, frame.width,
         frame.height, frame.stride, width(), height());
+    // Subsurface is in sync mode; child commit is cached. Force the
+    // parent wl_surface.commit so the cached state applies and the
+    // frame becomes visible.
+    forceParentCommit();
     return;
   }
 
@@ -1573,6 +1585,24 @@ void GhosttySurface::drainVulkan() {
   }
   m_image = std::move(frame);
   update();
+}
+
+bool GhosttySurface::forceParentCommit() {
+  // Get the QPA implementation for our QWindow. On Wayland this is
+  // QtWaylandClient::QWaylandWindow (private API, hence the
+  // Qt6::WaylandClientPrivate link). Calling commit() on it flushes
+  // Qt's pending wl_surface state plus any queued client requests —
+  // crucially including the cached wl_subsurface state from our
+  // sync-mode child commit, which applies atomically with this
+  // parent commit.
+  QWindow *handle = windowHandle();
+  if (!handle) return false;
+  QPlatformWindow *qpa = handle->handle();
+  if (!qpa) return false;
+  auto *wl = dynamic_cast<QtWaylandClient::QWaylandWindow *>(qpa);
+  if (!wl) return false;
+  wl->commit();
+  return true;
 }
 
 // Trampoline so `Host.cpp` doesn't need to include the full

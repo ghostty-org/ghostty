@@ -176,6 +176,16 @@ public:
   // renderer thread.
   Q_INVOKABLE void drainVulkan();
 
+  // Force a wl_surface.commit on our parent native window via the
+  // QtWaylandClient::QWaylandWindow private API. The wl_subsurface
+  // is in sync mode, so child state changes only apply when the
+  // parent commits — but Qt's backing-store flush doesn't fire for
+  // a translucent QWidget with no paint damage. Calling this after
+  // every child commit ensures the cached child state actually
+  // reaches the compositor. Returns false on non-Wayland QPA or if
+  // the cast fails (no Qt private headers available).
+  bool forceParentCommit();
+
 protected:
   bool event(QEvent *) override;
   void paintEvent(QPaintEvent *) override;
