@@ -233,14 +233,30 @@ void GhosttySurface::syncSurfaceSize() {
     ghostty_surface_set_content_scale(m_surface, dpr, dpr);
     ghostty_surface_set_size(m_surface, static_cast<uint32_t>(w),
                              static_cast<uint32_t>(h));
+
+    // Subsurface (zero-copy) path: synchronously render at the new
+    // size and dispatch the resulting dmabuf to the presenter BEFORE
+    // returning from resizeEvent. That ensures our wl_subsurface
+    // has its new-size buffer attached + committed before Qt's
+    // following parent-surface commit lands at the new geometry —
+    // without this, the compositor sees one frame where the parent
+    // surface is already at the new size but our subsurface is
+    // still at the old one, and the parent's translucent QWidget
+    // background shows through the gap. Counterpart of the
+    // m_image.isNull() drain below, which served the same purpose
+    // before the subsurface present path replaced the QImage one.
+    if (m_useSubsurface.load(std::memory_order_acquire) &&
+        m_subsurfacePresenter) {
+      ghostty_surface_draw(m_surface);
+      drainVulkan(); // runs presentDmabuf at the new size + commits
+      return;
+    }
+
     if (!m_image.isNull()) {
-      // Block until the renderer thread (or this thread, since
-      // `Surface.draw` says renderers must support being called
-      // from main) finishes a frame at the new size. The frame
-      // lands in `m_pending` via `presentVulkanDmabuf` on whichever
-      // thread runs the present; drain it into `m_image` here so
-      // we don't have to wait for the next 60Hz timer tick before
-      // the resized frame is visible.
+      // Legacy QImage fallback path (presenter absent — e.g. the
+      // compositor refused linux-dmabuf-v1, or we're in the
+      // first-show window before presenter init). Drain m_pending
+      // into m_image so the next paintEvent has the new-size frame.
       ghostty_surface_draw(m_surface);
       QImage frame;
       {
