@@ -206,6 +206,27 @@ extension Ghostty {
         // by the user, this is set to the prior value (which may be empty, but non-nil).
         private var titleFromTerminal: String?
 
+        /// True when the user has manually pinned the title.
+        /// `SurfaceTitleBar` reads this to decide whether to show the OSC title or CWD.
+        var isUserSetTitle: Bool { titleFromTerminal != nil }
+
+        /// Set or clear the pinned title.
+        /// - Parameter newTitle: Non-empty string to pin; nil or empty to clear and restore OSC behavior.
+        func setPinnedTitle(_ newTitle: String?) {
+            if let newTitle = newTitle, !newTitle.isEmpty {
+                // Save current OSC title for restoration only on first pin.
+                if titleFromTerminal == nil {
+                    titleFromTerminal = title
+                }
+                title = newTitle
+            } else {
+                // Clear pin — restore the last OSC-provided title.
+                let prevTitle = titleFromTerminal ?? "👻"
+                titleFromTerminal = nil
+                setTitle(prevTitle)
+            }
+        }
+
         // The cached contents of the screen.
         private(set) var cachedScreenContents: CachedValue<String>
         private(set) var cachedVisibleContents: CachedValue<String>
