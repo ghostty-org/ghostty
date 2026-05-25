@@ -184,6 +184,30 @@ pub fn loadFromFile(
         .glsl => try glslFromSpv(alloc_gpa, spirv),
         .msl => try mslFromSpv(alloc_gpa, spirv),
         .spv => spv: {
+            // Validate before handing back: glslang has succeeded at
+            // this point but a zero-length SPIR-V output would
+            // crash `vkCreateShaderModule` (codeSize == 0). The
+            // SPIR-V magic word check is defensive against future
+            // backends that bypass glslang.
+            if (spirv.len < 4) {
+                std.log.warn(
+                    "shadertoy: empty SPIR-V output (size={})",
+                    .{spirv.len},
+                );
+                return error.InvalidShader;
+            }
+            // First 4 bytes are the SPIR-V magic word 0x07230203
+            // (little-endian). Reject anything else loudly instead
+            // of letting the driver crash.
+            const magic = std.mem.readInt(u32, spirv[0..4], .little);
+            if (magic != 0x07230203) {
+                std.log.warn(
+                    "shadertoy: SPIR-V output missing magic word " ++
+                        "(got 0x{x:0>8}, expected 0x07230203)",
+                    .{magic},
+                );
+                return error.InvalidShader;
+            }
             // Copy the SPIR-V binary out of the arena into a
             // 4-byte-aligned allocation under `alloc_gpa`. Vulkan
             // expects `pCode: []const u32`, so over-aligning is safe;
@@ -217,17 +241,49 @@ pub fn glslFromShader(
         try writer.writeAll(prefix);
     } else {
         // Find the first newline after `#version ...` and inject the
-        // defines on the following line. We assume the prefix begins
-        // with a `#version` directive on its own line (true today;
-        // the comptime split below would crash loudly otherwise).
-        const first_nl = std.mem.indexOfScalar(u8, prefix, '\n').?;
-        try writer.writeAll(prefix[0 .. first_nl + 1]);
-        for (defines) |def| {
-            try writer.writeAll("#define ");
-            try writer.writeAll(def);
-            try writer.writeAll("\n");
+        // defines on the following line. The prefix is expected to
+        // start with `#version` followed by a newline; if a future
+        // edit ever drops that newline (e.g. a single-line prefix
+        // entirely on one line), we synthesize one between
+        // `#version` and the rest, then inject the defines after.
+        // GLSL requires `#version` to be the first non-blank line,
+        // so injecting BEFORE it would silently produce invalid
+        // GLSL.
+        if (std.mem.indexOfScalar(u8, prefix, '\n')) |first_nl| {
+            try writer.writeAll(prefix[0 .. first_nl + 1]);
+            for (defines) |def| {
+                try writer.writeAll("#define ");
+                try writer.writeAll(def);
+                try writer.writeAll("\n");
+            }
+            try writer.writeAll(prefix[first_nl + 1 ..]);
+        } else if (std.mem.startsWith(u8, prefix, "#version")) {
+            // No newline anywhere, but it does start with `#version`.
+            // Find the end of the version directive: scan past the
+            // version number to the first non-version-token char,
+            // synthesize a newline there, then write defines and
+            // the rest of the prefix.
+            var p: usize = "#version".len;
+            while (p < prefix.len and (prefix[p] == ' ' or prefix[p] == '\t')) p += 1;
+            while (p < prefix.len and prefix[p] >= '0' and prefix[p] <= '9') p += 1;
+            // Optional profile (`core` / `compatibility` / `es`).
+            while (p < prefix.len and (prefix[p] == ' ' or prefix[p] == '\t')) p += 1;
+            while (p < prefix.len and ((prefix[p] >= 'a' and prefix[p] <= 'z') or
+                (prefix[p] >= 'A' and prefix[p] <= 'Z'))) p += 1;
+            try writer.writeAll(prefix[0..p]);
+            try writer.writeByte('\n');
+            for (defines) |def| {
+                try writer.writeAll("#define ");
+                try writer.writeAll(def);
+                try writer.writeAll("\n");
+            }
+            try writer.writeAll(prefix[p..]);
+        } else {
+            // Prefix doesn't start with `#version` either — the
+            // shader is malformed. Pass it through as-is so glslang
+            // reports a clear parse error.
+            try writer.writeAll(prefix);
         }
-        try writer.writeAll(prefix[first_nl + 1 ..]);
     }
     try writer.writeAll("\n\n");
     try writer.writeAll(src);
@@ -506,4 +562,3 @@ test "shadertoy to glsl" {
 
 const test_crt = @embedFile("shaders/test_shadertoy_crt.glsl");
 const test_invalid = @embedFile("shaders/test_shadertoy_invalid.glsl");
-const test_focus = @embedFile("shaders/test_shadertoy_focus.glsl");

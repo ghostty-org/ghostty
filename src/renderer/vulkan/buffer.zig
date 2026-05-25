@@ -83,20 +83,26 @@ pub fn Buffer(comptime T: type) type {
             return self;
         }
 
+        /// Hand the (VkBuffer, VkDeviceMemory) pair back to the
+        /// process-wide pool. The pool (see `Vulkan.buffer_pool`)
+        /// holds the entry until the current frame's fence has
+        /// signaled (the GPU is done with our recorded references)
+        /// and then makes it available to a future `Buffer.create`
+        /// call. Returning to the pool solves both:
+        ///   - `renderer/image.zig:draw`'s `defer buf.deinit()` no
+        ///     longer use-after-frees the in-flight buffer.
+        ///   - It avoids the per-frame allocation thrash that
+        ///     drove the driver to SIGSEGV on image-heavy frames.
+        ///
+        /// MUST be called only from the renderer thread (the path
+        /// whose fence will eventually retire references to this
+        /// buffer in `Frame.complete`). One-shot uploads (atlas
+        /// staging buffers, etc.) that already block on
+        /// `vkQueueWaitIdle` post-submit must use
+        /// `destroyImmediate` instead — they don't share the
+        /// renderer thread's fence cycle.
         pub fn deinit(self: Self) void {
             const dev = self.opts.device;
-            // Hand the (VkBuffer, VkDeviceMemory) pair back to the
-            // process-wide pool instead of destroying it. The pool
-            // (see `Vulkan.buffer_pool`) holds the entry until the
-            // current frame's fence has signaled (the GPU is done
-            // with our recorded references) and then makes it
-            // available to a future `Buffer.create` call. Returning
-            // to the pool solves BOTH:
-            //   - `renderer/image.zig:draw`'s `defer buf.deinit()`
-            //     no longer use-after-frees the in-flight buffer.
-            //   - It avoids the per-frame allocation thrash that
-            //     drove the driver to SIGSEGV on image-heavy
-            //     frames.
             const bp = @import("../Vulkan.zig").buffer_pool;
             const capacity_bytes: u64 = @as(u64, self.len) * @sizeOf(T);
             bp.release(
@@ -105,15 +111,37 @@ pub fn Buffer(comptime T: type) type {
                 self.memory,
                 self.opts.usage,
                 capacity_bytes,
-            ) catch {
-                // OOM growing the pool — fall back to immediate
-                // destroy. Logging here is awkward (no logger in
-                // scope) so we accept the loud failure and let
-                // Vulkan stderr diagnose any use-after-free that
-                // follows.
+            ) catch |err| {
+                // OOM growing the pool. The buffer may still be
+                // referenced by an in-flight command buffer, so we
+                // wait the entire device idle before destroying —
+                // expensive but correct.
+                log.warn(
+                    "Buffer.deinit: pool release failed ({}); falling " ++
+                        "back to vkDeviceWaitIdle + destroy",
+                    .{err},
+                );
+                _ = dev.dispatch.deviceWaitIdle(dev.device);
                 dev.dispatch.destroyBuffer(dev.device, self.buffer, null);
                 dev.dispatch.freeMemory(dev.device, self.memory, null);
             };
+        }
+
+        /// Destroy the buffer immediately, bypassing the recycle
+        /// pool. The caller MUST ensure no in-flight command buffer
+        /// references this buffer (e.g. by having waited on a fence
+        /// or `vkQueueWaitIdle` covering its submission).
+        ///
+        /// Used by short-lived staging buffers like
+        /// `Texture.replaceRegion` whose lifetime is bounded by a
+        /// `OneShot.endAndSubmit` that already drains the queue;
+        /// stuffing those into the pool from a non-renderer thread
+        /// would leak them (the renderer thread's `cycle` runs the
+        /// pool, so an upload thread's pushes never get reused).
+        pub fn destroyImmediate(self: Self) void {
+            const dev = self.opts.device;
+            dev.dispatch.destroyBuffer(dev.device, self.buffer, null);
+            dev.dispatch.freeMemory(dev.device, self.memory, null);
         }
 
         /// Replace the buffer's contents. Grows (doubles) if needed —
@@ -235,15 +263,40 @@ pub fn Buffer(comptime T: type) type {
             };
         }
 
-        /// Grow the buffer to hold at least `new_len` Ts. Destroys
-        /// and recreates the underlying VkBuffer (Vulkan buffers are
-        /// immutable in size). Contents are discarded — callers
+        /// Grow the buffer to hold at least `new_len` Ts. Vulkan
+        /// buffers are immutable in size, so we allocate a fresh
+        /// one and then route the old one through the recycle pool
+        /// (it may still be referenced by the in-flight command
+        /// buffer — destroying it directly would race the GPU same
+        /// as `deinit` would). Contents are discarded; callers
         /// always `sync` immediately after `grow` returns.
+        ///
+        /// Order is critical: `create` first, `release` second.
+        /// If we released the old buffer first and `create`
+        /// failed, `self.{buffer,memory}` would be left dangling
+        /// at freed handles, and the caller's eventual
+        /// `self.deinit()` would double-destroy via the pool.
         fn grow(self: *Self, new_len: usize) Error!void {
             const dev = self.opts.device;
-            dev.dispatch.destroyBuffer(dev.device, self.buffer, null);
-            dev.dispatch.freeMemory(dev.device, self.memory, null);
             const replacement = try create(self.opts, new_len);
+            // From here on `self.{buffer,memory}` are the OLD pair;
+            // release them. If `release` itself OOMs, we have to
+            // destroy directly (same fallback as `deinit`), but the
+            // new pair is already constructed and `self.* =
+            // replacement` will reach a healthy state regardless.
+            const bp = @import("../Vulkan.zig").buffer_pool;
+            const capacity_bytes: u64 = @as(u64, self.len) * @sizeOf(T);
+            bp.release(
+                dev,
+                self.buffer,
+                self.memory,
+                self.opts.usage,
+                capacity_bytes,
+            ) catch {
+                _ = dev.dispatch.deviceWaitIdle(dev.device);
+                dev.dispatch.destroyBuffer(dev.device, self.buffer, null);
+                dev.dispatch.freeMemory(dev.device, self.memory, null);
+            };
             self.* = replacement;
         }
 

@@ -30,7 +30,7 @@ set(CMAKE_AUTOMOC ON)
 include(GNUInstallDirs)
 
 find_package(Qt6 REQUIRED COMPONENTS Gui Widgets OpenGL DBus
-  Multimedia Svg)
+  Multimedia Svg WaylandClient)
 # WindowBlur + XkbTracker use qpa/qplatformnativeinterface.h to reach
 # the wl_display / wl_surface / wl_seat for native compositor calls
 # (blur, layer-shell screen pinning, raw wl_keyboard listeners). The
@@ -43,7 +43,7 @@ find_package(Qt6 REQUIRED COMPONENTS Gui Widgets OpenGL DBus
 # CMake config (older Debian) and we fall back to hand-wiring the
 # include dir below.
 set(QT_NO_PRIVATE_MODULE_WARNING ON)
-find_package(Qt6 QUIET OPTIONAL_COMPONENTS GuiPrivate)
+find_package(Qt6 QUIET OPTIONAL_COMPONENTS GuiPrivate WaylandClientPrivate)
 
 # LayerShellQt: the quick terminal is a wlr-layer-shell dropdown window.
 find_package(LayerShellQt REQUIRED)
@@ -53,6 +53,11 @@ find_package(LayerShellQt REQUIRED)
 # QPA native-handle accessors.
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
+# libEGL is only needed by the OpenGL variant — `EglDmabufTarget`
+# uses EGL_MESA_image_dma_buf_export to export an FBO-backed
+# texture as a dmabuf. The Vulkan variant gets dmabufs straight
+# from `VK_KHR_external_memory_fd` and never calls into EGL, so
+# the EGL pkg-config + IMPORTED_TARGET is gated below.
 # libxkbcommon: derive the unshifted Unicode codepoint for a key event
 # from its XKB keycode, so libghostty's kitty encoder finds an entry for
 # punctuation keys (Qt's ev->key() reports the SHIFTED symbol, e.g.
@@ -70,6 +75,50 @@ add_custom_command(OUTPUT "${BLUR_HEADER}"
 add_custom_command(OUTPUT "${BLUR_CODE}"
   COMMAND "${WAYLAND_SCANNER}" private-code "${BLUR_XML}" "${BLUR_CODE}"
   DEPENDS "${BLUR_XML}" VERBATIM)
+
+# Generate client glue for the linux-dmabuf-v1 protocol (used by the
+# Vulkan present path: wrap libghostty's dmabuf fd in a wl_buffer and
+# attach it to the wayland::SubsurfacePresenter's wl_surface). Vendored
+# in qt/protocols/ so the build doesn't depend on
+# /usr/share/wayland-protocols being installed.
+set(DMABUF_XML "${CMAKE_CURRENT_SOURCE_DIR}/protocols/linux-dmabuf-v1.xml")
+set(DMABUF_HEADER "${CMAKE_CURRENT_BINARY_DIR}/linux-dmabuf-v1-client-protocol.h")
+set(DMABUF_CODE "${CMAKE_CURRENT_BINARY_DIR}/linux-dmabuf-v1-protocol.c")
+add_custom_command(OUTPUT "${DMABUF_HEADER}"
+  COMMAND "${WAYLAND_SCANNER}" client-header "${DMABUF_XML}" "${DMABUF_HEADER}"
+  DEPENDS "${DMABUF_XML}" VERBATIM)
+add_custom_command(OUTPUT "${DMABUF_CODE}"
+  COMMAND "${WAYLAND_SCANNER}" private-code "${DMABUF_XML}" "${DMABUF_CODE}"
+  DEPENDS "${DMABUF_XML}" VERBATIM)
+
+# wp_viewporter — lets the presenter set a destination size in
+# surface-local coords, decoupling the buffer's pixel dimensions
+# from how big the subsurface appears on screen. Needed for
+# fractional scaling.
+set(VIEWPORTER_XML "${CMAKE_CURRENT_SOURCE_DIR}/protocols/viewporter.xml")
+set(VIEWPORTER_HEADER "${CMAKE_CURRENT_BINARY_DIR}/viewporter-client-protocol.h")
+set(VIEWPORTER_CODE "${CMAKE_CURRENT_BINARY_DIR}/viewporter-protocol.c")
+add_custom_command(OUTPUT "${VIEWPORTER_HEADER}"
+  COMMAND "${WAYLAND_SCANNER}" client-header "${VIEWPORTER_XML}" "${VIEWPORTER_HEADER}"
+  DEPENDS "${VIEWPORTER_XML}" VERBATIM)
+add_custom_command(OUTPUT "${VIEWPORTER_CODE}"
+  COMMAND "${WAYLAND_SCANNER}" private-code "${VIEWPORTER_XML}" "${VIEWPORTER_CODE}"
+  DEPENDS "${VIEWPORTER_XML}" VERBATIM)
+
+# wp_fractional_scale_v1 — compositor sends the per-surface
+# preferred fractional scale (in 120ths). We use this as the
+# authoritative scale for sizing the buffer, instead of trusting
+# Qt's devicePixelRatioF() (which is the same value, but going
+# direct to the protocol avoids any sync lag with Qt's update).
+set(FRACSCALE_XML "${CMAKE_CURRENT_SOURCE_DIR}/protocols/fractional-scale-v1.xml")
+set(FRACSCALE_HEADER "${CMAKE_CURRENT_BINARY_DIR}/fractional-scale-v1-client-protocol.h")
+set(FRACSCALE_CODE "${CMAKE_CURRENT_BINARY_DIR}/fractional-scale-v1-protocol.c")
+add_custom_command(OUTPUT "${FRACSCALE_HEADER}"
+  COMMAND "${WAYLAND_SCANNER}" client-header "${FRACSCALE_XML}" "${FRACSCALE_HEADER}"
+  DEPENDS "${FRACSCALE_XML}" VERBATIM)
+add_custom_command(OUTPUT "${FRACSCALE_CODE}"
+  COMMAND "${WAYLAND_SCANNER}" private-code "${FRACSCALE_XML}" "${FRACSCALE_CODE}"
+  DEPENDS "${FRACSCALE_XML}" VERBATIM)
 
 # libghostty is built out-of-tree by Zig.
 get_filename_component(GHOSTTY_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
@@ -94,6 +143,15 @@ set(GHOSTTY_SO "${GHOSTTY_LIB_DIR}/ghostty-internal.so")
 set(GHASTTY_VARIANT "opengl" CACHE STRING
     "Renderer variant: opengl (default) or vulkan")
 set_property(CACHE GHASTTY_VARIANT PROPERTY STRINGS opengl vulkan)
+# Validate the cache value: STRINGS only constrains the cmake-gui
+# dropdown, not the command-line. `-DGHASTTY_VARIANT=foo` would
+# otherwise silently fall into the OpenGL branch below.
+if(NOT GHASTTY_VARIANT STREQUAL "opengl" AND
+   NOT GHASTTY_VARIANT STREQUAL "vulkan")
+  message(FATAL_ERROR
+    "GHASTTY_VARIANT='${GHASTTY_VARIANT}' is invalid; "
+    "must be 'opengl' or 'vulkan'.")
+endif()
 if(GHASTTY_VARIANT STREQUAL "vulkan")
   set(GHASTTY_EXE_NAME "ghastty-vulkan")
   set(GHASTTY_LIB_SUBDIR "ghastty-vulkan")
@@ -102,6 +160,22 @@ else()
   set(GHASTTY_EXE_NAME "ghastty")
   set(GHASTTY_LIB_SUBDIR "")
 endif()
+
+# Compile-time renderer pick. Each binary is linked against exactly
+# one libghostty.so variant (opengl or vulkan), so the renderer
+# choice is inherent to the binary — no need for a runtime env var.
+# GhosttySurface.cpp branches on GHASTTY_USE_VULKAN to spin up the
+# Vulkan host vs the OpenGL context.
+if(GHASTTY_VARIANT STREQUAL "vulkan")
+  add_compile_definitions(GHASTTY_USE_VULKAN)
+endif()
+
+# libEGL: needed by EglDmabufTarget.cpp for the OpenGL variant's
+# zero-copy present path. Linked on both variants because the source
+# file compiles into both (the Vulkan variant just never instantiates
+# an `EglDmabufTarget`); skipping the link would leave undefined
+# references to its destructor / static methods at link time.
+pkg_check_modules(EGL REQUIRED IMPORTED_TARGET egl)
 
 if(NOT EXISTS "${GHOSTTY_SO}")
   message(FATAL_ERROR
@@ -124,7 +198,6 @@ add_custom_target(ghostty_link DEPENDS "${GHOSTTY_LINK_SO}")
 
 add_executable(ghastty
   src/main.cpp
-  src/vulkan/Host.cpp
   src/actions/ActionDispatcher.cpp
   src/actions/ChromeActions.cpp
   src/actions/InputActions.cpp
@@ -147,11 +220,28 @@ add_executable(ghastty
   src/TabWidget.cpp
   src/undo/UndoStack.cpp
   src/Util.cpp
+  src/wayland/EglDmabufTarget.cpp
+  src/wayland/SubsurfacePresenter.cpp
   src/WindowBlur.cpp
   src/XkbTracker.cpp
   "${BLUR_CODE}"
   "${BLUR_HEADER}"
+  "${DMABUF_CODE}"
+  "${DMABUF_HEADER}"
+  "${VIEWPORTER_CODE}"
+  "${VIEWPORTER_HEADER}"
+  "${FRACSCALE_CODE}"
+  "${FRACSCALE_HEADER}"
 )
+
+# Vulkan host glue is variant-only. Adding it to the OpenGL build
+# would force an unconditional libvulkan link on a binary that
+# never calls into Vulkan, contradicting the side-by-side
+# `~/.local/lib/libghostty.so` story that the variant block above
+# documents.
+if(GHASTTY_VARIANT STREQUAL "vulkan")
+  target_sources(ghastty PRIVATE src/vulkan/Host.cpp)
+endif()
 
 # Embed the app icon so it is available even running from the build tree.
 qt_add_resources(ghastty "appicon"
@@ -175,12 +265,30 @@ target_link_libraries(ghastty PRIVATE
   Qt6::Svg
   PkgConfig::WAYLAND_CLIENT
   PkgConfig::XKBCOMMON
+  PkgConfig::EGL
   LayerShellQt::Interface
-  vulkan
   "${GHOSTTY_LINK_SO}"
 )
 
+# libvulkan is Vulkan-variant only. The OpenGL variant compiles
+# nothing that references Vulkan symbols (vulkan/Host.cpp is gated
+# above), so not linking libvulkan keeps OpenGL-only systems from
+# needing the loader installed at runtime — matching the
+# documented side-by-side variant story above.
+if(GHASTTY_VARIANT STREQUAL "vulkan")
+  target_link_libraries(ghastty PRIVATE vulkan)
+endif()
+
 # Hook up the private QPA headers (see find_package above).
+#
+# Qt6::WaylandClientPrivate gives us QtWaylandClient::QWaylandWindow,
+# which we cast the QPA platform window to in GhosttySurface to call
+# `commit()` directly — that forces a parent wl_surface commit at the
+# moment our subsurface state is ready, instead of waiting on Qt's
+# backing-store flush which never fires for our translucent widget.
+if(TARGET Qt6::WaylandClientPrivate)
+  target_link_libraries(ghastty PRIVATE Qt6::WaylandClientPrivate)
+endif()
 if(TARGET Qt6::GuiPrivate)
   target_link_libraries(ghastty PRIVATE Qt6::GuiPrivate)
 else()

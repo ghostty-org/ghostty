@@ -9,6 +9,8 @@
 #include <optional>
 #include <vector>
 
+#include "../wayland/SubsurfacePresenter.h"
+
 namespace vulkan {
 
 // Forward declaration of the entry point in `GhosttySurface.cpp` that
@@ -22,13 +24,21 @@ void presentToGhosttySurface(
     uint64_t drm_modifier,
     uint32_t width,
     uint32_t height,
-    uint32_t stride);
+    uint32_t stride,
+    bool image_backed);
 
 namespace {
 
 constexpr const char *kRequiredDeviceExtensions[] = {
     "VK_KHR_external_memory_fd",
     "VK_EXT_external_memory_dma_buf",
+    // Needed so libghostty can allocate render images with a chosen
+    // DRM modifier (vendor-tiled where supported) and query the
+    // driver-chosen layout back via
+    // `vkGetImageDrmFormatModifierPropertiesEXT`. Without it on the
+    // host's VkDevice, the device-level proc-addr lookup for that
+    // function returns null and Target.init fails.
+    "VK_EXT_image_drm_format_modifier",
 };
 
 bool hasRequiredExtensions(VkPhysicalDevice pd) {
@@ -107,6 +117,15 @@ uint32_t cbQueueFamilyIndex(void *ud) {
   return host != nullptr ? host->vkQueueFamilyIndex() : 0;
 }
 
+size_t cbGetSupportedModifiers(void *ud, uint32_t drm_format,
+                                uint64_t *out, size_t capacity) {
+  (void)ud;
+  // Always-safe read: the registry was primed eagerly on the GUI
+  // thread when Host::instance() first ran, so any renderer-thread
+  // call sees a fully-populated immutable table.
+  return ::wayland::supportedDmabufModifiers(drm_format, out, capacity);
+}
+
 void cbPresent(
     void *ud,
     int dmabuf_fd,
@@ -114,10 +133,11 @@ void cbPresent(
     uint64_t drm_modifier,
     uint32_t width,
     uint32_t height,
-    uint32_t stride) {
+    uint32_t stride,
+    bool image_backed) {
   if (ud == nullptr) return;
-  ::vulkan::presentToGhosttySurface(ud, dmabuf_fd, drm_format,
-                                    drm_modifier, width, height, stride);
+  ::vulkan::presentToGhosttySurface(ud, dmabuf_fd, drm_format, drm_modifier,
+                                    width, height, stride, image_backed);
 }
 
 } // namespace
@@ -227,6 +247,7 @@ ghostty_platform_vulkan_s Host::asPlatform(void *surface_userdata) const {
   p.device = cbDevice;
   p.queue = cbQueue;
   p.queue_family_index = cbQueueFamilyIndex;
+  p.get_supported_modifiers = cbGetSupportedModifiers;
   p.present = cbPresent;
   return p;
 }
@@ -241,6 +262,14 @@ Host *Host::instance() {
     }
     // candidate's destructor runs on init failure and cleans up
     // any partial state.
+
+    // Eagerly prime the dmabuf modifier registry while we're
+    // guaranteed to be on the GUI thread (Host::instance is called
+    // from GhosttySurface's ctor before the renderer thread spawns).
+    // From here on, `wayland::supportedDmabufModifiers` is a
+    // lock-free read of an immutable table, safe to call from the
+    // renderer thread via `cbGetSupportedModifiers`.
+    ::wayland::primeDmabufModifierRegistry();
   });
   return host.get();
 }

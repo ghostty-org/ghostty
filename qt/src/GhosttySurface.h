@@ -1,6 +1,8 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
+#include <memory>
 
 #include <QImage>
 #include <QMutex>
@@ -11,6 +13,11 @@
 #include <QWidget>
 
 #include "ghostty.h"
+
+namespace wayland {
+class SubsurfacePresenter;
+class EglDmabufTarget;
+}
 
 class MainWindow;
 class QContextMenuEvent;
@@ -33,14 +40,26 @@ class OverlayScrollbar;
 
 // One Ghostty terminal pane.
 //
-// libghostty's OpenGL renderer draws the terminal into an offscreen
-// framebuffer owned by a private QOpenGLContext (there is no on-screen
-// GL surface). Each frame is read back into a QImage and painted with
-// QPainter. That keeps this an ordinary translucent QWidget, so it
-// embeds in the QTabWidget / QSplitter tree and its transparent
-// background composites to the desktop exactly like the rest of the
-// widget chrome — avoiding QOpenGLWidget (composites opaque on Wayland)
-// and an embedded QOpenGLWindow (does not present when embedded).
+// Terminal pixels reach the screen via a wl_subsurface attached to
+// the top-level QWindow's wl_surface (see wayland::SubsurfacePresenter).
+// libghostty's renderer (Vulkan or OpenGL, picked at compile time
+// via GHASTTY_USE_VULKAN) hands us a dmabuf fd per frame; we wrap
+// it in a wl_buffer via zwp_linux_dmabuf_v1 and the compositor
+// scans it out directly — no readback, no QPainter blit for the
+// terminal area. Each pane in a split is a sibling subsurface
+// under the same top-level wl_surface, positioned at its offset
+// within the top-level via setPosition.
+//
+// This QWidget itself keeps WA_TranslucentBackground so the
+// terminal area of the parent surface is transparent (the
+// subsurface below shows through) and chrome (SearchBar,
+// overlays, scrollbar) painted in paintEvent stays visible on top.
+//
+// Legacy fallback: if the compositor lacks the required Wayland
+// globals (linux-dmabuf-v1, viewporter, subcompositor) or the
+// renderer reports image_backed=false (NVIDIA Vulkan's
+// legacy_copy path on this branch), the frame goes through a
+// mmap+memcpy+QImage+QPainter::drawImage path instead.
 class GhosttySurface : public QWidget {
   Q_OBJECT
 
@@ -145,25 +164,47 @@ public:
   void setPwd(const QString &pwd);
   const QString &pwd() const { return m_pwd; }
 
-  // Apprt-side entry point for the Vulkan `present` callback.
-  // libghostty hands us a dmabuf fd pointing at the rendered
-  // VkImage's memory; we mmap it (LINEAR tiling means the bytes
-  // are directly readable as BGRA), copy the pixels into a QImage,
-  // and schedule a repaint. Thread-safe: the callback fires from
-  // the renderer thread; the QImage handoff goes through
-  // `QMetaObject::invokeMethod` to the GUI thread.
+  // Apprt-side entry point for the Vulkan `present` callback. Fires
+  // on the renderer thread. Parks the dmabuf descriptor under
+  // `m_pendingMutex` (plus, for the legacy fallback path, an
+  // mmap+memcpy'd QImage) and wakes the GUI thread via
+  // `QMetaObject::invokeMethod(this, drainVulkan, Qt::QueuedConnection)`.
+  // The GUI thread either commits the dmabuf to the wl_subsurface
+  // (zero-copy) or paints the QImage (fallback). The dropped-frame
+  // counter `m_droppedFrames` makes any genuine queue-loss visible
+  // (zero in the steady state).
   Q_INVOKABLE void presentVulkanDmabuf(
       int dmabuf_fd,
       quint32 drm_format,
       quint64 drm_modifier,
       quint32 width,
       quint32 height,
-      quint32 stride);
+      quint32 stride,
+      bool image_backed);
+
+  // GUI-thread drain step: hands the most recent pending frame
+  // either to the SubsurfacePresenter (zero-copy path) or the
+  // QImage paint pipeline (fallback). Idempotent: returns
+  // immediately if nothing's pending. Invoked from the polling
+  // safety net AND from queued invocations triggered by the
+  // renderer thread.
+  Q_INVOKABLE void drainVulkan();
+
+  // Force a wl_surface.commit on our parent native window via the
+  // QtWaylandClient::QWaylandWindow private API. The wl_subsurface
+  // is in sync mode, so child state changes only apply when the
+  // parent commits — but Qt's backing-store flush doesn't fire for
+  // a translucent QWidget with no paint damage. Calling this after
+  // every child commit ensures the cached child state actually
+  // reaches the compositor. Returns false on non-Wayland QPA or if
+  // the cast fails (no Qt private headers available).
+  bool forceParentCommit();
 
 protected:
   bool event(QEvent *) override;
   void paintEvent(QPaintEvent *) override;
   void resizeEvent(QResizeEvent *) override;
+  void moveEvent(QMoveEvent *) override;
 
   // Disable Qt's Tab/Backtab focus traversal so those keys reach
   // keyPressEvent and can be forwarded to the terminal.
@@ -230,6 +271,14 @@ private:
   QOpenGLContext *m_context = nullptr;
   QOffscreenSurface *m_offscreen = nullptr;
   QOpenGLFramebufferObject *m_fbo = nullptr;
+  // Dmabuf-exporting GL target (zero-copy path). Set when the EGL
+  // display advertises EGL_MESA_image_dma_buf_export and the
+  // wl_subsurface presenter is up; the renderer draws into this
+  // texture-backed framebuffer and we attach its fd straight to the
+  // subsurface — no glReadPixels, no QImage, no QPainter blit.
+  // Stays null when EGL support is missing or the subsurface failed
+  // to bring up, and the legacy m_fbo path runs as fallback.
+  std::unique_ptr<wayland::EglDmabufTarget> m_eglTarget;
   QImage m_image;                      // last frame, read back from m_fbo
 
   // True when this surface is using the Vulkan platform. The
@@ -239,18 +288,38 @@ private:
   // gives way to the actual rendered content.
   bool m_useVulkan = false;
 
-  // Cross-thread frame handoff for the Vulkan path. `presentVulkanDmabuf`
-  // (renderer thread) writes a freshly-imported QImage to `m_pending`
-  // under `m_pendingMutex`; a 16 ms `QTimer` on the GUI thread checks
-  // `m_pending`, atomically swaps it into `m_image`, and triggers a
-  // repaint. The polling timer is the simplest reliable cross-thread
-  // path we could land — the obvious Qt mechanisms
-  // (QMetaObject::invokeMethod / postEvent) were both not firing
-  // their queued lambdas under the renderer-thread → GUI-thread
-  // handoff, see the commit message for diagnostics.
+  // Cross-thread frame handoff for the Vulkan path. The renderer
+  // thread calls `presentVulkanDmabuf` with a borrowed dmabuf fd
+  // and posts a queued `drainVulkan` invocation; the GUI thread
+  // runs `drainVulkan` and routes the parked descriptor through
+  // either the wl_subsurface presenter (zero-copy) or the
+  // mmap+memcpy+QImage fallback. The dropped-frame counter
+  // (`m_droppedFrames`) surfaces any queue-loss that ever happens
+  // in practice — the earlier safety-net polling timer was
+  // removed once delivery was shown to be reliable.
+  //
+  // `m_useSubsurface` is set once on the GUI thread when the
+  // presenter comes up; the renderer thread reads it acquire-style
+  // to decide which path to populate per frame.
+  std::atomic<bool> m_useSubsurface{false};
+  // Subsurface (zero-copy) path: renderer thread parks the
+  // borrowed-fd descriptor here; GUI-thread timer hands it to the
+  // presenter.
+  struct PendingDmabuf {
+    int fd = -1;
+    quint32 drm_format = 0;
+    quint64 drm_modifier = 0;
+    quint32 width = 0;
+    quint32 height = 0;
+    quint32 stride = 0;
+  };
+  PendingDmabuf m_pendingDmabuf;
+  // Legacy (mmap+memcpy) path: kept as a fallback when the
+  // presenter isn't available (e.g. compositor missing
+  // linux-dmabuf-v1). When the subsurface path is active this stays
+  // null and paintEvent skips its blit.
   QImage m_pending;
   QMutex m_pendingMutex;
-  QTimer *m_vulkanPollTimer = nullptr;
 
   // GL objects for the alpha-premultiply pass.
   QOpenGLShaderProgram *m_premultProg = nullptr;
@@ -258,7 +327,13 @@ private:
 
   int m_fbw = 0;                       // framebuffer size, device pixels
   int m_fbh = 0;
-  double m_fbDpr = 1.0;                // DPR the framebuffer was sized at
+  // DPR the framebuffer was sized at. Atomic because the renderer
+  // thread reads it from `presentVulkanDmabuf` to tag the legacy
+  // QImage path while the GUI thread writes it from
+  // `syncSurfaceSize`. `double` writes aren't guaranteed atomic
+  // across threads on every architecture; std::atomic<double> uses
+  // CAS-loop fallbacks where needed.
+  std::atomic<double> m_fbDpr{1.0};    // DPR the framebuffer was sized at
 
   QLabel *m_exitOverlay = nullptr;     // "process exited" banner; lazily made
   QLabel *m_keySeqOverlay = nullptr;   // pending keybind chord; lazily made
@@ -307,4 +382,35 @@ private:
   // first PWD notification (libghostty fires one at spawn from the
   // inherited config, then on every cwd change).
   QString m_pwd;
+
+  // Wayland subsurface for the GPU-direct present path. Lazily
+  // created on first `QEvent::Show` once the top-level QWindow
+  // exists; null if the compositor lacks the required globals
+  // (linux-dmabuf-v1, viewporter, subcompositor), in which case
+  // the legacy mmap+memcpy+QImage+QPainter path renders pixels.
+  std::unique_ptr<wayland::SubsurfacePresenter> m_subsurfacePresenter;
+  // Per-surface latch for the first-dmabuf log breadcrumb so each
+  // pane / split prints its own line on first frame. Atomic because
+  // the renderer thread is what hits `presentVulkanDmabuf` and the
+  // first-frame check would otherwise race a sibling renderer
+  // thread on the same widget — relaxed CAS means at most one log
+  // line per surface, even under concurrent first frames.
+  std::atomic<bool> m_loggedFirstFrame{false};
+
+  // Count of frames overwritten in `m_pendingDmabuf` before the GUI
+  // thread drained them. Each overwrite is a missed compositor
+  // present — fd lifetime is unaffected (libghostty owns the
+  // dmabuf), but a sustained nonzero rate means the GUI thread is
+  // falling behind the renderer. Logged sparsely from
+  // `presentVulkanDmabuf`.
+  std::atomic<std::uint64_t> m_droppedFrames{0};
+  // Set true on QEvent::Hide, false on QEvent::Show. Guards the
+  // present path against a race where libghostty's renderer thread
+  // fires one more frame after we've detached the subsurface
+  // buffer on Hide — without this gate, that stray frame re-
+  // attaches a buffer and the now-inactive tab ghosts on top of
+  // whatever tab the user just switched to. `std::atomic` because
+  // the renderer thread reads it in `presentVulkanDmabuf` /
+  // `drainVulkan` while the GUI thread writes from event().
+  std::atomic<bool> m_hidden{false};
 };

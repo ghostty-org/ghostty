@@ -397,8 +397,8 @@ pub const Platform = union(PlatformTag) {
     };
 
     /// Configuration for a host that owns a Vulkan device libghostty
-    /// should render against (fork-only, in progress). The host owns
-    /// the VkInstance / VkPhysicalDevice / VkDevice / VkQueue — same
+    /// should render against (fork-only). The host owns the
+    /// VkInstance / VkPhysicalDevice / VkDevice / VkQueue — same
     /// ownership model as `OpenGL` above. Frames are handed back to
     /// the host as dmabuf file descriptors so the host can sample
     /// them without a CPU readback.
@@ -424,11 +424,30 @@ pub const Platform = union(PlatformTag) {
         queue: *const fn (?*anyopaque) callconv(.c) ?*anyopaque,
         queue_family_index: *const fn (?*anyopaque) callconv(.c) u32,
 
+        /// Query the compositor-supported DRM modifiers for a given
+        /// DRM_FORMAT_* fourcc. Two-pass usage: call with
+        /// `out=null, capacity=0` for the count, then again with a
+        /// buffer of that size. Returns the number of modifiers
+        /// actually written. The renderer intersects this with the
+        /// GPU's per-modifier feature set to pick a tiling the
+        /// compositor will accept on attach.
+        get_supported_modifiers: *const fn (
+            ?*anyopaque,
+            u32, // DRM_FORMAT_*
+            ?[*]u64, // out
+            usize, // capacity
+        ) callconv(.c) usize,
+
         /// Hand off a rendered frame to the host as a dmabuf fd. The
         /// host imports it for composition; libghostty retains
         /// ownership of the underlying VkDeviceMemory and the fd is
         /// valid only for the duration of the call (host must `dup()`
-        /// if it needs to hold the fd longer).
+        /// if it needs to hold the fd longer). `image_backed` tells
+        /// the host whether the fd was exported from a VkImage
+        /// (directly importable as a 2D image via linux-dmabuf-v1)
+        /// or from a VkBuffer (only usable via mmap + CPU readback);
+        /// see `vulkan/Target.zig` and `include/ghostty.h` for the
+        /// full rationale.
         present: *const fn (
             ?*anyopaque,
             i32, // dmabuf fd
@@ -437,6 +456,7 @@ pub const Platform = union(PlatformTag) {
             u32, // width (pixels)
             u32, // height (pixels)
             u32, // stride (bytes)
+            bool, // image_backed
         ) callconv(.c) void,
     };
 
@@ -473,6 +493,12 @@ pub const Platform = union(PlatformTag) {
             device: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque,
             queue: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque,
             queue_family_index: ?*const fn (?*anyopaque) callconv(.c) u32,
+            get_supported_modifiers: ?*const fn (
+                ?*anyopaque,
+                u32,
+                ?[*]u64,
+                usize,
+            ) callconv(.c) usize,
             present: ?*const fn (
                 ?*anyopaque,
                 i32,
@@ -481,6 +507,7 @@ pub const Platform = union(PlatformTag) {
                 u32,
                 u32,
                 u32,
+                bool,
             ) callconv(.c) void,
         },
     };
@@ -520,22 +547,42 @@ pub const Platform = union(PlatformTag) {
 
             .vulkan => vulkan: {
                 const config = c_platform.vulkan;
+                // Collapse the eight per-callback "MustBeSet"
+                // variants into a single `error.MissingVulkanCallback`.
+                // Pre-this, every caller of `Platform.init` had to
+                // handle 8 separate error tags (or `try` swallow
+                // them) — eight names that all mean "the host
+                // didn't fill out one of these fields." Log which
+                // one was null for diagnostics; the error tag
+                // itself stays narrow.
+                const which: ?[]const u8 = blk: {
+                    if (config.get_instance_proc_addr == null) break :blk "get_instance_proc_addr";
+                    if (config.instance == null) break :blk "instance";
+                    if (config.physical_device == null) break :blk "physical_device";
+                    if (config.device == null) break :blk "device";
+                    if (config.queue == null) break :blk "queue";
+                    if (config.queue_family_index == null) break :blk "queue_family_index";
+                    if (config.get_supported_modifiers == null) break :blk "get_supported_modifiers";
+                    if (config.present == null) break :blk "present";
+                    break :blk null;
+                };
+                if (which) |name| {
+                    std.log.scoped(.embedded).err(
+                        "ghostty_platform_vulkan_s.{s} is null",
+                        .{name},
+                    );
+                    break :vulkan error.MissingVulkanCallback;
+                }
                 break :vulkan .{ .vulkan = .{
                     .userdata = config.userdata,
-                    .get_instance_proc_addr = config.get_instance_proc_addr orelse
-                        break :vulkan error.GetInstanceProcAddrMustBeSet,
-                    .instance = config.instance orelse
-                        break :vulkan error.InstanceMustBeSet,
-                    .physical_device = config.physical_device orelse
-                        break :vulkan error.PhysicalDeviceMustBeSet,
-                    .device = config.device orelse
-                        break :vulkan error.DeviceMustBeSet,
-                    .queue = config.queue orelse
-                        break :vulkan error.QueueMustBeSet,
-                    .queue_family_index = config.queue_family_index orelse
-                        break :vulkan error.QueueFamilyIndexMustBeSet,
-                    .present = config.present orelse
-                        break :vulkan error.PresentMustBeSet,
+                    .get_instance_proc_addr = config.get_instance_proc_addr.?,
+                    .instance = config.instance.?,
+                    .physical_device = config.physical_device.?,
+                    .device = config.device.?,
+                    .queue = config.queue.?,
+                    .queue_family_index = config.queue_family_index.?,
+                    .get_supported_modifiers = config.get_supported_modifiers.?,
+                    .present = config.present.?,
                 } };
             },
         };
@@ -549,9 +596,7 @@ pub const PlatformTag = enum(c_int) {
     macos = 1,
     ios = 2,
     opengl = 3,
-    // Fork-only, in progress: the platform plumbing is here so the C
-    // ABI is stable, but the renderer is currently a stub. Selecting
-    // `-Drenderer=vulkan` fails at comptime in `src/renderer.zig`.
+    // Fork-only platform tag for hosts that drive `src/renderer/Vulkan.zig`.
     vulkan = 4,
 };
 

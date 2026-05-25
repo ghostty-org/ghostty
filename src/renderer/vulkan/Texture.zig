@@ -74,6 +74,12 @@ image: vk.VkImage,
 memory: vk.VkDeviceMemory,
 view: vk.VkImageView,
 format: vk.VkFormat,
+/// Aspect mask the image was created with (e.g. COLOR_BIT for
+/// renderable textures, DEPTH_BIT for depth attachments). Stored
+/// so per-frame `replaceRegion` barrier/copy use the same aspect
+/// the image view was made with — hardcoding COLOR_BIT here was a
+/// silent validation error for any non-color caller.
+aspect: vk.VkImageAspectFlags,
 width: usize,
 height: usize,
 device: *const Device,
@@ -207,6 +213,7 @@ pub fn init(
         .memory = memory,
         .view = view,
         .format = opts.format,
+        .aspect = opts.aspect,
         .width = width,
         .height = height,
         .device = dev,
@@ -249,7 +256,15 @@ pub fn replaceRegion(
         .device = dev,
         .usage = vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
     }, data);
-    defer staging.deinit();
+    // `destroyImmediate` instead of `deinit`: replaceRegion runs
+    // synchronously on the calling thread (typically the main /
+    // app-init thread, NOT the renderer thread), and
+    // `OneShot.endAndSubmit` below calls `vkQueueWaitIdle` so the
+    // staging buffer is provably done with the GPU before this
+    // defer fires. Routing it into `Vulkan.buffer_pool` from a
+    // non-renderer thread would leak it forever — the pool's
+    // `cycle()` runs only on the renderer thread.
+    defer staging.destroyImmediate();
 
     // ---- command pool (one-shot) --------------------------------
     var pool = try CommandPool.init(dev);
@@ -279,7 +294,7 @@ pub fn replaceRegion(
             .dstQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
             .image = self.image,
             .subresourceRange = .{
-                .aspectMask = vk.VK_IMAGE_ASPECT_COLOR_BIT,
+                .aspectMask = self.aspect,
                 .baseMipLevel = 0,
                 .levelCount = 1,
                 .baseArrayLayer = 0,
@@ -304,7 +319,7 @@ pub fn replaceRegion(
             .bufferRowLength = 0, // tightly packed
             .bufferImageHeight = 0,
             .imageSubresource = .{
-                .aspectMask = vk.VK_IMAGE_ASPECT_COLOR_BIT,
+                .aspectMask = self.aspect,
                 .mipLevel = 0,
                 .baseArrayLayer = 0,
                 .layerCount = 1,
@@ -343,7 +358,7 @@ pub fn replaceRegion(
             .dstQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
             .image = self.image,
             .subresourceRange = .{
-                .aspectMask = vk.VK_IMAGE_ASPECT_COLOR_BIT,
+                .aspectMask = self.aspect,
                 .baseMipLevel = 0,
                 .levelCount = 1,
                 .baseArrayLayer = 0,

@@ -11,7 +11,6 @@
 #include "GlobalShortcuts.h"
 #include "MainWindow.h"
 #include "ghostty.h"
-#include "vulkan/Host.h"
 
 // True when any argv entry starts with `+` — i.e. the user invoked a
 // libghostty CLI action (`+show-config`, `+list-fonts`, `+version`, …).

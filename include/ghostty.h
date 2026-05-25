@@ -67,10 +67,10 @@ typedef enum {
   GHOSTTY_PLATFORM_MACOS,
   GHOSTTY_PLATFORM_IOS,
   GHOSTTY_PLATFORM_OPENGL,
-  // Vulkan is a fork-only addition (in-progress). The platform plumbing
-  // and callback shape are stable; the renderer itself is currently a
-  // stub and selecting it at build time fails with a compile error
-  // pointing at the qt-vulkan-renderer branch.
+  // Vulkan: fork-only platform tag. The host owns the
+  // VkInstance/Device/Queue and hands them to libghostty via
+  // `ghostty_platform_vulkan_s`. Frames come back to the host as
+  // dmabuf fds for zero-copy compositing.
   GHOSTTY_PLATFORM_VULKAN,
 } ghostty_platform_e;
 
@@ -486,7 +486,7 @@ typedef struct {
   void (*present)(void* userdata);
 } ghostty_platform_opengl_s;
 
-// Vulkan host integration (fork-only, in progress). The host owns the
+// Vulkan host integration (fork-only). The host owns the
 // VkInstance / VkPhysicalDevice / VkDevice / VkQueue (same ownership
 // model as the OpenGL host); libghostty creates pipelines, command
 // pools, and images against that device. Frames are handed back to the
@@ -513,8 +513,42 @@ typedef struct {
   void* (*queue)(void* userdata);             // VkQueue
   uint32_t (*queue_family_index)(void* userdata);
 
+  // Compositor-supported DRM modifiers for a given DRM_FORMAT_*
+  // fourcc, as advertised by linux-dmabuf-v1's `modifier` events.
+  // libghostty intersects this with what its physical device
+  // supports for COLOR_ATTACHMENT to pick a tiling that the
+  // compositor will actually accept on attach. Without this
+  // intersection, drivers that don't expose COLOR_ATTACHMENT for
+  // the LINEAR modifier (NVIDIA) can't use the direct-export path
+  // and fall back to a CPU-readback path.
+  //
+  // Two-pass usage: call with `out=NULL, capacity=0` to query the
+  // total count; allocate; call again to fill. Returns the number
+  // of modifiers actually written (capped at `capacity`). May
+  // return 0 if the format isn't compositor-supported or the host
+  // doesn't speak linux-dmabuf-v1.
+  size_t (*get_supported_modifiers)(
+      void* userdata,
+      uint32_t drm_format,
+      uint64_t* out,
+      size_t capacity);
+
   // Hand off a rendered frame to the host as a dmabuf fd. The host
-  // imports it (e.g. into Qt's RHI as a QRhiTexture) and composites.
+  // imports it (e.g. into Qt's RHI as a QRhiTexture, or attaches to
+  // a wl_subsurface via linux-dmabuf-v1) and composites.
+  //
+  // `image_backed` is true when the dmabuf was exported from a
+  // VkImage allocated with VK_EXT_image_drm_format_modifier — i.e.
+  // it's directly importable as a 2D image by the compositor or any
+  // GPU-side consumer. false when it was exported from a VkBuffer
+  // (the legacy NVIDIA fallback path where the driver doesn't
+  // advertise COLOR_ATTACHMENT for the LINEAR modifier on
+  // exportable images, so libghostty renders into an OPTIMAL image
+  // and copies the bytes into a linear VkBuffer for export). In the
+  // !image_backed case the fd is only usable via mmap + CPU
+  // readback — attempting a linux-dmabuf-v1 import will trigger an
+  // `invalid_wl_buffer` protocol error.
+  //
   // libghostty retains ownership of the underlying VkDeviceMemory;
   // the host must dup() the fd if it needs to hold it past the call.
   void (*present)(
@@ -524,7 +558,8 @@ typedef struct {
       uint64_t drm_modifier,
       uint32_t width,
       uint32_t height,
-      uint32_t stride);
+      uint32_t stride,
+      bool image_backed);
 } ghostty_platform_vulkan_s;
 
 typedef union {

@@ -136,8 +136,26 @@ layout: vk.VkPipelineLayout,
 /// `RenderPass.step` skips updating/binding it). `set_count` is one
 /// past the last non-null index, matching what
 /// `vkCmdBindDescriptorSets` needs as `setCount`.
+///
+/// HOT-PATH NOTE: these sets are SHARED across all `step()` calls
+/// that bind this pipeline within a single command buffer, but
+/// `vkCmdDraw` reads descriptors at submit time, so re-using the
+/// same pipeline twice with different per-call resources would
+/// cause both draws to see the LAST update's bindings.
+/// `RenderPass.step` defends against this by allocating a fresh
+/// per-call set from the pass's `step_pool` whenever the per-step
+/// resources differ; these `descriptor_sets[i]` slots act as
+/// pre-warmed defaults (used only when the call site is
+/// single-step-per-pipeline like bg_color / cell_bg).
 descriptor_sets: [MAX_DESCRIPTOR_SETS]vk.VkDescriptorSet = .{ null, null, null },
 set_count: u32 = 0,
+
+/// Descriptor set layouts associated with this pipeline, indexed by
+/// set number. `null` matches a `null` slot in `descriptor_sets`.
+/// Stored so `RenderPass.step` can allocate per-call sets from the
+/// pass's per-frame descriptor pool without round-tripping through
+/// the original `Shaders.init` layout-creation code path.
+descriptor_set_layouts: [MAX_DESCRIPTOR_SETS]vk.VkDescriptorSetLayout = .{ null, null, null },
 
 /// Binding number that `Step.uniforms` writes to within set 0.
 /// Defaults to 1 to match `common.glsl`'s
@@ -395,14 +413,20 @@ pub fn init(opts: Options) Error!Self {
             return error.VulkanFailed;
         }
     }
+    errdefer dev.dispatch.destroyPipeline(dev.device, pipeline, null);
 
     // Allocate one descriptor set per non-null entry in
-    // `opts.descriptor_set_layouts`. Null entries are placeholder
+    // `opts.descriptor_set_layouts`. Null entries are placeholders
     // (the shader's set=i isn't actually used) — nothing to allocate.
+    // Also remember the layouts on `Self` so `RenderPass.step` can
+    // allocate fresh per-call sets from a per-frame pool without
+    // re-creating layouts.
     var dsets: [MAX_DESCRIPTOR_SETS]vk.VkDescriptorSet = .{ null, null, null };
+    var dsls: [MAX_DESCRIPTOR_SETS]vk.VkDescriptorSetLayout = .{ null, null, null };
     if (opts.descriptor_pool) |pool_ptr| {
         for (opts.descriptor_set_layouts, 0..) |maybe_dsl, i| {
             if (maybe_dsl) |dsl| {
+                dsls[i] = dsl;
                 dsets[i] = pool_ptr.allocate(dsl) catch |err| {
                     log.err(
                         "Pipeline.init: descriptor set {} allocation failed: {}",
@@ -412,6 +436,10 @@ pub fn init(opts: Options) Error!Self {
                 };
             }
         }
+    } else {
+        for (opts.descriptor_set_layouts, 0..) |maybe_dsl, i| {
+            if (maybe_dsl) |dsl| dsls[i] = dsl;
+        }
     }
 
     return .{
@@ -419,6 +447,7 @@ pub fn init(opts: Options) Error!Self {
         .pipeline = pipeline,
         .layout = layout,
         .descriptor_sets = dsets,
+        .descriptor_set_layouts = dsls,
         .set_count = @intCast(opts.descriptor_set_layouts.len),
         .sampler = opts.sampler,
         .vertex_stride = if (opts.vertex_input) |vi| vi.stride else 0,
