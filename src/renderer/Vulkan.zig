@@ -126,6 +126,17 @@ rt_surface: *apprt.Surface,
 /// platform callbacks are read on the same thread that set them).
 var device: ?Device = null;
 
+/// Refcount of live `Vulkan` renderer instances that share `device`.
+/// Each `init` increments; each `deinit` decrements. The device is
+/// only torn down when the count returns to 0, so closing one tab
+/// (or one split) doesn't yank the VkDevice out from under the
+/// surfaces still running in other tabs. Process-wide (matches
+/// `device`'s scope). Mutated under `device_mutex` because
+/// surfaces' renderer threads run independently and may init/deinit
+/// concurrently.
+var device_refcount: usize = 0;
+var device_mutex: std.Thread.Mutex = .{};
+
 /// Per-thread pool of `(VkBuffer, VkDeviceMemory)` pairs that get
 /// recycled across frames. Solves two problems together:
 ///
@@ -249,6 +260,8 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Vulkan {
     // `FrameState.init` starts asking for buffer/texture options.
     // Process-wide (not threadlocal): the renderer thread is
     // distinct from the main thread that constructs the surface.
+    device_mutex.lock();
+    defer device_mutex.unlock();
     if (device == null) {
         switch (apprt.runtime) {
             else => return error.UnsupportedRuntime,
@@ -264,6 +277,7 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Vulkan {
             },
         }
     }
+    device_refcount += 1;
     return .{
         .alloc = alloc,
         .blending = opts.config.blending,
@@ -272,8 +286,11 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Vulkan {
 }
 
 pub fn deinit(self: *Vulkan) void {
-    // Tear down per-frame state in the right order: wait for any
+    // Tear down THIS surface's per-thread state first: wait for any
     // in-flight submit, then destroy fence, free CB, destroy pool.
+    // These are threadlocal (one set per renderer thread = one set
+    // per surface), so it's always safe to clean them up regardless
+    // of other surfaces' state.
     if (device) |*d| {
         d.waitIdle();
         if (frame_fence != null) {
@@ -288,17 +305,27 @@ pub fn deinit(self: *Vulkan) void {
             p.deinit();
             frame_pool = null;
         }
+        // `last_target` is a borrow into this thread's FrameState
+        // target slot. The SwapChain teardown destroys the target;
+        // we just drop our reference.
+        last_target = null;
+        // Recycle this thread's pooled buffers — the waitIdle above
+        // proves no GPU work references them anymore.
+        buffer_pool.drainAll(d);
     }
-    // `last_target` is a borrow into the FrameState's target slot,
-    // not an owned value — the SwapChain teardown destroys those.
-    // Just clear our reference so a re-init doesn't see a stale
-    // pointer.
-    last_target = null;
-    // Drop every pooled buffer now that the device is idle (the
-    // earlier `d.waitIdle()` proves there are no in-flight refs).
-    if (device) |*d| buffer_pool.drainAll(d);
-    if (device) |*d| d.deinit();
-    device = null;
+
+    // Decrement the shared-device refcount; only the last surface
+    // to deinit gets to destroy the VkDevice. Closing one of N tabs
+    // must NOT pull the device out from under the others — that
+    // crashes (or invisibly silences) every other surface's
+    // renderer thread.
+    device_mutex.lock();
+    defer device_mutex.unlock();
+    device_refcount -= 1;
+    if (device_refcount == 0) {
+        if (device) |*d| d.deinit();
+        device = null;
+    }
     self.* = undefined;
 }
 
