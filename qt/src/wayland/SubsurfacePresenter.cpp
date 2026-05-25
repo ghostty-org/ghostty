@@ -278,6 +278,17 @@ SubsurfacePresenter::tryCreate(QWindow *parent) {
   // wayland surface and (0,0) is correct.
   wl_subsurface_set_position(sub, 0, 0);
 
+  // Stack the subsurface BELOW the parent so Qt's child widgets
+  // (SearchBar, overlays, scrollbar, exit/health/link/resize hints)
+  // remain visible — they're painted into the parent's backing
+  // store, and Wayland's default subsurface stacking is *above*
+  // parent which would hide all of them. With place_below the
+  // parent QWidget renders on top; WA_TranslucentBackground means
+  // the terminal area of the parent is transparent so the
+  // subsurface shows through, while the chrome painted by
+  // paintEvent stays visible on top.
+  wl_subsurface_place_below(sub, parentSurface);
+
   // Set an empty input region so pointer/touch events fall through
   // to the parent surface (Qt's QWindow). The default input region
   // is the whole attached buffer, which would mean our subsurface
