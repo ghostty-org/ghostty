@@ -61,15 +61,20 @@ std::size_t supportedDmabufModifiers(std::uint32_t drm_format,
 
 class SubsurfacePresenter {
 public:
-  // Build a subsurface parented to `parent`'s native `wl_surface`,
-  // and bind the linux-dmabuf-v1 global on the same display.
+  // Build a subsurface parented to `topLevel`'s native `wl_surface`,
+  // and bind the linux-dmabuf-v1 global on the same display. Pass
+  // the TOP-LEVEL QWindow (e.g. `widget->window()->windowHandle()`)
+  // — NOT a per-widget native QWindow. We attach all panes/splits
+  // as siblings under the top-level surface and position each with
+  // `setPosition`, instead of giving each pane its own QWindow
+  // (which Qt's QSplitter-embedded child widgets don't handle
+  // cleanly: "QWidgetWindow must be a top level window" warning,
+  // and the result renders black).
+  //
   // Returns nullptr if any prerequisite is missing (non-Wayland QPA,
   // null `wl_display`, `wl_subcompositor` unbindable,
   // `zwp_linux_dmabuf_v1` unbindable, etc.).
-  //
-  // Forcing `Qt::WA_NativeWindow` on the caller is the *caller's*
-  // responsibility — `tryCreate` only reads `parent->surfaceHandle`.
-  static std::unique_ptr<SubsurfacePresenter> tryCreate(QWindow *parent);
+  static std::unique_ptr<SubsurfacePresenter> tryCreate(QWindow *topLevel);
 
   ~SubsurfacePresenter();
 
@@ -120,6 +125,15 @@ public:
   // subsurface during resize.
   void resizeDestination(int dest_width, int dest_height);
 
+  // Update the subsurface position in parent-surface-local coords.
+  // For panes inside splits / tabs, position is the GhosttySurface
+  // widget's offset within the top-level (`mapTo(window(),
+  // QPoint(0,0))`). wl_subsurface.set_position is double-buffered
+  // on the *parent* surface — caller must trigger a parent commit
+  // (Qt's QtWaylandClient::QWaylandWindow::commit()) for the new
+  // position to apply. No-op if the position hasn't changed.
+  void setPosition(int x, int y);
+
   // Called from the wp_fractional_scale_v1.preferred_scale event.
   // Public so the C-style listener struct at file scope in the .cpp
   // can name it; not part of the API for other call sites.
@@ -144,6 +158,8 @@ private:
   uint32_t m_preferredScale120 = 120; // default: 1.0×
   int m_lastDestWidth = 0;
   int m_lastDestHeight = 0;
+  int m_lastX = 0;
+  int m_lastY = 0;
 };
 
 } // namespace wayland

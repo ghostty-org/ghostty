@@ -59,6 +59,7 @@
 #include <QOpenGLShaderProgram>
 #include <QOpenGLVertexArrayObject>
 #include <QPainter>
+#include <QMoveEvent>
 #include <QResizeEvent>
 #include <QSplitter>
 #include <QString>
@@ -90,16 +91,15 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
   // The widget paints a per-pixel-alpha QImage of the terminal; a
   // translucent background lets that alpha reach the desktop.
   setAttribute(Qt::WA_TranslucentBackground);
-  // Force a native QWindow + wl_surface for this widget from the
-  // start. Required for the wl_subsurface presenter (it parents
-  // its child surface to our windowHandle()'s wl_surface). Setting
-  // this in the ctor — not in the Show handler — guarantees that
-  // by the time the first PlatformSurface / Show event fires, the
-  // windowHandle is established. For split panes that get re-
-  // parented into a QSplitter, the Show event flow can otherwise
-  // race with WA_NativeWindow taking effect and leave the
-  // presenter never created.
-  setAttribute(Qt::WA_NativeWindow);
+  // NOTE: deliberately NOT calling setAttribute(Qt::WA_NativeWindow).
+  // Forcing a per-pane native QWindow caused Qt to complain
+  // ("QWidgetWindow must be a top level window") and rendered
+  // split panes black: Qt's QSplitter-embedded child widgets can't
+  // be shelled cleanly on Wayland. Instead, every GhosttySurface
+  // shares the top-level QWindow's wl_surface (got via
+  // `window()->windowHandle()` in the Show handler). Each pane's
+  // wl_subsurface attaches to that shared parent, positioned at
+  // the pane's offset within the top-level via `setPosition`.
 
   // Pick the renderer up-front so the rest of the surface setup
   // (GL context vs. Vulkan host) only touches the path we'll
@@ -335,9 +335,29 @@ void GhosttySurface::syncSurfaceSize() {
   renderTerminal();
 }
 
+void GhosttySurface::moveEvent(QMoveEvent *) {
+  // When the splitter divider drags or a new pane gets inserted,
+  // our offset within the top-level changes. Update the
+  // wl_subsurface position so the terminal pixels follow the
+  // widget.
+  if (m_subsurfacePresenter && window()) {
+    const QPoint pos = mapTo(window(), QPoint(0, 0));
+    m_subsurfacePresenter->setPosition(pos.x(), pos.y());
+    forceParentCommit();
+  }
+}
+
 void GhosttySurface::resizeEvent(QResizeEvent *) {
   layoutScrollbar();
   syncSurfaceSize();
+  // Resize can also shift our position within the top-level (e.g.
+  // a sibling pane growing pushes us right). Update position too.
+  if (m_subsurfacePresenter && window()) {
+    const QPoint pos = mapTo(window(), QPoint(0, 0));
+    m_subsurfacePresenter->setPosition(pos.x(), pos.y());
+    // forceParentCommit happens inside syncSurfaceSize's
+    // drainVulkan/renderTerminal path, so we don't double up here.
+  }
   if (m_exitOverlay) m_exitOverlay->setGeometry(rect());
   if (m_keySeqOverlay && m_keySeqOverlay->isVisible())
     m_keySeqOverlay->move(8, height() - m_keySeqOverlay->height() - 8);
@@ -410,36 +430,32 @@ bool GhosttySurface::event(QEvent *e) {
       // one producing pixels. Phase 3 will route frames through the
       // subsurface and retire the QPainter blit.
       if (!m_subsurfacePresenter) {
-        // WA_NativeWindow was set in the ctor, so windowHandle()
-        // should be non-null by now. If it isn't, we log and try
-        // again on the next Show — the window may genuinely not
-        // have a surface yet (very early in the show cycle).
-        QWindow *h = windowHandle();
-        if (!h) {
+        // Use the TOP-LEVEL QWindow's wl_surface as the parent for
+        // our subsurface — NOT this widget's own QWindow. Each pane
+        // in a split is a sibling subsurface under the same
+        // top-level wl_surface, positioned via setPosition. This
+        // avoids forcing WA_NativeWindow on embedded children
+        // (which made Qt unhappy with QSplitter).
+        QWindow *top = window() ? window()->windowHandle() : nullptr;
+        if (!top) {
           std::fprintf(stderr,
                        "[ghastty] GhosttySurface::event(Show): "
-                       "windowHandle() is null, will retry next show\n");
+                       "top-level windowHandle() is null, will retry "
+                       "next show\n");
         }
-        if (h) {
+        if (top) {
           m_subsurfacePresenter =
-              wayland::SubsurfacePresenter::tryCreate(h);
+              wayland::SubsurfacePresenter::tryCreate(top);
           if (m_subsurfacePresenter) {
+            // Set initial position to our offset within the top-level.
+            // moveEvent updates it on layout changes.
+            const QPoint pos = mapTo(window(), QPoint(0, 0));
+            m_subsurfacePresenter->setPosition(pos.x(), pos.y());
             if (m_useVulkan) {
-              // Flip the Vulkan present path over to the zero-copy
-              // wl_subsurface route. Release-style store pairs with
-              // the renderer thread's acquire-load — once it
-              // observes true, it stops parking QImages and just
-              // hands us the dmabuf descriptor for compositor
-              // handoff.
               m_useSubsurface.store(true, std::memory_order_release);
             } else {
               // OpenGL path: re-sync the framebuffer so
               // syncSurfaceSize can build an EglDmabufTarget.
-              // syncSurfaceSize's initial call ran *before* this
-              // Show — m_subsurfacePresenter was null then, so it
-              // took the legacy QOpenGLFramebufferObject branch.
-              // Invalidate the cached size so the early-return at
-              // the top of syncSurfaceSize doesn't bail.
               m_fbw = m_fbh = -1;
               syncSurfaceSize();
             }
@@ -1545,17 +1561,17 @@ void GhosttySurface::presentVulkanDmabuf(
   const bool useSubsurface =
       image_backed && m_useSubsurface.load(std::memory_order_acquire);
 
-  // One-shot breadcrumb so logs confirm the dmabuf hand-off is
-  // wired. Subsequent frames are silent so we don't spam stderr.
-  static bool logged_first = false;
-  if (!logged_first) {
-    logged_first = true;
+  // Per-surface one-shot breadcrumb so logs confirm the dmabuf
+  // hand-off is wired for each pane/split independently. Subsequent
+  // frames are silent so we don't spam stderr.
+  if (!m_loggedFirstFrame) {
+    m_loggedFirstFrame = true;
     std::fprintf(stderr,
-                 "[ghastty] first Vulkan dmabuf frame: fd=%d %ux%u stride=%u "
-                 "fourcc=0x%08x mod=0x%lx image_backed=%d path=%s\n",
-                 dmabuf_fd, width, height, stride, drm_format,
-                 static_cast<unsigned long>(drm_modifier), image_backed ? 1 : 0,
-                 useSubsurface ? "subsurface" : "qimage");
+                 "[ghastty] first dmabuf for surface=%p: fd=%d %ux%u "
+                 "stride=%u fourcc=0x%08x mod=0x%lx image_backed=%d path=%s\n",
+                 static_cast<void *>(this), dmabuf_fd, width, height, stride,
+                 drm_format, static_cast<unsigned long>(drm_modifier),
+                 image_backed ? 1 : 0, useSubsurface ? "subsurface" : "qimage");
   }
 
   if (dmabuf_fd < 0 || width == 0 || height == 0 || stride < width * 4)
@@ -1648,16 +1664,18 @@ void GhosttySurface::drainVulkan() {
 }
 
 bool GhosttySurface::forceParentCommit() {
-  // Get the QPA implementation for our QWindow. On Wayland this is
-  // QtWaylandClient::QWaylandWindow (private API, hence the
-  // Qt6::WaylandClientPrivate link). Calling commit() on it flushes
-  // Qt's pending wl_surface state plus any queued client requests —
-  // crucially including the cached wl_subsurface state from our
-  // sync-mode child commit, which applies atomically with this
-  // parent commit.
-  QWindow *handle = windowHandle();
-  if (!handle) return false;
-  QPlatformWindow *qpa = handle->handle();
+  // Commit the TOP-LEVEL QWindow's wl_surface — the parent of our
+  // wl_subsurface. We do NOT have a per-pane native QWindow (see
+  // ctor comment about WA_NativeWindow), so windowHandle() on this
+  // widget is null; reach the top-level via `window()->windowHandle()`.
+  //
+  // QtWaylandClient::QWaylandWindow is Qt's private QPA impl
+  // (Qt6::WaylandClientPrivate). Calling commit() on it flushes
+  // Qt's pending wl_surface state plus any cached child subsurface
+  // state from our sync-mode commits.
+  QWindow *top = window() ? window()->windowHandle() : nullptr;
+  if (!top) return false;
+  QPlatformWindow *qpa = top->handle();
   if (!qpa) return false;
   auto *wl = dynamic_cast<QtWaylandClient::QWaylandWindow *>(qpa);
   if (!wl) return false;

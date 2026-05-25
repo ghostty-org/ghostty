@@ -190,6 +190,7 @@ protected:
   bool event(QEvent *) override;
   void paintEvent(QPaintEvent *) override;
   void resizeEvent(QResizeEvent *) override;
+  void moveEvent(QMoveEvent *) override;
 
   // Disable Qt's Tab/Backtab focus traversal so those keys reach
   // keyPressEvent and can be forwarded to the terminal.
@@ -368,4 +369,7 @@ private:
   // working in that case because nothing yet depends on it). Phase 3
   // will use this to attach dmabuf-backed `wl_buffer`s.
   std::unique_ptr<wayland::SubsurfacePresenter> m_subsurfacePresenter;
+  // Per-surface latch for the first-dmabuf log breadcrumb so each
+  // pane / split prints its own line on first frame.
+  bool m_loggedFirstFrame = false;
 };

@@ -204,8 +204,8 @@ std::size_t supportedDmabufModifiers(std::uint32_t drm_format,
 }
 
 std::unique_ptr<SubsurfacePresenter>
-SubsurfacePresenter::tryCreate(QWindow *parent) {
-  if (!parent) return nullptr;
+SubsurfacePresenter::tryCreate(QWindow *topLevel) {
+  if (!topLevel) return nullptr;
 
   if (!QGuiApplication::platformName().startsWith(QLatin1String("wayland"))) {
     std::fprintf(stderr,
@@ -219,7 +219,7 @@ SubsurfacePresenter::tryCreate(QWindow *parent) {
   auto *display = static_cast<wl_display *>(
       native->nativeResourceForIntegration("wl_display"));
   auto *parentSurface = static_cast<wl_surface *>(
-      native->nativeResourceForWindow("surface", parent));
+      native->nativeResourceForWindow("surface", topLevel));
   if (!display || !parentSurface) {
     std::fprintf(stderr,
                  "[ghastty] SubsurfacePresenter: missing wl_display or "
@@ -471,6 +471,19 @@ void SubsurfacePresenter::resizeDestination(int dest_width, int dest_height) {
   m_lastDestWidth = dest_width;
   m_lastDestHeight = dest_height;
   wl_surface_commit(m_childSurface);
+  wl_display_flush(m_display);
+}
+
+void SubsurfacePresenter::setPosition(int x, int y) {
+  if (!m_subsurface) return;
+  if (x == m_lastX && y == m_lastY) return;
+  wl_subsurface_set_position(m_subsurface, x, y);
+  m_lastX = x;
+  m_lastY = y;
+  // Position is double-buffered on the parent surface — the caller
+  // must trigger a parent commit (forceParentCommit on the GhosttySurface
+  // side) for the change to land. We flush so the request is on the
+  // wire when that happens.
   wl_display_flush(m_display);
 }
 
