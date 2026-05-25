@@ -278,6 +278,21 @@ SubsurfacePresenter::tryCreate(QWindow *parent) {
   // wayland surface and (0,0) is correct.
   wl_subsurface_set_position(sub, 0, 0);
 
+  // Set an empty input region so pointer/touch events fall through
+  // to the parent surface (Qt's QWindow). The default input region
+  // is the whole attached buffer, which would mean our subsurface
+  // captures every click in the terminal area — Qt's QWidget would
+  // never see contextMenuEvent (right-click menu), mouse press/
+  // release, or any other pointer event in the terminal. wl_region
+  // with no add_rectangle calls = empty = "no input." The region
+  // can be destroyed immediately after set_input_region; the
+  // compositor copies its state into the surface's pending state.
+  wl_region *empty = wl_compositor_create_region(g->compositor);
+  if (empty) {
+    wl_surface_set_input_region(child, empty);
+    wl_region_destroy(empty);
+  }
+
   // wp_viewport: per-surface object that lets us tell the compositor
   // the destination size in surface-local coords, independent of
   // the buffer's pixel dimensions. With fractional scaling we
