@@ -36,6 +36,37 @@ const bufferpkg = @import("buffer.zig");
 
 const log = std.log.scoped(.vulkan);
 
+/// Pixel format hint matching `opengl/OpenGL.zig`'s `ImageTextureFormat`.
+/// Used by `Vulkan.imageTextureOptions` to pick a `VkFormat` for kitty
+/// graphics / background-image uploads. Lives here (next to `Texture`)
+/// instead of in the renderer top-level so the rendering policy that
+/// owns it (the SRGB-vs-UNORM choice for color channels) can be
+/// inspected in one place.
+pub const ImageTextureFormat = enum {
+    gray,
+    rgba,
+    bgra,
+
+    pub fn toVk(self: ImageTextureFormat, srgb: bool) vk.VkFormat {
+        return switch (self) {
+            // `gray` is a single-channel R8 (no color, no gamma).
+            .gray => vk.VK_FORMAT_R8_UNORM,
+            // Color channels honor `srgb`: when an image was
+            // authored in sRGB (the common case for kitty graphics),
+            // selecting the SRGB format lets the sampler auto-
+            // linearize on read so `texture()` returns linear values
+            // that the renderer's `unlinearize()` then re-encodes
+            // for the sRGB framebuffer. UNORM here would skip the
+            // sampler decode, leaving sRGB bytes for `unlinearize`
+            // to encode-again, which is then encoded a third time
+            // by the SRGB framebuffer — visible as washed-out kitty
+            // graphics.
+            .rgba => if (srgb) vk.VK_FORMAT_R8G8B8A8_SRGB else vk.VK_FORMAT_R8G8B8A8_UNORM,
+            .bgra => if (srgb) vk.VK_FORMAT_B8G8R8A8_SRGB else vk.VK_FORMAT_B8G8R8A8_UNORM,
+        };
+    }
+};
+
 /// Texture construction parameters. Vulkan-native rather than mirroring
 /// the OpenGL backend's separate `format` / `internal_format` — Vulkan
 /// encodes both into one `VkFormat`.

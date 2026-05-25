@@ -13,7 +13,9 @@ Renderer policy (this directory):
 | ------------------- | ------------------------- | ------------------------------------------------------------------ |
 | `Target.zig`        | `opengl/Target.zig`       | Render image + dmabuf export (direct or legacy_copy mode).         |
 | `Texture.zig`       | `opengl/Texture.zig`      | `VkImage` + `VkImageView` + upload helpers for the glyph atlas.    |
-| `buffer.zig`        | `opengl/buffer.zig`       | `Buffer(T)` host-coherent + per-renderer-thread recycle pool.      |
+| `buffer.zig`        | `opengl/buffer.zig`       | `Buffer(T)` host-coherent.                                         |
+| `buffer_pool.zig`   | (none — GL implicit)      | Cross-frame `VkBuffer` recycle pool, per-thread pending list.      |
+| `ThreadState.zig`   | (none — GL implicit)      | Per-renderer-thread frame fence / CB / descriptor pool / last-tgt. |
 | `Pipeline.zig`      | `opengl/Pipeline.zig`     | Graphics pipeline + descriptor set layout creation.                |
 | `RenderPass.zig`    | `opengl/RenderPass.zig`   | Dynamic-rendering pass + step recorder.                            |
 | `Frame.zig`         | `opengl/Frame.zig`        | Per-draw command buffer + fence-paced submit-then-wait.            |

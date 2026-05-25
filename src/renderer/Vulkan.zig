@@ -23,15 +23,19 @@
 //!   - `DescriptorPool.zig`— per-frame descriptor pool.
 //!
 //! In `src/renderer/vulkan/`:
-//!   - `Texture.zig`     — VkImage + memory + view + staging upload.
-//!   - `Target.zig`      — dmabuf-exportable render target
-//!                          (direct or legacy_copy mode).
-//!   - `buffer.zig`      — Buffer(T) host-coherent + recycle pool.
-//!   - `Pipeline.zig`    — VkPipeline + layout (dynamic rendering).
-//!   - `RenderPass.zig`  — dynamic-rendering pass + step recorder.
-//!   - `Frame.zig`       — per-draw context (fence-paced).
-//!   - `shaders.zig`     — GLSL→SPIR-V→VkShaderModule + the
-//!                          OpenGL-GLSL → Vulkan-GLSL rewriter.
+//!   - `Texture.zig`      — VkImage + memory + view + staging upload.
+//!   - `Target.zig`       — dmabuf-exportable render target
+//!                           (direct or legacy_copy mode).
+//!   - `buffer.zig`       — Buffer(T) host-coherent.
+//!   - `buffer_pool.zig`  — cross-frame VkBuffer recycle pool
+//!                           (per-thread pending, shared ready).
+//!   - `ThreadState.zig`  — per-renderer-thread frame fence /
+//!                           command buffer / step pool / last-target.
+//!   - `Pipeline.zig`     — VkPipeline + layout (dynamic rendering).
+//!   - `RenderPass.zig`   — dynamic-rendering pass + step recorder.
+//!   - `Frame.zig`        — per-draw context (fence-paced).
+//!   - `shaders.zig`      — GLSL→SPIR-V→VkShaderModule + the
+//!                           OpenGL-GLSL → Vulkan-GLSL rewriter.
 
 pub const Vulkan = @This();
 
@@ -133,236 +137,16 @@ var device: ?Device = null;
 var device_refcount: usize = 0;
 var device_mutex: std.Thread.Mutex = .{};
 
-/// Process-wide pool of `(VkBuffer, VkDeviceMemory)` pairs recycled
-/// across frames on the renderer thread. Solves two problems
-/// together:
-///
-///   1. Lifetime: `vulkan/buffer.zig`'s `Buffer.deinit` is called
-///      mid-frame (by `renderer/image.zig:draw`'s `defer buf.deinit()`)
-///      while the command buffer that references the buffer hasn't
-///      been submitted yet. Naive immediate destroy → use-after-free.
-///   2. Allocation thrash: a frame with N kitty-image placements
-///      would otherwise allocate N tiny VkBuffers + VkDeviceMemories
-///      per frame, every frame. NVIDIA driver SIGSEGVs after a few
-///      seconds of that.
-///
-/// Multi-thread design: `pending` is THREADLOCAL (each renderer
-/// thread accumulates the buffers IT released during the current
-/// frame), while `ready` is process-wide and mutex-protected (any
-/// thread can recycle from it). Splits/tabs run independent
-/// renderer threads against the SAME shared VkDevice — a single
-/// shared `pending` list would let thread A's `Frame.complete`
-/// retire buffers thread B released but whose fence hasn't
-/// signaled yet, handing B's still-GPU-in-flight buffer back to a
-/// new `acquire`. Per-thread pending bounds the visibility of
-/// each entry to the thread that knows when its fence signals.
-///
-/// Lifecycle:
-///   - `release(dev, …)` (renderer thread) pushes to THAT thread's
-///     `pending`.
-///   - `cycle(dev)` (renderer thread, after `vkWaitForFences` on
-///     the SAME thread's per-frame fence) moves THAT thread's
-///     `pending` → shared `ready` under the mutex.
-///   - `acquire(…)` (any thread) pops a matching entry from `ready`
-///     under the mutex.
-///
-/// Caller responsibilities:
-///   - Only call `release` from the renderer thread whose fence
-///     the frame's GPU work signals; calling from a thread that
-///     never reaches its own `Frame.complete` would leak entries
-///     (they sit in that thread's `pending` forever). For one-shot
-///     uploads from a non-renderer thread (atlas staging), use
-///     `Buffer.destroyImmediate` instead, which bypasses this
-///     pool entirely.
-pub const buffer_pool = struct {
-    const Entry = struct {
-        buffer: vk.VkBuffer,
-        memory: vk.VkDeviceMemory,
-        usage: vk.VkBufferUsageFlags,
-        capacity: u64,
-    };
+/// Cross-frame buffer recycle pool. See `vulkan/buffer_pool.zig`
+/// for the full lifecycle / multi-thread contract. Re-exported so
+/// existing callers (`Vulkan.buffer_pool.cycle` etc.) keep working
+/// unchanged.
+pub const buffer_pool = @import("vulkan/buffer_pool.zig");
 
-    /// Mutex guards the process-wide `ready` list (and the
-    /// drainAll iteration over `pending`s — see comment there).
-    var mutex: std.Thread.Mutex = .{};
-
-    /// Per-thread pending list. Entries here were released by THIS
-    /// thread during the current frame and are bounded by the
-    /// fence THIS thread will wait on in `Frame.complete`. Moved
-    /// to the shared `ready` list by `cycle()` after that wait
-    /// returns.
-    threadlocal var pending: std.ArrayList(Entry) = .{};
-
-    /// Process-wide ready list. Entries here are provably retired
-    /// (the bounding fence has signaled) and any thread may
-    /// `acquire` them.
-    var ready: std.ArrayList(Entry) = .{};
-
-    /// Queue a buffer for recycling. The buffer cannot be reused
-    /// until the next fence-wait (handled by `cycle`); it sits in
-    /// THIS thread's `pending` until then. Bounded by THIS thread's
-    /// per-frame fence — see the per-thread pending rationale at
-    /// the top of `buffer_pool`.
-    pub fn release(
-        dev: *const Device,
-        buffer: vk.VkBuffer,
-        memory: vk.VkDeviceMemory,
-        usage: vk.VkBufferUsageFlags,
-        capacity: u64,
-    ) !void {
-        _ = dev;
-        // No mutex: `pending` is threadlocal, only THIS thread
-        // touches it.
-        try pending.append(std.heap.smp_allocator, .{
-            .buffer = buffer,
-            .memory = memory,
-            .usage = usage,
-            .capacity = capacity,
-        });
-    }
-
-    /// Pop a `ready` entry whose usage matches and whose capacity is
-    /// >= the requested size. Linear scan — pools tend to have a
-    /// small number of distinct (usage, size) shapes (image: 48B
-    /// VERTEX, bg_image: 8B VERTEX) so this stays cheap.
-    pub fn acquire(
-        usage: vk.VkBufferUsageFlags,
-        min_capacity: u64,
-    ) ?Entry {
-        mutex.lock();
-        defer mutex.unlock();
-        var i: usize = 0;
-        while (i < ready.items.len) : (i += 1) {
-            const e = ready.items[i];
-            if (e.usage == usage and e.capacity >= min_capacity) {
-                _ = ready.swapRemove(i);
-                return e;
-            }
-        }
-        return null;
-    }
-
-    /// Move THIS thread's `pending` entries to the shared `ready` —
-    /// THIS thread's fence has signaled, so the GPU is done with
-    /// every buffer in `pending`. Call from `Frame.complete` after
-    /// `vkWaitForFences`.
-    ///
-    /// `dev` is needed only on the OOM fallback path: if `ready`
-    /// can't grow to absorb `pending`, we wait the device idle
-    /// (OUTSIDE the mutex — see below) and then destroy the pending
-    /// entries directly so the next frame doesn't double up on a
-    /// pending list that can never drain.
-    pub fn cycle(dev: *const Device) void {
-        // Try the fast path first — append THIS thread's `pending`
-        // to the shared `ready` under the lock, then clear pending.
-        // On OOM we have to destroy the pending entries, but
-        // `vkDeviceWaitIdle` is slow and holding the pool mutex
-        // across it would block every other renderer thread's
-        // release/acquire/cycle. Move the pending list into a
-        // local outside the lock, then drain.
-        var oom_pending: std.ArrayList(Entry) = .{};
-        defer oom_pending.deinit(std.heap.smp_allocator);
-        {
-            mutex.lock();
-            defer mutex.unlock();
-            if (ready.appendSlice(std.heap.smp_allocator, pending.items)) {
-                pending.clearRetainingCapacity();
-                return;
-            } else |_| {
-                // OOM. Move THIS thread's `pending` into our local
-                // so we can drain without holding the mutex.
-                oom_pending = pending;
-                pending = .{};
-            }
-        }
-        // Mutex released. Other threads can release/acquire/cycle
-        // while we wait the device idle and destroy our slice.
-        _ = dev.dispatch.deviceWaitIdle(dev.device);
-        for (oom_pending.items) |e| {
-            dev.dispatch.destroyBuffer(dev.device, e.buffer, null);
-            dev.dispatch.freeMemory(dev.device, e.memory, null);
-        }
-    }
-
-    /// Destroy THIS thread's `pending` entries directly. Call from
-    /// the same thread's `Vulkan.deinit` AFTER `vkWaitForFences`
-    /// on this thread's frame fence — the bounding fence has
-    /// signaled so the GPU is provably done with these buffers.
-    ///
-    /// Each renderer thread is responsible for cleaning up its own
-    /// pending list because Zig threadlocal storage is the calling
-    /// thread's; the final-refcount tear-down (`drainShared`) only
-    /// handles the process-wide `ready` list.
-    pub fn drainSelf(dev: *const Device) void {
-        for (pending.items) |e| {
-            dev.dispatch.destroyBuffer(dev.device, e.buffer, null);
-            dev.dispatch.freeMemory(dev.device, e.memory, null);
-        }
-        pending.clearRetainingCapacity();
-    }
-
-    /// Destroy every entry in the shared `ready` list. Call only
-    /// from the FINAL surface tear-down (the path that hits
-    /// `device_refcount == 0`) and only after every other renderer
-    /// thread has already run `drainSelf` on its own pending list.
-    pub fn drainShared(dev: *const Device) void {
-        mutex.lock();
-        defer mutex.unlock();
-        for (ready.items) |e| {
-            dev.dispatch.destroyBuffer(dev.device, e.buffer, null);
-            dev.dispatch.freeMemory(dev.device, e.memory, null);
-        }
-        ready.clearRetainingCapacity();
-    }
-};
-
-/// Most recently presented target, used by `presentLastTarget` when
-/// the renderer decides nothing new needs drawing. Stored as a
-/// POINTER (not a value copy) into the FrameState's `target` slot
-/// so it follows the target through a resize: `frame.resize` calls
-/// `target.deinit()` on the old Target and overwrites the slot with
-/// a new one — a value copy would now reference a closed fd and
-/// freed VkImage/VkBuffer/VkDeviceMemory handles, and Qt's mmap on
-/// the closed fd could read whatever a later open() recycled the fd
-/// for. Following the pointer instead always re-presents the
-/// currently-live target.
-threadlocal var last_target: ?*Target = null;
-
-/// Per-surface (per-thread) command pool used for the frame's
-/// command buffer. Lazily created in `beginFrame` on the first call;
-/// destroyed in `deinit`.
-threadlocal var frame_pool: ?CommandPool = null;
-
-/// The single command buffer allocated from `frame_pool` and reused
-/// across frames. `vkResetCommandBuffer` is called at the start of
-/// each `beginFrame` to clear prior recording.
-threadlocal var frame_cb: vk.VkCommandBuffer = null;
-
-/// Fence signaled when each frame's submit completes. We wait on it
-/// in `Frame.complete` before handing the target dmabuf to the host.
-threadlocal var frame_fence: vk.VkFence = null;
-
-/// Per-thread descriptor pool used by `RenderPass.step` to allocate
-/// fresh descriptor sets when the same pipeline is bound more than
-/// once in a single pass (vkCmdDraw reads descriptors at submit
-/// time, so re-using the pipeline's static set would silently
-/// corrupt prior draws). Reset at the start of every `beginFrame`
-/// so this frame's allocations don't pile on the previous frame's;
-/// the per-pass usage is bounded by a small constant — see the
-/// `step_pool_*` caps below.
-threadlocal var step_pool: ?DescriptorPool = null;
-
-/// Caps for the per-frame `step_pool`. Sized for the worst pass
-/// shape (kitty image with N placements + the post pipelines): one
-/// set per (image_step × MAX_DESCRIPTOR_SETS) plus a handful of
-/// the renderer's other pipelines stepped once each. 256 is generous
-/// — actual frames stabilize well under that. If a frame ever
-/// exhausts the pool, `RenderPass.step` falls back to the pipeline's
-/// static set with a warning logged.
-const STEP_POOL_MAX_SETS: u32 = 256;
-const STEP_POOL_UNIFORM_BUFFERS: u32 = 256;
-const STEP_POOL_COMBINED_IMAGE_SAMPLERS: u32 = 256;
-const STEP_POOL_STORAGE_BUFFERS: u32 = 256;
+/// Per-renderer-thread state (frame command buffer, fence, descriptor
+/// pool, last-target pointer). See `vulkan/ThreadState.zig` for the
+/// lifecycle.
+const ThreadState = @import("vulkan/ThreadState.zig");
 
 // ---- lifecycle ----------------------------------------------------------
 
@@ -411,59 +195,12 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Vulkan {
 }
 
 pub fn deinit(self: *Vulkan) void {
-    // Tear down THIS surface's per-thread state first: wait for any
-    // in-flight submit, then destroy fence, free CB, destroy pool.
-    // These are threadlocal (one set per renderer thread = one set
-    // per surface), so it's always safe to clean them up regardless
-    // of other surfaces' state.
-    if (device) |*d| {
-        // Per-surface teardown only needs THIS surface's submissions
-        // to be done — block on this thread's frame fence (if it
-        // exists) instead of `vkDeviceWaitIdle` on the shared device,
-        // which would stall every other tab/split's in-flight GPU
-        // work just to close one. The final-refcount path below does
-        // the device-wide waitIdle.
-        if (frame_fence != null) {
-            const wait_r = d.dispatch.waitForFences(
-                d.device,
-                1,
-                &frame_fence,
-                vk.VK_TRUE,
-                std.math.maxInt(u64),
-            );
-            if (wait_r != vk.VK_SUCCESS) {
-                log.warn(
-                    "Vulkan.deinit: vkWaitForFences returned {}, falling back to device-wide wait",
-                    .{wait_r},
-                );
-                d.waitIdle();
-            }
-            d.dispatch.destroyFence(d.device, frame_fence, null);
-            frame_fence = null;
-        }
-        if (frame_pool != null and frame_cb != null) {
-            d.dispatch.freeCommandBuffers(d.device, frame_pool.?.pool, 1, &frame_cb);
-            frame_cb = null;
-        }
-        if (frame_pool) |*p| {
-            p.deinit();
-            frame_pool = null;
-        }
-        if (step_pool) |*p| {
-            p.deinit();
-            step_pool = null;
-        }
-        // Drain THIS thread's pending buffer-pool entries. The
-        // frame-fence wait above proved the GPU is done with them,
-        // and we have to do this from THIS thread because the
-        // pending list is in this thread's threadlocal storage —
-        // the final-refcount drainShared below can't reach it.
-        buffer_pool.drainSelf(d);
-        // `last_target` is a borrow into this thread's FrameState
-        // target slot. The SwapChain teardown destroys the target;
-        // we just drop our reference.
-        last_target = null;
-    }
+    // Tear down THIS surface's per-thread state first (fence wait,
+    // CB free, pool destroy, buffer-pool pending drain, last_target
+    // clear). All of that is per-renderer-thread = per-surface, so
+    // it's always safe to clean up regardless of other surfaces'
+    // state.
+    if (device) |*d| ThreadState.cleanup(d);
 
     // Decrement the shared-device refcount; only the last surface
     // to deinit gets to destroy the VkDevice. Closing one of N tabs
@@ -650,11 +387,11 @@ pub fn present(self: *Vulkan, target: *Target) !void {
     // the old Target and overwrites the FrameState's slot with a
     // new one) is transparently followed. A value copy would leave
     // us holding a closed fd and freed VkImage handles.
-    last_target = target;
+    ThreadState.last_target = target;
 }
 
 pub fn presentLastTarget(self: *Vulkan) !void {
-    if (last_target) |t| try self.present(t);
+    if (ThreadState.last_target) |t| try self.present(t);
 }
 
 pub fn beginFrame(
@@ -662,44 +399,14 @@ pub fn beginFrame(
     renderer: *rendererpkg.Renderer,
     target: *Target,
 ) !Frame {
+    _ = self;
     const dev = devicePtr();
 
-    // Lazy per-thread resource init. The first call to `beginFrame`
-    // on a renderer thread sets up the command pool + buffer + fence
-    // that get reused for every subsequent frame.
-    if (frame_pool == null) {
-        frame_pool = try CommandPool.init(dev);
-        const alloc_info: vk.VkCommandBufferAllocateInfo = .{
-            .sType = vk.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-            .pNext = null,
-            .commandPool = frame_pool.?.pool,
-            .level = vk.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-            .commandBufferCount = 1,
-        };
-        if (dev.dispatch.allocateCommandBuffers(dev.device, &alloc_info, &frame_cb) != vk.VK_SUCCESS)
-            return error.VulkanFailed;
+    // Lazy per-thread resource init (no-op after the first frame on
+    // this thread). Sets up the command pool + buffer + fence +
+    // descriptor pool that get reused for every subsequent frame.
+    try ThreadState.ensureInit(dev);
 
-        const fence_info: vk.VkFenceCreateInfo = .{
-            .sType = vk.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-            .pNext = null,
-            // Created signaled so the very first `Frame.complete`
-            // doesn't try to reset an unsignaled fence.
-            .flags = vk.VK_FENCE_CREATE_SIGNALED_BIT,
-        };
-        if (dev.dispatch.createFence(dev.device, &fence_info, null, &frame_fence) != vk.VK_SUCCESS)
-            return error.VulkanFailed;
-    }
-    if (step_pool == null) {
-        step_pool = try DescriptorPool.init(.{
-            .device = dev,
-            .max_sets = STEP_POOL_MAX_SETS,
-            .uniform_buffers = STEP_POOL_UNIFORM_BUFFERS,
-            .combined_image_samplers = STEP_POOL_COMBINED_IMAGE_SAMPLERS,
-            .storage_buffers = STEP_POOL_STORAGE_BUFFERS,
-        });
-    }
-
-    _ = self;
     // Reset this frame's per-frame state. The fence is the load-
     // bearing piece for tear-down correctness: any error path that
     // could leave the fence in an UNSIGNALED-with-no-pending-submit
@@ -707,17 +414,10 @@ pub fn beginFrame(
     // `waitForFences(UINT64_MAX)`.
     //
     // Defense: register the re-signal `errdefer` BEFORE the
-    // `vkResetFences` call. Then if any of the resets below fail
-    // (including resetFences itself, which the spec says leaves the
-    // fence in an undefined state on failure), the errdefer fires
+    // `beginFrameReset` call (which is the one that calls
+    // `vkResetFences`). If any reset fails, the errdefer fires
     // an empty submit with this fence as the signal target,
     // restoring the signaled state.
-    if (dev.dispatch.resetCommandBuffer(frame_cb, 0) != vk.VK_SUCCESS)
-        return error.VulkanFailed;
-    if (step_pool) |*p| {
-        if (dev.dispatch.resetDescriptorPool(dev.device, p.pool, 0) != vk.VK_SUCCESS)
-            return error.VulkanFailed;
-    }
     errdefer {
         // Empty submit with this fence as the signal target is the
         // simplest portable way to push it back to signaled without
@@ -736,7 +436,7 @@ pub fn beginFrame(
             .signalSemaphoreCount = 0,
             .pSignalSemaphores = null,
         };
-        const sr = dev.queueSubmit(1, &empty, frame_fence);
+        const sr = dev.queueSubmit(1, &empty, ThreadState.frame_fence);
         if (sr != vk.VK_SUCCESS) {
             log.warn(
                 "beginFrame errdefer: empty queueSubmit failed " ++
@@ -747,18 +447,13 @@ pub fn beginFrame(
             _ = dev.dispatch.deviceWaitIdle(dev.device);
         }
     }
-    // `vkResetDescriptorPool` returns every set the previous frame
-    // allocated to the pool — much cheaper than freeing them
-    // individually, and removes any chance of last-frame's set
-    // being bound by accident.
-    if (dev.dispatch.resetFences(dev.device, 1, &frame_fence) != vk.VK_SUCCESS)
-        return error.VulkanFailed;
+    try ThreadState.beginFrameReset(dev);
 
     return try Frame.begin(
         .{
-            .cb = frame_cb,
-            .fence = frame_fence,
-            .step_pool = if (step_pool) |*p| p else null,
+            .cb = ThreadState.frame_cb,
+            .fence = ThreadState.frame_fence,
+            .step_pool = if (ThreadState.step_pool) |*p| p else null,
         },
         dev,
         renderer,
@@ -862,31 +557,11 @@ pub fn samplerOptions(_: *const Vulkan) Sampler.Options {
     };
 }
 
-/// Pixel format hint matching `opengl/OpenGL.zig`'s `ImageTextureFormat`.
-pub const ImageTextureFormat = enum {
-    gray,
-    rgba,
-    bgra,
-
-    fn toVk(self: ImageTextureFormat, srgb: bool) vk.VkFormat {
-        return switch (self) {
-            // `gray` is a single-channel R8 (no color, no gamma).
-            .gray => vk.VK_FORMAT_R8_UNORM,
-            // Color channels honor `srgb`: when an image was
-            // authored in sRGB (the common case for kitty graphics),
-            // selecting the SRGB format lets the sampler auto-
-            // linearize on read so `texture()` returns linear values
-            // that the renderer's `unlinearize()` then re-encodes
-            // for the sRGB framebuffer. UNORM here would skip the
-            // sampler decode, leaving sRGB bytes for `unlinearize`
-            // to encode-again, which is then encoded a third time
-            // by the SRGB framebuffer — visible as washed-out kitty
-            // graphics.
-            .rgba => if (srgb) vk.VK_FORMAT_R8G8B8A8_SRGB else vk.VK_FORMAT_R8G8B8A8_UNORM,
-            .bgra => if (srgb) vk.VK_FORMAT_B8G8R8A8_SRGB else vk.VK_FORMAT_B8G8R8A8_UNORM,
-        };
-    }
-};
+/// Re-export so callers can write `Vulkan.ImageTextureFormat` —
+/// matches the `OpenGL.ImageTextureFormat` shape on the OpenGL side.
+/// Definition lives in `vulkan/Texture.zig` next to `Texture`
+/// itself.
+pub const ImageTextureFormat = Texture.ImageTextureFormat;
 
 pub fn imageTextureOptions(
     _: *const Vulkan,
