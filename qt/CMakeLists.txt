@@ -53,6 +53,11 @@ find_package(LayerShellQt REQUIRED)
 # QPA native-handle accessors.
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
+# libEGL for the OpenGL present path's dmabuf export
+# (EGL_MESA_image_dma_buf_export). Resolved at runtime via
+# eglGetProcAddress, so we only need the link for the base entry
+# points (eglQueryString, eglGetCurrentDisplay, eglGetError).
+pkg_check_modules(EGL REQUIRED IMPORTED_TARGET egl)
 # libxkbcommon: derive the unshifted Unicode codepoint for a key event
 # from its XKB keycode, so libghostty's kitty encoder finds an entry for
 # punctuation keys (Qt's ev->key() reports the SHIFTED symbol, e.g.
@@ -162,6 +167,7 @@ add_executable(ghastty
   src/TabWidget.cpp
   src/undo/UndoStack.cpp
   src/Util.cpp
+  src/wayland/EglDmabufTarget.cpp
   src/wayland/SubsurfacePresenter.cpp
   src/WindowBlur.cpp
   src/XkbTracker.cpp
@@ -193,6 +199,7 @@ target_link_libraries(ghastty PRIVATE
   Qt6::Svg
   PkgConfig::WAYLAND_CLIENT
   PkgConfig::XKBCOMMON
+  PkgConfig::EGL
   LayerShellQt::Interface
   vulkan
   "${GHOSTTY_LINK_SO}"

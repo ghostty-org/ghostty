@@ -15,6 +15,7 @@
 
 namespace wayland {
 class SubsurfacePresenter;
+class EglDmabufTarget;
 }
 
 class MainWindow;
@@ -245,6 +246,14 @@ private:
   QOpenGLContext *m_context = nullptr;
   QOffscreenSurface *m_offscreen = nullptr;
   QOpenGLFramebufferObject *m_fbo = nullptr;
+  // Dmabuf-exporting GL target (zero-copy path). Set when the EGL
+  // display advertises EGL_MESA_image_dma_buf_export and the
+  // wl_subsurface presenter is up; the renderer draws into this
+  // texture-backed framebuffer and we attach its fd straight to the
+  // subsurface — no glReadPixels, no QImage, no QPainter blit.
+  // Stays null when EGL support is missing or the subsurface failed
+  // to bring up, and the legacy m_fbo path runs as fallback.
+  std::unique_ptr<wayland::EglDmabufTarget> m_eglTarget;
   QImage m_image;                      // last frame, read back from m_fbo
 
   // True when this surface is using the Vulkan platform. The

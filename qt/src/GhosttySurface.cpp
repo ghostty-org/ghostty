@@ -9,6 +9,7 @@
 #include "TabWidget.h"
 #include "Util.h"
 #include "vulkan/Host.h"
+#include "wayland/EglDmabufTarget.h"
 #include "wayland/SubsurfacePresenter.h"
 
 #include <algorithm>
@@ -255,10 +256,29 @@ void GhosttySurface::syncSurfaceSize() {
   }
 
   if (!makeCurrent()) return;
+  m_eglTarget.reset();
   delete m_fbo;
-  QOpenGLFramebufferObjectFormat fmt;
-  fmt.setInternalTextureFormat(GL_RGBA8);
-  m_fbo = new QOpenGLFramebufferObject(QSize(w, h), fmt);
+  m_fbo = nullptr;
+
+  // Prefer the dmabuf-backed target when the wl_subsurface presenter
+  // is up and EGL_MESA_image_dma_buf_export is available — the
+  // renderer draws directly into a texture whose memory is exported
+  // as a dmabuf, and we hand the fd straight to the compositor.
+  // When that's not available (no presenter, missing EGL extension,
+  // multi-plane export, etc.) we fall back to the legacy
+  // QOpenGLFramebufferObject + toImage + QPainter blit path.
+  if (m_subsurfacePresenter) {
+    m_eglTarget = wayland::EglDmabufTarget::create(m_context, w, h);
+    if (m_eglTarget) {
+      m_useSubsurface.store(true, std::memory_order_release);
+    }
+  }
+  if (!m_eglTarget) {
+    m_useSubsurface.store(false, std::memory_order_release);
+    QOpenGLFramebufferObjectFormat fmt;
+    fmt.setInternalTextureFormat(GL_RGBA8);
+    m_fbo = new QOpenGLFramebufferObject(QSize(w, h), fmt);
+  }
 
   ghostty_surface_set_content_scale(m_surface, dpr, dpr);
   ghostty_surface_set_size(m_surface, static_cast<uint32_t>(w),
@@ -324,13 +344,26 @@ bool GhosttySurface::event(QEvent *e) {
         if (auto *h = windowHandle()) {
           m_subsurfacePresenter =
               wayland::SubsurfacePresenter::tryCreate(h);
-          if (m_subsurfacePresenter && m_useVulkan) {
-            // Flip the Vulkan present path over to the zero-copy
-            // wl_subsurface route. Release-style store pairs with
-            // the renderer thread's acquire-load — once it observes
-            // true, it stops parking QImages and just hands us the
-            // dmabuf descriptor for compositor handoff.
-            m_useSubsurface.store(true, std::memory_order_release);
+          if (m_subsurfacePresenter) {
+            if (m_useVulkan) {
+              // Flip the Vulkan present path over to the zero-copy
+              // wl_subsurface route. Release-style store pairs with
+              // the renderer thread's acquire-load — once it
+              // observes true, it stops parking QImages and just
+              // hands us the dmabuf descriptor for compositor
+              // handoff.
+              m_useSubsurface.store(true, std::memory_order_release);
+            } else {
+              // OpenGL path: re-sync the framebuffer so
+              // syncSurfaceSize can build an EglDmabufTarget.
+              // syncSurfaceSize's initial call ran *before* this
+              // Show — m_subsurfacePresenter was null then, so it
+              // took the legacy QOpenGLFramebufferObject branch.
+              // Invalidate the cached size so the early-return at
+              // the top of syncSurfaceSize doesn't bail.
+              m_fbw = m_fbh = -1;
+              syncSurfaceSize();
+            }
           }
         }
       }
@@ -407,7 +440,39 @@ void GhosttySurface::renderTerminal() {
     return;
   }
 
-  if (!m_fbo || !makeCurrent()) return;
+  if (!makeCurrent()) return;
+  if (!m_eglTarget && !m_fbo) return;
+
+  // Two render-target variants:
+  //   - EglDmabufTarget (zero-copy): libghostty draws into a
+  //     dmabuf-backed texture; we hand the fd to the subsurface
+  //     presenter and the compositor scans it out directly. No
+  //     readback, no QPainter blit for the terminal pixels.
+  //   - QOpenGLFramebufferObject (legacy): glReadPixels into a
+  //     QImage, then paintEvent blits via QPainter. Used when the
+  //     EGL dmabuf path isn't available.
+  if (m_eglTarget) {
+    m_eglTarget->bind();
+    m_context->functions()->glViewport(0, 0, m_fbw, m_fbh);
+    ghostty_surface_draw(m_surface);
+    premultiplyFramebuffer();
+    m_eglTarget->release();
+    if (m_subsurfacePresenter) {
+      const int scale =
+          std::max(1, static_cast<int>(std::lround(devicePixelRatioF())));
+      m_subsurfacePresenter->presentDmabuf(
+          m_eglTarget->fd(), m_eglTarget->drmFormat(),
+          m_eglTarget->drmModifier(),
+          static_cast<quint32>(m_eglTarget->width()),
+          static_cast<quint32>(m_eglTarget->height()), m_eglTarget->stride(),
+          scale);
+    }
+    // The terminal pixels reach the compositor via the subsurface,
+    // not via QPainter — but chrome (overlays, dim, bell flash)
+    // still goes through paintEvent. update() schedules that.
+    update();
+    return;
+  }
 
   // libghostty renders into its own target and blits the result to the
   // currently bound framebuffer — bind ours so we get the final image.
