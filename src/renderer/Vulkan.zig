@@ -597,35 +597,31 @@ pub fn beginFrame(
     }
 
     _ = self;
-    // Reset this frame's per-frame state. ORDER MATTERS: the fence
-    // reset goes LAST. If an earlier reset fails and we return an
-    // error, `Frame.begin` never runs, no submit ever happens, and
-    // the fence stays in whatever state it was in (initially
-    // signaled, or signaled by the previous frame's submit). Any
-    // subsequent `Vulkan.deinit` then waits on a SIGNALED fence
-    // and returns immediately — pre-fix, an unsignaled fence with
-    // no pending submit hung the deinit forever on
-    // waitForFences(UINT64_MAX).
+    // Reset this frame's per-frame state. The fence is the load-
+    // bearing piece for tear-down correctness: any error path that
+    // could leave the fence in an UNSIGNALED-with-no-pending-submit
+    // state will hang the next `Vulkan.deinit` on
+    // `waitForFences(UINT64_MAX)`.
+    //
+    // Defense: register the re-signal `errdefer` BEFORE the
+    // `vkResetFences` call. Then if any of the resets below fail
+    // (including resetFences itself, which the spec says leaves the
+    // fence in an undefined state on failure), the errdefer fires
+    // an empty submit with this fence as the signal target,
+    // restoring the signaled state.
     if (dev.dispatch.resetCommandBuffer(frame_cb, 0) != vk.VK_SUCCESS)
         return error.VulkanFailed;
     if (step_pool) |*p| {
         if (dev.dispatch.resetDescriptorPool(dev.device, p.pool, 0) != vk.VK_SUCCESS)
             return error.VulkanFailed;
     }
-    // `vkResetDescriptorPool` returns every set the previous frame
-    // allocated to the pool — much cheaper than freeing them
-    // individually, and removes any chance of last-frame's set
-    // being bound by accident.
-    if (dev.dispatch.resetFences(dev.device, 1, &frame_fence) != vk.VK_SUCCESS)
-        return error.VulkanFailed;
-    // From here on the fence is UNSIGNALED. If `Frame.begin`
-    // (vkBeginCommandBuffer) fails before any submit, we have to
-    // re-signal the fence ourselves — otherwise the next
-    // `Vulkan.deinit`'s waitForFences hangs indefinitely.
     errdefer {
         // Empty submit with this fence as the signal target is the
-        // simplest portable way to push it back to signaled
-        // without recording any commands.
+        // simplest portable way to push it back to signaled without
+        // recording any commands. We track the queueSubmit result
+        // and fall back to `vkDeviceWaitIdle` if even the empty
+        // submit fails — without one of those signaling paths
+        // succeeding, deinit hangs forever.
         const empty: vk.VkSubmitInfo = .{
             .sType = vk.VK_STRUCTURE_TYPE_SUBMIT_INFO,
             .pNext = null,
@@ -637,8 +633,23 @@ pub fn beginFrame(
             .signalSemaphoreCount = 0,
             .pSignalSemaphores = null,
         };
-        _ = dev.queueSubmit(1, &empty, frame_fence);
+        const sr = dev.queueSubmit(1, &empty, frame_fence);
+        if (sr != vk.VK_SUCCESS) {
+            log.warn(
+                "beginFrame errdefer: empty queueSubmit failed " ++
+                    "(result={}); waiting device idle to ensure the fence " ++
+                    "doesn't hang the next deinit",
+                .{sr},
+            );
+            _ = dev.dispatch.deviceWaitIdle(dev.device);
+        }
     }
+    // `vkResetDescriptorPool` returns every set the previous frame
+    // allocated to the pool — much cheaper than freeing them
+    // individually, and removes any chance of last-frame's set
+    // being bound by accident.
+    if (dev.dispatch.resetFences(dev.device, 1, &frame_fence) != vk.VK_SUCCESS)
+        return error.VulkanFailed;
 
     return try Frame.begin(
         .{
