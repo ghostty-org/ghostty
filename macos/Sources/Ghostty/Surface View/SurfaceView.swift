@@ -63,7 +63,14 @@ extension Ghostty {
         var body: some View {
             let center = NotificationCenter.default
 
-            ZStack {
+            VStack(spacing: 0) {
+                #if canImport(AppKit)
+                if isSplit {
+                    SurfaceTitleBar(surfaceView: surfaceView)
+                }
+                #endif
+
+                ZStack {
                 // We use a GeometryReader to get the frame bounds so that our metal surface
                 // is up to date. See TerminalSurfaceView for why we don't use the NSView
                 // resize callback.
@@ -207,7 +214,8 @@ extension Ghostty {
                 // This is disabled except on macOS because it uses AppKit drag/drop APIs.
                 SurfaceGrabHandle(surfaceView: surfaceView)
                 #endif
-            }
+            } // closes ZStack
+            } // closes VStack
         }
     }
 
