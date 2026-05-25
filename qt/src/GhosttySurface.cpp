@@ -604,6 +604,12 @@ void GhosttySurface::renderTerminal() {
         static_cast<quint32>(m_eglTarget->height()), m_eglTarget->stride(),
         width(), height(),
         /*y_invert*/ false);
+    // Sync-mode subsurface caches child state until the parent
+    // commits. Force the parent commit ourselves — same call the
+    // Vulkan drainVulkan path makes — otherwise the child state
+    // (new buffer, new position, new dest, hide()) never applies
+    // and the GL pane shows stale / black / ghosted content.
+    forceParentCommit();
     // The terminal pixels reach the compositor via the subsurface,
     // not via QPainter — but chrome (overlays, dim, bell flash)
     // still goes through paintEvent. update() schedules that.
