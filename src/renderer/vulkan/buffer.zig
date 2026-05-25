@@ -85,23 +85,32 @@ pub fn Buffer(comptime T: type) type {
 
         pub fn deinit(self: Self) void {
             const dev = self.opts.device;
-            // Queue for destruction after the next frame's fence
-            // signals. `renderer/image.zig` creates a temp Buffer
-            // per kitty-image draw with `defer buf.deinit()` — that
-            // pattern is fine on OpenGL (GL defers deletion of
-            // in-flight buffers itself) but use-after-free on
-            // Vulkan, where the command buffer recorded against
-            // `self.buffer` hasn't been submitted yet at the point
-            // of deinit. The deferred queue keeps the VkBuffer +
-            // VkDeviceMemory alive until `Frame.complete` waits the
-            // fence; only then is destruction safe.
-            const deferred = @import("../Vulkan.zig").deferred_destruction;
-            deferred.queueBuffer(dev, self.buffer, self.memory) catch {
-                // OOM growing the queue — fall back to immediate
-                // destroy. Probably crashes the GPU; logging from
-                // here is awkward (no logger in scope) so we accept
-                // the leak / crash and let stderr from Vulkan
-                // diagnose.
+            // Hand the (VkBuffer, VkDeviceMemory) pair back to the
+            // process-wide pool instead of destroying it. The pool
+            // (see `Vulkan.buffer_pool`) holds the entry until the
+            // current frame's fence has signaled (the GPU is done
+            // with our recorded references) and then makes it
+            // available to a future `Buffer.create` call. Returning
+            // to the pool solves BOTH:
+            //   - `renderer/image.zig:draw`'s `defer buf.deinit()`
+            //     no longer use-after-frees the in-flight buffer.
+            //   - It avoids the per-frame allocation thrash that
+            //     drove the driver to SIGSEGV on image-heavy
+            //     frames.
+            const bp = @import("../Vulkan.zig").buffer_pool;
+            const capacity_bytes: u64 = @as(u64, self.len) * @sizeOf(T);
+            bp.release(
+                dev,
+                self.buffer,
+                self.memory,
+                self.opts.usage,
+                capacity_bytes,
+            ) catch {
+                // OOM growing the pool — fall back to immediate
+                // destroy. Logging here is awkward (no logger in
+                // scope) so we accept the loud failure and let
+                // Vulkan stderr diagnose any use-after-free that
+                // follows.
                 dev.dispatch.destroyBuffer(dev.device, self.buffer, null);
                 dev.dispatch.freeMemory(dev.device, self.memory, null);
             };
@@ -143,6 +152,21 @@ pub fn Buffer(comptime T: type) type {
             // a zero request to 1 so the buffer exists and can be
             // grown later via `sync`. (OpenGL silently accepts size=0.)
             const byte_size: u64 = @max(1, len * @sizeOf(T));
+
+            // Reach into the buffer pool first — a previous frame's
+            // released VkBuffer of matching usage+capacity is safe to
+            // reuse, no allocator round trip needed. Image-draw
+            // frames stabilize at ~hundreds of pool entries per
+            // (usage, size) bucket.
+            const bp = @import("../Vulkan.zig").buffer_pool;
+            if (bp.acquire(opts.usage, byte_size)) |entry| {
+                return .{
+                    .buffer = entry.buffer,
+                    .memory = entry.memory,
+                    .opts = opts,
+                    .len = @intCast(entry.capacity / @sizeOf(T)),
+                };
+            }
 
             const info: vk.VkBufferCreateInfo = .{
                 .sType = vk.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,

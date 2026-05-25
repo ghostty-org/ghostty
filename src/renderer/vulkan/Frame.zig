@@ -161,12 +161,12 @@ pub fn complete(self: *const Self, sync: bool) void {
         }
     }
 
-    // Drain the deferred-destruction queue now that the fence has
-    // signaled — every VkBuffer / VkDeviceMemory queued during this
-    // frame's recording is provably no longer in use by the GPU and
-    // can be destroyed for real. See `Vulkan.deferred_destruction`
-    // for why the queue exists (image.zig's per-draw temp buffers).
-    Vulkan.deferred_destruction.drain(dev);
+    // Recycle the per-frame Buffer pool now that the fence has
+    // signaled — every VkBuffer queued during this frame's
+    // recording is provably no longer in use by the GPU and is
+    // safe to hand to the next `Buffer.create` call. See
+    // `Vulkan.buffer_pool` for the lifecycle.
+    Vulkan.buffer_pool.cycle();
 
     // Hand the rendered target off to the host via `Vulkan.present`,
     // which both calls the platform's present callback AND records

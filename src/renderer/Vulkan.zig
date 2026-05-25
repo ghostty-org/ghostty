@@ -126,47 +126,93 @@ rt_surface: *apprt.Surface,
 /// platform callbacks are read on the same thread that set them).
 var device: ?Device = null;
 
-/// Per-frame deferred destruction queue for Vulkan resources whose
-/// lifetime needs to outlast their Zig-side `deinit` call. Used by
-/// `vulkan/buffer.zig`'s `Buffer.deinit`: the renderer's
-/// `image.zig:draw` allocates a small per-instance vertex buffer per
-/// kitty-image, records a draw against it, then `defer buf.deinit()`s
-/// it before the frame's command buffer is submitted. On OpenGL the
-/// driver tracks the in-flight reference and defers actual freeing;
-/// Vulkan does not, and naive immediate destroy yields use-after-free
-/// on submit (GPU hang or close-time crash). The queue accumulates
-/// pending (VkBuffer, VkDeviceMemory) pairs as they are "deinit'd"
-/// and `Frame.complete` drains it after `vkWaitForFences` proves the
-/// GPU is done with them.
-pub const deferred_destruction = struct {
+/// Per-thread pool of `(VkBuffer, VkDeviceMemory)` pairs that get
+/// recycled across frames. Solves two problems together:
+///
+///   1. Lifetime: `vulkan/buffer.zig`'s `Buffer.deinit` is called
+///      mid-frame (by `renderer/image.zig:draw`'s `defer buf.deinit()`)
+///      while the command buffer that references the buffer hasn't
+///      been submitted yet. Naive immediate destroy → use-after-free.
+///   2. Allocation thrash: a frame with N kitty-image placements
+///      would otherwise allocate N tiny VkBuffers + VkDeviceMemories
+///      per frame, every frame. NVIDIA driver SIGSEGVs after a few
+///      seconds of that.
+///
+/// Lifecycle: `Buffer.deinit` pushes to `pending`. `Frame.complete`
+/// after `vkWaitForFences` moves `pending` → `ready`. `Buffer.create`
+/// scans `ready` for an entry of matching usage + size and pops it
+/// before allocating new. The pool only grows; entries get destroyed
+/// when the device tears down (`Vulkan.deinit`).
+pub const buffer_pool = struct {
     const Entry = struct {
         buffer: vk.VkBuffer,
         memory: vk.VkDeviceMemory,
+        usage: vk.VkBufferUsageFlags,
+        capacity: u64,
     };
 
     threadlocal var pending: std.ArrayList(Entry) = .{};
+    threadlocal var ready: std.ArrayList(Entry) = .{};
 
-    pub fn queueBuffer(
+    /// Queue a buffer for recycling. The buffer cannot be reused
+    /// until the next fence-wait (handled by `cycle`); it sits in
+    /// `pending` until then.
+    pub fn release(
         dev: *const Device,
         buffer: vk.VkBuffer,
         memory: vk.VkDeviceMemory,
+        usage: vk.VkBufferUsageFlags,
+        capacity: u64,
     ) !void {
         _ = dev;
         try pending.append(std.heap.smp_allocator, .{
             .buffer = buffer,
             .memory = memory,
+            .usage = usage,
+            .capacity = capacity,
         });
     }
 
-    /// Drain the queue. Caller must ensure the GPU is done with
-    /// every queued resource (i.e. call only after a fence-wait or
-    /// `vkDeviceWaitIdle`).
-    pub fn drain(dev: *const Device) void {
+    /// Pop a `ready` entry whose usage matches and whose capacity is
+    /// >= the requested size. Linear scan — pools tend to have a
+    /// small number of distinct (usage, size) shapes (image: 48B
+    /// VERTEX, bg_image: 8B VERTEX) so this stays cheap.
+    pub fn acquire(
+        usage: vk.VkBufferUsageFlags,
+        min_capacity: u64,
+    ) ?Entry {
+        var i: usize = 0;
+        while (i < ready.items.len) : (i += 1) {
+            const e = ready.items[i];
+            if (e.usage == usage and e.capacity >= min_capacity) {
+                _ = ready.swapRemove(i);
+                return e;
+            }
+        }
+        return null;
+    }
+
+    /// Move all `pending` entries to `ready` — the fence has
+    /// signaled, so the GPU is done with them. Call from
+    /// `Frame.complete` after `vkWaitForFences`.
+    pub fn cycle() void {
+        ready.appendSlice(std.heap.smp_allocator, pending.items) catch return;
+        pending.clearRetainingCapacity();
+    }
+
+    /// Tear down both lists. Call only when the device is idle
+    /// (`vkDeviceWaitIdle` or surface destroy).
+    pub fn drainAll(dev: *const Device) void {
         for (pending.items) |e| {
             dev.dispatch.destroyBuffer(dev.device, e.buffer, null);
             dev.dispatch.freeMemory(dev.device, e.memory, null);
         }
         pending.clearRetainingCapacity();
+        for (ready.items) |e| {
+            dev.dispatch.destroyBuffer(dev.device, e.buffer, null);
+            dev.dispatch.freeMemory(dev.device, e.memory, null);
+        }
+        ready.clearRetainingCapacity();
     }
 };
 
@@ -248,6 +294,9 @@ pub fn deinit(self: *Vulkan) void {
     // Just clear our reference so a re-init doesn't see a stale
     // pointer.
     last_target = null;
+    // Drop every pooled buffer now that the device is idle (the
+    // earlier `d.waitIdle()` proves there are no in-flight refs).
+    if (device) |*d| buffer_pool.drainAll(d);
     if (device) |*d| d.deinit();
     device = null;
     self.* = undefined;
@@ -530,11 +579,22 @@ pub const ImageTextureFormat = enum {
     rgba,
     bgra,
 
-    fn toVk(self: ImageTextureFormat) vk.VkFormat {
+    fn toVk(self: ImageTextureFormat, srgb: bool) vk.VkFormat {
         return switch (self) {
+            // `gray` is a single-channel R8 (no color, no gamma).
             .gray => vk.VK_FORMAT_R8_UNORM,
-            .rgba => vk.VK_FORMAT_R8G8B8A8_UNORM,
-            .bgra => vk.VK_FORMAT_B8G8R8A8_UNORM,
+            // Color channels honor `srgb`: when an image was
+            // authored in sRGB (the common case for kitty graphics),
+            // selecting the SRGB format lets the sampler auto-
+            // linearize on read so `texture()` returns linear values
+            // that the renderer's `unlinearize()` then re-encodes
+            // for the sRGB framebuffer. UNORM here would skip the
+            // sampler decode, leaving sRGB bytes for `unlinearize`
+            // to encode-again, which is then encoded a third time
+            // by the SRGB framebuffer — visible as washed-out kitty
+            // graphics.
+            .rgba => if (srgb) vk.VK_FORMAT_R8G8B8A8_SRGB else vk.VK_FORMAT_R8G8B8A8_UNORM,
+            .bgra => if (srgb) vk.VK_FORMAT_B8G8R8A8_SRGB else vk.VK_FORMAT_B8G8R8A8_UNORM,
         };
     }
 };
@@ -544,10 +604,9 @@ pub fn imageTextureOptions(
     format: ImageTextureFormat,
     srgb: bool,
 ) Texture.Options {
-    _ = srgb;
     return .{
         .device = devicePtr(),
-        .format = format.toVk(),
+        .format = format.toVk(srgb),
         .usage = vk.VK_IMAGE_USAGE_SAMPLED_BIT |
             vk.VK_IMAGE_USAGE_TRANSFER_DST_BIT,
     };

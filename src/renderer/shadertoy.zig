@@ -120,11 +120,14 @@ pub fn loadFromFile(
         );
     };
 
-    // Convert to full GLSL. For `.spv` we inject a
-    // `#define GHASTTY_VULKAN 1` so the prefix's `main()` can flip
-    // `gl_FragCoord.y` (Vulkan's origin is upper-left vs OpenGL's
-    // lower-left, which would otherwise paint custom shaders upside
-    // down).
+    // Convert to full GLSL. For `.spv` we inject
+    // `#define GHASTTY_VULKAN 1` so the prefix's `main()` mirrors
+    // `gl_FragCoord.y` AND wraps `texture()` to flip uv.y. Together
+    // those make `mainImage` see a shadertoy-convention fragCoord
+    // (lower-left origin) AND sample `iChannel0` correctly even
+    // though Vulkan natively uses upper-left for both. OpenGL/MSL
+    // builds don't get the define and use the GL-native paths
+    // unchanged.
     const glsl_raw: [:0]const u8 = glsl: {
         var stream: std.Io.Writer.Allocating = .init(alloc);
         const defines: []const []const u8 = if (target == .spv)
