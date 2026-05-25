@@ -1551,6 +1551,12 @@ void GhosttySurface::drainVulkan() {
     m_subsurfacePresenter->presentDmabuf(
         frame.fd, frame.drm_format, frame.drm_modifier, frame.width,
         frame.height, frame.stride, width(), height());
+    // The subsurface is in wl_subsurface sync mode, so the buffer
+    // we just attached only becomes visible when Qt's parent surface
+    // commits. update() schedules a paintEvent which triggers
+    // Qt's backing-store flush (= parent wl_surface.commit), at
+    // which point our cached subsurface state applies atomically.
+    update();
     return;
   }
 

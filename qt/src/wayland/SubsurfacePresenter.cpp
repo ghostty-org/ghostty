@@ -254,11 +254,20 @@ SubsurfacePresenter::tryCreate(QWindow *parent) {
     return nullptr;
   }
 
-  // Independent frame pacing: the renderer's present cadence is
-  // driven by libghostty's render thread, not the GUI thread's paint
-  // cycle, so we don't want our wl_subsurface state changes to wait
-  // for the parent's next commit. `set_desync` is what allows that.
-  wl_subsurface_set_desync(sub);
+  // Sync mode (the wl_subsurface default — we don't call set_desync).
+  // In sync mode our wl_surface.commit caches state until the parent
+  // surface commits, at which point both apply atomically. That's
+  // what gives resize its lockstep behavior — parent grows to the
+  // new size and our subsurface's matching new-size buffer apply in
+  // the same compositor frame, so there's no transient gap where the
+  // parent's translucent background shows through.
+  //
+  // The cost: our frames need a parent commit to become visible. The
+  // GhosttySurface caller compensates by calling update() after each
+  // presentDmabuf — that schedules a paintEvent, which triggers Qt
+  // to flush the parent surface's backing store (= a wl_surface.commit
+  // on the parent). Total latency penalty vs desync: one event-loop
+  // turn, sub-millisecond at idle.
 
   // Subsurface covers the parent at the origin. Phase 4 will keep
   // this in sync on splits/tabs/etc.; for now the GhosttySurface
