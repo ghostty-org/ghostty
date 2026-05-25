@@ -548,7 +548,22 @@ void GhosttySurface::paintEvent(QPaintEvent *) {
   // brief see-through.
   if (!subsurfaceActive && m_image.isNull()) return;
   QPainter painter(this);
-  if (!subsurfaceActive) {
+  if (subsurfaceActive) {
+    // The wl_subsurface is stacked BELOW the parent surface so Qt's
+    // chrome (SearchBar, overlays) painted later in this paintEvent
+    // remains visible. For the terminal pixels themselves to show
+    // through, the parent's backing store must be transparent in
+    // the terminal area. WA_TranslucentBackground sets
+    // WA_NoSystemBackground, which means Qt does NOT auto-clear the
+    // backing store between paints — so without an explicit fill,
+    // stale/uninitialized pixels obscure the subsurface below.
+    // CompositionMode_Source + transparent fill writes pure alpha-0
+    // to the entire widget area; chrome painted afterwards in this
+    // function uses SourceOver and composites correctly on top.
+    painter.setCompositionMode(QPainter::CompositionMode_Source);
+    painter.fillRect(rect(), Qt::transparent);
+    painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+  } else {
     // Blit the framebuffer 1:1. m_image carries the device pixel ratio, so
     // the QPointF overload draws it at its true logical size. When in
     // sync that exactly fills the widget; mid-resize, the previous frame
