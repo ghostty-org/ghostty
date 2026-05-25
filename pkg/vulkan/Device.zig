@@ -34,8 +34,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const apprt = @import("../../apprt.zig");
-const vk = @import("vulkan").c;
+const vk = @import("c.zig").c;
 
 const log = std.log.scoped(.vulkan);
 
@@ -203,11 +202,6 @@ pub const Dispatch = struct {
 
 // ---- fields ---------------------------------------------------------
 
-/// The callbacks the apprt handed us. Held by value (not pointer)
-/// because the apprt's `Platform.Vulkan` is itself stored by value
-/// inside the `Surface`.
-platform: apprt.embedded.Platform.Vulkan,
-
 instance: vk.VkInstance,
 physical_device: vk.VkPhysicalDevice,
 device: vk.VkDevice,
@@ -260,14 +254,28 @@ pub fn queueWaitIdle(self: *const Device) vk.VkResult {
 
 // ---- API ------------------------------------------------------------
 
-/// Build a `Device` from the host's platform callbacks. Performs:
-///   1. Pull host handles via the callbacks. Any null returns ->
-///      `error.HostHandleMissing`.
-///   2. Load the instance-level dispatch via `vkGetInstanceProcAddr`.
-///   3. Verify `physicalDeviceProperties.apiVersion >= 1.3`.
-///   4. Verify every entry in `REQUIRED_DEVICE_EXTENSIONS` is present
+/// Pre-resolved host-Vulkan handles passed into `Device.init`. Keeps
+/// `pkg/vulkan` independent of any apprt type — callers (e.g.
+/// libghostty's `src/renderer/Vulkan.zig`) translate their own
+/// platform-callback struct into this neutral shape.
+pub const HostBootstrap = struct {
+    instance: vk.VkInstance,
+    physical_device: vk.VkPhysicalDevice,
+    device: vk.VkDevice,
+    queue: vk.VkQueue,
+    queue_family_index: u32,
+    /// Root proc-addr resolver. `Device.init` uses this to pull
+    /// `vkGetInstanceProcAddr` itself plus every instance-level
+    /// function it needs to bootstrap the dispatch table.
+    get_instance_proc_addr_raw: *const anyopaque,
+};
+
+/// Build a `Device` from pre-resolved host handles. Performs:
+///   1. Load the instance-level dispatch via `vkGetInstanceProcAddr`.
+///   2. Verify `physicalDeviceProperties.apiVersion >= 1.3`.
+///   3. Verify every entry in `REQUIRED_DEVICE_EXTENSIONS` is present
 ///      on the physical device.
-///   5. Load the device-level dispatch via `vkGetDeviceProcAddr`.
+///   4. Load the device-level dispatch via `vkGetDeviceProcAddr`.
 ///
 /// On success the returned `Device` is ready for the renderer to
 /// build pipelines / images / command buffers against. The host
@@ -275,38 +283,23 @@ pub fn queueWaitIdle(self: *const Device) vk.VkResult {
 /// is a no-op stub for symmetry.
 pub fn init(
     alloc: Allocator,
-    platform: apprt.embedded.Platform.Vulkan,
+    boot: HostBootstrap,
 ) (Error || Allocator.Error)!Device {
-    // ---- 1. resolve host handles ---------------------------------
-    const instance_handle = platform.instance(platform.userdata) orelse
-        return error.HostHandleMissing;
-    const physical_device_handle = platform.physical_device(platform.userdata) orelse
-        return error.HostHandleMissing;
-    const device_handle = platform.device(platform.userdata) orelse
-        return error.HostHandleMissing;
-    const queue_handle = platform.queue(platform.userdata) orelse
-        return error.HostHandleMissing;
+    const instance = boot.instance;
+    const physical_device = boot.physical_device;
+    const device = boot.device;
+    const queue = boot.queue;
+    const queue_family_index = boot.queue_family_index;
 
-    const instance: vk.VkInstance = @ptrCast(instance_handle);
-    const physical_device: vk.VkPhysicalDevice = @ptrCast(physical_device_handle);
-    const device: vk.VkDevice = @ptrCast(device_handle);
-    const queue: vk.VkQueue = @ptrCast(queue_handle);
-    const queue_family_index = platform.queue_family_index(platform.userdata);
-
-    // ---- 2. instance-level dispatch ------------------------------
-    // The host's get_instance_proc_addr is our root entry point. We
-    // resolve other functions via vkGetInstanceProcAddr (instance,
-    // name); per the Vulkan spec, passing a non-null instance is
-    // valid for any function that takes an instance, physical
-    // device, device, or child object of any of these — i.e.
+    // ---- instance-level dispatch ---------------------------------
+    // The caller-provided get_instance_proc_addr is our root entry
+    // point. We resolve other functions via vkGetInstanceProcAddr
+    // (instance, name); per the Vulkan spec, passing a non-null
+    // instance is valid for any function that takes an instance,
+    // physical device, device, or child object of any of these — i.e.
     // everything we care about.
-    const get_instance_proc_addr_raw =
-        platform.get_instance_proc_addr(
-            platform.userdata,
-            "vkGetInstanceProcAddr",
-        ) orelse return error.HostHandleMissing;
     const get_instance_proc_addr: std.meta.Child(vk.PFN_vkGetInstanceProcAddr) =
-        @ptrCast(@alignCast(get_instance_proc_addr_raw));
+        @ptrCast(@alignCast(boot.get_instance_proc_addr_raw));
 
     const InstanceLoader = struct {
         instance: vk.VkInstance,
@@ -338,7 +331,7 @@ pub fn init(
     const get_device_proc_addr =
         try il.load(vk.PFN_vkGetDeviceProcAddr, "vkGetDeviceProcAddr");
 
-    // ---- 3. version check ----------------------------------------
+    // ---- version check ------------------------------------------
     var props: vk.VkPhysicalDeviceProperties = std.mem.zeroes(vk.VkPhysicalDeviceProperties);
     get_physical_device_properties(physical_device, &props);
     if (props.apiVersion < MIN_API_VERSION) {
@@ -356,7 +349,7 @@ pub fn init(
         return error.UnsupportedVulkanVersion;
     }
 
-    // ---- 4. extension check --------------------------------------
+    // ---- extension check ----------------------------------------
     var ext_count: u32 = 0;
     {
         const r = enumerate_device_extension_properties(physical_device, null, &ext_count, null);
@@ -409,7 +402,7 @@ pub fn init(
         }
     }
 
-    // ---- 5. device-level dispatch --------------------------------
+    // ---- device-level dispatch ----------------------------------
     const DeviceLoader = struct {
         device: vk.VkDevice,
         get_device_proc_addr: std.meta.Child(vk.PFN_vkGetDeviceProcAddr),
@@ -555,7 +548,6 @@ pub fn init(
     get_physical_device_memory_properties(physical_device, &memory_properties);
 
     return .{
-        .platform = platform,
         .instance = instance,
         .physical_device = physical_device,
         .device = device,

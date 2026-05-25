@@ -11,7 +11,7 @@
 const Self = @This();
 
 const std = @import("std");
-const vk = @import("vulkan").c;
+const vk = @import("c.zig").c;
 
 const Device = @import("Device.zig");
 

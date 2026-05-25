@@ -23,9 +23,10 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const vk = @import("vulkan").c;
+const vulkan = @import("vulkan");
+const vk = vulkan.c;
 
-const Device = @import("Device.zig");
+const Device = vulkan.Device;
 
 const log = std.log.scoped(.vulkan);
 

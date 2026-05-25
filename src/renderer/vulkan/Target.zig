@@ -47,7 +47,7 @@ const std = @import("std");
 const vk = @import("vulkan").c;
 
 const apprt = @import("../../apprt.zig");
-const Device = @import("Device.zig");
+const Device = @import("vulkan").Device;
 
 const log = std.log.scoped(.vulkan);
 
@@ -87,14 +87,13 @@ pub const Options = struct {
     /// TRANSFER_SRC_BIT`). Rarely needed.
     extra_usage: vk.VkImageUsageFlags = 0,
 
-    /// Per-surface platform callbacks. `Device.platform` is also a
-    /// `Platform.Vulkan`, but it's the singleton's copy — its
-    /// `userdata` points at whichever surface initialized the
-    /// device first. Splits/tabs share the device but each gets its
-    /// own platform with the right `userdata`, so `present()` reaches
-    /// the right window. Falls back to `device.platform` when
-    /// null (e.g. smoke test).
-    platform: ?apprt.embedded.Platform.Vulkan = null,
+    /// Per-surface platform callbacks. The host's process-wide
+    /// VkDevice is shared across splits/tabs, but each surface gets
+    /// its own platform copy with the right `userdata`, so
+    /// `present()` reaches the right window — and `pickModifier`
+    /// asks the right host (compositor and host can in principle
+    /// differ across surfaces, e.g. mixed-DPI multi-screen).
+    platform: apprt.embedded.Platform.Vulkan,
 };
 
 pub const Error = error{
@@ -105,9 +104,8 @@ pub const Error = error{
 
 device: *const Device,
 
-/// Per-surface platform — see `Options.platform`. Null means "use
-/// `device.platform`" (the singleton's copy from the first surface).
-platform: ?apprt.embedded.Platform.Vulkan = null,
+/// Per-surface platform — see `Options.platform`.
+platform: apprt.embedded.Platform.Vulkan,
 
 /// Which present strategy this target uses. Decides whether
 /// `recordPresentBarrier` emits a copy.
@@ -148,7 +146,7 @@ pub fn init(opts: Options) Error!Self {
         vk.VK_FORMAT_FEATURE_TRANSFER_SRC_BIT |
         vk.VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
 
-    const picked = try pickModifier(dev, opts.format, drm_format, required_features);
+    const picked = try pickModifier(dev, opts.platform, opts.format, drm_format, required_features);
     if (picked) |m| {
         const tag: []const u8 = if (m == DRM_FORMAT_MOD_LINEAR)
             "LINEAR"
@@ -187,6 +185,7 @@ pub fn init(opts: Options) Error!Self {
 ///     COLOR_ATTACHMENT for every modifier).
 fn pickModifier(
     dev: *const Device,
+    platform: apprt.embedded.Platform.Vulkan,
     format: vk.VkFormat,
     drm_format: u32,
     required_features: vk.VkFormatFeatureFlags,
@@ -198,8 +197,8 @@ fn pickModifier(
     // work for AMD/Intel LINEAR but the compositor attach would
     // fail, so treat it as "no intersection."
     var host_mods: [MAX_MODIFIERS]u64 = undefined;
-    const host_returned = dev.platform.get_supported_modifiers(
-        dev.platform.userdata,
+    const host_returned = platform.get_supported_modifiers(
+        platform.userdata,
         drm_format,
         &host_mods,
         MAX_MODIFIERS,
@@ -763,9 +762,12 @@ fn recordDirectBarrier(self: *Self, cb: vk.VkCommandBuffer) void {
         vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
         vk.VK_PIPELINE_STAGE_HOST_BIT,
         0,
-        0, null,
-        0, null,
-        1, &img_barrier,
+        0,
+        null,
+        0,
+        null,
+        1,
+        &img_barrier,
     );
 
     self.layout = vk.VK_IMAGE_LAYOUT_GENERAL;
@@ -800,9 +802,12 @@ fn recordCopyToDmabuf(self: *Self, cb: vk.VkCommandBuffer) void {
         vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
         vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
         0,
-        0, null,
-        0, null,
-        1, &img_barrier,
+        0,
+        null,
+        0,
+        null,
+        1,
+        &img_barrier,
     );
 
     // Copy image → buffer. BGRA8, packed (stride = width*4).
@@ -849,9 +854,12 @@ fn recordCopyToDmabuf(self: *Self, cb: vk.VkCommandBuffer) void {
         vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
         vk.VK_PIPELINE_STAGE_HOST_BIT,
         0,
-        0, null,
-        1, &buf_barrier,
-        0, null,
+        0,
+        null,
+        1,
+        &buf_barrier,
+        0,
+        null,
     );
 
     // Track the new image layout so the next frame's RenderPass.begin
@@ -861,11 +869,9 @@ fn recordCopyToDmabuf(self: *Self, cb: vk.VkCommandBuffer) void {
 }
 
 pub fn present(self: *const Self) void {
-    // Prefer the per-surface platform — its `userdata` points at THIS
-    // surface's GhosttySurface, so present reaches the right window.
-    // Fall back to the device's singleton copy when no platform was
-    // attached (only the smoke test does this).
-    const platform = if (self.platform) |p| p else self.device.platform;
+    // Per-surface platform — its `userdata` points at THIS surface's
+    // GhosttySurface, so present reaches the right window.
+    const platform = self.platform;
     // `image_backed` is the host's signal that this fd is importable
     // by a 2D-image consumer (Wayland linux-dmabuf-v1, Vulkan
     // external image, etc.). True in `.direct` mode where the fd was

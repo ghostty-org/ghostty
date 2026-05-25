@@ -33,11 +33,12 @@
 const Self = @This();
 
 const std = @import("std");
-const vk = @import("vulkan").c;
+const vulkan = @import("vulkan");
+const vk = vulkan.c;
 
-const Device = @import("Device.zig");
+const Device = vulkan.Device;
+const DescriptorPool = vulkan.DescriptorPool;
 const Target = @import("Target.zig");
-const DescriptorPool = @import("DescriptorPool.zig");
 const RenderPass = @import("RenderPass.zig");
 
 const Vulkan = @import("../Vulkan.zig");

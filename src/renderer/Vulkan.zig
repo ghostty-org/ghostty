@@ -11,26 +11,35 @@
 //! `Frame.complete` waits on the fence before handing the fd to
 //! the platform `present` callback.
 //!
-//! Submodules:
-//!   - `vulkan/Device.zig` — host-handle wrapper, dispatch table.
-//!   - `vulkan/Sampler.zig` — VkSampler.
-//!   - `vulkan/Texture.zig` — VkImage + memory + view + staging upload.
-//!   - `vulkan/Target.zig` — dmabuf-exportable render target
-//!     (direct or legacy_copy mode).
-//!   - `vulkan/buffer.zig` — Buffer(T) host-coherent.
-//!   - `vulkan/CommandPool.zig` — VkCommandPool + one-shot helper.
-//!   - `vulkan/Pipeline.zig` — VkPipeline + layout (dynamic rendering).
-//!   - `vulkan/RenderPass.zig` — dynamic-rendering pass + step recorder.
-//!   - `vulkan/Frame.zig` — per-draw context (fence-paced).
-//!   - `vulkan/shaders.zig` — GLSL→SPIR-V→VkShaderModule + the
-//!     OpenGL-GLSL → Vulkan-GLSL rewriter.
+//! Submodules — pure Vulkan-API wrappers live in `pkg/vulkan/`
+//! (mirror of `pkg/opengl/`); renderer-policy modules live alongside
+//! this file under `vulkan/`.
+//!
+//! In `pkg/vulkan/` (re-exported from this file as
+//! `Vulkan.{Device,Sampler,CommandPool,DescriptorPool}`):
+//!   - `Device.zig`        — host-handle wrapper + dispatch table.
+//!   - `Sampler.zig`       — VkSampler.
+//!   - `CommandPool.zig`   — VkCommandPool + one-shot helper.
+//!   - `DescriptorPool.zig`— per-frame descriptor pool.
+//!
+//! In `src/renderer/vulkan/`:
+//!   - `Texture.zig`     — VkImage + memory + view + staging upload.
+//!   - `Target.zig`      — dmabuf-exportable render target
+//!                          (direct or legacy_copy mode).
+//!   - `buffer.zig`      — Buffer(T) host-coherent + recycle pool.
+//!   - `Pipeline.zig`    — VkPipeline + layout (dynamic rendering).
+//!   - `RenderPass.zig`  — dynamic-rendering pass + step recorder.
+//!   - `Frame.zig`       — per-draw context (fence-paced).
+//!   - `shaders.zig`     — GLSL→SPIR-V→VkShaderModule + the
+//!                          OpenGL-GLSL → Vulkan-GLSL rewriter.
 
 pub const Vulkan = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
-const vk = @import("vulkan").c;
+const vulkan = @import("vulkan");
+const vk = vulkan.c;
 
 const apprt = @import("../apprt.zig");
 const configpkg = @import("../config.zig");
@@ -39,15 +48,24 @@ const rendererpkg = @import("../renderer.zig");
 const shadertoy = @import("shadertoy.zig");
 
 pub const GraphicsAPI = Vulkan;
-pub const Device = @import("vulkan/Device.zig");
-pub const Sampler = @import("vulkan/Sampler.zig");
+// Device-dispatch primitives live in `pkg/vulkan/` so they can be
+// reused by anything that needs a typed Vulkan binding (mirrors how
+// `pkg/opengl/` houses Buffer/Program/Texture/etc.). The renderer
+// re-exports them from this top-level so call sites continue to write
+// `Vulkan.Device`, `Vulkan.Sampler`, etc.
+pub const Device = vulkan.Device;
+pub const Sampler = vulkan.Sampler;
+pub const CommandPool = vulkan.CommandPool;
+pub const DescriptorPool = vulkan.DescriptorPool;
+
+// Renderer-policy primitives stay in `src/renderer/vulkan/` (dmabuf
+// export, our pipeline + render-pass wiring, frame fence pacing, the
+// GLSL→SPIR-V loader).
 pub const Texture = @import("vulkan/Texture.zig");
 pub const Target = @import("vulkan/Target.zig");
-pub const CommandPool = @import("vulkan/CommandPool.zig");
 pub const Pipeline = @import("vulkan/Pipeline.zig");
 pub const RenderPass = @import("vulkan/RenderPass.zig");
 pub const Frame = @import("vulkan/Frame.zig");
-pub const DescriptorPool = @import("vulkan/DescriptorPool.zig");
 pub const shaders = @import("vulkan/shaders.zig");
 
 const bufferpkg = @import("vulkan/buffer.zig");
@@ -370,7 +388,7 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Vulkan {
             else => @compileError("unsupported app runtime for Vulkan (embedded-only)"),
             apprt.embedded => switch (opts.rt_surface.platform) {
                 .vulkan => |platform| {
-                    device = try Device.init(alloc, platform);
+                    device = try Device.init(alloc, try bootstrapFromPlatform(platform));
                     log.info(
                         "Vulkan device ready (api=0x{x})",
                         .{device.?.api_version},
@@ -547,11 +565,13 @@ pub fn initTarget(self: *const Vulkan, width: usize, height: usize) !Target {
     // concern only.
     //
     // Per-surface platform: pulled from rt_surface so the `present`
-    // callback's `userdata` points at THIS surface's window. The
-    // process-global Device has its own `platform` copy from
-    // whichever surface first initialized it; splits and tabs would
-    // otherwise route their dmabuf frames to the wrong window.
-    const platform = surfacePlatform(self.rt_surface);
+    // callback's `userdata` points at THIS surface's window. Splits
+    // and tabs share the process-wide Device but each owns its own
+    // platform copy — without per-surface routing here, all dmabuf
+    // frames would funnel through whichever surface initialized the
+    // device first.
+    const platform = surfacePlatform(self.rt_surface) orelse
+        return error.UnsupportedPlatform;
     return try Target.init(.{
         .device = devicePtr(),
         .format = vk.VK_FORMAT_B8G8R8A8_SRGB,
@@ -561,9 +581,44 @@ pub fn initTarget(self: *const Vulkan, width: usize, height: usize) !Target {
     });
 }
 
+/// Translate the apprt's `Platform.Vulkan` callback struct into the
+/// neutral `Device.HostBootstrap` the binding expects. Resolves the
+/// host's handles + the root proc-addr resolver up-front so the
+/// binding stays free of any apprt type. Any null host handle ->
+/// `error.HostHandleMissing`.
+fn bootstrapFromPlatform(
+    platform: apprt.embedded.Platform.Vulkan,
+) Device.Error!Device.HostBootstrap {
+    const instance_handle = platform.instance(platform.userdata) orelse
+        return error.HostHandleMissing;
+    const physical_device_handle = platform.physical_device(platform.userdata) orelse
+        return error.HostHandleMissing;
+    const device_handle = platform.device(platform.userdata) orelse
+        return error.HostHandleMissing;
+    const queue_handle = platform.queue(platform.userdata) orelse
+        return error.HostHandleMissing;
+    const get_instance_proc_addr_raw = platform.get_instance_proc_addr(
+        platform.userdata,
+        "vkGetInstanceProcAddr",
+    ) orelse return error.HostHandleMissing;
+
+    return .{
+        .instance = @ptrCast(instance_handle),
+        .physical_device = @ptrCast(physical_device_handle),
+        .device = @ptrCast(device_handle),
+        .queue = @ptrCast(queue_handle),
+        .queue_family_index = platform.queue_family_index(platform.userdata),
+        .get_instance_proc_addr_raw = get_instance_proc_addr_raw,
+    };
+}
+
 /// Extract the Vulkan platform callbacks from a surface, when the
 /// surface was created with the Vulkan platform tag. Returns null
-/// otherwise (smoke test / OpenGL surfaces).
+/// when the surface was tagged with a non-Vulkan platform — the
+/// caller is expected to reject the surface with
+/// `error.UnsupportedPlatform`. (`Vulkan.init` already does the same
+/// reject up-front, so reaching this function with a non-Vulkan
+/// platform implies a surface plumbed through after that gate.)
 fn surfacePlatform(rt_surface: *apprt.Surface) ?apprt.embedded.Platform.Vulkan {
     // `init()` already gates non-embedded runtimes with a
     // `@compileError`, so reaching this function on anything other
@@ -867,4 +922,3 @@ pub fn initAtlasTexture(
         null,
     );
 }
-

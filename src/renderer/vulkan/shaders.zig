@@ -20,13 +20,14 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
-const vk = @import("vulkan").c;
+const vulkan = @import("vulkan");
+const vk = vulkan.c;
 const glslang = @import("glslang");
 
-const Device = @import("Device.zig");
+const Device = vulkan.Device;
+const Sampler = vulkan.Sampler;
+const DescriptorPool = vulkan.DescriptorPool;
 const Pipeline = @import("Pipeline.zig");
-const Sampler = @import("Sampler.zig");
-const DescriptorPool = @import("DescriptorPool.zig");
 const math = @import("../../math.zig");
 
 const log = std.log.scoped(.vulkan);
@@ -817,7 +818,6 @@ pub const Shaders = struct {
     /// linear sampling, clamp-to-edge — the standard 2D mode.
     image_sampler: ?Sampler = null,
 
-
     defunct: bool = false,
 
     /// The compiled `VkShaderModule`s for the renderer's built-in
@@ -838,7 +838,7 @@ pub const Shaders = struct {
 
     pub fn init(
         alloc: Allocator,
-        device: *const @import("Device.zig"),
+        device: *const Device,
         // SPIR-V binaries (4-byte-aligned) from
         // `shadertoy.loadFromFiles` with `target = .spv`. The Vulkan
         // backend bypasses the spirv-cross GLSL roundtrip the other
@@ -1366,7 +1366,7 @@ pub const Shaders = struct {
     /// (Globals UBO, bg_cells SSBO, individual sampler) so a helper
     /// keeps the call sites short.
     fn createSingleBindingDsl(
-        device: *const @import("Device.zig"),
+        device: *const Device,
         binding: u32,
         descriptor_type: vk.VkDescriptorType,
         stage_flags: vk.VkShaderStageFlags,

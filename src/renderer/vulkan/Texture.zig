@@ -27,10 +27,11 @@
 const Self = @This();
 
 const std = @import("std");
-const vk = @import("vulkan").c;
+const vulkan = @import("vulkan");
+const vk = vulkan.c;
 
-const Device = @import("Device.zig");
-const CommandPool = @import("CommandPool.zig");
+const Device = vulkan.Device;
+const CommandPool = vulkan.CommandPool;
 const bufferpkg = @import("buffer.zig");
 
 const log = std.log.scoped(.vulkan);
@@ -278,8 +279,7 @@ pub fn replaceRegion(
         else => 0,
     };
     const src_stage: vk.VkPipelineStageFlags = switch (old_layout) {
-        vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL =>
-            vk.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL => vk.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
         else => vk.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
     };
     {
@@ -306,9 +306,12 @@ pub fn replaceRegion(
             src_stage,
             vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
             0, // dependencyFlags
-            0, null, // memory barriers
-            0, null, // buffer memory barriers
-            1, &barrier,
+            0,
+            null, // memory barriers
+            0,
+            null, // buffer memory barriers
+            1,
+            &barrier,
         );
     }
 
@@ -370,9 +373,12 @@ pub fn replaceRegion(
             vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
             vk.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
             0,
-            0, null,
-            0, null,
-            1, &barrier,
+            0,
+            null,
+            0,
+            null,
+            1,
+            &barrier,
         );
     }
 

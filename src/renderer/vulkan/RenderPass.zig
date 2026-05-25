@@ -16,12 +16,13 @@
 const Self = @This();
 
 const std = @import("std");
-const vk = @import("vulkan").c;
+const vulkan = @import("vulkan");
+const vk = vulkan.c;
 
-const DescriptorPool = @import("DescriptorPool.zig");
-const Device = @import("Device.zig");
+const Device = vulkan.Device;
+const DescriptorPool = vulkan.DescriptorPool;
+const Sampler = vulkan.Sampler;
 const Pipeline = @import("Pipeline.zig");
-const Sampler = @import("Sampler.zig");
 const Target = @import("Target.zig");
 const Texture = @import("Texture.zig");
 const bufferpkg = @import("buffer.zig");
@@ -175,9 +176,7 @@ pub fn begin(opts: Options) Self {
     if (opts.attachments.len == 0) return self;
 
     const attach = opts.attachments[0];
-    const view: vk.VkImageView, const image: vk.VkImage,
-    const width: u32, const height: u32,
-    const old_layout: vk.VkImageLayout = switch (attach.target) {
+    const view: vk.VkImageView, const image: vk.VkImage, const width: u32, const height: u32, const old_layout: vk.VkImageLayout = switch (attach.target) {
         .texture => |t| .{ t.view, t.image, @intCast(t.width), @intCast(t.height), t.layout },
         .target => |t| .{ t.view, t.image, t.width, t.height, t.layout },
     };
@@ -256,9 +255,12 @@ pub fn begin(opts: Options) Self {
             src_stage,
             vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
             0,
-            0, null,
-            0, null,
-            1, &barrier,
+            0,
+            null,
+            0,
+            null,
+            1,
+            &barrier,
         );
     }
 
@@ -650,9 +652,12 @@ pub fn complete(self: *const Self) void {
         vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
         dst_stage,
         0,
-        0, null,
-        0, null,
-        1, &barrier,
+        0,
+        null,
+        0,
+        null,
+        1,
+        &barrier,
     );
 }
 
