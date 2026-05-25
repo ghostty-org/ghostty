@@ -487,4 +487,14 @@ void SubsurfacePresenter::setPosition(int x, int y) {
   wl_display_flush(m_display);
 }
 
+void SubsurfacePresenter::hide() {
+  if (!m_childSurface) return;
+  // Attach NULL = no buffer. After commit + parent commit, the
+  // subsurface contributes nothing to the compositor's frame.
+  // Caller is responsible for forceParentCommit on its side.
+  wl_surface_attach(m_childSurface, nullptr, 0, 0);
+  wl_surface_commit(m_childSurface);
+  wl_display_flush(m_display);
+}
+
 } // namespace wayland

@@ -134,6 +134,14 @@ public:
   // position to apply. No-op if the position hasn't changed.
   void setPosition(int x, int y);
 
+  // Detach the currently-attached buffer so the subsurface becomes
+  // invisible. Called when the owning GhosttySurface hides (tab
+  // switch) so the inactive pane's pixels don't ghost on top of
+  // whatever the active tab is showing in the same on-screen
+  // region. The next presentDmabuf call re-attaches a buffer and
+  // the subsurface becomes visible again.
+  void hide();
+
   // Called from the wp_fractional_scale_v1.preferred_scale event.
   // Public so the C-style listener struct at file scope in the .cpp
   // can name it; not part of the API for other call sites.

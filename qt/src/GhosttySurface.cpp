@@ -464,6 +464,14 @@ bool GhosttySurface::event(QEvent *e) {
       }
     } else if (e->type() == QEvent::Hide) {
       ghostty_surface_set_occlusion(m_surface, false);
+      // Detach the subsurface buffer so this pane's last frame
+      // doesn't ghost on top of whatever the now-active tab is
+      // showing. The next Show + render reattaches a buffer and
+      // makes it visible again.
+      if (m_subsurfacePresenter) {
+        m_subsurfacePresenter->hide();
+        forceParentCommit();
+      }
     }
   }
   return QWidget::event(e);
