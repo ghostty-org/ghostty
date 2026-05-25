@@ -41,6 +41,7 @@
 #include <QFont>
 #include <QFontMetrics>
 #include <QGuiApplication>
+#include <QPlatformSurfaceEvent>
 #include <QIcon>
 #include <QInputDialog>
 #include <QInputMethodEvent>
@@ -349,6 +350,29 @@ bool GhosttySurface::event(QEvent *e) {
   // that same ratio; otherwise paintEvent blits the frame at the wrong
   // size (the FBO was sized at one DPR, the image tagged with another).
   if (e->type() == QEvent::DevicePixelRatioChange) syncSurfaceSize();
+
+  // PlatformSurface events fire when Qt creates / destroys the native
+  // QWindow's wl_surface. This happens not just at first show but
+  // also when the QWidget gets re-parented (e.g. dropped into a
+  // QSplitter as a new split pane), when toggling fullscreen, or on
+  // screen change. Without tracking this our SubsurfacePresenter
+  // stays bound to a destroyed parent wl_surface — splits show
+  // black, etc. Drop the presenter on SurfaceAboutToBeDestroyed and
+  // let the next Show / SurfaceCreated path recreate it against the
+  // new parent.
+  if (e->type() == QEvent::PlatformSurface) {
+    const auto type =
+        static_cast<QPlatformSurfaceEvent *>(e)->surfaceEventType();
+    if (type == QPlatformSurfaceEvent::SurfaceAboutToBeDestroyed) {
+      m_useSubsurface.store(false, std::memory_order_release);
+      m_eglTarget.reset();
+      m_subsurfacePresenter.reset();
+    }
+    // SurfaceCreated is handled implicitly: the next QEvent::Show
+    // (which Qt always fires after the platform surface comes up)
+    // sees a null m_subsurfacePresenter and rebuilds it against the
+    // fresh windowHandle().
+  }
   // Visibility transitions: tell libghostty so its renderer thread
   // can bail out of updateFrame while the surface is hidden (a
   // non-current tab, a minimised window, the quick terminal faded
