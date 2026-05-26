@@ -49,4 +49,24 @@ layout(location = 0) out vec4 _fragColor;
 #define texture2D texture
 
 void mainImage( out vec4 fragColor, in vec2 fragCoord );
-void main() { mainImage (_fragColor, gl_FragCoord.xy); }
+
+// Vulkan-only: wrap `texture(sampler2D, vec2)` so iChannel0
+// (back_texture, in Vulkan top-left orientation) appears to
+// the author in OpenGL/shadertoy convention (lower-left).
+// Defined BEFORE the `#define`, so the inner `texture(s, ...)`
+// call here resolves to the GLSL built-in, not back to ourselves
+// (no preprocessor recursion).
+#ifdef GHASTTY_VULKAN
+vec4 _ghastty_tex2d(sampler2D s, vec2 uv) {
+    return texture(s, vec2(uv.x, 1.0 - uv.y));
+}
+#define texture _ghastty_tex2d
+#endif
+
+void main() {
+#ifdef GHASTTY_VULKAN
+    mainImage(_fragColor, vec2(gl_FragCoord.x, iResolution.y - gl_FragCoord.y));
+#else
+    mainImage(_fragColor, gl_FragCoord.xy);
+#endif
+}

@@ -27,6 +27,11 @@ pub const custom_shader_target: shadertoy.Target = .glsl;
 // The fragCoord for OpenGL shaders is +Y = up.
 pub const custom_shader_y_is_down = false;
 
+/// Custom shaders are supported (the renderer ships a working "post"
+/// pass that composites `CustomShaderState.back_texture` through the
+/// user's shader into `frame.target`).
+pub const supports_custom_shaders: bool = true;
+
 /// Because OpenGL's frame completion is always
 /// sync, we have no need for multi-buffering.
 pub const swap_chain_count = 1;
@@ -211,8 +216,9 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
                 try prepareContext(&gladHostLoader);
             },
 
-            // macOS and iOS use the Metal renderer.
-            .macos, .ios => return error.UnsupportedPlatform,
+            // macOS and iOS use the Metal renderer; the Vulkan platform
+            // is only valid with the Vulkan renderer (currently a stub).
+            .macos, .ios, .vulkan => return error.UnsupportedPlatform,
         },
     }
 
@@ -295,12 +301,33 @@ pub fn drawFrameEnd(self: *OpenGL) void {
 pub fn initShaders(
     self: *const OpenGL,
     alloc: Allocator,
-    custom_shaders: []const [:0]const u8,
+    custom_shaders: []const []const u8,
 ) !shaders.Shaders {
-    _ = alloc;
+    _ = self;
+    // `shadertoy.loadFromFiles` returns `[]const []const u8` so the
+    // SPV-target Vulkan path can share the loader, but for `.glsl`
+    // the underlying allocation IS null-terminated
+    // (`shadertoy.glslFromSpv` returns `[:0]const u8` and writes a
+    // sentinel one past `.len`). Reattach the sentinel for our
+    // downstream `Pipeline.init` calls that expect `[:0]const u8`.
+    //
+    // Use the caller-provided `alloc` (matches `Metal.initShaders`)
+    // — this is a transient scratch slice torn down at function
+    // exit.
+    const z_shaders = try alloc.alloc([:0]const u8, custom_shaders.len);
+    defer alloc.free(z_shaders);
+    for (custom_shaders, z_shaders) |bytes, *out| {
+        // Defense against a future `loadFromFiles` change that
+        // forgets to null-terminate: assert the sentinel before we
+        // pretend the slice is `[:0]const u8`. `@ptrCast` does NOT
+        // verify the sentinel — without this assert, a missing
+        // terminator surfaces as a downstream OOB read.
+        std.debug.assert(bytes.len == 0 or bytes.ptr[bytes.len] == 0);
+        out.* = @ptrCast(bytes);
+    }
     return try shaders.Shaders.init(
-        self.alloc,
-        custom_shaders,
+        alloc,
+        z_shaders,
     );
 }
 

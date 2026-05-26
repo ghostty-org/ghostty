@@ -6,6 +6,11 @@ pub const Backend = enum {
     opengl,
     metal,
     webgl,
+    /// Vulkan is on this fork only. Embedded-only — the host owns
+    /// the VkInstance/Device/Queue and hands them in via
+    /// `ghostty_platform_vulkan_s`; libghostty renders against
+    /// those handles and exports the result as a dmabuf fd.
+    vulkan,
 
     pub fn default(
         target: std.Target,

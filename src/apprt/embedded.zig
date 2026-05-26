@@ -353,6 +353,7 @@ pub const Platform = union(PlatformTag) {
     macos: MacOS,
     ios: IOS,
     opengl: OpenGL,
+    vulkan: Vulkan,
 
     // If our build target for libghostty is not darwin then we do
     // not include macos support at all.
@@ -395,6 +396,70 @@ pub const Platform = union(PlatformTag) {
         present: *const fn (?*anyopaque) callconv(.c) void,
     };
 
+    /// Configuration for a host that owns a Vulkan device libghostty
+    /// should render against (fork-only). The host owns the
+    /// VkInstance / VkPhysicalDevice / VkDevice / VkQueue — same
+    /// ownership model as `OpenGL` above. Frames are handed back to
+    /// the host as dmabuf file descriptors so the host can sample
+    /// them without a CPU readback.
+    ///
+    /// Handles are `?*anyopaque` here so callers don't need Vulkan
+    /// headers to compile against the C API; treat them as VkInstance,
+    /// VkPhysicalDevice, VkDevice, VkQueue respectively.
+    pub const Vulkan = struct {
+        userdata: ?*anyopaque,
+
+        /// Resolve `vkGetInstanceProcAddr` (returned as `?*anyopaque`).
+        /// libghostty bootstraps the rest of the Vulkan loader from it.
+        get_instance_proc_addr: *const fn (
+            ?*anyopaque,
+            [*:0]const u8,
+        ) callconv(.c) ?*anyopaque,
+
+        /// Host-owned Vulkan handles. libghostty does not destroy
+        /// these.
+        instance: *const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+        physical_device: *const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+        device: *const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+        queue: *const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+        queue_family_index: *const fn (?*anyopaque) callconv(.c) u32,
+
+        /// Query the compositor-supported DRM modifiers for a given
+        /// DRM_FORMAT_* fourcc. Two-pass usage: call with
+        /// `out=null, capacity=0` for the count, then again with a
+        /// buffer of that size. Returns the number of modifiers
+        /// actually written. The renderer intersects this with the
+        /// GPU's per-modifier feature set to pick a tiling the
+        /// compositor will accept on attach.
+        get_supported_modifiers: *const fn (
+            ?*anyopaque,
+            u32, // DRM_FORMAT_*
+            ?[*]u64, // out
+            usize, // capacity
+        ) callconv(.c) usize,
+
+        /// Hand off a rendered frame to the host as a dmabuf fd. The
+        /// host imports it for composition; libghostty retains
+        /// ownership of the underlying VkDeviceMemory and the fd is
+        /// valid only for the duration of the call (host must `dup()`
+        /// if it needs to hold the fd longer). `image_backed` tells
+        /// the host whether the fd was exported from a VkImage
+        /// (directly importable as a 2D image via linux-dmabuf-v1)
+        /// or from a VkBuffer (only usable via mmap + CPU readback);
+        /// see `vulkan/Target.zig` and `include/ghostty.h` for the
+        /// full rationale.
+        present: *const fn (
+            ?*anyopaque,
+            i32, // dmabuf fd
+            u32, // DRM_FORMAT_*
+            u64, // DRM modifier
+            u32, // width (pixels)
+            u32, // height (pixels)
+            u32, // stride (bytes)
+            bool, // image_backed
+        ) callconv(.c) void,
+    };
+
     // The C ABI compatible version of this union. The tag is expected
     // to be stored elsewhere.
     pub const C = extern union {
@@ -415,6 +480,35 @@ pub const Platform = union(PlatformTag) {
             make_current: ?*const fn (?*anyopaque) callconv(.c) void,
             release_current: ?*const fn (?*anyopaque) callconv(.c) void,
             present: ?*const fn (?*anyopaque) callconv(.c) void,
+        },
+
+        vulkan: extern struct {
+            userdata: ?*anyopaque,
+            get_instance_proc_addr: ?*const fn (
+                ?*anyopaque,
+                [*:0]const u8,
+            ) callconv(.c) ?*anyopaque,
+            instance: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+            physical_device: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+            device: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+            queue: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+            queue_family_index: ?*const fn (?*anyopaque) callconv(.c) u32,
+            get_supported_modifiers: ?*const fn (
+                ?*anyopaque,
+                u32,
+                ?[*]u64,
+                usize,
+            ) callconv(.c) usize,
+            present: ?*const fn (
+                ?*anyopaque,
+                i32,
+                u32,
+                u64,
+                u32,
+                u32,
+                u32,
+                bool,
+            ) callconv(.c) void,
         },
     };
 
@@ -450,6 +544,47 @@ pub const Platform = union(PlatformTag) {
                         break :opengl error.PresentMustBeSet,
                 } };
             },
+
+            .vulkan => vulkan: {
+                const config = c_platform.vulkan;
+                // Collapse the eight per-callback "MustBeSet"
+                // variants into a single `error.MissingVulkanCallback`.
+                // Pre-this, every caller of `Platform.init` had to
+                // handle 8 separate error tags (or `try` swallow
+                // them) — eight names that all mean "the host
+                // didn't fill out one of these fields." Log which
+                // one was null for diagnostics; the error tag
+                // itself stays narrow.
+                const which: ?[]const u8 = blk: {
+                    if (config.get_instance_proc_addr == null) break :blk "get_instance_proc_addr";
+                    if (config.instance == null) break :blk "instance";
+                    if (config.physical_device == null) break :blk "physical_device";
+                    if (config.device == null) break :blk "device";
+                    if (config.queue == null) break :blk "queue";
+                    if (config.queue_family_index == null) break :blk "queue_family_index";
+                    if (config.get_supported_modifiers == null) break :blk "get_supported_modifiers";
+                    if (config.present == null) break :blk "present";
+                    break :blk null;
+                };
+                if (which) |name| {
+                    std.log.scoped(.embedded).err(
+                        "ghostty_platform_vulkan_s.{s} is null",
+                        .{name},
+                    );
+                    break :vulkan error.MissingVulkanCallback;
+                }
+                break :vulkan .{ .vulkan = .{
+                    .userdata = config.userdata,
+                    .get_instance_proc_addr = config.get_instance_proc_addr.?,
+                    .instance = config.instance.?,
+                    .physical_device = config.physical_device.?,
+                    .device = config.device.?,
+                    .queue = config.queue.?,
+                    .queue_family_index = config.queue_family_index.?,
+                    .get_supported_modifiers = config.get_supported_modifiers.?,
+                    .present = config.present.?,
+                } };
+            },
         };
     }
 };
@@ -461,6 +596,8 @@ pub const PlatformTag = enum(c_int) {
     macos = 1,
     ios = 2,
     opengl = 3,
+    // Fork-only platform tag for hosts that drive `src/renderer/Vulkan.zig`.
+    vulkan = 4,
 };
 
 pub const EnvVar = extern struct {
@@ -538,6 +675,25 @@ pub const Surface = struct {
                 .x = @floatCast(opts.scale_factor),
                 .y = @floatCast(opts.scale_factor),
             },
+            // Initial surface size. Must be large enough for the
+            // terminal to have at least a few cols/rows by default,
+            // because the shell process is forked as part of
+            // Surface.init and the PTY's winsize is whatever this
+            // size translates to. Tools like fastfetch query winsize
+            // (TIOCGWINSZ) on startup and lay out their kitty-image
+            // escape codes based on what they see; if winsize reports
+            // 0 cols × 0 rows, fastfetch sends the image with c=0
+            // r=0, and `Placement.pixelSize` (graphics_storage.zig)
+            // returns the image's NATIVE pixel dimensions — visible
+            // to the user as a giant Kusanagi (or whatever logo)
+            // filling the whole pane. 800×600 was the historic
+            // default; restoring it. Race against a real wrong-size
+            // first frame coinciding with the widget's device-pixel
+            // size at a fractional DPR is handled separately by the
+            // host apprt sending its real size as early as possible
+            // (Qt: immediate ghostty_surface_set_size right after
+            // ghostty_surface_new, inheriting the parent surface's
+            // size for new tabs).
             .size = .{ .width = 800, .height = 600 },
             .cursor_pos = .{ .x = -1, .y = -1 },
         };

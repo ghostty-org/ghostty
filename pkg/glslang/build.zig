@@ -165,5 +165,20 @@ fn buildGlslang(
         );
     }
 
+    // Ghastty Vulkan-friendly compile shim. Wraps glslang's C++ API
+    // to expose features (auto-map bindings/locations, source/target
+    // environment translation) that the upstream C API doesn't, so
+    // the renderer can compile OpenGL-flavored GLSL — including
+    // user-supplied custom shaders — to Vulkan-targeted SPIR-V.
+    lib.addCSourceFiles(.{
+        .root = b.path("override"),
+        .flags = flags.items,
+        .files = &.{"ghastty_vk_shim.cpp"},
+    });
+    lib.installHeader(
+        b.path("override/ghastty_vk_shim.h"),
+        "ghastty_vk_shim.h",
+    );
+
     return lib;
 }

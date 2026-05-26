@@ -8,6 +8,7 @@ const HelpStrings = @import("HelpStrings.zig");
 const MetallibStep = @import("MetallibStep.zig");
 const UnicodeTables = @import("UnicodeTables.zig");
 const GhosttyFrameData = @import("GhosttyFrameData.zig");
+const VulkanSpv = @import("VulkanSpv.zig");
 const DistResource = @import("GhosttyDist.zig").Resource;
 
 config: *const Config,
@@ -18,6 +19,9 @@ metallib: ?*MetallibStep,
 unicode_tables: UnicodeTables,
 framedata: GhosttyFrameData,
 uucode_tables: std.Build.LazyPath,
+/// Vulkan-only: build-time SPIR-V blobs for the renderer's
+/// built-in shaders. Null on non-Vulkan builds.
+vulkan_spv: ?VulkanSpv,
 
 /// Used to keep track of a list of file sources.
 pub const LazyPathList = std.ArrayList(std.Build.LazyPath);
@@ -37,6 +41,15 @@ pub fn init(b: *std.Build, cfg: *const Config) !SharedDeps {
         .unicode_tables = try .init(b, uucode_tables),
         .framedata = try .init(b),
         .uucode_tables = uucode_tables,
+        // Vulkan-only build artifact: precompiled SPV blobs for
+        // the renderer's built-in shaders. Skipping the build
+        // step entirely on non-Vulkan builds avoids paying for
+        // a host-target glslang link the OpenGL/Metal renderers
+        // would never use.
+        .vulkan_spv = if (cfg.renderer == .vulkan)
+            try VulkanSpv.init(b, cfg)
+        else
+            null,
 
         // Setup by retarget
         .options = undefined,
@@ -452,6 +465,14 @@ pub fn add(
     if (b.lazyDependency("opengl", .{})) |dep| {
         step.root_module.addImport("opengl", dep.module("opengl"));
     }
+    // The Vulkan binding is only loaded when the renderer is .vulkan
+    // (still in development — see `src/renderer/Vulkan.zig`). Linking
+    // libvulkan happens further down in `linkSystemDeps`.
+    if (self.config.renderer == .vulkan) {
+        if (b.lazyDependency("vulkan", .{})) |dep| {
+            step.root_module.addImport("vulkan", dep.module("vulkan"));
+        }
+    }
     if (b.lazyDependency("vaxis", .{})) |dep| {
         step.root_module.addImport("vaxis", dep.module("vaxis"));
     }
@@ -600,6 +621,15 @@ pub fn add(
         });
     }
 
+    // Link the system Vulkan loader for the Vulkan renderer. The
+    // bindings themselves are in `pkg/vulkan` (added above as a Zig
+    // module). On Linux this resolves to libvulkan.so via the standard
+    // dynamic linker; Vulkan headers (`vulkan/vulkan.h`) come from the
+    // standard system include path (`vulkan-headers` package).
+    if (self.config.renderer == .vulkan) {
+        step.linkSystemLibrary2("vulkan", dynamic_link_opts);
+    }
+
     // If we're building an exe then we have additional dependencies.
     if (step.kind != .lib) {
         // When we're targeting flatpak we ALWAYS link GTK so we
@@ -615,6 +645,7 @@ pub fn add(
     self.help_strings.addImport(step);
     self.unicode_tables.addImport(step);
     self.framedata.addImport(step);
+    if (self.vulkan_spv) |*v| v.addImport(step);
 
     return static_libs;
 }

@@ -43,5 +43,10 @@ void main() {
     vec2 image_pos = (cell_size * grid_pos) + cell_offset;
     image_pos += dest_size * corner;
 
-    gl_Position = projection_matrix * vec4(image_pos.xy, 1.0, 1.0);
+    // Z=0 (not 1) so we land in the middle of Vulkan's [0,1] NDC
+    // depth range after `ortho2d`'s `-1` z scale. OpenGL accepts
+    // either since there's no depth attachment, but Vulkan clips
+    // NDC z<0 (which `vec4(_, _, 1.0, 1.0)` would produce) and
+    // erases the entire image. Matches `cell_text.v.glsl`.
+    gl_Position = projection_matrix * vec4(image_pos.xy, 0.0, 1.0);
 }

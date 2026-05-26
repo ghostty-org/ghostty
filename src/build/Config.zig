@@ -688,6 +688,14 @@ pub const ExeEntrypoint = enum {
     webgen_config,
     webgen_actions,
     webgen_commands,
+    /// Build-time tool: compiles one of the renderer's built-in
+    /// GLSL shaders to SPIR-V and writes the bytes to stdout.
+    /// Invoked by `src/build/VulkanSpv.zig` once per (shader, stage)
+    /// pair so libghostty can `@embedFile` the resulting .spv
+    /// instead of running glslang at runtime — eliminates the
+    /// per-process TPoolAllocator high-water-mark leak (~10 MB)
+    /// that the Vulkan path otherwise pays on first surface init.
+    vulkan_spvgen,
 };
 
 /// The release channel for the build.

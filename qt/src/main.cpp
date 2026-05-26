@@ -1,4 +1,14 @@
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
+
+// (The atexit hook to ghastty_glslang_finalize_process that used
+// to live here was removed: now that build-time SPV precompile
+// is in place, the runtime libghostty no longer calls the glslang
+// shim at all for built-ins, so the shim's symbols get DCE'd out
+// of libghostty.so. The cosmetic FinalizeProcess+popAll cleanup
+// also didn't reduce heaptrack's reported leak in practice, so
+// the call wasn't pulling its weight anyway.)
 
 #include <QApplication>
 #include <QCoreApplication>
@@ -22,7 +32,51 @@ static bool isCliActionInvocation(int argc, char **argv) {
   return false;
 }
 
+// Default-disable MangoHud for this process. The Vulkan implicit
+// layer hooks every vkQueueSubmit / vkAcquireNextImage / etc. to
+// render its own overlay, which on this branch's animated-shader
+// + multi-pane workload added ~25% extra main-thread CPU at idle
+// (measured against a baseline of ~10% for the Wayland-buffer
+// cache path). For a terminal, that's a steep tax on a feature
+// users typically associate with games. A system-wide MANGOHUD=1
+// (common in `~/.profile` for users who want the HUD on games) is
+// explicitly OVERRIDDEN here — the user is invoking ghastty, not
+// a game, and we don't want them to silently pay 25% extra CPU.
+//
+// Two layers of MangoHud's loading model:
+//   - VK_LOADER_LAYERS_DISABLE: Vulkan loader skips the layer
+//     entirely (no interception overhead).
+//   - DISABLE_MANGOHUD: belt-and-suspenders if the loader didn't
+//     honor the env var (older loaders) or another runtime force-
+//     loaded the layer through a different path.
+//
+// Escape hatch: GHASTTY_ALLOW_OVERLAY=1 skips the guard entirely
+// so a user who genuinely wants MangoHud on the terminal (e.g.
+// debugging the renderer with the HUD's frame-time graph) can
+// opt back in without removing the layer JSON system-wide.
+//
+// setenv overwrite=1 throughout: the whole point is to override a
+// pre-existing MANGOHUD=1 / DISABLE_MANGOHUD=0 / etc.
+static void defaultDisableMangoHud() {
+  if (const char *opt = ::getenv("GHASTTY_ALLOW_OVERLAY");
+      opt && opt[0] == '1') return;
+  ::setenv("MANGOHUD", "0", 1);
+  ::setenv("DISABLE_MANGOHUD", "1", 1);
+  ::setenv("VK_LOADER_LAYERS_DISABLE", "*MANGOHUD*", 1);
+}
+
 int main(int argc, char **argv) {
+  // Set the env BEFORE Qt's QApplication ctor (which can probe
+  // GL/Vulkan via QPA) and before the CLI action path (since
+  // libghostty action handlers may also touch the renderer).
+  defaultDisableMangoHud();
+
+  // (Build-time SPV precompile means the runtime libghostty no
+  // longer invokes glslang for built-in shaders, so the per-
+  // thread TPoolAllocator pages we used to leak from first-
+  // surface init don't exist on the Vulkan variant anymore. No
+  // atexit cleanup needed.)
+
   // CLI action fast path: skip Qt entirely. ghostty_init parses argv
   // for the `+action`; ghostty_cli_try_action runs it and exits the
   // process. If something fails (unknown action, multiple actions),
@@ -103,6 +157,15 @@ int main(int argc, char **argv) {
                  "[ghastty] ghostty_init failed; check `ghastty +help`\n");
     return 1;
   }
+
+  // The Vulkan host is intentionally NOT bootstrapped here: doing it
+  // before any window is mapped on Wayland can interact badly with
+  // Qt's Wayland integration (the VkInstance starts grabbing display
+  // resources before Qt has finished its own connection setup, and
+  // on some compositor + driver combos the result is a process that
+  // runs but never actually displays a window). It's brought up
+  // lazily on the first surface that needs it — see
+  // `GhosttySurface.cpp`.
 
   // initial-window: when false, start headless (no window mapped at
   // launch). Combined with quit-after-last-window-closed=false this

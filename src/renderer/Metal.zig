@@ -100,9 +100,10 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Metal {
                 .macos => |v| v.nsview,
                 .ios => |v| v.uiview,
 
-                // The OpenGL platform is only valid with the OpenGL
-                // renderer; it cannot provide a view for Metal.
-                .opengl => return error.UnsupportedPlatform,
+                // The OpenGL / Vulkan platforms are only valid with
+                // their respective renderers; neither provides a view
+                // for Metal.
+                .opengl, .vulkan => return error.UnsupportedPlatform,
             },
         },
 
@@ -199,12 +200,29 @@ pub fn drawFrameEnd(self: *Metal) void {
 pub fn initShaders(
     self: *const Metal,
     alloc: Allocator,
-    custom_shaders: []const [:0]const u8,
+    custom_shaders: []const []const u8,
 ) !shaders.Shaders {
+    // `shadertoy.loadFromFiles` returns `[]const []const u8` (a unified
+    // type so the SPV-target Vulkan path can share the loader); for
+    // `.msl` the underlying allocation IS null-terminated
+    // (`shadertoy.mslFromSpv` returns `[:0]const u8` and writes a
+    // sentinel one past `.len`). Reattach the sentinel for our
+    // downstream `Shaders.init` which expects `[:0]const u8`.
+    // Same pattern as `OpenGL.initShaders`.
+    const z_shaders = try alloc.alloc([:0]const u8, custom_shaders.len);
+    defer alloc.free(z_shaders);
+    for (custom_shaders, z_shaders) |bytes, *out| {
+        // Sentinel guard: `@ptrCast` does NOT verify the sentinel,
+        // so without this assert a future `loadFromFiles` change
+        // that forgets the trailing null would surface as an
+        // OOB read inside the Metal library compile.
+        std.debug.assert(bytes.len == 0 or bytes.ptr[bytes.len] == 0);
+        out.* = @ptrCast(bytes);
+    }
     return try shaders.Shaders.init(
         alloc,
         self.device,
-        custom_shaders,
+        z_shaders,
         // Using an `*_srgb` pixel format makes Metal gamma encode
         // the pixels written to it *after* blending, which means
         // we get linear alpha blending rather than gamma-incorrect

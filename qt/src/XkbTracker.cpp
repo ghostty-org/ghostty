@@ -65,9 +65,17 @@ XkbTracker::XkbTracker() {
   if (m_keyboard == nullptr)
     wl_display_roundtrip_queue(display, queue);
 
-  // The keyboard proxy is hot — move it onto the default queue so
-  // Qt's event loop dispatches our listeners alongside Qt's own
-  // input events.
+  // The keyboard + seat proxies are long-lived — move them onto the
+  // default queue so Qt's event loop dispatches our listeners
+  // alongside Qt's own input events, AND so they don't dangle on
+  // the about-to-be-destroyed private queue. Failing to migrate the
+  // seat caused a SIGSEGV at process exit: libwayland warned
+  // ("queue X destroyed while proxies still attached: wl_seat#NN")
+  // and then later seat events / display teardown dereferenced the
+  // dead queue.
+  if (m_seat) {
+    wl_proxy_set_queue(reinterpret_cast<wl_proxy *>(m_seat), nullptr);
+  }
   if (m_keyboard) {
     wl_proxy_set_queue(reinterpret_cast<wl_proxy *>(m_keyboard), nullptr);
   }
@@ -78,6 +86,7 @@ XkbTracker::~XkbTracker() {
   // Process-wide singleton; OS reclaims at exit. Explicit teardown
   // keeps leak checkers quiet and documents ownership.
   if (m_keyboard) wl_keyboard_destroy(m_keyboard);
+  if (m_seat) wl_seat_destroy(m_seat);
   if (m_state) xkb_state_unref(m_state);
   if (m_keymap) xkb_keymap_unref(m_keymap);
   if (m_ctx) xkb_context_unref(m_ctx);
@@ -108,6 +117,12 @@ void XkbTracker::onRegistryGlobal(void *data, wl_registry *registry,
   auto *seat = static_cast<wl_seat *>(
       wl_registry_bind(registry, name, &wl_seat_interface, 5));
   if (!seat) return;
+  // Stash the seat on the tracker so it outlives this callback and
+  // its private-queue registry. wl_seat is a long-lived proxy: we
+  // keep the listener alive for the full process lifetime so future
+  // capability changes (keyboard hot-plug, layout change) flow into
+  // onSeatCapabilities and we can re-bind the wl_keyboard.
+  self->m_seat = seat;
   // Subscribe to capability changes; we'll grab the keyboard from
   // the capability callback once the seat tells us it has one.
   wl_seat_add_listener(seat, &kSeatListener, self);

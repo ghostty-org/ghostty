@@ -1051,10 +1051,26 @@ fn resizeCols(
             break :wrapped wrapped;
         };
 
+        // `c.y` is the cursor row from BEFORE this resize. When the
+        // call sequence is `resizeWithoutReflow(new_rows, old_cols)`
+        // → `resizeCols(new_cols)` (the `.lt` arm above), `self.rows`
+        // has already been reduced to the new row count by the time
+        // we run, so a cursor strictly past the new bottom (`c.y >=
+        // self.rows`) would underflow `self.rows - c.y - 1`. Clamp
+        // to zero remaining rows in that case — the cursor
+        // effectively sits on the last visible row after the
+        // shrink. Note: `c.y == self.rows - 1` (cursor AT the new
+        // bottom) does NOT underflow, but the `c.y + 1 >= self.rows`
+        // form still returns 0 there, matching the old
+        // `self.rows - c.y - 1 == 0` result.
+        const remaining_rows: usize = if (c.y + 1 >= self.rows)
+            0
+        else
+            self.rows - c.y - 1;
         break :cursor .{
             .tracked_pin = c.pin orelse try self.trackPin(p),
             .untrack = c.pin == null,
-            .remaining_rows = self.rows - c.y - 1,
+            .remaining_rows = remaining_rows,
             .wrapped_rows = wrapped,
         };
     } else null;

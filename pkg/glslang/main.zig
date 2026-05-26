@@ -4,6 +4,7 @@ const shader = @import("shader.zig");
 
 pub const c = @import("c.zig").c;
 pub const testing = @import("test.zig");
+pub const vk = @import("vk.zig");
 
 pub const init = initpkg.init;
 pub const finalize = initpkg.finalize;

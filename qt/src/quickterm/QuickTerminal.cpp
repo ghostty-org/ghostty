@@ -6,17 +6,18 @@
 #include <QCursor>
 #include <QEasingCurve>
 #include <QGuiApplication>
-#include <QPropertyAnimation>
 #include <QScreen>
 #include <QSize>
 #include <QString>
 #include <QStringLiteral>
+#include <QVariantAnimation>
 #include <QWidget>
 #include <QWindow>
 
 #include <LayerShellQt/window.h>
 
 #include "../config/Config.h"
+#include "../wayland/AlphaModifier.h"
 #include "ghostty.h"
 
 namespace quickterm {
@@ -43,14 +44,36 @@ int animationMs() {
   return std::clamp(static_cast<int>(secs * 1000.0), 1, 1000);
 }
 
+// Apply opacity to the window. Uses wp_alpha_modifier_v1 when the
+// compositor supports it (real per-surface alpha multiplier on the
+// compositor side); otherwise falls through to a no-op (the
+// animation still runs but the window just appears at the end —
+// previously this called QWindow::setOpacity which spammed
+// "This plugin does not support setting window opacity" warnings
+// on every animation tick because QtWayland's QPA plugin has no
+// implementation).
+void applyOpacity(QWidget *window, double opacity) {
+  QWindow *handle = window->windowHandle();
+  if (!handle) return;
+  wayland::AlphaModifier::setOpacity(handle, opacity);
+}
+
 // Lazily fetch (or build) the per-window opacity animation, parented
-// to `window` so its lifetime tracks the widget's.
-QPropertyAnimation *animFor(QWidget *window) {
-  auto *existing = window->property(kAnimProperty).value<QPropertyAnimation *>();
+// to `window` so its lifetime tracks the widget's. We use
+// QVariantAnimation (not QPropertyAnimation on windowOpacity) so
+// the per-tick value is delivered to our applyOpacity handler
+// instead of QWindow::setOpacity (which QtWayland's QPA plugin
+// doesn't implement — see applyOpacity comment).
+QVariantAnimation *animFor(QWidget *window) {
+  auto *existing = window->property(kAnimProperty).value<QVariantAnimation *>();
   if (existing) return existing;
-  auto *anim = new QPropertyAnimation(window, "windowOpacity", window);
+  auto *anim = new QVariantAnimation(window);
+  QObject::connect(anim, &QVariantAnimation::valueChanged, window,
+                   [window](const QVariant &v) {
+                     applyOpacity(window, v.toDouble());
+                   });
   window->setProperty(kAnimProperty,
-                      QVariant::fromValue<QPropertyAnimation *>(anim));
+                      QVariant::fromValue<QVariantAnimation *>(anim));
   return anim;
 }
 
@@ -167,25 +190,33 @@ void setupLayerShell(QWidget *window) {
 }
 
 void animateIn(QWidget *window) {
-  window->setWindowOpacity(0.0);
+  // Show with opacity 0 first so the compositor never paints a
+  // fully-opaque frame before the animation kicks in. The
+  // QVariantAnimation valueChanged → applyOpacity path needs the
+  // wl_surface to exist, which means after show(). We call
+  // applyOpacity twice on either side of show() — once at 0.0 as
+  // a best-effort pre-show (no-op if wl_surface isn't up yet),
+  // once at 0.0 immediately after to lock in the start state.
+  applyOpacity(window, 0.0);
   window->show();
   window->raise();
   window->activateWindow();
+  applyOpacity(window, 0.0);
   const int ms = animationMs();
   if (ms <= 0) {
-    window->setWindowOpacity(1.0);
+    applyOpacity(window, 1.0);
     return;
   }
   // Stop any running fade so toggling rapidly doesn't stack
   // animations.
-  QPropertyAnimation *anim = animFor(window);
+  QVariantAnimation *anim = animFor(window);
   anim->stop();
   // animateOut leaves a `finished -> hide()` handler attached to the
   // shared animation object. If a fade-out was interrupted by this
   // fade-in (rapid out/in cycle), the leftover handler would fire at
   // the end of the in-fade and silently hide the just-revealed
   // window — clear it before starting.
-  QObject::disconnect(anim, &QPropertyAnimation::finished, window, nullptr);
+  QObject::disconnect(anim, &QVariantAnimation::finished, window, nullptr);
   anim->setDuration(ms);
   anim->setStartValue(0.0);
   anim->setEndValue(1.0);
@@ -199,17 +230,21 @@ void animateOut(QWidget *window) {
     window->hide();
     return;
   }
-  QPropertyAnimation *anim = animFor(window);
+  QVariantAnimation *anim = animFor(window);
   anim->stop();
   anim->setDuration(ms);
-  anim->setStartValue(window->windowOpacity());
+  // Start from the animation's last delivered value if we have one
+  // (a rapid in-then-out cycle interrupts at some intermediate
+  // alpha); otherwise assume the window was fully visible.
+  const QVariant cur = anim->currentValue();
+  anim->setStartValue(cur.isValid() ? cur.toDouble() : 1.0);
   anim->setEndValue(0.0);
   anim->setEasingCurve(QEasingCurve::InCubic);
   // Disconnect any previous handler before reconnecting; otherwise a
   // toggle-out-then-in cycle accumulates handlers that all fire on
   // the next out.
-  QObject::disconnect(anim, &QPropertyAnimation::finished, window, nullptr);
-  QObject::connect(anim, &QPropertyAnimation::finished, window,
+  QObject::disconnect(anim, &QVariantAnimation::finished, window, nullptr);
+  QObject::connect(anim, &QVariantAnimation::finished, window,
                    [window]() { window->hide(); });
   anim->start();
 }
