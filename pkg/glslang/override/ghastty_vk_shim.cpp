@@ -4,7 +4,9 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <glslang/Public/ShaderLang.h>
@@ -45,6 +47,42 @@ char* dup_to_c(const std::string& s) {
     return p;
 }
 
+// Process-wide SPIR-V cache keyed by (source, stage). The renderer
+// builds one Vulkan.Shaders per surface (per tab/split), which calls
+// `Module.init` → `compileToSpv` for all 9 built-in shaders + every
+// user custom shader. Each compile pulls memory from glslang's
+// thread-local TPoolAllocator, which is a raw pointer in glslang's
+// TLS that is NEVER released when a renderer thread exits (Zig
+// pthread spawn doesn't run C++ thread_local destructors and there
+// is no FinalizeThread hook). With N tabs, the leaked pool pages
+// add up to tens of MB — observed via heaptrack as the dominant
+// leak source (~17 MB across 15k+ allocations from
+// glslang::TPoolAllocator::allocate).
+//
+// Cache the resulting SPIR-V instead. The built-in shaders produce
+// byte-identical SPV regardless of which surface compiles them; the
+// custom shaders only change when the user edits their config. So
+// after the first surface, every other surface's compile is a
+// cache hit with zero glslang work and zero new pool pages.
+//
+// Key format: source bytes followed by a single byte stage tag
+// (0=vertex, 1=fragment). Disambiguates the rare case where two
+// stages share identical source text.
+std::mutex& spv_cache_mutex() {
+    static std::mutex m;
+    return m;
+}
+std::unordered_map<std::string, std::vector<uint32_t>>& spv_cache() {
+    static std::unordered_map<std::string, std::vector<uint32_t>> c;
+    return c;
+}
+
+std::string make_cache_key(const char* source, ghastty_glslang_stage_t stage) {
+    std::string key(source);
+    key.push_back(static_cast<char>(stage));
+    return key;
+}
+
 } // namespace
 
 extern "C" int ghastty_glslang_compile_vulkan(
@@ -72,6 +110,29 @@ extern "C" int ghastty_glslang_compile_vulkan(
     if (source == nullptr) {
         *err_out = dup_to_c("source pointer is null");
         return 1;
+    }
+
+    // Cache hit: copy SPV from the cache and return without ever
+    // touching glslang. See the cache rationale comment above the
+    // map for why this is critical for the multi-tab leak.
+    const std::string key = make_cache_key(source, stage);
+    {
+        std::lock_guard<std::mutex> lg(spv_cache_mutex());
+        auto it = spv_cache().find(key);
+        if (it != spv_cache().end()) {
+            const std::vector<uint32_t>& cached = it->second;
+            const size_t bytes = cached.size() * sizeof(uint32_t);
+            uint32_t* out = static_cast<uint32_t*>(std::malloc(bytes));
+            if (out == nullptr) {
+                *err_out = dup_to_c(
+                    "malloc failed for cached SPIR-V copy");
+                return 1;
+            }
+            std::memcpy(out, cached.data(), bytes);
+            *spv_out = out;
+            *spv_len_out = cached.size();
+            return 0;
+        }
     }
 
     EShLanguage lang;
@@ -156,6 +217,16 @@ extern "C" int ghastty_glslang_compile_vulkan(
     std::memcpy(out, spv.data(), bytes);
     *spv_out = out;
     *spv_len_out = spv.size();
+
+    // Populate the cache with the freshly-compiled SPV. Stored by
+    // value (std::move into the map); the SPV vector is the same
+    // data we just memcpy'd to `out` so the caller's malloc'd copy
+    // and the cache entry are independent. Future calls with this
+    // (source, stage) skip glslang entirely.
+    {
+        std::lock_guard<std::mutex> lg(spv_cache_mutex());
+        spv_cache().emplace(key, std::move(spv));
+    }
     return 0;
 }
 
