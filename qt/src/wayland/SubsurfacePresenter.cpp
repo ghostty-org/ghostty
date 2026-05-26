@@ -2,6 +2,8 @@
 #include "DmabufRegistry.h"
 
 #include <algorithm>
+#include <climits>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <unordered_map>
@@ -155,7 +157,17 @@ PresenterGlobals *discoverGlobals(wl_display *display) {
   if (globals.dmabuf && wl_display_roundtrip_queue(display, queue) < 0) {
     std::fprintf(stderr,
                  "[ghastty] wayland: discoverGlobals roundtrip 2 failed; "
-                 "modifier table may be incomplete\n");
+                 "modifier table is incomplete — disabling dmabuf path\n");
+    // Drop whatever modifier entries we did get. A partially-
+    // populated table is dangerous: presentDmabuf would treat it
+    // as authoritative, hand a "supported" modifier to the
+    // compositor that the compositor may actually not accept, and
+    // the resulting `invalid_format` is a FATAL protocol error
+    // that kills the entire wl_display. Falling back to QImage
+    // path (modifiers map empty → tryCreate's checks fail / the
+    // Vulkan renderer drops to legacy_copy mode) is much safer.
+    globals.modifiers.clear();
+    globals.dmabuf = nullptr;
   }
 
   std::size_t total_mods = 0;
@@ -442,6 +454,40 @@ void SubsurfacePresenter::presentDmabuf(int fd, uint32_t drm_format,
   if (dest_width <= 0) dest_width = 1;
   if (dest_height <= 0) dest_height = 1;
 
+  // System-boundary input validation. width/height/stride flow in
+  // from libghostty's renderer thread and are about to be passed
+  // verbatim to the compositor. linux-dmabuf-v1 protocol errors
+  // (`invalid_dimensions`, `invalid_format`, etc.) are FATAL — they
+  // tear down the entire wl_display, killing every window in the
+  // process. We MUST reject malformed inputs locally rather than
+  // letting the compositor do it.
+  //
+  // Specifically reject: zero dimensions or stride, or any value
+  // that would silently flip negative when cast to int32_t at the
+  // create_immed call below (the wayland C API takes signed ints
+  // for dimensions; uint32_t >= 2^31 wraps to negative).
+  constexpr uint32_t kMaxDim = static_cast<uint32_t>(INT32_MAX);
+  if (width == 0 || height == 0 || stride == 0 ||
+      width > kMaxDim || height > kMaxDim || stride > kMaxDim) {
+    std::fprintf(stderr,
+                 "[ghastty] SubsurfacePresenter: rejecting dmabuf with "
+                 "out-of-range dimensions (w=%u h=%u stride=%u)\n",
+                 width, height, stride);
+    return;
+  }
+  // Stride sanity: must be at least 4 bytes per pixel for
+  // 32-bit ARGB/XRGB/etc. — the only formats this presenter
+  // currently advertises support for. Tighter than the protocol's
+  // minimum but matches what the compositor will accept on attach.
+  if (stride < static_cast<uint64_t>(width) * 4) {
+    std::fprintf(stderr,
+                 "[ghastty] SubsurfacePresenter: rejecting dmabuf with "
+                 "stride=%u too small for width=%u (need >= %llu)\n",
+                 stride, width,
+                 static_cast<unsigned long long>(static_cast<uint64_t>(width) * 4));
+    return;
+  }
+
   // Validate the (format, modifier) pair against the compositor's
   // advertised list before handing it to `create_immed`. If the
   // pair isn't on the list, the compositor will reject the
@@ -484,14 +530,26 @@ void SubsurfacePresenter::presentDmabuf(int fd, uint32_t drm_format,
       drm_format, buffer_flags);
   zwp_linux_buffer_params_v1_destroy(params);
   if (!buffer) {
+    // Surface the wl_display error code if the failure was a
+    // protocol-fatal error (compositor rejected the buffer with
+    // `invalid_format` / `invalid_dimensions` / etc., which kills
+    // the wl_display). Without this, every subsequent presentDmabuf
+    // call silently no-ops on the dead display and the cause stays
+    // hidden until something else logs the disconnection.
+    const int wl_err = wl_display_get_error(m_display);
     std::fprintf(stderr,
                  "[ghastty] SubsurfacePresenter: create_immed returned null "
-                 "(fd=%d %ux%u fmt=0x%x mod=0x%llx)\n",
+                 "(fd=%d %ux%u fmt=0x%x mod=0x%llx wl_display_error=%d)\n",
                  fd, width, height, drm_format,
-                 static_cast<unsigned long long>(drm_modifier));
+                 static_cast<unsigned long long>(drm_modifier), wl_err);
     return;
   }
-  wl_buffer_add_listener(buffer, &kBufferListener, this);
+  // Pass nullptr as listener data — `bufferRelease` does not read it.
+  // Storing `this` would create a dangling-pointer hazard if the
+  // SubsurfacePresenter is destroyed before the compositor sends
+  // `release`; today the listener doesn't dereference `data` so it
+  // works by accident, but a future addition that reads it would UAF.
+  wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
 
   // Tell the compositor the destination size in surface-local
   // coordinates. With fractional scaling this is the logical pixel

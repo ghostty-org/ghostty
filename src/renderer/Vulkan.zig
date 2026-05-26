@@ -224,23 +224,38 @@ pub fn deinit(self: *Vulkan) void {
     // must NOT pull the device out from under the others — that
     // crashes (or invisibly silences) every other surface's
     // renderer thread.
-    device_mutex.lock();
-    defer device_mutex.unlock();
-    std.debug.assert(device_refcount > 0);
-    device_refcount -= 1;
-    if (device_refcount == 0) {
-        // Last surface: NOW we can safely drain the shared `ready`
-        // list of the buffer pool and tear the device down. The
-        // waitIdle is needed because non-final deinits skipped it.
-        // Each surface's deinit already drained its own per-thread
-        // `pending` (via buffer_pool.drainSelf above), so this
-        // path only needs to handle the cross-thread `ready`.
-        if (device) |*d| {
-            d.waitIdle();
-            buffer_pool.drainShared(d);
-            d.deinit();
+    {
+        device_mutex.lock();
+        defer device_mutex.unlock();
+        // Refcount-underflow guard. Was `std.debug.assert(refcount > 0)`,
+        // but assertions compile out in ReleaseFast / ReleaseSmall — a
+        // double-deinit would silently underflow the unsigned counter
+        // to a huge value, blocking the device tear-down forever (the
+        // refcount==0 branch below would never trigger). Hard-log
+        // even in release: a stale deinit is a contract violation
+        // we'd rather surface than mask. We still poison `self` at
+        // function exit so the caller sees consistent UB on either
+        // path.
+        if (device_refcount == 0) {
+            log.err("Vulkan.deinit: refcount underflow — double-deinit?", .{});
+        } else {
+            device_refcount -= 1;
+            if (device_refcount == 0) {
+                // Last surface: NOW we can safely drain the shared
+                // `ready` list of the buffer pool and tear the device
+                // down. The waitIdle is needed because non-final
+                // deinits skipped it. Each surface's deinit already
+                // drained its own per-thread `pending` (via
+                // buffer_pool.drainSelf above), so this path only
+                // needs to handle the cross-thread `ready`.
+                if (device) |*d| {
+                    d.waitIdle();
+                    buffer_pool.drainShared(d);
+                    d.deinit();
+                }
+                device = null;
+            }
         }
-        device = null;
     }
     self.* = undefined;
 }
@@ -438,10 +453,21 @@ pub fn beginFrame(
     errdefer {
         // Empty submit with this fence as the signal target is the
         // simplest portable way to push it back to signaled without
-        // recording any commands. We track the queueSubmit result
-        // and fall back to `vkDeviceWaitIdle` if even the empty
-        // submit fails — without one of those signaling paths
-        // succeeding, deinit hangs forever.
+        // recording any commands. The fence in this errdefer can
+        // be in any of three states:
+        //   1. Reset by `beginFrameReset` (the failing path). The
+        //      empty submit signals it cleanly.
+        //   2. Still in its prior-frame state (the resetFences call
+        //      failed — spec says the fence is in an undefined
+        //      state). The empty submit re-signals once any prior
+        //      pending submit on the queue retires; queueSubmit
+        //      spec semantics guarantee the fence is signaled
+        //      after all earlier submits complete.
+        //   3. Driver-lost on DEVICE_LOST. queueSubmit returns
+        //      DEVICE_LOST too; we fall back to deviceWaitIdle.
+        // The fallback `vkDeviceWaitIdle` is the actual safety net
+        // — without one of those signaling paths succeeding, the
+        // next `Vulkan.deinit` hangs on `waitForFences(UINT64_MAX)`.
         const empty: vk.VkSubmitInfo = .{
             .sType = vk.VK_STRUCTURE_TYPE_SUBMIT_INFO,
             .pNext = null,
@@ -488,14 +514,14 @@ pub fn beginFrame(
 
 inline fn devicePtr() *const Device {
     // Indirected through a getter so future refactors (e.g. allocating
-    // `Device` on the heap) don't ripple. Today the device lives in
-    // a threadlocal slot, populated by `threadEnter`.
+    // `Device` on the heap) don't ripple. Today the device is a
+    // process-wide `?Device` populated in `Vulkan.init` BEFORE the
+    // renderer's `FrameState.init` calls any of the option getters.
+    // A null here means the device construction failed AND someone
+    // called an option getter anyway — a programming error, not a
+    // runtime condition we can recover from.
     return &(device orelse {
-        // `Options` getters can be called from `FrameState.init` which
-        // runs before `threadEnter`. Hitting this means the renderer
-        // is asking for resource options too early — should never
-        // reach this in practice once the full bring-up lands.
-        @panic("Vulkan.devicePtr: device not yet initialized");
+        @panic("Vulkan.devicePtr: device not initialized — option getter called before Vulkan.init succeeded");
     });
 }
 

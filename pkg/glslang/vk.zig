@@ -33,10 +33,11 @@ pub const Stage = enum {
 };
 
 pub const Error = error{
-    /// `glslang_shader_preprocess` / `_parse` / `_program_link` /
-    /// `_program_SPIRV_generate` failed. The shim's error message
-    /// is logged via `std.log.err` before this error is returned —
-    /// no allocation is propagated to the caller.
+    /// The compile-shim's underlying glslang C++ pipeline (TShader
+    /// preprocess / parse + TProgram link + GlslangToSpv) failed.
+    /// The shim's error message is logged via `std.log.err` before
+    /// this error is returned — no allocation is propagated to the
+    /// caller.
     GlslangFailed,
 } || Allocator.Error;
 
@@ -69,12 +70,13 @@ pub fn compileToSpv(
     );
     if (rc != 0) {
         if (err_ptr != null) {
-            log.err("ghastty_glslang_compile_vulkan: {s}", .{
+            log.err("ghastty_glslang_compile_vulkan: rc={} {s}", .{
+                rc,
                 std.mem.span(@as([*:0]const u8, @ptrCast(err_ptr))),
             });
             c.ghastty_glslang_free_error(err_ptr);
         } else {
-            log.err("ghastty_glslang_compile_vulkan: unspecified failure", .{});
+            log.err("ghastty_glslang_compile_vulkan: rc={} (no error string)", .{rc});
         }
         return error.GlslangFailed;
     }

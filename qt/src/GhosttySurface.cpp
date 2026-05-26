@@ -225,6 +225,23 @@ GhosttySurface::~GhosttySurface() {
   delete m_fbo;
   delete m_premultProg;
   delete m_premultVao;
+  // m_eglTarget owns a GL texture + framebuffer + EGLImage + dmabuf
+  // fd. Reset it explicitly here, while the context is (best-effort)
+  // current — the implicit unique_ptr destructor would fire AFTER
+  // doneCurrent() below, leaking the GL-side handles. On the Vulkan
+  // variant m_eglTarget is always null so the reset is a no-op.
+  // If makeCurrent failed (m_offscreen invalidated mid-teardown,
+  // exactly the race the PlatformSurface handler also hits), the
+  // GL texture+FBO leak — the fd is closed by the dtor regardless.
+  // Log so the leak is visible, matching the PlatformSurface
+  // handler's behavior.
+  if (m_eglTarget && m_context && !current) {
+    std::fprintf(stderr,
+                 "[ghastty] ~GhosttySurface: m_eglTarget reset without "
+                 "current GL context (teardown race); GL texture+FBO "
+                 "will leak, fd is still closed\n");
+  }
+  m_eglTarget.reset();
   if (current) m_context->doneCurrent();
 }
 
@@ -291,7 +308,18 @@ void GhosttySurface::syncSurfaceSize() {
     // m_image.isNull() drain below, which served the same purpose
     // before the subsurface present path replaced the QImage one.
     if (m_useSubsurface.load(std::memory_order_acquire) &&
-        m_subsurfacePresenter) {
+        m_subsurfacePresenter &&
+        !m_hidden.load(std::memory_order_acquire)) {
+      // Skip while hidden: Qt delivers synthetic resize events to
+      // hidden widgets when a parent layout changes (e.g. a
+      // QSplitter rearranged while a tab is offscreen). Triggering
+      // a synchronous draw + drainVulkan + forceParentCommit on a
+      // hidden subsurface would re-attach a buffer to the
+      // supposed-to-be-detached subsurface, the same ghosting
+      // condition `m_hidden` exists to prevent on the DPR-change
+      // path. The next Show event resets sizing state and triggers
+      // a fresh sync, so dropping this is safe.
+      //
       // Stretch the old buffer to the new destination first — gives
       // the compositor something to fill the new parent area with if
       // the synchronous render below takes more than one frame.
@@ -415,7 +443,18 @@ bool GhosttySurface::event(QEvent *e) {
   // Re-sync so the framebuffer matches and the readback is tagged with
   // that same ratio; otherwise paintEvent blits the frame at the wrong
   // size (the FBO was sized at one DPR, the image tagged with another).
-  if (e->type() == QEvent::DevicePixelRatioChange) syncSurfaceSize();
+  // Skip while hidden: syncSurfaceSize triggers a synchronous
+  // ghostty_surface_draw + drainVulkan + forceParentCommit in the
+  // Vulkan+subsurface path. Forcing a parent commit while we're
+  // supposed to be detached re-attaches a buffer to the now-hidden
+  // subsurface, which is the same ghosting condition `m_hidden`
+  // exists to prevent. The next Show event resets `m_fbw=m_fbh=-1`
+  // and triggers a fresh syncSurfaceSize anyway, so dropping this
+  // call costs nothing.
+  if (e->type() == QEvent::DevicePixelRatioChange &&
+      !m_hidden.load(std::memory_order_acquire)) {
+    syncSurfaceSize();
+  }
 
   // PlatformSurface events fire when Qt creates / destroys the native
   // QWindow's wl_surface. This happens not just at first show but
@@ -431,6 +470,11 @@ bool GhosttySurface::event(QEvent *e) {
         static_cast<QPlatformSurfaceEvent *>(e)->surfaceEventType();
     if (type == QPlatformSurfaceEvent::SurfaceAboutToBeDestroyed) {
       m_useSubsurface.store(false, std::memory_order_release);
+      // Invalidate the QWaylandWindow cache used by
+      // forceParentCommit — the QPlatformWindow we cached is about
+      // to be destroyed. The next forceParentCommit call against
+      // a fresh QPA handle will re-do the dynamic_cast.
+      m_cachedWaylandWindow = nullptr;
       // EglDmabufTarget's destructor deletes a GL framebuffer +
       // texture allocated against `m_context`; without that
       // context current its `QOpenGLContext::currentContext()`
@@ -443,7 +487,23 @@ bool GhosttySurface::event(QEvent *e) {
       // preprocessed out below.
 #ifndef GHASTTY_USE_VULKAN
       if (m_eglTarget) {
-        if (m_context) makeCurrent();
+        if (m_context) {
+          // Best-effort: if makeCurrent fails (the QOffscreenSurface
+          // is already invalidated by the platform-surface
+          // teardown — exactly when this branch fires), the reset
+          // below will leak the GL texture+FBO. Log so the leak
+          // is visible instead of silent. The fd inside
+          // EglDmabufTarget is closed by its dtor regardless of
+          // GL-context state, so the kernel-side resource is
+          // released either way.
+          if (!makeCurrent()) {
+            std::fprintf(stderr,
+                         "[ghastty] EglDmabufTarget reset without "
+                         "current GL context (PlatformSurface teardown "
+                         "race); GL texture+FBO will leak, fd is "
+                         "still closed\n");
+          }
+        }
         m_eglTarget.reset();
       }
 #endif
@@ -1756,8 +1816,20 @@ void GhosttySurface::presentVulkanDmabuf(
   // renderer's fragment shaders output premultiplied alpha into
   // `VK_FORMAT_B8G8R8A8_SRGB`, so the buffer is sRGB-encoded
   // premultiplied ARGB — exactly what Format_ARGB32_Premultiplied
-  // expects.
-  (void)drm_format;
+  // expects. Reject any other fourcc loudly: QImage's
+  // Format_ARGB32_Premultiplied has fixed channel order, and
+  // pretending an XRGB / ABGR / 10-bit buffer matches it would
+  // produce wrong colors silently.
+  constexpr uint32_t kDrmFormatArgb8888 = 0x34325241;  // 'AR24'
+  if (drm_format != kDrmFormatArgb8888) {
+    std::fprintf(stderr,
+                 "[ghastty] surface=%p dropping legacy mmap frame: "
+                 "drm_format=0x%08x not supported (only 'AR24' / "
+                 "ARGB8888 maps to QImage::Format_ARGB32_Premultiplied)\n",
+                 static_cast<void *>(this), drm_format);
+    ::munmap(mapped, bytes);
+    return;
+  }
   const QImage stamped(
       static_cast<const uchar *>(mapped),
       static_cast<int>(width),
@@ -1854,7 +1926,23 @@ bool GhosttySurface::forceParentCommit() {
   if (!top) return false;
   QPlatformWindow *qpa = top->handle();
   if (!qpa) return false;
-  auto *wl = dynamic_cast<QtWaylandClient::QWaylandWindow *>(qpa);
+
+  // Use the cached cast result if it points at the current QPA
+  // handle. The `dynamic_cast` is the expensive step and this
+  // function is on the present hot path. Cache invalidation is
+  // event-driven: `PlatformSurfaceAboutToBeDestroyed` (see
+  // `event()` above) nulls `m_cachedWaylandWindow` before Qt
+  // destroys the QPA. The address-equality check below is purely
+  // a "did Qt swap the QPA out from under us via some path that
+  // didn't fire the event" sanity check — it does NOT defend
+  // against heap reuse (a freed-then-reallocated QPA at the same
+  // address would compare equal). Single-allocation Qt QPA
+  // lifecycles make heap reuse a non-issue here in practice.
+  auto *wl = static_cast<QtWaylandClient::QWaylandWindow *>(m_cachedWaylandWindow);
+  if (wl == nullptr || static_cast<QPlatformWindow *>(wl) != qpa) {
+    wl = dynamic_cast<QtWaylandClient::QWaylandWindow *>(qpa);
+    m_cachedWaylandWindow = wl;
+  }
   if (!wl) return false;
   wl->commit();
   return true;

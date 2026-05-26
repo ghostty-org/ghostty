@@ -54,6 +54,17 @@ extern "C" int ghastty_glslang_compile_vulkan(
     size_t* spv_len_out,
     char** err_out) {
 
+    // Reject any null out-pointer up-front. The previous code
+    // dereferenced all three unconditionally on line 1 of the
+    // function body — the in-tree Zig caller (`pkg/glslang/vk.zig`)
+    // always passes valid pointers, but this is a C ABI export and
+    // a future consumer that omits any out-arg would crash here
+    // before any error message could be reported. Returning early
+    // surfaces the precondition cleanly.
+    if (spv_out == nullptr || spv_len_out == nullptr || err_out == nullptr) {
+        return 1;
+    }
+
     *spv_out = nullptr;
     *spv_len_out = 0;
     *err_out = nullptr;

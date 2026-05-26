@@ -148,6 +148,12 @@ pub fn init(opts: Options) Error!Self {
     };
 }
 
+/// `Sampler` is held by value at every call site (`const samp =
+/// try Sampler.init(...)`), so `deinit` takes `Self` not `*Self`
+/// — `const`-bound values can't be addressed-of for a `*Self`
+/// signature. CommandPool/DescriptorPool take `*Self` because
+/// they're held in mutable slots; this asymmetry follows
+/// container ownership, not a stylistic choice.
 pub fn deinit(self: Self) void {
     self.device.dispatch.destroySampler(self.device.device, self.sampler, null);
 }

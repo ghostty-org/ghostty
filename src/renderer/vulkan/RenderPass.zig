@@ -349,12 +349,19 @@ pub fn begin(opts: Options) Self {
 ///                      plain textures and let the pipeline pick the
 ///                      sampler config it needs).
 ///
-/// Skips silently when the pipeline hasn't been constructed yet
+/// Skips when the pipeline hasn't been constructed yet
 /// (`VkPipeline == null`) — pipelines for shaders we haven't wired
 /// up are default-null and we filter them out instead of crashing
-/// on a null handle.
+/// on a null handle. A null pipeline reaching here once
+/// shader bring-up has completed indicates a config / build issue
+/// (e.g. a custom-shader compile failure that left the post pipeline
+/// half-init); log so the missing draw is visible instead of a
+/// silently-blank surface.
 pub fn step(self: *Self, s: Step) void {
-    if (s.pipeline.pipeline == null) return;
+    if (s.pipeline.pipeline == null) {
+        log.warn("RenderPass.step: skipping draw — pipeline not constructed", .{});
+        return;
+    }
     if (s.draw.vertex_count == 0) return;
 
     const dev = self.device;

@@ -101,18 +101,31 @@ pub threadlocal var step_pool: ?DescriptorPool = null;
 /// thread sets up the command pool + buffer + fence + descriptor
 /// pool that get reused for every subsequent frame. Subsequent
 /// calls are no-ops.
+///
+/// Failure-mode contract: on error the threadlocal state is rolled
+/// back to its pre-call values so the next `ensureInit` retries
+/// cleanly. Without rollback, a partial failure would leave e.g.
+/// `frame_pool != null and frame_cb == null`, and the next call's
+/// `if (frame_pool == null)` guard would skip re-init — locking the
+/// thread out of the renderer permanently.
 pub fn ensureInit(dev: *const Device) Error!void {
     if (frame_pool == null) {
-        frame_pool = try CommandPool.init(dev);
+        // Stage everything into locals; only commit to threadlocals
+        // after every step succeeds. errdefers chain rollback.
+        var pool = try CommandPool.init(dev);
+        errdefer pool.deinit();
+
         const alloc_info: vk.VkCommandBufferAllocateInfo = .{
             .sType = vk.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
             .pNext = null,
-            .commandPool = frame_pool.?.pool,
+            .commandPool = pool.pool,
             .level = vk.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
             .commandBufferCount = 1,
         };
-        if (dev.dispatch.allocateCommandBuffers(dev.device, &alloc_info, &frame_cb) != vk.VK_SUCCESS)
+        var cb: vk.VkCommandBuffer = null;
+        if (dev.dispatch.allocateCommandBuffers(dev.device, &alloc_info, &cb) != vk.VK_SUCCESS)
             return error.VulkanFailed;
+        errdefer dev.dispatch.freeCommandBuffers(dev.device, pool.pool, 1, &cb);
 
         const fence_info: vk.VkFenceCreateInfo = .{
             .sType = vk.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
@@ -121,10 +134,22 @@ pub fn ensureInit(dev: *const Device) Error!void {
             // doesn't try to reset an unsignaled fence.
             .flags = vk.VK_FENCE_CREATE_SIGNALED_BIT,
         };
-        if (dev.dispatch.createFence(dev.device, &fence_info, null, &frame_fence) != vk.VK_SUCCESS)
+        var fence: vk.VkFence = null;
+        if (dev.dispatch.createFence(dev.device, &fence_info, null, &fence) != vk.VK_SUCCESS)
             return error.VulkanFailed;
+        // No errdefer for fence — past this point all three threadlocals
+        // are about to be set together, atomically from the caller's
+        // perspective, so any later error in this function is impossible.
+        // (`if (step_pool == null)` is a separate block.)
+
+        frame_pool = pool;
+        frame_cb = cb;
+        frame_fence = fence;
     }
     if (step_pool == null) {
+        // Independent of the frame_pool/cb/fence triple — its own
+        // failure leaves those committed and only step_pool null,
+        // which the next ensureInit() call retries correctly.
         step_pool = try DescriptorPool.init(.{
             .device = dev,
             .max_sets = STEP_POOL_MAX_SETS,

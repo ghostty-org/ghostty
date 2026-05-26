@@ -55,9 +55,9 @@ pub const Entry = struct {
     capacity: u64,
 };
 
-/// Mutex guards the process-wide `ready` list (and the
-/// drainAll iteration over `pending`s — see comment there).
-var mutex: std.Thread.Mutex = .{};
+/// Guards the process-wide `ready` list. Per-thread `pending` is
+/// threadlocal and never under this mutex.
+var ready_mutex: std.Thread.Mutex = .{};
 
 /// Per-thread pending list. Entries here were released by THIS
 /// thread during the current frame and are bounded by the
@@ -102,8 +102,8 @@ pub fn acquire(
     usage: vk.VkBufferUsageFlags,
     min_capacity: u64,
 ) ?Entry {
-    mutex.lock();
-    defer mutex.unlock();
+    ready_mutex.lock();
+    defer ready_mutex.unlock();
     var i: usize = 0;
     while (i < ready.items.len) : (i += 1) {
         const e = ready.items[i];
@@ -136,8 +136,8 @@ pub fn cycle(dev: *const Device) void {
     var oom_pending: std.ArrayList(Entry) = .{};
     defer oom_pending.deinit(std.heap.smp_allocator);
     {
-        mutex.lock();
-        defer mutex.unlock();
+        ready_mutex.lock();
+        defer ready_mutex.unlock();
         if (ready.appendSlice(std.heap.smp_allocator, pending.items)) {
             pending.clearRetainingCapacity();
             return;
@@ -179,8 +179,8 @@ pub fn drainSelf(dev: *const Device) void {
 /// `device_refcount == 0`) and only after every other renderer
 /// thread has already run `drainSelf` on its own pending list.
 pub fn drainShared(dev: *const Device) void {
-    mutex.lock();
-    defer mutex.unlock();
+    ready_mutex.lock();
+    defer ready_mutex.unlock();
     for (ready.items) |e| {
         dev.dispatch.destroyBuffer(dev.device, e.buffer, null);
         dev.dispatch.freeMemory(dev.device, e.memory, null);

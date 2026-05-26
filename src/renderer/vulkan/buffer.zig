@@ -180,7 +180,19 @@ pub fn Buffer(comptime T: type) type {
             // Vulkan requires `size > 0` for buffer creation. Round up
             // a zero request to 1 so the buffer exists and can be
             // grown later via `sync`. (OpenGL silently accepts size=0.)
-            const byte_size: u64 = @max(1, len * @sizeOf(T));
+            //
+            // Compute byte size in u64 to avoid the usize multiply
+            // overflowing on 32-bit hosts (or, theoretically, on a
+            // 64-bit host with `len` near `maxInt(usize)/@sizeOf(T)`,
+            // though that's astronomical for any real renderer
+            // payload). `std.math.mul` returns `error.Overflow` on
+            // overflow; map that onto `error.VulkanFailed` since the
+            // request is unservicable — Vulkan can't allocate a
+            // buffer that big regardless of why we computed it.
+            const len_u64: u64 = @intCast(len);
+            const byte_size_raw = std.math.mul(u64, len_u64, @sizeOf(T)) catch
+                return error.VulkanFailed;
+            const byte_size: u64 = @max(1, byte_size_raw);
 
             // Reach into the buffer pool first — a previous frame's
             // released VkBuffer of matching usage+capacity is safe to

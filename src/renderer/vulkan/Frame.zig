@@ -122,6 +122,13 @@ pub fn begin(
 /// argument may eventually drive multi-frame pipelining once a
 /// proper queue of frames is in flight.
 pub fn complete(self: *const Self, sync: bool) void {
+    // `sync` is part of the cross-backend `Frame.complete` interface
+    // (OpenGL / Metal / Vulkan all share it). The Vulkan path is
+    // always synchronous today: we waitForFences before handing the
+    // dmabuf fd to the host, and the host cannot sample a buffer
+    // mid-GPU-write. So `sync=false` is silently treated as
+    // `sync=true`. If multi-frame pipelining ever lands, this is
+    // where the param would gate the wait.
     _ = sync;
     const dev = self.device;
 

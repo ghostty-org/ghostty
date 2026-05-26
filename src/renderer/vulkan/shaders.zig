@@ -235,7 +235,23 @@ pub fn vulkanizeGlsl(
                     // it's the faster opcode the driver wants for normal
                     // mipmapped or LOD-derivative sampling.
                     try out.appendSlice(alloc, "textureLod(");
-                    while (i < src.len and src[i] != '(') : (i += 1) {}
+                    // Skip whitespace AND comments AND string literals
+                    // between the identifier and the opening `(`.
+                    // `copySkippable` consumes any of those into `out`
+                    // verbatim if present; a literal `(` inside a
+                    // `/* */` block comment must NOT be mistaken for
+                    // the call paren. Plain `src[i] != '('` (the
+                    // earlier form) wasn't comment-aware.
+                    while (i < src.len) {
+                        if (try copySkippable(alloc, &out, src, &i)) continue;
+                        if (src[i] == '(') break;
+                        // Anything else between the identifier and `(`
+                        // is a syntax error in valid GLSL; copy it
+                        // through and let glslang reject downstream.
+                        try out.append(alloc, src[i]);
+                        i += 1;
+                    }
+                    if (i >= src.len) break; // unterminated; bail
                     i += 1; // consume the '('
                     var depth: i32 = 1;
                     while (i < src.len and depth > 0) {
@@ -289,16 +305,27 @@ pub fn vulkanizeGlsl(
                 continue;
             }
             // Find the matching ')'. layout() never nests parens in
-            // these shaders, but track depth defensively.
+            // these shaders, but track depth defensively. Skip
+            // comments and string literals so a `)` inside a
+            // `/* */` block doesn't close the body prematurely
+            // (consistency with the pass-1 texture rewriter which
+            // already does this).
             const body_start = p + 1;
             var body_end = body_start;
             var depth: i32 = 1;
-            while (body_end < pass1.len and depth > 0) : (body_end += 1) {
+            while (body_end < pass1.len and depth > 0) {
+                // Note: we DON'T copy skipped tokens to `out` here —
+                // the layout body is replaced wholesale once we know
+                // the resource type, so we just need to walk past it.
+                // Inline the skip logic since `copySkippable` writes
+                // into the output buffer.
+                if (skipPast(pass1, &body_end)) continue;
                 switch (pass1[body_end]) {
                     '(' => depth += 1,
                     ')' => depth -= 1,
                     else => {},
                 }
+                body_end += 1;
             }
             // body_end now points one past the closing ')'. The body
             // itself is pass1[body_start .. body_end - 1].
@@ -382,6 +409,36 @@ fn copySkippable(
         const end = if (p < src.len) p + 1 else src.len;
         try out.appendSlice(alloc, src[start..end]);
         i.* = end;
+        return true;
+    }
+    return false;
+}
+
+/// Walk-past variant of `copySkippable` for callers that don't want
+/// to copy the skipped run anywhere — they're scanning, not
+/// rewriting. Same recognition rules: line comment, block comment,
+/// string literal. Returns true if `*i` advanced.
+fn skipPast(src: []const u8, i: *usize) bool {
+    const start = i.*;
+    if (start >= src.len) return false;
+    if (start + 1 < src.len and src[start] == '/' and src[start + 1] == '/') {
+        var p = start;
+        while (p < src.len and src[p] != '\n') : (p += 1) {}
+        i.* = p;
+        return true;
+    }
+    if (start + 1 < src.len and src[start] == '/' and src[start + 1] == '*') {
+        var p = start + 2;
+        while (p + 1 < src.len and !(src[p] == '*' and src[p + 1] == '/')) : (p += 1) {}
+        i.* = if (p + 1 < src.len) p + 2 else src.len;
+        return true;
+    }
+    if (src[start] == '"') {
+        var p = start + 1;
+        while (p < src.len and src[p] != '"') : (p += 1) {
+            if (src[p] == '\\' and p + 1 < src.len) p += 1;
+        }
+        i.* = if (p < src.len) p + 1 else src.len;
         return true;
     }
     return false;
@@ -864,15 +921,37 @@ pub const Shaders = struct {
         }
 
         // Descriptor pool. Each pipeline allocates one set per
-        // resource bucket it uses (UBO / sampler / storage). Size
-        // generously — these are tiny and rebuilding the pool would
-        // force us to recreate all the sets too.
+        // resource bucket it uses (UBO / sampler / storage); the
+        // pool sized from the actual built-in pipeline footprint
+        // PLUS two sets per post (custom-shader) pipeline (UBO at
+        // set 0 binding 1, iChannel0 sampler at set 1 binding 0).
+        //
+        // Built-in footprint: 13 sets total
+        //   bg_color   : 1 UBO
+        //   cell_bg    : 1 UBO + 1 storage
+        //   cell_text  : 1 UBO + 1 sampler + 1 storage
+        //   image      : 1 UBO + 1 sampler
+        //   bg_image   : 1 UBO + 1 sampler
+        //   = 5 UBO + 3 sampler + 2 storage = 10 sets
+        // Plus a handful of placeholder DSLs / empty sets handed
+        // back to `Pipeline.init` for unused slots; round to 16 for
+        // headroom.
+        //
+        // Per post-shader: 2 sets (1 UBO + 1 sampler).
+        const builtin_sets: u32 = 16;
+        const builtin_ubos: u32 = 8;
+        const builtin_samplers: u32 = 8;
+        const builtin_storage: u32 = 4;
+        const post_count: u32 = @intCast(post_shaders.len);
+        const pool_max_sets = builtin_sets + 2 * post_count;
+        const pool_ubos = builtin_ubos + post_count;
+        const pool_samplers = builtin_samplers + post_count;
         var pool = try DescriptorPool.init(.{
             .device = device,
-            .max_sets = 32,
-            .uniform_buffers = 16,
-            .combined_image_samplers = 16,
-            .storage_buffers = 16,
+            .max_sets = pool_max_sets,
+            .uniform_buffers = pool_ubos,
+            .combined_image_samplers = pool_samplers,
+            .storage_buffers = builtin_storage,
         });
         errdefer pool.deinit();
 

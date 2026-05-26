@@ -197,6 +197,25 @@ std::unique_ptr<EglDmabufTarget> EglDmabufTarget::create(QOpenGLContext *ctx,
   }
   target->m_fd = fd;
   target->m_stride = static_cast<std::uint32_t>(stride);
+  // The `wayland::SubsurfacePresenter` present path hardcodes
+  // `offset = 0` when wrapping this fd in a wl_buffer (see
+  // SubsurfacePresenter.cpp's zwp_linux_buffer_params_v1_add call).
+  // For LINEAR-tiled exports (the only thing this OpenGL path
+  // produces, by EGL_MESA_image_dma_buf_export's contract for a
+  // single-plane texture) `offset` is always 0 in practice. Reject
+  // anything else loudly so a future EGL implementation that
+  // returns a non-zero offset doesn't silently render at the wrong
+  // location.
+  if (offset != 0) {
+    std::fprintf(stderr,
+                 "[ghastty] EglDmabufTarget: unexpected non-zero offset=%d "
+                 "from eglExportDMABUFImageMESA; SubsurfacePresenter assumes "
+                 "offset=0 for single-plane LINEAR exports\n",
+                 offset);
+    ::close(fd);
+    target->m_fd = -1;
+    return nullptr;
+  }
 
   // 5. Attach to a framebuffer so libghostty can render into it.
   unsigned int fbo = 0;

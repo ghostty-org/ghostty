@@ -303,21 +303,30 @@ pub fn initShaders(
     alloc: Allocator,
     custom_shaders: []const []const u8,
 ) !shaders.Shaders {
-    _ = alloc;
-    // `loadFromFiles` returns `[]const []const u8` so the SPV-target
-    // Vulkan path can share the loader, but for `.glsl` the underlying
-    // allocation IS null-terminated (`glslFromSpv` returns
-    // `[:0]const u8` and writes a trailing null one past `.len`).
-    // Cast each entry back to `[:0]const u8` so the downstream
-    // `Pipeline.init` calls that expect a sentinel-terminated string
-    // keep working without changing their signatures.
-    const z_shaders = try self.alloc.alloc([:0]const u8, custom_shaders.len);
-    defer self.alloc.free(z_shaders);
+    _ = self;
+    // `shadertoy.loadFromFiles` returns `[]const []const u8` so the
+    // SPV-target Vulkan path can share the loader, but for `.glsl`
+    // the underlying allocation IS null-terminated
+    // (`shadertoy.glslFromSpv` returns `[:0]const u8` and writes a
+    // sentinel one past `.len`). Reattach the sentinel for our
+    // downstream `Pipeline.init` calls that expect `[:0]const u8`.
+    //
+    // Use the caller-provided `alloc` (matches `Metal.initShaders`)
+    // — this is a transient scratch slice torn down at function
+    // exit.
+    const z_shaders = try alloc.alloc([:0]const u8, custom_shaders.len);
+    defer alloc.free(z_shaders);
     for (custom_shaders, z_shaders) |bytes, *out| {
+        // Defense against a future `loadFromFiles` change that
+        // forgets to null-terminate: assert the sentinel before we
+        // pretend the slice is `[:0]const u8`. `@ptrCast` does NOT
+        // verify the sentinel — without this assert, a missing
+        // terminator surfaces as a downstream OOB read.
+        std.debug.assert(bytes.len == 0 or bytes.ptr[bytes.len] == 0);
         out.* = @ptrCast(bytes);
     }
     return try shaders.Shaders.init(
-        self.alloc,
+        alloc,
         z_shaders,
     );
 }

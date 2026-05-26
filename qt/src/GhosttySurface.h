@@ -438,4 +438,15 @@ private:
   // the renderer thread reads it in `presentVulkanDmabuf` /
   // `drainVulkan` while the GUI thread writes from event().
   std::atomic<bool> m_hidden{false};
+
+  // Cache of the result of `dynamic_cast<QtWaylandClient::QWaylandWindow*>`
+  // for the top-level QWindow's QPA handle, used by
+  // `forceParentCommit`. The cast is non-trivial and the function
+  // is on the present hot path (called per Vulkan frame, per GL
+  // frame, per moveEvent, on Hide, etc.). Resolved on first
+  // successful call; invalidated whenever the platform-surface
+  // QWindow handle is recreated (PlatformSurfaceAboutToBeDestroyed
+  // event). Stored as void* so the header doesn't have to include
+  // any Qt private QPA headers; the .cpp casts back at use sites.
+  void *m_cachedWaylandWindow = nullptr;
 };

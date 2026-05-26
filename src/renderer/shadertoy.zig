@@ -119,6 +119,12 @@ pub fn loadFromFiles(
 
             return err;
         };
+        // Take ownership of `shader` immediately. If the subsequent
+        // `list.append` itself OOMs, the freshly-loaded slice would
+        // leak — `errdefer` at the function level only iterates
+        // `list.items`, and `shader` isn't in `list` yet. Free it
+        // explicitly on the error path before propagating.
+        errdefer alloc_gpa.free(shader);
         log.info("loaded custom shader path={s}", .{path});
         try list.append(alloc_gpa, shader);
     }
@@ -206,6 +212,31 @@ pub fn loadFromFile(
         break :spirv list.items;
     };
 
+    // Validate the SPIR-V regardless of target. glslang has succeeded
+    // at this point but a zero-length output would crash
+    // `vkCreateShaderModule` on the Vulkan path AND would make
+    // `glslFromSpv` / `mslFromSpv` produce empty/garbage GLSL/MSL
+    // with poor diagnostics. Hoist the checks above the switch so
+    // every backend gets the same defensive validation.
+    if (spirv.len < 4) {
+        std.log.warn(
+            "shadertoy: empty SPIR-V output (size={})",
+            .{spirv.len},
+        );
+        return error.InvalidShader;
+    }
+    // First 4 bytes are the SPIR-V magic word 0x07230203
+    // (little-endian). Reject anything else loudly.
+    const magic = std.mem.readInt(u32, spirv[0..4], .little);
+    if (magic != 0x07230203) {
+        std.log.warn(
+            "shadertoy: SPIR-V output missing magic word " ++
+                "(got 0x{x:0>8}, expected 0x07230203)",
+            .{magic},
+        );
+        return error.InvalidShader;
+    }
+
     // Important: using the alloc_gpa here on purpose because this is
     // the final result that will be returned to the caller (the arena
     // gets torn down on function exit).
@@ -213,30 +244,6 @@ pub fn loadFromFile(
         .glsl => try glslFromSpv(alloc_gpa, spirv),
         .msl => try mslFromSpv(alloc_gpa, spirv),
         .spv => spv: {
-            // Validate before handing back: glslang has succeeded at
-            // this point but a zero-length SPIR-V output would
-            // crash `vkCreateShaderModule` (codeSize == 0). The
-            // SPIR-V magic word check is defensive against future
-            // backends that bypass glslang.
-            if (spirv.len < 4) {
-                std.log.warn(
-                    "shadertoy: empty SPIR-V output (size={})",
-                    .{spirv.len},
-                );
-                return error.InvalidShader;
-            }
-            // First 4 bytes are the SPIR-V magic word 0x07230203
-            // (little-endian). Reject anything else loudly instead
-            // of letting the driver crash.
-            const magic = std.mem.readInt(u32, spirv[0..4], .little);
-            if (magic != 0x07230203) {
-                std.log.warn(
-                    "shadertoy: SPIR-V output missing magic word " ++
-                        "(got 0x{x:0>8}, expected 0x07230203)",
-                    .{magic},
-                );
-                return error.InvalidShader;
-            }
             // Copy the SPIR-V binary out of the arena into a
             // 4-byte-aligned allocation under `alloc_gpa`. Vulkan
             // expects `pCode: []const u32`, so over-aligning is safe;
@@ -269,50 +276,39 @@ pub fn glslFromShader(
     if (defines.len == 0) {
         try writer.writeAll(prefix);
     } else {
-        // Find the first newline after `#version ...` and inject the
-        // defines on the following line. The prefix is expected to
-        // start with `#version` followed by a newline; if a future
-        // edit ever drops that newline (e.g. a single-line prefix
-        // entirely on one line), we synthesize one between
-        // `#version` and the rest, then inject the defines after.
         // GLSL requires `#version` to be the first non-blank line,
-        // so injecting BEFORE it would silently produce invalid
-        // GLSL.
-        if (std.mem.indexOfScalar(u8, prefix, '\n')) |first_nl| {
-            try writer.writeAll(prefix[0 .. first_nl + 1]);
-            for (defines) |def| {
-                try writer.writeAll("#define ");
-                try writer.writeAll(def);
-                try writer.writeAll("\n");
+        // so we can't simply prepend defines. Find the first
+        // newline after `#version …` and inject defines on the
+        // following line.
+        //
+        // The prefix is `@embedFile`'d at comptime, so its bytes
+        // are known to the compiler — assert it has a newline once
+        // here rather than threading branchy fallback paths
+        // through the runtime. A future prefix edit that loses its
+        // trailing newline will fail at comptime, not silently at
+        // runtime.
+        comptime {
+            if (std.mem.indexOfScalar(u8, prefix, '\n') == null) {
+                @compileError(
+                    "shadertoy_prefix.glsl must contain at least one newline " ++
+                        "for `#define` injection — see glslFromShader",
+                );
             }
-            try writer.writeAll(prefix[first_nl + 1 ..]);
-        } else if (std.mem.startsWith(u8, prefix, "#version")) {
-            // No newline anywhere, but it does start with `#version`.
-            // Find the end of the version directive: scan past the
-            // version number to the first non-version-token char,
-            // synthesize a newline there, then write defines and
-            // the rest of the prefix.
-            var p: usize = "#version".len;
-            while (p < prefix.len and (prefix[p] == ' ' or prefix[p] == '\t')) p += 1;
-            while (p < prefix.len and prefix[p] >= '0' and prefix[p] <= '9') p += 1;
-            // Optional profile (`core` / `compatibility` / `es`).
-            while (p < prefix.len and (prefix[p] == ' ' or prefix[p] == '\t')) p += 1;
-            while (p < prefix.len and ((prefix[p] >= 'a' and prefix[p] <= 'z') or
-                (prefix[p] >= 'A' and prefix[p] <= 'Z'))) p += 1;
-            try writer.writeAll(prefix[0..p]);
-            try writer.writeByte('\n');
-            for (defines) |def| {
-                try writer.writeAll("#define ");
-                try writer.writeAll(def);
-                try writer.writeAll("\n");
+            if (!std.mem.startsWith(u8, prefix, "#version")) {
+                @compileError(
+                    "shadertoy_prefix.glsl must start with `#version` " ++
+                        "(GLSL spec requirement) — see glslFromShader",
+                );
             }
-            try writer.writeAll(prefix[p..]);
-        } else {
-            // Prefix doesn't start with `#version` either — the
-            // shader is malformed. Pass it through as-is so glslang
-            // reports a clear parse error.
-            try writer.writeAll(prefix);
         }
+        const first_nl = comptime std.mem.indexOfScalar(u8, prefix, '\n').?;
+        try writer.writeAll(prefix[0 .. first_nl + 1]);
+        for (defines) |def| {
+            try writer.writeAll("#define ");
+            try writer.writeAll(def);
+            try writer.writeAll("\n");
+        }
+        try writer.writeAll(prefix[first_nl + 1 ..]);
     }
     try writer.writeAll("\n\n");
     try writer.writeAll(src);

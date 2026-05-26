@@ -280,7 +280,15 @@ pub fn replaceRegion(
     height: usize,
     data: []const u8,
 ) Error!void {
-    if (data.len == 0) return;
+    // Empty-data / zero-region call: full no-op (does NOT transition
+    // the image layout). Callers passing nothing-to-upload are
+    // saying just that; transitioning anyway would issue a one-shot
+    // command-buffer + queueWaitIdle for no reason and would surprise
+    // a caller relying on the texture's current layout being
+    // preserved. If a caller ever needs a layout-only transition,
+    // add a separate `transitionToShaderRead` API rather than
+    // overloading replaceRegion's empty-data path.
+    if (data.len == 0 or width == 0 or height == 0) return;
     const dev = self.device;
 
     // ---- staging buffer -----------------------------------------

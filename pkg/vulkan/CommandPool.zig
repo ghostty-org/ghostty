@@ -69,6 +69,35 @@ pub const OneShot = struct {
     pub fn endAndSubmit(self: OneShot) Error!void {
         const dev = self.pool.device;
 
+        // ALWAYS free the command buffer, success or failure.
+        // Without this errdefer the early returns from end / submit /
+        // waitIdle would leak the buffer slot — until the pool is
+        // destroyed — and a caller that treats `error.VulkanFailed`
+        // as recoverable (retries the upload) would eventually
+        // exhaust the pool.
+        //
+        // Vulkan-correctness wrinkle: a buffer in PENDING state
+        // (post-submit, pre-wait) cannot legally be freed — that's
+        // UB per the spec. `submitted_pending` tracks whether we've
+        // submitted; on the error path we then `deviceWaitIdle`
+        // before freeing to drag the buffer back to a safely-freeable
+        // state. The errdefer fires on error only; the success path
+        // hits the explicit free below.
+        var cb_local = self.cb;
+        var submitted_pending: bool = false;
+        errdefer {
+            if (submitted_pending) {
+                // Buffer may be in PENDING state. Drain to be safe
+                // before freeing. deviceWaitIdle here is acceptable
+                // — we're already on an error path for an atlas
+                // upload, so blocking the device once on the way out
+                // is preferable to leaving the buffer leaked OR to
+                // freeing a PENDING buffer (UB).
+                _ = dev.dispatch.deviceWaitIdle(dev.device);
+            }
+            dev.dispatch.freeCommandBuffers(dev.device, self.pool.pool, 1, &cb_local);
+        }
+
         {
             const r = dev.dispatch.endCommandBuffer(self.cb);
             if (r != vk.VK_SUCCESS) {
@@ -98,6 +127,7 @@ pub const OneShot = struct {
                 log.err("vkQueueSubmit failed: result={}", .{r});
                 return error.VulkanFailed;
             }
+            submitted_pending = true;
         }
 
         // Block until the submit completes. Acceptable for one-shot
@@ -110,12 +140,13 @@ pub const OneShot = struct {
                 log.err("vkQueueWaitIdle failed: result={}", .{r});
                 return error.VulkanFailed;
             }
+            submitted_pending = false;
         }
 
-        // Free the command buffer. The pool itself stays around so
-        // back-to-back uploads can reuse it without re-allocating
-        // VkCommandPool.
-        const cb_local = self.cb;
+        // Success path: free the buffer (the errdefer above only
+        // fires on the error path, so we still need this on success).
+        // The pool itself stays around so back-to-back uploads can
+        // reuse it without re-allocating VkCommandPool.
         dev.dispatch.freeCommandBuffers(dev.device, self.pool.pool, 1, &cb_local);
     }
 };

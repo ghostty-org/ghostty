@@ -32,13 +32,20 @@ typedef enum {
 
 // Compile a null-terminated GLSL source to Vulkan-flavored SPIR-V.
 //
+// Preconditions: `spv_out`, `spv_len_out`, and `err_out` MUST all be
+//   non-null. The function rejects any null out-pointer with rc=1
+//   and no error string (since `err_out` is itself part of the
+//   contract). `source` may be null; that produces a normal failure
+//   with `*err_out` set.
+//
 // On success: returns 0. `*spv_out` points to a freshly allocated
 //   array of `*spv_len_out` 32-bit SPIR-V words. Caller frees it
 //   with `ghastty_glslang_free_spirv`. `*err_out` is NULL.
 //
 // On failure: returns non-zero. `*err_out` points to a freshly
-//   allocated null-terminated error message. Caller frees it with
-//   `ghastty_glslang_free_error`. `*spv_out` is NULL,
+//   allocated null-terminated error message (or NULL on out-arg
+//   precondition violation OR on internal OOM). Caller frees it
+//   with `ghastty_glslang_free_error`. `*spv_out` is NULL,
 //   `*spv_len_out` is 0.
 int ghastty_glslang_compile_vulkan(
     const char* source,

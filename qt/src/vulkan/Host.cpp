@@ -106,9 +106,14 @@ uint32_t cbQueueFamilyIndex(void *ud) {
 size_t cbGetSupportedModifiers(void *ud, uint32_t drm_format,
                                 uint64_t *out, size_t capacity) {
   (void)ud;
-  // Always-safe read: the registry was primed eagerly on the GUI
-  // thread when Host::instance() first ran, so any renderer-thread
-  // call sees a fully-populated immutable table.
+  // Lock-free read of an immutable table. The table is primed on the
+  // GUI thread by `wayland::primeDmabufModifierRegistry`, called from
+  // `GhosttySurface`'s ctor (Vulkan branch) BEFORE the libghostty
+  // renderer thread is spawned for that surface. As long as that
+  // ordering invariant holds, this read sees a fully-populated table.
+  // `wayland::supportedDmabufModifiers` itself returns 0 if priming
+  // hasn't happened yet, so the failure mode is fail-safe (renderer
+  // gets an empty modifier list, falls back to legacy_copy mode).
   return ::wayland::supportedDmabufModifiers(drm_format, out, capacity);
 }
 
