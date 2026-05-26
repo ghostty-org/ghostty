@@ -94,6 +94,12 @@ class XkbTracker {
   // a keymap is loaded.
   uint32_t m_idxCapsLock = ~0u;
   uint32_t m_idxNumLock = ~0u;
+  // wl_seat handle, owned by us via wl_registry_bind. Kept alive for
+  // the singleton's lifetime so capability changes (keyboard
+  // hot-plug, layout switch) keep flowing to onSeatCapabilities, and
+  // so the proxy isn't dangling on the private registry queue we
+  // destroy at the end of the ctor.
+  struct wl_seat *m_seat = nullptr;
   // wl_keyboard handle, owned by us via wl_seat_get_keyboard.
   struct wl_keyboard *m_keyboard = nullptr;
 };
