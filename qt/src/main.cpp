@@ -2,6 +2,13 @@
 #include <cstdlib>
 #include <cstring>
 
+// Symbol exported by libghostty's bundled glslang shim
+// (pkg/glslang/override/ghastty_vk_shim.cpp). Declared locally
+// rather than via an include because main.cpp would otherwise
+// need to grow a glslang/SPIR-V include path it doesn't use for
+// anything else.
+extern "C" void ghastty_glslang_finalize_process(void);
+
 #include <QApplication>
 #include <QCoreApplication>
 #include <QIcon>
@@ -62,6 +69,17 @@ int main(int argc, char **argv) {
   // GL/Vulkan via QPA) and before the CLI action path (since
   // libghostty action handlers may also touch the renderer).
   defaultDisableMangoHud();
+
+  // Release glslang's process-wide state at process exit (the
+  // per-thread TPoolAllocator pages that otherwise hit their
+  // high-water mark from the first surface's shader compiles and
+  // never get released — ~12 MB cosmetic leak per heaptrack).
+  // atexit runs after main returns and after Qt's own teardown
+  // chain has destroyed every GhosttySurface (and joined every
+  // renderer thread), so glslang is guaranteed quiescent by then.
+  // Idempotent on the libghostty side, so a double-registration
+  // (or the unlikely racing return path) is harmless.
+  std::atexit(ghastty_glslang_finalize_process);
 
   // CLI action fast path: skip Qt entirely. ghostty_init parses argv
   // for the `+action`; ghostty_cli_try_action runs it and exits the

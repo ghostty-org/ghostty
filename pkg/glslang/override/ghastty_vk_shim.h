@@ -57,6 +57,23 @@ int ghastty_glslang_compile_vulkan(
 void ghastty_glslang_free_spirv(uint32_t* spv);
 void ghastty_glslang_free_error(char* err);
 
+// Release the process-wide glslang state: the per-thread
+// TPoolAllocator pages (the high-water-mark pool memory that
+// otherwise leaks for the process lifetime because Zig pthreads
+// don't run C++ thread_local destructors) AND the shim's
+// SPV cache.
+//
+// Idempotent. Call ONCE from the host's shutdown path AFTER all
+// renderer threads have joined — calling it while a renderer
+// thread might still touch glslang::TShader / TProgram is
+// undefined behavior per glslang's contract.
+//
+// libghostty's own renderer-thread teardown (Vulkan.threadExit)
+// is what serializes this safely: by the time the host's main()
+// returns from QApplication::exec(), every renderer thread has
+// already run threadExit and is joined.
+void ghastty_glslang_finalize_process(void);
+
 #ifdef __cplusplus
 }
 #endif

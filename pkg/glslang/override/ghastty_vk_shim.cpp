@@ -237,3 +237,21 @@ extern "C" void ghastty_glslang_free_spirv(uint32_t* spv) {
 extern "C" void ghastty_glslang_free_error(char* err) {
     std::free(err);
 }
+
+extern "C" void ghastty_glslang_finalize_process(void) {
+    // Drop the cached SPV blobs first. The map owns the std::vector
+    // pages it holds; clearing returns them to the heap. Done before
+    // FinalizeProcess so a malicious post-finalize compile attempt
+    // (which would re-enter glslang on a dead process state) trips
+    // glslang's own checks rather than handing out stale cache hits.
+    {
+        std::lock_guard<std::mutex> lg(spv_cache_mutex());
+        spv_cache().clear();
+    }
+    // Release glslang's process-wide state: the thread-local
+    // TPoolAllocator pages that accumulated to their high-water mark
+    // on the first surface's compiles + any per-thread bookkeeping.
+    // Matches the implicit InitializeProcess on first use (or the
+    // explicit C-API glslang_initialize_process in pkg/glslang/init.zig).
+    glslang::FinalizeProcess();
+}
