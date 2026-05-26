@@ -644,8 +644,12 @@ pub fn processOutput(self: *Termio, buf: []const u8) void {
     // We are modifying terminal state from here on out and we need
     // the lock to grab our read data.
     self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
     self.processOutputLocked(buf);
+    self.renderer_state.mutex.unlock();
+
+    if (std.time.Instant.now()) |now| {
+        self.terminal_stream.handler.terminalActivityUnlocked(now);
+    } else |_| {}
 }
 
 /// Process output from readdata but the lock is already held.

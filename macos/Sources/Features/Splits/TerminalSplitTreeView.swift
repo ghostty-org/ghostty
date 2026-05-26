@@ -87,30 +87,40 @@ private struct TerminalSplitSubtreeView: View {
 }
 
 private struct TerminalSplitLeaf: View {
-    let surfaceView: Ghostty.SurfaceView
+    @ObservedObject var surfaceView: Ghostty.SurfaceView
     let isSplit: Bool
     let action: (TerminalSplitOperation) -> Void
 
     @State private var dropState: DropState = .idle
     @State private var isSelfDragging: Bool = false
 
+    private let paneHorizontalPadding: CGFloat = 6
+    private let paneTopPadding: CGFloat = 4
+
     var body: some View {
         GeometryReader { geometry in
             Ghostty.InspectableSurface(
                 surfaceView: surfaceView,
                 isSplit: isSplit)
+            .padding(.horizontal, paneHorizontalPadding)
+            .padding(.top, paneTopPadding)
             .background {
-                // If we're dragging ourself, we hide the entire drop zone. This makes
-                // it so that a released drop animates back to its source properly
-                // so it is a proper invalid drop zone.
-                if !isSelfDragging {
-                    Color.clear
-                        .onDrop(of: [.ghosttySurfaceId], delegate: SplitDropDelegate(
-                            dropState: $dropState,
-                            viewSize: geometry.size,
-                            destinationSurface: surfaceView,
-                            action: action
-                        ))
+                ZStack {
+                    (surfaceView.backgroundColor ?? surfaceView.derivedConfig.backgroundColor)
+                        .opacity(surfaceView.derivedConfig.backgroundOpacity)
+
+                    // If we're dragging ourself, we hide the entire drop zone. This makes
+                    // it so that a released drop animates back to its source properly
+                    // so it is a proper invalid drop zone.
+                    if !isSelfDragging {
+                        Color.clear
+                            .onDrop(of: [.ghosttySurfaceId], delegate: SplitDropDelegate(
+                                dropState: $dropState,
+                                viewSize: geometry.size,
+                                destinationSurface: surfaceView,
+                                action: action
+                            ))
+                    }
                 }
             }
             .overlay {

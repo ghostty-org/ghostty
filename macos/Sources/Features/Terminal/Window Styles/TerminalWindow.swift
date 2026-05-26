@@ -11,6 +11,12 @@ class TerminalWindow: NSWindow {
     /// Posted when a terminal window will close
     static let terminalWillCloseNotification = Notification.Name("TerminalWindowWillClose")
 
+    /// Posted when the window title changes.
+    static let terminalTitleDidChangeNotification = Notification.Name("TerminalWindowTitleDidChange")
+
+    /// Posted when tab/session metadata mirrored by the sidebar changes.
+    static let terminalSidebarMetadataDidChangeNotification = Notification.Name("TerminalWindowSidebarMetadataDidChange")
+
     /// This is the key in UserDefaults to use for the default `level` value. This is
     /// used by the manual float on top menu item feature.
     static let defaultLevelKey: String = "TerminalDefaultLevel"
@@ -43,6 +49,19 @@ class TerminalWindow: NSWindow {
         delegate: self
     )
 
+    /// Custom vertical session sidebar for `macos-titlebar-style = sidebar`.
+    private var sidebarController: TerminalSidebarController?
+    private var sidebarTitlebarBackgroundView: SidebarTitlebarBackgroundView?
+    private var sidebarTitlebarWidthConstraint: NSLayoutConstraint?
+    private var sidebarTitlebarResizeHandle: SidebarTitlebarResizeHandle?
+    private var sidebarTitlebarResizeHandleCenterXConstraint: NSLayoutConstraint?
+    private var sidebarTitlebarControlsView: SidebarTitlebarControlsView?
+    private var sidebarCollapsed = false
+
+    var isSidebarCollapsed: Bool {
+        sidebarCollapsed
+    }
+
     /// Whether this window supports the update accessory. If this is false, then views within this
     /// window should determine how to show update notifications.
     var supportsUpdateAccessory: Bool {
@@ -64,6 +83,7 @@ class TerminalWindow: NSWindow {
         didSet {
             guard tabColor != oldValue else { return }
             tabColorIndicator.rootView = TabColorIndicatorView(tabColor: tabColor)
+            NotificationCenter.default.post(name: Self.terminalSidebarMetadataDidChangeNotification, object: self)
             invalidateRestorableState()
         }
     }
@@ -180,6 +200,10 @@ class TerminalWindow: NSWindow {
     override var canBecomeMain: Bool { return true }
 
     override func sendEvent(_ event: NSEvent) {
+        if handleSidebarToggleShortcut(event) {
+            return
+        }
+
         if tabTitleEditor.handleMouseDown(event) {
             return
         }
@@ -213,7 +237,11 @@ class TerminalWindow: NSWindow {
 
         // Its possible we miss the accessory titlebar call so we check again
         // whenever the window becomes main. Both of these are idempotent.
-        if tabBarView != nil {
+        if derivedConfig.macosTitlebarStyle == .sidebar {
+            configureSidebarChrome()
+            hideNativeTabBarForSidebar()
+            terminalController?.terminalViewContainer?.syncSidebarTitlebarWidth()
+        } else if tabBarView != nil {
             tabBarDidAppear()
         } else {
             tabBarDidDisappear()
@@ -229,6 +257,239 @@ class TerminalWindow: NSWindow {
     @discardableResult
     func beginInlineTabTitleEdit(for targetWindow: NSWindow) -> Bool {
         tabTitleEditor.beginEditing(for: targetWindow)
+    }
+
+    func installSidebarIfNeeded() {
+        guard derivedConfig.macosTitlebarStyle == .sidebar else {
+            sidebarCollapsed = false
+            sidebarController = nil
+            terminalController?.terminalViewContainer?.removeSidebar()
+            removeSidebarTitlebarBackground()
+            return
+        }
+
+        guard !sidebarCollapsed else {
+            configureSidebarChrome()
+            terminalController?.terminalViewContainer?.removeSidebar()
+            hideNativeTabBarForSidebar()
+            return
+        }
+
+        guard let container = terminalController?.terminalViewContainer else { return }
+
+        configureSidebarChrome()
+        let controller = sidebarController ?? TerminalSidebarController(hostWindow: self)
+        sidebarController = controller
+        container.installSidebar(controller.view, width: TerminalSidebarController.preferredWidth)
+        container.syncSidebarTitlebarWidth()
+        controller.sync()
+        syncSidebarAppearance()
+        hideNativeTabBarForSidebar()
+    }
+
+    @discardableResult
+    func toggleSidebar(_ _: Any?) -> Bool {
+        guard derivedConfig.macosTitlebarStyle == .sidebar else { return false }
+
+        setSidebarCollapsed(!sidebarCollapsed, propagateToTabGroup: true)
+        return true
+    }
+
+    func setSidebarCollapsed(_ collapsed: Bool, propagateToTabGroup: Bool) {
+        guard derivedConfig.macosTitlebarStyle == .sidebar else { return }
+
+        sidebarCollapsed = collapsed
+        if collapsed {
+            terminalController?.terminalViewContainer?.removeSidebar()
+            hideNativeTabBarForSidebar()
+        } else {
+            installSidebarIfNeeded()
+        }
+
+        if propagateToTabGroup {
+            syncSidebarCollapsedAcrossTabGroup()
+        }
+    }
+
+    private func syncSidebarCollapsedAcrossTabGroup() {
+        guard let windows = tabGroup?.windows else { return }
+
+        for window in windows where window !== self {
+            guard let terminalWindow = window as? TerminalWindow else {
+                continue
+            }
+
+            terminalWindow.setSidebarCollapsed(sidebarCollapsed, propagateToTabGroup: false)
+        }
+    }
+
+    private func handleSidebarToggleShortcut(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        guard derivedConfig.macosTitlebarStyle == .sidebar else { return false }
+        guard event.isSidebarToggleShortcut else { return false }
+        guard !sidebarToggleConflictsWithGhosttyBinding(event) else { return false }
+
+        if !event.isARepeat {
+            toggleSidebar(event)
+        }
+
+        return true
+    }
+
+    private func sidebarToggleConflictsWithGhosttyBinding(_ event: NSEvent) -> Bool {
+        guard let surface = terminalController?.focusedSurface?.surfaceModel else {
+            return false
+        }
+
+        var ghosttyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
+        return (event.characters ?? "").withCString { ptr in
+            ghosttyEvent.text = ptr
+            return surface.keyIsBinding(ghosttyEvent) != nil
+        }
+    }
+
+    private func syncSidebarAppearance() {
+        guard derivedConfig.macosTitlebarStyle == .sidebar else { return }
+
+        let theme = sidebarTheme
+        sidebarController?.updateTheme(theme)
+        sidebarTitlebarBackgroundView?.theme = theme
+        sidebarTitlebarControlsView?.theme = theme
+    }
+
+    private func configureSidebarChrome() {
+        styleMask.insert(.fullSizeContentView)
+        titleVisibility = .hidden
+        titlebarAppearsTransparent = true
+        toolbar = nil
+
+        guard !sidebarCollapsed else {
+            removeSidebarTitlebarBackground()
+            return
+        }
+
+        let currentWidth = terminalController?.terminalViewContainer?.currentSidebarWidth ?? 0
+        let width = currentWidth > 0 ? currentWidth : TerminalSidebarController.preferredWidth
+        setSidebarTitlebarWidth(width)
+
+        DispatchQueue.main.async { [weak self] in
+            if let container = self?.terminalController?.terminalViewContainer {
+                container.syncSidebarTitlebarWidth()
+            } else {
+                self?.setSidebarTitlebarWidth(TerminalSidebarController.preferredWidth)
+            }
+        }
+    }
+
+    func setSidebarTitlebarWidth(_ width: CGFloat) {
+        guard derivedConfig.macosTitlebarStyle == .sidebar else { return }
+
+        let width = min(
+            max(width, TerminalSidebarController.minWidth),
+            TerminalSidebarController.maxWidth)
+
+        guard let titlebarView = titlebarContainer?.firstDescendant(withClassName: "NSTitlebarView") else {
+            return
+        }
+
+        let backgroundView = sidebarTitlebarBackgroundView ?? SidebarTitlebarBackgroundView()
+        backgroundView.hostWindow = self
+        backgroundView.theme = sidebarTheme
+        if backgroundView.superview !== titlebarView {
+            sidebarTitlebarWidthConstraint?.isActive = false
+            backgroundView.removeFromSuperview()
+            backgroundView.translatesAutoresizingMaskIntoConstraints = false
+
+            if let firstSubview = titlebarView.subviews.first {
+                titlebarView.addSubview(backgroundView, positioned: .below, relativeTo: firstSubview)
+            } else {
+                titlebarView.addSubview(backgroundView)
+            }
+
+            let widthConstraint = backgroundView.widthAnchor.constraint(equalToConstant: width)
+            NSLayoutConstraint.activate([
+                backgroundView.leadingAnchor.constraint(equalTo: titlebarView.leadingAnchor),
+                backgroundView.topAnchor.constraint(equalTo: titlebarView.topAnchor),
+                backgroundView.bottomAnchor.constraint(equalTo: titlebarView.bottomAnchor),
+                widthConstraint,
+            ])
+            sidebarTitlebarWidthConstraint = widthConstraint
+            sidebarTitlebarBackgroundView = backgroundView
+        }
+
+        sidebarTitlebarWidthConstraint?.constant = width
+        backgroundView.needsDisplay = true
+        installSidebarTitlebarResizeHandle(in: titlebarView, width: width)
+        installSidebarTitlebarControls(in: titlebarView)
+    }
+
+    func removeSidebarTitlebarBackground() {
+        sidebarTitlebarWidthConstraint?.isActive = false
+        sidebarTitlebarWidthConstraint = nil
+        sidebarTitlebarBackgroundView?.removeFromSuperview()
+        sidebarTitlebarBackgroundView = nil
+        sidebarTitlebarResizeHandleCenterXConstraint?.isActive = false
+        sidebarTitlebarResizeHandleCenterXConstraint = nil
+        sidebarTitlebarResizeHandle?.removeFromSuperview()
+        sidebarTitlebarResizeHandle = nil
+        sidebarTitlebarControlsView?.removeFromSuperview()
+        sidebarTitlebarControlsView = nil
+    }
+
+    private func installSidebarTitlebarResizeHandle(in titlebarView: NSView, width: CGFloat) {
+        let resizeHandle = sidebarTitlebarResizeHandle ?? SidebarTitlebarResizeHandle(hostWindow: self)
+        resizeHandle.hostWindow = self
+
+        if resizeHandle.superview !== titlebarView {
+            sidebarTitlebarResizeHandleCenterXConstraint?.isActive = false
+            resizeHandle.removeFromSuperview()
+            resizeHandle.translatesAutoresizingMaskIntoConstraints = false
+            titlebarView.addSubview(resizeHandle)
+
+            let centerXConstraint = resizeHandle.centerXAnchor.constraint(
+                equalTo: titlebarView.leadingAnchor,
+                constant: width)
+            NSLayoutConstraint.activate([
+                centerXConstraint,
+                resizeHandle.topAnchor.constraint(equalTo: titlebarView.topAnchor),
+                resizeHandle.bottomAnchor.constraint(equalTo: titlebarView.bottomAnchor),
+                resizeHandle.widthAnchor.constraint(equalToConstant: 10),
+            ])
+            sidebarTitlebarResizeHandleCenterXConstraint = centerXConstraint
+            sidebarTitlebarResizeHandle = resizeHandle
+        }
+
+        sidebarTitlebarResizeHandleCenterXConstraint?.constant = width
+    }
+
+    private func installSidebarTitlebarControls(in titlebarView: NSView) {
+        let controlsView = sidebarTitlebarControlsView ?? SidebarTitlebarControlsView(hostWindow: self)
+        controlsView.hostWindow = self
+        controlsView.theme = sidebarTheme
+        controlsView.updateTooltips()
+
+        if controlsView.superview !== titlebarView {
+            controlsView.removeFromSuperview()
+            controlsView.translatesAutoresizingMaskIntoConstraints = false
+            titlebarView.addSubview(controlsView)
+
+            NSLayoutConstraint.activate([
+                controlsView.trailingAnchor.constraint(equalTo: titlebarView.trailingAnchor, constant: -8),
+                controlsView.centerYAnchor.constraint(equalTo: titlebarView.centerYAnchor),
+            ])
+            sidebarTitlebarControlsView = controlsView
+        }
+    }
+
+    func hideNativeTabBarForSidebar() {
+        guard derivedConfig.macosTitlebarStyle == .sidebar else { return }
+
+        for childViewController in titlebarAccessoryViewControllers where isTabBar(childViewController) {
+            childViewController.view.isHidden = true
+            childViewController.view.frame.size.height = 0
+        }
+
+        tabBarView?.isHidden = true
     }
 
     @objc private func renameTabFromContextMenu(_ sender: NSMenuItem) {
@@ -252,14 +513,24 @@ class TerminalWindow: NSWindow {
     }
 
     override func addTitlebarAccessoryViewController(_ childViewController: NSTitlebarAccessoryViewController) {
+        let isNativeTabBar = isTabBar(childViewController)
+        if isNativeTabBar && derivedConfig.macosTitlebarStyle == .sidebar {
+            childViewController.layoutAttribute = .right
+        }
+
         super.addTitlebarAccessoryViewController(childViewController)
 
         // Tab bar is attached as a titlebar accessory view controller (layout bottom). We
         // can detect when it is shown or hidden by overriding add/remove and searching for
         // it. This has been verified to work on macOS 12 to 26
-        if isTabBar(childViewController) {
+        if isNativeTabBar {
             childViewController.identifier = Self.tabBarIdentifier
-            tabBarDidAppear()
+            if derivedConfig.macosTitlebarStyle == .sidebar {
+                hideNativeTabBarForSidebar()
+                sidebarController?.sync()
+            } else {
+                tabBarDidAppear()
+            }
         }
     }
 
@@ -331,6 +602,10 @@ class TerminalWindow: NSWindow {
 
     var keyEquivalent: String? {
         didSet {
+            defer {
+                NotificationCenter.default.post(name: Self.terminalSidebarMetadataDidChangeNotification, object: self)
+            }
+
             // When our key equivalent is set, we must update the tab label.
             guard let keyEquivalent else {
                 keyEquivalentLabel.attributedStringValue = NSAttributedString()
@@ -402,6 +677,7 @@ class TerminalWindow: NSWindow {
             /// Check ``titlebarFont`` down below
             /// to see why we need to check `hasMoreThanOneTabs` here
             titlebarTextField?.usesSingleLineMode = !hasMoreThanOneTabs
+            NotificationCenter.default.post(name: Self.terminalTitleDidChangeNotification, object: self)
         }
     }
 
@@ -503,6 +779,8 @@ class TerminalWindow: NSWindow {
             let backgroundColor = preferredBackgroundColor ?? NSColor(surfaceConfig.backgroundColor)
             self.backgroundColor = backgroundColor.withAlphaComponent(1)
         }
+
+        syncSidebarAppearance()
     }
 
     /// The preferred window background color. The current window background color may not be set
@@ -511,29 +789,46 @@ class TerminalWindow: NSWindow {
     /// This background color will include alpha transparency if set. If the caller doesn't want that,
     /// change the alpha channel again manually.
     var preferredBackgroundColor: NSColor? {
-        if let terminalController, !terminalController.surfaceTree.isEmpty {
-            let surface: Ghostty.SurfaceView?
-
-            // If our focused surface borders the top then we prefer its background color
-            if let focusedSurface = terminalController.focusedSurface,
-               let treeRoot = terminalController.surfaceTree.root,
-               let focusedNode = treeRoot.node(view: focusedSurface),
-               treeRoot.spatial().doesBorder(side: .up, from: focusedNode) {
-                surface = focusedSurface
-            } else {
-                // If it doesn't border the top, we use the top-left leaf
-                surface = terminalController.surfaceTree.root?.leftmostLeaf()
-            }
-
-            if let surface {
-                let backgroundColor = surface.backgroundColor ?? surface.derivedConfig.backgroundColor
-                let alpha = surface.derivedConfig.backgroundOpacity.clamped(to: 0.001...1)
-                return NSColor(backgroundColor).withAlphaComponent(alpha)
-            }
+        if let surface = preferredAppearanceSurface {
+            let backgroundColor = surface.backgroundColor ?? surface.derivedConfig.backgroundColor
+            let alpha = surface.derivedConfig.backgroundOpacity.clamped(to: 0.001...1)
+            return NSColor(backgroundColor).withAlphaComponent(alpha)
         }
 
         let alpha = derivedConfig.backgroundOpacity.clamped(to: 0.001...1)
         return derivedConfig.backgroundColor.withAlphaComponent(alpha)
+    }
+
+    /// The preferred terminal foreground color that corresponds to `preferredBackgroundColor`.
+    var preferredForegroundColor: NSColor? {
+        if let surface = preferredAppearanceSurface {
+            return NSColor(surface.foregroundColor ?? surface.derivedConfig.foregroundColor)
+        }
+
+        return derivedConfig.foregroundColor
+    }
+
+    var sidebarTheme: TerminalSidebarTheme {
+        TerminalSidebarTheme(
+            backgroundColor: preferredBackgroundColor ?? derivedConfig.backgroundColor,
+            foregroundColor: preferredForegroundColor ?? derivedConfig.foregroundColor)
+    }
+
+    private var preferredAppearanceSurface: Ghostty.SurfaceView? {
+        guard let terminalController, !terminalController.surfaceTree.isEmpty else {
+            return nil
+        }
+
+        // If our focused surface borders the top then we prefer its colors.
+        if let focusedSurface = terminalController.focusedSurface,
+           let treeRoot = terminalController.surfaceTree.root,
+           let focusedNode = treeRoot.node(view: focusedSurface),
+           treeRoot.spatial().doesBorder(side: .up, from: focusedNode) {
+            return focusedSurface
+        }
+
+        // If it doesn't border the top, we use the top-left leaf.
+        return terminalController.surfaceTree.root?.leftmostLeaf()
     }
 
     func updateColorSchemeForSurfaceTree() {
@@ -585,6 +880,7 @@ class TerminalWindow: NSWindow {
         let title: String?
         let backgroundBlur: Ghostty.Config.BackgroundBlur
         let backgroundColor: NSColor
+        let foregroundColor: NSColor
         let backgroundOpacity: Double
         let macosWindowButtons: Ghostty.MacOSWindowButtons
         let macosTitlebarStyle: Ghostty.Config.MacOSTitlebarStyle
@@ -593,6 +889,7 @@ class TerminalWindow: NSWindow {
         init() {
             self.title = nil
             self.backgroundColor = NSColor.windowBackgroundColor
+            self.foregroundColor = NSColor.labelColor
             self.backgroundOpacity = 1
             self.macosWindowButtons = .visible
             self.backgroundBlur = .disabled
@@ -603,6 +900,7 @@ class TerminalWindow: NSWindow {
         init(_ config: Ghostty.Config) {
             self.title = config.title
             self.backgroundColor = NSColor(config.backgroundColor)
+            self.foregroundColor = NSColor(config.foregroundColor)
             self.backgroundOpacity = config.backgroundOpacity
             self.macosWindowButtons = config.macosWindowButtons
             self.backgroundBlur = config.backgroundBlur
@@ -618,6 +916,269 @@ class TerminalWindow: NSWindow {
                 self.windowCornerRadius = 16
             }
         }
+    }
+}
+
+private extension NSEvent {
+    var isSidebarToggleShortcut: Bool {
+        let shortcutModifiers: NSEvent.ModifierFlags = [.shift, .control, .option, .command]
+        guard modifierFlags.intersection(shortcutModifiers) == .command else {
+            return false
+        }
+
+        return charactersIgnoringModifiers?.lowercased() == "b"
+    }
+}
+
+private final class SidebarTitlebarBackgroundView: NSView {
+    weak var hostWindow: TerminalWindow?
+    var theme: TerminalSidebarTheme = .fallback {
+        didSet { applyTheme() }
+    }
+
+    private lazy var newSessionButton: NSButton = {
+        let button = NSButton()
+        button.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New Tab")
+        button.bezelStyle = .texturedRounded
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.contentTintColor = theme.buttonTint
+        button.target = self
+        button.action = #selector(newSession)
+        button.toolTip = sidebarTitlebarTooltip(
+            title: "New Tab",
+            action: "new_tab")
+        button.identifier = NSUserInterfaceItemIdentifier("TerminalSidebarNewSessionButton")
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        addSubview(newSessionButton)
+        NSLayoutConstraint.activate([
+            newSessionButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -7),
+            newSessionButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            newSessionButton.widthAnchor.constraint(equalToConstant: 24),
+            newSessionButton.heightAnchor.constraint(equalToConstant: 24),
+        ])
+        applyTheme()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hitView = super.hitTest(point)
+        return hitView === newSessionButton ? hitView : nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        theme.background.setFill()
+        bounds.fill()
+
+        theme.separator.setFill()
+        NSRect(
+            x: bounds.maxX - 0.5,
+            y: bounds.minY,
+            width: 0.5,
+            height: bounds.height
+        ).fill()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyTheme()
+        updateTooltips()
+    }
+
+    func updateTooltips() {
+        newSessionButton.toolTip = sidebarTitlebarTooltip(
+            title: "New Tab",
+            action: "new_tab")
+    }
+
+    private func applyTheme() {
+        newSessionButton.contentTintColor = theme.buttonTint
+        needsDisplay = true
+    }
+
+    @objc private func newSession() {
+        let newController = TerminalSidebarController.newSession(from: hostWindow)
+        DispatchQueue.main.async { [weak newController] in
+            guard let controller = newController,
+                  let focusedSurface = controller.focusedSurface
+            else { return }
+
+            controller.focusSurface(focusedSurface)
+        }
+    }
+}
+
+private final class SidebarTitlebarControlsView: NSView {
+    weak var hostWindow: TerminalWindow?
+    var theme: TerminalSidebarTheme = .fallback {
+        didSet { applyTheme() }
+    }
+
+    private lazy var splitDownButton = makeButton(
+        symbolName: "rectangle.split.1x2",
+        title: "Split Down",
+        identifier: "TerminalSidebarSplitDownButton",
+        action: #selector(splitDown))
+
+    private lazy var splitRightButton = makeButton(
+        symbolName: "rectangle.split.2x1",
+        title: "Split Right",
+        identifier: "TerminalSidebarSplitRightButton",
+        action: #selector(splitRight))
+
+    init(hostWindow: TerminalWindow) {
+        self.hostWindow = hostWindow
+        super.init(frame: .zero)
+
+        let stackView = NSStackView(views: [
+            splitDownButton,
+            splitRightButton,
+        ])
+        stackView.orientation = .horizontal
+        stackView.spacing = 2
+        stackView.alignment = .centerY
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stackView)
+
+        NSLayoutConstraint.activate([
+            stackView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stackView.topAnchor.constraint(equalTo: topAnchor),
+            stackView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+
+        applyTheme()
+        updateTooltips()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hitView = super.hitTest(point)
+        return hitView is NSButton ? hitView : nil
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyTheme()
+        updateTooltips()
+    }
+
+    func updateTooltips() {
+        splitDownButton.toolTip = sidebarTitlebarTooltip(
+            title: "Split Down",
+            action: "new_split:down")
+        splitRightButton.toolTip = sidebarTitlebarTooltip(
+            title: "Split Right",
+            action: "new_split:right")
+    }
+
+    private func makeButton(
+        symbolName: String,
+        title: String,
+        identifier: String,
+        action: Selector
+    ) -> NSButton {
+        let button = NSButton()
+        button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)
+        button.bezelStyle = .texturedRounded
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.contentTintColor = theme.buttonTint
+        button.target = self
+        button.action = action
+        button.toolTip = title
+        button.identifier = NSUserInterfaceItemIdentifier(identifier)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 24),
+            button.heightAnchor.constraint(equalToConstant: 24),
+        ])
+        return button
+    }
+
+    private func applyTheme() {
+        splitDownButton.contentTintColor = theme.buttonTint
+        splitRightButton.contentTintColor = theme.buttonTint
+    }
+
+    @objc private func splitDown() {
+        hostWindow?.terminalController?.splitDown(self)
+    }
+
+    @objc private func splitRight() {
+        hostWindow?.terminalController?.splitRight(self)
+    }
+}
+
+private func sidebarTitlebarTooltip(title: String, action: String) -> String {
+    guard
+        let appDelegate = NSApp.delegate as? AppDelegate,
+        let shortcut = appDelegate.ghostty.config.keyboardShortcut(for: action)
+    else {
+        return title
+    }
+
+    return "\(title) (\(shortcut.description))"
+}
+
+private final class SidebarTitlebarResizeHandle: NSView {
+    weak var hostWindow: TerminalWindow?
+    private var lastMouseX: CGFloat?
+
+    init(hostWindow: TerminalWindow) {
+        self.hostWindow = hostWindow
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var mouseDownCanMoveWindow: Bool {
+        false
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeLeftRight)
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        lastMouseX = event.locationInWindow.x
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let currentX = event.locationInWindow.x
+        let previousX = lastMouseX ?? currentX
+        lastMouseX = currentX
+        hostWindow?.terminalController?.terminalViewContainer?.resizeSidebarFromTitlebar(
+            by: currentX - previousX)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        lastMouseX = nil
     }
 }
 
@@ -766,8 +1327,8 @@ extension TerminalWindow {
         separator.identifier = Self.tabColorSeparatorIdentifier
         menu.addItem(separator)
 
-        // Rename Tab...
-        let changeTitleItem = NSMenuItem(title: "Rename Tab...", action: #selector(TerminalWindow.renameTabFromContextMenu(_:)), keyEquivalent: "")
+        // Rename Tab
+        let changeTitleItem = NSMenuItem(title: "Rename Tab", action: #selector(TerminalWindow.renameTabFromContextMenu(_:)), keyEquivalent: "")
         changeTitleItem.identifier = Self.changeTitleMenuItemIdentifier
         changeTitleItem.target = self
         changeTitleItem.representedObject = target?.window

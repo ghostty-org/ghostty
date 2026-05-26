@@ -728,6 +728,7 @@ pub const Application = extern struct {
             .present_terminal => return Action.presentTerminal(target),
 
             .progress_report => return Action.progressReport(target, value),
+            .terminal_activity => {},
 
             .prompt_title => return Action.promptTitle(target, value),
 

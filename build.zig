@@ -367,6 +367,21 @@ pub fn build(b: *std.Build) !void {
         const test_run = b.addRunArtifact(test_exe);
         test_step.dependOn(&test_run.step);
 
+        const agent_hook_test = b.addTest(.{
+            .name = "ghostty-agent-hook-test",
+            .filters = test_filters,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/agent_hook/main.zig"),
+                .target = config.baselineTarget(),
+                .optimize = .Debug,
+                .strip = false,
+                .omit_frame_pointer = false,
+                .unwind_tables = .sync,
+            }),
+        });
+        const agent_hook_test_run = b.addRunArtifact(agent_hook_test);
+        test_step.dependOn(&agent_hook_test_run.step);
+
         // Normal tests always test our libghostty modules
         //test_step.dependOn(test_lib_vt_step);
 

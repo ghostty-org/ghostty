@@ -627,6 +627,13 @@ const Subprocess = struct {
         // then we get it ourselves.
         var env = cfg.env;
 
+        if (comptime build_config.is_debug and builtin.target.os.tag.isDarwin()) {
+            // Dev macOS app launches often inherit the agent/shell environment.
+            // Keep visual testing aligned with normal app launches unless the
+            // user explicitly restores this via env overrides below.
+            env.remove("NO_COLOR");
+        }
+
         // If we have a resources dir then set our env var
         if (cfg.resources_dir) |dir| {
             log.info("found Ghostty resources dir: {s}", .{dir});
@@ -814,6 +821,25 @@ const Subprocess = struct {
             while (it.next()) |entry| try env.put(
                 entry.key_ptr.*,
                 entry.value_ptr.*,
+            );
+        }
+
+        // If a per-surface agent hook helper is configured, prepend its
+        // directory so bundled agent shims such as "claude" are found before
+        // the user's real agent binary. The shim is only visible inside
+        // Ghostty-created terminals because this runs after surface env setup.
+        agent_hooks_path: {
+            if (env.get("GHOSTTY_AGENT_HOOKS_DISABLED")) |disabled| {
+                if (std.mem.eql(u8, disabled, "1")) break :agent_hooks_path;
+            }
+
+            const helper = env.get("GHOSTTY_AGENT_HOOK_HELPER") orelse break :agent_hooks_path;
+            const helper_dir = std.fs.path.dirname(helper) orelse break :agent_hooks_path;
+            const path = env.get("PATH") orelse "";
+
+            try env.put(
+                "PATH",
+                try internal_os.prependEnvDedup(alloc, path, helper_dir),
             );
         }
 

@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Darwin
 import SwiftUI
 import CoreText
 import UserNotifications
@@ -22,6 +23,8 @@ extension Ghostty {
         // The progress report (if any)
         override var progressReport: Action.ProgressReport? {
             didSet {
+                let wasSidebarActive = Self.isSidebarProgressActive(oldValue)
+
                 // Cancel any existing timer
                 progressReportTimer?.invalidate()
                 progressReportTimer = nil
@@ -33,8 +36,24 @@ extension Ghostty {
                         self?.progressReportTimer = nil
                     }
                 }
+
+                if Self.isSidebarProgressActive(progressReport) != wasSidebarActive {
+                    notifySidebarMetadataChanged()
+                }
             }
         }
+
+        /// True while the terminal has received recent output from the PTY.
+        @Published private(set) var recentTerminalActivity: Bool = false
+
+        /// Explicit lifecycle state reported by Claude/Codex agent hooks.
+        @Published private(set) var agentActivityState: TerminalAgentActivityState = .idle
+
+        /// Stable hook identity for this surface.
+        let agentSurfaceID: String
+
+        /// Per-surface JSONL file used by agent hook helpers.
+        let agentEventFileURL: URL
 
         // The currently active key sequence. The sequence is not active if this is empty.
         @Published var keySequence: [KeyboardShortcut] = []
@@ -101,6 +120,10 @@ extension Ghostty {
         /// The background color within the color palette of the surface. This is only set if it is
         /// dynamically updated. Otherwise, the background color is the default background color.
         @Published private(set) var backgroundColor: Color?
+
+        /// The foreground color within the color palette of the surface. This is only set if it is
+        /// dynamically updated. Otherwise, the foreground color is the default foreground color.
+        @Published private(set) var foregroundColor: Color?
 
         /// True when the bell is active. This is set inactive on focus or event.
         @Published private(set) var bell: Bool = false
@@ -201,6 +224,23 @@ extension Ghostty {
         // Timer to remove progress report after 15 seconds
         private var progressReportTimer: Timer?
 
+        // Timer to clear recent terminal output activity after the output goes quiet.
+        private var terminalActivityTimer: Timer?
+
+        // File-backed agent hook watcher state.
+        private var agentActivitySource: DispatchSourceFileSystemObject?
+        private var agentActivityFileDescriptor: CInt = -1
+        private var agentActivityReadOffset: UInt64 = 0
+        private var agentActivityPartialLine = ""
+        private var agentActivityReducer = TerminalAgentActivityReducer()
+        private var agentActivityTTLTimer: Timer?
+
+        // Used to suppress activity flashes caused by the terminal echoing user input.
+        private var lastUserInputAt: Date?
+
+        // Used to suppress activity flashes caused by terminal redraws after resizing.
+        private var terminalActivitySuppressedUntil: Date?
+
         // This is the title from the terminal. This is nil if we're currently using
         // the terminal title as the main title property. If the title is set manually
         // by the user, this is set to the prior value (which may be empty, but non-nil).
@@ -217,6 +257,9 @@ extension Ghostty {
         override var acceptsFirstResponder: Bool { return true }
 
         init(_ app: ghostty_app_t, baseConfig: SurfaceConfiguration? = nil, uuid: UUID? = nil) {
+            let surfaceUUID = uuid ?? UUID()
+            self.agentSurfaceID = surfaceUUID.uuidString.lowercased()
+            self.agentEventFileURL = Self.agentEventFileURL(surfaceID: agentSurfaceID)
             self.markedText = NSMutableAttributedString()
 
             // Our initial config always is our application wide config.
@@ -235,7 +278,7 @@ extension Ghostty {
             // Initialize with some default frame size. The important thing is that this
             // is non-zero so that our layer bounds are non-zero so that our renderer
             // can do SOMETHING.
-            super.init(id: uuid, frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+            super.init(id: surfaceUUID, frame: NSRect(x: 0, y: 0, width: 800, height: 600))
 
             // Our cache of screen data
             cachedScreenContents = .init(duration: .milliseconds(500)) { [weak self] in
@@ -347,7 +390,10 @@ extension Ghostty {
             ) { [weak self] event in self?.localEventHandler(event) }
 
             // Setup our surface. This will also initialize all the terminal IO.
-            let surface_cfg = baseConfig ?? SurfaceConfiguration()
+            resetAgentEventFile()
+
+            var surface_cfg = baseConfig ?? SurfaceConfiguration()
+            configureAgentHookEnvironment(&surface_cfg)
             let surface = surface_cfg.withCValue(view: self) { surface_cfg_c in
                 ghostty_surface_new(app, &surface_cfg_c)
             }
@@ -356,6 +402,7 @@ extension Ghostty {
                 return
             }
             self.surfaceModel = Ghostty.Surface(cSurface: surface)
+            startAgentActivityWatcher()
 
             // Setup our tracking area so we get mouse moved events
             updateTrackingAreas()
@@ -393,6 +440,9 @@ extension Ghostty {
 
             // Cancel progress report timer
             progressReportTimer?.invalidate()
+            terminalActivityTimer?.invalidate()
+            agentActivityTTLTimer?.invalidate()
+            stopAgentActivityWatcher()
         }
 
         override func endSearch() {
@@ -438,6 +488,8 @@ extension Ghostty {
         }
 
         override func sizeDidChange(_ size: CGSize) {
+            suppressTerminalActivityBriefly()
+
             // Ghostty wants to know the actual framebuffer size... It is very important
             // here that we use "size" and NOT the view frame. If we're in the middle of
             // an animation (i.e. a fullscreen animation), the frame will not yet be updated.
@@ -598,6 +650,225 @@ extension Ghostty {
             }
         }
 
+        func markTerminalActivity() {
+            let now = Date()
+            if let lastUserInputAt, now.timeIntervalSince(lastUserInputAt) < 0.25 {
+                return
+            }
+            if let terminalActivitySuppressedUntil,
+               now < terminalActivitySuppressedUntil,
+               !recentTerminalActivity
+            {
+                return
+            }
+
+            terminalActivityTimer?.invalidate()
+            terminalActivityTimer = Timer.scheduledTimer(
+                withTimeInterval: 1.25,
+                repeats: false
+            ) { [weak self] _ in
+                guard let self else { return }
+                self.terminalActivityTimer = nil
+                guard self.recentTerminalActivity else { return }
+                self.recentTerminalActivity = false
+                self.notifySidebarMetadataChanged()
+            }
+
+            guard !recentTerminalActivity else { return }
+            recentTerminalActivity = true
+            notifySidebarMetadataChanged()
+        }
+
+        private func noteUserInputActivity() {
+            lastUserInputAt = Date()
+        }
+
+        private func suppressTerminalActivityBriefly() {
+            terminalActivitySuppressedUntil = Date().addingTimeInterval(0.75)
+        }
+
+        private func configureAgentHookEnvironment(_ config: inout SurfaceConfiguration) {
+            config.environmentVariables["GHOSTTY_AGENT_SURFACE_ID"] = agentSurfaceID
+            config.environmentVariables["GHOSTTY_AGENT_EVENT_FILE"] = agentEventFileURL.path
+            config.environmentVariables["GHOSTTY_AGENT_HOOKS_DISABLED"] =
+                ProcessInfo.processInfo.environment["GHOSTTY_AGENT_HOOKS_DISABLED"] ?? "0"
+
+            if let helperURL = Self.agentHookHelperURL {
+                config.environmentVariables["GHOSTTY_AGENT_HOOK_HELPER"] = helperURL.path
+            }
+        }
+
+        private func resetAgentEventFile() {
+            do {
+                try FileManager.default.createDirectory(
+                    at: agentEventFileURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true,
+                    attributes: [.posixPermissions: 0o700]
+                )
+                FileManager.default.createFile(
+                    atPath: agentEventFileURL.path,
+                    contents: Data(),
+                    attributes: [.posixPermissions: 0o600]
+                )
+                agentActivityReadOffset = 0
+                agentActivityPartialLine = ""
+            } catch {
+                Ghostty.logger.warning("failed to reset agent hook event file: \(error.localizedDescription)")
+            }
+        }
+
+        private func startAgentActivityWatcher() {
+            stopAgentActivityWatcher()
+
+            let fd = open(agentEventFileURL.path, O_EVTONLY)
+            guard fd >= 0 else {
+                Ghostty.logger.warning("failed to watch agent hook event file: \(String(cString: strerror(errno)))")
+                return
+            }
+
+            agentActivityFileDescriptor = fd
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd,
+                eventMask: [.write, .extend, .delete, .rename],
+                queue: .main
+            )
+            source.setEventHandler { [weak self] in
+                self?.readAgentActivityEvents()
+            }
+            source.setCancelHandler { [fd] in
+                Darwin.close(fd)
+            }
+            agentActivitySource = source
+            source.resume()
+            readAgentActivityEvents()
+        }
+
+        private func stopAgentActivityWatcher() {
+            agentActivitySource?.cancel()
+            agentActivitySource = nil
+            agentActivityFileDescriptor = -1
+        }
+
+        private func readAgentActivityEvents() {
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: agentEventFileURL.path),
+                  let fileSize = attributes[.size] as? NSNumber
+            else {
+                return
+            }
+
+            let size = fileSize.uint64Value
+            if size < agentActivityReadOffset {
+                agentActivityReadOffset = 0
+                agentActivityPartialLine = ""
+            }
+            guard size > agentActivityReadOffset else { return }
+
+            do {
+                let handle = try FileHandle(forReadingFrom: agentEventFileURL)
+                try handle.seek(toOffset: agentActivityReadOffset)
+                let data = try handle.readToEnd() ?? Data()
+                try handle.close()
+
+                agentActivityReadOffset += UInt64(data.count)
+                guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else { return }
+                processAgentActivityChunk(chunk)
+            } catch {
+                Ghostty.logger.warning("failed to read agent hook event file: \(error.localizedDescription)")
+            }
+        }
+
+        private func processAgentActivityChunk(_ chunk: String) {
+            let combined = agentActivityPartialLine + chunk
+            var lines = combined.components(separatedBy: .newlines)
+
+            if combined.last?.isNewline == false {
+                agentActivityPartialLine = lines.popLast() ?? ""
+            } else {
+                agentActivityPartialLine = ""
+            }
+
+            for line in lines {
+                processAgentActivityLine(line)
+            }
+        }
+
+        private func processAgentActivityLine(_ line: String) {
+            guard let event = TerminalAgentActivityEvent.parse(jsonLine: line) else { return }
+            guard let nextState = agentActivityReducer.apply(event, expectedSurfaceID: agentSurfaceID) else {
+                return
+            }
+
+            setAgentActivityState(nextState)
+        }
+
+        func acknowledgeSidebarIndicator() {
+            if let nextState = agentActivityReducer.acknowledgeAttention() {
+                setAgentActivityState(nextState)
+            }
+
+            if bell {
+                bell = false
+                notifySidebarMetadataChanged()
+            }
+        }
+
+        private func setAgentActivityState(_ nextState: TerminalAgentActivityState) {
+            let oldState = agentActivityState
+            agentActivityState = nextState
+            scheduleAgentActivityTTLTimer()
+            if oldState != nextState {
+                notifySidebarMetadataChanged()
+            }
+        }
+
+        private func scheduleAgentActivityTTLTimer() {
+            agentActivityTTLTimer?.invalidate()
+            guard case .running = agentActivityState else {
+                agentActivityTTLTimer = nil
+                return
+            }
+
+            agentActivityTTLTimer = Timer.scheduledTimer(
+                withTimeInterval: TerminalAgentActivityReducer.runningTTL,
+                repeats: false
+            ) { [weak self] _ in
+                guard let self else { return }
+                self.agentActivityTTLTimer = nil
+                if let nextState = self.agentActivityReducer.expireRunningState() {
+                    self.setAgentActivityState(nextState)
+                }
+            }
+        }
+
+        private static func agentEventFileURL(surfaceID: String) -> URL {
+            let uid = getuid()
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ghostty-agent-hooks-\(uid)", isDirectory: true)
+            return root.appendingPathComponent("\(surfaceID).jsonl", isDirectory: false)
+        }
+
+        private static var agentHookHelperURL: URL? {
+            guard let resourcesURL = Bundle.main.resourceURL else { return nil }
+            let helperURL = resourcesURL
+                .appendingPathComponent("ghostty", isDirectory: true)
+                .appendingPathComponent("bin", isDirectory: true)
+                .appendingPathComponent("ghostty-agent-hook", isDirectory: false)
+
+            return FileManager.default.isExecutableFile(atPath: helperURL.path) ? helperURL : nil
+        }
+
+        private func notifySidebarMetadataChanged() {
+            NotificationCenter.default.post(
+                name: TerminalWindow.terminalSidebarMetadataDidChangeNotification,
+                object: window
+            )
+        }
+
+        private static func isSidebarProgressActive(_ report: Action.ProgressReport?) -> Bool {
+            guard let report else { return false }
+            return report.state != .remove && report.state != .pause
+        }
+
         // MARK: Local Events
 
         private func localEventHandler(_ event: NSEvent) -> NSEvent? {
@@ -735,6 +1006,11 @@ extension Ghostty {
             ] as? Ghostty.Action.ColorChange else { return }
 
             switch change.kind {
+            case .foreground:
+                DispatchQueue.main.async { [weak self] in
+                    self?.foregroundColor = change.color
+                }
+
             case .background:
                 DispatchQueue.main.async { [weak self] in
                     self?.backgroundColor = change.color
@@ -812,6 +1088,7 @@ extension Ghostty {
 
         override func viewDidChangeBackingProperties() {
             super.viewDidChangeBackingProperties()
+            suppressTerminalActivityBriefly()
 
             // The Core Animation compositing engine uses the layer's contentsScale property
             // to determine whether to scale its contents during compositing. When the window
@@ -1430,6 +1707,9 @@ extension Ghostty {
 
             var key_ev = event.ghosttyKeyEvent(action, translationMods: translationEvent?.modifierFlags)
             key_ev.composing = composing
+            if action == GHOSTTY_ACTION_PRESS || action == GHOSTTY_ACTION_REPEAT {
+                noteUserInputActivity()
+            }
 
             // For text, we only encode UTF8 if we don't have a single control
             // character. Control characters are encoded by Ghostty itself.
@@ -1473,6 +1753,9 @@ extension Ghostty {
             key_ev.mods = GHOSTTY_MODS_NONE
             key_ev.consumed_mods = GHOSTTY_MODS_NONE
             key_ev.unshifted_codepoint = 0
+            if action == GHOSTTY_ACTION_PRESS || action == GHOSTTY_ACTION_REPEAT {
+                noteUserInputActivity()
+            }
 
             return text.withCString { ptr in
                 key_ev.text = ptr
@@ -1770,6 +2053,7 @@ extension Ghostty {
 
         struct DerivedConfig {
             let backgroundColor: Color
+            let foregroundColor: Color
             let backgroundOpacity: Double
             let backgroundBlur: Ghostty.Config.BackgroundBlur
             let macosWindowShadow: Bool
@@ -1779,6 +2063,7 @@ extension Ghostty {
 
             init() {
                 self.backgroundColor = Color(NSColor.windowBackgroundColor)
+                self.foregroundColor = Color(NSColor.labelColor)
                 self.backgroundOpacity = 1
                 self.backgroundBlur = .disabled
                 self.macosWindowShadow = true
@@ -1789,6 +2074,7 @@ extension Ghostty {
 
             init(_ config: Ghostty.Config) {
                 self.backgroundColor = config.backgroundColor
+                self.foregroundColor = config.foregroundColor
                 self.backgroundOpacity = config.backgroundOpacity
                 self.backgroundBlur = config.backgroundBlur
                 self.macosWindowShadow = config.macosWindowShadow

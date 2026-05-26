@@ -608,6 +608,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_PROGRESS_REPORT:
                 progressReport(app, target: target, v: action.action.progress_report)
 
+            case GHOSTTY_ACTION_TERMINAL_ACTIVITY:
+                terminalActivity(app, target: target)
+
             case GHOSTTY_ACTION_CONFIG_CHANGE:
                 configChange(app, target: target, v: action.action.config_change)
 
@@ -2011,6 +2014,27 @@ extension Ghostty {
                     } else {
                         surfaceView.progressReport = progressReport
                     }
+                }
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func terminalActivity(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s
+        ) {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("terminal activity does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                DispatchQueue.main.async {
+                    surfaceView.markTerminalActivity()
                 }
 
             default:

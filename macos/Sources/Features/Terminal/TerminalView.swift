@@ -64,6 +64,10 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
         return URL(fileURLWithPath: surfacePwd)
     }
 
+    private var extendsIntoTitlebar: Bool {
+        ghostty.config.macosTitlebarStyle == .hidden
+    }
+
     var body: some View {
         switch ghostty.readiness {
         case .loading:
@@ -75,7 +79,9 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                 VStack(spacing: 0) {
                     // If we're running in debug mode we show a warning so that users
                     // know that performance will be degraded.
-                    if Ghostty.info.mode == GHOSTTY_BUILD_MODE_DEBUG || Ghostty.info.mode == GHOSTTY_BUILD_MODE_RELEASE_SAFE {
+                    if ghostty.config.macosTitlebarStyle != .sidebar &&
+                        (Ghostty.info.mode == GHOSTTY_BUILD_MODE_DEBUG ||
+                            Ghostty.info.mode == GHOSTTY_BUILD_MODE_RELEASE_SAFE) {
                         DebugBuildWarningView()
                     }
 
@@ -104,8 +110,9 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         .frame(idealWidth: lastFocusedSurface?.value?.initialSize?.width,
                                idealHeight: lastFocusedSurface?.value?.initialSize?.height)
                 }
-                // Ignore safe area to extend up in to the titlebar region if we have the "hidden" titlebar style
-                .ignoresSafeArea(.container, edges: ghostty.config.macosTitlebarStyle == .hidden ? .top : [])
+                // Ignore safe area to extend up in to the titlebar region for
+                // titlebar styles that draw their own top chrome.
+                .ignoresSafeArea(.container, edges: extendsIntoTitlebar ? .top : [])
 
                 if let surfaceView = lastFocusedSurface?.value {
                     TerminalCommandPaletteView(

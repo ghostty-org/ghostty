@@ -1,0 +1,20 @@
+Mosttly
+===============
+
+Mosttly is an unofficial fork of Ghostty:
+
+    https://github.com/ghostty-org/ghostty
+
+It is not affiliated with, endorsed by, or maintained by the Ghostty project.
+
+The original Ghostty source is licensed under the MIT License. See LICENSE for
+the full license text and copyright notice:
+
+    Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors
+
+Additional modifications in this fork are copyrighted by their respective
+contributors and are distributed under the same MIT License unless a file says
+otherwise.
+
+Some vendored or third-party components in this repository may carry their own
+license notices. Those notices remain authoritative for those components.

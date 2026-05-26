@@ -1,25 +1,46 @@
 <!-- LOGO -->
 <h1>
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/fe853809-ba8b-400b-83ab-a9a0da25be8a" alt="Logo" width="128">
-  <br>Ghostty
+  <img src="images/icons/icon_1024.png" alt="Mosttly Ghostty logo" width="128">
+  <br>Mosttly Ghostty
 </h1>
   <p align="center">
-    Fast, native, feature-rich terminal emulator pushing modern features.
+    An unofficial Ghostty fork with sidebar-first tab/session changes.
     <br />
-    A native GUI or embeddable library via <code>libghostty</code>.
+    Built for parallel agentic engineering.
+    <br />
+    Based on Ghostty, a fast native terminal emulator and embeddable <code>libghostty</code> library.
     <br />
     <a href="#about">About</a>
     ·
-    <a href="https://ghostty.org/download">Download</a>
+    <a href="https://github.com/ghostty-org/ghostty">Upstream Ghostty</a>
+    ·
+    <a href="NOTICE">Notice</a>
     ·
     <a href="https://ghostty.org/docs">Documentation</a>
-    ·
-    <a href="CONTRIBUTING.md">Contributing</a>
     ·
     <a href="HACKING.md">Developing</a>
   </p>
 </p>
+
+## Fork Notice
+
+Mosttly Ghostty is an unofficial fork of
+[Ghostty](https://github.com/ghostty-org/ghostty). It is not affiliated with,
+endorsed by, or maintained by the Ghostty project.
+
+The original Ghostty source is licensed under the MIT License. See
+[LICENSE](LICENSE) and [NOTICE](NOTICE). Upstream documentation at
+[ghostty.org/docs](https://ghostty.org/docs) generally applies, but this fork
+may differ where sidebar tabs/sessions and local distribution behavior have
+been changed.
+
+## Sidebar Agent Statuses
+
+Sidebar agent status indicators are currently supported automatically for
+Claude Code and Codex. Other CLIs can use the same underlying hook event
+pipeline, but they do not have built-in integration yet. Support for the X.ai
+CLI and Gemini CLI is in progress.
 
 ## About
 

@@ -40,6 +40,7 @@ pub const getEnvMap = env.getEnvMap;
 pub const appendEnv = env.appendEnv;
 pub const appendEnvAlways = env.appendEnvAlways;
 pub const prependEnv = env.prependEnv;
+pub const prependEnvDedup = env.prependEnvDedup;
 pub const getenv = env.getenv;
 pub const setenv = env.setenv;
 pub const unsetenv = env.unsetenv;

@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# Ghostty Claude Code wrapper. It injects lifecycle hooks only inside
+# Ghostty-created terminals, then execs the real Claude binary.
+
+find_real_claude() {
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+
+    local IFS=:
+    for dir in $PATH; do
+        [[ -z "$dir" ]] && continue
+        [[ "$dir" == "$self_dir" ]] && continue
+        [[ -x "$dir/claude" ]] || continue
+        if [[ ! "$dir/claude" -ef "$0" ]] && ! claude_candidate_is_known_wrapper "$dir/claude"; then
+            printf '%s' "$dir/claude"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+claude_candidate_is_known_wrapper() {
+    local candidate="$1"
+    LC_ALL=C grep -q \
+        -e 'Ghostty Claude Code wrapper' \
+        -e 'cmux claude wrapper' \
+        "$candidate" 2>/dev/null
+}
+
+exec_real_claude() {
+    exec "$REAL_CLAUDE" "$@"
+}
+
+claude_option_consumes_value() {
+    case "$1" in
+        --add-dir|--agent|--agents|--allowedTools|--allowed-tools|\
+        --append-system-prompt|--betas|--debug-file|--disallowedTools|\
+        --disallowed-tools|--effort|--fallback-model|--file|\
+        --input-format|--json-schema|--max-budget-usd|--mcp-config|\
+        --model|-m|-n|--name|--output-format|--permission-mode|--plugin-dir|\
+        --plugin-url|--remote-control-session-name-prefix|--setting-sources|\
+        --settings|--system-prompt|--tools)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+claude_interactive_entry_flag() {
+    case "$1" in
+        --print|--print=*|-p|--resume|--resume=*|-r|--continue|-c|\
+        --session-id|--session-id=*|--remote-control|--remote-control=*|\
+        --from-pr|--from-pr=*|--worktree|--worktree=*|-w|-w=*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+claude_passthrough_option_flag() {
+    case "$1" in
+        --help|-h|--version|-v)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+claude_builtin_command_name() {
+    case "$1" in
+        agents|auth|auto-mode|config|api-key|daemon|doctor|install|mcp|\
+        experimental-next|plugin|plugins|project|rc|remote-control|setup-token|\
+        ultrareview|update|upgrade)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+claude_command_like_invocation() {
+    local candidate="$1"
+    [[ -n "$candidate" ]] || return 1
+    case "$candidate" in
+        *[![:alnum:]_-]*)
+            return 1
+            ;;
+    esac
+    claude_builtin_command_name "$candidate"
+}
+
+should_inject_claude_hooks() {
+    (( $# == 0 )) && return 0
+
+    local arg
+    local skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+
+        case "$arg" in
+            --)
+                return 0
+                ;;
+            -*)
+                if claude_passthrough_option_flag "$arg"; then
+                    return 1
+                fi
+                if claude_interactive_entry_flag "$arg"; then
+                    return 0
+                fi
+                if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                continue
+                ;;
+            *)
+                if claude_command_like_invocation "$arg"; then
+                    return 1
+                fi
+                return 0
+                ;;
+        esac
+    done
+
+    return 0
+}
+
+REAL_CLAUDE="$(find_real_claude)" || {
+    echo "Error: claude not found in PATH" >&2
+    exit 127
+}
+
+if [[ -z "${GHOSTTY_AGENT_SURFACE_ID:-}" || "${GHOSTTY_AGENT_HOOKS_DISABLED:-0}" == "1" ]]; then
+    exec_real_claude "$@"
+fi
+
+if [[ -z "${GHOSTTY_AGENT_HOOK_HELPER:-}" && -z "$(command -v ghostty-agent-hook 2>/dev/null || true)" ]]; then
+    exec_real_claude "$@"
+fi
+
+if ! should_inject_claude_hooks "$@"; then
+    exec_real_claude "$@"
+fi
+
+SKIP_SESSION_ID=false
+for arg in "$@"; do
+    case "$arg" in
+        --resume|--resume=*|-r|--session-id|--session-id=*|--continue|-c)
+            SKIP_SESSION_ID=true
+            break
+            ;;
+    esac
+done
+
+unset CLAUDECODE
+export GHOSTTY_AGENT_PID=$$
+
+HOOK_COMMAND_PREFIX='ghostty_hook=\"${GHOSTTY_AGENT_HOOK_HELPER:-$(command -v ghostty-agent-hook 2>/dev/null || true)}\"; if [ -n \"${GHOSTTY_AGENT_SURFACE_ID:-}\" ] && [ -n \"$ghostty_hook\" ]; then \"$ghostty_hook\" claude '
+HOOK_COMMAND_SUFFIX='; else printf \"%s\\n\" \"{}\"; fi'
+
+HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"'"$HOOK_COMMAND_PREFIX"'session-start'"$HOOK_COMMAND_SUFFIX"'","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"'"$HOOK_COMMAND_PREFIX"'prompt-submit'"$HOOK_COMMAND_SUFFIX"'","timeout":10}]}],"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"'"$HOOK_COMMAND_PREFIX"'pre-tool-use'"$HOOK_COMMAND_SUFFIX"'","timeout":5,"async":true}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"'"$HOOK_COMMAND_PREFIX"'notification'"$HOOK_COMMAND_SUFFIX"'","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"'"$HOOK_COMMAND_PREFIX"'stop'"$HOOK_COMMAND_SUFFIX"'","timeout":10}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"'"$HOOK_COMMAND_PREFIX"'session-end'"$HOOK_COMMAND_SUFFIX"'","timeout":1}]}]}}'
+
+if [[ "$SKIP_SESSION_ID" == true ]]; then
+    exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
+else
+    SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+    exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
+fi

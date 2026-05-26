@@ -90,15 +90,16 @@ struct ConfigTests {
 
     // MARK: - Enum Properties
 
-    @Test func macosTitlebarStyleDefaultsToTransparent() throws {
+    @Test func macosTitlebarStyleDefaultsToSidebar() throws {
         let config = try TemporaryConfig("")
-        #expect(config.macosTitlebarStyle == .transparent)
+        #expect(config.macosTitlebarStyle == .sidebar)
     }
 
     @Test(arguments: [
         ("native", Ghostty.Config.MacOSTitlebarStyle.native),
         ("transparent", Ghostty.Config.MacOSTitlebarStyle.transparent),
         ("tabs", Ghostty.Config.MacOSTitlebarStyle.tabs),
+        ("sidebar", Ghostty.Config.MacOSTitlebarStyle.sidebar),
         ("hidden", Ghostty.Config.MacOSTitlebarStyle.hidden),
     ])
     func macosTitlebarStyleValues(raw: String, expected: Ghostty.Config.MacOSTitlebarStyle) throws {
@@ -243,6 +244,12 @@ struct ConfigTests {
         let config = try TemporaryConfig("")
         let newWindow = try #require(config.keyboardShortcut(for: "new_window"))
         #expect(newWindow == .init("n", modifiers: [.command]))
+        let newTab = try #require(config.keyboardShortcut(for: "new_tab"))
+        #expect(newTab == .init("t", modifiers: [.command]))
+        let splitRight = try #require(config.keyboardShortcut(for: "new_split:right"))
+        #expect(splitRight == .init("d", modifiers: [.command]))
+        let splitDown = try #require(config.keyboardShortcut(for: "new_split:down"))
+        #expect(splitDown == .init("d", modifiers: [.shift, .command]))
         let gotoToNextSplit = try #require(config.keyboardShortcut(for: "goto_split:next"))
         #expect(gotoToNextSplit == .init("]", modifiers: [.command]))
     }

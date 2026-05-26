@@ -95,12 +95,54 @@
           "fill" : "automatic",
           "hidden" : false,
           "image-name" : "Ghostty.png",
-          "name" : "Ghostty",
+          "name" : "Ghostty Top Left",
           "position" : {
-            "scale" : 1,
+            "scale" : 0.7,
             "translation-in-points" : [
-              -185.015625,
-              -143.8359375
+              -197.0,
+              -212.0
+            ]
+          }
+        },
+        {
+          "blend-mode" : "normal",
+          "fill" : "automatic",
+          "hidden" : false,
+          "image-name" : "Ghostty.png",
+          "name" : "Ghostty Top Right",
+          "position" : {
+            "scale" : 0.7,
+            "translation-in-points" : [
+              198.0,
+              -212.0
+            ]
+          }
+        },
+        {
+          "blend-mode" : "normal",
+          "fill" : "automatic",
+          "hidden" : false,
+          "image-name" : "Ghostty.png",
+          "name" : "Ghostty Bottom Left",
+          "position" : {
+            "scale" : 0.7,
+            "translation-in-points" : [
+              -197.0,
+              188.0
+            ]
+          }
+        },
+        {
+          "blend-mode" : "normal",
+          "fill" : "automatic",
+          "hidden" : false,
+          "image-name" : "Ghostty.png",
+          "name" : "Ghostty Bottom Right",
+          "position" : {
+            "scale" : 0.7,
+            "translation-in-points" : [
+              198.0,
+              188.0
             ]
           }
         },
@@ -112,12 +154,63 @@
           "glass" : true,
           "hidden" : false,
           "image-name" : "Ghostty.png",
-          "name" : "GhosttyBlur",
+          "name" : "GhosttyBlur Top Left",
           "position" : {
-            "scale" : 1,
+            "scale" : 0.7,
             "translation-in-points" : [
-              -186.59375,
-              -143.8359375
+              -198.578125,
+              -212.0
+            ]
+          }
+        },
+        {
+          "blend-mode" : "normal",
+          "fill" : {
+            "solid" : "extended-srgb:0.00000,0.47843,1.00000,1.00000"
+          },
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "Ghostty.png",
+          "name" : "GhosttyBlur Top Right",
+          "position" : {
+            "scale" : 0.7,
+            "translation-in-points" : [
+              196.421875,
+              -212.0
+            ]
+          }
+        },
+        {
+          "blend-mode" : "normal",
+          "fill" : {
+            "solid" : "extended-srgb:0.00000,0.47843,1.00000,1.00000"
+          },
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "Ghostty.png",
+          "name" : "GhosttyBlur Bottom Left",
+          "position" : {
+            "scale" : 0.7,
+            "translation-in-points" : [
+              -198.578125,
+              188.0
+            ]
+          }
+        },
+        {
+          "blend-mode" : "normal",
+          "fill" : {
+            "solid" : "extended-srgb:0.00000,0.47843,1.00000,1.00000"
+          },
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "Ghostty.png",
+          "name" : "GhosttyBlur Bottom Right",
+          "position" : {
+            "scale" : 0.7,
+            "translation-in-points" : [
+              196.421875,
+              188.0
             ]
           }
         },

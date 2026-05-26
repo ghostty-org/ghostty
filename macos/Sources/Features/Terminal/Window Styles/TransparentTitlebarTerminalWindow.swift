@@ -93,7 +93,8 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
             // Only apply this for transparent and tabs titlebar styles
             let isGlassStyle = derivedConfig.backgroundBlur.isGlassStyle
             let isTransparentTitlebar = derivedConfig.macosTitlebarStyle == .transparent ||
-            derivedConfig.macosTitlebarStyle == .tabs
+                derivedConfig.macosTitlebarStyle == .tabs ||
+                derivedConfig.macosTitlebarStyle == .sidebar
 
             titlebarView.layer?.backgroundColor = (isGlassStyle && isTransparentTitlebar)
                 ? NSColor.clear.cgColor

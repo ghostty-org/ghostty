@@ -86,6 +86,34 @@ if [[ "$GHOSTTY_SHELL_FEATURES" == *"path"* && -n "$GHOSTTY_BIN_DIR" ]]; then
   fi
 fi
 
+# Keep Ghostty's agent hook shims ahead of user PATH changes. This must run
+# from shell integration because startup files may rewrite PATH after the
+# terminal process has already injected the environment.
+if [[ -n "${GHOSTTY_AGENT_HOOK_HELPER:-}" && "${GHOSTTY_AGENT_HOOKS_DISABLED:-0}" != "1" ]]; then
+  _ghostty_prepend_agent_hook_path() {
+    local helper_dir="${GHOSTTY_AGENT_HOOK_HELPER%/*}"
+    local old_path="$PATH"
+    local new_path="$helper_dir"
+    local entry
+
+    while [[ -n "$old_path" ]]; do
+      entry="${old_path%%:*}"
+      if [[ "$old_path" == "$entry" ]]; then
+        old_path=""
+      else
+        old_path="${old_path#*:}"
+      fi
+
+      [[ -z "$entry" || "$entry" == "$helper_dir" ]] && continue
+      new_path="$new_path:$entry"
+    done
+
+    export PATH="$new_path"
+  }
+  _ghostty_prepend_agent_hook_path
+  unset -f _ghostty_prepend_agent_hook_path
+fi
+
 # Sudo
 if [[ "$GHOSTTY_SHELL_FEATURES" == *"sudo"* && -n "$TERMINFO" ]]; then
   # Wrap `sudo` command to ensure Ghostty terminfo is preserved.

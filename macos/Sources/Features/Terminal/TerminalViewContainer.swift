@@ -5,6 +5,12 @@ import SwiftUI
 /// Modifying `NSThemeFrame` can sometimes be unpredictable.
 class TerminalViewContainer: NSView {
     private let terminalView: NSView
+    private var sidebarView: NSView?
+    private var sidebarWidth: CGFloat = 0
+    private var sidebarWidthConstraint: NSLayoutConstraint?
+    private var terminalLeadingConstraint: NSLayoutConstraint?
+    private var terminalLeadingSidebarConstraint: NSLayoutConstraint?
+    private var sidebarResizeHandle: SidebarResizeHandle?
 
     /// Combined glass effect and inactive tint overlay view
     private(set) var glassEffectView: NSView?
@@ -20,6 +26,13 @@ class TerminalViewContainer: NSView {
         }
 
         return window.value(forKey: "_cornerRadius") as? CGFloat
+    }
+
+    var currentSidebarWidth: CGFloat {
+        guard sidebarView != nil else { return 0 }
+
+        let layoutWidth = sidebarView?.frame.width ?? 0
+        return layoutWidth > 0 ? layoutWidth : sidebarWidth
     }
 
     init<Root: View>(@ViewBuilder rootView: () -> Root) {
@@ -45,22 +58,138 @@ class TerminalViewContainer: NSView {
         // with the correct idealWidth/idealHeight. Before that (when
         // @FocusedValue hasn't propagated), it returns a tiny default.
         // Fall back to initialContentSize in that case.
+        let terminalSize: NSSize
         if let initialContentSize,
            hostingSize.width < initialContentSize.width || hostingSize.height < initialContentSize.height {
-            return initialContentSize
+            terminalSize = initialContentSize
+        } else {
+            terminalSize = hostingSize
         }
-        return hostingSize
+
+        return NSSize(
+            width: terminalSize.width + sidebarWidth,
+            height: terminalSize.height)
     }
 
     private func setup() {
         addSubview(terminalView)
         terminalView.translatesAutoresizingMaskIntoConstraints = false
+        let leadingConstraint = terminalView.leadingAnchor.constraint(equalTo: leadingAnchor)
+        terminalLeadingConstraint = leadingConstraint
         NSLayoutConstraint.activate([
             terminalView.topAnchor.constraint(equalTo: topAnchor),
-            terminalView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            leadingConstraint,
             terminalView.bottomAnchor.constraint(equalTo: bottomAnchor),
             terminalView.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
+    }
+
+    func installSidebar(_ sidebar: NSView, width: CGFloat) {
+        guard sidebarView !== sidebar else {
+            setSidebarWidth(width, propagateToTabGroup: false)
+            syncSidebarTitlebarWidth()
+            return
+        }
+
+        sidebarView?.removeFromSuperview()
+        sidebarResizeHandle?.removeFromSuperview()
+        sidebarView = sidebar
+        setSidebarWidth(width, propagateToTabGroup: false)
+
+        addSubview(sidebar)
+        sidebar.translatesAutoresizingMaskIntoConstraints = false
+        terminalLeadingConstraint?.isActive = false
+        let terminalToSidebar = terminalView.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor)
+        let widthConstraint = sidebar.widthAnchor.constraint(equalToConstant: sidebarWidth)
+        terminalLeadingSidebarConstraint = terminalToSidebar
+        sidebarWidthConstraint = widthConstraint
+
+        NSLayoutConstraint.activate([
+            sidebar.leadingAnchor.constraint(equalTo: leadingAnchor),
+            sidebar.topAnchor.constraint(equalTo: topAnchor),
+            sidebar.bottomAnchor.constraint(equalTo: bottomAnchor),
+            widthConstraint,
+            sidebar.widthAnchor.constraint(greaterThanOrEqualToConstant: TerminalSidebarController.minWidth),
+            sidebar.widthAnchor.constraint(lessThanOrEqualToConstant: TerminalSidebarController.maxWidth),
+            terminalToSidebar,
+        ])
+
+        let resizeHandle = SidebarResizeHandle(container: self)
+        sidebarResizeHandle = resizeHandle
+        addSubview(resizeHandle, positioned: .above, relativeTo: sidebar)
+        NSLayoutConstraint.activate([
+            resizeHandle.centerXAnchor.constraint(equalTo: sidebar.trailingAnchor),
+            resizeHandle.topAnchor.constraint(equalTo: topAnchor),
+            resizeHandle.bottomAnchor.constraint(equalTo: bottomAnchor),
+            resizeHandle.widthAnchor.constraint(equalToConstant: 8),
+        ])
+
+        invalidateIntrinsicContentSize()
+        syncSidebarTitlebarWidth()
+    }
+
+    func removeSidebar() {
+        guard let sidebarView else { return }
+
+        sidebarView.removeFromSuperview()
+        sidebarResizeHandle?.removeFromSuperview()
+        self.sidebarView = nil
+        sidebarResizeHandle = nil
+        sidebarWidth = 0
+        sidebarWidthConstraint = nil
+        terminalLeadingSidebarConstraint?.isActive = false
+        terminalLeadingSidebarConstraint = nil
+        terminalLeadingConstraint?.isActive = true
+
+        invalidateIntrinsicContentSize()
+        (window as? TerminalWindow)?.removeSidebarTitlebarBackground()
+    }
+
+    fileprivate func resizeSidebar(by deltaX: CGFloat) {
+        setSidebarWidth(sidebarWidth + deltaX, propagateToTabGroup: true)
+        sidebarWidthConstraint?.constant = sidebarWidth
+        layoutSubtreeIfNeeded()
+    }
+
+    func resizeSidebarFromTitlebar(by deltaX: CGFloat) {
+        resizeSidebar(by: deltaX)
+    }
+
+    func syncSidebarTitlebarWidth() {
+        guard sidebarView != nil else { return }
+
+        let width = clampedSidebarWidth(currentSidebarWidth)
+        (window as? TerminalWindow)?.setSidebarTitlebarWidth(width)
+    }
+
+    private func setSidebarWidth(_ width: CGFloat, propagateToTabGroup: Bool) {
+        sidebarWidth = clampedSidebarWidth(width)
+        TerminalSidebarController.setPreferredWidth(sidebarWidth)
+        sidebarWidthConstraint?.constant = sidebarWidth
+        invalidateIntrinsicContentSize()
+        (window as? TerminalWindow)?.setSidebarTitlebarWidth(sidebarWidth)
+
+        if propagateToTabGroup {
+            syncSidebarWidthAcrossTabGroup()
+        }
+    }
+
+    private func clampedSidebarWidth(_ width: CGFloat) -> CGFloat {
+        min(
+            max(width, TerminalSidebarController.minWidth),
+            TerminalSidebarController.maxWidth)
+    }
+
+    private func syncSidebarWidthAcrossTabGroup() {
+        guard let windows = window?.tabGroup?.windows else { return }
+
+        for window in windows where window.contentView !== self {
+            guard let container = window.contentView as? TerminalViewContainer else {
+                continue
+            }
+
+            container.setSidebarWidth(sidebarWidth, propagateToTabGroup: false)
+        }
     }
 
     override func viewDidMoveToWindow() {
@@ -69,9 +198,21 @@ class TerminalViewContainer: NSView {
         updateGlassEffectTopInsetIfNeeded()
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let sidebarResizeHandle {
+            let handlePoint = convert(point, to: sidebarResizeHandle)
+            if sidebarResizeHandle.bounds.contains(handlePoint) {
+                return sidebarResizeHandle
+            }
+        }
+
+        return super.hitTest(point)
+    }
+
     override func layout() {
         super.layout()
         updateGlassEffectTopInsetIfNeeded()
+        syncSidebarTitlebarWidth()
     }
 
     func ghosttyConfigDidChange(_ config: Ghostty.Config, preferredBackgroundColor: NSColor?) {
@@ -87,6 +228,45 @@ class TerminalViewContainer: NSView {
 extension BaseTerminalController {
     var terminalViewContainer: TerminalViewContainer? {
         window?.contentView as? TerminalViewContainer
+    }
+}
+
+private final class SidebarResizeHandle: NSView {
+    private weak var container: TerminalViewContainer?
+    private var lastMouseX: CGFloat?
+
+    init(container: TerminalViewContainer) {
+        self.container = container
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeLeftRight)
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        lastMouseX = event.locationInWindow.x
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let currentX = event.locationInWindow.x
+        let previousX = lastMouseX ?? currentX
+        lastMouseX = currentX
+        container?.resizeSidebar(by: currentX - previousX)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        lastMouseX = nil
     }
 }
 

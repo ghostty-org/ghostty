@@ -22,6 +22,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         case .native: "Terminal"
         case .hidden: "TerminalHiddenTitlebar"
         case .transparent: "TerminalTransparentTitlebar"
+        case .sidebar: "TerminalTransparentTitlebar"
         case .tabs:
 #if compiler(>=6.2)
             if #available(macOS 26.0, *) {
@@ -433,6 +434,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let controller = TerminalController.init(ghostty, withBaseConfig: baseConfig)
         controller.isBackgroundOpaque = parentController.isBackgroundOpaque
         guard let window = controller.window else { return controller }
+        if let parentWindow = parent as? TerminalWindow,
+           let newWindow = window as? TerminalWindow,
+           parentWindow.isSidebarCollapsed {
+            newWindow.setSidebarCollapsed(true, propagateToTabGroup: false)
+        }
 
         // If the parent is miniaturized, then macOS exhibits really strange behaviors
         // so we have to bring it back out.
@@ -1089,6 +1095,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         container.initialContentSize = focusedSurface?.initialSize
 
         window.contentView = container
+        (window as? TerminalWindow)?.installSidebarIfNeeded()
 
         // If we have a default size, we want to apply it.
         if let defaultSize {
@@ -1413,6 +1420,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             .sink { [weak self, weak focusedSurface] _ in self?.syncAppearanceOnPropertyChange(focusedSurface) }
             .store(in: &surfaceAppearanceCancellables)
         focusedSurface.$backgroundColor
+            .sink { [weak self, weak focusedSurface] _ in self?.syncAppearanceOnPropertyChange(focusedSurface) }
+            .store(in: &surfaceAppearanceCancellables)
+        focusedSurface.$foregroundColor
             .sink { [weak self, weak focusedSurface] _ in self?.syncAppearanceOnPropertyChange(focusedSurface) }
             .store(in: &surfaceAppearanceCancellables)
     }

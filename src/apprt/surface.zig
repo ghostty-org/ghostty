@@ -91,6 +91,9 @@ pub const Message = union(enum) {
     /// Report the progress of an action using a GUI element
     progress_report: terminal.osc.Command.ProgressReport,
 
+    /// Terminal output was received for this surface.
+    terminal_activity,
+
     /// A command has started in the shell, start a timer.
     start_command,
 

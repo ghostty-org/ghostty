@@ -62,6 +62,32 @@ pub fn prependEnv(
     });
 }
 
+/// Prepend a value and remove any existing exact occurrences later in the
+/// variable. This is useful for PATH-like variables where precedence matters.
+/// The returned value is always allocated so it must be freed.
+pub fn prependEnvDedup(
+    alloc: Allocator,
+    current: []const u8,
+    value: []const u8,
+) Error![]u8 {
+    if (current.len == 0) return try alloc.dupe(u8, value);
+
+    var result: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer result.deinit(alloc);
+
+    try result.appendSlice(alloc, value);
+
+    var it = std.mem.tokenizeScalar(u8, current, std.fs.path.delimiter);
+    while (it.next()) |entry| {
+        if (std.mem.eql(u8, entry, value)) continue;
+
+        try result.append(alloc, std.fs.path.delimiter);
+        try result.appendSlice(alloc, entry);
+    }
+
+    return try result.toOwnedSlice(alloc);
+}
+
 /// The result of getenv, with a shared deinit to properly handle allocation
 /// on Windows.
 pub const GetEnvResult = struct {
@@ -175,4 +201,27 @@ test "prependEnv existing" {
     } else {
         try testing.expectEqualStrings(result, "foo:a:b");
     }
+}
+
+test "prependEnvDedup existing" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const current = try std.fmt.allocPrint(alloc, "a{c}foo{c}b{c}foo", .{
+        std.fs.path.delimiter,
+        std.fs.path.delimiter,
+        std.fs.path.delimiter,
+    });
+    defer alloc.free(current);
+
+    const result = try prependEnvDedup(alloc, current, "foo");
+    defer alloc.free(result);
+
+    const expected = try std.fmt.allocPrint(alloc, "foo{c}a{c}b", .{
+        std.fs.path.delimiter,
+        std.fs.path.delimiter,
+    });
+    defer alloc.free(expected);
+
+    try testing.expectEqualStrings(result, expected);
 }

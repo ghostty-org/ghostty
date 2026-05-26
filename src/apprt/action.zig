@@ -315,6 +315,9 @@ pub const Action = union(Key) {
     /// Show a native GUI notification about the progress of some TUI operation.
     progress_report: terminal.osc.Command.ProgressReport,
 
+    /// Terminal output was received for the surface.
+    terminal_activity,
+
     /// Show the on-screen keyboard.
     show_on_screen_keyboard,
 
@@ -402,6 +405,7 @@ pub const Action = union(Key) {
         open_url,
         show_child_exited,
         progress_report,
+        terminal_activity,
         show_on_screen_keyboard,
         command_finished,
         start_search,

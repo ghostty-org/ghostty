@@ -1145,6 +1145,16 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             };
         },
 
+        .terminal_activity => {
+            _ = self.rt_app.performAction(
+                .{ .surface = self },
+                .terminal_activity,
+                {},
+            ) catch |err| {
+                log.warn("apprt failed to report terminal activity err={}", .{err});
+            };
+        },
+
         .selection_scroll_tick => |active| {
             self.selection_scroll_active = active;
             try self.selectionScrollTick();

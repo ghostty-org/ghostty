@@ -2121,8 +2121,9 @@ keybind: Keybinds = .{},
 ///   * `ghostty` - Use the background and foreground colors specified in the
 ///     Ghostty configuration. This is only supported on Linux builds.
 ///
-/// On macOS, if `macos-titlebar-style` is `tabs` or `transparent`, the window theme will be
-/// automatically set based on the luminosity of the terminal background color.
+/// On macOS, if `macos-titlebar-style` is `tabs`, `sidebar`, or `transparent`,
+/// the window theme will be automatically set based on the luminosity of the
+/// terminal background color.
 /// This only applies to terminal windows. This setting will still apply to
 /// non-terminal windows within Ghostty.
 ///
@@ -3219,7 +3220,7 @@ keybind: Keybinds = .{},
 @"macos-window-buttons": MacWindowButtons = .visible,
 
 /// The style of the macOS titlebar. Available values are: "native",
-/// "transparent", "tabs", and "hidden".
+/// "transparent", "tabs", "sidebar", and "hidden".
 ///
 /// The "native" style uses the native macOS titlebar with zero customization.
 /// The titlebar will match your window theme (see `window-theme`).
@@ -3243,6 +3244,10 @@ keybind: Keybinds = .{},
 /// macOS 14 does not have this issue and any other macOS version has not
 /// been tested.
 ///
+/// The "sidebar" style uses native macOS tab groups but hides the system tab
+/// bar and shows a lightweight vertical session sidebar beside the terminal
+/// content.
+///
 /// The "hidden" style hides the titlebar. Unlike `window-decoration = none`,
 /// however, it does not remove the frame from the window or cause it to have
 /// squared corners. Changing to or from this option at run-time may affect
@@ -3253,12 +3258,10 @@ keybind: Keybinds = .{},
 /// areas of the frame to drag the window. This is a standard macOS behavior
 /// and not something Ghostty enables.
 ///
-/// The default value is "transparent". This is an opinionated choice
-/// but its one I think is the most aesthetically pleasing and works in
-/// most cases.
+/// The default value is "sidebar" for this fork.
 ///
 /// Changing this option at runtime only applies to new windows.
-@"macos-titlebar-style": MacTitlebarStyle = .transparent,
+@"macos-titlebar-style": MacTitlebarStyle = .sidebar,
 
 /// Whether the proxy icon in the macOS titlebar is visible. The proxy icon
 /// is the icon that represents the folder of the current working directory.
@@ -8995,6 +8998,7 @@ pub const MacTitlebarStyle = enum {
     native,
     transparent,
     tabs,
+    sidebar,
     hidden,
 };
 

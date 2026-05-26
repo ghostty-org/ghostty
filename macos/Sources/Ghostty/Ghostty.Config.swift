@@ -359,7 +359,7 @@ extension Ghostty {
         }
 
         var macosTitlebarStyle: MacOSTitlebarStyle {
-            let defaultValue = MacOSTitlebarStyle.transparent
+            let defaultValue = MacOSTitlebarStyle.sidebar
             guard let config = self.config else { return defaultValue }
             var v: UnsafePointer<Int8>?
             let key = "macos-titlebar-style"
@@ -479,6 +479,26 @@ extension Ghostty {
                 return Color(NSColor.windowBackgroundColor)
 #elseif os(iOS)
                 return Color(UIColor.systemBackground)
+#else
+#error("unsupported")
+#endif
+            }
+
+            return .init(
+                red: Double(color.r) / 255,
+                green: Double(color.g) / 255,
+                blue: Double(color.b) / 255
+            )
+        }
+
+        var foregroundColor: Color {
+            var color: ghostty_config_color_s = .init()
+            let key = "foreground"
+            if !ghostty_config_get(config, &color, key, UInt(key.lengthOfBytes(using: .utf8))) {
+#if os(macOS)
+                return Color(NSColor.labelColor)
+#elseif os(iOS)
+                return Color(UIColor.label)
 #else
 #error("unsupported")
 #endif
@@ -930,7 +950,7 @@ extension Ghostty.Config {
     }
 
     enum MacOSTitlebarStyle: String {
-        static let `default` = MacOSTitlebarStyle.transparent
-        case native, transparent, tabs, hidden
+        static let `default` = MacOSTitlebarStyle.sidebar
+        case native, transparent, tabs, sidebar, hidden
     }
 }

@@ -82,6 +82,9 @@ pub const StreamHandler = struct {
     /// this to determine if we need to default the window title.
     seen_title: bool = false,
 
+    /// Last time we reported terminal output activity to the apprt.
+    last_terminal_activity: ?std.time.Instant = null,
+
     pub const Stream = terminal.Stream(StreamHandler);
 
     /// True if we have tmux control mode built in.
@@ -103,6 +106,21 @@ pub const StreamHandler = struct {
     /// practical.
     pub inline fn queueRender(self: *StreamHandler) !void {
         try self.renderer_wakeup.notify();
+    }
+
+    /// Reports terminal output activity to the surface, throttled so high
+    /// throughput commands don't spam the app runtime.
+    pub fn terminalActivityUnlocked(self: *StreamHandler, now: std.time.Instant) void {
+        const min_interval = 250 * std.time.ns_per_ms;
+        if (self.last_terminal_activity) |last| {
+            if (now.since(last) < min_interval) return;
+        }
+
+        self.last_terminal_activity = now;
+        const msg: apprt.surface.Message = .terminal_activity;
+        if (self.surface_mailbox.push(msg, .{ .instant = {} }) == 0) {
+            _ = self.surface_mailbox.push(msg, .{ .forever = {} });
+        }
     }
 
     /// Change the configuration for this handler.
