@@ -65,79 +65,64 @@ pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
 pkg_check_modules(XKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
 find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
 
-# Generate client glue for the org_kde_kwin_blur protocol.
-set(BLUR_XML "${CMAKE_CURRENT_SOURCE_DIR}/protocols/blur.xml")
-set(BLUR_HEADER "${CMAKE_CURRENT_BINARY_DIR}/blur-client-protocol.h")
-set(BLUR_CODE "${CMAKE_CURRENT_BINARY_DIR}/blur-protocol.c")
-add_custom_command(OUTPUT "${BLUR_HEADER}"
-  COMMAND "${WAYLAND_SCANNER}" client-header "${BLUR_XML}" "${BLUR_HEADER}"
-  DEPENDS "${BLUR_XML}" VERBATIM)
-add_custom_command(OUTPUT "${BLUR_CODE}"
-  COMMAND "${WAYLAND_SCANNER}" private-code "${BLUR_XML}" "${BLUR_CODE}"
-  DEPENDS "${BLUR_XML}" VERBATIM)
+# `ghastty_wayland_protocol(<basename> <header_var> <code_var>)` —
+# Generates `<basename>-client-protocol.h` + `<basename>-protocol.c`
+# in `CMAKE_CURRENT_BINARY_DIR` from `protocols/<basename>.xml` via
+# `wayland-scanner`. Sets `<header_var>` and `<code_var>` in the
+# caller's scope to the generated paths so the caller can hand them
+# to `add_executable`'s source list.
+#
+# Each `add_custom_command` is independent — the `private-code`
+# output `#include`s the `client-header` output, but CMake creates
+# the dependency at target-source-list time when both files appear
+# in `add_executable`. Mirrors the pre-collapse pattern (two custom
+# commands per protocol) — only the boilerplate is gone.
+function(ghastty_wayland_protocol basename header_var code_var)
+  set(xml "${CMAKE_CURRENT_SOURCE_DIR}/protocols/${basename}.xml")
+  set(hdr "${CMAKE_CURRENT_BINARY_DIR}/${basename}-client-protocol.h")
+  set(src "${CMAKE_CURRENT_BINARY_DIR}/${basename}-protocol.c")
+  add_custom_command(OUTPUT "${hdr}"
+    COMMAND "${WAYLAND_SCANNER}" client-header "${xml}" "${hdr}"
+    DEPENDS "${xml}" VERBATIM)
+  add_custom_command(OUTPUT "${src}"
+    COMMAND "${WAYLAND_SCANNER}" private-code "${xml}" "${src}"
+    DEPENDS "${xml}" VERBATIM)
+  set("${header_var}" "${hdr}" PARENT_SCOPE)
+  set("${code_var}" "${src}" PARENT_SCOPE)
+endfunction()
 
-# Generate client glue for the linux-dmabuf-v1 protocol (used by the
-# Vulkan present path: wrap libghostty's dmabuf fd in a wl_buffer and
-# attach it to the wayland::SubsurfacePresenter's wl_surface). Vendored
-# in qt/protocols/ so the build doesn't depend on
-# /usr/share/wayland-protocols being installed.
-set(DMABUF_XML "${CMAKE_CURRENT_SOURCE_DIR}/protocols/linux-dmabuf-v1.xml")
-set(DMABUF_HEADER "${CMAKE_CURRENT_BINARY_DIR}/linux-dmabuf-v1-client-protocol.h")
-set(DMABUF_CODE "${CMAKE_CURRENT_BINARY_DIR}/linux-dmabuf-v1-protocol.c")
-add_custom_command(OUTPUT "${DMABUF_HEADER}"
-  COMMAND "${WAYLAND_SCANNER}" client-header "${DMABUF_XML}" "${DMABUF_HEADER}"
-  DEPENDS "${DMABUF_XML}" VERBATIM)
-add_custom_command(OUTPUT "${DMABUF_CODE}"
-  COMMAND "${WAYLAND_SCANNER}" private-code "${DMABUF_XML}" "${DMABUF_CODE}"
-  DEPENDS "${DMABUF_XML}" VERBATIM)
-
-# wp_viewporter — lets the presenter set a destination size in
-# surface-local coords, decoupling the buffer's pixel dimensions
-# from how big the subsurface appears on screen. Needed for
-# fractional scaling.
-set(VIEWPORTER_XML "${CMAKE_CURRENT_SOURCE_DIR}/protocols/viewporter.xml")
-set(VIEWPORTER_HEADER "${CMAKE_CURRENT_BINARY_DIR}/viewporter-client-protocol.h")
-set(VIEWPORTER_CODE "${CMAKE_CURRENT_BINARY_DIR}/viewporter-protocol.c")
-add_custom_command(OUTPUT "${VIEWPORTER_HEADER}"
-  COMMAND "${WAYLAND_SCANNER}" client-header "${VIEWPORTER_XML}" "${VIEWPORTER_HEADER}"
-  DEPENDS "${VIEWPORTER_XML}" VERBATIM)
-add_custom_command(OUTPUT "${VIEWPORTER_CODE}"
-  COMMAND "${WAYLAND_SCANNER}" private-code "${VIEWPORTER_XML}" "${VIEWPORTER_CODE}"
-  DEPENDS "${VIEWPORTER_XML}" VERBATIM)
-
-# wp_fractional_scale_v1 — compositor sends the per-surface
-# preferred fractional scale (in 120ths). We use this as the
-# authoritative scale for sizing the buffer, instead of trusting
-# Qt's devicePixelRatioF() (which is the same value, but going
-# direct to the protocol avoids any sync lag with Qt's update).
-set(FRACSCALE_XML "${CMAKE_CURRENT_SOURCE_DIR}/protocols/fractional-scale-v1.xml")
-set(FRACSCALE_HEADER "${CMAKE_CURRENT_BINARY_DIR}/fractional-scale-v1-client-protocol.h")
-set(FRACSCALE_CODE "${CMAKE_CURRENT_BINARY_DIR}/fractional-scale-v1-protocol.c")
-add_custom_command(OUTPUT "${FRACSCALE_HEADER}"
-  COMMAND "${WAYLAND_SCANNER}" client-header "${FRACSCALE_XML}" "${FRACSCALE_HEADER}"
-  DEPENDS "${FRACSCALE_XML}" VERBATIM)
-add_custom_command(OUTPUT "${FRACSCALE_CODE}"
-  COMMAND "${WAYLAND_SCANNER}" private-code "${FRACSCALE_XML}" "${FRACSCALE_CODE}"
-  DEPENDS "${FRACSCALE_XML}" VERBATIM)
+# Per-protocol notes:
+#   - `blur` (`org_kde_kwin_blur`)             — KWin background-blur.
+#   - `linux-dmabuf-v1`                        — Vulkan present path:
+#       wrap libghostty's dmabuf fd in a `wl_buffer` for the
+#       wayland::SubsurfacePresenter's `wl_surface`.
+#   - `viewporter` (`wp_viewporter`)           — destination size in
+#       surface-local coords; decouples the buffer's pixel dimensions
+#       from how big the subsurface appears on screen (fractional
+#       scaling).
+#   - `fractional-scale-v1` (`wp_fractional_scale_v1`)
+#       — compositor reports per-surface fractional scale (120ths).
+#       Used as the authoritative scale for buffer sizing, avoiding
+#       any sync lag with Qt's `devicePixelRatioF()` cache.
+ghastty_wayland_protocol(blur                 BLUR_HEADER       BLUR_CODE)
+ghastty_wayland_protocol(linux-dmabuf-v1      DMABUF_HEADER     DMABUF_CODE)
+ghastty_wayland_protocol(viewporter           VIEWPORTER_HEADER VIEWPORTER_CODE)
+ghastty_wayland_protocol(fractional-scale-v1  FRACSCALE_HEADER  FRACSCALE_CODE)
 
 # libghostty is built out-of-tree by Zig.
 get_filename_component(GHOSTTY_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 set(GHOSTTY_LIB_DIR "${GHOSTTY_ROOT}/zig-out/lib")
 set(GHOSTTY_SO "${GHOSTTY_LIB_DIR}/ghostty-internal.so")
 
-# Variant: which renderer libghostty was built with. Drives the
-# installed executable name and (for the Vulkan variant) the
-# libghostty install location, so the two builds can coexist
-# side-by-side under the same `~/.local` prefix:
-#
-#   GHASTTY_VARIANT=opengl (default) →
-#       ~/.local/bin/ghastty
-#       ~/.local/lib/libghostty.so
-#   GHASTTY_VARIANT=vulkan →
-#       ~/.local/bin/ghastty-vulkan
-#       ~/.local/lib/ghastty-vulkan/libghostty.so
-#       (and the binary's INSTALL_RPATH points into the subdir
-#        so the two .so files never conflict.)
+# Variant: which libghostty.so this build links against. The
+# rendering backend is baked into libghostty (Zig builds with
+# `-Drenderer=opengl` vs `-Drenderer=vulkan` produce ABI-compatible
+# but functionally distinct .so's), so the variant here is purely a
+# *compile-time selector*. The binary name and install layout do
+# NOT change — `${CMAKE_INSTALL_BINDIR}/ghastty` and
+# `${CMAKE_INSTALL_LIBDIR}/libghostty.so` for both. Developers who
+# want both flavors installed at once should use distinct prefixes
+# (`cmake --install --prefix /tmp/ghastty-vulkan`).
 #
 # Set via `cmake -DGHASTTY_VARIANT=vulkan -S qt -B qt/build-vulkan`.
 set(GHASTTY_VARIANT "opengl" CACHE STRING
@@ -152,14 +137,7 @@ if(NOT GHASTTY_VARIANT STREQUAL "opengl" AND
     "GHASTTY_VARIANT='${GHASTTY_VARIANT}' is invalid; "
     "must be 'opengl' or 'vulkan'.")
 endif()
-if(GHASTTY_VARIANT STREQUAL "vulkan")
-  set(GHASTTY_EXE_NAME "ghastty-vulkan")
-  set(GHASTTY_LIB_SUBDIR "ghastty-vulkan")
-  message(STATUS "Building Vulkan variant — exe=${GHASTTY_EXE_NAME}, lib=lib/${GHASTTY_LIB_SUBDIR}/")
-else()
-  set(GHASTTY_EXE_NAME "ghastty")
-  set(GHASTTY_LIB_SUBDIR "")
-endif()
+message(STATUS "Building variant=${GHASTTY_VARIANT}")
 
 # Compile-time renderer pick. Each binary is linked against exactly
 # one libghostty.so variant (opengl or vulkan), so the renderer
@@ -339,24 +317,12 @@ endif()
 #   actual zig-out artifact), and the .so's NEEDED entries also point
 #   into zig-out/lib for transitive deps.
 # - Installed: libghostty.so lives next to the binary ($ORIGIN/../lib).
-# Vulkan variant lives at lib/ghastty-vulkan/libghostty.so so it can
-# coexist with the OpenGL build's lib/libghostty.so under the same
-# install prefix. The INSTALL_RPATH steers each variant's binary at
-# its own .so without polluting the other's lookup.
-if(GHASTTY_VARIANT STREQUAL "vulkan")
-  set(GHASTTY_INSTALL_RPATH
-      "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}/${GHASTTY_LIB_SUBDIR}")
-  set(GHASTTY_LIB_INSTALL_DIR
-      "${CMAKE_INSTALL_LIBDIR}/${GHASTTY_LIB_SUBDIR}")
-else()
-  set(GHASTTY_INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
-  set(GHASTTY_LIB_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}")
-endif()
-
+# Same layout regardless of variant — the binary name doesn't change,
+# the .so path doesn't change. Side-by-side installs of two variants
+# need separate `--prefix`es.
 set_target_properties(ghastty PROPERTIES
-  OUTPUT_NAME "${GHASTTY_EXE_NAME}"
   BUILD_RPATH "${GHOSTTY_LINK_DIR};${GHOSTTY_LIB_DIR}"
-  INSTALL_RPATH "${GHASTTY_INSTALL_RPATH}"
+  INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}"
 )
 
 # --- install ---------------------------------------------------------
@@ -364,18 +330,12 @@ install(TARGETS ghastty RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 
 # libghostty.so the binary links against (SONAME is libghostty.so).
 install(FILES "${GHOSTTY_SO}"
-  DESTINATION "${GHASTTY_LIB_INSTALL_DIR}"
+  DESTINATION "${CMAKE_INSTALL_LIBDIR}"
   RENAME libghostty.so)
 
-# Desktop entry + icon: only install for the OpenGL variant — the
-# Vulkan binary is a developer-facing side-by-side build, not a
-# user-facing app. Avoids duplicating the .desktop file with a
-# different Exec= line.
-if(GHASTTY_VARIANT STREQUAL "opengl")
-  install(FILES dist/ghastty.desktop
-    DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+install(FILES dist/ghastty.desktop
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
 
-  # The custom scalable app icon.
-  install(FILES dist/ghastty.svg
-    DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps")
-endif()
+# The custom scalable app icon.
+install(FILES dist/ghastty.svg
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps")
