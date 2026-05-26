@@ -220,13 +220,20 @@ wl_display *acquireWaylandDisplay() {
 }
 
 // wl_buffer::release listener: the compositor is done sampling the
-// buffer for any committed surface state, so we can destroy our
-// client-side handle. The underlying dmabuf memory is owned by
-// libghostty; we never close that fd here (the SCM_RIGHTS transfer
-// in zwp_linux_buffer_params.add gave the compositor its own
+// buffer for any committed surface state. We KEEP the wl_buffer
+// alive across releases — libghostty re-uses the same dmabuf fd
+// across frames until resize, so we re-attach the cached wl_buffer
+// on every present (see `m_cachedBuffer` in the header). The buffer
+// is destroyed only when (a) the dmabuf shape changes (next
+// `presentDmabuf` invalidates the cache) or (b) the presenter is
+// destroyed.
+//
+// The underlying dmabuf memory is owned by libghostty; we never
+// close that fd here (the SCM_RIGHTS transfer in
+// zwp_linux_buffer_params.add gave the compositor its own
 // reference, which lives independently of our wl_buffer).
-void bufferRelease(void *, wl_buffer *buffer) {
-  wl_buffer_destroy(buffer);
+void bufferRelease(void *, wl_buffer *) {
+  // No-op. See cache rationale above.
 }
 const wl_buffer_listener kBufferListener = {
     bufferRelease,
@@ -438,6 +445,14 @@ SubsurfacePresenter::SubsurfacePresenter(wl_display *display, wl_surface *child,
 }
 
 SubsurfacePresenter::~SubsurfacePresenter() {
+  // Destroy the cached wl_buffer BEFORE the child surface — the
+  // buffer may still be attached. wl_buffer_destroy is safe whether
+  // or not the compositor has released it (Wayland guarantees no
+  // further events on a destroyed proxy).
+  if (m_cachedBuffer) {
+    wl_buffer_destroy(m_cachedBuffer);
+    m_cachedBuffer = nullptr;
+  }
   if (m_fractionalScale) wp_fractional_scale_v1_destroy(m_fractionalScale);
   if (m_viewport) wp_viewport_destroy(m_viewport);
   if (m_subsurface) wl_subsurface_destroy(m_subsurface);
@@ -515,41 +530,76 @@ void SubsurfacePresenter::presentDmabuf(int fd, uint32_t drm_format,
     }
   }
 
-  // Wrap libghostty's borrowed fd in a wl_buffer.
-  zwp_linux_buffer_params_v1 *params =
-      zwp_linux_dmabuf_v1_create_params(m_dmabuf);
-  if (!params) return;
-  zwp_linux_buffer_params_v1_add(params, fd, /*plane_idx*/ 0,
-                                 /*offset*/ 0, stride,
-                                 static_cast<uint32_t>(drm_modifier >> 32),
-                                 static_cast<uint32_t>(drm_modifier & 0xFFFFFFFFu));
-  const uint32_t buffer_flags =
-      y_invert ? ZWP_LINUX_BUFFER_PARAMS_V1_FLAGS_Y_INVERT : 0;
-  wl_buffer *buffer = zwp_linux_buffer_params_v1_create_immed(
-      params, static_cast<int32_t>(width), static_cast<int32_t>(height),
-      drm_format, buffer_flags);
-  zwp_linux_buffer_params_v1_destroy(params);
-  if (!buffer) {
-    // Surface the wl_display error code if the failure was a
-    // protocol-fatal error (compositor rejected the buffer with
-    // `invalid_format` / `invalid_dimensions` / etc., which kills
-    // the wl_display). Without this, every subsequent presentDmabuf
-    // call silently no-ops on the dead display and the cause stays
-    // hidden until something else logs the disconnection.
-    const int wl_err = wl_display_get_error(m_display);
-    std::fprintf(stderr,
-                 "[ghastty] SubsurfacePresenter: create_immed returned null "
-                 "(fd=%d %ux%u fmt=0x%x mod=0x%llx wl_display_error=%d)\n",
-                 fd, width, height, drm_format,
-                 static_cast<unsigned long long>(drm_modifier), wl_err);
-    return;
+  // Wrap libghostty's borrowed fd in a wl_buffer. Cached across
+  // frames: libghostty re-uses the same dmabuf fd until the next
+  // Target.deinit (a resize), so the shape inputs below stay stable
+  // for hundreds-to-thousands of consecutive frames at an animated-
+  // shader frame rate. Pre-cache, every present round-tripped
+  // `create_immed` to the compositor (Wayland sync call + compositor-
+  // side dmabuf import) and destroyed the buffer on release — ~half
+  // the GUI-thread CPU at 125 FPS.
+  const bool cache_hit = m_cachedBuffer != nullptr &&
+                         m_cachedFd == fd &&
+                         m_cachedWidth == width &&
+                         m_cachedHeight == height &&
+                         m_cachedStride == stride &&
+                         m_cachedFormat == drm_format &&
+                         m_cachedModifier == drm_modifier &&
+                         m_cachedYInvert == y_invert;
+  wl_buffer *buffer = nullptr;
+  if (cache_hit) {
+    buffer = m_cachedBuffer;
+  } else {
+    // Cache miss — destroy any stale buffer first so a failed
+    // create_immed below leaves the cache empty (rather than half-
+    // populated with the previous buffer that no longer matches the
+    // new inputs).
+    if (m_cachedBuffer) {
+      wl_buffer_destroy(m_cachedBuffer);
+      m_cachedBuffer = nullptr;
+      m_cachedFd = -1;
+    }
+    zwp_linux_buffer_params_v1 *params =
+        zwp_linux_dmabuf_v1_create_params(m_dmabuf);
+    if (!params) return;
+    zwp_linux_buffer_params_v1_add(params, fd, /*plane_idx*/ 0,
+                                   /*offset*/ 0, stride,
+                                   static_cast<uint32_t>(drm_modifier >> 32),
+                                   static_cast<uint32_t>(drm_modifier & 0xFFFFFFFFu));
+    const uint32_t buffer_flags =
+        y_invert ? ZWP_LINUX_BUFFER_PARAMS_V1_FLAGS_Y_INVERT : 0;
+    buffer = zwp_linux_buffer_params_v1_create_immed(
+        params, static_cast<int32_t>(width), static_cast<int32_t>(height),
+        drm_format, buffer_flags);
+    zwp_linux_buffer_params_v1_destroy(params);
+    if (!buffer) {
+      // Surface the wl_display error code if the failure was a
+      // protocol-fatal error (compositor rejected the buffer with
+      // `invalid_format` / `invalid_dimensions` / etc., which kills
+      // the wl_display). Without this, every subsequent presentDmabuf
+      // call silently no-ops on the dead display and the cause stays
+      // hidden until something else logs the disconnection.
+      const int wl_err = wl_display_get_error(m_display);
+      std::fprintf(stderr,
+                   "[ghastty] SubsurfacePresenter: create_immed returned null "
+                   "(fd=%d %ux%u fmt=0x%x mod=0x%llx wl_display_error=%d)\n",
+                   fd, width, height, drm_format,
+                   static_cast<unsigned long long>(drm_modifier), wl_err);
+      return;
+    }
+    // Listener data is unused — see `bufferRelease` for why this is
+    // nullptr (and the no-op release semantics that make the cache
+    // safe).
+    wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
+    m_cachedBuffer = buffer;
+    m_cachedFd = fd;
+    m_cachedWidth = width;
+    m_cachedHeight = height;
+    m_cachedStride = stride;
+    m_cachedFormat = drm_format;
+    m_cachedModifier = drm_modifier;
+    m_cachedYInvert = y_invert;
   }
-  // Pass nullptr as listener data — `bufferRelease` does not read it.
-  // Storing `this` would create a dangling-pointer hazard if the
-  // SubsurfacePresenter is destroyed before the compositor sends
-  // `release`; today the listener doesn't dereference `data` so it
-  // works by accident, but a future addition that reads it would UAF.
-  wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
 
   // Tell the compositor the destination size in surface-local
   // coordinates. With fractional scaling this is the logical pixel

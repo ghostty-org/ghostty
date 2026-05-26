@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <memory>
 
+struct wl_buffer;
 struct wl_display;
 struct wl_subsurface;
 struct wl_surface;
@@ -154,6 +155,23 @@ private:
   int m_lastDestHeight = 0;
   int m_lastX = 0;
   int m_lastY = 0;
+
+  // wl_buffer cache. libghostty re-uses the same dmabuf fd across
+  // frames until the next Target.deinit (i.e. until a resize), so
+  // we can wrap the fd in a wl_buffer ONCE and re-attach it every
+  // frame instead of round-tripping `create_immed` per present.
+  // create_immed costs a Wayland round-trip + compositor-side
+  // dmabuf import; at 125 FPS (animated post shader) with multiple
+  // panes this was ~half of the GUI-thread CPU at idle. Invalidate
+  // the cache when any of the dmabuf-shape inputs change.
+  wl_buffer *m_cachedBuffer = nullptr;
+  int m_cachedFd = -1;
+  uint32_t m_cachedWidth = 0;
+  uint32_t m_cachedHeight = 0;
+  uint32_t m_cachedStride = 0;
+  uint32_t m_cachedFormat = 0;
+  uint64_t m_cachedModifier = 0;
+  bool m_cachedYInvert = false;
 };
 
 } // namespace wayland
