@@ -675,17 +675,26 @@ pub const Surface = struct {
                 .x = @floatCast(opts.scale_factor),
                 .y = @floatCast(opts.scale_factor),
             },
-            // Initial surface size is a sentinel (1×1) until the host's
-            // first ghostty_surface_set_size call. The previous default
-            // (800×600) collided with real widget sizes on DPR-fractional
-            // setups (e.g. 666 logical × 1.2 DPR = 800 device-pixel),
-            // letting wrong-size first frames slip past the Qt apprt's
-            // wrong-size drop guard in drainVulkan. With 1×1 the renderer's
-            // first frame is always 1×1, drainVulkan always drops it as
-            // wrong-size, and the placeholder/real-frame swap waits for
-            // the first frame produced at the actual widget size after
-            // resize.
-            .size = .{ .width = 1, .height = 1 },
+            // Initial surface size. Must be large enough for the
+            // terminal to have at least a few cols/rows by default,
+            // because the shell process is forked as part of
+            // Surface.init and the PTY's winsize is whatever this
+            // size translates to. Tools like fastfetch query winsize
+            // (TIOCGWINSZ) on startup and lay out their kitty-image
+            // escape codes based on what they see; if winsize reports
+            // 0 cols × 0 rows, fastfetch sends the image with c=0
+            // r=0, and `Placement.pixelSize` (graphics_storage.zig)
+            // returns the image's NATIVE pixel dimensions — visible
+            // to the user as a giant Kusanagi (or whatever logo)
+            // filling the whole pane. 800×600 was the historic
+            // default; restoring it. Race against a real wrong-size
+            // first frame coinciding with the widget's device-pixel
+            // size at a fractional DPR is handled separately by the
+            // host apprt sending its real size as early as possible
+            // (Qt: immediate ghostty_surface_set_size right after
+            // ghostty_surface_new, inheriting the parent surface's
+            // size for new tabs).
+            .size = .{ .width = 800, .height = 600 },
             .cursor_pos = .{ .x = -1, .y = -1 },
         };
 

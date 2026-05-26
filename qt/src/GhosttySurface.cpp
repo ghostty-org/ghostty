@@ -202,6 +202,32 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
     return;
   }
 
+  // Immediately push a real surface size into libghostty so the
+  // newly-spawned shell + PTY don't start at the 1×1 sentinel default.
+  // Why this matters: ghostty_surface_new forks the shell process as
+  // part of init; the PTY's winsize is read by the shell (and by tools
+  // like fastfetch) IMMEDIATELY on startup. If the PTY is 1×1 at fork
+  // time, fastfetch sees a 0-column terminal and falls back to rendering
+  // its image at the source pixel dimensions — visible to the user as a
+  // huge image filling the window on the 2nd tab (intermittent: the 1st
+  // tab's slower cold-start gives the syncSurfaceSize from Show enough
+  // time to land first; on 2nd-tab open everything is primed and
+  // fastfetch races ahead of Show).
+  //
+  // For new tabs, inherit the parent surface's pixel size — that's
+  // exactly the tab area's geometry, so it's already correct. For the
+  // first surface (no parent) we can't do much here because the widget
+  // hasn't been laid out yet (width()/height() are sizeHint defaults);
+  // the existing Show + resizeEvent paths handle that case fine.
+  if (m_parentSurface) {
+    const ghostty_surface_size_s parent_sz =
+        ghostty_surface_size(m_parentSurface);
+    if (parent_sz.width_px > 1 && parent_sz.height_px > 1) {
+      ghostty_surface_set_size(m_surface, parent_sz.width_px,
+                               parent_sz.height_px);
+    }
+  }
+
   // initPremultiply creates a `QOpenGLVertexArrayObject` against the
   // private GL context. That context doesn't exist on the Vulkan
   // path, so skip the setup. The Vulkan renderer handles alpha
