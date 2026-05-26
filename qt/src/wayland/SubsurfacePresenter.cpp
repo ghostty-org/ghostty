@@ -740,8 +740,12 @@ void SubsurfacePresenter::hide() {
   wl_display_flush(m_display);
 }
 
-void SubsurfacePresenter::reattachCached() {
-  if (!m_childSurface || !m_cachedBuffer) return;
+void SubsurfacePresenter::flushDisplay() {
+  if (m_display) wl_display_flush(m_display);
+}
+
+bool SubsurfacePresenter::reattachCached() {
+  if (!m_childSurface || !m_cachedBuffer) return false;
   // Re-show whatever we had attached before `hide()`. The cached
   // wl_buffer survives across hide/show because the release
   // listener no-ops (see `bufferRelease`). The dmabuf backing the
@@ -775,6 +779,7 @@ void SubsurfacePresenter::reattachCached() {
   }
   wl_surface_commit(m_childSurface);
   wl_display_flush(m_display);
+  return true;
 }
 
 } // namespace wayland

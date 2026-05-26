@@ -209,33 +209,12 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
   // contents are already in the host's expected order).
   if (!m_useVulkan && m_owner->needsPremultiply()) initPremultiply();
 
-#ifdef GHASTTY_USE_VULKAN
-  // Wait for the renderer thread to produce its first frame BEFORE
-  // returning from the ctor. libghostty's renderer thread is
-  // already spawned at this point (Surface.init spawned it before
-  // ghostty_surface_new returned); without this wait, Qt shows
-  // the widget to the user before any dmabuf has been parked, and
-  // the subsurface area is briefly transparent.
-  //
-  // Pre-SPV-precompile, ghostty_surface_new took ~250 ms of
-  // glslang work inside Shaders.init, which incidentally gave
-  // the renderer thread enough time to produce + park its first
-  // frame before this ctor returned. Once the precompile moved
-  // shader compilation to build time the ctor sped up but exposed
-  // the gap. Replacing the implicit "wait on glslang" with an
-  // explicit "wait on first frame" preserves the original UX
-  // (slight ctor latency, no transparent flash) while keeping
-  // the runtime perf win (no glslang at first surface init).
-  //
-  // 200 ms timeout: if the renderer can't produce a frame in that
-  // time (cold device init pathology, etc.) we fall through and
-  // accept the transparent gap rather than hanging the GUI.
-  {
-    std::unique_lock<std::mutex> lk(m_firstFrameMutex);
-    m_firstFrameCv.wait_for(lk, std::chrono::milliseconds(200),
-                            [this] { return m_firstFrameParked; });
-  }
-#endif
+  // (No first-frame ctor gate — every variant we've tried so
+  // far either captures a wrong-size frame and lets wp_viewport
+  // stretch it over the kitty image quad, or doesn't actually
+  // hide the transparent flash. Tracking proper fix via agent
+  // investigation; for now the transparent flash on tab open
+  // is the lesser evil vs broken image rendering.)
 }
 
 GhosttySurface::~GhosttySurface() {
@@ -581,6 +560,10 @@ bool GhosttySurface::event(QEvent *e) {
         m_compositorReady = true;
       }
       m_compositorCv.notify_all();
+      // Presenter rebuild on next Show needs a fresh frame to
+      // attach; until then paintEvent should fall back to the
+      // bg-color placeholder.
+      m_subsurfaceHasFrame.store(false, std::memory_order_release);
     }
     // SurfaceCreated is handled implicitly: the next QEvent::Show
     // (which Qt always fires after the platform surface comes up)
@@ -613,7 +596,40 @@ bool GhosttySurface::event(QEvent *e) {
       // before the renderer thread produces a new frame for this
       // surface — visible as a brief flash on every tab switch.
       // The cached buffer is at most one frame stale.
-      if (m_subsurfacePresenter) m_subsurfacePresenter->reattachCached();
+      if (m_subsurfacePresenter && m_subsurfacePresenter->reattachCached()) {
+        // The reattach committed on the CHILD wl_subsurface; in
+        // sync mode that commit is cached until the parent
+        // wl_surface commits too. Force the parent commit
+        // explicitly so the buffer actually becomes visible —
+        // without this, Hide left the subsurface with a NULL
+        // buffer, our re-attach caches the previous buffer's
+        // state, and the compositor doesn't apply it until
+        // some unrelated parent paint fires.
+        forceParentCommit();
+        // Qt's QWaylandWindow::commit() queues the parent
+        // commit into the libwayland-client send buffer but
+        // doesn't wl_display_flush() — meaning the commit can
+        // sit there until Qt's next event-loop iteration
+        // flushes (or some other code path triggers a flush).
+        // That delay is the intermittent tab-switch flash: the
+        // paint event fires next, fills the terminal area
+        // transparent (m_subsurfaceHasFrame=true just set), but
+        // the subsurface commit hasn't reached the compositor
+        // yet, so user sees through to the parent → through to
+        // whatever is behind the window. Explicitly flushing the
+        // wl_display here forces both the child reattach commit
+        // (which reattachCached already flushed) AND the parent
+        // commit (just queued by forceParentCommit) to the
+        // compositor in one go.
+        m_subsurfacePresenter->flushDisplay();
+        // Cached buffer is now visible → paintEvent should fall
+        // through to the transparent-fill path (subsurface
+        // shows through). The cached buffer may be one frame
+        // stale, but that's strictly better than a flash of
+        // background color before the renderer's next frame
+        // overwrites it.
+        m_subsurfaceHasFrame.store(true, std::memory_order_release);
+      }
       // First successful Show is also when our native QWindow exists
       // and we can safely look up the Wayland parent wl_surface.
       // Lazy-init the subsurface presenter once and keep it for the
@@ -678,7 +694,19 @@ bool GhosttySurface::event(QEvent *e) {
       if (m_subsurfacePresenter) {
         m_subsurfacePresenter->hide();
         forceParentCommit();
+        // Flush so the NULL-attach + parent commit reach the
+        // compositor before the NEW active tab's Show fires its
+        // own reattach. Without this, the two parent commits can
+        // race in Qt's send buffer and the compositor sees them
+        // out of order or in different frames.
+        m_subsurfacePresenter->flushDisplay();
       }
+      // No buffer is attached anymore; the next paintEvent should
+      // paint the background placeholder until the next real frame
+      // arrives. reattachCached on the following Show will flip
+      // this back to true via drainVulkan when the renderer
+      // delivers a matching-size frame.
+      m_subsurfaceHasFrame.store(false, std::memory_order_release);
       // Wake the renderer thread if it's parked in
       // presentVulkanDmabuf's wait_for; the predicate sees
       // m_hidden=true (already set above) and the renderer bails
@@ -844,30 +872,48 @@ void GhosttySurface::paintEvent(QPaintEvent *) {
   // bell flash, resize hint) still composites on top.
   const bool subsurfaceActive =
       m_useSubsurface.load(std::memory_order_acquire) && m_subsurfacePresenter;
-
-  // No frame yet — leave the widget background untouched. With
-  // `WA_TranslucentBackground` set the area is transparent until
-  // the first frame imports, matching the OpenGL path. New surfaces
-  // (splits, tabs) hit paintEvent before libghostty's renderer
-  // thread has emitted its first frame; the gap is short enough
-  // that flashing a debug placeholder is more jarring than the
-  // brief see-through.
-  if (!subsurfaceActive && m_image.isNull()) return;
+  const bool subsurfaceHasFrame =
+      m_subsurfaceHasFrame.load(std::memory_order_acquire);
+  // On the Vulkan path we always paint, even before the subsurface
+  // presenter has been created (presenter is lazy-init'd in the
+  // first Show event — paintEvent can fire earlier on a fresh
+  // tab/window). For OpenGL we keep the legacy early-return when
+  // there's no QImage to blit.
+  if (!m_useVulkan && !subsurfaceActive && m_image.isNull()) return;
   QPainter painter(this);
-  if (subsurfaceActive) {
-    // The wl_subsurface is stacked BELOW the parent surface so Qt's
-    // chrome (SearchBar, overlays) painted later in this paintEvent
-    // remains visible. For the terminal pixels themselves to show
-    // through, the parent's backing store must be transparent in
-    // the terminal area. WA_TranslucentBackground sets
-    // WA_NoSystemBackground, which means Qt does NOT auto-clear the
-    // backing store between paints — so without an explicit fill,
-    // stale/uninitialized pixels obscure the subsurface below.
-    // CompositionMode_Source + transparent fill writes pure alpha-0
-    // to the entire widget area; chrome painted afterwards in this
-    // function uses SourceOver and composites correctly on top.
+  if (m_useVulkan) {
+    // The wl_subsurface (when active) is stacked BELOW the parent
+    // surface so Qt's chrome (SearchBar, overlays) painted later in
+    // this paintEvent remains visible. For the terminal pixels
+    // themselves to show through, the parent's backing store must
+    // be transparent in the terminal area. WA_TranslucentBackground
+    // sets WA_NoSystemBackground, which means Qt does NOT auto-
+    // clear the backing store between paints — so without an
+    // explicit fill, stale/uninitialized pixels obscure the
+    // subsurface below.
     painter.setCompositionMode(QPainter::CompositionMode_Source);
-    painter.fillRect(rect(), Qt::transparent);
+    if (subsurfaceActive && subsurfaceHasFrame) {
+      // Real frame attached: fill transparent so the subsurface
+      // shows through; chrome painted afterwards composites on top.
+      painter.fillRect(rect(), Qt::transparent);
+    } else {
+      // Either the subsurface presenter hasn't been created yet
+      // (new-tab paintEvent fires before Show creates it) or no
+      // matching-size dmabuf has been attached yet (new-tab bring-
+      // up before drainVulkan accepts a real-size frame). Either
+      // way the subsurface area would paint as transparent → flash
+      // through to whatever is behind the window. Paint the
+      // terminal's configured background color so the user sees an
+      // empty terminal rather than a transparent flash. The brief
+      // paint is replaced by the subsurface content as soon as a
+      // matching-size frame attaches.
+      QColor fill = QColor(0, 0, 0);  // safe fallback if no config
+      ghostty_config_color_s bg{};
+      if (config::get(&bg, "background")) {
+        fill = QColor(bg.r, bg.g, bg.b);
+      }
+      painter.fillRect(rect(), fill);
+    }
     painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
   } else {
     // Blit the framebuffer 1:1. m_image carries the device pixel ratio, so
@@ -1939,17 +1985,7 @@ void GhosttySurface::presentVulkanDmabuf(
     // Close any overwritten prior dup so we don't leak fds in the
     // (rare) drop case.
     if (prev_fd >= 0) ::close(prev_fd);
-
-    // Wake any GUI thread blocked in the ctor's first-frame wait.
-    // One-shot signal — subsequent frames don't pay any cost (the
-    // bool check is uncontended once flipped).
-    if (!m_firstFrameParked) {
-      {
-        std::lock_guard<std::mutex> lg(m_firstFrameMutex);
-        m_firstFrameParked = true;
-      }
-      m_firstFrameCv.notify_all();
-    }
+    // (No first-frame signal — paired with the ctor gate removal.)
     if (overwrote) {
       const auto count = m_droppedFrames.fetch_add(
           1, std::memory_order_relaxed) + 1;
@@ -2098,6 +2134,29 @@ void GhosttySurface::drainVulkan() {
       frame = m_pendingDmabuf;
       m_pendingDmabuf.fd = -1;  // mark consumed
     }
+    // Wrong-size guard: drop frames whose dimensions don't match
+    // the widget's current device-pixel size. The renderer thread
+    // produces frames at libghostty's known surface size, which
+    // lags the Qt widget's actual layout-determined size during
+    // new-tab bring-up (libghostty starts at the default 800×600
+    // until the first resizeEvent → ghostty_surface_set_size lands
+    // on the renderer thread). Attaching such a wrong-size dmabuf
+    // here lets wp_viewport stretch it to widget size — image-
+    // pipeline math evaluated against the renderer's smaller
+    // viewport produces quads that cover the entire stretched
+    // area, manifesting as kitty images rendered at full window
+    // size. Drop silently; paintEvent paints the configured
+    // background color in the meantime (see m_subsurfaceHasFrame).
+    const double dpr_drop = devicePixelRatioF();
+    const quint32 expected_w = static_cast<quint32>(
+        std::max(1, static_cast<int>(std::lround(width() * dpr_drop))));
+    const quint32 expected_h = static_cast<quint32>(
+        std::max(1, static_cast<int>(std::lround(height() * dpr_drop))));
+    if (frame.width != expected_w || frame.height != expected_h) {
+      ::close(frame.fd);
+      return;
+    }
+
     // Logical widget size = wp_viewport destination. Buffer is at
     // device pixels (frame.width × frame.height); viewport stretches
     // it to (width(), height()) surface-local coords. Handles
@@ -2110,6 +2169,12 @@ void GhosttySurface::drainVulkan() {
     // parent wl_surface.commit so the cached state applies and the
     // frame becomes visible.
     forceParentCommit();
+    // Mark "real frame is attached" so paintEvent stops painting
+    // the background-color placeholder and lets the subsurface
+    // show through. Release-ordering: paint may be on a different
+    // thread (Qt event loop is single-threaded but the atomic
+    // contract is cheap to honor).
+    m_subsurfaceHasFrame.store(true, std::memory_order_release);
     // Close OUR dup of the dmabuf fd now that presentDmabuf has
     // handed it to create_immed (which SCM_RIGHTS-dup'd it again
     // for the compositor's view, or did a cache hit and didn't

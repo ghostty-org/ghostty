@@ -144,16 +144,24 @@ public:
   using OnFrameReady = std::function<void()>;
   void setOnFrameReady(OnFrameReady cb) { m_onFrameReady = std::move(cb); }
 
+  // Flush the underlying wl_display to push any queued requests
+  // to the compositor. Useful after a forceParentCommit on the
+  // Qt side (which queues a parent wl_surface.commit but doesn't
+  // wl_display_flush), so the combined "child commit + parent
+  // commit" reach the compositor in one shot rather than racing
+  // Qt's next event-loop flush.
+  void flushDisplay();
+
   // Re-attach + commit the most recently cached wl_buffer, if any.
   // Called from `QEvent::Show` so a tab-switch / re-show sees the
   // last frame immediately rather than a transparent area while
   // the renderer thread spins up its first new frame. Without this,
   // the parent surface paints through (WA_TranslucentBackground)
   // and the user sees a flash of whatever is behind the window.
-  // No-op when the cache is empty (first show — there's nothing
-  // to re-attach yet; caller is responsible for the new-tab flash
-  // mitigation if needed).
-  void reattachCached();
+  // Returns true if a cached buffer was actually re-attached;
+  // false if the cache was empty (first show — caller is
+  // responsible for the new-tab flash mitigation if needed).
+  bool reattachCached();
 
   // Called from the wp_fractional_scale_v1.preferred_scale event.
   // Public so the C-style listener struct at file scope in the .cpp
