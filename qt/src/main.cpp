@@ -24,7 +24,45 @@ static bool isCliActionInvocation(int argc, char **argv) {
   return false;
 }
 
+// Default-disable MangoHud for this process. The Vulkan implicit
+// layer hooks every vkQueueSubmit / vkAcquireNextImage / etc. to
+// render its own overlay, which on this branch's animated-shader
+// + multi-pane workload added ~25% extra main-thread CPU at idle
+// (measured against a baseline of ~10% for the Wayland-buffer
+// cache path). For a terminal, that's a steep tax on a feature
+// users typically associate with games. A system-wide MANGOHUD=1
+// (common in `~/.profile` for users who want the HUD on games) is
+// explicitly OVERRIDDEN here — the user is invoking ghastty, not
+// a game, and we don't want them to silently pay 25% extra CPU.
+//
+// Two layers of MangoHud's loading model:
+//   - VK_LOADER_LAYERS_DISABLE: Vulkan loader skips the layer
+//     entirely (no interception overhead).
+//   - DISABLE_MANGOHUD: belt-and-suspenders if the loader didn't
+//     honor the env var (older loaders) or another runtime force-
+//     loaded the layer through a different path.
+//
+// Escape hatch: GHASTTY_ALLOW_OVERLAY=1 skips the guard entirely
+// so a user who genuinely wants MangoHud on the terminal (e.g.
+// debugging the renderer with the HUD's frame-time graph) can
+// opt back in without removing the layer JSON system-wide.
+//
+// setenv overwrite=1 throughout: the whole point is to override a
+// pre-existing MANGOHUD=1 / DISABLE_MANGOHUD=0 / etc.
+static void defaultDisableMangoHud() {
+  if (const char *opt = ::getenv("GHASTTY_ALLOW_OVERLAY");
+      opt && opt[0] == '1') return;
+  ::setenv("MANGOHUD", "0", 1);
+  ::setenv("DISABLE_MANGOHUD", "1", 1);
+  ::setenv("VK_LOADER_LAYERS_DISABLE", "*MANGOHUD*", 1);
+}
+
 int main(int argc, char **argv) {
+  // Set the env BEFORE Qt's QApplication ctor (which can probe
+  // GL/Vulkan via QPA) and before the CLI action path (since
+  // libghostty action handlers may also touch the renderer).
+  defaultDisableMangoHud();
+
   // CLI action fast path: skip Qt entirely. ghostty_init parses argv
   // for the `+action`; ghostty_cli_try_action runs it and exits the
   // process. If something fails (unknown action, multiple actions),
