@@ -108,6 +108,14 @@ ghastty_wayland_protocol(blur                 BLUR_HEADER       BLUR_CODE)
 ghastty_wayland_protocol(linux-dmabuf-v1      DMABUF_HEADER     DMABUF_CODE)
 ghastty_wayland_protocol(viewporter           VIEWPORTER_HEADER VIEWPORTER_CODE)
 ghastty_wayland_protocol(fractional-scale-v1  FRACSCALE_HEADER  FRACSCALE_CODE)
+#   - `alpha-modifier-v1` (`wp_alpha_modifier_v1`)
+#       — compositor-side per-surface alpha multiplier. QtWayland has no
+#       built-in setWindowOpacity equivalent (the QPA plugin warns
+#       "This plugin does not support setting window opacity" on every
+#       call), so QuickTerminal's fade-in/out drives this protocol
+#       directly. Supported on KWin, wlroots ≥0.17, Hyprland; NOT yet
+#       on mutter/GNOME.
+ghastty_wayland_protocol(alpha-modifier-v1    ALPHAMOD_HEADER   ALPHAMOD_CODE)
 
 # libghostty is built out-of-tree by Zig.
 get_filename_component(GHOSTTY_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
@@ -199,6 +207,7 @@ add_executable(ghastty
   src/TabWidget.cpp
   src/undo/UndoStack.cpp
   src/Util.cpp
+  src/wayland/AlphaModifier.cpp
   src/wayland/SubsurfacePresenter.cpp
   src/WindowBlur.cpp
   src/XkbTracker.cpp
@@ -210,6 +219,8 @@ add_executable(ghastty
   "${VIEWPORTER_HEADER}"
   "${FRACSCALE_CODE}"
   "${FRACSCALE_HEADER}"
+  "${ALPHAMOD_CODE}"
+  "${ALPHAMOD_HEADER}"
 )
 
 # Vulkan host glue is variant-only. Adding it to the OpenGL build
