@@ -3,11 +3,16 @@
 #include <cstring>
 
 // Symbol exported by libghostty's bundled glslang shim
-// (pkg/glslang/override/ghastty_vk_shim.cpp). Declared locally
-// rather than via an include because main.cpp would otherwise
-// need to grow a glslang/SPIR-V include path it doesn't use for
-// anything else.
+// (pkg/glslang/override/ghastty_vk_shim.cpp). Vulkan-only: the
+// OpenGL variant of libghostty doesn't link the shim (OpenGL
+// consumes GLSL natively, no SPV compile step) and the symbol
+// is absent from its .so, so we only declare/use it on the
+// Vulkan variant. Declared locally rather than via an include
+// because main.cpp would otherwise need to grow a glslang/
+// SPIR-V include path it doesn't use for anything else.
+#ifdef GHASTTY_USE_VULKAN
 extern "C" void ghastty_glslang_finalize_process(void);
+#endif
 
 #include <QApplication>
 #include <QCoreApplication>
@@ -78,8 +83,12 @@ int main(int argc, char **argv) {
   // chain has destroyed every GhosttySurface (and joined every
   // renderer thread), so glslang is guaranteed quiescent by then.
   // Idempotent on the libghostty side, so a double-registration
-  // (or the unlikely racing return path) is harmless.
+  // (or the unlikely racing return path) is harmless. Vulkan-only:
+  // the OpenGL variant doesn't link the shim symbol (see the
+  // extern declaration above).
+#ifdef GHASTTY_USE_VULKAN
   std::atexit(ghastty_glslang_finalize_process);
+#endif
 
   // CLI action fast path: skip Qt entirely. ghostty_init parses argv
   // for the `+action`; ghostty_cli_try_action runs it and exits the
