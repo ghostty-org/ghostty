@@ -9,7 +9,7 @@
 #include <optional>
 #include <vector>
 
-#include "../wayland/SubsurfacePresenter.h"
+#include "../wayland/DmabufRegistry.h"
 
 namespace vulkan {
 
@@ -249,15 +249,13 @@ Host *Host::instance() {
     }
     // candidate's destructor runs on init failure and cleans up
     // any partial state.
-
-    // Eagerly prime the dmabuf modifier registry while we're
-    // guaranteed to be on the GUI thread (Host::instance is called
-    // from GhosttySurface's ctor before the renderer thread spawns).
-    // From here on, `wayland::supportedDmabufModifiers` is a
-    // lock-free read of an immutable table, safe to call from the
-    // renderer thread via `cbGetSupportedModifiers`.
-    ::wayland::primeDmabufModifierRegistry();
   });
+  // The dmabuf modifier registry priming used to happen here too,
+  // inside this `call_once`. It moved out to `GhosttySurface`'s
+  // ctor: registry priming is a Wayland-protocol concern, not a
+  // Vulkan one, and `Host::instance()` is logically about Vulkan
+  // setup. Co-locating both in one trampoline coupled `Host` to a
+  // wayland-side concern that doesn't need it.
   return host.get();
 }
 

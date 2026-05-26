@@ -12,6 +12,7 @@
 #include "vulkan/Host.h"
 #endif
 #include "opengl/EglDmabufTarget.h"
+#include "wayland/DmabufRegistry.h"
 #include "wayland/SubsurfacePresenter.h"
 
 // Qt private Wayland headers — give us QtWaylandClient::QWaylandWindow,
@@ -138,6 +139,14 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
                    "of libghostty has no OpenGL fallback — exiting.\n");
       std::abort();
     }
+    // Prime the compositor dmabuf modifier registry on THIS thread
+    // (the GUI thread — surface ctors run there). The renderer
+    // thread will read it lock-free via the
+    // `get_supported_modifiers` platform callback. Idempotent if
+    // another surface already primed it. Same lifetime guarantee
+    // we used to achieve inside `Host::instance`'s `call_once`,
+    // but kept on the wayland side of the layering boundary.
+    ::wayland::primeDmabufModifierRegistry();
     m_useVulkan = true;
     sc.platform_tag = GHOSTTY_PLATFORM_VULKAN;
     sc.platform.vulkan = vk_host->asPlatform(this);

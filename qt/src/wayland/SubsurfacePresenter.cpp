@@ -1,4 +1,5 @@
 #include "SubsurfacePresenter.h"
+#include "DmabufRegistry.h"
 
 #include <algorithm>
 #include <cstdio>

@@ -14,10 +14,14 @@
 // dmabuf-as-importable-image export path libghostty's Vulkan
 // renderer uses to hand frames back to the host.
 //
-// On first use Host::instance() also primes the process-wide
-// Wayland dmabuf modifier registry (see SubsurfacePresenter) on
-// the calling thread, so the renderer-thread `get_supported_modifiers`
-// callback can read it without further synchronization.
+// The compositor dmabuf modifier registry that this host's
+// `get_supported_modifiers` callback reads is primed elsewhere
+// (in `GhosttySurface`'s ctor on the GUI thread, via
+// `wayland::primeDmabufModifierRegistry` from
+// `qt/src/wayland/DmabufRegistry.h`). That priming is a Wayland
+// concern and used to leak into `Host::instance`'s `call_once` —
+// which made `Host` (a Vulkan object) responsible for a
+// Wayland-protocol concern it doesn't otherwise touch.
 
 #pragma once
 
