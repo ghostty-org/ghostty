@@ -293,6 +293,18 @@ fn setQosClass(self: *const Thread) void {
 }
 
 fn syncDrawTimer(self: *Thread) void {
+    // Hidden surfaces have no business running the animation
+    // draw timer — `drawFrame` would just early-return on the
+    // `!flags.visible` check and we'd burn 125 wakeups/sec on
+    // a no-op. With N background tabs each holding an animation
+    // timer, this dominated CPU on multi-tab sessions. The
+    // `.visible → true` mailbox handler re-runs `syncDrawTimer`
+    // to re-arm when the tab becomes visible again.
+    if (!self.flags.visible) {
+        self.draw_active = false;
+        return;
+    }
+
     skip: {
         // If our renderer supports animations and has them, then we
         // can apply draw timer based on custom shader animation configuration.
@@ -359,6 +371,12 @@ fn drainMailbox(self: *Thread) !void {
 
                 // Visibility affects our QoS class
                 self.setQosClass();
+
+                // Visibility also gates the animation draw timer
+                // (see syncDrawTimer): hidden surfaces don't arm
+                // the 125 FPS timer, visible ones do. Re-run on
+                // every transition.
+                self.syncDrawTimer();
 
                 // If we became visible then we immediately rebuild cells
                 // (renderCallback skips updateFrame while invisible) and draw.
