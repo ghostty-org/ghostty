@@ -212,12 +212,11 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Vulkan {
 }
 
 pub fn deinit(self: *Vulkan) void {
-    // Tear down THIS surface's per-thread state first (fence wait,
-    // CB free, pool destroy, buffer-pool pending drain, last_target
-    // clear). All of that is per-renderer-thread = per-surface, so
-    // it's always safe to clean up regardless of other surfaces'
-    // state.
-    if (device) |*d| ThreadState.cleanup(d);
+    // ThreadState.cleanup is NOT called here — it runs in
+    // `threadExit` on the renderer thread, which is where the
+    // `threadlocal var` state was populated. Calling it here would
+    // read the GUI thread's empty TLS and silently leak everything.
+    // See the comment in `threadExit` for the full rationale.
 
     // Decrement the shared-device refcount; only the last surface
     // to deinit gets to destroy the VkDevice. Closing one of N tabs
@@ -291,6 +290,26 @@ pub fn threadEnter(self: *const Vulkan, surface: *apprt.Surface) !void {
 pub fn threadExit(self: *const Vulkan) void {
     _ = self;
     if (device) |*d| {
+        // ThreadState.cleanup MUST run here, on the renderer thread,
+        // not in Vulkan.deinit (which runs on the GUI thread AFTER
+        // the renderer thread has joined — see Surface.deinit). Our
+        // per-thread Vulkan state lives in `threadlocal var` slots
+        // populated on this thread; calling cleanup from the GUI
+        // thread reads the GUI thread's empty TLS, the destroys
+        // no-op, and the per-tab DescriptorPool / VkCommandBuffer /
+        // VkFence + buffer_pool pending list leak forever. heaptrack
+        // on a 20-tab open+close session attributed ~6 MB / 42 calls
+        // of NVIDIA driver-internal state to exactly this:
+        // DescriptorPool.init → ThreadState.ensureInit pages that
+        // nothing ever released.
+        //
+        // Cleanup needs the device alive: refcount stays > 0 until
+        // Vulkan.deinit decrements it on the GUI thread, so the
+        // shared VkDevice is still valid here.
+        ThreadState.cleanup(d);
+        // waitIdle was the pre-fix behavior — keep it as belt-and-
+        // suspenders for any non-ThreadState in-flight work this
+        // thread may have submitted via the shared queue.
         d.waitIdle();
     }
 }
