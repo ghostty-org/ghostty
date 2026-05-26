@@ -588,6 +588,26 @@ bool GhosttySurface::event(QEvent *e) {
       // Clear the present-gate latch: subsequent frames go through
       // the subsurface as normal.
       m_hidden.store(false, std::memory_order_release);
+      // Defensive re-sync of the surface size to libghostty. On a
+      // brand-new tab Qt fires resizeEvent right after Show and
+      // syncSurfaceSize runs from there — but on a tab SWAP (the
+      // 2nd tab replaces the 1st in the tab area), the widget
+      // reuses the existing layout slot at the same size. Qt does
+      // NOT fire resizeEvent in that case, so syncSurfaceSize
+      // never runs, libghostty stays at its default 800×600 surface
+      // size, and the renderer's first frame goes out at 800×600.
+      // If the widget happens to ALSO be 800×600 (small windows,
+      // unlikely but possible), the wrong-size drop guard in
+      // drainVulkan misses, the wrong-size frame is attached,
+      // wp_viewport stretches it… and the custom shader's
+      // resolution uniform (set from libghostty's 800×600 surface
+      // size, not the widget's real size) makes the shader draw at
+      // the wrong scale → the iChannel0 texture renders at full
+      // image size instead of the configured background pattern.
+      // Calling syncSurfaceSize here ensures libghostty is told
+      // about the widget's actual size before the renderer's next
+      // frame, regardless of whether resizeEvent fires.
+      syncSurfaceSize();
       // Re-attach the last-presented dmabuf immediately on Show.
       // Without this, Hide had attached a NULL buffer (so the
       // pane's old frame wouldn't ghost over the active tab) and

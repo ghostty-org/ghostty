@@ -675,7 +675,17 @@ pub const Surface = struct {
                 .x = @floatCast(opts.scale_factor),
                 .y = @floatCast(opts.scale_factor),
             },
-            .size = .{ .width = 800, .height = 600 },
+            // Initial surface size is a sentinel (1×1) until the host's
+            // first ghostty_surface_set_size call. The previous default
+            // (800×600) collided with real widget sizes on DPR-fractional
+            // setups (e.g. 666 logical × 1.2 DPR = 800 device-pixel),
+            // letting wrong-size first frames slip past the Qt apprt's
+            // wrong-size drop guard in drainVulkan. With 1×1 the renderer's
+            // first frame is always 1×1, drainVulkan always drops it as
+            // wrong-size, and the placeholder/real-frame swap waits for
+            // the first frame produced at the actual widget size after
+            // resize.
+            .size = .{ .width = 1, .height = 1 },
             .cursor_pos = .{ .x = -1, .y = -1 },
         };
 
