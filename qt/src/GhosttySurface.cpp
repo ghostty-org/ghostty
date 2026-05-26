@@ -225,16 +225,20 @@ GhosttySurface::~GhosttySurface() {
   delete m_fbo;
   delete m_premultProg;
   delete m_premultVao;
+#ifndef GHASTTY_USE_VULKAN
   // m_eglTarget owns a GL texture + framebuffer + EGLImage + dmabuf
   // fd. Reset it explicitly here, while the context is (best-effort)
   // current — the implicit unique_ptr destructor would fire AFTER
-  // doneCurrent() below, leaking the GL-side handles. On the Vulkan
-  // variant m_eglTarget is always null so the reset is a no-op.
+  // doneCurrent() below, leaking the GL-side handles.
   // If makeCurrent failed (m_offscreen invalidated mid-teardown,
   // exactly the race the PlatformSurface handler also hits), the
   // GL texture+FBO leak — the fd is closed by the dtor regardless.
   // Log so the leak is visible, matching the PlatformSurface
   // handler's behavior.
+  //
+  // Vulkan-variant builds don't have m_eglTarget at all (the field
+  // and its EglDmabufTarget type are preprocessed out), so the
+  // whole block is excluded.
   if (m_eglTarget && m_context && !current) {
     std::fprintf(stderr,
                  "[ghastty] ~GhosttySurface: m_eglTarget reset without "
@@ -242,6 +246,7 @@ GhosttySurface::~GhosttySurface() {
                  "will leak, fd is still closed\n");
   }
   m_eglTarget.reset();
+#endif
   if (current) m_context->doneCurrent();
 }
 
