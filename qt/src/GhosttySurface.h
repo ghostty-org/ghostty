@@ -18,9 +18,11 @@
 namespace wayland {
 class SubsurfacePresenter;
 }
+#ifndef GHASTTY_USE_VULKAN
 namespace opengl {
 class EglDmabufTarget;
 }
+#endif
 
 class MainWindow;
 class QContextMenuEvent;
@@ -286,6 +288,7 @@ private:
   QOpenGLContext *m_context = nullptr;
   QOffscreenSurface *m_offscreen = nullptr;
   QOpenGLFramebufferObject *m_fbo = nullptr;
+#ifndef GHASTTY_USE_VULKAN
   // Dmabuf-exporting GL target (zero-copy path). Set when the EGL
   // display advertises EGL_MESA_image_dma_buf_export and the
   // wl_subsurface presenter is up; the renderer draws into this
@@ -293,7 +296,14 @@ private:
   // subsurface — no glReadPixels, no QImage, no QPainter blit.
   // Stays null when EGL support is missing or the subsurface failed
   // to bring up, and the legacy m_fbo path runs as fallback.
+  //
+  // Vulkan-variant builds export dmabufs directly from
+  // VkDeviceMemory via VK_KHR_external_memory_fd and never touch
+  // EGL, so the field (and the entire EglDmabufTarget translation
+  // unit) is excluded from those binaries — matching the libEGL
+  // gating in qt/CMakeLists.txt.
   std::unique_ptr<opengl::EglDmabufTarget> m_eglTarget;
+#endif
   QImage m_image;                      // last frame, read back from m_fbo
 
   // True when this surface is using the Vulkan platform. The

@@ -10,8 +10,9 @@
 #include "Util.h"
 #ifdef GHASTTY_USE_VULKAN
 #include "vulkan/Host.h"
-#endif
+#else
 #include "opengl/EglDmabufTarget.h"
+#endif
 #include "wayland/DmabufRegistry.h"
 #include "wayland/SubsurfacePresenter.h"
 
@@ -324,6 +325,11 @@ void GhosttySurface::syncSurfaceSize() {
     return;
   }
 
+#ifndef GHASTTY_USE_VULKAN
+  // OpenGL path. Vulkan-variant builds always take the `m_useVulkan`
+  // branch above and never reach here; the entire block is excluded
+  // at preprocessor time so the Vulkan binary doesn't pull in
+  // EglDmabufTarget (and transitively libEGL).
   if (!makeCurrent()) return;
   m_eglTarget.reset();
   delete m_fbo;
@@ -362,6 +368,7 @@ void GhosttySurface::syncSurfaceSize() {
   ghostty_surface_set_size(m_surface, static_cast<uint32_t>(w),
                            static_cast<uint32_t>(h));
   renderTerminal();
+#endif
 }
 
 void GhosttySurface::moveEvent(QMoveEvent *) {
@@ -432,11 +439,14 @@ bool GhosttySurface::event(QEvent *e) {
       // re-creates the QPA window (QSplitter reparent, fullscreen
       // toggle, screen change). Make the owning context current
       // before tearing down. Vulkan-variant builds have no
-      // `m_context` and skip the makeCurrent.
+      // `m_context` or `m_eglTarget` and the whole block is
+      // preprocessed out below.
+#ifndef GHASTTY_USE_VULKAN
       if (m_eglTarget) {
         if (m_context) makeCurrent();
         m_eglTarget.reset();
       }
+#endif
       m_subsurfacePresenter.reset();
     }
     // SurfaceCreated is handled implicitly: the next QEvent::Show
@@ -593,6 +603,10 @@ void GhosttySurface::renderTerminal() {
     return;
   }
 
+#ifndef GHASTTY_USE_VULKAN
+  // OpenGL path. Vulkan-variant builds always take the early
+  // `m_useVulkan` return above; preprocessing the block out keeps
+  // the Vulkan binary free of EglDmabufTarget (and libEGL).
   if (!makeCurrent()) return;
   if (!m_eglTarget && !m_fbo) return;
 
@@ -658,6 +672,7 @@ void GhosttySurface::renderTerminal() {
   m_fbo->release();
 
   update();
+#endif
 }
 
 void GhosttySurface::paintEvent(QPaintEvent *) {
