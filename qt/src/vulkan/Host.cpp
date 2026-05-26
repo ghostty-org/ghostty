@@ -13,20 +13,6 @@
 
 namespace vulkan {
 
-// Forward declaration of the entry point in `GhosttySurface.cpp` that
-// receives a presented frame. Declared here at namespace scope (not
-// in the anonymous namespace below) so its external definition in
-// the other TU resolves at link time.
-void presentToGhosttySurface(
-    void *surface,
-    int dmabuf_fd,
-    uint32_t drm_format,
-    uint64_t drm_modifier,
-    uint32_t width,
-    uint32_t height,
-    uint32_t stride,
-    bool image_backed);
-
 namespace {
 
 constexpr const char *kRequiredDeviceExtensions[] = {
@@ -136,8 +122,9 @@ void cbPresent(
     uint32_t stride,
     bool image_backed) {
   if (ud == nullptr) return;
-  ::vulkan::presentToGhosttySurface(ud, dmabuf_fd, drm_format, drm_modifier,
-                                    width, height, stride, image_backed);
+  static_cast<PresentSink *>(ud)->presentDmabuf(
+      dmabuf_fd, drm_format, drm_modifier, width, height, stride,
+      image_backed);
 }
 
 } // namespace
@@ -238,9 +225,9 @@ Host::~Host() {
   if (m_instance != VK_NULL_HANDLE) vkDestroyInstance(m_instance, nullptr);
 }
 
-ghostty_platform_vulkan_s Host::asPlatform(void *surface_userdata) const {
+ghostty_platform_vulkan_s Host::asPlatform(PresentSink *sink) const {
   ghostty_platform_vulkan_s p{};
-  p.userdata = surface_userdata;
+  p.userdata = sink;
   p.get_instance_proc_addr = cbGetInstanceProcAddr;
   p.instance = cbInstance;
   p.physical_device = cbPhysicalDevice;

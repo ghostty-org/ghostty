@@ -30,6 +30,25 @@
 
 namespace vulkan {
 
+/// Receiver for a presented dmabuf-backed frame. Implemented by
+/// `GhosttySurface`; abstract so `vulkan::Host` doesn't need to
+/// know about the widget type. Replaces an earlier cross-TU
+/// forward declaration of a free function `presentToGhosttySurface`
+/// that coupled `Host.cpp` directly to `GhosttySurface.cpp`.
+class PresentSink {
+public:
+  virtual ~PresentSink() = default;
+  /// Hand off a rendered frame. Called on the libghostty renderer
+  /// thread; the implementation is responsible for marshalling to
+  /// whatever thread it composites on. The fd is borrowed for the
+  /// duration of the call — implementations that need to retain
+  /// it must `dup()`.
+  virtual void presentDmabuf(int dmabuf_fd, std::uint32_t drm_format,
+                              std::uint64_t drm_modifier,
+                              std::uint32_t width, std::uint32_t height,
+                              std::uint32_t stride, bool image_backed) = 0;
+};
+
 /// Process-wide Vulkan setup. One per Ghastty process; threadsafe
 /// to call `instance()` from anywhere (constructs once via
 /// std::call_once on first access).
@@ -40,13 +59,13 @@ public:
   /// repeated lookups are cheap.
   static Host *instance();
 
-  /// Build a `ghostty_platform_vulkan_s` callback struct populated
-  /// with this host's handles. `surface_userdata` is round-tripped
-  /// through as the `userdata` field — used by the `present`
-  /// callback to identify which `GhosttySurface` the dmabuf is for.
-  /// The other handle-lookup callbacks ignore it and route through
-  /// `Host::instance()`.
-  ghostty_platform_vulkan_s asPlatform(void *surface_userdata) const;
+  /// Build a `ghostty_platform_vulkan_s` callback struct whose
+  /// `present` callback delivers frames to `sink`. `sink` must
+  /// outlive the lifetime of any libghostty surface that was
+  /// configured with the returned platform struct. Other callbacks
+  /// (handle lookups, modifier registry) ignore `sink` and route
+  /// through the process singleton.
+  ghostty_platform_vulkan_s asPlatform(PresentSink *sink) const;
 
   VkInstance vkInstance() const { return m_instance; }
   VkPhysicalDevice vkPhysicalDevice() const { return m_physicalDevice; }

@@ -1836,25 +1836,10 @@ bool GhosttySurface::forceParentCommit() {
   return true;
 }
 
-// Trampoline so `Host.cpp` doesn't need to include the full
-// `GhosttySurface.h`. The forward declaration lives in
-// `vulkan/Host.cpp` (namespace scope, not anonymous, so the linker
-// resolves this definition).
-namespace vulkan {
-
-void presentToGhosttySurface(
-    void *surface,
-    int dmabuf_fd,
-    uint32_t drm_format,
-    uint64_t drm_modifier,
-    uint32_t width,
-    uint32_t height,
-    uint32_t stride,
-    bool image_backed) {
-  if (surface == nullptr) return;
-  static_cast<GhosttySurface *>(surface)->presentVulkanDmabuf(
-      dmabuf_fd, drm_format, drm_modifier, width, height, stride,
-      image_backed);
-}
-
-} // namespace vulkan
+// (Frame delivery to GhosttySurface is now via the
+// `vulkan::PresentSink` interface declared in `vulkan/Host.h`.
+// `vulkan::Host`'s present-callback trampoline calls
+// `static_cast<vulkan::PresentSink*>(userdata)->presentDmabuf(...)`,
+// which `GhosttySurface::presentDmabuf` (inline forwarder in the
+// header) routes to `presentVulkanDmabuf` above. No cross-TU
+// `extern void presentToGhosttySurface` symbol any more.)

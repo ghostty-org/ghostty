@@ -13,6 +13,7 @@
 #include <QWidget>
 
 #include "ghostty.h"
+#include "vulkan/Host.h"
 
 namespace wayland {
 class SubsurfacePresenter;
@@ -62,7 +63,7 @@ class OverlayScrollbar;
 // renderer reports image_backed=false (NVIDIA Vulkan's
 // legacy_copy path on this branch), the frame goes through a
 // mmap+memcpy+QImage+QPainter::drawImage path instead.
-class GhosttySurface : public QWidget {
+class GhosttySurface : public QWidget, public vulkan::PresentSink {
   Q_OBJECT
 
 public:
@@ -175,7 +176,7 @@ public:
   // (zero-copy) or paints the QImage (fallback). The dropped-frame
   // counter `m_droppedFrames` makes any genuine queue-loss visible
   // (zero in the steady state).
-  Q_INVOKABLE void presentVulkanDmabuf(
+  void presentVulkanDmabuf(
       int dmabuf_fd,
       quint32 drm_format,
       quint64 drm_modifier,
@@ -183,6 +184,18 @@ public:
       quint32 height,
       quint32 stride,
       bool image_backed);
+
+  // `vulkan::PresentSink` override. Thin forward to
+  // `presentVulkanDmabuf` so the existing implementation (and its
+  // doc comment above) stays where it is. Called by `vulkan::Host`'s
+  // present-callback trampoline on the libghostty renderer thread.
+  void presentDmabuf(int dmabuf_fd, std::uint32_t drm_format,
+                      std::uint64_t drm_modifier, std::uint32_t width,
+                      std::uint32_t height, std::uint32_t stride,
+                      bool image_backed) override {
+    presentVulkanDmabuf(dmabuf_fd, drm_format, drm_modifier, width,
+                         height, stride, image_backed);
+  }
 
   // GUI-thread drain step: hands the most recent pending frame
   // either to the SubsurfacePresenter (zero-copy path) or the
