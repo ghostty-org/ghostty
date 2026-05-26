@@ -22,9 +22,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 
 struct wl_buffer;
+struct wl_callback;
 struct wl_display;
 struct wl_subsurface;
 struct wl_surface;
@@ -129,6 +131,19 @@ public:
   // the subsurface becomes visible again.
   void hide();
 
+  // Register a callback fired (on the GUI thread, via Wayland event
+  // queue dispatch) when the compositor signals it's ready for the
+  // next frame on this subsurface. Lets the caller pace presents at
+  // the compositor's refresh rate instead of unconditionally
+  // committing every renderer frame.
+  //
+  // The callback fires AT MOST ONCE per `presentDmabuf` /
+  // `reattachCached` call — the underlying `wl_surface.frame`
+  // request is single-shot per commit. After the callback fires,
+  // the next present's commit will register a new frame_callback.
+  using OnFrameReady = std::function<void()>;
+  void setOnFrameReady(OnFrameReady cb) { m_onFrameReady = std::move(cb); }
+
   // Re-attach + commit the most recently cached wl_buffer, if any.
   // Called from `QEvent::Show` so a tab-switch / re-show sees the
   // last frame immediately rather than a transparent area while
@@ -145,6 +160,15 @@ public:
   // can name it; not part of the API for other call sites.
   static void onPreferredScale(void *data, wp_fractional_scale_v1 *,
                                 uint32_t scale);
+
+  // wl_callback::done dispatch from the file-scope listener. Public
+  // for the same reason as onPreferredScale: C-style Wayland
+  // listeners need a static-callable entry point and we route the
+  // result back into the owning presenter via the listener's `data`
+  // pointer. Destroys the callback proxy, clears m_frameCallback,
+  // and invokes m_onFrameReady if set. Not part of the API for
+  // other call sites.
+  void onFrameCallbackDone(wl_callback *cb);
 
   SubsurfacePresenter(const SubsurfacePresenter &) = delete;
   SubsurfacePresenter &operator=(const SubsurfacePresenter &) = delete;
@@ -166,6 +190,14 @@ private:
   int m_lastDestHeight = 0;
   int m_lastX = 0;
   int m_lastY = 0;
+
+  // Pending wl_surface.frame callback for compositor-paced presents.
+  // Null between frame_done and the next presentDmabuf commit. Non-
+  // null between presentDmabuf and frame_done. Single-shot — the
+  // done handler destroys it and clears the field, then invokes
+  // `m_onFrameReady` if set.
+  wl_callback *m_frameCallback = nullptr;
+  OnFrameReady m_onFrameReady;
 
   // wl_buffer cache. libghostty re-uses the same dmabuf fd across
   // frames until the next Target.deinit (i.e. until a resize), so

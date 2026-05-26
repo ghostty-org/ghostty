@@ -239,6 +239,29 @@ const wl_buffer_listener kBufferListener = {
     bufferRelease,
 };
 
+// wl_callback::done listener for compositor-paced presents. Single-
+// shot per callback — the proxy is destroyed here and the
+// presenter's m_frameCallback field is cleared so the next present
+// knows to register a fresh one. After cleanup, invoke the
+// presenter's onFrameReady hook (set by GhosttySurface to pump the
+// next pending frame).
+void frameCallbackDone(void *data, wl_callback *cb, uint32_t /*time*/) {
+  auto *p = static_cast<wayland::SubsurfacePresenter *>(data);
+  // Defensive: if the listener fires after the proxy was destroyed
+  // by ~SubsurfacePresenter (Wayland guarantees no events on a
+  // destroyed proxy, so this shouldn't happen, but if a future
+  // refactor destroys the presenter before flushing the queue we'd
+  // rather no-op than UAF).
+  if (!p) {
+    wl_callback_destroy(cb);
+    return;
+  }
+  p->onFrameCallbackDone(cb);
+}
+const wl_callback_listener kFrameCallbackListener = {
+    frameCallbackDone,
+};
+
 } // namespace
 
 void primeDmabufModifierRegistry() {
@@ -445,6 +468,14 @@ SubsurfacePresenter::SubsurfacePresenter(wl_display *display, wl_surface *child,
 }
 
 SubsurfacePresenter::~SubsurfacePresenter() {
+  // Destroy the pending frame callback first: subsequent dispatches
+  // of the wl_event_queue won't deliver its done event (Wayland
+  // guarantees no events on a destroyed proxy), so the dangling
+  // `this` pointer in the listener data can't fire.
+  if (m_frameCallback) {
+    wl_callback_destroy(m_frameCallback);
+    m_frameCallback = nullptr;
+  }
   // Destroy the cached wl_buffer BEFORE the child surface — the
   // buffer may still be attached. wl_buffer_destroy is safe whether
   // or not the compositor has released it (Wayland guarantees no
@@ -458,6 +489,22 @@ SubsurfacePresenter::~SubsurfacePresenter() {
   if (m_subsurface) wl_subsurface_destroy(m_subsurface);
   if (m_childSurface) wl_surface_destroy(m_childSurface);
   if (m_display) wl_display_flush(m_display);
+}
+
+void SubsurfacePresenter::onFrameCallbackDone(wl_callback *cb) {
+  // The single-shot wl_callback is now spent. Destroy the proxy and
+  // clear our slot so the next present registers a fresh callback.
+  // Guard against the rare cb-mismatch case (shouldn't happen — the
+  // listener data routes to exactly this presenter and we only ever
+  // have one outstanding callback — but be defensive against future
+  // refactors).
+  if (cb == m_frameCallback) m_frameCallback = nullptr;
+  wl_callback_destroy(cb);
+  // Notify the consumer (e.g. GhosttySurface) that the compositor
+  // is ready for the next frame. The callback runs on the same
+  // thread that pumps Wayland events (the Qt GUI thread), so it can
+  // touch GUI-thread state directly.
+  if (m_onFrameReady) m_onFrameReady();
 }
 
 void SubsurfacePresenter::presentDmabuf(int fd, uint32_t drm_format,
@@ -622,6 +669,18 @@ void SubsurfacePresenter::presentDmabuf(int fd, uint32_t drm_format,
   // `damage`) uses buffer coordinates so it's resolution-correct.
   wl_surface_damage_buffer(m_childSurface, 0, 0, static_cast<int32_t>(width),
                            static_cast<int32_t>(height));
+  // Register a wl_surface.frame callback BEFORE the commit so the
+  // compositor knows we want to be paced. Only request a new one if
+  // none is outstanding — re-requesting before the prior fires would
+  // leak callbacks. The done handler clears m_frameCallback, so the
+  // next call here will register fresh.
+  if (!m_frameCallback) {
+    m_frameCallback = wl_surface_frame(m_childSurface);
+    if (m_frameCallback) {
+      wl_callback_add_listener(m_frameCallback, &kFrameCallbackListener,
+                               this);
+    }
+  }
   wl_surface_commit(m_childSurface);
 
   wl_display_flush(m_display);
@@ -695,6 +754,18 @@ void SubsurfacePresenter::reattachCached() {
   wl_surface_damage_buffer(m_childSurface, 0, 0,
                            static_cast<int32_t>(m_cachedWidth),
                            static_cast<int32_t>(m_cachedHeight));
+  // Register a frame callback so the consumer's pacing state machine
+  // gets a "compositor is ready" event after this re-attach too —
+  // otherwise a tab switch could leave m_compositorReady stuck false
+  // (a stale frame callback from the pre-Hide commit may have been
+  // discarded by the compositor on the NULL attach).
+  if (!m_frameCallback) {
+    m_frameCallback = wl_surface_frame(m_childSurface);
+    if (m_frameCallback) {
+      wl_callback_add_listener(m_frameCallback, &kFrameCallbackListener,
+                               this);
+    }
+  }
   wl_surface_commit(m_childSurface);
   wl_display_flush(m_display);
 }

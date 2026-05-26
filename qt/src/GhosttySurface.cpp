@@ -513,6 +513,10 @@ bool GhosttySurface::event(QEvent *e) {
       }
 #endif
       m_subsurfacePresenter.reset();
+      // Presenter is gone — no frame_done callback will arrive.
+      // Reset the gate so the rebuilt presenter's first present
+      // (on next Show) goes through immediately.
+      m_compositorReady = true;
     }
     // SurfaceCreated is handled implicitly: the next QEvent::Show
     // (which Qt always fires after the platform surface comes up)
@@ -575,6 +579,16 @@ bool GhosttySurface::event(QEvent *e) {
             // moveEvent updates it on layout changes.
             const QPoint pos = mapTo(window(), QPoint(0, 0));
             m_subsurfacePresenter->setPosition(pos.x(), pos.y());
+            // Wire compositor-paced presents: the presenter requests
+            // a wl_surface.frame callback on every commit; when the
+            // compositor signals ready, onWaylandFrameReady flips
+            // m_compositorReady and re-pumps drainVulkan.
+            m_subsurfacePresenter->setOnFrameReady(
+                [this]() { onWaylandFrameReady(); });
+            // Fresh presenter starts in "ready to present" state —
+            // first present goes through immediately; subsequent
+            // presents wait for the frame callback.
+            m_compositorReady = true;
             if (m_useVulkan) {
               m_useSubsurface.store(true, std::memory_order_release);
             } else {
@@ -1812,7 +1826,18 @@ void GhosttySurface::presentVulkanDmabuf(
                      static_cast<unsigned long long>(count));
       }
     }
-    QMetaObject::invokeMethod(this, "drainVulkan", Qt::QueuedConnection);
+    // Dedupe queued drainVulkan: only post if no prior post is
+    // still pending. drainVulkan clears m_drainScheduled before
+    // checking the pending dmabuf, so a renderer frame parked
+    // between "clear" and "consume" still kicks a fresh queued
+    // drain. The atomic CAS is wait-free; the false→true winner
+    // posts, others skip.
+    bool was_scheduled = false;
+    if (m_drainScheduled.compare_exchange_strong(
+            was_scheduled, true, std::memory_order_acq_rel)) {
+      QMetaObject::invokeMethod(this, "drainVulkan",
+                                Qt::QueuedConnection);
+    }
     return;
   }
 
@@ -1872,10 +1897,35 @@ void GhosttySurface::presentVulkanDmabuf(
                    static_cast<unsigned long long>(count));
     }
   }
-  QMetaObject::invokeMethod(this, "drainVulkan", Qt::QueuedConnection);
+  // Same dedupe as the subsurface path: at most one queued drain
+  // pending at a time. drainVulkan resets the flag before consuming.
+  bool was_scheduled = false;
+  if (m_drainScheduled.compare_exchange_strong(
+          was_scheduled, true, std::memory_order_acq_rel)) {
+    QMetaObject::invokeMethod(this, "drainVulkan", Qt::QueuedConnection);
+  }
+}
+
+void GhosttySurface::onWaylandFrameReady() {
+  // Compositor has signaled it's ready for our next commit. Flip
+  // the gate and re-pump drainVulkan to consume any frame the
+  // renderer parked while we were waiting. If nothing is parked,
+  // drainVulkan no-ops; the next renderer-driven present will fire
+  // a queued drainVulkan that finds the gate open and goes through
+  // immediately.
+  m_compositorReady = true;
+  drainVulkan();
 }
 
 void GhosttySurface::drainVulkan() {
+  // Release the dedupe slot FIRST so a renderer frame parked while
+  // this drain runs can immediately schedule its own queued drain
+  // (instead of the next post being silently dropped). The atomic
+  // ordering: clear-before-consume means a presentVulkanDmabuf that
+  // races us still wins the CAS and posts a follow-up drain, so no
+  // parked frame is forgotten.
+  m_drainScheduled.store(false, std::memory_order_release);
+
   // Subsurface (zero-copy) path: take the parked dmabuf descriptor
   // under the mutex, then dispatch it to the presenter outside the
   // lock so a renderer-thread `presentVulkanDmabuf` parking the
@@ -1893,6 +1943,15 @@ void GhosttySurface::drainVulkan() {
   }
   if (m_useSubsurface.load(std::memory_order_acquire) &&
       m_subsurfacePresenter) {
+    // Compositor-paced gate. If the compositor hasn't signaled
+    // ready yet (we're mid-flight on the previous commit), leave
+    // the parked descriptor in m_pendingDmabuf — onWaylandFrameReady
+    // will re-post drainVulkan when the wl_surface.frame callback
+    // fires. The renderer may overwrite m_pendingDmabuf with a
+    // newer frame in the meantime; that's fine, "latest wins" is
+    // the right semantic for terminal output that hasn't been
+    // displayed yet.
+    if (!m_compositorReady) return;
     PendingDmabuf frame;
     {
       QMutexLocker lock(&m_pendingMutex);
@@ -1912,6 +1971,9 @@ void GhosttySurface::drainVulkan() {
     // parent wl_surface.commit so the cached state applies and the
     // frame becomes visible.
     forceParentCommit();
+    // Mark the gate closed until the compositor's wl_surface.frame
+    // callback fires (onWaylandFrameReady).
+    m_compositorReady = false;
     return;
   }
 

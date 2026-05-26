@@ -207,6 +207,14 @@ public:
   // renderer thread.
   Q_INVOKABLE void drainVulkan();
 
+  // Compositor frame-callback handler. Fires (on the GUI thread,
+  // via Wayland event-queue dispatch) when the compositor signals
+  // it's ready to display our next commit. Clears the in-flight
+  // flag and re-pumps drainVulkan to consume any frame the renderer
+  // parked while we were waiting. Q_INVOKABLE so it can also be
+  // posted via QMetaObject::invokeMethod from a queued context.
+  Q_INVOKABLE void onWaylandFrameReady();
+
   // Force a wl_surface.commit on our parent native window via the
   // QtWaylandClient::QWaylandWindow private API. The wl_subsurface
   // is in sync mode, so child state changes only apply when the
@@ -339,6 +347,26 @@ private:
     quint32 stride = 0;
   };
   PendingDmabuf m_pendingDmabuf;
+  // Compositor-paced present gate. True when we can issue the next
+  // wl_subsurface commit; flipped false after a present and back to
+  // true on the wl_surface.frame callback (onWaylandFrameReady). The
+  // renderer thread keeps producing frames at its own rate (125 FPS
+  // with custom-shader-animation), but only the latest parked frame
+  // reaches the compositor on each refresh — drops every-other (or
+  // more) frame to match compositor refresh, halving Wayland-commit
+  // CPU on the GUI thread. GUI-thread only, no atomic.
+  bool m_compositorReady = true;
+  // Dedupes queued drainVulkan invocations posted from the renderer
+  // thread. Each renderer-thread `presentVulkanDmabuf` used to post
+  // a QueuedConnection invokeMethod unconditionally — at 125 FPS
+  // that's 125 Qt-event-queue allocations + dispatches per second,
+  // most of which no-op now that the compositor gate may not yet
+  // be ready. CAS to true to claim the slot; drainVulkan resets to
+  // false before consuming so a follow-up renderer frame can
+  // schedule its own drain. The pending-dmabuf "latest wins"
+  // semantic guarantees the renderer's newest frame is what
+  // drainVulkan sees regardless of how many parks happened between.
+  std::atomic<bool> m_drainScheduled{false};
   // Legacy (mmap+memcpy) path: kept as a fallback when the
   // presenter isn't available (e.g. compositor missing
   // linux-dmabuf-v1). When the subsurface path is active this stays
