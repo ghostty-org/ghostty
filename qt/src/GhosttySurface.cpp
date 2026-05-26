@@ -34,6 +34,7 @@
 #include <limits>
 
 #include <sys/mman.h>
+#include <unistd.h>  // ::dup, ::close — own the dmabuf fd's lifetime
 
 #include <QByteArray>
 #include <QClipboard>
@@ -213,6 +214,19 @@ GhosttySurface::~GhosttySurface() {
   // The inspector window holds m_surface; destroy it before m_surface.
   // QPointer auto-nulls on a destroyed QObject, so .data() is safe.
   delete m_inspectorWindow.data();
+
+  // Close any parked dup'd dmabuf fd left over from a renderer-
+  // thread present that the GUI thread never got to drain (e.g.
+  // surface destruction races a late renderer frame). The dup is
+  // owned by us (created in presentVulkanDmabuf), so we have to
+  // close it explicitly.
+  {
+    QMutexLocker lock(&m_pendingMutex);
+    if (m_pendingDmabuf.fd >= 0) {
+      ::close(m_pendingDmabuf.fd);
+      m_pendingDmabuf.fd = -1;
+    }
+  }
 
   // Wake the renderer thread if it's parked in presentVulkanDmabuf's
   // CV wait BEFORE we hand the surface to libghostty for teardown.
@@ -1850,6 +1864,31 @@ void GhosttySurface::presentVulkanDmabuf(
       m_compositorReady = false;
     }
 
+    // Dup the dmabuf fd BEFORE parking. The fd from libghostty is
+    // only guaranteed valid inside this present() callback —
+    // libghostty's Target.deinit (which fires on resize, including
+    // the size-1×1 → real-size resize that happens on every new
+    // surface bring-up) closes it. If the GUI thread is busy with
+    // tab creation when drainVulkan would run, the parked fd can
+    // be reaped under it before create_immed reaches the SCM_RIGHTS
+    // dup — manifests as `dup failed: Bad file descriptor` →
+    // wl_display protocol error 9 → the whole Wayland connection
+    // dies (verified user-side, "2nd time this has happened
+    // while opening tabs").
+    //
+    // Our dup owns its own kernel ref, independent of libghostty's
+    // close. drainVulkan closes the dup after presentDmabuf hands
+    // it to create_immed (which SCM_RIGHTS-dups again into the
+    // compositor's address space). One dup per frame; cheap.
+    const int parked_fd = ::dup(dmabuf_fd);
+    if (parked_fd < 0) {
+      // Out of fds or other syscall failure. Drop the frame; renderer
+      // will deliver another one next compositor refresh.
+      m_compositorReady = true;  // unblock our own backpressure
+      m_compositorCv.notify_all();
+      return;
+    }
+
     // Subsurface path. Park the descriptor under the mutex (so
     // a concurrent drainVulkan sees a consistent snapshot) and
     // wake the GUI thread. Frame-drop semantics: at most one frame
@@ -1858,13 +1897,20 @@ void GhosttySurface::presentVulkanDmabuf(
     // before the GUI thread consumed the previous park, or on the
     // first-frame bring-up race.
     bool overwrote = false;
+    int prev_fd = -1;
     {
       QMutexLocker lock(&m_pendingMutex);
       overwrote = m_pendingDmabuf.fd >= 0;
+      // Snapshot the prior parked fd so we can close it OUTSIDE
+      // the mutex — we own it (it's a prior dup).
+      if (overwrote) prev_fd = m_pendingDmabuf.fd;
       m_pendingDmabuf = PendingDmabuf{
-          dmabuf_fd, drm_format, drm_modifier, width, height, stride,
+          parked_fd, drm_format, drm_modifier, width, height, stride,
       };
     }
+    // Close any overwritten prior dup so we don't leak fds in the
+    // (rare) drop case.
+    if (prev_fd >= 0) ::close(prev_fd);
     if (overwrote) {
       const auto count = m_droppedFrames.fetch_add(
           1, std::memory_order_relaxed) + 1;
@@ -1988,11 +2034,16 @@ void GhosttySurface::drainVulkan() {
     // Clear the parked descriptor on hide so the next post-Show
     // present doesn't see a "stale frame still pending" state and
     // spuriously bump m_droppedFrames every Hide/Show cycle. The
-    // fd itself is libghostty-owned (per ABI it's only valid for
-    // the duration of the original presentVulkanDmabuf call), so
-    // there's nothing to release here beyond marking the slot empty.
-    QMutexLocker lock(&m_pendingMutex);
-    m_pendingDmabuf.fd = -1;
+    // parked fd is our own dup (created in presentVulkanDmabuf),
+    // so we have to close it explicitly to avoid leaking fds on
+    // Hide/Show cycles.
+    int parked = -1;
+    {
+      QMutexLocker lock(&m_pendingMutex);
+      parked = m_pendingDmabuf.fd;
+      m_pendingDmabuf.fd = -1;
+    }
+    if (parked >= 0) ::close(parked);
     return;
   }
   if (m_useSubsurface.load(std::memory_order_acquire) &&
@@ -2020,6 +2071,13 @@ void GhosttySurface::drainVulkan() {
     // parent wl_surface.commit so the cached state applies and the
     // frame becomes visible.
     forceParentCommit();
+    // Close OUR dup of the dmabuf fd now that presentDmabuf has
+    // handed it to create_immed (which SCM_RIGHTS-dup'd it again
+    // for the compositor's view, or did a cache hit and didn't
+    // touch the fd at all — either way we don't need it past this
+    // point). Closing here keeps fd usage bounded; without it
+    // we'd leak one dup per frame.
+    ::close(frame.fd);
     return;
   }
 
