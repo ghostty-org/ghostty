@@ -214,6 +214,22 @@ GhosttySurface::~GhosttySurface() {
   // QPointer auto-nulls on a destroyed QObject, so .data() is safe.
   delete m_inspectorWindow.data();
 
+  // Wake the renderer thread if it's parked in presentVulkanDmabuf's
+  // CV wait BEFORE we hand the surface to libghostty for teardown.
+  // ghostty_surface_free below shuts down + joins the renderer
+  // thread; if that thread is blocked on our CV, the join either
+  // hangs for our 100 ms timeout (best case) or races our mutex /
+  // CV destruction once this body returns (worst case → SEGV when
+  // the renderer wakes from the timeout and touches the destroyed
+  // mutex). The predicate also checks m_hidden so the renderer
+  // bails out without parking another frame.
+  m_hidden.store(true, std::memory_order_release);
+  {
+    std::lock_guard<std::mutex> lg(m_compositorMutex);
+    m_compositorReady = true;
+  }
+  m_compositorCv.notify_all();
+
   // GL teardown must happen with the context current. If makeCurrent
   // fails (e.g. the ctor failed before m_context could be created), we
   // still free m_surface — it carries no GL state of its own — and we
