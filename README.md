@@ -37,7 +37,11 @@ been changed.
 
 ## Sidebar Agent Statuses
 
-Sidebar agent status indicators are currently supported automatically for
+The sidebar tab/session UI and sidebar agent status indicators are currently
+macOS-only. The underlying hook event pipeline is shared infrastructure, but
+Linux/GTK does not yet expose these statuses in the UI.
+
+On macOS, agent status indicators are currently supported automatically for
 Claude Code and Codex. Other CLIs can use the same underlying hook event
 pipeline, but they do not have built-in integration yet. Support for the X.ai
 CLI and Gemini CLI is in progress.
