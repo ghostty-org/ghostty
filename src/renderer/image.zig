@@ -105,6 +105,7 @@ pub const State = struct {
         self: *State,
         api: *GraphicsAPI,
         pipeline: GraphicsAPI.Pipeline,
+        uniforms: GraphicsAPI.Buffer(GraphicsAPI.shaders.Uniforms),
         pass: *GraphicsAPI.RenderPass,
         placement_type: DrawPlacements,
     ) void {
@@ -168,6 +169,21 @@ pub const State = struct {
 
             pass.step(.{
                 .pipeline = pipeline,
+                // Bind uniforms explicitly per image step. Without
+                // this, the image pipeline relied on whatever
+                // uniforms a previous (cell_bg / cell_text) step
+                // happened to bind in the same render pass — works
+                // if the renderer always draws cells before images,
+                // but a race on first-frame init (precompiled-SPV
+                // path returned from Shaders.init fast enough that
+                // image.draw could fire before the cell steps had
+                // populated the descriptor set) showed the image
+                // shader reading garbage cell_size from a stale
+                // UBO binding, producing image quads that covered
+                // the entire viewport. Defensive explicit bind
+                // makes the image pipeline's UBO source independent
+                // of prior-step ordering.
+                .uniforms = uniforms.buffer,
                 .buffers = &.{buf.buffer},
                 .textures = &.{texture},
                 .draw = .{

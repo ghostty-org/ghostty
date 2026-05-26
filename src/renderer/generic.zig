@@ -1661,6 +1661,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.images.draw(
                     &self.api,
                     self.shaders.pipelines.image,
+                    frame.uniforms,
                     &pass,
                     .kitty_below_bg,
                 );
@@ -1677,6 +1678,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.images.draw(
                     &self.api,
                     self.shaders.pipelines.image,
+                    frame.uniforms,
                     &pass,
                     .kitty_below_text,
                 );
@@ -1704,6 +1706,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.images.draw(
                     &self.api,
                     self.shaders.pipelines.image,
+                    frame.uniforms,
                     &pass,
                     .kitty_above_text,
                 );
@@ -1713,6 +1716,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 if (self.overlay != null) self.images.draw(
                     &self.api,
                     self.shaders.pipelines.image,
+                    frame.uniforms,
                     &pass,
                     .overlay,
                 );
