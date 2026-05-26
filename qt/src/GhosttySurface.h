@@ -1,8 +1,10 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 
 #include <QImage>
 #include <QMutex>
@@ -347,14 +349,26 @@ private:
     quint32 stride = 0;
   };
   PendingDmabuf m_pendingDmabuf;
-  // Compositor-paced present gate. True when we can issue the next
-  // wl_subsurface commit; flipped false after a present and back to
-  // true on the wl_surface.frame callback (onWaylandFrameReady). The
-  // renderer thread keeps producing frames at its own rate (125 FPS
-  // with custom-shader-animation), but only the latest parked frame
-  // reaches the compositor on each refresh — drops every-other (or
-  // more) frame to match compositor refresh, halving Wayland-commit
-  // CPU on the GUI thread. GUI-thread only, no atomic.
+  // Compositor-paced present gate. Now BACKPRESSURES THE RENDERER
+  // THREAD: presentVulkanDmabuf blocks (with a 100 ms safety
+  // timeout) until the compositor signals ready, so the renderer
+  // produces frames at the compositor's refresh rate instead of
+  // its own 125 FPS draw timer. Saves the GPU work + renderer-
+  // thread CPU that the prior GUI-side-drop model was paying for
+  // every wasted frame.
+  //
+  // State machine:
+  //   - Initial: ready=true (first present goes through).
+  //   - Renderer present: wait_for(ready || hidden); claim
+  //     ready=false; park dmabuf; post drain.
+  //   - GUI drain: consume + commit + register wl_surface.frame.
+  //   - Compositor frame_done → onWaylandFrameReady: ready=true,
+  //     notify CV. Renderer's next present unblocks immediately.
+  //   - Hide / PlatformSurface destroy: ready=true, notify_all to
+  //     unblock any in-flight renderer wait (predicate also checks
+  //     m_hidden so the renderer bails without parking).
+  std::mutex m_compositorMutex;
+  std::condition_variable m_compositorCv;
   bool m_compositorReady = true;
   // Dedupes queued drainVulkan invocations posted from the renderer
   // thread. Each renderer-thread `presentVulkanDmabuf` used to post

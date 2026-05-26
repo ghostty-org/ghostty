@@ -515,8 +515,14 @@ bool GhosttySurface::event(QEvent *e) {
       m_subsurfacePresenter.reset();
       // Presenter is gone — no frame_done callback will arrive.
       // Reset the gate so the rebuilt presenter's first present
-      // (on next Show) goes through immediately.
-      m_compositorReady = true;
+      // (on next Show) goes through immediately, AND wake the
+      // renderer thread in case it's parked in the wait_for so
+      // it can re-check m_hidden and bail.
+      {
+        std::lock_guard<std::mutex> lg(m_compositorMutex);
+        m_compositorReady = true;
+      }
+      m_compositorCv.notify_all();
     }
     // SurfaceCreated is handled implicitly: the next QEvent::Show
     // (which Qt always fires after the platform surface comes up)
@@ -615,6 +621,15 @@ bool GhosttySurface::event(QEvent *e) {
         m_subsurfacePresenter->hide();
         forceParentCommit();
       }
+      // Wake the renderer thread if it's parked in
+      // presentVulkanDmabuf's wait_for; the predicate sees
+      // m_hidden=true (already set above) and the renderer bails
+      // without parking another frame.
+      {
+        std::lock_guard<std::mutex> lg(m_compositorMutex);
+        m_compositorReady = true;
+      }
+      m_compositorCv.notify_all();
     }
   }
   return QWidget::event(e);
@@ -1790,21 +1805,42 @@ void GhosttySurface::presentVulkanDmabuf(
   if (m_hidden.load(std::memory_order_acquire)) return;
 
   if (useSubsurface) {
+    // Backpressure the renderer thread to the compositor's refresh
+    // rate. Block here until the GUI thread's wl_surface.frame
+    // callback (onWaylandFrameReady) signals that the previous
+    // commit has retired and the compositor is ready for the next
+    // one. Without this, the renderer's 125 FPS draw timer keeps
+    // submitting GPU work that the paced GUI thread discards —
+    // wasted GPU + renderer-thread CPU.
+    //
+    // 100 ms timeout is a safety net: if the compositor stalls
+    // (lid closed, monitor disconnect, application minimized
+    // mid-flight) we don't want the renderer thread blocked
+    // forever. On timeout we proceed and overwrite the parked
+    // dmabuf — same drop semantic as pre-backpressure. The
+    // predicate also bails on m_hidden so Hide can wake the
+    // renderer immediately without paying the timeout.
+    {
+      std::unique_lock<std::mutex> lk(m_compositorMutex);
+      m_compositorCv.wait_for(lk, std::chrono::milliseconds(100),
+                              [this] {
+                                return m_compositorReady ||
+                                       m_hidden.load(std::memory_order_acquire);
+                              });
+      // If Hide fired while we were waiting, bail without parking
+      // the frame — the GUI thread's drainVulkan would drop it
+      // anyway on the m_hidden check below.
+      if (m_hidden.load(std::memory_order_acquire)) return;
+      m_compositorReady = false;
+    }
+
     // Subsurface path. Park the descriptor under the mutex (so
     // a concurrent drainVulkan sees a consistent snapshot) and
-    // wake the GUI thread.
-    //
-    // Frame-drop semantics: at most one frame is parked. If
-    // drainVulkan hasn't consumed the previous one before the
-    // renderer thread arrives with a new one, the older frame is
-    // overwritten — its fd is libghostty's to close at next
-    // Target.deinit, so the descriptor doesn't leak; the user just
-    // sees a missed frame. That's the right call for a 60Hz
-    // terminal: the alternative (block the renderer thread on the
-    // GUI thread) would stall every present. We bump a counter so
-    // a sustained backlog is visible in logs/metrics; spurious
-    // drops happen on the first few frames before the GUI thread
-    // pump is hot, hence the >0 threshold.
+    // wake the GUI thread. Frame-drop semantics: at most one frame
+    // is parked. With the backpressure above, overwrites should be
+    // rare — they happen only when the renderer's wait timed out
+    // before the GUI thread consumed the previous park, or on the
+    // first-frame bring-up race.
     bool overwrote = false;
     {
       QMutexLocker lock(&m_pendingMutex);
@@ -1908,13 +1944,15 @@ void GhosttySurface::presentVulkanDmabuf(
 
 void GhosttySurface::onWaylandFrameReady() {
   // Compositor has signaled it's ready for our next commit. Flip
-  // the gate and re-pump drainVulkan to consume any frame the
-  // renderer parked while we were waiting. If nothing is parked,
-  // drainVulkan no-ops; the next renderer-driven present will fire
-  // a queued drainVulkan that finds the gate open and goes through
-  // immediately.
-  m_compositorReady = true;
-  drainVulkan();
+  // the gate and wake the renderer thread, which is blocked in
+  // presentVulkanDmabuf's wait_for. The renderer will produce its
+  // next frame; nothing for us to drain right now (there's no
+  // pending dmabuf — the renderer is waiting BEFORE parking).
+  {
+    std::lock_guard<std::mutex> lg(m_compositorMutex);
+    m_compositorReady = true;
+  }
+  m_compositorCv.notify_all();
 }
 
 void GhosttySurface::drainVulkan() {
@@ -1943,15 +1981,10 @@ void GhosttySurface::drainVulkan() {
   }
   if (m_useSubsurface.load(std::memory_order_acquire) &&
       m_subsurfacePresenter) {
-    // Compositor-paced gate. If the compositor hasn't signaled
-    // ready yet (we're mid-flight on the previous commit), leave
-    // the parked descriptor in m_pendingDmabuf — onWaylandFrameReady
-    // will re-post drainVulkan when the wl_surface.frame callback
-    // fires. The renderer may overwrite m_pendingDmabuf with a
-    // newer frame in the meantime; that's fine, "latest wins" is
-    // the right semantic for terminal output that hasn't been
-    // displayed yet.
-    if (!m_compositorReady) return;
+    // No gate check here: the renderer thread's wait in
+    // presentVulkanDmabuf already paced us, so a parked dmabuf
+    // means the compositor was ready when the renderer claimed
+    // the slot. Just consume + commit.
     PendingDmabuf frame;
     {
       QMutexLocker lock(&m_pendingMutex);
@@ -1971,9 +2004,6 @@ void GhosttySurface::drainVulkan() {
     // parent wl_surface.commit so the cached state applies and the
     // frame becomes visible.
     forceParentCommit();
-    // Mark the gate closed until the compositor's wl_surface.frame
-    // callback fires (onWaylandFrameReady).
-    m_compositorReady = false;
     return;
   }
 
