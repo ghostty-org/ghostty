@@ -136,6 +136,7 @@ extern "C" {
 #include <ghostty/vt/modes.h>
 #include <ghostty/vt/mouse.h>
 #include <ghostty/vt/paste.h>
+#include <ghostty/vt/point.h>
 #include <ghostty/vt/screen.h>
 #include <ghostty/vt/selection.h>
 #include <ghostty/vt/size_report.h>

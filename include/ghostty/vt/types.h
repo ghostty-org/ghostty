@@ -98,7 +98,9 @@ typedef struct GhosttyTerminalImpl* GhosttyTerminal;
  * Opaque handle to a tracked grid reference.
  *
  * A tracked grid reference is owned by the caller and must be freed with
- * ghostty_tracked_grid_ref_free() before the terminal that created it is freed.
+ * ghostty_tracked_grid_ref_free(). If the terminal that created it is freed
+ * first, the handle remains valid only for tracked-grid-ref APIs: it reports no
+ * value and can still be freed.
  *
  * @ingroup grid_ref
  */
@@ -193,6 +195,23 @@ typedef struct GhosttyOscParserImpl* GhosttyOscParser;
 typedef struct GhosttyOscCommandImpl* GhosttyOscCommand;
 
 /* ---- Common value types ---- */
+
+/**
+ * Terminal content output format.
+ *
+ * @ingroup formatter
+ */
+typedef enum GHOSTTY_ENUM_TYPED {
+  /** Plain text (no escape sequences). */
+  GHOSTTY_FORMATTER_FORMAT_PLAIN,
+
+  /** VT sequences preserving colors, styles, URLs, etc. */
+  GHOSTTY_FORMATTER_FORMAT_VT,
+
+  /** HTML with inline styles. */
+  GHOSTTY_FORMATTER_FORMAT_HTML,
+  GHOSTTY_FORMATTER_FORMAT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+} GhosttyFormatterFormat;
 
 /**
  * A borrowed byte string (pointer + length).

@@ -20,30 +20,36 @@ const mouse_encode = @import("mouse_encode.zig");
 const grid_ref = @import("grid_ref.zig");
 
 /// All C API structs and their Ghostty C names.
-pub const structs: std.StaticStringMap(StructInfo) = .initComptime(.{
-    .{ "GhosttyColorRgb", StructInfo.init(color.RGB.C) },
-    .{ "GhosttyDeviceAttributes", StructInfo.init(terminal.DeviceAttributes) },
-    .{ "GhosttyDeviceAttributesPrimary", StructInfo.init(terminal.DeviceAttributes.Primary) },
-    .{ "GhosttyDeviceAttributesSecondary", StructInfo.init(terminal.DeviceAttributes.Secondary) },
-    .{ "GhosttyDeviceAttributesTertiary", StructInfo.init(terminal.DeviceAttributes.Tertiary) },
-    .{ "GhosttyFormatterTerminalOptions", StructInfo.init(formatter.TerminalOptions) },
-    .{ "GhosttySelection", StructInfo.init(selection.CSelection) },
-    .{ "GhosttyFormatterTerminalExtra", StructInfo.init(formatter.TerminalOptions.Extra) },
-    .{ "GhosttyFormatterScreenExtra", StructInfo.init(formatter.ScreenOptions.Extra) },
-    .{ "GhosttyGridRef", StructInfo.init(grid_ref.CGridRef) },
-    .{ "GhosttyMouseEncoderSize", StructInfo.init(mouse_encode.Size) },
-    .{ "GhosttyMousePosition", StructInfo.init(mouse_event.Position) },
-    .{ "GhosttyPoint", StructInfo.init(point.Point.C) },
-    .{ "GhosttyPointCoordinate", StructInfo.init(point.Coordinate) },
-    .{ "GhosttyRenderStateColors", StructInfo.init(render.Colors) },
-    .{ "GhosttySizeReportSize", StructInfo.init(size_report.Size) },
-    .{ "GhosttyString", StructInfo.init(lib.String) },
-    .{ "GhosttyStyle", StructInfo.init(style_c.Style) },
-    .{ "GhosttyStyleColor", StructInfo.init(style_c.Color) },
-    .{ "GhosttyTerminalOptions", StructInfo.init(terminal.Options) },
-    .{ "GhosttyTerminalScrollbar", StructInfo.init(terminal.TerminalScrollbar) },
-    .{ "GhosttyTerminalScrollViewport", StructInfo.init(terminal.ScrollViewport) },
-});
+pub const structs: std.StaticStringMap(StructInfo) = structs: {
+    @setEvalBranchQuota(10_000);
+    break :structs .initComptime(.{
+        .{ "GhosttyColorRgb", StructInfo.init(color.RGB.C) },
+        .{ "GhosttyDeviceAttributes", StructInfo.init(terminal.DeviceAttributes) },
+        .{ "GhosttyDeviceAttributesPrimary", StructInfo.init(terminal.DeviceAttributes.Primary) },
+        .{ "GhosttyDeviceAttributesSecondary", StructInfo.init(terminal.DeviceAttributes.Secondary) },
+        .{ "GhosttyDeviceAttributesTertiary", StructInfo.init(terminal.DeviceAttributes.Tertiary) },
+        .{ "GhosttyFormatterTerminalOptions", StructInfo.init(formatter.TerminalOptions) },
+        .{ "GhosttySelection", StructInfo.init(selection.CSelection) },
+        .{ "GhosttyTerminalSelectWordOptions", StructInfo.init(selection.SelectWordOptions) },
+        .{ "GhosttyTerminalSelectWordBetweenOptions", StructInfo.init(selection.SelectWordBetweenOptions) },
+        .{ "GhosttyTerminalSelectLineOptions", StructInfo.init(selection.SelectLineOptions) },
+        .{ "GhosttyFormatterTerminalExtra", StructInfo.init(formatter.TerminalOptions.Extra) },
+        .{ "GhosttyFormatterScreenExtra", StructInfo.init(formatter.ScreenOptions.Extra) },
+        .{ "GhosttyGridRef", StructInfo.init(grid_ref.CGridRef) },
+        .{ "GhosttyMouseEncoderSize", StructInfo.init(mouse_encode.Size) },
+        .{ "GhosttyMousePosition", StructInfo.init(mouse_event.Position) },
+        .{ "GhosttyPoint", StructInfo.init(point.Point.C) },
+        .{ "GhosttyPointCoordinate", StructInfo.init(point.Coordinate) },
+        .{ "GhosttyRenderStateColors", StructInfo.init(render.Colors) },
+        .{ "GhosttySizeReportSize", StructInfo.init(size_report.Size) },
+        .{ "GhosttyString", StructInfo.init(lib.String) },
+        .{ "GhosttyStyle", StructInfo.init(style_c.Style) },
+        .{ "GhosttyStyleColor", StructInfo.init(style_c.Color) },
+        .{ "GhosttyTerminalOptions", StructInfo.init(terminal.Options) },
+        .{ "GhosttyTerminalScrollbar", StructInfo.init(terminal.TerminalScrollbar) },
+        .{ "GhosttyTerminalScrollViewport", StructInfo.init(terminal.ScrollViewport) },
+    });
+};
 
 /// The comptime-generated JSON string of all structs.
 pub const json: [:0]const u8 = json: {

@@ -95,6 +95,7 @@ elias8
 -enkr1
 enzowilliam
 ephemera
+-eric-assetpass Try talking, not botting
 eriksremess
 erral
 -f1813483-netizen
@@ -156,6 +157,7 @@ kristofersoler
 kylesower
 laxystem
 lebdron
+lepips
 liby
 linustalacko
 lonsagisawa
@@ -195,6 +197,7 @@ neo773
 neurosnap
 nicholas-ochoa
 nicosuave
+nikicat
 nmggithub
 noib3
 nolinmcfarland

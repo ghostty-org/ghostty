@@ -49,6 +49,7 @@ const string = @import("string.zig");
 const terminal = struct {
     const CursorStyle = @import("../terminal/cursor.zig").Style;
     const color = @import("../terminal/color.zig");
+    const selection_codepoints = @import("../terminal/selection_codepoints.zig");
     const style = @import("../terminal/style.zig");
     const x11_color = @import("../terminal/x11_color.zig");
 };
@@ -6149,32 +6150,8 @@ pub const RepeatableString = struct {
 pub const SelectionWordChars = struct {
     const Self = @This();
 
-    /// Default boundary characters: ` \t'"│`|:;,()[]{}<>$`
-    const default_codepoints = [_]u21{
-        0, // null
-        ' ', // space
-        '\t', // tab
-        '\'', // single quote
-        '"', // double quote
-        '│', // U+2502 box drawing
-        '`', // backtick
-        '|', // pipe
-        ':', // colon
-        ';', // semicolon
-        ',', // comma
-        '(', // left paren
-        ')', // right paren
-        '[', // left bracket
-        ']', // right bracket
-        '{', // left brace
-        '}', // right brace
-        '<', // less than
-        '>', // greater than
-        '$', // dollar
-    };
-
     /// The parsed codepoints. Always includes null (U+0000) at index 0.
-    codepoints: []const u21 = &default_codepoints,
+    codepoints: []const u21 = &terminal.selection_codepoints.default_word_boundaries,
 
     pub fn parseCLI(self: *Self, alloc: Allocator, input: ?[]const u8) !void {
         const value = input orelse return error.ValueRequired;

@@ -313,26 +313,35 @@ fn readEntries(
     defer alloc.free(content);
 
     var entries = std.StringHashMap(Entry).init(alloc);
+    errdefer deinitEntries(alloc, &entries);
+
     var lines = std.mem.tokenizeScalar(u8, content, '\n');
     while (lines.next()) |line| {
         const trimmed = std.mem.trim(u8, line, " \t\r");
         const entry = Entry.parse(trimmed) orelse continue;
 
-        // Always allocate hostname first to avoid key pointer confusion
-        const hostname = try alloc.dupe(u8, entry.hostname);
-        errdefer alloc.free(hostname);
+        // Dupe both strings up front, before inserting, so the map never
+        // holds a half-built entry (a borrowed key or a freed/undefined
+        // value) for `deinitEntries` to walk if an allocation fails.
+        var hostname: ?[]u8 = try alloc.dupe(u8, entry.hostname);
+        errdefer if (hostname) |h| alloc.free(h);
+        var terminfo: ?[]u8 = try alloc.dupe(u8, entry.terminfo_version);
+        errdefer if (terminfo) |t| alloc.free(t);
 
-        const gop = try entries.getOrPut(hostname);
+        const gop = try entries.getOrPut(hostname.?);
         if (!gop.found_existing) {
-            const terminfo_copy = try alloc.dupe(u8, entry.terminfo_version);
+            // New entry: transfer both copies to the map.
             gop.value_ptr.* = .{
-                .hostname = hostname,
+                .hostname = hostname.?,
                 .timestamp = entry.timestamp,
-                .terminfo_version = terminfo_copy,
+                .terminfo_version = terminfo.?,
             };
+            hostname = null;
+            terminfo = null;
         } else {
-            // Don't need the copy since entry already exists
-            alloc.free(hostname);
+            // Duplicate key: the map keeps its existing key, so free ours.
+            alloc.free(hostname.?);
+            hostname = null;
 
             // Handle duplicate entries - keep newer timestamp
             if (entry.timestamp > gop.value_ptr.timestamp) {
@@ -340,13 +349,15 @@ fn readEntries(
                 if (!std.mem.eql(
                     u8,
                     gop.value_ptr.terminfo_version,
-                    entry.terminfo_version,
+                    terminfo.?,
                 )) {
                     alloc.free(gop.value_ptr.terminfo_version);
-                    const terminfo_copy = try alloc.dupe(u8, entry.terminfo_version);
-                    gop.value_ptr.terminfo_version = terminfo_copy;
+                    gop.value_ptr.terminfo_version = terminfo.?;
+                    terminfo = null;
                 }
             }
+            if (terminfo) |t| alloc.free(t);
+            terminfo = null;
         }
     }
 
@@ -505,6 +516,88 @@ test "disk cache cleans up temp files" {
         try testing.expectEqualStrings("cache", entry.name);
     }
     try testing.expectEqual(1, count);
+}
+
+test "disk cache reads duplicate keys" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    // Exercise readEntries' found_existing branch: replace the existing
+    // key with the updated entry and ensure (via testing.allocator) that
+    // we don't double-free or leak.
+    {
+        var file = try tmp.dir.createFile("cache", .{});
+        defer file.close();
+        var buf: [256]u8 = undefined;
+        var file_writer = file.writer(&buf);
+        try file_writer.interface.writeAll(
+            "example.com|100|xterm-ghostty\nexample.com|200|xterm-newer\n",
+        );
+        try file_writer.interface.flush();
+    }
+    const path = try tmp.dir.realpathAlloc(alloc, "cache");
+    defer alloc.free(path);
+
+    const cache: DiskCache = .{ .path = path };
+    var entries = try cache.list(alloc);
+    defer deinitEntries(alloc, &entries);
+
+    try testing.expectEqual(@as(u32, 1), entries.count());
+    const entry = entries.get("example.com").?;
+    try testing.expectEqual(@as(i64, 200), entry.timestamp);
+    try testing.expectEqualStrings("xterm-newer", entry.terminfo_version);
+}
+
+test "disk cache reads survive allocation failure" {
+    const testing = std.testing;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    // Exercise a populated cache containing a duplicate key to ensure
+    // that we hit all of the possible allocation behaviors below.
+    {
+        var file = try tmp.dir.createFile("cache", .{});
+        defer file.close();
+        var buf: [256]u8 = undefined;
+        var file_writer = file.writer(&buf);
+        try file_writer.interface.writeAll(
+            "a.com|100|xterm-ghostty\n" ++
+                "b.com|100|xterm-ghostty\n" ++
+                "c.com|100|xterm-ghostty\n" ++
+                "a.com|200|xterm-newer\n",
+        );
+        try file_writer.interface.flush();
+    }
+    const path = try tmp.dir.realpathAlloc(testing.allocator, "cache");
+    defer testing.allocator.free(path);
+
+    const cache: DiskCache = .{ .path = path };
+
+    // Fail the Nth allocation for every N until the read completes. The
+    // FailingAllocator is backed by testing.allocator so we also ensure
+    // that we don't double-free or leak; this can only completely succeed
+    // or fail with OutOfMemory.
+    var fail_index: usize = 0;
+    while (true) : (fail_index += 1) {
+        var failing = std.testing.FailingAllocator.init(
+            testing.allocator,
+            .{ .fail_index = fail_index },
+        );
+        const alloc = failing.allocator();
+
+        if (cache.list(alloc)) |entries_const| {
+            var entries = entries_const;
+            deinitEntries(alloc, &entries);
+            // Reached a run with no induced failure: every path covered.
+            if (!failing.has_induced_failure) break;
+        } else |err| {
+            try testing.expectEqual(error.OutOfMemory, err);
+        }
+    }
 }
 
 test isValidHost {

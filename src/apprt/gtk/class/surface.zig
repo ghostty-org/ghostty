@@ -674,6 +674,12 @@ pub const Surface = extern struct {
         // false by a parent widget.
         bell_ringing: bool = false,
 
+        // The audio bell's MediaFile, reused across bells so we don't leak a
+        // GStreamer pipeline (and its GL threads) on every ring. Built lazily
+        // on the first audio bell and rebuilt when `bell-audio-path` changes;
+        // unref'd on dispose. See ringBell and media.zig.
+        bell_media: ?*gtk.MediaFile = null,
+
         /// True if this surface is in an error state. This is currently
         /// a simple boolean with no additional information on WHAT the
         /// error state is, because we don't yet need it or use it. For now,
@@ -1854,6 +1860,11 @@ pub const Surface = extern struct {
             priv.config = null;
         }
 
+        if (priv.bell_media) |v| {
+            v.unref();
+            priv.bell_media = null;
+        }
+
         if (priv.vadj_signal_group) |group| {
             group.setTarget(null);
             group.as(gobject.Object).unref();
@@ -2486,8 +2497,15 @@ pub const Surface = extern struct {
                 1.0,
             );
 
-            const media_file = media.fromFilename(path) orelse break :audio;
-            media.playMediaFile(media_file, volume, required);
+            // Reuse one MediaFile per surface (rebuilt only when the path
+            // changes) so each bell replays the same pipeline instead of
+            // leaking a fresh one. Assign unconditionally: bellMediaFile frees
+            // any stale MediaFile and returns the current slot value (possibly
+            // null if the path is now inaccessible), so priv.bell_media never
+            // dangles.
+            priv.bell_media = media.bellMediaFile(priv.bell_media, path, required);
+            const media_file = priv.bell_media orelse break :audio;
+            media.playBell(media_file, volume);
         }
     }
 

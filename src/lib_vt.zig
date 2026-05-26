@@ -209,6 +209,8 @@ comptime {
         @export(&c.formatter_format_buf, .{ .name = "ghostty_formatter_format_buf" });
         @export(&c.formatter_format_alloc, .{ .name = "ghostty_formatter_format_alloc" });
         @export(&c.formatter_free, .{ .name = "ghostty_formatter_free" });
+        @export(&c.terminal_selection_format_buf, .{ .name = "ghostty_terminal_selection_format_buf" });
+        @export(&c.terminal_selection_format_alloc, .{ .name = "ghostty_terminal_selection_format_alloc" });
         @export(&c.render_state_new, .{ .name = "ghostty_render_state_new" });
         @export(&c.render_state_update, .{ .name = "ghostty_render_state_update" });
         @export(&c.render_state_get, .{ .name = "ghostty_render_state_get" });
@@ -239,6 +241,16 @@ comptime {
         @export(&c.terminal_mode_set, .{ .name = "ghostty_terminal_mode_set" });
         @export(&c.terminal_get, .{ .name = "ghostty_terminal_get" });
         @export(&c.terminal_get_multi, .{ .name = "ghostty_terminal_get_multi" });
+        @export(&c.terminal_select_word, .{ .name = "ghostty_terminal_select_word" });
+        @export(&c.terminal_select_word_between, .{ .name = "ghostty_terminal_select_word_between" });
+        @export(&c.terminal_select_line, .{ .name = "ghostty_terminal_select_line" });
+        @export(&c.terminal_select_all, .{ .name = "ghostty_terminal_select_all" });
+        @export(&c.terminal_select_output, .{ .name = "ghostty_terminal_select_output" });
+        @export(&c.terminal_selection_adjust, .{ .name = "ghostty_terminal_selection_adjust" });
+        @export(&c.terminal_selection_order, .{ .name = "ghostty_terminal_selection_order" });
+        @export(&c.terminal_selection_ordered, .{ .name = "ghostty_terminal_selection_ordered" });
+        @export(&c.terminal_selection_contains, .{ .name = "ghostty_terminal_selection_contains" });
+        @export(&c.terminal_selection_equal, .{ .name = "ghostty_terminal_selection_equal" });
         @export(&c.terminal_grid_ref, .{ .name = "ghostty_terminal_grid_ref" });
         @export(&c.terminal_grid_ref_track, .{ .name = "ghostty_terminal_grid_ref_track" });
         @export(&c.terminal_point_from_grid_ref, .{ .name = "ghostty_terminal_point_from_grid_ref" });

@@ -33,6 +33,9 @@ pub const TrackedGridRef = struct {
 
 pub fn tracked_grid_ref_free(ref_: CTrackedGridRef) callconv(lib.calling_conv) void {
     const ref = ref_ orelse return;
+    if (ref.terminal) |wrapper| {
+        _ = wrapper.tracked_grid_refs.swapRemove(ref);
+    }
     if (ref.pageList()) |list| list.untrackPin(ref.pin);
     ref.alloc.destroy(ref);
 }
@@ -184,4 +187,39 @@ test "tracked_grid_ref reports no value after alternate screen reset" {
     ));
     try testing.expect(tracked_grid_ref_has_value(ref));
     try testing.expectEqual(Result.success, tracked_grid_ref_snapshot(ref, &snapshot));
+}
+
+test "tracked_grid_ref reports no value after terminal free" {
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &terminal,
+        .{ .cols = 5, .rows = 2, .max_scrollback = 10_000 },
+    ));
+
+    terminal_c.vt_write(terminal, "A", 1);
+
+    var ref: CTrackedGridRef = null;
+    try testing.expectEqual(Result.success, terminal_c.grid_ref_track(
+        terminal,
+        point.Point.cval(.{ .active = .{ .x = 0, .y = 0 } }),
+        &ref,
+    ));
+
+    terminal_c.free(terminal);
+    try testing.expect(!tracked_grid_ref_has_value(ref));
+
+    var snapshot: grid_ref_c.CGridRef = undefined;
+    try testing.expectEqual(Result.no_value, tracked_grid_ref_snapshot(ref, &snapshot));
+
+    var coord: point.Coordinate = undefined;
+    try testing.expectEqual(Result.no_value, tracked_grid_ref_point(ref, .active, &coord));
+
+    try testing.expectEqual(Result.invalid_value, tracked_grid_ref_set(
+        ref,
+        terminal,
+        point.Point.cval(.{ .active = .{ .x = 0, .y = 0 } }),
+    ));
+
+    tracked_grid_ref_free(ref);
 }
