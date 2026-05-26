@@ -623,8 +623,15 @@ fn renderCallback(
     ) catch |err|
         log.warn("error rendering err={}", .{err});
 
-    // Draw
-    t.drawFrame(false);
+    // Draw. When the animation draw timer is already running
+    // (custom-shader-animation engaged), it will pick up the
+    // newly-updated cells at its next DRAW_INTERVAL tick — drawing
+    // here too would double-up frames during animated-shader periods
+    // and burn host-thread CPU (per-frame Wayland buffer attach +
+    // commit on the Qt apprt) for no visible benefit. Without the
+    // timer, wakeup-driven draws are the only way frames reach the
+    // host, so we always draw in that case.
+    if (!t.draw_active) t.drawFrame(false);
 
     return .disarm;
 }
