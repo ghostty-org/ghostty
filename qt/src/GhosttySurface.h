@@ -370,6 +370,17 @@ private:
   std::mutex m_compositorMutex;
   std::condition_variable m_compositorCv;
   bool m_compositorReady = true;
+  // First-frame gate. Set true (with notify_all) by
+  // presentVulkanDmabuf on the renderer thread's first park; the
+  // ctor waits on it after ghostty_surface_new so the Qt widget
+  // isn't shown to the user with no subsurface buffer attached
+  // (transparent gap). Pre-SPV-precompile this gap was masked by
+  // glslang work inside ghostty_surface_new; once that work moved
+  // to build time the ctor returned fast enough for the gap to
+  // become user-visible.
+  std::mutex m_firstFrameMutex;
+  std::condition_variable m_firstFrameCv;
+  bool m_firstFrameParked = false;
   // Dedupes queued drainVulkan invocations posted from the renderer
   // thread. Each renderer-thread `presentVulkanDmabuf` used to post
   // a QueuedConnection invokeMethod unconditionally — at 125 FPS

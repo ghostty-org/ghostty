@@ -208,6 +208,34 @@ GhosttySurface::GhosttySurface(ghostty_app_t app, MainWindow *owner,
   // pre-multiplication itself (or doesn't need to — the dmabuf
   // contents are already in the host's expected order).
   if (!m_useVulkan && m_owner->needsPremultiply()) initPremultiply();
+
+#ifdef GHASTTY_USE_VULKAN
+  // Wait for the renderer thread to produce its first frame BEFORE
+  // returning from the ctor. libghostty's renderer thread is
+  // already spawned at this point (Surface.init spawned it before
+  // ghostty_surface_new returned); without this wait, Qt shows
+  // the widget to the user before any dmabuf has been parked, and
+  // the subsurface area is briefly transparent.
+  //
+  // Pre-SPV-precompile, ghostty_surface_new took ~250 ms of
+  // glslang work inside Shaders.init, which incidentally gave
+  // the renderer thread enough time to produce + park its first
+  // frame before this ctor returned. Once the precompile moved
+  // shader compilation to build time the ctor sped up but exposed
+  // the gap. Replacing the implicit "wait on glslang" with an
+  // explicit "wait on first frame" preserves the original UX
+  // (slight ctor latency, no transparent flash) while keeping
+  // the runtime perf win (no glslang at first surface init).
+  //
+  // 200 ms timeout: if the renderer can't produce a frame in that
+  // time (cold device init pathology, etc.) we fall through and
+  // accept the transparent gap rather than hanging the GUI.
+  {
+    std::unique_lock<std::mutex> lk(m_firstFrameMutex);
+    m_firstFrameCv.wait_for(lk, std::chrono::milliseconds(200),
+                            [this] { return m_firstFrameParked; });
+  }
+#endif
 }
 
 GhosttySurface::~GhosttySurface() {
@@ -1911,6 +1939,17 @@ void GhosttySurface::presentVulkanDmabuf(
     // Close any overwritten prior dup so we don't leak fds in the
     // (rare) drop case.
     if (prev_fd >= 0) ::close(prev_fd);
+
+    // Wake any GUI thread blocked in the ctor's first-frame wait.
+    // One-shot signal — subsequent frames don't pay any cost (the
+    // bool check is uncontended once flipped).
+    if (!m_firstFrameParked) {
+      {
+        std::lock_guard<std::mutex> lg(m_firstFrameMutex);
+        m_firstFrameParked = true;
+      }
+      m_firstFrameCv.notify_all();
+    }
     if (overwrote) {
       const auto count = m_droppedFrames.fetch_add(
           1, std::memory_order_relaxed) + 1;
