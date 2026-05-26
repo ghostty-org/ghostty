@@ -199,16 +199,28 @@ private:
   wl_callback *m_frameCallback = nullptr;
   OnFrameReady m_onFrameReady;
 
-  // wl_buffer cache. libghostty re-uses the same dmabuf fd across
-  // frames until the next Target.deinit (i.e. until a resize), so
-  // we can wrap the fd in a wl_buffer ONCE and re-attach it every
-  // frame instead of round-tripping `create_immed` per present.
-  // create_immed costs a Wayland round-trip + compositor-side
-  // dmabuf import; at 125 FPS (animated post shader) with multiple
-  // panes this was ~half of the GUI-thread CPU at idle. Invalidate
-  // the cache when any of the dmabuf-shape inputs change.
+  // wl_buffer cache keyed by dma-buf identity (kernel inode of the
+  // anon_inode backing the dma-buf, which is unique per Target
+  // regardless of fd-number reuse) plus the layout-relevant shape.
+  // libghostty re-uses the same dmabuf across frames until the
+  // next Target.deinit (resize); cache hits skip the create_immed
+  // round-trip + compositor-side dmabuf import that dominated
+  // GUI-thread CPU at 125 FPS.
+  //
+  // We can't key on the caller's fd value because GhosttySurface
+  // now dups the fd on the renderer thread (to outlive libghostty's
+  // close — see 22713b0d3) so the value is fresh per frame. Inode
+  // identity is stable across our dup AND across libghostty's
+  // close → reopen cycles, so cache invalidation matches Target
+  // identity exactly: same Target → same inode → cache hit; new
+  // Target → new inode → cache miss → recreate.
+  //
+  // Cache only stores the wl_buffer; the compositor SCM_RIGHTS-
+  // dup'd the fd into its own address space at create_immed time,
+  // so the cached wl_buffer doesn't need our fd to outlive the
+  // call. The caller owns + closes its own dup.
   wl_buffer *m_cachedBuffer = nullptr;
-  int m_cachedFd = -1;
+  unsigned long m_cachedInode = 0;  // 0 = empty cache (anon_inode ino > 0)
   uint32_t m_cachedWidth = 0;
   uint32_t m_cachedHeight = 0;
   uint32_t m_cachedStride = 0;

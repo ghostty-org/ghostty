@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <sys/stat.h>  // ::fstat — wl_buffer cache identity via st_ino
 #include <unordered_map>
 #include <vector>
 
@@ -578,15 +579,21 @@ void SubsurfacePresenter::presentDmabuf(int fd, uint32_t drm_format,
   }
 
   // Wrap libghostty's borrowed fd in a wl_buffer. Cached across
-  // frames: libghostty re-uses the same dmabuf fd until the next
-  // Target.deinit (a resize), so the shape inputs below stay stable
-  // for hundreds-to-thousands of consecutive frames at an animated-
-  // shader frame rate. Pre-cache, every present round-tripped
-  // `create_immed` to the compositor (Wayland sync call + compositor-
-  // side dmabuf import) and destroyed the buffer on release — ~half
-  // the GUI-thread CPU at 125 FPS.
+  // frames by (kernel inode, shape) — see m_cachedInode in the
+  // header for the full rationale. fstat the dmabuf fd to get the
+  // anon_inode that uniquely identifies the dma-buf object; it's
+  // stable across the dup that GhosttySurface did before parking,
+  // and changes only when libghostty allocates a new Target.
+  // fstat failure (rare; would indicate a closed fd, which we
+  // already check above via `fd < 0`) falls through to cache miss
+  // → create_immed will likely fail too, but the error path there
+  // already logs cleanly.
+  struct stat st;
+  unsigned long inode = 0;
+  if (::fstat(fd, &st) == 0) inode = static_cast<unsigned long>(st.st_ino);
   const bool cache_hit = m_cachedBuffer != nullptr &&
-                         m_cachedFd == fd &&
+                         inode != 0 &&
+                         m_cachedInode == inode &&
                          m_cachedWidth == width &&
                          m_cachedHeight == height &&
                          m_cachedStride == stride &&
@@ -604,7 +611,7 @@ void SubsurfacePresenter::presentDmabuf(int fd, uint32_t drm_format,
     if (m_cachedBuffer) {
       wl_buffer_destroy(m_cachedBuffer);
       m_cachedBuffer = nullptr;
-      m_cachedFd = -1;
+      m_cachedInode = 0;
     }
     zwp_linux_buffer_params_v1 *params =
         zwp_linux_dmabuf_v1_create_params(m_dmabuf);
@@ -639,7 +646,7 @@ void SubsurfacePresenter::presentDmabuf(int fd, uint32_t drm_format,
     // safe).
     wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
     m_cachedBuffer = buffer;
-    m_cachedFd = fd;
+    m_cachedInode = inode;
     m_cachedWidth = width;
     m_cachedHeight = height;
     m_cachedStride = stride;
