@@ -674,4 +674,29 @@ void SubsurfacePresenter::hide() {
   wl_display_flush(m_display);
 }
 
+void SubsurfacePresenter::reattachCached() {
+  if (!m_childSurface || !m_cachedBuffer) return;
+  // Re-show whatever we had attached before `hide()`. The cached
+  // wl_buffer survives across hide/show because the release
+  // listener no-ops (see `bufferRelease`). The dmabuf backing the
+  // buffer is still alive — libghostty owns the underlying
+  // VkDeviceMemory until the next Target.deinit (resize), and
+  // dma-buf kernel ref-counting keeps the pages pinned regardless
+  // of our client-side state.
+  //
+  // The content may be one frame stale (whatever was rendered just
+  // before Hide), but that's better than a transparent gap while
+  // the renderer thread spins up its first new frame after Show —
+  // the parent surface has WA_TranslucentBackground, so without a
+  // re-attach the user sees through to whatever is behind the
+  // window. The renderer's next frame overwrites this within
+  // DRAW_INTERVAL.
+  wl_surface_attach(m_childSurface, m_cachedBuffer, 0, 0);
+  wl_surface_damage_buffer(m_childSurface, 0, 0,
+                           static_cast<int32_t>(m_cachedWidth),
+                           static_cast<int32_t>(m_cachedHeight));
+  wl_surface_commit(m_childSurface);
+  wl_display_flush(m_display);
+}
+
 } // namespace wayland

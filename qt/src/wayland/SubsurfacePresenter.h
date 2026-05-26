@@ -129,6 +129,17 @@ public:
   // the subsurface becomes visible again.
   void hide();
 
+  // Re-attach + commit the most recently cached wl_buffer, if any.
+  // Called from `QEvent::Show` so a tab-switch / re-show sees the
+  // last frame immediately rather than a transparent area while
+  // the renderer thread spins up its first new frame. Without this,
+  // the parent surface paints through (WA_TranslucentBackground)
+  // and the user sees a flash of whatever is behind the window.
+  // No-op when the cache is empty (first show — there's nothing
+  // to re-attach yet; caller is responsible for the new-tab flash
+  // mitigation if needed).
+  void reattachCached();
+
   // Called from the wp_fractional_scale_v1.preferred_scale event.
   // Public so the C-style listener struct at file scope in the .cpp
   // can name it; not part of the API for other call sites.

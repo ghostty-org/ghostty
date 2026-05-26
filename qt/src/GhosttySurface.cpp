@@ -537,6 +537,15 @@ bool GhosttySurface::event(QEvent *e) {
       // Clear the present-gate latch: subsequent frames go through
       // the subsurface as normal.
       m_hidden.store(false, std::memory_order_release);
+      // Re-attach the last-presented dmabuf immediately on Show.
+      // Without this, Hide had attached a NULL buffer (so the
+      // pane's old frame wouldn't ghost over the active tab) and
+      // the subsurface area paints through to whatever is behind
+      // the window (WA_TranslucentBackground) for the few frames
+      // before the renderer thread produces a new frame for this
+      // surface — visible as a brief flash on every tab switch.
+      // The cached buffer is at most one frame stale.
+      if (m_subsurfacePresenter) m_subsurfacePresenter->reattachCached();
       // First successful Show is also when our native QWindow exists
       // and we can safely look up the Wayland parent wl_surface.
       // Lazy-init the subsurface presenter once and keep it for the
