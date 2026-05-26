@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <glslang/Include/PoolAlloc.h>
 #include <glslang/Public/ShaderLang.h>
 #include <glslang/Public/ResourceLimits.h>
 #include <SPIRV/GlslangToSpv.h>
@@ -248,10 +249,25 @@ extern "C" void ghastty_glslang_finalize_process(void) {
         std::lock_guard<std::mutex> lg(spv_cache_mutex());
         spv_cache().clear();
     }
-    // Release glslang's process-wide state: the thread-local
-    // TPoolAllocator pages that accumulated to their high-water mark
-    // on the first surface's compiles + any per-thread bookkeeping.
-    // Matches the implicit InitializeProcess on first use (or the
-    // explicit C-API glslang_initialize_process in pkg/glslang/init.zig).
+    // Free this thread's TPoolAllocator pages. heaptrack pointed
+    // the ~12 MB glslang leak at TPoolAllocator::allocate calls
+    // rooted in shadertoy.spirvFromGlsl on the GUI thread (since
+    // ghostty_surface_new runs glslang synchronously from
+    // MainWindow::newTab) — that pool's pages persist until thread
+    // exit, but the GUI thread doesn't exit until process
+    // termination. glslang::FinalizeProcess only frees the
+    // process-wide SharedSymbolTables, NOT this pool. Call popAll()
+    // explicitly to release the pages back to the system allocator.
+    //
+    // Safe here because (a) we're called from atexit, every render
+    // thread has joined via Vulkan.threadExit (which also runs its
+    // own popAll-equivalent via ThreadState.cleanup); (b) the SPV
+    // cache was cleared above, so no compiled blob references the
+    // pool; (c) FinalizeProcess below won't reach into this pool
+    // either.
+    glslang::GetThreadPoolAllocator().popAll();
+
+    // Release glslang's process-wide shared state (the version-
+    // indexed SharedSymbolTables built at first compile).
     glslang::FinalizeProcess();
 }
