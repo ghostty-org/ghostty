@@ -314,12 +314,45 @@ pub fn glslFromShader(
     try writer.writeAll(src);
 }
 
+/// Process-wide cache of compiled SPIR-V keyed by GLSL source bytes.
+/// The C-API glslang path (`Shader.create` / `program.spirvGenerate`)
+/// used below pulls allocations from glslang's thread-local
+/// TPoolAllocator on every call — pages that are never released
+/// because Zig pthreads don't run C++ thread_local destructors. With
+/// N tabs each calling `loadFromFiles` → `loadFromFile` →
+/// `spirvFromGlsl` for the same custom shader file, that's N
+/// renderer threads each leaking a per-thread pool. Caching the SPV
+/// bytes lets every call after the first short-circuit without
+/// touching glslang.
+///
+/// Same problem and same fix as the C++ shim's spv_cache in
+/// pkg/glslang/override/ghastty_vk_shim.cpp; this one covers the
+/// C-API path that the shim doesn't see.
+var spv_cache_mutex: std.Thread.Mutex = .{};
+var spv_cache: std.StringHashMapUnmanaged([]const u8) = .empty;
+
 /// Convert a GLSL shader into SPIR-V assembly.
 pub fn spirvFromGlsl(
     writer: *std.Io.Writer,
     errlog: ?*SpirvLog,
     src: [:0]const u8,
 ) !void {
+    // Cache check. On hit, write the cached SPV to the writer and
+    // return without entering glslang. Strict-equality keying on
+    // the source bytes (incl. the NUL terminator) — the input is
+    // deterministically generated upstream from a stable shader
+    // file + a small set of `#define` lines, so identical sources
+    // produce identical SPV.
+    {
+        spv_cache_mutex.lock();
+        defer spv_cache_mutex.unlock();
+        const key: []const u8 = src[0..src.len];
+        if (spv_cache.get(key)) |cached| {
+            try writer.writeAll(cached);
+            return;
+        }
+    }
+
     // So we can run unit tests without fear.
     if (builtin.is_test) try glslang.testing.ensureInit();
 
@@ -368,6 +401,26 @@ pub fn spirvFromGlsl(
     const ptr_u8: [*]u8 = @ptrCast(ptr);
     const slice_u8: []u8 = ptr_u8[0 .. size * 4];
     try writer.writeAll(slice_u8);
+
+    // Populate the cache so the next surface's compile of the same
+    // source short-circuits. Allocations are process-lifetime
+    // (smp_allocator, never freed) — the keys + values are bounded
+    // by the number of distinct shaders the user has configured,
+    // which is small (typically 1-3); even at 100 KB per shader
+    // the total cache cost is negligible against the per-tab pool
+    // pages we'd otherwise leak.
+    spv_cache_mutex.lock();
+    defer spv_cache_mutex.unlock();
+    const key: []const u8 = src[0..src.len];
+    if (!spv_cache.contains(key)) {
+        const key_copy = std.heap.smp_allocator.dupe(u8, key) catch return;
+        errdefer std.heap.smp_allocator.free(key_copy);
+        const spv_copy = std.heap.smp_allocator.dupe(u8, slice_u8) catch return;
+        spv_cache.put(std.heap.smp_allocator, key_copy, spv_copy) catch {
+            std.heap.smp_allocator.free(spv_copy);
+            return;
+        };
+    }
 }
 
 /// Retrieve errors from spirv compilation.
