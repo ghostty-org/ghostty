@@ -170,12 +170,13 @@ if(GHASTTY_VARIANT STREQUAL "vulkan")
   add_compile_definitions(GHASTTY_USE_VULKAN)
 endif()
 
-# libEGL: needed by EglDmabufTarget.cpp for the OpenGL variant's
-# zero-copy present path. Linked on both variants because the source
-# file compiles into both (the Vulkan variant just never instantiates
-# an `EglDmabufTarget`); skipping the link would leave undefined
-# references to its destructor / static methods at link time.
-pkg_check_modules(EGL REQUIRED IMPORTED_TARGET egl)
+# libEGL: needed by `opengl/EglDmabufTarget.cpp` for the OpenGL
+# variant's zero-copy present path. Vulkan-variant binaries never
+# pull in this source file (gated below) so the loader doesn't have
+# to be installed for Vulkan-only systems.
+if(GHASTTY_VARIANT STREQUAL "opengl")
+  pkg_check_modules(EGL REQUIRED IMPORTED_TARGET egl)
+endif()
 
 if(NOT EXISTS "${GHOSTTY_SO}")
   message(FATAL_ERROR
@@ -220,7 +221,6 @@ add_executable(ghastty
   src/TabWidget.cpp
   src/undo/UndoStack.cpp
   src/Util.cpp
-  src/wayland/EglDmabufTarget.cpp
   src/wayland/SubsurfacePresenter.cpp
   src/WindowBlur.cpp
   src/XkbTracker.cpp
@@ -241,6 +241,15 @@ add_executable(ghastty
 # documents.
 if(GHASTTY_VARIANT STREQUAL "vulkan")
   target_sources(ghastty PRIVATE src/vulkan/Host.cpp)
+endif()
+
+# `opengl/EglDmabufTarget.cpp` is OpenGL-variant only. The Vulkan
+# variant exports dmabufs straight from VkDeviceMemory via
+# VK_KHR_external_memory_fd and never calls into EGL, so excluding
+# this source file from the Vulkan binary lets it stay free of
+# libEGL too.
+if(GHASTTY_VARIANT STREQUAL "opengl")
+  target_sources(ghastty PRIVATE src/opengl/EglDmabufTarget.cpp)
 endif()
 
 # Embed the app icon so it is available even running from the build tree.
@@ -265,10 +274,16 @@ target_link_libraries(ghastty PRIVATE
   Qt6::Svg
   PkgConfig::WAYLAND_CLIENT
   PkgConfig::XKBCOMMON
-  PkgConfig::EGL
   LayerShellQt::Interface
   "${GHOSTTY_LINK_SO}"
 )
+
+# libEGL is OpenGL-variant only — gated alongside the source file
+# in the variant block above. Vulkan-variant binaries don't pull
+# in libEGL at all.
+if(GHASTTY_VARIANT STREQUAL "opengl")
+  target_link_libraries(ghastty PRIVATE PkgConfig::EGL)
+endif()
 
 # libvulkan is Vulkan-variant only. The OpenGL variant compiles
 # nothing that references Vulkan symbols (vulkan/Host.cpp is gated

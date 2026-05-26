@@ -10,7 +10,7 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
-namespace wayland {
+namespace opengl {
 
 namespace {
 
@@ -253,4 +253,4 @@ void EglDmabufTarget::release() const {
   ctx->functions()->glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
-} // namespace wayland
+} // namespace opengl

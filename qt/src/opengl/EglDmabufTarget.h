@@ -23,7 +23,7 @@
 
 class QOpenGLContext;
 
-namespace wayland {
+namespace opengl {
 
 class EglDmabufTarget {
 public:
@@ -84,4 +84,4 @@ private:
   std::uint32_t m_stride = 0;
 };
 
-} // namespace wayland
+} // namespace opengl

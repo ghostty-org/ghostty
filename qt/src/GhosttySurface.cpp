@@ -11,7 +11,7 @@
 #ifdef GHASTTY_USE_VULKAN
 #include "vulkan/Host.h"
 #endif
-#include "wayland/EglDmabufTarget.h"
+#include "opengl/EglDmabufTarget.h"
 #include "wayland/SubsurfacePresenter.h"
 
 // Qt private Wayland headers — give us QtWaylandClient::QWaylandWindow,
@@ -339,7 +339,7 @@ void GhosttySurface::syncSurfaceSize() {
   m_fbo = new QOpenGLFramebufferObject(QSize(w, h), fmt);
 
   if (m_subsurfacePresenter) {
-    m_eglTarget = wayland::EglDmabufTarget::create(m_context, w, h);
+    m_eglTarget = opengl::EglDmabufTarget::create(m_context, w, h);
     if (m_eglTarget) {
       m_useSubsurface.store(true, std::memory_order_release);
     } else {

@@ -16,6 +16,8 @@
 
 namespace wayland {
 class SubsurfacePresenter;
+}
+namespace opengl {
 class EglDmabufTarget;
 }
 
@@ -278,7 +280,7 @@ private:
   // subsurface — no glReadPixels, no QImage, no QPainter blit.
   // Stays null when EGL support is missing or the subsurface failed
   // to bring up, and the legacy m_fbo path runs as fallback.
-  std::unique_ptr<wayland::EglDmabufTarget> m_eglTarget;
+  std::unique_ptr<opengl::EglDmabufTarget> m_eglTarget;
   QImage m_image;                      // last frame, read back from m_fbo
 
   // True when this surface is using the Vulkan platform. The
