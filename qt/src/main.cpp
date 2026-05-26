@@ -2,17 +2,13 @@
 #include <cstdlib>
 #include <cstring>
 
-// Symbol exported by libghostty's bundled glslang shim
-// (pkg/glslang/override/ghastty_vk_shim.cpp). Vulkan-only: the
-// OpenGL variant of libghostty doesn't link the shim (OpenGL
-// consumes GLSL natively, no SPV compile step) and the symbol
-// is absent from its .so, so we only declare/use it on the
-// Vulkan variant. Declared locally rather than via an include
-// because main.cpp would otherwise need to grow a glslang/
-// SPIR-V include path it doesn't use for anything else.
-#ifdef GHASTTY_USE_VULKAN
-extern "C" void ghastty_glslang_finalize_process(void);
-#endif
+// (The atexit hook to ghastty_glslang_finalize_process that used
+// to live here was removed: now that build-time SPV precompile
+// is in place, the runtime libghostty no longer calls the glslang
+// shim at all for built-ins, so the shim's symbols get DCE'd out
+// of libghostty.so. The cosmetic FinalizeProcess+popAll cleanup
+// also didn't reduce heaptrack's reported leak in practice, so
+// the call wasn't pulling its weight anyway.)
 
 #include <QApplication>
 #include <QCoreApplication>
@@ -75,20 +71,11 @@ int main(int argc, char **argv) {
   // libghostty action handlers may also touch the renderer).
   defaultDisableMangoHud();
 
-  // Release glslang's process-wide state at process exit (the
-  // per-thread TPoolAllocator pages that otherwise hit their
-  // high-water mark from the first surface's shader compiles and
-  // never get released — ~12 MB cosmetic leak per heaptrack).
-  // atexit runs after main returns and after Qt's own teardown
-  // chain has destroyed every GhosttySurface (and joined every
-  // renderer thread), so glslang is guaranteed quiescent by then.
-  // Idempotent on the libghostty side, so a double-registration
-  // (or the unlikely racing return path) is harmless. Vulkan-only:
-  // the OpenGL variant doesn't link the shim symbol (see the
-  // extern declaration above).
-#ifdef GHASTTY_USE_VULKAN
-  std::atexit(ghastty_glslang_finalize_process);
-#endif
+  // (Build-time SPV precompile means the runtime libghostty no
+  // longer invokes glslang for built-in shaders, so the per-
+  // thread TPoolAllocator pages we used to leak from first-
+  // surface init don't exist on the Vulkan variant anymore. No
+  // atexit cleanup needed.)
 
   // CLI action fast path: skip Qt entirely. ghostty_init parses argv
   // for the `+action`; ghostty_cli_try_action runs it and exits the
