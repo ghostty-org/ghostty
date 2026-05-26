@@ -2174,7 +2174,22 @@ void GhosttySurface::drainVulkan() {
     // show through. Release-ordering: paint may be on a different
     // thread (Qt event loop is single-threaded but the atomic
     // contract is cheap to honor).
-    m_subsurfaceHasFrame.store(true, std::memory_order_release);
+    const bool placeholder_to_real =
+        !m_subsurfaceHasFrame.exchange(true, std::memory_order_acq_rel);
+    if (placeholder_to_real) {
+      // First real frame after the placeholder paint. The
+      // placeholder painted an OPAQUE bg color over the terminal
+      // area; the subsurface is stacked BELOW the parent surface,
+      // so the parent's opaque pixels obscure the subsurface.
+      // Without forcing a fresh paintEvent here, the placeholder
+      // visibly persists in the parent backing store until some
+      // unrelated event triggers a repaint — that's the "tab
+      // opens, sits at bg color, suddenly snaps to real content"
+      // jank. update() schedules a paintEvent which (now that
+      // m_subsurfaceHasFrame is true) will fill the terminal
+      // area transparent and let the subsurface show through.
+      update();
+    }
     // Close OUR dup of the dmabuf fd now that presentDmabuf has
     // handed it to create_immed (which SCM_RIGHTS-dup'd it again
     // for the compositor's view, or did a cache hit and didn't
