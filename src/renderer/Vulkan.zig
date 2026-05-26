@@ -100,6 +100,23 @@ pub const supports_custom_shaders: bool = true;
 /// Vulkan's clip-space Y axis points down (unlike OpenGL).
 pub const custom_shader_y_is_down = true;
 
+/// Extra `#define` lines `shadertoy.loadFromFile` injects into the
+/// prefix between `#version` and the rest. `GHASTTY_VULKAN`
+/// activates the Vulkan-side `gl_FragCoord` flip + `texture()`
+/// upper-left wrap so `mainImage` sees shadertoy-convention coords
+/// even though Vulkan rasterizes Y-down. OpenGL/MSL backends omit
+/// this decl entirely and pass `&.{}` from `generic.zig`.
+pub const custom_shader_extra_defines: []const []const u8 = &.{"GHASTTY_VULKAN 1"};
+
+/// GLSL → GLSL rewriter `shadertoy.loadFromFile` runs after the
+/// prefix splice and before the SPIR-V compile. Plugs the
+/// `vulkanizeGlsl` pass that rewrites `layout(binding = N)` into
+/// `layout(set = S, binding = N)` so the resulting SPIR-V matches
+/// the renderer's multi-set descriptor layout. Without this, the
+/// shader's `iChannel0` lands at set 0 binding 0 while the post
+/// pipeline binds it at set 1 binding 0 → sampler returns garbage.
+pub const rewriteCustomShaderSource = shaders.vulkanizeGlsl;
+
 /// Single-buffered for v1; fence-paced submit-then-wait means there's
 /// only ever one frame in flight.
 pub const swap_chain_count = 1;

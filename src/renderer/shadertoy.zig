@@ -54,18 +54,53 @@ pub const Uniforms = extern struct {
 ///     spirv-cross-emitted main() didn't match the upstream prefix).
 pub const Target = enum { glsl, msl, spv };
 
+/// Optional GLSL → GLSL rewriter applied between the prefix splice
+/// and the SPIR-V compile. Vulkan plugs in `vulkanizeGlsl` here so
+/// SPIR-V output uses the renderer's multi-set descriptor layout;
+/// other backends pass `null`. Owns its allocation under the
+/// caller's allocator (`shadertoy.loadFromFile` runs it inside an
+/// arena that's torn down at function exit, so the rewriter's
+/// returned slice may be arena-owned).
+pub const Rewriter = *const fn (
+    alloc: Allocator,
+    src: []const u8,
+) Allocator.Error![:0]const u8;
+
+/// What `loadFromFile`/`loadFromFiles` need beyond the path itself.
+/// Keeps the function decoupled from any specific backend — every
+/// backend-flavored knob becomes an explicit field, and `shadertoy`
+/// itself reaches into no other backend's submodules.
+pub const LoadOptions = struct {
+    /// Output language / format. See `Target` for the per-variant
+    /// rationale.
+    target: Target,
+
+    /// `#define <body>` lines injected after the prefix's
+    /// `#version` directive. Vulkan passes
+    /// `&.{"GHASTTY_VULKAN 1"}` so the prefix's `main()` flips
+    /// `gl_FragCoord.y` and wraps `texture()` for upper-left
+    /// sampling; OpenGL/MSL pass `&.{}`.
+    extra_defines: []const []const u8 = &.{},
+
+    /// Optional second-pass GLSL transform run between the prefix
+    /// splice and the SPIR-V compile. Vulkan installs
+    /// `vulkan/shaders.zig:vulkanizeGlsl` here for the multi-set
+    /// descriptor layout rewrite; other backends leave it null.
+    rewrite: ?Rewriter = null,
+};
+
 /// Load a set of shaders from files and convert them to the target
 /// format. The shader order is preserved.
 ///
-/// Result element type depends on `target`: `.glsl`/`.msl` produce
-/// null-terminated UTF-8 source strings; `.spv` produces SPIR-V
-/// binary bytes (4-byte-aligned, no trailing null). We unify the
-/// return type as `[]const []const u8` and have the caller cast/
+/// Result element type depends on `opts.target`: `.glsl`/`.msl`
+/// produce null-terminated UTF-8 source strings; `.spv` produces
+/// SPIR-V binary bytes (4-byte-aligned, no trailing null). We unify
+/// the return type as `[]const []const u8` and have the caller cast/
 /// reinterpret as needed.
 pub fn loadFromFiles(
     alloc_gpa: Allocator,
     paths: configpkg.RepeatablePath,
-    target: Target,
+    opts: LoadOptions,
 ) ![]const []const u8 {
     var list: std.ArrayList([]const u8) = .empty;
     defer list.deinit(alloc_gpa);
@@ -77,7 +112,7 @@ pub fn loadFromFiles(
             .required => |path| .{ path, false },
         };
 
-        const shader = loadFromFile(alloc_gpa, path, target) catch |err| {
+        const shader = loadFromFile(alloc_gpa, path, opts) catch |err| {
             if (err == error.FileNotFound and optional) {
                 continue;
             }
@@ -101,7 +136,7 @@ pub fn loadFromFiles(
 pub fn loadFromFile(
     alloc_gpa: Allocator,
     path: []const u8,
-    target: Target,
+    opts: LoadOptions,
 ) ![]const u8 {
     var arena = ArenaAllocator.init(alloc_gpa);
     defer arena.deinit();
@@ -120,38 +155,32 @@ pub fn loadFromFile(
         );
     };
 
-    // Convert to full GLSL. For `.spv` we inject
-    // `#define GHASTTY_VULKAN 1` so the prefix's `main()` mirrors
-    // `gl_FragCoord.y` AND wraps `texture()` to flip uv.y. Together
-    // those make `mainImage` see a shadertoy-convention fragCoord
-    // (lower-left origin) AND sample `iChannel0` correctly even
-    // though Vulkan natively uses upper-left for both. OpenGL/MSL
-    // builds don't get the define and use the GL-native paths
-    // unchanged.
+    // Convert to full GLSL. `opts.extra_defines` lets a backend
+    // inject `#define <body>` lines after the prefix's `#version`
+    // directive — Vulkan uses this to flip `gl_FragCoord.y` and
+    // wrap `texture()` for upper-left sampling so `mainImage` sees
+    // shadertoy-convention coords; OpenGL/MSL pass `&.{}` and use
+    // the GL-native paths unchanged.
     const glsl_raw: [:0]const u8 = glsl: {
         var stream: std.Io.Writer.Allocating = .init(alloc);
-        const defines: []const []const u8 = if (target == .spv)
-            &.{"GHASTTY_VULKAN 1"}
-        else
-            &.{};
-        try glslFromShader(&stream.writer, src, defines);
+        try glslFromShader(&stream.writer, src, opts.extra_defines);
         try stream.writer.writeByte(0);
         break :glsl stream.written()[0 .. stream.written().len - 1 :0];
     };
 
-    // For `.spv` we also run `vulkanizeGlsl` on the source so the
-    // resulting SPIR-V uses the renderer's multi-set descriptor
-    // layout (UBO=set 0, samplers=set 1, storage=set 2). Without
-    // this, glslang assigns everything to `set 0` and our post
-    // pipeline's descriptor set layout (one set per resource type)
-    // would point at the wrong slots — the shader's `iChannel0` ends
-    // up at set 0 binding 0 while our pipeline binds it at set 1
-    // binding 0, sampling returns garbage / zero, output is
-    // transparent.
-    const glsl: [:0]const u8 = if (target == .spv) blk: {
-        const vshaders = @import("vulkan/shaders.zig");
-        break :blk try vshaders.vulkanizeGlsl(alloc, glsl_raw);
-    } else glsl_raw;
+    // Optional second-pass GLSL transform. Vulkan installs
+    // `vulkanizeGlsl` here so the resulting SPIR-V uses the
+    // renderer's multi-set descriptor layout (UBO=set 0,
+    // samplers=set 1, storage=set 2). Without that rewrite,
+    // glslang assigns everything to `set 0` and the post pipeline's
+    // descriptor set layout points at the wrong slots — the
+    // shader's `iChannel0` ends up at set 0 binding 0 while the
+    // pipeline binds it at set 1 binding 0, sampling returns
+    // garbage / zero, output is transparent.
+    const glsl: [:0]const u8 = if (opts.rewrite) |f|
+        try f(alloc, glsl_raw)
+    else
+        glsl_raw;
 
     // Convert to SPIR-V
     const spirv: []const u8 = spirv: {
@@ -180,7 +209,7 @@ pub fn loadFromFile(
     // Important: using the alloc_gpa here on purpose because this is
     // the final result that will be returned to the caller (the arena
     // gets torn down on function exit).
-    return switch (target) {
+    return switch (opts.target) {
         .glsl => try glslFromSpv(alloc_gpa, spirv),
         .msl => try mslFromSpv(alloc_gpa, spirv),
         .spv => spv: {

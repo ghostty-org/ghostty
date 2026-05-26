@@ -856,7 +856,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 (shadertoy.loadFromFiles(
                     arena_alloc,
                     self.config.custom_shaders,
-                    GraphicsAPI.custom_shader_target,
+                    .{
+                        .target = GraphicsAPI.custom_shader_target,
+                        // Optional per-backend hooks. Resolved at
+                        // comptime via `@hasDecl`, so backends that
+                        // don't need them stay free of extra-define /
+                        // GLSL-rewrite logic.
+                        .extra_defines = if (@hasDecl(GraphicsAPI, "custom_shader_extra_defines"))
+                            GraphicsAPI.custom_shader_extra_defines
+                        else
+                            &.{},
+                        .rewrite = if (@hasDecl(GraphicsAPI, "rewriteCustomShaderSource"))
+                            GraphicsAPI.rewriteCustomShaderSource
+                        else
+                            null,
+                    },
                 ) catch |err| err: {
                     log.warn("error loading custom shaders err={}", .{err});
                     break :err &.{};
