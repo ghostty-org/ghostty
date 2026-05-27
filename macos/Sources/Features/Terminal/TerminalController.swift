@@ -438,6 +438,90 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         return c
     }
 
+    static func newCSSHWindow(
+        _ ghostty: Ghostty.App,
+        hosts: [String]
+    ) -> TerminalController? {
+        guard let app = ghostty.app, !hosts.isEmpty else { return nil }
+
+        let surfaces = hosts.enumerated().map { offset, host in
+            var config = Ghostty.SurfaceConfiguration()
+            config.command = csshCommand(for: host, sshArgs: ghostty.config.macosCSSHSSHArgs)
+            config.initialInput = ""
+            config.context = offset == 0 ? GHOSTTY_SURFACE_CONTEXT_WINDOW : GHOSTTY_SURFACE_CONTEXT_SPLIT
+
+            let surface = Ghostty.SurfaceView(app, baseConfig: config)
+            surface.setBadge(host)
+            return surface
+        }
+
+        guard let root = csshSplitRoot(for: surfaces) else { return nil }
+        let tree = SplitTree<Ghostty.SurfaceView>(root: root, zoomed: nil).equalized()
+        let c = TerminalController.init(ghostty, withSurfaceTree: tree)
+        c.restorable = false
+        c.titleOverride = "cssh"
+
+        c.scheduleInitialPresentation {
+            c.showWindow(self)
+
+            if let window = c.window, !window.styleMask.contains(.fullScreen) {
+                let hasFixedPos = c.derivedConfig.windowPositionX != nil && c.derivedConfig.windowPositionY != nil
+                Self.applyCascade(to: window, hasFixedPos: hasFixedPos)
+            }
+
+            if let first = surfaces.first {
+                c.focusedSurface = first
+                Ghostty.moveFocus(to: first, from: nil)
+            }
+
+            c.setBroadcastInputEnabled(true)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+
+        return c
+    }
+
+    private static func csshCommand(for host: String, sshArgs: String) -> String {
+        let trimmedArgs = sshArgs.trimmingCharacters(in: .whitespacesAndNewlines)
+        let command = trimmedArgs.isEmpty
+            ? "ssh \(Ghostty.Shell.quote(host))"
+            : "ssh \(trimmedArgs) \(Ghostty.Shell.quote(host))"
+        return "shell:\(command)"
+    }
+
+    private static func csshSplitRoot(
+        for surfaces: [Ghostty.SurfaceView]
+    ) -> SplitTree<Ghostty.SurfaceView>.Node? {
+        guard !surfaces.isEmpty else { return nil }
+
+        let columns = max(1, Int(ceil(sqrt(Double(surfaces.count)))))
+        let rows = stride(from: 0, to: surfaces.count, by: columns).compactMap { start in
+            let end = min(start + columns, surfaces.count)
+            let rowLeaves = surfaces[start..<end].map { SplitTree<Ghostty.SurfaceView>.Node.leaf(view: $0) }
+            return combineCSSHNodes(rowLeaves, direction: .horizontal)
+        }
+
+        return combineCSSHNodes(rows, direction: .vertical)
+    }
+
+    private static func combineCSSHNodes(
+        _ nodes: [SplitTree<Ghostty.SurfaceView>.Node],
+        direction: SplitTree<Ghostty.SurfaceView>.Direction
+    ) -> SplitTree<Ghostty.SurfaceView>.Node? {
+        guard var result = nodes.first else { return nil }
+
+        for node in nodes.dropFirst() {
+            result = .split(.init(
+                direction: direction,
+                ratio: 0.5,
+                left: result,
+                right: node
+            ))
+        }
+
+        return result
+    }
+
     static func newTab(
         _ ghostty: Ghostty.App,
         from parent: NSWindow? = nil,

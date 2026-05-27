@@ -590,7 +590,14 @@ pub const Surface = struct {
         if (opts.command) |c_command| {
             const cmd = std.mem.sliceTo(c_command, 0);
             if (cmd.len > 0) {
-                config.command = .{ .shell = cmd };
+                const alloc = config.arenaAlloc();
+                var command: configpkg.Command = undefined;
+                command.parseCLI(alloc, cmd) catch |err| {
+                    log.warn("error parsing requested command command={s} err={}", .{ cmd, err });
+                    command = .{ .shell = try alloc.dupeZ(u8, cmd) };
+                };
+                config.command = command;
+                config.@"initial-command" = null;
                 config.@"wait-after-command" = true;
             }
         }
@@ -612,21 +619,23 @@ pub const Surface = struct {
         // If we have an initial input then we set it.
         if (opts.initial_input) |c_input| {
             const alloc = config.arenaAlloc();
-
-            // We need to escape the string because the "raw" field
-            // expects a Zig string.
-            var buf: std.Io.Writer.Allocating = .init(alloc);
-            defer buf.deinit();
-            try std.zig.stringEscape(
-                std.mem.sliceTo(c_input, 0),
-                &buf.writer,
-            );
-
+            const initial_input = std.mem.sliceTo(c_input, 0);
             config.input.list.clearRetainingCapacity();
-            try config.input.list.append(
-                alloc,
-                .{ .raw = try buf.toOwnedSliceSentinel(0) },
-            );
+            if (initial_input.len > 0) {
+                // We need to escape the string because the "raw" field
+                // expects a Zig string.
+                var buf: std.Io.Writer.Allocating = .init(alloc);
+                defer buf.deinit();
+                try std.zig.stringEscape(
+                    initial_input,
+                    &buf.writer,
+                );
+
+                try config.input.list.append(
+                    alloc,
+                    .{ .raw = try buf.toOwnedSliceSentinel(0) },
+                );
+            }
         }
 
         // Wait after command

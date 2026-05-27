@@ -291,6 +291,10 @@ class BaseTerminalController: NSWindowController,
         return broadcastInputEnabled
     }
 
+    func setBroadcastInputEnabled(_ enabled: Bool) {
+        broadcastInputEnabled = enabled
+    }
+
     func broadcastInputIsEnabled(for source: Ghostty.SurfaceView) -> Bool {
         broadcastInputEnabled && isBroadcastInputSourceVisible(source)
     }

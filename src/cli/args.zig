@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = mem.Allocator;
@@ -1345,7 +1346,19 @@ pub fn ArgsIterator(comptime Iterator: type) type {
             // We ignore any argument that starts with "+". This is used
             // to indicate actions and are expected to be parsed out before
             // this iterator is created.
-            if (value.len > 0 and value[0] == '+') return self.next();
+            if (value.len > 0 and value[0] == '+') {
+                if (comptime builtin.os.tag == .macos) {
+                    if (mem.eql(u8, value, "+cssh")) {
+                        while (self.iterator.next()) |_| {
+                            self.index += 1;
+                        }
+
+                        return null;
+                    }
+                }
+
+                return self.next();
+            }
 
             return value;
         }
@@ -1381,6 +1394,24 @@ test "ArgsIterator" {
 
     try testing.expectEqualStrings("--what", iter.next().?);
     try testing.expectEqualStrings("--a=42", iter.next().?);
+    try testing.expectEqual(@as(?[]const u8, null), iter.next());
+    try testing.expectEqual(@as(?[]const u8, null), iter.next());
+}
+
+test "ArgsIterator: cssh consumes trailing host args" {
+    if (comptime builtin.os.tag != .macos) return error.SkipZigTest;
+
+    const testing = std.testing;
+
+    const child = try std.process.ArgIteratorGeneral(.{}).init(
+        testing.allocator,
+        "--font-size=14 +cssh host-a host-b --theme=broken",
+    );
+    const Iter = ArgsIterator(@TypeOf(child));
+    var iter: Iter = .{ .iterator = child };
+    defer iter.deinit();
+
+    try testing.expectEqualStrings("--font-size=14", iter.next().?);
     try testing.expectEqual(@as(?[]const u8, null), iter.next());
     try testing.expectEqual(@as(?[]const u8, null), iter.next());
 }

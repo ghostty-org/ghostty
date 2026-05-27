@@ -445,6 +445,15 @@ extension Ghostty {
             return max(0.1, v)
         }
 
+        var macosCSSHSSHArgs: String {
+            guard let config = self.config else { return "" }
+            var v: UnsafePointer<Int8>?
+            let key = "macos-cssh-ssh-args"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return "" }
+            guard let ptr = v else { return "" }
+            return String(cString: ptr)
+        }
+
         var macosSurfaceBadgeSize: Double {
             guard let config = self.config else { return 1 }
             var v: Double = 1

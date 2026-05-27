@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const help_strings = @import("help_strings");
 const actionpkg = @import("action.zig");
@@ -87,6 +88,12 @@ pub const Action = enum {
     @"toggle-quick-terminal",
 
     pub fn detectSpecialCase(arg: []const u8) ?SpecialCase(Action) {
+        // +cssh is a macOS app launch mode rather than a CLI action. Let the
+        // app continue launching so AppKit can create the cluster window.
+        if (comptime builtin.os.tag == .macos) {
+            if (std.mem.eql(u8, arg, "+cssh")) return .abort_if_no_action;
+        }
+
         // If we see a "-e" and we haven't seen a command yet, then
         // we are done looking for commands. This special case enables
         // `ghostty -e ghostty +command`. If we've seen a command we
@@ -226,6 +233,21 @@ test "parse action none" {
     var iter = try std.process.Args.IteratorGeneral(.{}).init(
         alloc,
         "--a=42 --b --b-f=false",
+    );
+    defer iter.deinit();
+    const action = try actionpkg.detectIter(Action, &iter);
+    try testing.expect(action == null);
+}
+
+test "parse action cssh is app launch mode" {
+    if (comptime builtin.os.tag != .macos) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        alloc,
+        "+cssh host-a host-b",
     );
     defer iter.deinit();
     const action = try actionpkg.detectIter(Action, &iter);

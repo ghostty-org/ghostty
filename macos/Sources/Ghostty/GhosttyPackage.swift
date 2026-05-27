@@ -1,3 +1,4 @@
+import Foundation
 import os
 import SwiftUI
 import GhosttyKit
@@ -52,6 +53,93 @@ extension Ghostty {
 
         // If the env var is set but its unknown then we default back to the app.
         return LaunchSource(rawValue: envValue) ?? .app
+    }
+
+    struct CSSHInvocation {
+        let hosts: [String]
+        let error: String?
+
+        static var current: CSSHInvocation? {
+            let args = Array(CommandLine.arguments.dropFirst())
+            guard let csshIndex = args.firstIndex(of: "+cssh") else { return nil }
+
+            var hosts: [String] = []
+            var consumeOptions = true
+            var index = csshIndex + 1
+            while index < args.count {
+                let arg = args[index]
+                if consumeOptions && arg == "--" {
+                    consumeOptions = false
+                    index += 1
+                    continue
+                }
+
+                if consumeOptions,
+                   Self.hostFileOptionNames.contains(arg) {
+                    index += 1
+                    guard index < args.count else {
+                        return CSSHInvocation(hosts: hosts, error: "\(arg) requires a path")
+                    }
+
+                    if let error = appendHosts(fromFile: args[index], to: &hosts) {
+                        return CSSHInvocation(hosts: hosts, error: error)
+                    }
+                } else if consumeOptions,
+                          let path = Self.hostFilePath(from: arg) {
+                    if let error = appendHosts(fromFile: path, to: &hosts) {
+                        return CSSHInvocation(hosts: hosts, error: error)
+                    }
+                } else {
+                    hosts.append(arg)
+                }
+
+                index += 1
+            }
+
+            return CSSHInvocation(hosts: hosts, error: nil)
+        }
+
+        private static let hostFileOptionNames: Set<String> = [
+            "--hosts-file",
+            "--host-file",
+            "-f",
+        ]
+
+        private static func hostFilePath(from arg: String) -> String? {
+            for name in hostFileOptionNames where name != "-f" {
+                let prefix = "\(name)="
+                if arg.hasPrefix(prefix) {
+                    return String(arg.dropFirst(prefix.count))
+                }
+            }
+
+            return nil
+        }
+
+        private static func appendHosts(fromFile path: String, to hosts: inout [String]) -> String? {
+            let expandedPath = (path as NSString).expandingTildeInPath
+            let absolutePath: String
+            if expandedPath.hasPrefix("/") {
+                absolutePath = expandedPath
+            } else {
+                absolutePath = (FileManager.default.currentDirectoryPath as NSString)
+                    .appendingPathComponent(expandedPath)
+            }
+
+            let contents: String
+            do {
+                contents = try String(contentsOfFile: absolutePath, encoding: .utf8)
+            } catch {
+                return "Unable to read hosts file \(path): \(error.localizedDescription)"
+            }
+
+            let fileHosts = contents
+                .split { $0 == "," || $0 == "\n" || $0 == "\r" }
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            hosts.append(contentsOf: fileHosts)
+            return nil
+        }
     }
 }
 

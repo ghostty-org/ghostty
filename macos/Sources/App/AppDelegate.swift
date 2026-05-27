@@ -89,6 +89,9 @@ class AppDelegate: NSObject,
     /// This is only true before application has become active.
     private var applicationHasBecomeActive: Bool = false
 
+    /// Command-line cssh-style launch request, if one was provided.
+    private let csshInvocation = Ghostty.CSSHInvocation.current
+
     /// This is set in applicationDidFinishLaunching with the system uptime so we can determine the
     /// seconds since the process was launched.
     private var applicationLaunchTime: TimeInterval = 0
@@ -370,6 +373,11 @@ class AppDelegate: NSObject,
         if !applicationHasBecomeActive {
             applicationHasBecomeActive = true
 
+            if let csshInvocation {
+                launchCSSH(csshInvocation)
+                return
+            }
+
             // Let's launch our first window. We only do this if we have no other windows. It
             // is possible to have other windows in a few scenarios:
             //   - if we're opening a URL since `application(_:openFile:)` is called before this.
@@ -389,7 +397,47 @@ class AppDelegate: NSObject,
         }
     }
 
+    private func launchCSSH(_ invocation: Ghostty.CSSHInvocation) {
+        if let error = invocation.error {
+            if let data = "\(error)\n".data(using: .utf8) {
+                FileHandle.standardError.write(data)
+            }
+
+            let alert = NSAlert()
+            alert.messageText = "Unable to Start CSSH"
+            alert.informativeText = error
+            alert.addButton(withTitle: "OK")
+            alert.alertStyle = .warning
+            alert.runModal()
+
+            NSApp.terminate(nil)
+            return
+        }
+
+        guard !invocation.hosts.isEmpty else {
+            let message = "ghostty +cssh requires at least one host.\n"
+            if let data = message.data(using: .utf8) {
+                FileHandle.standardError.write(data)
+            }
+
+            let alert = NSAlert()
+            alert.messageText = "No SSH Hosts Provided"
+            alert.informativeText = "Run ghostty +cssh host1 host2 ... or ghostty +cssh --hosts-file hosts.txt"
+            alert.addButton(withTitle: "OK")
+            alert.alertStyle = .warning
+            alert.runModal()
+
+            NSApp.terminate(nil)
+            return
+        }
+
+        undoManager.disableUndoRegistration()
+        defer { undoManager.enableUndoRegistration() }
+        _ = TerminalController.newCSSHWindow(ghostty, hosts: invocation.hosts)
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        if csshInvocation != nil { return true }
         return derivedConfig.shouldQuitAfterLastWindowClosed
     }
 

@@ -3435,6 +3435,19 @@ keybind: Keybinds = .{},
 /// The default value is a fluorescent green.
 @"macos-tab-border-color": Color = .{ .r = 0x39, .g = 0xFF, .b = 0x14 },
 
+/// Additional arguments to pass to the `ssh` command when launching a
+/// macOS cssh window via `ghostty +cssh`.
+///
+/// These arguments are inserted before the host, for example:
+///
+///   `ssh <macos-cssh-ssh-args> host`
+///
+/// The value is interpreted by the shell command path, so shell quoting may be
+/// used for arguments that contain spaces.
+///
+/// The default value is unset.
+@"macos-cssh-ssh-args": ?[:0]const u8 = null,
+
 /// The color of the broadcast input badge shown over visible terminals when
 /// broadcast input mode is enabled.
 ///
@@ -4999,6 +5012,15 @@ pub fn parseManuallyHook(
     arg: []const u8,
     iter: anytype,
 ) !bool {
+    if (comptime builtin.os.tag == .macos) {
+        if (std.mem.eql(u8, arg, "+cssh")) {
+            // +cssh is parsed by the macOS app at launch time. Consume the rest
+            // of argv here so hosts are not treated as config keys.
+            while (iter.next()) |_| {}
+            return false;
+        }
+    }
+
     if (std.mem.eql(u8, arg, "-e")) {
         // Add the special -e marker. This prevents:
         // (1) config-file from adding args to the end (see #2908)
@@ -10686,6 +10708,20 @@ test "parse e: command and args" {
     try testing.expectEqualStrings(cmd.direct[2], "bar baz");
 }
 
+test "parse cssh: consumed by macOS app" {
+    if (comptime builtin.os.tag != .macos) return error.SkipZigTest;
+
+    const testing = std.testing;
+    var cfg = try Config.default(testing.allocator);
+    defer cfg.deinit();
+    const alloc = cfg._arena.?.allocator();
+
+    var it: TestIterator = .{ .data = &.{ "host-a", "host-b" } };
+    try testing.expect(!try cfg.parseManuallyHook(alloc, "+cssh", &it));
+    try testing.expectEqual(@as(usize, 2), it.i);
+    try testing.expect(cfg.@"initial-command" == null);
+}
+
 test "clone default" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -11319,6 +11355,23 @@ test "macos-broadcast indicators config" {
     try testing.expectEqual(
         MacSurfaceBadgeTextAlignment.center,
         cfg.@"macos-surface-badge-text-alignment",
+    );
+}
+
+test "macos cssh ssh args config" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    var it: TestIterator = .{ .data = &.{
+        "--macos-cssh-ssh-args=-o ServerAliveInterval=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no -o UserKnownHostsFile=/dev/null",
+    } };
+    try cfg.loadIter(alloc, &it);
+
+    try testing.expectEqualStrings(
+        "-o ServerAliveInterval=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no -o UserKnownHostsFile=/dev/null",
+        cfg.@"macos-cssh-ssh-args".?,
     );
 }
 
