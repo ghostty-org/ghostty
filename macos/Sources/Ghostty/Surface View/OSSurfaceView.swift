@@ -52,6 +52,9 @@ extension Ghostty {
         /// True when this surface is part of the active broadcast input group.
         @Published private(set) var broadcastInput: Bool = false
 
+        /// User-provided badge shown over this surface.
+        @Published private(set) var badge: String?
+
         /// True when the surface should show a highlight effect (e.g., when presented via goto_split).
         @Published private(set) var highlighted: Bool = false
 
@@ -105,6 +108,15 @@ extension Ghostty {
 
         func setBroadcastInput(_ enabled: Bool) {
             broadcastInput = enabled
+        }
+
+        func setBadge(_ value: String?) {
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let trimmed, !trimmed.isEmpty {
+                badge = trimmed
+            } else {
+                badge = nil
+            }
         }
 
         @MainActor

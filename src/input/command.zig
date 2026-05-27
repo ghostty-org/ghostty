@@ -471,6 +471,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Prompt for a new title for the current window.",
         }},
 
+        .prompt_surface_badge => comptime &.{.{
+            .action = .prompt_surface_badge,
+            .title = "Set Terminal Badge…",
+            .description = "Prompt for a badge for the current terminal.",
+        }},
+
         .new_split => comptime &.{
             .{
                 .action = .{ .new_split = .left },
@@ -726,6 +732,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .set_surface_title,
         .set_tab_title,
         .set_window_title,
+        .set_surface_badge,
         .search,
         .scroll_to_row,
         .scroll_page_fractional,

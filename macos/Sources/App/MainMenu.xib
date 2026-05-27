@@ -16,6 +16,7 @@
             <connections>
                 <outlet property="menuAbout" destination="5kV-Vb-QxS" id="Y5y-UO-NK6"/>
                 <outlet property="menuBringAllToFront" destination="LE2-aR-0XJ" id="AP9-oK-60V"/>
+                <outlet property="menuChangeBadge" destination="pbd-gE-o2T" id="Kog-Ak-P1q"/>
                 <outlet property="menuChangeTabTitle" destination="iac-lh-Cl7" id="tId-v0-a3E"/>
                 <outlet property="menuChangeTitle" destination="24I-xg-qIq" id="kg6-kT-jNL"/>
                 <outlet property="menuCheckForUpdates" destination="GEA-5y-yzH" id="0nV-Tf-nJQ"/>
@@ -350,6 +351,12 @@
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="changeTitle:" target="-1" id="XuL-QB-Q9l"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Set Terminal Badge..." id="pbd-gE-o2T">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="promptBadge:" target="-1" id="cYM-wE-Dtc"/>
                                 </connections>
                             </menuItem>
                             <menuItem title="Terminal Read-only" id="xpe-ia-Yjw">

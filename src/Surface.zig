@@ -5257,6 +5257,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .window,
         ),
 
+        .prompt_surface_badge => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .prompt_badge,
+            {},
+        ),
+
         .set_surface_title => |v| {
             const title = try self.alloc.dupeZ(u8, v);
             defer self.alloc.free(title);
@@ -5264,6 +5270,16 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 .{ .surface = self },
                 .set_title,
                 .{ .title = title },
+            );
+        },
+
+        .set_surface_badge => |v| {
+            const badge = try self.alloc.dupeZ(u8, v);
+            defer self.alloc.free(badge);
+            return try self.rt_app.performAction(
+                .{ .surface = self },
+                .set_badge,
+                .{ .badge = badge },
             );
         },
 

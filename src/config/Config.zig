@@ -3478,6 +3478,25 @@ keybind: Keybinds = .{},
 /// The default value is `0`.
 @"macos-broadcast-stripe-offset": u32 = 0,
 
+/// Multiplier for the custom surface badge size. A value of `1` is the
+/// default size, `2` is twice as large, and `0.5` is half size.
+///
+/// Decimal values are allowed.
+///
+/// The default value is `1`.
+@"macos-surface-badge-size": f64 = 1.0,
+
+/// Text alignment for the custom surface badge.
+///
+/// Valid values are:
+///
+///   * `left`
+///   * `center`
+///   * `right`
+///
+/// The default value is `right`.
+@"macos-surface-badge-text-alignment": MacSurfaceBadgeTextAlignment = .right,
+
 /// Whether the proxy icon in the macOS titlebar is visible. The proxy icon
 /// is the icon that represents the folder of the current working directory.
 /// You can see this very clearly in the macOS built-in Terminal.app
@@ -9229,6 +9248,13 @@ pub const MacTabsLocation = enum {
     hidden,
 };
 
+/// See macos-surface-badge-text-alignment
+pub const MacSurfaceBadgeTextAlignment = enum {
+    left,
+    center,
+    right,
+};
+
 /// See macos-titlebar-proxy-icon
 pub const MacTitlebarProxyIcon = enum {
     visible,
@@ -11260,6 +11286,8 @@ test "macos-broadcast indicators config" {
         "--macos-broadcast-stripe-color=#39ff14",
         "--macos-broadcast-stripe-width=4.5",
         "--macos-broadcast-stripe-offset=12",
+        "--macos-surface-badge-size=1.5",
+        "--macos-surface-badge-text-alignment=center",
     } };
     try cfg.loadIter(alloc, &it);
 
@@ -11283,6 +11311,14 @@ test "macos-broadcast indicators config" {
     try testing.expectEqual(
         @as(u32, 12),
         cfg.@"macos-broadcast-stripe-offset",
+    );
+    try testing.expectEqual(
+        @as(f64, 1.5),
+        cfg.@"macos-surface-badge-size",
+    );
+    try testing.expectEqual(
+        MacSurfaceBadgeTextAlignment.center,
+        cfg.@"macos-surface-badge-text-alignment",
     );
 }
 

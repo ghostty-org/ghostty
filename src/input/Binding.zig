@@ -615,6 +615,12 @@ pub const Action = union(enum) {
     /// Only implemented on Linux.
     prompt_window_title,
 
+    /// Set a badge for the current focused surface via a pop-up prompt.
+    ///
+    /// This badge is local to the current surface, so each split pane in a
+    /// tab may have its own badge. Leaving the prompt blank clears the badge.
+    prompt_surface_badge,
+
     /// Set the title for the current focused surface.
     ///
     /// If the title is empty, the surface title is reset to an empty title.
@@ -631,6 +637,11 @@ pub const Action = union(enum) {
     ///
     /// Only implement on Linux.
     set_window_title: []const u8,
+
+    /// Set a badge for the current focused surface.
+    ///
+    /// If the badge is empty, the surface badge is cleared.
+    set_surface_badge: []const u8,
 
     /// Create a new split in the specified direction.
     ///
@@ -1410,9 +1421,11 @@ pub const Action = union(enum) {
             .prompt_surface_title,
             .prompt_tab_title,
             .prompt_window_title,
+            .prompt_surface_badge,
             .set_surface_title,
             .set_tab_title,
             .set_window_title,
+            .set_surface_badge,
             .clear_screen,
             .select_all,
             .scroll_to_top,
@@ -3374,6 +3387,15 @@ test "parse: action no parameters" {
     try testing.expectEqual(
         Binding{
             .trigger = .{ .key = .{ .unicode = 'b' } },
+            .action = .{ .prompt_surface_badge = {} },
+        },
+        try parseSingle("b=prompt_surface_badge"),
+    );
+    try testing.expectError(Error.InvalidFormat, parseSingle("b=prompt_surface_badge:on"));
+
+    try testing.expectEqual(
+        Binding{
+            .trigger = .{ .key = .{ .unicode = 'b' } },
             .action = .{ .toggle_broadcast = {} },
         },
         try parseSingle("b=toggle_broadcast"),
@@ -3405,6 +3427,16 @@ test "parse: action with string" {
         const binding = try parseSingle("a=set_tab_title:tab");
         try testing.expect(binding.action == .set_tab_title);
         try testing.expectEqualStrings("tab", binding.action.set_tab_title);
+    }
+    {
+        const binding = try parseSingle("a=set_surface_badge:prod");
+        try testing.expect(binding.action == .set_surface_badge);
+        try testing.expectEqualStrings("prod", binding.action.set_surface_badge);
+    }
+    {
+        const binding = try parseSingle("a=set_surface_badge:");
+        try testing.expect(binding.action == .set_surface_badge);
+        try testing.expectEqualStrings("", binding.action.set_surface_badge);
     }
 }
 
@@ -4683,6 +4715,18 @@ test "action: format set title" {
     defer buf.deinit();
     try a.format(&buf.writer);
     try testing.expectEqualStrings("set_tab_title:foo bar", buf.written());
+}
+
+test "action: format set surface badge" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const a: Action = .{ .set_surface_badge = "prod db" };
+
+    var buf: std.Io.Writer.Allocating = .init(alloc);
+    defer buf.deinit();
+    try a.format(&buf.writer);
+    try testing.expectEqualStrings("set_surface_badge:prod db", buf.written());
 }
 
 test "set: appendChain with no parent returns error" {

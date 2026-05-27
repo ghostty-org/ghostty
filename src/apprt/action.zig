@@ -216,6 +216,13 @@ pub const Action = union(Key) {
     /// surface title or the tab title.
     prompt_title: PromptTitle,
 
+    /// Set the badge of the target surface to the requested value.
+    set_badge: SetBadge,
+
+    /// Prompt for the badge of the target surface. It is up to the apprt to
+    /// prompt.
+    prompt_badge,
+
     /// The current working directory has changed for the target terminal.
     pwd: Pwd,
 
@@ -399,6 +406,8 @@ pub const Action = union(Key) {
         set_tab_title,
         set_window_title,
         prompt_title,
+        set_badge,
+        prompt_badge,
         pwd,
         mouse_shape,
         mouse_visibility,
@@ -888,6 +897,21 @@ pub const KeyTable = union(enum) {
                 .tag = .deactivate_all,
                 .value = undefined,
             },
+        };
+    }
+};
+
+pub const SetBadge = struct {
+    badge: [:0]const u8,
+
+    // Sync with: ghostty_action_set_badge_s
+    pub const C = extern struct {
+        badge: [*:0]const u8,
+    };
+
+    pub fn cval(self: SetBadge) C {
+        return .{
+            .badge = self.badge.ptr,
         };
     }
 };

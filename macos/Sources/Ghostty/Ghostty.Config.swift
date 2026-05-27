@@ -445,6 +445,24 @@ extension Ghostty {
             return max(0.1, v)
         }
 
+        var macosSurfaceBadgeSize: Double {
+            guard let config = self.config else { return 1 }
+            var v: Double = 1
+            let key = "macos-surface-badge-size"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return max(0.1, v)
+        }
+
+        var macosSurfaceBadgeTextAlignment: MacOSSurfaceBadgeTextAlignment {
+            let defaultValue = MacOSSurfaceBadgeTextAlignment.right
+            guard let config = self.config else { return defaultValue }
+            var v: UnsafePointer<Int8>?
+            let key = "macos-surface-badge-text-alignment"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return defaultValue }
+            guard let ptr = v else { return defaultValue }
+            return MacOSSurfaceBadgeTextAlignment(rawValue: String(cString: ptr)) ?? defaultValue
+        }
+
         var macosBroadcastStripe: Bool {
             guard let config = self.config else { return true }
             var v = true
@@ -1043,5 +1061,9 @@ extension Ghostty.Config {
 
     enum DragHandle: String {
         case always, auto, never
+    }
+
+    enum MacOSSurfaceBadgeTextAlignment: String {
+        case left, center, right
     }
 }

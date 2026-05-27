@@ -92,10 +92,13 @@ extension Ghostty {
                     )
                 }
 
-                if surfaceView.readonly || surfaceView.broadcastInput {
+                if surfaceView.readonly || surfaceView.broadcastInput || surfaceView.badge != nil {
                     SurfaceModeBadges(
                         readonly: surfaceView.readonly,
                         broadcastInput: surfaceView.broadcastInput,
+                        badge: surfaceView.badge,
+                        badgeScale: CGFloat(ghostty.config.macosSurfaceBadgeSize),
+                        badgeTextAlignment: ghostty.config.macosSurfaceBadgeTextAlignment,
                         broadcastColor: ghostty.config.macosBroadcastBadgeColor,
                         broadcastScale: CGFloat(ghostty.config.macosBroadcastBadgeSize),
                         onDisableReadonly: {
@@ -1018,6 +1021,9 @@ extension Ghostty {
     struct SurfaceModeBadges: View {
         let readonly: Bool
         let broadcastInput: Bool
+        let badge: String?
+        let badgeScale: CGFloat
+        let badgeTextAlignment: Ghostty.Config.MacOSSurfaceBadgeTextAlignment
         let broadcastColor: Color
         let broadcastScale: CGFloat
         let onDisableReadonly: () -> Void
@@ -1029,7 +1035,11 @@ extension Ghostty {
                 HStack {
                     Spacer()
 
-                    VStack(alignment: .trailing, spacing: 6 * clampedBroadcastScale) {
+                    VStack(alignment: .trailing, spacing: 6 * max(clampedBadgeScale, clampedBroadcastScale)) {
+                        if let badge {
+                            customBadge(badge)
+                        }
+
                         if readonly {
                             readonlyBadge
                         }
@@ -1045,6 +1055,30 @@ extension Ghostty {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(accessibilityLabel)
+        }
+
+        private func customBadge(_ text: String) -> some View {
+            let scale = clampedBadgeScale
+
+            return HStack(spacing: 5 * scale) {
+                Image(systemName: "tag.fill")
+                    .font(.system(size: 12 * scale))
+                Text(text)
+                    .font(.system(size: 12 * scale, weight: .medium))
+                    .lineLimit(1)
+                    .multilineTextAlignment(badgeTextAlignment.textAlignment)
+                    .truncationMode(.tail)
+                    .frame(
+                        minWidth: 80 * scale,
+                        maxWidth: 220 * scale,
+                        alignment: badgeTextAlignment.frameAlignment
+                    )
+            }
+            .padding(.horizontal, 8 * scale)
+            .padding(.vertical, 4 * scale)
+            .background(badgeBackground(stroke: .accentColor, scale: scale))
+            .foregroundStyle(Color.primary)
+            .help(text)
         }
 
         private var readonlyBadge: some View {
@@ -1088,16 +1122,26 @@ extension Ghostty {
         }
 
         private var accessibilityLabel: String {
-            switch (readonly, broadcastInput) {
-            case (true, true): return "Read-only terminal, broadcast input enabled"
-            case (true, false): return "Read-only terminal"
-            case (false, true): return "Broadcast input enabled"
-            case (false, false): return "Terminal"
+            var labels: [String] = []
+            if let badge {
+                labels.append("Terminal badge: \(badge)")
             }
+            if readonly {
+                labels.append("Read-only terminal")
+            }
+            if broadcastInput {
+                labels.append("Broadcast input enabled")
+            }
+
+            return labels.isEmpty ? "Terminal" : labels.joined(separator: ", ")
         }
 
         private var clampedBroadcastScale: CGFloat {
             max(0.1, broadcastScale)
+        }
+
+        private var clampedBadgeScale: CGFloat {
+            max(0.1, badgeScale)
         }
 
         private func badgeBackground(stroke: Color, scale: CGFloat = 1) -> some View {
@@ -1235,6 +1279,24 @@ extension View {
     /// The most recently focused surface (can be currently focused if the surface is currently focused).
     func ghosttyLastFocusedSurface(_ surfaceView: Weak<Ghostty.SurfaceView>?) -> some View {
         environment(\.ghosttyLastFocusedSurface, surfaceView)
+    }
+}
+
+private extension Ghostty.Config.MacOSSurfaceBadgeTextAlignment {
+    var textAlignment: TextAlignment {
+        switch self {
+        case .left: return .leading
+        case .center: return .center
+        case .right: return .trailing
+        }
+    }
+
+    var frameAlignment: Alignment {
+        switch self {
+        case .left: return .leading
+        case .center: return .center
+        case .right: return .trailing
+        }
     }
 }
 

@@ -718,6 +718,12 @@ extension Ghostty {
             case GHOSTTY_ACTION_PROMPT_TITLE:
                 return promptTitle(app, target: target, v: action.action.prompt_title)
 
+            case GHOSTTY_ACTION_SET_BADGE:
+                setBadge(app, target: target, v: action.action.set_badge)
+
+            case GHOSTTY_ACTION_PROMPT_BADGE:
+                return promptBadge(app, target: target)
+
             case GHOSTTY_ACTION_PWD:
                 pwdChanged(app, target: target, v: action.action.pwd)
 
@@ -1935,6 +1941,26 @@ extension Ghostty {
             }
         }
 
+        private static func setBadge(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_set_badge_s) {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("set badge does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let badge = String(cString: v.badge!, encoding: .utf8) else { return }
+                surfaceView.setBadge(badge)
+
+            default:
+                assertionFailure()
+            }
+        }
+
         private static func promptTitle(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1980,6 +2006,26 @@ extension Ghostty {
                     assertionFailure()
                     return false
                 }
+            }
+        }
+
+        private static func promptBadge(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s) -> Bool {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("badge prompt does nothing with an app target")
+                return false
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                surfaceView.promptBadge()
+                return true
+
+            default:
+                assertionFailure()
+                return false
             }
         }
 
