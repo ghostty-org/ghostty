@@ -83,11 +83,28 @@ extension Ghostty {
                     .transition(.opacity)
                 }
 
-                // Readonly indicator badge
-                if surfaceView.readonly {
-                    ReadonlyBadge {
-                        surfaceView.toggleReadonly(nil)
-                    }
+#if canImport(AppKit)
+                if surfaceView.broadcastInput && ghostty.config.macosBroadcastStripe {
+                    BroadcastStripe(
+                        color: ghostty.config.macosBroadcastStripeColor,
+                        width: CGFloat(ghostty.config.macosBroadcastStripeWidth),
+                        offset: CGFloat(ghostty.config.macosBroadcastStripeOffset)
+                    )
+                }
+
+                if surfaceView.readonly || surfaceView.broadcastInput {
+                    SurfaceModeBadges(
+                        readonly: surfaceView.readonly,
+                        broadcastInput: surfaceView.broadcastInput,
+                        broadcastColor: ghostty.config.macosBroadcastBadgeColor,
+                        broadcastScale: CGFloat(ghostty.config.macosBroadcastBadgeSize),
+                        onDisableReadonly: {
+                            surfaceView.toggleReadonly(nil)
+                        },
+                        onDisableBroadcast: {
+                            surfaceView.toggleBroadcast(nil)
+                        }
+                    )
                 }
 
                 // Show key state indicator for active key tables and/or pending key sequences
@@ -593,6 +610,9 @@ extension Ghostty {
         /// Extra input to send as stdin
         var initialInput: String?
 
+        /// Plaintext scrollback history file to restore into the terminal.
+        var scrollbackHistoryPath: String?
+
         /// Wait after the command
         var waitAfterCommand: Bool = false
 
@@ -653,27 +673,31 @@ extension Ghostty {
                     return try initialInput.withCString { cInput in
                         config.initial_input = cInput
 
-                        // Convert dictionary to arrays for easier processing
-                        let keys = Array(environmentVariables.keys)
-                        let values = Array(environmentVariables.values)
+                        return try scrollbackHistoryPath.withCString { cHistoryPath in
+                            config.scrollback_history_path = cHistoryPath
 
-                        // Create C strings for all keys and values
-                        return try keys.withCStrings { keyCStrings in
-                            return try values.withCStrings { valueCStrings in
-                                // Create array of ghostty_env_var_s
-                                var envVars = [ghostty_env_var_s]()
-                                envVars.reserveCapacity(environmentVariables.count)
-                                for i in 0..<environmentVariables.count {
-                                    envVars.append(ghostty_env_var_s(
-                                        key: keyCStrings[i],
-                                        value: valueCStrings[i]
-                                    ))
-                                }
+                            // Convert dictionary to arrays for easier processing
+                            let keys = Array(environmentVariables.keys)
+                            let values = Array(environmentVariables.values)
 
-                                return try envVars.withUnsafeMutableBufferPointer { buffer in
-                                    config.env_vars = buffer.baseAddress
-                                    config.env_var_count = environmentVariables.count
-                                    return try body(&config)
+                            // Create C strings for all keys and values
+                            return try keys.withCStrings { keyCStrings in
+                                return try values.withCStrings { valueCStrings in
+                                    // Create array of ghostty_env_var_s
+                                    var envVars = [ghostty_env_var_s]()
+                                    envVars.reserveCapacity(environmentVariables.count)
+                                    for i in 0..<environmentVariables.count {
+                                        envVars.append(ghostty_env_var_s(
+                                            key: keyCStrings[i],
+                                            value: valueCStrings[i]
+                                        ))
+                                    }
+
+                                    return try envVars.withUnsafeMutableBufferPointer { buffer in
+                                        config.env_vars = buffer.baseAddress
+                                        config.env_var_count = environmentVariables.count
+                                        return try body(&config)
+                                    }
                                 }
                             }
                         }
@@ -973,38 +997,46 @@ extension Ghostty {
         }
     }
 
-    // MARK: Readonly Badge
+    // MARK: Surface Mode Badges
 
-    /// A badge overlay that indicates a surface is in readonly mode.
-    /// Positioned in the top-right corner and styled to be noticeable but unobtrusive.
-    struct ReadonlyBadge: View {
-        let onDisable: () -> Void
+    struct BroadcastStripe: View {
+        let color: Color
+        let width: CGFloat
+        let offset: CGFloat
 
+        var body: some View {
+            Rectangle()
+                .fill(color)
+                .frame(width: max(0, width))
+                .padding(.trailing, max(0, offset))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+            .allowsHitTesting(false)
+            .transition(.opacity)
+        }
+    }
+
+    struct SurfaceModeBadges: View {
+        let readonly: Bool
+        let broadcastInput: Bool
+        let broadcastColor: Color
+        let broadcastScale: CGFloat
+        let onDisableReadonly: () -> Void
+        let onDisableBroadcast: () -> Void
         @State private var showingPopover = false
-
-        private let badgeColor = Color(hue: 0.08, saturation: 0.5, brightness: 0.8)
 
         var body: some View {
             VStack {
                 HStack {
                     Spacer()
 
-                    HStack(spacing: 5) {
-                        Image(systemName: "eye.fill")
-                            .font(.system(size: 12))
-                        Text("Read-only")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(badgeBackground)
-                    .foregroundStyle(badgeColor)
-                    .onTapGesture {
-                        showingPopover = true
-                    }
-                    .backport.pointerStyle(.link)
-                    .popover(isPresented: $showingPopover, arrowEdge: .bottom) {
-                        ReadonlyPopoverView(onDisable: onDisable, isPresented: $showingPopover)
+                    VStack(alignment: .trailing, spacing: 6 * clampedBroadcastScale) {
+                        if readonly {
+                            readonlyBadge
+                        }
+
+                        if broadcastInput {
+                            broadcastBadge
+                        }
                     }
                 }
                 .padding(8)
@@ -1012,15 +1044,68 @@ extension Ghostty {
                 Spacer()
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Read-only terminal")
+            .accessibilityLabel(accessibilityLabel)
         }
 
-        private var badgeBackground: some View {
-            RoundedRectangle(cornerRadius: 6)
+        private var readonlyBadge: some View {
+            HStack(spacing: 5) {
+                Image(systemName: "eye.fill")
+                    .font(.system(size: 12))
+                Text("Read-only")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(badgeBackground(stroke: .orange))
+            .foregroundStyle(Color(hue: 0.08, saturation: 0.5, brightness: 0.8))
+            .onTapGesture {
+                showingPopover = true
+            }
+            .backport.pointerStyle(.link)
+            .popover(isPresented: $showingPopover, arrowEdge: .bottom) {
+                ReadonlyPopoverView(onDisable: onDisableReadonly, isPresented: $showingPopover)
+            }
+        }
+
+        private var broadcastBadge: some View {
+            let scale = clampedBroadcastScale
+
+            return HStack(spacing: 5 * scale) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .font(.system(size: 12 * scale))
+                Text("Broadcast")
+                    .font(.system(size: 12 * scale, weight: .medium))
+            }
+            .padding(.horizontal, 8 * scale)
+            .padding(.vertical, 4 * scale)
+            .background(badgeBackground(stroke: broadcastColor, scale: scale))
+            .foregroundStyle(broadcastColor)
+            .onTapGesture {
+                onDisableBroadcast()
+            }
+            .backport.pointerStyle(.link)
+            .help("Disable broadcast input")
+        }
+
+        private var accessibilityLabel: String {
+            switch (readonly, broadcastInput) {
+            case (true, true): return "Read-only terminal, broadcast input enabled"
+            case (true, false): return "Read-only terminal"
+            case (false, true): return "Broadcast input enabled"
+            case (false, false): return "Terminal"
+            }
+        }
+
+        private var clampedBroadcastScale: CGFloat {
+            max(0.1, broadcastScale)
+        }
+
+        private func badgeBackground(stroke: Color, scale: CGFloat = 1) -> some View {
+            RoundedRectangle(cornerRadius: 6 * scale)
                 .fill(.regularMaterial)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(Color.orange.opacity(0.6), lineWidth: 1.5)
+                    RoundedRectangle(cornerRadius: 6 * scale)
+                        .strokeBorder(stroke.opacity(0.6), lineWidth: 1.5 * scale)
                 )
         }
     }

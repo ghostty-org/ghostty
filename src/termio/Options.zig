@@ -14,6 +14,10 @@ size: renderer.Size,
 /// in here must be copied.
 full_config: *const Config,
 
+/// Plaintext scrollback history to seed into the terminal before the backend
+/// starts producing output.
+initial_scrollback: ?[]const u8 = null,
+
 /// The derived configuration for this termio implementation.
 config: termio.Termio.DerivedConfig,
 

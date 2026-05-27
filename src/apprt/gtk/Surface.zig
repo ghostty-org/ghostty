@@ -1,12 +1,15 @@
 const Self = @This();
 
 const std = @import("std");
+const gtk = @import("gtk");
 const apprt = @import("../../apprt.zig");
 const configpkg = @import("../../config.zig");
 const CoreSurface = @import("../../Surface.zig");
 const ApprtApp = @import("App.zig");
+const ext = @import("ext.zig");
 const Application = @import("class/application.zig").Application;
 const Surface = @import("class/surface.zig").Surface;
+const Tab = @import("class/tab.zig").Tab;
 
 /// The GObject Surface
 surface: *Surface,
@@ -30,6 +33,25 @@ pub fn core(self: *Self) *CoreSurface {
 pub fn rtApp(self: *Self) *ApprtApp {
     _ = self;
     return Application.default().rt();
+}
+
+pub fn toggleBroadcast(self: *Self) bool {
+    const tab = self.parentTab() orelse return false;
+    return tab.toggleBroadcastInput();
+}
+
+pub fn broadcastEnabled(self: *Self) bool {
+    const tab = self.parentTab() orelse return false;
+    return tab.broadcastInputEnabledFor(self.surface);
+}
+
+pub fn isBroadcastTarget(self: *Self, target: *Self) bool {
+    const tab = self.parentTab() orelse return false;
+    return tab.isBroadcastInputTarget(self.surface, target.surface);
+}
+
+fn parentTab(self: *Self) ?*Tab {
+    return ext.getAncestor(Tab, self.surface.as(gtk.Widget));
 }
 
 pub fn close(self: *Self, process_active: bool) void {

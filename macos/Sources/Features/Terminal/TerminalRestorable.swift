@@ -56,9 +56,10 @@ extension TerminalRestorable {
     }
 }
 
+
 /// The state stored for terminal window restoration.
 final class TerminalRestorableState: TerminalRestorable {
-    static var version: Int { 7 }
+    static var version: Int { 8 }
     static var minimumVersion: Int { 5 }
 
     var focusedSurface: String? {
@@ -182,6 +183,7 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
 
             if let view = foundView {
                 c.focusedSurface = view
+                c.focusedSurfaceDidChange(to: view)
                 restoreFocus(to: view, inWindow: window)
             }
         }
@@ -234,3 +236,208 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
     }
 }
 
+enum TerminalSessionStore {
+    private static let manifestFileName = "session.json"
+    private static let version = 1
+
+    private struct Manifest: Codable {
+        let version: Int
+        let tabGroups: [TabGroup]
+
+        init(tabGroups: [TabGroup]) {
+            self.version = TerminalSessionStore.version
+            self.tabGroups = tabGroups
+        }
+    }
+
+    private struct TabGroup: Codable {
+        let selectedIndex: Int?
+        let tabs: [TerminalRestorableState]
+    }
+
+    static func saveCurrentSession() {
+        guard let manifestURL = manifestURL() else { return }
+
+        let tabGroups = currentTabGroups().map { controllers in
+            TabGroup(
+                selectedIndex: selectedIndex(in: controllers),
+                tabs: controllers.map { TerminalRestorableState(from: $0) })
+        }
+        guard !tabGroups.isEmpty else {
+            removeManifest(at: manifestURL)
+            return
+        }
+
+        do {
+            try FileManager.default.createDirectory(
+                at: manifestURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true)
+            let data = try JSONEncoder().encode(Manifest(tabGroups: tabGroups))
+            try data.write(to: manifestURL, options: [.atomic])
+        } catch {
+            AppDelegate.logger.warning("failed to save terminal session: \(error)")
+        }
+    }
+
+    @discardableResult
+    static func restoreSession(_ ghostty: Ghostty.App) -> Bool {
+        guard let manifestURL = manifestURL() else { return false }
+        guard FileManager.default.fileExists(atPath: manifestURL.path) else { return false }
+
+        do {
+            let data = try Data(contentsOf: manifestURL)
+            let manifest = try JSONDecoder().decode(Manifest.self, from: data)
+            guard manifest.version == version else {
+                AppDelegate.logger.warning("skip terminal session restore: unsupported version \(manifest.version)")
+                return false
+            }
+
+            var restored = false
+            for group in manifest.tabGroups {
+                restored = restore(group, ghostty: ghostty) || restored
+            }
+
+            return restored
+        } catch {
+            AppDelegate.logger.warning("failed to restore terminal session: \(error)")
+            return false
+        }
+    }
+
+    private static func configuredDirectory() -> URL? {
+        guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return nil }
+        guard let path = appDelegate.ghostty.config.sessionHistoryDir?.path else { return nil }
+        return URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+    }
+
+    private static func manifestURL() -> URL? {
+        configuredDirectory()?.appendingPathComponent(manifestFileName, isDirectory: false)
+    }
+
+    private static func removeManifest(at url: URL) {
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            if (error as? CocoaError)?.code == .fileNoSuchFile { return }
+            AppDelegate.logger.warning("failed to remove terminal session manifest: \(error)")
+        }
+    }
+
+    private static func currentTabGroups() -> [[TerminalController]] {
+        var result: [[TerminalController]] = []
+        var seenTabGroups = Set<ObjectIdentifier>()
+
+        for controller in TerminalController.all {
+            guard let window = controller.window else { continue }
+            guard window.isVisible else { continue }
+            guard !controller.surfaceTree.isEmpty else { continue }
+
+            if let tabGroup = window.tabGroup, tabGroup.windows.count > 1 {
+                let tabGroupID = ObjectIdentifier(tabGroup)
+                guard seenTabGroups.insert(tabGroupID).inserted else { continue }
+
+                let controllers = tabGroup.windows.compactMap {
+                    $0.windowController as? TerminalController
+                }.filter {
+                    $0.window?.isVisible == true && !$0.surfaceTree.isEmpty
+                }
+
+                if !controllers.isEmpty {
+                    result.append(controllers)
+                }
+            } else {
+                result.append([controller])
+            }
+        }
+
+        return result
+    }
+
+    private static func selectedIndex(in controllers: [TerminalController]) -> Int? {
+        controllers.firstIndex { controller in
+            guard let window = controller.window else { return false }
+            return window.isKeyWindow || window.tabGroup?.selectedWindow == window
+        }
+    }
+
+    private static func restore(_ group: TabGroup, ghostty: Ghostty.App) -> Bool {
+        let controllers = group.tabs.map { state in
+            let controller = TerminalController(
+                ghostty,
+                withSurfaceTree: state.surfaceTree)
+            apply(state, to: controller)
+            return controller
+        }
+        guard let firstController = controllers.first else { return false }
+
+        firstController.showWindow(nil)
+        for controller in controllers.dropFirst() {
+            controller.showWindow(nil)
+            if let firstWindow = firstController.window,
+               let newWindow = controller.window {
+                firstWindow.addTabbedWindowSafely(newWindow, ordered: .above)
+            }
+        }
+
+        let selectedController: TerminalController
+        if let selectedIndex = group.selectedIndex,
+           controllers.indices.contains(selectedIndex) {
+            selectedController = controllers[selectedIndex]
+        } else {
+            selectedController = firstController
+        }
+        selectedController.window?.makeKeyAndOrderFront(nil)
+
+        for (controller, state) in zip(controllers, group.tabs) {
+            if let mode = state.effectiveFullscreenMode, mode != .native {
+                controller.toggleFullscreen(mode: mode)
+            }
+        }
+
+        return true
+    }
+
+    private static func apply(_ state: TerminalRestorableState, to controller: TerminalController) {
+        guard let window = controller.window else { return }
+
+        if let tabColor = state.tabColor {
+            (window as? TerminalWindow)?.tabColor = tabColor
+        }
+        controller.titleOverride = state.titleOverride
+
+        let focusedView = state.focusedSurface.flatMap { focusedStr in
+            controller.surfaceTree.first { $0.id.uuidString == focusedStr }
+        } ?? controller.surfaceTree.first
+
+        if let focusedView {
+            controller.focusedSurface = focusedView
+            controller.focusedSurfaceDidChange(to: focusedView)
+            restoreFocus(to: focusedView, inWindow: window)
+        }
+    }
+
+    private static func restoreFocus(
+        to surfaceView: Ghostty.SurfaceView,
+        inWindow window: NSWindow,
+        attempts: Int = 0
+    ) {
+        let after: DispatchTime
+        if attempts == 0 {
+            after = .now()
+        } else if attempts > 40 {
+            return
+        } else {
+            after = .now() + .milliseconds(50)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: after) {
+            guard let viewWindow = surfaceView.window else {
+                restoreFocus(to: surfaceView, inWindow: window, attempts: attempts + 1)
+                return
+            }
+
+            guard viewWindow == window else { return }
+            window.makeFirstResponder(surfaceView)
+        }
+    }
+}

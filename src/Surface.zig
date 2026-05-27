@@ -675,9 +675,22 @@ pub fn init(
         var io_mailbox = try termio.Mailbox.initSPSC(alloc);
         errdefer io_mailbox.deinit(alloc);
 
+        const initial_scrollback = initial_scrollback: {
+            if (comptime @hasDecl(apprt.runtime.Surface, "initialScrollback")) {
+                break :initial_scrollback try rt_surface.initialScrollback(
+                    alloc,
+                    config.@"scrollback-limit",
+                );
+            }
+
+            break :initial_scrollback null;
+        };
+        defer if (initial_scrollback) |scrollback| alloc.free(scrollback);
+
         try termio.Termio.init(&self.io, alloc, .{
             .size = size,
             .full_config = config,
+            .initial_scrollback = initial_scrollback,
             .config = try termio.Termio.DerivedConfig.init(alloc, config),
             .backend = .{ .exec = io_exec },
             .mailbox = io_mailbox,
@@ -886,6 +899,77 @@ fn queueIo(
     }
 
     self.io.queueMessage(msg, mutex);
+}
+
+fn queueWriteReq(
+    self: *Surface,
+    write_req: termio.Message.WriteReq,
+) void {
+    self.queueIo(switch (write_req) {
+        .small => |v| .{ .write_small = v },
+        .stable => |v| .{ .write_stable = v },
+        .alloc => |v| .{ .write_alloc = v },
+    }, .unlocked);
+}
+
+fn broadcastWriteReq(
+    self: *Surface,
+    write_req: termio.Message.WriteReq,
+) void {
+    if (self.readonly or !self.broadcastEnabled()) return;
+
+    for (self.app.surfaces.items) |rt_surface| {
+        const other = rt_surface.core();
+        if (other == self) continue;
+        if (other.readonly or other.child_exited) continue;
+        if (!self.isBroadcastTarget(other)) continue;
+
+        const msg = self.broadcastMessageFor(other, write_req) catch |err| {
+            log.warn("broadcast allocation failed err={}", .{err});
+            continue;
+        };
+        other.queueIo(msg, .unlocked);
+    }
+}
+
+fn broadcastMessageFor(
+    self: *Surface,
+    target: *Surface,
+    write_req: termio.Message.WriteReq,
+) Allocator.Error!termio.Message {
+    _ = self;
+    return switch (write_req) {
+        .small => |v| .{ .write_small = v },
+        .stable => |v| .{ .write_stable = v },
+        .alloc => |v| .{ .write_alloc = .{
+            .alloc = target.alloc,
+            .data = try target.alloc.dupe(u8, v.data),
+        } },
+    };
+}
+
+fn toggleBroadcast(self: *Surface) bool {
+    if (comptime @hasDecl(apprt.runtime.Surface, "toggleBroadcast")) {
+        return self.rt_surface.toggleBroadcast();
+    }
+
+    return false;
+}
+
+fn broadcastEnabled(self: *Surface) bool {
+    if (comptime @hasDecl(apprt.runtime.Surface, "broadcastEnabled")) {
+        return self.rt_surface.broadcastEnabled();
+    }
+
+    return false;
+}
+
+fn isBroadcastTarget(self: *Surface, target: *Surface) bool {
+    if (comptime @hasDecl(apprt.runtime.Surface, "isBroadcastTarget")) {
+        return self.rt_surface.isBroadcastTarget(target.rt_surface);
+    }
+
+    return false;
 }
 
 /// Forces the surface to render. This is useful for when the surface
@@ -2822,11 +2906,9 @@ pub fn keyCallback(
             return .closed;
         }
 
-        self.queueIo(switch (write_req) {
-            .small => |v| .{ .write_small = v },
-            .stable => |v| .{ .write_stable = v },
-            .alloc => |v| .{ .write_alloc = v },
-        }, .unlocked);
+        errdefer write_req.deinit();
+        self.broadcastWriteReq(write_req);
+        self.queueWriteReq(write_req);
     } else {
         // No valid request means that we didn't encode anything.
         return .ignored;
@@ -5471,6 +5553,17 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .toggle_mouse_reporting => {
             self.config.mouse_reporting = !self.config.mouse_reporting;
             log.debug("mouse reporting toggled: {}", .{self.config.mouse_reporting});
+        },
+
+        .toggle_broadcast => {
+            const enabled = self.toggleBroadcast();
+            log.debug("broadcast mode toggled: {}", .{enabled});
+            _ = try self.rt_app.performAction(
+                .{ .surface = self },
+                .broadcast_mode,
+                if (enabled) .on else .off,
+            );
+            return true;
         },
 
         .toggle_command_palette => return try self.rt_app.performAction(

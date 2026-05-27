@@ -673,6 +673,13 @@ pub const Action = union(enum) {
     ///     process is not running
     toggle_readonly,
 
+    /// Toggle broadcast mode for the current visible terminal tab.
+    ///
+    /// When broadcast mode is enabled, keyboard input sent to the focused
+    /// terminal is also sent to the other visible terminals in the current tab.
+    /// Hidden tabs and other windows do not receive broadcast input.
+    toggle_broadcast,
+
     /// Resize the current split in the specified direction and amount in
     /// pixels. The two arguments should be joined with a comma (`,`),
     /// like in `resize_split:up,10`.
@@ -1459,6 +1466,7 @@ pub const Action = union(enum) {
             .goto_window,
             .toggle_split_zoom,
             .toggle_readonly,
+            .toggle_broadcast,
             .resize_split,
             .equalize_splits,
             .inspector,
@@ -3362,6 +3370,15 @@ test "parse: action no parameters" {
         try parseSingle("a=ignore"),
     );
     try testing.expectError(Error.InvalidFormat, parseSingle("a=ignore:A"));
+
+    try testing.expectEqual(
+        Binding{
+            .trigger = .{ .key = .{ .unicode = 'b' } },
+            .action = .{ .toggle_broadcast = {} },
+        },
+        try parseSingle("b=toggle_broadcast"),
+    );
+    try testing.expectError(Error.InvalidFormat, parseSingle("b=toggle_broadcast:on"));
 }
 
 test "parse: action with string" {

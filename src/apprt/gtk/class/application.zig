@@ -788,6 +788,7 @@ pub const Application = extern struct {
             .show_on_screen_keyboard => return Action.showOnScreenKeyboard(target),
             .command_finished => return Action.commandFinished(target, value),
             .readonly => return Action.setReadonly(target, value),
+            .broadcast_mode => return true,
 
             .start_search => Action.startSearch(target, value),
             .end_search => Action.endSearch(target),

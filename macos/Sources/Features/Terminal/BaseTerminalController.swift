@@ -62,6 +62,11 @@ class BaseTerminalController: NSWindowController,
     /// True when any surface in this controller currently has an active bell.
     @Published private(set) var bell: Bool = false
 
+    /// True when keyboard input should be broadcast to visible surfaces in this controller.
+    private var broadcastInputEnabled: Bool = false {
+        didSet { syncBroadcastInputState() }
+    }
+
     /// Whether the terminal surface should focus when the mouse is over it.
     var focusFollowsMouse: Bool {
         self.derivedConfig.focusFollowsMouse
@@ -277,6 +282,60 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
+    func toggleBroadcastInput(from source: Ghostty.SurfaceView) -> Bool {
+        guard isBroadcastInputSourceVisible(source) else {
+            syncBroadcastInputState()
+            return false
+        }
+        broadcastInputEnabled.toggle()
+        return broadcastInputEnabled
+    }
+
+    func broadcastInputIsEnabled(for source: Ghostty.SurfaceView) -> Bool {
+        broadcastInputEnabled && isBroadcastInputSourceVisible(source)
+    }
+
+    func isBroadcastInputTarget(
+        _ target: Ghostty.SurfaceView,
+        from source: Ghostty.SurfaceView
+    ) -> Bool {
+        guard broadcastInputIsEnabled(for: source) else { return false }
+        return visibleBroadcastSurfaces().contains { $0 === target }
+    }
+
+    private func isBroadcastInputSourceVisible(_ source: Ghostty.SurfaceView) -> Bool {
+        guard isBroadcastInputWindowVisible() else { return false }
+        return visibleBroadcastSurfaces().contains { $0 === source }
+    }
+
+    private func isBroadcastInputWindowVisible() -> Bool {
+        guard let window else { return false }
+        guard window.isVisible, !window.isMiniaturized else { return false }
+        if let tabGroup = window.tabGroup, tabGroup.selectedWindow !== window {
+            return false
+        }
+
+        return true
+    }
+
+    private func visibleBroadcastSurfaces() -> [Ghostty.SurfaceView] {
+        if let zoomed = surfaceTree.zoomed {
+            return zoomed.leaves()
+        }
+
+        return surfaceTree.root?.leaves() ?? []
+    }
+
+    private func syncBroadcastInputState() {
+        let visibleSurfaces = visibleBroadcastSurfaces()
+        let isActive = broadcastInputEnabled && isBroadcastInputWindowVisible()
+
+        for surfaceView in surfaceTree {
+            let enabled = isActive && visibleSurfaces.contains { $0 === surfaceView }
+            surfaceView.setBroadcastInput(enabled)
+        }
+    }
+
     /// Create a new split.
     @discardableResult
     func newSplit(
@@ -343,6 +402,7 @@ class BaseTerminalController: NSWindowController,
             focusedSurface = nil
         }
         syncSurfaceTreeOcclusionState()
+        syncBroadcastInputState()
     }
 
     /// Update all surfaces with the focus state. This ensures that libghostty has an accurate view about
@@ -1269,6 +1329,7 @@ class BaseTerminalController: NSWindowController,
         // Sync on the next runloop so split focus has settled first.
         DispatchQueue.main.async {
             self.syncFocusToSurfaceTree()
+            self.syncBroadcastInputState()
         }
     }
 
@@ -1276,6 +1337,7 @@ class BaseTerminalController: NSWindowController,
         // Becoming/losing key means we have to notify our surface(s) that we have focus
         // so things like cursors blink, pty events are sent, etc.
         self.syncFocusToSurfaceTree()
+        self.syncBroadcastInputState()
     }
 
     func windowDidChangeOcclusionState(_ notification: Notification) {

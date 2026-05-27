@@ -76,7 +76,10 @@ extension Ghostty {
                         request: request) },
                 write_clipboard_cb: { userdata, loc, content, len, confirm in
                     App.writeClipboard(userdata, location: loc, content: content, len: len, confirm: confirm) },
-                close_surface_cb: { userdata, processAlive in App.closeSurface(userdata, processAlive: processAlive) }
+                close_surface_cb: { userdata, processAlive in App.closeSurface(userdata, processAlive: processAlive) },
+                toggle_broadcast_cb: { userdata in App.toggleBroadcast(userdata) },
+                broadcast_enabled_cb: { userdata in App.broadcastEnabled(userdata) },
+                broadcast_target_cb: { source, target in App.broadcastTarget(source, target: target) }
             )
 
             // Create the ghostty app.
@@ -582,6 +585,61 @@ extension Ghostty {
             return Unmanaged<SurfaceView>.fromOpaque(surface_ud).takeUnretainedValue()
         }
 
+        #if os(macOS)
+        static private func terminalController(containing source: SurfaceView) -> BaseTerminalController? {
+            if let controller = source.window?.windowController as? BaseTerminalController {
+                return controller
+            }
+
+            return NSApplication.shared.windows.compactMap {
+                $0.windowController as? BaseTerminalController
+            }.first { controller in
+                controller.surfaceTree.contains { $0 === source }
+            }
+        }
+        #endif
+
+        static private func toggleBroadcast(_ userdata: UnsafeMutableRawPointer?) -> Bool {
+            #if os(macOS)
+            guard let userdata else { return false }
+            let source = Unmanaged<SurfaceView>.fromOpaque(userdata).takeUnretainedValue()
+            guard let controller = terminalController(containing: source) else { return false }
+            return controller.toggleBroadcastInput(from: source)
+            #else
+            _ = userdata
+            return false
+            #endif
+        }
+
+        static private func broadcastEnabled(_ userdata: UnsafeMutableRawPointer?) -> Bool {
+            #if os(macOS)
+            guard let userdata else { return false }
+            let source = Unmanaged<SurfaceView>.fromOpaque(userdata).takeUnretainedValue()
+            guard let controller = terminalController(containing: source) else { return false }
+            return controller.broadcastInputIsEnabled(for: source)
+            #else
+            _ = userdata
+            return false
+            #endif
+        }
+
+        static private func broadcastTarget(
+            _ sourceUserdata: UnsafeMutableRawPointer?,
+            target targetUserdata: UnsafeMutableRawPointer?
+        ) -> Bool {
+            #if os(macOS)
+            guard let sourceUserdata, let targetUserdata else { return false }
+            let source = Unmanaged<SurfaceView>.fromOpaque(sourceUserdata).takeUnretainedValue()
+            let target = Unmanaged<SurfaceView>.fromOpaque(targetUserdata).takeUnretainedValue()
+            guard let controller = terminalController(containing: source) else { return false }
+            return controller.isBroadcastInputTarget(target, from: source)
+            #else
+            _ = sourceUserdata
+            _ = targetUserdata
+            return false
+            #endif
+        }
+
         // MARK: Actions (macOS)
 
         static func action(_ app: ghostty_app_t, target: ghostty_target_s, action: ghostty_action_s) -> Bool {
@@ -734,6 +792,9 @@ extension Ghostty {
 
             case GHOSTTY_ACTION_READONLY:
                 setReadonly(app, target: target, v: action.action.readonly)
+
+            case GHOSTTY_ACTION_BROADCAST_MODE:
+                setBroadcastMode(app, target: target, v: action.action.broadcast_mode)
 
             case GHOSTTY_ACTION_CHECK_FOR_UPDATES:
                 checkForUpdates(app)
@@ -1245,6 +1306,17 @@ extension Ghostty {
             default:
                 assertionFailure()
             }
+        }
+
+        private static func setBroadcastMode(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_broadcast_mode_e) {
+            // Broadcast state and UI are owned by the window controller so the
+            // mode stays scoped to the selected tab/window.
+            _ = app
+            _ = target
+            _ = v
         }
 
         private static func moveTab(

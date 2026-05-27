@@ -49,6 +49,9 @@ extension Ghostty {
         /// True when the surface is in readonly mode.
         @Published private(set) var readonly: Bool = false
 
+        /// True when this surface is part of the active broadcast input group.
+        @Published private(set) var broadcastInput: Bool = false
+
         /// True when the surface should show a highlight effect (e.g., when presented via goto_split).
         @Published private(set) var highlighted: Bool = false
 
@@ -98,6 +101,10 @@ extension Ghostty {
 
         func setChildExitedMessage(_ message: ChildExitedMessage) {
             self.childExitedMessage = message
+        }
+
+        func setBroadcastInput(_ enabled: Bool) {
+            broadcastInput = enabled
         }
 
         @MainActor

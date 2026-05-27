@@ -177,6 +177,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         pendingInitialPresentation = nil
     }
 
+    private func removePersistedSessionHistory() {
+        for surface in surfaceTree {
+            surface.removePersistedSessionHistory()
+        }
+    }
+
     private func scheduleInitialPresentation(_ block: @escaping () -> Void) {
         cancelPendingInitialPresentation()
 
@@ -753,6 +759,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             }
         }
 
+        removePersistedSessionHistory()
         window.close()
     }
 
@@ -861,12 +868,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 // process them on later ticks so we can't just disable undo registration.
                 if let controller = window.windowController as? TerminalController {
                     controller.cancelPendingInitialPresentation()
+                    controller.removePersistedSessionHistory()
                     controller.surfaceTree = .init()
                 }
 
                 window.close()
             }
         } else {
+            removePersistedSessionHistory()
             window.close()
         }
     }

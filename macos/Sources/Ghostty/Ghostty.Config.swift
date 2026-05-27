@@ -220,6 +220,15 @@ extension Ghostty {
             return String(cString: ptr)
         }
 
+        var sessionHistoryDir: ConfigPath? {
+            guard let config = self.config else { return nil }
+            var v = ghostty_config_path_s()
+            let key = "session-history-dir"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return nil }
+            let path = String(cString: v.path)
+            return path.isEmpty ? nil : ConfigPath(path: path, optional: v.optional)
+        }
+
         var windowPositionX: Int16? {
             guard let config = self.config else { return nil }
             var v: Int16 = 0
@@ -402,6 +411,80 @@ extension Ghostty {
                 green: Double(color.g) / 255,
                 blue: Double(color.b) / 255
             )
+        }
+
+        private static let defaultMacOSBroadcastBadgeColor = Color(
+            red: Double(0x0A) / 255,
+            green: Double(0x84) / 255,
+            blue: 1
+        )
+
+        var macosBroadcastBadgeColor: Color {
+            guard let config = self.config else {
+                return Self.defaultMacOSBroadcastBadgeColor
+            }
+
+            var color: ghostty_config_color_s = .init()
+            let key = "macos-broadcast-badge-color"
+            if !ghostty_config_get(config, &color, key, UInt(key.lengthOfBytes(using: .utf8))) {
+                return Self.defaultMacOSBroadcastBadgeColor
+            }
+
+            return .init(
+                red: Double(color.r) / 255,
+                green: Double(color.g) / 255,
+                blue: Double(color.b) / 255
+            )
+        }
+
+        var macosBroadcastBadgeSize: Double {
+            guard let config = self.config else { return 1 }
+            var v: Double = 1
+            let key = "macos-broadcast-badge-size"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return max(0.1, v)
+        }
+
+        var macosBroadcastStripe: Bool {
+            guard let config = self.config else { return true }
+            var v = true
+            let key = "macos-broadcast-stripe"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
+        var macosBroadcastStripeColor: Color {
+            guard let config = self.config else {
+                return Self.defaultMacOSBroadcastBadgeColor
+            }
+
+            var color: ghostty_config_color_s = .init()
+            let key = "macos-broadcast-stripe-color"
+            if !ghostty_config_get(config, &color, key, UInt(key.lengthOfBytes(using: .utf8))) {
+                return Self.defaultMacOSBroadcastBadgeColor
+            }
+
+            return .init(
+                red: Double(color.r) / 255,
+                green: Double(color.g) / 255,
+                blue: Double(color.b) / 255
+            )
+        }
+
+        var macosBroadcastStripeWidth: Double {
+            guard let config = self.config else { return 3 }
+            var v: Double = 3
+            let key = "macos-broadcast-stripe-width"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return max(0, v)
+        }
+
+        var macosBroadcastStripeOffset: UInt {
+            guard let config = self.config else { return 0 }
+            var v: CUnsignedInt = 0
+            let key = "macos-broadcast-stripe-offset"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return UInt(v)
         }
 
         var macosTitlebarProxyIcon: MacOSTitlebarProxyIcon {

@@ -349,6 +349,9 @@ pub const Action = union(Key) {
     /// The readonly state of the surface has changed.
     readonly: Readonly,
 
+    /// The broadcast mode has changed.
+    broadcast_mode: BroadcastMode,
+
     /// Copy the effective title of the surface to the clipboard.
     /// The effective title is the user-overridden title if set,
     /// otherwise the terminal-set title.
@@ -426,6 +429,7 @@ pub const Action = union(Key) {
         search_total,
         search_selected,
         readonly,
+        broadcast_mode,
         copy_title_to_clipboard,
         move_tab_to_new_window,
 
@@ -670,6 +674,15 @@ pub const Readonly = enum(c_int) {
 
     test "ghostty.h Readonly" {
         try lib.checkGhosttyHEnum(Readonly, "GHOSTTY_READONLY_");
+    }
+};
+
+pub const BroadcastMode = enum(c_int) {
+    off,
+    on,
+
+    test "ghostty.h BroadcastMode" {
+        try lib.checkGhosttyHEnum(BroadcastMode, "GHOSTTY_BROADCAST_MODE_");
     }
 };
 

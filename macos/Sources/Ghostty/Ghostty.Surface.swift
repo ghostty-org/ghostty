@@ -110,6 +110,13 @@ extension Ghostty {
             return Int(exactly: pid)
         }
 
+        /// The current working directory reported by the terminal.
+        @MainActor
+        var currentWorkingDirectory: String? {
+            let pwd = AllocatedString(ghostty_surface_pwd(surface)).string
+            return pwd.isEmpty ? nil : pwd
+        }
+
         /// The PTY device name for this surface.
         @MainActor
         var ttyName: String? {

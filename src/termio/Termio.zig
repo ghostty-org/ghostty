@@ -282,6 +282,12 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
     term.width_px = term.cols * opts.size.cell.width;
     term.height_px = term.rows * opts.size.cell.height;
 
+    if (opts.initial_scrollback) |scrollback| {
+        term.printString(scrollback) catch |err| {
+            log.warn("failed to seed initial scrollback err={}", .{err});
+        };
+    }
+
     // Setup our backend.
     var backend = opts.backend;
     backend.initTerminal(&term);

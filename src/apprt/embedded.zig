@@ -97,6 +97,17 @@ pub const App = struct {
 
         /// Close the current surface given by this function.
         close_surface: ?*const fn (SurfaceUD, bool) callconv(.c) void = null,
+
+        /// Toggle broadcast mode for the visible surface group containing
+        /// this surface. Returns the new enabled state.
+        toggle_broadcast: ?*const fn (SurfaceUD) callconv(.c) bool = null,
+
+        /// Returns true when broadcast mode is active for the visible surface
+        /// group containing this surface.
+        broadcast_enabled: ?*const fn (SurfaceUD) callconv(.c) bool = null,
+
+        /// Returns true if target should receive broadcast input from source.
+        broadcast_target: ?*const fn (SurfaceUD, SurfaceUD) callconv(.c) bool = null,
     };
 
     /// This is the key event sent for ghostty_surface_key and
@@ -458,6 +469,9 @@ pub const Surface = struct {
     /// that getTitle works without the implementer needing to save it.
     title: ?[:0]const u8 = null,
 
+    /// Plaintext scrollback history file used to seed this surface on startup.
+    scrollback_history_path: ?[:0]const u8 = null,
+
     /// Surface initialization options.
     pub const Options = extern struct {
         /// The platform that this surface is being initialized for and
@@ -494,6 +508,9 @@ pub const Surface = struct {
         /// Input to send to the command after it is started.
         initial_input: ?[*:0]const u8 = null,
 
+        /// Plaintext scrollback history file to restore before command output.
+        scrollback_history_path: ?[*:0]const u8 = null,
+
         /// Wait after the command exits
         wait_after_command: bool = false,
 
@@ -513,7 +530,12 @@ pub const Surface = struct {
             },
             .size = .{ .width = 800, .height = 600 },
             .cursor_pos = .{ .x = -1, .y = -1 },
+            .scrollback_history_path = if (opts.scrollback_history_path) |path|
+                try app.core_app.alloc.dupeZ(u8, std.mem.span(path))
+            else
+                null,
         };
+        errdefer if (self.scrollback_history_path) |path| app.core_app.alloc.free(path);
 
         // Add ourselves to the list of surfaces on the app.
         try app.core_app.addSurface(self);
@@ -638,6 +660,9 @@ pub const Surface = struct {
         // Free our title
         if (self.title) |v| self.app.core_app.alloc.free(v);
 
+        // Free our restored history path
+        if (self.scrollback_history_path) |v| self.app.core_app.alloc.free(v);
+
         // Remove ourselves from the list of known surfaces in the app.
         self.app.core_app.deleteSurface(self);
 
@@ -675,6 +700,21 @@ pub const Surface = struct {
         return self.app;
     }
 
+    pub fn toggleBroadcast(self: *Surface) bool {
+        const cb = self.app.opts.toggle_broadcast orelse return false;
+        return cb(self.userdata);
+    }
+
+    pub fn broadcastEnabled(self: *Surface) bool {
+        const cb = self.app.opts.broadcast_enabled orelse return false;
+        return cb(self.userdata);
+    }
+
+    pub fn isBroadcastTarget(self: *Surface, target: *Surface) bool {
+        const cb = self.app.opts.broadcast_target orelse return false;
+        return cb(self.userdata, target.userdata);
+    }
+
     pub fn close(self: *const Surface, process_alive: bool) void {
         const func = self.app.opts.close_surface orelse {
             log.info("runtime embedder does not support closing a surface", .{});
@@ -694,6 +734,20 @@ pub const Surface = struct {
 
     pub fn getTitle(self: *Surface) ?[:0]const u8 {
         return self.title;
+    }
+
+    pub fn initialScrollback(self: *const Surface, alloc: std.mem.Allocator, max: usize) !?[]u8 {
+        const path = self.scrollback_history_path orelse return null;
+        const file = std.fs.openFileAbsolute(path, .{}) catch |err| {
+            log.warn("failed to open session history path={s} err={}", .{ path, err });
+            return null;
+        };
+        defer file.close();
+
+        return file.readToEndAlloc(alloc, max) catch |err| {
+            log.warn("failed to read session history path={s} err={}", .{ path, err });
+            return null;
+        };
     }
 
     pub fn supportsClipboard(
@@ -1973,6 +2027,23 @@ pub const CAPI = struct {
     /// Returns the PID of the foreground process for the surface PTY.
     export fn ghostty_surface_foreground_pid(surface: *Surface) u64 {
         return surface.core_surface.getProcessInfo(.foreground_pid) orelse 0;
+    }
+
+    /// Returns the current working directory for the surface. The returned
+    /// string must be freed by the caller via ghostty_string_free.
+    export fn ghostty_surface_pwd(surface: *Surface) String {
+        const pwd = surface.core_surface.pwd(global.alloc) catch |err| {
+            log.err("error allocating pwd err={}", .{err});
+            return .empty;
+        } orelse return .empty;
+        defer global.alloc.free(pwd);
+
+        const copy = global.alloc.dupeZ(u8, pwd) catch |err| {
+            log.err("error allocating pwd err={}", .{err});
+            return .empty;
+        };
+
+        return .fromSlice(copy);
     }
 
     /// Returns the PTY name for the surface. The returned string must be

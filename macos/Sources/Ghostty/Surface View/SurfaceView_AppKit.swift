@@ -223,6 +223,10 @@ extension Ghostty {
         private(set) var cachedScreenContents: CachedValue<String>
         private(set) var cachedVisibleContents: CachedValue<String>
 
+        // Plaintext scrollback history file associated with this surface's
+        // saved window state.
+        private var sessionHistoryPath: String?
+
         /// Event monitor (see individual events for why)
         private var eventMonitor: Any?
 
@@ -1628,6 +1632,9 @@ extension Ghostty {
             item = menu.addItem(withTitle: "Terminal Read-only", action: #selector(toggleReadonly(_:)), keyEquivalent: "")
             item.setImageIfDesired(systemSymbolName: "eye.fill")
             item.state = readonly ? .on : .off
+            item = menu.addItem(withTitle: "Terminal Broadcast Input", action: #selector(toggleBroadcast(_:)), keyEquivalent: "")
+            item.setImageIfDesired(systemSymbolName: "dot.radiowaves.left.and.right")
+            item.state = broadcastInput ? .on : .off
             menu.addItem(.separator())
             item = menu.addItem(withTitle: "Change Tab Title...", action: #selector(BaseTerminalController.changeTabTitle(_:)), keyEquivalent: "")
             item.setImageIfDesired(systemSymbolName: "pencil.line")
@@ -1723,6 +1730,14 @@ extension Ghostty {
             let action = "toggle_readonly"
             if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 AppDelegate.logger.warning("action failed action=\(action, privacy: .public)")
+            }
+        }
+
+        @IBAction func toggleBroadcast(_ sender: Any?) {
+            guard let surface = self.surface else { return }
+            let action = "toggle_broadcast"
+            if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
+                AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
 
@@ -1869,6 +1884,7 @@ extension Ghostty {
             case uuid
             case title
             case isUserSetTitle
+            case sessionHistoryPath
         }
 
         required convenience init(from decoder: Decoder) throws {
@@ -1885,8 +1901,15 @@ extension Ghostty {
             config.workingDirectory = try container.decode(String?.self, forKey: .pwd)
             let savedTitle = try container.decodeIfPresent(String.self, forKey: .title)
             let isUserSetTitle = try container.decodeIfPresent(Bool.self, forKey: .isUserSetTitle) ?? false
+            let savedHistoryPath = try container.decodeIfPresent(String.self, forKey: .sessionHistoryPath)
+            let restoredHistoryPath = SurfaceSessionHistoryStore.restorablePath(
+                savedHistoryPath,
+                surfaceID: uuid)
+            config.scrollbackHistoryPath = restoredHistoryPath
 
             self.init(app, baseConfig: config, uuid: uuid)
+            self.sessionHistoryPath = restoredHistoryPath
+            self.pwd = config.workingDirectory
 
             // Restore the saved title after initialization
             if let title = savedTitle {
@@ -1900,10 +1923,152 @@ extension Ghostty {
 
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(pwd, forKey: .pwd)
+            try container.encode(restorableWorkingDirectory, forKey: .pwd)
             try container.encode(id.uuidString, forKey: .uuid)
             try container.encode(title, forKey: .title)
             try container.encode(titleFromTerminal != nil, forKey: .isUserSetTitle)
+
+            let oldHistoryPath = sessionHistoryPath
+            let newHistoryPath = SurfaceSessionHistoryStore.save(self)
+            if let oldHistoryPath, let newHistoryPath, oldHistoryPath != newHistoryPath {
+                SurfaceSessionHistoryStore.remove(path: oldHistoryPath, surfaceID: id)
+            }
+
+            sessionHistoryPath = newHistoryPath
+            try container.encodeIfPresent(newHistoryPath, forKey: .sessionHistoryPath)
+        }
+
+        func removePersistedSessionHistory() {
+            SurfaceSessionHistoryStore.remove(path: sessionHistoryPath, surfaceID: id)
+            sessionHistoryPath = nil
+        }
+
+        private var restorableWorkingDirectory: String? {
+            guard let surface else { return pwd }
+            let currentPwd = Ghostty.AllocatedString(ghostty_surface_pwd(surface)).string
+            return currentPwd.isEmpty ? pwd : currentPwd
+        }
+    }
+}
+
+private enum SurfaceSessionHistoryStore {
+    private static let fileExtension = "txt"
+    private static let kittyPlaceholder = Unicode.Scalar(0x10EEEE)!
+
+    static func save(_ surfaceView: Ghostty.SurfaceView) -> String? {
+        guard let directory = configuredDirectory() else { return nil }
+        guard let contents = readScreenText(surfaceView) else { return nil }
+
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true)
+
+            let url = historyURL(in: directory, surfaceID: surfaceView.id)
+            guard let data = stripGraphicsPlaceholders(from: contents).data(using: .utf8) else {
+                return nil
+            }
+            try data.write(to: url, options: [.atomic])
+            return url.path
+        } catch {
+            AppDelegate.logger.warning("failed to save session history: \(error)")
+            return nil
+        }
+    }
+
+    static func restorablePath(_ path: String?, surfaceID: UUID?) -> String? {
+        guard let path, let surfaceID else { return nil }
+        guard isManagedPath(path, surfaceID: surfaceID) else { return nil }
+        return path
+    }
+
+    static func remove(path: String?, surfaceID: UUID) {
+        guard let path else { return }
+        guard isManagedPath(path, surfaceID: surfaceID) else { return }
+        do {
+            try FileManager.default.removeItem(atPath: path)
+        } catch {
+            if (error as? CocoaError)?.code == .fileNoSuchFile { return }
+            AppDelegate.logger.warning("failed to remove session history: \(error)")
+        }
+    }
+
+    private static func configuredDirectory() -> URL? {
+        guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return nil }
+        let config = appDelegate.ghostty.config
+        guard let path = config.sessionHistoryDir?.path else { return nil }
+        return URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+    }
+
+    private static func historyURL(in directory: URL, surfaceID: UUID) -> URL {
+        directory
+            .appendingPathComponent(surfaceID.uuidString, isDirectory: false)
+            .appendingPathExtension(fileExtension)
+    }
+
+    private static func isManagedPath(_ path: String, surfaceID: UUID) -> Bool {
+        guard let directory = configuredDirectory() else { return false }
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        return url.deletingLastPathComponent().path == directory.path &&
+            url.lastPathComponent == "\(surfaceID.uuidString).\(fileExtension)"
+    }
+
+    private static func readScreenText(_ surfaceView: Ghostty.SurfaceView) -> String? {
+        guard let surface = surfaceView.surface else { return nil }
+
+        var text = ghostty_text_s()
+        let sel = ghostty_selection_s(
+            top_left: ghostty_point_s(
+                tag: GHOSTTY_POINT_SCREEN,
+                coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+                x: 0,
+                y: 0),
+            bottom_right: ghostty_point_s(
+                tag: GHOSTTY_POINT_SCREEN,
+                coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+                x: 0,
+                y: 0),
+            rectangle: false)
+        guard ghostty_surface_read_text(surface, sel, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let textPtr = text.text else { return "" }
+
+        let data = Data(bytes: textPtr, count: Int(text.text_len))
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private static func stripGraphicsPlaceholders(from contents: String) -> String {
+        var result = String.UnicodeScalarView()
+        result.reserveCapacity(contents.unicodeScalars.count)
+
+        var skippingPlaceholderMarks = false
+        for scalar in contents.unicodeScalars {
+            if scalar == kittyPlaceholder {
+                skippingPlaceholderMarks = true
+                continue
+            }
+
+            if skippingPlaceholderMarks && isCombiningMark(scalar) {
+                continue
+            }
+
+            skippingPlaceholderMarks = false
+            result.append(scalar)
+        }
+
+        return String(result)
+    }
+
+    private static func isCombiningMark(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x0300...0x036F,
+             0x1AB0...0x1AFF,
+             0x1DC0...0x1DFF,
+             0x20D0...0x20FF,
+             0xFE20...0xFE2F:
+            return true
+        default:
+            return false
         }
     }
 }
@@ -2260,6 +2425,10 @@ extension Ghostty.SurfaceView: NSMenuItemValidation {
 
         case #selector(toggleReadonly):
             item.state = readonly ? .on : .off
+            return true
+
+        case #selector(toggleBroadcast):
+            item.state = broadcastInput ? .on : .off
             return true
 
         case #selector(copy(_:)):

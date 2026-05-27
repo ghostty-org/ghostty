@@ -168,6 +168,10 @@ pub const Tab = extern struct {
         /// The tooltip of this tab. This is usually bound to the active surface.
         tooltip: ?[:0]const u8 = null,
 
+        /// True when keyboard input should be broadcast to visible surfaces
+        /// in this tab.
+        broadcast_input: bool = false,
+
         // Template bindings
         split_tree: *SplitTree,
 
@@ -300,6 +304,47 @@ pub const Tab = extern struct {
     pub fn getSplitTree(self: *Self) *SplitTree {
         const priv = self.private();
         return priv.split_tree;
+    }
+
+    pub fn toggleBroadcastInput(self: *Self) bool {
+        const priv = self.private();
+        priv.broadcast_input = !priv.broadcast_input;
+        return priv.broadcast_input;
+    }
+
+    pub fn broadcastInputEnabledFor(self: *Self, source: *Surface) bool {
+        const priv = self.private();
+        return priv.broadcast_input and
+            self.isSelected() and
+            self.visibleSurfaceContains(source);
+    }
+
+    pub fn isBroadcastInputTarget(
+        self: *Self,
+        source: *Surface,
+        target: *Surface,
+    ) bool {
+        return self.broadcastInputEnabledFor(source) and
+            self.visibleSurfaceContains(target);
+    }
+
+    fn visibleSurfaceContains(self: *Self, surface: *Surface) bool {
+        const tree = self.getSurfaceTree() orelse return false;
+        var it = tree.iterator();
+        while (it.next()) |entry| {
+            if (tree.zoomed) |zoomed| {
+                if (entry.handle != zoomed) continue;
+            }
+
+            if (entry.view == surface) return true;
+        }
+
+        return false;
+    }
+
+    fn isSelected(self: *Self) bool {
+        const page = self.getTabPage() orelse return false;
+        return page.getSelected() != 0;
     }
 
     /// Returns true if this tab needs confirmation before quitting based

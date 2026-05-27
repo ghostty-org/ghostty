@@ -2295,6 +2295,20 @@ keybind: Keybinds = .{},
 /// This is currently only supported on macOS. This has no effect on Linux.
 @"window-save-state": WindowSaveState = .default,
 
+/// Directory where Ghostty stores terminal session state and per-surface
+/// scrollback history.
+///
+/// When set, app runtimes that support saved sessions may write a session
+/// manifest and one uncompressed plaintext file per terminal surface into this
+/// directory. History files contain terminal text only; terminal graphics and
+/// image payloads are not saved. Closing a restored tab removes the saved
+/// history files for the surfaces in that tab.
+///
+/// If unset, Ghostty does not write its own terminal session history files.
+///
+/// This is currently only supported on macOS.
+@"session-history-dir": ?Path = null,
+
 /// Resize the window in discrete increments of the focused surface's cell size.
 /// If this is disabled, surfaces are resized in pixel increments. Currently
 /// only supported on macOS.
@@ -3420,6 +3434,49 @@ keybind: Keybinds = .{},
 ///
 /// The default value is a fluorescent green.
 @"macos-tab-border-color": Color = .{ .r = 0x39, .g = 0xFF, .b = 0x14 },
+
+/// The color of the broadcast input badge shown over visible terminals when
+/// broadcast input mode is enabled.
+///
+/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
+///
+/// The default value is blue.
+@"macos-broadcast-badge-color": Color = .{ .r = 0x0A, .g = 0x84, .b = 0xFF },
+
+/// Multiplier for the broadcast input badge size. A value of `1` is the
+/// default size, `2` is twice as large, and `0.5` is half size.
+///
+/// Decimal values are allowed.
+///
+/// The default value is `1`.
+@"macos-broadcast-badge-size": f64 = 1.0,
+
+/// Whether to show a vertical stripe along the terminal edge when broadcast
+/// input mode is enabled.
+///
+/// The default value is `true`.
+@"macos-broadcast-stripe": bool = true,
+
+/// The color of the vertical broadcast input stripe.
+///
+/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
+///
+/// The default value is blue.
+@"macos-broadcast-stripe-color": Color = .{ .r = 0x0A, .g = 0x84, .b = 0xFF },
+
+/// Width in points of the vertical broadcast input stripe.
+///
+/// Decimal values are allowed.
+///
+/// The default value is `3`.
+@"macos-broadcast-stripe-width": f64 = 3.0,
+
+/// Offset in points from the right edge for the vertical broadcast input
+/// stripe. A value of `0` places the stripe all the way on the right edge.
+/// Larger integer values move the stripe to the left.
+///
+/// The default value is `0`.
+@"macos-broadcast-stripe-offset": u32 = 0,
 
 /// Whether the proxy icon in the macOS titlebar is visible. The proxy icon
 /// is the icon that represents the folder of the current working directory.
@@ -10757,6 +10814,24 @@ test "working-directory expands tilde" {
     try testing.expectEqualStrings(expected, cfg.@"working-directory".?.value().?);
 }
 
+test "session-history-dir parses" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    var it: TestIterator = .{ .data = &.{
+        "--session-history-dir=/tmp/ghostty-session-history",
+    } };
+    try cfg.loadIter(alloc, &it);
+    try cfg.finalize();
+
+    try testing.expectEqualStrings(
+        "/tmp/ghostty-session-history",
+        cfg.@"session-history-dir".?.required,
+    );
+}
+
 test "changed" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -11169,6 +11244,45 @@ test "compatibility: scrollback-limit renamed to bytes" {
     try testing.expectEqual(
         std.math.maxInt(usize),
         cfg.@"scrollback-limit-bytes".value,
+    );
+}
+
+test "macos-broadcast indicators config" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    var it: TestIterator = .{ .data = &.{
+        "--macos-broadcast-badge-color=#ff5f87",
+        "--macos-broadcast-badge-size=1.75",
+        "--macos-broadcast-stripe=false",
+        "--macos-broadcast-stripe-color=#39ff14",
+        "--macos-broadcast-stripe-width=4.5",
+        "--macos-broadcast-stripe-offset=12",
+    } };
+    try cfg.loadIter(alloc, &it);
+
+    try testing.expectEqual(
+        Color{ .r = 0xFF, .g = 0x5F, .b = 0x87 },
+        cfg.@"macos-broadcast-badge-color",
+    );
+    try testing.expectEqual(
+        @as(f64, 1.75),
+        cfg.@"macos-broadcast-badge-size",
+    );
+    try testing.expect(!cfg.@"macos-broadcast-stripe");
+    try testing.expectEqual(
+        Color{ .r = 0x39, .g = 0xFF, .b = 0x14 },
+        cfg.@"macos-broadcast-stripe-color",
+    );
+    try testing.expectEqual(
+        @as(f64, 4.5),
+        cfg.@"macos-broadcast-stripe-width",
+    );
+    try testing.expectEqual(
+        @as(u32, 12),
+        cfg.@"macos-broadcast-stripe-offset",
     );
 }
 
