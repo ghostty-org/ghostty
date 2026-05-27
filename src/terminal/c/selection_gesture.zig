@@ -1,6 +1,5 @@
 const std = @import("std");
 const testing = std.testing;
-const builtin = @import("builtin");
 const lib = @import("../lib.zig");
 const CAllocator = lib.alloc.Allocator;
 const SelectionGesture = @import("../SelectionGesture.zig");
@@ -485,7 +484,7 @@ fn pressSetTyped(
             press.ypos = v.y;
         },
         .repeat_distance => press.max_distance = v.*,
-        .time_ns => press.time = instantFromNs(v.*),
+        .time_ns => press.time = v.*,
         .repeat_interval_ns => press.repeat_interval = v.*,
         .word_boundary_codepoints => return trySetWordBoundaryCodepoints(
             event,
@@ -736,16 +735,6 @@ fn clearWordBoundaryCodepoints(event: *EventWrapper, target: *[]const u21) void 
     }
     event.word_boundary_codepoints = null;
     target.* = &selection_codepoints.default_word_boundaries;
-}
-
-fn instantFromNs(ns: u64) std.time.Instant {
-    return switch (builtin.os.tag) {
-        .windows, .uefi, .wasi => .{ .timestamp = ns },
-        else => .{ .timestamp = .{
-            .sec = @intCast(ns / std.time.ns_per_s),
-            .nsec = @intCast(ns % std.time.ns_per_s),
-        } },
-    };
 }
 
 fn validBehavior(behavior: Behavior) bool {

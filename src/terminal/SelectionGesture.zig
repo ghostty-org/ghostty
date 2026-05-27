@@ -89,7 +89,7 @@ left_click_screen_generation: usize,
 /// The left click time was the last time the left click was done, if the
 /// caller could provide one. If this is null then we only support single clicks.
 left_click_count: u3,
-left_click_time: ?std.time.Instant,
+left_click_time: ?u64,
 
 /// The selection behavior chosen for the active left-click gesture.
 left_click_behavior: Behavior,
@@ -217,10 +217,11 @@ pub fn validatedLeftClickPin(
 }
 
 pub const Press = struct {
-    /// The time when the press event occurred. Use a monotonic timer.
+    /// The time when the press event occurred. Prefer a monotonic timer;
+    /// non-monotonic entries reset the repeat sequence.
     /// This can be null if you're on a system that doesn't support
     /// time for some reason. In that case, we only support single clicks.
-    time: ?std.time.Instant,
+    time: ?u64,
 
     /// The cell where the click was.
     ///
@@ -619,7 +620,8 @@ fn pressRepeat(
     const time = p.time orelse return error.PressRequiresReset;
     {
         const prev_time = self.left_click_time orelse return error.PressRequiresReset;
-        const since = time.since(prev_time);
+        if (time < prev_time) return error.PressRequiresReset;
+        const since = time - prev_time;
         if (since > p.repeat_interval) return error.PressRequiresReset;
     }
 
@@ -904,7 +906,7 @@ fn untrackPin(self: *SelectionGesture, t: *Terminal) void {
     screen.pages.untrackPin(pin);
 }
 
-fn testPress(t: *Terminal, x: u16, y: u32, time: ?std.time.Instant) Press {
+fn testPress(t: *Terminal, x: u16, y: u32, time: ?u64) Press {
     return .{
         .time = time,
         .pin = t.screens.active.pages.pin(.{ .active = .{
@@ -917,6 +919,10 @@ fn testPress(t: *Terminal, x: u16, y: u32, time: ?std.time.Instant) Press {
         .repeat_interval = std.math.maxInt(u64),
         .word_boundary_codepoints = &.{},
     };
+}
+
+fn testNow() u64 {
+    return @intCast(std.time.nanoTimestamp());
 }
 
 fn testDrag(t: *Terminal, x: u16, y: u32, xpos: f64, ypos: f64) Drag {
@@ -1383,7 +1389,7 @@ test "SelectionGesture press records initial click" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    const time = try std.time.Instant.now();
+    const time = testNow();
     _ = try gesture.press(&t, testPress(&t, 1, 2, time));
 
     try testing.expectEqual(@as(u3, 1), gesture.left_click_count);
@@ -1401,7 +1407,7 @@ test "SelectionGesture press returns standard click selections" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    const time = try std.time.Instant.now();
+    const time = testNow();
     var event = testPress(&t, 1, 0, time);
     event.word_boundary_codepoints = &.{ ' ' };
 
@@ -1428,7 +1434,7 @@ test "SelectionGesture press behaviors choose press and drag behavior" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    const time = try std.time.Instant.now();
+    const time = testNow();
     var event = testPress(&t, 1, 0, time);
     event.behaviors = &.{ .cell, .line, .word };
     event.word_boundary_codepoints = &.{ ' ' };
@@ -1469,7 +1475,7 @@ test "SelectionGesture output behavior selects and drags semantic output" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    var event = testPress(&t, 1, 0, try std.time.Instant.now());
+    var event = testPress(&t, 1, 0, testNow());
     event.behaviors = &.{ .output, .word, .line };
 
     const press_selection = (try gesture.press(&t, event)).?;
@@ -1495,7 +1501,7 @@ test "SelectionGesture drag returns selection and records autoscroll" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    var press_event = testPress(&t, 1, 1, try std.time.Instant.now());
+    var press_event = testPress(&t, 1, 1, testNow());
     press_event.xpos = 10;
     _ = try gesture.press(&t, press_event);
 
@@ -1523,7 +1529,7 @@ test "SelectionGesture release clears autoscroll and records drag" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    _ = try gesture.press(&t, testPress(&t, 1, 1, try std.time.Instant.now()));
+    _ = try gesture.press(&t, testPress(&t, 1, 1, testNow()));
     try testing.expectEqual(false, gesture.left_click_dragged);
 
     _ = gesture.drag(&t, testDrag(&t, 1, 1, 10, 1));
@@ -1544,7 +1550,7 @@ test "SelectionGesture release with invalidated click records drag" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    _ = try gesture.press(&t, testPress(&t, 1, 1, try std.time.Instant.now()));
+    _ = try gesture.press(&t, testPress(&t, 1, 1, testNow()));
     try testing.expectEqual(false, gesture.left_click_dragged);
 
     _ = try t.screens.getInit(testing.allocator, .alternate, .{
@@ -1565,7 +1571,7 @@ test "SelectionGesture same-cell threshold selection records drag" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    var press_event = testPress(&t, 1, 1, try std.time.Instant.now());
+    var press_event = testPress(&t, 1, 1, testNow());
     press_event.xpos = 10;
     _ = try gesture.press(&t, press_event);
     try testing.expectEqual(false, gesture.left_click_dragged);
@@ -1597,7 +1603,7 @@ test "SelectionGesture drag autoscroll edge boundaries" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    var press_event = testPress(&t, 1, 1, try std.time.Instant.now());
+    var press_event = testPress(&t, 1, 1, testNow());
     press_event.xpos = 10;
     _ = try gesture.press(&t, press_event);
 
@@ -1621,7 +1627,7 @@ test "SelectionGesture autoscroll tick scrolls and continues drag" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    var press_event = testPress(&t, 1, 1, try std.time.Instant.now());
+    var press_event = testPress(&t, 1, 1, testNow());
     press_event.xpos = 10;
     _ = try gesture.press(&t, press_event);
 
@@ -1647,7 +1653,7 @@ test "SelectionGesture autoscroll tick resolves drag pin after scrolling" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    var press_event = testPress(&t, 1, 1, try std.time.Instant.now());
+    var press_event = testPress(&t, 1, 1, testNow());
     press_event.xpos = 10;
     _ = try gesture.press(&t, press_event);
 
@@ -1674,7 +1680,7 @@ test "SelectionGesture autoscroll tick stops with invalidated click" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    var press_event = testPress(&t, 1, 1, try std.time.Instant.now());
+    var press_event = testPress(&t, 1, 1, testNow());
     press_event.xpos = 10;
     _ = try gesture.press(&t, press_event);
 
@@ -1700,7 +1706,7 @@ test "SelectionGesture deep press selects word and consumes drag" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    _ = try gesture.press(&t, testPress(&t, 1, 0, try std.time.Instant.now()));
+    _ = try gesture.press(&t, testPress(&t, 1, 0, testNow()));
     _ = gesture.drag(&t, testDrag(&t, 1, 0, 10, 1));
     try testing.expectEqual(.up, gesture.left_drag_autoscroll);
 
@@ -1714,7 +1720,7 @@ test "SelectionGesture deep press selects word and consumes drag" {
         false,
     ), sel);
     try testing.expectEqual(@as(u3, 0), gesture.left_click_count);
-    try testing.expectEqual(@as(?std.time.Instant, null), gesture.left_click_time);
+    try testing.expectEqual(@as(?u64, null), gesture.left_click_time);
     try testing.expectEqual(true, gesture.left_click_dragged);
     try testing.expectEqual(.none, gesture.left_drag_autoscroll);
     try testing.expect(gesture.left_click_pin == null);
@@ -1731,7 +1737,7 @@ test "SelectionGesture drag with invalidated click returns null" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    var press_event = testPress(&t, 1, 1, try std.time.Instant.now());
+    var press_event = testPress(&t, 1, 1, testNow());
     press_event.xpos = 10;
     _ = try gesture.press(&t, press_event);
 
@@ -1756,7 +1762,7 @@ test "SelectionGesture double-click drag selects by word" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    const time = try std.time.Instant.now();
+    const time = testNow();
     _ = try gesture.press(&t, testPress(&t, 1, 0, time));
     _ = try gesture.press(&t, testPress(&t, 1, 0, time));
 
@@ -1779,7 +1785,7 @@ test "SelectionGesture double-click drag selects by word backwards" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    const time = try std.time.Instant.now();
+    const time = testNow();
     _ = try gesture.press(&t, testPress(&t, 7, 0, time));
     _ = try gesture.press(&t, testPress(&t, 7, 0, time));
 
@@ -1802,7 +1808,7 @@ test "SelectionGesture double-click drag on empty cell selects nearest word" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    const time = try std.time.Instant.now();
+    const time = testNow();
     _ = try gesture.press(&t, testPress(&t, 1, 0, time));
     _ = try gesture.press(&t, testPress(&t, 1, 0, time));
 
@@ -1825,7 +1831,7 @@ test "SelectionGesture triple-click drag selects by line" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    const time = try std.time.Instant.now();
+    const time = testNow();
     _ = try gesture.press(&t, testPress(&t, 1, 0, time));
     _ = try gesture.press(&t, testPress(&t, 1, 0, time));
     _ = try gesture.press(&t, testPress(&t, 1, 0, time));
@@ -1847,7 +1853,7 @@ test "SelectionGesture triple-click drag selects by line backwards" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    const time = try std.time.Instant.now();
+    const time = testNow();
     _ = try gesture.press(&t, testPress(&t, 2, 2, time));
     _ = try gesture.press(&t, testPress(&t, 2, 2, time));
     _ = try gesture.press(&t, testPress(&t, 2, 2, time));
@@ -1868,7 +1874,7 @@ test "SelectionGesture repeat increments click count" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    const time = try std.time.Instant.now();
+    const time = testNow();
     _ = try gesture.press(&t, testPress(&t, 1, 1, time));
     _ = try gesture.press(&t, testPress(&t, 1, 1, time));
 
@@ -1882,7 +1888,7 @@ test "SelectionGesture repeat clamps at triple click" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    const time = try std.time.Instant.now();
+    const time = testNow();
     for (0..4) |_| _ = try gesture.press(&t, testPress(&t, 1, 1, time));
 
     try testing.expectEqual(@as(u3, 3), gesture.left_click_count);
@@ -1896,7 +1902,7 @@ test "SelectionGesture null initial time stays single click" {
     defer gesture.deinit(&t);
 
     _ = try gesture.press(&t, testPress(&t, 1, 1, null));
-    _ = try gesture.press(&t, testPress(&t, 1, 1, try std.time.Instant.now()));
+    _ = try gesture.press(&t, testPress(&t, 1, 1, testNow()));
 
     try testing.expectEqual(@as(u3, 1), gesture.left_click_count);
     try testing.expect(gesture.left_click_time != null);
@@ -1909,11 +1915,11 @@ test "SelectionGesture null repeat time stays single click" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    _ = try gesture.press(&t, testPress(&t, 1, 1, try std.time.Instant.now()));
+    _ = try gesture.press(&t, testPress(&t, 1, 1, testNow()));
     _ = try gesture.press(&t, testPress(&t, 1, 1, null));
 
     try testing.expectEqual(@as(u3, 1), gesture.left_click_count);
-    try testing.expectEqual(@as(?std.time.Instant, null), gesture.left_click_time);
+    try testing.expectEqual(@as(?u64, null), gesture.left_click_time);
 }
 
 test "SelectionGesture distant press resets click count" {
@@ -1923,7 +1929,7 @@ test "SelectionGesture distant press resets click count" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    const time = try std.time.Instant.now();
+    const time = testNow();
     _ = try gesture.press(&t, testPress(&t, 1, 1, time));
     _ = try gesture.press(&t, testPress(&t, 4, 1, time));
 
@@ -1938,15 +1944,34 @@ test "SelectionGesture expired repeat resets click count" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    var event = testPress(&t, 1, 1, try std.time.Instant.now());
+    var event = testPress(&t, 1, 1, testNow());
     event.repeat_interval = 0;
     _ = try gesture.press(&t, event);
 
     std.Thread.sleep(std.time.ns_per_ms);
-    event.time = try std.time.Instant.now();
+    event.time = testNow();
     _ = try gesture.press(&t, event);
 
     try testing.expectEqual(@as(u3, 1), gesture.left_click_count);
+}
+
+test "SelectionGesture non-monotonic repeat time resets click count" {
+    var t = try Terminal.init(testing.allocator, .{ .cols = 5, .rows = 5 });
+    defer t.deinit(testing.allocator);
+
+    var gesture: SelectionGesture = .init;
+    defer gesture.deinit(&t);
+
+    const earlier = testNow();
+    std.Thread.sleep(std.time.ns_per_ms);
+    const later = testNow();
+    try testing.expect(later > earlier);
+
+    _ = try gesture.press(&t, testPress(&t, 1, 1, later));
+    _ = try gesture.press(&t, testPress(&t, 1, 1, earlier));
+
+    try testing.expectEqual(@as(u3, 1), gesture.left_click_count);
+    try testing.expectEqual(earlier, gesture.left_click_time.?);
 }
 
 test "SelectionGesture screen switch resets click count" {
@@ -1956,7 +1981,7 @@ test "SelectionGesture screen switch resets click count" {
     var gesture: SelectionGesture = .init;
     defer gesture.deinit(&t);
 
-    const time = try std.time.Instant.now();
+    const time = testNow();
     const primary_tracked = t.screens.active.pages.countTrackedPins();
     _ = try gesture.press(&t, testPress(&t, 1, 1, time));
 
@@ -1984,11 +2009,11 @@ test "SelectionGesture removed screen resets without untracking stale pin" {
         .rows = t.rows,
     });
     t.screens.switchTo(.alternate);
-    _ = try gesture.press(&t, testPress(&t, 1, 1, try std.time.Instant.now()));
+    _ = try gesture.press(&t, testPress(&t, 1, 1, testNow()));
 
     t.screens.switchTo(.primary);
     t.screens.remove(testing.allocator, .alternate);
-    _ = try gesture.press(&t, testPress(&t, 1, 1, try std.time.Instant.now()));
+    _ = try gesture.press(&t, testPress(&t, 1, 1, testNow()));
 
     try testing.expectEqual(@as(u3, 1), gesture.left_click_count);
     try testing.expectEqual(.primary, gesture.left_click_screen);
@@ -2000,7 +2025,7 @@ test "SelectionGesture deinit untracks pin" {
 
     var gesture: SelectionGesture = .init;
     const tracked = t.screens.active.pages.countTrackedPins();
-    _ = try gesture.press(&t, testPress(&t, 1, 1, try std.time.Instant.now()));
+    _ = try gesture.press(&t, testPress(&t, 1, 1, testNow()));
     try testing.expectEqual(tracked + 1, t.screens.active.pages.countTrackedPins());
 
     gesture.deinit(&t);

@@ -3773,22 +3773,19 @@ pub fn mouseButtonCallback(
 
             // If we are within the interval that the click would register
             // an increment then we do not extend the selection.
-            if (std.time.Instant.now()) |now| {
+            {
                 const click_time = self.mouse.selection_gesture.left_click_time orelse
                     break :extend_selection;
-                const since = now.since(click_time);
+                const now: u64 = @intCast(std.time.nanoTimestamp());
+                const since = if (now >= click_time)
+                    now - click_time
+                else
+                    self.config.mouse_interval +| 1;
                 if (since <= self.config.mouse_interval) {
                     // Click interval very short, we may be increasing
                     // click counts so we don't extend the selection.
                     break :extend_selection;
                 }
-            } else |err| {
-                // This is a weird behavior, I think either behavior is actually
-                // fine. This failure should be exceptionally rare anyways.
-                // My thinking here is that we can't be sure if we should extend
-                // the selection or not so we just don't.
-                log.warn("failed to get time, not extending selection err={}", .{err});
-                break :extend_selection;
             }
 
             const pos = try self.rt_surface.getCursorPos();
@@ -3939,10 +3936,7 @@ pub fn mouseButtonCallback(
             break :pin pin;
         };
 
-        const time = std.time.Instant.now() catch |err| time: {
-            log.err("error reading time, mouse multi-click won't work err={}", .{err});
-            break :time null;
-        };
+        const time: u64 = @intCast(std.time.nanoTimestamp());
         var press_selection = try self.mouse.selection_gesture.press(t, .{
             .time = time,
             .pin = pin,

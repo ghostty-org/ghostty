@@ -477,7 +477,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Optional monotonic event time in nanoseconds: uint64_t*.
    *
    * If unset, press treats the event as untimed and only single-click behavior
-   * is available.
+   * is available. If a repeat press provides a time earlier than the previous
+   * press, the repeat sequence resets.
    */
   GHOSTTY_SELECTION_GESTURE_EVENT_OPT_TIME_NS = 3,
 
