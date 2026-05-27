@@ -92,6 +92,11 @@ class AppDelegate: NSObject,
     /// Command-line cssh-style launch request, if one was provided.
     private let csshInvocation = Ghostty.CSSHInvocation.current
 
+    /// True when this process was launched only to create a cssh-style cluster window.
+    var isCSSHLaunch: Bool {
+        csshInvocation != nil
+    }
+
     /// This is set in applicationDidFinishLaunching with the system uptime so we can determine the
     /// seconds since the process was launched.
     private var applicationLaunchTime: TimeInterval = 0
@@ -437,7 +442,7 @@ class AppDelegate: NSObject,
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        if csshInvocation != nil { return true }
+        if isCSSHLaunch { return true }
         return derivedConfig.shouldQuitAfterLastWindowClosed
     }
 
@@ -476,7 +481,9 @@ class AppDelegate: NSObject,
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        TerminalSessionStore.saveCurrentSession()
+        if !isCSSHLaunch {
+            TerminalSessionStore.saveCurrentSession()
+        }
 
         // We have no notifications we want to persist after death,
         // so remove them all now. In the future we may want to be
@@ -926,6 +933,19 @@ class AppDelegate: NSObject,
     /// We support NSSecureCoding for restorable state. Required as of macOS Sonoma (14) but a good idea anyways.
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
         return true
+    }
+
+    func applicationShouldRestoreApplicationState(_ app: NSApplication) -> Bool {
+        if isCSSHLaunch {
+            Self.logger.debug("skip application state restoration: +cssh launch")
+            return false
+        }
+
+        return true
+    }
+
+    func applicationShouldSaveApplicationState(_ app: NSApplication) -> Bool {
+        return !isCSSHLaunch
     }
 
     func application(_ app: NSApplication, willEncodeRestorableState coder: NSCoder) {

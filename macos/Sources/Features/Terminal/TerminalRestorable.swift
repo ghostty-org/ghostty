@@ -136,6 +136,15 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
             return
         }
 
+        // CSSH launches are one-shot command-line requests. AppKit may try to
+        // restore the previous terminal windows before the app delegate creates
+        // the cluster window, but those restored windows are unrelated.
+        if appDelegate.isCSSHLaunch {
+            AppDelegate.logger.debug("skip restoration: +cssh launch")
+            completionHandler(nil, nil)
+            return
+        }
+
         // If our configuration is "never" then we never restore the state
         // no matter what. Note its safe to use "ghostty.config" directly here
         // because window restoration is only ever invoked on app start so we
