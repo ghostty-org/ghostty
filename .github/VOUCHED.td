@@ -69,6 +69,7 @@ cmwetherell
 crayxt
 craziestowl
 curtismoncoq
+-cznorth Automated advertising + likely AI communication
 d-dudas
 -daedaevibin
 daiimus
