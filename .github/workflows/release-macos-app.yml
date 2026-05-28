@@ -1,0 +1,292 @@
+on:
+  workflow_dispatch:
+    inputs:
+      identifier:
+        description: "Release identifier appended to the upstream Ghostty version"
+        default: aflat
+        required: true
+      increment:
+        description: "Incremental release number for this identifier"
+        default: "1"
+        required: true
+      optimize:
+        description: "Zig optimization mode"
+        type: choice
+        default: ReleaseFast
+        options:
+          - ReleaseFast
+          - ReleaseSafe
+          - Debug
+      release_type:
+        description: "Create a draft release or publish it immediately"
+        type: choice
+        default: draft
+        options:
+          - draft
+          - release
+
+name: Release macOS App
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.zig-global-cache
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup Nix
+        uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31.10.6
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Setup Ghostty cache
+        uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+        with:
+          name: ghostty
+
+      - name: Show tool versions
+        run: |
+          xcodebuild -version
+          xcode-select -p
+          nix develop -c zig version
+
+      - name: Determine release version
+        id: version
+        run: |
+          IDENTIFIER="${{ inputs.identifier }}"
+          INCREMENT="${{ inputs.increment }}"
+
+          if [[ ! "$IDENTIFIER" =~ ^[0-9A-Za-z-]+$ ]]; then
+            echo "identifier must contain only ASCII letters, numbers, or hyphens" >&2
+            exit 1
+          fi
+
+          if [[ ! "$INCREMENT" =~ ^[0-9]+$ ]]; then
+            echo "increment must be a positive integer" >&2
+            exit 1
+          fi
+
+          BASE_VERSION=$(ruby -ne 'if $_ =~ /^\s*\.version\s*=\s*"([^"]+)"/ then puts $1; exit end' build.zig.zon)
+          if [[ -z "$BASE_VERSION" ]]; then
+            echo "unable to determine Ghostty version from build.zig.zon" >&2
+            exit 1
+          fi
+
+          if [[ "$BASE_VERSION" == *-* ]]; then
+            RELEASE_VERSION="${BASE_VERSION}.${IDENTIFIER}.${INCREMENT}"
+          else
+            RELEASE_VERSION="${BASE_VERSION}-${IDENTIFIER}.${INCREMENT}"
+          fi
+
+          {
+            echo "base_version=$BASE_VERSION"
+            echo "version=$RELEASE_VERSION"
+            echo "tag=v$RELEASE_VERSION"
+            echo "build=$(git rev-list --count HEAD)"
+            echo "commit=$(git rev-parse --short HEAD)"
+            echo "commit_long=$(git rev-parse HEAD)"
+          } | tee -a "$GITHUB_OUTPUT"
+
+      - name: Prepare release notes start tag
+        id: notes
+        run: |
+          git fetch --no-tags https://github.com/ghostty-org/ghostty.git main:refs/remotes/upstream/main
+          BASE_REF=$(git merge-base refs/remotes/upstream/main HEAD)
+          NOTES_START_TAG="${{ steps.version.outputs.tag }}-notes-start"
+
+          git tag -f "$NOTES_START_TAG" "$BASE_REF"
+          git push --force origin "refs/tags/$NOTES_START_TAG"
+
+          echo "base_ref=$BASE_REF" | tee -a "$GITHUB_OUTPUT"
+          echo "start_tag=$NOTES_START_TAG" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Build GhosttyKit
+        run: |
+          nix develop -c \
+            zig build \
+            -Doptimize=${{ inputs.optimize }} \
+            -Demit-macos-app=false \
+            -Dversion-string=${{ steps.version.outputs.version }}
+
+      - name: Build Ghostty.app
+        run: |
+          cd macos
+          xcodebuild \
+            -target Ghostty \
+            -configuration Release \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Update app metadata
+        run: |
+          /usr/libexec/PlistBuddy -c "Set :GhosttyCommit ${{ steps.version.outputs.commit }}" "macos/build/Release/Ghostty.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ steps.version.outputs.build }}" "macos/build/Release/Ghostty.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ steps.version.outputs.version }}" "macos/build/Release/Ghostty.app/Contents/Info.plist"
+
+      - name: Ad hoc sign app
+        run: |
+          codesign --force --deep --sign - macos/build/Release/Ghostty.app
+          codesign --verify --deep --strict --verbose=2 macos/build/Release/Ghostty.app
+
+      - name: Verify app
+        run: |
+          test -d macos/build/Release/Ghostty.app
+          file macos/build/Release/Ghostty.app/Contents/MacOS/ghostty
+          test "$(lipo -archs macos/build/Release/Ghostty.app/Contents/MacOS/ghostty)" = "arm64"
+
+      - name: Zip app
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            macos/build/Release/Ghostty.app \
+            ghostty-macos-arm64-${{ steps.version.outputs.version }}.zip
+
+      - name: Generate config options gist content
+        env:
+          BASE_VERSION: ${{ steps.version.outputs.base_version }}
+          BASE_REF: ${{ steps.notes.outputs.base_ref }}
+          COMMIT_LONG: ${{ steps.version.outputs.commit_long }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          BASE_CONFIG="$RUNNER_TEMP/base-config.zig"
+          git show "$BASE_REF:src/config/Config.zig" > "$BASE_CONFIG"
+
+          BASE_CONFIG="$BASE_CONFIG" ruby <<'RUBY'
+          def config_fields(path)
+            fields = []
+            pending_docs = []
+            inherited_doc = nil
+            inherited_from = nil
+
+            File.readlines(path, chomp: true).each do |line|
+              if line.start_with?("///")
+                pending_docs << line.sub(%r{\A/// ?}, "")
+                next
+              end
+
+              match = line.match(/\A(?:@"([^"]+)"|([A-Za-z][A-Za-z0-9_]*))\s*:/)
+              if match
+                name = match[1] || match[2]
+                unless name.start_with?("_")
+                  doc = pending_docs.empty? ? inherited_doc : pending_docs.join("\n").strip
+                  doc_source = pending_docs.empty? ? inherited_from : nil
+                  fields << [name, { doc: doc, inherited_from: doc_source }]
+
+                  unless pending_docs.empty?
+                    inherited_doc = doc
+                    inherited_from = name
+                  end
+                end
+
+                pending_docs = []
+                next
+              end
+
+              pending_docs = [] unless line.strip.empty? || line.start_with?("//")
+            end
+
+            fields.to_h
+          end
+
+          base = config_fields(ENV.fetch("BASE_CONFIG"))
+          current = config_fields("src/config/Config.zig")
+          added = current.keys.reject { |key| base.key?(key) }
+
+          File.open("release-config-options.md", "w") do |file|
+            file.puts "# Ghostty #{ENV.fetch("RELEASE_VERSION")} config additions"
+            file.puts
+            file.puts "These options were added on top of upstream Ghostty #{ENV.fetch("BASE_VERSION")}."
+            file.puts
+            file.puts "Compared with `ghostty-org/ghostty` at `#{ENV.fetch("BASE_REF")}`."
+            file.puts "Built from commit `#{ENV.fetch("COMMIT_LONG")}`."
+            file.puts
+            file.puts "## Tab title editing"
+            file.puts
+            file.puts "On macOS, double-click a tab title in the native tab bar to edit that tab's title inline. Press Return to save the custom title, or Escape to cancel editing."
+            file.puts
+            file.puts "Submitting an empty title clears the custom title and restores the default title reported by the terminal."
+            file.puts
+
+            if added.empty?
+              file.puts "No new config options were detected in `src/config/Config.zig`."
+              next
+            end
+
+            added.each do |name|
+              details = current.fetch(name)
+
+              file.puts "## `#{name}`"
+              file.puts
+              if details[:inherited_from]
+                file.puts "Shares documentation with `#{details[:inherited_from]}`."
+                file.puts
+              end
+
+              if details[:doc] && !details[:doc].empty?
+                file.puts details[:doc]
+              else
+                file.puts "No description was found in `src/config/Config.zig`."
+              end
+              file.puts
+            end
+          end
+          RUBY
+
+      - name: Create config options gist
+        id: gist
+        env:
+          GH_TOKEN: ${{ secrets.GIST_TOKEN }}
+        run: |
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "GIST_TOKEN must be set to a GitHub token with gist access." >&2
+            exit 1
+          fi
+
+          GIST_URL=$(gh gist create release-config-options.md \
+            --desc "Ghostty ${{ steps.version.outputs.version }} config additions")
+
+          echo "url=$GIST_URL" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RELEASE_FLAGS=(--prerelease)
+          if [[ "${{ inputs.release_type }}" == "draft" ]]; then
+            RELEASE_FLAGS+=(--draft)
+          fi
+
+          gh release create "${{ steps.version.outputs.tag }}" \
+            "ghostty-macos-arm64-${{ steps.version.outputs.version }}.zip" \
+            --target "${{ github.sha }}" \
+            --title "Ghostty ${{ steps.version.outputs.version }}" \
+            "${RELEASE_FLAGS[@]}" \
+            --latest=false \
+            --generate-notes \
+            --notes-start-tag "${{ steps.notes.outputs.start_tag }}" \
+            --notes "Based on upstream Ghostty ${{ steps.version.outputs.base_version }}.
+
+          Config additions: ${{ steps.gist.outputs.url }}
+
+          Built from commit \`${{ steps.version.outputs.commit_long }}\`."
+
+      - name: Delete release notes start tag
+        if: always() && steps.notes.outputs.start_tag != ''
+        run: |
+          git push --delete origin "${{ steps.notes.outputs.start_tag }}" || true
