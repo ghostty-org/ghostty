@@ -903,6 +903,14 @@ void GhosttySurface::renderTerminal() {
     // (new buffer, new position, new dest, hide()) never applies
     // and the GL pane shows stale / black / ghosted content.
     forceParentCommit();
+    // Flip the "real subsurface frame attached" flag so paintEvent
+    // stops drawing m_image over the subsurface. Without this,
+    // paintEvent unconditionally blits stale m_image content onto
+    // the parent QWidget (which is stacked ABOVE the subsurface
+    // via place_below), and the user sees the m_image as a weird
+    // overlay with the real subsurface terminal pixels "ghosting"
+    // through. Mirrors the Vulkan drainVulkan path's flag set.
+    m_subsurfaceHasFrame.store(true, std::memory_order_release);
     // The terminal pixels reach the compositor via the subsurface,
     // not via QPainter — but chrome (overlays, dim, bell flash)
     // still goes through paintEvent. update() schedules that.
@@ -976,16 +984,43 @@ void GhosttySurface::paintEvent(QPaintEvent *) {
     }
     painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
   } else {
-    // Blit the framebuffer 1:1. m_image carries the device pixel ratio, so
-    // the QPointF overload draws it at its true logical size. When in
-    // sync that exactly fills the widget; mid-resize, the previous frame
-    // stays at its real size in the top-left corner (rather than being
-    // stretched to the new widget rect, which the user dislikes more
-    // than the transient gap).
-    // CompositionMode_Source replaces the transparent widget pixels with
-    // the terminal image, alpha included, so its translucency is kept.
+    // OpenGL path. When the subsurface presenter is active and has
+    // a real frame attached, the terminal pixels reach the
+    // compositor via the wl_subsurface (stacked BELOW the parent
+    // QWidget via place_below). We must paint the parent's
+    // terminal area transparent so the subsurface shows through —
+    // mirroring the Vulkan branch above. Drawing m_image here
+    // overwrites the transparent backing store with whatever
+    // m_image last held (which is stale, because the subsurface
+    // path in renderTerminal SKIPS the `m_image = m_fbo->toImage()`
+    // readback), and the result is a "ghost overlay" effect where
+    // the user sees m_image stacked above the live subsurface
+    // pixels.
     painter.setCompositionMode(QPainter::CompositionMode_Source);
-    painter.drawImage(QPointF(0, 0), m_image);
+    if (subsurfaceActive && subsurfaceHasFrame) {
+      painter.fillRect(rect(), Qt::transparent);
+    } else if (subsurfaceActive) {
+      // Subsurface presenter is up but the first real frame hasn't
+      // attached yet (new-tab bring-up or post-resize gap). Paint
+      // the terminal's configured background color over the
+      // transparent parent so the user sees an empty terminal
+      // rather than a transparent flash. Same placeholder logic as
+      // the Vulkan branch.
+      QColor fill = QColor(0, 0, 0);  // safe fallback
+      ghostty_config_color_s bg{};
+      if (config::get(&bg, "background")) {
+        fill = QColor(bg.r, bg.g, bg.b);
+      }
+      painter.fillRect(rect(), fill);
+    } else {
+      // Legacy QImage fallback path — the subsurface presenter is
+      // absent (compositor refused linux-dmabuf-v1 or
+      // EglDmabufTarget::create failed) and the renderer fell
+      // back to glReadPixels into m_image. Blit it 1:1. m_image
+      // carries the device pixel ratio, so the QPointF overload
+      // draws it at its true logical size.
+      painter.drawImage(QPointF(0, 0), m_image);
+    }
   }
 
   // Unfocused-split dimming: a translucent fill over an inactive pane.
