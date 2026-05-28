@@ -216,6 +216,25 @@ jobs:
             file.puts "Compared with `ghostty-org/ghostty` at `#{ENV.fetch("BASE_REF")}`."
             file.puts "Built from commit `#{ENV.fetch("COMMIT_LONG")}`."
             file.puts
+            file.puts "## Installing this unsigned macOS build"
+            file.puts
+            file.puts "This app is not signed with an Apple Developer ID and is not notarized, so macOS may block it the first time you open it."
+            file.puts
+            file.puts "1. Download and unzip the macOS arm64 app zip."
+            file.puts "2. Move `Ghostty.app` to `/Applications`."
+            file.puts "3. Try to open `Ghostty.app` once. macOS may show a warning and refuse to open it."
+            file.puts "4. Open **System Settings** > **Privacy & Security**."
+            file.puts "5. In the **Security** section, click **Open** or **Open Anyway** for Ghostty, then confirm with your login password if prompted."
+            file.puts
+            file.puts "Apple notes that the **Open Anyway** button is available for about an hour after the blocked launch attempt: https://support.apple.com/guide/mac-help/mh40616/mac"
+            file.puts
+            file.puts "If macOS still reports the app as damaged because it was quarantined after download, remove the quarantine attribute after you have decided you trust this build:"
+            file.puts
+            file.puts "```sh"
+            file.puts "xattr -dr com.apple.quarantine /Applications/Ghostty.app"
+            file.puts "open /Applications/Ghostty.app"
+            file.puts "```"
+            file.puts
             file.puts "---"
             file.puts
             file.puts "## User-facing options and actions"
