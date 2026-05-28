@@ -388,17 +388,31 @@ void GhosttySurface::syncSurfaceSize() {
       // path. The next Show event resets sizing state and triggers
       // a fresh sync, so dropping this is safe.
       //
-      // Stretch the old buffer to the new destination first — gives
-      // the compositor something to fill the new parent area with if
-      // the synchronous render below takes more than one frame.
+      // wp_viewport-stretch the existing buffer to the new dest so
+      // the subsurface keeps covering the whole new parent area.
+      // Without this the subsurface stays at its old buffer size at
+      // position (0,0) and the area beyond it is uncovered — the
+      // parent QWidget's bg-color paint can't reliably catch up
+      // during a fast drag, so the gap shows through to whatever is
+      // behind the window. The stretch is bilinear-filtered (text
+      // briefly distorts), but full coverage with mildly distorted
+      // text is the lesser evil vs. a transparent gap or jumping
+      // back to a solid bg-color flood. The sync-mode child commit
+      // is cached until parent commits, so forceParentCommit applies
+      // it now.
       m_subsurfacePresenter->resizeDestination(width(), height());
-      // Render at the new size and commit the proper new-size buffer.
-      // drainVulkan calls forceParentCommit at the end, so the
-      // sync-mode child cache + parent commit land atomically — the
-      // compositor sees parent at new size + subsurface at new size
-      // in the same frame, eliminating the resize bleed entirely.
-      ghostty_surface_draw(m_surface);
-      drainVulkan();
+      forceParentCommit();
+      // Do NOT call ghostty_surface_draw / drainVulkan here. The
+      // ghostty_surface_set_size above mails the IO thread, which
+      // mails the renderer thread (`.resize` message) and notifies
+      // its wakeup (see termio/Termio.zig:500–502). The renderer
+      // thread produces the next frame at the new size on its own
+      // clock and it lands via presentVulkanDmabuf → drainVulkan →
+      // forceParentCommit, replacing the stretched buffer. Running
+      // ghostty_surface_draw inline here blocks the GUI thread on a
+      // full Vulkan render per resize event during a continuous
+      // drag (compositor delivers events at 60–120 Hz), lagging
+      // both window edge tracking and content reflow.
       return;
     }
 
