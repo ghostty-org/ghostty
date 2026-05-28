@@ -725,7 +725,19 @@ extension Ghostty {
 
             // Update our derived config
             DispatchQueue.main.async { [weak self] in
-                self?.derivedConfig = DerivedConfig(config)
+                guard let self else { return }
+                self.derivedConfig = DerivedConfig(config)
+
+                // If the cached OSC 11 background color disagrees with the new
+                // config-derived background, drop it so window chrome follows
+                // the new config (e.g., on light/dark theme auto-switch). The
+                // cached value is restored next time the terminal emits a
+                // color_change.
+                if let cached = self.backgroundColor,
+                   cached != self.derivedConfig.backgroundColor
+                {
+                    self.backgroundColor = nil
+                }
             }
         }
 

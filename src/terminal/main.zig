@@ -49,6 +49,7 @@ pub const Screen = @import("Screen.zig");
 pub const ScreenSet = @import("ScreenSet.zig");
 pub const Scrollbar = PageList.Scrollbar;
 pub const Selection = @import("Selection.zig");
+pub const SelectionGesture = @import("SelectionGesture.zig");
 pub const SizeReportStyle = csi.SizeReportStyle;
 pub const StringMap = @import("StringMap.zig");
 pub const Style = style.Style;

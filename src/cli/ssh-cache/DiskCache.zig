@@ -17,14 +17,6 @@ const MAX_CACHE_SIZE = 512 * 1024;
 /// Path to a file where the cache is stored.
 path: []const u8,
 
-pub const DefaultPathError = Allocator.Error || error{
-    /// The general error that is returned for any filesystem error
-    /// that may have resulted in the XDG lookup failing.
-    XdgLookupFailed,
-};
-
-pub const Error = error{ CacheIsLocked, HostnameIsInvalid };
-
 /// Returns the default path for the cache for a given program.
 ///
 /// On all platforms, this is `${XDG_STATE_HOME}/ghostty/ssh_cache`.
@@ -33,7 +25,7 @@ pub const Error = error{ CacheIsLocked, HostnameIsInvalid };
 pub fn defaultPath(
     alloc: Allocator,
     program: []const u8,
-) DefaultPathError![]const u8 {
+) ![]const u8 {
     const state_dir: []const u8 = xdg.state(
         alloc,
         .{ .subdir = program },
@@ -55,27 +47,15 @@ pub fn clear(self: DiskCache) !void {
     };
 }
 
-pub const AddResult = enum { added, updated };
-
-pub const AddError = std.fs.Dir.MakeError ||
-    std.fs.Dir.StatFileError ||
-    std.fs.File.OpenError ||
-    std.fs.File.ChmodError ||
-    std.io.Reader.LimitedAllocError ||
-    FixupPermissionsError ||
-    ReadEntriesError ||
-    WriteCacheFileError ||
-    Error;
-
-/// Add or update a hostname entry in the cache.
-/// Returns AddResult.added for new entries or AddResult.updated for existing ones.
+/// Add or update an entry in the cache, recording `timestamp` (Unix seconds).
 /// The cache file is created if it doesn't exist with secure permissions (0600).
 pub fn add(
     self: DiskCache,
     alloc: Allocator,
-    hostname: []const u8,
-) AddError!AddResult {
-    if (!isValidCacheKey(hostname)) return error.HostnameIsInvalid;
+    key: []const u8,
+    timestamp: i64,
+) !void {
+    if (!isValidCacheKey(key)) return error.InvalidCacheKey;
 
     // Create cache directory if needed
     if (std.fs.path.dirname(self.path)) |dir| {
@@ -107,58 +87,49 @@ pub fn add(
     // Lock
     // Causes a compile failure in the Zig std library on Windows, see:
     // https://github.com/ziglang/zig/issues/18430
-    if (comptime builtin.os.tag != .windows) _ = file.tryLock(.exclusive) catch return error.CacheIsLocked;
+    if (comptime builtin.os.tag != .windows) _ = file.tryLock(.exclusive) catch return error.CacheLocked;
     defer if (comptime builtin.os.tag != .windows) file.unlock();
 
     var entries = try readEntries(alloc, file);
     defer deinitEntries(alloc, &entries);
 
-    // Add or update entry
-    const gop = try entries.getOrPut(hostname);
-    const result: AddResult = if (!gop.found_existing) add: {
-        const hostname_copy = try alloc.dupe(u8, hostname);
-        errdefer alloc.free(hostname_copy);
+    // Update the timestamp of an existing entry, or insert a new one. For a
+    // new entry, dupe both strings up front so a failed allocation never
+    // leaves a half-built slot (borrowed key, undefined value) for the
+    // `deinitEntries` defer to walk.
+    if (entries.getPtr(key)) |existing| {
+        existing.timestamp = timestamp;
+    } else {
+        const key_copy = try alloc.dupe(u8, key);
+        errdefer alloc.free(key_copy);
         const terminfo_copy = try alloc.dupe(u8, "xterm-ghostty");
         errdefer alloc.free(terminfo_copy);
 
-        gop.key_ptr.* = hostname_copy;
-        gop.value_ptr.* = .{
-            .hostname = gop.key_ptr.*,
-            .timestamp = std.time.timestamp(),
+        try entries.put(key_copy, .{
+            .hostname = key_copy,
+            .timestamp = timestamp,
             .terminfo_version = terminfo_copy,
-        };
-        break :add .added;
-    } else update: {
-        // Update timestamp for existing entry
-        gop.value_ptr.timestamp = std.time.timestamp();
-        break :update .updated;
-    };
+        });
+    }
 
-    try self.writeCacheFile(entries, null);
-    return result;
+    try self.writeCacheFile(entries);
 }
 
-pub const RemoveError = std.fs.File.OpenError ||
-    FixupPermissionsError ||
-    ReadEntriesError ||
-    WriteCacheFileError ||
-    Error;
-
-/// Remove a hostname entry from the cache.
-/// No error is returned if the hostname doesn't exist or the cache file is missing.
+/// Remove an entry from the cache. Returns true if an entry was removed,
+/// false if the key wasn't present (or the cache file is missing).
 pub fn remove(
     self: DiskCache,
     alloc: Allocator,
-    hostname: []const u8,
-) RemoveError!void {
-    if (!isValidCacheKey(hostname)) return error.HostnameIsInvalid;
+    key: []const u8,
+) !bool {
+    if (!isValidCacheKey(key)) return error.InvalidCacheKey;
 
     // Open our file
     const file = std.fs.openFileAbsolute(
         self.path,
         .{ .mode = .read_write },
     ) catch |err| switch (err) {
-        error.FileNotFound => return,
+        error.FileNotFound => return false,
         else => return err,
     };
     defer file.close();
@@ -167,7 +138,7 @@ pub fn remove(
     // Lock
     // Causes a compile failure in the Zig std library on Windows, see:
     // https://github.com/ziglang/zig/issues/18430
-    if (comptime builtin.os.tag != .windows) _ = file.tryLock(.exclusive) catch return error.CacheIsLocked;
+    if (comptime builtin.os.tag != .windows) _ = file.tryLock(.exclusive) catch return error.CacheLocked;
     defer if (comptime builtin.os.tag != .windows) file.unlock();
 
     // Read existing entries
@@ -175,27 +146,73 @@ pub fn remove(
     defer deinitEntries(alloc, &entries);
 
     // Remove the entry if it exists and ensure we free the memory
-    if (entries.fetchRemove(hostname)) |kv| {
+    const removed = if (entries.fetchRemove(key)) |kv| removed: {
+        assert(kv.key.ptr == kv.value.hostname.ptr);
+        alloc.free(kv.value.hostname);
+        alloc.free(kv.value.terminfo_version);
+        break :removed true;
+    } else false;
+
+    try self.writeCacheFile(entries);
+    return removed;
+}
+
+/// Remove all entries older than `max_age_s` seconds and return how many
+/// were pruned. Returns zero (and nothing written) if the cache file is
+/// missing.
+pub fn prune(
+    self: DiskCache,
+    alloc: Allocator,
+    max_age_s: u64,
+) !usize {
+    const file = std.fs.openFileAbsolute(
+        self.path,
+        .{ .mode = .read_write },
+    ) catch |err| switch (err) {
+        error.FileNotFound => return 0,
+        else => return err,
+    };
+    defer file.close();
+    try fixupPermissions(file);
+
+    // Lock
+    // Causes a compile failure in the Zig std library on Windows, see:
+    // https://github.com/ziglang/zig/issues/18430
+    if (comptime builtin.os.tag != .windows) _ = file.tryLock(.exclusive) catch return error.CacheLocked;
+    defer if (comptime builtin.os.tag != .windows) file.unlock();
+
+    // Read existing entries
+    var entries = try readEntries(alloc, file);
+    defer deinitEntries(alloc, &entries);
+
+    // Drop expired entries from the map, then persist what remains.
+    const now = std.time.timestamp();
+    var expired: std.ArrayList([]const u8) = .empty;
+    defer expired.deinit(alloc);
+    var iter = entries.iterator();
+    while (iter.next()) |kv| {
+        const age_s = now -| kv.value_ptr.timestamp;
+        if (age_s > max_age_s) try expired.append(alloc, kv.key_ptr.*);
+    }
+    for (expired.items) |key| {
+        const kv = entries.fetchRemove(key).?;
         assert(kv.key.ptr == kv.value.hostname.ptr);
         alloc.free(kv.value.hostname);
         alloc.free(kv.value.terminfo_version);
     }
 
-    try self.writeCacheFile(entries, null);
+    try self.writeCacheFile(entries);
+    return expired.items.len;
 }
 
-pub const ContainsError = std.fs.File.OpenError ||
-    ReadEntriesError ||
-    error{HostnameIsInvalid};
-
-/// Check if a hostname exists in the cache.
+/// Check if a key exists in the cache.
 /// Returns false if the cache file doesn't exist.
 pub fn contains(
     self: DiskCache,
     alloc: Allocator,
-    hostname: []const u8,
-) ContainsError!bool {
-    if (!isValidCacheKey(hostname)) return error.HostnameIsInvalid;
+    key: []const u8,
+) !bool {
+    if (!isValidCacheKey(key)) return error.InvalidCacheKey;
 
     // Open our file
     const file = std.fs.openFileAbsolute(
@@ -211,12 +228,10 @@ pub fn contains(
     var entries = try readEntries(alloc, file);
     defer deinitEntries(alloc, &entries);
 
-    return entries.contains(hostname);
+    return entries.contains(key);
 }
 
-pub const FixupPermissionsError = (std.fs.File.StatError || std.fs.File.ChmodError);
-
-fn fixupPermissions(file: std.fs.File) FixupPermissionsError!void {
+fn fixupPermissions(file: std.fs.File) !void {
     // Windows does not support chmod
     if (comptime builtin.os.tag == .windows) return;
 
@@ -228,18 +243,10 @@ fn fixupPermissions(file: std.fs.File) FixupPermissionsError!void {
     }
 }
 
-pub const WriteCacheFileError = std.fs.Dir.OpenError ||
-    std.fs.AtomicFile.InitError ||
-    std.fs.AtomicFile.FlushError ||
-    std.fs.AtomicFile.FinishError ||
-    Entry.FormatError ||
-    error{InvalidCachePath};
-
 fn writeCacheFile(
     self: DiskCache,
     entries: std.StringHashMap(Entry),
-    expire_days: ?u32,
-) WriteCacheFileError!void {
+) !void {
     const cache_dir = std.fs.path.dirname(self.path) orelse return error.InvalidCachePath;
     const cache_basename = std.fs.path.basename(self.path);
 
@@ -255,8 +262,6 @@ fn writeCacheFile(
 
     var iter = entries.iterator();
     while (iter.next()) |kv| {
-        // Only write non-expired entries
-        if (kv.value_ptr.isExpired(expire_days)) continue;
         try kv.value_ptr.format(&atomic_file.file_writer.interface);
     }
 
@@ -299,12 +304,10 @@ pub fn deinitEntries(
     entries.deinit();
 }
 
-pub const ReadEntriesError = std.mem.Allocator.Error || std.io.Reader.LimitedAllocError;
-
 fn readEntries(
     alloc: Allocator,
     file: std.fs.File,
-) ReadEntriesError!std.StringHashMap(Entry) {
+) !std.StringHashMap(Entry) {
     var reader = file.reader(&.{});
     const content = try reader.interface.allocRemaining(
         alloc,
@@ -365,7 +368,7 @@ fn readEntries(
 }
 
 // Supports both standalone hostnames and user@hostname format
-fn isValidCacheKey(key: []const u8) bool {
+pub fn isValidCacheKey(key: []const u8) bool {
     if (key.len == 0) return false;
 
     // Check for user@hostname format
@@ -463,33 +466,23 @@ test "disk cache operations" {
     const path = try tmp.dir.realpathAlloc(alloc, "cache");
     defer alloc.free(path);
 
-    // Setup our cache
+    // Setup our cache. Adding the same key twice exercises both the new
+    // and existing-entry paths.
     const cache: DiskCache = .{ .path = path };
-    try testing.expectEqual(
-        AddResult.added,
-        try cache.add(alloc, "example.com"),
-    );
-    try testing.expectEqual(
-        AddResult.updated,
-        try cache.add(alloc, "example.com"),
-    );
-    try testing.expect(
-        try cache.contains(alloc, "example.com"),
-    );
+    try cache.add(alloc, "example.com", std.time.timestamp());
+    try cache.add(alloc, "example.com", std.time.timestamp());
+    try testing.expect(try cache.contains(alloc, "example.com"));
 
     // List
     var entries = try cache.list(alloc);
     deinitEntries(alloc, &entries);
 
-    // Remove
-    try cache.remove(alloc, "example.com");
-    try testing.expect(
-        !(try cache.contains(alloc, "example.com")),
-    );
-    try testing.expectEqual(
-        AddResult.added,
-        try cache.add(alloc, "example.com"),
-    );
+    // Remove reports that it removed the entry, and a second remove of the
+    // same key reports nothing to remove.
+    try testing.expect(try cache.remove(alloc, "example.com"));
+    try testing.expect(!try cache.remove(alloc, "example.com"));
+    try testing.expect(!(try cache.contains(alloc, "example.com")));
+    try cache.add(alloc, "example.com", std.time.timestamp());
 }
 
 test "disk cache cleans up temp files" {
@@ -505,8 +498,8 @@ test "disk cache cleans up temp files" {
     defer alloc.free(cache_path);
 
     const cache: DiskCache = .{ .path = cache_path };
-    try testing.expectEqual(AddResult.added, try cache.add(alloc, "example.com"));
-    try testing.expectEqual(AddResult.added, try cache.add(alloc, "example.org"));
+    try cache.add(alloc, "example.com", std.time.timestamp());
+    try cache.add(alloc, "example.org", std.time.timestamp());
 
     // Verify only the cache file exists and no temp files left behind
     var count: usize = 0;
@@ -516,6 +509,55 @@ test "disk cache cleans up temp files" {
         try testing.expectEqualStrings("cache", entry.name);
     }
     try testing.expectEqual(1, count);
+}
+
+test "disk cache prune" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const tmp_path = try tmp.dir.realpathAlloc(alloc, ".");
+    defer alloc.free(tmp_path);
+    const cache_path = try std.fs.path.join(alloc, &.{ tmp_path, "cache" });
+    defer alloc.free(cache_path);
+
+    const cache: DiskCache = .{ .path = cache_path };
+
+    // Back-date one entry an hour old and one 100 days old.
+    const day = std.time.s_per_day;
+    const hour = std.time.s_per_hour;
+    const now = std.time.timestamp();
+    try cache.add(alloc, "recent.com", now - hour);
+    try cache.add(alloc, "old.com", now - 100 * day);
+
+    // Prune entries older than 90 days: only old.com goes.
+    try testing.expectEqual(@as(usize, 1), try cache.prune(alloc, 90 * day));
+    try testing.expect(try cache.contains(alloc, "recent.com"));
+    try testing.expect(!try cache.contains(alloc, "old.com"));
+
+    // Pruning again removes nothing.
+    try testing.expectEqual(@as(usize, 0), try cache.prune(alloc, 90 * day));
+
+    // Sub-day granularity: a 30-minute max age prunes the hour-old entry.
+    try testing.expectEqual(@as(usize, 1), try cache.prune(alloc, 30 * std.time.s_per_min));
+    try testing.expect(!try cache.contains(alloc, "recent.com"));
+}
+
+test "disk cache prune missing file" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const tmp_path = try tmp.dir.realpathAlloc(alloc, ".");
+    defer alloc.free(tmp_path);
+    const cache_path = try std.fs.path.join(alloc, &.{ tmp_path, "cache" });
+    defer alloc.free(cache_path);
+
+    const cache: DiskCache = .{ .path = cache_path };
+    try testing.expectEqual(@as(usize, 0), try cache.prune(alloc, 30));
 }
 
 test "disk cache reads duplicate keys" {
@@ -593,6 +635,39 @@ test "disk cache reads survive allocation failure" {
             var entries = entries_const;
             deinitEntries(alloc, &entries);
             // Reached a run with no induced failure: every path covered.
+            if (!failing.has_induced_failure) break;
+        } else |err| {
+            try testing.expectEqual(error.OutOfMemory, err);
+        }
+    }
+}
+
+test "disk cache add survives allocation failure" {
+    const testing = std.testing;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const tmp_path = try tmp.dir.realpathAlloc(testing.allocator, ".");
+    defer testing.allocator.free(tmp_path);
+    const path = try std.fs.path.join(testing.allocator, &.{ tmp_path, "cache" });
+    defer testing.allocator.free(path);
+
+    const cache: DiskCache = .{ .path = path };
+
+    // Fail the Nth allocation for every N until add completes. A failed add
+    // must not leak or leave a half-built map entry. The FailingAllocator
+    // is backed by testing.allocator to catch either. Each iteration starts
+    // from a clean cache file.
+    var fail_index: usize = 0;
+    while (true) : (fail_index += 1) {
+        std.fs.cwd().deleteFile(path) catch {};
+        var failing = std.testing.FailingAllocator.init(
+            testing.allocator,
+            .{ .fail_index = fail_index },
+        );
+        const alloc = failing.allocator();
+
+        if (cache.add(alloc, "user@example.com", 100)) |_| {
             if (!failing.has_induced_failure) break;
         } else |err| {
             try testing.expectEqual(error.OutOfMemory, err);

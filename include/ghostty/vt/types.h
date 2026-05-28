@@ -228,6 +228,38 @@ typedef struct {
 } GhosttyString;
 
 /**
+ * A surface-space position in pixels.
+ *
+ * This is not a terminal grid coordinate. It represents an x/y position in the
+ * rendered surface coordinate space, with (0, 0) at the top-left of the
+ * surface.
+ */
+typedef struct {
+  /** X position in surface pixels. */
+  double x;
+
+  /** Y position in surface pixels. */
+  double y;
+} GhosttySurfacePosition;
+
+/**
+ * A borrowed list of Unicode scalar values.
+ *
+ * Values are encoded as uint32_t scalar values. The memory is not owned by this
+ * struct. The pointer is only valid for the lifetime documented by the API that
+ * consumes or produces it.
+ *
+ * APIs may document special handling for NULL + len 0, such as “use defaults”.
+ */
+typedef struct {
+  /** Pointer to Unicode scalar values. */
+  const uint32_t* ptr;
+
+  /** Number of entries in ptr. */
+  size_t len;
+} GhosttyCodepoints;
+
+/**
  * Initialize a sized struct to zero and set its size field.
  *
  * Sized structs use a `size` field as the first member for ABI

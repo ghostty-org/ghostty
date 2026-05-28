@@ -901,6 +901,16 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Output type: GhosttySelection *
    */
   GHOSTTY_TERMINAL_DATA_SELECTION = 31,
+
+  /**
+   * Whether the viewport is currently pinned to the active area.
+   *
+   * This is true when the viewport is following the active terminal area,
+   * and false when the user has scrolled into history.
+   *
+   * Output type: bool *
+   */
+  GHOSTTY_TERMINAL_DATA_VIEWPORT_ACTIVE = 32,
   GHOSTTY_TERMINAL_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalData;
 

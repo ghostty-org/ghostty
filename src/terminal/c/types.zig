@@ -14,15 +14,29 @@ const size_report = @import("size_report.zig");
 const terminal = @import("terminal.zig");
 const formatter = @import("formatter.zig");
 const selection = @import("selection.zig");
+const selection_gesture = @import("selection_gesture.zig");
 const render = @import("render.zig");
 const style_c = @import("style.zig");
 const mouse_encode = @import("mouse_encode.zig");
 const grid_ref = @import("grid_ref.zig");
 
+/// C: GhosttySurfacePosition
+pub const SurfacePosition = extern struct {
+    x: f64,
+    y: f64,
+};
+
+/// C: GhosttyCodepoints
+pub const Codepoints = extern struct {
+    ptr: ?[*]const u32 = null,
+    len: usize = 0,
+};
+
 /// All C API structs and their Ghostty C names.
 pub const structs: std.StaticStringMap(StructInfo) = structs: {
     @setEvalBranchQuota(10_000);
     break :structs .initComptime(.{
+        .{ "GhosttyCodepoints", StructInfo.init(Codepoints) },
         .{ "GhosttyColorRgb", StructInfo.init(color.RGB.C) },
         .{ "GhosttyDeviceAttributes", StructInfo.init(terminal.DeviceAttributes) },
         .{ "GhosttyDeviceAttributesPrimary", StructInfo.init(terminal.DeviceAttributes.Primary) },
@@ -41,8 +55,11 @@ pub const structs: std.StaticStringMap(StructInfo) = structs: {
         .{ "GhosttyPoint", StructInfo.init(point.Point.C) },
         .{ "GhosttyPointCoordinate", StructInfo.init(point.Coordinate) },
         .{ "GhosttyRenderStateColors", StructInfo.init(render.Colors) },
+        .{ "GhosttySelectionGestureBehaviors", StructInfo.init(selection_gesture.Behaviors) },
+        .{ "GhosttySelectionGestureGeometry", StructInfo.init(selection_gesture.Geometry) },
         .{ "GhosttySizeReportSize", StructInfo.init(size_report.Size) },
         .{ "GhosttyString", StructInfo.init(lib.String) },
+        .{ "GhosttySurfacePosition", StructInfo.init(SurfacePosition) },
         .{ "GhosttyStyle", StructInfo.init(style_c.Style) },
         .{ "GhosttyStyleColor", StructInfo.init(style_c.Color) },
         .{ "GhosttyTerminalOptions", StructInfo.init(terminal.Options) },
@@ -150,6 +167,11 @@ fn jsonWriteAll(writer: *std.Io.Writer) std.Io.Writer.Error!void {
 fn typeName(comptime T: type) []const u8 {
     return switch (@typeInfo(T)) {
         .bool => "bool",
+        .float => |info| switch (info.bits) {
+            32 => "f32",
+            64 => "f64",
+            else => @compileError("unsupported float size"),
+        },
         .int => |info| switch (info.signedness) {
             .signed => switch (info.bits) {
                 8 => "i8",

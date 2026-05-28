@@ -32,12 +32,43 @@ extern "C" {
  * for the endpoints and reconstruct a GhosttySelection from fresh snapshots
  * when needed.
  *
+ * Selection gestures provide a reusable state machine for turning UI pointer
+ * interactions into selection snapshots. A caller creates one
+ * GhosttySelectionGesture per active gesture stream, reuses typed
+ * GhosttySelectionGestureEvent objects for synthetic press, drag, release,
+ * autoscroll tick, and deep-press events, and applies each event with
+ * ghostty_selection_gesture_event(). The returned GhosttySelection is a
+ * snapshot; the embedder decides whether to render it, format/copy it, or
+ * install it as the terminal's active selection.
+ *
  * ## Examples
  *
  * @snippet c-vt-selection/src/main.c selection-main
+ * @snippet c-vt-selection-gesture/src/main.c selection-gesture-main
  *
  * @{
  */
+
+/**
+ * Opaque handle to state for interpreting terminal selection gestures.
+ *
+ * The gesture owns only the state required to interpret pointer events. Calls
+ * that use a gesture are not concurrency-safe and must be serialized with
+ * terminal mutations.
+ *
+ * @ingroup selection
+ */
+typedef struct GhosttySelectionGestureImpl* GhosttySelectionGesture;
+
+/**
+ * Opaque handle to reusable input data for selection gesture operations.
+ *
+ * Event options are set with ghostty_selection_gesture_event_set(). Individual
+ * gesture operations document which options are required or optional.
+ *
+ * @ingroup selection
+ */
+typedef struct GhosttySelectionGestureEventImpl* GhosttySelectionGestureEvent;
 
 /**
  * A snapshot selection range defined by two grid references.
@@ -282,6 +313,417 @@ typedef enum GHOSTTY_ENUM_TYPED {
 
   GHOSTTY_SELECTION_ADJUST_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttySelectionAdjust;
+
+/**
+ * Selection behavior chosen for a gesture's click sequence.
+ *
+ * @ingroup selection
+ */
+typedef enum GHOSTTY_ENUM_TYPED {
+  /** Cell-granular drag selection. */
+  GHOSTTY_SELECTION_GESTURE_BEHAVIOR_CELL = 0,
+
+  /** Word selection on press and word-granular drag selection. */
+  GHOSTTY_SELECTION_GESTURE_BEHAVIOR_WORD = 1,
+
+  /** Line selection on press and line-granular drag selection. */
+  GHOSTTY_SELECTION_GESTURE_BEHAVIOR_LINE = 2,
+
+  /** Semantic command output selection on press and drag. */
+  GHOSTTY_SELECTION_GESTURE_BEHAVIOR_OUTPUT = 3,
+
+  GHOSTTY_SELECTION_GESTURE_BEHAVIOR_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+} GhosttySelectionGestureBehavior;
+
+/**
+ * Selection behaviors for single-, double-, and triple-click gestures.
+ *
+ * @ingroup selection
+ */
+typedef struct {
+  /** Behavior for single-click selection gestures. */
+  GhosttySelectionGestureBehavior single_click;
+
+  /** Behavior for double-click selection gestures. */
+  GhosttySelectionGestureBehavior double_click;
+
+  /** Behavior for triple-click selection gestures. */
+  GhosttySelectionGestureBehavior triple_click;
+} GhosttySelectionGestureBehaviors;
+
+/**
+ * Display geometry used to interpret selection gesture drag events.
+ *
+ * @ingroup selection
+ */
+typedef struct {
+  /** Number of columns in the rendered terminal grid. Must be non-zero. */
+  uint32_t columns;
+
+  /** Width of one terminal cell in surface pixels. Must be non-zero. */
+  uint32_t cell_width;
+
+  /** Left padding before the terminal grid begins in surface pixels. */
+  uint32_t padding_left;
+
+  /** Height of the rendered terminal surface in surface pixels. Must be non-zero. */
+  uint32_t screen_height;
+} GhosttySelectionGestureGeometry;
+
+/**
+ * Current autoscroll direction for an active selection drag gesture.
+ *
+ * @ingroup selection
+ */
+typedef enum GHOSTTY_ENUM_TYPED {
+  /** No selection autoscroll is requested. */
+  GHOSTTY_SELECTION_GESTURE_AUTOSCROLL_NONE = 0,
+
+  /** Selection dragging should autoscroll the viewport upward. */
+  GHOSTTY_SELECTION_GESTURE_AUTOSCROLL_UP = 1,
+
+  /** Selection dragging should autoscroll the viewport downward. */
+  GHOSTTY_SELECTION_GESTURE_AUTOSCROLL_DOWN = 2,
+
+  GHOSTTY_SELECTION_GESTURE_AUTOSCROLL_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+} GhosttySelectionGestureAutoscroll;
+
+/**
+ * Data fields readable from a selection gesture with
+ * ghostty_selection_gesture_get().
+ *
+ * @ingroup selection
+ */
+typedef enum GHOSTTY_ENUM_TYPED {
+  /** Current click count: uint8_t*. 0 means inactive. */
+  GHOSTTY_SELECTION_GESTURE_DATA_CLICK_COUNT = 0,
+
+  /** Whether the current/last left-click gesture has dragged: bool*. */
+  GHOSTTY_SELECTION_GESTURE_DATA_DRAGGED = 1,
+
+  /** Current autoscroll request: GhosttySelectionGestureAutoscroll*. */
+  GHOSTTY_SELECTION_GESTURE_DATA_AUTOSCROLL = 2,
+
+  /** Current gesture behavior: GhosttySelectionGestureBehavior*. */
+  GHOSTTY_SELECTION_GESTURE_DATA_BEHAVIOR = 3,
+
+  /**
+   * Current left-click anchor: GhosttyGridRef*.
+   *
+   * Returns GHOSTTY_NO_VALUE if there is no valid active anchor. On success,
+   * writes an untracked GhosttyGridRef snapshot with normal GhosttyGridRef
+   * lifetime rules.
+   */
+  GHOSTTY_SELECTION_GESTURE_DATA_ANCHOR = 4,
+
+  GHOSTTY_SELECTION_GESTURE_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+} GhosttySelectionGestureData;
+
+/**
+ * Selection gesture event type.
+ *
+ * The event type is fixed when the event is created. Each event type documents
+ * which options are valid and which options are required by gesture operations.
+ *
+ * @ingroup selection
+ */
+typedef enum GHOSTTY_ENUM_TYPED {
+  /** Press event for ghostty_selection_gesture_event(). */
+  GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_PRESS = 0,
+
+  /** Release event for ghostty_selection_gesture_event(). */
+  GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_RELEASE = 1,
+
+  /** Drag event for ghostty_selection_gesture_event(). */
+  GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_DRAG = 2,
+
+  /** Autoscroll tick event for ghostty_selection_gesture_event(). */
+  GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_AUTOSCROLL_TICK = 3,
+
+  /** Deep press event for ghostty_selection_gesture_event(). */
+  GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_DEEP_PRESS = 4,
+
+  GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+} GhosttySelectionGestureEventType;
+
+/**
+ * Options stored on a reusable selection gesture event.
+ *
+ * Passing NULL as the value to ghostty_selection_gesture_event_set() clears the
+ * corresponding option.
+ *
+ * @ingroup selection
+ */
+typedef enum GHOSTTY_ENUM_TYPED {
+  /**
+   * Grid reference under the pointer: GhosttyGridRef*.
+   *
+   * Required for PRESS and DRAG events. Optional for RELEASE events; when unset
+   * or cleared, release records that the pointer did not map to a valid cell.
+   */
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REF = 0,
+
+  /**
+   * Surface-space pointer position: GhosttySurfacePosition*.
+   *
+   * Valid for PRESS, DRAG, and AUTOSCROLL_TICK.
+   */
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_POSITION = 1,
+
+  /** Maximum repeat-click distance in pixels: double*. */
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REPEAT_DISTANCE = 2,
+
+  /**
+   * Optional monotonic event time in nanoseconds: uint64_t*.
+   *
+   * If unset, press treats the event as untimed and only single-click behavior
+   * is available.
+   */
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_TIME_NS = 3,
+
+  /** Maximum interval between repeat clicks in nanoseconds: uint64_t*. */
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REPEAT_INTERVAL_NS = 4,
+
+  /**
+   * Word-boundary codepoints: GhosttyCodepoints*.
+   *
+   * The codepoints are copied into event-owned storage when set. If unset,
+   * operations that need word boundaries use Ghostty's defaults.
+   *
+   * Valid for PRESS, DRAG, AUTOSCROLL_TICK, and DEEP_PRESS.
+   */
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_WORD_BOUNDARY_CODEPOINTS = 5,
+
+  /**
+   * Selection behavior table: GhosttySelectionGestureBehaviors*.
+   *
+   * If unset, press uses the default behavior table: cell, word, line.
+   */
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_BEHAVIORS = 6,
+
+  /** Whether a drag or autoscroll tick should produce a rectangular selection: bool*. */
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_RECTANGLE = 7,
+
+  /** Drag display geometry: GhosttySelectionGestureGeometry*. Required for DRAG and AUTOSCROLL_TICK. */
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_GEOMETRY = 8,
+
+  /** Viewport coordinate for an autoscroll tick: GhosttyPointCoordinate*. Required for AUTOSCROLL_TICK. */
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_VIEWPORT = 9,
+
+  GHOSTTY_SELECTION_GESTURE_EVENT_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+} GhosttySelectionGestureEventOption;
+
+/**
+ * Create a reusable selection gesture event object.
+ *
+ * @param allocator Allocator, or NULL for the default allocator
+ * @param out_event Receives the created event handle
+ * @param type Event type. This is fixed for the lifetime of the event.
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if out_event is
+ *         NULL or type is invalid, or GHOSTTY_OUT_OF_MEMORY if allocation fails
+ *
+ * @ingroup selection
+ */
+GHOSTTY_API GhosttyResult ghostty_selection_gesture_event_new(
+                                    const GhosttyAllocator* allocator,
+                                    GhosttySelectionGestureEvent* out_event,
+                                    GhosttySelectionGestureEventType type);
+
+/**
+ * Free a selection gesture event object.
+ *
+ * Passing NULL is allowed and is a no-op.
+ *
+ * @param event Selection gesture event handle to free
+ *
+ * @ingroup selection
+ */
+GHOSTTY_API void ghostty_selection_gesture_event_free(
+                                    GhosttySelectionGestureEvent event);
+
+/**
+ * Set or clear an option on a selection gesture event.
+ *
+ * The value type depends on option and is documented by
+ * GhosttySelectionGestureEventOption. Passing NULL for value clears the option.
+ *
+ * @param event Selection gesture event handle (NULL returns GHOSTTY_INVALID_VALUE)
+ * @param option Event option to set or clear
+ * @param value Pointer to the input value for option, or NULL to clear
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY if copying
+ *         event-owned data fails, or GHOSTTY_INVALID_VALUE if event, option, or
+ *         value is invalid
+ *
+ * @ingroup selection
+ */
+GHOSTTY_API GhosttyResult ghostty_selection_gesture_event_set(
+                                    GhosttySelectionGestureEvent event,
+                                    GhosttySelectionGestureEventOption option,
+                                    const void* value);
+
+/**
+ * Apply a selection gesture event and return the resulting selection snapshot.
+ *
+ * This dispatches to the gesture operation matching the event's fixed type.
+ * For GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_PRESS, the event must have
+ * GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REF set before calling this function.
+ * All other press options use their initialized defaults when unset or cleared.
+ *
+ * For GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_RELEASE, only
+ * GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REF is valid. It is optional; if unset or
+ * cleared, release records that the pointer did not map to a valid cell. Release
+ * events update gesture state but do not produce a selection, so this function
+ * returns GHOSTTY_NO_VALUE after applying them.
+ *
+ * For GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_DRAG,
+ * GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REF and
+ * GHOSTTY_SELECTION_GESTURE_EVENT_OPT_GEOMETRY are required. Position,
+ * rectangle, and word-boundary codepoints are optional and use initialized
+ * defaults when unset or cleared.
+ *
+ * For GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_AUTOSCROLL_TICK,
+ * GHOSTTY_SELECTION_GESTURE_EVENT_OPT_VIEWPORT and
+ * GHOSTTY_SELECTION_GESTURE_EVENT_OPT_GEOMETRY are required. Position,
+ * rectangle, and word-boundary codepoints are optional and use initialized
+ * defaults when unset or cleared.
+ *
+ * For GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_DEEP_PRESS, only
+ * GHOSTTY_SELECTION_GESTURE_EVENT_OPT_WORD_BOUNDARY_CODEPOINTS is valid. It is
+ * optional and uses initialized defaults when unset or cleared.
+ *
+ * The returned selection is not installed as the terminal's current selection.
+ * It is a snapshot with the same lifetime rules as GhosttySelection.
+ *
+ * @param gesture Selection gesture handle (NULL returns GHOSTTY_INVALID_VALUE)
+ * @param terminal Terminal used to interpret and update gesture state
+ * @param event Selection gesture event handle (NULL returns GHOSTTY_INVALID_VALUE)
+ * @param[out] out_selection On success, receives the resulting selection. May
+ *             be NULL to apply the event and discard the selection result.
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if the event does not
+ *         currently produce a selection, GHOSTTY_OUT_OF_MEMORY if tracking
+ *         gesture state fails, or GHOSTTY_INVALID_VALUE if gesture, terminal,
+ *         event, or required event data is invalid
+ *
+ * @ingroup selection
+ */
+GHOSTTY_API GhosttyResult ghostty_selection_gesture_event(
+                                    GhosttySelectionGesture gesture,
+                                    GhosttyTerminal terminal,
+                                    GhosttySelectionGestureEvent event,
+                                    GhosttySelection* out_selection);
+
+/**
+ * Create a selection gesture object.
+ *
+ * The gesture stores mutable state for terminal text selection gestures. The
+ * gesture is not bound to a terminal at creation time; terminal-dependent APIs
+ * take the terminal explicitly.
+ *
+ * @param allocator Allocator, or NULL for the default allocator
+ * @param out_gesture Receives the created gesture handle
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if out_gesture is
+ *         NULL, or GHOSTTY_OUT_OF_MEMORY if allocation fails
+ *
+ * @ingroup selection
+ */
+GHOSTTY_API GhosttyResult ghostty_selection_gesture_new(
+                                    const GhosttyAllocator* allocator,
+                                    GhosttySelectionGesture* out_gesture);
+
+/**
+ * Free a selection gesture object.
+ *
+ * This releases any tracked terminal references owned by the gesture using the
+ * provided terminal, then frees the gesture object. Passing NULL for gesture is
+ * allowed and is a no-op.
+ *
+ * If the terminal is still alive, pass the terminal most recently used with the
+ * gesture so any tracked terminal references can be released correctly. If the
+ * terminal has already been freed, pass NULL for terminal; the terminal's page
+ * storage has already released the underlying tracked references, so the
+ * gesture wrapper can be safely discarded without touching the stale terminal
+ * state.
+ *
+ * @param gesture Selection gesture handle to free
+ * @param terminal Terminal used to release tracked gesture state, or NULL if
+ *                 the terminal has already been freed
+ *
+ * @ingroup selection
+ */
+GHOSTTY_API void ghostty_selection_gesture_free(
+                                    GhosttySelectionGesture gesture,
+                                    GhosttyTerminal terminal);
+
+/**
+ * Reset any active selection gesture state.
+ *
+ * This cancels the active click sequence and releases any tracked terminal
+ * references owned by the gesture without freeing the gesture object.
+ * Passing NULL is allowed and is a no-op.
+ *
+ * @param gesture Selection gesture handle to reset
+ * @param terminal Terminal used to release tracked gesture state
+ *
+ * @ingroup selection
+ */
+GHOSTTY_API void ghostty_selection_gesture_reset(
+                                    GhosttySelectionGesture gesture,
+                                    GhosttyTerminal terminal);
+
+/**
+ * Read data from a selection gesture.
+ *
+ * The type of value depends on data and is documented by
+ * GhosttySelectionGestureData. For GHOSTTY_SELECTION_GESTURE_DATA_ANCHOR,
+ * the returned GhosttyGridRef is an untracked snapshot with normal grid-ref
+ * lifetime rules.
+ *
+ * @param gesture Selection gesture handle (NULL returns GHOSTTY_INVALID_VALUE)
+ * @param terminal Terminal used to validate terminal-backed gesture state
+ * @param data Data field to read
+ * @param value Output pointer whose type depends on data
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if the requested data
+ *         has no value, or GHOSTTY_INVALID_VALUE if gesture, terminal, data, or
+ *         value is invalid
+ *
+ * @ingroup selection
+ */
+GHOSTTY_API GhosttyResult ghostty_selection_gesture_get(
+                                    GhosttySelectionGesture gesture,
+                                    GhosttyTerminal terminal,
+                                    GhosttySelectionGestureData data,
+                                    void* value);
+
+/**
+ * Read multiple data fields from a selection gesture in a single call.
+ *
+ * This is an optimization over calling ghostty_selection_gesture_get() multiple
+ * times. Each entry in values must point to storage of the type documented by
+ * the corresponding GhosttySelectionGestureData key.
+ *
+ * If any individual read fails, the function returns that error and writes the
+ * index of the failing key to out_written when out_written is non-NULL. On
+ * success, out_written receives count when non-NULL.
+ *
+ * @param gesture Selection gesture handle (NULL returns GHOSTTY_INVALID_VALUE)
+ * @param terminal Terminal used to validate terminal-backed gesture state
+ * @param count Number of data fields to read
+ * @param keys Data fields to read (must not be NULL)
+ * @param values Output pointers corresponding to keys (must not be NULL)
+ * @param out_written Optional number of fields read, or failing index on error
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_NO_VALUE if a requested data
+ *         field has no value, or GHOSTTY_INVALID_VALUE if gesture, terminal,
+ *         keys, values, or a value pointer is invalid
+ *
+ * @ingroup selection
+ */
+GHOSTTY_API GhosttyResult ghostty_selection_gesture_get_multi(
+                                    GhosttySelectionGesture gesture,
+                                    GhosttyTerminal terminal,
+                                    size_t count,
+                                    const GhosttySelectionGestureData* keys,
+                                    void** values,
+                                    size_t* out_written);
 
 /**
  * Derive a word selection snapshot from a terminal grid reference.

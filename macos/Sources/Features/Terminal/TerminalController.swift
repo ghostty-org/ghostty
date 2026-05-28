@@ -1410,9 +1410,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // We also want to get notified of certain changes to update our appearance.
         focusedSurface.$derivedConfig
+            .dropFirst()
             .sink { [weak self, weak focusedSurface] _ in self?.syncAppearanceOnPropertyChange(focusedSurface) }
             .store(in: &surfaceAppearanceCancellables)
         focusedSurface.$backgroundColor
+            .dropFirst()
             .sink { [weak self, weak focusedSurface] _ in self?.syncAppearanceOnPropertyChange(focusedSurface) }
             .store(in: &surfaceAppearanceCancellables)
     }

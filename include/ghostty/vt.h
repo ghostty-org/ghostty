@@ -104,6 +104,11 @@
  * detect when it loses its value, and move it to a new point.
  */
 
+/** @example c-vt-selection-gesture/src/main.c
+ * This example demonstrates how to use synthetic selection gesture events to
+ * derive drag and deep-press selection snapshots.
+ */
+
 /** @example c-vt-kitty-graphics/src/main.c
  * This example demonstrates how to use the system interface to install a
  * PNG decoder callback and send a Kitty Graphics Protocol image.

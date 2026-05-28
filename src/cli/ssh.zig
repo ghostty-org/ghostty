@@ -302,7 +302,7 @@ fn runInner(
 
     // Attempt to cache (if needed) on a successful ssh execution.
     if (exit_code == 0) if (session.to_cache) |entry| {
-        if (entry.cache.add(alloc, entry.dest)) |_| {
+        if (entry.cache.add(alloc, entry.dest, std.time.timestamp())) |_| {
             verbosePrint(opts, stderr, "cache: wrote {s}", .{entry.dest});
         } else |err| {
             log.debug("cache add failed for '{s}': {}", .{ entry.dest, err });
