@@ -320,7 +320,9 @@ jobs:
             --notes-start-tag "${{ steps.notes.outputs.start_tag }}" \
             --notes "Based on upstream Ghostty ${{ steps.version.outputs.base_version }}.
 
-          Additional release notes: ${{ steps.gist.outputs.url }}
+          Links:
+          - [macOS arm64 app zip](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/ghostty-macos-arm64-${{ steps.version.outputs.version }}.zip)
+          - [Additional release notes](${{ steps.gist.outputs.url }})
 
           Built from commit \`${{ steps.version.outputs.commit_long }}\`."
 
