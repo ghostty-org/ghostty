@@ -163,8 +163,13 @@ pub const GlobalState = struct {
         // affects a lot of behaviors in a shell.
         try internal_os.ensureLocale(self.alloc);
 
-        // Initialize glslang for shader compilation
-        try glslang.init();
+        // Initialize glslang for shader compilation. The `WithAtexit`
+        // variant also registers a process-exit cleanup that frees
+        // glslang's thread-local TPoolAllocator on the GUI thread —
+        // the user's custom-shader compile path allocates ~6 MB into
+        // that pool over the process lifetime, and there is no
+        // FinalizeThread hook in glslang's C API.
+        try glslang.initWithAtexit();
 
         // Initialize oniguruma for regex
         try oni.init(&.{oni.Encoding.utf8});
