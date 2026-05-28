@@ -216,7 +216,24 @@ jobs:
             file.puts "Compared with `ghostty-org/ghostty` at `#{ENV.fetch("BASE_REF")}`."
             file.puts "Built from commit `#{ENV.fetch("COMMIT_LONG")}`."
             file.puts
-            file.puts "## macOS cssh launch mode"
+            file.puts "---"
+            file.puts
+            file.puts "## User-facing options and actions"
+            file.puts
+            file.puts "| Option or action | What it does |"
+            file.puts "| --- | --- |"
+            file.puts "| `ghostty +cssh host1 host2 ...` | Opens one macOS window split across the requested SSH hosts. |"
+            file.puts "| `--hosts-file`, `--host-file`, `-f` | Adds cssh hosts from a newline- or comma-separated file. |"
+            file.puts "| `toggle_broadcast` | Sends keyboard input from the focused terminal to the other visible terminals in the same tab. |"
+            file.puts "| `prompt_surface_badge` | Opens a prompt for setting a badge on the focused terminal pane. |"
+            file.puts "| `set_surface_badge:<text>` | Sets or clears the focused terminal pane badge from a keybind. |"
+            file.puts "| Double-click tab title | Edits the tab title in the native tab bar or vertical tab sidebar. |"
+            file.puts
+            file.puts "---"
+            file.puts
+            file.puts "## Feature details"
+            file.puts
+            file.puts "### macOS cssh launch mode"
             file.puts
             file.puts "Run `ghostty +cssh host1 host2 ...` to open one macOS window split across the requested SSH hosts."
             file.puts
@@ -224,7 +241,7 @@ jobs:
             file.puts
             file.puts "The cssh window starts with broadcast input enabled, sets the tab title to `cssh`, and labels each terminal pane with the host name. cssh launches skip normal saved-state restoration and do not save a restorable app session."
             file.puts
-            file.puts "## Broadcast input"
+            file.puts "### Broadcast input"
             file.puts
             file.puts "`toggle_broadcast` toggles broadcast input for the current visible terminal tab. When enabled, keyboard input sent to the focused terminal is also sent to the other visible terminals in the same tab."
             file.puts
@@ -232,7 +249,7 @@ jobs:
             file.puts
             file.puts "Broadcast mode is available from the terminal context menu as `Terminal Broadcast Input`, and it shows a badge and optional stripe while active."
             file.puts
-            file.puts "## Per-terminal badges"
+            file.puts "### Per-terminal badges"
             file.puts
             file.puts "`prompt_surface_badge` opens a prompt to set a badge for the focused terminal pane. `set_surface_badge:<text>` sets it directly from a keybind."
             file.puts
@@ -240,25 +257,27 @@ jobs:
             file.puts
             file.puts "The same feature is available from the terminal context menu as `Set Terminal Badge...`."
             file.puts
-            file.puts "## Vertical tab sidebar"
+            file.puts "### Vertical tab sidebar"
             file.puts
             file.puts "`macos-tabs-location = left` and `macos-tabs-location = right` replace the native macOS tab bar with a vertical sidebar."
             file.puts
             file.puts "The sidebar supports selecting tabs, closing tabs on hover, creating new tabs from the footer button, resizing the sidebar, and using the tab context menu to rename, clear a custom title, or close a tab."
             file.puts
-            file.puts "## Tab title editing"
+            file.puts "### Tab title editing"
             file.puts
             file.puts "On macOS, double-click a tab title in either the native tab bar or the vertical tab sidebar to edit that tab's title. Press Return to save the custom title, or Escape to cancel editing."
             file.puts
             file.puts "Submitting an empty title clears the custom title and restores the default title reported by the terminal."
             file.puts
-            file.puts "## Session history restore"
+            file.puts "### Session history restore"
             file.puts
             file.puts "When `session-history-dir` is configured, macOS saves a Ghostty session manifest plus per-surface plaintext scrollback history into that directory."
             file.puts
             file.puts "On launch, Ghostty can restore the saved window, tab, split, focused-surface, custom-title, tab-color, and scrollback state from that session data. Closing a restored tab removes the saved history files for surfaces in that tab."
             file.puts
-            file.puts "## Config additions"
+            file.puts "---"
+            file.puts
+            file.puts "## Config options added"
             file.puts
 
             if added.empty?
@@ -266,10 +285,19 @@ jobs:
               next
             end
 
+            file.puts "| Config option |"
+            file.puts "| --- |"
+            added.each do |name|
+              file.puts "| `#{name}` |"
+            end
+            file.puts
+            file.puts "### Config option details"
+            file.puts
+
             added.each do |name|
               details = current.fetch(name)
 
-              file.puts "### `#{name}`"
+              file.puts "#### `#{name}`"
               file.puts
               if details[:inherited_from]
                 file.puts "Shares documentation with `#{details[:inherited_from]}`."
