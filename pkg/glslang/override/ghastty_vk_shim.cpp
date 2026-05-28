@@ -249,34 +249,29 @@ extern "C" void ghastty_glslang_finalize_process(void) {
         std::lock_guard<std::mutex> lg(spv_cache_mutex());
         spv_cache().clear();
     }
-    // Release glslang's process-wide shared state FIRST. This deletes
+
+    // Release glslang's process-wide shared state. This deletes
     // SharedSymbolTables[v][s][p][src][stage] entries that hold
-    // pointers INTO the thread pool; we want their dtors to run
-    // while the pool memory is still live.
+    // pointers into per-thread pools, so it must run while those
+    // pools are still live (i.e. before any of them are freed).
     glslang::FinalizeProcess();
 
-    // Now destroy this thread's TPoolAllocator entirely. popAll()
-    // alone is insufficient — it returns pages to glslang's
-    // internal free list but never gives them back to the system
-    // allocator (verified empirically: heaptrack total leaked
-    // unchanged after popAll). The pool is `new`-allocated in
-    // glslang::InitializeThreadPoolAllocator, so `delete` calls
-    // ~TPoolAllocator which `free()`s every page.
+    // NOTE: We deliberately do NOT `delete &GetThreadPoolAllocator()`
+    // to give the GUI thread's pool pages back to the system
+    // allocator. Empirically that path SIGSEGVs at exit on this
+    // build: `~TPoolAllocator` walks the pool's internal page list,
+    // and `FinalizeProcess()` above has left at least one entry in
+    // that list dangling (likely a page that SharedSymbolTable
+    // teardown freed independently). A prior comment in this file
+    // claimed `delete pool` was safe at this point and would reclaim
+    // ~6 MB of heaptrack-attributed leak — that claim was wrong (or
+    // matched an older glslang version). Removing the delete trades
+    // a real crash on every clean exit for a benign at-exit leak
+    // that the OS reclaims on process teardown. The pool pages still
+    // show up in heaptrack's leak report; that is accepted.
     //
-    // heaptrack pointed the ~12 MB glslang leak at
-    // TPoolAllocator::allocate calls rooted in
-    // shadertoy.spirvFromGlsl on the GUI thread (since
-    // ghostty_surface_new runs glslang synchronously from
-    // MainWindow::newTab) — that pool's pages persist until the
-    // GUI thread exits, but a Qt app's GUI thread only exits at
-    // process termination, after atexit. Manual delete here gives
-    // the pages back before exit.
-    //
-    // Safe at atexit because every renderer thread has joined
-    // via Vulkan.threadExit (their pools are independent
-    // threadlocals already cleaned up), the SPV cache was just
-    // cleared, and FinalizeProcess just ran.
-    glslang::TPoolAllocator* pool = &glslang::GetThreadPoolAllocator();
-    glslang::SetThreadPoolAllocator(nullptr);
-    delete pool;
+    // The reverse order (delete pool BEFORE FinalizeProcess) is not
+    // a viable workaround either: FinalizeProcess would then read
+    // SharedSymbolTable entries whose backing pool memory has been
+    // freed — UB the other way around.
 }
