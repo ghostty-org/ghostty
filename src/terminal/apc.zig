@@ -10,7 +10,15 @@ const log = std.log.scoped(.terminal_apc);
 /// The start/feed/end functions are meant to be called from the terminal.Stream
 /// apcStart, apcPut, and apcEnd functions, respectively.
 pub const Handler = struct {
-    state: State = .{ .inactive = {} },
+    state: State = .inactive,
+
+    /// Maximum bytes each APC protocol can buffer. This is to prevent
+    /// malicious input from causing us to allocate too much memory.
+    /// If you want to be lazy and set a single value for all protocols,
+    /// use `.initFull`.
+    max_bytes: std.EnumMap(Protocol, usize) = .initFullWith(.{
+        .kitty = Protocol.defaultMaxBytes(.kitty),
+    }),
 
     pub fn deinit(self: *Handler) void {
         self.state.deinit();
@@ -34,19 +42,24 @@ pub const Handler = struct {
                 switch (byte) {
                     // Kitty graphics protocol
                     'G' => self.state = if (comptime build_options.kitty_graphics)
-                        .{ .kitty = kitty_gfx.CommandParser.init(alloc) }
+                        .{ .kitty = .init(
+                            alloc,
+                            self.max_bytes.get(.kitty) orelse
+                                Protocol.defaultMaxBytes(.kitty),
+                        ) }
                     else
-                        .{ .ignore = {} },
+                        .ignore,
 
                     // Unknown
-                    else => self.state = .{ .ignore = {} },
+                    else => self.state = .ignore,
                 }
             },
 
             .kitty => |*p| if (comptime build_options.kitty_graphics) {
                 p.feed(byte) catch |err| {
                     log.warn("kitty graphics protocol error: {}", .{err});
-                    self.state = .{ .ignore = {} };
+                    p.deinit();
+                    self.state = .ignore;
                 };
             } else unreachable,
         }
@@ -55,7 +68,7 @@ pub const Handler = struct {
     pub fn end(self: *Handler) ?Command {
         defer {
             self.state.deinit();
-            self.state = .{ .inactive = {} };
+            self.state = .inactive;
         }
 
         return switch (self.state) {
@@ -106,8 +119,22 @@ pub const State = union(enum) {
     }
 };
 
+/// Possible APC command types.
+pub const Protocol = enum {
+    kitty,
+
+    /// Returns the default maximum bytes for the given protocol.
+    pub fn defaultMaxBytes(self: Protocol) usize {
+        return switch (self) {
+            // Kitty graphics payloads can be very large (e.g. full images
+            // encoded as base64), so the default is set to 65 MiB.
+            .kitty => 65 * 1024 * 1024,
+        };
+    }
+};
+
 /// Possible APC commands.
-pub const Command = union(enum) {
+pub const Command = union(Protocol) {
     kitty: if (build_options.kitty_graphics)
         kitty_gfx.Command
     else
@@ -167,6 +194,41 @@ test "Kitty command with overflow i32" {
     h.start();
     for ("Ga=p,i=1,z=-9999999999") |c| h.feed(alloc, c);
     try testing.expect(h.end() == null);
+}
+
+test "kitty feed error deinits parser" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Feed a valid kitty command start to allocate parser state, then
+    // trigger an error during feed via an integer overflow. The testing
+    // allocator will detect leaks if deinit is not called.
+    var h: Handler = .{};
+    defer h.deinit();
+    h.start();
+    for ("Ga=p,i=10000000000;") |c| h.feed(alloc, c);
+    try testing.expect(h.state == .ignore);
+}
+
+test "kitty max bytes exceeded" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var h: Handler = .{ .max_bytes = .init(.{ .kitty = 4 }) };
+    defer h.deinit();
+    h.start();
+    // 'G' identifies kitty, 'a=t;' moves to data state, then feed exceeds max_bytes.
+    for ("Ga=t;") |c| h.feed(alloc, c);
+    try testing.expect(h.state != .ignore);
+    for ("abcd") |c| h.feed(alloc, c);
+    try testing.expect(h.state != .ignore);
+    // The 5th data byte exceeds the 4-byte limit.
+    h.feed(alloc, 'e');
+    try testing.expect(h.state == .ignore);
 }
 
 test "valid Kitty command" {

@@ -76,7 +76,6 @@
         .opengl = .{ .path = "./pkg/opengl", .lazy = true },
         .sentry = .{ .path = "./pkg/sentry", .lazy = true },
         .simdutf = .{ .path = "./pkg/simdutf", .lazy = true },
-        .utfcpp = .{ .path = "./pkg/utfcpp", .lazy = true },
         .wuffs = .{ .path = "./pkg/wuffs", .lazy = true },
         .zlib = .{ .path = "./pkg/zlib", .lazy = true },
 
@@ -117,8 +116,8 @@
         .apple_sdk = .{ .path = "./pkg/apple-sdk" },
         .android_ndk = .{ .path = "./pkg/android-ndk" },
         .iterm2_themes = .{
-            .url = "https://deps.files.ghostty.org/ghostty-themes-release-20260216-151611-fc73ce3.tgz",
-            .hash = "N-V-__8AABVbAwBwDRyZONfx553tvMW8_A2OKUoLzPUSRiLF",
+            .url = "https://deps.files.ghostty.org/ghostty-themes-release-20260511-160054-2671288.tgz",
+            .hash = "N-V-__8AAPy1AwDnEoq1ww42uq58nusIeQgR16W4-5SQZFIM",
             .lazy = true,
         },
     },

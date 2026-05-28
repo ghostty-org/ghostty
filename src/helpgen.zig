@@ -12,7 +12,7 @@ pub fn main() !void {
     const alloc = gpa.allocator();
 
     var buf: [4096]u8 = undefined;
-    var stdout = std.fs.File.stdout().writer(&buf);
+    var stdout = std.fs.File.stdout().writerStreaming(&buf);
     const writer = &stdout.interface;
     try writer.writeAll(
         \\// THIS FILE IS AUTO GENERATED

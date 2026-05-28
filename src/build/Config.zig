@@ -38,6 +38,7 @@ wasm_shared: bool = true,
 /// Ghostty exe properties
 exe_entrypoint: ExeEntrypoint = .ghostty,
 version: std.SemanticVersion = .{ .major = 0, .minor = 0, .patch = 0 },
+lib_version: std.SemanticVersion = .{ .major = 0, .minor = 0, .patch = 0 },
 
 /// Binary properties
 pie: bool = false,
@@ -68,7 +69,7 @@ is_dep: bool = false,
 /// Environmental properties
 env: std.process.EnvMap,
 
-pub fn init(b: *std.Build, appVersion: []const u8) !Config {
+pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Config {
     // Setup our standard Zig target and optimize options, i.e.
     // `-Doptimize` and `-Dtarget`.
     const optimize = b.standardOptimizeOption(.{});
@@ -81,6 +82,19 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
             builtin.target.os.tag.isDarwin())
         {
             result = genericMacOSTarget(b, result.query.cpu_arch);
+        }
+
+        // On Windows, default to the MSVC ABI so that produced COFF
+        // objects (including compiler_rt) are compatible with the MSVC
+        // linker. Zig defaults to the GNU ABI which produces objects
+        // with invalid COMDAT sections that MSVC rejects (LNK1143).
+        // Only override when no explicit ABI was requested.
+        if (result.result.os.tag == .windows and
+            result.query.abi == null)
+        {
+            var query = result.query;
+            query.abi = .msvc;
+            result = b.resolveTargetQuery(query);
         }
 
         // If we have no minimum OS version, we set the default based on
@@ -281,6 +295,20 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
         };
     };
 
+    // libghostty-vt properties
+
+    const lib_version_string = b.option(
+        []const u8,
+        "lib-version-string",
+        "A specific version string to use for the build of libghostty-vt. " ++
+            "If not specified, git will be used. This must be a semantic version.",
+    );
+
+    config.lib_version = if (lib_version_string) |v|
+        try std.SemanticVersion.parse(v)
+    else
+        try std.SemanticVersion.parse(libVersion);
+
     //---------------------------------------------------------------
     // Binary Properties
 
@@ -416,13 +444,22 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
         bool,
         "emit-xcframework",
         "Build and install the xcframework for the macOS library.",
-    ) orelse !config.emit_lib_vt and
-        builtin.target.os.tag.isDarwin() and
-        target.result.os.tag == .macos and
-        config.app_runtime == .none and
-        (!config.emit_bench and
-            !config.emit_test_exe and
-            !config.emit_helpgen);
+    ) orelse emit_xcfw: {
+        if (!builtin.target.os.tag.isDarwin() or target.result.os.tag != .macos)
+            break :emit_xcfw false;
+        if (config.emit_lib_vt) {
+            // In lib-vt mode default to whether xcodebuild is available,
+            // since xcodebuild is required to produce the XCFramework.
+            const path = expandPath(b.allocator, "xcodebuild") catch
+                break :emit_xcfw false;
+            defer if (path) |p| b.allocator.free(p);
+            break :emit_xcfw path != null;
+        }
+        break :emit_xcfw config.app_runtime == .none and
+            (!config.emit_bench and
+                !config.emit_test_exe and
+                !config.emit_helpgen);
+    };
 
     config.emit_macos_app = b.option(
         bool,
@@ -506,12 +543,19 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     // Our version. We also add the string version so we don't need
     // to do any allocations at runtime. This has to be long enough to
     // accommodate realistic large branch names for dev versions.
-    var buf: [1024]u8 = undefined;
+    var app_version_buf: [1024]u8 = undefined;
     step.addOption(std.SemanticVersion, "app_version", self.version);
     step.addOption([:0]const u8, "app_version_string", try std.fmt.bufPrintZ(
-        &buf,
+        &app_version_buf,
         "{f}",
         .{self.version},
+    ));
+    var lib_version_buf: [1024]u8 = undefined;
+    step.addOption(std.SemanticVersion, "lib_version", self.lib_version);
+    step.addOption([:0]const u8, "lib_version_string", try std.fmt.bufPrintZ(
+        &lib_version_buf,
+        "{f}",
+        .{self.lib_version},
     ));
     step.addOption(
         ReleaseChannel,
@@ -526,12 +570,16 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
 
 /// Returns the build options for the terminal module. This assumes a
 /// Ghostty executable being built. Callers should modify this as needed.
-pub fn terminalOptions(self: *const Config) TerminalBuildOptions {
+pub fn terminalOptions(self: *const Config, artifact: TerminalBuildOptions.Artifact) TerminalBuildOptions {
     return .{
-        .artifact = .ghostty,
+        .artifact = artifact,
         .simd = self.simd,
         .oniguruma = true,
         .c_abi = false,
+        .version = switch (artifact) {
+            .ghostty => self.version,
+            .lib => self.lib_version,
+        },
         .slow_runtime_safety = switch (self.optimize) {
             .Debug => true,
             .ReleaseSafe,

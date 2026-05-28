@@ -19,6 +19,24 @@ const builtin = @import("builtin");
 // or are too Ghostty-internal.
 const terminal = @import("terminal/main.zig");
 
+/// System interface for the terminal package.
+///
+/// This module provides runtime-swappable function pointers for operations
+/// that depend on external implementations. Embedders can use this to
+/// provide or override default behaviors. These must be set at startup
+/// before any terminal functionality is used.
+///
+/// This lets libghostty-vt have no runtime dependencies on external
+/// libraries, while still allowing rich functionality that may require
+/// external libraries (e.g. image decoding or regular expresssions).
+///
+/// Setting these will enable various features of the terminal package.
+/// For example, setting a PNG decoder will enable support for PNG images in
+/// the Kitty Graphics Protocol.
+///
+/// Additional functionality will be added here over time as needed.
+pub const sys = terminal.sys;
+
 pub const apc = terminal.apc;
 pub const dcs = terminal.dcs;
 pub const osc = terminal.osc;
@@ -58,10 +76,9 @@ pub const SizeReportStyle = terminal.SizeReportStyle;
 pub const StringMap = terminal.StringMap;
 pub const Style = terminal.Style;
 pub const Terminal = terminal.Terminal;
+pub const TerminalStream = terminal.TerminalStream;
 pub const Stream = terminal.Stream;
 pub const StreamAction = terminal.StreamAction;
-pub const ReadonlyStream = terminal.ReadonlyStream;
-pub const ReadonlyHandler = terminal.ReadonlyHandler;
 pub const Cursor = Screen.Cursor;
 pub const CursorStyle = Screen.CursorStyle;
 pub const CursorStyleReq = terminal.CursorStyle;
@@ -168,11 +185,16 @@ comptime {
         @export(&c.focus_encode, .{ .name = "ghostty_focus_encode" });
         @export(&c.mode_report_encode, .{ .name = "ghostty_mode_report_encode" });
         @export(&c.paste_is_safe, .{ .name = "ghostty_paste_is_safe" });
+        @export(&c.paste_encode, .{ .name = "ghostty_paste_encode" });
         @export(&c.size_report_encode, .{ .name = "ghostty_size_report_encode" });
         @export(&c.style_default, .{ .name = "ghostty_style_default" });
         @export(&c.style_is_default, .{ .name = "ghostty_style_is_default" });
+        @export(&c.sys_log_stderr, .{ .name = "ghostty_sys_log_stderr" });
+        @export(&c.sys_set, .{ .name = "ghostty_sys_set" });
         @export(&c.cell_get, .{ .name = "ghostty_cell_get" });
+        @export(&c.cell_get_multi, .{ .name = "ghostty_cell_get_multi" });
         @export(&c.row_get, .{ .name = "ghostty_row_get" });
+        @export(&c.row_get_multi, .{ .name = "ghostty_row_get_multi" });
         @export(&c.color_rgb_get, .{ .name = "ghostty_color_rgb_get" });
         @export(&c.sgr_new, .{ .name = "ghostty_sgr_new" });
         @export(&c.sgr_free, .{ .name = "ghostty_sgr_free" });
@@ -187,37 +209,90 @@ comptime {
         @export(&c.formatter_format_buf, .{ .name = "ghostty_formatter_format_buf" });
         @export(&c.formatter_format_alloc, .{ .name = "ghostty_formatter_format_alloc" });
         @export(&c.formatter_free, .{ .name = "ghostty_formatter_free" });
+        @export(&c.terminal_selection_format_buf, .{ .name = "ghostty_terminal_selection_format_buf" });
+        @export(&c.terminal_selection_format_alloc, .{ .name = "ghostty_terminal_selection_format_alloc" });
         @export(&c.render_state_new, .{ .name = "ghostty_render_state_new" });
         @export(&c.render_state_update, .{ .name = "ghostty_render_state_update" });
         @export(&c.render_state_get, .{ .name = "ghostty_render_state_get" });
+        @export(&c.render_state_get_multi, .{ .name = "ghostty_render_state_get_multi" });
         @export(&c.render_state_set, .{ .name = "ghostty_render_state_set" });
         @export(&c.render_state_colors_get, .{ .name = "ghostty_render_state_colors_get" });
         @export(&c.render_state_row_iterator_new, .{ .name = "ghostty_render_state_row_iterator_new" });
         @export(&c.render_state_row_iterator_next, .{ .name = "ghostty_render_state_row_iterator_next" });
         @export(&c.render_state_row_get, .{ .name = "ghostty_render_state_row_get" });
+        @export(&c.render_state_row_get_multi, .{ .name = "ghostty_render_state_row_get_multi" });
         @export(&c.render_state_row_set, .{ .name = "ghostty_render_state_row_set" });
         @export(&c.render_state_row_iterator_free, .{ .name = "ghostty_render_state_row_iterator_free" });
         @export(&c.render_state_row_cells_new, .{ .name = "ghostty_render_state_row_cells_new" });
         @export(&c.render_state_row_cells_next, .{ .name = "ghostty_render_state_row_cells_next" });
         @export(&c.render_state_row_cells_select, .{ .name = "ghostty_render_state_row_cells_select" });
         @export(&c.render_state_row_cells_get, .{ .name = "ghostty_render_state_row_cells_get" });
+        @export(&c.render_state_row_cells_get_multi, .{ .name = "ghostty_render_state_row_cells_get_multi" });
         @export(&c.render_state_row_cells_free, .{ .name = "ghostty_render_state_row_cells_free" });
         @export(&c.render_state_free, .{ .name = "ghostty_render_state_free" });
         @export(&c.terminal_new, .{ .name = "ghostty_terminal_new" });
         @export(&c.terminal_free, .{ .name = "ghostty_terminal_free" });
         @export(&c.terminal_reset, .{ .name = "ghostty_terminal_reset" });
         @export(&c.terminal_resize, .{ .name = "ghostty_terminal_resize" });
+        @export(&c.terminal_set, .{ .name = "ghostty_terminal_set" });
         @export(&c.terminal_vt_write, .{ .name = "ghostty_terminal_vt_write" });
         @export(&c.terminal_scroll_viewport, .{ .name = "ghostty_terminal_scroll_viewport" });
         @export(&c.terminal_mode_get, .{ .name = "ghostty_terminal_mode_get" });
         @export(&c.terminal_mode_set, .{ .name = "ghostty_terminal_mode_set" });
         @export(&c.terminal_get, .{ .name = "ghostty_terminal_get" });
+        @export(&c.terminal_get_multi, .{ .name = "ghostty_terminal_get_multi" });
+        @export(&c.terminal_select_word, .{ .name = "ghostty_terminal_select_word" });
+        @export(&c.terminal_select_word_between, .{ .name = "ghostty_terminal_select_word_between" });
+        @export(&c.terminal_select_line, .{ .name = "ghostty_terminal_select_line" });
+        @export(&c.terminal_select_all, .{ .name = "ghostty_terminal_select_all" });
+        @export(&c.terminal_select_output, .{ .name = "ghostty_terminal_select_output" });
+        @export(&c.terminal_selection_adjust, .{ .name = "ghostty_terminal_selection_adjust" });
+        @export(&c.terminal_selection_order, .{ .name = "ghostty_terminal_selection_order" });
+        @export(&c.terminal_selection_ordered, .{ .name = "ghostty_terminal_selection_ordered" });
+        @export(&c.terminal_selection_contains, .{ .name = "ghostty_terminal_selection_contains" });
+        @export(&c.terminal_selection_equal, .{ .name = "ghostty_terminal_selection_equal" });
+        @export(&c.selection_gesture_new, .{ .name = "ghostty_selection_gesture_new" });
+        @export(&c.selection_gesture_free, .{ .name = "ghostty_selection_gesture_free" });
+        @export(&c.selection_gesture_reset, .{ .name = "ghostty_selection_gesture_reset" });
+        @export(&c.selection_gesture_event, .{ .name = "ghostty_selection_gesture_event" });
+        @export(&c.selection_gesture_get, .{ .name = "ghostty_selection_gesture_get" });
+        @export(&c.selection_gesture_get_multi, .{ .name = "ghostty_selection_gesture_get_multi" });
+        @export(&c.selection_gesture_event_new, .{ .name = "ghostty_selection_gesture_event_new" });
+        @export(&c.selection_gesture_event_free, .{ .name = "ghostty_selection_gesture_event_free" });
+        @export(&c.selection_gesture_event_set, .{ .name = "ghostty_selection_gesture_event_set" });
         @export(&c.terminal_grid_ref, .{ .name = "ghostty_terminal_grid_ref" });
+        @export(&c.terminal_grid_ref_track, .{ .name = "ghostty_terminal_grid_ref_track" });
+        @export(&c.terminal_point_from_grid_ref, .{ .name = "ghostty_terminal_point_from_grid_ref" });
+        @export(&c.kitty_graphics_get, .{ .name = "ghostty_kitty_graphics_get" });
+        @export(&c.kitty_graphics_image, .{ .name = "ghostty_kitty_graphics_image" });
+        @export(&c.kitty_graphics_image_get, .{ .name = "ghostty_kitty_graphics_image_get" });
+        @export(&c.kitty_graphics_image_get_multi, .{ .name = "ghostty_kitty_graphics_image_get_multi" });
+        @export(&c.kitty_graphics_placement_iterator_new, .{ .name = "ghostty_kitty_graphics_placement_iterator_new" });
+        @export(&c.kitty_graphics_placement_iterator_free, .{ .name = "ghostty_kitty_graphics_placement_iterator_free" });
+        @export(&c.kitty_graphics_placement_iterator_set, .{ .name = "ghostty_kitty_graphics_placement_iterator_set" });
+        @export(&c.kitty_graphics_placement_next, .{ .name = "ghostty_kitty_graphics_placement_next" });
+        @export(&c.kitty_graphics_placement_get, .{ .name = "ghostty_kitty_graphics_placement_get" });
+        @export(&c.kitty_graphics_placement_get_multi, .{ .name = "ghostty_kitty_graphics_placement_get_multi" });
+        @export(&c.kitty_graphics_placement_rect, .{ .name = "ghostty_kitty_graphics_placement_rect" });
+        @export(&c.kitty_graphics_placement_pixel_size, .{ .name = "ghostty_kitty_graphics_placement_pixel_size" });
+        @export(&c.kitty_graphics_placement_grid_size, .{ .name = "ghostty_kitty_graphics_placement_grid_size" });
+        @export(&c.kitty_graphics_placement_viewport_pos, .{ .name = "ghostty_kitty_graphics_placement_viewport_pos" });
+        @export(&c.kitty_graphics_placement_source_rect, .{ .name = "ghostty_kitty_graphics_placement_source_rect" });
+        @export(&c.kitty_graphics_placement_render_info, .{ .name = "ghostty_kitty_graphics_placement_render_info" });
         @export(&c.grid_ref_cell, .{ .name = "ghostty_grid_ref_cell" });
         @export(&c.grid_ref_row, .{ .name = "ghostty_grid_ref_row" });
         @export(&c.grid_ref_graphemes, .{ .name = "ghostty_grid_ref_graphemes" });
+        @export(&c.grid_ref_hyperlink_uri, .{ .name = "ghostty_grid_ref_hyperlink_uri" });
         @export(&c.grid_ref_style, .{ .name = "ghostty_grid_ref_style" });
+        @export(&c.tracked_grid_ref_free, .{ .name = "ghostty_tracked_grid_ref_free" });
+        @export(&c.tracked_grid_ref_has_value, .{ .name = "ghostty_tracked_grid_ref_has_value" });
+        @export(&c.tracked_grid_ref_point, .{ .name = "ghostty_tracked_grid_ref_point" });
+        @export(&c.tracked_grid_ref_set, .{ .name = "ghostty_tracked_grid_ref_set" });
+        @export(&c.tracked_grid_ref_snapshot, .{ .name = "ghostty_tracked_grid_ref_snapshot" });
         @export(&c.build_info, .{ .name = "ghostty_build_info" });
+        @export(&c.type_json, .{ .name = "ghostty_type_json" });
+        @export(&c.alloc_alloc, .{ .name = "ghostty_alloc" });
+        @export(&c.alloc_free, .{ .name = "ghostty_free" });
 
         // On Wasm we need to export our allocator convenience functions.
         if (builtin.target.cpu.arch.isWasm()) {
@@ -252,9 +327,12 @@ pub const std_options: std.Options = options: {
         .logFn = @import("os/wasm/log.zig").log,
     };
 
-    // For everything else we currently use defaults. Longer term I'm
-    // SURE this isn't right (e.g. we definitely want to customize the log
-    // function for the C lib at least).
+    // For C ABI builds, use a custom log function that dispatches to an
+    // embedder-provided callback (or silently discards when none is set).
+    if (terminal.options.c_abi) break :options .{
+        .logFn = @import("terminal/c/sys.zig").logFn,
+    };
+
     break :options .{};
 };
 

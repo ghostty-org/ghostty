@@ -9,16 +9,13 @@ const ScreenSet = @This();
 
 const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
-const build_options = @import("terminal_options");
-const lib = @import("../lib/main.zig");
+const lib = @import("lib.zig");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const Screen = @import("Screen.zig");
 
-const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
-
 /// The possible keys for screens in the screen set.
-pub const Key = lib.Enum(lib_target, &.{
+pub const Key = lib.Enum(lib.target, &.{
     "primary",
     "alternate",
 });
@@ -33,6 +30,11 @@ active: *Screen,
 /// All screens that are initialized.
 all: std.EnumMap(Key, *Screen),
 
+/// Monotonic generation counter for each screen key. This changes whenever a
+/// screen is removed so external handles can distinguish a newly initialized
+/// screen from stale references into destroyed screen storage.
+generations: std.EnumMap(Key, usize),
+
 pub fn init(
     alloc: Allocator,
     opts: Screen.Options,
@@ -45,6 +47,7 @@ pub fn init(
         .active_key = .primary,
         .active = screen,
         .all = .init(.{ .primary = screen }),
+        .generations = .initFull(0),
     };
 }
 
@@ -60,6 +63,11 @@ pub fn deinit(self: *ScreenSet, alloc: Allocator) void {
 /// Get the screen for the given key, if it is initialized.
 pub fn get(self: *const ScreenSet, key: Key) ?*Screen {
     return self.all.get(key);
+}
+
+/// Get the current generation for the given screen key.
+pub fn generation(self: *const ScreenSet, key: Key) usize {
+    return self.generations.get(key).?;
 }
 
 /// Get the screen for the given key, initializing it if necessary.
@@ -85,6 +93,7 @@ pub fn remove(
 ) void {
     assert(key != .primary);
     if (self.all.fetchRemove(key)) |screen| {
+        self.generations.put(key, self.generation(key) +% 1);
         screen.deinit();
         alloc.destroy(screen);
     }
@@ -102,9 +111,40 @@ test ScreenSet {
     var set: ScreenSet = try .init(alloc, .default);
     defer set.deinit(alloc);
     try testing.expectEqual(.primary, set.active_key);
+    try testing.expectEqual(@as(usize, 0), set.generation(.primary));
+    try testing.expectEqual(@as(usize, 0), set.generation(.alternate));
 
     // Initialize a secondary screen
     _ = try set.getInit(alloc, .alternate, .default);
+    try testing.expectEqual(@as(usize, 0), set.generation(.alternate));
+
     set.switchTo(.alternate);
     try testing.expectEqual(.alternate, set.active_key);
+}
+
+test "ScreenSet generations" {
+    const alloc = testing.allocator;
+    var set: ScreenSet = try .init(alloc, .default);
+    defer set.deinit(alloc);
+
+    try testing.expectEqual(@as(usize, 0), set.generation(.primary));
+    try testing.expectEqual(@as(usize, 0), set.generation(.alternate));
+
+    // A no-op removal doesn't change the generation.
+    set.remove(alloc, .alternate);
+    try testing.expectEqual(@as(usize, 0), set.generation(.alternate));
+
+    // Initializing a screen doesn't change the generation.
+    _ = try set.getInit(alloc, .alternate, .default);
+    try testing.expectEqual(@as(usize, 0), set.generation(.alternate));
+
+    const alternate_generation = set.generation(.alternate);
+    set.remove(alloc, .alternate);
+    try testing.expectEqual(alternate_generation +% 1, set.generation(.alternate));
+
+    // Reinitializing keeps the generation from the last removal, so stale
+    // handles can distinguish the new screen from the destroyed screen.
+    _ = try set.getInit(alloc, .alternate, .default);
+    try testing.expectEqual(alternate_generation +% 1, set.generation(.alternate));
+    try testing.expectEqual(@as(usize, 0), set.generation(.primary));
 }

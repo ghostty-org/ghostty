@@ -292,6 +292,7 @@ class BaseTerminalController: NSWindowController,
         if to.isEmpty {
             focusedSurface = nil
         }
+        syncSurfaceTreeOcclusionState()
     }
 
     /// Update all surfaces with the focus state. This ensures that libghostty has an accurate view about
@@ -301,9 +302,8 @@ class BaseTerminalController: NSWindowController,
             // Our focus state requires that this window is key and our currently
             // focused surface is the surface in this view.
             let focused: Bool = (window?.isKeyWindow ?? false) &&
-                !commandPaletteIsShowing &&
-                focusedSurface != nil &&
-                surfaceView == focusedSurface!
+                surfaceView == focusedSurface &&
+                surfaceView.isFirstResponder
             surfaceView.focusDidChange(focused)
         }
     }
@@ -317,19 +317,18 @@ class BaseTerminalController: NSWindowController,
         savedFrame = .init(window: window.frame, screen: screen.visibleFrame)
     }
 
-    func confirmClose(
+    func confirmCloseAsync(
         messageText: String,
         informativeText: String,
-        completion: @escaping () -> Void
-    ) {
+        confirmButtonTitle: String = "Close",
+    ) async -> NSApplication.ModalResponse? {
         // If we already have an alert, we need to wait for that one.
-        guard alert == nil else { return }
+        guard alert == nil else { return nil }
 
         // If there is no window to attach the modal then we assume success
         // since we'll never be able to show the modal.
         guard let window else {
-            completion()
-            return
+            return .OK
         }
 
         // If we need confirmation by any, show one confirmation for all windows
@@ -337,22 +336,35 @@ class BaseTerminalController: NSWindowController,
         let alert = NSAlert()
         alert.messageText = messageText
         alert.informativeText = informativeText
-        alert.addButton(withTitle: "Close")
+        alert.addButton(withTitle: confirmButtonTitle)
         alert.addButton(withTitle: "Cancel")
         alert.alertStyle = .warning
-        alert.beginSheetModal(for: window) { response in
-            let alertWindow = alert.window
+        // Store our alert so we only ever show one.
+        self.alert = alert
+        defer {
+            // This is important so that we avoid losing focus when Stage
+            // Manager is used (#8336)
+            alert.window.orderOut(nil)
             self.alert = nil
-            if response == .alertFirstButtonReturn {
-                // This is important so that we avoid losing focus when Stage
-                // Manager is used (#8336)
-                alertWindow.orderOut(nil)
+        }
+        return await alert.beginSheetModal(for: window)
+    }
+
+    func confirmClose(
+        messageText: String,
+        informativeText: String,
+        confirmButtonTitle: String = "Close",
+        completion: @escaping () -> Void
+    ) {
+        Task {
+            guard let response = await confirmCloseAsync(messageText: messageText, informativeText: informativeText, confirmButtonTitle: confirmButtonTitle) else {
+                completion()
+                return
+            }
+            if [.alertFirstButtonReturn, .OK].contains(response) {
                 completion()
             }
         }
-
-        // Store our alert so we only ever show one.
-        self.alert = alert
     }
 
     /// Prompt the user to change the tab/window title.
@@ -459,8 +471,12 @@ class BaseTerminalController: NSWindowController,
 
         replaceSurfaceTree(
             surfaceTree.removing(node),
-            moveFocusTo: nextFocus,
-            moveFocusFrom: focusedSurface,
+            // When a non-focused surface is removed and this window stays as the key window,
+            // we should refocus the `focusedSurface` to make sure the window's firstResponder remains as it is.
+            //
+            // This is a weird workaround, since `resignFirstResponder` wasn't called on `focusedSurface` after drag,
+            // but the first responder became the window itself.
+            moveFocusTo: nextFocus ?? focusedSurface,
             undoAction: "Close Terminal"
         )
     }
@@ -767,7 +783,8 @@ class BaseTerminalController: NSWindowController,
             ghostty,
             tree: newTree,
             position: notification.userInfo?[Notification.Name.ghosttySurfaceDragEndedNoTargetPointKey] as? NSPoint,
-            confirmUndo: false)
+            confirmUndo: false,
+            inheritBackgroundOpacity: isBackgroundOpaque)
     }
 
     // MARK: Local Events
@@ -991,11 +1008,15 @@ class BaseTerminalController: NSWindowController,
         // Do nothing if in fullscreen (transparency doesn't apply in fullscreen)
         guard let window, !window.styleMask.contains(.fullScreen) else { return }
 
-        // Toggle between transparent and opaque
-        isBackgroundOpaque.toggle()
+        let newValue = !isBackgroundOpaque
+        let controllers = NSApplication.shared.windows.compactMap {
+            $0.windowController as? BaseTerminalController
+        }
 
-        // Update our appearance
-        syncAppearance()
+        for controller in controllers {
+            controller.isBackgroundOpaque = newValue
+            controller.syncAppearance()
+        }
     }
 
     /// Override this to resync any appearance related properties. This will be called automatically
@@ -1179,10 +1200,8 @@ class BaseTerminalController: NSWindowController,
 
     // MARK: NSWindowDelegate
 
-    // This is called when performClose is called on a window (NOT when close()
-    // is called directly). performClose is called primarily when UI elements such
-    // as the "red X" are pressed.
-    func windowShouldClose(_ sender: NSWindow) -> Bool {
+    /// Check whether window should be closed without showing an alert
+    func windowCanBeClosedWithoutConfirmation() -> Bool {
         // We must have a window. Is it even possible not to?
         guard let window = self.window else { return true }
 
@@ -1195,12 +1214,22 @@ class BaseTerminalController: NSWindowController,
         // If our surfaces don't require confirmation, close.
         if !surfaceTree.contains(where: { $0.needsConfirmQuit }) { return true }
 
+        return false
+    }
+
+    // This is called when performClose is called on a window (NOT when close()
+    // is called directly). performClose is called primarily when UI elements such
+    // as the "red X" are pressed.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard !windowCanBeClosedWithoutConfirmation() else {
+            return true
+        }
         // We require confirmation, so show an alert as long as we aren't already.
         confirmClose(
             messageText: "Close Terminal?",
             informativeText: "The terminal still has a running process. If you close the terminal the process will be killed."
-        ) {
-            window.close()
+        ) { [weak self] in
+            self?.window?.close()
         }
 
         return false
@@ -1253,10 +1282,15 @@ class BaseTerminalController: NSWindowController,
     }
 
     func windowDidChangeOcclusionState(_ notification: Notification) {
+        syncSurfaceTreeOcclusionState()
+    }
+
+    private func syncSurfaceTreeOcclusionState() {
         let visible = self.window?.occlusionState.contains(.visible) ?? false
         for view in surfaceTree {
-            if let surface = view.surface {
+            if let surface = view.surface, view.isWindowVisible != visible {
                 ghostty_surface_set_occlusion(surface, visible)
+                view.isWindowVisible = visible
             }
         }
     }
@@ -1397,6 +1431,21 @@ class BaseTerminalController: NSWindowController,
 
     @IBAction func toggleCommandPalette(_ sender: Any?) {
         commandPaletteIsShowing.toggle()
+        if commandPaletteIsShowing {
+            // Fix the incorrect focus when toggling from InlineTitleEditor
+            // When toggling the command palette from the inline title editor,
+            // the first responder state of the surface is changed quickly from true to false.
+
+            // `makeFirstResponder:` is called by the title editor when finishing,
+            // but it happens **after** the command palette is shown,
+            // so the `focused` is set to `true` while the command palette is shown.
+            // (Could be an AppKit issue as well, since the resign is not called after but the command palette is receiving `keyDown`).
+
+            // Since `performKeyEquivalent(with:)` is called on all of the subviews
+            // until one of the return `true` so the paste action is consumed by the surface
+            // instead of the first responder (command palette).
+            _ = focusedSurface?.resignFirstResponder()
+        }
     }
 
     @IBAction func find(_ sender: Any) {

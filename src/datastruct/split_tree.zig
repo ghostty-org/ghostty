@@ -860,25 +860,26 @@ pub fn SplitTree(comptime V: type) type {
             var sp = try result.spatial(gpa);
             defer sp.deinit(gpa);
 
-            // Get the ratio of the split relative to the full grid.
-            const full_ratio = full_ratio: {
-                // Our scale is the amount we need to multiply our individual
-                // ratio by to get the full ratio. Its actually a ratio on its
-                // own but I'm trying to avoid that word: its the ratio of
-                // our spatial width/height to the total.
-                const scale = switch (layout) {
-                    .horizontal => sp.slots[parent_handle.idx()].width / sp.slots[0].width,
-                    .vertical => sp.slots[parent_handle.idx()].height / sp.slots[0].height,
-                };
-
-                const current = result.nodes[parent_handle.idx()].split.ratio;
-                break :full_ratio current * scale;
+            // Our scale is the amount we need to divide our ratio delta by to
+            // get a delta relative to the split, not the entire grid.
+            // Its actually a ratio on its own but I'm trying to avoid that word:
+            // its the ratio of our spatial width/height to the total.
+            const scale = switch (layout) {
+                .horizontal => sp.slots[parent_handle.idx()].width / sp.slots[0].width,
+                .vertical => sp.slots[parent_handle.idx()].height / sp.slots[0].height,
             };
 
-            // Set the final new ratio, clamping it to [0, 1]
+            // If the split has spatial width/height 0, resizing by a percentage
+            // of the total grid size doesn't make sense.
+            if (scale == 0) return result;
+
+            // Adjust the old split ratio by the scaled ratio delta.
+            const new_ratio = result.nodes[parent_handle.idx()].split.ratio + (ratio / scale);
+
+            // Set the new ratio, clamping it to [0, 1]
             result.resizeInPlace(
                 parent_handle,
-                @min(@max(full_ratio + ratio, 0), 1),
+                @min(@max(new_ratio, 0), 1),
             );
             return result;
         }
@@ -2167,6 +2168,155 @@ test "SplitTree: resize" {
             \\+---++-------------+
             \\| A ||      B      |
             \\+---++-------------+
+            \\
+        );
+    }
+}
+
+test "SplitTree: resize nested split" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var v1: TestTree.View = .{ .label = "A" };
+    var t1: TestTree = try .init(alloc, &v1);
+    defer t1.deinit();
+    var v2: TestTree.View = .{ .label = "B" };
+    var t2: TestTree = try .init(alloc, &v2);
+    defer t2.deinit();
+    var v3: TestTree.View = .{ .label = "C" };
+    var t3: TestTree = try .init(alloc, &v3);
+    defer t3.deinit();
+
+    // A | B vertical
+    var splitAB = try t1.split(
+        alloc,
+        .root, // at root
+        .down, // split down
+        0.5,
+        &t2, // insert t2
+    );
+    defer splitAB.deinit();
+
+    var splitBC = try splitAB.split(
+        alloc,
+        at: {
+            var it = splitAB.iterator();
+            break :at while (it.next()) |entry| {
+                if (std.mem.eql(u8, entry.view.label, "B")) {
+                    break entry.handle;
+                }
+            } else return error.NotFound;
+        },
+        .down, // split down
+        0.5,
+        &t3, // insert t3
+    );
+    defer splitBC.deinit();
+
+    {
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(splitBC, .formatDiagram)});
+        defer alloc.free(str);
+        try testing.expectEqualStrings(str,
+            \\+---+
+            \\|   |
+            \\|   |
+            \\| A |
+            \\|   |
+            \\+---+
+            \\+---+
+            \\| B |
+            \\+---+
+            \\+---+
+            \\| C |
+            \\+---+
+            \\
+        );
+    }
+
+    // Resize
+    {
+        var resized = try splitBC.resize(
+            alloc,
+            at: {
+                var it = splitBC.iterator();
+                break :at while (it.next()) |entry| {
+                    if (std.mem.eql(u8, entry.view.label, "B")) {
+                        break entry.handle;
+                    }
+                } else return error.NotFound;
+            },
+            .vertical, // resize down
+            0.125,
+        );
+        defer resized.deinit();
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(resized, .formatDiagram)});
+        defer alloc.free(str);
+        try testing.expectEqualStrings(str,
+            \\+---+
+            \\|   |
+            \\|   |
+            \\|   |
+            \\|   |
+            \\|   |
+            \\| A |
+            \\|   |
+            \\|   |
+            \\|   |
+            \\|   |
+            \\+---+
+            \\+---+
+            \\|   |
+            \\|   |
+            \\|   |
+            \\| B |
+            \\|   |
+            \\|   |
+            \\|   |
+            \\+---+
+            \\+---+
+            \\| C |
+            \\+---+
+            \\
+        );
+    }
+
+    // Resize the other direction (negative ratio)
+    {
+        var resized = try splitBC.resize(
+            alloc,
+            at: {
+                var it = splitBC.iterator();
+                break :at while (it.next()) |entry| {
+                    if (std.mem.eql(u8, entry.view.label, "B")) {
+                        break entry.handle;
+                    }
+                } else return error.NotFound;
+            },
+            .vertical, // resize up
+            -0.0833,
+        );
+        defer resized.deinit();
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(resized, .formatDiagram)});
+        defer alloc.free(str);
+        try testing.expectEqualStrings(str,
+            \\+---+
+            \\|   |
+            \\|   |
+            \\|   |
+            \\| A |
+            \\|   |
+            \\|   |
+            \\|   |
+            \\+---+
+            \\+---+
+            \\| B |
+            \\+---+
+            \\+---+
+            \\|   |
+            \\|   |
+            \\| C |
+            \\|   |
+            \\+---+
             \\
         );
     }

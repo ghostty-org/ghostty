@@ -23,6 +23,7 @@
  * @{
  */
 
+#include <stddef.h>
 #include <stdbool.h>
 
 #include <ghostty/vt/types.h>
@@ -34,11 +35,12 @@ extern "C" {
 /**
  * Build optimization mode.
  */
-typedef enum {
+typedef enum GHOSTTY_ENUM_TYPED {
   GHOSTTY_OPTIMIZE_DEBUG = 0,
   GHOSTTY_OPTIMIZE_RELEASE_SAFE = 1,
   GHOSTTY_OPTIMIZE_RELEASE_SMALL = 2,
   GHOSTTY_OPTIMIZE_RELEASE_FAST = 3,
+  GHOSTTY_OPTIMIZE_MODE_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyOptimizeMode;
 
 /**
@@ -46,7 +48,7 @@ typedef enum {
  *
  * Each variant documents the expected output pointer type.
  */
-typedef enum {
+typedef enum GHOSTTY_ENUM_TYPED {
   /** Invalid data type. Never results in any data extraction. */
   GHOSTTY_BUILD_INFO_INVALID = 0,
 
@@ -77,6 +79,51 @@ typedef enum {
    * Output type: GhosttyOptimizeMode *
    */
   GHOSTTY_BUILD_INFO_OPTIMIZE = 4,
+
+  /**
+   * The full version string (e.g. "1.2.3" or "1.2.3-dev+abcdef").
+   *
+   * Output type: GhosttyString *
+   */
+  GHOSTTY_BUILD_INFO_VERSION_STRING = 5,
+
+  /**
+   * The major version number.
+   *
+   * Output type: size_t *
+   */
+  GHOSTTY_BUILD_INFO_VERSION_MAJOR = 6,
+
+  /**
+   * The minor version number.
+   *
+   * Output type: size_t *
+   */
+  GHOSTTY_BUILD_INFO_VERSION_MINOR = 7,
+
+  /**
+   * The patch version number.
+   *
+   * Output type: size_t *
+   */
+  GHOSTTY_BUILD_INFO_VERSION_PATCH = 8,
+
+  /**
+   * The pre metadata string (e.g. "alpha", "beta", "dev"). Has zero length if
+   * no pre metadata is present.
+   *
+   * Output type: GhosttyString *
+   */
+  GHOSTTY_BUILD_INFO_VERSION_PRE = 9,
+
+  /**
+   * The build metadata string (e.g. commit hash). Has zero length if
+   * no build metadata is present.
+   *
+   * Output type: GhosttyString *
+   */
+  GHOSTTY_BUILD_INFO_VERSION_BUILD = 10,
+  GHOSTTY_BUILD_INFO_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyBuildInfo;
 
 /**
@@ -92,7 +139,7 @@ typedef enum {
  *
  * @ingroup build_info
  */
-GhosttyResult ghostty_build_info(GhosttyBuildInfo data, void *out);
+GHOSTTY_API GhosttyResult ghostty_build_info(GhosttyBuildInfo data, void *out);
 
 #ifdef __cplusplus
 }

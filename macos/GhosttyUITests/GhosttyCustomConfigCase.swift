@@ -23,38 +23,26 @@ class GhosttyCustomConfigCase: XCTestCase {
         }
     }
 
-    override class var runsForEachTargetApplicationUIConfiguration: Bool {
-        true
-    }
-
     static let defaultsSuiteName: String = "GHOSTTY_UI_TESTS"
 
-    var configFile: URL?
+    private let configFile: URL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        .appendingPathExtension("ghostty")
+
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
 
     override func tearDown() async throws {
-        if let configFile {
-            try FileManager.default.removeItem(at: configFile)
-        }
+        try? FileManager.default.removeItem(at: configFile)
     }
 
     func updateConfig(_ newConfig: String) throws {
-        if configFile == nil {
-            let temporaryConfig = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-                .appendingPathExtension("ghostty")
-            configFile = temporaryConfig
-        }
-        try newConfig.write(to: configFile!, atomically: true, encoding: .utf8)
+        try newConfig.write(to: configFile, atomically: true, encoding: .utf8)
     }
 
     func ghosttyApplication(defaultsSuite: String = GhosttyCustomConfigCase.defaultsSuiteName) throws -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments.append(contentsOf: ["-ApplePersistenceIgnoreState", "YES"])
-        guard let configFile else {
-            return app
-        }
         app.launchEnvironment["GHOSTTY_CONFIG_PATH"] = configFile.path
         app.launchEnvironment["GHOSTTY_USER_DEFAULTS_SUITE"] = defaultsSuite
         return app

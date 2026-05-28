@@ -1,11 +1,9 @@
 const std = @import("std");
-const build_options = @import("terminal_options");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const fastmem = @import("../fastmem.zig");
-const lib = @import("../lib/main.zig");
-const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
+const lib = @import("lib.zig");
 const color = @import("color.zig");
 const cursor = @import("cursor.zig");
 const highlight = @import("highlight.zig");
@@ -226,7 +224,7 @@ pub const RenderState = struct {
     };
 
     // Dirty state.
-    pub const Dirty = lib.Enum(lib_target, &.{
+    pub const Dirty = lib.Enum(lib.target, &.{
         // Not dirty at all. Can skip rendering if prior state was
         // already rendered.
         "false",

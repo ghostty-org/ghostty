@@ -1,6 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
+const lib = @import("../lib.zig");
 const style = @import("../style.zig");
 const color = @import("../color.zig");
 const sgr = @import("../sgr.zig");
@@ -77,13 +78,13 @@ pub const Style = extern struct {
 };
 
 /// Returns the default style.
-pub fn default_style(result: *Style) callconv(.c) void {
+pub fn default_style(result: *Style) callconv(lib.calling_conv) void {
     result.* = .fromStyle(.{});
     assert(result.size == @sizeOf(Style));
 }
 
 /// Returns true if the style is the default style.
-pub fn style_is_default(s: *const Style) callconv(.c) bool {
+pub fn style_is_default(s: *const Style) callconv(lib.calling_conv) bool {
     assert(s.size == @sizeOf(Style));
     return s.fg_color.tag == .none and
         s.bg_color.tag == .none and

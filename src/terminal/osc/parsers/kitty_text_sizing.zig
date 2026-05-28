@@ -2,27 +2,25 @@
 //! Specification: https://sw.kovidgoyal.net/kitty/text-sizing-protocol/
 
 const std = @import("std");
-const build_options = @import("terminal_options");
 
 const assert = @import("../../../quirks.zig").inlineAssert;
 
 const Parser = @import("../../osc.zig").Parser;
 const Command = @import("../../osc.zig").Command;
 const encoding = @import("../encoding.zig");
-const lib = @import("../../../lib/main.zig");
-const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
+const lib = @import("../../lib.zig");
 
 const log = std.log.scoped(.kitty_text_sizing);
 
 pub const max_payload_length = 4096;
 
-pub const VAlign = lib.Enum(lib_target, &.{
+pub const VAlign = lib.Enum(lib.target, &.{
     "top",
     "bottom",
     "center",
 });
 
-pub const HAlign = lib.Enum(lib_target, &.{
+pub const HAlign = lib.Enum(lib.target, &.{
     "left",
     "right",
     "center",
@@ -73,17 +71,17 @@ pub const OSC = struct {
 pub fn parse(parser: *Parser, _: ?u8) ?*Command {
     assert(parser.state == .@"66");
 
-    const writer = parser.writer orelse {
+    const cap = if (parser.capture) |*c| c else {
         parser.state = .invalid;
         return null;
     };
 
     // Write a NUL byte to ensure that `text` is NUL-terminated
-    writer.writeByte(0) catch {
+    cap.writer.writeByte(0) catch {
         parser.state = .invalid;
         return null;
     };
-    const data = writer.buffered();
+    const data = cap.trailing();
 
     const payload_start = std.mem.indexOfScalar(u8, data, ';') orelse {
         log.warn("missing semicolon before payload", .{});

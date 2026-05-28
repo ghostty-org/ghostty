@@ -22,7 +22,7 @@
  *
  * @ingroup key
  */
-typedef struct GhosttyKeyEncoder *GhosttyKeyEncoder;
+typedef struct GhosttyKeyEncoderImpl *GhosttyKeyEncoder;
 
 /**
  * Kitty keyboard protocol flags.
@@ -64,7 +64,7 @@ typedef uint8_t GhosttyKittyKeyFlags;
  *
  * @ingroup key
  */
-typedef enum {
+typedef enum GHOSTTY_ENUM_TYPED {
     /** Option key is not treated as alt */
     GHOSTTY_OPTION_AS_ALT_FALSE = 0,
     /** Option key is treated as alt */
@@ -73,6 +73,7 @@ typedef enum {
     GHOSTTY_OPTION_AS_ALT_LEFT = 2,
     /** Only right option key is treated as alt */
     GHOSTTY_OPTION_AS_ALT_RIGHT = 3,
+    GHOSTTY_OPTION_AS_ALT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyOptionAsAlt;
 
 /**
@@ -83,27 +84,36 @@ typedef enum {
  *
  * @ingroup key
  */
-typedef enum {
+typedef enum GHOSTTY_ENUM_TYPED {
     /** Terminal DEC mode 1: cursor key application mode (value: bool) */
     GHOSTTY_KEY_ENCODER_OPT_CURSOR_KEY_APPLICATION = 0,
-    
+
     /** Terminal DEC mode 66: keypad key application mode (value: bool) */
     GHOSTTY_KEY_ENCODER_OPT_KEYPAD_KEY_APPLICATION = 1,
-    
+
     /** Terminal DEC mode 1035: ignore keypad with numlock (value: bool) */
     GHOSTTY_KEY_ENCODER_OPT_IGNORE_KEYPAD_WITH_NUMLOCK = 2,
-    
+
     /** Terminal DEC mode 1036: alt sends escape prefix (value: bool) */
     GHOSTTY_KEY_ENCODER_OPT_ALT_ESC_PREFIX = 3,
-    
+
     /** xterm modifyOtherKeys mode 2 (value: bool) */
     GHOSTTY_KEY_ENCODER_OPT_MODIFY_OTHER_KEYS_STATE_2 = 4,
-    
+
     /** Kitty keyboard protocol flags (value: GhosttyKittyKeyFlags bitmask) */
     GHOSTTY_KEY_ENCODER_OPT_KITTY_FLAGS = 5,
-    
+
     /** macOS option-as-alt setting (value: GhosttyOptionAsAlt) */
     GHOSTTY_KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT = 6,
+
+    /** Backarrow key mode (value: bool)
+     * See https://vt100.net/dec/ek-vt3xx-tp-002.pdf page 170
+     * If `false` (the default), `backspace` emits 0x7f
+     * If `true`, `backspace` emits 0x08
+     */
+    GHOSTTY_KEY_ENCODER_OPT_BACKARROW_KEY_MODE = 7,
+
+    GHOSTTY_KEY_ENCODER_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyKeyEncoderOption;
 
 /**
@@ -119,7 +129,7 @@ typedef enum {
  *
  * @ingroup key
  */
-GhosttyResult ghostty_key_encoder_new(const GhosttyAllocator *allocator, GhosttyKeyEncoder *encoder);
+GHOSTTY_API GhosttyResult ghostty_key_encoder_new(const GhosttyAllocator *allocator, GhosttyKeyEncoder *encoder);
 
 /**
  * Free a key encoder instance.
@@ -131,7 +141,7 @@ GhosttyResult ghostty_key_encoder_new(const GhosttyAllocator *allocator, Ghostty
  *
  * @ingroup key
  */
-void ghostty_key_encoder_free(GhosttyKeyEncoder encoder);
+GHOSTTY_API void ghostty_key_encoder_free(GhosttyKeyEncoder encoder);
 
 /**
  * Set an option on the key encoder.
@@ -154,7 +164,7 @@ void ghostty_key_encoder_free(GhosttyKeyEncoder encoder);
  *
  * @ingroup key
  */
-void ghostty_key_encoder_setopt(GhosttyKeyEncoder encoder, GhosttyKeyEncoderOption option, const void *value);
+GHOSTTY_API void ghostty_key_encoder_setopt(GhosttyKeyEncoder encoder, GhosttyKeyEncoderOption option, const void *value);
 
 /**
  * Set encoder options from a terminal's current state.
@@ -173,7 +183,7 @@ void ghostty_key_encoder_setopt(GhosttyKeyEncoder encoder, GhosttyKeyEncoderOpti
  *
  * @ingroup key
  */
-void ghostty_key_encoder_setopt_from_terminal(GhosttyKeyEncoder encoder, GhosttyTerminal terminal);
+GHOSTTY_API void ghostty_key_encoder_setopt_from_terminal(GhosttyKeyEncoder encoder, GhosttyTerminal terminal);
 
 /**
  * Encode a key event into a terminal escape sequence.
@@ -203,17 +213,17 @@ void ghostty_key_encoder_setopt_from_terminal(GhosttyKeyEncoder encoder, Ghostty
  * size_t required = 0;
  * GhosttyResult result = ghostty_key_encoder_encode(encoder, event, NULL, 0, &required);
  * assert(result == GHOSTTY_OUT_OF_SPACE);
- * 
+ *
  * // Allocate buffer of required size
  * char *buf = malloc(required);
- * 
+ *
  * // Encode with properly sized buffer
  * size_t written = 0;
  * result = ghostty_key_encoder_encode(encoder, event, buf, required, &written);
  * assert(result == GHOSTTY_SUCCESS);
- * 
+ *
  * // Use the encoded sequence...
- * 
+ *
  * free(buf);
  * @endcode
  *
@@ -224,7 +234,7 @@ void ghostty_key_encoder_setopt_from_terminal(GhosttyKeyEncoder encoder, Ghostty
  * char buf[128];
  * size_t written = 0;
  * GhosttyResult result = ghostty_key_encoder_encode(encoder, event, buf, sizeof(buf), &written);
- * 
+ *
  * if (result == GHOSTTY_SUCCESS) {
  *   // Write the encoded sequence to the terminal
  *   write(pty_fd, buf, written);
@@ -240,6 +250,6 @@ void ghostty_key_encoder_setopt_from_terminal(GhosttyKeyEncoder encoder, Ghostty
  *
  * @ingroup key
  */
-GhosttyResult ghostty_key_encoder_encode(GhosttyKeyEncoder encoder, GhosttyKeyEvent event, char *out_buf, size_t out_buf_size, size_t *out_len);
+GHOSTTY_API GhosttyResult ghostty_key_encoder_encode(GhosttyKeyEncoder encoder, GhosttyKeyEvent event, char *out_buf, size_t out_buf_size, size_t *out_len);
 
 #endif /* GHOSTTY_VT_KEY_ENCODER_H */

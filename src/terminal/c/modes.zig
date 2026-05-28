@@ -1,4 +1,5 @@
 const std = @import("std");
+const lib = @import("../lib.zig");
 const modes = @import("../modes.zig");
 const Result = @import("result.zig").Result;
 
@@ -20,7 +21,7 @@ pub fn report_encode(
     out_: ?[*]u8,
     out_len: usize,
     out_written: *usize,
-) callconv(.c) Result {
+) callconv(lib.calling_conv) Result {
     const mode_tag: modes.ModeTag = @bitCast(tag);
     const report: modes.Report = .{
         .tag = mode_tag,

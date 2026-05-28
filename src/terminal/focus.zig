@@ -1,7 +1,5 @@
 const std = @import("std");
-const build_options = @import("terminal_options");
-const lib = @import("../lib/main.zig");
-const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
+const lib = @import("lib.zig");
 
 /// Maximum number of bytes that `encode` will write. Any users of this
 /// should be resilient to this changing, so this is always a specific
@@ -10,7 +8,7 @@ pub const max_encode_size = 3;
 
 /// A focus event that can be reported to the application running in the
 /// terminal when focus reporting mode (mode 1004) is enabled.
-pub const Event = lib.Enum(lib_target, &.{
+pub const Event = lib.Enum(lib.target, &.{
     "gained",
     "lost",
 });

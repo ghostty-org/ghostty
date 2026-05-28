@@ -67,9 +67,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20260216-151611-fc73ce3.tgz",
-    "dest": "vendor/p/N-V-__8AABVbAwBwDRyZONfx553tvMW8_A2OKUoLzPUSRiLF",
-    "sha256": "14200bb86a0c814ab69609d500b280b396b6d2eb835edf0676de4a789c0aa8fd"
+    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20260511-160054-2671288.tgz",
+    "dest": "vendor/p/N-V-__8AAPy1AwDnEoq1ww42uq58nusIeQgR16W4-5SQZFIM",
+    "sha256": "47634950ac73d8b1d1882062fcc0273775f333263855695b5f4b9609b59e7e34"
   },
   {
     "type": "archive",
@@ -130,12 +130,6 @@
     "url": "https://deps.files.ghostty.org/spirv_cross-1220fb3b5586e8be67bc3feb34cbe749cf42a60d628d2953632c2f8141302748c8da.tar.gz",
     "dest": "vendor/p/N-V-__8AANb6pwD7O1WG6L5nvD_rNMvnSc9Cpg1ijSlTYywv",
     "sha256": "b52b6fcfc45e7fa69b1f06a1362c155473444e2cc09995556b156c53ba6657e3"
-  },
-  {
-    "type": "archive",
-    "url": "https://deps.files.ghostty.org/utfcpp-1220d4d18426ca72fc2b7e56ce47273149815501d0d2395c2a98c726b31ba931e641.tar.gz",
-    "dest": "vendor/p/N-V-__8AAHffAgDU0YQmynL8K35WzkcnMUmBVQHQ0jlcKpjH",
-    "sha256": "ffc668a310e77607d393f3c18b32715f223da1eac4c4d6e0579a11df8e6b59cf"
   },
   {
     "type": "git",

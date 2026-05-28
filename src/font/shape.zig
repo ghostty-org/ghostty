@@ -19,6 +19,7 @@ pub const default_features = feature.default_features;
 /// Shaper implementation for our compile options.
 pub const Shaper = switch (options.backend) {
     .freetype,
+    .freetype_windows,
     .fontconfig_freetype,
     .coretext_freetype,
     .coretext_harfbuzz,

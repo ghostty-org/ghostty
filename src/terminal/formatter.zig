@@ -1,8 +1,6 @@
 const std = @import("std");
-const build_options = @import("terminal_options");
 const assert = @import("../quirks.zig").inlineAssert;
-const lib = @import("../lib/main.zig");
-const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
+const lib = @import("lib.zig");
 const Allocator = std.mem.Allocator;
 const color = @import("color.zig");
 const size = @import("size.zig");
@@ -22,7 +20,7 @@ const Selection = @import("Selection.zig");
 const Style = @import("style.zig").Style;
 
 /// Formats available.
-pub const Format = lib.Enum(lib_target, &.{
+pub const Format = lib.Enum(lib.target, &.{
     // Plain text.
     "plain",
 

@@ -1,4 +1,5 @@
 const std = @import("std");
+const lib = @import("../lib.zig");
 const terminal_size_report = @import("../size_report.zig");
 const Result = @import("result.zig").Result;
 
@@ -14,7 +15,7 @@ pub fn encode(
     out_: ?[*]u8,
     out_len: usize,
     out_written: *usize,
-) callconv(.c) Result {
+) callconv(lib.calling_conv) Result {
     var writer: std.Io.Writer = .fixed(if (out_) |out| out[0..out_len] else &.{});
     terminal_size_report.encode(&writer, style, size) catch |err| switch (err) {
         error.WriteFailed => {

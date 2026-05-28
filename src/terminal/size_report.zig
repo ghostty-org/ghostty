@@ -1,11 +1,9 @@
 const std = @import("std");
-const build_options = @import("terminal_options");
-const lib = @import("../lib/main.zig");
-const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
+const lib = @import("lib.zig");
 const CellCountInt = @import("size.zig").CellCountInt;
 
 /// Output formats for terminal size reports written to the PTY.
-pub const Style = lib.Enum(lib_target, &.{
+pub const Style = lib.Enum(lib.target, &.{
     // In-band size reports (mode 2048)
     "mode_2048",
     // XTWINOPS: report text area size in pixels
@@ -17,7 +15,7 @@ pub const Style = lib.Enum(lib_target, &.{
 });
 
 /// Runtime size values used to encode terminal size reports.
-pub const Size = lib.Struct(lib_target, struct {
+pub const Size = lib.Struct(lib.target, struct {
     /// Terminal row count in cells.
     rows: CellCountInt,
 

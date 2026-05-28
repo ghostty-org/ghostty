@@ -23,14 +23,14 @@
  *
  * @ingroup mouse
  */
-typedef struct GhosttyMouseEncoder *GhosttyMouseEncoder;
+typedef struct GhosttyMouseEncoderImpl *GhosttyMouseEncoder;
 
 /**
  * Mouse tracking mode.
  *
  * @ingroup mouse
  */
-typedef enum {
+typedef enum GHOSTTY_ENUM_TYPED {
   /** Mouse reporting disabled. */
   GHOSTTY_MOUSE_TRACKING_NONE = 0,
 
@@ -45,6 +45,7 @@ typedef enum {
 
   /** Any-event tracking mode. */
   GHOSTTY_MOUSE_TRACKING_ANY = 4,
+  GHOSTTY_MOUSE_TRACKING_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyMouseTrackingMode;
 
 /**
@@ -52,12 +53,13 @@ typedef enum {
  *
  * @ingroup mouse
  */
-typedef enum {
+typedef enum GHOSTTY_ENUM_TYPED {
   GHOSTTY_MOUSE_FORMAT_X10 = 0,
   GHOSTTY_MOUSE_FORMAT_UTF8 = 1,
   GHOSTTY_MOUSE_FORMAT_SGR = 2,
   GHOSTTY_MOUSE_FORMAT_URXVT = 3,
   GHOSTTY_MOUSE_FORMAT_SGR_PIXELS = 4,
+  GHOSTTY_MOUSE_FORMAT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyMouseFormat;
 
 /**
@@ -105,7 +107,7 @@ typedef struct {
  *
  * @ingroup mouse
  */
-typedef enum {
+typedef enum GHOSTTY_ENUM_TYPED {
   /** Mouse tracking mode (value: GhosttyMouseTrackingMode). */
   GHOSTTY_MOUSE_ENCODER_OPT_EVENT = 0,
 
@@ -120,6 +122,7 @@ typedef enum {
 
   /** Whether to enable motion deduplication by last cell (value: bool). */
   GHOSTTY_MOUSE_ENCODER_OPT_TRACK_LAST_CELL = 4,
+  GHOSTTY_MOUSE_ENCODER_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyMouseEncoderOption;
 
 /**
@@ -131,7 +134,7 @@ typedef enum {
  *
  * @ingroup mouse
  */
-GhosttyResult ghostty_mouse_encoder_new(const GhosttyAllocator *allocator,
+GHOSTTY_API GhosttyResult ghostty_mouse_encoder_new(const GhosttyAllocator *allocator,
                                         GhosttyMouseEncoder *encoder);
 
 /**
@@ -141,7 +144,7 @@ GhosttyResult ghostty_mouse_encoder_new(const GhosttyAllocator *allocator,
  *
  * @ingroup mouse
  */
-void ghostty_mouse_encoder_free(GhosttyMouseEncoder encoder);
+GHOSTTY_API void ghostty_mouse_encoder_free(GhosttyMouseEncoder encoder);
 
 /**
  * Set an option on the mouse encoder.
@@ -154,7 +157,7 @@ void ghostty_mouse_encoder_free(GhosttyMouseEncoder encoder);
  *
  * @ingroup mouse
  */
-void ghostty_mouse_encoder_setopt(GhosttyMouseEncoder encoder,
+GHOSTTY_API void ghostty_mouse_encoder_setopt(GhosttyMouseEncoder encoder,
                                   GhosttyMouseEncoderOption option,
                                   const void *value);
 
@@ -169,7 +172,7 @@ void ghostty_mouse_encoder_setopt(GhosttyMouseEncoder encoder,
  *
  * @ingroup mouse
  */
-void ghostty_mouse_encoder_setopt_from_terminal(GhosttyMouseEncoder encoder,
+GHOSTTY_API void ghostty_mouse_encoder_setopt_from_terminal(GhosttyMouseEncoder encoder,
                                                 GhosttyTerminal terminal);
 
 /**
@@ -181,7 +184,7 @@ void ghostty_mouse_encoder_setopt_from_terminal(GhosttyMouseEncoder encoder,
  *
  * @ingroup mouse
  */
-void ghostty_mouse_encoder_reset(GhosttyMouseEncoder encoder);
+GHOSTTY_API void ghostty_mouse_encoder_reset(GhosttyMouseEncoder encoder);
 
 /**
  * Encode a mouse event into a terminal escape sequence.
@@ -202,7 +205,7 @@ void ghostty_mouse_encoder_reset(GhosttyMouseEncoder encoder);
  *
  * @ingroup mouse
  */
-GhosttyResult ghostty_mouse_encoder_encode(GhosttyMouseEncoder encoder,
+GHOSTTY_API GhosttyResult ghostty_mouse_encoder_encode(GhosttyMouseEncoder encoder,
                                            GhosttyMouseEvent event,
                                            char *out_buf,
                                            size_t out_buf_size,

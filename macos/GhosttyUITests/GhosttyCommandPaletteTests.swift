@@ -8,7 +8,6 @@
 import XCTest
 
 final class GhosttyCommandPaletteTests: GhosttyCustomConfigCase {
-    override static var runsForEachTargetApplicationUIConfiguration: Bool { false }
     @MainActor func testDismissingCommandPalette() async throws {
         let app = try ghosttyApplication()
         app.activate()

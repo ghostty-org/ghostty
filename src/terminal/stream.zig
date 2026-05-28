@@ -5,10 +5,11 @@ const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const simd = @import("../simd/main.zig");
-const lib = @import("../lib/main.zig");
+const lib = @import("lib.zig");
 const Parser = @import("Parser.zig");
 const ansi = @import("ansi.zig");
 const charsets = @import("charsets.zig");
+const device_attributes = @import("device_attributes.zig");
 const device_status = @import("device_status.zig");
 const csi = @import("csi.zig");
 const kitty = @import("kitty.zig");
@@ -27,8 +28,6 @@ const log = std.log.scoped(.stream);
 /// debugging an issue in the SIMD code then you'll need to
 /// do something else.
 const debug = false;
-
-const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
 
 /// The possible actions that can be emitted by the Stream
 /// function for handling.
@@ -97,7 +96,7 @@ pub const Action = union(Key) {
     title_push: u16,
     title_pop: u16,
     xtversion,
-    device_attributes: ansi.DeviceAttributeReq,
+    device_attributes: device_attributes.Req,
     device_status: DeviceStatus,
     kitty_keyboard_query,
     kitty_keyboard_push: KittyKeyboardFlags,
@@ -128,7 +127,7 @@ pub const Action = union(Key) {
     semantic_prompt: SemanticPrompt,
 
     pub const Key = lib.Enum(
-        lib_target,
+        lib.target,
         &.{
             "print",
             "print_repeat",
@@ -228,7 +227,7 @@ pub const Action = union(Key) {
 
     /// C ABI functions.
     const c_union = lib.TaggedUnion(
-        lib_target,
+        lib.target,
         @This(),
         // TODO: Before shipping an ABI-compatible libghostty, verify this.
         // This was just arbitrarily chosen for now.
@@ -253,7 +252,7 @@ pub const Action = union(Key) {
         }
     };
 
-    pub const InvokeCharset = lib.Struct(lib_target, struct {
+    pub const InvokeCharset = lib.Struct(lib.target, struct {
         bank: charsets.ActiveSlot,
         charset: charsets.Slots,
         locking: bool,
@@ -383,7 +382,7 @@ pub const Action = union(Key) {
         }
     };
 
-    pub const ConfigureCharset = lib.Struct(lib_target, struct {
+    pub const ConfigureCharset = lib.Struct(lib.target, struct {
         slot: charsets.Slots,
         charset: charsets.Charset,
     });
@@ -419,11 +418,12 @@ pub const Action = union(Key) {
 /// e.g. you don't need to pay a conditional branching cost on every single
 /// action because the Zig compiler codegens separate code paths for every
 /// single action at comptime.
-pub fn Stream(comptime Handler: type) type {
+pub fn Stream(comptime H: type) type {
     return struct {
         const Self = @This();
 
         pub const Action = streampkg.Action;
+        pub const Handler = H;
 
         const T = switch (@typeInfo(Handler)) {
             .pointer => |p| p.child,
@@ -1281,7 +1281,7 @@ pub fn Stream(comptime Handler: type) type {
 
                 // c - Device Attributes (DA1)
                 'c' => {
-                    const req: ?ansi.DeviceAttributeReq = switch (input.intermediates.len) {
+                    const req: ?device_attributes.Req = switch (input.intermediates.len) {
                         0 => .primary,
                         1 => switch (input.intermediates[0]) {
                             '>' => .secondary,

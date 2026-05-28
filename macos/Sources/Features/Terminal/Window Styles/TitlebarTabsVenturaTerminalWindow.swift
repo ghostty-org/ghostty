@@ -689,6 +689,11 @@ private class CenteredDynamicLabel: NSTextField {
         setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
     }
 
+    /// Click through, so we can double click here to enlarge current window
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
     // Vertically center the text
     override func draw(_ dirtyRect: NSRect) {
         guard let attributedString = self.attributedStringValue.mutableCopy() as? NSMutableAttributedString else {

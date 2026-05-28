@@ -54,6 +54,7 @@
  * - @ref c-vt-sgr/src/main.c - SGR parser example
  * - @ref c-vt-formatter/src/main.c - Terminal formatter example
  * - @ref c-vt-grid-traverse/src/main.c - Grid traversal example using grid refs
+ * - @ref c-vt-grid-ref-tracked/src/main.c - Tracked grid ref example
  *
  */
 
@@ -98,6 +99,21 @@
  * grid refs to inspect cell codepoints, row wrap state, and cell styles.
  */
 
+/** @example c-vt-grid-ref-tracked/src/main.c
+ * This example demonstrates how to track a grid ref as the terminal scrolls,
+ * detect when it loses its value, and move it to a new point.
+ */
+
+/** @example c-vt-selection-gesture/src/main.c
+ * This example demonstrates how to use synthetic selection gesture events to
+ * derive drag and deep-press selection snapshots.
+ */
+
+/** @example c-vt-kitty-graphics/src/main.c
+ * This example demonstrates how to use the system interface to install a
+ * PNG decoder callback and send a Kitty Graphics Protocol image.
+ */
+
 #ifndef GHOSTTY_VT_H
 #define GHOSTTY_VT_H
 
@@ -109,19 +125,25 @@ extern "C" {
 #include <ghostty/vt/allocator.h>
 #include <ghostty/vt/build_info.h>
 #include <ghostty/vt/color.h>
+#include <ghostty/vt/device.h>
 #include <ghostty/vt/focus.h>
 #include <ghostty/vt/formatter.h>
 #include <ghostty/vt/render.h>
 #include <ghostty/vt/terminal.h>
 #include <ghostty/vt/grid_ref.h>
+#include <ghostty/vt/grid_ref_tracked.h>
 #include <ghostty/vt/osc.h>
 #include <ghostty/vt/sgr.h>
 #include <ghostty/vt/style.h>
+#include <ghostty/vt/sys.h>
 #include <ghostty/vt/key.h>
+#include <ghostty/vt/kitty_graphics.h>
 #include <ghostty/vt/modes.h>
 #include <ghostty/vt/mouse.h>
 #include <ghostty/vt/paste.h>
+#include <ghostty/vt/point.h>
 #include <ghostty/vt/screen.h>
+#include <ghostty/vt/selection.h>
 #include <ghostty/vt/size_report.h>
 #include <ghostty/vt/wasm.h>
 

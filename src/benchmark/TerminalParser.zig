@@ -88,11 +88,17 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
             return error.BenchmarkFailed;
         };
         if (n == 0) break; // EOF reached
-        for (buf[0..n]) |c| {
-            const actions = p.next(c);
-            //std.log.warn("actions={any}", .{actions});
-            _ = actions;
-        }
+        parseAll(&p, buf[0..n]);
+    }
+}
+
+/// Separated from `step` so that the tight per-byte loop gets its own
+/// function alignment, insulating it from code-layout changes elsewhere
+/// in the binary that would otherwise shift its cache-line placement.
+noinline fn parseAll(p: *terminalpkg.Parser, data: []const u8) void {
+    for (data) |c| {
+        const actions = p.next(c);
+        _ = actions;
     }
 }
 

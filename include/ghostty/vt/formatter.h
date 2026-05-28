@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <ghostty/vt/allocator.h>
+#include <ghostty/vt/selection.h>
 #include <ghostty/vt/types.h>
 #include <ghostty/vt/terminal.h>
 
@@ -30,22 +31,6 @@ extern "C" {
  *
  * @{
  */
-
-/**
- * Output format.
- *
- * @ingroup formatter
- */
-typedef enum {
-  /** Plain text (no escape sequences). */
-  GHOSTTY_FORMATTER_FORMAT_PLAIN,
-
-  /** VT sequences preserving colors, styles, URLs, etc. */
-  GHOSTTY_FORMATTER_FORMAT_VT,
-
-  /** HTML with inline styles. */
-  GHOSTTY_FORMATTER_FORMAT_HTML,
-} GhosttyFormatterFormat;
 
 /**
  * Extra screen state to include in styled output.
@@ -107,13 +92,6 @@ typedef struct {
 } GhosttyFormatterTerminalExtra;
 
 /**
- * Opaque handle to a formatter instance.
- *
- * @ingroup formatter
- */
-typedef struct GhosttyFormatter* GhosttyFormatter;
-
-/**
  * Options for creating a terminal formatter.
  *
  * @ingroup formatter
@@ -133,6 +111,10 @@ typedef struct {
 
   /** Extra terminal state to include in styled output. */
   GhosttyFormatterTerminalExtra extra;
+
+  /** Optional selection to restrict output to a range.
+   *  If NULL, the entire screen is formatted. */
+  const GhosttySelection *selection;
 } GhosttyFormatterTerminalOptions;
 
 /**
@@ -149,7 +131,7 @@ typedef struct {
  *
  * @ingroup formatter
  */
-GhosttyResult ghostty_formatter_terminal_new(
+GHOSTTY_API GhosttyResult ghostty_formatter_terminal_new(
     const GhosttyAllocator* allocator,
     GhosttyFormatter* formatter,
     GhosttyTerminal terminal,
@@ -176,7 +158,7 @@ GhosttyResult ghostty_formatter_terminal_new(
  *
  * @ingroup formatter
  */
-GhosttyResult ghostty_formatter_format_buf(GhosttyFormatter formatter,
+GHOSTTY_API GhosttyResult ghostty_formatter_format_buf(GhosttyFormatter formatter,
                                            uint8_t* buf,
                                            size_t buf_len,
                                            size_t* out_written);
@@ -186,10 +168,9 @@ GhosttyResult ghostty_formatter_format_buf(GhosttyFormatter formatter,
  *
  * Each call formats the current terminal state. The buffer is allocated
  * using the provided allocator (or the default allocator if NULL).
- * The caller is responsible for freeing the returned buffer. When using
- * the default allocator (NULL), the buffer can be freed with `free()`.
- * When using a custom allocator, the buffer must be freed using the
- * same allocator.
+ * The caller is responsible for freeing the returned buffer with
+ * ghostty_free(), passing the same allocator (or NULL for the default)
+ * that was used for the allocation.
  *
  * @param formatter The formatter handle (must not be NULL)
  * @param allocator Pointer to allocator, or NULL to use the default allocator
@@ -200,7 +181,7 @@ GhosttyResult ghostty_formatter_format_buf(GhosttyFormatter formatter,
  *
  * @ingroup formatter
  */
-GhosttyResult ghostty_formatter_format_alloc(GhosttyFormatter formatter,
+GHOSTTY_API GhosttyResult ghostty_formatter_format_alloc(GhosttyFormatter formatter,
                                              const GhosttyAllocator* allocator,
                                              uint8_t** out_ptr,
                                              size_t* out_len);
@@ -215,7 +196,7 @@ GhosttyResult ghostty_formatter_format_alloc(GhosttyFormatter formatter,
  *
  * @ingroup formatter
  */
-void ghostty_formatter_free(GhosttyFormatter formatter);
+GHOSTTY_API void ghostty_formatter_free(GhosttyFormatter formatter);
 
 /** @} */
 

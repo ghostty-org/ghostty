@@ -109,6 +109,7 @@
 				Helpers/CrossKit.swift,
 				"Helpers/Extensions/NSImage+Extension.swift",
 				"Helpers/Extensions/OSColor+Extension.swift",
+				"Helpers/Extensions/OSPasteboard+Extension.swift",
 			);
 			target = 8193244C2F24E6C000A9ED8F /* DockTilePlugin */;
 		};
@@ -185,6 +186,7 @@
 				Features/Terminal/ErrorView.swift,
 				Features/Terminal/TerminalController.swift,
 				Features/Terminal/TerminalRestorable.swift,
+				"Features/Terminal/TerminalRestorableState+InteralState.swift",
 				Features/Terminal/TerminalTabColor.swift,
 				Features/Terminal/TerminalView.swift,
 				Features/Terminal/TerminalViewContainer.swift,
@@ -210,6 +212,7 @@
 				Ghostty/Ghostty.Error.swift,
 				Ghostty/Ghostty.Event.swift,
 				Ghostty/Ghostty.Input.swift,
+				Ghostty/Ghostty.MenuShortcutManager.swift,
 				Ghostty/Ghostty.Surface.swift,
 				"Ghostty/NSEvent+Extension.swift",
 				"Ghostty/Surface View/InspectorView.swift",

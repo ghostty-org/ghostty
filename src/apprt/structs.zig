@@ -12,6 +12,10 @@ pub const ContentScale = struct {
 pub const SurfaceSize = struct {
     width: u32,
     height: u32,
+
+    pub fn eql(self: *const SurfaceSize, other: *const SurfaceSize) bool {
+        return self.width == other.width and self.height == other.height;
+    }
 };
 
 /// The position of the cursor in pixels.

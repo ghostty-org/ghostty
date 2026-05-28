@@ -1,11 +1,10 @@
 const std = @import("std");
 const build_options = @import("terminal_options");
-const lib = @import("../lib/main.zig");
-const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
+const lib = @import("lib.zig");
 
 /// The event types that can be reported for mouse-related activities.
 /// These are all mutually exclusive (hence in a single enum).
-pub const Event = lib.Enum(lib_target, &.{
+pub const Event = lib.Enum(lib.target, &.{
     "none",
     "x10", // 9
     "normal", // 1000
@@ -20,7 +19,7 @@ pub fn eventSendsMotion(event: Event) bool {
 
 /// The format of mouse events when enabled.
 /// These are all mutually exclusive (hence in a single enum).
-pub const Format = lib.Enum(lib_target, &.{
+pub const Format = lib.Enum(lib.target, &.{
     "x10",
     "utf8", // 1005
     "sgr", // 1006
@@ -92,6 +91,7 @@ pub const Shape = enum(c_int) {
     };
 
     test "ghostty.h MouseShape" {
+        if (comptime build_options.artifact == .lib) return error.SkipZigTest;
         try lib.checkGhosttyHEnum(Shape, "GHOSTTY_MOUSE_SHAPE_");
     }
 };

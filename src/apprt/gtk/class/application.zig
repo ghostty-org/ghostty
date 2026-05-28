@@ -41,6 +41,7 @@ const Tab = @import("tab.zig").Tab;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const ConfigErrorsDialog = @import("config_errors_dialog.zig").ConfigErrorsDialog;
 const GlobalShortcuts = @import("global_shortcuts.zig").GlobalShortcuts;
+const OpenURI = @import("../portal.zig").OpenURI;
 
 const log = std.log.scoped(.gtk_ghostty_application);
 
@@ -214,6 +215,8 @@ pub const Application = extern struct {
         /// by the system. If this is null, the LANG environment variable did
         /// not exist in Ghostty's environment variable.
         saved_language: ?[:0]const u8 = null,
+
+        open_uri: OpenURI = undefined,
 
         pub var offset: c_int = 0;
     };
@@ -398,6 +401,7 @@ pub const Application = extern struct {
             .custom_css_providers = .empty,
             .global_shortcuts = gobject.ext.newInstance(GlobalShortcuts, .{}),
             .saved_language = saved_language,
+            .open_uri = .init(rt_app),
         };
 
         // Signals
@@ -433,6 +437,7 @@ pub const Application = extern struct {
         const priv: *Private = self.private();
         priv.config.unref();
         priv.winproto.deinit();
+        priv.open_uri.deinit();
         priv.global_shortcuts.unref();
         if (priv.saved_language) |language| alloc.free(language);
         if (gdk.Display.getDefault()) |display| {
@@ -804,6 +809,11 @@ pub const Application = extern struct {
     /// Returns the app winproto implementation.
     pub fn winproto(self: *Self) *winprotopkg.App {
         return &self.private().winproto;
+    }
+
+    /// Returns the open URI portal implementation.
+    pub fn openUri(self: *Self) *OpenURI {
+        return &self.private().open_uri;
     }
 
     /// This will get called when there are no more open surfaces.
@@ -1289,6 +1299,11 @@ pub const Application = extern struct {
         // Set ourselves as the default application.
         gio.Application.setDefault(self.as(gio.Application));
 
+        // The D-Bus connection is only valid after GApplication startup.
+        self.openUri().setDbusConnection(
+            self.as(gio.Application).getDbusConnection(),
+        );
+
         // Setup our event loop
         self.startupXev();
 
@@ -1404,6 +1419,7 @@ pub const Application = extern struct {
             .init("present-surface", actionPresentSurface, t_variant_type),
             .init("quit", actionQuit, null),
             .init("reload-config", actionReloadConfig, null),
+            .init("toggle-quick-terminal", actionToggleQuickTerminal, null),
         };
 
         ext.actions.add(Self, self, &actions);
@@ -1654,6 +1670,17 @@ pub const Application = extern struct {
         };
     }
 
+    fn actionToggleQuickTerminal(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const priv = self.private();
+        priv.core_app.performAction(self.rt(), .toggle_quick_terminal) catch |err| {
+            log.warn("error toggling quick terminal err={}", .{err});
+        };
+    }
+
     fn actionQuit(
         _: *gio.SimpleAction,
         _: ?*glib.Variant,
@@ -1721,11 +1748,11 @@ pub const Application = extern struct {
                 log.debug("new-window argument: {d} {s}", .{ i, str });
 
                 if (e_seen) {
-                    const cpy = alloc.dupeZ(u8, str) catch |err| {
+                    const duplicated = alloc.dupeZ(u8, str) catch |err| {
                         log.warn("unable to duplicate argument {d} {s}: {t}", .{ i, str, err });
                         break :overrides;
                     };
-                    args.append(alloc, cpy) catch |err| {
+                    args.append(alloc, duplicated) catch |err| {
                         log.warn("unable to append argument {d} {s}: {t}", .{ i, str, err });
                         break :overrides;
                     };
@@ -1796,29 +1823,18 @@ pub const Application = extern struct {
         const t = glib.ext.VariantType.newFor(u64);
         defer glib.VariantType.free(t);
 
-        // Make sure that we've receiived a u64 from the system.
+        // Make sure that we've received a u64 from the system.
         if (glib.Variant.isOfType(parameter, t) == 0) {
             return;
         }
 
-        // Convert that u64 to pointer to a core surface. A value of zero
-        // means that there was no target surface for the notification so
-        // we don't focus any surface.
-        //
-        // This is admittedly SUPER SUS and we should instead do what we
-        // do on macOS which is generate a UUID per surface and then pass
-        // that around. But, we do validate the pointer below so at worst
-        // this may result in focusing the wrong surface if the pointer was
-        // reused for a surface.
-        const ptr_int = parameter.getUint64();
-        if (ptr_int == 0) return;
-        const surface: *CoreSurface = @ptrFromInt(ptr_int);
+        // Convert the u64 to a core surface by using it as a surface ID.
+        // A value of zero means that there was no target surface for the
+        // notification so we don't focus any surface.
+        const surface_id = parameter.getUint64();
+        if (surface_id == 0) return;
+        const surface = self.core().findSurfaceByID(surface_id) orelse return;
 
-        // Send a message through the core app mailbox rather than presenting the
-        // surface directly so that it can validate that the surface pointer is
-        // valid. We could get an invalid pointer if a desktop notification outlives
-        // a Ghostty instance and a new one starts up, or there are multiple Ghostty
-        // instances running.
         _ = self.core().mailbox.push(
             .{
                 .surface_message = .{
@@ -1873,6 +1889,17 @@ pub const Application = extern struct {
             gobject.Object.virtual_methods.finalize.implement(class, &finalize);
         }
     };
+
+    pub fn openUrlFallback(self: *Application, kind: apprt.action.OpenUrl.Kind, url: []const u8) void {
+        // Fallback to the minimal cross-platform way of opening a URL.
+        // This is always a safe fallback and enables for example Windows
+        // to open URLs (GTK on Windows via WSL is a thing).
+        internal_os.open(
+            self.allocator(),
+            kind,
+            url,
+        ) catch |err| log.warn("unable to open url: {}", .{err});
+    }
 };
 
 /// All apprt action handlers
@@ -2317,16 +2344,20 @@ const Action = struct {
         self: *Application,
         value: apprt.action.OpenUrl,
     ) void {
-        // TODO: use https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.OpenURI.html
+        if (std.mem.startsWith(u8, value.url, "/")) {
+            self.openUrlFallback(value.kind, value.url);
+            return;
+        }
+        if (std.mem.startsWith(u8, value.url, "file://")) {
+            self.openUrlFallback(value.kind, value.url);
+            return;
+        }
 
-        // Fallback to the minimal cross-platform way of opening a URL.
-        // This is always a safe fallback and enables for example Windows
-        // to open URLs (GTK on Windows via WSL is a thing).
-        internal_os.open(
-            self.allocator(),
-            value.kind,
-            value.url,
-        ) catch |err| log.warn("unable to open url: {}", .{err});
+        self.openUri().start(value) catch |err| {
+            log.err("unable to open uri err={}", .{err});
+            self.openUrlFallback(value.kind, value.url);
+            return;
+        };
     }
 
     pub fn pwd(
@@ -2432,7 +2463,7 @@ const Action = struct {
         };
         defer config.unref();
 
-        // Update the proper target. This will trigger a `confige_change`
+        // Update the proper target. This will trigger a `config_change`
         // apprt action which will propagate the config properly to our
         // property system.
         switch (target) {

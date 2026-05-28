@@ -1,6 +1,5 @@
 import Testing
 @testable import Ghostty
-@testable import GhosttyKit
 import SwiftUI
 
 @Suite
@@ -182,6 +181,14 @@ struct ConfigTests {
         #expect(config.loaded == true)
     }
 
+    @Test func reloadConfig() throws {
+        let config = try TemporaryConfig("background-opacity = 0.5")
+        #expect(config.backgroundOpacity == 0.5)
+
+        try config.reload("background-opacity = 0.7")
+        #expect(config.backgroundOpacity == 0.7)
+    }
+
     @Test func defaultConfigIsLoaded() throws {
         let config = try TemporaryConfig("")
         #expect(config.optionalAutoUpdateChannel != nil) // release or tip
@@ -213,32 +220,30 @@ struct ConfigTests {
         #expect(config.maximize == true)
         #expect(config.focusFollowsMouse == true)
     }
-}
 
-/// Create a temporary config file and delete it when this is deallocated
-class TemporaryConfig: Ghostty.Config {
-    let temporaryFile: URL
+    // MARK: - Keybind
 
-    init(_ configText: String, finalize: Bool = true) throws {
-        let temporaryFile = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("ghostty")
-        try configText.write(to: temporaryFile, atomically: true, encoding: .utf8)
-        self.temporaryFile = temporaryFile
-        super.init(config: Self.loadConfig(at: temporaryFile.path(), finalize: finalize))
+    @Test
+    func uppercasedLetterShouldBeNormalized() async throws {
+        let config = try TemporaryConfig("""
+        keybind=cmd+L=goto_split:left
+        """)
+        let shortcut = try #require(config.keyboardShortcut(for: "goto_split:left"))
+        #expect(shortcut == .init("l", modifiers: [.command]))
+
+        let config2 = try TemporaryConfig("""
+        keybind=cmd+Ä=goto_split:left
+        """)
+        let shortcut2 = try #require(config2.keyboardShortcut(for: "goto_split:left"))
+        #expect(shortcut2 == .init("ä", modifiers: [.command]))
     }
 
-    var optionalAutoUpdateChannel: Ghostty.AutoUpdateChannel? {
-        guard let config = self.config else { return nil }
-        var v: UnsafePointer<Int8>?
-        let key = "auto-update-channel"
-        guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return nil }
-        guard let ptr = v else { return nil }
-        let str = String(cString: ptr)
-        return Ghostty.AutoUpdateChannel(rawValue: str)
-    }
-
-    deinit {
-        try? FileManager.default.removeItem(at: temporaryFile)
+    @Test
+    func emptyConfigShouldBeHaveDefaultShortcut() async throws {
+        let config = try TemporaryConfig("")
+        let newWindow = try #require(config.keyboardShortcut(for: "new_window"))
+        #expect(newWindow == .init("n", modifiers: [.command]))
+        let gotoToNextSplit = try #require(config.keyboardShortcut(for: "goto_split:next"))
+        #expect(gotoToNextSplit == .init("]", modifiers: [.command]))
     }
 }

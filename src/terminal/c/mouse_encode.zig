@@ -1,8 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
-const lib_alloc = @import("../../lib/allocator.zig");
-const CAllocator = lib_alloc.Allocator;
+const lib = @import("../lib.zig");
+const CAllocator = lib.alloc.Allocator;
 const input_mouse_encode = @import("../../input/mouse_encode.zig");
 const renderer_size = @import("../../renderer/size.zig");
 const point = @import("../point.zig");
@@ -89,8 +89,8 @@ pub const Option = enum(c_int) {
 pub fn new(
     alloc_: ?*const CAllocator,
     result: *Encoder,
-) callconv(.c) Result {
-    const alloc = lib_alloc.default(alloc_);
+) callconv(lib.calling_conv) Result {
+    const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(MouseEncoderWrapper) catch
         return .out_of_memory;
     ptr.* = .{
@@ -101,7 +101,7 @@ pub fn new(
     return .success;
 }
 
-pub fn free(encoder_: Encoder) callconv(.c) void {
+pub fn free(encoder_: Encoder) callconv(lib.calling_conv) void {
     const wrapper = encoder_ orelse return;
     const alloc = wrapper.alloc;
     alloc.destroy(wrapper);
@@ -111,7 +111,7 @@ pub fn setopt(
     encoder_: Encoder,
     option: Option,
     value: ?*const anyopaque,
-) callconv(.c) void {
+) callconv(lib.calling_conv) void {
     if (comptime std.debug.runtime_safety) {
         _ = std.meta.intToEnum(Option, @intFromEnum(option)) catch {
             log.warn("setopt invalid option value={d}", .{@intFromEnum(option)});
@@ -187,7 +187,7 @@ fn setoptTyped(
 pub fn setopt_from_terminal(
     encoder_: Encoder,
     terminal_: Terminal,
-) callconv(.c) void {
+) callconv(lib.calling_conv) void {
     const wrapper = encoder_ orelse return;
     const t: *ZigTerminal = (terminal_ orelse return).terminal;
     wrapper.opts.event = t.flags.mouse_event;
@@ -195,7 +195,7 @@ pub fn setopt_from_terminal(
     wrapper.last_cell = null;
 }
 
-pub fn reset(encoder_: Encoder) callconv(.c) void {
+pub fn reset(encoder_: Encoder) callconv(lib.calling_conv) void {
     const wrapper = encoder_ orelse return;
     wrapper.last_cell = null;
 }
@@ -206,7 +206,7 @@ pub fn encode(
     out_: ?[*]u8,
     out_len: usize,
     out_written: *usize,
-) callconv(.c) Result {
+) callconv(lib.calling_conv) Result {
     const wrapper = encoder_ orelse return .invalid_value;
     const event = event_ orelse return .invalid_value;
 
@@ -274,7 +274,7 @@ fn testSize() Size {
 test "alloc" {
     var e: Encoder = undefined;
     try testing.expectEqual(Result.success, new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &e,
     ));
     free(e);
@@ -283,7 +283,7 @@ test "alloc" {
 test "setopt" {
     var e: Encoder = undefined;
     try testing.expectEqual(Result.success, new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &e,
     ));
     defer free(e);
@@ -315,14 +315,14 @@ test "setopt_from_terminal" {
 
     var e: Encoder = undefined;
     try testing.expectEqual(Result.success, new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &e,
     ));
     defer free(e);
 
     var t: Terminal = undefined;
     try testing.expectEqual(Result.success, terminal_c.new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &t,
         .{ .cols = 80, .rows = 24, .max_scrollback = 0 },
     ));
@@ -344,7 +344,7 @@ test "setopt_from_terminal null" {
     const terminal_c = @import("terminal.zig");
     var t: Terminal = undefined;
     try testing.expectEqual(Result.success, terminal_c.new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &t,
         .{ .cols = 80, .rows = 24, .max_scrollback = 0 },
     ));
@@ -353,7 +353,7 @@ test "setopt_from_terminal null" {
 
     var e: Encoder = undefined;
     try testing.expectEqual(Result.success, new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &e,
     ));
     defer free(e);
@@ -363,7 +363,7 @@ test "setopt_from_terminal null" {
 test "encode: sgr press left" {
     var encoder: Encoder = undefined;
     try testing.expectEqual(Result.success, new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &encoder,
     ));
     defer free(encoder);
@@ -377,7 +377,7 @@ test "encode: sgr press left" {
 
     var event: Event = undefined;
     try testing.expectEqual(Result.success, mouse_event.new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &event,
     ));
     defer mouse_event.free(event);
@@ -412,7 +412,7 @@ test "encode: sgr press left" {
 test "encode: motion dedupe and reset" {
     var encoder: Encoder = undefined;
     try testing.expectEqual(Result.success, new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &encoder,
     ));
     defer free(encoder);
@@ -428,7 +428,7 @@ test "encode: motion dedupe and reset" {
 
     var event: Event = undefined;
     try testing.expectEqual(Result.success, mouse_event.new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &event,
     ));
     defer mouse_event.free(event);
@@ -482,7 +482,7 @@ test "encode: motion dedupe and reset" {
 test "encode: querying required size doesn't update dedupe state" {
     var encoder: Encoder = undefined;
     try testing.expectEqual(Result.success, new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &encoder,
     ));
     defer free(encoder);
@@ -498,7 +498,7 @@ test "encode: querying required size doesn't update dedupe state" {
 
     var event: Event = undefined;
     try testing.expectEqual(Result.success, mouse_event.new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &event,
     ));
     defer mouse_event.free(event);

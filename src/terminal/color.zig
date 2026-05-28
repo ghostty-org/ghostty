@@ -47,6 +47,23 @@ pub const default: Palette = default: {
 /// Palette is the 256 color palette.
 pub const Palette = [256]RGB;
 
+/// C-compatible palette type using the extern RGB struct.
+pub const PaletteC = [256]RGB.C;
+
+/// Convert a Palette to a PaletteC.
+pub fn paletteCval(palette: *const Palette) PaletteC {
+    var result: PaletteC = undefined;
+    for (&result, palette) |*dst, src| dst.* = src.cval();
+    return result;
+}
+
+/// Convert a PaletteC to a Palette.
+pub fn paletteZval(palette: *const PaletteC) Palette {
+    var result: Palette = undefined;
+    for (&result, palette) |*dst, src| dst.* = .fromC(src);
+    return result;
+}
+
 /// Mask that can be used to set which palette indexes were set.
 pub const PaletteMask = std.StaticBitSet(@typeInfo(Palette).array.len);
 
@@ -407,6 +424,10 @@ pub const RGB = packed struct(u24) {
         g: u8,
         b: u8,
     };
+
+    pub fn fromC(c: C) RGB {
+        return .{ .r = c.r, .g = c.g, .b = c.b };
+    }
 
     pub fn cval(self: RGB) C {
         return .{

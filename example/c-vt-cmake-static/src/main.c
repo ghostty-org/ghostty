@@ -45,7 +45,7 @@ int main() {
   fwrite(buf, 1, len, stdout);
   printf("\n");
 
-  free(buf);
+  ghostty_free(NULL, buf, len);
   ghostty_formatter_free(formatter);
   ghostty_terminal_free(terminal);
   return 0;

@@ -1506,3 +1506,47 @@ test "reloadActive partial history cleanup on loop append error" {
     // because FlattenedHighlight items weren't cleaned up.
     try testing.expectError(error.OutOfMemory, search.select(.next));
 }
+
+test "select after clearing scrollback" {
+    // Regression test for: https://github.com/ghostty-org/ghostty/issues/11957
+    // After clearing scrollback (CSI 3J), selecting next/prev should not crash.
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{
+        .cols = 10,
+        .rows = 2,
+        .max_scrollback = std.math.maxInt(usize),
+    });
+    defer t.deinit(alloc);
+    const list: *PageList = &t.screens.active.pages;
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Write enough content to push matches into scrollback history.
+    s.nextSlice("error\r\n");
+    while (list.totalPages() < 3) s.nextSlice("error\r\n");
+    for (0..list.rows) |_| s.nextSlice("\r\n");
+    s.nextSlice("error.");
+
+    // Start search and find all matches.
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "error");
+    defer search.deinit();
+    try search.searchAll();
+
+    // Should have matches in both history and active areas.
+    try testing.expect(search.history_results.items.len > 0);
+    try testing.expect(search.active_results.items.len > 0);
+
+    // Select a match first (so we have a selection).
+    _ = try search.select(.next);
+    try testing.expect(search.selected != null);
+
+    // Clear scrollback (equivalent to CSI 3J / Cmd+K erasing scrollback).
+    t.eraseDisplay(.scrollback, false);
+
+    // Selecting next/prev after clearing scrollback should not crash.
+    // Before the fix, this would hit an assertion in trackPin because
+    // the FlattenedHighlight contained dangling node pointers.
+    _ = try search.select(.next);
+    _ = try search.select(.prev);
+}

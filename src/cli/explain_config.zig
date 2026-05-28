@@ -6,6 +6,7 @@ const help_strings = @import("help_strings");
 const Config = @import("../config/Config.zig");
 const ConfigKey = @import("../config/key.zig").Key;
 const KeybindAction = @import("../input/Binding.zig").Action;
+const Pager = @import("Pager.zig");
 
 pub const Options = struct {
     /// The config option to explain. For example:
@@ -43,22 +44,30 @@ pub const Options = struct {
 ///
 ///   * `--option`: The name of the configuration option to explain.
 ///   * `--keybind`: The name of the keybind action to explain.
+///   * `--no-pager`: Disable automatic paging of output.
 pub fn run(alloc: Allocator) !u8 {
     var option_name: ?[]const u8 = null;
     var keybind_name: ?[]const u8 = null;
     var positional: ?[]const u8 = null;
+    var no_pager: bool = false;
+
     var iter = try args.argsIterator(alloc);
     defer iter.deinit();
+    defer if (option_name) |s| alloc.free(s);
+    defer if (keybind_name) |s| alloc.free(s);
+    defer if (positional) |s| alloc.free(s);
 
     while (iter.next()) |arg| {
         if (std.mem.startsWith(u8, arg, "--option=")) {
-            option_name = arg["--option=".len..];
+            option_name = try alloc.dupe(u8, arg["--option=".len..]);
         } else if (std.mem.startsWith(u8, arg, "--keybind=")) {
-            keybind_name = arg["--keybind=".len..];
+            keybind_name = try alloc.dupe(u8, arg["--keybind=".len..]);
+        } else if (std.mem.eql(u8, arg, "--no-pager")) {
+            no_pager = true;
         } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             return Action.help_error;
         } else if (!std.mem.startsWith(u8, arg, "-")) {
-            positional = arg;
+            positional = try alloc.dupe(u8, arg);
         }
     }
 
@@ -83,10 +92,10 @@ pub fn run(alloc: Allocator) !u8 {
     else
         explainOption(name) orelse explainKeybind(name);
 
-    var stdout: std.fs.File = .stdout();
+    var pager: Pager = if (!no_pager) .init(alloc) else .{};
+    defer pager.deinit();
     var buffer: [4096]u8 = undefined;
-    var stdout_writer = stdout.writer(&buffer);
-    const writer = &stdout_writer.interface;
+    const writer = pager.writer(&buffer);
 
     if (text) |t| {
         try writer.writeAll(t);
@@ -95,11 +104,11 @@ pub fn run(alloc: Allocator) !u8 {
         try writer.writeAll("Unknown: '");
         try writer.writeAll(name);
         try writer.writeAll("'.\n");
-        try stdout_writer.end();
+        try writer.flush();
         return 1;
     }
 
-    try stdout_writer.end();
+    try writer.flush();
     return 0;
 }
 

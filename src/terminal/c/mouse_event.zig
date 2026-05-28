@@ -1,8 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
-const lib_alloc = @import("../../lib/allocator.zig");
-const CAllocator = lib_alloc.Allocator;
+const lib = @import("../lib.zig");
+const CAllocator = lib.alloc.Allocator;
 const key = @import("../../input/key.zig");
 const mouse = @import("../../input/mouse.zig");
 const mouse_encode = @import("../../input/mouse_encode.zig");
@@ -34,8 +34,8 @@ pub const Mods = key.Mods;
 pub fn new(
     alloc_: ?*const CAllocator,
     result: *Event,
-) callconv(.c) Result {
-    const alloc = lib_alloc.default(alloc_);
+) callconv(lib.calling_conv) Result {
+    const alloc = lib.alloc.default(alloc_);
     const ptr = alloc.create(MouseEventWrapper) catch
         return .out_of_memory;
     ptr.* = .{ .alloc = alloc };
@@ -43,13 +43,13 @@ pub fn new(
     return .success;
 }
 
-pub fn free(event_: Event) callconv(.c) void {
+pub fn free(event_: Event) callconv(lib.calling_conv) void {
     const wrapper = event_ orelse return;
     const alloc = wrapper.alloc;
     alloc.destroy(wrapper);
 }
 
-pub fn set_action(event_: Event, action: Action) callconv(.c) void {
+pub fn set_action(event_: Event, action: Action) callconv(lib.calling_conv) void {
     if (comptime std.debug.runtime_safety) {
         _ = std.meta.intToEnum(Action, @intFromEnum(action)) catch {
             log.warn("set_action invalid action value={d}", .{@intFromEnum(action)});
@@ -60,11 +60,11 @@ pub fn set_action(event_: Event, action: Action) callconv(.c) void {
     event_.?.event.action = action;
 }
 
-pub fn get_action(event_: Event) callconv(.c) Action {
+pub fn get_action(event_: Event) callconv(lib.calling_conv) Action {
     return event_.?.event.action;
 }
 
-pub fn set_button(event_: Event, button: Button) callconv(.c) void {
+pub fn set_button(event_: Event, button: Button) callconv(lib.calling_conv) void {
     if (comptime std.debug.runtime_safety) {
         _ = std.meta.intToEnum(Button, @intFromEnum(button)) catch {
             log.warn("set_button invalid button value={d}", .{@intFromEnum(button)});
@@ -75,11 +75,11 @@ pub fn set_button(event_: Event, button: Button) callconv(.c) void {
     event_.?.event.button = button;
 }
 
-pub fn clear_button(event_: Event) callconv(.c) void {
+pub fn clear_button(event_: Event) callconv(lib.calling_conv) void {
     event_.?.event.button = null;
 }
 
-pub fn get_button(event_: Event, out: ?*Button) callconv(.c) bool {
+pub fn get_button(event_: Event, out: ?*Button) callconv(lib.calling_conv) bool {
     if (event_.?.event.button) |button| {
         if (out) |ptr| ptr.* = button;
         return true;
@@ -88,26 +88,26 @@ pub fn get_button(event_: Event, out: ?*Button) callconv(.c) bool {
     return false;
 }
 
-pub fn set_mods(event_: Event, mods: Mods) callconv(.c) void {
+pub fn set_mods(event_: Event, mods: Mods) callconv(lib.calling_conv) void {
     event_.?.event.mods = mods;
 }
 
-pub fn get_mods(event_: Event) callconv(.c) Mods {
+pub fn get_mods(event_: Event) callconv(lib.calling_conv) Mods {
     return event_.?.event.mods;
 }
 
-pub fn set_position(event_: Event, pos: Position) callconv(.c) void {
+pub fn set_position(event_: Event, pos: Position) callconv(lib.calling_conv) void {
     event_.?.event.pos = pos;
 }
 
-pub fn get_position(event_: Event) callconv(.c) Position {
+pub fn get_position(event_: Event) callconv(lib.calling_conv) Position {
     return event_.?.event.pos;
 }
 
 test "alloc" {
     var e: Event = undefined;
     try testing.expectEqual(Result.success, new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &e,
     ));
     free(e);
@@ -120,7 +120,7 @@ test "free null" {
 test "set/get" {
     var e: Event = undefined;
     try testing.expectEqual(Result.success, new(
-        &lib_alloc.test_allocator,
+        &lib.alloc.test_allocator,
         &e,
     ));
     defer free(e);

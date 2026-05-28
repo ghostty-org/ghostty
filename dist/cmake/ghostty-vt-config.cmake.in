@@ -8,10 +8,17 @@ set(_ghostty_vt_libdir "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@")
 if(NOT TARGET ghostty-vt::ghostty-vt)
     add_library(ghostty-vt::ghostty-vt SHARED IMPORTED)
 
+    if(WIN32)
+        set(_ghostty_vt_shared_location "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_BINDIR@/@GHOSTTY_VT_REALNAME@")
+    else()
+        set(_ghostty_vt_shared_location "${_ghostty_vt_libdir}/@GHOSTTY_VT_REALNAME@")
+    endif()
+
     set_target_properties(ghostty-vt::ghostty-vt PROPERTIES
-        IMPORTED_LOCATION "${_ghostty_vt_libdir}/@GHOSTTY_VT_REALNAME@"
+        IMPORTED_LOCATION "${_ghostty_vt_shared_location}"
         INTERFACE_INCLUDE_DIRECTORIES "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_INCLUDEDIR@"
     )
+    unset(_ghostty_vt_shared_location)
 
     if(APPLE)
         set_target_properties(ghostty-vt::ghostty-vt PROPERTIES
@@ -22,7 +29,11 @@ if(NOT TARGET ghostty-vt::ghostty-vt)
         set_property(TARGET ghostty-vt::ghostty-vt APPEND PROPERTY
             INTERFACE_LINK_OPTIONS "LINKER:-rpath,${_ghostty_vt_libdir}"
         )
-    elseif(NOT WIN32)
+    elseif(WIN32)
+        set_target_properties(ghostty-vt::ghostty-vt PROPERTIES
+            IMPORTED_IMPLIB "${_ghostty_vt_libdir}/@GHOSTTY_VT_IMPLIB@"
+        )
+    else()
         set_target_properties(ghostty-vt::ghostty-vt PROPERTIES
             IMPORTED_SONAME "@GHOSTTY_VT_SONAME@"
         )
@@ -42,6 +53,11 @@ if(NOT TARGET ghostty-vt::ghostty-vt-static)
         IMPORTED_LOCATION "${_ghostty_vt_libdir}/@GHOSTTY_VT_STATIC_REALNAME@"
         INTERFACE_INCLUDE_DIRECTORIES "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_INCLUDEDIR@"
     )
+    if(WIN32)
+        set_target_properties(ghostty-vt::ghostty-vt-static PROPERTIES
+            INTERFACE_LINK_LIBRARIES "ntdll;kernel32"
+        )
+    endif()
 endif()
 
 unset(_ghostty_vt_libdir)

@@ -1,7 +1,8 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const inputpkg = @import("../input.zig");
 const state = &@import("../global.zig").state;
-const c = @import("../main_c.zig");
+const String = @import("../main_c.zig").String;
 
 const Config = @import("Config.zig");
 const c_get = @import("c_get.zig");
@@ -131,7 +132,7 @@ export fn ghostty_config_get_diagnostic(self: *Config, idx: u32) Diagnostic {
     return .{ .message = message.ptr };
 }
 
-export fn ghostty_config_open_path() c.String {
+export fn ghostty_config_open_path() String {
     const path = edit.openPath(state.alloc) catch |err| {
         log.err("error opening config in editor err={}", .{err});
         return .empty;
@@ -241,4 +242,39 @@ test "ghostty_config_get: struct cval conversion" {
     try testing.expectEqual(@as(u8, 12), out.r);
     try testing.expectEqual(@as(u8, 34), out.g);
     try testing.expectEqual(@as(u8, 56), out.b);
+}
+
+test "ghostty_config_trigger: default keybind" {
+    const testing = std.testing;
+
+    var cfg = try Config.default(testing.allocator);
+    defer cfg.deinit();
+
+    // Default commands should be fetchable through config_trigger_
+    {
+        const trigger = try config_trigger_(&cfg, "open_config");
+        try testing.expectEqual(.unicode, trigger.tag);
+        try testing.expectEqual(@as(u32, ','), trigger.key.unicode);
+    }
+    {
+        const trigger = try config_trigger_(&cfg, "reload_config");
+        try testing.expectEqual(.unicode, trigger.tag);
+        try testing.expectEqual(@as(u32, ','), trigger.key.unicode);
+    }
+    // Performable bindings are not tracked in the reverse map,
+    // so config_trigger_ should return a default (empty) trigger.
+    if (comptime builtin.target.os.tag.isDarwin()) {
+        const next = try config_trigger_(&cfg, "navigate_search:next");
+        try testing.expectEqual(.physical, next.tag);
+        try testing.expectEqual(.unidentified, next.key.physical);
+
+        const prev = try config_trigger_(&cfg, "navigate_search:previous");
+        try testing.expectEqual(.physical, prev.tag);
+        try testing.expectEqual(.unidentified, prev.key.physical);
+    }
+    {
+        const trigger = try config_trigger_(&cfg, "adjust_selection:left");
+        try testing.expectEqual(.physical, trigger.tag);
+        try testing.expectEqual(.unidentified, trigger.key.physical);
+    }
 }

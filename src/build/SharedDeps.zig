@@ -133,7 +133,25 @@ pub fn add(
     step.root_module.addOptions("build_options", self.options);
 
     // Every exe needs the terminal options
-    self.config.terminalOptions().add(b, step.root_module);
+    self.config.terminalOptions(.ghostty).add(b, step.root_module);
+
+    // C imports for locale constants and functions
+    {
+        const c = b.addTranslateC(.{
+            .root_source_file = b.path("src/os/locale.c"),
+            .target = target,
+            .optimize = optimize,
+        });
+        if (target.result.os.tag.isDarwin()) {
+            const libc = try std.zig.LibCInstallation.findNative(.{
+                .allocator = b.allocator,
+                .target = &target.result,
+                .verbose = false,
+            });
+            c.addSystemIncludePath(.{ .cwd_relative = libc.sys_include_dir.? });
+        }
+        step.root_module.addImport("locale-c", c.createModule());
+    }
 
     // C imports needed to manage/create PTYs
     switch (target.result.os.tag) {
@@ -394,13 +412,29 @@ pub fn add(
     // C files
     step.linkLibC();
     step.addIncludePath(b.path("src/stb"));
-    step.addCSourceFiles(.{ .files = &.{"src/stb/stb.c"} });
+    // Disable ubsan for MSVC: Zig's ubsan runtime cannot be bundled
+    // on Windows (LNK4229), leaving __ubsan_handle_* unresolved when
+    // the static archive is consumed by an external linker.
+    step.addCSourceFiles(.{
+        .files = &.{"src/stb/stb.c"},
+        .flags = if (step.rootModuleTarget().abi == .msvc)
+            &.{ "-fno-sanitize=undefined", "-fno-sanitize-trap=undefined" }
+        else
+            &.{},
+    });
     if (step.rootModuleTarget().os.tag == .linux) {
         step.addIncludePath(b.path("src/apprt/gtk"));
     }
 
-    // libcpp is required for various dependencies
-    step.linkLibCpp();
+    // libcpp is required for various dependencies. On MSVC, we must
+    // not use linkLibCpp because Zig unconditionally passes -nostdinc++
+    // and then adds its bundled libc++/libc++abi include paths, which
+    // conflict with MSVC's own C++ runtime headers. The MSVC SDK
+    // include directories (already added via linkLibC above) contain
+    // both C and C++ headers, so linkLibCpp is not needed.
+    if (step.rootModuleTarget().abi != .msvc) {
+        step.linkLibCpp();
+    }
 
     // We always require the system SDK so that our system headers are available.
     // This makes things like `os/log.h` available for cross-compiling.
@@ -728,6 +762,7 @@ pub fn addSimd(
 ) !void {
     const target = m.resolved_target.?;
     const optimize = m.optimize.?;
+    const system_highway = b.systemIntegrationOption("highway", .{ .default = false });
 
     // Simdutf
     if (b.systemIntegrationOption("simdutf", .{})) {
@@ -736,6 +771,7 @@ pub fn addSimd(
         if (b.lazyDependency("simdutf", .{
             .target = target,
             .optimize = optimize,
+            .no_libcxx = true,
         })) |simdutf_dep| {
             m.linkLibrary(simdutf_dep.artifact("simdutf"));
             if (static_libs) |v| try v.append(
@@ -746,7 +782,7 @@ pub fn addSimd(
     }
 
     // Highway
-    if (b.systemIntegrationOption("highway", .{ .default = false })) {
+    if (system_highway) {
         m.linkSystemLibrary("libhwy", dynamic_link_opts);
     } else {
         if (b.lazyDependency("highway", .{
@@ -761,18 +797,6 @@ pub fn addSimd(
         }
     }
 
-    // utfcpp - This is used as a dependency on our hand-written C++ code
-    if (b.lazyDependency("utfcpp", .{
-        .target = target,
-        .optimize = optimize,
-    })) |utfcpp_dep| {
-        m.linkLibrary(utfcpp_dep.artifact("utfcpp"));
-        if (static_libs) |v| try v.append(
-            b.allocator,
-            utfcpp_dep.artifact("utfcpp").getEmittedBin(),
-        );
-    }
-
     // SIMD C++ files
     m.addIncludePath(b.path("src"));
     {
@@ -783,12 +807,52 @@ pub fn addSimd(
         const HWY_AVX3_DL: c_int = 1 << 7;
         const HWY_AVX3: c_int = 1 << 8;
 
+        var flags: std.ArrayListUnmanaged([]const u8) = .empty;
+
         // Zig 0.13 bug: https://github.com/ziglang/zig/issues/20414
         // To workaround this we just disable AVX512 support completely.
         // The performance difference between AVX2 and AVX512 is not
         // significant for our use case and AVX512 is very rare on consumer
         // hardware anyways.
         const HWY_DISABLED_TARGETS: c_int = HWY_AVX10_2 | HWY_AVX3_SPR | HWY_AVX3_ZEN4 | HWY_AVX3_DL | HWY_AVX3;
+        if (target.result.cpu.arch == .x86_64) try flags.append(
+            b.allocator,
+            b.fmt("-DHWY_DISABLED_TARGETS={}", .{HWY_DISABLED_TARGETS}),
+        );
+
+        // MSVC requires explicit std specification otherwise these
+        // are guarded, at least on Windows 2025. Doing it unconditionally
+        // doesn't cause any issues on other platforms and ensures we get
+        // C++17 support on MSVC.
+        try flags.append(
+            b.allocator,
+            "-std=c++17",
+        );
+
+        // Keep our SIMD sources in the same Highway header mode as the
+        // vendored package build so HWY's inline dispatch/runtime helpers
+        // have a consistent ABI.
+        if (!system_highway) try flags.append(
+            b.allocator,
+            "-DHWY_NO_LIBCXX",
+        );
+
+        // When using the vendored simdutf, build its headers in no-libcxx
+        // mode so we don't need C++ standard library headers at all.
+        // System simdutf headers may not support this define.
+        if (!b.systemIntegrationOption("simdutf", .{})) try flags.append(
+            b.allocator,
+            "-DSIMDUTF_NO_LIBCXX",
+        );
+
+        // Disable ubsan for Windows C/C++ objects to avoid undefined
+        // __ubsan_handle_* references. The Zig libraries on Windows don't
+        // currently bundle a matching UBSan runtime for these objects in
+        // our build configurations (this affects both MSVC and GNU ABIs).
+        if (target.result.os.tag == .windows) try flags.appendSlice(b.allocator, &.{
+            "-fno-sanitize=undefined",
+            "-fno-sanitize-trap=undefined",
+        });
 
         m.addCSourceFiles(.{
             .files = &.{
@@ -797,9 +861,7 @@ pub fn addSimd(
                 "src/simd/index_of.cpp",
                 "src/simd/vt.cpp",
             },
-            .flags = if (target.result.cpu.arch == .x86_64) &.{
-                b.fmt("-DHWY_DISABLED_TARGETS={}", .{HWY_DISABLED_TARGETS}),
-            } else &.{},
+            .flags = flags.items,
         });
     }
 }

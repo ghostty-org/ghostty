@@ -3,9 +3,41 @@
 #define HWY_TARGET_INCLUDE "simd/codepoint_width.cpp"  // this file
 #include <hwy/foreach_target.h>  // must come before highway.h
 #include <hwy/highway.h>
-#include <hwy/print-inl.h>
 
-#include <cassert>
+#ifndef GHOSTTY_SIMD_CPW_HELPERS_
+#define GHOSTTY_SIMD_CPW_HELPERS_
+
+#ifdef NDEBUG
+#define GHOSTTY_SIMD_ASSERT(cond) ((void)0)
+#else
+#define GHOSTTY_SIMD_ASSERT(cond) \
+  do {                            \
+    if (!(cond)) __builtin_trap();\
+  } while (0)
+#endif
+
+// Replacement for std::size() that works without libc++.
+template <typename T, size_t N>
+constexpr size_t array_size(const T (&)[N]) { return N; }
+
+// Constexpr min/max element over a C array (replaces std::min_element/
+// std::max_element).
+template <typename T, size_t N>
+constexpr T array_min(const T (&a)[N]) {
+  T m = a[0];
+  for (size_t i = 1; i < N; ++i)
+    if (a[i] != 0 && (m == 0 || a[i] < m)) m = a[i];
+  return m;
+}
+template <typename T, size_t N>
+constexpr T array_max(const T (&a)[N]) {
+  T m = a[0];
+  for (size_t i = 1; i < N; ++i)
+    if (a[i] > m) m = a[i];
+  return m;
+}
+
+#endif  // GHOSTTY_SIMD_CPW_HELPERS_
 
 HWY_BEFORE_NAMESPACE();
 namespace ghostty {
@@ -213,18 +245,18 @@ HWY_ALIGN constexpr uint16_t nsm_lte16[] = {
 };
 
 // All our tables must be identically sized
-static_assert(std::size(eaw_gte32) == std::size(eaw_lte32));
-static_assert(std::size(eaw_gte16) == std::size(eaw_lte16));
-static_assert(std::size(zero_gte32) == std::size(zero_lte32));
-static_assert(std::size(zero_gte16) == std::size(zero_lte16));
-static_assert(std::size(nsm_gte32) == std::size(nsm_lte32));
-static_assert(std::size(nsm_gte16) == std::size(nsm_lte16));
+static_assert(array_size(eaw_gte32) == array_size(eaw_lte32));
+static_assert(array_size(eaw_gte16) == array_size(eaw_lte16));
+static_assert(array_size(zero_gte32) == array_size(zero_lte32));
+static_assert(array_size(zero_gte16) == array_size(zero_lte16));
+static_assert(array_size(nsm_gte32) == array_size(nsm_lte32));
+static_assert(array_size(nsm_gte16) == array_size(nsm_lte16));
 
 /// Handles 16-bit codepoints.
 template <class D, typename T = uint16_t>
 int8_t CodepointWidth16(D d, uint16_t input) {
-  assert(input > 0xFF);
-  assert(input <= 0xFFFF);
+  GHOSTTY_SIMD_ASSERT(input > 0xFF);
+  GHOSTTY_SIMD_ASSERT(input <= 0xFFFF);
 
   const size_t N = hn::Lanes(d);
   const hn::Vec<D> input_vec = Set(d, input);
@@ -244,10 +276,10 @@ int8_t CodepointWidth16(D d, uint16_t input) {
         0,      0,      0,      0,      0,      0,      0,      0,      0, 0,
         0,      0,      0,      0,      0,      0,      0,      0,      0, 0,
     };
-    static_assert(std::size(gte_keys) == std::size(lte_keys));
-    static_assert(std::size(gte_keys) >= 32);
+    static_assert(array_size(gte_keys) == array_size(lte_keys));
+    static_assert(array_size(gte_keys) >= 32);
     size_t i = 0;
-    for (; i + N <= std::size(lte_keys) && lte_keys[i] != 0; i += N) {
+    for (; i + N <= array_size(lte_keys) && lte_keys[i] != 0; i += N) {
       const hn::Vec<D> lte_vec = hn::Load(d, lte_keys + i);
       const hn::Vec<D> gte_vec = hn::Load(d, gte_keys + i);
       const intptr_t idx = hn::FindFirstTrue(
@@ -261,17 +293,17 @@ int8_t CodepointWidth16(D d, uint16_t input) {
         return 2;
       }
     }
-    assert(i >= 7);  // We should have checked all the ranges.
+    GHOSTTY_SIMD_ASSERT(i >= 7);  // We should have checked all the ranges.
   }
 
   {
     constexpr T zero_gte_min =
-        *std::min_element(zero_gte16, zero_gte16 + std::size(zero_gte16));
+        array_min(zero_gte16);
     constexpr T zero_lte_max =
-        *std::max_element(zero_lte16, zero_lte16 + std::size(zero_lte16));
+        array_max(zero_lte16);
     if (input >= zero_gte_min && input <= zero_lte_max) {
       size_t i = 0;
-      for (; i + N <= std::size(zero_gte16) && zero_gte16[i] != 0; i += N) {
+      for (; i + N <= array_size(zero_gte16) && zero_gte16[i] != 0; i += N) {
         const hn::Vec<D> lte_vec = hn::Load(d, zero_lte16 + i);
         const hn::Vec<D> gte_vec = hn::Load(d, zero_gte16 + i);
         const intptr_t idx = hn::FindFirstTrue(
@@ -285,12 +317,12 @@ int8_t CodepointWidth16(D d, uint16_t input) {
 
   {
     constexpr T eaw_gte_min =
-        *std::min_element(eaw_gte16, eaw_gte16 + std::size(eaw_gte16));
+        array_min(eaw_gte16);
     constexpr T eaw_lte_max =
-        *std::max_element(eaw_lte16, eaw_lte16 + std::size(eaw_lte16));
+        array_max(eaw_lte16);
     if (input >= eaw_gte_min && input <= eaw_lte_max) {
       size_t i = 0;
-      for (; i + N <= std::size(eaw_lte16) && eaw_lte16[i] != 0; i += N) {
+      for (; i + N <= array_size(eaw_lte16) && eaw_lte16[i] != 0; i += N) {
         const hn::Vec<D> lte_vec = hn::Load(d, eaw_lte16 + i);
         const hn::Vec<D> gte_vec = hn::Load(d, eaw_gte16 + i);
         const intptr_t idx = hn::FindFirstTrue(
@@ -304,12 +336,12 @@ int8_t CodepointWidth16(D d, uint16_t input) {
 
   {
     constexpr T nsm_gte_min =
-        *std::min_element(nsm_gte16, nsm_gte16 + std::size(nsm_gte16));
+        array_min(nsm_gte16);
     constexpr T nsm_lte_max =
-        *std::max_element(nsm_lte16, nsm_lte16 + std::size(nsm_lte16));
+        array_max(nsm_lte16);
     if (input >= nsm_gte_min && input <= nsm_lte_max) {
       size_t i = 0;
-      for (; i + N <= std::size(nsm_lte16) && nsm_lte16[i] != 0; i += N) {
+      for (; i + N <= array_size(nsm_lte16) && nsm_lte16[i] != 0; i += N) {
         const hn::Vec<D> lte_vec = hn::Load(d, nsm_lte16 + i);
         const hn::Vec<D> gte_vec = hn::Load(d, nsm_gte16 + i);
         const intptr_t idx = hn::FindFirstTrue(
@@ -327,7 +359,7 @@ int8_t CodepointWidth16(D d, uint16_t input) {
 /// Handles codepoints larger than 16-bit.
 template <class D, typename T = uint32_t>
 int8_t CodepointWidth32(D d, T input) {
-  assert(input > 0xFFFF);
+  GHOSTTY_SIMD_ASSERT(input > 0xFFFF);
 
   const size_t N = hn::Lanes(d);
   const hn::Vec<D> input_vec = Set(d, input);
@@ -341,10 +373,10 @@ int8_t CodepointWidth32(D d, T input) {
     HWY_ALIGN constexpr T lte_keys[] = {
         0x1f1ff, 0x2FFFD, 0x3FFFD, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     };
-    static_assert(std::size(gte_keys) == std::size(lte_keys));
-    static_assert(std::size(gte_keys) >= 16);
+    static_assert(array_size(gte_keys) == array_size(lte_keys));
+    static_assert(array_size(gte_keys) >= 16);
     size_t i = 0;
-    for (; i + N <= std::size(lte_keys) && lte_keys[i] != 0; i += N) {
+    for (; i + N <= array_size(lte_keys) && lte_keys[i] != 0; i += N) {
       const hn::Vec<D> lte_vec = hn::Load(d, lte_keys + i);
       const hn::Vec<D> gte_vec = hn::Load(d, gte_keys + i);
       const intptr_t idx = hn::FindFirstTrue(
@@ -353,7 +385,7 @@ int8_t CodepointWidth32(D d, T input) {
         return 2;
       }
     }
-    assert(i >= 2);  // We should have checked all the ranges.
+    GHOSTTY_SIMD_ASSERT(i >= 2);  // We should have checked all the ranges.
   }
 
   {
@@ -363,10 +395,10 @@ int8_t CodepointWidth32(D d, T input) {
     HWY_ALIGN constexpr T lte_keys[] = {
         0xE0FFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     };
-    static_assert(std::size(gte_keys) == std::size(lte_keys));
-    static_assert(std::size(gte_keys) >= 16);
+    static_assert(array_size(gte_keys) == array_size(lte_keys));
+    static_assert(array_size(gte_keys) >= 16);
     size_t i = 0;
-    for (; i + N <= std::size(lte_keys) && lte_keys[i] != 0; i += N) {
+    for (; i + N <= array_size(lte_keys) && lte_keys[i] != 0; i += N) {
       const hn::Vec<D> lte_vec = hn::Load(d, lte_keys + i);
       const hn::Vec<D> gte_vec = hn::Load(d, gte_keys + i);
       const intptr_t idx = hn::FindFirstTrue(
@@ -379,12 +411,12 @@ int8_t CodepointWidth32(D d, T input) {
 
   {
     constexpr T zero_gte_min =
-        *std::min_element(zero_gte32, zero_gte32 + std::size(zero_gte32));
+        array_min(zero_gte32);
     constexpr T zero_lte_max =
-        *std::max_element(zero_lte32, zero_lte32 + std::size(zero_lte32));
+        array_max(zero_lte32);
     if (input >= zero_gte_min && input <= zero_lte_max) {
       size_t i = 0;
-      for (; i + N <= std::size(zero_gte32) && zero_gte32[i] != 0; i += N) {
+      for (; i + N <= array_size(zero_gte32) && zero_gte32[i] != 0; i += N) {
         const hn::Vec<D> lte_vec = hn::Load(d, zero_lte32 + i);
         const hn::Vec<D> gte_vec = hn::Load(d, zero_gte32 + i);
         const intptr_t idx = hn::FindFirstTrue(
@@ -398,12 +430,12 @@ int8_t CodepointWidth32(D d, T input) {
 
   {
     constexpr T eaw_gte_min =
-        *std::min_element(eaw_gte32, eaw_gte32 + std::size(eaw_gte32));
+        array_min(eaw_gte32);
     constexpr T eaw_lte_max =
-        *std::max_element(eaw_lte32, eaw_lte32 + std::size(eaw_lte32));
+        array_max(eaw_lte32);
     if (input >= eaw_gte_min && input <= eaw_lte_max) {
       size_t i = 0;
-      for (; i + N <= std::size(eaw_lte32) && eaw_lte32[i] != 0; i += N) {
+      for (; i + N <= array_size(eaw_lte32) && eaw_lte32[i] != 0; i += N) {
         const hn::Vec<D> lte_vec = hn::Load(d, eaw_lte32 + i);
         const hn::Vec<D> gte_vec = hn::Load(d, eaw_gte32 + i);
         const intptr_t idx = hn::FindFirstTrue(
@@ -417,12 +449,12 @@ int8_t CodepointWidth32(D d, T input) {
 
   {
     constexpr T nsm_gte_min =
-        *std::min_element(nsm_gte32, nsm_gte32 + std::size(nsm_gte32));
+        array_min(nsm_gte32);
     constexpr T nsm_lte_max =
-        *std::max_element(nsm_lte32, nsm_lte32 + std::size(nsm_lte32));
+        array_max(nsm_lte32);
     if (input >= nsm_gte_min && input <= nsm_lte_max) {
       size_t i = 0;
-      for (; i + N <= std::size(nsm_lte32) && nsm_lte32[i] != 0; i += N) {
+      for (; i + N <= array_size(nsm_lte32) && nsm_lte32[i] != 0; i += N) {
         const hn::Vec<D> lte_vec = hn::Load(d, nsm_lte32 + i);
         const hn::Vec<D> gte_vec = hn::Load(d, nsm_gte32 + i);
         const intptr_t idx = hn::FindFirstTrue(

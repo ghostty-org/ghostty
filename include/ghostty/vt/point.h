@@ -42,7 +42,7 @@ typedef struct {
  *
  * @ingroup point
  */
-typedef enum {
+typedef enum GHOSTTY_ENUM_TYPED {
   /** Active area where the cursor can move. */
   GHOSTTY_POINT_TAG_ACTIVE = 0,
 
@@ -54,7 +54,8 @@ typedef enum {
 
   /** Scrollback history only (before active area). */
   GHOSTTY_POINT_TAG_HISTORY = 3,
-} GhosttyPointTag;
+  GHOSTTY_POINT_TAG_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+  } GhosttyPointTag;
 
 /**
  * Point value union.

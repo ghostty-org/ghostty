@@ -17,7 +17,7 @@ pub fn parse(parser: *Parser, terminator_ch: ?u8) ?*Command {
         parser.state = .invalid;
         return null;
     };
-    const writer = parser.writer orelse {
+    const cap = if (parser.capture) |*c| c else {
         parser.state = .invalid;
         return null;
     };
@@ -28,7 +28,7 @@ pub fn parse(parser: *Parser, terminator_ch: ?u8) ?*Command {
         },
     };
     const list = &parser.command.kitty_color_protocol.list;
-    const data = writer.buffered();
+    const data = cap.trailing();
     var kv_it = std.mem.splitScalar(u8, data, ';');
     while (kv_it.next()) |kv| {
         if (list.items.len >= @as(usize, kitty_color.Kind.max) * 2) {

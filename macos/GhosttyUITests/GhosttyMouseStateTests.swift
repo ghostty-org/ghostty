@@ -8,8 +8,6 @@
 import XCTest
 
 final class GhosttyMouseStateTests: GhosttyCustomConfigCase {
-    override static var runsForEachTargetApplicationUIConfiguration: Bool { false }
-
     // https://github.com/ghostty-org/ghostty/pull/11276
     @MainActor func testSelectionFocusChange() async throws {
         let app = XCUIApplication()
@@ -49,5 +47,39 @@ final class GhosttyMouseStateTests: GhosttyCustomConfigCase {
 
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), nil, "Moving mouse shouldn't select any texts")
     }
+
+    @MainActor func testSearchFocusState() async throws {
+        let app = try ghosttyApplication()
+        app.activate()
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 5), "New window should appear")
+        app.typeKey("f", modifierFlags: .command)
+
+        let textfield = app.textFields.firstMatch
+        XCTAssertTrue(textfield.waitForExistence(timeout: 5), "Search field should appear")
+        app.typeText("a")
+
+        XCTAssertTrue(textfield.stringValue == "a", "Search text should be `a`")
+
+        textfield.coordinate(withNormalizedOffset: .zero)
+            .withOffset(.init(dx: textfield.frame.width * 0.5, dy: 0))
+            .click()
+
+        app.typeText("b")
+
+        XCTAssertTrue(textfield.stringValue == "ab", "Search text should be `ab`")
+
+        // resign
+        app.typeKey(.escape, modifierFlags: [])
+
+        // dismiss
+        app.typeKey(.escape, modifierFlags: [])
+
+        XCTAssertTrue(textfield.waitForNonExistence(timeout: 5), "Search field should disappear")
+    }
 }
 
+private extension XCUIElement {
+    var stringValue: String? {
+        (value as? String)
+    }
+}
