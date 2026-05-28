@@ -103,8 +103,22 @@ pub fn init(
 }
 
 pub fn deinit(self: *App) void {
-    // Clean up all our surfaces
-    for (self.surfaces.items) |surface| surface.deinit();
+    // Clean up all our surfaces. Surfaces are normally torn down via
+    // closeSurface (apprt deinit + alloc.destroy); reaching deinit
+    // with any still in the list is a defensive path. The previous
+    // code called `surface.deinit()` over `self.surfaces.items` which
+    // (a) leaked the Surface struct allocation itself — closeSurface
+    // calls `alloc.destroy(surface)` after deinit but this path did
+    // not — and (b) iterated unsafely, because Surface.deinit() calls
+    // back into `core_app.deleteSurface(self)` which swap-removes
+    // from this same list. Pop from the end so deleteSurface's
+    // search-and-swap finds nothing (the surface is already gone
+    // from the list) and we end up with the same end-state as
+    // closeSurface for every remaining surface.
+    while (self.surfaces.pop()) |surface| {
+        surface.deinit();
+        self.alloc.destroy(surface);
+    }
     self.surfaces.deinit(self.alloc);
 
     // Clean up our font group cache
