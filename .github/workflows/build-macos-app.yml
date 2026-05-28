@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 90
     env:
       ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache
