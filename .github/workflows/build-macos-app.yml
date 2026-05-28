@@ -1,0 +1,103 @@
+on:
+  workflow_dispatch:
+    inputs:
+      optimize:
+        description: "Zig optimization mode"
+        type: choice
+        default: ReleaseFast
+        options:
+          - ReleaseFast
+          - ReleaseSafe
+          - Debug
+
+name: Build macOS App
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.zig-global-cache
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup Nix
+        uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31.10.6
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Setup Ghostty cache
+        uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+        with:
+          name: ghostty
+
+      - name: Show tool versions
+        run: |
+          xcodebuild -version
+          xcode-select -p
+          nix develop -c zig version
+
+      - name: Build GhosttyKit
+        run: |
+          nix develop -c \
+            zig build \
+            -Doptimize=${{ inputs.optimize }} \
+            -Demit-macos-app=false
+
+      - name: Build Ghostty.app
+        run: |
+          cd macos
+          xcodebuild \
+            -target Ghostty \
+            -configuration Release \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Update app metadata
+        run: |
+          GHOSTTY_BUILD=$(git rev-list --count HEAD)
+          GHOSTTY_COMMIT=$(git rev-parse --short HEAD)
+
+          /usr/libexec/PlistBuddy -c "Set :GhosttyCommit $GHOSTTY_COMMIT" "macos/build/Release/Ghostty.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GHOSTTY_BUILD" "macos/build/Release/Ghostty.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $GHOSTTY_COMMIT" "macos/build/Release/Ghostty.app/Contents/Info.plist"
+
+      - name: Ad hoc sign app
+        run: |
+          codesign --force --deep --sign - macos/build/Release/Ghostty.app
+          codesign --verify --deep --strict --verbose=2 macos/build/Release/Ghostty.app
+
+      - name: Verify app
+        run: |
+          test -d macos/build/Release/Ghostty.app
+          file macos/build/Release/Ghostty.app/Contents/MacOS/ghostty
+          lipo -archs macos/build/Release/Ghostty.app/Contents/MacOS/ghostty
+          test "$(lipo -archs macos/build/Release/Ghostty.app/Contents/MacOS/ghostty)" = "arm64"
+
+      - name: Zip app
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            macos/build/Release/Ghostty.app \
+            ghostty-macos-arm64-app.zip
+
+      - name: Upload app
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ghostty-macos-arm64-app
+          path: ghostty-macos-arm64-app.zip
+          retention-days: 14
