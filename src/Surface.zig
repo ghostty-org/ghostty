@@ -168,6 +168,11 @@ selection_scroll_active: bool = false,
 /// always enabled in this state.
 readonly: bool = false,
 
+/// True if this surface is currently in the active broadcast input group.
+/// This is synchronized by the apprt when broadcast mode changes so normal
+/// key input can avoid runtime callbacks while broadcast mode is inactive.
+broadcast_input: bool = false,
+
 /// Used to send notifications that long running commands have finished.
 /// Requires that shell integration be active. Should represent a nanosecond
 /// precision timestamp. It does not necessarily need to correspond to the
@@ -916,12 +921,13 @@ fn broadcastWriteReq(
     self: *Surface,
     write_req: termio.Message.WriteReq,
 ) void {
-    if (self.readonly or !self.broadcastEnabled()) return;
+    if (self.readonly or !self.broadcast_input) return;
 
     for (self.app.surfaces.items) |rt_surface| {
         const other = rt_surface.core();
         if (other == self) continue;
         if (other.readonly or other.child_exited) continue;
+        if (!other.broadcast_input) continue;
         if (!self.isBroadcastTarget(other)) continue;
 
         const msg = self.broadcastMessageFor(other, write_req) catch |err| {
@@ -950,18 +956,26 @@ fn broadcastMessageFor(
 
 fn toggleBroadcast(self: *Surface) bool {
     if (comptime @hasDecl(apprt.runtime.Surface, "toggleBroadcast")) {
-        return self.rt_surface.toggleBroadcast();
+        const enabled = self.rt_surface.toggleBroadcast();
+        self.syncBroadcastInput(enabled);
+        return enabled;
     }
 
     return false;
 }
 
-fn broadcastEnabled(self: *Surface) bool {
-    if (comptime @hasDecl(apprt.runtime.Surface, "broadcastEnabled")) {
-        return self.rt_surface.broadcastEnabled();
-    }
+pub fn setBroadcastInput(self: *Surface, enabled: bool) void {
+    self.broadcast_input = enabled;
+}
 
-    return false;
+fn syncBroadcastInput(self: *Surface, enabled: bool) void {
+    self.broadcast_input = enabled;
+
+    for (self.app.surfaces.items) |rt_surface| {
+        const other = rt_surface.core();
+        if (other == self) continue;
+        other.broadcast_input = enabled and self.isBroadcastTarget(other);
+    }
 }
 
 fn isBroadcastTarget(self: *Surface, target: *Surface) bool {

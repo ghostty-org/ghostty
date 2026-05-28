@@ -724,6 +724,10 @@ pub const Surface = struct {
         return cb(self.userdata, target.userdata);
     }
 
+    pub fn setBroadcastInput(self: *Surface, enabled: bool) void {
+        self.core_surface.setBroadcastInput(enabled);
+    }
+
     pub fn close(self: *const Surface, process_alive: bool) void {
         const func = self.app.opts.close_surface orelse {
             log.info("runtime embedder does not support closing a surface", .{});
@@ -2086,6 +2090,11 @@ pub const CAPI = struct {
     /// Update the occlusion state of a surface.
     export fn ghostty_surface_set_occlusion(surface: *Surface, visible: bool) void {
         surface.occlusionCallback(visible);
+    }
+
+    /// Update the cached broadcast input state of a surface.
+    export fn ghostty_surface_set_broadcast_input(surface: *Surface, enabled: bool) void {
+        surface.setBroadcastInput(enabled);
     }
 
     /// Filter the mods if necessary. This handles settings such as

@@ -107,6 +107,11 @@ extension Ghostty {
         }
 
         func setBroadcastInput(_ enabled: Bool) {
+            if let surface {
+                ghostty_surface_set_broadcast_input(surface, enabled)
+            }
+
+            guard broadcastInput != enabled else { return }
             broadcastInput = enabled
         }
 

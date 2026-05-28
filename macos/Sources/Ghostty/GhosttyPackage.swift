@@ -422,6 +422,9 @@ extension Notification.Name {
     static let ReadonlyKey = ghosttyDidChangeReadonly.rawValue + ".readonly"
     static let ghosttyCommandPaletteDidToggle = Notification.Name("com.mitchellh.ghostty.commandPaletteDidToggle")
 
+    /// Native tab membership, selection, or title changed.
+    static let ghosttyVerticalTabsDidChange = Notification.Name("com.mitchellh.ghostty.verticalTabsDidChange")
+
     /// Toggle maximize of current window
     static let ghosttyMaximizeDidToggle = Notification.Name("com.mitchellh.ghostty.maximizeDidToggle")
 

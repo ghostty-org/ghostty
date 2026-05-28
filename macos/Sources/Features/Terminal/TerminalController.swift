@@ -705,6 +705,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 }
             }
         }
+
+        postVerticalTabsDidChange()
     }
 
     private func fixTabBar() {
@@ -845,6 +847,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         removePersistedSessionHistory()
         window.close()
+
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .ghosttyVerticalTabsDidChange, object: nil)
+        }
     }
 
     private func closeOtherTabsImmediately() {
@@ -1609,6 +1615,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 targetWindow.addTabbedWindowSafely(selectedWindow, ordered: action.amount < 0 ? .below : .above)
                 DispatchQueue.main.async {
                     selectedWindow.makeKey()
+                    self.postVerticalTabsDidChange()
                 }
 
                 return
@@ -1627,6 +1634,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         selectedWindow.makeKey()
 
         NSAnimationContext.endGrouping()
+        postVerticalTabsDidChange()
     }
 
     @objc private func onGotoTab(notification: SwiftUI.Notification) {

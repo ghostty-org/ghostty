@@ -295,6 +295,12 @@ class BaseTerminalController: NSWindowController,
         broadcastInputEnabled = enabled
     }
 
+    func postVerticalTabsDidChange() {
+        NotificationCenter.default.post(
+            name: .ghosttyVerticalTabsDidChange,
+            object: window)
+    }
+
     func broadcastInputIsEnabled(for source: Ghostty.SurfaceView) -> Bool {
         broadcastInputEnabled && isBroadcastInputSourceVisible(source)
     }
@@ -980,14 +986,18 @@ class BaseTerminalController: NSWindowController,
     private func applyTitleToWindow() {
         guard let window else { return }
 
+        let title: String
         if let titleOverride {
-            window.title = computeTitle(
+            title = computeTitle(
                 title: titleOverride,
                 bell: focusedSurface?.bell ?? false)
-            return
+        } else {
+            title = lastComputedTitle
         }
 
-        window.title = lastComputedTitle
+        guard window.title != title else { return }
+        window.title = title
+        postVerticalTabsDidChange()
     }
 
     func pwdDidChange(to: URL?) {

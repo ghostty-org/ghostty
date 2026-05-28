@@ -309,6 +309,7 @@ pub const Tab = extern struct {
     pub fn toggleBroadcastInput(self: *Self) bool {
         const priv = self.private();
         priv.broadcast_input = !priv.broadcast_input;
+        self.syncBroadcastInputState();
         return priv.broadcast_input;
     }
 
@@ -340,6 +341,21 @@ pub const Tab = extern struct {
         }
 
         return false;
+    }
+
+    pub fn syncBroadcastInputState(self: *Self) void {
+        const priv = self.private();
+        const tree = self.getSurfaceTree() orelse return;
+        const is_active = priv.broadcast_input and self.isSelected();
+
+        var it = tree.iterator();
+        while (it.next()) |entry| {
+            const visible = if (tree.zoomed) |zoomed| entry.handle == zoomed else true;
+            const enabled = is_active and visible;
+
+            const surface = entry.view.core() orelse continue;
+            surface.setBroadcastInput(enabled);
+        }
     }
 
     fn isSelected(self: *Self) bool {
@@ -418,6 +434,7 @@ pub const Tab = extern struct {
         self: *Self,
     ) callconv(.c) void {
         self.as(gobject.Object).notifyByPspec(properties.@"surface-tree".impl.param_spec);
+        self.syncBroadcastInputState();
 
         // If our tree is empty we close the tab.
         const tree: *const Surface.Tree = self.getSurfaceTree() orelse &.empty;

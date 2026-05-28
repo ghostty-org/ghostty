@@ -19,9 +19,6 @@ struct VerticalTabSidebar: View {
     /// The tab data model that tracks all tabs
     @ObservedObject private var tabModel: TabModel
 
-    /// Timer for refreshing the tab list
-    @State private var refreshTimer: Timer?
-
     /// For the rename dialog
     @State private var isShowingRenameDialog: Bool = false
     @State private var renameText: String = ""
@@ -120,10 +117,10 @@ struct VerticalTabSidebar: View {
         }
         .onAppear {
             refreshTabs()
-            startRefreshTimer()
         }
-        .onDisappear {
-            stopRefreshTimer()
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyVerticalTabsDidChange)) { notification in
+            guard shouldRefresh(for: notification) else { return }
+            refreshTabs()
         }
         .sheet(isPresented: $isShowingRenameDialog) {
             RenameTabSheet(
@@ -292,6 +289,21 @@ struct VerticalTabSidebar: View {
     /// Get the title for a window
     private func resolveTitle(for window: NSWindow, controller: BaseTerminalController?) -> String {
         return controller?.titleOverride ?? window.title
+    }
+
+    private func shouldRefresh(for notification: Notification) -> Bool {
+        guard let window = windowController?.window else { return true }
+        guard let changedWindow = notification.object as? NSWindow else { return true }
+
+        if changedWindow == window {
+            return true
+        }
+
+        if let tabGroup = window.tabGroup {
+            return tabGroup.windows.contains(changedWindow)
+        }
+
+        return false
     }
 
     // MARK: - Tab Row
@@ -493,19 +505,6 @@ struct VerticalTabSidebar: View {
         }
     }
 
-    // MARK: - Timer
-
-    private func startRefreshTimer() {
-        // Refresh tabs periodically to catch changes
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
-            refreshTabs()
-        }
-    }
-
-    private func stopRefreshTimer() {
-        refreshTimer?.invalidate()
-        refreshTimer = nil
-    }
 }
 
 // MARK: - Preview
