@@ -125,6 +125,7 @@ pub const Action = union(Key) {
     kitty_color_report: kitty.color.OSC,
     color_operation: ColorOperation,
     semantic_prompt: SemanticPrompt,
+    tab_color: osc.Command.TabColor,
 
     pub const Key = lib.Enum(
         lib.target,
@@ -222,6 +223,7 @@ pub const Action = union(Key) {
             "kitty_color_report",
             "color_operation",
             "semantic_prompt",
+            "tab_color",
         },
     );
 
@@ -2021,6 +2023,10 @@ pub fn Stream(comptime H: type) type {
 
                 .kitty_color_protocol => |v| {
                     self.handler.vt(.kitty_color_report, v);
+                },
+
+                .tab_color => |v| {
+                    self.handler.vt(.tab_color, v);
                 },
 
                 .show_desktop_notification => |v| {

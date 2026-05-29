@@ -617,6 +617,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_COLOR_CHANGE:
                 colorChange(app, target: target, change: action.action.color_change)
 
+            case GHOSTTY_ACTION_TAB_COLOR:
+                return tabColor(app, target: target, v: action.action.tab_color)
+
             case GHOSTTY_ACTION_RING_BELL:
                 ringBell(app, target: target)
 
@@ -1629,6 +1632,31 @@ extension Ghostty {
                       let controller = window.windowController as? BaseTerminalController
                 else { return false }
                 controller.titleOverride = titleOverride
+                return true
+
+            default:
+                assertionFailure()
+                return false
+            }
+        }
+
+        private static func tabColor(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_tab_color_s
+        ) -> Bool {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("tab color does nothing with an app target")
+                return false
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                guard let window = surfaceView.window as? TerminalWindow else { return false }
+                window.tabColor = v.reset
+                    ? .none
+                    : .nearest(red: v.r, green: v.g, blue: v.b)
                 return true
 
             default:

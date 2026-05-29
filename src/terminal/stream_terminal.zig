@@ -267,6 +267,7 @@ pub const Handler = struct {
             .clipboard_contents,
             .title_push,
             .title_pop,
+            .tab_color,
             => {},
         }
     }

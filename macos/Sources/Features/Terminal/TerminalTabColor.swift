@@ -38,6 +38,31 @@ enum TerminalTabColor: Int, CaseIterable, Codable {
         }
     }
 
+    /// Returns the preset color closest to the given RGB components. This is
+    /// used to map an arbitrary color (such as one received from the iTerm2
+    /// OSC 6 tab color sequence) onto Ghostty's fixed tab color palette.
+    static func nearest(red: UInt8, green: UInt8, blue: UInt8) -> TerminalTabColor {
+        let targetR = Double(red)
+        let targetG = Double(green)
+        let targetB = Double(blue)
+
+        var best: TerminalTabColor = .none
+        var bestDistance = Double.greatestFiniteMagnitude
+        for candidate in TerminalTabColor.allCases {
+            guard let nsColor = candidate.displayColor?.usingColorSpace(.sRGB) else { continue }
+            let dr = nsColor.redComponent * 255.0 - targetR
+            let dg = nsColor.greenComponent * 255.0 - targetG
+            let db = nsColor.blueComponent * 255.0 - targetB
+            let distance = dr * dr + dg * dg + db * db
+            if distance < bestDistance {
+                bestDistance = distance
+                best = candidate
+            }
+        }
+
+        return best
+    }
+
     var displayColor: NSColor? {
         switch self {
         case .none:

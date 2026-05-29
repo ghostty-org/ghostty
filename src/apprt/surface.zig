@@ -75,6 +75,14 @@ pub const Message = union(enum) {
     /// A terminal color was changed using OSC sequences.
     color_change: terminal.osc.color.ColoredTarget,
 
+    /// The tab's background color was changed using the iTerm2 OSC 6
+    /// sequence. When `reset` is true the color should revert to the
+    /// default and `color` should be ignored.
+    tab_color_change: struct {
+        reset: bool,
+        color: terminal.color.RGB = .{ .r = 0, .g = 0, .b = 0 },
+    },
+
     /// Notifies the surface that a tick of the timer that is timing
     /// out selection scrolling has occurred. "selection scrolling"
     /// is when the user has clicked and dragged the mouse outside

@@ -70,6 +70,11 @@ pub const StreamHandler = struct {
     /// such as XTGETTCAP.
     dcs: terminal.dcs.Handler = .{},
 
+    /// Accumulator for the iTerm2 tab color sequence (OSC 6). iTerm2 sets
+    /// the tab color one channel at a time, so we accumulate the channels
+    /// here and send the full color to the apprt on each update.
+    tab_color: terminal.color.RGB = .{ .r = 0, .g = 0, .b = 0 },
+
     /// The tmux control mode viewer state.
     tmux_viewer: if (tmux_enabled) ?*terminal.tmux.Viewer else void = if (tmux_enabled) null else {},
 
@@ -321,6 +326,7 @@ pub const StreamHandler = struct {
             },
             .kitty_color_report => try self.kittyColorReport(value),
             .color_operation => try self.colorOperation(value.op, &value.requests, value.terminator),
+            .tab_color => self.tabColor(value),
             .end_hyperlink => try self.endHyperlink(),
             .active_status_display => self.terminal.status_display = value,
             .decaln => try self.decaln(),
@@ -1203,6 +1209,23 @@ pub const StreamHandler = struct {
         if (!self.seen_title) {
             try self.windowTitle(path);
             self.seen_title = false;
+        }
+    }
+
+    fn tabColor(self: *StreamHandler, v: terminal.osc.Command.TabColor) void {
+        switch (v) {
+            .reset => self.surfaceMessageWriter(.{ .tab_color_change = .{ .reset = true } }),
+            .set => |set| {
+                switch (set.channel) {
+                    .red => self.tab_color.r = set.value,
+                    .green => self.tab_color.g = set.value,
+                    .blue => self.tab_color.b = set.value,
+                }
+                self.surfaceMessageWriter(.{ .tab_color_change = .{
+                    .reset = false,
+                    .color = self.tab_color,
+                } });
+            },
         }
     }
 

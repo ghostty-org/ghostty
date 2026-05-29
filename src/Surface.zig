@@ -1031,6 +1031,19 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             );
         },
 
+        .tab_color_change => |change| {
+            _ = try self.rt_app.performAction(
+                .{ .surface = self },
+                .tab_color,
+                .{
+                    .reset = change.reset,
+                    .r = change.color.r,
+                    .g = change.color.g,
+                    .b = change.color.b,
+                },
+            );
+        },
+
         .set_mouse_shape => |shape| {
             log.debug("changing mouse shape: {}", .{shape});
             _ = try self.rt_app.performAction(

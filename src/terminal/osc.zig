@@ -160,9 +160,39 @@ pub const Command = union(Key) {
     /// https://uapi-group.org/specifications/specs/osc_context/
     context_signal: parsers.context_signal.Command,
 
+    /// OSC 6. Set or reset the tab's background color. This follows the
+    /// iTerm2 convention where each color channel is set with a separate
+    /// sequence and a wildcard channel resets the color to the default.
+    /// https://iterm2.com/documentation-escape-codes.html
+    tab_color: TabColor,
+
     pub const SemanticPrompt = parsers.semantic_prompt.Command;
 
     pub const KittyClipboardProtocol = parsers.kitty_clipboard_protocol.OSC;
+
+    /// The payload for the `tab_color` command (OSC 6). iTerm2 sends one
+    /// channel per sequence, so consumers are expected to accumulate the
+    /// channels into a full color.
+    pub const TabColor = union(enum) {
+        /// Reset the tab color to the default.
+        reset,
+
+        /// Set a single channel of the tab color.
+        set: struct {
+            channel: Channel,
+            value: u8,
+        },
+
+        pub const Channel = enum { red, green, blue };
+
+        // This command is fully handled on the Zig side (it is translated
+        // into an apprt action) so it is never exposed across the vt C ABI.
+        pub const C = void;
+
+        pub fn cval(_: TabColor) TabColor.C {
+            return {};
+        }
+    };
 
     pub const Key = LibEnum(
         lib.target,
@@ -193,6 +223,7 @@ pub const Command = union(Key) {
             "kitty_text_sizing",
             "kitty_clipboard_protocol",
             "context_signal",
+            "tab_color",
         },
     );
 
@@ -422,6 +453,7 @@ pub const Parser = struct {
             .kitty_text_sizing,
             .kitty_clipboard_protocol,
             .context_signal,
+            .tab_color,
             => {},
         }
 
@@ -673,6 +705,7 @@ pub const Parser = struct {
             },
 
             .@"6" => switch (c) {
+                ';' => self.captureTrailing(.fixed),
                 '6' => self.state = .@"66",
                 else => self.state = .invalid,
             },
@@ -801,7 +834,7 @@ pub const Parser = struct {
 
             .@"3008" => parsers.context_signal.parse(self, terminator_ch),
 
-            .@"6" => null,
+            .@"6" => parsers.iterm2_tab_color.parse(self, terminator_ch),
 
             .@"66" => parsers.kitty_text_sizing.parse(self, terminator_ch),
 

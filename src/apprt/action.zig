@@ -265,6 +265,10 @@ pub const Action = union(Key) {
     /// such as OSC 10/11.
     color_change: ColorChange,
 
+    /// The tab's background color was changed programmatically through
+    /// the iTerm2 OSC 6 sequence.
+    tab_color: TabColor,
+
     /// A request to reload the configuration. The reload request can be
     /// from a user or for some internal reason. The reload request may
     /// request it is a soft reload or a full reload. See the struct for
@@ -392,6 +396,7 @@ pub const Action = union(Key) {
         key_sequence,
         key_table,
         color_change,
+        tab_color,
         reload_config,
         config_change,
         close_window,
@@ -853,6 +858,15 @@ pub const ColorKind = enum(c_int) {
     // test "ghostty.h ColorKind" {
     //     try lib.checkGhosttyHEnum(ColorKind, "GHOSTTY_COLOR_KIND_");
     // }
+};
+
+pub const TabColor = extern struct {
+    /// When true the tab color should be reset to the default and the
+    /// r/g/b fields should be ignored.
+    reset: bool,
+    r: u8,
+    g: u8,
+    b: u8,
 };
 
 pub const ReloadConfig = extern struct {

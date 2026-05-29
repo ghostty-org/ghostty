@@ -797,6 +797,14 @@ typedef struct {
   uint8_t b;
 } ghostty_action_color_change_s;
 
+// apprt.action.TabColor
+typedef struct {
+  bool reset;
+  uint8_t r;
+  uint8_t g;
+  uint8_t b;
+} ghostty_action_tab_color_s;
+
 // apprt.action.ConfigChange
 typedef struct {
   ghostty_config_t config;
@@ -930,6 +938,7 @@ typedef enum {
   GHOSTTY_ACTION_KEY_SEQUENCE,
   GHOSTTY_ACTION_KEY_TABLE,
   GHOSTTY_ACTION_COLOR_CHANGE,
+  GHOSTTY_ACTION_TAB_COLOR,
   GHOSTTY_ACTION_RELOAD_CONFIG,
   GHOSTTY_ACTION_CONFIG_CHANGE,
   GHOSTTY_ACTION_CLOSE_WINDOW,
@@ -978,6 +987,7 @@ typedef union {
   ghostty_action_key_sequence_s key_sequence;
   ghostty_action_key_table_s key_table;
   ghostty_action_color_change_s color_change;
+  ghostty_action_tab_color_s tab_color;
   ghostty_action_reload_config_s reload_config;
   ghostty_action_config_change_s config_change;
   ghostty_action_open_url_s open_url;
