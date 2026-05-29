@@ -36,6 +36,9 @@ cursor_thickness: u32 = 1,
 /// The height in pixels of the cursor sprite.
 cursor_height: u32,
 
+/// The height of the vintage cursor as a percentage (1-100).
+cursor_vintage_height: u32 = 25,
+
 /// The constraint height for nerd fonts icons.
 icon_height: f64,
 
@@ -619,6 +622,7 @@ fn init() Metrics {
         .overline_thickness = 0,
         .box_thickness = 0,
         .cursor_height = 0,
+        .cursor_vintage_height = 25,
         .icon_height = 0.0,
         .icon_height_single = 0.0,
         .face_width = 0.0,

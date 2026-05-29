@@ -10,6 +10,7 @@ pub const Style = enum {
     block_hollow,
     bar,
     underline,
+    vintage,
 
     // Special cursor styles
     lock,
@@ -21,6 +22,7 @@ pub const Style = enum {
             .block => .block,
             .block_hollow => .block_hollow,
             .underline => .underline,
+            .vintage => .vintage,
         };
     }
 };

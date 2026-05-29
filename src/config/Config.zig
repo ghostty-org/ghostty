@@ -872,7 +872,14 @@ palette: Palette = .{},
 ///   * `bar`
 ///   * `underline`
 ///   * `block_hollow`
+///   * `vintage`
 @"cursor-style": terminal.CursorStyle = .block,
+
+/// The height of the vintage cursor as a percentage of the cell height.
+/// This only takes effect when `cursor-style` is set to `vintage`.
+///
+/// Valid values are integers from 1 to 100.
+@"cursor-style-vintage-height": u8 = 25,
 
 /// Sets the default blinking state of the cursor. This is just the default
 /// state; running programs may override the cursor style using `DECSCUSR` (`CSI

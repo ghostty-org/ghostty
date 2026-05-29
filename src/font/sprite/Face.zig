@@ -145,6 +145,13 @@ const ranges: []const Range = ranges: {
 };
 
 fn getDrawFn(cp: u32) ?*const DrawFn {
+    // cursor_vintage occupies a range of 100 codepoints (heights 1..100).
+    if (cp >= @intFromEnum(Sprite.cursor_vintage) and
+        cp <= font.sprite.cursorVintageCp(100))
+    {
+        return special.cursor_vintage;
+    }
+
     // For special sprites (cursors, underlines, etc.) all sprites are drawn
     // by functions from `Special` that share the name of the enum field.
     if (cp >= Sprite.start) switch (@as(Sprite, @enumFromInt(cp))) {
@@ -214,7 +221,15 @@ pub fn renderGlyph(
     var canvas = try font.sprite.Canvas.init(alloc, width, height, padding_x, padding_y);
     defer canvas.deinit();
 
-    try draw(cp, &canvas, width, height, metrics);
+    // For cursor_vintage we pass opts.grid_metrics so the caller can
+    // inject cursor_vintage_height without affecting the cache key.
+    const draw_metrics = if (cp >= @intFromEnum(Sprite.cursor_vintage) and
+        cp <= font.sprite.cursorVintageCp(100))
+        opts.grid_metrics
+    else
+        metrics;
+
+    try draw(cp, &canvas, width, height, draw_metrics);
 
     // Write the drawing to the atlas
     const region = try canvas.writeAtlas(alloc, atlas);

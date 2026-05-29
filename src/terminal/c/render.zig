@@ -83,6 +83,8 @@ pub const CursorVisualStyle = enum(c_int) {
             .block => .block,
             .underline => .underline,
             .block_hollow => .block_hollow,
+            // vintage is a Ghostty-only style; report as underline
+            .vintage => .underline,
         };
     }
 };

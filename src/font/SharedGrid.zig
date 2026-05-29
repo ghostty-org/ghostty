@@ -116,6 +116,21 @@ pub fn init(
 }
 
 /// Deinit. Assumes no concurrent access so no lock is taken.
+/// Remove all cached sprite glyphs so they are redrawn on next use.
+/// Call this when sprite drawing parameters change (e.g. cursor height).
+pub fn invalidateSpriteGlyphs(self: *SharedGrid, alloc: Allocator) void {
+    self.lock.lock();
+    defer self.lock.unlock();
+    var it = self.glyphs.iterator();
+    while (it.next()) |entry| {
+        if (entry.key_ptr.index.special() == .sprite) {
+            self.glyphs.removeByPtr(entry.key_ptr);
+            it = self.glyphs.iterator();
+        }
+    }
+    _ = alloc;
+}
+
 pub fn deinit(self: *SharedGrid, alloc: Allocator) void {
     self.codepoints.deinit(alloc);
     self.glyphs.deinit(alloc);

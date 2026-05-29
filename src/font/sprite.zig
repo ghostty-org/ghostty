@@ -33,12 +33,23 @@ pub const Sprite = enum(u32) {
     cursor_hollow_rect,
     cursor_bar,
     cursor_underline,
+    // cursor_vintage is the base codepoint for vintage cursor sprites.
+    // Heights 1..100 are encoded as cursor_vintage+0 .. cursor_vintage+99.
+    // Use sprite.cursorVintageCp() to get the codepoint for a given height.
+    cursor_vintage,
 
     test {
         const testing = std.testing;
         try testing.expectEqual(start, @intFromEnum(Sprite.underline));
     }
 };
+
+/// Returns the codepoint for a vintage cursor of the given height percent.
+/// Height 1..100 maps to cursor_vintage+0 .. cursor_vintage+99.
+pub fn cursorVintageCp(height_pct: u32) u32 {
+    const h = @max(1, @min(100, height_pct));
+    return @intFromEnum(Sprite.cursor_vintage) + h - 1;
+}
 
 test {
     @import("std").testing.refAllDecls(@This());

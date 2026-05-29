@@ -370,3 +370,23 @@ pub fn cursor_underline(
         .height = @intCast(metrics.cursor_thickness),
     }, .on);
 }
+
+pub fn cursor_vintage(
+    cp: u32,
+    canvas: *font.sprite.Canvas,
+    width: u32,
+    height: u32,
+    metrics: font.Metrics,
+) !void {
+    _ = cp;
+
+    const pct: u32 = @max(1, @min(100, metrics.cursor_vintage_height));
+    const cursor_h: u32 = @max(1, height * pct / 100);
+    const y: u32 = height -| cursor_h;
+    canvas.rect(.{
+        .x = 0,
+        .y = @intCast(y),
+        .width = @intCast(width),
+        .height = @intCast(cursor_h),
+    }, .on);
+}

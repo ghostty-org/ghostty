@@ -12,4 +12,9 @@ pub const Style = enum {
     /// Hollow block cursor. This is a block cursor with the center empty.
     /// Reported as DECSCUSR 1 or 2 (block).
     block_hollow,
+
+    /// Vintage cursor. A partial-height block that fills the cell from
+    /// the bottom up. Height is controlled by cursor-style-vintage-height.
+    /// Reported as DECSCUSR 3 or 4 (underline).
+    vintage,
 };

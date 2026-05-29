@@ -544,6 +544,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             cursor_color: ?configpkg.Config.TerminalColor,
             cursor_opacity: f64,
             cursor_text: ?configpkg.Config.TerminalColor,
+            cursor_vintage_height: u32,
             background: terminal.color.RGB,
             background_opacity: f64,
             background_opacity_cells: bool,
@@ -616,6 +617,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .cursor_color = config.@"cursor-color",
                     .cursor_text = config.@"cursor-text",
                     .cursor_opacity = @max(0, @min(1, config.@"cursor-opacity")),
+                    .cursor_vintage_height = @max(
+                        1, @min(100, config.@"cursor-style-vintage-height"),
+                    ),
 
                     .background = config.background.toTerminalRGB(),
                     .foreground = config.foreground.toTerminalRGB(),
@@ -1888,6 +1892,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             self.config.deinit();
             self.config = config.*;
+            // Always invalidate sprite cache on config change so cursor
+            // vintage height is always re-rendered with current settings.
+            self.font_grid.invalidateSpriteGlyphs(self.alloc);
 
             // If our background image path changed, prepare the new bg image.
             if (bg_image_changed) try self.prepBackgroundImage();
@@ -3259,7 +3266,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .block_hollow => .cursor_hollow_rect,
                         .bar => .cursor_bar,
                         .underline => .cursor_underline,
-                        .lock => unreachable,
+                        .lock, .vintage => unreachable,
                     };
 
                     break :render self.font_grid.renderGlyph(
@@ -3272,6 +3279,29 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         },
                     ) catch |err| {
                         log.warn("error rendering cursor glyph err={}", .{err});
+                        return;
+                    };
+                },
+
+                .vintage => render: {
+                    var vintage_metrics = self.grid_metrics;
+                    vintage_metrics.cursor_vintage_height =
+                        self.config.cursor_vintage_height;
+                    break :render self.font_grid.renderGlyph(
+                        self.alloc,
+                        font.sprite_index,
+                        font.sprite.cursorVintageCp(
+                            self.config.cursor_vintage_height,
+                        ),
+                        .{
+                            .cell_width = if (wide) 2 else 1,
+                            .grid_metrics = vintage_metrics,
+                        },
+                    ) catch |err| {
+                        log.warn(
+                            "error rendering vintage cursor err={}",
+                            .{err},
+                        );
                         return;
                     };
                 },
