@@ -16,7 +16,7 @@ const Library = @import("main.zig").Library;
 const Face = @import("main.zig").Face;
 const Presentation = @import("main.zig").Presentation;
 
-const log = std.log.scoped(.deferred_face);
+const log = @import("../log.zig").scoped(.deferred_face);
 
 /// Fontconfig
 fc: if (options.backend == .fontconfig_freetype) ?Fontconfig else void =

@@ -10,7 +10,7 @@ const Image = kitty_gfx.Image;
 const ImageStorage = kitty_gfx.ImageStorage;
 const RenderPlacement = kitty_gfx.RenderPlacement;
 
-const log = std.log.scoped(.kitty_gfx);
+const log = @import("../../log.zig").scoped(.kitty_gfx);
 
 /// Codepoint for the unicode placeholder character.
 pub const placeholder: u21 = 0x10EEEE;

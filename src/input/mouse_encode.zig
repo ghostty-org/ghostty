@@ -7,7 +7,7 @@ const point = @import("../terminal/point.zig");
 const key = @import("key.zig");
 const mouse = @import("mouse.zig");
 
-const log = std.log.scoped(.mouse_encode);
+const log = @import("../log.zig").scoped(.mouse_encode);
 
 /// Options that affect mouse encoding behavior and provide runtime context.
 pub const Options = struct {

@@ -10,7 +10,7 @@ const Texture = GraphicsAPI.Texture;
 const CellSize = @import("size.zig").CellSize;
 const Overlay = @import("Overlay.zig");
 
-const log = std.log.scoped(.renderer_image);
+const log = @import("../log.zig").scoped(.renderer_image);
 
 /// Generic image rendering state for the renderer. This stores all
 /// images and their placements and exposes only a limited public API

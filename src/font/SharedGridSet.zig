@@ -29,7 +29,7 @@ const discovery = @import("discovery.zig");
 const configpkg = @import("../config.zig");
 const Config = configpkg.Config;
 
-const log = std.log.scoped(.font_shared_grid_set);
+const log = @import("../log.zig").scoped(.font_shared_grid_set);
 
 /// The allocator to use for all heap allocations.
 alloc: Allocator,

@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const build_config = @import("../build_config.zig");
 const apprt = @import("../apprt.zig");
 
-const log = std.log.scoped(.@"os-open");
+const log = @import("../log.zig").scoped(.@"os-open");
 
 /// Open a URL in the default handling application.
 ///

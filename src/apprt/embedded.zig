@@ -22,7 +22,7 @@ const configpkg = @import("../config.zig");
 const Config = configpkg.Config;
 const String = @import("../main_c.zig").String;
 
-const log = std.log.scoped(.embedded_window);
+const log = @import("../log.zig").scoped(.embedded_window);
 
 pub const resourcesDir = internal_os.resourcesDir;
 

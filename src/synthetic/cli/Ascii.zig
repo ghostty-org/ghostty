@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Bytes = @import("../Bytes.zig");
 
-const log = std.log.scoped(.@"terminal-stream-bench");
+const log = @import("../../log.zig").scoped(.@"terminal-stream-bench");
 
 pub const Options = struct {};
 

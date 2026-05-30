@@ -8,7 +8,7 @@ const cli = @import("../cli.zig");
 const internal_os = @import("../os/main.zig");
 const formatterpkg = @import("formatter.zig");
 
-const log = std.log.scoped(.config);
+const log = @import("../log.zig").scoped(.config);
 
 pub const ParseError = error{ValueRequired} || Allocator.Error;
 

@@ -11,7 +11,7 @@ const Sampler = @import("Sampler.zig");
 const Texture = @import("Texture.zig");
 const Target = @import("Target.zig");
 
-const log = std.log.scoped(.metal);
+const log = @import("../../log.zig").scoped(.metal);
 
 /// Options for beginning a render pass.
 pub const Options = struct {

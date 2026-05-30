@@ -10,7 +10,7 @@ const Command = @import("../../osc.zig").Command;
 const encoding = @import("../encoding.zig");
 const lib = @import("../../lib.zig");
 
-const log = std.log.scoped(.kitty_text_sizing);
+const log = @import("../../../log.zig").scoped(.kitty_text_sizing);
 
 pub const max_payload_length = 4096;
 

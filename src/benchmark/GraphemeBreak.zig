@@ -12,7 +12,7 @@ const UTF8Decoder = @import("../terminal/UTF8Decoder.zig");
 const unicode = @import("../unicode/main.zig");
 const uucode = @import("uucode");
 
-const log = std.log.scoped(.@"terminal-stream-bench");
+const log = @import("../log.zig").scoped(.@"terminal-stream-bench");
 
 opts: Options,
 

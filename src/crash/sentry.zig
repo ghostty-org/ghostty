@@ -10,7 +10,7 @@ const crash = @import("main.zig");
 const state = &@import("../global.zig").state;
 const Surface = @import("../Surface.zig");
 
-const log = std.log.scoped(.sentry);
+const log = @import("../log.zig").scoped(.sentry);
 
 /// The global state for the Sentry SDK. This is unavoidable since crash
 /// handling is a global process-wide thing.

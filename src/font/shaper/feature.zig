@@ -2,7 +2,7 @@ const std = @import("std");
 const assert = @import("../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 
-const log = std.log.scoped(.font_shaper);
+const log = @import("../../log.zig").scoped(.font_shaper);
 
 /// Represents an OpenType font feature setting, which consists of a tag and
 /// a numeric parameter >= 0. Most features are boolean, so only parameters

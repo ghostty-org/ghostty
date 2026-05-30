@@ -9,7 +9,7 @@ const Diagnostic = diags.Diagnostic;
 const DiagnosticList = diags.DiagnosticList;
 const CommaSplitter = @import("CommaSplitter.zig");
 
-const log = std.log.scoped(.cli);
+const log = @import("../log.zig").scoped(.cli);
 
 // TODO:
 //   - Only `--long=value` format is accepted. Do we want to allow

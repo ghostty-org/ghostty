@@ -6,7 +6,7 @@ const glslang = @import("glslang");
 const spvcross = @import("spirv_cross");
 const configpkg = @import("../config.zig");
 
-const log = std.log.scoped(.shadertoy);
+const log = @import("../log.zig").scoped(.shadertoy);
 
 /// The uniform struct used for shadertoy shaders.
 pub const Uniforms = extern struct {

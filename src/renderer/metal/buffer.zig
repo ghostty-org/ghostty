@@ -6,7 +6,7 @@ const macos = @import("macos");
 const mtl = @import("api.zig");
 const Metal = @import("../Metal.zig");
 
-const log = std.log.scoped(.metal);
+const log = @import("../../log.zig").scoped(.metal);
 
 /// Options for initializing a buffer.
 pub const Options = struct {

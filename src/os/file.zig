@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const posix = std.posix;
 const windows = @import("windows.zig");
 
-const log = std.log.scoped(.os);
+const log = @import("../log.zig").scoped(.os);
 
 pub const rlimit = if (@hasDecl(posix.system, "rlimit")) posix.rlimit else struct {};
 

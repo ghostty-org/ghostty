@@ -5,7 +5,7 @@ const Parser = @import("../../osc.zig").Parser;
 const OSCCommand = @import("../../osc.zig").Command;
 const string_encoding = @import("../../../os/string_encoding.zig");
 
-const log = std.log.scoped(.osc_semantic_prompt);
+const log = @import("../../../log.zig").scoped(.osc_semantic_prompt);
 
 /// A single semantic prompt command.
 ///

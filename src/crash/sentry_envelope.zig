@@ -2,7 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
-const log = std.log.scoped(.sentry_envelope);
+const log = @import("../log.zig").scoped(.sentry_envelope);
 
 /// The Sentry Envelope format: https://develop.sentry.dev/sdk/envelopes/
 ///

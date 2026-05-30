@@ -7,7 +7,7 @@ const Command = @import("../../osc.zig").Command;
 const kitty_color = @import("../../kitty/color.zig");
 const RGB = @import("../../color.zig").RGB;
 
-const log = std.log.scoped(.osc_kitty_color);
+const log = @import("../../../log.zig").scoped(.osc_kitty_color);
 
 /// Parse OSC 21, the Kitty Color Protocol.
 pub fn parse(parser: *Parser, terminator_ch: ?u8) ?*Command {

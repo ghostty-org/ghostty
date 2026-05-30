@@ -22,7 +22,7 @@ const testing = std.testing;
 const fastmem = @import("../fastmem.zig");
 const tripwire = @import("../tripwire.zig");
 
-const log = std.log.scoped(.atlas);
+const log = @import("../log.zig").scoped(.atlas);
 
 /// Data is the raw texture data.
 data: []u8,

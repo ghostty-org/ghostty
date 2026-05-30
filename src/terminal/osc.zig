@@ -20,7 +20,7 @@ const encoding = @import("osc/encoding.zig");
 pub const color = parsers.color;
 pub const semantic_prompt = parsers.semantic_prompt;
 
-const log = std.log.scoped(.osc);
+const log = @import("../log.zig").scoped(.osc);
 
 pub const Command = union(Key) {
     /// This generally shouldn't ever be set except as an initial zero value.

@@ -5,7 +5,7 @@ const alloc = wasm.alloc;
 
 const Config = @import("Config.zig");
 
-const log = std.log.scoped(.config);
+const log = @import("../log.zig").scoped(.config);
 
 /// Create a new configuration filled with the initial default values.
 export fn config_new() ?*Config {

@@ -8,7 +8,7 @@ const mouse = @import("../../input/mouse.zig");
 const mouse_encode = @import("../../input/mouse_encode.zig");
 const Result = @import("result.zig").Result;
 
-const log = std.log.scoped(.mouse_event);
+const log = @import("../../log.zig").scoped(.mouse_event);
 
 /// Wrapper around mouse event that tracks the allocator for C API usage.
 const MouseEventWrapper = struct {

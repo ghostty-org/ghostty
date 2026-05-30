@@ -16,7 +16,7 @@ const SharedGrid = font.SharedGrid;
 const Style = font.Style;
 const Presentation = font.Presentation;
 
-const log = std.log.scoped(.font_shaper);
+const log = @import("../../log.zig").scoped(.font_shaper);
 
 /// Shaper that uses Harfbuzz.
 pub const Shaper = struct {

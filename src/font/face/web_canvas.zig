@@ -5,7 +5,7 @@ const Allocator = std.mem.Allocator;
 const js = @import("zig-js");
 const font = @import("../main.zig");
 
-const log = std.log.scoped(.font_face);
+const log = @import("../../log.zig").scoped(.font_face);
 
 pub const Face = struct {
     /// See graphemes field for more details.

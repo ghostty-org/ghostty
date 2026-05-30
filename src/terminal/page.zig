@@ -25,7 +25,7 @@ const AutoOffsetHashMap = hash_map.AutoOffsetHashMap;
 const alignForward = std.mem.alignForward;
 const alignBackward = std.mem.alignBackward;
 
-const log = std.log.scoped(.page);
+const log = @import("../log.zig").scoped(.page);
 
 /// Page-aligned allocator used for terminal page backing memory. Pages
 /// require page-aligned, zeroed memory obtained directly from the OS

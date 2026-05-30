@@ -8,7 +8,7 @@ const Allocator = std.mem.Allocator;
 const assert = @import("../../quirks.zig").inlineAssert;
 const oni = @import("oniguruma");
 
-const log = std.log.scoped(.terminal_tmux);
+const log = @import("../../log.zig").scoped(.terminal_tmux);
 
 /// A tmux control mode parser. This takes in output from tmux control
 /// mode and parses it into a structured notifications.

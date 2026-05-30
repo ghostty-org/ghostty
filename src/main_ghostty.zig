@@ -125,6 +125,10 @@ fn logFn(
     // macOS logging is thread safe so no need for locks/mutexes
     macos: {
         if (comptime !builtin.target.os.tag.isDarwin()) break :macos;
+        // Debug builds skip this branch — log.zig's inline path
+        // handles os_log delivery there instead, so DWARF can resolve the
+        // call site to Zig source for Xcode's Jump to Source.
+        if (comptime builtin.mode == .Debug) break :macos;
         if (!state.logging.macos) break :macos;
 
         const prefix = if (scope == .default) "" else @tagName(scope) ++ ": ";

@@ -8,7 +8,7 @@ const objc = @import("objc");
 const mtl = @import("api.zig");
 const Metal = @import("../Metal.zig");
 
-const log = std.log.scoped(.metal);
+const log = @import("../../log.zig").scoped(.metal);
 
 /// Options for initializing a sampler.
 pub const Options = struct {

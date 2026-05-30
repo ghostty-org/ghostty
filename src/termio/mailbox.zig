@@ -5,7 +5,7 @@ const renderer = @import("../renderer.zig");
 const termio = @import("../termio.zig");
 const BlockingQueue = @import("../datastruct/main.zig").BlockingQueue;
 
-const log = std.log.scoped(.io_writer);
+const log = @import("../log.zig").scoped(.io_writer);
 
 /// A queue used for storing messages that is periodically drained.
 /// Typically used by a multi-threaded application. The capacity is

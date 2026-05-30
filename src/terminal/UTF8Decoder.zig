@@ -11,7 +11,7 @@ const UTF8Decoder = @This();
 const std = @import("std");
 const testing = std.testing;
 
-const log = std.log.scoped(.utf8decoder);
+const log = @import("../log.zig").scoped(.utf8decoder);
 
 // zig fmt: off
 const char_classes = [_]u4{

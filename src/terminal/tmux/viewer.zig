@@ -13,7 +13,7 @@ const Layout = @import("layout.zig").Layout;
 const control = @import("control.zig");
 const output = @import("output.zig");
 
-const log = std.log.scoped(.terminal_tmux_viewer);
+const log = @import("../../log.zig").scoped(.terminal_tmux_viewer);
 
 // TODO: A list of TODOs as I think about them.
 // - We need to make startup more robust so session and block can happen

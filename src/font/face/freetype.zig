@@ -21,7 +21,7 @@ const config = @import("../../config.zig");
 
 const F26Dot6 = opentype.sfnt.F26Dot6;
 
-const log = std.log.scoped(.font_face);
+const log = @import("../../log.zig").scoped(.font_face);
 
 pub const Face = struct {
     comptime {

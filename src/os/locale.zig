@@ -6,7 +6,7 @@ const objc = @import("objc");
 const internal_os = @import("main.zig");
 const i18n = internal_os.i18n;
 
-const log = std.log.scoped(.os_locale);
+const log = @import("../log.zig").scoped(.os_locale);
 
 /// Ensure that the locale is set.
 pub fn ensureLocale(alloc: std.mem.Allocator) !void {

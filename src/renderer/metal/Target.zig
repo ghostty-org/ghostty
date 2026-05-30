@@ -12,7 +12,7 @@ const IOSurface = macos.iosurface.IOSurface;
 
 const mtl = @import("api.zig");
 
-const log = std.log.scoped(.metal);
+const log = @import("../../log.zig").scoped(.metal);
 
 /// Options for initializing a Target
 pub const Options = struct {

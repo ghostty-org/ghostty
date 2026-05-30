@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const synthetic = @import("../main.zig");
 
-const log = std.log.scoped(.@"terminal-stream-bench");
+const log = @import("../../log.zig").scoped(.@"terminal-stream-bench");
 
 pub const Options = struct {
     /// Probability of generating a valid value.

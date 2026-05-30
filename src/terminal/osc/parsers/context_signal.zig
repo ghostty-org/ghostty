@@ -9,7 +9,7 @@ const std = @import("std");
 const Parser = @import("../../osc.zig").Parser;
 const OSCCommand = @import("../../osc.zig").Command;
 
-const log = std.log.scoped(.osc_context_signal);
+const log = @import("../../../log.zig").scoped(.osc_context_signal);
 
 /// Maximum length of a context identifier (per spec).
 const max_context_id_len = 64;

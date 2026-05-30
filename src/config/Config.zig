@@ -54,7 +54,7 @@ const terminal = struct {
     const x11_color = @import("../terminal/x11_color.zig");
 };
 
-const log = std.log.scoped(.config);
+const log = @import("../log.zig").scoped(.config);
 
 /// Used on Unixes for some defaults.
 const c = @cImport({

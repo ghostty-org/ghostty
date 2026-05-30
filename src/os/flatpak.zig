@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const posix = std.posix;
 const xev = @import("../global.zig").xev;
 
-const log = std.log.scoped(.flatpak);
+const log = @import("../log.zig").scoped(.flatpak);
 
 /// Returns true if we're running in a Flatpak environment.
 pub fn isFlatpak() bool {

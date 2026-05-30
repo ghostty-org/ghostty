@@ -68,7 +68,7 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const testing = std.testing;
 
-const log = std.log.scoped(.tripwire);
+const log = @import("log.zig").scoped(.tripwire);
 
 // Future ideas:
 //

@@ -21,7 +21,7 @@ const Size = size.Size;
 const CellSize = size.CellSize;
 const Image = @import("image.zig").Image;
 
-const log = std.log.scoped(.renderer_overlay);
+const log = @import("../log.zig").scoped(.renderer_overlay);
 
 /// The colors we use for overlays.
 pub const Color = enum {

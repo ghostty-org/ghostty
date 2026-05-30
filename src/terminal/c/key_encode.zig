@@ -11,7 +11,7 @@ const KeyEvent = @import("key_event.zig").Event;
 const Terminal = @import("terminal.zig").Terminal;
 const ZigTerminal = @import("../Terminal.zig");
 
-const log = std.log.scoped(.key_encode);
+const log = @import("../../log.zig").scoped(.key_encode);
 
 /// Wrapper around key encoding options that tracks the allocator for C API usage.
 const KeyEncoderWrapper = struct {

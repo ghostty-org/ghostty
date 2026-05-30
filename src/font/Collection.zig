@@ -29,7 +29,7 @@ const Metrics = font.Metrics;
 const Presentation = font.Presentation;
 const Style = font.Style;
 
-const log = std.log.scoped(.font_collection);
+const log = @import("../log.zig").scoped(.font_collection);
 
 /// The available faces we have. This shouldn't be modified manually.
 /// Instead, use the functions available on Collection.

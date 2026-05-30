@@ -21,7 +21,7 @@ const Style = font.Style;
 const Presentation = font.Presentation;
 const CFReleaseThread = os.CFReleaseThread;
 
-const log = std.log.scoped(.font_shaper);
+const log = @import("../../log.zig").scoped(.font_shaper);
 
 /// Shaper that uses CoreText.
 ///

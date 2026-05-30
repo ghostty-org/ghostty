@@ -8,7 +8,7 @@ const terminalpkg = @import("../terminal/main.zig");
 const Benchmark = @import("Benchmark.zig");
 const options = @import("options.zig");
 
-const log = std.log.scoped(.@"terminal-stream-bench");
+const log = @import("../log.zig").scoped(.@"terminal-stream-bench");
 
 opts: Options,
 

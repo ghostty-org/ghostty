@@ -5,7 +5,7 @@ const Allocator = std.mem.Allocator;
 pub const glyph = @import("apc/glyph.zig");
 const kitty_gfx = @import("kitty/graphics.zig");
 
-const log = std.log.scoped(.terminal_apc);
+const log = @import("../log.zig").scoped(.terminal_apc);
 
 /// APC command handler. This should be hooked into a terminal.Stream handler.
 /// The start/feed/end functions are meant to be called from the terminal.Stream

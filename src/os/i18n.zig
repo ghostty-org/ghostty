@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const build_config = @import("../build_config.zig");
 const locales = @import("i18n_locales.zig");
 
-const log = std.log.scoped(.i18n);
+const log = @import("../log.zig").scoped(.i18n);
 
 /// Set for faster membership lookup of locales.
 pub const locales_map = map: {

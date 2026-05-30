@@ -16,7 +16,7 @@ const temp_dir = struct {
     const freeTmpDir = @import("../../os/file.zig").freeTmpDir;
 };
 
-const log = std.log.scoped(.kitty_gfx);
+const log = @import("../../log.zig").scoped(.kitty_gfx);
 
 /// Maximum width or height of an image. Taken directly from Kitty.
 const max_dimension = 10000;

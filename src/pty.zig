@@ -4,7 +4,7 @@ const windows = @import("os/main.zig").windows;
 const posix = std.posix;
 const assert = @import("quirks.zig").inlineAssert;
 
-const log = std.log.scoped(.pty);
+const log = @import("log.zig").scoped(.pty);
 
 /// Redeclare this winsize struct so we can just use a Zig struct. This
 /// layout should be correct on all tested platforms. The defaults on this

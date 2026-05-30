@@ -7,7 +7,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const gl = @import("opengl");
 
-const log = std.log.scoped(.opengl);
+const log = @import("../../log.zig").scoped(.opengl);
 
 /// Options for initializing a Target
 pub const Options = struct {

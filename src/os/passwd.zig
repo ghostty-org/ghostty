@@ -6,7 +6,7 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const posix = std.posix;
 
-const log = std.log.scoped(.passwd);
+const log = @import("../log.zig").scoped(.passwd);
 
 // We want to be extra sure since this will force bad symbols into our import table
 comptime {

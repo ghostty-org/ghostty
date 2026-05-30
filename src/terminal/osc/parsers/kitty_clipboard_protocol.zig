@@ -12,7 +12,7 @@ const Command = @import("../../osc.zig").Command;
 const Terminator = @import("../../osc.zig").Terminator;
 const encoding = @import("../encoding.zig");
 
-const log = std.log.scoped(.kitty_clipboard_protocol);
+const log = @import("../../../log.zig").scoped(.kitty_clipboard_protocol);
 
 pub const OSC = struct {
     /// The raw metadata that was received. It can be parsed by using the `readOption` method.

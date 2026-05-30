@@ -5,7 +5,7 @@ const CAllocator = lib.alloc.Allocator;
 const key = @import("../../input/key.zig");
 const Result = @import("result.zig").Result;
 
-const log = std.log.scoped(.key_event);
+const log = @import("../../log.zig").scoped(.key_event);
 
 /// Wrapper around KeyEvent that tracks the allocator for C API usage.
 /// The UTF-8 text is not owned by this wrapper - the caller is responsible

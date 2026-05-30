@@ -21,7 +21,7 @@ const termio = @import("../termio.zig");
 const renderer = @import("../renderer.zig");
 
 const Allocator = std.mem.Allocator;
-const log = std.log.scoped(.io_thread);
+const log = @import("../log.zig").scoped(.io_thread);
 
 /// This stores the information that is coalesced.
 const Coalesce = struct {

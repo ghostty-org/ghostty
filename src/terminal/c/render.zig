@@ -15,7 +15,7 @@ const Result = @import("result.zig").Result;
 const row = @import("row.zig");
 const style_c = @import("style.zig");
 
-const log = std.log.scoped(.render_state_c);
+const log = @import("../../log.zig").scoped(.render_state_c);
 
 const RenderStateWrapper = struct {
     alloc: std.mem.Allocator,

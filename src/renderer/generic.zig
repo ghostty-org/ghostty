@@ -41,7 +41,7 @@ const DisplayLink = switch (builtin.os.tag) {
     else => void,
 };
 
-const log = std.log.scoped(.generic_renderer);
+const log = @import("../log.zig").scoped(.generic_renderer);
 
 /// Create a renderer type with the provided graphics API wrapper.
 ///

@@ -3,7 +3,7 @@ const std = @import("std");
 const Parser = @import("../../osc.zig").Parser;
 const Command = @import("../../osc.zig").Command;
 
-const log = std.log.scoped(.osc_rxvt_extension);
+const log = @import("../../../log.zig").scoped(.osc_rxvt_extension);
 
 /// Parse OSC 777
 pub fn parse(parser: *Parser, _: ?u8) ?*Command {

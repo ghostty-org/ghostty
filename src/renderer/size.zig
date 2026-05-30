@@ -2,7 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const terminal_size = @import("../terminal/size.zig");
 
-const log = std.log.scoped(.renderer_size);
+const log = @import("../log.zig").scoped(.renderer_size);
 
 /// Controls how extra whitespace around the terminal grid is distributed.
 pub const PaddingBalance = enum {

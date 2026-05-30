@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const objc = @import("objc");
 
-const log = std.log.scoped(.os);
+const log = @import("../log.zig").scoped(.os);
 
 /// The system-configured double-click interval if its available.
 pub fn clickInterval() ?u32 {

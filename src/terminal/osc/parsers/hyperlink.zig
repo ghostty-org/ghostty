@@ -3,7 +3,7 @@ const std = @import("std");
 const Parser = @import("../../osc.zig").Parser;
 const Command = @import("../../osc.zig").Command;
 
-const log = std.log.scoped(.osc_hyperlink);
+const log = @import("../../../log.zig").scoped(.osc_hyperlink);
 
 /// Parse OSC 8 hyperlinks
 pub fn parse(parser: *Parser, _: ?u8) ?*Command {

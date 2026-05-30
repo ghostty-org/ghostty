@@ -12,7 +12,7 @@ const terminal_c = @import("terminal.zig");
 const types = @import("types.zig");
 const Result = @import("result.zig").Result;
 
-const log = std.log.scoped(.selection_gesture_c);
+const log = @import("../../log.zig").scoped(.selection_gesture_c);
 
 /// C: GhosttySelectionGesture
 pub const Gesture = ?*GestureWrapper;

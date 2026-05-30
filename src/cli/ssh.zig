@@ -8,7 +8,7 @@ const DiskCache = @import("ssh_cache.zig").DiskCache;
 const internal_os = @import("../os/main.zig");
 const ghostty_terminfo = @import("../terminfo/main.zig").ghostty;
 
-const log = std.log.scoped(.ssh);
+const log = @import("../log.zig").scoped(.ssh);
 
 const usage =
     \\Usage: ghostty +ssh [flags] [--] <ssh args...>

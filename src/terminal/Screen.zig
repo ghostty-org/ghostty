@@ -30,7 +30,7 @@ const Pin = PageList.Pin;
 
 pub const CursorStyle = @import("cursor.zig").Style;
 
-const log = std.log.scoped(.screen);
+const log = @import("../log.zig").scoped(.screen);
 
 /// The general purpose allocator to use for all memory allocations.
 /// Unfortunately some screen operations do require allocation.

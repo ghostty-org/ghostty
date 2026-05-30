@@ -5,7 +5,7 @@ const Allocator = std.mem.Allocator;
 const terminal = @import("main.zig");
 const DCS = terminal.DCS;
 
-const log = std.log.scoped(.terminal_dcs);
+const log = @import("../log.zig").scoped(.terminal_dcs);
 
 /// DCS command handler. This should be hooked into a terminal.Stream handler.
 /// The hook/put/unhook functions are meant to be called from the

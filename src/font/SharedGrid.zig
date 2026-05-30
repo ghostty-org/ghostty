@@ -35,7 +35,7 @@ const Presentation = font.Presentation;
 const Style = font.Style;
 const RenderOptions = font.Glyph.RenderOptions;
 
-const log = std.log.scoped(.font_shared_grid);
+const log = @import("../log.zig").scoped(.font_shared_grid);
 
 /// Cache for codepoints to font indexes in a group.
 codepoints: std.AutoHashMapUnmanaged(CodepointKey, ?Collection.Index) = .{},

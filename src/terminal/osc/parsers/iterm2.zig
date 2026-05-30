@@ -6,7 +6,7 @@ const simd = @import("../../../simd/main.zig");
 const Parser = @import("../../osc.zig").Parser;
 const Command = @import("../../osc.zig").Command;
 
-const log = std.log.scoped(.osc_iterm2);
+const log = @import("../../../log.zig").scoped(.osc_iterm2);
 
 const Key = enum {
     AddAnnotation,

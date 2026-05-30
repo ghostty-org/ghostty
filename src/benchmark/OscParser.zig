@@ -8,7 +8,7 @@ const Allocator = std.mem.Allocator;
 const Benchmark = @import("Benchmark.zig");
 const options = @import("options.zig");
 const Parser = @import("../terminal/osc.zig").Parser;
-const log = std.log.scoped(.@"osc-parser-bench");
+const log = @import("../log.zig").scoped(.@"osc-parser-bench");
 
 opts: Options,
 

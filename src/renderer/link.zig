@@ -8,7 +8,7 @@ const point = terminal.point;
 const Screen = terminal.Screen;
 const Terminal = terminal.Terminal;
 
-const log = std.log.scoped(.renderer_link);
+const log = @import("../log.zig").scoped(.renderer_link);
 
 /// The link configuration needed for renderers.
 pub const Link = struct {

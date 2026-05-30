@@ -9,7 +9,7 @@ const c_get = @import("c_get.zig");
 const edit = @import("edit.zig");
 const Key = @import("key.zig").Key;
 
-const log = std.log.scoped(.config);
+const log = @import("../log.zig").scoped(.config);
 
 /// Create a new configuration filled with the initial default values.
 export fn ghostty_config_new() ?*Config {

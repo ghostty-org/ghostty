@@ -38,7 +38,7 @@ const inspectorpkg = @import("inspector/main.zig");
 const SurfaceMouse = @import("surface_mouse.zig");
 const ProcessInfo = @import("pty.zig").ProcessInfo;
 
-const log = std.log.scoped(.surface);
+const log = @import("log.zig").scoped(.surface);
 
 // The renderer implementation to use.
 const Renderer = rendererpkg.Renderer;

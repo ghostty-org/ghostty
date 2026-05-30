@@ -7,7 +7,7 @@ const config = @import("../config.zig");
 const homedir = @import("../os/homedir.zig");
 const internal_os = @import("../os/main.zig");
 
-const log = std.log.scoped(.shell_integration);
+const log = @import("../log.zig").scoped(.shell_integration);
 
 /// Shell types we support
 pub const Shell = enum {

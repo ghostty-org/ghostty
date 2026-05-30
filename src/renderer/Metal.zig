@@ -36,7 +36,7 @@ pub const custom_shader_y_is_down = true;
 /// Triple buffering.
 pub const swap_chain_count = 3;
 
-const log = std.log.scoped(.metal);
+const log = @import("../log.zig").scoped(.metal);
 
 layer: IOSurfaceLayer,
 

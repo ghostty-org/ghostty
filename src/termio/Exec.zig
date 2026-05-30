@@ -29,7 +29,7 @@ const PasswdEntry = internal_os.passwd.Entry;
 const windows = internal_os.windows;
 const ProcessInfo = @import("../pty.zig").ProcessInfo;
 
-const log = std.log.scoped(.io_exec);
+const log = @import("../log.zig").scoped(.io_exec);
 
 /// The termios poll rate in milliseconds.
 const TERMIOS_POLL_MS = 200;

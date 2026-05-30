@@ -13,7 +13,7 @@ const Event = mouse_event.Event;
 const Terminal = @import("terminal.zig").Terminal;
 const ZigTerminal = @import("../Terminal.zig");
 
-const log = std.log.scoped(.mouse_encode);
+const log = @import("../../log.zig").scoped(.mouse_encode);
 
 /// Wrapper around mouse encoding options that tracks the allocator for C API usage.
 const MouseEncoderWrapper = struct {

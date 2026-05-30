@@ -8,7 +8,7 @@ const font = @import("../main.zig");
 const opentype = @import("../opentype.zig");
 const quirks = @import("../../quirks.zig");
 
-const log = std.log.scoped(.font_face);
+const log = @import("../../log.zig").scoped(.font_face);
 
 pub const Face = struct {
     /// Our font face

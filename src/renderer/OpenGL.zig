@@ -31,7 +31,7 @@ pub const custom_shader_y_is_down = false;
 /// sync, we have no need for multi-buffering.
 pub const swap_chain_count = 1;
 
-const log = std.log.scoped(.opengl);
+const log = @import("../log.zig").scoped(.opengl);
 
 /// We require at least OpenGL 4.3
 pub const MIN_VERSION_MAJOR = 4;

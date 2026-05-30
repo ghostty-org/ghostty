@@ -10,7 +10,7 @@ const Selection = @import("../Selection.zig");
 const Result = @import("result.zig").Result;
 const terminal_c = @import("terminal.zig");
 
-const log = std.log.scoped(.selection_c);
+const log = @import("../../log.zig").scoped(.selection_c);
 
 pub const Adjustment = Selection.Adjustment;
 pub const Order = Selection.Order;

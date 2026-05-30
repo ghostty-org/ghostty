@@ -9,7 +9,7 @@ const testing = std.testing;
 const table = @import("parse_table.zig").table;
 const osc = @import("osc.zig");
 
-const log = std.log.scoped(.parser);
+const log = @import("../log.zig").scoped(.parser);
 
 /// States for the state machine
 pub const State = enum {

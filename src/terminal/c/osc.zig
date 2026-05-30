@@ -4,7 +4,7 @@ const CAllocator = lib.alloc.Allocator;
 const osc = @import("../osc.zig");
 const Result = @import("result.zig").Result;
 
-const log = std.log.scoped(.osc);
+const log = @import("../../log.zig").scoped(.osc);
 
 /// C: GhosttyOscParser
 pub const Parser = ?*osc.Parser;

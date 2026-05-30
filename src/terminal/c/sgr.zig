@@ -6,7 +6,7 @@ const CAllocator = lib.alloc.Allocator;
 const sgr = @import("../sgr.zig");
 const Result = @import("result.zig").Result;
 
-const log = std.log.scoped(.sgr);
+const log = @import("../../log.zig").scoped(.sgr);
 
 /// Wrapper around parser that tracks the allocator for C API usage.
 const ParserWrapper = struct {

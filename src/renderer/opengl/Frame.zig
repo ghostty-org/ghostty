@@ -12,7 +12,7 @@ const RenderPass = @import("RenderPass.zig");
 
 const Health = @import("../../renderer.zig").Health;
 
-const log = std.log.scoped(.opengl);
+const log = @import("../../log.zig").scoped(.opengl);
 
 /// Options for beginning a frame.
 pub const Options = struct {};

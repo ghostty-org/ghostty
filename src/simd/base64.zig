@@ -3,7 +3,7 @@ const options = @import("build_options");
 const assert = @import("../quirks.zig").inlineAssert;
 const scalar_decoder = @import("base64_scalar.zig").scalar_decoder;
 
-const log = std.log.scoped(.simd_base64);
+const log = @import("../log.zig").scoped(.simd_base64);
 
 pub fn maxLen(input: []const u8) usize {
     if (comptime options.simd) return ghostty_simd_base64_max_length(

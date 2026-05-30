@@ -14,7 +14,7 @@ const BlockingQueue = @import("../datastruct/main.zig").BlockingQueue;
 const App = @import("../App.zig");
 
 const Allocator = std.mem.Allocator;
-const log = std.log.scoped(.renderer_thread);
+const log = @import("../log.zig").scoped(.renderer_thread);
 
 const DRAW_INTERVAL = 8; // 120 FPS
 const CURSOR_BLINK_INTERVAL = 600;

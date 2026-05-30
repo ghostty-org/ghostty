@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const log = std.log.scoped(.@"linux-cgroup");
+const log = @import("../log.zig").scoped(.@"linux-cgroup");
 
 /// Returns the path to the cgroup for the given pid.
 pub fn current(buf: []u8, pid: u32) ?[]const u8 {

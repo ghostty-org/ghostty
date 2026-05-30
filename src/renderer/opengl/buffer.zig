@@ -4,7 +4,7 @@ const gl = @import("opengl");
 
 const OpenGL = @import("../OpenGL.zig");
 
-const log = std.log.scoped(.opengl);
+const log = @import("../../log.zig").scoped(.opengl);
 
 /// Options for initializing a buffer.
 pub const Options = struct {

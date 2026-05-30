@@ -7,7 +7,7 @@ const math = @import("../../math.zig");
 const mtl = @import("api.zig");
 const Pipeline = @import("Pipeline.zig");
 
-const log = std.log.scoped(.metal);
+const log = @import("../../log.zig").scoped(.metal);
 
 const pipeline_descs: []const struct { [:0]const u8, PipelineDescription } =
     &.{

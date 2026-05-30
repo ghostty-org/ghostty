@@ -16,7 +16,7 @@ const ActiveSearch = @import("active.zig").ActiveSearch;
 const PageListSearch = @import("pagelist.zig").PageListSearch;
 const SlidingWindow = @import("sliding_window.zig").SlidingWindow;
 
-const log = std.log.scoped(.search_screen);
+const log = @import("../../log.zig").scoped(.search_screen);
 
 const reloadActive_tw = tripwire.module(enum {
     history_append_new,

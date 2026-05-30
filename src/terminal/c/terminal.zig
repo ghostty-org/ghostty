@@ -28,7 +28,7 @@ const Result = @import("result.zig").Result;
 
 const Handler = @import("../stream_terminal.zig").Handler;
 
-const log = std.log.scoped(.terminal_c);
+const log = @import("../../log.zig").scoped(.terminal_c);
 
 /// Wrapper around ZigTerminal that tracks additional state for C API usage,
 /// such as the persistent VT stream needed to handle escape sequences split

@@ -4,7 +4,7 @@ const cimgui = @import("dcimgui");
 const widgets = @import("../widgets.zig");
 const renderer = @import("../../renderer.zig");
 
-const log = std.log.scoped(.inspector_renderer);
+const log = @import("../../log.zig").scoped(.inspector_renderer);
 
 /// Renderer information inspector widget.
 pub const Info = struct {

@@ -6,7 +6,7 @@ const std = @import("std");
 const Dir = std.fs.Dir;
 const file = @import("file.zig");
 
-const log = std.log.scoped(.tempdir);
+const log = @import("../log.zig").scoped(.tempdir);
 
 /// Dir is the directory handle
 dir: Dir,

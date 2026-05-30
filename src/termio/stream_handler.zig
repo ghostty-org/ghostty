@@ -13,7 +13,7 @@ const terminal = @import("../terminal/main.zig");
 const terminfo = @import("../terminfo/main.zig");
 const posix = std.posix;
 
-const log = std.log.scoped(.io_handler);
+const log = @import("../log.zig").scoped(.io_handler);
 
 /// This is used as the handler for the terminal.Stream type. This is
 /// stateful and is expected to live for the entire lifetime of the terminal.

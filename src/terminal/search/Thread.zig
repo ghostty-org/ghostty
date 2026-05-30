@@ -28,7 +28,7 @@ const Terminal = @import("../Terminal.zig");
 const ScreenSearch = @import("screen.zig").ScreenSearch;
 const ViewportSearch = @import("viewport.zig").ViewportSearch;
 
-const log = std.log.scoped(.search_thread);
+const log = @import("../../log.zig").scoped(.search_thread);
 
 // TODO: Some stuff that could be improved:
 // - pause the refresh timer when the terminal isn't focused

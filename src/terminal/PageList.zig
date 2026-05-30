@@ -23,7 +23,7 @@ const Capacity = pagepkg.Capacity;
 const Page = pagepkg.Page;
 const Row = pagepkg.Row;
 
-const log = std.log.scoped(.page_list);
+const log = @import("../log.zig").scoped(.page_list);
 
 /// The number of PageList.Nodes we preheat the pool with. A node is
 /// a very small struct so we can afford to preheat many, but the exact

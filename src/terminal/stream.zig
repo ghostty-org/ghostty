@@ -19,7 +19,7 @@ const sgr = @import("sgr.zig");
 const UTF8Decoder = @import("UTF8Decoder.zig");
 const MouseShape = @import("mouse.zig").Shape;
 
-const log = std.log.scoped(.stream);
+const log = @import("../log.zig").scoped(.stream);
 
 /// Flip this to true when you want verbose debug output for
 /// debugging terminal stream issues. In addition to louder

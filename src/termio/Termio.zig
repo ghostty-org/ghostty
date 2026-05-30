@@ -21,7 +21,7 @@ const windows = internal_os.windows;
 const configpkg = @import("../config.zig");
 const ProcessInfo = @import("../pty.zig").ProcessInfo;
 
-const log = std.log.scoped(.io_exec);
+const log = @import("../log.zig").scoped(.io_exec);
 
 /// Mutex state argument for queueMessage.
 pub const MutexState = enum { locked, unlocked };

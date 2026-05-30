@@ -11,7 +11,7 @@ const LoadingImage = image.LoadingImage;
 const Image = image.Image;
 const ImageStorage = @import("graphics_storage.zig").ImageStorage;
 
-const log = std.log.scoped(.kitty_gfx);
+const log = @import("../../log.zig").scoped(.kitty_gfx);
 
 /// Execute a Kitty graphics command against the given terminal. This
 /// will never fail, but the response may indicate an error and the

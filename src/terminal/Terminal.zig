@@ -36,7 +36,7 @@ const Page = pagepkg.Page;
 const Cell = pagepkg.Cell;
 const Row = pagepkg.Row;
 
-const log = std.log.scoped(.terminal);
+const log = @import("../log.zig").scoped(.terminal);
 
 /// Default tabstop interval
 const TABSTOP_INTERVAL = 8;

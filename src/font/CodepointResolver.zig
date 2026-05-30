@@ -28,7 +28,7 @@ const RenderOptions = font.Glyph.RenderOptions;
 const SpriteFace = font.SpriteFace;
 const Style = font.Style;
 
-const log = std.log.scoped(.font_codepoint_resolver);
+const log = @import("../log.zig").scoped(.font_codepoint_resolver);
 
 /// The underlying collection of fonts. This will be modified as
 /// new fonts are found via the resolver. The resolver takes ownership

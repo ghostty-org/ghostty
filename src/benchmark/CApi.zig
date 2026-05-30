@@ -2,7 +2,7 @@ const std = @import("std");
 const cli = @import("cli.zig");
 const state = &@import("../global.zig").state;
 
-const log = std.log.scoped(.benchmark);
+const log = @import("../log.zig").scoped(.benchmark);
 
 /// Run the Ghostty benchmark CLI with the given action and arguments.
 export fn ghostty_benchmark_cli(

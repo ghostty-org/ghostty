@@ -12,7 +12,7 @@ const UTF8Decoder = @import("../terminal/UTF8Decoder.zig");
 const uucode = @import("uucode");
 const symbols_table = @import("../unicode/symbols_table.zig").table;
 
-const log = std.log.scoped(.@"is-symbol-bench");
+const log = @import("../log.zig").scoped(.@"is-symbol-bench");
 
 opts: Options,
 

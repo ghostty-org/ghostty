@@ -14,7 +14,7 @@ const kitty_color = @import("kitty/color.zig");
 const size_report = @import("size_report.zig");
 const Terminal = @import("Terminal.zig");
 
-const log = std.log.scoped(.stream_terminal);
+const log = @import("../log.zig").scoped(.stream_terminal);
 
 /// This is a Stream implementation that processes actions against
 /// a Terminal and updates the Terminal state.

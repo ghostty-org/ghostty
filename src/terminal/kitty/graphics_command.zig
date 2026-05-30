@@ -5,7 +5,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const simd = @import("../../simd/main.zig");
 const lib = @import("../lib.zig");
 
-const log = std.log.scoped(.kitty_gfx);
+const log = @import("../../log.zig").scoped(.kitty_gfx);
 
 /// The key-value pairs for the control information for a command. The
 /// keys are always single characters and the values are either single

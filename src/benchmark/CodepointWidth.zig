@@ -15,7 +15,7 @@ const UTF8Decoder = @import("../terminal/UTF8Decoder.zig");
 const simd = @import("../simd/main.zig");
 const table = @import("../unicode/main.zig").table;
 
-const log = std.log.scoped(.@"terminal-stream-bench");
+const log = @import("../log.zig").scoped(.@"terminal-stream-bench");
 
 opts: Options,
 

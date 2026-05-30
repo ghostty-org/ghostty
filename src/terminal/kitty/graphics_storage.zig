@@ -14,7 +14,7 @@ const Image = @import("graphics_image.zig").Image;
 const Rect = @import("graphics_image.zig").Rect;
 const Command = command.Command;
 
-const log = std.log.scoped(.kitty_gfx);
+const log = @import("../../log.zig").scoped(.kitty_gfx);
 
 /// An image storage is associated with a terminal screen (i.e. main
 /// screen, alt screen) and contains all the transmitted images and

@@ -8,7 +8,7 @@ const Allocator = std.mem.Allocator;
 
 const font = @import("../../main.zig");
 
-const log = std.log.scoped(.sprite_font);
+const log = @import("../../../log.zig").scoped(.sprite_font);
 
 // Utility names for common fractions
 pub const one_eighth: f64 = 0.125;

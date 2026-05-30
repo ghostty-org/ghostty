@@ -4,7 +4,7 @@ const lib = @import("../lib.zig");
 const build_options = @import("terminal_options");
 const Result = @import("result.zig").Result;
 
-const log = std.log.scoped(.build_info_c);
+const log = @import("../../log.zig").scoped(.build_info_c);
 
 /// C: GhosttyOptimizeMode
 pub const OptimizeMode = enum(c_int) {

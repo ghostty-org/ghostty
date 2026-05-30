@@ -7,7 +7,7 @@ const RGB = @import("../../color.zig").RGB;
 const Parser = @import("../../osc.zig").Parser;
 const Command = @import("../../osc.zig").Command;
 
-const log = std.log.scoped(.osc_color);
+const log = @import("../../../log.zig").scoped(.osc_color);
 
 const ParseError = Allocator.Error || error{
     MissingOperation,

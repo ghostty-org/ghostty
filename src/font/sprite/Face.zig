@@ -22,7 +22,7 @@ const Sprite = font.sprite.Sprite;
 
 const special = @import("draw/special.zig");
 
-const log = std.log.scoped(.font_sprite);
+const log = @import("../../log.zig").scoped(.font_sprite);
 
 /// Grid metrics for rendering sprites.
 metrics: font.Metrics,

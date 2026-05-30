@@ -12,7 +12,7 @@ const Style = font.Style;
 const Presentation = font.Presentation;
 const terminal = @import("../../terminal/main.zig");
 
-const log = std.log.scoped(.font_shaper);
+const log = @import("../../log.zig").scoped(.font_shaper);
 
 /// Shaper that doesn't do any shaping. Each individual codepoint is mapped
 /// directly to the detected text run font's glyph index.

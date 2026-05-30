@@ -15,7 +15,7 @@ const Allocator = std.mem.Allocator;
 const font = @import("../main.zig");
 const CacheTable = @import("../../datastruct/main.zig").CacheTable;
 
-const log = std.log.scoped(.font_shaper_cache);
+const log = @import("../../log.zig").scoped(.font_shaper_cache);
 
 /// Context for cache table.
 const CellCacheTableContext = struct {

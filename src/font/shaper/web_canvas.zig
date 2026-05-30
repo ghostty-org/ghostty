@@ -6,7 +6,7 @@ const terminal = @import("../../terminal/main.zig");
 const unicode = @import("../../unicode/main.zig");
 const uucode = @import("uucode");
 
-const log = std.log.scoped(.font_shaper);
+const log = @import("../../log.zig").scoped(.font_shaper);
 
 pub const Shaper = struct {
     const RunBuf = std.MultiArrayList(struct {

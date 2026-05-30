@@ -13,7 +13,7 @@ const xev = @import("../global.zig").xev;
 const BlockingQueue = @import("../datastruct/main.zig").BlockingQueue;
 
 const Allocator = std.mem.Allocator;
-const log = std.log.scoped(.cf_release_thread);
+const log = @import("../log.zig").scoped(.cf_release_thread);
 
 pub const Message = union(enum) {
     /// Release a slice of CFTypeRefs. Uses alloc to free the slice after

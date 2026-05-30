@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const log = std.log.scoped(.systemd);
+const log = @import("../log.zig").scoped(.systemd);
 
 /// Returns true if the program was launched as a systemd service.
 ///

@@ -5,7 +5,7 @@ const Action = @import("ghostty.zig").Action;
 const args = @import("args.zig");
 const font = @import("../font/main.zig");
 
-const log = std.log.scoped(.list_fonts);
+const log = @import("../log.zig").scoped(.list_fonts);
 
 pub const Options = struct {
     /// This is set by the CLI parser for deinit.
