@@ -1,5 +1,6 @@
-@testable import Ghostty
+import AppKit
 import Testing
+@testable import Ghostty
 
 struct SurfaceViewAppKitTests {
     @Test(arguments: [
@@ -40,5 +41,49 @@ struct SurfaceViewAppKitTests {
                 composing: true
             ) == false
         )
+    }
+
+    @Test func ignoresCommandKeyEquivalentWithoutCommandKeyDown() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: .command,
+            timestamp: 1,
+            windowNumber: 1,
+            context: nil,
+            characters: "c",
+            charactersIgnoringModifiers: "c",
+            isARepeat: false,
+            keyCode: 8
+        ))
+
+        #expect(Ghostty.SurfaceView.shouldIgnoreCommandKeyEquivalent(
+            event,
+            commandKeyDown: false
+        ))
+        #expect(!Ghostty.SurfaceView.shouldIgnoreCommandKeyEquivalent(
+            event,
+            commandKeyDown: true
+        ))
+    }
+
+    @Test func doesNotIgnoreNonCommandKeyEquivalent() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 1,
+            windowNumber: 1,
+            context: nil,
+            characters: "c",
+            charactersIgnoringModifiers: "c",
+            isARepeat: false,
+            keyCode: 8
+        ))
+
+        #expect(!Ghostty.SurfaceView.shouldIgnoreCommandKeyEquivalent(
+            event,
+            commandKeyDown: false
+        ))
     }
 }

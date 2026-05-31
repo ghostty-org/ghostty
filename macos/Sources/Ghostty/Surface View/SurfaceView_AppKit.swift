@@ -76,6 +76,32 @@ extension Ghostty {
         // Cancellable for search state needle changes
         private var searchNeedleCancellable: AnyCancellable?
 
+        // Tracks a real Command-key transition observed by this surface.
+        // Mouse/tracking events may carry synthetic or stale modifier flags, so
+        // they must not establish keyboard state for key-equivalent handling.
+        private var commandKeyDown = false
+
+        static func shouldIgnoreCommandKeyEquivalent(
+            _ event: NSEvent,
+            commandKeyDown: Bool
+        ) -> Bool {
+            event.type == .keyDown &&
+                event.modifierFlags.contains(.command) &&
+                !commandKeyDown
+        }
+
+        private static func isCommandModifierKey(_ keyCode: UInt16) -> Bool {
+            keyCode == 0x37 || keyCode == 0x36
+        }
+
+        private func notePhysicalCommandState(_ event: NSEvent) {
+            guard event.type == .flagsChanged,
+                  Self.isCommandModifierKey(event.keyCode)
+            else { return }
+
+            commandKeyDown = event.modifierFlags.contains(.command)
+        }
+
         // Whether the pointer should be visible or not
         @Published private(set) var pointerStyle: CursorStyle = .horizontalText
 
@@ -410,6 +436,7 @@ extension Ghostty {
             // sent to stop things like mouse selection.
             if !focused {
                 suppressNextLeftMouseUp = false
+                commandKeyDown = false
             }
 
             // Notify libghostty
@@ -1275,6 +1302,16 @@ extension Ghostty {
                 return false
             }
 
+            // AppKit may deliver synthetic Command key-equivalents during mouse
+            // interactions. Only a Command-key transition is allowed to establish
+            // real keyboard state for terminal input.
+            if Self.shouldIgnoreCommandKeyEquivalent(
+                event,
+                commandKeyDown: commandKeyDown
+            ) {
+                return true
+            }
+
             // Get information about if this is a binding.
             let bindingFlags = surfaceModel.flatMap { surface in
                 var ghosttyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
@@ -1384,6 +1421,8 @@ extension Ghostty {
         }
 
         override func flagsChanged(with event: NSEvent) {
+            notePhysicalCommandState(event)
+
             let mod: UInt32
             switch event.keyCode {
             case 0x39: mod = GHOSTTY_MODS_CAPS.rawValue
