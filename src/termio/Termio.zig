@@ -45,10 +45,10 @@ renderer_state: *renderer.State,
 
 /// A handle to wake up the renderer. This hints to the renderer that
 /// a repaint should happen.
-renderer_wakeup: xev.Async,
+renderer_wakeup: ?xev.Async,
 
 /// The mailbox for notifying the renderer of things.
-renderer_mailbox: *renderer.Thread.Mailbox,
+renderer_mailbox: ?*renderer.Thread.Mailbox,
 
 /// The mailbox for communicating with the surface.
 surface_mailbox: apprt.surface.Mailbox,
@@ -324,6 +324,21 @@ pub fn deinit(self: *Termio) void {
     if (self.thread_enter_state) |v| v.destroy();
 }
 
+/// Update the renderer thread handles used by termio and the stream parser.
+///
+/// The caller must hold renderer_state.mutex. This serializes updates with
+/// output processing, which also touches these handles under the same mutex.
+pub fn setRenderer(
+    self: *Termio,
+    renderer_wakeup: ?xev.Async,
+    renderer_mailbox: ?*renderer.Thread.Mailbox,
+) void {
+    self.renderer_wakeup = renderer_wakeup;
+    self.renderer_mailbox = renderer_mailbox;
+    self.terminal_stream.handler.renderer_wakeup = renderer_wakeup;
+    self.terminal_stream.handler.renderer_mailbox = renderer_mailbox;
+}
+
 pub fn threadEnter(
     self: *Termio,
     thread: *termio.Thread,
@@ -498,8 +513,10 @@ pub fn resize(
     }
 
     // Mail the renderer so that it can update the GPU and re-render
-    _ = self.renderer_mailbox.push(.{ .resize = size }, .{ .forever = {} });
-    self.renderer_wakeup.notify() catch {};
+    if (self.renderer_mailbox) |mailbox| {
+        _ = mailbox.push(.{ .resize = size }, .{ .forever = {} });
+    }
+    if (self.renderer_wakeup) |wakeup| wakeup.notify() catch {};
 }
 
 /// Make a size report.
@@ -537,7 +554,7 @@ pub fn resetSynchronizedOutput(self: *Termio) void {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
     self.terminal.modes.set(.synchronized_output, false);
-    self.renderer_wakeup.notify() catch {};
+    if (self.renderer_wakeup) |wakeup| wakeup.notify() catch {};
 }
 
 /// Clear the screen.
@@ -613,7 +630,7 @@ pub fn jumpToPrompt(self: *Termio, delta: isize) !void {
         self.terminal.screens.active.scroll(.{ .delta_prompt = delta });
     }
 
-    try self.renderer_wakeup.notify();
+    if (self.renderer_wakeup) |wakeup| try wakeup.notify();
 }
 
 /// Called when focus is gained or lost (when focus events are enabled)
@@ -641,11 +658,25 @@ pub fn focusGained(self: *Termio, td: *ThreadData, focused: bool) !void {
 /// call with pty data but it is also called by the read thread when using
 /// an exec subprocess.
 pub fn processOutput(self: *Termio, buf: []const u8) void {
+    // Notify data callback if registered (raw PTY output).
+    self.invokeDataCallback(buf);
+
     // We are modifying terminal state from here on out and we need
     // the lock to grab our read data.
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
     self.processOutputLocked(buf);
+}
+
+fn invokeDataCallback(self: *Termio, buf: []const u8) void {
+    if (buf.len == 0) return;
+    const surface = self.surface_mailbox.surface;
+    const embedded: ?*apprt.embedded.Surface = @ptrCast(@alignCast(surface));
+    if (embedded) |s| {
+        const callback = s.data_callback orelse return;
+        const userdata = s.data_callback_userdata;
+        callback(userdata, buf.ptr, buf.len);
+    }
 }
 
 /// Process output from readdata but the lock is already held.
@@ -665,9 +696,11 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
         }
 
         self.last_cursor_reset = now;
-        _ = self.renderer_mailbox.push(.{
-            .reset_cursor_blink = {},
-        }, .{ .instant = {} });
+        if (self.renderer_mailbox) |mailbox| {
+            _ = mailbox.push(.{
+                .reset_cursor_blink = {},
+            }, .{ .instant = {} });
+        }
     } else |err| {
         log.warn("failed to get current time err={}", .{err});
     }

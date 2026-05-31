@@ -389,6 +389,17 @@ fn collection(
     return c;
 }
 
+/// Retrieve the SharedGrid for an existing key. Returns null if the
+/// key is not found. The caller must already hold a reference to the key.
+/// Thread-safe: acquires the internal lock.
+pub fn get(self: *SharedGridSet, key: Key) ?*SharedGrid {
+    self.lock.lock();
+    defer self.lock.unlock();
+
+    const entry = self.map.getEntry(key) orelse return null;
+    return entry.value_ptr.grid;
+}
+
 /// Decrement the ref count for the given key. If the ref count is zero,
 /// the grid will be deinitialized and removed from the map.j:w
 pub fn deref(self: *SharedGridSet, key: Key) void {

@@ -34,11 +34,11 @@ pub const StreamHandler = struct {
     renderer_state: *renderer.State,
 
     /// The mailbox for notifying the renderer of things.
-    renderer_mailbox: *renderer.Thread.Mailbox,
+    renderer_mailbox: ?*renderer.Thread.Mailbox,
 
     /// A handle to wake up the renderer. This hints to the renderer that
     /// a repaint should happen.
-    renderer_wakeup: xev.Async,
+    renderer_wakeup: ?xev.Async,
 
     /// The default cursor state. This is used with CSI q. This is
     /// set to true when we're currently in the default cursor state.
@@ -102,7 +102,7 @@ pub const StreamHandler = struct {
     /// isn't guaranteed to happen immediately but it will happen as soon as
     /// practical.
     pub inline fn queueRender(self: *StreamHandler) !void {
-        try self.renderer_wakeup.notify();
+        if (self.renderer_wakeup) |wakeup| try wakeup.notify();
     }
 
     /// Change the configuration for this handler.
@@ -148,10 +148,12 @@ pub const StreamHandler = struct {
         self: *StreamHandler,
         msg: renderer.Message,
     ) void {
+        const mailbox = self.renderer_mailbox orelse return;
+
         // See termio.Mailbox.send for more details on how this works.
 
         // Try instant first. If it works then we can return.
-        if (self.renderer_mailbox.push(msg, .{ .instant = {} }) > 0) {
+        if (mailbox.push(msg, .{ .instant = {} }) > 0) {
             return;
         }
 
@@ -160,16 +162,18 @@ pub const StreamHandler = struct {
         // and then try again.
         self.renderer_state.mutex.unlock();
         defer self.renderer_state.mutex.lock();
-        self.renderer_wakeup.notify() catch |err| {
-            // This is an EXTREMELY unlikely case. We still don't return
-            // and attempt to send the message because its most likely
-            // that everything is fine, but log in case a freeze happens.
-            log.warn(
-                "failed to notify renderer, may deadlock err={}",
-                .{err},
-            );
-        };
-        _ = self.renderer_mailbox.push(msg, .{ .forever = {} });
+        if (self.renderer_wakeup) |wakeup| {
+            wakeup.notify() catch |err| {
+                // This is an EXTREMELY unlikely case. We still don't return
+                // and attempt to send the message because its most likely
+                // that everything is fine, but log in case a freeze happens.
+                log.warn(
+                    "failed to notify renderer, may deadlock err={}",
+                    .{err},
+                );
+            };
+        }
+        _ = mailbox.push(msg, .{ .forever = {} });
     }
 
     pub fn vt(

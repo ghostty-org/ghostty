@@ -19,6 +19,7 @@ const CoreApp = @import("../App.zig");
 const CoreInspector = @import("../inspector/main.zig").Inspector;
 const CoreSurface = @import("../Surface.zig");
 const configpkg = @import("../config.zig");
+const termio = @import("../termio.zig");
 const Config = configpkg.Config;
 const String = @import("../main_c.zig").String;
 
@@ -421,6 +422,11 @@ pub const Surface = struct {
     /// that getTitle works without the implementer needing to save it.
     title: ?[:0]const u8 = null,
 
+    /// Callback for receiving PTY output data. Called from the IO thread
+    /// with raw bytes read from the PTY.
+    data_callback: ?*const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void = null,
+    data_callback_userdata: ?*anyopaque = null,
+
     /// Surface initialization options.
     pub const Options = extern struct {
         /// The platform that this surface is being initialized for and
@@ -772,6 +778,17 @@ pub const Surface = struct {
         self.core_surface.draw() catch |err| {
             log.err("error in draw err={}", .{err});
             return;
+        };
+    }
+
+    pub fn detachRenderer(self: *Surface) bool {
+        return self.core_surface.detachRenderer();
+    }
+
+    pub fn attachRenderer(self: *Surface) bool {
+        return self.core_surface.attachRenderer(&self.app.config) catch |err| {
+            log.err("error attaching renderer err={}", .{err});
+            return false;
         };
     }
 
@@ -1305,6 +1322,31 @@ pub const CAPI = struct {
         }
     };
 
+    const Cell = extern struct {
+        codepoint: u32 = 0,
+        fg_rgb: u32 = 0,
+        bg_rgb: u32 = 0,
+        flags: u32 = 0,
+    };
+
+    const Cells = extern struct {
+        cols: u32 = 0,
+        rows: u32 = 0,
+        cells: ?[*]Cell = null,
+        cells_len: usize = 0,
+        cursor_x: u32 = 0,
+        cursor_y: u32 = 0,
+        cursor_visible: bool = false,
+        default_fg: u32 = 0,
+        default_bg: u32 = 0,
+        alt_screen: bool = false,
+        cursor_keys: bool = false,
+        bracketed_paste: bool = false,
+        focus_event: bool = false,
+        mouse_event: u32 = 0,
+        mouse_format: u32 = 0,
+    };
+
     // ghostty_point_s
     const Point = extern struct {
         tag: Tag,
@@ -1754,6 +1796,120 @@ pub const CAPI = struct {
     /// Update the occlusion state of a surface.
     export fn ghostty_surface_set_occlusion(surface: *Surface, visible: bool) void {
         surface.occlusionCallback(visible);
+    }
+
+    /// Detach the surface's renderer from its platform view. Frees all GPU
+    /// resources and stops the renderer thread. The PTY and terminal state
+    /// remain alive. The surface pointer remains valid.
+    export fn ghostty_surface_detach(surface: *Surface) bool {
+        return surface.detachRenderer();
+    }
+
+    /// Attach (or reattach) the surface's renderer to a platform view.
+    /// Rebuilds the GPU pipeline and restarts the renderer thread.
+    export fn ghostty_surface_attach(surface: *Surface) bool {
+        return surface.attachRenderer();
+    }
+
+    /// Set a callback that is called with raw PTY output data.
+    /// Pass null to clear a previously set callback.
+    export fn ghostty_surface_set_data_callback(
+        surface: *Surface,
+        callback: ?*const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void,
+        userdata: ?*anyopaque,
+    ) void {
+        surface.data_callback = callback;
+        surface.data_callback_userdata = userdata;
+    }
+
+    /// Send raw bytes directly to the PTY input without any paste processing.
+    export fn ghostty_surface_send_input_raw(
+        surface: *Surface,
+        ptr: [*]const u8,
+        len: usize,
+    ) void {
+        if (len == 0) return;
+        surface.core_surface.io.queueMessage(
+            termio.Message.writeReq(global.alloc, ptr[0..len]) catch |err| {
+                log.warn("failed to queue raw input err={}", .{err});
+                return;
+            },
+            .unlocked,
+        );
+    }
+
+    /// Read the terminal cell grid including codepoints, colors, cursor, and mode flags.
+    export fn ghostty_surface_read_cells(
+        surface: *Surface,
+        out: *Cells,
+    ) bool {
+        const core = &surface.core_surface;
+        core.renderer_state.mutex.lock();
+        defer core.renderer_state.mutex.unlock();
+
+        const term = core.io.terminal;
+        const screen = term.screens.active;
+        const pages = &screen.pages;
+
+        out.* = .{
+            .cols = @intCast(pages.cols),
+            .rows = @intCast(pages.rows),
+            .cells = null,
+            .cells_len = 0,
+            .cursor_x = @intCast(screen.cursor.x),
+            .cursor_y = @intCast(screen.cursor.y),
+            .cursor_visible = true,
+            .default_fg = rgb: {
+                const rgb = term.colors.foreground.get() orelse break :rgb 0xFFFFFFFF;
+                break :rgb @as(u32, rgb.r) << 16 | @as(u32, rgb.g) << 8 | @as(u32, rgb.b);
+            },
+            .default_bg = rgb: {
+                const rgb = term.colors.background.get() orelse break :rgb 0xFF000000;
+                break :rgb @as(u32, rgb.r) << 16 | @as(u32, rgb.g) << 8 | @as(u32, rgb.b);
+            },
+            .alt_screen = core.io.terminal.modes.get(.alt_screen),
+            .cursor_keys = core.io.terminal.modes.get(.cursor_keys),
+            .bracketed_paste = core.io.terminal.modes.get(.bracketed_paste),
+            .focus_event = core.io.terminal.modes.get(.focus_event),
+            .mouse_event = 0,
+            .mouse_format = 0,
+        };
+
+        const total = pages.cols * pages.rows;
+        if (total == 0) return true;
+
+        const cells_ptr = global.alloc.alloc(Cell, total) catch return false;
+        out.cells = cells_ptr.ptr;
+        out.cells_len = @intCast(total);
+
+        var row_idx: usize = 0;
+        var y: usize = 0;
+        while (y < pages.rows) : (y += 1) {
+            var x: usize = 0;
+            while (x < pages.cols) : (x += 1) {
+                const pt = terminal.point.Point{ .screen = .{ .x = @intCast(x), .y = @intCast(y) } };
+                const page_pin = pages.pin(pt) orelse continue;
+                const rc = page_pin.rowAndCell();
+                const idx = row_idx * pages.cols + x;
+                cells_ptr[idx] = .{
+                    .codepoint = rc.cell.codepoint(),
+                };
+            }
+            row_idx += 1;
+        }
+
+        return true;
+    }
+
+    /// Free the cells array previously allocated by ghostty_surface_read_cells.
+    export fn ghostty_surface_free_cells(
+        _: *Surface,
+        out: *Cells,
+    ) void {
+        if (out.cells) |ptr| {
+            global.alloc.free(ptr[0..out.cells_len]);
+        }
+        out.* = .{};
     }
 
     /// Filter the mods if necessary. This handles settings such as

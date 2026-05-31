@@ -94,6 +94,10 @@ renderer_thread: rendererpkg.Thread,
 /// The actual thread
 renderer_thr: std.Thread,
 
+/// True when the renderer is detached. The renderer thread is stopped,
+/// GPU resources are freed, but the PTY/terminal remain alive.
+renderer_detached: bool = false,
+
 /// Mouse state.
 mouse: Mouse,
 
@@ -791,8 +795,8 @@ pub fn deinit(self: *Surface) void {
     // Stop search thread
     if (self.search) |*s| s.deinit();
 
-    // Stop rendering thread
-    {
+    // Stop rendering thread (skip if already detached)
+    if (!self.renderer_detached) {
         self.renderer_thread.stop.notify() catch |err|
             log.err("error notifying renderer thread to stop, may stall err={}", .{err});
         self.renderer_thr.join();
@@ -810,8 +814,10 @@ pub fn deinit(self: *Surface) void {
 
     // We need to deinit AFTER everything is stopped, since there are
     // shared values between the two threads.
-    self.renderer_thread.deinit();
-    self.renderer.deinit();
+    if (!self.renderer_detached) {
+        self.renderer_thread.deinit();
+        self.renderer.deinit();
+    }
     self.io_thread.deinit();
     self.mouse.selection_gesture.deinit(&self.io.terminal);
     self.io.deinit();
@@ -841,6 +847,150 @@ pub fn deinit(self: *Surface) void {
 /// close process, which should ultimately deinitialize this surface.
 pub fn close(self: *Surface) void {
     self.rt_surface.close(self.needsConfirmQuit());
+}
+
+/// Detach the renderer from this surface. This frees all GPU resources
+/// and stops the renderer thread. The PTY and terminal state remain alive.
+/// Must be called from the main thread. Returns false if already detached.
+pub fn detachRenderer(self: *Surface) bool {
+    if (self.renderer_detached) return false;
+
+    log.info("detaching renderer from surface addr={x}", .{@intFromPtr(self)});
+
+    // The IO thread stays alive while detached. Disconnect its renderer
+    // handles before destroying renderer-thread resources so PTY output does
+    // not notify freed async handles or push to a freed mailbox.
+    {
+        self.renderer_state.mutex.lock();
+        defer self.renderer_state.mutex.unlock();
+        self.io.setRenderer(null, null);
+    }
+
+    // Stop rendering thread
+    {
+        self.renderer_thread.stop.notify() catch |err|
+            log.err("error notifying renderer thread to stop, may stall err={}", .{err});
+        self.renderer_thr.join();
+
+        // We need to become the active rendering thread again for cleanup
+        self.renderer.threadEnter(self.rt_surface) catch unreachable;
+    }
+
+    // Clear the display callback on the Metal layer so CoreAnimation
+    // stops calling into the renderer. Without this, CA's display
+    // callback fires after deinit and accesses freed Metal resources.
+    self.renderer.api.layer.setDisplayCallback(null, null);
+
+    // Deinit renderer thread resources (event loop, timers, mailbox)
+    self.renderer_thread.deinit();
+
+    // Deinit the renderer (frees all GPU resources)
+    self.renderer.deinit();
+
+    self.renderer_detached = true;
+    return true;
+}
+
+/// Attach (or reattach) the renderer to this surface. This rebuilds the
+/// GPU pipeline, font atlas, and restarts the renderer thread. The terminal
+/// grid is redrawn on the first frame.
+/// Must be called from the main thread. Returns false if already attached.
+/// The caller must provide the current full configuration.
+pub fn attachRenderer(self: *Surface, config: *const configpkg.Config) !bool {
+    if (!self.renderer_detached) return false;
+
+    log.info("attaching renderer to surface addr={x}", .{@intFromPtr(self)});
+
+    // Initialize our renderer with the current surface.
+    try Renderer.surfaceInit(self.rt_surface);
+
+    // Determine our DPI configurations.
+    const content_scale = try self.rt_surface.getContentScale();
+    const x_dpi = content_scale.x * font.face.default_dpi;
+    const y_dpi = content_scale.y * font.face.default_dpi;
+
+    // Get our current font grid (we kept the reference alive during detach).
+    const font_grid = self.app.font_grid_set.get(self.font_grid_key) orelse
+        return error.FontGridNotFound;
+
+    // Rebuild our size struct from current state.
+    const size: rendererpkg.Size = size: {
+        var size: rendererpkg.Size = .{
+            .screen = screen: {
+                const surface_size = try self.rt_surface.getSize();
+                break :screen .{
+                    .width = surface_size.width,
+                    .height = surface_size.height,
+                };
+            },
+            .cell = font_grid.cellSize(),
+            .padding = .{},
+        };
+
+        const explicit: rendererpkg.Padding = self.config.scaledPadding(
+            x_dpi,
+            y_dpi,
+        );
+        if (self.config.window_padding_balance != .false) {
+            size.balancePadding(explicit, self.config.window_padding_balance);
+        } else {
+            size.padding = explicit;
+        }
+
+        break :size size;
+    };
+    self.size = size;
+
+    const app_mailbox: App.Mailbox = .{ .rt_app = self.rt_app, .mailbox = &self.app.mailbox };
+
+    // Rebuild the renderer
+    const renderer_impl = try Renderer.init(self.alloc, .{
+        .config = try Renderer.DerivedConfig.init(self.alloc, config),
+        .font_grid = font_grid,
+        .size = size,
+        .surface_mailbox = .{ .surface = self, .app = app_mailbox },
+        .rt_surface = self.rt_surface,
+        .thread = &self.renderer_thread,
+    });
+
+    // Create the renderer thread
+    const render_thread = try rendererpkg.Thread.init(
+        self.alloc,
+        config,
+        self.rt_surface,
+        &self.renderer,
+        &self.renderer_state,
+        app_mailbox,
+    );
+
+    // Update our fields
+    self.renderer = renderer_impl;
+    self.renderer_thread = render_thread;
+    self.renderer_state.terminal = &self.io.terminal;
+
+    // Finalize surface setup on the main thread
+    try self.renderer.finalizeSurfaceInit(self.rt_surface);
+
+    // Start our renderer thread
+    self.renderer_thr = try std.Thread.spawn(
+        .{},
+        rendererpkg.Thread.threadMain,
+        .{&self.renderer_thread},
+    );
+    self.renderer_thr.setName("renderer") catch {};
+
+    // Reconnect the live IO thread to the newly-created renderer thread.
+    {
+        self.renderer_state.mutex.lock();
+        defer self.renderer_state.mutex.unlock();
+        self.io.setRenderer(self.renderer_thread.wakeup, self.renderer_thread.mailbox);
+    }
+
+    // Trigger a full redraw
+    try self.resize(self.size.screen);
+
+    self.renderer_detached = false;
+    return true;
 }
 
 /// Returns a mailbox that can be used to send messages to this surface.
@@ -879,6 +1029,8 @@ fn queueIo(
 /// is in the middle of animation (such as a resize, etc.) or when
 /// the render timer is managed manually by the apprt.
 pub fn draw(self: *Surface) !void {
+    if (self.renderer_detached) return;
+
     // Renderers are required to support `drawFrame` being called from
     // the main thread, so that they can update contents during resize.
     try self.renderer.drawFrame(true);
@@ -2438,6 +2590,8 @@ pub fn setFontSize(self: *Surface, size: font.face.DesiredSize) !void {
 /// isn't guaranteed to happen immediately but it will happen as soon as
 /// practical.
 fn queueRender(self: *Surface) !void {
+    if (self.renderer_detached) return;
+
     try self.renderer_thread.wakeup.notify();
 }
 
@@ -3268,6 +3422,8 @@ pub fn textCallback(self: *Surface, text: []const u8) !void {
 /// of focus state. This is used to pause rendering when the surface
 /// is not visible, and also re-render when it becomes visible again.
 pub fn occlusionCallback(self: *Surface, visible: bool) !void {
+    if (self.renderer_detached) return;
+
     // Crash metadata in case we crash in here
     crash.sentry.thread_state = self.crashThreadState();
     defer crash.sentry.thread_state = null;
@@ -3292,9 +3448,11 @@ pub fn focusCallback(self: *Surface, focused: bool) !void {
     self.focused = focused;
 
     // Notify our render thread of the new state
-    _ = self.renderer_thread.mailbox.push(.{
-        .focus = focused,
-    }, .{ .forever = {} });
+    if (!self.renderer_detached) {
+        _ = self.renderer_thread.mailbox.push(.{
+            .focus = focused,
+        }, .{ .forever = {} });
+    }
 
     if (!focused) unfocused: {
         // If we lost focus and we have a keypress, then we want to send a key

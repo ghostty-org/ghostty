@@ -414,6 +414,31 @@ typedef struct {
   uintptr_t text_len;
 } ghostty_text_s;
 
+typedef struct {
+  uint32_t codepoint;
+  uint32_t fg_rgb;
+  uint32_t bg_rgb;
+  uint32_t flags;
+} ghostty_cell_s;
+
+typedef struct {
+  uint32_t cols;
+  uint32_t rows;
+  ghostty_cell_s* cells;
+  uintptr_t cells_len;
+  uint32_t cursor_x;
+  uint32_t cursor_y;
+  bool cursor_visible;
+  uint32_t default_fg;
+  uint32_t default_bg;
+  bool alt_screen;
+  bool cursor_keys;
+  bool bracketed_paste;
+  bool focus_event;
+  uint32_t mouse_event;
+  uint32_t mouse_format;
+} ghostty_cells_s;
+
 typedef enum {
   GHOSTTY_POINT_ACTIVE,
   GHOSTTY_POINT_VIEWPORT,
@@ -1113,6 +1138,8 @@ GHOSTTY_API void ghostty_surface_draw(ghostty_surface_t);
 GHOSTTY_API void ghostty_surface_set_content_scale(ghostty_surface_t, double, double);
 GHOSTTY_API void ghostty_surface_set_focus(ghostty_surface_t, bool);
 GHOSTTY_API void ghostty_surface_set_occlusion(ghostty_surface_t, bool);
+GHOSTTY_API bool ghostty_surface_detach(ghostty_surface_t);
+GHOSTTY_API bool ghostty_surface_attach(ghostty_surface_t);
 GHOSTTY_API void ghostty_surface_set_size(ghostty_surface_t, uint32_t, uint32_t);
 GHOSTTY_API ghostty_surface_size_s ghostty_surface_size(ghostty_surface_t);
 GHOSTTY_API uint64_t ghostty_surface_foreground_pid(ghostty_surface_t);
@@ -1161,6 +1188,13 @@ GHOSTTY_API bool ghostty_surface_read_text(ghostty_surface_t,
                                               ghostty_selection_s,
                                               ghostty_text_s*);
 GHOSTTY_API void ghostty_surface_free_text(ghostty_surface_t, ghostty_text_s*);
+
+GHOSTTY_API void ghostty_surface_set_data_callback(ghostty_surface_t,
+                                                      void (*)(void*, const uint8_t*, uintptr_t),
+                                                      void*);
+GHOSTTY_API void ghostty_surface_send_input_raw(ghostty_surface_t, const uint8_t*, uintptr_t);
+GHOSTTY_API bool ghostty_surface_read_cells(ghostty_surface_t, ghostty_cells_s*);
+GHOSTTY_API void ghostty_surface_free_cells(ghostty_surface_t, ghostty_cells_s*);
 
 #ifdef __APPLE__
 GHOSTTY_API void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);
