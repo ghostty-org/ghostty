@@ -68,11 +68,6 @@ pub const Parser = struct {
         // we're in a broken state then we'd have already deinited the buffer.
         if (self.state == .broken) return null;
 
-        if (self.buffer.written().len >= self.max_bytes) {
-            self.broken();
-            return error.OutOfMemory;
-        }
-
         switch (self.state) {
             // Drop because we're in a broken state.
             .broken => return null,
@@ -137,6 +132,14 @@ pub const Parser = struct {
 
                 // Didn't end the block, continue accumulating.
             },
+        }
+
+        // Check the limit only here, where the byte is actually stored. A
+        // line-ending byte that completes a line returns early above without
+        // being buffered, so it must not be rejected at exactly max_bytes.
+        if (self.buffer.written().len >= self.max_bytes) {
+            self.broken();
+            return error.OutOfMemory;
         }
 
         self.buffer.writer.writeByte(byte) catch |err| switch (err) {
@@ -744,6 +747,20 @@ test "tmux sessions-changed" {
     var c: Parser = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%sessions-changed") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .sessions_changed);
+}
+
+test "tmux exact max_bytes notification still parses" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const line = "%sessions-changed";
+
+    var c: Parser = .{ .buffer = .init(alloc), .max_bytes = line.len };
+    defer c.deinit();
+
+    for (line) |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
     try testing.expect(n == .sessions_changed);
 }
