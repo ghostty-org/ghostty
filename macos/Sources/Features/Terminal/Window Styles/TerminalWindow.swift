@@ -64,6 +64,7 @@ class TerminalWindow: NSWindow {
         didSet {
             guard tabColor != oldValue else { return }
             tabColorIndicator.rootView = TabColorIndicatorView(tabColor: tabColor)
+            terminalController?.postVerticalTabsDidChange()
             invalidateRestorableState()
         }
     }

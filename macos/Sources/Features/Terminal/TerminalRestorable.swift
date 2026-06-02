@@ -380,11 +380,14 @@ enum TerminalSessionStore {
         guard let firstController = controllers.first else { return false }
 
         firstController.showWindow(nil)
+        var previousWindow = firstController.window
         for controller in controllers.dropFirst() {
             controller.showWindow(nil)
-            if let firstWindow = firstController.window,
+            if let targetWindow = previousWindow,
                let newWindow = controller.window {
-                firstWindow.addTabbedWindowSafely(newWindow, ordered: .above)
+                if targetWindow.addTabbedWindowSafely(newWindow, ordered: .above) {
+                    previousWindow = newWindow
+                }
             }
         }
 

@@ -56,6 +56,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private var verticalTabModelStorage: VerticalTabSidebar.TabModel?
 
     var verticalTabModel: VerticalTabSidebar.TabModel {
+        if let model = sharedVerticalTabModelFromCurrentTabGroup() {
+            return model
+        }
+
         if let model = verticalTabModelStorage {
             return model
         }
@@ -65,12 +69,46 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
            let parentController = parent.windowController as? TerminalController {
             let model = parentController.verticalTabModel
             verticalTabModelStorage = model
+            shareVerticalTabModelWithCurrentTabGroup(model)
             return model
         }
 
         let model = VerticalTabSidebar.TabModel()
         verticalTabModelStorage = model
+        shareVerticalTabModelWithCurrentTabGroup(model)
         return model
+    }
+
+    private func sharedVerticalTabModelFromCurrentTabGroup() -> VerticalTabSidebar.TabModel? {
+        guard let tabGroup = window?.tabGroup else { return nil }
+
+        let controllers = tabGroup.windows.compactMap {
+            $0.windowController as? TerminalController
+        }
+        guard !controllers.isEmpty else { return nil }
+
+        let models = controllers.compactMap({ $0.verticalTabModelStorage })
+        guard let model = models
+            .max(by: { $0.knownWindowCount < $1.knownWindowCount })
+        else { return nil }
+
+        for other in models where other !== model {
+            model.mergeState(from: other)
+        }
+
+        for controller in controllers {
+            controller.verticalTabModelStorage = model
+        }
+
+        return model
+    }
+
+    private func shareVerticalTabModelWithCurrentTabGroup(_ model: VerticalTabSidebar.TabModel) {
+        guard let tabGroup = window?.tabGroup else { return }
+
+        for controller in tabGroup.windows.compactMap({ $0.windowController as? TerminalController }) {
+            controller.verticalTabModelStorage = model
+        }
     }
 
     /// The initial window presentation is deferred by one runloop turn in a few places so

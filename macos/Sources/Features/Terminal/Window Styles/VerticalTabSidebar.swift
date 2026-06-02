@@ -30,6 +30,9 @@ struct VerticalTabSidebar: View {
     /// Whether we're currently resizing
     @State private var isResizing: Bool = false
 
+    /// The tab currently being dragged within the sidebar.
+    @State private var draggedWindow: NSWindow? = nil
+
     /// Minimum and maximum width constraints
     private let minWidth: CGFloat = 120
     private let maxWidth: CGFloat = 400
@@ -85,6 +88,18 @@ struct VerticalTabSidebar: View {
                                         .titleOverride = nil
                                     refreshTabs()
                                 }
+                            )
+                            .onDrag {
+                                draggedWindow = tab.window
+                                return NSItemProvider(object: String(describing: tab.id) as NSString)
+                            }
+                            .onDrop(
+                                of: [.text],
+                                delegate: TabReorderDropDelegate(
+                                    target: tab,
+                                    draggedWindow: $draggedWindow,
+                                    reorder: reorderTab
+                                )
                             )
                         }
                     }
@@ -243,6 +258,7 @@ struct VerticalTabSidebar: View {
         let isSelected: Bool
         let color: Color
         let colorIndex: Int
+        let customTabColor: TerminalTabColor
         let hasCustomTitle: Bool
 
         init(
@@ -257,8 +273,13 @@ struct VerticalTabSidebar: View {
             self.titleOverride = controller?.titleOverride
             self.index = index
             self.isSelected = isSelected
-            self.color = VerticalTabSidebar.tabColor(at: colorIndex)
             self.colorIndex = colorIndex
+            self.customTabColor = (window as? TerminalWindow)?.tabColor ?? .none
+            if let displayColor = customTabColor.displayColor {
+                self.color = Color(nsColor: displayColor)
+            } else {
+                self.color = VerticalTabSidebar.tabColor(at: colorIndex)
+            }
             self.id = ObjectIdentifier(window)
             self.hasCustomTitle = self.titleOverride != nil
             self.title = self.titleOverride ?? resolvedTitle
@@ -272,6 +293,37 @@ struct VerticalTabSidebar: View {
         var tabColorIndexes: [ObjectIdentifier: Int] = [:]
         /// Index for the next generated tab color.
         var nextColorIndex: Int = 0
+
+        var knownWindowCount: Int {
+            max(tabs.count, tabColorIndexes.count)
+        }
+
+        func mergeState(from other: TabModel) {
+            var usedIndexes = Set(tabColorIndexes.values)
+            var nextIndex = max(
+                nextColorIndex,
+                other.nextColorIndex,
+                (usedIndexes.max() ?? -1) + 1)
+
+            for (id, index) in other.tabColorIndexes where tabColorIndexes[id] == nil {
+                if !usedIndexes.contains(index) {
+                    tabColorIndexes[id] = index
+                    usedIndexes.insert(index)
+                    nextIndex = max(nextIndex, index + 1)
+                    continue
+                }
+
+                while usedIndexes.contains(nextIndex) {
+                    nextIndex += 1
+                }
+
+                tabColorIndexes[id] = nextIndex
+                usedIndexes.insert(nextIndex)
+                nextIndex += 1
+            }
+
+            nextColorIndex = nextIndex
+        }
 
         func colorIndex(for window: NSWindow) -> Int {
             let id = ObjectIdentifier(window)
@@ -307,6 +359,32 @@ struct VerticalTabSidebar: View {
     }
 
     // MARK: - Tab Row
+
+    private struct TabReorderDropDelegate: DropDelegate {
+        let target: TabData
+        @Binding var draggedWindow: NSWindow?
+        let reorder: (NSWindow, NSWindow) -> Void
+
+        func validateDrop(info: DropInfo) -> Bool {
+            draggedWindow != nil && info.hasItemsConforming(to: [.text])
+        }
+
+        func dropEntered(info: DropInfo) {
+            guard let sourceWindow = draggedWindow else { return }
+            guard sourceWindow !== target.window else { return }
+
+            reorder(sourceWindow, target.window)
+        }
+
+        func dropUpdated(info: DropInfo) -> DropProposal? {
+            DropProposal(operation: .move)
+        }
+
+        func performDrop(info: DropInfo) -> Bool {
+            draggedWindow = nil
+            return true
+        }
+    }
 
     struct TabRow: View {
         let title: String
@@ -417,8 +495,12 @@ struct VerticalTabSidebar: View {
     // MARK: - Actions
 
     private func refreshTabs() {
+        syncTabModel()
+
         guard let window = windowController?.window else {
-            tabModel.tabs = []
+            return
+        }
+        guard window.isVisible || window.tabGroup != nil else {
             return
         }
 
@@ -466,6 +548,7 @@ struct VerticalTabSidebar: View {
                 new.isSelected != old.isSelected ||
                 new.title != old.title ||
                 new.hasCustomTitle != old.hasCustomTitle ||
+                new.customTabColor != old.customTabColor ||
                 new.colorIndex != old.colorIndex
             }
 
@@ -474,9 +557,43 @@ struct VerticalTabSidebar: View {
         }
     }
 
+    private func syncTabModel() {
+        guard let sharedModel = (windowController as? TerminalController)?.verticalTabModel,
+              sharedModel !== tabModel
+        else { return }
+
+        sharedModel.mergeState(from: tabModel)
+        tabModel.mergeState(from: sharedModel)
+    }
+
     private func selectTab(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
         refreshTabs()
+    }
+
+    private func reorderTab(_ sourceWindow: NSWindow, around targetWindow: NSWindow) {
+        guard sourceWindow !== targetWindow else { return }
+        guard let tabGroup = sourceWindow.tabGroup ?? targetWindow.tabGroup else { return }
+
+        let windows = tabGroup.windows
+        guard let sourceIndex = windows.firstIndex(of: sourceWindow),
+              let targetIndex = windows.firstIndex(of: targetWindow),
+              sourceIndex != targetIndex else { return }
+
+        let selectedWindow = tabGroup.selectedWindow
+        let ordering: NSWindow.OrderingMode = targetIndex < sourceIndex ? .below : .above
+
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+
+        tabGroup.removeWindow(sourceWindow)
+        targetWindow.addTabbedWindowSafely(sourceWindow, ordered: ordering)
+        (selectedWindow ?? sourceWindow).makeKey()
+
+        NSAnimationContext.endGrouping()
+
+        refreshTabs()
+        windowController?.postVerticalTabsDidChange()
     }
 
     private func closeTab(_ window: NSWindow) {
