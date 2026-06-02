@@ -153,6 +153,9 @@ class AppDelegate: NSObject,
 
     private let appIconUpdater = AppIconUpdater()
 
+    /// Listens for IPC requests (e.g. `ghostty +new-window`) from CLI processes.
+    private var ipcServer: IPCServer?
+
     @MainActor private lazy var menuShortcutManager = Ghostty.MenuShortcutManager()
 
     override init() {
@@ -217,6 +220,13 @@ class AppDelegate: NSObject,
 
         // Register our service provider. This must happen after everything is initialized.
         NSApp.servicesProvider = ServiceProvider()
+
+        // Start listening for IPC requests (e.g. `ghostty +new-window`) so that
+        // CLI invocations open windows in this running instance.
+        ipcServer = IPCServer { [weak self] config in
+            guard let self else { return }
+            _ = TerminalController.newWindow(self.ghostty, withBaseConfig: config)
+        }
 
         // This registers the Ghostty => Services menu to exist.
         NSApp.servicesMenu = menuServices

@@ -641,6 +641,10 @@ extension Ghostty {
         /// Explicit command to set
         var command: String?
 
+        /// Forced title. When set, the surface ignores title change requests
+        /// from the running program (e.g. OSC 0/2 escape sequences).
+        var title: String?
+
         /// Environment variables to set for the terminal
         var environmentVariables: [String: String] = [:]
 
@@ -662,6 +666,9 @@ extension Ghostty {
             }
             if let command = config.command {
                 self.command = String.init(cString: command, encoding: .utf8)
+            }
+            if let title = config.title {
+                self.title = String.init(cString: title, encoding: .utf8)
             }
 
             // Convert the C env vars to Swift dictionary
@@ -718,30 +725,34 @@ extension Ghostty {
                 return try command.withCString { cCommand in
                     config.command = cCommand
 
-                    return try initialInput.withCString { cInput in
-                        config.initial_input = cInput
+                    return try title.withCString { cTitle in
+                        config.title = cTitle
 
-                        // Convert dictionary to arrays for easier processing
-                        let keys = Array(environmentVariables.keys)
-                        let values = Array(environmentVariables.values)
+                        return try initialInput.withCString { cInput in
+                            config.initial_input = cInput
 
-                        // Create C strings for all keys and values
-                        return try keys.withCStrings { keyCStrings in
-                            return try values.withCStrings { valueCStrings in
-                                // Create array of ghostty_env_var_s
-                                var envVars = [ghostty_env_var_s]()
-                                envVars.reserveCapacity(environmentVariables.count)
-                                for i in 0..<environmentVariables.count {
-                                    envVars.append(ghostty_env_var_s(
-                                        key: keyCStrings[i],
-                                        value: valueCStrings[i]
-                                    ))
-                                }
+                            // Convert dictionary to arrays for easier processing
+                            let keys = Array(environmentVariables.keys)
+                            let values = Array(environmentVariables.values)
 
-                                return try envVars.withUnsafeMutableBufferPointer { buffer in
-                                    config.env_vars = buffer.baseAddress
-                                    config.env_var_count = environmentVariables.count
-                                    return try body(&config)
+                            // Create C strings for all keys and values
+                            return try keys.withCStrings { keyCStrings in
+                                return try values.withCStrings { valueCStrings in
+                                    // Create array of ghostty_env_var_s
+                                    var envVars = [ghostty_env_var_s]()
+                                    envVars.reserveCapacity(environmentVariables.count)
+                                    for i in 0..<environmentVariables.count {
+                                        envVars.append(ghostty_env_var_s(
+                                            key: keyCStrings[i],
+                                            value: valueCStrings[i]
+                                        ))
+                                    }
+
+                                    return try envVars.withUnsafeMutableBufferPointer { buffer in
+                                        config.env_vars = buffer.baseAddress
+                                        config.env_var_count = environmentVariables.count
+                                        return try body(&config)
+                                    }
                                 }
                             }
                         }

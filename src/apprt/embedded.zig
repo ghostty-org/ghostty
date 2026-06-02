@@ -21,6 +21,7 @@ const CoreSurface = @import("../Surface.zig");
 const configpkg = @import("../config.zig");
 const Config = configpkg.Config;
 const String = @import("../main_c.zig").String;
+const ipc_new_window = @import("embedded/ipc/new_window.zig");
 
 const log = std.log.scoped(.embedded_window);
 
@@ -329,13 +330,17 @@ pub const App = struct {
     /// some other process that is not Ghostty) there is no full-featured apprt App
     /// to use.
     pub fn performIpc(
-        _: Allocator,
-        _: apprt.ipc.Target,
+        alloc: Allocator,
+        target: apprt.ipc.Target,
         comptime action: apprt.ipc.Action.Key,
-        _: apprt.ipc.Action.Value(action),
-    ) (Allocator.Error || std.posix.WriteError || apprt.ipc.Errors)!bool {
+        value: apprt.ipc.Action.Value(action),
+    ) !bool {
+        // IPC is only implemented for macOS. Other embedded targets (e.g. iOS)
+        // have no notion of a separate CLI process talking to a running app.
+        if (comptime builtin.target.os.tag != .macos) return false;
+
         switch (action) {
-            .new_window => return false,
+            .new_window => return ipc_new_window.newWindow(alloc, target, value),
             .toggle_quick_terminal => return false,
         }
     }
@@ -450,6 +455,12 @@ pub const Surface = struct {
         /// future once we have a concrete use case.
         command: ?[*:0]const u8 = null,
 
+        /// A title to force for the surface. If this is set then the surface
+        /// will use this title and ignore any title change requests from the
+        /// running program (e.g. OSC 0/2 escape sequences). This mirrors the
+        /// `title` configuration option but on a per-surface basis.
+        title: ?[*:0]const u8 = null,
+
         /// Extra environment variables to set for the surface.
         env_vars: ?[*]EnvVar = null,
         env_var_count: usize = 0,
@@ -533,6 +544,16 @@ pub const Surface = struct {
             if (cmd.len > 0) {
                 config.command = .{ .shell = cmd };
                 config.@"wait-after-command" = true;
+            }
+        }
+
+        // If we have a title from the options then we force it. Setting the
+        // title via config causes Ghostty to ignore title change requests
+        // from the running program (see Surface.handleMessage).
+        if (opts.title) |c_title| {
+            const t = std.mem.sliceTo(c_title, 0);
+            if (t.len > 0) {
+                config.title = try config.arenaAlloc().dupeZ(u8, t);
             }
         }
 
