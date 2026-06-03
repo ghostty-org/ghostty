@@ -1677,6 +1677,76 @@ pub const CAPI = struct {
         return true;
     }
 
+    /// Same as ghostty_surface_read_text but emits VT escape sequences
+    /// (predominantly SGR) so colors and styles are preserved. Differences
+    /// from the plain variant:
+    ///
+    ///   - Palette-indexed colors are resolved to direct RGB using the
+    ///     terminal's current palette, so the output is self-contained.
+    ///   - Soft-wrapped lines are NOT unwrapped: one emitted line always
+    ///     corresponds to one grid row, which lets callers map output rows
+    ///     to scrollback rows (e.g. for overview/minimap rendering).
+    ///   - Trailing whitespace is preserved.
+    ///
+    /// Free the result with ghostty_surface_free_text. The viewport fields
+    /// of the result are not populated by this function.
+    ///
+    /// Like ghostty_surface_read_text, this is an expensive operation, so
+    /// callers should cache results and throttle calls.
+    export fn ghostty_surface_read_text_styled(
+        surface: *Surface,
+        sel: Selection,
+        result: *Text,
+    ) bool {
+        const core_surface = &surface.core_surface;
+        core_surface.renderer_state.mutex.lock();
+        defer core_surface.renderer_state.mutex.unlock();
+
+        const core_sel = sel.core(
+            core_surface.renderer_state.terminal.screens.active,
+        ) orelse return false;
+
+        // Mirror the styled-clipboard configuration from
+        // Surface.completeClipboardReadWrite: resolve palette colors to
+        // direct RGB and carry the terminal's default fg/bg.
+        const term = &core_surface.io.terminal;
+        var formatter: terminal.formatter.ScreenFormatter = .init(
+            term.screens.active,
+            .{
+                .emit = .vt,
+                .unwrap = false,
+                .trim = false,
+                .background = term.colors.background.get(),
+                .foreground = term.colors.foreground.get(),
+                .palette = &term.colors.palette.current,
+            },
+        );
+        formatter.content = .{ .selection = core_sel };
+
+        var aw: std.Io.Writer.Allocating = .init(global.alloc);
+        defer aw.deinit();
+        formatter.format(&aw.writer) catch |err| {
+            log.warn("error reading styled text err={}", .{err});
+            return false;
+        };
+
+        const text = aw.toOwnedSliceSentinel(0) catch |err| {
+            log.warn("error reading styled text err={}", .{err});
+            return false;
+        };
+
+        result.* = .{
+            .tl_px_x = -1,
+            .tl_px_y = -1,
+            .offset_start = 0,
+            .offset_len = 0,
+            .text = text.ptr,
+            .text_len = text.len,
+        };
+
+        return true;
+    }
+
     export fn ghostty_surface_free_text(_: *Surface, ptr: *Text) void {
         ptr.deinit();
     }
