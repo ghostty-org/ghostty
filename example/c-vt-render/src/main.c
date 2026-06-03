@@ -46,6 +46,32 @@ int main(void) {
   ghostty_terminal_vt_write(
       terminal, (const uint8_t*)content, strlen(content));
 
+  // Select "underlined" on the second row. Render state exposes this
+  // later as a row-local selected cell range.
+  GhosttyGridRef selection_start = GHOSTTY_INIT_SIZED(GhosttyGridRef);
+  GhosttyPoint selection_start_pt = {
+      .tag = GHOSTTY_POINT_TAG_ACTIVE,
+      .value = { .coordinate = { .x = 0, .y = 1 } },
+  };
+  result = ghostty_terminal_grid_ref(
+      terminal, selection_start_pt, &selection_start);
+  assert(result == GHOSTTY_SUCCESS);
+
+  GhosttyGridRef selection_end = GHOSTTY_INIT_SIZED(GhosttyGridRef);
+  GhosttyPoint selection_end_pt = {
+      .tag = GHOSTTY_POINT_TAG_ACTIVE,
+      .value = { .coordinate = { .x = 9, .y = 1 } },
+  };
+  result = ghostty_terminal_grid_ref(terminal, selection_end_pt, &selection_end);
+  assert(result == GHOSTTY_SUCCESS);
+
+  GhosttySelection selection = GHOSTTY_INIT_SIZED(GhosttySelection);
+  selection.start = selection_start;
+  selection.end = selection_end;
+  result = ghostty_terminal_set(
+      terminal, GHOSTTY_TERMINAL_OPT_SELECTION, &selection);
+  assert(result == GHOSTTY_SUCCESS);
+
   result = ghostty_render_state_update(render_state, terminal);
   assert(result == GHOSTTY_SUCCESS);
   //! [render-state-update]
@@ -153,6 +179,18 @@ int main(void) {
 
     printf("Row %2d [%s]: ", row_index,
            row_dirty ? "dirty" : "clean");
+
+    // Query the row-local selection range. Rows without a selection return
+    // GHOSTTY_NO_VALUE; selected rows return inclusive start/end columns.
+    GhosttyRenderStateRowSelection row_selection =
+        GHOSTTY_INIT_SIZED(GhosttyRenderStateRowSelection);
+    result = ghostty_render_state_row_get(
+        row_iter, GHOSTTY_RENDER_STATE_ROW_DATA_SELECTION, &row_selection);
+    assert(result == GHOSTTY_SUCCESS || result == GHOSTTY_NO_VALUE);
+    if (result == GHOSTTY_SUCCESS) {
+      printf("selection=%u..%u ",
+             row_selection.start_x, row_selection.end_x);
+    }
 
     // Get cells for this row (reuses the same cells handle).
     result = ghostty_render_state_row_get(

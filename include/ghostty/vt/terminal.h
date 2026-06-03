@@ -19,6 +19,7 @@
 #include <ghostty/vt/kitty_graphics.h>
 #include <ghostty/vt/screen.h>
 #include <ghostty/vt/point.h>
+#include <ghostty/vt/selection.h>
 #include <ghostty/vt/style.h>
 
 #ifdef __cplusplus
@@ -592,6 +593,21 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Input type: size_t*
    */
   GHOSTTY_TERMINAL_OPT_APC_MAX_BYTES_KITTY = 20,
+
+  /**
+   * Set the active screen selection.
+   *
+   * The value must point to a GhosttySelection whose grid references are
+   * valid for this terminal's active screen at the time of the call. The
+   * terminal copies the selection immediately and converts it to
+   * terminal-owned tracked state, so the GhosttySelection struct and its
+   * untracked grid references do not need to outlive this call.
+   *
+   * Passing NULL clears the active screen selection.
+   *
+   * Input type: GhosttySelection*
+   */
+  GHOSTTY_TERMINAL_OPT_SELECTION = 21,
   GHOSTTY_TERMINAL_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalOption;
 
@@ -868,6 +884,33 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Output type: GhosttyKittyGraphics *
    */
   GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS = 30,
+
+  /**
+   * The active screen's current selection.
+   *
+   * On success, writes an untracked snapshot of the terminal-owned selection
+   * to the caller-provided GhosttySelection. The GhosttySelection struct is
+   * caller-owned and may be kept, but the grid references inside it are
+   * untracked borrowed references into the active screen. They are only valid
+   * until the next mutating terminal call, such as ghostty_terminal_set(),
+   * ghostty_terminal_vt_write(), ghostty_terminal_resize(), or
+   * ghostty_terminal_reset().
+   *
+   * Returns GHOSTTY_NO_VALUE when there is no active selection.
+   *
+   * Output type: GhosttySelection *
+   */
+  GHOSTTY_TERMINAL_DATA_SELECTION = 31,
+
+  /**
+   * Whether the viewport is currently pinned to the active area.
+   *
+   * This is true when the viewport is following the active terminal area,
+   * and false when the user has scrolled into history.
+   *
+   * Output type: bool *
+   */
+  GHOSTTY_TERMINAL_DATA_VIEWPORT_ACTIVE = 32,
   GHOSTTY_TERMINAL_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalData;
 
@@ -1119,6 +1162,38 @@ GHOSTTY_API GhosttyResult ghostty_terminal_get_multi(GhosttyTerminal terminal,
 GHOSTTY_API GhosttyResult ghostty_terminal_grid_ref(GhosttyTerminal terminal,
                                         GhosttyPoint point,
                                         GhosttyGridRef *out_ref);
+
+/**
+ * Create an owned tracked grid reference for a terminal point.
+ *
+ * This is the tracked variant of ghostty_terminal_grid_ref(). The returned
+ * handle follows the referenced cell as the terminal's page list is modified:
+ * scrolling, pruning, resize/reflow, and other page-list operations update the
+ * tracked reference automatically.
+ *
+ * The reference is attached to the terminal screen/page-list that is active at
+ * creation time.
+ *
+ * If the point is outside the requested coordinate space, this returns
+ * GHOSTTY_INVALID_VALUE and writes NULL to out_ref.
+ *
+ * The returned handle must be freed with ghostty_tracked_grid_ref_free(). If
+ * the terminal is freed first, the handle remains valid only for
+ * tracked-grid-ref APIs: it reports no value and can still be freed.
+ *
+ * @param terminal Terminal instance.
+ * @param point Point to track.
+ * @param[out] out_ref On success, receives the tracked reference handle.
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if terminal,
+ *         point, or out_ref is invalid, or GHOSTTY_OUT_OF_MEMORY if allocation
+ *         fails.
+ *
+ * @ingroup terminal
+ */
+GHOSTTY_API GhosttyResult ghostty_terminal_grid_ref_track(
+    GhosttyTerminal terminal,
+    GhosttyPoint point,
+    GhosttyTrackedGridRef *out_ref);
 
 /**
  * Convert a grid reference back to a point in the given coordinate system.

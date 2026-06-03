@@ -360,10 +360,16 @@ fn drainMailbox(self: *Thread) !void {
                 // Visibility affects our QoS class
                 self.setQosClass();
 
-                // If we became visible then we immediately trigger a draw.
-                // We don't need to update frame data because that should
-                // still be happening.
-                if (v) self.drawFrame(false);
+                // If we became visible then we immediately rebuild cells
+                // (renderCallback skips updateFrame while invisible) and draw.
+                if (v) {
+                    self.renderer.updateFrame(
+                        self.state,
+                        self.flags.cursor_blink_visible,
+                    ) catch |err|
+                        log.warn("error rendering on visibility regain err={}", .{err});
+                    self.drawFrame(false);
+                }
 
                 // Notify the renderer so it can update any state.
                 self.renderer.setVisible(v);
@@ -605,6 +611,10 @@ fn renderCallback(
         log.warn("render callback fired without data set", .{});
         return .disarm;
     };
+
+    // If we're not visible there's no point spending CPU rebuilding cells —
+    // we'll catch up when the .visible mailbox message flips us back on.
+    if (!t.flags.visible) return .disarm;
 
     // Update our frame data
     t.renderer.updateFrame(

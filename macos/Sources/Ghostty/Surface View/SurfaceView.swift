@@ -1,6 +1,7 @@
 import SwiftUI
 import UserNotifications
 import GhosttyKit
+import System
 
 extension Ghostty {
     /// Render a terminal for the active app in the environment.
@@ -376,7 +377,11 @@ extension Ghostty {
         var body: some View {
             GeometryReader { geo in
                 HStack(spacing: 4) {
-                    TextField("Search", text: $searchState.needle)
+                    BackportSelectionTextField(
+                        "Search",
+                        text: $searchState.needle,
+                        selection: $searchState.needleSelection
+                    )
                     .textFieldStyle(.plain)
                     .frame(width: 180)
                     .padding(.leading, 8)
@@ -400,6 +405,21 @@ extension Ghostty {
                                 .padding(.trailing, 8)
                         }
                     }
+                    .onChange(of: searchState.needle) { _ in
+                        searchState.writePasteboardNeedle()
+                    }
+                    .onReceive(
+                        NotificationCenter.default.publisher(
+                            for: OSApplication.didBecomeActiveNotification
+                        )
+                    ) { _ in
+                        // When the app becomes active, we want to check for external changes
+                        // to our synced needle.
+                        searchState.readPasteboardNeedle()
+                    }
+                    .onSubmit {
+                        _ = surfaceView.navigateSearchToNext()
+                    }
 #if canImport(AppKit)
                     .onExitCommand {
                         if searchState.needle.isEmpty {
@@ -412,10 +432,9 @@ extension Ghostty {
                     .backport.onKeyPress(.return) { modifiers in
                         if modifiers.contains(.shift) {
                             _ = surfaceView.navigateSearchToPrevious()
-                        } else {
-                            _ = surfaceView.navigateSearchToNext()
+                            return .handled
                         }
-                        return .handled
+                        return .ignored
                     }
 
                     Button(action: {
@@ -611,8 +630,13 @@ extension Ghostty {
         /// Explicit font size to use in points
         var fontSize: Float32?
 
-        /// Explicit working directory to set
-        var workingDirectory: String?
+        /// Explicit working directory. This is normalized on assignment to
+        /// remove any redundant and trailing path separators.
+        var workingDirectory: String? {
+            get { normalizedWorkingDirectory }
+            set { normalizedWorkingDirectory = newValue.map { FilePath($0).string } }
+        }
+        private var normalizedWorkingDirectory: String?
 
         /// Explicit command to set
         var command: String?

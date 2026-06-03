@@ -462,7 +462,8 @@ fn mouseTable(
 
     {
         const left_click_point: terminal.point.Coordinate = pt: {
-            const p = surface_mouse.left_click_pin orelse break :pt .{};
+            const p = surface_mouse.selection_gesture.validatedLeftClickPin(&t.screens) orelse
+                break :pt .{};
             const pt = t.screens.active.pages.pointFromPin(
                 .active,
                 p.*,
@@ -495,8 +496,8 @@ fn mouseTable(
             _ = cimgui.c.ImGui_TableSetColumnIndex(1);
             cimgui.c.ImGui_Text(
                 "(%dpx, %dpx)",
-                @as(u32, @intFromFloat(surface_mouse.left_click_xpos)),
-                @as(u32, @intFromFloat(surface_mouse.left_click_ypos)),
+                @as(u32, @intFromFloat(surface_mouse.selection_gesture.left_click_xpos)),
+                @as(u32, @intFromFloat(surface_mouse.selection_gesture.left_click_ypos)),
             );
         }
     }
