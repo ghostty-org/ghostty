@@ -62,6 +62,7 @@ bleikurr
 bo2themax
 brentschroeter
 brianc442
+c0x0o
 cespare
 charliie-dev
 chernetskyi
