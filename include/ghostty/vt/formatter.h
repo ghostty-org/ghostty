@@ -33,23 +33,6 @@ extern "C" {
  */
 
 /**
- * Output format.
- *
- * @ingroup formatter
- */
-typedef enum GHOSTTY_ENUM_TYPED {
-  /** Plain text (no escape sequences). */
-  GHOSTTY_FORMATTER_FORMAT_PLAIN,
-
-  /** VT sequences preserving colors, styles, URLs, etc. */
-  GHOSTTY_FORMATTER_FORMAT_VT,
-
-  /** HTML with inline styles. */
-  GHOSTTY_FORMATTER_FORMAT_HTML,
-  GHOSTTY_FORMATTER_FORMAT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
-} GhosttyFormatterFormat;
-
-/**
  * Extra screen state to include in styled output.
  *
  * @ingroup formatter

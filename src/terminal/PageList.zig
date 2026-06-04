@@ -658,6 +658,11 @@ pub fn deinit(self: *PageList) void {
 pub fn reset(self: *PageList) void {
     defer self.assertIntegrity();
 
+    // Invalidate all external page refs to the previous list. The reset below
+    // rebuilds the page list from the pools, so old untracked refs must be
+    // rejected before any validation attempts to inspect their node pointers.
+    self.page_serial_min = self.page_serial;
+
     // We need enough pages/nodes to keep our active area. This should
     // never fail since we by definition have allocated a page already
     // that fits our size but I'm not confident to make that assertion.
@@ -13541,6 +13546,30 @@ test "PageList reset" {
         .y = 0,
         .x = 0,
     }, s.getTopLeft(.active));
+}
+
+test "PageList reset invalidates stale untracked refs even if node memory is reused" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    const old_serial = s.pages.first.?.serial;
+    try testing.expect(old_serial >= s.page_serial_min);
+    try testing.expect(old_serial < s.page_serial);
+
+    s.reset();
+
+    // The important safety property is that stale serials are rejected before
+    // the node pointer is inspected. Reset rebuilds the page list from the
+    // pools, so old untracked refs may contain node pointers that are no
+    // longer safe to dereference.
+    try testing.expect(old_serial < s.page_serial_min);
+
+    const new_serial = s.pages.first.?.serial;
+    try testing.expect(new_serial >= s.page_serial_min);
+    try testing.expect(new_serial < s.page_serial);
 }
 
 test "PageList reset across two pages" {

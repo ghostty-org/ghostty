@@ -27,8 +27,8 @@ extern "C" {
 /**
  * Free a tracked grid reference.
  *
- * Passing NULL is allowed and has no effect. The reference must be freed before
- * the terminal that created it is freed.
+ * Passing NULL is allowed and has no effect. A tracked reference may be freed
+ * after the terminal that created it is freed.
  *
  * @param ref Tracked grid reference to free.
  *
@@ -38,6 +38,9 @@ GHOSTTY_API void ghostty_tracked_grid_ref_free(GhosttyTrackedGridRef ref);
 
 /**
  * Return whether a tracked grid reference currently has a meaningful value.
+ *
+ * If the terminal that created the tracked reference has been freed, this
+ * returns false.
  *
  * @param ref Tracked grid reference.
  * @return true if the reference currently has a meaningful value.
@@ -62,7 +65,8 @@ GHOSTTY_API bool ghostty_tracked_grid_ref_has_value(
  *
  * If the tracked reference no longer has a meaningful value, this returns
  * GHOSTTY_NO_VALUE. GHOSTTY_NO_VALUE is also returned when the reference cannot
- * be represented in the requested coordinate space.
+ * be represented in the requested coordinate space, including after the
+ * terminal that created the tracked reference has been freed.
  *
  * @param ref Tracked grid reference.
  * @param tag Coordinate space to convert into.
@@ -114,7 +118,8 @@ GHOSTTY_API GhosttyResult ghostty_tracked_grid_ref_set(
  * ghostty_grid_ref_style().
  *
  * If the tracked reference no longer has a meaningful value, this returns
- * GHOSTTY_NO_VALUE.
+ * GHOSTTY_NO_VALUE. This includes references whose owning terminal has been
+ * freed.
  *
  * @param ref Tracked grid reference.
  * @param[out] out_ref On success, receives an untracked snapshot. May be NULL.

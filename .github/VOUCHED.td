@@ -24,6 +24,7 @@
 04cb
 0xdvc
 -4rh1t3ct0r7
+52dyd
 aalhendi
 aaron-ang
 abdurrahmanski
@@ -61,6 +62,7 @@ bleikurr
 bo2themax
 brentschroeter
 brianc442
+c0x0o
 cespare
 charliie-dev
 chernetskyi
@@ -69,6 +71,7 @@ cmwetherell
 crayxt
 craziestowl
 curtismoncoq
+-cznorth Automated advertising + likely AI communication
 d-dudas
 -daedaevibin
 daiimus
@@ -95,6 +98,7 @@ elias8
 -enkr1
 enzowilliam
 ephemera
+-eric-assetpass Try talking, not botting
 eriksremess
 erral
 -f1813483-netizen
@@ -156,6 +160,7 @@ kristofersoler
 kylesower
 laxystem
 lebdron
+lepips
 liby
 linustalacko
 lonsagisawa
@@ -169,6 +174,7 @@ markdorison
 markhuot
 marler8997
 marrocco-simone
+masterflitzer
 matkotiric
 mattn
 micaeljarniac
@@ -195,6 +201,7 @@ neo773
 neurosnap
 nicholas-ochoa
 nicosuave
+nikicat
 nmggithub
 noib3
 nolinmcfarland

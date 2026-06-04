@@ -51,7 +51,7 @@ extension NSWindow {
         var error: NSError?
         let success = GhosttyAddTabbedWindowSafely(self, child, ordered.rawValue, &error)
         if let error {
-            Ghostty.logger.error("addTabbedWindow failed: \(error.localizedDescription)")
+            Ghostty.logger.error("addTabbedWindow failed: \(error.localizedDescription, privacy: .public)")
         }
 
         return success

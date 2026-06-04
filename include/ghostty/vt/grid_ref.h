@@ -70,8 +70,9 @@ extern "C" {
  * the tracked reference between screens.
  *
  * Tracked references are owned by the caller and must be freed with
- * ghostty_tracked_grid_ref_free() before the terminal that created them is
- * freed. 
+ * ghostty_tracked_grid_ref_free(). If the terminal that created a tracked
+ * reference is freed first, the handle remains valid only for tracked-grid-ref
+ * APIs: it reports no value and can still be freed.
  *
  * Each tracked reference adds bookkeeping to terminal mutations. Use them 
  * sparingly for long-lived anchors such as selections, search state, marks, 
@@ -85,8 +86,8 @@ extern "C" {
  * operation (including free).
  *
  * A tracked reference is allocated and must be freed when it is no
- * longer needed. All tracked references must be freed prior to the
- * terminal being freed.
+ * longer needed. A tracked reference may outlive the terminal that created it;
+ * after terminal free, it reports no value and can still be freed.
  *
  * ## Examples
  *

@@ -104,6 +104,11 @@
  * detect when it loses its value, and move it to a new point.
  */
 
+/** @example c-vt-selection-gesture/src/main.c
+ * This example demonstrates how to use synthetic selection gesture events to
+ * derive drag and deep-press selection snapshots.
+ */
+
 /** @example c-vt-kitty-graphics/src/main.c
  * This example demonstrates how to use the system interface to install a
  * PNG decoder callback and send a Kitty Graphics Protocol image.
@@ -136,6 +141,7 @@ extern "C" {
 #include <ghostty/vt/modes.h>
 #include <ghostty/vt/mouse.h>
 #include <ghostty/vt/paste.h>
+#include <ghostty/vt/point.h>
 #include <ghostty/vt/screen.h>
 #include <ghostty/vt/selection.h>
 #include <ghostty/vt/size_report.h>
