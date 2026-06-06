@@ -171,13 +171,16 @@ pub const State = struct {
         };
         grid.atlas_grayscale.set(region, bitmap.data);
 
-        // A Glyph Protocol glyf bitmap is rasterized as a full render-span
-        // bitmap. A top bearing equal to bitmap height places the top of the
-        // quad at the top of the cell in the existing text shader convention.
+        // The glyf rasterizer returns an atlas-ready bitmap plus bearings in
+        // the same coordinate convention as normal font glyphs. `offset_x` may
+        // be negative when the protocol sizing rules allow horizontal overflow
+        // before the cell origin. A top bearing equal to bitmap height places
+        // the top of the quad at the top of the cell in the existing text
+        // shader convention.
         codepoint.rasterized = .{
             .width = bitmap.width,
             .height = bitmap.height,
-            .offset_x = 0,
+            .offset_x = bitmap.offset_x,
             .offset_y = @intCast(bitmap.height),
             .atlas_x = region.x,
             .atlas_y = region.y,
