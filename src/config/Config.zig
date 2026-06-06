@@ -6446,7 +6446,7 @@ pub const Keybinds = struct {
         try self.set.put(
             alloc,
             .{ .key = .{ .unicode = ',' }, .mods = inputpkg.ctrlOrSuper(.{}) },
-            .{ .open_config = {} },
+            .{ .open_config = .default },
         );
 
         {

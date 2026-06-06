@@ -245,7 +245,15 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
             }
         }
         switch (message) {
-            .open_config => try self.performAction(rt_app, .open_config),
+            .open_config => |v| try self.performAction(
+                rt_app,
+                .{
+                    .open_config = switch (v) {
+                        .os_open => .os_open,
+                        .new_window => .new_window,
+                    },
+                },
+            ),
             .new_window => |msg| try self.newWindow(rt_app, msg),
             .close => |surface| self.closeSurface(surface),
             .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
@@ -424,7 +432,14 @@ pub fn performAction(
         .ignore => {},
         .quit => _ = try rt_app.performAction(.app, .quit, {}),
         .new_window => _ = try self.newWindow(rt_app, .{ .parent = null }),
-        .open_config => _ = try rt_app.performAction(.app, .open_config, {}),
+        .open_config => |v| _ = try rt_app.performAction(
+            .app,
+            .open_config,
+            switch (v) {
+                .os_open => .os_open,
+                .new_window => .new_window,
+            },
+        ),
         .reload_config => _ = try rt_app.performAction(.app, .reload_config, .{}),
         .close_all_windows => _ = try rt_app.performAction(.app, .close_all_windows, {}),
         .toggle_quick_terminal => _ = try rt_app.performAction(.app, .toggle_quick_terminal, {}),
@@ -526,7 +541,7 @@ fn hasRtSurface(self: *const App, surface: *apprt.Surface) bool {
 /// The message types that can be sent to the app thread.
 pub const Message = union(enum) {
     // Open the configuration file
-    open_config: void,
+    open_config: OpenConfig,
 
     /// Create a new terminal window.
     new_window: NewWindow,
@@ -553,6 +568,13 @@ pub const Message = union(enum) {
     const NewWindow = struct {
         /// The parent surface
         parent: ?*Surface = null,
+    };
+
+    pub const OpenConfig = enum {
+        /// Open the config in the OS default editor.
+        os_open,
+        /// Open the config in a new window using $EDITOR or $VISUAL
+        new_window,
     };
 };
 
