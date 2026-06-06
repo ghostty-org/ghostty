@@ -89,7 +89,7 @@ fn dir(
     }
 
     // Get our home dir
-    var buf: [1024]u8 = undefined;
+    var buf: [std.c.PATH_MAX]u8 = undefined;
     if (try homedir.home(&buf)) |home| {
         return try std.fs.path.join(alloc, &[_][]const u8{
             home,
