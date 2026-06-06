@@ -61,6 +61,9 @@ const c = @cImport({
     @cInclude("unistd.h");
 });
 
+pub const directory_name = "ghostty";
+pub const file_name = "config.ghostty";
+
 pub const compatibility = std.StaticStringMap(
     cli.CompatibilityHandler(Config),
 ).initComptime(&.{
@@ -2478,8 +2481,10 @@ keybind: Keybinds = .{},
 @"config-file": RepeatablePath = .{},
 
 /// When this is true, the default configuration file paths will be loaded.
-/// The default configuration file paths are currently only the XDG
-/// config path ($XDG_CONFIG_HOME/ghostty/config.ghostty).
+/// The default configuration files are at ./ghostty/config.ghostty,
+/// in each of the colon seperated directories in $XDG_CONFIG_DIRS, and,
+/// the xdg user config directory $XDG_CONFIG_HOME
+/// (/etc/xdg and ~/.config if these environment variables are not set).
 ///
 /// If this is false, the default configuration paths will not be loaded.
 /// This is targeted directly at using Ghostty from the CLI in a way
@@ -4023,8 +4028,9 @@ fn writeConfigTemplate(path: []const u8) !void {
     try writer.flush();
 }
 
-/// Load configurations from the default configuration files. The default
-/// configuration file is at `$XDG_CONFIG_HOME/ghostty/config.ghostty`.
+/// Load configurations from the default configuration files.
+/// The default system configuration files are at `$XDG_CONFIG_DIRS/ghostty/config.ghostty`.
+/// The default user configuration file is at `$XDG_CONFIG_HOME/ghostty/config.ghostty`.
 ///
 /// On macOS, `$HOME/Library/Application Support/$CFBundleIdentifier/`
 /// is also loaded.
@@ -4032,23 +4038,27 @@ fn writeConfigTemplate(path: []const u8) !void {
 /// The legacy `config` file (without extension) is first loaded,
 /// then `config.ghostty`.
 pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
-    // Load XDG first
-    const legacy_xdg_path = try file_load.legacyDefaultXdgPath(alloc);
-    defer alloc.free(legacy_xdg_path);
-    const xdg_path = try file_load.defaultXdgPath(alloc);
-    defer alloc.free(xdg_path);
-    const xdg_loaded: bool = xdg_loaded: {
-        const legacy_xdg_action = self.loadOptionalFile(alloc, legacy_xdg_path);
-        const xdg_action = self.loadOptionalFile(alloc, xdg_path);
-        if (xdg_action != .not_found and legacy_xdg_action != .not_found) {
-            log.warn("both config files `{s}` and `{s}` exist.", .{ legacy_xdg_path, xdg_path });
-            log.warn("loading them both in that order", .{});
-            break :xdg_loaded true;
+    const config_subdir = try std.fs.path.join(alloc, &[_][]const u8{
+        directory_name,
+        file_name,
+    });
+    defer alloc.free(config_subdir);
+    var it = internal_os.xdg.Dir.config.iter(alloc, .{ .subdir = config_subdir });
+    var xdg_loaded = false;
+    while (try it.next()) |candidate| {
+        defer alloc.free(candidate);
+        if (.loaded == self.loadOptionalFile(alloc, candidate)) {
+            xdg_loaded = true;
         }
+    }
 
-        break :xdg_loaded xdg_action != .not_found or
-            legacy_xdg_action != .not_found;
-    };
+    if (!xdg_loaded) {
+        // TODO(review): should we check the legacy naming for all system config dirs too?
+        const xdg_path = try file_load.legacyDefaultXdgPath(alloc);
+        defer alloc.free(xdg_path);
+        const action = self.loadOptionalFile(alloc, xdg_path);
+        if (action == .loaded) xdg_loaded = true;
+    }
 
     // On macOS load the app support directory as well
     if (comptime builtin.os.tag == .macos) {
@@ -4096,6 +4106,8 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
         }
     } else {
         if (!xdg_loaded) {
+            const xdg_path = try file_load.defaultXdgPath(alloc);
+            defer alloc.free(xdg_path);
             writeConfigTemplate(xdg_path) catch |err| {
                 log.warn("error creating template config file err={}", .{err});
             };
