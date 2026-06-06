@@ -193,6 +193,23 @@ pub const Entry = struct {
         self.* = undefined;
     }
 
+    /// Deep copy this glossary entry using `alloc`.
+    ///
+    /// The returned entry owns decoded glyph memory and must be released with
+    /// `deinit`.
+    pub fn clone(self: *const Entry, alloc: Allocator) Allocator.Error!Entry {
+        const glyph: Glyph = switch (self.glyph) {
+            .glyf => |*outline| .{ .glyf = try outline.clone(alloc) },
+        };
+
+        return .{
+            .glyph = glyph,
+            .design = self.design,
+            .width = self.width,
+            .constraint = self.constraint,
+        };
+    }
+
     /// Return the renderer constraint for a register request.
     ///
     /// Glyph Protocol §8.5 defines sizing, alignment, and padding in terms of
@@ -318,6 +335,26 @@ test "Entry init decodes glyf payload and applies register fields" {
 
     try testing.expectEqual(@as(usize, 3), entry.glyph.glyf.points.len);
     try testing.expectEqual(@as(usize, 1), entry.glyph.glyf.contours.len);
+}
+
+test "Entry clone deep copies decoded glyf payload" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var entry = try testRegisterEntry(alloc, 0xE000);
+    defer entry.deinit(alloc);
+
+    var cloned = try entry.clone(alloc);
+    defer cloned.deinit(alloc);
+
+    try testing.expectEqual(entry.design, cloned.design);
+    try testing.expectEqual(entry.width, cloned.width);
+    try testing.expectEqual(entry.constraint, cloned.constraint);
+
+    try testing.expectEqualSlices(u16, entry.glyph.glyf.contours, cloned.glyph.glyf.contours);
+    try testing.expectEqualSlices(Glyf.Outline.Point, entry.glyph.glyf.points, cloned.glyph.glyf.points);
+    try testing.expect(entry.glyph.glyf.contours.ptr != cloned.glyph.glyf.contours.ptr);
+    try testing.expect(entry.glyph.glyf.points.ptr != cloned.glyph.glyf.points.ptr);
 }
 
 test "Entry init rejects invalid register payload" {

@@ -50,6 +50,23 @@ pub const Glyf = struct {
             return self.points[start..end];
         }
 
+        /// Deep copy this outline using `alloc`.
+        ///
+        /// The returned outline owns its contour and point storage and must be
+        /// released with `deinit`.
+        pub fn clone(self: *const Outline, alloc: Allocator) Allocator.Error!Outline {
+            const contours = try alloc.dupe(sfnt.uint16, self.contours);
+            errdefer alloc.free(contours);
+
+            const points = try alloc.dupe(Point, self.points);
+            errdefer alloc.free(points);
+
+            return .{
+                .contours = contours,
+                .points = points,
+            };
+        }
+
         /// Free all memory owned by this outline. Pass in the same
         /// allocator used for decoding.
         pub fn deinit(self: *Outline, alloc: Allocator) void {
