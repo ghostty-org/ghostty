@@ -567,7 +567,7 @@ pub fn print(self: *Terminal, c: u21) !void {
     // non-single-width characters properly. We have a fast-path for
     // byte-sized characters since they're so common. We can ignore
     // control characters because they're always filtered prior.
-    const width: usize = if (c <= 0xFF) 1 else @intCast(unicode.table.get(c).width);
+    const width = self.printWidth(c);
 
     // Note: it is possible to have a width of "3" and a width of "-1" from
     // uucode.x's wcwidth. We should look into those cases and handle them
@@ -698,6 +698,28 @@ pub fn print(self: *Terminal, c: u21) !void {
 
     // Move the cursor
     self.screens.active.cursorRight(1);
+}
+
+/// Return the terminal layout width for a codepoint.
+///
+/// This is on the print hot path. Glyph Protocol widths are authoritative for
+/// registered codepoints, but registrations are PUA-only, so keep the common
+/// paths free of glossary hash-map lookups.
+inline fn printWidth(self: *const Terminal, c: u21) usize {
+    if (c <= 0xFF) return 1;
+
+    if (!self.glyph_glossary.isEmpty() and glyph.Glossary.isPrivateUse(c)) {
+        @branchHint(.unlikely);
+
+        if (self.glyph_glossary.registeredWidth(c)) |width| {
+            return switch (width) {
+                .narrow => 1,
+                .wide => 2,
+            };
+        }
+    }
+
+    return @intCast(unicode.table.get(c).width);
 }
 
 fn printCell(
@@ -3377,6 +3399,29 @@ test "Terminal: print single very long line" {
     for (0..1000) |_| try t.print('x');
 }
 
+fn testRegisterGlyphWidth(
+    t: *Terminal,
+    alloc: Allocator,
+    cp: u21,
+    width: glyph.request.Width,
+) !void {
+    const data = try std.fmt.allocPrint(
+        alloc,
+        "r;cp={x};width={d};AAAAAAAAAAAAAA==",
+        .{ cp, @intFromEnum(width) },
+    );
+    defer alloc.free(data);
+
+    var parser = glyph.CommandParser.init(alloc, 1024 * 1024);
+    defer parser.deinit();
+    for (data) |byte| try parser.feed(byte);
+
+    var req = try parser.complete(alloc);
+    defer req.deinit(alloc);
+
+    _ = t.glyphProtocol(alloc, &req);
+}
+
 test "Terminal: print wide char" {
     var t = try init(testing.allocator, .{ .cols = 80, .rows = 80 });
     defer t.deinit(testing.allocator);
@@ -3398,6 +3443,56 @@ test "Terminal: print wide char" {
     }
 
     try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
+}
+
+test "Terminal: registered wide glyph protocol PUA prints as wide" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 80, .rows = 80 });
+    defer t.deinit(alloc);
+
+    try testRegisterGlyphWidth(&t, alloc, 0xE0A0, .wide);
+    try t.print(0xE0A0);
+
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0xE0A0), cell.content.codepoint);
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+    }
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+}
+
+test "Terminal: registered narrow glyph protocol PUA overrides previous wide registration" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 80, .rows = 80 });
+    defer t.deinit(alloc);
+
+    try testRegisterGlyphWidth(&t, alloc, 0xE0A0, .wide);
+    try testRegisterGlyphWidth(&t, alloc, 0xE0A0, .narrow);
+    try t.print(0xE0A0);
+
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.x);
+
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0xE0A0), cell.content.codepoint);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
 }
 
 test "Terminal: print wide char at edge creates spacer head" {
@@ -3432,6 +3527,36 @@ test "Terminal: print wide char at edge creates spacer head" {
     // BUT old row is dirty because cursor moved from there
     try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
     try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 1 } }));
+}
+
+test "Terminal: registered wide glyph protocol PUA at edge creates spacer head" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(alloc);
+
+    try testRegisterGlyphWidth(&t, alloc, 0xE0A0, .wide);
+
+    t.setCursorPos(1, 10);
+    try t.print(0xE0A0);
+    try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 9, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.spacer_head, cell.wide);
+    }
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 1 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0xE0A0), cell.content.codepoint);
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+    }
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 1 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
 }
 
 test "Terminal: print wide char with 1-column width" {
