@@ -324,6 +324,99 @@ pub const Padding = extern struct {
     }
 };
 
+/// A rectangle in the surface coordinate space (pixels).
+pub const Bounds = extern struct {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+
+    /// A contiguous range of cells within a single grid row, from column
+    /// `x0` to `x1` inclusive.
+    pub const CellRange = struct {
+        y: GridSize.Unit,
+        x0: GridSize.Unit,
+        x1: GridSize.Unit,
+    };
+
+    /// Compute the surface-space rectangle covering a single row's range of
+    /// cells.
+    ///
+    /// A region that spans multiple rows (e.g. a wrapped search match) must be
+    /// split into one `CellRange` per row and converted separately.
+    pub fn fromCellRange(size: Size, range: CellRange) Bounds {
+        std.debug.assert(range.x1 >= range.x0);
+        const tl = (Coordinate{ .grid = .{
+            .x = range.x0,
+            .y = range.y,
+        } }).convert(.surface, size).surface;
+        // Widen and saturate so a bad range in a release build (assert off)
+        // gives a 1-cell rect instead of wrapping to a gigantic width.
+        const cols: u32 = (@as(u32, range.x1) -| @as(u32, range.x0)) + 1;
+        return .{
+            .x = tl.x,
+            .y = tl.y,
+            .width = @floatFromInt(cols * size.cell.width),
+            .height = @floatFromInt(size.cell.height),
+        };
+    }
+
+    /// Equality test between two bounds.
+    pub fn eql(self: Bounds, other: Bounds) bool {
+        return self.x == other.x and
+            self.y == other.y and
+            self.width == other.width and
+            self.height == other.height;
+    }
+};
+
+test "Bounds.fromCellRange single cell at origin" {
+    const testing = std.testing;
+    const size: Size = .{
+        .screen = .{ .width = 100, .height = 100 },
+        .cell = .{ .width = 5, .height = 10 },
+        .padding = .{},
+    };
+    const b = Bounds.fromCellRange(size, .{ .y = 0, .x0 = 0, .x1 = 0 });
+    try testing.expectEqual(Bounds{ .x = 0, .y = 0, .width = 5, .height = 10 }, b);
+}
+
+test "Bounds.fromCellRange multi-column row" {
+    const testing = std.testing;
+    const size: Size = .{
+        .screen = .{ .width = 100, .height = 100 },
+        .cell = .{ .width = 5, .height = 10 },
+        .padding = .{},
+    };
+    // Row 1, columns 2..4 inclusive -> x=10, y=10, width=3*5=15, height=10
+    const b = Bounds.fromCellRange(size, .{ .y = 1, .x0 = 2, .x1 = 4 });
+    try testing.expectEqual(Bounds{ .x = 10, .y = 10, .width = 15, .height = 10 }, b);
+}
+
+test "Bounds.fromCellRange applies padding offset" {
+    const testing = std.testing;
+    const size: Size = .{
+        .screen = .{ .width = 100, .height = 100 },
+        .cell = .{ .width = 5, .height = 10 },
+        .padding = .{ .left = 10, .top = 20 },
+    };
+    const b = Bounds.fromCellRange(size, .{ .y = 0, .x0 = 0, .x1 = 0 });
+    try testing.expectEqual(Bounds{ .x = 10, .y = 20, .width = 5, .height = 10 }, b);
+}
+
+test "Bounds.fromCellRange wide range does not overflow column count" {
+    const testing = std.testing;
+    const size: Size = .{
+        .screen = .{ .width = 100000, .height = 100 },
+        .cell = .{ .width = 5, .height = 10 },
+        .padding = .{},
+    };
+    // x0=0, x1=10000 inclusive -> 10001 columns. The intermediate column
+    // count is widened to u32 so this can't wrap a u16.
+    const b = Bounds.fromCellRange(size, .{ .y = 0, .x0 = 0, .x1 = 10000 });
+    try testing.expectEqual(@as(f64, 10001 * 5), b.width);
+}
+
 test "Size.balancePadding equal distributes whitespace equally" {
     const testing = std.testing;
 
