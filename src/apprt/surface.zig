@@ -105,8 +105,17 @@ pub const Message = union(enum) {
     /// Search progress update
     search_total: ?usize,
 
-    /// Selected search index change
-    search_selected: ?usize,
+    /// Selected search change — index plus on-screen pixel rects (one per row).
+    /// Null means cleared (no selection). When non-null, `alloc` owns the
+    /// `regions` slice and it's freed after the message is handled.
+    /// The renderer is the sole producer of this message.
+    search_selected: ?SearchSelected,
+
+    pub const SearchSelected = struct {
+        alloc: std.mem.Allocator,
+        selected: usize,
+        regions: []const renderer.Bounds,
+    };
 
     pub const ReportTitleStyle = enum {
         csi_21_t,
