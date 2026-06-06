@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-02-17 23:16+0100\n"
+"POT-Creation-Date: 2026-03-19 19:01+0200\n"
 "PO-Revision-Date: 2026-02-18 13:58+0800\n"
 "Last-Translator: Yi-Jyun Pan <me@pan93.com>\n"
 "Language-Team: Chinese (traditional)\n"
@@ -148,22 +148,22 @@ msgid "Change Title…"
 msgstr "變更標題…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:297 src/apprt/gtk/ui/1.5/window.blp:177
-#: src/apprt/gtk/ui/1.5/window.blp:250
+#: src/apprt/gtk/ui/1.5/window.blp:250 src/input/command.zig:475
 msgid "Split Up"
 msgstr "向上分割"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:303 src/apprt/gtk/ui/1.5/window.blp:182
-#: src/apprt/gtk/ui/1.5/window.blp:255
+#: src/apprt/gtk/ui/1.5/window.blp:255 src/input/command.zig:480
 msgid "Split Down"
 msgstr "向下分割"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:309 src/apprt/gtk/ui/1.5/window.blp:187
-#: src/apprt/gtk/ui/1.5/window.blp:260
+#: src/apprt/gtk/ui/1.5/window.blp:260 src/input/command.zig:465
 msgid "Split Left"
 msgstr "向左分割"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:315 src/apprt/gtk/ui/1.5/window.blp:192
-#: src/apprt/gtk/ui/1.5/window.blp:265
+#: src/apprt/gtk/ui/1.5/window.blp:265 src/input/command.zig:470
 msgid "Split Right"
 msgstr "向右分割"
 
@@ -172,16 +172,18 @@ msgid "Tab"
 msgstr "分頁"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:325 src/apprt/gtk/ui/1.5/window.blp:224
-#: src/apprt/gtk/ui/1.5/window.blp:320
+#: src/apprt/gtk/ui/1.5/window.blp:320 src/input/command.zig:458
 msgid "Change Tab Title…"
 msgstr "變更分頁標題…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:330 src/apprt/gtk/ui/1.5/window.blp:57
 #: src/apprt/gtk/ui/1.5/window.blp:107 src/apprt/gtk/ui/1.5/window.blp:229
+#: src/input/command.zig:427
 msgid "New Tab"
 msgstr "開新分頁"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:335 src/apprt/gtk/ui/1.5/window.blp:234
+#: src/input/command.zig:594
 msgid "Close Tab"
 msgstr "關閉分頁"
 
@@ -190,10 +192,12 @@ msgid "Window"
 msgstr "視窗"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:212
+#: src/input/command.zig:421
 msgid "New Window"
 msgstr "開新視窗"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:350 src/apprt/gtk/ui/1.5/window.blp:217
+#: src/input/command.zig:611
 msgid "Close Window"
 msgstr "關閉視窗"
 
@@ -233,11 +237,11 @@ msgstr "命令面板"
 msgid "Terminal Inspector"
 msgstr "終端機檢查工具"
 
-#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1727
+#: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1787
 msgid "About Ghostty"
 msgstr "關於 Ghostty"
 
-#: src/apprt/gtk/ui/1.5/window.blp:312
+#: src/apprt/gtk/ui/1.5/window.blp:312 src/input/command.zig:683
 msgid "Quit"
 msgstr "結束"
 
@@ -299,15 +303,15 @@ msgstr "此視窗中的所有終端機工作階段都將被終止。"
 msgid "The currently running process in this split will be terminated."
 msgstr "此窗格中目前執行的處理程序將被終止。"
 
-#: src/apprt/gtk/class/surface.zig:1108
+#: src/apprt/gtk/class/surface.zig:1141
 msgid "Command Finished"
 msgstr "命令執行完成"
 
-#: src/apprt/gtk/class/surface.zig:1109
+#: src/apprt/gtk/class/surface.zig:1142
 msgid "Command Succeeded"
 msgstr "命令執行成功"
 
-#: src/apprt/gtk/class/surface.zig:1110
+#: src/apprt/gtk/class/surface.zig:1143
 msgid "Command Failed"
 msgstr "命令執行失敗"
 
@@ -327,18 +331,712 @@ msgstr "變更終端機標題"
 msgid "Change Tab Title"
 msgstr "變更分頁標題"
 
-#: src/apprt/gtk/class/window.zig:1007
+#: src/apprt/gtk/class/window.zig:1067
 msgid "Reloaded the configuration"
 msgstr "已重新載入設定"
 
-#: src/apprt/gtk/class/window.zig:1566
+#: src/apprt/gtk/class/window.zig:1626
 msgid "Copied to clipboard"
 msgstr "已複製到剪貼簿"
 
-#: src/apprt/gtk/class/window.zig:1568
+#: src/apprt/gtk/class/window.zig:1628
 msgid "Cleared clipboard"
 msgstr "已清除剪貼簿"
 
-#: src/apprt/gtk/class/window.zig:1708
+#: src/apprt/gtk/class/window.zig:1768
 msgid "Ghostty Developers"
 msgstr "Ghostty 開發者"
+
+#: src/input/command.zig:149
+msgid "Reset Terminal"
+msgstr ""
+
+#: src/input/command.zig:150
+msgid "Reset the terminal to a clean state."
+msgstr ""
+
+#: src/input/command.zig:155
+msgid "Copy to Clipboard"
+msgstr ""
+
+#: src/input/command.zig:156
+msgid ""
+"Copy the selected text to the clipboard in both plain and styled formats."
+msgstr ""
+
+#: src/input/command.zig:159
+msgid "Copy Selection as Plain Text to Clipboard"
+msgstr ""
+
+#: src/input/command.zig:160
+msgid "Copy the selected text as plain text to the clipboard."
+msgstr ""
+
+#: src/input/command.zig:163
+msgid "Copy Selection as ANSI Sequences to Clipboard"
+msgstr ""
+
+#: src/input/command.zig:164
+msgid "Copy the selected text as ANSI escape sequences to the clipboard."
+msgstr ""
+
+#: src/input/command.zig:167
+msgid "Copy Selection as HTML to Clipboard"
+msgstr ""
+
+#: src/input/command.zig:168
+msgid "Copy the selected text as HTML to the clipboard."
+msgstr ""
+
+#: src/input/command.zig:173
+msgid "Copy URL to Clipboard"
+msgstr ""
+
+#: src/input/command.zig:174
+msgid "Copy the URL under the cursor to the clipboard."
+msgstr ""
+
+#: src/input/command.zig:179
+msgid "Copy Terminal Title to Clipboard"
+msgstr ""
+
+#: src/input/command.zig:180
+msgid ""
+"Copy the terminal title to the clipboard. If the terminal title is not set "
+"this has no effect."
+msgstr ""
+
+#: src/input/command.zig:185
+msgid "Paste from Clipboard"
+msgstr ""
+
+#: src/input/command.zig:186
+msgid "Paste the contents of the main clipboard."
+msgstr ""
+
+#: src/input/command.zig:191
+msgid "Paste from Selection"
+msgstr ""
+
+#: src/input/command.zig:192
+msgid "Paste the contents of the selection clipboard."
+msgstr ""
+
+#: src/input/command.zig:197
+msgid "Start Search"
+msgstr ""
+
+#: src/input/command.zig:198
+msgid "Start a search if one isn't already active."
+msgstr ""
+
+#: src/input/command.zig:203
+msgid "Search Selection"
+msgstr ""
+
+#: src/input/command.zig:204
+msgid "Start a search for the current text selection."
+msgstr ""
+
+#: src/input/command.zig:209
+msgid "End Search"
+msgstr ""
+
+#: src/input/command.zig:210
+msgid "End the current search if any and hide any GUI elements."
+msgstr ""
+
+#: src/input/command.zig:215
+msgid "Next Search Result"
+msgstr ""
+
+#: src/input/command.zig:216
+msgid "Navigate to the next search result, if any."
+msgstr ""
+
+#: src/input/command.zig:219
+msgid "Previous Search Result"
+msgstr ""
+
+#: src/input/command.zig:220
+msgid "Navigate to the previous search result, if any."
+msgstr ""
+
+#: src/input/command.zig:225
+msgid "Increase Font Size"
+msgstr ""
+
+#: src/input/command.zig:226
+msgid "Increase the font size by 1 point."
+msgstr ""
+
+#: src/input/command.zig:231
+msgid "Decrease Font Size"
+msgstr ""
+
+#: src/input/command.zig:232
+msgid "Decrease the font size by 1 point."
+msgstr ""
+
+#: src/input/command.zig:237
+msgid "Reset Font Size"
+msgstr ""
+
+#: src/input/command.zig:238
+msgid "Reset the font size to the default."
+msgstr ""
+
+#: src/input/command.zig:243
+msgid "Clear Screen"
+msgstr ""
+
+#: src/input/command.zig:244
+msgid "Clear the screen and scrollback."
+msgstr ""
+
+#: src/input/command.zig:249
+msgid "Select All"
+msgstr ""
+
+#: src/input/command.zig:250
+msgid "Select all text on the screen."
+msgstr ""
+
+#: src/input/command.zig:255
+msgid "Scroll to Top"
+msgstr ""
+
+#: src/input/command.zig:256
+msgid "Scroll to the top of the screen."
+msgstr ""
+
+#: src/input/command.zig:261
+msgid "Scroll to Bottom"
+msgstr ""
+
+#: src/input/command.zig:262
+msgid "Scroll to the bottom of the screen."
+msgstr ""
+
+#: src/input/command.zig:267
+msgid "Scroll to Selection"
+msgstr ""
+
+#: src/input/command.zig:268
+msgid "Scroll to the selected text."
+msgstr ""
+
+#: src/input/command.zig:273
+msgid "Scroll Page Up"
+msgstr ""
+
+#: src/input/command.zig:274
+msgid "Scroll the screen up by a page."
+msgstr ""
+
+#: src/input/command.zig:279
+msgid "Scroll Page Down"
+msgstr ""
+
+#: src/input/command.zig:280
+msgid "Scroll the screen down by a page."
+msgstr ""
+
+#: src/input/command.zig:286
+msgid "Copy Screen to Temporary File and Copy Path"
+msgstr ""
+
+#: src/input/command.zig:287
+msgid ""
+"Copy the screen contents to a temporary file and copy the path to the "
+"clipboard."
+msgstr ""
+
+#: src/input/command.zig:291
+msgid "Copy Screen to Temporary File and Paste Path"
+msgstr ""
+
+#: src/input/command.zig:292
+msgid ""
+"Copy the screen contents to a temporary file and paste the path to the file."
+msgstr ""
+
+#: src/input/command.zig:296
+msgid "Copy Screen to Temporary File and Open"
+msgstr ""
+
+#: src/input/command.zig:297
+msgid "Copy the screen contents to a temporary file and open it."
+msgstr ""
+
+#: src/input/command.zig:305
+msgid "Copy Screen as HTML to Temporary File and Copy Path"
+msgstr ""
+
+#: src/input/command.zig:306
+msgid ""
+"Copy the screen contents as HTML to a temporary file and copy the path to "
+"the clipboard."
+msgstr ""
+
+#: src/input/command.zig:313
+msgid "Copy Screen as HTML to Temporary File and Paste Path"
+msgstr ""
+
+#: src/input/command.zig:314
+msgid ""
+"Copy the screen contents as HTML to a temporary file and paste the path to "
+"the file."
+msgstr ""
+
+#: src/input/command.zig:321
+msgid "Copy Screen as HTML to Temporary File and Open"
+msgstr ""
+
+#: src/input/command.zig:322
+msgid "Copy the screen contents as HTML to a temporary file and open it."
+msgstr ""
+
+#: src/input/command.zig:330
+msgid "Copy Screen as ANSI Sequences to Temporary File and Copy Path"
+msgstr ""
+
+#: src/input/command.zig:331
+msgid ""
+"Copy the screen contents as ANSI escape sequences to a temporary file and "
+"copy the path to the clipboard."
+msgstr ""
+
+#: src/input/command.zig:338
+msgid "Copy Screen as ANSI Sequences to Temporary File and Paste Path"
+msgstr ""
+
+#: src/input/command.zig:339
+msgid ""
+"Copy the screen contents as ANSI escape sequences to a temporary file and "
+"paste the path to the file."
+msgstr ""
+
+#: src/input/command.zig:346
+msgid "Copy Screen as ANSI Sequences to Temporary File and Open"
+msgstr ""
+
+#: src/input/command.zig:347
+msgid ""
+"Copy the screen contents as ANSI escape sequences to a temporary file and "
+"open it."
+msgstr ""
+
+#: src/input/command.zig:354
+msgid "Copy Selection to Temporary File and Copy Path"
+msgstr ""
+
+#: src/input/command.zig:355
+msgid ""
+"Copy the selection contents to a temporary file and copy the path to the "
+"clipboard."
+msgstr ""
+
+#: src/input/command.zig:359
+msgid "Copy Selection to Temporary File and Paste Path"
+msgstr ""
+
+#: src/input/command.zig:360
+msgid ""
+"Copy the selection contents to a temporary file and paste the path to the "
+"file."
+msgstr ""
+
+#: src/input/command.zig:364
+msgid "Copy Selection to Temporary File and Open"
+msgstr ""
+
+#: src/input/command.zig:365
+msgid "Copy the selection contents to a temporary file and open it."
+msgstr ""
+
+#: src/input/command.zig:373
+msgid "Copy Selection as HTML to Temporary File and Copy Path"
+msgstr ""
+
+#: src/input/command.zig:374
+msgid ""
+"Copy the selection contents as HTML to a temporary file and copy the path to "
+"the clipboard."
+msgstr ""
+
+#: src/input/command.zig:381
+msgid "Copy Selection as HTML to Temporary File and Paste Path"
+msgstr ""
+
+#: src/input/command.zig:382
+msgid ""
+"Copy the selection contents as HTML to a temporary file and paste the path "
+"to the file."
+msgstr ""
+
+#: src/input/command.zig:389
+msgid "Copy Selection as HTML to Temporary File and Open"
+msgstr ""
+
+#: src/input/command.zig:390
+msgid "Copy the selection contents as HTML to a temporary file and open it."
+msgstr ""
+
+#: src/input/command.zig:398
+msgid "Copy Selection as ANSI Sequences to Temporary File and Copy Path"
+msgstr ""
+
+#: src/input/command.zig:399
+msgid ""
+"Copy the selection contents as ANSI escape sequences to a temporary file and "
+"copy the path to the clipboard."
+msgstr ""
+
+#: src/input/command.zig:406
+msgid "Copy Selection as ANSI Sequences to Temporary File and Paste Path"
+msgstr ""
+
+#: src/input/command.zig:407
+msgid ""
+"Copy the selection contents as ANSI escape sequences to a temporary file and "
+"paste the path to the file."
+msgstr ""
+
+#: src/input/command.zig:414
+msgid "Copy Selection as ANSI Sequences to Temporary File and Open"
+msgstr ""
+
+#: src/input/command.zig:415
+msgid ""
+"Copy the selection contents as ANSI escape sequences to a temporary file and "
+"open it."
+msgstr ""
+
+#: src/input/command.zig:422
+msgid "Open a new window."
+msgstr ""
+
+#: src/input/command.zig:428
+msgid "Open a new tab."
+msgstr ""
+
+#: src/input/command.zig:434
+msgid "Move Tab Left"
+msgstr ""
+
+#: src/input/command.zig:435
+msgid "Move the current tab to the left."
+msgstr ""
+
+#: src/input/command.zig:439
+msgid "Move Tab Right"
+msgstr ""
+
+#: src/input/command.zig:440
+msgid "Move the current tab to the right."
+msgstr ""
+
+#: src/input/command.zig:446
+msgid "Toggle Tab Overview"
+msgstr ""
+
+#: src/input/command.zig:447
+msgid "Toggle the tab overview."
+msgstr ""
+
+#: src/input/command.zig:452
+msgid "Change Terminal Title…"
+msgstr ""
+
+#: src/input/command.zig:453
+msgid "Prompt for a new title for the current terminal."
+msgstr ""
+
+#: src/input/command.zig:459
+msgid "Prompt for a new title for the current tab."
+msgstr ""
+
+#: src/input/command.zig:466
+msgid "Split the terminal to the left."
+msgstr ""
+
+#: src/input/command.zig:471
+msgid "Split the terminal to the right."
+msgstr ""
+
+#: src/input/command.zig:476
+msgid "Split the terminal up."
+msgstr ""
+
+#: src/input/command.zig:481
+msgid "Split the terminal down."
+msgstr ""
+
+#: src/input/command.zig:488
+msgid "Focus Split: Previous"
+msgstr ""
+
+#: src/input/command.zig:489
+msgid "Focus the previous split, if any."
+msgstr ""
+
+#: src/input/command.zig:493
+msgid "Focus Split: Next"
+msgstr ""
+
+#: src/input/command.zig:494
+msgid "Focus the next split, if any."
+msgstr ""
+
+#: src/input/command.zig:498
+msgid "Focus Split: Left"
+msgstr ""
+
+#: src/input/command.zig:499
+msgid "Focus the split to the left, if it exists."
+msgstr ""
+
+#: src/input/command.zig:503
+msgid "Focus Split: Right"
+msgstr ""
+
+#: src/input/command.zig:504
+msgid "Focus the split to the right, if it exists."
+msgstr ""
+
+#: src/input/command.zig:508
+msgid "Focus Split: Up"
+msgstr ""
+
+#: src/input/command.zig:509
+msgid "Focus the split above, if it exists."
+msgstr ""
+
+#: src/input/command.zig:513
+msgid "Focus Split: Down"
+msgstr ""
+
+#: src/input/command.zig:514
+msgid "Focus the split below, if it exists."
+msgstr ""
+
+#: src/input/command.zig:521
+msgid "Focus Window: Previous"
+msgstr ""
+
+#: src/input/command.zig:522
+msgid "Focus the previous window, if any."
+msgstr ""
+
+#: src/input/command.zig:526
+msgid "Focus Window: Next"
+msgstr ""
+
+#: src/input/command.zig:527
+msgid "Focus the next window, if any."
+msgstr ""
+
+#: src/input/command.zig:533
+msgid "Toggle Split Zoom"
+msgstr ""
+
+#: src/input/command.zig:534
+msgid "Toggle the zoom state of the current split."
+msgstr ""
+
+#: src/input/command.zig:539
+msgid "Toggle Read-Only Mode"
+msgstr ""
+
+#: src/input/command.zig:540
+msgid "Toggle read-only mode for the current surface."
+msgstr ""
+
+#: src/input/command.zig:545
+msgid "Equalize Splits"
+msgstr ""
+
+#: src/input/command.zig:546
+msgid "Equalize the size of all splits."
+msgstr ""
+
+#: src/input/command.zig:551
+msgid "Reset Window Size"
+msgstr ""
+
+#: src/input/command.zig:552
+msgid "Reset the window size to the default."
+msgstr ""
+
+#: src/input/command.zig:557
+msgid "Toggle Inspector"
+msgstr ""
+
+#: src/input/command.zig:558
+msgid "Toggle the inspector."
+msgstr ""
+
+#: src/input/command.zig:563
+msgid "Show the GTK Inspector"
+msgstr ""
+
+#: src/input/command.zig:564
+msgid "Show the GTK inspector."
+msgstr ""
+
+#: src/input/command.zig:569
+msgid "Show On-Screen Keyboard"
+msgstr ""
+
+#: src/input/command.zig:570
+msgid "Show the on-screen keyboard if present."
+msgstr ""
+
+#: src/input/command.zig:575
+msgid "Open Config"
+msgstr ""
+
+#: src/input/command.zig:576
+msgid "Open the config file."
+msgstr ""
+
+#: src/input/command.zig:581
+msgid "Reload Config"
+msgstr ""
+
+#: src/input/command.zig:582
+msgid "Reload the config file."
+msgstr ""
+
+#: src/input/command.zig:587
+msgid "Close Terminal"
+msgstr ""
+
+#: src/input/command.zig:588
+msgid "Close the current terminal."
+msgstr ""
+
+#: src/input/command.zig:595
+msgid "Close the current tab."
+msgstr ""
+
+#: src/input/command.zig:599
+msgid "Close Other Tabs"
+msgstr ""
+
+#: src/input/command.zig:600
+msgid "Close all tabs in this window except the current one."
+msgstr ""
+
+#: src/input/command.zig:604
+msgid "Close Tabs to the Right"
+msgstr ""
+
+#: src/input/command.zig:605
+msgid "Close all tabs to the right of the current one."
+msgstr ""
+
+#: src/input/command.zig:612
+msgid "Close the current window."
+msgstr ""
+
+#: src/input/command.zig:617
+msgid "Close All Windows"
+msgstr ""
+
+#: src/input/command.zig:618
+msgid "Close all windows."
+msgstr ""
+
+#: src/input/command.zig:623
+msgid "Toggle Maximize"
+msgstr ""
+
+#: src/input/command.zig:624
+msgid "Toggle the maximized state of the current window."
+msgstr ""
+
+#: src/input/command.zig:629
+msgid "Toggle Fullscreen"
+msgstr ""
+
+#: src/input/command.zig:630
+msgid "Toggle the fullscreen state of the current window."
+msgstr ""
+
+#: src/input/command.zig:635
+msgid "Toggle Window Decorations"
+msgstr ""
+
+#: src/input/command.zig:636
+msgid "Toggle the window decorations."
+msgstr ""
+
+#: src/input/command.zig:641
+msgid "Toggle Float on Top"
+msgstr ""
+
+#: src/input/command.zig:642
+msgid "Toggle the float on top state of the current window."
+msgstr ""
+
+#: src/input/command.zig:647
+msgid "Toggle Secure Input"
+msgstr ""
+
+#: src/input/command.zig:648
+msgid "Toggle secure input mode."
+msgstr ""
+
+#: src/input/command.zig:653
+msgid "Toggle Mouse Reporting"
+msgstr ""
+
+#: src/input/command.zig:654
+msgid "Toggle whether mouse events are reported to terminal applications."
+msgstr ""
+
+#: src/input/command.zig:659
+msgid "Toggle Background Opacity"
+msgstr ""
+
+#: src/input/command.zig:660
+msgid "Toggle the background opacity of a window that started transparent."
+msgstr ""
+
+#: src/input/command.zig:665
+msgid "Check for Updates"
+msgstr ""
+
+#: src/input/command.zig:666
+msgid "Check for updates to the application."
+msgstr ""
+
+#: src/input/command.zig:671
+msgid "Undo"
+msgstr ""
+
+#: src/input/command.zig:672
+msgid "Undo the last action."
+msgstr ""
+
+#: src/input/command.zig:677
+msgid "Redo"
+msgstr ""
+
+#: src/input/command.zig:678
+msgid "Redo the last undone action."
+msgstr ""
+
+#: src/input/command.zig:684
+msgid "Quit the application."
+msgstr ""
+
+#: src/input/command.zig:689
+msgid "Ghostty"
+msgstr ""
+
+#: src/input/command.zig:690
+msgid "Put a little Ghostty in your terminal."
+msgstr ""
