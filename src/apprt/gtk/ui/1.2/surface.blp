@@ -344,6 +344,11 @@ menu context_menu_model {
       label: _("Window");
 
       item {
+        label: _("Change Window Title…");
+        action: "win.prompt-window-title";
+      }
+
+      item {
         label: _("New Window");
         action: "win.new-window";
       }
