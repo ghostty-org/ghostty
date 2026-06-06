@@ -9,7 +9,7 @@ const log = std.log.scoped(.config);
 /// Default path for the XDG home configuration file. Returned value
 /// must be freed by the caller.
 pub fn defaultXdgPath(alloc: Allocator) ![]const u8 {
-    return try internal_os.xdg.config(
+    return try internal_os.xdg.UserDir.config.path(
         alloc,
         .{ .subdir = "ghostty/config.ghostty" },
     );
@@ -18,7 +18,7 @@ pub fn defaultXdgPath(alloc: Allocator) ![]const u8 {
 /// Ghostty <1.3.0 default path for the XDG home configuration file.
 /// Returned value must be freed by the caller.
 pub fn legacyDefaultXdgPath(alloc: Allocator) ![]const u8 {
-    return try internal_os.xdg.config(
+    return try internal_os.xdg.UserDir.config.path(
         alloc,
         .{ .subdir = "ghostty/config" },
     );

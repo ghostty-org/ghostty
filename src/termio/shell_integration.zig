@@ -658,11 +658,11 @@ fn setupXdgDataDirs(
     // our desired integration dir directly. See #2711.
     // <https://specifications.freedesktop.org/basedir-spec/0.6/#variables>
     try env.put(
-        xdg.Dir.data.key(),
+        xdg.SystemDir.data.key(),
         try internal_os.prependEnv(
             stack_alloc,
-            env.get(xdg.Dir.data.key()) orelse xdg.Dir.data.default(),
-            integ_dir,
+            env.get(xdg.SystemDir.data.key()) orelse xdg.SystemDir.data.default(),
+            integ_path,
         ),
     );
 

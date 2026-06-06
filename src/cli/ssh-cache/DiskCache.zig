@@ -26,7 +26,7 @@ pub fn defaultPath(
     alloc: Allocator,
     program: []const u8,
 ) ![]const u8 {
-    const state_dir: []const u8 = xdg.state(
+    const state_dir: []const u8 = xdg.UserDir.state.path(
         alloc,
         .{ .subdir = program },
     ) catch |err| return switch (err) {
