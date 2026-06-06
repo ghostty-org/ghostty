@@ -75,6 +75,8 @@ pub const Message = union(enum) {
     pub const SearchMatch = struct {
         arena: ArenaAllocator,
         match: terminal.highlight.Flattened,
+        /// 1-based index
+        idx: usize,
     };
 
     /// Initialize a change_config message.

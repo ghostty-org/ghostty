@@ -336,7 +336,8 @@ pub const Action = union(Key) {
     /// The total number of matches found by the search.
     search_total: SearchTotal,
 
-    /// The currently selected search match index (1-based).
+    /// The currently selected search match: a 1-based index together with the
+    /// on-screen bounding rects of the match, in surface pixel coordinates (top-left origin).
     search_selected: SearchSelected,
 
     /// The readonly state of the surface has changed.
@@ -995,17 +996,46 @@ pub const SearchTotal = struct {
 pub const SearchSelected = struct {
     selected: ?usize,
 
+    /// On-screen bounding rects of the selected match — one per row it spans,
+    /// in surface pixel coordinates. Empty when there is no selected match or
+    /// when the renderer hasn't laid them out for the current size yet.
+    regions: []const renderer.Bounds,
+
     // Sync with: ghostty_action_search_selected_s
     pub const C = extern struct {
         selected: isize,
+        regions: [*]const renderer.Bounds,
+        regions_count: usize,
     };
 
     pub fn cval(self: SearchSelected) C {
         return .{
             .selected = if (self.selected) |s| @intCast(s) else -1,
+            .regions = self.regions.ptr,
+            .regions_count = self.regions.len,
         };
     }
 };
+
+test "SearchSelected.cval regions" {
+    const testing = std.testing;
+    const regions = [_]renderer.Bounds{
+        .{ .x = 1, .y = 2, .width = 3, .height = 4 },
+        .{ .x = 5, .y = 6, .width = 7, .height = 8 },
+    };
+    const c = (SearchSelected{ .selected = 3, .regions = &regions }).cval();
+    try testing.expectEqual(@as(isize, 3), c.selected);
+    try testing.expectEqual(@as(usize, 2), c.regions_count);
+    try testing.expectEqual(@as(f64, 1), c.regions[0].x);
+    try testing.expectEqual(@as(f64, 8), c.regions[1].height);
+}
+
+test "SearchSelected.cval empty" {
+    const testing = std.testing;
+    const c = (SearchSelected{ .selected = null, .regions = &.{} }).cval();
+    try testing.expectEqual(@as(isize, -1), c.selected);
+    try testing.expectEqual(@as(usize, 0), c.regions_count);
+}
 
 test {
     _ = std.testing.refAllDeclsRecursive(@This());

@@ -869,9 +869,19 @@ typedef struct {
   ssize_t total;
 } ghostty_action_search_total_s;
 
+// renderer.Bounds
+typedef struct {
+  double x;
+  double y;
+  double width;
+  double height;
+} ghostty_rect_s;
+
 // apprt.action.SearchSelected
 typedef struct {
   ssize_t selected;
+  const ghostty_rect_s* regions;
+  uintptr_t regions_count;
 } ghostty_action_search_selected_s;
 
 // terminal.Scrollbar
