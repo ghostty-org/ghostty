@@ -3208,6 +3208,11 @@ pub fn fullReset(self: *Terminal) void {
 
     // Always mark dirty so we redraw everything
     self.flags.dirty.clear = true;
+
+    // The clear dirty bit is enough to force a full render-state rebuild, but
+    // renderers keep their own cloned Glyph Protocol state. Set the glossary
+    // dirty bit too so they sync and drop any registrations cleared above.
+    self.flags.dirty.glyph_glossary = true;
 }
 
 /// Returns true if the point is dirty, used for testing.
