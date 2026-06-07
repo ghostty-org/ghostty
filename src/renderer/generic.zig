@@ -162,6 +162,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// mailbox could cause.
         search_selected_clear_pending: bool,
 
+        /// The upstream reason for the *current* match's next push. Set when
+        /// a new match arrives via `setSearchSelectedMatch`, consumed on the
+        /// first successful push. Subsequent pushes for the same match (e.g.
+        /// region recompute after a resize) default to `.frame_update`.
+        search_selected_pending_reason: ?apprt.action.SearchSelected.Reason,
+
         /// The current set of cells to render. This is rebuilt on every frame
         /// but we keep this around so that we don't reallocate. Each set of
         /// cells goes into a separate shader.
@@ -742,6 +748,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .last_search_selected = null,
                 .search_selected_scratch = .empty,
                 .search_selected_clear_pending = false,
+                .search_selected_pending_reason = null,
 
                 // Render state
                 .cells = .{},
@@ -2001,6 +2008,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             if (self.search_selected_match) |*m| m.arena.deinit();
             self.search_selected_match = match;
             self.search_matches_dirty = true;
+            self.search_selected_pending_reason = if (match) |m| m.reason else null;
 
             if (had_prev and match == null) {
                 self.clearLastSearchSelected();
@@ -2033,6 +2041,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 if (last) |l| l.regions else &.{},
                 sm.idx,
                 regions,
+                self.search_selected_pending_reason == .navigation,
             )) {
                 .skip => {},
 
@@ -2043,7 +2052,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .alloc = self.alloc,
                         .selected = sm.idx,
                         .regions = &.{},
+                        .reason = .frame_update,
                     } }, .instant) != 0) {
+                        self.search_selected_pending_reason = null;
                         self.clearLastSearchSelected();
                     }
                 },
@@ -2058,10 +2069,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         return;
                     };
 
+                    const reason = self.search_selected_pending_reason orelse .frame_update;
+
                     if (self.surface_mailbox.push(.{ .search_selected = .{
                         .alloc = self.alloc,
                         .selected = sm.idx,
                         .regions = send,
+                        .reason = reason,
                     } }, .instant) == 0) {
                         // Dropped: free both, keep the prior cache, retry next.
                         self.alloc.free(send);
@@ -2069,6 +2083,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         return;
                     }
 
+                    self.search_selected_pending_reason = null;
                     self.clearLastSearchSelected();
                     self.last_search_selected = .{
                         .selected = sm.idx,
