@@ -160,6 +160,7 @@ pub const Message = union(enum) {
         alloc: std.mem.Allocator,
         selected: usize,
         regions: []const renderer.Bounds,
+        reason: apprt.action.SearchSelected.Reason,
     };
 
     pub const ReportTitleStyle = enum {

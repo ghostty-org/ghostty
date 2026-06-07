@@ -51,15 +51,21 @@ pub const Decision = enum {
 
 /// Decide how the freshly-computed selection (`idx`, `new_regions`) relates to
 /// the last one reported (`last_*`, valid only when `has_last`).
+///
+/// `is_navigation` is true when the change was driven by the user pressing the
+/// navigate_search binding. In that case the same-idx-same-regions dedup is
+/// bypassed so the apprt always gets a fresh confirmation on every press,
+/// even on a single-match wrap.
 pub fn decide(
     has_last: bool,
     last_idx: usize,
     last_regions: []const Bounds,
     idx: usize,
     new_regions: []const Bounds,
+    is_navigation: bool,
 ) Decision {
     if (has_last and last_idx == idx and eql(last_regions, new_regions))
-        return .skip;
+        return if (is_navigation) .push else .skip;
 
     // No rects: clear a stale overlay if one was reported, else nothing to do
     // (transient post-resize / freshly-selected state; a report follows soon).
@@ -156,7 +162,15 @@ test "decide: unchanged -> skip" {
     const regions = [_]Bounds{.{ .x = 1, .y = 2, .width = 3, .height = 4 }};
     try std.testing.expectEqual(
         Decision.skip,
-        decide(true, 5, &regions, 5, &regions),
+        decide(true, 5, &regions, 5, &regions, false),
+    );
+}
+
+test "decide: unchanged but navigation -> push" {
+    const regions = [_]Bounds{.{ .x = 1, .y = 2, .width = 3, .height = 4 }};
+    try std.testing.expectEqual(
+        Decision.push,
+        decide(true, 5, &regions, 5, &regions, true),
     );
 }
 
@@ -164,7 +178,7 @@ test "decide: changed index -> push" {
     const regions = [_]Bounds{.{ .x = 1, .y = 2, .width = 3, .height = 4 }};
     try std.testing.expectEqual(
         Decision.push,
-        decide(true, 5, &regions, 6, &regions),
+        decide(true, 5, &regions, 6, &regions, false),
     );
 }
 
@@ -173,7 +187,7 @@ test "decide: changed regions -> push" {
     const b = [_]Bounds{.{ .x = 9, .y = 2, .width = 3, .height = 4 }};
     try std.testing.expectEqual(
         Decision.push,
-        decide(true, 5, &a, 5, &b),
+        decide(true, 5, &a, 5, &b, false),
     );
 }
 
@@ -181,7 +195,7 @@ test "decide: new selection with no prior -> push" {
     const regions = [_]Bounds{.{ .x = 1, .y = 2, .width = 3, .height = 4 }};
     try std.testing.expectEqual(
         Decision.push,
-        decide(false, 0, &.{}, 5, &regions),
+        decide(false, 0, &.{}, 5, &regions, false),
     );
 }
 
@@ -189,13 +203,13 @@ test "decide: went empty with a prior report -> clear" {
     const prior = [_]Bounds{.{ .x = 1, .y = 2, .width = 3, .height = 4 }};
     try std.testing.expectEqual(
         Decision.clear,
-        decide(true, 5, &prior, 5, &.{}),
+        decide(true, 5, &prior, 5, &.{}, false),
     );
 }
 
 test "decide: empty with no prior -> skip" {
     try std.testing.expectEqual(
         Decision.skip,
-        decide(false, 0, &.{}, 5, &.{}),
+        decide(false, 0, &.{}, 5, &.{}, false),
     );
 }
