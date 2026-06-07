@@ -1168,9 +1168,11 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
                 if (v) |sr| .{
                     .selected = sr.selected,
                     .regions = sr.regions,
+                    .reason = sr.reason,
                 } else .{
                     .selected = null,
                     .regions = &.{},
+                    .reason = .match_update,
                 },
             );
         },
@@ -1468,6 +1470,10 @@ fn searchCallback_(
                         .arena = arena,
                         .match = match,
                         .idx = sel.idx,
+                        .reason = switch (sel.reason) {
+                            .navigation => .navigation,
+                            .match_update => .match_update,
+                        },
                     } },
                     .forever,
                 );

@@ -877,11 +877,19 @@ typedef struct {
   double height;
 } ghostty_rect_s;
 
+// apprt.action.SearchSelected.Reason
+typedef enum {
+  GHOSTTY_ACTION_SEARCH_SELECTED_REASON_NAVIGATION,
+  GHOSTTY_ACTION_SEARCH_SELECTED_REASON_MATCH_UPDATE,
+  GHOSTTY_ACTION_SEARCH_SELECTED_REASON_FRAME_UPDATE,
+} ghostty_action_search_selected_reason_e;
+
 // apprt.action.SearchSelected
 typedef struct {
   ssize_t selected;
   const ghostty_rect_s* regions;
   uintptr_t regions_count;
+  ghostty_action_search_selected_reason_e reason;
 } ghostty_action_search_selected_s;
 
 // terminal.Scrollbar

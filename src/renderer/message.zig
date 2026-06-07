@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const configpkg = @import("../config.zig");
 const font = @import("../font/main.zig");
+const apprt = @import("../apprt.zig");
 const renderer = @import("../renderer.zig");
 const terminal = @import("../terminal/main.zig");
 
@@ -77,6 +78,10 @@ pub const Message = union(enum) {
         match: terminal.highlight.Flattened,
         /// 1-based index
         idx: usize,
+        /// Why the upstream (search thread / surface) is reporting this
+        /// selection. The renderer forwards this on the first push for this
+        /// match, then switches to .frame_update for subsequent pushes.
+        reason: apprt.action.SearchSelected.Reason,
     };
 
     /// Initialize a change_config message.
