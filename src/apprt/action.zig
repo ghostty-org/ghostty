@@ -460,8 +460,8 @@ pub const Action = union(Key) {
         // At the time of writing, we don't promise ABI compatibility
         // so we can change this but I want to be aware of it.
         assert(@sizeOf(CValue) == switch (@sizeOf(usize)) {
-            4 => 16,
-            8 => 24,
+            4 => 20,
+            8 => 40,
             else => unreachable,
         });
     }
@@ -994,15 +994,25 @@ pub const SearchTotal = struct {
 
 pub const SearchSelected = struct {
     selected: ?usize,
+    start: ?struct { x: u32, y: u32 },
+    end: ?struct { x: u32, y: u32 },
 
     // Sync with: ghostty_action_search_selected_s
     pub const C = extern struct {
         selected: isize,
+        start_x: isize,
+        start_y: isize,
+        end_x: isize,
+        end_y: isize,
     };
 
     pub fn cval(self: SearchSelected) C {
         return .{
             .selected = if (self.selected) |s| @intCast(s) else -1,
+            .start_x = if (self.start) |s| @intCast(s.x) else -1,
+            .start_y = if (self.start) |s| @intCast(s.y) else -1,
+            .end_x = if (self.end) |e| @intCast(e.x) else -1,
+            .end_y = if (self.end) |e| @intCast(e.y) else -1,
         };
     }
 };

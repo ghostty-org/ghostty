@@ -105,8 +105,19 @@ pub const Message = union(enum) {
     /// Search progress update
     search_total: ?usize,
 
-    /// Selected search index change
-    search_selected: ?usize,
+    /// Selected search index change + the coordinates of the selection (if any)
+    search_selected: SearchSelected,
+
+    pub const SearchSelected = struct {
+        selected: ?usize,
+        start: ?coords,
+        end: ?coords,
+
+        pub const coords = struct {
+            x: u32,
+            y: u32,
+        };
+    };
 
     pub const ReportTitleStyle = enum {
         csi_21_t,

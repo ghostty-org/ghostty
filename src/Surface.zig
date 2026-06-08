@@ -1161,7 +1161,11 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             _ = try self.rt_app.performAction(
                 .{ .surface = self },
                 .search_selected,
-                .{ .selected = v },
+                .{
+                    .selected = v.selected,
+                    .start = if (v.start) |s| .{ .x = s.x, .y = s.y } else null,
+                    .end = if (v.end) |e| .{ .x = e.x, .y = e.y } else null,
+                },
             );
         },
     }
@@ -1461,9 +1465,29 @@ fn searchCallback_(
                     .forever,
                 );
 
+                const start, const end = blk: {
+                    self.renderer_state.mutex.lock();
+                    defer self.renderer_state.mutex.unlock();
+                    const screen = self.renderer_state.terminal.screens.active;
+                    break :blk .{
+                        screen.pages.pointFromPin(.viewport, sel.highlight.startPin()),
+                        screen.pages.pointFromPin(.viewport, sel.highlight.endPin()),
+                    };
+                };
+
                 // Send the selected index to the surface mailbox
                 _ = self.surfaceMailbox().push(
-                    .{ .search_selected = sel.idx },
+                    .{ .search_selected = .{
+                        .selected = sel.idx,
+                        .start = if (start) |s| .{
+                            .x = s.coord().x,
+                            .y = s.coord().y,
+                        } else null,
+                        .end = if (end) |e| .{
+                            .x = e.coord().x,
+                            .y = e.coord().y,
+                        } else null,
+                    } },
                     .forever,
                 );
             } else {
@@ -1475,7 +1499,7 @@ fn searchCallback_(
 
                 // Reset the selected index
                 _ = self.surfaceMailbox().push(
-                    .{ .search_selected = null },
+                    .{ .search_selected = .{ .selected = null, .start = null, .end = null } },
                     .forever,
                 );
             }
@@ -1511,7 +1535,7 @@ fn searchCallback_(
                 .forever,
             );
             _ = self.surfaceMailbox().push(
-                .{ .search_selected = null },
+                .{ .search_selected = .{ .selected = null, .start = null, .end = null } },
                 .forever,
             );
         },

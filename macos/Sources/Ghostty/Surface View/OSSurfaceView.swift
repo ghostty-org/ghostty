@@ -124,6 +124,10 @@ extension Ghostty.OSSurfaceView {
 
         @Published var needle: String = ""
         @Published var selected: UInt?
+        @Published var start_x: UInt?
+        @Published var start_y: UInt?
+        @Published var end_x: UInt?
+        @Published var end_y: UInt?
         @Published var total: UInt?
 
         /// The range of the needle's text selection in the find bar.
