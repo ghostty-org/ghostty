@@ -555,60 +555,69 @@ extension Ghostty {
             }
         }
 
-        /// Check if the search bar overlaps with the given result rect (surface-local coordinates).
-        /// If it does, returns the y-offset needed to move the bar clear of the result.
-        private func calculateAvoidanceOffset(for resultRect: CGRect, in container: GeometryProxy) -> CGFloat? {
-            // Bar's natural y-range in surface-local coordinates (ignoring current avoidanceOffset)
-            let barTop: CGFloat
-            let barBottom: CGFloat
-            switch corner {
-            case .topLeft, .topRight:
-                barTop = padding
-                barBottom = padding + barSize.height
-            case .bottomLeft, .bottomRight:
-                barTop = container.size.height - barSize.height - padding
-                barBottom = container.size.height - padding
-            }
-
-            guard resultRect.maxY > barTop && resultRect.minY < barBottom else { return nil }
-
-            switch corner {
-            case .topLeft, .topRight:
-                // Move bar down so its top clears the result's bottom
-                let offset = resultRect.maxY + padding - barTop
-                return offset > 0 ? offset : nil
-            case .bottomLeft, .bottomRight:
-                // Move bar up so its bottom clears the result's top
-                let offset = resultRect.minY - padding - barBottom
-                return offset < 0 ? offset : nil
-            }
-        }
-
-        private func avoidOccludingResult(in container: GeometryProxy) {
+        /// The selected search result's bounding rect in surface-local coordinates.
+        private var resultRect: CGRect? {
             guard let start = searchState.selectedStart,
-                  let end = searchState.selectedEnd else {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    avoidanceOffset = 0
-                }
-                return
-            }
+                  let end = searchState.selectedEnd else { return nil }
 
             let cellSize = surfaceView.cellSize
-            let resultRect = CGRect(
+            return CGRect(
                 x: CGFloat(start.x) * cellSize.width,
                 y: CGFloat(start.y) * cellSize.height,
                 width: (CGFloat(end.x) - CGFloat(start.x) + 1) * cellSize.width,
                 height: (CGFloat(end.y) - CGFloat(start.y) + 1) * cellSize.height
             )
+        }
 
-            if let offset = calculateAvoidanceOffset(for: resultRect, in: container) {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    avoidanceOffset = offset
-                }
-                return
+        /// The search bar's natural (un-nudged) rect in surface-local coordinates.
+        ///
+        /// Derived from the anchored corner rather than read from the rendered frame:
+        /// the rendered frame already has `avoidanceOffset` baked in, so reading it
+        /// would feed back on the offset we're trying to solve for.
+        private func barRestRect(in container: GeometryProxy) -> CGRect {
+            let x: CGFloat
+            switch corner {
+            case .topLeft, .bottomLeft:
+                x = padding
+            case .topRight, .bottomRight:
+                x = container.size.width - barSize.width - padding
             }
+
+            let y: CGFloat
+            switch corner {
+            case .topLeft, .topRight:
+                y = padding
+            case .bottomLeft, .bottomRight:
+                y = container.size.height - barSize.height - padding
+            }
+
+            return CGRect(origin: CGPoint(x: x, y: y), size: barSize)
+        }
+
+        /// The vertical offset needed to move `bar` clear of `result`, or zero if they
+        /// don't overlap. Pure function of the two rects and the anchored corner.
+        private func avoidanceOffset(bar: CGRect, result: CGRect) -> CGFloat {
+            guard bar.intersects(result) else { return 0 }
+            switch corner {
+            case .topLeft, .topRight:
+                // Move the bar down so its top clears the result's bottom.
+                return result.maxY + padding - bar.minY
+            case .bottomLeft, .bottomRight:
+                // Move the bar up so its bottom clears the result's top.
+                return result.minY - padding - bar.maxY
+            }
+        }
+
+        private func avoidOccludingResult(in container: GeometryProxy) {
+            let offset: CGFloat
+            if let result = resultRect {
+                offset = avoidanceOffset(bar: barRestRect(in: container), result: result)
+            } else {
+                offset = 0
+            }
+
             withAnimation(.easeOut(duration: 0.2)) {
-                avoidanceOffset = 0
+                avoidanceOffset = offset
             }
         }
 
