@@ -3155,11 +3155,15 @@ pub fn dumpString(
         /// If true, this will unwrap soft-wrapped lines. If false, this will
         /// dump the screen as it is visually seen in a rendered window.
         unwrap: bool = true,
+
+        /// The format to emit. Defaults to plain text. Use `.vt` to emit
+        /// styled output (SGR sequences) that can be replayed into a terminal.
+        emit: @import("formatter.zig").Format = .plain,
     },
 ) std.Io.Writer.Error!void {
     // Create a formatter and use that to emit our text.
     var formatter: ScreenFormatter = .init(self, .{
-        .emit = .plain,
+        .emit = opts.emit,
         .unwrap = opts.unwrap,
         .trim = false,
     });
@@ -3213,6 +3217,58 @@ pub fn dumpStringAllocUnwrapped(
         .tl = self.pages.getTopLeft(tl),
         .br = self.pages.getBottomRight(tl) orelse return error.UnknownPoint,
         .unwrap = true,
+    });
+
+    return try builder.toOwnedSlice();
+}
+
+/// Like `dumpStringAlloc` but emits styled VT output (SGR sequences) instead
+/// of plain text, so the result can be replayed into a terminal to restore
+/// the visual appearance (colors, bold, etc.) of the dumped region.
+///
+/// If `skip_current_prompt` is set, the dump stops just above the current
+/// (bottom-most) shell prompt, so a restored dump doesn't duplicate the prompt
+/// that the freshly launched shell will print itself. This relies on shell
+/// integration's semantic prompt marks (OSC 133); without them the full region
+/// is dumped. Because it keys off the marks rather than the prompt text, it
+/// works for configurable and multi-line prompts.
+pub fn dumpStringVtAlloc(
+    self: *const Screen,
+    alloc: Allocator,
+    opts: struct {
+        tl: point.Point = .{ .screen = .{} },
+        skip_current_prompt: bool = false,
+    },
+) ![]const u8 {
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    const top = self.pages.getTopLeft(opts.tl);
+    var br = self.pages.getBottomRight(opts.tl) orelse return error.UnknownPoint;
+
+    if (opts.skip_current_prompt) {
+        // Walk up from the bottom, within the active area only, to find the
+        // start of the current prompt block (a row marked `.prompt`). Stop the
+        // dump just above it. The loop is bounded by the active row count and
+        // breaks at the top of the buffer, so it always terminates.
+        var cur = br;
+        var i: usize = 0;
+        while (i < self.pages.rows) : (i += 1) {
+            if (cur.rowAndCell().row.semantic_prompt == .prompt) {
+                if (cur.up(1)) |above| {
+                    if (!above.before(top)) br = above;
+                }
+                break;
+            }
+            cur = cur.up(1) orelse break;
+        }
+    }
+
+    try self.dumpString(&builder.writer, .{
+        .tl = top,
+        .br = br,
+        .unwrap = false,
+        .emit = .vt,
     });
 
     return try builder.toOwnedSlice();

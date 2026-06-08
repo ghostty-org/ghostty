@@ -27,6 +27,7 @@ const lib = @import("../../../lib/main.zig");
 
 const ext = @import("../ext.zig");
 const key = @import("../key.zig");
+const session = @import("../session.zig");
 const adw_version = @import("../adw_version.zig");
 const gtk_version = @import("../gtk_version.zig");
 const winprotopkg = @import("../winproto.zig");
@@ -183,6 +184,11 @@ pub const Application = extern struct {
         /// window.
         requested_window: bool = false,
 
+        /// Set to true once we've handled the first activation of the
+        /// primary instance. Used to restore a saved session exactly once
+        /// (on the first launch) rather than on every activation.
+        did_first_activate: bool = false,
+
         /// This is set to false internally when the event loop
         /// should exit and the application should quit. This must
         /// only be set by the main loop thread.
@@ -204,6 +210,17 @@ pub const Application = extern struct {
 
         /// glib source for our signal handler.
         signal_source: ?c_uint = null,
+
+        /// glib idle source for a pending session save. Event hooks (tab
+        /// added/removed, working directory changed) schedule a save through
+        /// this so state is persisted promptly even if Ghostty is killed
+        /// without a clean shutdown (battery dies, OOM, SIGKILL). Multiple
+        /// changes before the idle fires are coalesced into a single write.
+        session_save_idle: ?c_uint = null,
+
+        /// Hash of the most recently written session state. Used to skip
+        /// redundant writes when nothing has changed since the last save.
+        last_session_hash: ?u64 = null,
 
         /// CSS Provider for any styles based on Ghostty configuration values.
         css_provider: *gtk.CssProvider,
@@ -637,6 +654,12 @@ pub const Application = extern struct {
     }
 
     fn quitNow(self: *Self) void {
+        // Save the session before we destroy any windows, while surfaces
+        // and their working directories are still valid. This is the single
+        // convergence point for all quit routes (no-windows auto-quit, the
+        // quit action, and the close-confirmation dialog).
+        self.saveSession(true);
+
         // Get all our windows and destroy them, forcing them to free.
         const list = gtk.Window.listToplevels();
         defer list.free();
@@ -662,6 +685,348 @@ pub const Application = extern struct {
 
         // Trigger our runloop exit.
         self.private().running = false;
+    }
+
+    /// Persist the current set of windows, their tabs, and each tab's working
+    /// directory to disk so they can be restored on the next launch. This is a
+    /// best-effort operation: all errors are logged and swallowed so a save
+    /// failure never blocks quit.
+    ///
+    /// This is public because it is also called from a window's close-request
+    /// handler: when the last window is closed by the user, the window is
+    /// destroyed before the run loop notices there are no windows left and
+    /// calls `quitNow`, so saving from `quitNow` alone would see zero windows.
+    pub fn saveSession(self: *Self, write_scrollback: bool) void {
+        const priv = self.private();
+        const config = priv.config.get();
+
+        // If saving is disabled, clear any stale session file when explicitly
+        // set to `never` so that it isn't restored later, then bail. This is
+        // logged at debug because the periodic timer calls us frequently.
+        if (!session.shouldSaveState(config)) {
+            log.debug(
+                "session save skipped, window-save-state={s}",
+                .{@tagName(config.@"window-save-state")},
+            );
+            if (config.@"window-save-state" == .never) {
+                session.delete(self.allocator());
+                // Force a fresh write if saving is later re-enabled, since the
+                // file no longer exists even if the state hash is unchanged.
+                priv.last_session_hash = null;
+            }
+            return;
+        }
+
+        log.debug("building session state", .{});
+
+        // Per-tab scrollback budget. 0 disables scrollback persistence.
+        const scrollback_size = config.@"window-save-state-scrollback-size";
+
+        // Build the session on an arena so cleanup is trivial.
+        var arena = std.heap.ArenaAllocator.init(self.allocator());
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        // Tabs whose scrollback we should dump after deciding to save. Each
+        // entry pairs the GTK surface with the tab's stable id. Only realized
+        // tabs (whose shell has started) are included; unrealized tabs keep
+        // their existing on-disk scrollback untouched.
+        const ScrollbackTarget = struct { id: u64, surface: *Surface };
+        var scrollback_targets: std.ArrayListUnmanaged(ScrollbackTarget) = .empty;
+        // Every tab id in the session, used to prune orphaned scrollback files.
+        var all_tab_ids: std.ArrayListUnmanaged(u64) = .empty;
+
+        var windows: std.ArrayListUnmanaged(session.Session.Window) = .empty;
+
+        const glist = gtk.Window.listToplevels();
+        defer glist.free();
+        var current_: ?*glib.List = glist;
+        while (current_) |node| : (current_ = node.f_next) {
+            const data = node.f_data orelse continue;
+            const gtk_window: *gtk.Window = @ptrCast(@alignCast(data));
+
+            // We only persist our own windows, and never the quick terminal.
+            const window = gobject.ext.cast(Window, gtk_window) orelse continue;
+            if (window.isQuickTerminal()) continue;
+
+            const tab_view = window.getTabView();
+            const n = tab_view.getNPages();
+            if (n <= 0) continue;
+
+            var tabs: std.ArrayListUnmanaged(session.Session.Tab) = .empty;
+            for (0..@intCast(n)) |i| {
+                const page = tab_view.getNthPage(@intCast(i));
+                const child = page.getChild();
+                const tab = gobject.ext.cast(Tab, child) orelse continue;
+
+                const surface = tab.getActiveSurface() orelse {
+                    // Preserve the tab (with its stable id) even if we can't
+                    // read the surface.
+                    const id = tab.getId();
+                    all_tab_ids.append(alloc, id) catch {};
+                    tabs.append(alloc, .{ .id = id }) catch return;
+                    continue;
+                };
+
+                // Working directory: prefer the live pwd (from shell
+                // integration). Fall back to the restore-time override so that
+                // restored tabs which were never shown (so their shell never
+                // started and pwd is still null) keep their directory across
+                // save cycles instead of collapsing to the default.
+                const wd_src = surface.getPwd() orelse surface.getOverrideWorkingDirectory();
+                const wd: ?[]const u8 = if (wd_src) |pwd|
+                    (alloc.dupe(u8, pwd) catch null)
+                else
+                    null;
+
+                // Title: persist the meaningful title -- a user-set tab title
+                // override if present, otherwise the surface's effective title
+                // (its own override, else the terminal-set title). We avoid the
+                // tab's *computed* title because that includes a "Ghostty"
+                // default and bell/zoom decorations. On restore this is applied
+                // as a (pinned) title override.
+                const title_src = tab.getTitleOverride() orelse surface.getEffectiveTitle();
+                const title: ?[]const u8 = if (title_src) |t|
+                    (alloc.dupe(u8, t) catch null)
+                else
+                    null;
+
+                const tab_id = tab.getId();
+                all_tab_ids.append(alloc, tab_id) catch {};
+
+                // Collect realized tabs as scrollback dump targets. Unrealized
+                // tabs (shell not started, e.g. a restored tab never shown) are
+                // skipped so their saved scrollback file is preserved rather
+                // than overwritten with empty content.
+                if (scrollback_size > 0 and surface.core() != null) {
+                    scrollback_targets.append(alloc, .{
+                        .id = tab_id,
+                        .surface = surface,
+                    }) catch {};
+                }
+
+                tabs.append(alloc, .{
+                    .id = tab_id,
+                    .working_directory = wd,
+                    .title = title,
+                }) catch return;
+            }
+
+            if (tabs.items.len == 0) continue;
+
+            // Record the current window geometry (0 if not yet allocated).
+            const width = window.as(gtk.Widget).getWidth();
+            const height = window.as(gtk.Widget).getHeight();
+
+            // Record which tab is currently selected so it can be re-focused.
+            const focused_tab: ?u32 = ft: {
+                const sel = tab_view.getSelectedPage() orelse break :ft null;
+                const pos = tab_view.getPagePosition(sel);
+                break :ft if (pos >= 0) @intCast(pos) else null;
+            };
+            log.debug("saving window tabs={d} focused_tab={?d}", .{ tabs.items.len, focused_tab });
+
+            windows.append(alloc, .{
+                .id = window.getId(),
+                .width = if (width > 0) width else null,
+                .height = if (height > 0) height else null,
+                .focused_tab = focused_tab,
+                .tabs = tabs.items,
+            }) catch return;
+        }
+
+        // Nothing worth saving. Leave any existing file untouched so that a
+        // previously-saved good state survives (e.g. while quitNow runs after
+        // the last window was already destroyed via its close handler).
+        if (windows.items.len == 0) {
+            log.debug("no windows to save, leaving any existing session file", .{});
+            return;
+        }
+
+        var total_tabs: usize = 0;
+        for (windows.items) |w| total_tabs += w.tabs.len;
+
+        // Serialize once so we can both hash it for change detection and write
+        // it. The bytes live on the arena and are freed with it.
+        const bytes = session.serialize(alloc, .{
+            .windows = windows.items,
+        }) catch |err| {
+            log.warn("failed to serialize session err={}", .{err});
+            return;
+        };
+
+        // Skip the JSON write if nothing changed since our last successful
+        // save. This keeps the frequent event-driven saves cheap. Scrollback
+        // (below) is handled independently since it changes without the JSON.
+        const hash = std.hash.Wyhash.hash(0, bytes);
+        const changed = if (priv.last_session_hash) |prev| prev != hash else true;
+        if (changed) {
+            session.writeBytes(self.allocator(), bytes) catch |err| {
+                log.warn("failed to write session err={}", .{err});
+                return;
+            };
+            priv.last_session_hash = hash;
+            log.info(
+                "saved session windows={} tabs={}",
+                .{ windows.items.len, total_tabs },
+            );
+        } else {
+            log.debug("session unchanged, skipping json write", .{});
+        }
+
+        // Dump scrollback for each realized tab when requested (on quit /
+        // window close). Done independently of the JSON change check because
+        // scrollback grows without changing the session structure, and on a
+        // temporary allocation per tab so large dumps aren't retained.
+        // Unrealized tabs were not collected, so their `<id>.vt` is untouched.
+        if (write_scrollback and scrollback_size > 0) {
+            const gpa = self.allocator();
+            for (scrollback_targets.items) |target| {
+                const dump_ = target.surface.dumpScrollbackVt(gpa, scrollback_size) catch |err| {
+                    log.warn("failed to dump scrollback id={d} err={}", .{ target.id, err });
+                    continue;
+                };
+                if (dump_) |dump| {
+                    defer gpa.free(dump);
+                    session.writeScrollback(gpa, target.id, dump) catch |err| {
+                        log.warn("failed to write scrollback id={d} err={}", .{ target.id, err });
+                    };
+                } else {
+                    // Realized tab with empty scrollback: clear any stale file.
+                    session.deleteScrollback(gpa, target.id);
+                }
+            }
+
+            // Remove scrollback files for tabs that no longer exist.
+            session.pruneScrollback(gpa, all_tab_ids.items);
+        }
+    }
+
+    /// Attempt to restore a previously saved session. Returns true if at least
+    /// one window was restored, in which case the caller should not open the
+    /// default empty window.
+    fn tryRestoreSession(self: *Self) bool {
+        const priv = self.private();
+        const config = priv.config.get();
+        if (!session.shouldRestoreState(config)) {
+            log.info(
+                "session restore skipped, window-save-state={s}",
+                .{@tagName(config.@"window-save-state")},
+            );
+            return false;
+        }
+
+        const gpa = self.allocator();
+        const parsed = (session.load(gpa) catch |err| {
+            log.warn("failed to load session err={}", .{err});
+            return false;
+        }) orelse {
+            log.info("no saved session to restore", .{});
+            return false;
+        };
+        defer parsed.deinit();
+
+        const sess = parsed.value;
+        if (sess.windows.len == 0) return false;
+
+        log.info("restoring session windows={}", .{sess.windows.len});
+
+        // Scrollback is only restored if persistence is currently enabled.
+        const scrollback_size = config.@"window-save-state-scrollback-size";
+
+        // Arena for the temporary override strings/bytes. The window/tab/surface
+        // creation paths dupe these synchronously, so the arena can be freed
+        // once we're done creating windows.
+        var arena = std.heap.ArenaAllocator.init(gpa);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        // Reads a tab's saved scrollback bytes (or null) for injection, keyed
+        // by the tab's stable id.
+        const readScrollback = struct {
+            fn read(a: Allocator, size: usize, tab_data: session.Session.Tab) ?[]const u8 {
+                if (size == 0 or tab_data.id == 0) return null;
+                return session.readScrollback(a, tab_data.id) catch |err| {
+                    log.warn("failed to read scrollback id={d} err={}", .{ tab_data.id, err });
+                    return null;
+                };
+            }
+        }.read;
+
+        // A saved id of 0 (legacy session file) means "no stable id"; pass null
+        // so a fresh id is generated for that window/tab.
+        const idOrNull = struct {
+            fn f(v: u64) ?u64 {
+                return if (v == 0) null else v;
+            }
+        }.f;
+
+        var restored: usize = 0;
+        for (sess.windows) |win_data| {
+            if (win_data.tabs.len == 0) continue;
+
+            const size: ?Action.WindowSize = if (win_data.width) |w|
+                (if (win_data.height) |h| Action.WindowSize{
+                    .width = @intCast(w),
+                    .height = @intCast(h),
+                } else null)
+            else
+                null;
+
+            // First tab opens the window.
+            const first = win_data.tabs[0];
+            const win = Action.newWindowReturning(self, null, .{
+                .working_directory = dupeOptZ(alloc, first.working_directory),
+                .title = dupeOptZ(alloc, first.title),
+                .restore_scrollback = readScrollback(alloc, scrollback_size, first),
+                .id = idOrNull(first.id),
+            }, size, idOrNull(win_data.id)) catch |err| {
+                log.warn("failed to restore window err={}", .{err});
+                continue;
+            };
+
+            // Remaining tabs are added to the same window.
+            for (win_data.tabs[1..]) |tab_data| {
+                win.newTabForWindow(null, .{
+                    .working_directory = dupeOptZ(alloc, tab_data.working_directory),
+                    .title = dupeOptZ(alloc, tab_data.title),
+                    .restore_scrollback = readScrollback(alloc, scrollback_size, tab_data),
+                    .id = idOrNull(tab_data.id),
+                });
+            }
+
+            // Re-select the tab that was focused when the session was saved.
+            // newTabForWindow selects each new tab as it's added, so by default
+            // the last tab would be focused; this restores the real selection.
+            // We select the page directly by its 0-indexed position. (Window
+            // .selectTab's `.n` is 1-indexed and no-ops on 0, so it's not used
+            // here.)
+            if (win_data.focused_tab) |ft| {
+                const tab_view = win.getTabView();
+                const n = tab_view.getNPages();
+                if (n > 0 and ft < @as(u32, @intCast(n))) {
+                    tab_view.setSelectedPage(tab_view.getNthPage(@intCast(ft)));
+                    log.debug("restored focused tab index={d}", .{ft});
+                } else {
+                    log.warn(
+                        "saved focused_tab={d} out of range (npages={d})",
+                        .{ ft, n },
+                    );
+                }
+            }
+
+            restored += 1;
+        }
+
+        log.info("restored session windows={}", .{restored});
+        return restored > 0;
+    }
+
+    /// Duplicate an optional slice into an optional sentinel-terminated slice.
+    /// Returns null on allocation failure (best-effort).
+    fn dupeOptZ(alloc: Allocator, s: ?[]const u8) ?[:0]const u8 {
+        const v = s orelse return null;
+        return alloc.dupeZ(u8, v) catch null;
     }
 
     /// apprt API to perform an action.
@@ -1407,6 +1772,33 @@ pub const Application = extern struct {
         );
     }
 
+    /// Schedule a session save to run when the main loop is next idle.
+    ///
+    /// This is called from event hooks (tab added/removed, working directory
+    /// changed) so we persist state promptly without polling. Saving is
+    /// deferred to idle rather than done synchronously because some of those
+    /// events fire during widget teardown, when enumerating windows would be
+    /// unsafe; by idle time the teardown has completed. Multiple changes
+    /// before the idle fires are coalesced into a single save, and the save
+    /// itself is a no-op if nothing actually changed (see `saveSession`).
+    pub fn scheduleSaveSession(self: *Self) void {
+        const priv = self.private();
+        if (priv.session_save_idle != null) return;
+        priv.session_save_idle = glib.idleAdd(handleSaveSessionIdle, self);
+    }
+
+    /// Idle callback that performs a scheduled session save exactly once.
+    fn handleSaveSessionIdle(ud: ?*anyopaque) callconv(.c) c_int {
+        const self: *Self = @ptrCast(@alignCast(ud orelse
+            return @intFromBool(glib.SOURCE_REMOVE)));
+        self.private().session_save_idle = null;
+        // Event-driven saves (tab/cwd changes) persist structure only; dumping
+        // scrollback here would be too frequent. Scrollback is flushed on
+        // window close and quit instead.
+        self.saveSession(false);
+        return @intFromBool(glib.SOURCE_REMOVE);
+    }
+
     /// Setup our action map.
     fn startupActionMap(self: *Self) void {
         const t_variant_type = glib.ext.VariantType.newFor(u64);
@@ -1459,11 +1851,24 @@ pub const Application = extern struct {
     fn activate(self: *Self) callconv(.c) void {
         log.debug("activate", .{});
 
-        // Queue a new window
         const priv = self.private();
-        _ = priv.core_app.mailbox.push(.{
-            .new_window = .{},
-        }, .{ .forever = {} });
+
+        // On the very first activation of the primary instance, attempt to
+        // restore a previously saved session instead of opening a single
+        // empty window. If we restore at least one window, we skip the
+        // default new_window so we don't end up with an extra empty window.
+        const restored = restore: {
+            if (priv.did_first_activate) break :restore false;
+            priv.did_first_activate = true;
+            break :restore self.tryRestoreSession();
+        };
+
+        // Queue a new window unless we restored a session.
+        if (!restored) {
+            _ = priv.core_app.mailbox.push(.{
+                .new_window = .{},
+            }, .{ .forever = {} });
+        }
 
         // Call the parent activate method.
         gio.Application.virtual_methods.activate.call(
@@ -1484,6 +1889,12 @@ pub const Application = extern struct {
                 log.warn("unable to remove signal source", .{});
             }
             priv.signal_source = null;
+        }
+        if (priv.session_save_idle) |v| {
+            if (glib.Source.remove(v) == 0) {
+                log.warn("unable to remove session save idle source", .{});
+            }
+            priv.session_save_idle = null;
         }
 
         gobject.Object.virtual_methods.dispose.call(
@@ -2249,6 +2660,12 @@ const Action = struct {
         }
     }
 
+    /// An explicit window size override, in pixels.
+    pub const WindowSize = struct {
+        width: c_int,
+        height: c_int,
+    };
+
     pub fn newWindow(
         self: *Application,
         parent: ?*CoreSurface,
@@ -2260,6 +2677,33 @@ const Action = struct {
             pub const none: @This() = .{};
         },
     ) !void {
+        _ = try newWindowReturning(self, parent, .{
+            .command = overrides.command,
+            .working_directory = overrides.working_directory,
+            .title = overrides.title,
+        }, null, null);
+    }
+
+    /// Same as `newWindow` but returns the created window and accepts an
+    /// optional explicit size. Used by session restore so we can add
+    /// additional tabs and restore window geometry.
+    pub fn newWindowReturning(
+        self: *Application,
+        parent: ?*CoreSurface,
+        overrides: struct {
+            command: ?configpkg.Command = null,
+            working_directory: ?[:0]const u8 = null,
+            title: ?[:0]const u8 = null,
+            restore_scrollback: ?[]const u8 = null,
+            /// Stable id for the window's first tab (session restore).
+            id: ?u64 = null,
+
+            pub const none: @This() = .{};
+        },
+        size: ?WindowSize,
+        /// Stable id for the window itself (session restore).
+        window_id: ?u64,
+    ) !*Window {
         // Note that we've requested a window at least once. This is used
         // to trigger quit on no windows. Note I'm not sure if this is REALLY
         // necessary, but I don't want to risk a bug where on a slow machine
@@ -2269,6 +2713,7 @@ const Action = struct {
 
         const win = Window.new(self, .{
             .title = overrides.title,
+            .id = window_id,
         });
         initAndShowWindow(
             self,
@@ -2278,8 +2723,12 @@ const Action = struct {
                 .command = overrides.command,
                 .working_directory = overrides.working_directory,
                 .title = overrides.title,
+                .restore_scrollback = overrides.restore_scrollback,
+                .id = overrides.id,
             },
+            size,
         );
+        return win;
     }
 
     fn initAndShowWindow(
@@ -2290,9 +2739,12 @@ const Action = struct {
             command: ?configpkg.Command = null,
             working_directory: ?[:0]const u8 = null,
             title: ?[:0]const u8 = null,
+            restore_scrollback: ?[]const u8 = null,
+            id: ?u64 = null,
 
             pub const none: @This() = .{};
         },
+        size: ?WindowSize,
     ) void {
         // Setup a binding so that whenever our config changes so does the
         // window. There's never a time when the window config should be out
@@ -2310,18 +2762,27 @@ const Action = struct {
             .command = overrides.command,
             .working_directory = overrides.working_directory,
             .title = overrides.title,
+            .restore_scrollback = overrides.restore_scrollback,
+            .id = overrides.id,
         });
 
         // Estimate the initial window size before presenting so the window
         // manager can position it correctly.
         if (win.getActiveSurface()) |surface| {
             surface.estimateInitialSize();
-            if (surface.getDefaultSize()) |size| {
+            if (surface.getDefaultSize()) |default_size| {
                 win.as(gtk.Window).setDefaultSize(
-                    @intCast(size.width),
-                    @intCast(size.height),
+                    @intCast(default_size.width),
+                    @intCast(default_size.height),
                 );
             }
+        }
+
+        // If an explicit size was requested (e.g. session restore), it
+        // overrides the surface estimate. This must happen before present so
+        // the window is mapped at the restored size.
+        if (size) |s| {
+            win.as(gtk.Window).setDefaultSize(s.width, s.height);
         }
 
         // Show the window
@@ -2664,7 +3125,7 @@ const Action = struct {
             .@"quick-terminal" = true,
         });
         assert(win.isQuickTerminal());
-        initAndShowWindow(self, win, null, .none);
+        initAndShowWindow(self, win, null, .none, null);
         return true;
     }
 

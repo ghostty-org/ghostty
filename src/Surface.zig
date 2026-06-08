@@ -2038,6 +2038,50 @@ pub fn hasSelection(self: *const Surface) bool {
     return self.io.terminal.screens.active.selection != null;
 }
 
+/// Dump this surface's scrollback (history + active screen) as styled VT
+/// bytes suitable for replaying into a terminal (via `processOutput`) to
+/// restore its appearance — colors, bold, etc.
+///
+/// The result is tail-truncated to at most `max_bytes` on a line boundary so
+/// only the most recent content is kept, and prefixed with a reset (ESC[0m)
+/// so a truncated tail begins with a clean style. Returns null if there is
+/// nothing worth dumping. Caller owns the returned memory.
+pub fn dumpScrollbackVt(
+    self: *Surface,
+    alloc: Allocator,
+    max_bytes: usize,
+) !?[]const u8 {
+    const reset = "\x1b[0m";
+
+    const full = full: {
+        self.renderer_state.mutex.lock();
+        defer self.renderer_state.mutex.unlock();
+        break :full try self.io.terminal.screens.active.dumpStringVtAlloc(
+            alloc,
+            .{ .skip_current_prompt = true },
+        );
+    };
+    defer alloc.free(full);
+
+    // Trim trailing blank space/newlines so we don't restore a large gap.
+    const trimmed = std.mem.trimRight(u8, full, " \t\r\n");
+    if (trimmed.len == 0) return null;
+
+    // Keep only the most recent `budget` bytes.
+    const budget = if (max_bytes > reset.len) max_bytes - reset.len else 0;
+    var start: usize = if (trimmed.len > budget) trimmed.len - budget else 0;
+
+    // If we cut into the content, advance to the start of the next line so we
+    // never begin mid-line or mid-escape-sequence.
+    if (start > 0) {
+        const nl = std.mem.indexOfScalarPos(u8, trimmed, start, '\n') orelse
+            return null;
+        start = nl + 1;
+    }
+
+    return try std.mem.concat(alloc, u8, &.{ reset, trimmed[start..] });
+}
+
 /// Returns the selected text. This is allocated.
 pub fn selectionString(self: *Surface, alloc: Allocator) !?[:0]const u8 {
     self.renderer_state.mutex.lock();

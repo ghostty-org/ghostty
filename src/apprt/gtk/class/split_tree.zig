@@ -216,6 +216,7 @@ pub const SplitTree = extern struct {
             command: ?configpkg.Command = null,
             working_directory: ?[:0]const u8 = null,
             title: ?[:0]const u8 = null,
+            restore_scrollback: ?[]const u8 = null,
 
             pub const none: @This() = .{};
         },
@@ -227,6 +228,7 @@ pub const SplitTree = extern struct {
             .command = overrides.command,
             .working_directory = overrides.working_directory,
             .title = overrides.title,
+            .restore_scrollback = overrides.restore_scrollback,
         });
         defer surface.unref();
         _ = surface.refSink();

@@ -18,6 +18,7 @@ const ext = @import("../ext.zig");
 const gtk_version = @import("../gtk_version.zig");
 const adw_version = @import("../adw_version.zig");
 const gresource = @import("../build/gresource.zig");
+const session = @import("../session.zig");
 const winprotopkg = @import("../winproto.zig");
 const Common = @import("../class.zig").Common;
 const Config = @import("config.zig").Config;
@@ -216,6 +217,10 @@ pub const Window = extern struct {
     };
 
     const Private = struct {
+        /// Stable random identifier for this window, assigned at creation and
+        /// overridable on session restore.
+        id: u64 = 0,
+
         /// Whether this window is a quick terminal. If it is then it
         /// behaves slightly differently under certain scenarios.
         quick_terminal: bool = false,
@@ -273,6 +278,9 @@ pub const Window = extern struct {
         app: *Application,
         overrides: struct {
             title: ?[:0]const u8 = null,
+            /// Stable id to assign (from session restore). If null, a fresh
+            /// random id is generated.
+            id: ?u64 = null,
 
             pub const none: @This() = .{};
         },
@@ -280,6 +288,10 @@ pub const Window = extern struct {
         const win = gobject.ext.newInstance(Self, .{
             .application = app,
         });
+
+        // `init` already assigned a fresh random id; override it with the
+        // restored id when one is provided.
+        if (overrides.id) |id| win.private().id = id;
 
         if (overrides.title) |title| {
             // If the overrides have a title set, we set that immediately
@@ -298,6 +310,10 @@ pub const Window = extern struct {
         // If our configuration is null then we get the configuration
         // from the application.
         const priv = self.private();
+
+        // Assign a stable random id to every window at creation. `new()` may
+        // override it (with a restored id) for session restore.
+        priv.id = session.newId();
 
         const config = config: {
             if (priv.config) |config| break :config config.get();
@@ -401,6 +417,8 @@ pub const Window = extern struct {
             command: ?configpkg.Command = null,
             working_directory: ?[:0]const u8 = null,
             title: ?[:0]const u8 = null,
+            restore_scrollback: ?[]const u8 = null,
+            id: ?u64 = null,
 
             pub const none: @This() = .{};
         },
@@ -412,6 +430,8 @@ pub const Window = extern struct {
                 .command = overrides.command,
                 .working_directory = overrides.working_directory,
                 .title = overrides.title,
+                .restore_scrollback = overrides.restore_scrollback,
+                .id = overrides.id,
             },
         );
     }
@@ -424,6 +444,8 @@ pub const Window = extern struct {
             command: ?configpkg.Command = null,
             working_directory: ?[:0]const u8 = null,
             title: ?[:0]const u8 = null,
+            restore_scrollback: ?[]const u8 = null,
+            id: ?u64 = null,
 
             pub const none: @This() = .{};
         },
@@ -438,6 +460,8 @@ pub const Window = extern struct {
                 .command = overrides.command,
                 .working_directory = overrides.working_directory,
                 .title = overrides.title,
+                .restore_scrollback = overrides.restore_scrollback,
+                .id = overrides.id,
             },
         );
 
@@ -903,6 +927,11 @@ pub const Window = extern struct {
     pub fn getActiveSurface(self: *Self) ?*Surface {
         const tab = self.getSelectedTab() orelse return null;
         return tab.getActiveSurface();
+    }
+
+    /// The stable id of this window. See `Private.id`.
+    pub fn getId(self: *Self) u64 {
+        return self.private().id;
     }
 
     /// Returns the configuration for this window. The reference count
@@ -1401,6 +1430,14 @@ pub const Window = extern struct {
         _: *gtk.Window,
         self: *Self,
     ) callconv(.c) c_int {
+        // Save the session before this window is torn down. When the user
+        // closes the last window, GTK destroys it before the run loop notices
+        // there are no windows left and calls quitNow, so saving only at quit
+        // time would miss it. We save here while all windows (including this
+        // one) are still alive. This is a no-op when window-save-state is off.
+        log.debug("window close requested, saving session", .{});
+        Application.default().saveSession(true);
+
         if (self.getNeedsConfirmQuit()) {
             // Show a confirmation dialog
             const dialog: *CloseConfirmationDialog = .new(.window);
@@ -1560,6 +1597,9 @@ pub const Window = extern struct {
         if (tab.getSurfaceTree()) |tree| {
             self.connectSurfaceHandlers(tree);
         }
+
+        // A tab (or a new window's first tab) was added: persist the session.
+        Application.default().scheduleSaveSession();
     }
 
     fn tabViewPageDetached(
@@ -1585,6 +1625,10 @@ pub const Window = extern struct {
         if (tab.getSurfaceTree()) |tree| {
             self.disconnectSurfaceHandlers(tree);
         }
+
+        // A tab was removed: persist the session. This is scheduled to idle so
+        // it runs after the teardown completes and the window list is stable.
+        Application.default().scheduleSaveSession();
     }
 
     fn tabViewCreateWindow(

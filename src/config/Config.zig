@@ -2206,7 +2206,8 @@ keybind: Keybinds = .{},
 ///
 ///   * `default` will use the default system behavior. On macOS, this
 ///     will only save state if the application is forcibly terminated
-///     or if it is configured systemwide via Settings.app.
+///     or if it is configured systemwide via Settings.app. On Linux, there
+///     is no system-level behavior, so this behaves like `always`.
 ///
 ///   * `never` will never save window state.
 ///
@@ -2226,8 +2227,31 @@ keybind: Keybinds = .{},
 ///
 /// The default value is `default`.
 ///
-/// This is currently only supported on macOS. This has no effect on Linux.
+/// ## Platform differences
+///
+/// On macOS, this uses the native AppKit window restoration system and can
+/// restore window position, size, tabs, and splits.
+///
+/// On Linux (GTK), Ghostty saves the open windows, their tabs, and each tab's
+/// working directory to `$XDG_STATE_HOME/ghostty/session.json` (typically
+/// `~/.local/state/ghostty/session.json`) on exit, and restores them on the
+/// next launch. Window size is also restored. Splits and scrollback contents
+/// are not currently restored on Linux. Accurate working directories require
+/// shell integration (see `shell-integration`); tabs whose working directory
+/// is unknown are restored using the default working directory.
 @"window-save-state": WindowSaveState = .default,
+
+/// The maximum number of bytes of scrollback to persist per tab when
+/// `window-save-state` saves a session (Linux/GTK only).
+///
+/// When greater than zero, each restored tab's scrollback (history plus the
+/// visible screen) is saved to disk and replayed into the tab on the next
+/// launch, so previous output — including colors — appears above the new
+/// shell prompt. Only the most recent bytes up to this budget are kept.
+///
+/// The default value of `0` disables scrollback persistence; window, tab, and
+/// working-directory restoration are unaffected. This has no effect on macOS.
+@"window-save-state-scrollback-size": usize = 0,
 
 /// Resize the window in discrete increments of the focused surface's cell size.
 /// If this is disabled, surfaces are resized in pixel increments. Currently

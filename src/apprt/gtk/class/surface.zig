@@ -737,6 +737,9 @@ pub const Surface = extern struct {
         overrides: struct {
             command: ?configpkg.Command = null,
             working_directory: ?[:0]const u8 = null,
+            /// Styled VT bytes to replay into the terminal as display output
+            /// once it initializes, used to restore saved scrollback.
+            restore_scrollback: ?[]const u8 = null,
 
             pub const none: @This() = .{};
         } = .none,
@@ -748,6 +751,7 @@ pub const Surface = extern struct {
         command: ?configpkg.Command = null,
         working_directory: ?[:0]const u8 = null,
         title: ?[:0]const u8 = null,
+        restore_scrollback: ?[]const u8 = null,
 
         pub const none: @This() = .{};
     }) *Self {
@@ -759,6 +763,7 @@ pub const Surface = extern struct {
         priv.overrides = .{
             .command = if (overrides.command) |c| c.clone(alloc) catch null else null,
             .working_directory = if (overrides.working_directory) |wd| alloc.dupeZ(u8, wd) catch null else null,
+            .restore_scrollback = if (overrides.restore_scrollback) |s| alloc.dupe(u8, s) catch null else null,
         };
         return self;
     }
@@ -1974,6 +1979,14 @@ pub const Surface = extern struct {
             alloc.free(wd);
             priv.overrides.working_directory = null;
         }
+        // Free restore_scrollback if it was never consumed. initSurface frees
+        // and nulls it after injecting, so this only runs for surfaces that
+        // were created (e.g. background tabs during session restore) but never
+        // realized/initialized before being destroyed.
+        if (priv.overrides.restore_scrollback) |s| {
+            alloc.free(s);
+            priv.overrides.restore_scrollback = null;
+        }
 
         // Clean up key sequence and key table state
         for (priv.key_sequence.items) |s| alloc.free(s);
@@ -2000,6 +2013,14 @@ pub const Surface = extern struct {
     pub fn getEffectiveTitle(self: *Self) ?[:0]const u8 {
         const priv = self.private();
         return priv.title_override orelse priv.title;
+    }
+
+    /// Returns the user-set title override, if any. Unlike `getEffectiveTitle`
+    /// this does NOT fall back to the terminal-set title, so it can be used to
+    /// persist only titles the user explicitly chose (which should be restored
+    /// as overrides rather than pinning a transient terminal title).
+    pub fn getTitleOverride(self: *Self) ?[:0]const u8 {
+        return self.private().title_override;
     }
 
     /// Copies the effective title to the clipboard.
@@ -2039,6 +2060,23 @@ pub const Surface = extern struct {
         return self.private().pwd;
     }
 
+    /// Returns the working-directory override this surface was created with,
+    /// if any (e.g. from session restore). Unlike `getPwd`, this is available
+    /// even before the surface is realized and its shell has started, so it
+    /// serves as a fallback for persisting the cwd of restored-but-never-shown
+    /// tabs (whose `pwd` is still null).
+    pub fn getOverrideWorkingDirectory(self: *Self) ?[:0]const u8 {
+        return self.private().overrides.working_directory;
+    }
+
+    /// Dump this surface's scrollback as styled VT bytes (for session restore).
+    /// Returns null if the core surface isn't initialized or there's nothing to
+    /// dump. Caller owns the returned memory. See `CoreSurface.dumpScrollbackVt`.
+    pub fn dumpScrollbackVt(self: *Self, alloc: Allocator, max_bytes: usize) !?[]const u8 {
+        const cs = self.private().core_surface orelse return null;
+        return try cs.dumpScrollbackVt(alloc, max_bytes);
+    }
+
     /// Set the pwd for this surface, copies the value.
     pub fn setPwd(self: *Self, pwd: ?[:0]const u8) void {
         const priv = self.private();
@@ -2046,6 +2084,11 @@ pub const Surface = extern struct {
         priv.pwd = null;
         if (pwd) |v| priv.pwd = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.pwd.impl.param_spec);
+
+        // The working directory changed: persist the session. This is
+        // coalesced and a no-op if the resulting state is unchanged, so the
+        // frequent OSC 7 reports that don't actually change the cwd are cheap.
+        Application.default().scheduleSaveSession();
     }
 
     /// Returns the focus state of this surface.
@@ -3476,6 +3519,23 @@ pub const Surface = extern struct {
 
         // Store it!
         priv.core_surface = surface;
+
+        // If we have saved scrollback to restore, replay it into the terminal
+        // as display output (NOT pty input) now that the surface is
+        // initialized. This runs before the shell's first prompt arrives, so
+        // the restored history appears above it. We free it after injection.
+        //
+        // We intentionally do NOT inject a visible marker: it would be
+        // recaptured by the next save and compound across restore cycles.
+        // Reset styling first, then add a trailing newline so the shell's
+        // prompt starts on its own line below the restored history.
+        if (priv.overrides.restore_scrollback) |bytes| {
+            surface.io.processOutput("\x1b[0m");
+            surface.io.processOutput(bytes);
+            surface.io.processOutput("\r\n");
+            Application.default().allocator().free(bytes);
+            priv.overrides.restore_scrollback = null;
+        }
 
         // Emit the signal that we initialized the surface.
         Surface.signals.init.impl.emit(
