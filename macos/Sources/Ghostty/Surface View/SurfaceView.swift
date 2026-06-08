@@ -368,6 +368,7 @@ extension Ghostty {
         @ObservedObject var searchState: SurfaceView.SearchState
         let onClose: () -> Void
         @State private var corner: Corner = .topRight
+        @State private var avoidanceOffset: CGFloat = 0
         @State private var dragOffset: CGSize = .zero
         @State private var barSize: CGSize = .zero
         @FocusState private var isSearchFieldFocused: Bool
@@ -479,7 +480,7 @@ extension Ghostty {
                     }
                 )
                 .padding(padding)
-                .offset(dragOffset)
+                .offset(CGSize(width: dragOffset.width, height: dragOffset.height + avoidanceOffset))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: corner.alignment)
                 .gesture(
                     DragGesture()
@@ -490,15 +491,19 @@ extension Ghostty {
                             let centerPos = centerPosition(for: corner, in: geo.size, barSize: barSize)
                             let newCenter = CGPoint(
                                 x: centerPos.x + value.translation.width,
-                                y: centerPos.y + value.translation.height
+                                y: centerPos.y + value.translation.height + avoidanceOffset
                             )
                             let newCorner = closestCorner(to: newCenter, in: geo.size)
                             withAnimation(.easeOut(duration: 0.2)) {
                                 corner = newCorner
                                 dragOffset = .zero
+                                avoidanceOffset = 0
                             }
                         }
                 )
+                .onChange(of: searchState.selected) { _ in
+                    avoidOccludingResult(in: geo)
+                }
             }
         }
 
@@ -547,6 +552,63 @@ extension Ghostty {
                 return point.y < midY ? .topLeft : .bottomLeft
             } else {
                 return point.y < midY ? .topRight : .bottomRight
+            }
+        }
+
+        /// Check if the search bar overlaps with the given result rect (surface-local coordinates).
+        /// If it does, returns the y-offset needed to move the bar clear of the result.
+        private func calculateAvoidanceOffset(for resultRect: CGRect, in container: GeometryProxy) -> CGFloat? {
+            // Bar's natural y-range in surface-local coordinates (ignoring current avoidanceOffset)
+            let barTop: CGFloat
+            let barBottom: CGFloat
+            switch corner {
+            case .topLeft, .topRight:
+                barTop = padding
+                barBottom = padding + barSize.height
+            case .bottomLeft, .bottomRight:
+                barTop = container.size.height - barSize.height - padding
+                barBottom = container.size.height - padding
+            }
+
+            guard resultRect.maxY > barTop && resultRect.minY < barBottom else { return nil }
+
+            switch corner {
+            case .topLeft, .topRight:
+                // Move bar down so its top clears the result's bottom
+                let offset = resultRect.maxY + padding - barTop
+                return offset > 0 ? offset : nil
+            case .bottomLeft, .bottomRight:
+                // Move bar up so its bottom clears the result's top
+                let offset = resultRect.minY - padding - barBottom
+                return offset < 0 ? offset : nil
+            }
+        }
+
+        private func avoidOccludingResult(in container: GeometryProxy) {
+            guard let start = searchState.selectedStart,
+                  let end = searchState.selectedEnd else {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    avoidanceOffset = 0
+                }
+                return
+            }
+
+            let cellSize = surfaceView.cellSize
+            let resultRect = CGRect(
+                x: CGFloat(start.x) * cellSize.width,
+                y: CGFloat(start.y) * cellSize.height,
+                width: (CGFloat(end.x) - CGFloat(start.x) + 1) * cellSize.width,
+                height: (CGFloat(end.y) - CGFloat(start.y) + 1) * cellSize.height
+            )
+
+            if let offset = calculateAvoidanceOffset(for: resultRect, in: container) {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    avoidanceOffset = offset
+                }
+                return
+            }
+            withAnimation(.easeOut(duration: 0.2)) {
+                avoidanceOffset = 0
             }
         }
 

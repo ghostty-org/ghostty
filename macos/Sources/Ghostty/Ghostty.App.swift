@@ -2159,8 +2159,14 @@ extension Ghostty {
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
 
                 let selected: UInt? = v.selected >= 0 ? UInt(v.selected) : nil
+                let start: OSSurfaceView.SearchState.Coord? = v.start_x >= 0 && v.start_y >= 0
+                    ? .init(x: Int(v.start_x), y: Int(v.start_y)) : nil
+                let end: OSSurfaceView.SearchState.Coord? = v.end_x >= 0 && v.end_y >= 0
+                    ? .init(x: Int(v.end_x), y: Int(v.end_y)) : nil
                 DispatchQueue.main.async {
                     surfaceView.searchState?.selected = selected
+                    surfaceView.searchState?.selectedStart = start
+                    surfaceView.searchState?.selectedEnd = end
                 }
 
             default:

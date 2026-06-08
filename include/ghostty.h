@@ -872,10 +872,10 @@ typedef struct {
 // apprt.action.SearchSelected
 typedef struct {
   ssize_t selected;
-  uint32_t start_x;
-  uint32_t start_y;
-  uint32_t end_x;
-  uint32_t end_y;
+  ssize_t start_x;
+  ssize_t start_y;
+  ssize_t end_x;
+  ssize_t end_y;
 } ghostty_action_search_selected_s;
 
 // terminal.Scrollbar

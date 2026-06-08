@@ -117,6 +117,12 @@ extension Ghostty {
 
 extension Ghostty.OSSurfaceView {
     @MainActor class SearchState: ObservableObject {
+        /// A position in the surface defined by x and y coordinates.
+        struct Coord {
+            var x: Int
+            var y: Int
+        }
+
         /// The pasteboard used to persist the search needle.
         ///
         /// The `.find` pasteboard lets us sync our needle across the system and other find bars.
@@ -124,11 +130,17 @@ extension Ghostty.OSSurfaceView {
 
         @Published var needle: String = ""
         @Published var selected: UInt?
-        @Published var start_x: UInt?
-        @Published var start_y: UInt?
-        @Published var end_x: UInt?
-        @Published var end_y: UInt?
         @Published var total: UInt?
+
+        /// Viewport coordinates of the start of a selected match.
+        /// Nil when there is no selection or the coordinates are not available
+        /// (results off screen).
+        @Published var selectedStart: Coord?
+
+        /// Viewport coordinates of the end of a selected match.
+        /// Nil when there is no selection or the coordinates are not available
+        /// (results off screen).
+        @Published var selectedEnd: Coord?
 
         /// The range of the needle's text selection in the find bar.
         @Published var needleSelection: Range<String.Index>?
