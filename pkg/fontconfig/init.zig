@@ -10,12 +10,12 @@ pub fn fini() void {
     c.FcFini();
 }
 
-pub fn initLoadConfig() *Config {
-    return @ptrCast(c.FcInitLoadConfig());
+pub fn initLoadConfig() ?*Config {
+    return @as(?*Config, @ptrCast(c.FcInitLoadConfig()));
 }
 
-pub fn initLoadConfigAndFonts() *Config {
-    return @ptrCast(c.FcInitLoadConfigAndFonts());
+pub fn initLoadConfigAndFonts() ?*Config {
+    return @as(?*Config, @ptrCast(c.FcInitLoadConfigAndFonts()));
 }
 
 pub fn version() u32 {

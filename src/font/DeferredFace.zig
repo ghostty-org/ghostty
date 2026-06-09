@@ -478,7 +478,7 @@ test "fontconfig" {
 
     // Get a deferred face from fontconfig
     var def = def: {
-        var fc = discovery.Fontconfig.init(lib);
+        var fc = discovery.Fontconfig.init(lib) orelse return error.SkipZigTest;
         defer fc.deinit();
         var it = try fc.discover(alloc, .{ .family = "monospace", .size = 12 });
         defer it.deinit();

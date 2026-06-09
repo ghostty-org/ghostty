@@ -4,8 +4,8 @@ const c = @import("c.zig").c;
 const Pattern = @import("pattern.zig").Pattern;
 
 pub const FontSet = opaque {
-    pub fn create() *FontSet {
-        return @ptrCast(c.FcFontSetCreate());
+    pub fn create() ?*FontSet {
+        return @as(?*FontSet, @ptrCast(c.FcFontSetCreate()));
     }
 
     pub fn destroy(self: *FontSet) void {

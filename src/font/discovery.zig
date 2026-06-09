@@ -114,8 +114,8 @@ pub const Descriptor = struct {
     /// Convert to Fontconfig pattern to use for lookup. The pattern does
     /// not have defaults filled/substituted (Fontconfig thing) so callers
     /// must still do this.
-    pub fn toFcPattern(self: Descriptor) *fontconfig.Pattern {
-        const pat = fontconfig.Pattern.create();
+    pub fn toFcPattern(self: Descriptor) ?*fontconfig.Pattern {
+        const pat = fontconfig.Pattern.create() orelse return null;
         if (self.family) |family| {
             assert(pat.add(.family, .{ .string = family }, false));
         }
@@ -247,11 +247,14 @@ pub const Descriptor = struct {
 pub const Fontconfig = struct {
     fc_config: *fontconfig.Config,
 
-    pub fn init(lib: Library) Fontconfig {
+    pub fn init(lib: Library) ?Fontconfig {
         _ = lib;
-        // safe to call multiple times and concurrently
         _ = fontconfig.init();
-        return .{ .fc_config = fontconfig.initLoadConfigAndFonts() };
+        const cfg = fontconfig.initLoadConfigAndFonts() orelse {
+            log.warn("fontconfig initialization failed, font discovery disabled", .{});
+            return null;
+        };
+        return .{ .fc_config = cfg };
     }
 
     pub fn deinit(self: *Fontconfig) void {
@@ -267,14 +270,15 @@ pub const Fontconfig = struct {
     ) !DiscoverIterator {
         _ = alloc;
 
-        // Build our pattern that we'll search for
-        const pat = desc.toFcPattern();
+        const pat = desc.toFcPattern() orelse return error.FontConfigFailed;
         errdefer pat.destroy();
         assert(self.fc_config.substituteWithPat(pat, .pattern));
         pat.defaultSubstitute();
 
-        // Search
-        const res = self.fc_config.fontSort(pat, false, null);
+        const res = self.fc_config.fontSort(pat, false, null) orelse {
+            pat.destroy();
+            return error.FontConfigFailed;
+        };
         if (res.result != .match) return error.FontConfigFailed;
         errdefer res.fs.destroy();
 
@@ -1167,7 +1171,7 @@ test "fontconfig" {
     var lib = try Library.init(alloc);
     defer lib.deinit();
 
-    var fc = Fontconfig.init(lib);
+    var fc = Fontconfig.init(lib) orelse return error.SkipZigTest;
     defer fc.deinit();
     var it = try fc.discover(alloc, .{ .family = "monospace", .size = 12 });
     defer it.deinit();
@@ -1182,7 +1186,7 @@ test "fontconfig codepoint" {
     var lib = try Library.init(alloc);
     defer lib.deinit();
 
-    var fc = Fontconfig.init(lib);
+    var fc = Fontconfig.init(lib) orelse return error.SkipZigTest;
     defer fc.deinit();
     var it = try fc.discover(alloc, .{ .codepoint = 'A', .size = 12 });
     defer it.deinit();

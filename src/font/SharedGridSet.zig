@@ -443,7 +443,8 @@ fn discover(self: *SharedGridSet) !?*Discover {
     if (self.font_discover) |*v| return v;
 
     self.font_discover = .init(self.font_lib);
-    return &self.font_discover.?;
+    if (self.font_discover) |*v| return v;
+    return null;
 }
 
 /// Ref-counted SharedGrid.

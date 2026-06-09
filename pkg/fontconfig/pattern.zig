@@ -10,12 +10,12 @@ const ValueBinding = @import("main.zig").ValueBinding;
 const Weight = @import("main.zig").Weight;
 
 pub const Pattern = opaque {
-    pub fn create() *Pattern {
-        return @ptrCast(c.FcPatternCreate());
+    pub fn create() ?*Pattern {
+        return @as(?*Pattern, @ptrCast(c.FcPatternCreate()));
     }
 
-    pub fn parse(str: [:0]const u8) *Pattern {
-        return @ptrCast(c.FcNameParse(str.ptr));
+    pub fn parse(str: [:0]const u8) ?*Pattern {
+        return @as(?*Pattern, @ptrCast(c.FcNameParse(str.ptr)));
     }
 
     pub fn destroy(self: *Pattern) void {

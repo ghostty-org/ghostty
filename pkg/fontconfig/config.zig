@@ -13,8 +13,8 @@ pub const Config = opaque {
         c.FcConfigDestroy(@ptrCast(self));
     }
 
-    pub fn fontList(self: *Config, pat: *Pattern, os: *ObjectSet) *FontSet {
-        return @ptrCast(c.FcFontList(self.cval(), pat.cval(), os.cval()));
+    pub fn fontList(self: *Config, pat: *Pattern, os: *ObjectSet) ?*FontSet {
+        return @as(?*FontSet, @ptrCast(c.FcFontList(self.cval(), pat.cval(), os.cval())));
     }
 
     pub fn fontSort(
@@ -22,15 +22,15 @@ pub const Config = opaque {
         pat: *Pattern,
         trim: bool,
         charset: ?[*]*CharSet,
-    ) FontSortResult {
+    ) ?FontSortResult {
         var result: FontSortResult = undefined;
-        result.fs = @ptrCast(c.FcFontSort(
+        result.fs = @as(?*FontSet, @ptrCast(c.FcFontSort(
             self.cval(),
             pat.cval(),
             if (trim) c.FcTrue else c.FcFalse,
             @ptrCast(charset),
             @ptrCast(&result.result),
-        ));
+        ))) orelse return null;
 
         return result;
     }
