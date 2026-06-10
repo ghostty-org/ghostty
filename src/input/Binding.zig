@@ -559,6 +559,22 @@ pub const Action = union(enum) {
     /// Open a new tab.
     new_tab,
 
+    /// Open a new tab running the given command instead of the
+    /// default configured command, e.g.
+    /// `keybind = cmd+ctrl+digit_1=new_tab_with_command:ssh myhost`
+    ///
+    /// The command is always run in a shell (e.g. `/bin/sh -c`), so it
+    /// may contain arguments. Unlike the `command` configuration, the
+    /// `direct:` and `shell:` prefixes are not supported.
+    ///
+    /// The new tab behaves as if `wait-after-command` were enabled:
+    /// when the command exits, the terminal remains open and must be
+    /// closed manually.
+    ///
+    /// This is currently only fully implemented on macOS. On other
+    /// platforms this opens a new tab with the default command.
+    new_tab_with_command: []const u8,
+
     /// Go to the previous tab.
     previous_tab,
 
@@ -1413,6 +1429,7 @@ pub const Action = union(enum) {
             // come from. For example `new_window` needs to be sourced to
             // a surface so inheritance can be done correctly.
             .new_tab,
+            .new_tab_with_command,
             .previous_tab,
             .next_tab,
             .last_tab,
@@ -3070,6 +3087,24 @@ test "parse: text action equals sign" {
         }, binding.trigger);
         try testing.expectEqualStrings("=hello", binding.action.text);
     }
+}
+
+test "parse: new_tab_with_command" {
+    const testing = std.testing;
+    {
+        const binding = try parseSingle("ctrl+a=new_tab_with_command:ssh myhost");
+        try testing.expect(binding.action == .new_tab_with_command);
+        try testing.expectEqualStrings(
+            "ssh myhost",
+            binding.action.new_tab_with_command,
+        );
+    }
+
+    // A command is required: no colon is an error.
+    try testing.expectError(
+        Error.InvalidFormat,
+        parseSingle("ctrl+a=new_tab_with_command"),
+    );
 }
 
 // For Ghostty 1.2+ we changed our key names to match the W3C and removed
