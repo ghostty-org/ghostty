@@ -51,6 +51,73 @@ pub const Highlight = union(enum) {
     hover_mods: Mods,
 };
 
+/// The result of parsing a matched link string for a trailing
+/// `:line[:col]` suffix, e.g. `src/main.zig:42:10`.
+pub const ParsedFilePath = struct {
+    path: []const u8,
+    line: ?[]const u8 = null,
+    col: ?[]const u8 = null,
+};
+
+/// Parse a trailing `:line[:col]` suffix from a matched link string.
+/// The numeric components are returned as substrings of the input;
+/// they are validated to be all digits but not range-checked.
+pub fn parseFilePath(str: []const u8) ParsedFilePath {
+    var result: ParsedFilePath = .{ .path = str };
+    for (0..2) |_| {
+        const idx = std.mem.lastIndexOfScalar(u8, result.path, ':') orelse break;
+        const seg = result.path[idx + 1 ..];
+        if (!allDigits(seg)) break;
+        result.col = result.line;
+        result.line = seg;
+        result.path = result.path[0..idx];
+    }
+
+    return result;
+}
+
+fn allDigits(s: []const u8) bool {
+    if (s.len == 0) return false;
+    for (s) |c| if (!std.ascii.isDigit(c)) return false;
+    return true;
+}
+
+test "parseFilePath" {
+    const testing = std.testing;
+
+    {
+        const p = parseFilePath("src/main.zig");
+        try testing.expectEqualStrings("src/main.zig", p.path);
+        try testing.expect(p.line == null);
+        try testing.expect(p.col == null);
+    }
+    {
+        const p = parseFilePath("src/main.zig:42");
+        try testing.expectEqualStrings("src/main.zig", p.path);
+        try testing.expectEqualStrings("42", p.line.?);
+        try testing.expect(p.col == null);
+    }
+    {
+        const p = parseFilePath("/abs/path/main.zig:42:10");
+        try testing.expectEqualStrings("/abs/path/main.zig", p.path);
+        try testing.expectEqualStrings("42", p.line.?);
+        try testing.expectEqualStrings("10", p.col.?);
+    }
+    {
+        // Numeric suffix segments are parsed even for non-path strings;
+        // callers are expected to validate the path on disk.
+        const p = parseFilePath("magnet:?xt=urn:btih:1234567890");
+        try testing.expectEqualStrings("magnet:?xt=urn:btih", p.path);
+        try testing.expectEqualStrings("1234567890", p.line.?);
+        try testing.expect(p.col == null);
+    }
+    {
+        const p = parseFilePath("foo:bar");
+        try testing.expectEqualStrings("foo:bar", p.path);
+        try testing.expect(p.line == null);
+    }
+}
+
 /// Returns a new oni.Regex that can be used to match the link.
 pub fn oniRegex(self: *const Link) !oni.Regex {
     return try oni.Regex.init(
