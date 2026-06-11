@@ -658,6 +658,11 @@ pub fn deinit(self: *PageList) void {
 pub fn reset(self: *PageList) void {
     defer self.assertIntegrity();
 
+    // Invalidate all external page refs to the previous list. The reset below
+    // rebuilds the page list from the pools, so old untracked refs must be
+    // rejected before any validation attempts to inspect their node pointers.
+    self.page_serial_min = self.page_serial;
+
     // We need enough pages/nodes to keep our active area. This should
     // never fail since we by definition have allocated a page already
     // that fits our size but I'm not confident to make that assertion.
@@ -935,6 +940,10 @@ pub const Resize = struct {
     pub const Cursor = struct {
         x: size.CellCountInt,
         y: size.CellCountInt,
+
+        /// When set, this pin preserves right-side blank cells up to the cursor
+        /// during reflow.
+        pin: ?*Pin = null,
     };
 };
 
@@ -1013,10 +1022,6 @@ fn resizeCols(
 ) Allocator.Error!void {
     assert(cols != self.cols);
 
-    // Update our cols. We have to do this early because grow() that we
-    // may call below relies on this to calculate the proper page size.
-    self.cols = cols;
-
     // If we have a cursor position (x,y), then we try under any col resizing
     // to keep the same number remaining active rows beneath it. This is a
     // very special case if you can imagine clearing the screen (i.e.
@@ -1025,10 +1030,11 @@ fn resizeCols(
     // pull down scrollback.
     const preserved_cursor: ?struct {
         tracked_pin: *Pin,
+        untrack: bool,
         remaining_rows: usize,
         wrapped_rows: usize,
     } = if (cursor) |c| cursor: {
-        const p = self.pin(.{ .active = .{
+        const p = if (c.pin) |cursor_pin| cursor_pin.* else self.pin(.{ .active = .{
             .x = c.x,
             .y = c.y,
         } }) orelse break :cursor null;
@@ -1041,6 +1047,16 @@ fn resizeCols(
         const wrapped = wrapped: {
             var wrapped: usize = 0;
 
+            // If shrinking rows (in the .lt branch of resize, rows shrink
+            // before we get here) pushed the cursor pin above the new active
+            // area, there are no rows to count and iterating .left_up toward
+            // the active-area top would be an invalid (reversed) range. The
+            // preserved-cursor growth below already no-ops for a cursor that
+            // isn't in the active area, so we just count zero here.
+            if (active_pin) |ap| {
+                if (p.before(ap)) break :wrapped 0;
+            }
+
             var row_it = p.rowIterator(.left_up, active_pin);
             while (row_it.next()) |next| {
                 const row = next.rowAndCell().row;
@@ -1051,12 +1067,21 @@ fn resizeCols(
         };
 
         break :cursor .{
-            .tracked_pin = try self.trackPin(p),
-            .remaining_rows = self.rows - c.y - 1,
+            .tracked_pin = c.pin orelse try self.trackPin(p),
+            .untrack = c.pin == null,
+            .remaining_rows = self.rows -| (c.y + 1),
             .wrapped_rows = wrapped,
         };
     } else null;
-    defer if (preserved_cursor) |c| self.untrackPin(c.tracked_pin);
+    defer if (preserved_cursor) |c| {
+        if (c.untrack) self.untrackPin(c.tracked_pin);
+    };
+
+    // Update our cols. We have to do this early because grow() that we
+    // may call below relies on this to calculate the proper page size, but
+    // after preserved_cursor so that the cursor pin can resolve coordinates in
+    // the old active coordinate space.
+    self.cols = cols;
 
     // Create the first node that contains our reflow.
     const first_rewritten_node = node: {
@@ -1110,7 +1135,11 @@ fn resizeCols(
     {
         var reflow_cursor: ReflowCursor = .init(first_rewritten_node);
         while (it.next()) |row| {
-            try reflow_cursor.reflowRow(self, row);
+            try reflow_cursor.reflowRow(
+                self,
+                row,
+                if (preserved_cursor) |c| c.tracked_pin else null,
+            );
 
             // Once we're done reflowing a page, destroy it immediately.
             // This frees memory and makes it more likely in memory
@@ -1173,7 +1202,7 @@ fn resizeCols(
             break :wrapped wrapped;
         };
 
-        const current = self.rows - active_pt.active.y - 1;
+        const current = self.rows -| (active_pt.active.y + 1);
 
         var req_rows = c.remaining_rows;
         req_rows -|= wrapped -| c.wrapped_rows;
@@ -1226,6 +1255,7 @@ const ReflowCursor = struct {
         self: *ReflowCursor,
         list: *PageList,
         row: Pin,
+        cursor_pin: ?*Pin,
     ) Allocator.Error!void {
         const src_page: *Page = &row.node.data;
         const src_row = row.rowAndCell().row;
@@ -1253,6 +1283,8 @@ const ReflowCursor = struct {
                 if (&p.node.data != src_page or
                     p.y != src_y) continue;
 
+                if (cursor_pin != null and p == cursor_pin.?) continue;
+
                 // If this pin is in the blanks on the right and past the end
                 // of the dst col width then we move it to the end of the dst
                 // col width instead.
@@ -1264,6 +1296,14 @@ const ReflowCursor = struct {
                 // We increase our col len to at least include this pin.
                 // This ensures that blank rows with pins are processed,
                 // so that the pins can be properly remapped.
+                cols_len = @max(cols_len, p.x + 1);
+            }
+        }
+
+        // If the cursor is after blanks on the right, those cells are still
+        // before the next write and must reflow with it.
+        if (cursor_pin) |p| {
+            if (&p.node.data == src_page and p.y == src_y) {
                 cols_len = @max(cols_len, p.x + 1);
             }
         }
@@ -10798,6 +10838,89 @@ test "PageList resize (no reflow) less rows and cols" {
     }
 }
 
+test "PageList resize less rows and cols cursor at bottom" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, 0);
+    defer s.deinit();
+
+    const cursor_pin = try s.trackPin(s.pin(.{ .active = .{
+        .x = 0,
+        .y = s.rows - 1,
+    } }).?);
+    defer s.untrackPin(cursor_pin);
+
+    // Shrink both axes such that the original cursor.y is strictly past the
+    // new row count, so resizeWithoutReflow leaves self.rows < c.y + 1.
+    try s.resize(.{
+        .cols = 79,
+        .rows = 20,
+        .reflow = true,
+        .cursor = .{ .x = 0, .y = 23, .pin = cursor_pin },
+    });
+    try testing.expectEqual(@as(usize, 79), s.cols);
+    try testing.expectEqual(@as(usize, 20), s.rows);
+
+    // remaining_rows saturates to 0, so the cursor lands on the new bottom row.
+    try testing.expectEqual(point.Point{ .active = .{
+        .x = 0,
+        .y = s.rows - 1,
+    } }, s.pointFromPin(.active, cursor_pin.*).?);
+}
+
+test "PageList resize less rows and cols cursor near top pushed to scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    // Fill every active row with non-blank content so that shrinking rows
+    // can't trim trailing blank lines and instead pushes the top rows into
+    // scrollback.
+    {
+        var it = s.rowIterator(.right_down, .{ .active = .{} }, null);
+        while (it.next()) |p| {
+            const rac = p.rowAndCell();
+            const cells = p.node.data.getCells(rac.row);
+            for (cells, 0..) |*cell, x| cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast('A' + (x % 26)) },
+            };
+        }
+    }
+
+    // Cursor near the top of the active area. After we shrink rows the active
+    // area top moves down past this pin, so it ends up in scrollback.
+    const cursor_pin = try s.trackPin(s.pin(.{ .active = .{
+        .x = 0,
+        .y = 0,
+    } }).?);
+    defer s.untrackPin(cursor_pin);
+
+    // Shrink both axes with reflow. resizeWithoutReflow shrinks self.rows
+    // first, leaving the cursor pin above the new active area, then resizeCols
+    // walks .left_up from the cursor pin toward the active-area top.
+    try s.resize(.{
+        .cols = 79,
+        .rows = 20,
+        .reflow = true,
+        .cursor = .{ .x = 0, .y = 0, .pin = cursor_pin },
+    });
+    try testing.expectEqual(@as(usize, 79), s.cols);
+    try testing.expectEqual(@as(usize, 20), s.rows);
+
+    // The active area is anchored to the bottom, so shrinking rows pushed the
+    // top-of-screen cursor into scrollback: it no longer resolves to an
+    // active-area coordinate, but it remains a valid screen pin.
+    try testing.expect(s.pointFromPin(.active, cursor_pin.*) == null);
+    try testing.expect(s.pointFromPin(.screen, cursor_pin.*) != null);
+
+    // Integrity must hold after the resize.
+    s.assertIntegrity();
+}
+
 test "PageList resize (no reflow) more rows and less cols" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -13516,6 +13639,30 @@ test "PageList reset" {
         .y = 0,
         .x = 0,
     }, s.getTopLeft(.active));
+}
+
+test "PageList reset invalidates stale untracked refs even if node memory is reused" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    const old_serial = s.pages.first.?.serial;
+    try testing.expect(old_serial >= s.page_serial_min);
+    try testing.expect(old_serial < s.page_serial);
+
+    s.reset();
+
+    // The important safety property is that stale serials are rejected before
+    // the node pointer is inspected. Reset rebuilds the page list from the
+    // pools, so old untracked refs may contain node pointers that are no
+    // longer safe to dereference.
+    try testing.expect(old_serial < s.page_serial_min);
+
+    const new_serial = s.pages.first.?.serial;
+    try testing.expect(new_serial >= s.page_serial_min);
+    try testing.expect(new_serial < s.page_serial);
 }
 
 test "PageList reset across two pages" {

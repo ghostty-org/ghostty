@@ -13,6 +13,7 @@ const tripwire = @import("../tripwire.zig");
 const unicode = @import("../unicode/main.zig");
 const Selection = @import("Selection.zig");
 const PageList = @import("PageList.zig");
+const selection_codepoints = @import("selection_codepoints.zig");
 const StringMap = @import("StringMap.zig");
 const ScreenFormatter = @import("formatter.zig").ScreenFormatter;
 const osc = @import("osc.zig");
@@ -112,7 +113,7 @@ pub const SemanticPrompt = struct {
 
     pub const SemanticClick = union(enum) {
         none,
-        click_events,
+        click_events: osc.semantic_prompt.ClickEvents,
         cl: osc.semantic_prompt.Click,
     };
 };
@@ -1766,7 +1767,11 @@ pub inline fn resize(
         .rows = opts.rows,
         .cols = opts.cols,
         .reflow = opts.reflow,
-        .cursor = .{ .x = self.cursor.x, .y = self.cursor.y },
+        .cursor = .{
+            .x = self.cursor.x,
+            .y = self.cursor.y,
+            .pin = self.cursor.page_pin,
+        },
     });
 
     // If we have no scrollback and we shrunk our rows, we must explicitly
@@ -2512,7 +2517,7 @@ pub const SelectLine = struct {
 
     /// These are the codepoints to consider whitespace to trim
     /// from the ends of the selection.
-    whitespace: ?[]const u21 = &.{ 0, ' ', '\t' },
+    whitespace: ?[]const u21 = &selection_codepoints.default_line_whitespace,
 
     /// If true, line selection will consider semantic prompt
     /// state changing a boundary. State changing is ANY state
@@ -2648,10 +2653,10 @@ pub fn selectLine(self: *const Screen, opts: SelectLine) ?Selection {
             if (!cell.hasText()) continue;
 
             // Non-empty means we found it.
-            const this_whitespace = std.mem.indexOfAny(
+            const this_whitespace = std.mem.indexOfScalar(
                 u21,
                 whitespace,
-                &[_]u21{cell.content.codepoint},
+                cell.content.codepoint,
             ) != null;
             if (this_whitespace) continue;
 
@@ -2670,10 +2675,10 @@ pub fn selectLine(self: *const Screen, opts: SelectLine) ?Selection {
             if (!cell.hasText()) continue;
 
             // Non-empty means we found it.
-            const this_whitespace = std.mem.indexOfAny(
+            const this_whitespace = std.mem.indexOfScalar(
                 u21,
                 whitespace,
-                &[_]u21{cell.content.codepoint},
+                cell.content.codepoint,
             ) != null;
             if (this_whitespace) continue;
 
@@ -2794,10 +2799,10 @@ pub fn selectWord(
     if (!start_cell.hasText()) return null;
 
     // Determine if we are a boundary or not to determine what our boundary is.
-    const expect_boundary = std.mem.indexOfAny(
+    const expect_boundary = std.mem.indexOfScalar(
         u21,
         boundary_codepoints,
-        &[_]u21{start_cell.content.codepoint},
+        start_cell.content.codepoint,
     ) != null;
 
     // Go forwards to find our end boundary
@@ -2812,10 +2817,10 @@ pub fn selectWord(
             if (!cell.hasText()) break :end prev;
 
             // If we do not match our expected set, we hit a boundary
-            const this_boundary = std.mem.indexOfAny(
+            const this_boundary = std.mem.indexOfScalar(
                 u21,
                 boundary_codepoints,
-                &[_]u21{cell.content.codepoint},
+                cell.content.codepoint,
             ) != null;
             if (this_boundary != expect_boundary) break :end prev;
 
@@ -2849,10 +2854,10 @@ pub fn selectWord(
             if (!cell.hasText()) break :start prev;
 
             // If we do not match our expected set, we hit a boundary
-            const this_boundary = std.mem.indexOfAny(
+            const this_boundary = std.mem.indexOfScalar(
                 u21,
                 boundary_codepoints,
-                &[_]u21{cell.content.codepoint},
+                cell.content.codepoint,
             ) != null;
             if (this_boundary != expect_boundary) break :start prev;
 
@@ -7277,6 +7282,41 @@ test "Screen: resize less cols to eliminate wide char with row space" {
     }
 }
 
+test "Screen: resize less cols reflows cursor after wrapped text" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var s = try Screen.init(alloc, .{ .cols = 50, .rows = 7, .max_scrollback = 0 });
+    defer s.deinit();
+
+    for (0..30) |_| try s.testWriteString("a");
+
+    try testing.expectEqual(@as(usize, 0), s.cursor.y);
+    try testing.expectEqual(@as(usize, 30), s.cursor.x);
+
+    try s.resize(.{ .cols = 25, .rows = 7 });
+
+    try testing.expectEqual(@as(usize, 1), s.cursor.y);
+    try testing.expectEqual(@as(usize, 5), s.cursor.x);
+}
+
+test "Screen: resize less cols reflows cursor after empty cells" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var s = try Screen.init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
+    defer s.deinit();
+
+    try s.testWriteString("abc");
+    s.cursorRight(6);
+
+    try testing.expectEqual(@as(usize, 0), s.cursor.y);
+    try testing.expectEqual(@as(usize, 9), s.cursor.x);
+
+    try s.resize(.{ .cols = 5, .rows = 3 });
+
+    try testing.expectEqual(@as(usize, 1), s.cursor.y);
+    try testing.expectEqual(@as(usize, 4), s.cursor.x);
+}
+
 test "Screen: resize more cols with wide spacer head" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -7610,6 +7650,32 @@ test "Screen: select untracked" {
     try testing.expectEqual(tracked + 2, s.pages.countTrackedPins());
     try s.select(null);
     try testing.expectEqual(tracked, s.pages.countTrackedPins());
+}
+
+test "Screen: select replaces existing pins" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 10, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("ABC  DEF\n 123\n456");
+
+    const tracked = s.pages.countTrackedPins();
+    try s.select(Selection.init(
+        s.pages.pin(.{ .active = .{ .x = 0, .y = 0 } }).?,
+        s.pages.pin(.{ .active = .{ .x = 3, .y = 0 } }).?,
+        false,
+    ));
+    try testing.expectEqual(tracked + 2, s.pages.countTrackedPins());
+
+    // Replacing the selection must untrack the prior selection's pins
+    // rather than leak them.
+    try s.select(Selection.init(
+        s.pages.pin(.{ .active = .{ .x = 0, .y = 1 } }).?,
+        s.pages.pin(.{ .active = .{ .x = 2, .y = 1 } }).?,
+        false,
+    ));
+    try testing.expectEqual(tracked + 2, s.pages.countTrackedPins());
 }
 
 test "Screen: selectAll" {

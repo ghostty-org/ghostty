@@ -8,20 +8,21 @@ jobs:
   check:
     runs-on: namespace-profile-ghostty-xsm
     steps:
-      - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app-token
         with:
           app-id: ${{ secrets.VOUCH_APP_ID }}
           private-key: ${{ secrets.VOUCH_APP_PRIVATE_KEY }}
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           sparse-checkout: .github/issue-unvouched-message
 
-      - uses: mitchellh/vouch/action/check-issue@c6d80ead49839655b61b422700b7a3bc9d0804a9 # v1.4.2
+      - uses: mitchellh/vouch/action/check-issue@52aec3d64655edf2fdb58f298e02da754a056daf # unreleased main
         with:
           issue-number: ${{ github.event.issue.number }}
           auto-close: true
+          auto-lock: true
           template-file: .github/issue-unvouched-message
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}

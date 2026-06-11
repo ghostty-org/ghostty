@@ -743,6 +743,9 @@ pub const Application = extern struct {
 
             .ring_bell => Action.ringBell(target),
 
+            // GTK has no accessibility consumer for this yet.
+            .selection_changed => {},
+
             .scrollbar => Action.scrollbar(target, value),
 
             .set_title => Action.setTitle(target, value),
@@ -1419,6 +1422,7 @@ pub const Application = extern struct {
             .init("present-surface", actionPresentSurface, t_variant_type),
             .init("quit", actionQuit, null),
             .init("reload-config", actionReloadConfig, null),
+            .init("toggle-quick-terminal", actionToggleQuickTerminal, null),
         };
 
         ext.actions.add(Self, self, &actions);
@@ -1666,6 +1670,17 @@ pub const Application = extern struct {
         const priv = self.private();
         priv.core_app.performAction(self.rt(), .reload_config) catch |err| {
             log.warn("error reloading config err={}", .{err});
+        };
+    }
+
+    fn actionToggleQuickTerminal(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const priv = self.private();
+        priv.core_app.performAction(self.rt(), .toggle_quick_terminal) catch |err| {
+            log.warn("error toggling quick terminal err={}", .{err});
         };
     }
 

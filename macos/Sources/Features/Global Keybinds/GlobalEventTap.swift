@@ -16,7 +16,7 @@ class GlobalEventTap {
 
     // The event tap used for global event listening. This is non-nil if it is
     // created.
-    private var eventTap: CFMachPort?
+    fileprivate var eventTap: CFMachPort?
 
     // This is the timer used to retry enabling the global event tap if we
     // don't have permissions.
@@ -125,6 +125,17 @@ private func cgEventFlagsChangedHandler(
 ) -> Unmanaged<CGEvent>? {
     let result = Unmanaged.passUnretained(cgEvent)
 
+    // macOS disables the event tap if the callback is too slow or for other
+    // internal reasons. When that happens it sends this event type. We need
+    // to re-enable the tap or it stays dead forever.
+    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        GlobalEventTap.logger.warning("global event tap was disabled by the system, re-enabling")
+        if let machPort = GlobalEventTap.shared.eventTap {
+            CGEvent.tapEnable(tap: machPort, enable: true)
+        }
+        return result
+    }
+
     // We only care about keydown events
     guard type == .keyDown else { return result }
 
@@ -143,7 +154,7 @@ private func cgEventFlagsChangedHandler(
     // Build our event input and call ghostty
     let key_ev = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
     if ghostty_app_key(ghostty, key_ev) {
-        GlobalEventTap.logger.info("global key event handled event=\(event)")
+        GlobalEventTap.logger.info("global key event handled event=\(event, privacy: .public)")
         return nil
     }
 

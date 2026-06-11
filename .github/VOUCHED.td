@@ -24,6 +24,7 @@
 04cb
 0xdvc
 -4rh1t3ct0r7
+52dyd
 aalhendi
 aaron-ang
 abdurrahmanski
@@ -36,6 +37,7 @@ akimiojr
 alaasdk
 alanmoyano
 alaviss
+alexbathome
 alexfeijoo44
 alexjuca
 alosarjos
@@ -46,6 +48,7 @@ anmitalidev
 anthonyzhoon
 athaapa
 atomk
+b0uks
 b1nar10
 balazs-szucs
 barutsrb
@@ -60,6 +63,7 @@ bleikurr
 bo2themax
 brentschroeter
 brianc442
+c0x0o
 cespare
 charliie-dev
 chernetskyi
@@ -68,6 +72,7 @@ cmwetherell
 crayxt
 craziestowl
 curtismoncoq
+-cznorth Automated advertising + likely AI communication
 d-dudas
 -daedaevibin
 daiimus
@@ -94,6 +99,7 @@ elias8
 -enkr1
 enzowilliam
 ephemera
+-eric-assetpass Try talking, not botting
 eriksremess
 erral
 -f1813483-netizen
@@ -124,6 +130,7 @@ illiakrauchanka
 j0hnm4r5
 jacobsandlund
 jake-stewart
+jamesarch
 jamylak
 jarred-sumner
 jcollie
@@ -155,6 +162,7 @@ kristofersoler
 kylesower
 laxystem
 lebdron
+lepips
 liby
 linustalacko
 lonsagisawa
@@ -168,6 +176,7 @@ markdorison
 markhuot
 marler8997
 marrocco-simone
+masterflitzer
 matkotiric
 mattn
 micaeljarniac
@@ -175,10 +184,12 @@ michielvk
 miguelelgallo
 mihi314
 mikailmm
+minorcell
 misairuzame
 mischief
 mitchellh
 miupa
+mjbommar
 mohshami
 molechowski
 moonmao42
@@ -192,8 +203,10 @@ neo773
 neurosnap
 nicholas-ochoa
 nicosuave
+nikicat
 nmggithub
 noib3
+nolinmcfarland
 nouritsu
 nwehg
 ocean6954
@@ -217,6 +230,7 @@ puzza007
 qwerasd205
 raphamorim
 reo101
+rewdy
 rgehan
 rhodes-b
 rightaditya
@@ -247,6 +261,7 @@ tweedbeetle
 uhojin
 unphased
 uzaaft
+vancluever
 vaughanandrews
 viruslobster
 vlsi

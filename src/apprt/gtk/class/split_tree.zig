@@ -158,6 +158,13 @@ pub const SplitTree = extern struct {
         /// used to debounce updates.
         rebuild_source: ?c_uint = null,
 
+        /// The source that we use to restore focus. With enough nested
+        /// splits, some surfaces might initially be allocated a width or
+        /// height of 0 which causes them to get unmapped and lose focus.
+        /// We can reliably restore focus to the last focused surface only
+        /// once it is mapped again.
+        restore_focus_source: ?c_uint = null,
+
         /// Used to store state about a pending surface close for the
         /// close dialog.
         pending_close: ?Surface.Tree.Node.Handle,
@@ -186,6 +193,7 @@ pub const SplitTree = extern struct {
             .init("new-split", actionNewSplit, s_variant_type),
             .init("equalize", actionEqualize, null),
             .init("zoom", actionZoom, null),
+            .init("close-split", actionCloseSplit, null),
         };
 
         _ = ext.actions.addAsGroup(Self, self, "split-tree", &actions);
@@ -415,6 +423,13 @@ pub const SplitTree = extern struct {
                 self,
                 .{ .detail = "focused" },
             );
+            _ = gobject.Object.signals.notify.connect(
+                surface,
+                *Self,
+                propSurfaceMapped,
+                self,
+                .{ .detail = "mapped" },
+            );
         }
     }
 
@@ -571,6 +586,12 @@ pub const SplitTree = extern struct {
             }
             priv.rebuild_source = null;
         }
+        if (priv.restore_focus_source) |v| {
+            if (glib.Source.remove(v) == 0) {
+                log.warn("unable to remove restore_focus source", .{});
+            }
+            priv.restore_focus_source = null;
+        }
 
         gtk.Widget.disposeTemplate(
             self.as(gtk.Widget),
@@ -661,6 +682,15 @@ pub const SplitTree = extern struct {
         }
 
         self.as(gobject.Object).notifyByPspec(properties.tree.impl.param_spec);
+    }
+
+    pub fn actionCloseSplit(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const surface = self.getActiveSurface() orelse return;
+        surface.close();
     }
 
     fn surfaceCloseRequest(
@@ -766,6 +796,24 @@ pub const SplitTree = extern struct {
         self.as(gobject.Object).notifyByPspec(properties.@"active-surface".impl.param_spec);
     }
 
+    fn propSurfaceMapped(
+        surface: *Surface,
+        _: *gobject.ParamSpec,
+        self: *Self,
+    ) callconv(.c) void {
+        if (!surface.getMapped()) return;
+
+        // We could add the idle callback only if this is actually the last
+        // focused surface. But we can avoid that check because usually all
+        // the surfaces get mapped at once, so the idle callback will run
+        // only once anyway.
+        const priv = self.private();
+        if (priv.restore_focus_source == null) priv.restore_focus_source = glib.idleAdd(
+            onRestoreFocus,
+            self,
+        );
+    }
+
     fn propTree(
         self: *Self,
         _: *gobject.ParamSpec,
@@ -779,13 +827,19 @@ pub const SplitTree = extern struct {
         self.as(gobject.Object).notifyByPspec(properties.@"has-surfaces".impl.param_spec);
         self.as(gobject.Object).notifyByPspec(properties.@"is-zoomed".impl.param_spec);
 
-        // If we were planning a rebuild, always remove that so we can
-        // start from a clean slate.
+        // If we were planning a rebuild or focus restore, always remove
+        // that so we can start from a clean slate.
         if (priv.rebuild_source) |v| {
             if (glib.Source.remove(v) == 0) {
                 log.warn("unable to remove rebuild source", .{});
             }
             priv.rebuild_source = null;
+        }
+        if (priv.restore_focus_source) |v| {
+            if (glib.Source.remove(v) == 0) {
+                log.warn("unable to remove restore_focus source", .{});
+            }
+            priv.restore_focus_source = null;
         }
 
         // If we transitioned to an empty tree, clear immediately instead of
@@ -839,6 +893,26 @@ pub const SplitTree = extern struct {
         // Our active surface may have changed
         self.as(gobject.Object).notifyByPspec(properties.@"active-surface".impl.param_spec);
 
+        return 0;
+    }
+
+    fn onRestoreFocus(ud: ?*anyopaque) callconv(.c) c_int {
+        const self: *Self = @ptrCast(@alignCast(ud orelse return 0));
+
+        // Always mark our source as null since we're done.
+        const priv = self.private();
+        priv.restore_focus_source = null;
+
+        // If we have a last-focused surface and it is mapped, restore focus
+        // to it. Depending on the available size, the surface might already
+        // have focus because it never got unmapped. In that case grabbing
+        // focus will have no effect.
+        if (priv.last_focused.get()) |v| {
+            defer v.unref();
+            if (v.getMapped()) {
+                v.grabFocus();
+            }
+        }
         return 0;
     }
 
@@ -1044,6 +1118,12 @@ const SplitTreeSplit = extern struct {
         /// Source to handle repositioning the split when properties change.
         idle: ?c_uint = null,
 
+        /// Whether the max-position/position property of the gtk.Paned widget
+        /// changed. We use these to distinguish between a resize and the user
+        /// manually moving the split divider. See the "on-idle" function.
+        max_changed: bool = false,
+        pos_changed: bool = false,
+
         // Template bindings
         paned: *gtk.Paned,
 
@@ -1083,21 +1163,37 @@ const SplitTreeSplit = extern struct {
         gtk.Widget.initTemplate(self.as(gtk.Widget));
     }
 
-    fn refresh(self: *Self) void {
-        const priv = self.private();
-        if (priv.idle == null) priv.idle = glib.idleAdd(
-            onIdle,
-            self,
-        );
-    }
-
+    // We need to keep the split ratios from the tree datastructure and
+    // widget tree in sync. Using the max-position and position properties
+    // of the gtk.Paned widget, we can distinguish a resize from a manual
+    // update (e.g. the user dragging the divider).If max-position changes,
+    // we always have a widget resize. Usually position will change as well
+    // but it might not if the size change is small enough. If only position
+    // changes, we have a manual human update.
+    //
+    // This is a hack, it relies on the timing of property notifcations.
+    // From looking at the GTK source code, it should not be possible that
+    // we interpret a position change from a resize as a manual update.
+    // When a gtk.Paned is resized, internally the gtk_paned_calc_position
+    // function will change both max-position and position and synchronously
+    // call our propMaxPosition and propPosition functions. I.e. when the
+    // widget is resized, it should not be possible for onIdle to run before
+    // we have been notified of both property changes.
     fn onIdle(ud: ?*anyopaque) callconv(.c) c_int {
         const self: *Self = @ptrCast(@alignCast(ud orelse return 0));
         const priv = self.private();
         const paned = priv.paned;
 
-        // Our idle source is always over
-        priv.idle = null;
+        // Clear source and fields at the end. Otherwise if setPosition is
+        // called below, propPosition is triggered and would add another
+        // idle callback before this one is finished.
+        defer priv.idle = null;
+        defer priv.max_changed = false;
+        defer priv.pos_changed = false;
+
+        if (!priv.max_changed and !priv.pos_changed) {
+            return 0;
+        }
 
         // Get our split. This is the most dangerous part of this entire
         // widget. We assume that this widget is always a child of a
@@ -1132,16 +1228,6 @@ const SplitTreeSplit = extern struct {
             );
             break :max gobject.ext.Value.get(&val, c_int);
         };
-        const pos_set: bool = max: {
-            var val = gobject.ext.Value.new(c_int);
-            defer val.unset();
-            gobject.Object.getProperty(
-                paned.as(gobject.Object),
-                "position-set",
-                &val,
-            );
-            break :max gobject.ext.Value.get(&val, c_int) != 0;
-        };
 
         // We don't actually use min, but we don't expect this to ever
         // be non-zero, so let's add an assert to ensure that.
@@ -1172,51 +1258,51 @@ const SplitTreeSplit = extern struct {
             return 0;
         }
 
-        // If we're out of bounds, then we need to either set the position
-        // to what we expect OR update our expected ratio.
-
-        // If we've never set the position, then we set it to the desired.
-        if (!pos_set) {
+        if (priv.max_changed) {
+            // Widget got resized, update position to match desired ratio.
+            // Note that if max-position is small, it might not be possible
+            // to accurately set the desired ratio. E.g. with max-position=2
+            // you can only have ratios 0, 0.5 and 1.
             const desired_pos: c_int = desired_pos: {
                 const max_f64: f64 = @floatFromInt(max);
                 break :desired_pos @intFromFloat(@round(max_f64 * desired_ratio));
             };
             paned.setPosition(desired_pos);
-            return 0;
+        } else {
+            // If only position changed, this is a manual human update and
+            // we need to write our update back to the tree.
+            tree.resizeInPlace(priv.handle, @floatCast(current_ratio));
         }
-
-        // If we've set the position, then this is a manual human update
-        // and we need to write our update back to the tree.
-        tree.resizeInPlace(priv.handle, @floatCast(current_ratio));
-
         return 0;
     }
 
     //---------------------------------------------------------------
     // Signal handlers
 
-    fn propPosition(
-        _: *gtk.Paned,
-        _: *gobject.ParamSpec,
-        self: *Self,
-    ) callconv(.c) void {
-        self.refresh();
-    }
-
     fn propMaxPosition(
         _: *gtk.Paned,
         _: *gobject.ParamSpec,
         self: *Self,
     ) callconv(.c) void {
-        self.refresh();
+        const priv = self.private();
+        priv.max_changed = true;
+        if (priv.idle == null) priv.idle = glib.idleAdd(
+            onIdle,
+            self,
+        );
     }
 
-    fn propMinPosition(
+    fn propPosition(
         _: *gtk.Paned,
         _: *gobject.ParamSpec,
         self: *Self,
     ) callconv(.c) void {
-        self.refresh();
+        const priv = self.private();
+        priv.pos_changed = true;
+        if (priv.idle == null) priv.idle = glib.idleAdd(
+            onIdle,
+            self,
+        );
     }
 
     //---------------------------------------------------------------
@@ -1275,7 +1361,6 @@ const SplitTreeSplit = extern struct {
 
             // Template Callbacks
             class.bindTemplateCallback("notify_max_position", &propMaxPosition);
-            class.bindTemplateCallback("notify_min_position", &propMinPosition);
             class.bindTemplateCallback("notify_position", &propPosition);
 
             // Virtual methods

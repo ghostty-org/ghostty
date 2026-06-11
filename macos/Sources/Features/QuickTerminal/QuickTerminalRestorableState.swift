@@ -96,40 +96,29 @@ extension QuickTerminalRestorableState {
         let tabs: [QuickTerminalTabState<ViewType>]
         let currentTabIndex: Int
 
-        init(
-            focusedSurface: String?,
-            surfaceTree: SplitTree<ViewType>,
-            screenStateEntries: QuickTerminalScreenStateCache.Entries,
-            tabs: [QuickTerminalTabState<ViewType>] = [],
-            currentTabIndex: Int = 0,
-        ) {
-            self.focusedSurface = focusedSurface
-            self.surfaceTree = surfaceTree
-            self.screenStateEntries = screenStateEntries
-            self.tabs = tabs
-            self.currentTabIndex = currentTabIndex
-        }
-
-        /// Custom decode so v1 archives (which lack `tabs`/`currentTabIndex`)
-        /// continue to decode after the v2 bump.
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.focusedSurface = try container.decodeIfPresent(String.self, forKey: .focusedSurface)
-            self.surfaceTree = try container.decode(SplitTree<ViewType>.self, forKey: .surfaceTree)
-            self.screenStateEntries = try container.decode(
-                QuickTerminalScreenStateCache.Entries.self,
-                forKey: .screenStateEntries
-            )
-            self.tabs = try container.decodeIfPresent(
-                [QuickTerminalTabState<ViewType>].self,
-                forKey: .tabs
-            ) ?? []
-            self.currentTabIndex = try container.decodeIfPresent(Int.self, forKey: .currentTabIndex) ?? 0
-        }
-
         enum CodingKeys: String, CodingKey {
             case focusedSurface, surfaceTree, screenStateEntries, tabs, currentTabIndex
         }
+    }
+}
+
+extension QuickTerminalRestorableState.InternalState {
+    /// Custom decode so v1 archives (which lack `tabs`/`currentTabIndex`)
+    /// continue to decode after the v2 bump. Defined in an extension so the
+    /// memberwise initializer is still synthesized.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.focusedSurface = try container.decodeIfPresent(String.self, forKey: .focusedSurface)
+        self.surfaceTree = try container.decode(SplitTree<ViewType>.self, forKey: .surfaceTree)
+        self.screenStateEntries = try container.decode(
+            QuickTerminalScreenStateCache.Entries.self,
+            forKey: .screenStateEntries
+        )
+        self.tabs = try container.decodeIfPresent(
+            [QuickTerminalTabState<ViewType>].self,
+            forKey: .tabs
+        ) ?? []
+        self.currentTabIndex = try container.decodeIfPresent(Int.self, forKey: .currentTabIndex) ?? 0
     }
 }
 

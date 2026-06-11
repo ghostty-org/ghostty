@@ -559,6 +559,23 @@ pub const StreamHandler = struct {
                     }
                 }
             },
+
+            .glyph => |*glyph_req| {
+                const resp = self.terminal.glyphProtocol(self.alloc, glyph_req);
+                switch (glyph_req.*) {
+                    .register, .clear => try self.queueRender(),
+                    .support, .query => {},
+                }
+
+                if (resp) |r| {
+                    var buf: [terminal.apc.glyph.Response.max_wire_bytes]u8 = undefined;
+                    var writer: std.Io.Writer = .fixed(&buf);
+                    try r.formatWire(&writer);
+                    const final = writer.buffered();
+                    log.debug("glyph protocol response: {x}", .{final});
+                    self.messageWriter(try termio.Message.writeReq(self.alloc, final));
+                }
+            },
         }
     }
 

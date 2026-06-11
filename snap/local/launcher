@@ -50,6 +50,7 @@ export XLOCALEDIR="${SNAP}/usr/share/X11/locale"
 export GTK_PATH="$SNAP/usr/lib/$ARCH/gtk-4.0"
 export GIO_MODULE_DIR="$SNAP/usr/lib/$ARCH/gio/modules"
 unset GIO_EXTRA_MODULES
+export TERMINFO_DIRS="${SNAP}/share/terminfo${TERMINFO_DIRS:+:$TERMINFO_DIRS}"
 
 # Gdk-pixbuf loaders
 mkdir -p "$SNAP_USER_COMMON/.cache"

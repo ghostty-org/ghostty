@@ -4,6 +4,7 @@ const Selection = @This();
 const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
+const lib = @import("lib.zig");
 const page = @import("page.zig");
 const point = @import("point.zig");
 const PageList = @import("PageList.zig");
@@ -195,7 +196,12 @@ pub fn bottomRight(self: Selection, s: *const Screen) Pin {
 ///  operations only flip the x or y axis, not both. Depending on the y axis
 ///  direction, this is either mirrored_forward or mirrored_reverse.
 ///
-pub const Order = enum { forward, reverse, mirrored_forward, mirrored_reverse };
+pub const Order = lib.Enum(lib.target, &.{
+    "forward",
+    "reverse",
+    "mirrored_forward",
+    "mirrored_reverse",
+});
 
 pub fn order(self: Selection, s: *const Screen) Order {
     const start_pt = s.pages.pointFromPin(.screen, self.start()).?.screen;
@@ -389,18 +395,18 @@ pub fn containedRowCached(
 }
 
 /// Possible adjustments to the selection.
-pub const Adjustment = enum {
-    left,
-    right,
-    up,
-    down,
-    home,
-    end,
-    page_up,
-    page_down,
-    beginning_of_line,
-    end_of_line,
-};
+pub const Adjustment = lib.Enum(lib.target, &.{
+    "left",
+    "right",
+    "up",
+    "down",
+    "home",
+    "end",
+    "page_up",
+    "page_down",
+    "beginning_of_line",
+    "end_of_line",
+});
 
 /// Adjust the selection by some given adjustment. An adjustment allows
 /// a selection to be expanded slightly left, right, up, down, etc.

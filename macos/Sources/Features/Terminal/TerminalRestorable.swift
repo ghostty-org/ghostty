@@ -52,7 +52,7 @@ extension TerminalRestorable {
         coder.encode(Self.version, forKey: Self.versionKey)
         coder.encode(CodableBridge(self), forKey: Self.selfKey)
 
-        AppDelegate.logger.debug("saved terminal state: \(debugDescription)")
+        AppDelegate.logger.debug("saved terminal state: \(debugDescription, privacy: .public)")
     }
 }
 

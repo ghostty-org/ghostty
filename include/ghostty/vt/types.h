@@ -95,6 +95,18 @@ typedef enum GHOSTTY_ENUM_TYPED {
 typedef struct GhosttyTerminalImpl* GhosttyTerminal;
 
 /**
+ * Opaque handle to a tracked grid reference.
+ *
+ * A tracked grid reference is owned by the caller and must be freed with
+ * ghostty_tracked_grid_ref_free(). If the terminal that created it is freed
+ * first, the handle remains valid only for tracked-grid-ref APIs: it reports no
+ * value and can still be freed.
+ *
+ * @ingroup grid_ref
+ */
+typedef struct GhosttyTrackedGridRefImpl* GhosttyTrackedGridRef;
+
+/**
  * Opaque handle to a Kitty graphics image storage.
  *
  * Obtained via ghostty_terminal_get() with
@@ -185,6 +197,23 @@ typedef struct GhosttyOscCommandImpl* GhosttyOscCommand;
 /* ---- Common value types ---- */
 
 /**
+ * Terminal content output format.
+ *
+ * @ingroup formatter
+ */
+typedef enum GHOSTTY_ENUM_TYPED {
+  /** Plain text (no escape sequences). */
+  GHOSTTY_FORMATTER_FORMAT_PLAIN,
+
+  /** VT sequences preserving colors, styles, URLs, etc. */
+  GHOSTTY_FORMATTER_FORMAT_VT,
+
+  /** HTML with inline styles. */
+  GHOSTTY_FORMATTER_FORMAT_HTML,
+  GHOSTTY_FORMATTER_FORMAT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+} GhosttyFormatterFormat;
+
+/**
  * A borrowed byte string (pointer + length).
  *
  * The memory is not owned by this struct. The pointer is only valid
@@ -197,6 +226,55 @@ typedef struct {
   /** Length of the string in bytes. */
   size_t len;
 } GhosttyString;
+
+/**
+ * A caller-provided byte buffer.
+ *
+ * APIs that write to this type use `len` for the number of bytes written on
+ * GHOSTTY_SUCCESS and the required byte capacity on GHOSTTY_OUT_OF_SPACE.
+ */
+typedef struct {
+  /** Destination buffer for bytes. May be NULL when cap is 0 to query required size. */
+  uint8_t* ptr;
+
+  /** Capacity of ptr in bytes. */
+  size_t cap;
+
+  /** Bytes written on success, or required byte capacity on GHOSTTY_OUT_OF_SPACE. */
+  size_t len;
+} GhosttyBuffer;
+
+/**
+ * A surface-space position in pixels.
+ *
+ * This is not a terminal grid coordinate. It represents an x/y position in the
+ * rendered surface coordinate space, with (0, 0) at the top-left of the
+ * surface.
+ */
+typedef struct {
+  /** X position in surface pixels. */
+  double x;
+
+  /** Y position in surface pixels. */
+  double y;
+} GhosttySurfacePosition;
+
+/**
+ * A borrowed list of Unicode scalar values.
+ *
+ * Values are encoded as uint32_t scalar values. The memory is not owned by this
+ * struct. The pointer is only valid for the lifetime documented by the API that
+ * consumes or produces it.
+ *
+ * APIs may document special handling for NULL + len 0, such as “use defaults”.
+ */
+typedef struct {
+  /** Pointer to Unicode scalar values. */
+  const uint32_t* ptr;
+
+  /** Number of entries in ptr. */
+  size_t len;
+} GhosttyCodepoints;
 
 /**
  * Initialize a sized struct to zero and set its size field.

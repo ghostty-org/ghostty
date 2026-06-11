@@ -3,8 +3,9 @@ const testing = std.testing;
 const build_options = @import("terminal_options");
 const lib = @import("../lib.zig");
 const CAllocator = lib.alloc.Allocator;
-const ZigTerminal = @import("../Terminal.zig");
+pub const ZigTerminal = @import("../Terminal.zig");
 const Stream = @import("../stream_terminal.zig").Stream;
+const Screen = @import("../Screen.zig");
 const ScreenSet = @import("../ScreenSet.zig");
 const PageList = @import("../PageList.zig");
 const apc = @import("../apc.zig");
@@ -19,6 +20,8 @@ const size_report = @import("../size_report.zig");
 const cell_c = @import("cell.zig");
 const row_c = @import("row.zig");
 const grid_ref_c = @import("grid_ref.zig");
+const grid_ref_tracked_c = @import("grid_ref_tracked.zig");
+const selection_c = @import("selection.zig");
 const style_c = @import("style.zig");
 const color = @import("../color.zig");
 const Result = @import("result.zig").Result;
@@ -34,6 +37,7 @@ const TerminalWrapper = struct {
     terminal: *ZigTerminal,
     stream: Stream,
     effects: Effects = .{},
+    tracked_grid_refs: std.AutoArrayHashMapUnmanaged(*grid_ref_tracked_c.TrackedGridRef, void) = .{},
 };
 
 /// C callback state for terminal effects. Trampolines are always
@@ -48,6 +52,7 @@ const Effects = struct {
     enquiry: ?EnquiryFn = null,
     xtversion: ?XtversionFn = null,
     title_changed: ?TitleChangedFn = null,
+    pwd_changed: ?PwdChangedFn = null,
     size_cb: ?SizeFn = null,
 
     /// Scratch buffer for DA1 feature codes. The device attributes
@@ -81,6 +86,9 @@ const Effects = struct {
 
     /// C function pointer type for the title_changed callback.
     pub const TitleChangedFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) void;
+
+    /// C function pointer type for the pwd_changed callback.
+    pub const PwdChangedFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) void;
 
     /// C function pointer type for the size callback.
     /// Returns true and fills out_size if size is available,
@@ -195,6 +203,13 @@ const Effects = struct {
         func(@ptrCast(wrapper), wrapper.effects.userdata);
     }
 
+    fn pwdChangedTrampoline(handler: *Handler) void {
+        const stream_ptr: *Stream = @fieldParentPtr("handler", handler);
+        const wrapper: *TerminalWrapper = @fieldParentPtr("stream", stream_ptr);
+        const func = wrapper.effects.pwd_changed orelse return;
+        func(@ptrCast(wrapper), wrapper.effects.userdata);
+    }
+
     fn sizeTrampoline(handler: *Handler) ?size_report.Size {
         const stream_ptr: *Stream = @fieldParentPtr("handler", handler);
         const wrapper: *TerminalWrapper = @fieldParentPtr("stream", stream_ptr);
@@ -207,6 +222,10 @@ const Effects = struct {
 
 /// C: GhosttyTerminal
 pub const Terminal = ?*TerminalWrapper;
+
+pub fn zigTerminal(terminal_: Terminal) ?*ZigTerminal {
+    return (terminal_ orelse return null).terminal;
+}
 
 /// C: GhosttyTerminalOptions
 pub const Options = extern struct {
@@ -259,6 +278,11 @@ fn new_(
     });
     errdefer t.deinit(alloc);
 
+    // libghostty-vt embedders don't necessarily install Ghostty's shell
+    // integration, so don't assume OSC 133 prompts can be redrawn on resize.
+    // Shells can still opt in with OSC 133;A;redraw=1.
+    t.flags.shell_redraws_prompt = .false;
+
     // Setup our stream with trampolines always installed so that
     // setting C callbacks at any time takes effect immediately.
     var handler: Stream.Handler = t.vtHandler();
@@ -270,6 +294,7 @@ fn new_(
         .enquiry = &Effects.enquiryTrampoline,
         .xtversion = &Effects.xtversionTrampoline,
         .title_changed = &Effects.titleChangedTrampoline,
+        .pwd_changed = &Effects.pwdChangedTrampoline,
         .size = &Effects.sizeTrampoline,
     };
 
@@ -313,6 +338,11 @@ pub const Option = enum(c_int) {
     kitty_image_medium_shared_mem = 18,
     apc_max_bytes = 19,
     apc_max_bytes_kitty = 20,
+    selection = 21,
+    default_cursor_style = 22,
+    default_cursor_blink = 23,
+    glyph_protocol = 24,
+    pwd_changed = 25,
 
     /// Input type expected for setting the option.
     pub fn InType(comptime self: Option) type {
@@ -325,6 +355,7 @@ pub const Option = enum(c_int) {
             .enquiry => ?Effects.EnquiryFn,
             .xtversion => ?Effects.XtversionFn,
             .title_changed => ?Effects.TitleChangedFn,
+            .pwd_changed => ?Effects.PwdChangedFn,
             .size_cb => ?Effects.SizeFn,
             .title, .pwd => ?*const lib.String,
             .color_foreground, .color_background, .color_cursor => ?*const color.RGB.C,
@@ -333,8 +364,12 @@ pub const Option = enum(c_int) {
             .kitty_image_medium_file,
             .kitty_image_medium_temp_file,
             .kitty_image_medium_shared_mem,
+            .glyph_protocol,
             => ?*const bool,
             .apc_max_bytes, .apc_max_bytes_kitty => ?*const usize,
+            .selection => ?*const selection_c.CSelection,
+            .default_cursor_style => ?*const TerminalCursorStyle,
+            .default_cursor_blink => ?*const bool,
         };
     }
 };
@@ -376,6 +411,7 @@ fn setTyped(
         .enquiry => wrapper.effects.enquiry = value,
         .xtversion => wrapper.effects.xtversion = value,
         .title_changed => wrapper.effects.title_changed = value,
+        .pwd_changed => wrapper.effects.pwd_changed = value,
         .size_cb => wrapper.effects.size_cb = value,
         .title => {
             const str = if (value) |v| v.ptr[0..v.len] else "";
@@ -442,9 +478,55 @@ fn setTyped(
                 wrapper.stream.handler.apc_handler.max_bytes.remove(.kitty);
             }
         },
+        .glyph_protocol => {
+            const enabled = (value orelse return .success).*;
+            wrapper.stream.handler.apc_handler.enable(.glyph, enabled);
+            if (!enabled) wrapper.terminal.glyph_glossary.clearAndFree(wrapper.terminal.gpa());
+        },
+        .selection => {
+            if (value) |ptr| {
+                const sel = ptr.toZig() orelse return .invalid_value;
+                wrapper.terminal.screens.active.select(sel) catch return .out_of_memory;
+            } else {
+                wrapper.terminal.screens.active.clearSelection();
+            }
+        },
+        .default_cursor_style => {
+            const style = (if (value) |ptr| ptr.* else TerminalCursorStyle.block).toZig() orelse return .invalid_value;
+            wrapper.stream.handler.default_cursor_style = style;
+            if (wrapper.stream.handler.default_cursor) {
+                wrapper.terminal.screens.active.cursor.cursor_style = style;
+            }
+        },
+        .default_cursor_blink => {
+            const blink = if (value) |ptr| ptr.* else false;
+            wrapper.stream.handler.default_cursor_blink = blink;
+            if (wrapper.stream.handler.default_cursor) {
+                wrapper.terminal.modes.set(.cursor_blinking, blink);
+            }
+        },
     }
     return .success;
 }
+
+/// C: GhosttyTerminalCursorStyle
+pub const TerminalCursorStyle = enum(c_int) {
+    bar = 0,
+    block = 1,
+    underline = 2,
+    block_hollow = 3,
+    _,
+
+    fn toZig(self: TerminalCursorStyle) ?Screen.CursorStyle {
+        return switch (self) {
+            .bar => .bar,
+            .block => .block,
+            .underline => .underline,
+            .block_hollow => .block_hollow,
+            _ => null,
+        };
+    }
+};
 
 /// C: GhosttyDeviceAttributes
 pub const DeviceAttributes = Effects.CDeviceAttributes;
@@ -575,13 +657,15 @@ pub const TerminalData = enum(c_int) {
     kitty_image_medium_temp_file = 28,
     kitty_image_medium_shared_mem = 29,
     kitty_graphics = 30,
+    selection = 31,
+    viewport_active = 32,
 
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: TerminalData) type {
         return switch (self) {
             .invalid => void,
             .cols, .rows, .cursor_x, .cursor_y => size.CellCountInt,
-            .cursor_pending_wrap, .cursor_visible, .mouse_tracking => bool,
+            .cursor_pending_wrap, .cursor_visible, .mouse_tracking, .viewport_active => bool,
             .active_screen => TerminalScreen,
             .kitty_keyboard_flags => u8,
             .scrollbar => TerminalScrollbar,
@@ -603,6 +687,7 @@ pub const TerminalData = enum(c_int) {
             .kitty_image_medium_shared_mem,
             => bool,
             .kitty_graphics => KittyGraphics,
+            .selection => selection_c.CSelection,
         };
     }
 };
@@ -712,6 +797,10 @@ fn getTyped(
             if (comptime !build_options.kitty_graphics) return .no_value;
             out.* = &t.screens.active.kitty_images;
         },
+        .selection => out.* = selection_c.CSelection.fromZig(
+            t.screens.active.selection orelse return .no_value,
+        ),
+        .viewport_active => out.* = t.screens.active.pages.viewport == .active,
     }
 
     return .success;
@@ -723,15 +812,53 @@ pub fn grid_ref(
     out_ref: ?*grid_ref_c.CGridRef,
 ) callconv(lib.calling_conv) Result {
     const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
-    const zig_pt: point.Point = switch (pt.tag) {
-        .active => .{ .active = pt.value.active },
-        .viewport => .{ .viewport = pt.value.viewport },
-        .screen => .{ .screen = pt.value.screen },
-        .history => .{ .history = pt.value.history },
-    };
+    const zig_pt: point.Point = .fromC(pt);
     const p = t.screens.active.pages.pin(zig_pt) orelse
         return .invalid_value;
     if (out_ref) |out| out.* = grid_ref_c.CGridRef.fromPin(p);
+    return .success;
+}
+
+pub fn grid_ref_track(
+    terminal_: Terminal,
+    pt: point.Point.C,
+    out_ref: ?*grid_ref_tracked_c.CTrackedGridRef,
+) callconv(lib.calling_conv) Result {
+    const wrapper = terminal_ orelse return .invalid_value;
+    const out = out_ref orelse return .invalid_value;
+    out.* = null;
+
+    const t: *ZigTerminal = wrapper.terminal;
+    const list = &t.screens.active.pages;
+    const p = list.pin(.fromC(pt)) orelse return .invalid_value;
+    const tracked_pin = list.trackPin(p) catch return .out_of_memory;
+
+    const alloc = t.gpa();
+    const ref = alloc.create(grid_ref_tracked_c.TrackedGridRef) catch {
+        list.untrackPin(tracked_pin);
+        return .out_of_memory;
+    };
+    ref.* = .{
+        .alloc = alloc,
+        .terminal = wrapper,
+        .screen_key = t.screens.active_key,
+        .screen_generation = t.screens.generation(t.screens.active_key),
+        .pin = tracked_pin,
+    };
+
+    // Store the tracked ref in the terminal so that when we free
+    // the terminal the tracked ref can be detached safely.
+    wrapper.tracked_grid_refs.putNoClobber(
+        alloc,
+        ref,
+        {},
+    ) catch {
+        list.untrackPin(tracked_pin);
+        alloc.destroy(ref);
+        return .out_of_memory;
+    };
+
+    out.* = ref;
     return .success;
 }
 
@@ -752,9 +879,11 @@ pub fn point_from_grid_ref(
 pub fn free(terminal_: Terminal) callconv(lib.calling_conv) void {
     const wrapper = terminal_ orelse return;
     const t = wrapper.terminal;
-
-    wrapper.stream.deinit();
     const alloc = t.gpa();
+
+    for (wrapper.tracked_grid_refs.keys()) |ref| ref.terminal = null;
+    wrapper.tracked_grid_refs.deinit(alloc);
+    wrapper.stream.deinit();
     t.deinit(alloc);
     alloc.destroy(t);
     alloc.destroy(wrapper);
@@ -821,6 +950,10 @@ test "scroll_viewport" {
 
     const zt = t.?.terminal;
 
+    var viewport_active: bool = false;
+    try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
+    try testing.expect(viewport_active);
+
     // Write "hello" on the first line
     vt_write(t, "hello", 5);
 
@@ -835,6 +968,8 @@ test "scroll_viewport" {
 
     // Scroll to top: "hello" should be visible again
     scroll_viewport(t, .{ .tag = .top, .value = undefined });
+    try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
+    try testing.expect(!viewport_active);
     {
         const str = try zt.plainString(testing.allocator);
         defer testing.allocator.free(str);
@@ -843,6 +978,8 @@ test "scroll_viewport" {
 
     // Scroll to bottom: viewport should be empty again
     scroll_viewport(t, .{ .tag = .bottom, .value = undefined });
+    try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
+    try testing.expect(viewport_active);
     {
         const str = try zt.plainString(testing.allocator);
         defer testing.allocator.free(str);
@@ -851,6 +988,8 @@ test "scroll_viewport" {
 
     // Scroll up by delta to bring "hello" back into view
     scroll_viewport(t, .{ .tag = .delta, .value = .{ .delta = -3 } });
+    try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
+    try testing.expect(!viewport_active);
     {
         const str = try zt.plainString(testing.allocator);
         defer testing.allocator.free(str);
@@ -924,6 +1063,30 @@ test "resize invalid value" {
 
     try testing.expectEqual(Result.invalid_value, resize(t, 0, 24, 9, 18));
     try testing.expectEqual(Result.invalid_value, resize(t, 80, 0, 9, 18));
+}
+
+test "resize shrinks both axes with cursor at bottom" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    // CSI 24;1H -> park the cursor on the bottom row (1-based).
+    const move = "\x1b[24;1H";
+    vt_write(t, move, move.len);
+
+    // Shrink both axes; pre-resize cursor.y sits past the new bottom row.
+    // Previously this underflowed in PageList.resizeCols.
+    try testing.expectEqual(Result.success, resize(t, 79, 23, 8, 16));
+    try testing.expectEqual(79, t.?.terminal.cols);
+    try testing.expectEqual(23, t.?.terminal.rows);
 }
 
 test "mode_get and mode_set" {
@@ -1296,6 +1459,449 @@ test "get invalid" {
     defer free(t);
 
     try testing.expectEqual(Result.invalid_value, get(t, .invalid, null));
+}
+
+test "set default cursor style and blink" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    var default_style: TerminalCursorStyle = .bar;
+    var default_blink = true;
+    try testing.expectEqual(Result.success, set(t, .default_cursor_style, @ptrCast(&default_style)));
+    try testing.expectEqual(Result.success, set(t, .default_cursor_blink, @ptrCast(&default_blink)));
+
+    // Setting defaults applies them immediately while the cursor is still default.
+    try testing.expectEqual(Screen.CursorStyle.bar, t.?.terminal.screens.active.cursor.cursor_style);
+    try testing.expect(t.?.terminal.modes.get(.cursor_blinking));
+
+    // An explicit DECSCUSR style overrides the configured defaults.
+    vt_write(t, "\x1b[2 q", 5);
+    try testing.expectEqual(Screen.CursorStyle.block, t.?.terminal.screens.active.cursor.cursor_style);
+    try testing.expect(!t.?.terminal.modes.get(.cursor_blinking));
+
+    // Changing defaults does not override an explicit cursor style.
+    default_style = .underline;
+    try testing.expectEqual(Result.success, set(t, .default_cursor_style, @ptrCast(&default_style)));
+    try testing.expectEqual(Screen.CursorStyle.block, t.?.terminal.screens.active.cursor.cursor_style);
+    try testing.expect(!t.?.terminal.modes.get(.cursor_blinking));
+
+    // DECSCUSR reset restores the configured default style and blink.
+    vt_write(t, "\x1b[0 q", 5);
+    try testing.expectEqual(Screen.CursorStyle.underline, t.?.terminal.screens.active.cursor.cursor_style);
+    try testing.expect(t.?.terminal.modes.get(.cursor_blinking));
+}
+
+test "set and get selection" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    vt_write(t, "Hello", 5);
+
+    var start_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &start_ref));
+
+    var end_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 4, .y = 0 } },
+    }, &end_ref));
+
+    var out: selection_c.CSelection = undefined;
+    try testing.expectEqual(Result.no_value, get(t, .selection, @ptrCast(&out)));
+
+    const sel: selection_c.CSelection = .{
+        .start = start_ref,
+        .end = end_ref,
+        .rectangle = true,
+    };
+    try testing.expectEqual(Result.success, set(t, .selection, @ptrCast(&sel)));
+    try testing.expect(t.?.terminal.screens.active.selection.?.tracked());
+
+    try testing.expectEqual(Result.success, get(t, .selection, @ptrCast(&out)));
+    try testing.expect(out.start.toPin().?.eql(start_ref.toPin().?));
+    try testing.expect(out.end.toPin().?.eql(end_ref.toPin().?));
+    try testing.expect(out.rectangle);
+
+    try testing.expectEqual(Result.success, set(t, .selection, null));
+    try testing.expect(t.?.terminal.screens.active.selection == null);
+    try testing.expectEqual(Result.no_value, get(t, .selection, @ptrCast(&out)));
+}
+
+test "selection derivation helpers" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    vt_write(t, "  Hello  \r\nWorld", 16);
+
+    var out: selection_c.CSelection = undefined;
+
+    var word_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 3, .y = 0 } },
+    }, &word_ref));
+
+    var empty_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 20, .y = 0 } },
+    }, &empty_ref));
+
+    var line_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &line_ref));
+
+    var word_opts: selection_c.SelectWordOptions = .{
+        .ref = word_ref,
+    };
+    try testing.expectEqual(Result.success, selection_c.word(t, &word_opts, &out));
+    try testing.expectEqual(@as(u16, 2), out.start.toPin().?.x);
+    try testing.expectEqual(@as(u16, 6), out.end.toPin().?.x);
+
+    word_opts.ref = empty_ref;
+    try testing.expectEqual(Result.no_value, selection_c.word(t, &word_opts, &out));
+
+    var between_start_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 20, .y = 1 } },
+    }, &between_start_ref));
+
+    var between_end_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 1 } },
+    }, &between_end_ref));
+
+    var word_between_opts: selection_c.SelectWordBetweenOptions = .{
+        .start = between_start_ref,
+        .end = between_end_ref,
+    };
+    try testing.expectEqual(Result.success, selection_c.word_between(t, &word_between_opts, &out));
+    try testing.expectEqual(@as(u16, 0), out.start.toPin().?.x);
+    try testing.expectEqual(@as(u16, 1), out.start.toPin().?.y);
+    try testing.expectEqual(@as(u16, 4), out.end.toPin().?.x);
+    try testing.expectEqual(@as(u16, 1), out.end.toPin().?.y);
+
+    var line_opts: selection_c.SelectLineOptions = .{
+        .ref = line_ref,
+    };
+    try testing.expectEqual(Result.success, selection_c.line(t, &line_opts, &out));
+    try testing.expectEqual(@as(u16, 2), out.start.toPin().?.x);
+    try testing.expectEqual(@as(u16, 6), out.end.toPin().?.x);
+
+    try testing.expectEqual(Result.success, selection_c.all(t, &out));
+    try testing.expectEqual(@as(u16, 2), out.start.toPin().?.x);
+    try testing.expectEqual(@as(u16, 0), out.start.toPin().?.y);
+    try testing.expectEqual(@as(u16, 4), out.end.toPin().?.x);
+    try testing.expectEqual(@as(u16, 1), out.end.toPin().?.y);
+
+    try testing.expectEqual(Result.no_value, selection_c.output(t, line_ref, &out));
+
+    line_opts.size = @sizeOf(usize) - 1;
+    try testing.expectEqual(Result.invalid_value, selection_c.line(t, &line_opts, &out));
+    try testing.expectEqual(Result.invalid_value, selection_c.word(t, null, &out));
+    try testing.expectEqual(Result.invalid_value, selection_c.word(t, &word_opts, null));
+    try testing.expectEqual(Result.invalid_value, selection_c.word_between(t, null, &out));
+    try testing.expectEqual(Result.invalid_value, selection_c.word_between(t, &word_between_opts, null));
+}
+
+test "selection_adjust mutates snapshot end" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    vt_write(t, "Hello", 5);
+
+    var start_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &start_ref));
+
+    var end_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 1, .y = 0 } },
+    }, &end_ref));
+
+    var sel: selection_c.CSelection = .{
+        .start = start_ref,
+        .end = end_ref,
+    };
+    try testing.expectEqual(Result.success, selection_c.adjust(t, &sel, .right));
+    try testing.expectEqual(@as(u16, 0), sel.start.toPin().?.x);
+    try testing.expectEqual(@as(u16, 2), sel.end.toPin().?.x);
+
+    try testing.expectEqual(Result.success, selection_c.adjust(t, &sel, .left));
+    try testing.expectEqual(@as(u16, 0), sel.start.toPin().?.x);
+    try testing.expectEqual(@as(u16, 1), sel.end.toPin().?.x);
+
+    sel = .{
+        .start = end_ref,
+        .end = start_ref,
+    };
+    try testing.expectEqual(Result.success, selection_c.adjust(t, &sel, .right));
+    try testing.expectEqual(@as(u16, 1), sel.start.toPin().?.x);
+    try testing.expectEqual(@as(u16, 1), sel.end.toPin().?.x);
+}
+
+test "selection_order and selection_ordered" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    vt_write(t, "Hello\r\nWorld", 12);
+
+    var start_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 3, .y = 0 } },
+    }, &start_ref));
+
+    var end_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 1, .y = 1 } },
+    }, &end_ref));
+
+    const sel: selection_c.CSelection = .{
+        .start = start_ref,
+        .end = end_ref,
+        .rectangle = true,
+    };
+
+    var order: selection_c.Order = undefined;
+    try testing.expectEqual(Result.success, selection_c.order(t, &sel, &order));
+    try testing.expectEqual(selection_c.Order.mirrored_forward, order);
+
+    var out: selection_c.CSelection = undefined;
+    try testing.expectEqual(Result.success, selection_c.ordered(t, &sel, .forward, &out));
+    try testing.expectEqual(@as(u16, 1), out.start.toPin().?.x);
+    try testing.expectEqual(@as(u16, 0), out.start.toPin().?.y);
+    try testing.expectEqual(@as(u16, 3), out.end.toPin().?.x);
+    try testing.expectEqual(@as(u16, 1), out.end.toPin().?.y);
+    try testing.expect(out.rectangle);
+
+    try testing.expectEqual(Result.success, selection_c.ordered(t, &sel, .reverse, &out));
+    try testing.expectEqual(@as(u16, 3), out.start.toPin().?.x);
+    try testing.expectEqual(@as(u16, 1), out.start.toPin().?.y);
+    try testing.expectEqual(@as(u16, 1), out.end.toPin().?.x);
+    try testing.expectEqual(@as(u16, 0), out.end.toPin().?.y);
+    try testing.expect(out.rectangle);
+}
+
+test "selection_contains" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    vt_write(t, "Hello\r\nWorld", 12);
+
+    var start_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 3, .y = 0 } },
+    }, &start_ref));
+
+    var end_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 1, .y = 1 } },
+    }, &end_ref));
+
+    const linear: selection_c.CSelection = .{
+        .start = start_ref,
+        .end = end_ref,
+    };
+
+    var contains: bool = undefined;
+    try testing.expectEqual(Result.success, selection_c.contains(t, &linear, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 4, .y = 0 } },
+    }, &contains));
+    try testing.expect(contains);
+
+    try testing.expectEqual(Result.success, selection_c.contains(t, &linear, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 2, .y = 0 } },
+    }, &contains));
+    try testing.expect(!contains);
+
+    const rectangle: selection_c.CSelection = .{
+        .start = start_ref,
+        .end = end_ref,
+        .rectangle = true,
+    };
+
+    try testing.expectEqual(Result.success, selection_c.contains(t, &rectangle, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 2, .y = 0 } },
+    }, &contains));
+    try testing.expect(contains);
+}
+
+test "selection_equal" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    var other_t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &other_t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(other_t);
+
+    vt_write(t, "Hello", 5);
+    vt_write(other_t, "Hello", 5);
+
+    var start_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 0, .y = 0 } },
+    }, &start_ref));
+
+    var end_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 1, .y = 0 } },
+    }, &end_ref));
+
+    var other_end_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 2, .y = 0 } },
+    }, &other_end_ref));
+
+    var cross_terminal_ref: grid_ref_c.CGridRef = .{};
+    try testing.expectEqual(Result.success, grid_ref(other_t, .{
+        .tag = .active,
+        .value = .{ .active = .{ .x = 1, .y = 0 } },
+    }, &cross_terminal_ref));
+
+    const sel: selection_c.CSelection = .{
+        .start = start_ref,
+        .end = end_ref,
+    };
+    const equal_sel: selection_c.CSelection = .{
+        .start = start_ref,
+        .end = end_ref,
+    };
+    const different_endpoint: selection_c.CSelection = .{
+        .start = start_ref,
+        .end = other_end_ref,
+    };
+    const different_rectangle: selection_c.CSelection = .{
+        .start = start_ref,
+        .end = end_ref,
+        .rectangle = true,
+    };
+    const cross_terminal: selection_c.CSelection = .{
+        .start = start_ref,
+        .end = cross_terminal_ref,
+    };
+
+    var equal: bool = undefined;
+    try testing.expectEqual(Result.success, selection_c.equal(t, &sel, &equal_sel, &equal));
+    try testing.expect(equal);
+
+    try testing.expectEqual(Result.success, selection_c.equal(t, &sel, &different_endpoint, &equal));
+    try testing.expect(!equal);
+
+    try testing.expectEqual(Result.success, selection_c.equal(t, &sel, &different_rectangle, &equal));
+    try testing.expect(!equal);
+
+    try testing.expectEqual(Result.success, selection_c.equal(t, &sel, &cross_terminal, &equal));
+    try testing.expect(!equal);
+    try testing.expectEqual(Result.invalid_value, selection_c.equal(t, &sel, &equal_sel, null));
+}
+
+test "selection_order invalid values" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    var order: selection_c.Order = undefined;
+    try testing.expectEqual(Result.invalid_value, selection_c.order(null, null, &order));
+    try testing.expectEqual(Result.invalid_value, selection_c.order(t, null, &order));
 }
 
 test "grid_ref" {
@@ -1770,6 +2376,68 @@ test "title_changed without callback is silent" {
 
     // OSC 2 without a callback should not crash
     vt_write(t, "\x1B]2;Hello\x1B\\", 10);
+}
+
+test "set pwd_changed callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    const S = struct {
+        var pwd_count: usize = 0;
+        var last_userdata: ?*anyopaque = null;
+
+        fn pwdChanged(_: Terminal, ud: ?*anyopaque) callconv(lib.calling_conv) void {
+            pwd_count += 1;
+            last_userdata = ud;
+        }
+    };
+    S.pwd_count = 0;
+    S.last_userdata = null;
+
+    var sentinel: u8 = 88;
+    try testing.expectEqual(Result.success, set(t, .userdata, @ptrCast(&sentinel)));
+    try testing.expectEqual(Result.success, set(t, .pwd_changed, @ptrCast(&S.pwdChanged)));
+
+    // OSC 7 ; file:///tmp ST — report pwd
+    const seq1 = "\x1B]7;file:///tmp\x1B\\";
+    vt_write(t, seq1, seq1.len);
+    try testing.expectEqual(@as(usize, 1), S.pwd_count);
+    try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
+    try testing.expectEqualStrings("file:///tmp", zigTerminal(t).?.getPwd().?);
+
+    // Another pwd change
+    const seq2 = "\x1B]7;file:///home/user\x1B\\";
+    vt_write(t, seq2, seq2.len);
+    try testing.expectEqual(@as(usize, 2), S.pwd_count);
+    try testing.expectEqualStrings("file:///home/user", zigTerminal(t).?.getPwd().?);
+}
+
+test "pwd_changed without callback is silent" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    // OSC 7 without a callback should not crash, but should still set the pwd
+    const seq = "\x1B]7;file:///tmp\x1B\\";
+    vt_write(t, seq, seq.len);
+    try testing.expectEqualStrings("file:///tmp", zigTerminal(t).?.getPwd().?);
 }
 
 test "set size callback" {
@@ -2597,6 +3265,33 @@ test "set color sets dirty flag" {
     const fg: color.RGB.C = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF };
     try testing.expectEqual(Result.success, set(t, .color_foreground, @ptrCast(&fg)));
     try testing.expect(zt.flags.dirty.palette);
+}
+
+test "set glyph protocol disables APC handling and clears glossary" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{ .cols = 80, .rows = 24, .max_scrollback = 0 },
+    ));
+    defer free(t);
+
+    const register = "\x1B_25a1;r;cp=e0a0;AAAAAAAAAAAAAA==\x1B\\";
+    vt_write(t, register, register.len);
+    try testing.expect(t.?.terminal.glyph_glossary.contains(0xE0A0));
+
+    const disabled = false;
+    try testing.expectEqual(Result.success, set(t, .glyph_protocol, @ptrCast(&disabled)));
+    try testing.expect(!t.?.stream.handler.apc_handler.enabled.contains(.glyph));
+    try testing.expect(!t.?.terminal.glyph_glossary.contains(0xE0A0));
+
+    vt_write(t, register, register.len);
+    try testing.expect(!t.?.terminal.glyph_glossary.contains(0xE0A0));
+
+    const enabled = true;
+    try testing.expectEqual(Result.success, set(t, .glyph_protocol, @ptrCast(&enabled)));
+    vt_write(t, register, register.len);
+    try testing.expect(t.?.terminal.glyph_glossary.contains(0xE0A0));
 }
 
 test "get_multi success" {

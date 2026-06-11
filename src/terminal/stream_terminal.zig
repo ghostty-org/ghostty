@@ -43,6 +43,11 @@ pub const Handler = struct {
     /// the kitty graphics protocol.
     apc_handler: apc.Handler = .{},
 
+    /// Default cursor style used by DECSCUSR reset (CSI 0 q).
+    default_cursor: bool = true,
+    default_cursor_style: Screen.CursorStyle = .block,
+    default_cursor_blink: bool = false,
+
     pub const Effects = struct {
         /// Called when the terminal needs to write data back to the pty,
         /// e.g. in response to a DECRQM query. The data is only valid
@@ -78,6 +83,11 @@ pub const Handler = struct {
         /// handler.terminal.getTitle().
         title_changed: ?*const fn (*Handler) void,
 
+        /// Called when the terminal pwd changes via escape sequences
+        /// (e.g. OSC 7). The new pwd can be queried via
+        /// handler.terminal.getPwd().
+        pwd_changed: ?*const fn (*Handler) void,
+
         /// Called in response to an XTVERSION query. Returns the version
         /// string to report (e.g. "ghostty 1.2.3"). The returned memory
         /// must be valid for the lifetime of the call. The maximum length
@@ -94,6 +104,7 @@ pub const Handler = struct {
             .enquiry = null,
             .size = null,
             .title_changed = null,
+            .pwd_changed = null,
             .write_pty = null,
             .xtversion = null,
         };
@@ -152,12 +163,19 @@ pub const Handler = struct {
                 self.terminal.screens.active.cursor.x + 1,
             ),
             .cursor_style => {
+                self.default_cursor = false;
+
                 const blink = switch (value) {
-                    .default, .steady_block, .steady_bar, .steady_underline => false,
+                    .default => self.default_cursor_blink,
+                    .steady_block, .steady_bar, .steady_underline => false,
                     .blinking_block, .blinking_bar, .blinking_underline => true,
                 };
                 const style: Screen.CursorStyle = switch (value) {
-                    .default, .blinking_block, .steady_block => .block,
+                    .default => style: {
+                        self.default_cursor = true;
+                        break :style self.default_cursor_style;
+                    },
+                    .blinking_block, .steady_block => .block,
                     .blinking_bar, .steady_bar => .bar,
                     .blinking_underline, .steady_underline => .underline,
                 };
@@ -228,7 +246,12 @@ pub const Handler = struct {
             },
             .active_status_display => self.terminal.status_display = value,
             .decaln => try self.terminal.decaln(),
-            .full_reset => self.terminal.fullReset(),
+            .full_reset => {
+                self.terminal.fullReset();
+                self.default_cursor = true;
+                self.terminal.modes.set(.cursor_blinking, self.default_cursor_blink);
+                self.terminal.screens.active.cursor.cursor_style = self.default_cursor_style;
+            },
             .start_hyperlink => try self.terminal.screens.active.startHyperlink(value.uri, value.id),
             .end_hyperlink => self.terminal.screens.active.endHyperlink(),
             .semantic_prompt => try self.terminal.semanticPrompt(value),
@@ -251,6 +274,7 @@ pub const Handler = struct {
             .request_mode_unknown => self.requestModeUnknown(value.mode, value.ansi),
             .size_report => self.reportSize(value),
             .window_title => self.windowTitle(value.title),
+            .report_pwd => self.reportPwd(value.url),
             .xtversion => self.reportXtversion(),
 
             // No supported DCS commands have any terminal-modifying effects,
@@ -261,7 +285,6 @@ pub const Handler = struct {
             => {},
 
             // Have no terminal-modifying effect
-            .report_pwd,
             .show_desktop_notification,
             .progress_report,
             .clipboard_contents,
@@ -417,6 +440,29 @@ pub const Handler = struct {
         };
 
         const func = self.effects.title_changed orelse return;
+        func(self);
+    }
+
+    fn reportPwd(self: *Handler, url_raw: []const u8) void {
+        // Prevent DoS attacks by limiting url length. Headroom for
+        // Linux PATH_MAX (4096) plus URI scheme/host and percent-encoding.
+        const max_url_len = 4096;
+        const url = if (url_raw.len > max_url_len) url: {
+            log.warn("pwd url length {d} exceeds max length {d}, truncating", .{
+                url_raw.len,
+                max_url_len,
+            });
+            break :url url_raw[0..max_url_len];
+        } else url_raw;
+
+        // We store the raw payload unparsed. Embedders read it via
+        // getPwd() and are responsible for decoding any URI scheme.
+        self.terminal.setPwd(url) catch |err| {
+            log.warn("error setting pwd err={}", .{err});
+            return;
+        };
+
+        const func = self.effects.pwd_changed orelse return;
         func(self);
     }
 
@@ -679,6 +725,25 @@ pub const Handler = struct {
                     if (final.len > 3) self.writePty(final[0 .. final.len - 1 :0]);
                 }
             },
+
+            .glyph => |*glyph_req| {
+                const resp = self.terminal.glyphProtocol(alloc, glyph_req);
+                if (resp) |r| resp_block: {
+                    // Don't waste time encoding if we can't write responses
+                    // anyways.
+                    if (self.effects.write_pty == null) break :resp_block;
+
+                    // Glyph responses are short and bounded by the protocol
+                    // fields we emit, so this matches the Kitty response
+                    // buffer size above with ample headroom.
+                    var buf: [apc.glyph.Response.max_wire_bytes]u8 = undefined;
+                    var writer: std.Io.Writer = .fixed(&buf);
+                    r.formatWire(&writer) catch return;
+                    writer.writeByte(0) catch return;
+                    const final = writer.buffered();
+                    self.writePty(final[0 .. final.len - 1 :0]);
+                }
+            },
         }
     }
 };
@@ -900,6 +965,8 @@ test "full reset" {
     s.nextSlice("\x1B[10;20H");
     s.nextSlice("\x1B[5;20r"); // Set scroll region
     s.nextSlice("\x1B[?7l"); // Disable wraparound
+    s.nextSlice("\x1B_25a1;r;cp=e0a0;AAAAAAAAAAAAAA==\x1B\\");
+    try testing.expect(t.glyph_glossary.contains(0xE0A0));
 
     // Full reset
     s.nextSlice("\x1Bc");
@@ -910,6 +977,35 @@ test "full reset" {
     try testing.expectEqual(@as(usize, 0), t.scrolling_region.top);
     try testing.expectEqual(@as(usize, 23), t.scrolling_region.bottom);
     try testing.expect(t.modes.get(.wraparound));
+    try testing.expect(!t.glyph_glossary.contains(0xE0A0));
+}
+
+test "glyph protocol APC with write_pty callback" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var last_response: ?[:0]const u8 = null;
+        fn writePty(_: *Handler, data: [:0]const u8) void {
+            if (last_response) |old| testing.allocator.free(old);
+            last_response = testing.allocator.dupeZ(u8, data) catch @panic("OOM");
+        }
+    };
+    S.last_response = null;
+    defer if (S.last_response) |old| testing.allocator.free(old);
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+
+    var s: Stream = .initAlloc(testing.allocator, handler);
+    defer s.deinit();
+
+    s.nextSlice("\x1B_25a1;s\x1B\\");
+    try testing.expectEqualStrings("\x1B_25a1;s;fmt=glyf\x1B\\", S.last_response.?);
+
+    s.nextSlice("\x1B_25a1;r;cp=e0a0;AAAAAAAAAAAAAA==\x1B\\");
+    try testing.expectEqualStrings("\x1B_25a1;r;cp=e0a0;status=0\x1B\\", S.last_response.?);
+    try testing.expect(t.glyph_glossary.contains(0xE0A0));
 }
 
 test "ignores query actions" {
