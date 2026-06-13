@@ -181,3 +181,9 @@ label.resize-overlay {
   margin: 0;
   padding: 0;
 }
+
+@media (prefers-contrast: more) {
+    .transparent {
+        background-color: transparent;
+    }
+}

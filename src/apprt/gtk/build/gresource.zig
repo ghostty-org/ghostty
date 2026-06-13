@@ -58,8 +58,6 @@ pub const blueprints: []const Blueprint = &.{
 pub const css = [_][]const u8{
     "style.css",
     "style-dark.css",
-    "style-hc.css",
-    "style-hc-dark.css",
 };
 
 pub const Blueprint = struct {
