@@ -215,6 +215,12 @@ class TerminalWindow: NSWindow {
 
         syncTabBarLocation()
 
+        if usesSidebarTabBar {
+            tabBarDidDisappear()
+            viewModel.isMainWindow = true
+            return
+        }
+
         // Its possible we miss the accessory titlebar call so we check again
         // whenever the window becomes main. Both of these are idempotent.
         if tabBarView != nil {
@@ -263,7 +269,12 @@ class TerminalWindow: NSWindow {
         // it. This has been verified to work on macOS 12 to 26
         if isTabBar(childViewController) {
             childViewController.identifier = Self.tabBarIdentifier
-            tabBarDidAppear()
+
+            if usesSidebarTabBar {
+                syncTabBarLocation()
+            } else {
+                tabBarDidAppear()
+            }
         }
     }
 
@@ -358,32 +369,35 @@ class TerminalWindow: NSWindow {
         return label
     }()
 
-    func syncTabBarLocation() {
-        guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
-        guard appDelegate.ghostty.config.macosTabBarLocation == .left else { return }
+    private var usesSidebarTabBar: Bool {
+        guard let appDelegate = NSApp.delegate as? AppDelegate else { return false }
+        return appDelegate.ghostty.config.macosTabBarLocation == .left
+    }
 
-        hideNativeTabBarForSidebar()
+    func syncTabBarLocation() {
+        guard usesSidebarTabBar else { return }
+
+        removeNativeTabBarAccessoryForSidebar()
 
         if tabGroup?.isTabBarVisible == true {
             toggleTabBar(nil)
             DispatchQueue.main.async {
-                self.hideNativeTabBarForSidebar()
+                self.removeNativeTabBarAccessoryForSidebar()
             }
         }
     }
 
-    private func hideNativeTabBarForSidebar() {
-        guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
-        guard appDelegate.ghostty.config.macosTabBarLocation == .left else { return }
-        guard let tabBarView else { return }
+    private func removeNativeTabBarAccessoryForSidebar() {
+        guard usesSidebarTabBar else { return }
 
-        func hide(_ view: NSView) {
-            view.isHidden = true
-            view.alphaValue = 0
-            view.subviews.forEach(hide)
+        for index in titlebarAccessoryViewControllers.indices.reversed() {
+            let childViewController = titlebarAccessoryViewControllers[index]
+            guard isTabBar(childViewController) else { continue }
+
+            removeTitlebarAccessoryViewController(at: index)
         }
 
-        hide(tabBarView)
+        tabBarView?.removeFromSuperview()
     }
 
     // MARK: Surface Zoom
