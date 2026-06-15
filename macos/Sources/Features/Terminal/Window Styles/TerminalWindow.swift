@@ -106,6 +106,8 @@ class TerminalWindow: NSWindow {
         guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
         let config = appDelegate.ghostty.config
 
+        syncTabBarLocation()
+
         // Setup our initial config
         derivedConfig = .init(config)
 
@@ -210,6 +212,8 @@ class TerminalWindow: NSWindow {
 
     override func becomeMain() {
         super.becomeMain()
+
+        syncTabBarLocation()
 
         // Its possible we miss the accessory titlebar call so we check again
         // whenever the window becomes main. Both of these are idempotent.
@@ -353,6 +357,34 @@ class TerminalWindow: NSWindow {
         label.postsFrameChangedNotifications = true
         return label
     }()
+
+    func syncTabBarLocation() {
+        guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
+        guard appDelegate.ghostty.config.macosTabBarLocation == .left else { return }
+
+        hideNativeTabBarForSidebar()
+
+        if tabGroup?.isTabBarVisible == true {
+            toggleTabBar(nil)
+            DispatchQueue.main.async {
+                self.hideNativeTabBarForSidebar()
+            }
+        }
+    }
+
+    private func hideNativeTabBarForSidebar() {
+        guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
+        guard appDelegate.ghostty.config.macosTabBarLocation == .left else { return }
+        guard let tabBarView else { return }
+
+        func hide(_ view: NSView) {
+            view.isHidden = true
+            view.alphaValue = 0
+            view.subviews.forEach(hide)
+        }
+
+        hide(tabBarView)
+    }
 
     // MARK: Surface Zoom
 

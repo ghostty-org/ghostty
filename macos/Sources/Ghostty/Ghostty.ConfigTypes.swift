@@ -46,4 +46,10 @@ extension Ghostty {
         case plastic
         case chrome
     }
+
+    /// macos-tab-bar-location
+    enum MacOSTabBarLocation: String, Sendable {
+        case top
+        case left
+    }
 }

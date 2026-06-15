@@ -187,6 +187,7 @@
 				Features/Terminal/TerminalController.swift,
 				Features/Terminal/TerminalRestorable.swift,
 				"Features/Terminal/TerminalRestorableState+InteralState.swift",
+				Features/Terminal/TerminalSidebarView.swift,
 				Features/Terminal/TerminalTabColor.swift,
 				Features/Terminal/TerminalView.swift,
 				Features/Terminal/TerminalViewContainer.swift,

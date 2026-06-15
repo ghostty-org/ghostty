@@ -494,6 +494,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // solution we should do that.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             controller.relabelTabs()
+            (parent as? TerminalWindow)?.syncTabBarLocation()
+            (window as? TerminalWindow)?.syncTabBarLocation()
         }
 
         // Setup our undo

@@ -368,6 +368,16 @@ extension Ghostty {
             return MacOSTitlebarStyle(rawValue: String(cString: ptr)) ?? defaultValue
         }
 
+        var macosTabBarLocation: MacOSTabBarLocation {
+            let defaultValue = MacOSTabBarLocation.top
+            guard let config = self.config else { return defaultValue }
+            var v: UnsafePointer<Int8>?
+            let key = "macos-tab-bar-location"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return defaultValue }
+            guard let ptr = v else { return defaultValue }
+            return MacOSTabBarLocation(rawValue: String(cString: ptr)) ?? defaultValue
+        }
+
         var macosTitlebarProxyIcon: MacOSTitlebarProxyIcon {
             let defaultValue = MacOSTitlebarProxyIcon.visible
             guard let config = self.config else { return defaultValue }
