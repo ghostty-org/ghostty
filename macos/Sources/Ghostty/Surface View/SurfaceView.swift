@@ -48,6 +48,10 @@ extension Ghostty {
         // Maintain whether our window has focus (is key) or not
         @State private var windowFocus: Bool = true
 
+        // A short-lived in-app feedback message for clipboard writes.
+        @State private var clipboardFeedbackMessage: String?
+        @State private var clipboardFeedbackTask: Task<Void, Never>?
+
         #if canImport(AppKit)
         // Observe SecureInput to detect when its enabled
         @ObservedObject private var secureInput = SecureInput.shared
@@ -132,6 +136,12 @@ extension Ghostty {
                     keySequence: surfaceView.keySequence
                 )
                 .zIndex(1)
+
+                if let clipboardFeedbackMessage {
+                    ClipboardFeedbackOverlay(message: clipboardFeedbackMessage)
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                        .zIndex(2)
+                }
 #endif
 
                 VStack(spacing: 0) {
@@ -207,6 +217,26 @@ extension Ghostty {
                 // This is disabled except on macOS because it uses AppKit drag/drop APIs.
                 SurfaceGrabHandle(surfaceView: surfaceView)
                 #endif
+            }
+            .onReceive(center.publisher(for: Ghostty.Notification.didWriteClipboard)) { notification in
+                guard notification.object as? SurfaceView === surfaceView else { return }
+                guard ghostty.config.appNotifications.contains(.clipboardCopy) else { return }
+
+                let message = notification.userInfo?[Ghostty.Notification.DidWriteClipboardMessageKey] as? String
+                clipboardFeedbackTask?.cancel()
+
+                withAnimation(.easeOut(duration: 0.12)) {
+                    clipboardFeedbackMessage = message ?? "Copied to clipboard"
+                }
+
+                clipboardFeedbackTask = Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(2))
+                    guard !Task.isCancelled else { return }
+
+                    withAnimation(.easeIn(duration: 0.18)) {
+                        clipboardFeedbackMessage = nil
+                    }
+                }
             }
         }
     }
@@ -1040,6 +1070,25 @@ extension Ghostty {
                     }
                 }
             }
+        }
+    }
+
+    /// A short-lived in-app overlay shown after copying to the clipboard.
+    struct ClipboardFeedbackOverlay: View {
+        let message: String
+
+        var body: some View {
+            Text(message)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Color(red: 0.38, green: 0.58, blue: 0.32))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(.regularMaterial)
+                .clipShape(Capsule())
+                .shadow(radius: 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .padding(.bottom, 18)
+                .allowsHitTesting(false)
         }
     }
 

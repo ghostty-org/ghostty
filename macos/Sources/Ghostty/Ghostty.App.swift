@@ -413,6 +413,19 @@ extension Ghostty {
                     guard let type = NSPasteboard.PasteboardType(mimeType: item.mime) else { continue }
                     pasteboard.setString(item.data, forType: type)
                 }
+
+                if location == GHOSTTY_CLIPBOARD_STANDARD {
+                    let text = contentArray.first(where: { $0.mime == "text/plain" })?.data ?? ""
+                    NotificationCenter.default.post(
+                        name: Ghostty.Notification.didWriteClipboard,
+                        object: surface,
+                        userInfo: [
+                            Ghostty.Notification.DidWriteClipboardMessageKey: text.isEmpty
+                                ? "Cleared clipboard"
+                                : "Copied to clipboard",
+                        ]
+                    )
+                }
                 return
             }
 

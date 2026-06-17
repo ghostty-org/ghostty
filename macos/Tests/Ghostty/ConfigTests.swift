@@ -111,6 +111,16 @@ struct ConfigTests {
         #expect(config.resizeOverlay == .after_first)
     }
 
+    @Test func appNotificationsClipboardCopyDefaultsToTrue() throws {
+        let config = try TemporaryConfig("")
+        #expect(config.appNotifications.contains(.clipboardCopy))
+    }
+
+    @Test func appNotificationsClipboardCopyCanBeDisabled() throws {
+        let config = try TemporaryConfig("app-notifications = no-clipboard-copy")
+        #expect(!config.appNotifications.contains(.clipboardCopy))
+    }
+
     @Test(arguments: [
         ("always", Ghostty.Config.ResizeOverlay.always),
         ("never", Ghostty.Config.ResizeOverlay.never),

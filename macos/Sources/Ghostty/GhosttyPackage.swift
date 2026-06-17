@@ -431,6 +431,10 @@ extension Ghostty.Notification {
     static let ConfirmClipboardStateKey = confirmClipboard.rawValue + ".state"
     static let ConfirmClipboardRequestKey = confirmClipboard.rawValue + ".request"
 
+    /// Notification sent when Ghostty writes to the standard clipboard.
+    static let didWriteClipboard = Notification.Name("com.mitchellh.ghostty.didWriteClipboard")
+    static let DidWriteClipboardMessageKey = didWriteClipboard.rawValue + ".message"
+
     /// Notification sent to the active split view to resize the split.
     static let didResizeSplit = Notification.Name("com.mitchellh.ghostty.didResizeSplit")
     static let ResizeSplitDirectionKey = didResizeSplit.rawValue + ".direction"

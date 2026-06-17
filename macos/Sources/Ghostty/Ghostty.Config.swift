@@ -189,6 +189,14 @@ extension Ghostty {
             return .init(rawValue: v)
         }
 
+        var appNotifications: AppNotifications {
+            guard let config = self.config else { return .all }
+            var v: CUnsignedInt = 0
+            let key = "app-notifications"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return .all }
+            return .init(rawValue: v)
+        }
+
         var initialWindow: Bool {
             guard let config = self.config else { return true }
             var v = true
@@ -835,6 +843,15 @@ extension Ghostty.Config {
         let rawValue: CUnsignedInt
 
         static let navigation = SplitPreserveZoom(rawValue: 1 << 0)
+    }
+
+    struct AppNotifications: OptionSet {
+        let rawValue: CUnsignedInt
+
+        static let clipboardCopy = AppNotifications(rawValue: 1 << 0)
+        static let configReload = AppNotifications(rawValue: 1 << 1)
+
+        static let all: AppNotifications = [.clipboardCopy, .configReload]
     }
 
     enum MacDockDropBehavior: String {
