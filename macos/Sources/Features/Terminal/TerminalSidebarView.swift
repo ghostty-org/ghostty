@@ -268,29 +268,20 @@ struct TerminalSidebarView: View {
     }
 
     private func close(_ window: NSWindow) {
+        // If another tab remains in this space, select it first so we stay in
+        // this space (otherwise AppKit picks the native-adjacent tab, which may
+        // belong to another space). If this is the space's last tab, just close:
+        // the space becomes empty and is removed by the post-close prune, and
+        // focus moves to whatever window AppKit selects. We never mutate space
+        // state before the close commits (the close can be cancelled).
         let spaceID = spaces.spaceID(for: ObjectIdentifier(window))
         let allWindows = window.tabGroup?.windows ?? [window]
-        let sibling = allWindows.first {
+        if let sibling = allWindows.first(where: {
             $0 != window && spaces.spaceID(for: ObjectIdentifier($0)) == spaceID
-        }
-
-        if let sibling {
-            // Another tab remains in this space: select it first so we stay in
-            // this space. (If we just closed the tab, AppKit would select the
-            // native-adjacent tab, which may belong to a different space and
-            // bounce us out of the current one.)
+        }) {
             select(sibling)
-            rawClose(window)
-        } else {
-            // Last tab in this space. If the window has tabs in other spaces,
-            // this is like deleting the space: remove it and let focus move to
-            // another space. If it's the last tab in the whole window, just
-            // close it (the window closes).
-            if allWindows.count > 1, let spaceID {
-                spaces.removeSpace(spaceID)
-            }
-            rawClose(window)
         }
+        rawClose(window)
     }
 
     /// Close a single tab without the select-a-sibling behavior.
@@ -335,11 +326,12 @@ struct TerminalSidebarView: View {
 
         alert.beginSheetModal(for: anchorWindow) { response in
             guard response == .alertFirstButtonReturn else { return }
-            spaces.removeSpace(id)
+            // Close the tabs; the space is removed by the post-close prune once
+            // they actually go away (so a cancelled close can't orphan a tab in
+            // a deleted space). Surviving tabs simply keep the space alive.
             for window in spaceWindows {
                 (window.windowController as? TerminalController)?.closeTab(nil)
             }
-            reconcileActiveSpace()
             refreshSoon()
         }
     }
@@ -356,13 +348,20 @@ struct TerminalSidebarView: View {
         let targetIndex = min(max(index + amount, 0), windows.count - 1)
         guard targetIndex != index else { return }
 
+        // The mover makes the moved window key; restore the previous selection
+        // so reordering a background tab doesn't yank focus to it.
+        let previouslySelected = tabGroup.selectedWindow
         TerminalSidebarTabMover.move(window, to: windows[targetIndex])
+        if let previouslySelected, previouslySelected != window {
+            previouslySelected.makeKeyAndOrderFront(nil)
+        }
         refreshSoon()
     }
 
     private func refresh() {
         syncNativeTabBar()
         syncSpaces()
+        spaces.pruneEmptySpaces()
         bumpIfChanged()
     }
 
@@ -377,6 +376,9 @@ struct TerminalSidebarView: View {
         syncNativeTabBar()
         syncSpaces()
         reconcileActiveSpace()
+        // Prune AFTER reconcile so a space whose last tab just closed (now
+        // non-active because focus moved on) is removed in the same cycle.
+        spaces.pruneEmptySpaces()
         bumpIfChanged()
     }
 
@@ -469,8 +471,9 @@ struct TerminalSidebarView: View {
         if !selectLastActiveTab(in: id, anchorWindow: anchorWindow) {
             if TerminalController.newTab(ghostty, from: anchorWindow) == nil {
                 // A tab couldn't be created (e.g. non-native fullscreen, where
-                // tabs are unavailable). Don't strand an empty active space —
-                // fall back to whatever window is actually shown.
+                // tabs are unavailable). Roll back the empty space we just
+                // switched to and return to whatever window is actually shown.
+                spaces.removeSpace(id)
                 reconcileActiveSpace()
             }
             refreshSoon()
@@ -479,20 +482,24 @@ struct TerminalSidebarView: View {
 
     private func moveTab(_ window: NSWindow, to id: Space.ID) {
         let movedKey = ObjectIdentifier(window)
-        let wasActiveSpace = spaces.spaceID(for: movedKey) == spaces.activeSpaceID
+        // Only re-home focus if the user moved the tab they were looking at.
+        // Moving a background tab must not steal focus / activate the app.
+        let wasSelected = window == window.tabGroup?.selectedWindow
         spaces.move(movedKey, to: id)
 
-        // If we moved the front tab out of the active space and the active
-        // space is now empty, follow the tab into its new space.
-        if wasActiveSpace, spaces.isEmpty(spaces.activeSpaceID) {
-            switchToSpace(id)
+        guard wasSelected else {
+            refreshSoon()
             return
         }
 
-        // If we moved the currently-selected tab elsewhere, select another
+        // The selected tab left the active space. If the active space is now
+        // empty, follow the tab into its new space; otherwise select another
         // tab still in the active space so the terminal matches the sidebar.
-        if wasActiveSpace,
-           let anchorWindow = controller?.window,
+        if spaces.isEmpty(spaces.activeSpaceID) {
+            switchToSpace(id)
+            return
+        }
+        if let anchorWindow = controller?.window,
            selectLastActiveTab(in: spaces.activeSpaceID, anchorWindow: anchorWindow) {
             return
         }
@@ -686,6 +693,7 @@ private struct SpaceSwitcherBar: View {
                 .contextMenu {
                     Button("Rename Space…") { onRename(space.id) }
                     Button("Delete Space", role: .destructive) { onDelete(space.id) }
+                        .disabled(spaces.spaces.count <= 1)
                 }
             }
 

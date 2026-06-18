@@ -50,11 +50,21 @@ final class SpacesModel: ObservableObject {
         }
     }
 
-    // MARK: - Queries
-
-    func windowsInActiveSpace(from ordered: [ObjectIdentifier]) -> [ObjectIdentifier] {
-        ordered.filter { assignments[$0] == activeSpaceID }
+    /// Remove any non-active space that has no tabs. This is the single owner of
+    /// "a space disappears once its last tab is gone" — driven off the live
+    /// assignment set after sync(), so every close path (sidebar, ⌘W, split,
+    /// delete) converges here and nothing has to remove spaces optimistically.
+    /// The active space is kept (it may be briefly empty while a tab is created)
+    /// and there is always at least one space.
+    func pruneEmptySpaces() {
+        let occupied = Set(assignments.values)
+        let removeIDs = Set(spaces.filter { $0.id != activeSpaceID && !occupied.contains($0.id) }.map { $0.id })
+        guard !removeIDs.isEmpty else { return }
+        spaces.removeAll { removeIDs.contains($0.id) }
+        lastActive = lastActive.filter { !removeIDs.contains($0.key) }
     }
+
+    // MARK: - Queries
 
     func spaceID(for window: ObjectIdentifier) -> Space.ID? {
         assignments[window]

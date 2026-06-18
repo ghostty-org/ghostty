@@ -29,7 +29,6 @@ struct SpacesModelTests {
         m.sync(liveWindows: keys)
         #expect(m.spaceID(for: keys[0]) == m.activeSpaceID)
         #expect(m.spaceID(for: keys[1]) == m.activeSpaceID)
-        #expect(m.windowsInActiveSpace(from: keys) == keys)
     }
 
     @Test func syncDropsDeadWindows() {
@@ -39,7 +38,8 @@ struct SpacesModelTests {
         m.sync(liveWindows: keys)
         m.sync(liveWindows: [keys[0], keys[2]])
         #expect(m.spaceID(for: keys[1]) == nil)
-        #expect(m.windowsInActiveSpace(from: [keys[0], keys[2]]) == [keys[0], keys[2]])
+        #expect(m.spaceID(for: keys[0]) == m.activeSpaceID)
+        #expect(m.spaceID(for: keys[2]) == m.activeSpaceID)
     }
 
     @Test func isEmptyReflectsAssignments() {
@@ -62,6 +62,33 @@ struct SpacesModelTests {
         // After noting the second window, it is returned.
         m.noteActiveWindow(keys[1])
         #expect(m.lastActiveWindow(in: m.activeSpaceID, from: keys) == keys[1])
+    }
+
+    @Test func pruneEmptySpacesRemovesNonActiveEmptyOnly() {
+        let m = model()
+        let first = m.activeSpaceID
+        let second = m.addSpace(name: "Work", icon: "wrench.and.screwdriver.fill") // active == second
+        let third = m.addSpace(name: "Play", icon: "gamecontroller.fill")          // active == third
+        // Put a tab in `first`; second & third are empty.
+        let (owners, keys) = makeKeys(1)
+        _ = owners
+        m.move(keys[0], to: first)
+        m.setActive(third.id)
+
+        m.pruneEmptySpaces()
+        // `second` (non-active, empty) is removed; `third` (active) and `first`
+        // (occupied) are kept.
+        #expect(m.space(second.id) == nil)
+        #expect(m.space(third.id) != nil)
+        #expect(m.space(first) != nil)
+    }
+
+    @Test func pruneEmptySpacesAlwaysKeepsActive() {
+        let m = model()
+        let first = m.activeSpaceID
+        m.pruneEmptySpaces() // active is empty but must be kept
+        #expect(m.spaces.count == 1)
+        #expect(m.activeSpaceID == first)
     }
 
     @Test func registerIfNeededDoesNotPruneOtherWindows() {
