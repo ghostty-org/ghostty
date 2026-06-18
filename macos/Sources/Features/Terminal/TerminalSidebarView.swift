@@ -13,6 +13,9 @@ struct TerminalSidebarView: View {
     @State private var refreshNonce = 0
     @State private var width: CGFloat = 281
     @State private var resizeStartWidth: CGFloat?
+    @State private var isCreatingSpace = false
+    @State private var editorName = ""
+    @State private var editorIcon = ""
 
     private let minimumWidth: CGFloat = 180
     private let maximumWidth: CGFloat = 420
@@ -120,6 +123,34 @@ struct TerminalSidebarView: View {
                 }
                 .padding(.horizontal, 7)
                 .padding(.bottom, 8)
+            }
+
+            Divider()
+
+            SpaceSwitcherBar(
+                spaces: spaces,
+                onSelect: { switchToSpace($0) },
+                onAdd: {
+                    editorName = ""
+                    editorIcon = ""
+                    isCreatingSpace = true
+                }
+            )
+            .popover(isPresented: $isCreatingSpace, arrowEdge: .bottom) {
+                SpaceEditorPopover(
+                    title: "New Space",
+                    name: $editorName,
+                    icon: $editorIcon,
+                    onConfirm: {
+                        let created = spaces.addSpace(
+                            name: editorName.isEmpty ? "New Space" : editorName,
+                            icon: editorIcon)
+                        isCreatingSpace = false
+                        // Switch into the new (empty) space; auto-create a tab.
+                        switchToSpace(created.id)
+                    },
+                    onCancel: { isCreatingSpace = false }
+                )
             }
         }
         .frame(width: width)
@@ -242,6 +273,11 @@ struct TerminalSidebarView: View {
 
     private func syncNativeTabBar() {
         (controller?.window as? TerminalWindow)?.syncTabBarLocation()
+    }
+
+    private func switchToSpace(_ id: Space.ID) {
+        spaces.setActive(id)
+        refreshSoon()
     }
 }
 
@@ -386,5 +422,93 @@ private enum TerminalSidebarTabMover {
         NSAnimationContext.endGrouping()
 
         (sourceWindow.windowController as? TerminalController)?.relabelTabs()
+    }
+}
+
+private struct SpaceSwitcherBar: View {
+    @ObservedObject var spaces: SpacesModel
+    let onSelect: (Space.ID) -> Void
+    let onAdd: () -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(spaces.spaces) { space in
+                Button {
+                    onSelect(space.id)
+                } label: {
+                    Text(space.icon)
+                        .font(.system(size: 14))
+                        .frame(width: 28, height: 28)
+                        .background(background(for: space))
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .help(space.name)
+            }
+
+            Spacer(minLength: 0)
+
+            Button(action: onAdd) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .medium))
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("New Space")
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 40)
+    }
+
+    private func background(for space: Space) -> Color {
+        space.id == spaces.activeSpaceID
+            ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.28)
+            : .clear
+    }
+}
+
+private struct SpaceEditorPopover: View {
+    let title: String
+    @Binding var name: String
+    @Binding var icon: String
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+
+            HStack(spacing: 8) {
+                TextField("💻", text: $icon)
+                    .frame(width: 44)
+                    .multilineTextAlignment(.center)
+                    // Clamp to two grapheme clusters while typing, but let an
+                    // empty field stay empty (don't substitute the "•" fallback
+                    // mid-edit — that only applies when a Space is constructed).
+                    .onChange(of: icon) { newValue in
+                        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            icon = String(trimmed.prefix(2))
+                        }
+                    }
+
+                TextField("Name", text: $name)
+                    .frame(width: 160)
+                    .onSubmit(onConfirm)
+            }
+            .textFieldStyle(.roundedBorder)
+
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Button("Done", action: onConfirm)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(12)
+        .frame(width: 240)
     }
 }
