@@ -122,6 +122,10 @@ enum QuickTerminalPosition: String {
         // Screen must have a dock for it to conflict
         guard screen.hasDock else { return false }
 
+        return conflictsWithDockOrientation
+    }
+
+    var conflictsWithDockOrientation: Bool {
         // Get the dock orientation for this screen
         guard let orientation = Dock.orientation else { return false }
 
