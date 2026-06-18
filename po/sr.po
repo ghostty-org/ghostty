@@ -35,7 +35,7 @@ msgstr "Дозволи"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:92
 msgid "Remember choice for this split"
-msgstr "Запамти избор за ову разделу"
+msgstr "Запамти избор за ову поделу"
 
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:93
 msgid "Reload configuration to show this prompt again"
@@ -124,7 +124,7 @@ msgstr "Врати"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:289 src/apprt/gtk/ui/1.5/window.blp:242
 msgid "Split"
-msgstr "Раздели"
+msgstr "Подели"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:292 src/apprt/gtk/ui/1.5/window.blp:245
 msgid "Change Title…"
@@ -132,23 +132,23 @@ msgstr "Промени наслов…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:297 src/apprt/gtk/ui/1.5/window.blp:177 src/apprt/gtk/ui/1.5/window.blp:250
 msgid "Split Up"
-msgstr "Раздели нагоре"
+msgstr "Подели нагоре"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:303 src/apprt/gtk/ui/1.5/window.blp:182 src/apprt/gtk/ui/1.5/window.blp:255
 msgid "Split Down"
-msgstr "Раздели доле"
+msgstr "Подели доле"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:309 src/apprt/gtk/ui/1.5/window.blp:187 src/apprt/gtk/ui/1.5/window.blp:260
 msgid "Split Left"
-msgstr "Раздели лево"
+msgstr "Подели лево"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:315 src/apprt/gtk/ui/1.5/window.blp:192 src/apprt/gtk/ui/1.5/window.blp:265
 msgid "Split Right"
-msgstr "Раздели десно"
+msgstr "Подели десно"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:321
 msgid "Close Split"
-msgstr "Затвори разделу"
+msgstr "Затвори поделу"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:327
 msgid "Tab"
@@ -196,7 +196,7 @@ msgstr "У реду"
 
 #: src/apprt/gtk/ui/1.5/window.blp:58 src/apprt/gtk/ui/1.5/window.blp:108
 msgid "New Split"
-msgstr "Нова раздела"
+msgstr "Нова подела"
 
 #: src/apprt/gtk/ui/1.5/window.blp:68 src/apprt/gtk/ui/1.5/window.blp:126
 msgid "View Open Tabs"
@@ -256,7 +256,7 @@ msgstr "Да затворим прозор?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:187
 msgid "Close Split?"
-msgstr "Затворити разделу?"
+msgstr "Затворити поделу?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:193
 msgid "All terminal sessions will be terminated."
@@ -272,7 +272,7 @@ msgstr "Све сесије терминала у овом прозору ће �
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:196
 msgid "The currently running process in this split will be terminated."
-msgstr "Тренутно покренут процес у овом раздвајању ће бити прекинут."
+msgstr "Тренутно покренут процес у овој подели ће бити прекинут."
 
 #: src/apprt/gtk/class/surface.zig:1141
 msgid "Command Finished"
