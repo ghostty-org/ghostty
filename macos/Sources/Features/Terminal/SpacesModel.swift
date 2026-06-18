@@ -69,10 +69,6 @@ final class SpacesModel: ObservableObject {
 
     // MARK: - Mutations
 
-    func canDelete(_ id: Space.ID) -> Bool {
-        spaces.count > 1 && isEmpty(id)
-    }
-
     @discardableResult
     func addSpace(name: String, icon: String) -> Space {
         let space = Space(name: name, icon: icon)
@@ -87,9 +83,12 @@ final class SpacesModel: ObservableObject {
         spaces[index].icon = icon.isEmpty ? Space.defaultIcon : icon
     }
 
+    /// Remove a space. Refuses to remove the last remaining space (there must
+    /// always be at least one). Any windows still assigned to it are expected to
+    /// be closed by the caller; their stale assignments are pruned on sync().
     @discardableResult
-    func delete(_ id: Space.ID) -> Bool {
-        guard canDelete(id) else { return false }
+    func removeSpace(_ id: Space.ID) -> Bool {
+        guard spaces.count > 1, spaces.contains(where: { $0.id == id }) else { return false }
         spaces.removeAll { $0.id == id }
         lastActive[id] = nil
         if activeSpaceID == id {

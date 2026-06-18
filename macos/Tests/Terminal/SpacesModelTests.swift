@@ -91,36 +91,32 @@ struct SpacesModelTests {
         #expect(m.space(id)?.icon == "folder.fill")
     }
 
-    @Test func canDeleteOnlyEmptyNonLastSpace() {
+    @Test func removeSpaceRefusesLastSpace() {
         let m = model()
         let first = m.activeSpaceID
-        // Only one space -> cannot delete even though empty.
-        #expect(m.canDelete(first) == false)
+        #expect(m.removeSpace(first) == false)
+        #expect(m.spaces.count == 1)
+    }
 
+    @Test func removeSpaceRemovesNonLastEvenIfNonEmpty() {
+        let m = model()
+        let first = m.activeSpaceID
         let second = m.addSpace(name: "Work", icon: "wrench.and.screwdriver.fill")
-        // Second is empty and not last -> deletable.
-        #expect(m.canDelete(second.id) == true)
-
-        // Put a window in the second space -> no longer deletable.
+        // Put a window in the second space; it is still removable (non-empty).
         let (owners, keys) = makeKeys(1)
         _ = owners
         m.sync(liveWindows: keys) // assigned to active (second)
         #expect(m.spaceID(for: keys[0]) == second.id)
-        #expect(m.canDelete(second.id) == false)
-    }
-
-    @Test func deleteGuardedReturnsFalse() {
-        let m = model()
-        let first = m.activeSpaceID
-        #expect(m.delete(first) == false)
+        #expect(m.removeSpace(second.id) == true)
         #expect(m.spaces.count == 1)
+        #expect(m.spaces.first?.id == first)
     }
 
-    @Test func deleteActiveEmptySpaceResetsActive() {
+    @Test func removeActiveSpaceResetsActive() {
         let m = model()
         let first = m.activeSpaceID
-        let second = m.addSpace(name: "Work", icon: "wrench.and.screwdriver.fill") // active == second, empty
-        #expect(m.delete(second.id) == true)
+        let second = m.addSpace(name: "Work", icon: "wrench.and.screwdriver.fill") // active == second
+        #expect(m.removeSpace(second.id) == true)
         #expect(m.spaces.count == 1)
         #expect(m.activeSpaceID == first)
     }

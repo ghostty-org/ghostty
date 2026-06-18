@@ -152,11 +152,7 @@ struct TerminalSidebarView: View {
                     }
                 },
                 onDelete: { id in
-                    _ = spaces.delete(id)
-                    // delete() resets the active space to spaces[0]; make it
-                    // follow whatever window is actually shown instead.
-                    reconcileActiveSpace()
-                    refreshSoon()
+                    deleteSpace(id)
                 }
             )
             // A single popover handles both create and rename. Two separate
@@ -271,6 +267,22 @@ struct TerminalSidebarView: View {
     }
 
     private func close(_ window: NSWindow) {
+        // If this is the last tab in its (active) space but the window still has
+        // tabs in other spaces, open a fresh tab in this space first — so the
+        // space stays alive and you remain in it instead of being bumped to
+        // another space. If it's the last tab in the whole window, just close
+        // (the window closes as usual).
+        let allWindows = window.tabGroup?.windows ?? [window]
+        let spaceID = spaces.spaceID(for: ObjectIdentifier(window))
+        let tabsInSpace = allWindows.filter { spaces.spaceID(for: ObjectIdentifier($0)) == spaceID }
+        if tabsInSpace.count <= 1, allWindows.count > 1 {
+            _ = TerminalController.newTab(ghostty, from: window)
+        }
+        rawClose(window)
+    }
+
+    /// Close a single tab without the keep-the-space-alive behavior.
+    private func rawClose(_ window: NSWindow) {
         (window.windowController as? TerminalController)?.closeTab(nil)
         refreshSoon()
     }
@@ -279,7 +291,7 @@ struct TerminalSidebarView: View {
     /// already space-filtered rows so tabs in other spaces are never touched.
     private func closeOtherTabs(keeping window: NSWindow, in rows: [TerminalSidebarRow.Model]) {
         for row in rows where row.window != window {
-            close(row.window)
+            rawClose(row.window)
         }
     }
 
@@ -287,7 +299,34 @@ struct TerminalSidebarView: View {
     /// sidebar's visible order (not the native tab order).
     private func closeTabsBelow(_ row: TerminalSidebarRow.Model, in rows: [TerminalSidebarRow.Model]) {
         for other in rows where other.index > row.index {
-            close(other.window)
+            rawClose(other.window)
+        }
+    }
+
+    /// Delete a space: confirm, close all of its tabs, then remove it.
+    private func deleteSpace(_ id: Space.ID) {
+        guard let anchorWindow = controller?.window, let space = spaces.space(id) else { return }
+        let spaceWindows = (anchorWindow.tabGroup?.windows ?? [anchorWindow]).filter {
+            spaces.spaceID(for: ObjectIdentifier($0)) == id
+        }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Delete the “\(space.name)” space?"
+        alert.informativeText = spaceWindows.isEmpty
+            ? "This space has no tabs."
+            : "This will close \(spaceWindows.count) tab\(spaceWindows.count == 1 ? "" : "s") in this space."
+        alert.addButton(withTitle: "Delete Space")
+        alert.addButton(withTitle: "Cancel")
+
+        alert.beginSheetModal(for: anchorWindow) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            spaces.removeSpace(id)
+            for window in spaceWindows {
+                (window.windowController as? TerminalController)?.closeTab(nil)
+            }
+            reconcileActiveSpace()
+            refreshSoon()
         }
     }
 
@@ -587,8 +626,7 @@ private struct SpaceSwitcherBar: View {
                 .accessibilityLabel(space.name)
                 .contextMenu {
                     Button("Rename Space…") { onRename(space.id) }
-                    Button("Delete Space") { onDelete(space.id) }
-                        .disabled(!spaces.canDelete(space.id))
+                    Button("Delete Space", role: .destructive) { onDelete(space.id) }
                 }
             }
 
