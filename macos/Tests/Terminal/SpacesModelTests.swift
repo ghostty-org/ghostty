@@ -64,6 +64,29 @@ struct SpacesModelTests {
         #expect(m.lastActiveWindow(in: m.activeSpaceID, from: keys) == keys[1])
     }
 
+    @Test func registerIfNeededDoesNotPruneOtherWindows() {
+        let m = model()
+        let first = m.activeSpaceID
+        let second = m.addSpace(name: "Work", icon: "wrench.and.screwdriver.fill")
+        m.setActive(first)
+        let (owners, keys) = makeKeys(2)
+        _ = owners
+        m.sync(liveWindows: keys)          // both in `first`
+        m.move(keys[1], to: second.id)     // keys[1] -> second
+        #expect(m.spaceID(for: keys[0]) == first)
+        #expect(m.spaceID(for: keys[1]) == second.id)
+
+        // Registering one window (a partial view) must not wipe the others.
+        m.registerIfNeeded(keys[0])
+        #expect(m.spaceID(for: keys[1]) == second.id)
+
+        // A brand-new window registers into the active space.
+        let (owners2, keys2) = makeKeys(1)
+        _ = owners2
+        m.registerIfNeeded(keys2[0])
+        #expect(m.spaceID(for: keys2[0]) == m.activeSpaceID)
+    }
+
     @Test func lastActiveWindowIgnoresStaleRememberedWindow() {
         let m = model()
         let (owners, keys) = makeKeys(2)

@@ -27,13 +27,25 @@ final class SpacesModel: ObservableObject {
 
     // MARK: - Sync
 
-    /// Reconcile against the live set of windows: forget dead windows and
-    /// assign any newly-seen window to the active space.
+    /// Reconcile against the *complete* live set of windows in a tab group:
+    /// forget dead windows and assign any newly-seen window to the active space.
+    /// Only call this with the authoritative full window list — never a partial
+    /// view, or live windows missing from the list get their assignments wiped.
     func sync(liveWindows: [ObjectIdentifier]) {
         let live = Set(liveWindows)
         assignments = assignments.filter { live.contains($0.key) }
         lastActive = lastActive.filter { live.contains($0.value) }
         for window in liveWindows where assignments[window] == nil {
+            assignments[window] = activeSpaceID
+        }
+    }
+
+    /// Ensure a single window is assigned (to the active space) without pruning
+    /// any others. Use when only a partial view of the group is available (a
+    /// standalone window, or a window mid-teardown) so it can't wipe the shared
+    /// model's assignments for the rest of the group.
+    func registerIfNeeded(_ window: ObjectIdentifier) {
+        if assignments[window] == nil {
             assignments[window] = activeSpaceID
         }
     }

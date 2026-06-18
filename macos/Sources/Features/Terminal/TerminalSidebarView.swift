@@ -418,13 +418,19 @@ struct TerminalSidebarView: View {
 
     private func syncSpaces() {
         guard let anchorWindow = controller?.window else { return }
-        let windows = anchorWindow.tabGroup?.windows ?? [anchorWindow]
-        spaces.sync(liveWindows: windows.map(ObjectIdentifier.init))
-        let selected = anchorWindow.tabGroup?.selectedWindow ?? anchorWindow
-        // The front/selected window always belongs to the active space (the switch
-        // and move logic maintain this), so noting it records the active space's
-        // last-active tab for restore-on-switch.
-        spaces.noteActiveWindow(ObjectIdentifier(selected))
+        if let tabGroup = anchorWindow.tabGroup {
+            // Authoritative full window list -> safe to prune dead windows.
+            spaces.sync(liveWindows: tabGroup.windows.map(ObjectIdentifier.init))
+            let selected = tabGroup.selectedWindow ?? anchorWindow
+            spaces.noteActiveWindow(ObjectIdentifier(selected))
+        } else {
+            // Only a partial view (standalone window, or this window is being
+            // torn down): NEVER prune the shared model from here — doing so
+            // would drop every other window's assignment and collapse all tabs
+            // into the active space. Just register this window.
+            spaces.registerIfNeeded(ObjectIdentifier(anchorWindow))
+            spaces.noteActiveWindow(ObjectIdentifier(anchorWindow))
+        }
     }
 
     private func refreshSoon() {
