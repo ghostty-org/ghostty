@@ -281,7 +281,12 @@ struct TerminalSidebarView: View {
 
     private func move(_ window: NSWindow, by amount: Int) {
         guard let tabGroup = window.tabGroup else { return }
-        let windows = tabGroup.windows
+        // Reorder within the active space's visible tabs only. Other spaces'
+        // tabs may be interleaved in the native order and must be skipped, so
+        // the chosen neighbor matches what the sidebar actually shows.
+        let windows = tabGroup.windows.filter {
+            spaces.spaceID(for: ObjectIdentifier($0)) == spaces.activeSpaceID
+        }
         guard let index = windows.firstIndex(of: window) else { return }
         let targetIndex = min(max(index + amount, 0), windows.count - 1)
         guard targetIndex != index else { return }
@@ -324,15 +329,10 @@ struct TerminalSidebarView: View {
             refreshSoon()
             return
         }
-        let allWindows = anchorWindow.tabGroup?.windows ?? [anchorWindow]
-        let keys = allWindows.map(ObjectIdentifier.init)
 
-        if let targetKey = spaces.lastActiveWindow(in: id, from: keys),
-           let target = allWindows.first(where: { ObjectIdentifier($0) == targetKey }) {
-            // Bring the space's most-recent (or first) tab to front.
-            select(target)
-        } else {
-            // Empty space: create a fresh tab so the terminal is never blank.
+        // Bring the space's most-recent (or first) tab to front. If the space
+        // is empty, create a fresh tab so the terminal is never blank.
+        if !selectLastActiveTab(in: id, anchorWindow: anchorWindow) {
             _ = TerminalController.newTab(ghostty, from: anchorWindow)
             refreshSoon()
         }
@@ -353,17 +353,25 @@ struct TerminalSidebarView: View {
         // If we moved the currently-selected tab elsewhere, select another
         // tab still in the active space so the terminal matches the sidebar.
         if wasActiveSpace,
-           let anchorWindow = controller?.window {
-            let allWindows = anchorWindow.tabGroup?.windows ?? [anchorWindow]
-            if let targetKey = spaces.lastActiveWindow(in: spaces.activeSpaceID,
-                                                       from: allWindows.map(ObjectIdentifier.init)),
-               let target = allWindows.first(where: { ObjectIdentifier($0) == targetKey }) {
-                select(target)
-                return
-            }
+           let anchorWindow = controller?.window,
+           selectLastActiveTab(in: spaces.activeSpaceID, anchorWindow: anchorWindow) {
+            return
         }
 
         refreshSoon()
+    }
+
+    /// Bring the given space's last-active (or first) tab to the front.
+    /// Returns false if the space currently has no tabs.
+    @discardableResult
+    private func selectLastActiveTab(in id: Space.ID, anchorWindow: NSWindow) -> Bool {
+        let allWindows = anchorWindow.tabGroup?.windows ?? [anchorWindow]
+        let keys = allWindows.map(ObjectIdentifier.init)
+        guard let targetKey = spaces.lastActiveWindow(in: id, from: keys),
+              let target = allWindows.first(where: { ObjectIdentifier($0) == targetKey })
+        else { return false }
+        select(target)
+        return true
     }
 }
 
