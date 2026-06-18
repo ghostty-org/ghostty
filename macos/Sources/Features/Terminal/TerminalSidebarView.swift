@@ -11,6 +11,7 @@ struct TerminalSidebarView: View {
 
     @State private var hoveredID: ObjectIdentifier?
     @State private var refreshNonce = 0
+    @State private var lastSignature = ""
     @State private var width: CGFloat = 281
     @State private var resizeStartWidth: CGFloat?
     @State private var spaceEditor: SpaceEditor?
@@ -349,7 +350,7 @@ struct TerminalSidebarView: View {
     private func refresh() {
         syncNativeTabBar()
         syncSpaces()
-        refreshNonce &+= 1
+        bumpIfChanged()
     }
 
     /// Refresh and make the active space follow the frontmost window. Called on
@@ -363,7 +364,46 @@ struct TerminalSidebarView: View {
         syncNativeTabBar()
         syncSpaces()
         reconcileActiveSpace()
+        bumpIfChanged()
+    }
+
+    /// Re-render only when the displayed data actually changed. The 0.5s timer
+    /// calls refresh() constantly; bumping `refreshNonce` every tick re-evaluated
+    /// `body` and rebuilt the row context menus, which made an open "Move to
+    /// Space" submenu flash and become unclickable. Comparing a cheap signature
+    /// of what the sidebar shows avoids those no-op re-renders.
+    private func bumpIfChanged() {
+        let signature = currentSignature()
+        guard signature != lastSignature else { return }
+        lastSignature = signature
         refreshNonce &+= 1
+    }
+
+    /// A string fingerprint of everything the sidebar renders, so `bumpIfChanged`
+    /// can skip re-renders when nothing visible changed.
+    private func currentSignature() -> String {
+        guard let anchorWindow = controller?.window else { return "" }
+        let tabGroup = anchorWindow.tabGroup
+        let selected = tabGroup?.selectedWindow ?? anchorWindow
+        let windows = tabGroup?.windows ?? [anchorWindow]
+
+        var parts: [String] = [spaces.activeSpaceID.uuidString]
+        for space in spaces.spaces {
+            parts.append("\(space.id.uuidString)\u{1}\(space.name)\u{1}\(space.icon)")
+        }
+        for window in windows where spaces.spaceID(for: ObjectIdentifier(window)) == spaces.activeSpaceID {
+            let terminalWindow = window as? TerminalWindow
+            let terminalController = window.windowController as? BaseTerminalController
+            parts.append([
+                String(UInt(bitPattern: ObjectIdentifier(window).hashValue)),
+                window.title,
+                window == selected ? "1" : "0",
+                (terminalController?.bell ?? false) ? "1" : "0",
+                terminalWindow?.keyEquivalent ?? "",
+                String(describing: terminalWindow?.tabColor ?? .none),
+            ].joined(separator: "\u{1}"))
+        }
+        return parts.joined(separator: "\u{2}")
     }
 
     /// Set the active space to the frontmost window's space, if that window has
