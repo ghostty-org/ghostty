@@ -152,6 +152,9 @@ struct TerminalSidebarView: View {
                 },
                 onDelete: { id in
                     _ = spaces.delete(id)
+                    // delete() resets the active space to spaces[0]; make it
+                    // follow whatever window is actually shown instead.
+                    reconcileActiveSpace()
                     refreshSoon()
                 }
             )
@@ -215,10 +218,10 @@ struct TerminalSidebarView: View {
             refreshSoon()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
-            refresh()
+            refreshFollowingFrontWindow()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeMainNotification)) { _ in
-            refresh()
+            refreshFollowingFrontWindow()
         }
         .onReceive(NotificationCenter.default.publisher(for: .terminalWindowBellDidChangeNotification)) { _ in
             refresh()
@@ -307,6 +310,30 @@ struct TerminalSidebarView: View {
         syncNativeTabBar()
         syncSpaces()
         refreshNonce &+= 1
+    }
+
+    /// Refresh and make the active space follow the frontmost window. Called on
+    /// window key/main changes — i.e. when a native tab switch (⌘1-9, ⌃Tab,
+    /// clicking a tab) or closing a tab brings a window from a different space
+    /// to the front — so the sidebar and the visible terminal never diverge.
+    /// Only done on these discrete events (not the timer) so it can't race the
+    /// empty-space auto-create in `switchToSpace`, whose new tab is unassigned
+    /// (and thus skipped by `reconcileActiveSpace`) until `syncSpaces` runs.
+    private func refreshFollowingFrontWindow() {
+        syncNativeTabBar()
+        syncSpaces()
+        reconcileActiveSpace()
+        refreshNonce &+= 1
+    }
+
+    /// Set the active space to the frontmost window's space, if that window has
+    /// a known assignment that differs from the current active space.
+    private func reconcileActiveSpace() {
+        guard let anchorWindow = controller?.window else { return }
+        let selected = anchorWindow.tabGroup?.selectedWindow ?? anchorWindow
+        if let id = spaces.spaceID(for: ObjectIdentifier(selected)), id != spaces.activeSpaceID {
+            spaces.setActive(id)
+        }
     }
 
     private func syncSpaces() {
