@@ -540,6 +540,7 @@ private struct SpaceSwitcherBar: View {
                 }
                 .buttonStyle(.plain)
                 .help(space.name)
+                .accessibilityLabel(space.name)
                 .contextMenu {
                     Button("Rename Space…") { onRename(space.id) }
                     Button("Delete Space") { onDelete(space.id) }
@@ -598,6 +599,7 @@ private struct SpaceEditorPopover: View {
                             icon = String(trimmed.prefix(2))
                         }
                     }
+                    .onSubmit(onConfirm)
 
                 TextField("Name", text: $name)
                     .frame(width: 160)
