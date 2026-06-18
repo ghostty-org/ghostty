@@ -98,11 +98,13 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
     @ViewBuilder
     private var terminalLayout: some View {
         if ghostty.config.macosTabBarLocation == .left,
-           let controller = delegate as? TerminalController {
+           let controller = delegate as? TerminalController,
+           let window = controller.window {
             HStack(spacing: 0) {
                 TerminalSidebarView(
                     ghostty: ghostty,
-                    controller: controller
+                    controller: controller,
+                    spaces: TerminalSpacesStore.shared.model(for: window)
                 )
 
                 Divider()

@@ -7,6 +7,8 @@ struct TerminalSidebarView: View {
 
     weak var controller: TerminalController?
 
+    @ObservedObject var spaces: SpacesModel
+
     @State private var hoveredID: ObjectIdentifier?
     @State private var refreshNonce = 0
     @State private var width: CGFloat = 281
@@ -20,6 +22,13 @@ struct TerminalSidebarView: View {
 
         VStack(spacing: 0) {
             HStack(spacing: 6) {
+                Text(spaces.activeSpace.icon)
+                    .font(.system(size: 13))
+                Text(spaces.activeSpace.name)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
                 Spacer()
 
                 Button {
@@ -161,9 +170,13 @@ struct TerminalSidebarView: View {
         guard let anchorWindow = controller?.window else { return [] }
         let tabGroup = anchorWindow.tabGroup
         let selectedWindow = tabGroup?.selectedWindow ?? anchorWindow
-        let windows = tabGroup?.windows ?? [anchorWindow]
+        let allWindows = tabGroup?.windows ?? [anchorWindow]
+        let activeWindows = allWindows.filter {
+            let sid = spaces.spaceID(for: ObjectIdentifier($0))
+            return sid == nil || sid == spaces.activeSpaceID
+        }
 
-        return windows.enumerated().map { index, window in
+        return activeWindows.enumerated().map { index, window in
             let terminalWindow = window as? TerminalWindow
             let terminalController = window.windowController as? BaseTerminalController
 
@@ -209,7 +222,16 @@ struct TerminalSidebarView: View {
 
     private func refresh() {
         syncNativeTabBar()
+        syncSpaces()
         refreshNonce &+= 1
+    }
+
+    private func syncSpaces() {
+        guard let anchorWindow = controller?.window else { return }
+        let windows = anchorWindow.tabGroup?.windows ?? [anchorWindow]
+        spaces.sync(liveWindows: windows.map(ObjectIdentifier.init))
+        let selected = anchorWindow.tabGroup?.selectedWindow ?? anchorWindow
+        spaces.noteActiveWindow(ObjectIdentifier(selected))
     }
 
     private func refreshSoon() {
