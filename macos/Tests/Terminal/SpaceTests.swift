@@ -6,13 +6,14 @@ struct SpaceTests {
         #expect(Space.clampIcon("💻") == "💻")
     }
 
-    @Test func clampKeepsTwoCharacters() {
+    @Test func clampKeepsShortStrings() {
         #expect(Space.clampIcon("ab") == "ab")
+        #expect(Space.clampIcon("0123456789") == "0123456789")
     }
 
-    @Test func clampTruncatesToTwoGraphemes() {
-        #expect(Space.clampIcon("abc") == "ab")
-        #expect(Space.clampIcon("🌐🛠️x") == "🌐🛠️")
+    @Test func clampTruncatesToTenGraphemes() {
+        #expect(Space.clampIcon("0123456789X") == "0123456789")
+        #expect(Space.clampIcon("🌐🛠️🚀💻⚙️🌐🛠️🚀💻⚙️x") == "🌐🛠️🚀💻⚙️🌐🛠️🚀💻⚙️")
     }
 
     @Test func clampTrimsWhitespace() {
@@ -25,8 +26,8 @@ struct SpaceTests {
     }
 
     @Test func initClampsIcon() {
-        let space = Space(name: "Work", icon: "abc")
-        #expect(space.icon == "ab")
+        let space = Space(name: "Work", icon: "0123456789X")
+        #expect(space.icon == "0123456789")
         #expect(space.name == "Work")
     }
 }

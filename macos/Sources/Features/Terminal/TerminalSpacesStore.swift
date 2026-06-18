@@ -19,7 +19,7 @@ final class TerminalSpacesStore {
 
     func model(forKey key: ObjectIdentifier) -> SpacesModel {
         if let existing = models[key] { return existing }
-        let model = SpacesModel(defaultSpace: Space(name: "Space 1", icon: "💻"))
+        let model = SpacesModel(defaultSpace: Space(name: "Space 1", icon: "🚀"))
         models[key] = model
         return model
     }

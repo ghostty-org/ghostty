@@ -26,8 +26,6 @@ struct TerminalSidebarView: View {
 
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                Text(spaces.activeSpace.icon)
-                    .font(.system(size: 13))
                 Text(spaces.activeSpace.name)
                     .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1)
@@ -528,12 +526,18 @@ private struct SpaceSwitcherBar: View {
 
     var body: some View {
         HStack(spacing: 4) {
+            Spacer(minLength: 0)
+
             ForEach(spaces.spaces) { space in
                 Button {
                     onSelect(space.id)
                 } label: {
                     Text(space.icon)
                         .font(.system(size: 14))
+                        // Render the emoji monochrome so the footer doesn't
+                        // scream with color.
+                        .grayscale(1.0)
+                        .opacity(0.9)
                         .frame(width: 28, height: 28)
                         .background(background(for: space))
                         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
@@ -549,7 +553,9 @@ private struct SpaceSwitcherBar: View {
             }
 
             Spacer(minLength: 0)
-
+        }
+        // The space icons stay centered; the add button floats on the right.
+        .overlay(alignment: .trailing) {
             Button(action: onAdd) {
                 Image(systemName: "plus")
                     .font(.system(size: 11, weight: .medium))
@@ -586,24 +592,34 @@ private struct SpaceEditorPopover: View {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
 
-            HStack(spacing: 8) {
-                TextField("💻", text: $icon)
-                    .frame(width: 44)
-                    .multilineTextAlignment(.center)
-                    // Clamp to two grapheme clusters while typing, but let an
-                    // empty field stay empty (don't substitute the "•" fallback
-                    // mid-edit — that only applies when a Space is constructed).
-                    .onChange(of: icon) { newValue in
-                        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !trimmed.isEmpty {
-                            icon = String(trimmed.prefix(2))
+            HStack(alignment: .bottom, spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Icon")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                    TextField("🚀", text: $icon)
+                        .frame(width: 80)
+                        .multilineTextAlignment(.center)
+                        // Clamp to ten grapheme clusters while typing, but let an
+                        // empty field stay empty (don't substitute the "•" fallback
+                        // mid-edit — that only applies when a Space is constructed).
+                        .onChange(of: icon) { newValue in
+                            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !trimmed.isEmpty {
+                                icon = String(trimmed.prefix(10))
+                            }
                         }
-                    }
-                    .onSubmit(onConfirm)
+                        .onSubmit(onConfirm)
+                }
 
-                TextField("Name", text: $name)
-                    .frame(width: 160)
-                    .onSubmit(onConfirm)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Name")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                    TextField("Name", text: $name)
+                        .frame(width: 160)
+                        .onSubmit(onConfirm)
+                }
             }
             .textFieldStyle(.roundedBorder)
 
@@ -616,6 +632,6 @@ private struct SpaceEditorPopover: View {
             }
         }
         .padding(12)
-        .frame(width: 240)
+        .frame(width: 284)
     }
 }

@@ -75,9 +75,9 @@ struct SpacesModelTests {
     @Test func renameUpdatesNameAndClampsIcon() {
         let m = model()
         let id = m.activeSpaceID
-        m.rename(id, name: "Renamed", icon: "abc")
+        m.rename(id, name: "Renamed", icon: "0123456789X")
         #expect(m.space(id)?.name == "Renamed")
-        #expect(m.space(id)?.icon == "ab")
+        #expect(m.space(id)?.icon == "0123456789")
     }
 
     @Test func canDeleteOnlyEmptyNonLastSpace() {
