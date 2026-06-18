@@ -531,9 +531,11 @@ private struct SpaceSwitcherBar: View {
                     Image(systemName: space.icon)
                         .font(.system(size: 14))
                         .frame(width: 28, height: 28)
-                        .foregroundStyle(space.id == spaces.activeSpaceID ? Color.primary : Color.secondary)
-                        .background(background(for: space))
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .foregroundStyle(Color.primary)
+                        // No box around the active space (Arc-style): the active
+                        // icon is full strength, the others are muted.
+                        .opacity(space.id == spaces.activeSpaceID ? 1.0 : 0.4)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help(space.name)
@@ -560,12 +562,6 @@ private struct SpaceSwitcherBar: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 40)
-    }
-
-    private func background(for space: Space) -> Color {
-        space.id == spaces.activeSpaceID
-            ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.28)
-            : .clear
     }
 }
 
