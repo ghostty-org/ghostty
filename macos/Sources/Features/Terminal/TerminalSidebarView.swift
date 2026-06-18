@@ -14,6 +14,7 @@ struct TerminalSidebarView: View {
     @State private var width: CGFloat = 281
     @State private var resizeStartWidth: CGFloat?
     @State private var isCreatingSpace = false
+    @State private var editingSpace: EditingSpace?
     @State private var editorName = ""
     @State private var editorIcon = ""
 
@@ -134,6 +135,17 @@ struct TerminalSidebarView: View {
                     editorName = ""
                     editorIcon = ""
                     isCreatingSpace = true
+                },
+                onRename: { id in
+                    if let space = spaces.space(id) {
+                        editorName = space.name
+                        editorIcon = space.icon
+                        editingSpace = EditingSpace(id: id)
+                    }
+                },
+                onDelete: { id in
+                    _ = spaces.delete(id)
+                    refreshSoon()
                 }
             )
             .popover(isPresented: $isCreatingSpace, arrowEdge: .bottom) {
@@ -146,10 +158,25 @@ struct TerminalSidebarView: View {
                             name: editorName.isEmpty ? "New Space" : editorName,
                             icon: editorIcon)
                         isCreatingSpace = false
-                        // Switch into the new (empty) space; auto-create a tab.
                         switchToSpace(created.id)
                     },
                     onCancel: { isCreatingSpace = false }
+                )
+            }
+            .popover(item: $editingSpace, arrowEdge: .bottom) { editing in
+                SpaceEditorPopover(
+                    title: "Rename Space",
+                    name: $editorName,
+                    icon: $editorIcon,
+                    onConfirm: {
+                        spaces.rename(
+                            editing.id,
+                            name: editorName.isEmpty ? "Space" : editorName,
+                            icon: editorIcon)
+                        editingSpace = nil
+                        refreshSoon()
+                    },
+                    onCancel: { editingSpace = nil }
                 )
             }
         }
@@ -445,6 +472,8 @@ private struct SpaceSwitcherBar: View {
     @ObservedObject var spaces: SpacesModel
     let onSelect: (Space.ID) -> Void
     let onAdd: () -> Void
+    let onRename: (Space.ID) -> Void
+    let onDelete: (Space.ID) -> Void
 
     var body: some View {
         HStack(spacing: 4) {
@@ -460,6 +489,11 @@ private struct SpaceSwitcherBar: View {
                 }
                 .buttonStyle(.plain)
                 .help(space.name)
+                .contextMenu {
+                    Button("Rename Space…") { onRename(space.id) }
+                    Button("Delete Space") { onDelete(space.id) }
+                        .disabled(!spaces.canDelete(space.id))
+                }
             }
 
             Spacer(minLength: 0)
@@ -482,6 +516,10 @@ private struct SpaceSwitcherBar: View {
             ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.28)
             : .clear
     }
+}
+
+private struct EditingSpace: Identifiable {
+    let id: Space.ID
 }
 
 private struct SpaceEditorPopover: View {
