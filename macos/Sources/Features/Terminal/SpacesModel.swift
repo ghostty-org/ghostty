@@ -78,7 +78,7 @@ final class SpacesModel: ObservableObject {
     func rename(_ id: Space.ID, name: String, icon: String) {
         guard let index = spaces.firstIndex(where: { $0.id == id }) else { return }
         spaces[index].name = name
-        spaces[index].icon = Space.clampIcon(icon)
+        spaces[index].icon = icon.isEmpty ? Space.defaultIcon : icon
     }
 
     @discardableResult

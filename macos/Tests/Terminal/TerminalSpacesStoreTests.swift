@@ -28,6 +28,6 @@ struct TerminalSpacesStoreTests {
         let model = store.model(forKey: ObjectIdentifier(owner))
         #expect(model.spaces.count == 1)
         #expect(model.activeSpace.name == "Space 1")
-        #expect(model.activeSpace.icon == "🚀")
+        #expect(model.activeSpace.icon == Space.defaultIcon)
     }
 }

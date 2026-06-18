@@ -12,7 +12,7 @@ struct SpacesModelTests {
     }
 
     private func model() -> SpacesModel {
-        SpacesModel(defaultSpace: Space(name: "Space 1", icon: "💻"))
+        SpacesModel(defaultSpace: Space(name: "Space 1"))
     }
 
     @Test func startsWithDefaultActiveSpace() {
@@ -66,18 +66,18 @@ struct SpacesModelTests {
 
     @Test func addSpaceAppendsAndActivates() {
         let m = model()
-        let created = m.addSpace(name: "Work", icon: "🛠️")
+        let created = m.addSpace(name: "Work", icon: "wrench.and.screwdriver.fill")
         #expect(m.spaces.count == 2)
         #expect(m.activeSpaceID == created.id)
         #expect(m.activeSpace.name == "Work")
     }
 
-    @Test func renameUpdatesNameAndClampsIcon() {
+    @Test func renameUpdatesNameAndIcon() {
         let m = model()
         let id = m.activeSpaceID
-        m.rename(id, name: "Renamed", icon: "0123456789X")
+        m.rename(id, name: "Renamed", icon: "folder.fill")
         #expect(m.space(id)?.name == "Renamed")
-        #expect(m.space(id)?.icon == "0123456789")
+        #expect(m.space(id)?.icon == "folder.fill")
     }
 
     @Test func canDeleteOnlyEmptyNonLastSpace() {
@@ -86,7 +86,7 @@ struct SpacesModelTests {
         // Only one space -> cannot delete even though empty.
         #expect(m.canDelete(first) == false)
 
-        let second = m.addSpace(name: "Work", icon: "🛠️")
+        let second = m.addSpace(name: "Work", icon: "wrench.and.screwdriver.fill")
         // Second is empty and not last -> deletable.
         #expect(m.canDelete(second.id) == true)
 
@@ -108,7 +108,7 @@ struct SpacesModelTests {
     @Test func deleteActiveEmptySpaceResetsActive() {
         let m = model()
         let first = m.activeSpaceID
-        let second = m.addSpace(name: "Work", icon: "🛠️") // active == second, empty
+        let second = m.addSpace(name: "Work", icon: "wrench.and.screwdriver.fill") // active == second, empty
         #expect(m.delete(second.id) == true)
         #expect(m.spaces.count == 1)
         #expect(m.activeSpaceID == first)
@@ -117,7 +117,7 @@ struct SpacesModelTests {
     @Test func moveReassignsWindow() {
         let m = model()
         let first = m.activeSpaceID
-        let second = m.addSpace(name: "Work", icon: "🛠️")
+        let second = m.addSpace(name: "Work", icon: "wrench.and.screwdriver.fill")
         m.setActive(first)
         let (owners, keys) = makeKeys(1)
         _ = owners
@@ -131,7 +131,7 @@ struct SpacesModelTests {
     @Test func setActiveSwitchesSpace() {
         let m = model()
         let first = m.activeSpaceID
-        let second = m.addSpace(name: "Work", icon: "🛠️")
+        let second = m.addSpace(name: "Work", icon: "wrench.and.screwdriver.fill")
         #expect(m.activeSpaceID == second.id)
         m.setActive(first)
         #expect(m.activeSpaceID == first)

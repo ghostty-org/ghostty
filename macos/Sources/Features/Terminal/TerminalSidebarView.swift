@@ -92,7 +92,7 @@ struct TerminalSidebarView: View {
                                     Button {
                                         moveTab(row.window, to: space.id)
                                     } label: {
-                                        Text("\(space.icon)  \(space.name)")
+                                        Label(space.name, systemImage: space.icon)
                                     }
                                     .disabled(space.id == spaces.spaceID(for: ObjectIdentifier(row.window)))
                                 }
@@ -142,7 +142,7 @@ struct TerminalSidebarView: View {
                 onSelect: { switchToSpace($0) },
                 onAdd: {
                     editorName = ""
-                    editorIcon = ""
+                    editorIcon = Space.defaultIcon
                     spaceEditor = .create
                 },
                 onRename: { id in
@@ -162,7 +162,7 @@ struct TerminalSidebarView: View {
             // one, so the mode is carried in `spaceEditor`.
             .popover(item: $spaceEditor, arrowEdge: .bottom) { editor in
                 SpaceEditorPopover(
-                    title: editor.isCreate ? "New Space" : "Rename Space",
+                    title: editor.isCreate ? "Create a Space" : "Rename Space",
                     name: $editorName,
                     icon: $editorIcon,
                     onConfirm: {
@@ -528,13 +528,10 @@ private struct SpaceSwitcherBar: View {
                 Button {
                     onSelect(space.id)
                 } label: {
-                    Text(space.icon)
+                    Image(systemName: space.icon)
                         .font(.system(size: 14))
-                        // Render the emoji monochrome so the footer doesn't
-                        // scream with color.
-                        .grayscale(1.0)
-                        .opacity(0.9)
                         .frame(width: 28, height: 28)
+                        .foregroundStyle(space.id == spaces.activeSpaceID ? Color.primary : Color.secondary)
                         .background(background(for: space))
                         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 }
@@ -598,41 +595,48 @@ private struct SpaceEditorPopover: View {
     let onConfirm: () -> Void
     let onCancel: () -> Void
 
+    private static let gridColumns = Array(repeating: GridItem(.fixed(30), spacing: 6), count: 7)
+
+    /// Curated SF Symbols offered in the icon grid. All are available on the
+    /// app's minimum macOS deployment target.
+    private static let iconChoices: [String] = [
+        "globe.americas.fill", "star.fill", "bookmark.fill", "heart.fill", "flag.fill", "bolt.fill", "bell.fill",
+        "folder.fill", "tray.fill", "archivebox.fill", "doc.fill", "doc.on.doc.fill", "calendar", "envelope.fill",
+        "book.fill", "bubble.left.fill", "terminal.fill", "wrench.and.screwdriver.fill", "hammer.fill", "gearshape.fill", "paintpalette.fill",
+        "person.2.fill", "briefcase.fill", "graduationcap.fill", "cart.fill", "bag.fill", "gift.fill", "creditcard.fill",
+        "house.fill", "bed.double.fill", "cup.and.saucer.fill", "fork.knife", "leaf.fill", "flame.fill", "drop.fill",
+        "cloud.fill", "sun.max.fill", "moon.fill", "pawprint.fill", "airplane", "car.fill", "map.fill",
+        "music.note", "video.fill", "gamecontroller.fill", "lightbulb.fill", "square.grid.2x2.fill", "chevron.left.forwardslash.chevron.right", "checkmark.seal.fill",
+    ]
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Text(title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
 
-            HStack(alignment: .bottom, spacing: 8) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Icon")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                    TextField("🚀", text: $icon)
-                        .frame(width: 80)
-                        .multilineTextAlignment(.center)
-                        // Clamp to ten grapheme clusters while typing, but let an
-                        // empty field stay empty (don't substitute the "•" fallback
-                        // mid-edit — that only applies when a Space is constructed).
-                        .onChange(of: icon) { newValue in
-                            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                            if !trimmed.isEmpty {
-                                icon = String(trimmed.prefix(10))
-                            }
-                        }
-                        .onSubmit(onConfirm)
-                }
+            TextField("Space name…", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(onConfirm)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Name")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                    TextField("Name", text: $name)
-                        .frame(width: 160)
-                        .onSubmit(onConfirm)
+            LazyVGrid(columns: Self.gridColumns, spacing: 6) {
+                ForEach(Self.iconChoices, id: \.self) { symbol in
+                    let isSelected = symbol == icon
+                    Button {
+                        icon = symbol
+                    } label: {
+                        Image(systemName: symbol)
+                            .font(.system(size: 14))
+                            .frame(width: 30, height: 30)
+                            .foregroundStyle(isSelected ? Color.white : Color.primary)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(isSelected ? Color.accentColor : Color.primary.opacity(0.06))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help(symbol)
                 }
             }
-            .textFieldStyle(.roundedBorder)
 
             HStack {
                 Spacer()
@@ -642,7 +646,7 @@ private struct SpaceEditorPopover: View {
                     .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(12)
-        .frame(width: 284)
+        .padding(14)
+        .frame(width: 300)
     }
 }

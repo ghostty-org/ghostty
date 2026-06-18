@@ -1,23 +1,19 @@
 import Foundation
 
-/// A user-defined group of tabs in the sidebar. Identity is an icon
-/// (free text, typically an emoji, at most ten grapheme clusters) plus a name.
+/// A user-defined group of tabs in the sidebar. Identity is an SF Symbol name
+/// (rendered monochrome via `Image(systemName:)`) plus a name.
 struct Space: Identifiable, Equatable {
+    /// SF Symbol used when none is specified.
+    static let defaultIcon = "globe.americas.fill"
+
     let id: UUID
     var name: String
+    /// SF Symbol name, e.g. "folder.fill".
     var icon: String
 
-    init(id: UUID = UUID(), name: String, icon: String) {
+    init(id: UUID = UUID(), name: String, icon: String = Space.defaultIcon) {
         self.id = id
         self.name = name
-        self.icon = Space.clampIcon(icon)
-    }
-
-    /// Clamp a free-text icon to at most ten grapheme clusters (emoji-safe),
-    /// trimming surrounding whitespace. Empty input falls back to a bullet.
-    static func clampIcon(_ raw: String) -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return "•" }
-        return String(trimmed.prefix(10))
+        self.icon = icon.isEmpty ? Space.defaultIcon : icon
     }
 }
