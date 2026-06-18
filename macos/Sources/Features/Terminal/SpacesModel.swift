@@ -53,7 +53,13 @@ final class SpacesModel: ObservableObject {
     }
 
     func lastActiveWindow(in id: Space.ID, from ordered: [ObjectIdentifier]) -> ObjectIdentifier? {
-        if let window = lastActive[id], assignments[window] == id { return window }
+        // The remembered window must still be live (present in `ordered`) and
+        // still assigned to this space; otherwise fall back to the first tab in
+        // the space. Checking liveness here avoids returning a stale window
+        // before the next sync() prunes it (which would spawn a spurious tab).
+        if let window = lastActive[id], assignments[window] == id, ordered.contains(window) {
+            return window
+        }
         return ordered.first { assignments[$0] == id }
     }
 

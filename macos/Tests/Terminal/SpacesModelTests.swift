@@ -64,6 +64,17 @@ struct SpacesModelTests {
         #expect(m.lastActiveWindow(in: m.activeSpaceID, from: keys) == keys[1])
     }
 
+    @Test func lastActiveWindowIgnoresStaleRememberedWindow() {
+        let m = model()
+        let (owners, keys) = makeKeys(2)
+        _ = owners
+        m.sync(liveWindows: keys)
+        m.noteActiveWindow(keys[1])
+        // keys[1] is now gone from the live set: must NOT be returned; falls
+        // back to the first live window still in the space.
+        #expect(m.lastActiveWindow(in: m.activeSpaceID, from: [keys[0]]) == keys[0])
+    }
+
     @Test func addSpaceAppendsAndActivates() {
         let m = model()
         let created = m.addSpace(name: "Work", icon: "wrench.and.screwdriver.fill")

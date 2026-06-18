@@ -19,6 +19,7 @@ struct TerminalSidebarView: View {
 
     private let minimumWidth: CGFloat = 180
     private let maximumWidth: CGFloat = 420
+    private static let defaultSpaceName = "New Space"
 
     var body: some View {
         let rows = tabRows
@@ -170,14 +171,14 @@ struct TerminalSidebarView: View {
                         switch editor {
                         case .create:
                             let created = spaces.addSpace(
-                                name: editorName.isEmpty ? "New Space" : editorName,
+                                name: editorName.isEmpty ? Self.defaultSpaceName : editorName,
                                 icon: editorIcon)
                             spaceEditor = nil
                             switchToSpace(created.id)
                         case .rename(let id):
                             spaces.rename(
                                 id,
-                                name: editorName.isEmpty ? "Space" : editorName,
+                                name: editorName.isEmpty ? Self.defaultSpaceName : editorName,
                                 icon: editorIcon)
                             spaceEditor = nil
                             refreshSoon()
@@ -368,7 +369,12 @@ struct TerminalSidebarView: View {
         // Bring the space's most-recent (or first) tab to front. If the space
         // is empty, create a fresh tab so the terminal is never blank.
         if !selectLastActiveTab(in: id, anchorWindow: anchorWindow) {
-            _ = TerminalController.newTab(ghostty, from: anchorWindow)
+            if TerminalController.newTab(ghostty, from: anchorWindow) == nil {
+                // A tab couldn't be created (e.g. non-native fullscreen, where
+                // tabs are unavailable). Don't strand an empty active space —
+                // fall back to whatever window is actually shown.
+                reconcileActiveSpace()
+            }
             refreshSoon()
         }
     }
@@ -510,16 +516,14 @@ private struct TerminalSidebarDropDelegate: DropDelegate {
     let targetWindow: NSWindow
     let refresh: () -> Void
 
-    func dropEntered(info: DropInfo) {
-        guard let sourceWindow = TerminalSidebarDragState.window,
-              sourceWindow != targetWindow
-        else { return }
-
-        TerminalSidebarTabMover.move(sourceWindow, to: targetWindow)
-        refresh()
-    }
-
     func performDrop(info: DropInfo) -> Bool {
+        // Commit the reorder once, on drop — not on every dropEntered hover
+        // (which fired a full tab-group mutation + makeKey per row crossed,
+        // stealing focus mid-drag).
+        if let sourceWindow = TerminalSidebarDragState.window,
+           sourceWindow != targetWindow {
+            TerminalSidebarTabMover.move(sourceWindow, to: targetWindow)
+        }
         TerminalSidebarDragState.window = nil
         refresh()
         return true
