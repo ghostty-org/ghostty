@@ -213,6 +213,7 @@ struct TerminalSidebarView: View {
         }
         .onAppear {
             syncNativeTabBar()
+            syncSpaces()
             refreshSoon()
         }
         .onReceive(NotificationCenter.default.publisher(for: TerminalWindow.terminalDidAwake)) { _ in
@@ -242,8 +243,7 @@ struct TerminalSidebarView: View {
         let selectedWindow = tabGroup?.selectedWindow ?? anchorWindow
         let allWindows = tabGroup?.windows ?? [anchorWindow]
         let activeWindows = allWindows.filter {
-            let sid = spaces.spaceID(for: ObjectIdentifier($0))
-            return sid == nil || sid == spaces.activeSpaceID
+            spaces.spaceID(for: ObjectIdentifier($0)) == spaces.activeSpaceID
         }
 
         return activeWindows.enumerated().map { index, window in
@@ -301,6 +301,9 @@ struct TerminalSidebarView: View {
         let windows = anchorWindow.tabGroup?.windows ?? [anchorWindow]
         spaces.sync(liveWindows: windows.map(ObjectIdentifier.init))
         let selected = anchorWindow.tabGroup?.selectedWindow ?? anchorWindow
+        // The front/selected window always belongs to the active space (the switch
+        // and move logic maintain this), so noting it records the active space's
+        // last-active tab for restore-on-switch.
         spaces.noteActiveWindow(ObjectIdentifier(selected))
     }
 
