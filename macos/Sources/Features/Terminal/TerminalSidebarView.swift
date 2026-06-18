@@ -90,6 +90,18 @@ struct TerminalSidebarView: View {
                                 rename(row.window)
                             }
 
+                            Menu("Move to Space") {
+                                ForEach(spaces.spaces) { space in
+                                    Button {
+                                        moveTab(row.window, to: space.id)
+                                    } label: {
+                                        Text("\(space.icon)  \(space.name)")
+                                    }
+                                    .disabled(space.id == spaces.spaceID(for: ObjectIdentifier(row.window)))
+                                }
+                            }
+                            .disabled(spaces.spaces.count <= 1)
+
                             Divider()
 
                             Button("Move Up") {
@@ -321,6 +333,34 @@ struct TerminalSidebarView: View {
             _ = TerminalController.newTab(ghostty, from: anchorWindow)
             refreshSoon()
         }
+    }
+
+    private func moveTab(_ window: NSWindow, to id: Space.ID) {
+        let movedKey = ObjectIdentifier(window)
+        let wasActiveSpace = spaces.spaceID(for: movedKey) == spaces.activeSpaceID
+        spaces.move(movedKey, to: id)
+
+        // If we moved the front tab out of the active space and the active
+        // space is now empty, follow the tab into its new space.
+        if wasActiveSpace, spaces.isEmpty(spaces.activeSpaceID) {
+            switchToSpace(id)
+            return
+        }
+
+        // If we moved the currently-selected tab elsewhere, select another
+        // tab still in the active space so the terminal matches the sidebar.
+        if wasActiveSpace,
+           let anchorWindow = controller?.window {
+            let allWindows = anchorWindow.tabGroup?.windows ?? [anchorWindow]
+            if let targetKey = spaces.lastActiveWindow(in: spaces.activeSpaceID,
+                                                       from: allWindows.map(ObjectIdentifier.init)),
+               let target = allWindows.first(where: { ObjectIdentifier($0) == targetKey }) {
+                select(target)
+                return
+            }
+        }
+
+        refreshSoon()
     }
 }
 
