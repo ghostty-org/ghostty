@@ -277,7 +277,23 @@ struct TerminalSidebarView: View {
 
     private func switchToSpace(_ id: Space.ID) {
         spaces.setActive(id)
-        refreshSoon()
+
+        guard let anchorWindow = controller?.window else {
+            refreshSoon()
+            return
+        }
+        let allWindows = anchorWindow.tabGroup?.windows ?? [anchorWindow]
+        let keys = allWindows.map(ObjectIdentifier.init)
+
+        if let targetKey = spaces.lastActiveWindow(in: id, from: keys),
+           let target = allWindows.first(where: { ObjectIdentifier($0) == targetKey }) {
+            // Bring the space's most-recent (or first) tab to front.
+            select(target)
+        } else {
+            // Empty space: create a fresh tab so the terminal is never blank.
+            _ = TerminalController.newTab(ghostty, from: anchorWindow)
+            refreshSoon()
+        }
     }
 }
 
