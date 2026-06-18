@@ -4,7 +4,7 @@ import Foundation
 /// (rendered monochrome via `Image(systemName:)`) plus a name.
 struct Space: Identifiable, Equatable {
     /// SF Symbol used when none is specified.
-    static let defaultIcon = "globe.americas.fill"
+    static let defaultIcon = "bolt.fill"
 
     let id: UUID
     var name: String
