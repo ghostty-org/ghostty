@@ -13,8 +13,7 @@ struct TerminalSidebarView: View {
     @State private var refreshNonce = 0
     @State private var width: CGFloat = 281
     @State private var resizeStartWidth: CGFloat?
-    @State private var isCreatingSpace = false
-    @State private var editingSpace: EditingSpace?
+    @State private var spaceEditor: SpaceEditor?
     @State private var editorName = ""
     @State private var editorIcon = ""
 
@@ -144,13 +143,13 @@ struct TerminalSidebarView: View {
                 onAdd: {
                     editorName = ""
                     editorIcon = ""
-                    isCreatingSpace = true
+                    spaceEditor = .create
                 },
                 onRename: { id in
                     if let space = spaces.space(id) {
                         editorName = space.name
                         editorIcon = space.icon
-                        editingSpace = EditingSpace(id: id)
+                        spaceEditor = .rename(id)
                     }
                 },
                 onDelete: { id in
@@ -158,35 +157,32 @@ struct TerminalSidebarView: View {
                     refreshSoon()
                 }
             )
-            .popover(isPresented: $isCreatingSpace, arrowEdge: .bottom) {
+            // A single popover handles both create and rename. Two separate
+            // popovers on one view conflict on macOS and can present the wrong
+            // one, so the mode is carried in `spaceEditor`.
+            .popover(item: $spaceEditor, arrowEdge: .bottom) { editor in
                 SpaceEditorPopover(
-                    title: "New Space",
+                    title: editor.isCreate ? "New Space" : "Rename Space",
                     name: $editorName,
                     icon: $editorIcon,
                     onConfirm: {
-                        let created = spaces.addSpace(
-                            name: editorName.isEmpty ? "New Space" : editorName,
-                            icon: editorIcon)
-                        isCreatingSpace = false
-                        switchToSpace(created.id)
+                        switch editor {
+                        case .create:
+                            let created = spaces.addSpace(
+                                name: editorName.isEmpty ? "New Space" : editorName,
+                                icon: editorIcon)
+                            spaceEditor = nil
+                            switchToSpace(created.id)
+                        case .rename(let id):
+                            spaces.rename(
+                                id,
+                                name: editorName.isEmpty ? "Space" : editorName,
+                                icon: editorIcon)
+                            spaceEditor = nil
+                            refreshSoon()
+                        }
                     },
-                    onCancel: { isCreatingSpace = false }
-                )
-            }
-            .popover(item: $editingSpace, arrowEdge: .bottom) { editing in
-                SpaceEditorPopover(
-                    title: "Rename Space",
-                    name: $editorName,
-                    icon: $editorIcon,
-                    onConfirm: {
-                        spaces.rename(
-                            editing.id,
-                            name: editorName.isEmpty ? "Space" : editorName,
-                            icon: editorIcon)
-                        editingSpace = nil
-                        refreshSoon()
-                    },
-                    onCancel: { editingSpace = nil }
+                    onCancel: { spaceEditor = nil }
                 )
             }
         }
@@ -576,8 +572,23 @@ private struct SpaceSwitcherBar: View {
     }
 }
 
-private struct EditingSpace: Identifiable {
-    let id: Space.ID
+/// Which space-editor popover is open. A single `.popover(item:)` is driven by
+/// this so create and rename can't conflict (two popovers on one macOS view do).
+private enum SpaceEditor: Identifiable {
+    case create
+    case rename(Space.ID)
+
+    var id: String {
+        switch self {
+        case .create: return "create"
+        case .rename(let spaceID): return "rename-\(spaceID)"
+        }
+    }
+
+    var isCreate: Bool {
+        if case .create = self { return true }
+        return false
+    }
 }
 
 private struct SpaceEditorPopover: View {
