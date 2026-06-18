@@ -268,21 +268,32 @@ struct TerminalSidebarView: View {
     }
 
     private func close(_ window: NSWindow) {
-        // If this is the last tab in its (active) space but the window still has
-        // tabs in other spaces, open a fresh tab in this space first — so the
-        // space stays alive and you remain in it instead of being bumped to
-        // another space. If it's the last tab in the whole window, just close
-        // (the window closes as usual).
-        let allWindows = window.tabGroup?.windows ?? [window]
         let spaceID = spaces.spaceID(for: ObjectIdentifier(window))
-        let tabsInSpace = allWindows.filter { spaces.spaceID(for: ObjectIdentifier($0)) == spaceID }
-        if tabsInSpace.count <= 1, allWindows.count > 1 {
-            _ = TerminalController.newTab(ghostty, from: window)
+        let allWindows = window.tabGroup?.windows ?? [window]
+        let sibling = allWindows.first {
+            $0 != window && spaces.spaceID(for: ObjectIdentifier($0)) == spaceID
         }
-        rawClose(window)
+
+        if let sibling {
+            // Another tab remains in this space: select it first so we stay in
+            // this space. (If we just closed the tab, AppKit would select the
+            // native-adjacent tab, which may belong to a different space and
+            // bounce us out of the current one.)
+            select(sibling)
+            rawClose(window)
+        } else {
+            // Last tab in this space. If the window has tabs in other spaces,
+            // this is like deleting the space: remove it and let focus move to
+            // another space. If it's the last tab in the whole window, just
+            // close it (the window closes).
+            if allWindows.count > 1, let spaceID {
+                spaces.removeSpace(spaceID)
+            }
+            rawClose(window)
+        }
     }
 
-    /// Close a single tab without the keep-the-space-alive behavior.
+    /// Close a single tab without the select-a-sibling behavior.
     private func rawClose(_ window: NSWindow) {
         (window.windowController as? TerminalController)?.closeTab(nil)
         refreshSoon()
@@ -291,6 +302,7 @@ struct TerminalSidebarView: View {
     /// Close every tab in the active space except `window`. Operates on the
     /// already space-filtered rows so tabs in other spaces are never touched.
     private func closeOtherTabs(keeping window: NSWindow, in rows: [TerminalSidebarRow.Model]) {
+        select(window)
         for row in rows where row.window != window {
             rawClose(row.window)
         }
@@ -299,6 +311,7 @@ struct TerminalSidebarView: View {
     /// Close every tab in the active space that appears below `row` in the
     /// sidebar's visible order (not the native tab order).
     private func closeTabsBelow(_ row: TerminalSidebarRow.Model, in rows: [TerminalSidebarRow.Model]) {
+        select(row.window)
         for other in rows where other.index > row.index {
             rawClose(other.window)
         }
