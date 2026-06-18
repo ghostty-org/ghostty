@@ -118,14 +118,12 @@ struct TerminalSidebarView: View {
                             }
 
                             Button("Close Other Tabs") {
-                                (row.window.windowController as? TerminalController)?.closeOtherTabs(nil)
-                                refreshSoon()
+                                closeOtherTabs(keeping: row.window, in: rows)
                             }
                             .disabled(rows.count <= 1)
 
                             Button("Close Tabs Below") {
-                                (row.window.windowController as? TerminalController)?.closeTabsOnTheRight(nil)
-                                refreshSoon()
+                                closeTabsBelow(row, in: rows)
                             }
                             .disabled(row.index == rows.count - 1)
                         }
@@ -271,6 +269,22 @@ struct TerminalSidebarView: View {
     private func close(_ window: NSWindow) {
         (window.windowController as? TerminalController)?.closeTab(nil)
         refreshSoon()
+    }
+
+    /// Close every tab in the active space except `window`. Operates on the
+    /// already space-filtered rows so tabs in other spaces are never touched.
+    private func closeOtherTabs(keeping window: NSWindow, in rows: [TerminalSidebarRow.Model]) {
+        for row in rows where row.window != window {
+            close(row.window)
+        }
+    }
+
+    /// Close every tab in the active space that appears below `row` in the
+    /// sidebar's visible order (not the native tab order).
+    private func closeTabsBelow(_ row: TerminalSidebarRow.Model, in rows: [TerminalSidebarRow.Model]) {
+        for other in rows where other.index > row.index {
+            close(other.window)
+        }
     }
 
     private func move(_ window: NSWindow, by amount: Int) {
