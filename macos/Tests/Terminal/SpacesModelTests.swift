@@ -63,4 +63,77 @@ struct SpacesModelTests {
         m.noteActiveWindow(keys[1])
         #expect(m.lastActiveWindow(in: m.activeSpaceID, from: keys) == keys[1])
     }
+
+    @Test func addSpaceAppendsAndActivates() {
+        let m = model()
+        let created = m.addSpace(name: "Work", icon: "🛠️")
+        #expect(m.spaces.count == 2)
+        #expect(m.activeSpaceID == created.id)
+        #expect(m.activeSpace.name == "Work")
+    }
+
+    @Test func renameUpdatesNameAndClampsIcon() {
+        let m = model()
+        let id = m.activeSpaceID
+        m.rename(id, name: "Renamed", icon: "abc")
+        #expect(m.space(id)?.name == "Renamed")
+        #expect(m.space(id)?.icon == "ab")
+    }
+
+    @Test func canDeleteOnlyEmptyNonLastSpace() {
+        let m = model()
+        let first = m.activeSpaceID
+        // Only one space -> cannot delete even though empty.
+        #expect(m.canDelete(first) == false)
+
+        let second = m.addSpace(name: "Work", icon: "🛠️")
+        // Second is empty and not last -> deletable.
+        #expect(m.canDelete(second.id) == true)
+
+        // Put a window in the second space -> no longer deletable.
+        let (owners, keys) = makeKeys(1)
+        _ = owners
+        m.sync(liveWindows: keys) // assigned to active (second)
+        #expect(m.spaceID(for: keys[0]) == second.id)
+        #expect(m.canDelete(second.id) == false)
+    }
+
+    @Test func deleteGuardedReturnsFalse() {
+        let m = model()
+        let first = m.activeSpaceID
+        #expect(m.delete(first) == false)
+        #expect(m.spaces.count == 1)
+    }
+
+    @Test func deleteActiveEmptySpaceResetsActive() {
+        let m = model()
+        let first = m.activeSpaceID
+        let second = m.addSpace(name: "Work", icon: "🛠️") // active == second, empty
+        #expect(m.delete(second.id) == true)
+        #expect(m.spaces.count == 1)
+        #expect(m.activeSpaceID == first)
+    }
+
+    @Test func moveReassignsWindow() {
+        let m = model()
+        let first = m.activeSpaceID
+        let second = m.addSpace(name: "Work", icon: "🛠️")
+        m.setActive(first)
+        let (owners, keys) = makeKeys(1)
+        _ = owners
+        m.sync(liveWindows: keys) // assigned to first
+        m.move(keys[0], to: second.id)
+        #expect(m.spaceID(for: keys[0]) == second.id)
+        #expect(m.isEmpty(first) == true)
+        #expect(m.isEmpty(second.id) == false)
+    }
+
+    @Test func setActiveSwitchesSpace() {
+        let m = model()
+        let first = m.activeSpaceID
+        let second = m.addSpace(name: "Work", icon: "🛠️")
+        #expect(m.activeSpaceID == second.id)
+        m.setActive(first)
+        #expect(m.activeSpaceID == first)
+    }
 }

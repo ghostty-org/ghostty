@@ -60,4 +60,45 @@ final class SpacesModel: ObservableObject {
     func noteActiveWindow(_ window: ObjectIdentifier) {
         if let id = assignments[window] { lastActive[id] = window }
     }
+
+    // MARK: - Mutations
+
+    func canDelete(_ id: Space.ID) -> Bool {
+        spaces.count > 1 && isEmpty(id)
+    }
+
+    @discardableResult
+    func addSpace(name: String, icon: String) -> Space {
+        let space = Space(name: name, icon: icon)
+        spaces.append(space)
+        activeSpaceID = space.id
+        return space
+    }
+
+    func rename(_ id: Space.ID, name: String, icon: String) {
+        guard let index = spaces.firstIndex(where: { $0.id == id }) else { return }
+        spaces[index].name = name
+        spaces[index].icon = Space.clampIcon(icon)
+    }
+
+    @discardableResult
+    func delete(_ id: Space.ID) -> Bool {
+        guard canDelete(id) else { return false }
+        spaces.removeAll { $0.id == id }
+        lastActive[id] = nil
+        if activeSpaceID == id {
+            activeSpaceID = spaces[0].id
+        }
+        return true
+    }
+
+    func move(_ window: ObjectIdentifier, to id: Space.ID) {
+        guard spaces.contains(where: { $0.id == id }) else { return }
+        assignments[window] = id
+    }
+
+    func setActive(_ id: Space.ID) {
+        guard spaces.contains(where: { $0.id == id }) else { return }
+        activeSpaceID = id
+    }
 }
