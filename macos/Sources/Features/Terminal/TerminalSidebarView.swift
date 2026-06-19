@@ -12,9 +12,6 @@ struct TerminalSidebarView: View {
     @State private var hoveredID: ObjectIdentifier?
     @State private var refreshNonce = 0
     @State private var lastSignature = ""
-    /// Target of an in-flight switchToSpace; suppresses reconcile until the new
-    /// space's window is actually front, so a transient becomeKey can't revert it.
-    @State private var pendingActiveSpace: Space.ID?
     @State private var resizeStartWidth: CGFloat?
     @State private var spaceEditor: SpaceEditor?
     @State private var editorName = ""
@@ -218,10 +215,10 @@ struct TerminalSidebarView: View {
             handleTabWillClose(notification.object as? NSWindow)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
-            refreshFollowingFrontWindow()
+            refresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeMainNotification)) { _ in
-            refreshFollowingFrontWindow()
+            refresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: .terminalWindowBellDidChangeNotification)) { _ in
             refresh()
@@ -259,6 +256,13 @@ struct TerminalSidebarView: View {
         refreshSoon()
     }
 
+    /// Like select() but without force-activating the app — for programmatic
+    /// pre-selection (e.g. bulk close from a possibly-background window).
+    private func selectQuiet(_ window: NSWindow) {
+        window.makeKeyAndOrderFront(nil)
+        refreshSoon()
+    }
+
     private func rename(_ window: NSWindow) {
         select(window)
         (window.windowController as? BaseTerminalController)?.promptTabTitle()
@@ -281,13 +285,13 @@ struct TerminalSidebarView: View {
 
     /// Close every tab in the active space except `window`.
     private func closeOtherTabs(keeping window: NSWindow, in rows: [TerminalSidebarRow.Model]) {
-        select(window)
+        selectQuiet(window)
         for row in rows where row.window != window { close(row.window) }
     }
 
     /// Close every tab in the active space below `row` in the sidebar's order.
     private func closeTabsBelow(_ row: TerminalSidebarRow.Model, in rows: [TerminalSidebarRow.Model]) {
-        select(row.window)
+        selectQuiet(row.window)
         for other in rows where other.index > row.index { close(other.window) }
     }
 
@@ -354,26 +358,18 @@ struct TerminalSidebarView: View {
         refreshSoon()
     }
 
+    /// The single refresh path. The active space always follows the frontmost
+    /// window (the sole writer of `activeSpaceID`), so the sidebar and the
+    /// visible terminal can never diverge regardless of how the front window
+    /// changed — sidebar switch, native ⌘1-9, a close, a delete. Reconcile runs
+    /// before the empty-space prune so a space whose last tab just closed (now
+    /// non-active) is removed in the same cycle. Running on every event,
+    /// including the timer, means it always converges even without a key
+    /// notification.
     private func refresh() {
         syncNativeTabBar()
         syncSpaces()
-        spaces.pruneEmptySpaces()
-        bumpIfChanged()
-    }
-
-    /// Refresh and make the active space follow the frontmost window. Called on
-    /// window key/main changes — i.e. when a native tab switch (⌘1-9, ⌃Tab,
-    /// clicking a tab) or closing a tab brings a window from a different space
-    /// to the front — so the sidebar and the visible terminal never diverge.
-    /// Only done on these discrete events (not the timer) so it can't race the
-    /// empty-space auto-create in `switchToSpace`, whose new tab is unassigned
-    /// (and thus skipped by `reconcileActiveSpace`) until `syncSpaces` runs.
-    private func refreshFollowingFrontWindow() {
-        syncNativeTabBar()
-        syncSpaces()
         reconcileActiveSpace()
-        // Prune AFTER reconcile so a space whose last tab just closed (now
-        // non-active because focus moved on) is removed in the same cycle.
         spaces.pruneEmptySpaces()
         bumpIfChanged()
     }
@@ -415,23 +411,16 @@ struct TerminalSidebarView: View {
         return parts.joined(separator: "\u{2}")
     }
 
-    /// Set the active space to the frontmost window's space, if that window has
-    /// a known assignment that differs from the current active space.
+    /// Make the active space follow the frontmost window, if that window has a
+    /// known assignment that differs from the current active space. This is the
+    /// only place `activeSpaceID` changes, so there is never a fight between an
+    /// optimistic switch and the front window — actions just bring the right
+    /// window to front and the active space follows.
     private func reconcileActiveSpace() {
         guard let anchorWindow = controller?.window else { return }
         let selected = anchorWindow.tabGroup?.selectedWindow ?? anchorWindow
-        let selectedSpace = spaces.spaceID(for: ObjectIdentifier(selected))
-
-        // A switchToSpace is in flight: don't follow the (still stale) front
-        // window until it actually reaches the target space, or a transient
-        // becomeKey during the new tab's deferred presentation would revert it.
-        if let pending = pendingActiveSpace {
-            if selectedSpace == pending { pendingActiveSpace = nil }
-            return
-        }
-
-        if let selectedSpace, selectedSpace != spaces.activeSpaceID {
-            spaces.setActive(selectedSpace)
+        if let id = spaces.spaceID(for: ObjectIdentifier(selected)), id != spaces.activeSpaceID {
+            spaces.setActive(id)
         }
     }
 
@@ -463,26 +452,21 @@ struct TerminalSidebarView: View {
     }
 
     private func switchToSpace(_ id: Space.ID) {
-        spaces.setActive(id)
-        // Guard the switch against reconcile reverting it while the target's
-        // window comes to front (the new tab's presentation is deferred).
-        pendingActiveSpace = id
+        guard let anchorWindow = controller?.window else { return }
 
-        guard let anchorWindow = controller?.window else {
-            refreshSoon()
-            return
-        }
-
-        // Bring the space's most-recent (or first) tab to front. If the space
-        // is empty, create a fresh tab so the terminal is never blank.
+        // Bring the space's most-recent (or first) tab to front; the active
+        // space then follows it via reconcile (no optimistic setActive, so a
+        // transient event can't revert the switch). If the space is empty
+        // (just created), make a tab in it and assign it so reconcile activates
+        // the space once the tab is frontmost.
         if !selectLastActiveTab(in: id, anchorWindow: anchorWindow) {
-            if TerminalController.newTab(ghostty, from: anchorWindow) == nil {
-                // A tab couldn't be created (e.g. non-native fullscreen, where
-                // tabs are unavailable). Roll back the empty space we just
-                // switched to and return to whatever window is actually shown.
-                pendingActiveSpace = nil
+            if let created = TerminalController.newTab(ghostty, from: anchorWindow),
+               let newWindow = created.window {
+                spaces.move(ObjectIdentifier(newWindow), to: id)
+            } else {
+                // A tab couldn't be created (e.g. non-native fullscreen); drop
+                // the just-created empty space rather than strand it.
                 spaces.removeSpace(id)
-                reconcileActiveSpace()
             }
             refreshSoon()
         }

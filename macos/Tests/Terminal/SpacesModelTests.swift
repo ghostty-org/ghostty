@@ -125,12 +125,14 @@ struct SpacesModelTests {
         #expect(m.lastActiveWindow(in: m.activeSpaceID, from: [keys[0]]) == keys[0])
     }
 
-    @Test func addSpaceAppendsAndActivates() {
+    @Test func addSpaceAppendsWithoutActivating() {
         let m = model()
+        let first = m.activeSpaceID
         let created = m.addSpace(name: "Work", icon: "wrench.and.screwdriver.fill")
         #expect(m.spaces.count == 2)
-        #expect(m.activeSpaceID == created.id)
-        #expect(m.activeSpace.name == "Work")
+        #expect(m.space(created.id)?.name == "Work")
+        // Activation is the caller's job, not addSpace's.
+        #expect(m.activeSpaceID == first)
     }
 
     @Test func renameUpdatesNameAndIcon() {
@@ -152,6 +154,7 @@ struct SpacesModelTests {
         let m = model()
         let first = m.activeSpaceID
         let second = m.addSpace(name: "Work", icon: "wrench.and.screwdriver.fill")
+        m.setActive(second.id)
         // Put a window in the second space; it is still removable (non-empty).
         let (owners, keys) = makeKeys(1)
         _ = owners
@@ -165,7 +168,8 @@ struct SpacesModelTests {
     @Test func removeActiveSpaceResetsActive() {
         let m = model()
         let first = m.activeSpaceID
-        let second = m.addSpace(name: "Work", icon: "wrench.and.screwdriver.fill") // active == second
+        let second = m.addSpace(name: "Work", icon: "wrench.and.screwdriver.fill")
+        m.setActive(second.id)
         #expect(m.removeSpace(second.id) == true)
         #expect(m.spaces.count == 1)
         #expect(m.activeSpaceID == first)
@@ -189,6 +193,7 @@ struct SpacesModelTests {
         let m = model()
         let first = m.activeSpaceID
         let second = m.addSpace(name: "Work", icon: "wrench.and.screwdriver.fill")
+        m.setActive(second.id)
         #expect(m.activeSpaceID == second.id)
         m.setActive(first)
         #expect(m.activeSpaceID == first)

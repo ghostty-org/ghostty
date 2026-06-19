@@ -94,11 +94,12 @@ final class SpacesModel: ObservableObject {
 
     // MARK: - Mutations
 
+    /// Append a new space. Activation is the caller's job (switchToSpace), so
+    /// the active space has a single writer (reconcile follows the front window).
     @discardableResult
     func addSpace(name: String, icon: String) -> Space {
         let space = Space(name: name, icon: icon)
         spaces.append(space)
-        activeSpaceID = space.id
         return space
     }
 

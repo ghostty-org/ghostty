@@ -26,6 +26,9 @@ final class TerminalSpacesStore {
         }
 
         if let existing = models.object(forKey: tabGroup) {
+            // A window may have merged in carrying a stale per-window model;
+            // evict any such orphans so they can't resurrect on a later detach.
+            _ = adoptStandaloneModel(into: tabGroup)
             return existing
         }
 
