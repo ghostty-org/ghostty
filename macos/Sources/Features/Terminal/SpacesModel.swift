@@ -6,6 +6,9 @@ import Foundation
 final class SpacesModel: ObservableObject {
     @Published private(set) var spaces: [Space]
     @Published private(set) var activeSpaceID: Space.ID
+    /// Sidebar width, shared across all of a group's tabs so it doesn't reset
+    /// when switching tabs (each tab renders its own sidebar view).
+    @Published var sidebarWidth: CGFloat = 281
 
     /// window key -> space id
     private var assignments: [ObjectIdentifier: Space.ID] = [:]

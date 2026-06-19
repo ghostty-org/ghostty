@@ -42,17 +42,19 @@ final class TerminalSpacesStore {
         return makeModel(forKey: tabGroup)
     }
 
-    /// Find and detach an existing per-window model from any window now in
-    /// `tabGroup`, preferring the selected window's.
+    /// Detach the best existing per-window model from the windows now in
+    /// `tabGroup` (preferring the selected window's), and discard any other
+    /// per-window models in the group so they can't resurrect on a later detach
+    /// or leak. Returns the adopted model, if any.
     private func adoptStandaloneModel(into tabGroup: NSWindowTabGroup) -> SpacesModel? {
-        let candidates = [tabGroup.selectedWindow].compactMap { $0 } + tabGroup.windows
-        for candidate in candidates {
-            if let model = models.object(forKey: candidate) {
-                models.removeObject(forKey: candidate)
-                return model
-            }
+        var adopted: SpacesModel?
+        let ordered = [tabGroup.selectedWindow].compactMap { $0 } + tabGroup.windows
+        for window in ordered {
+            guard let model = models.object(forKey: window) else { continue }
+            if adopted == nil { adopted = model }
+            models.removeObject(forKey: window)
         }
-        return nil
+        return adopted
     }
 
     /// Look up (or create) a model by an arbitrary key object. Exposed for

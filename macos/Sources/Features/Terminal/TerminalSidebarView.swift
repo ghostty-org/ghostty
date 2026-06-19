@@ -12,7 +12,9 @@ struct TerminalSidebarView: View {
     @State private var hoveredID: ObjectIdentifier?
     @State private var refreshNonce = 0
     @State private var lastSignature = ""
-    @State private var width: CGFloat = 281
+    /// Target of an in-flight switchToSpace; suppresses reconcile until the new
+    /// space's window is actually front, so a transient becomeKey can't revert it.
+    @State private var pendingActiveSpace: Space.ID?
     @State private var resizeStartWidth: CGFloat?
     @State private var spaceEditor: SpaceEditor?
     @State private var editorName = ""
@@ -185,7 +187,7 @@ struct TerminalSidebarView: View {
                 )
             }
         }
-        .frame(width: width)
+        .frame(width: spaces.sidebarWidth)
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .trailing) {
             Rectangle()
@@ -195,9 +197,9 @@ struct TerminalSidebarView: View {
                 .gesture(
                     DragGesture()
                         .onChanged { value in
-                            let startWidth = resizeStartWidth ?? width
+                            let startWidth = resizeStartWidth ?? spaces.sidebarWidth
                             resizeStartWidth = startWidth
-                            width = min(max(startWidth + value.translation.width, minimumWidth), maximumWidth)
+                            spaces.sidebarWidth = min(max(startWidth + value.translation.width, minimumWidth), maximumWidth)
                         }
                         .onEnded { _ in
                             resizeStartWidth = nil
@@ -212,8 +214,8 @@ struct TerminalSidebarView: View {
         .onReceive(NotificationCenter.default.publisher(for: TerminalWindow.terminalDidAwake)) { _ in
             refreshSoon()
         }
-        .onReceive(NotificationCenter.default.publisher(for: TerminalWindow.terminalWillCloseNotification)) { _ in
-            refreshSoon()
+        .onReceive(NotificationCenter.default.publisher(for: TerminalWindow.terminalWillCloseNotification)) { notification in
+            handleTabWillClose(notification.object as? NSWindow)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
             refreshFollowingFrontWindow()
@@ -232,14 +234,9 @@ struct TerminalSidebarView: View {
     private var tabRows: [TerminalSidebarRow.Model] {
         _ = refreshNonce
         guard let anchorWindow = controller?.window else { return [] }
-        let tabGroup = anchorWindow.tabGroup
-        let selectedWindow = tabGroup?.selectedWindow ?? anchorWindow
-        let allWindows = tabGroup?.windows ?? [anchorWindow]
-        let activeWindows = allWindows.filter {
-            spaces.spaceID(for: ObjectIdentifier($0)) == spaces.activeSpaceID
-        }
+        let selectedWindow = anchorWindow.tabGroup?.selectedWindow ?? anchorWindow
 
-        return activeWindows.enumerated().map { index, window in
+        return windows(in: spaces.activeSpaceID).enumerated().map { index, window in
             let terminalWindow = window as? TerminalWindow
             let terminalController = window.windowController as? BaseTerminalController
 
@@ -267,53 +264,58 @@ struct TerminalSidebarView: View {
         (window.windowController as? BaseTerminalController)?.promptTabTitle()
     }
 
-    private func close(_ window: NSWindow) {
-        // If another tab remains in this space, select it first so we stay in
-        // this space (otherwise AppKit picks the native-adjacent tab, which may
-        // belong to another space). If this is the space's last tab, just close:
-        // the space becomes empty and is removed by the post-close prune, and
-        // focus moves to whatever window AppKit selects. We never mutate space
-        // state before the close commits (the close can be cancelled).
-        let spaceID = spaces.spaceID(for: ObjectIdentifier(window))
-        let allWindows = window.tabGroup?.windows ?? [window]
-        if let sibling = allWindows.first(where: {
-            $0 != window && spaces.spaceID(for: ObjectIdentifier($0)) == spaceID
-        }) {
-            select(sibling)
-        }
-        rawClose(window)
+    /// Windows in the controller's tab group assigned to `id`, in tab order.
+    private func windows(in id: Space.ID) -> [NSWindow] {
+        let all = controller?.window?.tabGroup?.windows ?? [controller?.window].compactMap { $0 }
+        return all.filter { spaces.spaceID(for: ObjectIdentifier($0)) == id }
     }
 
-    /// Close a single tab without the select-a-sibling behavior.
-    private func rawClose(_ window: NSWindow) {
+    private func close(_ window: NSWindow) {
+        // Just close. Keeping the user in the space (selecting a same-space
+        // sibling) is handled centrally in handleTabWillClose, so every close
+        // path — sidebar X, context menu, native ⌘W, split close — behaves the
+        // same, and we never mutate space state before the (cancellable) close.
         (window.windowController as? TerminalController)?.closeTab(nil)
         refreshSoon()
     }
 
-    /// Close every tab in the active space except `window`. Operates on the
-    /// already space-filtered rows so tabs in other spaces are never touched.
+    /// Close every tab in the active space except `window`.
     private func closeOtherTabs(keeping window: NSWindow, in rows: [TerminalSidebarRow.Model]) {
         select(window)
-        for row in rows where row.window != window {
-            rawClose(row.window)
-        }
+        for row in rows where row.window != window { close(row.window) }
     }
 
-    /// Close every tab in the active space that appears below `row` in the
-    /// sidebar's visible order (not the native tab order).
+    /// Close every tab in the active space below `row` in the sidebar's order.
     private func closeTabsBelow(_ row: TerminalSidebarRow.Model, in rows: [TerminalSidebarRow.Model]) {
         select(row.window)
-        for other in rows where other.index > row.index {
-            rawClose(other.window)
-        }
+        for other in rows where other.index > row.index { close(other.window) }
     }
 
-    /// Delete a space: confirm, close all of its tabs, then remove it.
+    /// When the frontmost tab is about to close, select a same-space sibling
+    /// first so we stay in the space. Closing a background tab leaves the
+    /// selection alone; closing a space's last tab selects nothing here, so
+    /// AppKit picks the next window and the active space follows it (the emptied
+    /// space is then pruned). One handler for every close path (X, ⌘W, split).
+    private func handleTabWillClose(_ closing: NSWindow?) {
+        defer { refreshSoon() }
+        guard let closing,
+              let tabGroup = controller?.window?.tabGroup,
+              tabGroup.selectedWindow == closing,
+              let spaceID = spaces.spaceID(for: ObjectIdentifier(closing)),
+              let sibling = tabGroup.windows.first(where: {
+                  $0 != closing && spaces.spaceID(for: ObjectIdentifier($0)) == spaceID
+              })
+        else { return }
+        sibling.makeKeyAndOrderFront(nil)
+    }
+
+    /// Delete a space: confirm, then close its tabs. The emptied space is removed
+    /// by the post-close prune (so a cancelled close can't orphan a tab in a
+    /// deleted space). An already-empty space is removed immediately, since the
+    /// prune deliberately keeps the active space.
     private func deleteSpace(_ id: Space.ID) {
         guard let anchorWindow = controller?.window, let space = spaces.space(id) else { return }
-        let spaceWindows = (anchorWindow.tabGroup?.windows ?? [anchorWindow]).filter {
-            spaces.spaceID(for: ObjectIdentifier($0)) == id
-        }
+        let spaceWindows = windows(in: id)
 
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -326,35 +328,29 @@ struct TerminalSidebarView: View {
 
         alert.beginSheetModal(for: anchorWindow) { response in
             guard response == .alertFirstButtonReturn else { return }
-            // Close the tabs; the space is removed by the post-close prune once
-            // they actually go away (so a cancelled close can't orphan a tab in
-            // a deleted space). Surviving tabs simply keep the space alive.
-            for window in spaceWindows {
-                (window.windowController as? TerminalController)?.closeTab(nil)
+            if spaceWindows.isEmpty {
+                spaces.removeSpace(id)
+                reconcileActiveSpace()
+            } else {
+                for window in spaceWindows {
+                    (window.windowController as? TerminalController)?.closeTab(nil)
+                }
             }
             refreshSoon()
         }
     }
 
     private func move(_ window: NSWindow, by amount: Int) {
-        guard let tabGroup = window.tabGroup else { return }
-        // Reorder within the active space's visible tabs only. Other spaces'
-        // tabs may be interleaved in the native order and must be skipped, so
-        // the chosen neighbor matches what the sidebar actually shows.
-        let windows = tabGroup.windows.filter {
-            spaces.spaceID(for: ObjectIdentifier($0)) == spaces.activeSpaceID
-        }
-        guard let index = windows.firstIndex(of: window) else { return }
-        let targetIndex = min(max(index + amount, 0), windows.count - 1)
+        // Reorder within the active space's visible tabs only (other spaces' tabs
+        // are interleaved in native order and must be skipped). The mover only
+        // re-keys the window if it was already selected, so reordering a
+        // background tab leaves the selection put.
+        let spaceWindows = windows(in: spaces.activeSpaceID)
+        guard let index = spaceWindows.firstIndex(of: window) else { return }
+        let targetIndex = min(max(index + amount, 0), spaceWindows.count - 1)
         guard targetIndex != index else { return }
 
-        // The mover makes the moved window key; restore the previous selection
-        // so reordering a background tab doesn't yank focus to it.
-        let previouslySelected = tabGroup.selectedWindow
-        TerminalSidebarTabMover.move(window, to: windows[targetIndex])
-        if let previouslySelected, previouslySelected != window {
-            previouslySelected.makeKeyAndOrderFront(nil)
-        }
+        TerminalSidebarTabMover.move(window, to: spaceWindows[targetIndex])
         refreshSoon()
     }
 
@@ -398,15 +394,13 @@ struct TerminalSidebarView: View {
     /// can skip re-renders when nothing visible changed.
     private func currentSignature() -> String {
         guard let anchorWindow = controller?.window else { return "" }
-        let tabGroup = anchorWindow.tabGroup
-        let selected = tabGroup?.selectedWindow ?? anchorWindow
-        let windows = tabGroup?.windows ?? [anchorWindow]
+        let selected = anchorWindow.tabGroup?.selectedWindow ?? anchorWindow
 
         var parts: [String] = [spaces.activeSpaceID.uuidString]
         for space in spaces.spaces {
             parts.append("\(space.id.uuidString)\u{1}\(space.name)\u{1}\(space.icon)")
         }
-        for window in windows where spaces.spaceID(for: ObjectIdentifier(window)) == spaces.activeSpaceID {
+        for window in windows(in: spaces.activeSpaceID) {
             let terminalWindow = window as? TerminalWindow
             let terminalController = window.windowController as? BaseTerminalController
             parts.append([
@@ -426,8 +420,18 @@ struct TerminalSidebarView: View {
     private func reconcileActiveSpace() {
         guard let anchorWindow = controller?.window else { return }
         let selected = anchorWindow.tabGroup?.selectedWindow ?? anchorWindow
-        if let id = spaces.spaceID(for: ObjectIdentifier(selected)), id != spaces.activeSpaceID {
-            spaces.setActive(id)
+        let selectedSpace = spaces.spaceID(for: ObjectIdentifier(selected))
+
+        // A switchToSpace is in flight: don't follow the (still stale) front
+        // window until it actually reaches the target space, or a transient
+        // becomeKey during the new tab's deferred presentation would revert it.
+        if let pending = pendingActiveSpace {
+            if selectedSpace == pending { pendingActiveSpace = nil }
+            return
+        }
+
+        if let selectedSpace, selectedSpace != spaces.activeSpaceID {
+            spaces.setActive(selectedSpace)
         }
     }
 
@@ -460,6 +464,9 @@ struct TerminalSidebarView: View {
 
     private func switchToSpace(_ id: Space.ID) {
         spaces.setActive(id)
+        // Guard the switch against reconcile reverting it while the target's
+        // window comes to front (the new tab's presentation is deferred).
+        pendingActiveSpace = id
 
         guard let anchorWindow = controller?.window else {
             refreshSoon()
@@ -473,6 +480,7 @@ struct TerminalSidebarView: View {
                 // A tab couldn't be created (e.g. non-native fullscreen, where
                 // tabs are unavailable). Roll back the empty space we just
                 // switched to and return to whatever window is actually shown.
+                pendingActiveSpace = nil
                 spaces.removeSpace(id)
                 reconcileActiveSpace()
             }
@@ -649,13 +657,17 @@ private enum TerminalSidebarTabMover {
         else { return }
 
         let ordering: NSWindow.OrderingMode = sourceIndex < targetIndex ? .above : .below
+        // Removing the source can drop selection; only restore it to the source
+        // if it was the selected tab. Reordering a background tab keeps the
+        // current selection put (no focus steal).
+        let wasSelected = tabGroup.selectedWindow == sourceWindow
 
         NSAnimationContext.beginGrouping()
         NSAnimationContext.current.duration = 0
 
         tabGroup.removeWindow(sourceWindow)
         targetWindow.addTabbedWindowSafely(sourceWindow, ordered: ordering)
-        sourceWindow.makeKey()
+        if wasSelected { sourceWindow.makeKey() }
 
         NSAnimationContext.endGrouping()
 
