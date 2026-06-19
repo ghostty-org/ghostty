@@ -9,7 +9,6 @@ struct TerminalSidebarView: View {
 
     @ObservedObject var spaces: SpacesModel
 
-    @State private var hoveredID: ObjectIdentifier?
     @State private var refreshNonce = 0
     @State private var lastSignature = ""
     @State private var resizeStartWidth: CGFloat?
@@ -20,6 +19,8 @@ struct TerminalSidebarView: View {
     private let minimumWidth: CGFloat = 180
     private let maximumWidth: CGFloat = 420
     private static let defaultSpaceName = "New Space"
+    /// Stored so it isn't rebuilt (restarting its cadence) on every body pass.
+    private let refreshTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     var body: some View {
         let rows = tabRows
@@ -53,14 +54,10 @@ struct TerminalSidebarView: View {
                     ForEach(rows) { row in
                         TerminalSidebarRow(
                             row: row,
-                            isHovered: hoveredID == row.id,
                             closeAction: {
                                 close(row.window)
                             }
                         )
-                        .onHover { hovering in
-                            hoveredID = hovering ? row.id : nil
-                        }
                         .onTapGesture {
                             select(row.window)
                         }
@@ -223,7 +220,7 @@ struct TerminalSidebarView: View {
         .onReceive(NotificationCenter.default.publisher(for: .terminalWindowBellDidChangeNotification)) { _ in
             refresh()
         }
-        .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
+        .onReceive(refreshTimer) { _ in
             refresh()
         }
     }
@@ -285,8 +282,10 @@ struct TerminalSidebarView: View {
 
     /// Close a set of tabs with ONE aggregated confirmation (matching native
     /// bulk close) instead of a confirm sheet per tab. After the user confirms
-    /// once, all close immediately so a per-tab cancel can't half-finish it.
-    private func closeWindows(_ targets: [NSWindow]) {
+    /// once, all close immediately so a per-tab cancel can't half-finish it. The
+    /// confirmation sheet is hosted on `survivor` (the kept tab) so it doesn't
+    /// pull a to-be-closed tab forward.
+    private func closeWindows(_ targets: [NSWindow], confirmOn survivor: NSWindow) {
         guard !targets.isEmpty else { return }
         let doClose = {
             for window in targets {
@@ -298,9 +297,9 @@ struct TerminalSidebarView: View {
             (window.windowController as? BaseTerminalController)?
                 .surfaceTree.contains(where: { $0.needsConfirmQuit }) ?? false
         }
-        if needsConfirm {
+        if needsConfirm, let host = survivor.windowController as? BaseTerminalController {
             let count = targets.count
-            controller?.confirmClose(
+            host.confirmClose(
                 messageText: "Close \(count) Tab\(count == 1 ? "" : "s")?",
                 informativeText: "At least one has a running process that will be killed."
             ) { doClose() }
@@ -312,13 +311,13 @@ struct TerminalSidebarView: View {
     /// Close every tab in the active space except `window`.
     private func closeOtherTabs(keeping window: NSWindow, in rows: [TerminalSidebarRow.Model]) {
         selectQuiet(window)
-        closeWindows(rows.filter { $0.window != window }.map(\.window))
+        closeWindows(rows.filter { $0.window != window }.map(\.window), confirmOn: window)
     }
 
     /// Close every tab in the active space below `row` in the sidebar's order.
     private func closeTabsBelow(_ row: TerminalSidebarRow.Model, in rows: [TerminalSidebarRow.Model]) {
         selectQuiet(row.window)
-        closeWindows(rows.filter { $0.index > row.index }.map(\.window))
+        closeWindows(rows.filter { $0.index > row.index }.map(\.window), confirmOn: row.window)
     }
 
     /// When the frontmost tab is about to close, select a same-space sibling
@@ -498,11 +497,14 @@ struct TerminalSidebarView: View {
             spaces.setActive(id)
         } else {
             if let created = TerminalController.newTab(ghostty, from: anchorWindow),
-               let newWindow = created.window {
+               let newWindow = created.window,
+               newWindow.tabGroup === anchorWindow.tabGroup {
                 spaces.move(ObjectIdentifier(newWindow), to: id)
             } else {
-                // A tab couldn't be created (e.g. non-native fullscreen); drop
-                // the just-created empty space rather than strand it.
+                // The tab couldn't be created here (non-native fullscreen) or it
+                // opened as its own window (tabbing disallowed) — either way it's
+                // not in this group, so drop the just-created empty space rather
+                // than strand it.
                 spaces.removeSpace(id)
             }
             refreshSoon()
@@ -554,8 +556,12 @@ private struct TerminalSidebarRow: View {
     }
 
     let row: Model
-    let isHovered: Bool
     let closeAction: () -> Void
+
+    // Hover lives on the row (not the parent) so hovering only invalidates this
+    // one row — hovering no longer rebuilds the whole list (which would flash an
+    // open context menu).
+    @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 7) {
@@ -600,6 +606,7 @@ private struct TerminalSidebarRow: View {
         .background(rowBackground)
         .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
         .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
     }
 
     @ViewBuilder
@@ -672,17 +679,20 @@ private enum TerminalSidebarTabMover {
         else { return }
 
         let ordering: NSWindow.OrderingMode = sourceIndex < targetIndex ? .above : .below
-        // Removing the source can drop selection; only restore it to the source
-        // if it was the selected tab. Reordering a background tab keeps the
-        // current selection put (no focus steal).
-        let wasSelected = tabGroup.selectedWindow == sourceWindow
+        // addTabbedWindowSafely makes the re-added window selected, so preserve
+        // the prior selection: re-key the source if it was selected, otherwise
+        // restore the window that was selected before (a background reorder must
+        // not steal focus to the moved tab).
+        let previousSelected = tabGroup.selectedWindow
 
         NSAnimationContext.beginGrouping()
         NSAnimationContext.current.duration = 0
 
         tabGroup.removeWindow(sourceWindow)
         targetWindow.addTabbedWindowSafely(sourceWindow, ordered: ordering)
-        if wasSelected { sourceWindow.makeKey() }
+        if let previousSelected, previousSelected.tabGroup === tabGroup {
+            previousSelected.makeKey()
+        }
 
         NSAnimationContext.endGrouping()
 

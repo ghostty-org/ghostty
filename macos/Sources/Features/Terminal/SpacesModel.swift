@@ -110,8 +110,9 @@ final class SpacesModel: ObservableObject {
     }
 
     /// Remove a space. Refuses to remove the last remaining space (there must
-    /// always be at least one). Any windows still assigned to it are expected to
-    /// be closed by the caller; their stale assignments are pruned on sync().
+    /// always be at least one). Any window still assigned to the removed space is
+    /// re-keyed to the (new) active space so it can never be orphaned under a
+    /// non-existent space id.
     @discardableResult
     func removeSpace(_ id: Space.ID) -> Bool {
         guard spaces.count > 1, spaces.contains(where: { $0.id == id }) else { return false }
@@ -119,6 +120,9 @@ final class SpacesModel: ObservableObject {
         lastActive[id] = nil
         if activeSpaceID == id {
             activeSpaceID = spaces[0].id
+        }
+        for (window, sid) in assignments where sid == id {
+            assignments[window] = activeSpaceID
         }
         return true
     }

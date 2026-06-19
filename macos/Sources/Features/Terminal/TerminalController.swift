@@ -721,6 +721,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let tabGroup = window.tabGroup else { return }
         guard tabGroup.windows.count > 1 else { return }
 
+        // In the spaces sidebar, scope this to the current window's space so we
+        // don't close tabs the user can't see in other spaces.
+        let spaceModel = ghostty.config.macosTabBarLocation == .left
+            ? TerminalSpacesStore.shared.model(for: window) : nil
+        let activeSpace = spaceModel?.spaceID(for: ObjectIdentifier(window))
+
         // Start an undo grouping
         if let undoManager {
             undoManager.beginUndoGrouping()
@@ -730,11 +736,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Iterate through all tabs except the current one.
-        for window in tabGroup.windows where window != self.window {
+        for tab in tabGroup.windows where tab != window {
+            if let spaceModel, spaceModel.spaceID(for: ObjectIdentifier(tab)) != activeSpace {
+                continue
+            }
             // We ignore any non-terminal tabs. They don't currently exist and we can't
             // properly undo them anyways so I'd rather ignore them and get a bug report
             // later if and when we introduce non-terminal tabs.
-            if let controller = window.windowController as? TerminalController {
+            if let controller = tab.windowController as? TerminalController {
                 // We must not register a redo, because it messes with our own redo
                 // that we register later.
                 controller.closeTabImmediately(registerRedo: false)
@@ -770,7 +779,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let tabGroup = window.tabGroup else { return }
         guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return }
 
-        let tabsToClose = tabGroup.windows.enumerated().filter { $0.offset > currentIndex }
+        // In the spaces sidebar, scope this to the current window's space so we
+        // don't close tabs the user can't see in other spaces.
+        let spaceModel = ghostty.config.macosTabBarLocation == .left
+            ? TerminalSpacesStore.shared.model(for: window) : nil
+        let activeSpace = spaceModel?.spaceID(for: ObjectIdentifier(window))
+
+        let tabsToClose = tabGroup.windows.enumerated().filter { entry in
+            guard entry.offset > currentIndex else { return false }
+            if let spaceModel, spaceModel.spaceID(for: ObjectIdentifier(entry.element)) != activeSpace {
+                return false
+            }
+            return true
+        }
         guard !tabsToClose.isEmpty else { return }
 
         undoManager?.beginUndoGrouping()
