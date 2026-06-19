@@ -1450,6 +1450,29 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard tabbedWindows.count > 0 else { return }
         guard let selectedIndex = tabbedWindows.firstIndex(where: { $0 == selectedWindow }) else { return }
 
+        // In the spaces sidebar, reorder only within the selected tab's space —
+        // other spaces' tabs are interleaved in the native order and hidden, so
+        // a native-index move would no-op or jump past tabs the user can't see.
+        if ghostty.config.macosTabBarLocation == .left {
+            let model = TerminalSpacesStore.shared.model(for: window)
+            let spaceID = model.spaceID(for: ObjectIdentifier(selectedWindow))
+            let spaceWindows = tabbedWindows.filter { model.spaceID(for: ObjectIdentifier($0)) == spaceID }
+            guard let idx = spaceWindows.firstIndex(of: selectedWindow) else { return }
+            let target = action.amount < 0
+                ? idx - min(idx, -action.amount)
+                : idx + min(spaceWindows.count - 1 - idx, action.amount)
+            guard target != idx else { return }
+
+            NSAnimationContext.beginGrouping()
+            NSAnimationContext.current.duration = 0
+            tabGroup.removeWindow(selectedWindow)
+            spaceWindows[target].addTabbedWindowSafely(selectedWindow, ordered: action.amount < 0 ? .below : .above)
+            selectedWindow.makeKey()
+            NSAnimationContext.endGrouping()
+            relabelTabs()
+            return
+        }
+
         // Determine the final index we want to insert our tab
         let finalIndex: Int
         if action.amount < 0 {
