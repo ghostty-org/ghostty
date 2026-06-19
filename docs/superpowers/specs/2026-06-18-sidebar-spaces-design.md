@@ -213,3 +213,17 @@ windows are added to or removed from the tab-group on a switch.
 - Possibly `TerminalView.swift` only if wiring the store needs it (the sidebar
   can look the store up itself via its window's tab-group).
 - Xcode project file (`project.pbxproj`) — add the new source file.
+
+## Deferred / needs-runtime-verification (as of 2026-06-19 review pass 4)
+
+- **Detach a tab from a 2-tab window may drop the surviving window's spaces.**
+  Medium-confidence (depends on AppKit's tab-group identity after a detach,
+  which can't be verified headlessly). The store has standalone→tabbed
+  migration but no reverse path. Needs a manual check: with 2 spaces/2 tabs,
+  drag one tab out and confirm the original window keeps its spaces; if not,
+  add a reverse migration in `TerminalSpacesStore.model(for:)`.
+- **Downward drag-reorder lands one slot past the drop target.** Minor; the
+  shared mover's ordering is correct for Move Up/Down but off-by-one for a
+  downward drag. Fix alongside unifying the reorder primitive.
+- **Tab color dot updates up to ~0.5s late** (no notification for tabColor; the
+  refresh timer repaints it). Minor.
