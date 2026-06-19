@@ -1324,10 +1324,21 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // If we only have one window then we have no other tabs to close
         guard tabGroup.windows.count > 1 else { return }
 
+        // In the spaces sidebar, only the current window's space will actually be
+        // closed, so the confirm check must use the same scope.
+        let spaceModel = ghostty.config.macosTabBarLocation == .left
+            ? TerminalSpacesStore.shared.model(for: window) : nil
+        let activeSpace = spaceModel?.spaceID(for: ObjectIdentifier(window))
+
         // Check if we have to confirm close.
         guard tabGroup.windows.contains(where: { window in
             // Ignore ourself
             if window == self.window { return false }
+
+            // Ignore tabs in other spaces (they won't be closed)
+            if let spaceModel, spaceModel.spaceID(for: ObjectIdentifier(window)) != activeSpace {
+                return false
+            }
 
             // Ignore non-terminals
             guard let controller = window.windowController as? TerminalController else {
@@ -1354,7 +1365,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let tabGroup = window.tabGroup else { return }
         guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return }
 
-        let tabsToClose = tabGroup.windows.enumerated().filter { $0.offset > currentIndex }
+        // In the spaces sidebar, only the current window's space will actually be
+        // closed, so scope both the candidate set and the confirm check to it.
+        let spaceModel = ghostty.config.macosTabBarLocation == .left
+            ? TerminalSpacesStore.shared.model(for: window) : nil
+        let activeSpace = spaceModel?.spaceID(for: ObjectIdentifier(window))
+
+        let tabsToClose = tabGroup.windows.enumerated().filter { entry in
+            guard entry.offset > currentIndex else { return false }
+            if let spaceModel, spaceModel.spaceID(for: ObjectIdentifier(entry.element)) != activeSpace {
+                return false
+            }
+            return true
+        }
         guard !tabsToClose.isEmpty else { return }
 
         let needsConfirm = tabsToClose.contains { (_, candidate) in

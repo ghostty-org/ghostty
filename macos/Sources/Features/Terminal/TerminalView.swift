@@ -106,6 +106,10 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                     controller: controller,
                     spaces: TerminalSpacesStore.shared.model(for: window)
                 )
+                // Re-resolve the shared model when this window changes tab-group
+                // (merge / detach), so a merged-in window rebinds to the group's
+                // model instead of staying on its stale per-window one.
+                .id(ObjectIdentifier(window.tabGroup ?? window))
 
                 Divider()
 

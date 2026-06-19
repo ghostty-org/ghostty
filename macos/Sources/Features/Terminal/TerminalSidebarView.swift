@@ -239,7 +239,6 @@ struct TerminalSidebarView: View {
                 window: window,
                 index: index,
                 title: window.title.isEmpty ? "Ghostty" : window.title,
-                keyEquivalent: terminalWindow?.keyEquivalent,
                 isSelected: window == selectedWindow,
                 hasBell: terminalController?.bell ?? false,
                 tabColor: terminalWindow?.tabColor ?? .none
@@ -331,11 +330,15 @@ struct TerminalSidebarView: View {
               let tabGroup = controller?.window?.tabGroup,
               tabGroup.selectedWindow == closing,
               let spaceID = spaces.spaceID(for: ObjectIdentifier(closing)),
-              let sibling = tabGroup.windows.first(where: {
-                  $0 != closing && spaces.spaceID(for: ObjectIdentifier($0)) == spaceID
-              })
+              let idx = tabGroup.windows.firstIndex(of: closing)
         else { return }
-        sibling.makeKeyAndOrderFront(nil)
+        let windows = tabGroup.windows
+        let sameSpace: (NSWindow) -> Bool = { spaces.spaceID(for: ObjectIdentifier($0)) == spaceID }
+        // Nearest same-space neighbor: the predecessor, else the successor — not
+        // just the first tab in the space.
+        if let sibling = windows[..<idx].last(where: sameSpace) ?? windows[(idx + 1)...].first(where: sameSpace) {
+            sibling.makeKeyAndOrderFront(nil)
+        }
     }
 
     /// Delete a space: confirm, then close its tabs. The emptied space is removed
@@ -437,7 +440,6 @@ struct TerminalSidebarView: View {
                 window.title,
                 window == selected ? "1" : "0",
                 (terminalController?.bell ?? false) ? "1" : "0",
-                terminalWindow?.keyEquivalent ?? "",
                 String(describing: terminalWindow?.tabColor ?? .none),
             ].joined(separator: "\u{1}"))
         }
@@ -549,7 +551,6 @@ private struct TerminalSidebarRow: View {
         let window: NSWindow
         let index: Int
         let title: String
-        let keyEquivalent: String?
         let isSelected: Bool
         let hasBell: Bool
         let tabColor: TerminalTabColor
@@ -580,14 +581,6 @@ private struct TerminalSidebarRow: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Color(nsColor: .controlAccentColor))
                     .help("Bell")
-            }
-
-            if let keyEquivalent = row.keyEquivalent, !keyEquivalent.isEmpty {
-                Text(keyEquivalent)
-                    .font(.system(size: 10, weight: .regular, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .frame(minWidth: 12, alignment: .trailing)
             }
 
             Button(action: closeAction) {
