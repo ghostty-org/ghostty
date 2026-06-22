@@ -284,10 +284,13 @@ pub const Handler = struct {
             .dcs_unhook,
             => {},
 
-            // Have no terminal-modifying effect
+            // Have no terminal-modifying effect. Drag-and-drop (OSC 72) is
+            // handled entirely by the apprt-backed IO handler, so the headless
+            // terminal path ignores it.
             .show_desktop_notification,
             .progress_report,
             .clipboard_contents,
+            .kitty_dnd_protocol,
             .title_push,
             .title_pop,
             => {},

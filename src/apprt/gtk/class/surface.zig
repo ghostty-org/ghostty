@@ -39,6 +39,48 @@ const media = @import("../media.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface);
 
+/// Per-surface state for the Kitty drag-and-drop protocol (OSC 72).
+///
+/// The application running in the terminal opts in via `t=a`. While it is
+/// opted in, OS drops onto the surface are forwarded to the application over
+/// the pty (as `t=m`/`t=M`/`t=r` events) instead of being pasted. When the
+/// application has not opted in, drops fall back to the default paste path.
+const Dnd = struct {
+    /// Whether the application has registered to accept drops (`t=a`).
+    accepting: bool = false,
+
+    /// Multiplexer session ID echoed back in responses, or -1 if unset.
+    session: i32 = -1,
+
+    /// Space-separated MIME types the application accepts, as sent with `t=a`.
+    /// `null` means "not set / accept anything". Owned by the app allocator.
+    accept_mimes: ?[]const u8 = null,
+
+    /// The MIME types and serialized data for the current drop, in the order
+    /// advertised to the application in the `t=M` event. The application
+    /// requests an entry by index via `t=r`. Owned by the app allocator.
+    offers: std.ArrayListUnmanaged(Offer) = .empty,
+
+    const Offer = struct {
+        mime: []const u8,
+        data: []const u8,
+    };
+
+    fn clearOffers(self: *Dnd, alloc: Allocator) void {
+        for (self.offers.items) |o| {
+            alloc.free(o.mime);
+            alloc.free(o.data);
+        }
+        self.offers.clearAndFree(alloc);
+    }
+
+    fn deinit(self: *Dnd, alloc: Allocator) void {
+        if (self.accept_mimes) |v| alloc.free(v);
+        self.accept_mimes = null;
+        self.clearOffers(alloc);
+    }
+};
+
 pub const Surface = extern struct {
     const Self = @This();
     parent_instance: Parent,
@@ -722,6 +764,9 @@ pub const Surface = extern struct {
 
         /// Whether primary paste (middle-click paste) is enabled.
         gtk_enable_primary_paste: bool = true,
+
+        /// Kitty drag-and-drop protocol (OSC 72) state.
+        dnd: Dnd = .{},
 
         /// True when a left mouse down was consumed purely for a focus change,
         /// and the matching left mouse release should also be suppressed.
@@ -1981,6 +2026,9 @@ pub const Surface = extern struct {
         for (priv.key_tables.items) |s| alloc.free(s);
         priv.key_tables.deinit(alloc);
 
+        // Clean up drag-and-drop (OSC 72) state.
+        priv.dnd.deinit(alloc);
+
         gobject.Object.virtual_methods.finalize.call(
             Class.parent,
             self.as(Parent),
@@ -2627,10 +2675,15 @@ pub const Surface = extern struct {
     fn dtDrop(
         _: *gtk.DropTarget,
         value: *gobject.Value,
-        _: f64,
-        _: f64,
+        x: f64,
+        y: f64,
         self: *Self,
     ) callconv(.c) c_int {
+        // If the application running in the terminal has opted into the Kitty
+        // drag-and-drop protocol (OSC 72), forward the drop to it instead of
+        // pasting. Otherwise fall through to the default paste behavior.
+        if (self.private().dnd.accepting) return self.dndDrop(value, x, y);
+
         const alloc = Application.default().allocator();
 
         if (ext.gValueHolds(value, gdk.FileList.getGObjectType())) {
@@ -2709,6 +2762,288 @@ pub const Surface = extern struct {
         }
 
         return 1;
+    }
+
+    //---------------------------------------------------------------
+    // Kitty drag-and-drop protocol (OSC 72)
+
+    /// Default drag actions to advertise when the application has not opted
+    /// into OSC 72, preserving the simple drop target's behavior.
+    const dnd_default_actions: gdk.DragAction = .{ .copy = true, .move = true };
+
+    /// Maximum number of base64-encoded payload bytes per `t=r` chunk. The
+    /// protocol allows chunking large payloads with the `m` flag.
+    const dnd_chunk_size: usize = 4096;
+
+    /// Handle an inbound OSC 72 event from the application. See
+    /// `apprt.surface.DndMessage`.
+    pub fn handleDnd(self: *Self, msg: apprt.surface.DndMessage) !void {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+        switch (msg) {
+            .accept => |v| {
+                const mimes = v.mimes.slice();
+                const dup = try alloc.dupe(u8, mimes);
+                if (priv.dnd.accept_mimes) |old| alloc.free(old);
+                priv.dnd.accept_mimes = dup;
+                priv.dnd.accepting = true;
+                priv.dnd.session = v.session;
+                log.debug("OSC 72 dnd: app accepting drops mimes=\"{s}\"", .{mimes});
+            },
+
+            .stop => {
+                priv.dnd.accepting = false;
+                priv.dnd.clearOffers(alloc);
+                log.debug("OSC 72 dnd: app stopped accepting drops", .{});
+            },
+
+            .request_data => |v| self.dndSendData(v.mime_index, v.session),
+
+            .finish => |v| {
+                log.debug("OSC 72 dnd: transfer complete op={d}", .{v.operation});
+                priv.dnd.clearOffers(alloc);
+            },
+        }
+    }
+
+    /// Format the optional session-id metadata prefix (`i=N:`) into `buf`.
+    /// Returns an empty string when no session is set.
+    fn dndSessionPrefix(buf: []u8, session: i32) []const u8 {
+        if (session < 0) return "";
+        return std.fmt.bufPrint(buf, "i={d}:", .{session}) catch "";
+    }
+
+    /// Write an OSC 72 sequence to the pty.
+    fn dndEmit(self: *Self, comptime fmt: []const u8, args: anytype) void {
+        const core_surface = self.core() orelse return;
+        const alloc = Application.default().allocator();
+        const seq = std.fmt.allocPrint(alloc, fmt, args) catch return;
+        defer alloc.free(seq);
+        core_surface.sendKittyDnd(seq) catch |err| {
+            log.warn("OSC 72 dnd: failed to send sequence err={}", .{err});
+        };
+    }
+
+    /// Convert widget-relative pixel coordinates to terminal cell coordinates.
+    fn dndCellLocation(self: *Self, x: f64, y: f64) struct { col: u32, row: u32 } {
+        const core_surface = self.core() orelse return .{ .col = 0, .row = 0 };
+        const scaled = self.scaledCoordinates(x, y);
+        const size = core_surface.size;
+        const cw: f64 = @floatFromInt(size.cell.width);
+        const ch: f64 = @floatFromInt(size.cell.height);
+        if (cw <= 0 or ch <= 0) return .{ .col = 0, .row = 0 };
+        const tx = @max(0, scaled.x - @as(f64, @floatFromInt(size.padding.left)));
+        const ty = @max(0, scaled.y - @as(f64, @floatFromInt(size.padding.top)));
+        return .{
+            .col = @intFromFloat(tx / cw),
+            .row = @intFromFloat(ty / ch),
+        };
+    }
+
+    /// Emit a `t=m` (pointer move) event at the given widget coordinates.
+    fn dndEmitMove(self: *Self, x: f64, y: f64) void {
+        const loc = self.dndCellLocation(x, y);
+        var sbuf: [32]u8 = undefined;
+        const sp = dndSessionPrefix(&sbuf, self.private().dnd.session);
+        self.dndEmit("\x1b]72;t=m:{s}x={d}:y={d}:o=1;\x07", .{ sp, loc.col, loc.row });
+    }
+
+    fn dtEnter(
+        _: *gtk.DropTarget,
+        x: f64,
+        y: f64,
+        self: *Self,
+    ) callconv(.c) gdk.DragAction {
+        if (!self.private().dnd.accepting) return dnd_default_actions;
+        self.dndEmitMove(x, y);
+        return .{ .copy = true };
+    }
+
+    fn dtMotion(
+        _: *gtk.DropTarget,
+        x: f64,
+        y: f64,
+        self: *Self,
+    ) callconv(.c) gdk.DragAction {
+        if (!self.private().dnd.accepting) return dnd_default_actions;
+        self.dndEmitMove(x, y);
+        return .{ .copy = true };
+    }
+
+    fn dtLeave(_: *gtk.DropTarget, self: *Self) callconv(.c) void {
+        if (!self.private().dnd.accepting) return;
+        // -1 signals to the application that the drag left the window.
+        var sbuf: [32]u8 = undefined;
+        const sp = dndSessionPrefix(&sbuf, self.private().dnd.session);
+        self.dndEmit("\x1b]72;t=m:{s}x=-1:y=-1;\x07", .{sp});
+    }
+
+    /// Handle a drop while the application is accepting OSC 72 drops. Builds
+    /// the offer list from the dropped value and emits a `t=M` event. Returns
+    /// 1 if the drop was forwarded, 0 to reject it.
+    fn dndDrop(self: *Self, value: *gobject.Value, x: f64, y: f64) c_int {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+
+        // Rebuild the offer list for this drop.
+        priv.dnd.clearOffers(alloc);
+        self.dndBuildOffers(value) catch |err| {
+            log.warn("OSC 72 dnd: failed to build offers err={}", .{err});
+            return 0;
+        };
+
+        // Nothing we can offer that the application accepts.
+        if (priv.dnd.offers.items.len == 0) return 0;
+
+        // Build the space-separated MIME list in offer order.
+        var mimes: std.ArrayListUnmanaged(u8) = .empty;
+        defer mimes.deinit(alloc);
+        for (priv.dnd.offers.items, 0..) |o, i| {
+            if (i > 0) mimes.append(alloc, ' ') catch return 0;
+            mimes.appendSlice(alloc, o.mime) catch return 0;
+        }
+
+        const loc = self.dndCellLocation(x, y);
+        var sbuf: [32]u8 = undefined;
+        const sp = dndSessionPrefix(&sbuf, priv.dnd.session);
+        self.dndEmit(
+            "\x1b]72;t=M:{s}x={d}:y={d}:o=1;{s}\x07",
+            .{ sp, loc.col, loc.row, mimes.items },
+        );
+        return 1;
+    }
+
+    /// Send the data for a previously offered MIME index as one or more `t=r`
+    /// chunks. Sends a `t=R` error response for an out-of-range index.
+    fn dndSendData(self: *Self, index: i32, session: i32) void {
+        const priv = self.private();
+        var sbuf: [32]u8 = undefined;
+        const sp = dndSessionPrefix(&sbuf, session);
+
+        if (index < 0 or index >= priv.dnd.offers.items.len) {
+            self.dndEmit("\x1b]72;t=R:{s}x={d};EINVAL\x07", .{ sp, index });
+            return;
+        }
+
+        const offer = priv.dnd.offers.items[@intCast(index)];
+        const alloc = Application.default().allocator();
+        const enc = std.base64.standard.Encoder;
+        const b64 = alloc.alloc(u8, enc.calcSize(offer.data.len)) catch return;
+        defer alloc.free(b64);
+        const encoded = enc.encode(b64, offer.data);
+
+        // Empty payload: a single terminating chunk.
+        if (encoded.len == 0) {
+            self.dndEmit("\x1b]72;t=r:{s}x={d}:m=0;\x07", .{ sp, index });
+            return;
+        }
+
+        var sent: usize = 0;
+        while (sent < encoded.len) {
+            const end = @min(sent + dnd_chunk_size, encoded.len);
+            const more: u8 = if (end < encoded.len) 1 else 0;
+            self.dndEmit(
+                "\x1b]72;t=r:{s}x={d}:m={d};{s}\x07",
+                .{ sp, index, more, encoded[sent..end] },
+            );
+            sent = end;
+        }
+    }
+
+    /// Build the offer list from a dropped GValue, filtered by the MIME types
+    /// the application said it accepts.
+    fn dndBuildOffers(self: *Self, value: *gobject.Value) !void {
+        if (ext.gValueHolds(value, gdk.FileList.getGObjectType())) {
+            const unboxed = value.getBoxed() orelse return;
+            const fl: *gdk.FileList = @ptrCast(@alignCast(unboxed));
+            const list: ?*glib.SList = fl.getFiles();
+            defer if (list) |v| v.free();
+            try self.dndOfferFiles(list, null);
+        } else if (ext.gValueHolds(value, gio.File.getGObjectType())) {
+            const object = value.getObject() orelse return;
+            const file = gobject.ext.cast(gio.File, object) orelse return;
+            try self.dndOfferFiles(null, file);
+        } else if (ext.gValueHolds(value, gobject.ext.types.string)) {
+            const string = value.getString() orelse return;
+            try self.dndOfferText(std.mem.span(string));
+        }
+    }
+
+    /// Build `text/uri-list` and `text/plain` offers from a list of files
+    /// and/or a single extra file (either may be null/absent).
+    fn dndOfferFiles(self: *Self, list: ?*glib.SList, extra: ?*gio.File) !void {
+        const alloc = Application.default().allocator();
+
+        var uris: std.ArrayListUnmanaged(u8) = .empty;
+        defer uris.deinit(alloc);
+        var paths: std.ArrayListUnmanaged(u8) = .empty;
+        defer paths.deinit(alloc);
+
+        const appendFile = struct {
+            fn f(
+                a: Allocator,
+                u: *std.ArrayListUnmanaged(u8),
+                p: *std.ArrayListUnmanaged(u8),
+                file: *gio.File,
+            ) !void {
+                const uri = file.getUri();
+                defer glib.free(uri);
+                try u.appendSlice(a, std.mem.span(uri));
+                try u.appendSlice(a, "\r\n");
+                if (file.getPath()) |path| {
+                    defer glib.free(path);
+                    try p.appendSlice(a, std.mem.span(path));
+                    try p.append(a, '\n');
+                }
+            }
+        }.f;
+
+        var current = list;
+        while (current) |item| : (current = item.f_next) {
+            const file: *gio.File = @ptrCast(@alignCast(item.f_data orelse continue));
+            try appendFile(alloc, &uris, &paths, file);
+        }
+        if (extra) |file| try appendFile(alloc, &uris, &paths, file);
+
+        try self.dndAddOffer("text/uri-list", uris.items);
+        try self.dndAddOffer("text/plain;charset=utf-8", paths.items);
+        try self.dndAddOffer("text/plain", paths.items);
+    }
+
+    fn dndOfferText(self: *Self, text: []const u8) !void {
+        try self.dndAddOffer("text/plain;charset=utf-8", text);
+        try self.dndAddOffer("text/plain", text);
+    }
+
+    /// Append a (mime, data) offer if the application accepts the MIME type,
+    /// the data is non-empty, and the MIME has not already been added.
+    fn dndAddOffer(self: *Self, mime: []const u8, data: []const u8) !void {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+        if (data.len == 0) return;
+        if (!self.dndAcceptsMime(mime)) return;
+        for (priv.dnd.offers.items) |o| {
+            if (std.mem.eql(u8, o.mime, mime)) return;
+        }
+
+        const m = try alloc.dupe(u8, mime);
+        errdefer alloc.free(m);
+        const d = try alloc.dupe(u8, data);
+        errdefer alloc.free(d);
+        try priv.dnd.offers.append(alloc, .{ .mime = m, .data = d });
+    }
+
+    /// Whether the application accepts the given MIME type. An unset or empty
+    /// accept list means "accept anything"; `*/*` is treated as a wildcard.
+    fn dndAcceptsMime(self: *Self, mime: []const u8) bool {
+        const am = self.private().dnd.accept_mimes orelse return true;
+        if (am.len == 0) return true;
+        var it = std.mem.tokenizeScalar(u8, am, ' ');
+        while (it.next()) |tok| {
+            if (std.mem.eql(u8, tok, "*/*")) return true;
+            if (std.mem.eql(u8, tok, mime)) return true;
+        }
+        return false;
     }
 
     fn ecKeyPressed(
@@ -3633,6 +3968,9 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("scroll_vertical_end", &ecMouseScrollVerticalPrecisionEnd);
             class.bindTemplateCallback("scroll_horizontal", &ecMouseScrollHorizontal);
             class.bindTemplateCallback("drop", &dtDrop);
+            class.bindTemplateCallback("drop_enter", &dtEnter);
+            class.bindTemplateCallback("drop_motion", &dtMotion);
+            class.bindTemplateCallback("drop_leave", &dtLeave);
             class.bindTemplateCallback("gl_realize", &glareaRealize);
             class.bindTemplateCallback("gl_unrealize", &glareaUnrealize);
             class.bindTemplateCallback("gl_map", &glareaMap);

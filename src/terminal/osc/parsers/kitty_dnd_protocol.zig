@@ -22,6 +22,15 @@ pub const OSC = struct {
     pub fn readOption(self: OSC, comptime key: Option) ?key.Type() {
         return key.read(self.metadata);
     }
+
+    /// We don't currently support encoding this to C in any way. It is
+    /// consumed entirely within the terminal IO handler (drag-and-drop is
+    /// an apprt concern, not part of the libghostty-vt C ABI surface).
+    pub const C = void;
+
+    pub fn cval(_: OSC) C {
+        return {};
+    }
 };
 
 /// Values for the `t` (event type) metadata key.

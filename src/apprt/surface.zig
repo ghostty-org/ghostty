@@ -108,6 +108,10 @@ pub const Message = union(enum) {
     /// Selected search index change
     search_selected: ?usize,
 
+    /// An inbound Kitty drag-and-drop (OSC 72) event from the application
+    /// running in the terminal that the apprt must act on. See `DndMessage`.
+    dnd: DndMessage,
+
     pub const ReportTitleStyle = enum {
         csi_21_t,
 
@@ -129,6 +133,70 @@ pub const Message = union(enum) {
             .none => void,
         };
     };
+};
+
+/// An inbound Kitty drag-and-drop (OSC 72) event, produced on the IO thread
+/// by the stream handler and delivered to the apprt via `Message.dnd`. The
+/// apprt acts on these to drive native (OS) drag-and-drop. Only the events
+/// that require apprt involvement are represented here; pure responses that
+/// the terminal emits to the application are written directly to the pty.
+///
+/// Drag-and-drop is handled entirely within the apprt, so these never cross
+/// the libghostty-vt C ABI.
+pub const DndMessage = union(enum) {
+    /// The application registered as willing to accept drops (OSC 72 `t=a`).
+    /// The apprt should begin forwarding OS drop activity to the pty.
+    accept: Accept,
+
+    /// The application unregistered as a drop target (OSC 72 `t=A`). The
+    /// apprt should stop forwarding OS drop activity and abort any pending
+    /// drop transfer.
+    stop,
+
+    /// The application is requesting the data for the drop it was offered,
+    /// by MIME index into the list the terminal sent (OSC 72 `t=r` with `x`).
+    request_data: RequestData,
+
+    /// The application signaled that the in-progress drop transfer is complete
+    /// (OSC 72 `t=r` with `o` set and no MIME index). The apprt should finish
+    /// the OS drop with the given operation and release it.
+    finish: Finish,
+
+    pub const Accept = struct {
+        /// Space-separated MIME types the application accepts. May be empty.
+        /// Owned; freed by `deinit`.
+        mimes: WriteReq,
+
+        /// Multiplexer session ID echoed back in responses, or -1 if unset.
+        session: i32,
+    };
+
+    pub const RequestData = struct {
+        /// MIME index into the list the terminal offered in its `t=M` event.
+        mime_index: i32,
+
+        /// Multiplexer session ID echoed back in responses, or -1 if unset.
+        session: i32,
+    };
+
+    pub const Finish = struct {
+        /// The drop operation the application selected: 0 = reject, 1 = copy,
+        /// 2 = move, 3 = copy-or-move.
+        operation: i32,
+
+        /// Multiplexer session ID echoed back in responses, or -1 if unset.
+        session: i32,
+    };
+
+    /// The `WriteReq` type used for owned payloads in this union.
+    pub const WriteReq = Message.WriteReq;
+
+    pub fn deinit(self: DndMessage) void {
+        switch (self) {
+            .accept => |v| v.mimes.deinit(),
+            .stop, .request_data, .finish => {},
+        }
+    }
 };
 
 /// A surface mailbox.

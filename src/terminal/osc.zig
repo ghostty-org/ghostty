@@ -168,6 +168,7 @@ pub const Command = union(Key) {
     pub const KittyClipboardProtocol = parsers.kitty_clipboard_protocol.OSC;
 
     pub const KittyDndProtocol = parsers.kitty_dnd_protocol.OSC;
+    pub const KittyDndEventType = parsers.kitty_dnd_protocol.EventType;
 
     pub const Key = LibEnum(
         lib.target,

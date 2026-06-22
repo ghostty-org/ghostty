@@ -11,6 +11,7 @@ const renderer = @import("../renderer.zig");
 const termio = @import("../termio.zig");
 const terminal = @import("../terminal/main.zig");
 const terminfo = @import("../terminfo/main.zig");
+const kitty_dnd = @import("kitty_dnd.zig");
 const posix = std.posix;
 
 const log = std.log.scoped(.io_handler);
@@ -70,6 +71,11 @@ pub const StreamHandler = struct {
     /// such as XTGETTCAP.
     dcs: terminal.dcs.Handler = .{},
 
+    /// Reassembles chunked payloads for the Kitty drag-and-drop protocol
+    /// (OSC 72). Payload-bearing events may be split across many sequences
+    /// (chunked at 4096 bytes); this accumulates them into a single payload.
+    dnd: kitty_dnd.Reassembler = .{},
+
     /// The tmux control mode viewer state.
     tmux_viewer: if (tmux_enabled) ?*terminal.tmux.Viewer else void = if (tmux_enabled) null else {},
 
@@ -90,6 +96,7 @@ pub const StreamHandler = struct {
     pub fn deinit(self: *StreamHandler) void {
         self.apc.deinit();
         self.dcs.deinit();
+        self.dnd.deinit(self.alloc);
         if (comptime tmux_enabled) tmux: {
             const viewer = self.tmux_viewer orelse break :tmux;
             viewer.deinit();
@@ -320,6 +327,7 @@ pub const StreamHandler = struct {
                 self.terminal.screens.active.kitty_keyboard.set(.not, value.flags);
             },
             .kitty_color_report => try self.kittyColorReport(value),
+            .kitty_dnd_protocol => try self.kittyDragAndDrop(value),
             .color_operation => try self.colorOperation(value.op, &value.requests, value.terminator),
             .end_hyperlink => try self.endHyperlink(),
             .active_status_display => self.terminal.status_display = value,
@@ -972,6 +980,14 @@ pub const StreamHandler = struct {
 
         // Clear the progress bar
         self.progressReport(.{ .state = .remove });
+
+        // Drag-and-drop (OSC 72): abort any partial transfer and tell the
+        // apprt to stop accepting drops. This is the escape hatch for an
+        // application that registered with `t=a` and then exited or crashed
+        // without sending `t=A`, which would otherwise leave the terminal
+        // forwarding drop events indefinitely.
+        self.dnd.reset(self.alloc);
+        self.surfaceMessageWriter(.{ .dnd = .stop });
     }
 
     pub fn queryKittyKeyboard(self: *StreamHandler) !void {
@@ -1564,6 +1580,137 @@ pub const StreamHandler = struct {
         // Note: we don't have to do a queueRender here because every
         // processed stream will queue a render once it is done processing
         // the read() syscall.
+    }
+
+    /// Handle a Kitty drag-and-drop protocol (OSC 72) event received from the
+    /// application running in the terminal.
+    ///
+    /// Per the spec, OSC 72 events flow in both directions. This dispatches
+    /// only the application -> terminal events. Events the terminal *emits*
+    /// to the application (drop_move, drop_dropped, request_error,
+    /// drag_offer_event) are produced by the apprt's native drag-and-drop
+    /// handlers, not here; receiving one from the application is a protocol
+    /// violation and is ignored.
+    ///
+    /// Event direction reference (kitty dnd-protocol):
+    ///   app -> terminal: q, a, A, r (request/complete), o, p, P, E, k
+    ///   terminal -> app: m, M, R, e (and r/E/k as responses)
+    fn kittyDragAndDrop(
+        self: *StreamHandler,
+        dnd: terminal.osc.Command.KittyDndProtocol,
+    ) !void {
+        const event = dnd.readOption(.t) orelse {
+            log.warn("OSC 72 (dnd): missing or unknown event type, ignoring", .{});
+            return;
+        };
+
+        switch (event) {
+            // Capability query. We echo the session id (if any) and report an
+            // empty capability set, matching the protocol's documented
+            // response: OSC 72 ; t=q[:i=N] ; <caps> ST. The capability payload
+            // is currently empty per the spec.
+            .query => {
+                var buf: termio.Message.WriteReq.Small.Array = undefined;
+                const resp = if (dnd.readOption(.i)) |session|
+                    try std.fmt.bufPrint(&buf, "\x1b]72;t=q:i={d};{s}", .{
+                        session,
+                        dnd.terminator.string(),
+                    })
+                else
+                    try std.fmt.bufPrint(&buf, "\x1b]72;t=q;{s}", .{
+                        dnd.terminator.string(),
+                    });
+
+                self.messageWriter(.{ .write_small = .{
+                    .data = buf,
+                    .len = @intCast(resp.len),
+                } });
+            },
+
+            // The application registers/unregisters as a drop target. We hand
+            // these to the apprt, which drives native (OS) drag-and-drop. The
+            // accept payload is the space-separated MIME list the app wants.
+            .accept_drops => {
+                const mimes = dnd.payload orelse "";
+                const req = apprt.surface.Message.WriteReq.init(
+                    self.alloc,
+                    mimes,
+                ) catch |err| {
+                    log.warn("OSC 72 (dnd): failed to allocate accept message: {}", .{err});
+                    return;
+                };
+                self.surfaceMessageWriter(.{ .dnd = .{ .accept = .{
+                    .mimes = req,
+                    .session = dnd.readOption(.i) orelse -1,
+                } } });
+            },
+
+            .stop_accepting_drops => {
+                self.surfaceMessageWriter(.{ .dnd = .stop });
+            },
+
+            // During an active drop the application either requests the data
+            // for a specific MIME index (`x` set) or signals completion of the
+            // transfer (`o` set, no `x`). Both are routed to the apprt.
+            .request_data => {
+                const session = dnd.readOption(.i) orelse -1;
+                if (dnd.readOption(.x)) |mime_index| {
+                    self.surfaceMessageWriter(.{ .dnd = .{ .request_data = .{
+                        .mime_index = mime_index,
+                        .session = session,
+                    } } });
+                } else {
+                    self.surfaceMessageWriter(.{ .dnd = .{ .finish = .{
+                        .operation = dnd.readOption(.o) orelse 0,
+                        .session = session,
+                    } } });
+                }
+            },
+
+            // Drag-out (terminal as drag source) and per-entry URI delivery.
+            // These belong to the not-yet-implemented outgoing-drag flow. The
+            // payload-bearing ones may be chunked, so we still run them through
+            // the reassembler and free the result to avoid leaking a partial
+            // transfer.
+            .present_data, .change_drag_image, .uri_list_data => {
+                switch (self.dnd.feed(self.alloc, event, dnd)) {
+                    .incomplete => {},
+                    .invalid => log.warn(
+                        "OSC 72 (dnd): invalid or oversized payload for {s}",
+                        .{@tagName(event)},
+                    ),
+                    .complete => |payload| {
+                        defer self.alloc.free(payload);
+                        // TODO(dnd-out): forward to the apprt drag source once
+                        // the outgoing-drag flow is implemented.
+                        log.debug(
+                            "OSC 72 (dnd): assembled {s} payload, {d} bytes (outgoing-drag flow not yet implemented)",
+                            .{ @tagName(event), payload.len },
+                        );
+                    },
+                }
+            },
+
+            // Outgoing-drag control/error events from the application. Valid
+            // inbound per the spec, but the outgoing-drag flow is not yet
+            // implemented.
+            .offer_drag, .drag_offer_error => {
+                // TODO(dnd-out): wire into the apprt drag source flow.
+                log.debug(
+                    "OSC 72 (dnd): {s} (outgoing-drag flow not yet implemented)",
+                    .{@tagName(event)},
+                );
+            },
+
+            // These are terminal -> application events. We emit them; we should
+            // never receive them from the application. If we do, ignore them.
+            .drop_move, .drop_dropped, .request_error, .drag_offer_event => {
+                log.warn(
+                    "OSC 72 (dnd): received terminal-emitted event {s} from application, ignoring",
+                    .{@tagName(event)},
+                );
+            },
+        }
     }
 
     /// Display a GUI progress report.

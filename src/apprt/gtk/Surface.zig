@@ -102,3 +102,9 @@ pub fn defaultTermioEnv(self: *Self) !std.process.EnvMap {
 pub fn redrawInspector(self: *Self) void {
     self.surface.redrawInspector();
 }
+
+/// Handle an inbound Kitty drag-and-drop (OSC 72) event from the application
+/// running in the terminal. See `apprt.surface.DndMessage`.
+pub fn handleDnd(self: *Self, msg: apprt.surface.DndMessage) !void {
+    return self.surface.handleDnd(msg);
+}
