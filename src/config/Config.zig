@@ -1414,7 +1414,19 @@ scrollbar: Scrollbar = .system,
 /// A default link that matches a URL and opens it in the system opener always
 /// exists. This can be disabled using `link-url`.
 ///
-/// TODO: This can't currently be set!
+/// The simplest form is a regular expression. It opens the full match with
+/// the system opener and uses the same modifier behavior as `link-url`:
+///
+///   * `link = [a-z]+://[^\s"'>)\]]+`
+///
+/// For more control, use a comma-separated form:
+///
+///   * `link = regex:"[a-z]+://[^\\s]+",action:open,highlight:hover_mods:auto`
+///
+/// `action` currently supports `open`. `highlight` supports `always`,
+/// `hover`, `always_mods:<mods>`, and `hover_mods:<mods>`. Modifiers are
+/// separated by `+` (for example `ctrl+shift`); `auto` means command on macOS
+/// and control elsewhere. Use `link = clear` to remove configured links.
 link: RepeatableLink = .{},
 
 /// Enable URL matching. URLs are matched on hover with control (Linux) or
@@ -4683,9 +4695,9 @@ pub fn finalize(self: *Config) !void {
     if (self.@"window-width" > 0) self.@"window-width" = @max(10, self.@"window-width");
     if (self.@"window-height" > 0) self.@"window-height" = @max(4, self.@"window-height");
 
-    // If URLs are disabled, cut off the first link. The first link is
-    // always the URL matcher.
-    if (!self.@"link-url") self.link.links.items = self.link.links.items[1..];
+    // If URLs are disabled, remove the built-in URL matcher. Configured
+    // links remain active.
+    if (!self.@"link-url") self.link.removeDefaultUrl();
 
     // We warn when the quit-after-last-window-closed-delay is set to a very
     // short value because it can cause Ghostty to quit before the first
@@ -8571,10 +8583,202 @@ pub const RepeatableLink = struct {
     links: std.ArrayListUnmanaged(inputpkg.Link) = .{},
 
     pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
-        _ = self;
-        _ = alloc;
-        _ = input_;
-        return error.NotImplemented;
+        const input_raw = input_ orelse return error.ValueRequired;
+        const input = std.mem.trim(u8, input_raw, cli.args.whitespace);
+        if (input.len == 0) return error.ValueRequired;
+
+        // Match the convention used by other repeatable config values.
+        // This clears only user-configured links; the built-in URL matcher is
+        // retained (and can still be disabled with `link-url = false`).
+        if (std.mem.eql(u8, input, "clear")) {
+            try self.clearConfigured(alloc);
+            return;
+        }
+
+        const link = try parseLink(alloc, input);
+        try self.appendConfigured(alloc, link);
+    }
+
+    /// Parse one link entry. The common case is intentionally terse: a bare
+    /// value is treated as the regex. A structured form is available when we
+    /// need to specify non-default behavior:
+    ///
+    ///     regex:"...",action:open,highlight:hover_mods:ctrl+shift
+    ///
+    /// We only treat values whose first key is `regex:` as structured so
+    /// colons in bare regexes don't get confused for field names.
+    fn parseLink(alloc: Allocator, input: []const u8) !inputpkg.Link {
+        const defaults = LinkParts{};
+        const structured = structured: {
+            const idx = std.mem.indexOfScalar(u8, input, ':') orelse break :structured false;
+            const key = std.mem.trim(u8, input[0..idx], cli.args.whitespace);
+            break :structured std.mem.eql(u8, key, "regex");
+        };
+        const parts: LinkParts = if (structured)
+            cli.args.parseAutoStruct(LinkParts, alloc, input, defaults) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => return error.InvalidValue,
+            }
+        else
+            .{ .regex = input };
+
+        if (parts.regex.len == 0) return error.InvalidValue;
+
+        return .{
+            .regex = try alloc.dupe(u8, parts.regex),
+            .action = try parseAction(parts.action),
+            .highlight = try parseHighlight(parts.highlight),
+        };
+    }
+
+    /// Stringly-typed intermediate representation for the structured syntax.
+    /// Keeping this as strings lets us provide a compact, stable syntax for
+    /// unions without exposing Zig's tagged-union spelling in config files.
+    const LinkParts = struct {
+        regex: []const u8 = "",
+        action: []const u8 = "open",
+        highlight: []const u8 = "hover_mods:auto",
+    };
+
+    fn parseAction(input: []const u8) !inputpkg.Link.Action {
+        const trimmed = std.mem.trim(u8, input, cli.args.whitespace);
+        if (std.mem.eql(u8, trimmed, "open")) return .{ .open = {} };
+
+        // `_open_osc8` is an internal action used for OSC 8 hyperlinks and
+        // must not be user-configurable.
+        return error.InvalidValue;
+    }
+
+    fn parseHighlight(input: []const u8) !inputpkg.Link.Highlight {
+        const trimmed = std.mem.trim(u8, input, cli.args.whitespace);
+        if (std.mem.eql(u8, trimmed, "always")) return .{ .always = {} };
+        if (std.mem.eql(u8, trimmed, "hover")) return .{ .hover = {} };
+
+        if (stripPrefix(trimmed, "always_mods:")) |mods| {
+            return .{ .always_mods = try parseMods(mods) };
+        }
+        if (stripPrefix(trimmed, "hover_mods:")) |mods| {
+            return .{ .hover_mods = try parseMods(mods) };
+        }
+
+        // Friendly aliases: `always:ctrl+shift` and `hover:auto`.
+        if (stripPrefix(trimmed, "always:")) |mods| {
+            return .{ .always_mods = try parseMods(mods) };
+        }
+        if (stripPrefix(trimmed, "hover:")) |mods| {
+            return .{ .hover_mods = try parseMods(mods) };
+        }
+
+        return error.InvalidValue;
+    }
+
+    fn stripPrefix(value: []const u8, prefix: []const u8) ?[]const u8 {
+        if (!std.mem.startsWith(u8, value, prefix)) return null;
+        return value[prefix.len..];
+    }
+
+    fn parseMods(input: []const u8) !inputpkg.Mods {
+        const trimmed = std.mem.trim(u8, input, cli.args.whitespace);
+        if (std.mem.eql(u8, trimmed, "auto")) {
+            return inputpkg.ctrlOrSuper(.{});
+        }
+        if (std.mem.eql(u8, trimmed, "none")) {
+            return .{};
+        }
+        if (trimmed.len == 0) return error.InvalidValue;
+        // Reject leading/trailing or adjacent separators. tokenizeAny skips
+        // empty fields, so validate this explicitly first (including mixed
+        // separators such as `ctrl+,shift`).
+        var previous_was_separator = true;
+        for (trimmed) |ch| {
+            const separator = ch == '+' or ch == ',' or ch == '|';
+            if (separator and previous_was_separator) return error.InvalidValue;
+            previous_was_separator = separator;
+        }
+        if (previous_was_separator) return error.InvalidValue;
+
+        var result: inputpkg.Mods = .{};
+        var it = std.mem.tokenizeAny(u8, trimmed, "+,|");
+        var seen_any = false;
+        while (it.next()) |part_raw| {
+            const part = std.mem.trim(u8, part_raw, cli.args.whitespace);
+            if (part.len == 0) return error.InvalidValue;
+            seen_any = true;
+
+            const name: []const u8 =
+                if (std.mem.eql(u8, part, "cmd") or
+                std.mem.eql(u8, part, "command"))
+                    "super"
+                else if (std.mem.eql(u8, part, "opt") or
+                std.mem.eql(u8, part, "option"))
+                    "alt"
+                else if (std.mem.eql(u8, part, "control"))
+                    "ctrl"
+                else
+                    part;
+
+            if (std.mem.eql(u8, name, "shift")) {
+                if (result.shift) return error.InvalidValue;
+                result.shift = true;
+            } else if (std.mem.eql(u8, name, "ctrl")) {
+                if (result.ctrl) return error.InvalidValue;
+                result.ctrl = true;
+            } else if (std.mem.eql(u8, name, "alt")) {
+                if (result.alt) return error.InvalidValue;
+                result.alt = true;
+            } else if (std.mem.eql(u8, name, "super")) {
+                if (result.super) return error.InvalidValue;
+                result.super = true;
+            } else return error.InvalidValue;
+        }
+
+        if (!seen_any) return error.InvalidValue;
+        return result;
+    }
+
+    /// Insert a configured link ahead of the built-in URL matcher. The URL
+    /// matcher is documented as lowest priority, but it is installed during
+    /// Config.default before config files are parsed.
+    fn appendConfigured(self: *Self, alloc: Allocator, link: inputpkg.Link) !void {
+        if (self.defaultUrlIndex()) |idx| {
+            try self.links.insert(alloc, idx, link);
+        } else {
+            try self.links.append(alloc, link);
+        }
+    }
+
+    fn clearConfigured(self: *Self, alloc: Allocator) !void {
+        if (self.defaultUrlIndex()) |idx| {
+            const default_link = self.links.items[idx];
+            self.links.clearRetainingCapacity();
+            try self.links.append(alloc, default_link);
+        } else {
+            self.links.clearRetainingCapacity();
+        }
+    }
+
+    fn defaultUrlIndex(self: *const Self) ?usize {
+        for (self.links.items, 0..) |*link, i| {
+            if (isDefaultUrl(link)) return i;
+        }
+        return null;
+    }
+
+    fn isDefaultUrl(link: *const inputpkg.Link) bool {
+        return std.mem.eql(u8, link.regex, url.regex) and
+            std.meta.eql(link.action, inputpkg.Link.Action{ .open = {} }) and
+            std.meta.eql(
+                link.highlight,
+                inputpkg.Link.Highlight{ .hover_mods = inputpkg.ctrlOrSuper(.{}) },
+            );
+    }
+
+    /// Remove the built-in URL matcher if present. Used by Config.finalize
+    /// for `link-url = false`.
+    pub fn removeDefaultUrl(self: *Self) void {
+        if (self.defaultUrlIndex()) |idx| {
+            _ = self.links.orderedRemove(idx);
+        }
     }
 
     /// Deep copy of the struct. Required by Config.
@@ -8609,9 +8813,130 @@ pub const RepeatableLink = struct {
 
     /// Used by Formatter
     pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
-        // This currently can't be set so we don't format anything.
-        _ = self;
-        _ = formatter;
+        for (self.links.items) |*item| {
+            if (isDefaultUrl(item)) continue;
+
+            // Internal OSC 8 links are not user-configurable and should not be
+            // serialized back into config if one ever appears in this list.
+            switch (item.action) {
+                .open => {},
+                ._open_osc8 => continue,
+            }
+
+            // Preserve the compact form for the common/default behavior.
+            if (std.meta.eql(item.action, inputpkg.Link.Action{ .open = {} }) and
+                std.meta.eql(
+                    item.highlight,
+                    inputpkg.Link.Highlight{ .hover_mods = inputpkg.ctrlOrSuper(.{}) },
+                ))
+            {
+                try formatter.formatEntry([]const u8, item.regex);
+                continue;
+            }
+
+            var buf: [4096]u8 = undefined;
+            var writer: std.Io.Writer = .fixed(&buf);
+            try writer.print("regex:\"{f}\",action:open,highlight:", .{
+                std.zig.fmtString(item.regex),
+            });
+            try formatHighlight(&writer, item.highlight);
+            try formatter.formatEntry([]const u8, writer.buffered());
+        }
+    }
+
+    fn formatHighlight(writer: *std.Io.Writer, highlight: inputpkg.Link.Highlight) !void {
+        switch (highlight) {
+            .always => try writer.writeAll("always"),
+            .hover => try writer.writeAll("hover"),
+            .always_mods => |mods| {
+                try writer.writeAll("always_mods:");
+                try formatMods(writer, mods);
+            },
+            .hover_mods => |mods| {
+                try writer.writeAll("hover_mods:");
+                try formatMods(writer, mods);
+            },
+        }
+    }
+
+    fn formatMods(writer: *std.Io.Writer, mods: inputpkg.Mods) !void {
+        if (mods.equal(inputpkg.ctrlOrSuper(.{}))) {
+            try writer.writeAll("auto");
+            return;
+        }
+
+        var first = true;
+        inline for (.{ "shift", "ctrl", "alt", "super" }) |name| {
+            if (@field(mods, name)) {
+                if (!first) try writer.writeAll("+");
+                try writer.writeAll(name);
+                first = false;
+            }
+        }
+        if (first) try writer.writeAll("none");
+    }
+
+    test "RepeatableLink parses bare regex" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: RepeatableLink = .{};
+        try list.parseCLI(alloc, "az://[^\\s\"'>)\\]]+");
+
+        try testing.expectEqual(@as(usize, 1), list.links.items.len);
+        try testing.expectEqualStrings("az://[^\\s\"'>)\\]]+", list.links.items[0].regex);
+        try testing.expect(std.meta.eql(
+            inputpkg.Link.Action{ .open = {} },
+            list.links.items[0].action,
+        ));
+        try testing.expect(std.meta.eql(
+            inputpkg.Link.Highlight{ .hover_mods = inputpkg.ctrlOrSuper(.{}) },
+            list.links.items[0].highlight,
+        ));
+    }
+
+    test "RepeatableLink parses structured highlight" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: RepeatableLink = .{};
+        try list.parseCLI(alloc, "regex:\"az://[^\\\\s]+\",action:open,highlight:hover_mods:ctrl+shift");
+
+        try testing.expectEqual(@as(usize, 1), list.links.items.len);
+        try testing.expectEqualStrings("az://[^\\s]+", list.links.items[0].regex);
+        try testing.expect(std.meta.eql(
+            inputpkg.Link.Highlight{ .hover_mods = .{ .ctrl = true, .shift = true } },
+            list.links.items[0].highlight,
+        ));
+    }
+
+    test "RepeatableLink keeps default URL matcher lowest priority" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: RepeatableLink = .{};
+        try list.links.append(alloc, .{
+            .regex = url.regex,
+            .action = .{ .open = {} },
+            .highlight = .{ .hover_mods = inputpkg.ctrlOrSuper(.{}) },
+        });
+        try list.parseCLI(alloc, "az://[^\\s]+");
+        try list.parseCLI(alloc, "foo://[^\\s]+");
+
+        try testing.expectEqual(@as(usize, 3), list.links.items.len);
+        try testing.expectEqualStrings("az://[^\\s]+", list.links.items[0].regex);
+        try testing.expectEqualStrings("foo://[^\\s]+", list.links.items[1].regex);
+        try testing.expect(isDefaultUrl(&list.links.items[2]));
+
+        try list.parseCLI(alloc, "clear");
+        try testing.expectEqual(@as(usize, 1), list.links.items.len);
+        try testing.expect(isDefaultUrl(&list.links.items[0]));
     }
 };
 
