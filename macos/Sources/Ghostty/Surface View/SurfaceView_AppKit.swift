@@ -292,7 +292,11 @@ extension Ghostty {
             // A drag can emit multiple selection changes. Debounce so screen
             // readers hear one announcement once the selection settles.
             accessibilitySelectionCancellable = NotificationCenter.default
-                .publisher(for: .ghosttySelectionDidChange, object: self)
+                .publisher(for: .ghosttySelectionDidChange, object: nil)
+                .filter { [weak self] notification in
+                    guard let self else { return false }
+                    return (notification.object as AnyObject?) === self
+                }
                 .debounce(for: .milliseconds(100), scheduler: DispatchQueue.main)
                 .sink { [weak self] _ in
                     guard let self else { return }
@@ -386,6 +390,9 @@ extension Ghostty {
             let center = NotificationCenter.default
             center.removeObserver(self)
 
+            accessibilitySelectionCancellable = nil
+            searchNeedleCancellable = nil
+
             // Remove our event monitor
             if let eventMonitor {
                 NSEvent.removeMonitor(eventMonitor)
@@ -406,6 +413,7 @@ extension Ghostty {
 
             // Cancel progress report timer
             progressReportTimer?.invalidate()
+            progressReportTimer = nil
         }
 
         override func endSearch() {
