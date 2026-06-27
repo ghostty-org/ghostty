@@ -76,6 +76,9 @@ extension Ghostty {
         // Cancellable for search state needle changes
         private var searchNeedleCancellable: AnyCancellable?
 
+        // Cancellable for the debounced accessibility selection-change post.
+        private var accessibilitySelectionCancellable: AnyCancellable?
+
         // Whether the pointer should be visible or not
         @Published private(set) var pointerStyle: CursorStyle = .horizontalText
 
@@ -285,6 +288,22 @@ extension Ghostty {
                     self.title = "👻"
                 }
             }
+
+            // A drag can emit multiple selection changes. Debounce so screen
+            // readers hear one announcement once the selection settles.
+            accessibilitySelectionCancellable = NotificationCenter.default
+                // The publisher retains its object, so filtering with a weak capture
+                // avoids a cycle between self and the stored cancellable.
+                .publisher(for: .ghosttySelectionDidChange)
+                .filter { [weak self] notification in
+                    guard let self else { return false }
+                    return notification.object as AnyObject? === self
+                }
+                .debounce(for: .milliseconds(100), scheduler: DispatchQueue.main)
+                .sink { [weak self] _ in
+                    guard let self else { return }
+                    NSAccessibility.post(element: self, notification: .selectedTextChanged)
+                }
 
             // Before we initialize the surface we want to register our notifications
             // so there is no window where we can't receive them.

@@ -2,7 +2,7 @@ const std = @import("std");
 const build_options = @import("terminal_options");
 const Allocator = std.mem.Allocator;
 
-const glyph = @import("apc/glyph.zig");
+pub const glyph = @import("apc/glyph.zig");
 const kitty_gfx = @import("kitty/graphics.zig");
 
 const log = std.log.scoped(.terminal_apc);
@@ -22,6 +22,11 @@ pub const Handler = struct {
         .glyph = Protocol.defaultMaxBytes(.glyph),
     }),
 
+    /// Protocols recognized by this APC handler. When a protocol is absent,
+    /// matching APC sequences are ignored so callers see the same behavior as
+    /// an unsupported protocol: no command execution and no response.
+    enabled: std.EnumSet(Protocol) = .initFull(),
+
     pub fn deinit(self: *Handler) void {
         self.state.deinit();
     }
@@ -29,6 +34,12 @@ pub const Handler = struct {
     pub fn start(self: *Handler) void {
         self.state.deinit();
         self.state = .{ .identify = .{} };
+    }
+
+    /// Enable or disable APC protocol recognition for future APC sequences.
+    /// This does not affect any APC command already being parsed.
+    pub fn enable(self: *Handler, protocol: Protocol, enabled: bool) void {
+        self.enabled.setPresent(protocol, enabled);
     }
 
     pub fn feed(self: *Handler, alloc: Allocator, byte: u8) void {
@@ -45,7 +56,10 @@ pub const Handler = struct {
                 // since commands begin immediately after with no termination
                 // character after the 'G'.
                 if (comptime build_options.kitty_graphics) {
-                    if (id.len == 0 and byte == 'G') {
+                    if (id.len == 0 and
+                        byte == 'G' and
+                        self.enabled.contains(.kitty))
+                    {
                         self.state = .{ .kitty = .init(
                             alloc,
                             self.max_bytes.get(.kitty) orelse
@@ -58,7 +72,9 @@ pub const Handler = struct {
                 // If we hit `;` then identify...
                 if (byte == ';') {
                     const str = id.buf[0..id.len];
-                    if (std.mem.eql(u8, str, "25a1")) {
+                    if (std.mem.eql(u8, str, "25a1") and
+                        self.enabled.contains(.glyph))
+                    {
                         self.state = .{ .glyph = .init(
                             alloc,
                             self.max_bytes.get(.glyph) orelse
@@ -372,4 +388,15 @@ test "valid glyph command" {
     defer cmd.deinit(alloc);
     try testing.expect(cmd == .glyph);
     try testing.expect(cmd.glyph == .query);
+}
+
+test "disabled glyph command is ignored" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var h: Handler = .{};
+    h.enable(.glyph, false);
+    h.start();
+    for ("25a1;q;cp=e0a0") |c| h.feed(alloc, c);
+    try testing.expect(h.end() == null);
 }

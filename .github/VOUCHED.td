@@ -33,10 +33,12 @@ adrum
 agoodkind
 aindriu80
 ajiblock
+ajr-khll
 akimiojr
 alaasdk
 alanmoyano
 alaviss
+alexbathome
 alexfeijoo44
 alexjuca
 alosarjos
@@ -101,6 +103,7 @@ ephemera
 -eric-assetpass Try talking, not botting
 eriksremess
 erral
+exlee
 -f1813483-netizen
 faukah
 filip7
@@ -129,6 +132,7 @@ illiakrauchanka
 j0hnm4r5
 jacobsandlund
 jake-stewart
+jamesarch
 jamylak
 jarred-sumner
 jcollie
@@ -155,6 +159,7 @@ kloneets
 knu
 -kody-w
 koranir
+kostich
 kristina8888
 kristofersoler
 kylesower
@@ -196,12 +201,14 @@ mpatankar6
 mrconnorkenway
 mrmage
 mtak
+mustafa0x
 natesmyth
 neo773
 neurosnap
 nicholas-ochoa
 nicosuave
 nikicat
+nilsherzig
 nmggithub
 noib3
 nolinmcfarland
@@ -225,6 +232,7 @@ poweruser64
 prakhar54-byte
 priyans-hu
 puzza007
+qappell
 qwerasd205
 raphamorim
 reo101
@@ -237,8 +245,10 @@ rmengelbrecht
 rmunn
 rockorager
 rpfaeffle
+sahilkmishra
 samasaur1
 sandydoo
+-schickling-assistant NHITL
 secrus
 seruman
 seyoungjeong
@@ -264,6 +274,7 @@ vaughanandrews
 viruslobster
 vlsi
 voidnv
+williamhcarter
 wyounas
 yabbal
 yamshta

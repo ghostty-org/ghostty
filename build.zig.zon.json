@@ -54,10 +54,10 @@
     "url": "https://github.com/ocornut/imgui/archive/refs/tags/v1.92.5-docking.tar.gz",
     "hash": "sha256-yBbCDox18+Fa6Gc1DnmSVQLRpqhZOLsac7iSfl8x+cs="
   },
-  "N-V-__8AAGi9AwC7QV7hLqjN6iBkXA2y5dxw285nkSLlVB7I": {
+  "N-V-__8AADfzAwBDgpEcrVAlvd2ymLb-fFo7h-vfQKWaJxE4": {
     "name": "iterm2_themes",
-    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20260525-155808-7335c0a.tgz",
-    "hash": "sha256-HGujRdQdWtVIf3GwCgQgjV9lbwWxJSIDJOWq3gOX3kU="
+    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20260615-163819-6e33c6b.tgz",
+    "hash": "sha256-ogLTirp+yyOX27fhChxSmvBGF2TyoSUYawORk9RBbUk="
   },
   "N-V-__8AAIC5lwAVPJJzxnCAahSvZTIlG-HhtOvnM1uh-66x": {
     "name": "jetbrains_mono",

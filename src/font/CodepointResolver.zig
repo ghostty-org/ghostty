@@ -24,7 +24,7 @@ const Face = font.Face;
 const Glyph = font.Glyph;
 const Library = font.Library;
 const Presentation = font.Presentation;
-const RenderOptions = font.face.RenderOptions;
+const RenderOptions = font.Glyph.RenderOptions;
 const SpriteFace = font.SpriteFace;
 const Style = font.Style;
 

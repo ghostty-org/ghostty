@@ -393,7 +393,7 @@ pub const Face = struct {
     }
 
     /// Get a rect that represents the position and size of the loaded glyph.
-    fn getGlyphSize(glyph: freetype.c.FT_GlyphSlot) font.face.GlyphSize {
+    fn getGlyphSize(glyph: freetype.c.FT_GlyphSlot) font.Glyph.Size {
         // If we're dealing with an outline glyph then we get the
         // outline's bounding box instead of using the built-in
         // metrics, since that's more precise and allows better
@@ -427,7 +427,7 @@ pub const Face = struct {
         alloc: Allocator,
         atlas: *font.Atlas,
         glyph_index: u32,
-        opts: font.face.RenderOptions,
+        opts: font.Glyph.RenderOptions,
     ) !Glyph {
         self.ft_mutex.lock();
         defer self.ft_mutex.unlock();

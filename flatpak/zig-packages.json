@@ -67,9 +67,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20260525-155808-7335c0a.tgz",
-    "dest": "vendor/p/N-V-__8AAGi9AwC7QV7hLqjN6iBkXA2y5dxw285nkSLlVB7I",
-    "sha256": "1c6ba345d41d5ad5487f71b00a04208d5f656f05b125220324e5aade0397de45"
+    "url": "https://deps.files.ghostty.org/ghostty-themes-release-20260615-163819-6e33c6b.tgz",
+    "dest": "vendor/p/N-V-__8AADfzAwBDgpEcrVAlvd2ymLb-fFo7h-vfQKWaJxE4",
+    "sha256": "a202d38aba7ecb2397dbb7e10a1c529af0461764f2a125186b039193d4416d49"
   },
   {
     "type": "archive",

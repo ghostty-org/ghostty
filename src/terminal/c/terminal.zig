@@ -5,6 +5,7 @@ const lib = @import("../lib.zig");
 const CAllocator = lib.alloc.Allocator;
 pub const ZigTerminal = @import("../Terminal.zig");
 const Stream = @import("../stream_terminal.zig").Stream;
+const Screen = @import("../Screen.zig");
 const ScreenSet = @import("../ScreenSet.zig");
 const PageList = @import("../PageList.zig");
 const apc = @import("../apc.zig");
@@ -51,6 +52,7 @@ const Effects = struct {
     enquiry: ?EnquiryFn = null,
     xtversion: ?XtversionFn = null,
     title_changed: ?TitleChangedFn = null,
+    pwd_changed: ?PwdChangedFn = null,
     size_cb: ?SizeFn = null,
 
     /// Scratch buffer for DA1 feature codes. The device attributes
@@ -84,6 +86,9 @@ const Effects = struct {
 
     /// C function pointer type for the title_changed callback.
     pub const TitleChangedFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) void;
+
+    /// C function pointer type for the pwd_changed callback.
+    pub const PwdChangedFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) void;
 
     /// C function pointer type for the size callback.
     /// Returns true and fills out_size if size is available,
@@ -198,6 +203,13 @@ const Effects = struct {
         func(@ptrCast(wrapper), wrapper.effects.userdata);
     }
 
+    fn pwdChangedTrampoline(handler: *Handler) void {
+        const stream_ptr: *Stream = @fieldParentPtr("handler", handler);
+        const wrapper: *TerminalWrapper = @fieldParentPtr("stream", stream_ptr);
+        const func = wrapper.effects.pwd_changed orelse return;
+        func(@ptrCast(wrapper), wrapper.effects.userdata);
+    }
+
     fn sizeTrampoline(handler: *Handler) ?size_report.Size {
         const stream_ptr: *Stream = @fieldParentPtr("handler", handler);
         const wrapper: *TerminalWrapper = @fieldParentPtr("stream", stream_ptr);
@@ -282,6 +294,7 @@ fn new_(
         .enquiry = &Effects.enquiryTrampoline,
         .xtversion = &Effects.xtversionTrampoline,
         .title_changed = &Effects.titleChangedTrampoline,
+        .pwd_changed = &Effects.pwdChangedTrampoline,
         .size = &Effects.sizeTrampoline,
     };
 
@@ -326,6 +339,10 @@ pub const Option = enum(c_int) {
     apc_max_bytes = 19,
     apc_max_bytes_kitty = 20,
     selection = 21,
+    default_cursor_style = 22,
+    default_cursor_blink = 23,
+    glyph_protocol = 24,
+    pwd_changed = 25,
 
     /// Input type expected for setting the option.
     pub fn InType(comptime self: Option) type {
@@ -338,6 +355,7 @@ pub const Option = enum(c_int) {
             .enquiry => ?Effects.EnquiryFn,
             .xtversion => ?Effects.XtversionFn,
             .title_changed => ?Effects.TitleChangedFn,
+            .pwd_changed => ?Effects.PwdChangedFn,
             .size_cb => ?Effects.SizeFn,
             .title, .pwd => ?*const lib.String,
             .color_foreground, .color_background, .color_cursor => ?*const color.RGB.C,
@@ -346,9 +364,12 @@ pub const Option = enum(c_int) {
             .kitty_image_medium_file,
             .kitty_image_medium_temp_file,
             .kitty_image_medium_shared_mem,
+            .glyph_protocol,
             => ?*const bool,
             .apc_max_bytes, .apc_max_bytes_kitty => ?*const usize,
             .selection => ?*const selection_c.CSelection,
+            .default_cursor_style => ?*const TerminalCursorStyle,
+            .default_cursor_blink => ?*const bool,
         };
     }
 };
@@ -390,6 +411,7 @@ fn setTyped(
         .enquiry => wrapper.effects.enquiry = value,
         .xtversion => wrapper.effects.xtversion = value,
         .title_changed => wrapper.effects.title_changed = value,
+        .pwd_changed => wrapper.effects.pwd_changed = value,
         .size_cb => wrapper.effects.size_cb = value,
         .title => {
             const str = if (value) |v| v.ptr[0..v.len] else "";
@@ -456,6 +478,11 @@ fn setTyped(
                 wrapper.stream.handler.apc_handler.max_bytes.remove(.kitty);
             }
         },
+        .glyph_protocol => {
+            const enabled = (value orelse return .success).*;
+            wrapper.stream.handler.apc_handler.enable(.glyph, enabled);
+            if (!enabled) wrapper.terminal.glyph_glossary.clearAndFree(wrapper.terminal.gpa());
+        },
         .selection => {
             if (value) |ptr| {
                 const sel = ptr.toZig() orelse return .invalid_value;
@@ -464,9 +491,42 @@ fn setTyped(
                 wrapper.terminal.screens.active.clearSelection();
             }
         },
+        .default_cursor_style => {
+            const style = (if (value) |ptr| ptr.* else TerminalCursorStyle.block).toZig() orelse return .invalid_value;
+            wrapper.stream.handler.default_cursor_style = style;
+            if (wrapper.stream.handler.default_cursor) {
+                wrapper.terminal.screens.active.cursor.cursor_style = style;
+            }
+        },
+        .default_cursor_blink => {
+            const blink = if (value) |ptr| ptr.* else false;
+            wrapper.stream.handler.default_cursor_blink = blink;
+            if (wrapper.stream.handler.default_cursor) {
+                wrapper.terminal.modes.set(.cursor_blinking, blink);
+            }
+        },
     }
     return .success;
 }
+
+/// C: GhosttyTerminalCursorStyle
+pub const TerminalCursorStyle = enum(c_int) {
+    bar = 0,
+    block = 1,
+    underline = 2,
+    block_hollow = 3,
+    _,
+
+    fn toZig(self: TerminalCursorStyle) ?Screen.CursorStyle {
+        return switch (self) {
+            .bar => .bar,
+            .block => .block,
+            .underline => .underline,
+            .block_hollow => .block_hollow,
+            _ => null,
+        };
+    }
+};
 
 /// C: GhosttyDeviceAttributes
 pub const DeviceAttributes = Effects.CDeviceAttributes;
@@ -1005,6 +1065,30 @@ test "resize invalid value" {
     try testing.expectEqual(Result.invalid_value, resize(t, 80, 0, 9, 18));
 }
 
+test "resize shrinks both axes with cursor at bottom" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    // CSI 24;1H -> park the cursor on the bottom row (1-based).
+    const move = "\x1b[24;1H";
+    vt_write(t, move, move.len);
+
+    // Shrink both axes; pre-resize cursor.y sits past the new bottom row.
+    // Previously this underflowed in PageList.resizeCols.
+    try testing.expectEqual(Result.success, resize(t, 79, 23, 8, 16));
+    try testing.expectEqual(79, t.?.terminal.cols);
+    try testing.expectEqual(23, t.?.terminal.rows);
+}
+
 test "mode_get and mode_set" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
@@ -1375,6 +1459,45 @@ test "get invalid" {
     defer free(t);
 
     try testing.expectEqual(Result.invalid_value, get(t, .invalid, null));
+}
+
+test "set default cursor style and blink" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    var default_style: TerminalCursorStyle = .bar;
+    var default_blink = true;
+    try testing.expectEqual(Result.success, set(t, .default_cursor_style, @ptrCast(&default_style)));
+    try testing.expectEqual(Result.success, set(t, .default_cursor_blink, @ptrCast(&default_blink)));
+
+    // Setting defaults applies them immediately while the cursor is still default.
+    try testing.expectEqual(Screen.CursorStyle.bar, t.?.terminal.screens.active.cursor.cursor_style);
+    try testing.expect(t.?.terminal.modes.get(.cursor_blinking));
+
+    // An explicit DECSCUSR style overrides the configured defaults.
+    vt_write(t, "\x1b[2 q", 5);
+    try testing.expectEqual(Screen.CursorStyle.block, t.?.terminal.screens.active.cursor.cursor_style);
+    try testing.expect(!t.?.terminal.modes.get(.cursor_blinking));
+
+    // Changing defaults does not override an explicit cursor style.
+    default_style = .underline;
+    try testing.expectEqual(Result.success, set(t, .default_cursor_style, @ptrCast(&default_style)));
+    try testing.expectEqual(Screen.CursorStyle.block, t.?.terminal.screens.active.cursor.cursor_style);
+    try testing.expect(!t.?.terminal.modes.get(.cursor_blinking));
+
+    // DECSCUSR reset restores the configured default style and blink.
+    vt_write(t, "\x1b[0 q", 5);
+    try testing.expectEqual(Screen.CursorStyle.underline, t.?.terminal.screens.active.cursor.cursor_style);
+    try testing.expect(t.?.terminal.modes.get(.cursor_blinking));
 }
 
 test "set and get selection" {
@@ -2255,6 +2378,68 @@ test "title_changed without callback is silent" {
     vt_write(t, "\x1B]2;Hello\x1B\\", 10);
 }
 
+test "set pwd_changed callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    const S = struct {
+        var pwd_count: usize = 0;
+        var last_userdata: ?*anyopaque = null;
+
+        fn pwdChanged(_: Terminal, ud: ?*anyopaque) callconv(lib.calling_conv) void {
+            pwd_count += 1;
+            last_userdata = ud;
+        }
+    };
+    S.pwd_count = 0;
+    S.last_userdata = null;
+
+    var sentinel: u8 = 88;
+    try testing.expectEqual(Result.success, set(t, .userdata, @ptrCast(&sentinel)));
+    try testing.expectEqual(Result.success, set(t, .pwd_changed, @ptrCast(&S.pwdChanged)));
+
+    // OSC 7 ; file:///tmp ST — report pwd
+    const seq1 = "\x1B]7;file:///tmp\x1B\\";
+    vt_write(t, seq1, seq1.len);
+    try testing.expectEqual(@as(usize, 1), S.pwd_count);
+    try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
+    try testing.expectEqualStrings("file:///tmp", zigTerminal(t).?.getPwd().?);
+
+    // Another pwd change
+    const seq2 = "\x1B]7;file:///home/user\x1B\\";
+    vt_write(t, seq2, seq2.len);
+    try testing.expectEqual(@as(usize, 2), S.pwd_count);
+    try testing.expectEqualStrings("file:///home/user", zigTerminal(t).?.getPwd().?);
+}
+
+test "pwd_changed without callback is silent" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    // OSC 7 without a callback should not crash, but should still set the pwd
+    const seq = "\x1B]7;file:///tmp\x1B\\";
+    vt_write(t, seq, seq.len);
+    try testing.expectEqualStrings("file:///tmp", zigTerminal(t).?.getPwd().?);
+}
+
 test "set size callback" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
@@ -3080,6 +3265,33 @@ test "set color sets dirty flag" {
     const fg: color.RGB.C = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF };
     try testing.expectEqual(Result.success, set(t, .color_foreground, @ptrCast(&fg)));
     try testing.expect(zt.flags.dirty.palette);
+}
+
+test "set glyph protocol disables APC handling and clears glossary" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{ .cols = 80, .rows = 24, .max_scrollback = 0 },
+    ));
+    defer free(t);
+
+    const register = "\x1B_25a1;r;cp=e0a0;AAAAAAAAAAAAAA==\x1B\\";
+    vt_write(t, register, register.len);
+    try testing.expect(t.?.terminal.glyph_glossary.contains(0xE0A0));
+
+    const disabled = false;
+    try testing.expectEqual(Result.success, set(t, .glyph_protocol, @ptrCast(&disabled)));
+    try testing.expect(!t.?.stream.handler.apc_handler.enabled.contains(.glyph));
+    try testing.expect(!t.?.terminal.glyph_glossary.contains(0xE0A0));
+
+    vt_write(t, register, register.len);
+    try testing.expect(!t.?.terminal.glyph_glossary.contains(0xE0A0));
+
+    const enabled = true;
+    try testing.expectEqual(Result.success, set(t, .glyph_protocol, @ptrCast(&enabled)));
+    vt_write(t, register, register.len);
+    try testing.expect(t.?.terminal.glyph_glossary.contains(0xE0A0));
 }
 
 test "get_multi success" {

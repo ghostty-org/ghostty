@@ -104,6 +104,14 @@ class AppDelegate: NSObject,
     /// The current state of the quick terminal.
     private var quickTerminalControllerState: QuickTerminalState = .uninitialized
 
+    /// Whether the quick terminal has already been initialized.
+    var quickControllerInitialized: Bool {
+        if case .initialized = quickTerminalControllerState {
+            return true
+        }
+        return false
+    }
+
     /// Our quick terminal. This starts out uninitialized and only initializes if used.
     var quickController: QuickTerminalController {
         switch quickTerminalControllerState {

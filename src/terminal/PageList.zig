@@ -1047,6 +1047,16 @@ fn resizeCols(
         const wrapped = wrapped: {
             var wrapped: usize = 0;
 
+            // If shrinking rows (in the .lt branch of resize, rows shrink
+            // before we get here) pushed the cursor pin above the new active
+            // area, there are no rows to count and iterating .left_up toward
+            // the active-area top would be an invalid (reversed) range. The
+            // preserved-cursor growth below already no-ops for a cursor that
+            // isn't in the active area, so we just count zero here.
+            if (active_pin) |ap| {
+                if (p.before(ap)) break :wrapped 0;
+            }
+
             var row_it = p.rowIterator(.left_up, active_pin);
             while (row_it.next()) |next| {
                 const row = next.rowAndCell().row;
@@ -1059,7 +1069,7 @@ fn resizeCols(
         break :cursor .{
             .tracked_pin = c.pin orelse try self.trackPin(p),
             .untrack = c.pin == null,
-            .remaining_rows = self.rows - c.y - 1,
+            .remaining_rows = self.rows -| (c.y + 1),
             .wrapped_rows = wrapped,
         };
     } else null;
@@ -1192,7 +1202,7 @@ fn resizeCols(
             break :wrapped wrapped;
         };
 
-        const current = self.rows - active_pt.active.y - 1;
+        const current = self.rows -| (active_pt.active.y + 1);
 
         var req_rows = c.remaining_rows;
         req_rows -|= wrapped -| c.wrapped_rows;
@@ -2572,18 +2582,15 @@ pub fn scroll(self: *PageList, behavior: Scroll) void {
             if (n < midpoint) {
                 // Iterate forward from the first node.
                 var node_it = self.pages.first;
-                var rem: size.CellCountInt = std.math.cast(
-                    size.CellCountInt,
-                    n,
-                ) orelse {
-                    self.viewport = .active;
-                    break :row;
-                };
+                var rem: usize = n;
                 while (node_it) |node| : (node_it = node.next) {
                     if (rem < node.data.size.rows) {
                         self.viewport_pin.* = .{
                             .node = node,
-                            .y = rem,
+                            .y = std.math.cast(size.CellCountInt, rem) orelse {
+                                self.viewport = .active;
+                                break :row;
+                            },
                         };
                         break :row;
                     }
@@ -2593,18 +2600,15 @@ pub fn scroll(self: *PageList, behavior: Scroll) void {
             } else {
                 // Iterate backwards from the last node.
                 var node_it = self.pages.last;
-                var rem: size.CellCountInt = std.math.cast(
-                    size.CellCountInt,
-                    self.total_rows - n,
-                ) orelse {
-                    self.viewport = .active;
-                    break :row;
-                };
+                var rem: usize = self.total_rows - n;
                 while (node_it) |node| : (node_it = node.prev) {
                     if (rem <= node.data.size.rows) {
                         self.viewport_pin.* = .{
                             .node = node,
-                            .y = node.data.size.rows - rem,
+                            .y = std.math.cast(size.CellCountInt, node.data.size.rows - rem) orelse {
+                                self.viewport = .active;
+                                break :row;
+                            },
                         };
                         break :row;
                     }
@@ -10826,6 +10830,89 @@ test "PageList resize (no reflow) less rows and cols" {
         const cells = offset.node.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 5), cells.len);
     }
+}
+
+test "PageList resize less rows and cols cursor at bottom" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, 0);
+    defer s.deinit();
+
+    const cursor_pin = try s.trackPin(s.pin(.{ .active = .{
+        .x = 0,
+        .y = s.rows - 1,
+    } }).?);
+    defer s.untrackPin(cursor_pin);
+
+    // Shrink both axes such that the original cursor.y is strictly past the
+    // new row count, so resizeWithoutReflow leaves self.rows < c.y + 1.
+    try s.resize(.{
+        .cols = 79,
+        .rows = 20,
+        .reflow = true,
+        .cursor = .{ .x = 0, .y = 23, .pin = cursor_pin },
+    });
+    try testing.expectEqual(@as(usize, 79), s.cols);
+    try testing.expectEqual(@as(usize, 20), s.rows);
+
+    // remaining_rows saturates to 0, so the cursor lands on the new bottom row.
+    try testing.expectEqual(point.Point{ .active = .{
+        .x = 0,
+        .y = s.rows - 1,
+    } }, s.pointFromPin(.active, cursor_pin.*).?);
+}
+
+test "PageList resize less rows and cols cursor near top pushed to scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    // Fill every active row with non-blank content so that shrinking rows
+    // can't trim trailing blank lines and instead pushes the top rows into
+    // scrollback.
+    {
+        var it = s.rowIterator(.right_down, .{ .active = .{} }, null);
+        while (it.next()) |p| {
+            const rac = p.rowAndCell();
+            const cells = p.node.data.getCells(rac.row);
+            for (cells, 0..) |*cell, x| cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast('A' + (x % 26)) },
+            };
+        }
+    }
+
+    // Cursor near the top of the active area. After we shrink rows the active
+    // area top moves down past this pin, so it ends up in scrollback.
+    const cursor_pin = try s.trackPin(s.pin(.{ .active = .{
+        .x = 0,
+        .y = 0,
+    } }).?);
+    defer s.untrackPin(cursor_pin);
+
+    // Shrink both axes with reflow. resizeWithoutReflow shrinks self.rows
+    // first, leaving the cursor pin above the new active area, then resizeCols
+    // walks .left_up from the cursor pin toward the active-area top.
+    try s.resize(.{
+        .cols = 79,
+        .rows = 20,
+        .reflow = true,
+        .cursor = .{ .x = 0, .y = 0, .pin = cursor_pin },
+    });
+    try testing.expectEqual(@as(usize, 79), s.cols);
+    try testing.expectEqual(@as(usize, 20), s.rows);
+
+    // The active area is anchored to the bottom, so shrinking rows pushed the
+    // top-of-screen cursor into scrollback: it no longer resolves to an
+    // active-area coordinate, but it remains a valid screen pin.
+    try testing.expect(s.pointFromPin(.active, cursor_pin.*) == null);
+    try testing.expect(s.pointFromPin(.screen, cursor_pin.*) != null);
+
+    // Integrity must hold after the resize.
+    s.assertIntegrity();
 }
 
 test "PageList resize (no reflow) more rows and less cols" {

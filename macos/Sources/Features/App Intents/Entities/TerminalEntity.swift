@@ -1,6 +1,13 @@
 import AppKit
 import AppIntents
+import Combine
 import SwiftUI
+import os
+
+private let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier!,
+    category: "AppIntents.TerminalEntity"
+)
 
 struct TerminalEntity: AppEntity {
     let id: UUID
@@ -68,6 +75,64 @@ struct TerminalEntity: AppEntity {
             self.kind = .normal
         }
     }
+
+    /// Wait for the surface to be updated then create an entity
+    ///
+    /// The PTY/Config sets the title and pwd asynchronously shortly after the
+    /// surface is created, so concurrently wait for the second published
+    /// value of each (the first is the current value) before returning.
+    ///
+    /// If a value never arrives, the timeout completes the publisher and
+    /// we fall back to the current value.
+    ///
+    /// Waiting for the title and pwd also gives the SurfaceView time to lay
+    /// out, so the screenshot we capture afterwards reflects the rendered view.
+    @MainActor
+    init(view: Ghostty.SurfaceView) async {
+        self.id = view.id
+        self.tty = view.surfaceModel?.ttyName
+
+        let waitTimeout = DispatchQueue.SchedulerTimeType.Stride.seconds(1)
+        let titleValues = view.$title.dropFirst()
+            .setFailureType(to: Error.self)
+            .timeout(waitTimeout, scheduler: DispatchQueue.main, customError: { EntityTimeoutError() })
+            .handleEvents(receiveCompletion: { completion in
+                if case .failure = completion {
+                    logger.error("failed to get terminal's title: timeout")
+                }
+            })
+            .replaceError(with: view.title)
+            .values
+        let pwdValues = view.$pwd.dropFirst()
+            .setFailureType(to: Error.self)
+            .timeout(waitTimeout, scheduler: DispatchQueue.main, customError: { EntityTimeoutError() })
+            .handleEvents(receiveCompletion: { completion in
+                if case .failure = completion {
+                    logger.error("failed to get terminal's pwd: timeout")
+                }
+            })
+            .replaceError(with: view.pwd)
+            .values
+        async let title = titleValues.first(where: { _ in true })
+        async let pwd = pwdValues.first(where: { _ in true })
+
+        self.title = await title ?? ""
+        self.workingDirectory = await pwd ?? ""
+
+        // Wait for the title and pwd then get latest pid and screenshots.
+        // This should gave SurfaceView enough time to layout in the window and we can get the most recent process's PID
+        // Determine the kind based on the window controller type
+        if view.window?.windowController is QuickTerminalController {
+            self.kind = .quick
+        } else {
+            self.kind = .normal
+        }
+
+        self.pid = view.surfaceModel?.foregroundPID
+        if let nsImage = ImageRenderer(content: view.screenshot()).nsImage {
+            self.screenshot = nsImage
+        }
+    }
 }
 
 extension TerminalEntity {
@@ -127,3 +192,5 @@ struct TerminalQuery: EntityStringQuery, EnumerableEntityQuery {
         }
     }
 }
+
+private struct EntityTimeoutError: Error {}

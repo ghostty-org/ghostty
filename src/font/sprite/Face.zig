@@ -176,7 +176,7 @@ pub fn renderGlyph(
     alloc: Allocator,
     atlas: *font.Atlas,
     cp: u32,
-    opts: font.face.RenderOptions,
+    opts: font.Glyph.RenderOptions,
 ) !font.Glyph {
     if (std.debug.runtime_safety) {
         if (!self.hasCodepoint(cp, null)) {

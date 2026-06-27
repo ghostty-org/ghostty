@@ -393,7 +393,7 @@ pub fn semanticPromptTable(
         _ = cimgui.c.ImGui_TableSetColumnIndex(1);
         switch (semantic_prompt.click) {
             .none => cimgui.c.ImGui_TextDisabled("(none)"),
-            .click_events => cimgui.c.ImGui_Text("click_events"),
+            .click_events => |click_events| cimgui.c.ImGui_Text("click_events=%s", @tagName(click_events).ptr),
             .cl => |cl| cimgui.c.ImGui_Text("cl=%s", @tagName(cl).ptr),
         }
     }

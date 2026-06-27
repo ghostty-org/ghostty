@@ -30,6 +30,18 @@ pub const Coverage = packed struct(u2) {
 
 /// Response to a glyph APC request, formatted for the wire protocol.
 pub const Response = union(enum) {
+    /// Recommended fixed buffer size for formatting a Glyph Protocol response.
+    ///
+    /// Glyph Protocol responses contain only framing plus bounded scalar fields:
+    /// a u21 codepoint as hex, a decimal u8 status, a small fixed set of
+    /// supported format names, coverage names, and the reason names produced by
+    /// the executor. 1024 bytes is therefore far above the longest response we
+    /// can emit today, while still being small enough for stack allocation in
+    /// stream handlers. If callers construct responses with arbitrary `.other`
+    /// or clear reason strings, they must ensure those strings fit or handle the
+    /// writer error from `formatWire`.
+    pub const max_wire_bytes = 1024;
+
     /// Support query response listing supported payload formats.
     support: Support,
 
@@ -303,11 +315,11 @@ test "register reason names" {
     const testing = std.testing;
     const Reason = Response.Register.Reason;
 
-    try testing.expectEqualStrings("out_of_namespace", Reason.out_of_namespace.name());
-    try testing.expectEqualStrings("composite_unsupported", Reason.composite_unsupported.name());
-    try testing.expectEqualStrings("hinting_unsupported", Reason.hinting_unsupported.name());
-    try testing.expectEqualStrings("malformed_payload", Reason.malformed_payload.name());
-    try testing.expectEqualStrings("payload_too_large", Reason.payload_too_large.name());
+    try testing.expectEqualStrings("out_of_namespace", (Reason{ .out_of_namespace = {} }).name());
+    try testing.expectEqualStrings("composite_unsupported", (Reason{ .composite_unsupported = {} }).name());
+    try testing.expectEqualStrings("hinting_unsupported", (Reason{ .hinting_unsupported = {} }).name());
+    try testing.expectEqualStrings("malformed_payload", (Reason{ .malformed_payload = {} }).name());
+    try testing.expectEqualStrings("payload_too_large", (Reason{ .payload_too_large = {} }).name());
     try testing.expectEqualStrings("future_reason", (Reason{ .other = "future_reason" }).name());
 }
 
