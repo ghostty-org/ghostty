@@ -369,7 +369,7 @@ extension Ghostty {
         }
 
         var macosTitlebarProxyIcon: MacOSTitlebarProxyIcon {
-            let defaultValue = MacOSTitlebarProxyIcon.visible
+            let defaultValue = MacOSTitlebarProxyIcon.hidden
             guard let config = self.config else { return defaultValue }
             var v: UnsafePointer<Int8>?
             let key = "macos-titlebar-proxy-icon"
