@@ -140,7 +140,6 @@ struct TerminalCommandPaletteView: View {
             guard let window = controller.window else { return [] }
 
             let color = (window as? TerminalWindow)?.tabColor
-            let displayColor = color != TerminalTabColor.none ? color : nil
 
             return controller.surfaceTree.map { surface in
                 let terminalTitle = surface.title.isEmpty ? window.title : surface.title
@@ -163,7 +162,7 @@ struct TerminalCommandPaletteView: View {
                     title: "Focus: \(displayTitle)",
                     subtitle: subtitle,
                     leadingIcon: "rectangle.on.rectangle",
-                    leadingColor: displayColor?.displayColor.map { Color($0) },
+                    leadingColor: color?.color.map { Color($0) },
                     sortKey: AnySortKey(ObjectIdentifier(surface))
                 ) {
                     NotificationCenter.default.post(
