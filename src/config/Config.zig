@@ -2989,6 +2989,32 @@ keybind: Keybinds = .{},
 /// `xterm-256color` with environment variables if terminfo installation fails.
 @"shell-integration-features": ShellIntegrationFeatures = .{},
 
+/// Badges to show while connected to specific SSH hosts.
+///
+/// The format is `ssh-badge = HOST=BADGE[,COLOR]`. This can be repeated to add
+/// badges for multiple hosts:
+///
+/// ```ini
+/// ssh-badge = dc2-aflat-machine-01=Production
+/// ssh-badge = deploy@staging-bastion=Staging,#ff5f87
+/// ```
+///
+/// The color is optional. It may be any Ghostty color value such as `#ff5f87`
+/// or a named X11 color.
+///
+/// The host is matched against the destination resolved by `ssh -G`. Ghostty
+/// first checks the full `user@host` destination and then the bare `host`, so
+/// you can configure either per-user badges or host-wide badges.
+///
+/// Setting `ssh-badge` to an empty string resets the entire map. Setting a
+/// host to an empty string removes that host from the map.
+///
+/// This is applied by the `ghostty +ssh` wrapper, which is used automatically
+/// by Ghostty's shell integration when `shell-integration-features` includes
+/// `ssh-env` or `ssh-terminfo`. If you run `ssh` without that wrapper, Ghostty
+/// does not receive a reliable host signal and this option will not apply.
+@"ssh-badge": RepeatableStringMap = .{},
+
 /// Custom entries into the command palette.
 ///
 /// Each entry requires the title, the corresponding action, and an optional
@@ -11373,6 +11399,31 @@ test "macos cssh ssh args config" {
         "-o ServerAliveInterval=300 -o StrictHostKeyChecking=no -o GSSAPIAuthentication=no -o UserKnownHostsFile=/dev/null",
         cfg.@"macos-cssh-ssh-args".?,
     );
+}
+
+test "ssh-badge config" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    var it: TestIterator = .{ .data = &.{
+        "--ssh-badge=dc2-aflat-machine-01=Production",
+        "--ssh-badge=deploy@staging-bastion=Staging,#ff5f87",
+    } };
+    try cfg.loadIter(alloc, &it);
+
+    try testing.expectEqual(@as(usize, 2), cfg.@"ssh-badge".count());
+
+    var badges = cfg.@"ssh-badge".iterator();
+    const first = badges.next().?;
+    try testing.expectEqualStrings("dc2-aflat-machine-01", first.key_ptr.*);
+    try testing.expectEqualStrings("Production", first.value_ptr.*);
+
+    const second = badges.next().?;
+    try testing.expectEqualStrings("deploy@staging-bastion", second.key_ptr.*);
+    try testing.expectEqualStrings("Staging,#ff5f87", second.value_ptr.*);
+    try testing.expect(badges.next() == null);
 }
 
 test "compatibility: gtk-single-instance desktop" {

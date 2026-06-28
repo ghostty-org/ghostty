@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const cli_args = @import("args.zig");
+const configpkg = @import("../config.zig");
 const diagnostics = @import("diagnostics.zig");
 const Action = @import("ghostty.zig").Action;
 const DiskCache = @import("ssh_cache.zig").DiskCache;
@@ -11,6 +12,7 @@ const terminfopkg = @import("../terminfo/main.zig");
 const global = @import("../global.zig");
 
 const log = std.log.scoped(.ssh);
+const badge_color_separator: u8 = 0x1F;
 
 const usage =
     \\Usage: ghostty +ssh [flags] [--] <ssh args...>
@@ -232,13 +234,34 @@ fn runInner(
         return 2;
     }
 
+    var config = loadConfig(gpa) catch |err| config: {
+        log.warn("failed to load config for SSH badges: {}", .{err});
+        break :config null;
+    };
+    defer if (config) |*cfg| cfg.deinit();
+
+    const badges_configured = if (config) |*cfg|
+        cfg.@"ssh-badge".count() > 0
+    else
+        false;
+
+    const resolved_dest: ?[]const u8 = if (opts.terminfo or badges_configured)
+        resolveDestination(alloc, opts.ssh, opts._ssh_args.items)
+    else
+        null;
+
+    const badge = if (resolved_dest) |dest|
+        if (config) |*cfg| sshBadgeForDestination(&cfg.@"ssh-badge", dest) else null
+    else
+        null;
+
     const session: struct {
         term: []const u8,
         to_cache: ?struct { cache: DiskCache, dest: []const u8 } = null,
     } = session: {
         if (!opts.terminfo) break :session .{ .term = "xterm-256color" };
 
-        const dest = resolveDestination(alloc, opts.ssh, opts._ssh_args.items) orelse {
+        const dest = resolved_dest orelse {
             warnPrint(stderr, "could not resolve ssh destination; skipping terminfo install", .{});
             break :session .{ .term = "xterm-256color" };
         };
@@ -309,6 +332,22 @@ fn runInner(
     });
     verbosePrint(opts, stderr, "exec: {f}", .{Joined{ .items = argv }});
 
+    var badge_active = false;
+    if (badge) |value| {
+        badge_set: {
+            emitBadge(alloc, value) catch |err| {
+                log.warn("failed to set SSH badge: {}", .{err});
+                break :badge_set;
+            };
+            badge_active = true;
+        }
+    }
+    defer if (badge_active) {
+        emitBadge(alloc, .{ .label = "" }) catch |err| {
+            log.warn("failed to clear SSH badge: {}", .{err});
+        };
+    };
+
     const exit_code = childExec(argv) catch |err| {
         try stderr.print("Error: failed to run {s}: {t}\n", .{ argv[0], err });
         return 1;
@@ -343,6 +382,102 @@ fn runInner(
     };
 
     return exit_code;
+}
+
+fn loadConfig(alloc: Allocator) !configpkg.Config {
+    var cfg = try configpkg.Config.default(alloc);
+    errdefer cfg.deinit();
+    try cfg.loadDefaultFiles(alloc);
+    try cfg.loadRecursiveFiles(alloc);
+    try cfg.finalize();
+    return cfg;
+}
+
+fn sshBadgeForDestination(
+    badges: *const configpkg.RepeatableStringMap,
+    dest: []const u8,
+) ?SshBadge {
+    if (stringMapGet(badges, dest)) |badge| return parseSshBadge(badge);
+    if (stringMapGet(badges, destinationHost(dest))) |badge| return parseSshBadge(badge);
+    return null;
+}
+
+fn destinationHost(dest: []const u8) []const u8 {
+    const at = std.mem.indexOfScalar(u8, dest, '@') orelse return dest;
+    return dest[at + 1 ..];
+}
+
+fn stringMapGet(
+    map: *const configpkg.RepeatableStringMap,
+    key: []const u8,
+) ?[]const u8 {
+    var it = map.iterator();
+    while (it.next()) |entry| {
+        if (std.mem.eql(u8, entry.key_ptr.*, key)) return entry.value_ptr.*;
+    }
+    return null;
+}
+
+const SshBadge = struct {
+    label: []const u8,
+    color: ?configpkg.Config.Color = null,
+};
+
+fn parseSshBadge(value: []const u8) SshBadge {
+    const color_index = std.mem.lastIndexOfScalar(u8, value, ',') orelse return .{
+        .label = std.mem.trim(u8, value, &std.ascii.whitespace),
+    };
+
+    const color = configpkg.Config.Color.parseCLI(value[color_index + 1 ..]) catch return .{
+        .label = std.mem.trim(u8, value, &std.ascii.whitespace),
+    };
+
+    return .{
+        .label = std.mem.trim(u8, value[0..color_index], &std.ascii.whitespace),
+        .color = color,
+    };
+}
+
+fn emitBadge(alloc: Allocator, badge: SshBadge) !void {
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_file: std.fs.File = .stdout();
+    var stdout_writer = stdout_file.writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
+
+    try writeBadgeEscape(alloc, stdout, badge);
+    try stdout.flush();
+}
+
+fn writeBadgeEscape(
+    alloc: Allocator,
+    writer: *std.Io.Writer,
+    badge: SshBadge,
+) !void {
+    try writer.writeAll("\x1b]1337;SetBadgeFormat=");
+
+    var payload: std.Io.Writer.Allocating = .init(alloc);
+    defer payload.deinit();
+    try payload.writer.writeAll(badge.label);
+    if (badge.color) |color| {
+        try payload.writer.writeByte(badge_color_separator);
+        var color_buf: [7]u8 = undefined;
+        const color_str = try std.fmt.bufPrint(
+            &color_buf,
+            "#{x:0>2}{x:0>2}{x:0>2}",
+            .{ color.r, color.g, color.b },
+        );
+        try payload.writer.writeAll(color_str);
+    }
+
+    if (payload.written().len > 0) {
+        const encoder = std.base64.standard.Encoder;
+        const size = encoder.calcSize(payload.written().len);
+        const encoded = try alloc.alloc(u8, size);
+        defer alloc.free(encoded);
+        _ = encoder.encode(encoded, payload.written());
+        try writer.writeAll(encoded);
+    }
+    try writer.writeByte('\x07');
 }
 
 /// Log to `.ssh` and, if `--verbose`, also print to stderr.
@@ -664,4 +799,89 @@ test "parseDestination: IPv6 hostname" {
     const stdout = "user alice\nhostname ::1\n";
     const result = parseDestination(arena.allocator(), stdout);
     try testing.expectEqualStrings("alice@::1", result.?);
+}
+
+test "sshBadgeForDestination matches full destination before host" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var badges: configpkg.RepeatableStringMap = .{};
+    try badges.parseCLI(alloc, "example.com=Host");
+    try badges.parseCLI(alloc, "alice@example.com=Alice");
+
+    try testing.expectEqualStrings(
+        "Alice",
+        sshBadgeForDestination(&badges, "alice@example.com").?.label,
+    );
+    try testing.expectEqualStrings(
+        "Host",
+        sshBadgeForDestination(&badges, "bob@example.com").?.label,
+    );
+    try testing.expect(sshBadgeForDestination(&badges, "bob@other.example.com") == null);
+}
+
+test "destinationHost" {
+    const testing = std.testing;
+
+    try testing.expectEqualStrings("example.com", destinationHost("alice@example.com"));
+    try testing.expectEqualStrings("::1", destinationHost("alice@::1"));
+    try testing.expectEqualStrings("example.com", destinationHost("example.com"));
+}
+
+test "parseSshBadge" {
+    const testing = std.testing;
+
+    {
+        const badge = parseSshBadge("Production");
+        try testing.expectEqualStrings("Production", badge.label);
+        try testing.expect(badge.color == null);
+    }
+
+    {
+        const badge = parseSshBadge("Production,#ff5f87");
+        try testing.expectEqualStrings("Production", badge.label);
+        try testing.expectEqual(configpkg.Config.Color{
+            .r = 0xff,
+            .g = 0x5f,
+            .b = 0x87,
+        }, badge.color.?);
+    }
+
+    {
+        const badge = parseSshBadge("Prod, east");
+        try testing.expectEqualStrings("Prod, east", badge.label);
+        try testing.expect(badge.color == null);
+    }
+}
+
+test "writeBadgeEscape" {
+    const testing = std.testing;
+
+    var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer buf.deinit();
+
+    try writeBadgeEscape(testing.allocator, &buf.writer, .{ .label = "Production" });
+    try testing.expectEqualStrings(
+        "\x1b]1337;SetBadgeFormat=UHJvZHVjdGlvbg==\x07",
+        buf.written(),
+    );
+
+    buf.clearRetainingCapacity();
+    try writeBadgeEscape(testing.allocator, &buf.writer, .{
+        .label = "Production",
+        .color = .{ .r = 0xff, .g = 0x5f, .b = 0x87 },
+    });
+    try testing.expectEqualStrings(
+        "\x1b]1337;SetBadgeFormat=UHJvZHVjdGlvbh8jZmY1Zjg3\x07",
+        buf.written(),
+    );
+
+    buf.clearRetainingCapacity();
+    try writeBadgeEscape(testing.allocator, &buf.writer, .{ .label = "" });
+    try testing.expectEqualStrings(
+        "\x1b]1337;SetBadgeFormat=\x07",
+        buf.written(),
+    );
 }

@@ -97,6 +97,7 @@ extension Ghostty {
                         readonly: surfaceView.readonly,
                         broadcastInput: surfaceView.broadcastInput,
                         badge: surfaceView.badge,
+                        badgeColor: surfaceView.badgeColor,
                         badgeScale: CGFloat(ghostty.config.macosSurfaceBadgeSize),
                         badgeTextAlignment: ghostty.config.macosSurfaceBadgeTextAlignment,
                         broadcastColor: ghostty.config.macosBroadcastBadgeColor,
@@ -1022,6 +1023,7 @@ extension Ghostty {
         let readonly: Bool
         let broadcastInput: Bool
         let badge: String?
+        let badgeColor: Color?
         let badgeScale: CGFloat
         let badgeTextAlignment: Ghostty.Config.MacOSSurfaceBadgeTextAlignment
         let broadcastColor: Color
@@ -1059,6 +1061,7 @@ extension Ghostty {
 
         private func customBadge(_ text: String) -> some View {
             let scale = clampedBadgeScale
+            let color = badgeColor ?? Color.primary
 
             return HStack(spacing: 5 * scale) {
                 Image(systemName: "tag.fill")
@@ -1076,8 +1079,8 @@ extension Ghostty {
             }
             .padding(.horizontal, 8 * scale)
             .padding(.vertical, 4 * scale)
-            .background(badgeBackground(stroke: .accentColor, scale: scale))
-            .foregroundStyle(Color.primary)
+            .background(badgeBackground(stroke: badgeColor ?? .accentColor, scale: scale))
+            .foregroundStyle(color)
             .help(text)
         }
 

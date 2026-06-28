@@ -337,6 +337,7 @@ pub const StreamHandler = struct {
             .report_pwd => try self.reportPwd(value.url),
             .show_desktop_notification => try self.showDesktopNotification(value.title, value.body),
             .progress_report => self.progressReport(value),
+            .set_badge => try self.setBadge(value.badge),
             .start_hyperlink => try self.startHyperlink(value.uri, value.id),
             .clipboard_contents => try self.clipboardContents(value.kind, value.data),
             .semantic_prompt => try self.semanticPrompt(value),
@@ -939,6 +940,15 @@ pub const StreamHandler = struct {
 
     //-------------------------------------------------------------------------
     // OSC
+
+    fn setBadge(self: *StreamHandler, badge: []const u8) !void {
+        self.surfaceMessageWriter(.{
+            .set_badge = try apprt.surface.Message.WriteReq.init(
+                self.alloc,
+                badge,
+            ),
+        });
+    }
 
     fn windowTitle(self: *StreamHandler, title: []const u8) !void {
         var buf: [256]u8 = undefined;

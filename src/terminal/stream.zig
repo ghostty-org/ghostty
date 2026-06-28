@@ -130,6 +130,7 @@ pub const Action = union(Key) {
     semantic_prompt: SemanticPrompt,
     kitty_clipboard: KittyClipboard,
     kitty_dnd: KittyDnd,
+    set_badge: SetBadge,
 
     pub const Key = lib.Enum(
         lib.target,
@@ -231,6 +232,7 @@ pub const Action = union(Key) {
             "semantic_prompt",
             "kitty_clipboard",
             "kitty_dnd",
+            "set_badge",
         },
     );
 
@@ -453,6 +455,16 @@ pub const Action = union(Key) {
     pub const KittyClipboard = osc.Command.KittyClipboardProtocol;
 
     pub const KittyDnd = osc.Command.KittyDndProtocol;
+
+    pub const SetBadge = struct {
+        badge: []const u8,
+
+        pub const C = lib.String;
+
+        pub fn cval(self: SetBadge) SetBadge.C {
+            return .init(self.badge);
+        }
+    };
 };
 
 /// Returns a type that can process a stream of tty control characters.
@@ -2683,6 +2695,39 @@ pub fn Stream(comptime H: type) type {
                     self.handler.vt(.kitty_dnd, v);
                 },
 
+                .set_badge => |v| {
+                    var badge_buf: [osc.Parser.MAX_BUF]u8 = undefined;
+                    const badge: []const u8 = badge: {
+                        if (v.value.len == 0) break :badge "";
+
+                        const decoder = std.base64.standard.Decoder;
+                        const size = decoder.calcSizeForSlice(v.value) catch |err| {
+                            log.warn("badge request: invalid base64 payload: {}", .{err});
+                            return;
+                        };
+
+                        if (size > badge_buf.len) {
+                            log.warn("badge request: decoded payload too large", .{});
+                            return;
+                        }
+
+                        const decoded = badge_buf[0..size];
+                        decoder.decode(decoded, v.value) catch |err| {
+                            log.warn("badge request: invalid base64 payload: {}", .{err});
+                            return;
+                        };
+
+                        if (!std.unicode.utf8ValidateSlice(decoded)) {
+                            log.warn("badge request: invalid utf-8 payload", .{});
+                            return;
+                        }
+
+                        break :badge decoded;
+                    };
+
+                    self.handler.vt(.set_badge, .{ .badge = badge });
+                },
+
                 .conemu_sleep,
                 .conemu_show_message_box,
                 .conemu_change_tab_title,
@@ -3991,6 +4036,34 @@ test "stream: osc bulk path matches per-byte path" {
             );
         }
     }
+}
+
+test "stream: set badge" {
+    const H = struct {
+        seen: bool = false,
+        badge: [64]u8 = undefined,
+        badge_len: usize = 0,
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) void {
+            switch (action) {
+                .set_badge => {
+                    self.seen = true;
+                    self.badge_len = value.badge.len;
+                    @memcpy(self.badge[0..value.badge.len], value.badge);
+                },
+                else => {},
+            }
+        }
+    };
+
+    var s: Stream(H) = .init(.{});
+    s.nextSlice("\x1b]1337;SetBadgeFormat=UHJvZHVjdGlvbg==\x07");
+    try testing.expect(s.handler.seen);
+    try testing.expectEqualStrings("Production", s.handler.badge[0..s.handler.badge_len]);
 }
 
 test "stream: insert characters" {

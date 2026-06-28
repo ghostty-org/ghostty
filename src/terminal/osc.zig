@@ -167,6 +167,13 @@ pub const Command = union(Key) {
     /// Kitty desktop notifications (OSC 99)
     kitty_desktop_notification: KittyDesktopNotification,
 
+    /// Set the surface badge. This is currently parsed from iTerm2's
+    /// OSC 1337 SetBadgeFormat sequence. The value is the raw base64 payload
+    /// and is decoded by the terminal stream.
+    set_badge: struct {
+        value: [:0]const u8,
+    },
+
     pub const SemanticPrompt = parsers.semantic_prompt.Command;
 
     pub const KittyClipboardProtocol = parsers.kitty_clipboard_protocol.OSC;
@@ -206,6 +213,7 @@ pub const Command = union(Key) {
             "kitty_dnd_protocol",
             "context_signal",
             "kitty_desktop_notification",
+            "set_badge",
         },
     );
 
@@ -454,6 +462,7 @@ pub const Parser = struct {
             .kitty_dnd_protocol,
             .kitty_desktop_notification,
             .context_signal,
+            .set_badge,
             => {},
         }
 

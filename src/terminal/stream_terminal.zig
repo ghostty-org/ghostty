@@ -517,6 +517,7 @@ pub const Handler = struct {
             .dcs_unhook => try self.dcsUnhook(),
 
             // Have no terminal-modifying effect
+            .set_badge,
             .title_push,
             .title_pop,
             => {},

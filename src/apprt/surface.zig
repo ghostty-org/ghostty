@@ -130,6 +130,9 @@ pub const Message = union(enum) {
     /// The terminal has reported a change in the working directory.
     pwd_change: WriteReq,
 
+    /// Set or clear the surface badge.
+    set_badge: WriteReq,
+
     /// The terminal encountered a bell character.
     ring_bell,
 

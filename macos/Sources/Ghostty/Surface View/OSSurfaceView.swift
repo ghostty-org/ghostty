@@ -55,6 +55,9 @@ extension Ghostty {
         /// User-provided badge shown over this surface.
         @Published private(set) var badge: String?
 
+        /// Optional color for the user-provided surface badge.
+        @Published private(set) var badgeColor: Color?
+
         /// True when the surface should show a highlight effect (e.g., when presented via goto_split).
         @Published private(set) var highlighted: Bool = false
 
@@ -118,10 +121,28 @@ extension Ghostty {
         func setBadge(_ value: String?) {
             let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
             if let trimmed, !trimmed.isEmpty {
-                badge = trimmed
+                let parsed = Self.parseBadge(trimmed)
+                badge = parsed.text
+                badgeColor = parsed.color
             } else {
                 badge = nil
+                badgeColor = nil
             }
+        }
+
+        private static func parseBadge(_ value: String) -> (text: String, color: Color?) {
+            guard let separator = value.range(of: "\u{1F}", options: .backwards) else {
+                return (value, nil)
+            }
+
+            let text = String(value[..<separator.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let colorSpec = String(value[separator.upperBound...])
+            guard !text.isEmpty, let color = Color(hexRGB: colorSpec) else {
+                return (value, nil)
+            }
+
+            return (text, color)
         }
 
         @MainActor
@@ -134,6 +155,22 @@ extension Ghostty {
         func focusDidChange(_ focused: Bool) {}
 
         func sizeDidChange(_ size: CGSize) {}
+    }
+}
+
+private extension Color {
+    init?(hexRGB value: String) {
+        var hex = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if hex.hasPrefix("#") {
+            hex.removeFirst()
+        }
+
+        guard hex.count == 6, let raw = UInt32(hex, radix: 16) else { return nil }
+        self.init(
+            red: Double((raw >> 16) & 0xff) / 255,
+            green: Double((raw >> 8) & 0xff) / 255,
+            blue: Double(raw & 0xff) / 255
+        )
     }
 }
 
