@@ -1402,6 +1402,11 @@ extension Ghostty {
             return true
         }
 
+        func modifiersChanged(with event: NSEvent) {
+            guard let surface = self.surface else { return }
+            ghostty_surface_set_mods(surface, Ghostty.ghosttyMods(event.modifierFlags))
+        }
+
         override func flagsChanged(with event: NSEvent) {
             let mod: UInt32
             switch event.keyCode {
