@@ -184,6 +184,7 @@ extension Ghostty {
         var notificationIdentifiers: Set<String> = []
 
         private var markedText: NSMutableAttributedString
+        private var markedTextSelectedLocation: Int = 0
         private(set) var focused: Bool = true
         private var prevPressureStage: Int = 0
         private var appearanceObserver: NSKeyValueObservation?
@@ -1902,9 +1903,11 @@ extension Ghostty.SurfaceView: NSTextInputClient {
         switch string {
         case let v as NSAttributedString:
             self.markedText = NSMutableAttributedString(attributedString: v)
+            self.markedTextSelectedLocation = selectedRange.location
 
         case let v as String:
             self.markedText = NSMutableAttributedString(string: v)
+            self.markedTextSelectedLocation = selectedRange.location
 
         default:
             print("unknown marked text: \(string)")
@@ -2079,13 +2082,18 @@ extension Ghostty.SurfaceView: NSTextInputClient {
             if len > 0 {
                 markedText.string.withCString { ptr in
                     // Subtract 1 for the null terminator
-                    ghostty_surface_preedit(surface, ptr, UInt(len - 1))
+                    ghostty_surface_preedit(
+                        surface,
+                        ptr,
+                        UInt(len - 1),
+                        Int32(markedTextSelectedLocation)
+                    )
                 }
             }
         } else if clearIfNeeded {
             // If we had marked text before but don't now, we're no longer
             // in a preedit state so we can clear it.
-            ghostty_surface_preedit(surface, nil, 0)
+            ghostty_surface_preedit(surface, nil, 0, 0)
         }
     }
 
