@@ -2815,7 +2815,10 @@ pub const Surface = extern struct {
             return;
         }
 
-        if (button == .middle and !priv.gtk_enable_primary_paste) {
+        if (button == .middle and
+            !priv.gtk_enable_primary_paste and
+            !core_surface.mouseReportingActive())
+        {
             return;
         }
 
@@ -2875,7 +2878,10 @@ pub const Surface = extern struct {
             return;
         }
 
-        if (button == .middle and !priv.gtk_enable_primary_paste) {
+        if (button == .middle and
+            !priv.gtk_enable_primary_paste and
+            !surface.mouseReportingActive())
+        {
             return;
         }
 
