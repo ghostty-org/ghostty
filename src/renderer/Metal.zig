@@ -70,7 +70,7 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Metal {
     _ = alloc;
 
     // Choose our MTLDevice and create a MTLCommandQueue for that device.
-    const device = try chooseDevice();
+    const device = try chooseDevice(opts.config.macos_gpu);
     errdefer device.release();
     const queue = device.msgSend(objc.Object, objc.sel("newCommandQueue"), .{});
     errdefer queue.release();
@@ -407,24 +407,35 @@ pub inline fn beginFrame(
     return try Frame.begin(.{ .queue = self.queue }, renderer, target);
 }
 
-fn chooseDevice() error{NoMetalDevice}!objc.Object {
+fn chooseDevice(gpu: configpkg.Config.MacOSGPU) error{NoMetalDevice}!objc.Object {
     var chosen_device: ?objc.Object = null;
 
     switch (comptime builtin.os.tag) {
         .macos => {
-            const devices = objc.Object.fromId(mtl.MTLCopyAllDevices());
-            defer devices.release();
+            switch (gpu) {
+                .automatic => {
+                    chosen_device = objc.Object.fromId(mtl.MTLCreateSystemDefaultDevice());
+                },
 
-            var iter = devices.iterate();
-            while (iter.next()) |device| {
-                // We want a GPU that’s connected to a display.
-                if (device.getProperty(bool, "isHeadless")) continue;
-                chosen_device = device;
-                // If the user has an eGPU plugged in, they probably want
-                // to use it. Otherwise, integrated GPUs are better for
-                // battery life and thermals.
-                if (device.getProperty(bool, "isRemovable") or
-                    device.getProperty(bool, "isLowPower")) break;
+                .@"low-power", .@"high-performance" => {
+                    const devices = objc.Object.fromId(mtl.MTLCopyAllDevices());
+                    defer devices.release();
+
+                    var iter = devices.iterate();
+                    while (iter.next()) |device| {
+                        // We want a GPU that's connected to a display.
+                        if (device.getProperty(bool, "isHeadless")) continue;
+                        chosen_device = device;
+                        if (device.getProperty(bool, "isRemovable")) break;
+
+                        const low_power = device.getProperty(bool, "isLowPower");
+                        switch (gpu) {
+                            .automatic => unreachable,
+                            .@"low-power" => if (low_power) break,
+                            .@"high-performance" => if (!low_power) break,
+                        }
+                    }
+                },
             }
         },
         .ios => {

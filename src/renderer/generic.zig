@@ -570,6 +570,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             blending: configpkg.Config.AlphaBlending,
             background_blur: configpkg.Config.BackgroundBlur,
             scroll_to_bottom_on_output: bool,
+            macos_gpu: configpkg.Config.MacOSGPU,
 
             pub fn init(
                 alloc_gpa: Allocator,
@@ -644,6 +645,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .blending = config.@"alpha-blending",
                     .background_blur = config.@"background-blur",
                     .scroll_to_bottom_on_output = config.@"scroll-to-bottom".output,
+                    .macos_gpu = config.@"macos-gpu",
                     .arena = arena,
                 };
             }

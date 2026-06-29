@@ -3296,6 +3296,23 @@ keybind: Keybinds = .{},
 /// platforms.
 @"macos-dock-drop-behavior": MacOSDockDropBehavior = .@"new-tab",
 
+/// Select which GPU Ghostty should use for Metal rendering on macOS.
+///
+/// Valid values are:
+///
+///   * `low-power` - Prefer an integrated GPU when one is available. This
+///     reduces power usage and heat on Mac laptops.
+///   * `high-performance` - Prefer a discrete GPU when one is available. This
+///     can improve rendering performance on systems with multiple GPUs, at the
+///     cost of increased power usage and heat.
+///   * `automatic` - Use the system default Metal device.
+///
+/// The default value is `low-power`.
+///
+/// This setting is only supported on macOS and has no effect on other
+/// platforms. Changing this option requires restarting Ghostty.
+@"macos-gpu": MacOSGPU = .@"low-power",
+
 /// macOS doesn't have a distinct "alt" key and instead has the "option"
 /// key which behaves slightly differently. On macOS by default, the
 /// option key plus a character will sometimes produce a Unicode character.
@@ -9012,6 +9029,13 @@ pub const MacTitlebarProxyIcon = enum {
     hidden,
 };
 
+/// See macos-gpu
+pub const MacOSGPU = enum {
+    automatic,
+    @"low-power",
+    @"high-performance",
+};
+
 /// See macos-hidden
 pub const MacHidden = enum {
     never,
@@ -10938,5 +10962,38 @@ test "compatibility: window new-window" {
             MacOSDockDropBehavior.@"new-window",
             cfg.@"macos-dock-drop-behavior",
         );
+    }
+}
+
+test "macos-gpu" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        try testing.expectEqual(MacOSGPU.@"low-power", cfg.@"macos-gpu");
+    }
+
+    inline for (.{ .automatic, .@"low-power", .@"high-performance" }) |value| {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            "--macos-gpu=" ++ @tagName(value),
+        } };
+        try cfg.loadIter(alloc, &it);
+        try cfg.finalize();
+
+        try testing.expectEqual(value, cfg.@"macos-gpu");
+    }
+
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            "--macos-gpu=fast",
+        } };
+        try cfg.loadIter(alloc, &it);
+        try testing.expect(!cfg._diagnostics.empty());
     }
 }
