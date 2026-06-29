@@ -1751,6 +1751,13 @@ pub const CAPI = struct {
         surface.focusCallback(focused);
     }
 
+    /// Reset key state without sending key releases to the terminal.
+    export fn ghostty_surface_reset_key_state(surface: *Surface) void {
+        surface.core_surface.resetKeyState() catch |err| {
+            log.warn("error resetting key state err={}", .{err});
+        };
+    }
+
     /// Update the occlusion state of a surface.
     export fn ghostty_surface_set_occlusion(surface: *Surface, visible: bool) void {
         surface.occlusionCallback(visible);

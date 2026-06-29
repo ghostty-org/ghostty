@@ -1,4 +1,6 @@
 @testable import Ghostty
+import AppKit
+import GhosttyKit
 import Testing
 
 struct SurfaceViewAppKitTests {
@@ -39,6 +41,36 @@ struct SurfaceViewAppKitTests {
                 nil,
                 composing: true
             ) == false
+        )
+    }
+
+    @Test func modifierActionPressesBaseModifier() throws {
+        let mod = try #require(Ghostty.SurfaceView.modifierMask(for: 0x3A))
+        let flags = NSEvent.ModifierFlags.option
+        let mods = Ghostty.ghosttyMods(flags)
+
+        #expect(
+            Ghostty.SurfaceView.modifierAction(
+                keyCode: 0x3A,
+                flags: flags,
+                mod: mod,
+                mods: mods
+            ) == GHOSTTY_ACTION_PRESS
+        )
+    }
+
+    @Test func modifierActionReleasesSideModifierWhenOtherSideRemainsPressed() throws {
+        let mod = try #require(Ghostty.SurfaceView.modifierMask(for: 0x3D))
+        let flags = NSEvent.ModifierFlags.option
+        let mods = Ghostty.ghosttyMods(flags)
+
+        #expect(
+            Ghostty.SurfaceView.modifierAction(
+                keyCode: 0x3D,
+                flags: flags,
+                mod: mod,
+                mods: mods
+            ) == GHOSTTY_ACTION_RELEASE
         )
     }
 }

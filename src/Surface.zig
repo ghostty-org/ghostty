@@ -1557,6 +1557,27 @@ fn modsChanged(self: *Surface, mods: input.Mods) void {
     }
 }
 
+/// Reset key state tracked for UI affordances without sending any key event
+/// to the PTY. This is used by apprts when the OS may have stolen focus before
+/// delivering matching key releases.
+pub fn resetKeyState(self: *Surface) !void {
+    self.pressed_key = null;
+    self.modsChanged(.{});
+
+    if ((SurfaceMouse{
+        .physical_key = .alt_left,
+        .mouse_event = self.io.terminal.flags.mouse_event,
+        .mouse_shape = self.io.terminal.mouse_shape,
+        .mods = self.mouse.mods,
+        .over_link = self.mouse.over_link,
+        .hidden = self.mouse.hidden,
+    }).keyToMouseShape()) |shape| _ = try self.rt_app.performAction(
+        .{ .surface = self },
+        .mouse_shape,
+        shape,
+    );
+}
+
 /// Call this whenever the mouse moves or mods changed. The time
 /// at which this is called may matter for the correctness of other
 /// mouse events (see cursorPosCallback) but this is shared logic

@@ -348,6 +348,16 @@ extension Ghostty {
                 selector: #selector(windowDidChangeScreen),
                 name: NSWindow.didChangeScreenNotification,
                 object: nil)
+            center.addObserver(
+                self,
+                selector: #selector(windowDidResignKey),
+                name: NSWindow.didResignKeyNotification,
+                object: nil)
+            center.addObserver(
+                self,
+                selector: #selector(applicationDidResignActive),
+                name: NSApplication.didResignActiveNotification,
+                object: nil)
 
             // Listen for local events that we need to know of outside of
             // single surface handlers.
@@ -429,6 +439,7 @@ extension Ghostty {
             // sent to stop things like mouse selection.
             if !focused {
                 suppressNextLeftMouseUp = false
+                resetKeyState()
             }
 
             // Notify libghostty
@@ -798,6 +809,16 @@ extension Ghostty {
             DispatchQueue.main.async { [weak self] in
                 self?.viewDidChangeBackingProperties()
             }
+        }
+
+        @objc private func windowDidResignKey(notification: SwiftUI.Notification) {
+            guard let window = self.window else { return }
+            guard let object = notification.object as? NSWindow, window == object else { return }
+            resetKeyState()
+        }
+
+        @objc private func applicationDidResignActive(notification: SwiftUI.Notification) {
+            resetKeyState()
         }
 
         // MARK: - NSView
@@ -1403,15 +1424,7 @@ extension Ghostty {
         }
 
         override func flagsChanged(with event: NSEvent) {
-            let mod: UInt32
-            switch event.keyCode {
-            case 0x39: mod = GHOSTTY_MODS_CAPS.rawValue
-            case 0x38, 0x3C: mod = GHOSTTY_MODS_SHIFT.rawValue
-            case 0x3B, 0x3E: mod = GHOSTTY_MODS_CTRL.rawValue
-            case 0x3A, 0x3D: mod = GHOSTTY_MODS_ALT.rawValue
-            case 0x37, 0x36: mod = GHOSTTY_MODS_SUPER.rawValue
-            default: return
-            }
+            guard let mod = Self.modifierMask(for: event.keyCode) else { return }
 
             // If we're in the middle of a preedit, don't do anything with mods.
             if hasMarkedText() { return }
@@ -1421,32 +1434,18 @@ extension Ghostty {
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
 
             // If the key that pressed this is active, its a press, else release.
-            var action = GHOSTTY_ACTION_RELEASE
-            if mods.rawValue & mod != 0 {
-                // If the key is pressed, its slightly more complicated, because we
-                // want to check if the pressed modifier is the correct side. If the
-                // correct side is pressed then its a press event otherwise its a release
-                // event with the opposite modifier still held.
-                let sidePressed: Bool
-                switch event.keyCode {
-                case 0x3C:
-                    sidePressed = event.modifierFlags.rawValue & UInt(NX_DEVICERSHIFTKEYMASK) != 0
-                case 0x3E:
-                    sidePressed = event.modifierFlags.rawValue & UInt(NX_DEVICERCTLKEYMASK) != 0
-                case 0x3D:
-                    sidePressed = event.modifierFlags.rawValue & UInt(NX_DEVICERALTKEYMASK) != 0
-                case 0x36:
-                    sidePressed = event.modifierFlags.rawValue & UInt(NX_DEVICERCMDKEYMASK) != 0
-                default:
-                    sidePressed = true
-                }
-
-                if sidePressed {
-                    action = GHOSTTY_ACTION_PRESS
-                }
-            }
+            let action = Self.modifierAction(
+                keyCode: event.keyCode,
+                flags: event.modifierFlags,
+                mod: mod,
+                mods: mods)
 
             _ = keyAction(action, event: event)
+        }
+
+        private func resetKeyState() {
+            guard let surface = self.surface else { return }
+            ghostty_surface_reset_key_state(surface)
         }
 
         private func keyAction(
@@ -2104,6 +2103,46 @@ extension Ghostty.SurfaceView: NSTextInputClient {
         }
         return scalar.value < 0x20
     }
+
+    static func modifierMask(for keyCode: UInt16) -> UInt32? {
+        switch keyCode {
+        case 0x39: return GHOSTTY_MODS_CAPS.rawValue
+        case 0x38, 0x3C: return GHOSTTY_MODS_SHIFT.rawValue
+        case 0x3B, 0x3E: return GHOSTTY_MODS_CTRL.rawValue
+        case 0x3A, 0x3D: return GHOSTTY_MODS_ALT.rawValue
+        case 0x37, 0x36: return GHOSTTY_MODS_SUPER.rawValue
+        default: return nil
+        }
+    }
+
+    static func modifierAction(
+        keyCode: UInt16,
+        flags: NSEvent.ModifierFlags,
+        mod: UInt32,
+        mods: ghostty_input_mods_e
+    ) -> ghostty_input_action_e {
+        guard mods.rawValue & mod != 0 else { return GHOSTTY_ACTION_RELEASE }
+
+        // For side-specific modifiers, AppKit keeps the base modifier flag set
+        // while the opposite side remains held. Check the side bit so releasing
+        // right shift with left shift still down reports a release for right shift.
+        let sidePressed: Bool
+        switch keyCode {
+        case 0x3C:
+            sidePressed = flags.rawValue & UInt(NX_DEVICERSHIFTKEYMASK) != 0
+        case 0x3E:
+            sidePressed = flags.rawValue & UInt(NX_DEVICERCTLKEYMASK) != 0
+        case 0x3D:
+            sidePressed = flags.rawValue & UInt(NX_DEVICERALTKEYMASK) != 0
+        case 0x36:
+            sidePressed = flags.rawValue & UInt(NX_DEVICERCMDKEYMASK) != 0
+        default:
+            sidePressed = true
+        }
+
+        return sidePressed ? GHOSTTY_ACTION_PRESS : GHOSTTY_ACTION_RELEASE
+    }
+
 }
 
 // MARK: Services
