@@ -18,6 +18,13 @@ pub const Handler = struct {
     /// This is arbitrarily set to 1MB today, increase if needed.
     max_bytes: usize = 1024 * 1024,
 
+    /// Tracks whether we received an ESC byte that could be the start
+    /// of a 7-bit ST (ESC \). Because ESC is now forwarded as .put in
+    /// dcs_passthrough (to prevent premature DCS termination from ESC
+    /// bytes embedded in tmux control mode output), we must detect
+    /// 7-bit ST ourselves.
+    pending_esc: bool = false,
+
     pub fn deinit(self: *Handler) void {
         self.discard();
     }
@@ -27,6 +34,7 @@ pub const Handler = struct {
 
         // Initialize our state to ignore in case of error
         self.state = .ignore;
+        self.pending_esc = false;
 
         // Try to parse the hook.
         const hk_ = self.tryHook(alloc, dcs) catch |err| {
@@ -112,8 +120,34 @@ pub const Handler = struct {
     /// Put a byte into the DCS handler. This will return a command
     /// if a command needs to be executed.
     pub fn put(self: *Handler, byte: u8) ?Command {
+        // Handle 7-bit ST detection. Because ESC (0x1B) is now forwarded
+        // as .put in dcs_passthrough (rather than triggering a state
+        // transition to .escape), we must detect the ESC + '\' sequence
+        // that forms 7-bit ST ourselves.
+        if (self.pending_esc) {
+            self.pending_esc = false;
+            if (byte == 0x5C) {
+                // ESC \ = 7-bit ST → terminate DCS, same as unhook()
+                return self.unhook();
+            }
+
+            // Not ST: forward the stored ESC to the sub-handler first,
+            // then fall through to handle the current byte normally.
+            if (self.forwardPut(0x1B)) |cmd| return cmd;
+            return self.forwardPut(byte);
+        }
+
+        if (byte == 0x1B) {
+            self.pending_esc = true;
+            return null;
+        }
+
+        return self.forwardPut(byte);
+    }
+
+    /// Forward a byte to the appropriate sub-handler.
+    fn forwardPut(self: *Handler, byte: u8) ?Command {
         return self.tryPut(byte) catch |err| {
-            // On error we just discard our state and ignore the rest
             log.info("error putting byte into DCS handler err={}", .{err});
             self.discard();
             self.state = .ignore;
@@ -158,6 +192,7 @@ pub const Handler = struct {
         // Note: we do NOT call deinit here on purpose because some commands
         // transfer memory ownership. If state needs cleanup, the switch
         // prong below should handle it.
+        self.pending_esc = false;
         defer self.state = .inactive;
 
         return switch (self.state) {
@@ -199,6 +234,7 @@ pub const Handler = struct {
     }
 
     fn discard(self: *Handler) void {
+        self.pending_esc = false;
         self.state.deinit();
         self.state = .inactive;
     }
@@ -427,4 +463,140 @@ test "tmux enter and implicit exit" {
         try testing.expect(cmd == .tmux);
         try testing.expect(cmd.tmux == .exit);
     }
+}
+
+test "7-bit ST (ESC \\) terminates DCS via put" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Use XTGETTCAP as a simple DCS to test with
+    var h: Handler = .{};
+    defer h.deinit();
+    try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
+
+    // Put some data
+    for ("536D756C78") |byte| _ = h.put(byte);
+
+    // Now send ESC \ (7-bit ST)
+    try testing.expect(h.put(0x1B) == null); // ESC buffered
+    var cmd = h.put(0x5C).?; // '\' completes ST → unhook
+    defer cmd.deinit();
+    try testing.expect(cmd == .xtgettcap);
+    try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
+    try testing.expect(cmd.xtgettcap.next() == null);
+
+    // Handler should be inactive after ST
+    try testing.expect(h.state == .inactive);
+    try testing.expect(h.pending_esc == false);
+}
+
+test "ESC followed by non-backslash is forwarded" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Use XTGETTCAP as a simple DCS to test with
+    var h: Handler = .{};
+    defer h.deinit();
+    try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
+
+    // Put some data
+    for ("AB") |byte| _ = h.put(byte);
+
+    // Send ESC followed by '[' (not ST — this is CSI start)
+    try testing.expect(h.put(0x1B) == null); // ESC buffered
+    try testing.expect(h.put('[') == null); // Not ST, both bytes forwarded
+
+    // The ESC and '[' should be in the buffer
+    var cmd = h.unhook().?;
+    defer cmd.deinit();
+    try testing.expect(cmd == .xtgettcap);
+    // Buffer should contain: "AB" + ESC + "["
+    try testing.expectEqualStrings("AB\x1b[", cmd.xtgettcap.next().?);
+}
+
+test "tmux: ESC in block content does not cause exit" {
+    if (comptime !build_options.tmux_control_mode) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var h: Handler = .{};
+    defer h.deinit();
+
+    {
+        var cmd = h.hook(alloc, .{ .params = &.{1000}, .final = 'p' }).?;
+        defer cmd.deinit();
+        try testing.expect(cmd == .tmux);
+        try testing.expect(cmd.tmux == .enter);
+    }
+
+    // Simulate tmux sending a %begin block with embedded ESC sequences
+    // (like capture-pane -e output with SGR codes)
+    const block_with_esc =
+        "%begin 1234 1 0\n" ++
+        "\x1b[32mhello\x1b[0m\n" ++ // SGR green + reset
+        "%end 1234 1 0\n";
+
+    var got_block_end = false;
+    for (block_with_esc) |byte| {
+        if (h.put(byte)) |cmd| {
+            // We should get a tmux block_end notification, NOT an exit
+            try testing.expect(cmd == .tmux);
+            switch (cmd.tmux) {
+                .exit => return error.TestUnexpectedResult,
+                .block_end => {
+                    got_block_end = true;
+                },
+                else => {},
+            }
+        }
+    }
+
+    // We should still be in tmux state (not exited)
+    try testing.expect(h.state == .tmux);
+    try testing.expect(got_block_end);
+}
+
+test "tmux: 7-bit ST exits tmux control mode" {
+    if (comptime !build_options.tmux_control_mode) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var h: Handler = .{};
+    defer h.deinit();
+
+    {
+        var cmd = h.hook(alloc, .{ .params = &.{1000}, .final = 'p' }).?;
+        defer cmd.deinit();
+        try testing.expect(cmd == .tmux);
+        try testing.expect(cmd.tmux == .enter);
+    }
+
+    // Send ESC \ (7-bit ST) to terminate tmux control mode
+    try testing.expect(h.put(0x1B) == null);
+    var cmd = h.put(0x5C).?;
+    defer cmd.deinit();
+    try testing.expect(cmd == .tmux);
+    try testing.expect(cmd.tmux == .exit);
+    try testing.expect(h.state == .inactive);
+}
+
+test "pending_esc is cleared on hook" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var h: Handler = .{};
+    defer h.deinit();
+
+    // Manually set pending_esc (simulating leftover state)
+    h.pending_esc = true;
+
+    // Hook into XTGETTCAP — hook should clear pending_esc
+    try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
+    try testing.expect(h.pending_esc == false);
+
+    // Clean up: unhook so deinit doesn't leak
+    var cmd = h.unhook().?;
+    cmd.deinit();
 }
