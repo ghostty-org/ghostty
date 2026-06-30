@@ -1344,6 +1344,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Reset our dirty state after updating.
             defer self.terminal_state.dirty = .false;
 
+            // Notify the surface that content has changed so it can post
+            // accessibility notifications. Like scrollbar, we fail instantly
+            // if the mailbox is full — we'll catch the next frame.
+            if (self.terminal_state.dirty != .false) {
+                _ = self.surface_mailbox.push(.{
+                    .content_changed = {},
+                }, .{ .instant = {} });
+            }
+
             // Rebuild the overlay image if we have one. We can do this
             // outside of any critical areas.
             self.rebuildOverlay(
