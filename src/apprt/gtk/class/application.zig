@@ -710,6 +710,10 @@ pub const Application = extern struct {
 
             .new_tab => return Action.newTab(target),
 
+            // TODO: GTK does not yet support the custom command and
+            // falls back to opening a regular new tab.
+            .new_tab_with_command => return Action.newTab(target),
+
             .new_window => try Action.newWindow(
                 self,
                 switch (target) {

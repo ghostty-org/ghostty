@@ -821,6 +821,12 @@ typedef struct {
   uintptr_t len;
 } ghostty_action_open_url_s;
 
+// apprt.action.NewTabCommand.C
+typedef struct {
+  const char* command;
+  uintptr_t len;
+} ghostty_action_new_tab_with_command_s;
+
 // apprt.action.CloseTabMode
 typedef enum {
   GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS,
@@ -949,6 +955,7 @@ typedef enum {
   GHOSTTY_ACTION_SEARCH_SELECTED,
   GHOSTTY_ACTION_READONLY,
   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
+  GHOSTTY_ACTION_NEW_TAB_WITH_COMMAND,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -990,6 +997,7 @@ typedef union {
   ghostty_action_search_total_s search_total;
   ghostty_action_search_selected_s search_selected;
   ghostty_action_readonly_e readonly;
+  ghostty_action_new_tab_with_command_s new_tab_with_command;
 } ghostty_action_u;
 
 typedef struct {

@@ -5268,6 +5268,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        .new_tab_with_command => |v| return try self.rt_app.performAction(
+            .{ .surface = self },
+            .new_tab_with_command,
+            .{ .command = v },
+        ),
+
         .close_tab => |v| return try self.rt_app.performAction(
             .{ .surface = self },
             .close_tab,
