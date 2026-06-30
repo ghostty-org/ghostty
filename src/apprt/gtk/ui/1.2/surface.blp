@@ -223,6 +223,9 @@ Overlay terminal_page {
 
   DropTarget drop_target {
     drop => $drop();
+    enter => $drop_enter();
+    motion => $drop_motion();
+    leave => $drop_leave();
     actions: copy | move;
   }
 }

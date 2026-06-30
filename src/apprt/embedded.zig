@@ -981,6 +981,11 @@ pub const Surface = struct {
         return env;
     }
 
+    /// Handle an inbound Kitty drag-and-drop (OSC 72) event. The embedded
+    /// apprt does not yet implement native drag-and-drop; events are dropped.
+    /// The caller frees any owned payload on the message.
+    pub fn handleDnd(_: *Surface, _: apprt.surface.DndMessage) !void {}
+
     /// The cursor position from the host directly is in screen coordinates but
     /// all our interface works in pixels.
     fn cursorPosToPixels(self: *const Surface, pos: apprt.CursorPos) !apprt.CursorPos {
