@@ -49,6 +49,47 @@ extension Ghostty {
         /// True when the surface is in readonly mode.
         @Published private(set) var readonly: Bool = false
 
+        /// Snapshot of the full screen text with viewport position,
+        /// optional selection range, and line-start offsets precomputed
+        /// in UTF-16 space (NSRange semantics).
+        struct ScreenText: Equatable {
+            static let empty = ScreenText(
+                text: "",
+                viewportRange: NSRange(location: 0, length: 0),
+                selectionRange: nil,
+                utf16Length: 0,
+                lineStarts: [0]
+            )
+
+            let text: String
+            let viewportRange: NSRange
+            let selectionRange: NSRange?
+            let utf16Length: Int
+
+            /// UTF-16 offsets of the start of each line. Always
+            /// non-empty: index 0 is 0 even for an empty string.
+            let lineStarts: [Int]
+
+            /// Line number (0-based) containing the given UTF-16
+            /// offset. Out-of-range offsets clamp to the nearest
+            /// valid position.
+            func line(at index: Int) -> Int {
+                let clamped = max(0, min(index, utf16Length))
+                // Upper-bound search over lineStarts.
+                var lo = 0
+                var hi = lineStarts.count
+                while lo < hi {
+                    let mid = lo + (hi - lo) / 2
+                    if lineStarts[mid] <= clamped {
+                        lo = mid + 1
+                    } else {
+                        hi = mid
+                    }
+                }
+                return lo - 1
+            }
+        }
+
         /// True when the surface should show a highlight effect (e.g., when presented via goto_split).
         @Published private(set) var highlighted: Bool = false
 
@@ -177,5 +218,70 @@ extension Ghostty.OSSurfaceView {
             return false
         }
         return true
+    }
+}
+
+extension Ghostty.OSSurfaceView.ScreenText {
+    /// Build from a UTF-8 string and the byte offsets that delimit
+    /// the viewport and (optionally) the selection, translating to
+    /// UTF-16 / NSRange space. A zero-length selection input means
+    /// "no selection."
+    init(
+        text: String,
+        viewportStartByte: Int,
+        viewportEndByte: Int,
+        selectionStartByte: Int = 0,
+        selectionEndByte: Int = 0
+    ) {
+        let utf8 = text.utf8
+        let utf16Length = text.utf16.count
+
+        // Convert a UTF-8 byte range from the Zig side to a UTF-16
+        // NSRange, clamping out-of-range offsets to end-of-text.
+        func range(from startByte: Int, to endByte: Int) -> NSRange {
+            let start = utf8.index(
+                utf8.startIndex, offsetBy: startByte, limitedBy: utf8.endIndex
+            )?.utf16Offset(in: text) ?? utf16Length
+            let end = max(start, utf8.index(
+                utf8.startIndex, offsetBy: endByte, limitedBy: utf8.endIndex
+            )?.utf16Offset(in: text) ?? utf16Length)
+            return NSRange(location: start, length: end - start)
+        }
+
+        let viewportRange = range(from: viewportStartByte, to: viewportEndByte)
+        let selectionRange: NSRange? = selectionStartByte < selectionEndByte
+            ? range(from: selectionStartByte, to: selectionEndByte)
+            : nil
+
+        // getLineStart's contentsEnd tells us whether the line ended
+        // with a terminator — including at end-of-buffer, where a
+        // trailing terminator means an extra empty line AX clients can
+        // navigate to. Every Unicode line terminator (LF, CR, CRLF,
+        // NEL, LS, PS) counts.
+        let string = text as NSString
+        var lineStarts: [Int] = [0]
+        var cursor = 0
+        while cursor < utf16Length {
+            var start = 0
+            var end = 0
+            var contentsEnd = 0
+            string.getLineStart(
+                &start,
+                end: &end,
+                contentsEnd: &contentsEnd,
+                for: NSRange(location: cursor, length: 0)
+            )
+            if end <= cursor { break }
+            if contentsEnd < end { lineStarts.append(end) }
+            cursor = end
+        }
+
+        self.init(
+            text: text,
+            viewportRange: viewportRange,
+            selectionRange: selectionRange,
+            utf16Length: utf16Length,
+            lineStarts: lineStarts
+        )
     }
 }

@@ -2031,6 +2031,17 @@ pub fn dumpTextLocked(
     };
 }
 
+/// Returns the full screen text and the UTF-8 byte offsets that
+/// delimit the visible viewport, as a self-consistent snapshot.
+pub fn screenText(
+    self: *Surface,
+    alloc: Allocator,
+) !terminal.Screen.ScreenText {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    return try self.io.terminal.screens.active.screenText(alloc);
+}
+
 /// Returns true if the terminal has a selection.
 pub fn hasSelection(self: *const Surface) bool {
     self.renderer_state.mutex.lock();

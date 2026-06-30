@@ -2511,6 +2511,100 @@ pub fn selectionString(
     return text;
 }
 
+/// Full screen text (scrollback + active) with UTF-8 byte ranges
+/// delimiting the visible viewport and (if any) the active selection.
+pub const ScreenText = struct {
+    text: [:0]const u8,
+    viewport: Range,
+    selection: ?Range,
+
+    pub const Range = struct {
+        start: usize,
+        end: usize,
+    };
+
+    /// Slice of `text` containing the visible bytes
+    pub fn visible(self: ScreenText) []const u8 {
+        return self.text[self.viewport.start..self.viewport.end];
+    }
+
+    pub fn deinit(self: ScreenText, alloc: Allocator) void {
+        alloc.free(self.text);
+    }
+};
+
+pub fn screenText(
+    self: *Screen,
+    alloc: Allocator,
+) Allocator.Error!ScreenText {
+    var aw: std.Io.Writer.Allocating = .init(alloc);
+    defer aw.deinit();
+
+    var pins: std.ArrayList(Pin) = .empty;
+    defer pins.deinit(alloc);
+
+    var formatter: ScreenFormatter = .init(self, .{
+        .emit = .plain,
+        .unwrap = true,
+        .trim = false,
+    });
+    formatter.pin_map = .{ .alloc = alloc, .map = &pins };
+    formatter.format(&aw.writer) catch return error.OutOfMemory;
+
+    const text = try aw.toOwnedSliceSentinel(0);
+    errdefer alloc.free(text);
+
+    // The formatter's contract: one Pin per byte written.
+    assert(pins.items.len == text.len);
+
+    // pins.items is monotonic in Pin order (the formatter emits in
+    // document order). Pin.before is O(pages) for cross-node
+    // comparisons, so we use binary search rather than a linear scan.
+    const range = struct {
+        fn locate(items: []const Pin, tl: Pin, br: Pin) ScreenText.Range {
+            const start = std.sort.partitionPoint(Pin, items, tl, struct {
+                fn pred(ctx: Pin, pin: Pin) bool {
+                    return pin.before(ctx);
+                }
+            }.pred);
+            const end = start + std.sort.partitionPoint(
+                Pin,
+                items[start..],
+                br,
+                struct {
+                    fn pred(ctx: Pin, pin: Pin) bool {
+                        return !ctx.before(pin);
+                    }
+                }.pred,
+            );
+            // Preserve `start <= end` when the range sits past end-of-text.
+            return .{ .start = @min(start, end), .end = end };
+        }
+    }.locate;
+
+    const viewport = range(
+        pins.items,
+        self.pages.getTopLeft(.viewport),
+        self.pages.getBottomRight(.viewport).?,
+    );
+
+    const selection: ?ScreenText.Range = if (self.selection) |sel| sel: {
+        var r = range(pins.items, sel.topLeft(self), sel.bottomRight(self));
+        // The partition can include row-terminating newlines whose Pins
+        // the formatter assigned to satisfy empty lines in the text layout.
+        // Trim to match `selectionString`. This is safe because cell bytes
+        // are never '\n'.
+        while (r.end > r.start and text[r.end - 1] == '\n') r.end -= 1;
+        break :sel r;
+    } else null;
+
+    return .{
+        .text = text,
+        .viewport = viewport,
+        .selection = selection,
+    };
+}
+
 pub const SelectLine = struct {
     /// The pin of some part of the line to select.
     pin: Pin,
@@ -10507,4 +10601,295 @@ test "Screen: promptClickMove click right of input cursor on last char" {
 
     try testing.expectEqual(@as(usize, 1), result.right);
     try testing.expectEqual(@as(usize, 0), result.left);
+}
+
+test "Screen: screenText viewport at bottom" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 3, .max_scrollback = 100 });
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL\n4MNOP\n5QRST");
+
+    const result = try s.screenText(alloc);
+    defer result.deinit(alloc);
+
+    try testing.expectEqualStrings("1ABCD\n2EFGH\n3IJKL\n4MNOP\n5QRST", result.text);
+    try testing.expectEqualStrings("3IJKL\n4MNOP\n5QRST", result.visible());
+}
+
+test "Screen: screenText viewport scrolled to top" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 3, .max_scrollback = 100 });
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL\n4MNOP\n5QRST");
+
+    s.scroll(.{ .top = {} });
+
+    const result = try s.screenText(alloc);
+    defer result.deinit(alloc);
+
+    // The trailing newline of the last viewport row is mapped to the
+    // viewport row, not to the row after, so it sits inside the range.
+    try testing.expectEqual(@as(usize, 0), result.viewport.start);
+    try testing.expectEqualStrings("1ABCD\n2EFGH\n3IJKL\n", result.visible());
+}
+
+test "Screen: screenText viewport scrolled mid-buffer" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 3, .max_scrollback = 100 });
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL\n4MNOP\n5QRST");
+
+    s.scroll(.{ .delta_row = -1 });
+
+    const result = try s.screenText(alloc);
+    defer result.deinit(alloc);
+
+    try testing.expectEqualStrings("2EFGH\n3IJKL\n4MNOP\n", result.visible());
+}
+
+test "Screen: screenText empty screen" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 3, .max_scrollback = 100 });
+    defer s.deinit();
+
+    const result = try s.screenText(alloc);
+    defer result.deinit(alloc);
+
+    try testing.expectEqualStrings("", result.text);
+    try testing.expectEqual(@as(usize, 0), result.viewport.start);
+    try testing.expectEqual(@as(usize, 0), result.viewport.end);
+}
+
+test "Screen: screenText wide character at viewport boundary" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 3, .max_scrollback = 100 });
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n好kAB\n4MNOP\n5QRST");
+
+    const result = try s.screenText(alloc);
+    defer result.deinit(alloc);
+
+    // Viewport offsets must land on UTF-8 codepoint boundaries.
+    try testing.expect(result.text[result.viewport.start] & 0xC0 != 0x80);
+    if (result.viewport.end < result.text.len) {
+        try testing.expect(result.text[result.viewport.end] & 0xC0 != 0x80);
+    }
+}
+
+test "Screen: screenText no selection" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 3, .max_scrollback = 100 });
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL");
+
+    const result = try s.screenText(alloc);
+    defer result.deinit(alloc);
+
+    try testing.expect(result.selection == null);
+}
+
+test "Screen: screenText selection inside viewport" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 3, .max_scrollback = 100 });
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL");
+
+    // Select "EFGH" (row 1, full content). End-of-row selections must
+    // not pull in the trailing newline.
+    try s.select(Selection.init(
+        s.pages.pin(.{ .active = .{ .x = 1, .y = 1 } }).?,
+        s.pages.pin(.{ .active = .{ .x = 4, .y = 1 } }).?,
+        false,
+    ));
+
+    const result = try s.screenText(alloc);
+    defer result.deinit(alloc);
+
+    const sel = result.selection.?;
+    try testing.expectEqualStrings("EFGH", result.text[sel.start..sel.end]);
+}
+
+test "Screen: screenText selection mid-row" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 3, .max_scrollback = 100 });
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL");
+
+    // Select "EFG" — ends mid-row, no trailing newline to trim.
+    try s.select(Selection.init(
+        s.pages.pin(.{ .active = .{ .x = 1, .y = 1 } }).?,
+        s.pages.pin(.{ .active = .{ .x = 3, .y = 1 } }).?,
+        false,
+    ));
+
+    const result = try s.screenText(alloc);
+    defer result.deinit(alloc);
+
+    const sel = result.selection.?;
+    try testing.expectEqualStrings("EFG", result.text[sel.start..sel.end]);
+}
+
+test "Screen: screenText selection spanning multiple rows" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 3, .max_scrollback = 100 });
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL");
+
+    // Inter-row newlines are preserved; only the selection's trailing
+    // line terminator gets trimmed.
+    try s.select(Selection.init(
+        s.pages.pin(.{ .active = .{ .x = 1, .y = 0 } }).?,
+        s.pages.pin(.{ .active = .{ .x = 4, .y = 1 } }).?,
+        false,
+    ));
+
+    const result = try s.screenText(alloc);
+    defer result.deinit(alloc);
+
+    const sel = result.selection.?;
+    try testing.expectEqualStrings("ABCD\n2EFGH", result.text[sel.start..sel.end]);
+}
+
+test "Screen: screenText selection ending in empty row" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 4, .max_scrollback = 100 });
+    defer s.deinit();
+    // Row 1 is intentionally empty.
+    try s.testWriteString("1ABCD\n\n3IJKL");
+
+    // Select from row 0 col 0 ("1ABCD") through row 1 col 0 (the empty
+    // row). The empty row contributes no visible cells, so the result
+    // matches `selectionString` which emits "1ABCD" (no trailing rows).
+    try s.select(Selection.init(
+        s.pages.pin(.{ .active = .{ .x = 0, .y = 0 } }).?,
+        s.pages.pin(.{ .active = .{ .x = 0, .y = 1 } }).?,
+        false,
+    ));
+
+    const result = try s.screenText(alloc);
+    defer result.deinit(alloc);
+
+    const sel = result.selection.?;
+    try testing.expectEqualStrings("1ABCD", result.text[sel.start..sel.end]);
+}
+
+test "Screen: screenText selection of only blank rows" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 4, .max_scrollback = 100 });
+    defer s.deinit();
+    // Rows 1 and 2 are intentionally empty.
+    try s.testWriteString("1ABCD\n\n\n4MNOP");
+
+    // Select only the two blank rows. The trim loop strips every
+    // trailing '\n', collapsing the range to zero length. The C API
+    // reports start == end as "no selection".
+    try s.select(Selection.init(
+        s.pages.pin(.{ .active = .{ .x = 0, .y = 1 } }).?,
+        s.pages.pin(.{ .active = .{ .x = 4, .y = 2 } }).?,
+        false,
+    ));
+
+    const result = try s.screenText(alloc);
+    defer result.deinit(alloc);
+
+    const sel = result.selection.?;
+    try testing.expectEqual(sel.start, sel.end);
+}
+
+test "Screen: screenText selection matches selectionString" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 4, .max_scrollback = 100 });
+    defer s.deinit();
+    try s.testWriteString("line one\n\nline three");
+
+    // Select "line one" + the empty row's first cell.
+    const sel = Selection.init(
+        s.pages.pin(.{ .active = .{ .x = 0, .y = 0 } }).?,
+        s.pages.pin(.{ .active = .{ .x = 0, .y = 1 } }).?,
+        false,
+    );
+    try s.select(sel);
+
+    const result = try s.screenText(alloc);
+    defer result.deinit(alloc);
+
+    const sel_str = try s.selectionString(alloc, .{ .sel = sel, .trim = false });
+    defer alloc.free(sel_str);
+
+    const r = result.selection.?;
+    try testing.expectEqualStrings(sel_str, result.text[r.start..r.end]);
+}
+
+test "Screen: screenText selection in scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 3, .max_scrollback = 100 });
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL\n4MNOP\n5QRST");
+
+    // Active rows are "3IJKL", "4MNOP", "5QRST"; "1ABCD" and "2EFGH"
+    // are in scrollback. Select "2EFGH" via screen-space pinning to
+    // confirm offsets index into the full snapshot.
+    const start = s.pages.pin(.{ .screen = .{ .x = 0, .y = 1 } }).?;
+    const end = s.pages.pin(.{ .screen = .{ .x = 4, .y = 1 } }).?;
+    try s.select(Selection.init(start, end, false));
+
+    const result = try s.screenText(alloc);
+    defer result.deinit(alloc);
+
+    const sel = result.selection.?;
+    try testing.expectEqualStrings("2EFGH", result.text[sel.start..sel.end]);
+}
+
+test "Screen: screenText selection with wide character" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 3, .max_scrollback = 100 });
+    defer s.deinit();
+    try s.testWriteString("好kAB");
+
+    // Select the entire row: "好" (cols 0,1, wide), "k" (col 2),
+    // "A" (col 3), "B" (col 4, end-of-row).
+    try s.select(Selection.init(
+        s.pages.pin(.{ .active = .{ .x = 0, .y = 0 } }).?,
+        s.pages.pin(.{ .active = .{ .x = 4, .y = 0 } }).?,
+        false,
+    ));
+
+    const result = try s.screenText(alloc);
+    defer result.deinit(alloc);
+
+    const sel = result.selection.?;
+    // Selection offsets land on UTF-8 codepoint boundaries.
+    try testing.expect(result.text[sel.start] & 0xC0 != 0x80);
+    if (sel.end < result.text.len) {
+        try testing.expect(result.text[sel.end] & 0xC0 != 0x80);
+    }
+    try testing.expectEqualStrings("好kAB", result.text[sel.start..sel.end]);
 }

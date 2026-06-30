@@ -1305,6 +1305,22 @@ pub const CAPI = struct {
         }
     };
 
+    // ghostty_screen_text_s
+    const ScreenText = extern struct {
+        text: ?[*:0]const u8,
+        text_len: usize,
+        viewport_start: usize,
+        viewport_end: usize,
+        selection_start: usize,
+        selection_end: usize,
+
+        pub fn deinit(self: *ScreenText) void {
+            if (self.text) |ptr| {
+                global.alloc.free(ptr[0..self.text_len :0]);
+            }
+        }
+    };
+
     // ghostty_point_s
     const Point = extern struct {
         tag: Tag,
@@ -1678,6 +1694,48 @@ pub const CAPI = struct {
     }
 
     export fn ghostty_surface_free_text(_: *Surface, ptr: *Text) void {
+        ptr.deinit();
+    }
+
+    /// Read the full screen text along with the UTF-8 byte offsets
+    /// that delimit the visible viewport and (if `has_selection`) the
+    /// active selection, as a self-consistent snapshot. On success
+    /// free with ghostty_surface_free_screen_text. On failure `*result`
+    /// is zero-initialized so calling ghostty_surface_free_screen_text
+    /// on it is a safe no-op.
+    export fn ghostty_surface_read_screen(
+        surface: *Surface,
+        result: *ScreenText,
+    ) bool {
+        const screen_text = surface.core_surface.screenText(
+            global.alloc,
+        ) catch |err| {
+            log.warn("error reading screen text err={}", .{err});
+            result.* = .{
+                .text = null,
+                .text_len = 0,
+                .viewport_start = 0,
+                .viewport_end = 0,
+                .selection_start = 0,
+                .selection_end = 0,
+            };
+            return false;
+        };
+        result.* = .{
+            .text = screen_text.text.ptr,
+            .text_len = screen_text.text.len,
+            .viewport_start = screen_text.viewport.start,
+            .viewport_end = screen_text.viewport.end,
+            .selection_start = if (screen_text.selection) |s| s.start else 0,
+            .selection_end = if (screen_text.selection) |s| s.end else 0,
+        };
+        return true;
+    }
+
+    export fn ghostty_surface_free_screen_text(
+        _: *Surface,
+        ptr: *ScreenText,
+    ) void {
         ptr.deinit();
     }
 

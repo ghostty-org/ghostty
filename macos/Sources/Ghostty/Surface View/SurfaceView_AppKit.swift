@@ -212,6 +212,7 @@ extension Ghostty {
         // The cached contents of the screen.
         private(set) var cachedScreenContents: CachedValue<String>
         private(set) var cachedVisibleContents: CachedValue<String>
+        private(set) var cachedScreenText: CachedValue<OSSurfaceView.ScreenText>
 
         /// Event monitor (see individual events for why)
         private var eventMonitor: Any?
@@ -234,6 +235,7 @@ extension Ghostty {
             // fix at some point.
             self.cachedScreenContents = .init(duration: .milliseconds(500)) { "" }
             self.cachedVisibleContents = self.cachedScreenContents
+            self.cachedScreenText = .init(duration: .milliseconds(500)) { .empty }
 
             // Initialize with some default frame size. The important thing is that this
             // is non-zero so that our layer bounds are non-zero so that our renderer
@@ -280,6 +282,23 @@ extension Ghostty {
                 guard ghostty_surface_read_text(surface, sel, &text) else { return "" }
                 defer { ghostty_surface_free_text(surface, &text) }
                 return String(cString: text.text)
+            }
+            cachedScreenText = .init(duration: .milliseconds(500)) { [weak self] in
+                guard let self else { return .empty }
+                guard let surface = self.surface else { return .empty }
+                var info = ghostty_screen_text_s()
+                guard ghostty_surface_read_screen(surface, &info) else {
+                    return .empty
+                }
+                defer { ghostty_surface_free_screen_text(surface, &info) }
+                guard let cString = info.text else { return .empty }
+                return .init(
+                    text: String(cString: cString),
+                    viewportStartByte: Int(info.viewport_start),
+                    viewportEndByte: Int(info.viewport_end),
+                    selectionStartByte: Int(info.selection_start),
+                    selectionEndByte: Int(info.selection_end)
+                )
             }
 
             // Set a timer to show the ghost emoji after 500ms if no title is set
@@ -2296,14 +2315,11 @@ extension Ghostty.SurfaceView {
     }
 
     override func accessibilityValue() -> Any? {
-        return cachedScreenContents.get()
+        return cachedScreenText.get().text
     }
 
-    /// Returns the range of text that is currently selected in the terminal.
-    /// This allows VoiceOver and other assistive technologies to understand
-    /// what text the user has selected.
     override func accessibilitySelectedTextRange() -> NSRange {
-        return selectedRange()
+        return cachedScreenText.get().selectionRange ?? NSRange(location: NSNotFound, length: 0)
     }
 
     /// Returns the currently selected text as a string.
@@ -2320,32 +2336,23 @@ extension Ghostty.SurfaceView {
         return str.isEmpty ? nil : str
     }
 
-    /// Returns the number of characters in the terminal content.
-    /// This helps assistive technologies understand the size of the content.
     override func accessibilityNumberOfCharacters() -> Int {
-        let content = cachedScreenContents.get()
-        return content.count
+        return cachedScreenText.get().utf16Length
     }
 
-    /// Returns the visible character range for the terminal.
-    /// For terminals, we typically show all content as visible.
     override func accessibilityVisibleCharacterRange() -> NSRange {
-        let content = cachedScreenContents.get()
-        return NSRange(location: 0, length: content.count)
+        return cachedScreenText.get().viewportRange
     }
 
-    /// Returns the line number for a given character index.
-    /// This helps assistive technologies navigate by line.
+    /// Logical/paragraph-line semantics matching `NSTextView`: lines are
+    /// delimited by hard newlines and soft-wrap is invisible to line
+    /// navigation (a soft-wrapped line is one line).
     override func accessibilityLine(for index: Int) -> Int {
-        let content = cachedScreenContents.get()
-        let substring = String(content.prefix(index))
-        return substring.components(separatedBy: .newlines).count - 1
+        return cachedScreenText.get().line(at: index)
     }
 
-    /// Returns a substring for the given range.
-    /// This allows assistive technologies to read specific portions of the content.
     override func accessibilityString(for range: NSRange) -> String? {
-        let content = cachedScreenContents.get()
+        let content = cachedScreenText.get().text
         guard let swiftRange = Range(range, in: content) else { return nil }
         return String(content[swiftRange])
     }
