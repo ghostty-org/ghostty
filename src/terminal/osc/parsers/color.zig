@@ -41,6 +41,66 @@ pub const Operation = enum {
     osc_119,
 };
 
+/// The color precision to use when formatting OSC color responses.
+pub const ReportFormat = enum {
+    @"16-bit",
+    @"8-bit",
+};
+
+/// Encode an OSC color query response for a palette or dynamic color.
+pub fn formatReport(
+    writer: anytype,
+    format: ReportFormat,
+    kind: Target,
+    color: RGB,
+) !void {
+    switch (format) {
+        .@"16-bit" => switch (kind) {
+            .palette => |i| try writer.print(
+                "\x1b]4;{d};rgb:{x:0>4}/{x:0>4}/{x:0>4}",
+                .{
+                    i,
+                    @as(u16, color.r) * 257,
+                    @as(u16, color.g) * 257,
+                    @as(u16, color.b) * 257,
+                },
+            ),
+            .dynamic => |dynamic| try writer.print(
+                "\x1b]{d};rgb:{x:0>4}/{x:0>4}/{x:0>4}",
+                .{
+                    @intFromEnum(dynamic),
+                    @as(u16, color.r) * 257,
+                    @as(u16, color.g) * 257,
+                    @as(u16, color.b) * 257,
+                },
+            ),
+            .special => unreachable,
+        },
+
+        .@"8-bit" => switch (kind) {
+            .palette => |i| try writer.print(
+                "\x1b]4;{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}",
+                .{
+                    i,
+                    @as(u16, color.r),
+                    @as(u16, color.g),
+                    @as(u16, color.b),
+                },
+            ),
+            .dynamic => |dynamic| try writer.print(
+                "\x1b]{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}",
+                .{
+                    @intFromEnum(dynamic),
+                    @as(u16, color.r),
+                    @as(u16, color.g),
+                    @as(u16, color.b),
+                },
+            ),
+            .special => unreachable,
+        },
+    }
+}
+
 /// Parse OSCs 4, 5, 10-19, 104, 110-119
 pub fn parse(parser: *Parser, terminator_ch: ?u8) ?*Command {
     const alloc = parser.alloc orelse {
