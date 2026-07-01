@@ -470,13 +470,7 @@ fn drainMailbox(self: *Thread) !void {
                 self.renderer.search_matches_dirty = true;
             },
 
-            .search_selected_match => |v| {
-                // Note we don't free the new value because we expect our
-                // allocators to match.
-                if (self.renderer.search_selected_match) |*m| m.arena.deinit();
-                self.renderer.search_selected_match = v;
-                self.renderer.search_matches_dirty = true;
-            },
+            .search_selected_match => |v| self.renderer.setSearchSelectedMatch(v),
 
             .inspector => |v| {
                 self.flags.has_inspector = v;

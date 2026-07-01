@@ -265,10 +265,27 @@ fn select(self: *Thread, sel: ScreenSearch.Select) !void {
     // then we do nothing.
     const flattened = screen_search.selectedMatch() orelse return;
 
-    // No matter what we reset our selected match cache. This will
-    // trigger a callback which will trigger the renderer to wake up
-    // so it can be notified the screen scrolled.
-    s.last_screen.selected = null;
+    // Emit a navigation event eagerly so the apprt always gets a fresh
+    // `search_selected` action on every successful navigate_search, even
+    // when the selected index didn't change (e.g. a single match, or
+    // wrapping back to the same one). Update last_screen.selected so the
+    // subsequent notify() dedup path does not also re-emit this same
+    // selection with a different reason. This direct callback also
+    // satisfies the renderer-wakeup that the old `last_screen.selected =
+    // null` reset used to trigger.
+    {
+        const m = screen_search.selected.?;
+        const untracked = flattened.untracked();
+        s.last_screen.selected = .{ .idx = m.idx, .highlight = untracked };
+        if (self.opts.event_cb) |cb| cb(
+            .{ .selected_match = .{
+                .idx = m.idx,
+                .highlight = flattened,
+                .reason = .navigation,
+            } },
+            self.opts.event_userdata,
+        );
+    }
 
     // Grab the current screen and see if this match is visible within
     // the viewport already. If it is, we do nothing.
@@ -486,6 +503,18 @@ pub const Event = union(enum) {
     pub const SelectedMatch = struct {
         idx: usize,
         highlight: FlattenedHighlight,
+        reason: Reason,
+
+        /// Why the search thread is reporting this selection. The apprt-level
+        /// reason has more values (e.g. frame_update) that originate in the
+        /// renderer; this is just the subset that can originate here.
+        pub const Reason = enum {
+            /// User-driven navigation via the navigate_search binding.
+            navigation,
+            /// Selection changed because the needle/results changed (or because
+            /// of a scroll-into-view in response to a new selection).
+            match_update,
+        };
     };
 };
 
@@ -789,6 +818,7 @@ const Search = struct {
                 .{ .selected_match = .{
                     .idx = m.idx,
                     .highlight = flattened,
+                    .reason = .match_update,
                 } },
                 ud,
             );

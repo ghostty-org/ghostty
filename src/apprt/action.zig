@@ -336,7 +336,8 @@ pub const Action = union(Key) {
     /// The total number of matches found by the search.
     search_total: SearchTotal,
 
-    /// The currently selected search match index (1-based).
+    /// The currently selected search match: a 1-based index together with the
+    /// on-screen bounding rects of the match, in surface pixel coordinates (top-left origin).
     search_selected: SearchSelected,
 
     /// The readonly state of the surface has changed.
@@ -460,8 +461,8 @@ pub const Action = union(Key) {
         // At the time of writing, we don't promise ABI compatibility
         // so we can change this but I want to be aware of it.
         assert(@sizeOf(CValue) == switch (@sizeOf(usize)) {
-            4 => 16,
-            8 => 24,
+            4 => 20,
+            8 => 32,
             else => unreachable,
         });
     }
@@ -995,17 +996,74 @@ pub const SearchTotal = struct {
 pub const SearchSelected = struct {
     selected: ?usize,
 
+    /// On-screen bounding rects of the selected match — one per row it spans,
+    /// in surface pixel coordinates. Empty when there is no selected match or
+    /// when the renderer hasn't laid them out for the current size yet.
+    regions: []const renderer.Bounds,
+
+    /// Why this action was emitted — lets the apprt distinguish user-driven
+    /// navigation from passive frame updates.
+    reason: Reason,
+
+    // Sync with: ghostty_action_search_selected_reason_e
+    pub const Reason = enum(c_int) {
+        /// User-driven navigation via the navigate_search binding.
+        navigation,
+        /// The search thread reported a different selected match — needle
+        /// changed, results updated, scroll-into-view picked a new match
+        match_update,
+        /// The renderer recomputed bounds for the same match (resize, reflow,
+        /// match scrolled on/off the viewport).
+        frame_update,
+    };
+
     // Sync with: ghostty_action_search_selected_s
     pub const C = extern struct {
         selected: isize,
+        regions: [*]const renderer.Bounds,
+        regions_count: usize,
+        reason: Reason,
     };
 
     pub fn cval(self: SearchSelected) C {
         return .{
             .selected = if (self.selected) |s| @intCast(s) else -1,
+            .regions = self.regions.ptr,
+            .regions_count = self.regions.len,
+            .reason = self.reason,
         };
     }
 };
+
+test "SearchSelected.cval regions" {
+    const testing = std.testing;
+    const regions = [_]renderer.Bounds{
+        .{ .x = 1, .y = 2, .width = 3, .height = 4 },
+        .{ .x = 5, .y = 6, .width = 7, .height = 8 },
+    };
+    const c = (SearchSelected{
+        .selected = 3,
+        .regions = &regions,
+        .reason = .navigation,
+    }).cval();
+    try testing.expectEqual(@as(isize, 3), c.selected);
+    try testing.expectEqual(@as(usize, 2), c.regions_count);
+    try testing.expectEqual(@as(f64, 1), c.regions[0].x);
+    try testing.expectEqual(@as(f64, 8), c.regions[1].height);
+    try testing.expectEqual(SearchSelected.Reason.navigation, c.reason);
+}
+
+test "SearchSelected.cval empty" {
+    const testing = std.testing;
+    const c = (SearchSelected{
+        .selected = null,
+        .regions = &.{},
+        .reason = .match_update,
+    }).cval();
+    try testing.expectEqual(@as(isize, -1), c.selected);
+    try testing.expectEqual(@as(usize, 0), c.regions_count);
+    try testing.expectEqual(SearchSelected.Reason.match_update, c.reason);
+}
 
 test {
     _ = std.testing.refAllDeclsRecursive(@This());
