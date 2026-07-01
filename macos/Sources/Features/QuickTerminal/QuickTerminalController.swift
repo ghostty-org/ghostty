@@ -3,6 +3,12 @@ import Cocoa
 import SwiftUI
 import GhosttyKit
 
+private func quickTerminalDebugLog(_ message: String) {
+    message.withCString { ptr in
+        ghostty_quick_terminal_debug_log(ptr)
+    }
+}
+
 /// Controller for the "quick" terminal.
 class QuickTerminalController: BaseTerminalController {
     override var windowNibName: NSNib.Name? { "QuickTerminal" }
@@ -21,11 +27,16 @@ class QuickTerminalController: BaseTerminalController {
     // The active space when the quick terminal was last shown.
     private var previousActiveSpace: CGSSpace?
 
+    // The active space we last saw from NSWorkspace. This handles Space changes
+    // that don't reliably deliver key-window notifications, such as keyboard
+    // navigation between Spaces.
+    private var pendingActiveSpaceChange: CGSSpace?
+
     /// Cache for per-screen window state.
     let screenStateCache: QuickTerminalScreenStateCache
 
-    /// Non-nil if we have hidden dock state.
-    private var hiddenDock: HiddenDock?
+    /// Tracks the quick terminal's desired and managed Dock state.
+    private let hiddenDock = HiddenDock()
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private var derivedConfig: DerivedConfig
@@ -91,6 +102,12 @@ class QuickTerminalController: BaseTerminalController {
             selector: #selector(windowDidResize(_:)),
             name: NSWindow.didResizeNotification,
             object: nil)
+
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(activeSpaceDidChange(_:)),
+            name: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil)
     }
 
     required init?(coder: NSCoder) {
@@ -101,9 +118,10 @@ class QuickTerminalController: BaseTerminalController {
         // Remove all of our notificationcenter subscriptions
         let center = NotificationCenter.default
         center.removeObserver(self)
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
 
         // Make sure we restore our hidden dock
-        hiddenDock = nil
+        hiddenDock.setShouldHide(false, reason: "deinit")
     }
 
     // MARK: NSWindowController
@@ -162,7 +180,7 @@ class QuickTerminalController: BaseTerminalController {
         terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: true)
 
         // Re-hide the dock if we were hiding it before.
-        hiddenDock?.hide()
+        hiddenDock.setShouldHide(position.conflictsWithDockOrientation, reason: "windowDidBecomeKey")
     }
 
     override func windowDidResignKey(_ notification: Notification) {
@@ -187,9 +205,18 @@ class QuickTerminalController: BaseTerminalController {
             self.previousApp = nil
         }
 
-        // Regardless of autohide, we always want to bring the dock back
-        // when we lose focus.
-        hiddenDock?.restore()
+        let currentActiveSpace = CGSSpace.active()
+        let isMovingSpaces = derivedConfig.quickTerminalSpaceBehavior == .move &&
+            previousActiveSpace != currentActiveSpace
+
+        // Restore the dock when we lose focus, unless this is the transient
+        // focus loss from moving the quick terminal between Spaces. In that
+        // case, the same window is made key again below.
+        if isMovingSpaces && hiddenDock.shouldBeHiddenForDebug {
+            quickTerminalDebugLog("dock restore skipped reason=windowDidResignKey skip=movingSpaces")
+        } else {
+            hiddenDock.setShouldHide(false, reason: "windowDidResignKey")
+        }
 
         if derivedConfig.quickTerminalAutoHide {
             switch derivedConfig.quickTerminalSpaceBehavior {
@@ -198,13 +225,14 @@ class QuickTerminalController: BaseTerminalController {
                 animateOut()
 
             case .move:
-                let currentActiveSpace = CGSSpace.active()
-                if previousActiveSpace == currentActiveSpace {
+                if previousActiveSpace == currentActiveSpace &&
+                    pendingActiveSpaceChange != currentActiveSpace {
                     // We haven't moved spaces. We lost focus to another app on the
                     // current space. Animate out.
                     animateOut()
                 } else {
                     // We've moved to a different space.
+                    pendingActiveSpaceChange = nil
 
                     // If we're fullscreen, we need to exit fullscreen because the visible
                     // bounds may have changed causing a new behavior.
@@ -328,6 +356,8 @@ class QuickTerminalController: BaseTerminalController {
     // MARK: Methods
 
     func toggle() {
+        quickTerminalDebugLog("dock toggle visible=\(visible) dockAutoHide=\(Dock.autoHideEnabled) managedDockHidden=\(hiddenDock.hiddenForDebug) shouldBeHidden=\(hiddenDock.shouldBeHiddenForDebug)")
+
         if visible {
             animateOut()
         } else {
@@ -341,6 +371,7 @@ class QuickTerminalController: BaseTerminalController {
         // Set our visibility state
         guard !visible else { return }
         visible = true
+        pendingActiveSpaceChange = nil
 
         // Notify the change
         NotificationCenter.default.post(
@@ -400,6 +431,7 @@ class QuickTerminalController: BaseTerminalController {
         // Set our visibility state
         guard visible else { return }
         visible = false
+        pendingActiveSpaceChange = nil
 
         // Notify the change
         NotificationCenter.default.post(
@@ -451,16 +483,12 @@ class QuickTerminalController: BaseTerminalController {
 
         // If our dock position would conflict with our target location then
         // we autohide the dock.
-        if position.conflictsWithDock(on: screen) {
-            if hiddenDock == nil {
-                hiddenDock = .init()
-            }
-
-            hiddenDock?.hide()
+        if position.conflictsWithDockOrientation {
+            hiddenDock.setShouldHide(true, reason: "animateWindowIn")
         } else {
             // Ensure we don't have any hidden dock if we don't conflict.
             // The deinit will restore.
-            hiddenDock = nil
+            hiddenDock.setShouldHide(false, reason: "animateWindowIn:noDockConflict")
         }
 
         // Run the animation that moves our window into the proper place and makes
@@ -479,7 +507,7 @@ class QuickTerminalController: BaseTerminalController {
             DispatchQueue.main.async {
                 // If we canceled our animation clean up some state.
                 guard self.visible else {
-                    self.hiddenDock = nil
+                    self.hiddenDock.setShouldHide(false, reason: "animateWindowIn:canceled")
                     return
                 }
 
@@ -552,14 +580,16 @@ class QuickTerminalController: BaseTerminalController {
     private func animateWindowOut(window: NSWindow, to position: QuickTerminalPosition) {
         saveScreenState(exitFullscreen: true)
 
-        // If we hid the dock then we unhide it.
-        hiddenDock = nil
+        // Keep the dock hidden while we animate out, then restore it once the
+        // quick terminal is gone.
+        hiddenDock.setShouldHide(true, reason: "animateWindowOut")
 
         // If the window isn't on our active space then we don't animate, we just
         // hide it.
         if !window.isOnActiveSpace {
             self.previousApp = nil
             window.orderOut(self)
+            hiddenDock.setShouldHide(false, reason: "animateWindowOut:orderOut")
             // If our application is hidden previously, we hide it again
             if (NSApp.delegate as? AppDelegate)?.hiddenState != nil {
                 NSApp.hide(nil)
@@ -600,6 +630,7 @@ class QuickTerminalController: BaseTerminalController {
             // This causes the window to be removed from the screen list and macOS
             // handles what should be focused next.
             window.orderOut(self)
+            self.hiddenDock.setShouldHide(false, reason: "animateWindowOut:completion")
             // If our application is hidden previously, we hide it again
             if (NSApp.delegate as? AppDelegate)?.hiddenState != nil {
                 NSApp.hide(nil)
@@ -675,7 +706,64 @@ class QuickTerminalController: BaseTerminalController {
         // If the application is going to terminate we want to make sure we
         // restore any global dock state. I think deinit should be called which
         // would call this anyways but I can't be sure so I will do this too.
-        hiddenDock = nil
+        hiddenDock.setShouldHide(false, reason: "applicationWillTerminate")
+    }
+
+    @objc private func activeSpaceDidChange(_ notification: Notification) {
+        guard derivedConfig.quickTerminalSpaceBehavior == .move else { return }
+
+        let currentActiveSpace = CGSSpace.active()
+        guard previousActiveSpace != currentActiveSpace else { return }
+
+        if currentActiveSpace.type == .fullscreen {
+            previousActiveSpace = currentActiveSpace
+            pendingActiveSpaceChange = nil
+            quickTerminalDebugLog("dock activeSpaceDidChange fullscreenSpace=true")
+            return
+        }
+
+        if !visible {
+            previousActiveSpace = currentActiveSpace
+            pendingActiveSpaceChange = nil
+            hiddenDock.apply(reason: "activeSpaceDidChange:notVisible")
+            return
+        }
+
+        if hiddenDock.shouldBeHiddenForDebug,
+           let window,
+           window.isOnActiveSpace {
+            previousActiveSpace = currentActiveSpace
+            pendingActiveSpaceChange = nil
+            quickTerminalDebugLog("dock activeSpaceDidChange refocusing quick terminal")
+            makeWindowKey(window)
+            hiddenDock.setShouldHide(position.conflictsWithDockOrientation, reason: "activeSpaceDidChange:refocus")
+            return
+        }
+
+        pendingActiveSpaceChange = currentActiveSpace
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(1)) {
+            guard self.visible else { return }
+
+            if self.pendingActiveSpaceChange == currentActiveSpace {
+                self.previousActiveSpace = currentActiveSpace
+                self.pendingActiveSpaceChange = nil
+            }
+
+            guard self.window?.isKeyWindow == true else {
+                quickTerminalDebugLog("dock activeSpaceDidChange settled keyWindow=false")
+                self.hiddenDock.setShouldHide(false, reason: "activeSpaceDidChange")
+                return
+            }
+
+            guard self.window?.isOnActiveSpace == true else {
+                quickTerminalDebugLog("dock activeSpaceDidChange settled onActiveSpace=false")
+                self.hiddenDock.setShouldHide(false, reason: "activeSpaceDidChange")
+                return
+            }
+
+            self.hiddenDock.setShouldHide(self.position.conflictsWithDockOrientation, reason: "activeSpaceDidChange:keyWindow")
+        }
     }
 
     @objc private func onToggleFullscreen(notification: SwiftUI.Notification) {
@@ -765,30 +853,99 @@ class QuickTerminalController: BaseTerminalController {
     /// Hides the dock globally (not just NSApp). This is only used if the quick terminal is
     /// in a conflicting position with the dock.
     private class HiddenDock {
-        let previousAutoHide: Bool
-        private var hidden: Bool = false
-
-        init() {
-            previousAutoHide = Dock.autoHideEnabled
-        }
+        private var state = QuickTerminalDockState()
+        var hiddenForDebug: Bool { state.managedHidden }
+        var shouldBeHiddenForDebug: Bool { state.shouldBeHidden }
 
         deinit {
-            restore()
+            setShouldHide(false, reason: "deinit")
         }
 
-        func hide() {
-            guard !hidden else { return }
-            NSApp.acquirePresentationOption(.autoHideDock)
-            Dock.autoHideEnabled = true
-            hidden = true
+        func setShouldHide(_ value: Bool, reason: String) {
+            apply(reason: reason) { dockAutoHide, fullscreenSpace in
+                state.setShouldHide(value, dockAutoHide: dockAutoHide, fullscreenSpace: fullscreenSpace)
+            }
         }
 
-        func restore() {
-            guard hidden else { return }
-            NSApp.releasePresentationOption(.autoHideDock)
-            Dock.autoHideEnabled = previousAutoHide
-            hidden = false
+        func apply(reason: String) {
+            apply(reason: reason) { dockAutoHide, fullscreenSpace in
+                state.apply(dockAutoHide: dockAutoHide, fullscreenSpace: fullscreenSpace)
+            }
         }
+
+        private func apply(
+            reason: String,
+            _ update: (_ dockAutoHide: Bool, _ fullscreenSpace: Bool) -> QuickTerminalDockState.Transition
+        ) {
+            let activeSpace = CGSSpace.active()
+            let dockAutoHide = Dock.autoHideEnabled
+            let fullscreenSpace = activeSpace.type == .fullscreen
+            let dockHidden = dockAutoHide || fullscreenSpace
+            let transition = update(dockAutoHide, fullscreenSpace)
+
+            quickTerminalDebugLog("dock state requested reason=\(reason) managedHidden=\(state.managedHidden) shouldBeHidden=\(state.shouldBeHidden) dockAutoHide=\(dockAutoHide) dockHidden=\(dockHidden) activeSpaceType=\(activeSpace.type)")
+
+            switch transition {
+            case .hide:
+                NSApp.acquirePresentationOption(.autoHideDock)
+                Dock.autoHideEnabled = true
+
+                quickTerminalDebugLog("dock state applied reason=\(reason) transition=hide managedHidden=\(state.managedHidden) shouldBeHidden=\(state.shouldBeHidden) dockAutoHide=\(Dock.autoHideEnabled)")
+
+            case .show:
+                NSApp.releasePresentationOption(.autoHideDock)
+                Dock.autoHideEnabled = false
+
+                quickTerminalDebugLog("dock state applied reason=\(reason) transition=show managedHidden=\(state.managedHidden) shouldBeHidden=\(state.shouldBeHidden) dockAutoHide=\(Dock.autoHideEnabled)")
+
+            case .none(let skip):
+                let skipMessage = skip.map { " skip=\($0)" } ?? ""
+                quickTerminalDebugLog("dock state skipped reason=\(reason)\(skipMessage) managedHidden=\(state.managedHidden) shouldBeHidden=\(state.shouldBeHidden) dockAutoHide=\(Dock.autoHideEnabled) dockHidden=\(dockHidden)")
+            }
+        }
+    }
+}
+
+struct QuickTerminalDockState {
+    enum Transition: Equatable {
+        case hide
+        case show
+        case none(skip: String? = nil)
+    }
+
+    private(set) var managedHidden: Bool = false
+    private(set) var shouldBeHidden: Bool = false
+
+    mutating func setShouldHide(
+        _ value: Bool,
+        dockAutoHide: Bool,
+        fullscreenSpace: Bool
+    ) -> Transition {
+        shouldBeHidden = value
+        return apply(dockAutoHide: dockAutoHide, fullscreenSpace: fullscreenSpace)
+    }
+
+    mutating func apply(
+        dockAutoHide: Bool,
+        fullscreenSpace: Bool
+    ) -> Transition {
+        let dockHidden = dockAutoHide || fullscreenSpace
+
+        if !dockHidden && shouldBeHidden {
+            managedHidden = true
+            return .hide
+        }
+
+        if managedHidden && !shouldBeHidden {
+            guard !fullscreenSpace else {
+                return .none(skip: "fullscreenSpace")
+            }
+
+            managedHidden = false
+            return .show
+        }
+
+        return .none()
     }
 }
 
