@@ -3642,6 +3642,12 @@ fn isMouseReporting(self: *const Surface) bool {
         self.io.terminal.flags.mouse_event != .none;
 }
 
+pub fn mouseReportingActive(self: *Surface) bool {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    return self.isMouseReporting();
+}
+
 fn mouseReport(
     self: *Surface,
     button: ?input.MouseButton,
