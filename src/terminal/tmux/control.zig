@@ -56,6 +56,44 @@ pub const Parser = struct {
         self.buffer.deinit();
     }
 
+    /// Unescape tmux control mode octal escapes in-place.
+    /// tmux encodes bytes <32 and backslash as \NNN (3 octal digits).
+    /// Returns the decoded slice (which is a prefix of the input).
+    pub fn unescapeOctal(data: []u8) []u8 {
+        var read: usize = 0;
+        var write: usize = 0;
+        while (read < data.len) {
+            if (data[read] == '\\' and read + 3 < data.len and
+                isOctalDigit(data[read + 1]) and
+                isOctalDigit(data[read + 2]) and
+                isOctalDigit(data[read + 3]))
+            {
+                // Compute the octal value using u16 to avoid overflow.
+                // Values above 255 (\400+) cannot represent a byte, so
+                // treat them as literal characters.
+                const val: u16 = (@as(u16, data[read + 1] - '0') << 6) |
+                    (@as(u16, data[read + 2] - '0') << 3) |
+                    (data[read + 3] - '0');
+                if (val <= std.math.maxInt(u8)) {
+                    data[write] = @intCast(val);
+                    read += 4;
+                } else {
+                    data[write] = data[read];
+                    read += 1;
+                }
+            } else {
+                data[write] = data[read];
+                read += 1;
+            }
+            write += 1;
+        }
+        return data[0..write];
+    }
+
+    fn isOctalDigit(c: u8) bool {
+        return c >= '0' and c <= '7';
+    }
+
     // Handle a byte of input.
     //
     // If we reach our byte limit this will return OutOfMemory. It only
@@ -236,9 +274,15 @@ pub const Parser = struct {
                 line[@intCast(starts[1])..@intCast(ends[1])],
                 10,
             ) catch unreachable;
-            const data = line[@intCast(starts[2])..@intCast(ends[2])];
 
-            // Important: do not clear buffer here since name points to it
+            // tmux control mode encodes bytes <32 and backslash as octal
+            // escapes (\NNN) in %output data. Decode in-place — this is
+            // safe because the buffer is heap-allocated and we own it, and
+            // decoded output is always <= encoded length.
+            const raw = @constCast(line[@intCast(starts[2])..@intCast(ends[2])]);
+            const data = unescapeOctal(raw);
+
+            // Important: do not clear buffer here since data points to it
             self.state = .idle;
             return .{ .output = .{ .pane_id = id, .data = data } };
         } else if (std.mem.eql(u8, cmd, "%session-changed")) cmd: {
@@ -473,6 +517,78 @@ pub const Parser = struct {
             // Important: do not clear buffer here since client/name point to it
             self.state = .idle;
             return .{ .client_session_changed = .{ .client = client, .session_id = session_id, .name = name } };
+        } else if (std.mem.eql(u8, cmd, "%window-close")) cmd: {
+            var re = oni.Regex.init(
+                "^%window-close @([0-9]+)$",
+                .{ .capture_group = true },
+                oni.Encoding.utf8,
+                oni.Syntax.default,
+                null,
+            ) catch |err| {
+                log.warn("regex init failed error={}", .{err});
+                return error.RegexError;
+            };
+            defer re.deinit();
+
+            var region = re.search(line, .{}) catch |err| {
+                log.warn("failed to match notification cmd={s} line=\"{s}\" err={}", .{ cmd, line, err });
+                break :cmd;
+            };
+            defer region.deinit();
+            const starts = region.starts();
+            const ends = region.ends();
+
+            const id = std.fmt.parseInt(
+                usize,
+                line[@intCast(starts[1])..@intCast(ends[1])],
+                10,
+            ) catch unreachable;
+
+            self.buffer.clearRetainingCapacity();
+            self.state = .idle;
+            return .{ .window_close = .{ .id = id } };
+        } else if (std.mem.eql(u8, cmd, "%session-window-changed")) cmd: {
+            var re = oni.Regex.init(
+                "^%session-window-changed \\$([0-9]+) @([0-9]+)$",
+                .{ .capture_group = true },
+                oni.Encoding.utf8,
+                oni.Syntax.default,
+                null,
+            ) catch |err| {
+                log.warn("regex init failed error={}", .{err});
+                return error.RegexError;
+            };
+            defer re.deinit();
+
+            var region = re.search(line, .{}) catch |err| {
+                log.warn("failed to match notification cmd={s} line=\"{s}\" err={}", .{ cmd, line, err });
+                break :cmd;
+            };
+            defer region.deinit();
+            const starts = region.starts();
+            const ends = region.ends();
+
+            const session_id = std.fmt.parseInt(
+                usize,
+                line[@intCast(starts[1])..@intCast(ends[1])],
+                10,
+            ) catch unreachable;
+            const window_id = std.fmt.parseInt(
+                usize,
+                line[@intCast(starts[2])..@intCast(ends[2])],
+                10,
+            ) catch unreachable;
+
+            self.buffer.clearRetainingCapacity();
+            self.state = .idle;
+            return .{ .session_window_changed = .{ .session_id = session_id, .window_id = window_id } };
+        } else if (std.mem.eql(u8, cmd, "%exit")) {
+            // tmux sends %exit when the control mode client is exiting.
+            // Return the exit notification so the viewer and stream handler
+            // can perform proper cleanup.
+            self.buffer.clearRetainingCapacity();
+            self.state = .idle;
+            return .{ .exit = {} };
         } else {
             // Unknown notification, log it and return to idle state.
             log.warn("unknown tmux control mode notification={s}", .{cmd});
@@ -519,7 +635,7 @@ pub const Notification = union(enum) {
     /// Raw output from a pane.
     output: struct {
         pane_id: usize,
-        data: []const u8, // unescaped
+        data: []const u8, // unescaped (octal \NNN decoded in-place)
     },
 
     /// The client is now attached to the session with ID session-id, which is
@@ -556,6 +672,17 @@ pub const Notification = union(enum) {
     window_pane_changed: struct {
         window_id: usize,
         pane_id: usize,
+    },
+
+    /// The window with ID window-id was closed.
+    window_close: struct {
+        id: usize,
+    },
+
+    /// The session's current window changed to window-id in session-id.
+    session_window_changed: struct {
+        session_id: usize,
+        window_id: usize,
     },
 
     /// The client has detached.
@@ -836,4 +963,241 @@ test "tmux client-session-changed" {
     try testing.expectEqualStrings("/dev/pts/1", n.client_session_changed.client);
     try testing.expectEqual(2, n.client_session_changed.session_id);
     try testing.expectEqualStrings("mysession", n.client_session_changed.name);
+}
+
+test "unescape octal: no escapes passthrough" {
+    var data = "hello world".*;
+    const result = Parser.unescapeOctal(&data);
+    try std.testing.expectEqualStrings("hello world", result);
+}
+
+test "unescape octal: single ESC" {
+    // \033 = ESC (0x1B)
+    var data = "\\033".*;
+    const result = Parser.unescapeOctal(&data);
+    try std.testing.expectEqual(@as(usize, 1), result.len);
+    try std.testing.expectEqual(@as(u8, 0x1B), result[0]);
+}
+
+test "unescape octal: CR LF sequence" {
+    // \015\012 = CR LF
+    var data = "\\015\\012".*;
+    const result = Parser.unescapeOctal(&data);
+    try std.testing.expectEqual(@as(usize, 2), result.len);
+    try std.testing.expectEqual(@as(u8, 0x0D), result[0]);
+    try std.testing.expectEqual(@as(u8, 0x0A), result[1]);
+}
+
+test "unescape octal: escaped backslash" {
+    // \134 = backslash
+    var data = "\\134".*;
+    const result = Parser.unescapeOctal(&data);
+    try std.testing.expectEqual(@as(usize, 1), result.len);
+    try std.testing.expectEqual(@as(u8, '\\'), result[0]);
+}
+
+test "unescape octal: mixed escaped and literal" {
+    // "hello\033[31mworld" = "hello" + ESC + "[31mworld"
+    var data = "hello\\033[31mworld".*;
+    const result = Parser.unescapeOctal(&data);
+    try std.testing.expectEqual(@as(usize, 15), result.len);
+    try std.testing.expectEqualStrings("hello", result[0..5]);
+    try std.testing.expectEqual(@as(u8, 0x1B), result[5]);
+    try std.testing.expectEqualStrings("[31mworld", result[6..]);
+}
+
+test "unescape octal: multiple escapes in sequence" {
+    // \033\033 = ESC ESC
+    var data = "\\033\\033".*;
+    const result = Parser.unescapeOctal(&data);
+    try std.testing.expectEqual(@as(usize, 2), result.len);
+    try std.testing.expectEqual(@as(u8, 0x1B), result[0]);
+    try std.testing.expectEqual(@as(u8, 0x1B), result[1]);
+}
+
+test "unescape octal: backspace encoding from device" {
+    // \010ls = BS + "ls" (the exact pattern seen in device logs)
+    var data = "\\010ls".*;
+    const result = Parser.unescapeOctal(&data);
+    try std.testing.expectEqual(@as(usize, 3), result.len);
+    try std.testing.expectEqual(@as(u8, 0x08), result[0]);
+    try std.testing.expectEqualStrings("ls", result[1..]);
+}
+
+test "unescape octal: trailing backslash not enough digits" {
+    // Backslash at end without 3 digits should pass through
+    var data = "abc\\".*;
+    const result = Parser.unescapeOctal(&data);
+    try std.testing.expectEqualStrings("abc\\", result);
+}
+
+test "unescape octal: backslash with non-octal digits" {
+    // \8 is not octal, should pass through
+    var data = "\\899".*;
+    const result = Parser.unescapeOctal(&data);
+    try std.testing.expectEqualStrings("\\899", result);
+}
+
+test "unescape octal: value exceeding u8 treated as literal" {
+    // \400 = 256 which overflows u8, should pass through as literal
+    var data = "\\400".*;
+    const result = Parser.unescapeOctal(&data);
+    try std.testing.expectEqualStrings("\\400", result);
+}
+
+test "unescape octal: max u8 value" {
+    // \377 = 255, the maximum valid byte value
+    var data = "\\377".*;
+    const result = Parser.unescapeOctal(&data);
+    try std.testing.expectEqual(@as(u8, 0xFF), result[0]);
+    try std.testing.expectEqual(@as(usize, 1), result.len);
+}
+
+test "tmux output with octal escapes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Simulate: %output %2 hello\033[31mworld
+    // tmux sends ESC as \033 in %output data
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%output %2 hello\\033[31mworld") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .output);
+    try testing.expectEqual(2, n.output.pane_id);
+    // Data should be decoded: "hello" + ESC + "[31mworld"
+    try testing.expectEqual(@as(usize, 15), n.output.data.len);
+    try testing.expectEqualStrings("hello", n.output.data[0..5]);
+    try testing.expectEqual(@as(u8, 0x1B), n.output.data[5]);
+    try testing.expectEqualStrings("[31mworld", n.output.data[6..]);
+}
+
+test "tmux output with escaped backslash" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // %output %5 path\\134file => "path\file"
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%output %5 path\\134file") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .output);
+    try testing.expectEqual(5, n.output.pane_id);
+    try testing.expectEqualStrings("path\\file", n.output.data);
+}
+
+test "tmux output with CR LF" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // %output %1 line1\015\012line2
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%output %1 line1\\015\\012line2") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .output);
+    try testing.expectEqual(1, n.output.pane_id);
+    try testing.expectEqual(@as(usize, 12), n.output.data.len);
+    try testing.expectEqualStrings("line1", n.output.data[0..5]);
+    try testing.expectEqual(@as(u8, 0x0D), n.output.data[5]);
+    try testing.expectEqual(@as(u8, 0x0A), n.output.data[6]);
+    try testing.expectEqualStrings("line2", n.output.data[7..]);
+}
+
+test "tmux output with raw UTF-8 box drawing" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // tmux sends UTF-8 bytes >= 0x80 raw (unescaped) in %output.
+    // \xe2\x94\x84 = U+2504 (box drawing light triple dash horizontal)
+    // \xe2\x80\xa2 = U+2022 (bullet)
+    // \xe2\x94\x81 = U+2501 (box drawing heavy horizontal)
+    // \xe2\x95\x90 = U+2550 (box drawing double horizontal)
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+
+    // Build the %output line with raw UTF-8 bytes
+    const prefix = "%output %3 ";
+    const box_chars = "\xe2\x94\x84\xe2\x80\xa2\xe2\x94\x81\xe2\x95\x90";
+    const line = prefix ++ box_chars;
+
+    for (line) |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .output);
+    try testing.expectEqual(3, n.output.pane_id);
+    // Data should be the raw UTF-8 bytes, unchanged
+    try testing.expectEqual(@as(usize, 12), n.output.data.len);
+    try testing.expectEqualStrings(box_chars, n.output.data);
+}
+
+test "tmux output with mixed UTF-8 and octal escapes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // ESC[31m (octal-escaped ESC) + box drawing (raw UTF-8) + ESC[0m (octal-escaped ESC)
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+
+    const input = "%output %1 \\033[31m\xe2\x94\x84\\033[0m";
+    for (input) |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .output);
+    try testing.expectEqual(1, n.output.pane_id);
+    // Expected: ESC + "[31m" + e2 94 84 + ESC + "[0m"
+    // ESC=1 + [31m=4 + box=3 + ESC=1 + [0m=3 = 12 bytes
+    try testing.expectEqual(@as(usize, 12), n.output.data.len);
+    try testing.expectEqual(@as(u8, 0x1B), n.output.data[0]); // ESC
+    try testing.expectEqualStrings("[31m", n.output.data[1..5]);
+    try testing.expectEqualStrings("\xe2\x94\x84", n.output.data[5..8]); // box drawing
+    try testing.expectEqual(@as(u8, 0x1B), n.output.data[8]); // ESC
+    try testing.expectEqualStrings("[0m", n.output.data[9..12]);
+}
+
+test "tmux window-close" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%window-close @7") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .window_close);
+    try testing.expectEqual(7, n.window_close.id);
+}
+
+test "tmux session-window-changed" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%session-window-changed $3 @5") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .session_window_changed);
+    try testing.expectEqual(3, n.session_window_changed.session_id);
+    try testing.expectEqual(5, n.session_window_changed.window_id);
+}
+
+test "tmux exit notification" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%exit") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .exit);
+}
+
+test "tmux exit notification with reason" {
+    // tmux sends "%exit lost-server" when the server dies.
+    // The reason string is ignored but must not break parsing.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Parser = .{ .buffer = .init(alloc) };
+    defer c.deinit();
+    for ("%exit lost-server") |byte| try testing.expect(try c.put(byte) == null);
+    const n = (try c.put('\n')).?;
+    try testing.expect(n == .exit);
 }
