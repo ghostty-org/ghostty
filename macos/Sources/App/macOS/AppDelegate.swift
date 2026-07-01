@@ -370,14 +370,31 @@ class AppDelegate: NSObject,
         return derivedConfig.shouldQuitAfterLastWindowClosed
     }
 
+    /// Initiates graceful application termination by giving every child
+    /// process a chance to exit before the app terminates.
+    ///
+    /// The wait happens inside libghostty: it sends SIGHUP to all processes
+    /// in parallel, then waits up to `timeout` (total) for them to exit.
+    /// This blocks the main thread, which is acceptable here because we've
+    /// already committed to terminating.
+    private func terminateGracefully(
+        timeout: TimeInterval = 0.5
+    ) -> NSApplication.TerminateReply {
+        if let app = ghostty.app {
+            Ghostty.logger.debug("waiting for child processes to exit")
+            ghostty_app_quit(app, UInt64(max(0, timeout * 1000)))
+        }
+        return .terminateNow
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let windows = NSApplication.shared.windows
-        if windows.isEmpty { return .terminateNow }
+        if windows.isEmpty { return terminateGracefully() }
 
         // If we've already accepted to install an update, then we don't need to
         // confirm quit. The user is already expecting the update to happen.
         if updateController.isInstalling {
-            return .terminateNow
+            return terminateGracefully()
         }
 
         // This probably isn't fully safe. The isEmpty check above is aspirational, it doesn't
@@ -388,7 +405,7 @@ class AppDelegate: NSObject,
         // here because I don't want to remove it in a patch release cycle but we should
         // target removing it soon.
         if (windows.allSatisfy { !$0.isVisible }) {
-            return .terminateNow
+            return terminateGracefully()
         }
 
         // If the user is shutting down, restarting, or logging out, we don't confirm quit.
@@ -401,8 +418,7 @@ class AppDelegate: NSObject,
             if let why = event.attributeDescriptor(forKeyword: keyword) {
                 switch why.typeCodeValue {
                 case kAEShutDown, kAERestart, kAEReallyLogOut:
-                    return .terminateNow
-
+                    return terminateGracefully()
                 default:
                     break
                 }
@@ -410,7 +426,7 @@ class AppDelegate: NSObject,
         }
 
         // If our app says we don't need to confirm, we can exit now.
-        if !ghostty.needsConfirmQuit { return .terminateNow }
+        if !ghostty.needsConfirmQuit { return terminateGracefully() }
 
         return terminate()
     }
@@ -1309,7 +1325,7 @@ extension AppDelegate {
             .filter { !$0.windowCanBeClosedWithoutConfirmation() }
 
         guard !controllersNeedConfirmation.isEmpty else {
-            return .terminateNow
+            return terminateGracefully()
         }
 
         if controllersNeedConfirmation.count == 1 {
@@ -1321,6 +1337,7 @@ extension AppDelegate {
                 )
 
                 if [.OK, .alertFirstButtonReturn].contains(response) {
+                    await MainActor.run { _ = self.terminateGracefully() }
                     await NSApp.reply(toApplicationShouldTerminate: true)
                 } else {
                     await NSApp.reply(toApplicationShouldTerminate: false)
@@ -1342,7 +1359,7 @@ extension AppDelegate {
                 reviewWindows(controllersNeedConfirmation)
                 return .terminateLater
             case .alertSecondButtonReturn:
-                return .terminateNow
+                return terminateGracefully()
             default:
                 return .terminateCancel
             }
@@ -1368,6 +1385,7 @@ extension AppDelegate {
                     return
                 }
             }
+            await MainActor.run { _ = self.terminateGracefully() }
             await NSApp.reply(toApplicationShouldTerminate: true)
         }
     }

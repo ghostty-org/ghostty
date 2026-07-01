@@ -102,6 +102,40 @@ pub fn init(
     };
 }
 
+/// Send SIGHUP to every surface's child process and wait up to timeout_ms
+/// (total, across all surfaces) for them to exit. Intended to be called
+/// once during app shutdown so that children get a chance to clean up
+/// (e.g., shells writing history) before the apprt tears down each
+/// surface. Surfaces and resources are not freed here; that happens via
+/// the normal apprt deinit path afterwards.
+///
+/// We drain the mailbox during the wait so that child_exited messages
+/// posted by IO threads are observed; otherwise we'd block the same
+/// main thread that the message pump runs on.
+pub fn quit(self: *App, rt_app: *apprt.App, timeout_ms: u64) void {
+    // Hang up all children in parallel so they shut down concurrently
+    // rather than one-at-a-time during sequential surface deinits.
+    for (self.surfaces.items) |surface| surface.core().hangupProcess();
+
+    const deadline: i64 = std.time.milliTimestamp() +| @as(i64, @intCast(timeout_ms));
+    while (std.time.milliTimestamp() < deadline) {
+        self.drainMailbox(rt_app) catch |err|
+            log.warn("error draining mailbox during quit err={}", .{err});
+
+        var all_exited = true;
+        for (self.surfaces.items) |surface| {
+            if (!surface.core().child_exited) {
+                all_exited = false;
+                break;
+            }
+        }
+        if (all_exited) return;
+        std.Thread.sleep(10 * std.time.ns_per_ms);
+    }
+
+    log.warn("not all child processes exited within {}ms", .{timeout_ms});
+}
+
 pub fn deinit(self: *App) void {
     // Clean up all our surfaces
     for (self.surfaces.items) |surface| surface.deinit();
