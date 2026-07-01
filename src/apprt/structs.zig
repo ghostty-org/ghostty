@@ -54,7 +54,7 @@ pub const Clipboard = enum(Backing) {
             .{ .name = "GhosttyApprtClipboard" },
         ),
 
-        .none => void,
+        .none, .win32 => void,
     };
 };
 
