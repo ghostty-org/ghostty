@@ -65,6 +65,10 @@ pub const RenderState = struct {
     /// Cursor state within the viewport.
     cursor: Cursor,
 
+    /// Caret position within the viewport. Null when caret mode is inactive
+    /// or the caret is scrolled out of view.
+    caret: ?Cursor.Viewport = null,
+
     /// The rows (y=0 is top) of the viewport. Guaranteed to be `rows` length.
     ///
     /// This is a MultiArrayList because only the update cares about
@@ -319,6 +323,7 @@ pub const RenderState = struct {
         // probably cache this by comparing the cursor pin and viewport pin
         // but may not be worth it.
         self.cursor.viewport = null;
+        self.caret = null;
 
         // Colors.
         self.colors.cursor = t.colors.cursor.get();
@@ -419,6 +424,25 @@ pub const RenderState = struct {
                     else
                         false,
                 };
+            }
+
+            // Find the caret position within the viewport.
+            if (s.caret_mode) {
+                if (self.caret == null) {
+                    if (s.caret_pin) |cp| {
+                        if (row_pin.node == cp.node and row_pin.y == cp.y) {
+                            const rac = cp.rowAndCell();
+                            self.caret = .{
+                                .y = y,
+                                .x = cp.x,
+                                .wide_tail = if (cp.x > 0)
+                                    rac.cell.wide == .spacer_tail
+                                else
+                                    false,
+                            };
+                        }
+                    }
+                }
             }
 
             // Store our pin. We have to store these even if we're not dirty
