@@ -1297,7 +1297,7 @@ extension Ghostty {
             // Get information about if this is a binding.
             let bindingFlags = surfaceModel.flatMap { surface in
                 var ghosttyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
-                return (event.characters ?? "").withCString { ptr in
+                return (event.ghosttyCharacters ?? "").withCString { ptr in
                     ghosttyEvent.text = ptr
                     return surface.keyIsBinding(ghosttyEvent)
                 }
@@ -1317,12 +1317,65 @@ extension Ghostty {
                    bindingFlags.contains(.consumed) {
                     if let appDelegate = NSApp.delegate as? AppDelegate,
                        appDelegate.performGhosttyBindingMenuKeyEquivalent(with: event) {
+
+                        // keyDown is bypassed when the menu dispatches, so
+                        // record the key for the inspector here.
+                        if let surface = self.surface {
+                            var ghosttyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
+                            (event.ghosttyCharacters ?? "").withCString { ptr in
+                                ghosttyEvent.text = ptr
+                                ghostty_surface_record_inspector_key(surface, ghosttyEvent)
+                            }
+                        }
+
                         return true
                     }
                 }
 
+                // A consumed binding produces no text, so skip interpretKeyEvents
+                // and let core perform it directly. On layouts where that key is a
+                // dead key, feeding the event to the input client would start an
+                // unfinished composition.
+                if bindingFlags.contains(.consumed) {
+                    if hasMarkedText() {
+                        unmarkText()
+                    }
+                    let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
+                    _ = keyAction(action, event: event, text: event.ghosttyCharacters)
+                    return true
+                }
+
                 self.keyDown(with: event)
                 return true
+            }
+
+            // AppKit strips Shift from printable key equivalents, so Cmd+Shift+X
+            // would match a Cmd+X menu item once this method returns false and the
+            // main menu runs. If this event isn't a binding but Shift-removed would
+            // be, the Shift is meaningful, so then route it through keyDown and
+            // return true so that AppKit's menu never gets to fuzzy-match it.
+            if bindingFlags == nil,
+               event.modifierFlags.contains(.shift),
+               event.modifierFlags.contains(.command) || event.modifierFlags.contains(.control),
+               let surface = self.surface {
+                let dropped = event.modifierFlags.subtracting(.shift)
+                var probe = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
+                probe.mods = Ghostty.ghosttyMods(dropped)
+                probe.consumed_mods = Ghostty.ghosttyMods(
+                    dropped.subtracting([.control, .command])
+                )
+                var flags = ghostty_binding_flags_e(0)
+                let strippedText = event.characters(
+                    byApplyingModifiers: dropped.intersection([.shift, .option, .capsLock])
+                )
+                let strippedIsBinding = (strippedText ?? "").withCString { ptr in
+                    probe.text = ptr
+                    return ghostty_surface_key_is_binding(surface, probe, &flags)
+                }
+                if strippedIsBinding {
+                    self.keyDown(with: event)
+                    return true
+                }
             }
 
             let equivalent: String
@@ -1461,10 +1514,19 @@ extension Ghostty {
             var key_ev = event.ghosttyKeyEvent(action, translationMods: translationEvent?.modifierFlags)
             key_ev.composing = composing
 
+            // Fall back to ghosttyCharacters when no explicit text was supplied,
+            // since `event.characters` is "" while Command is held.
+            let effectiveText: String? = {
+                if let text, !text.isEmpty {
+                    return text
+                }
+                return event.ghosttyCharacters
+            }()
+
             // For text, we only encode UTF8 if we don't have a single control
             // character. Control characters are encoded by Ghostty itself.
             // Without this, `ctrl+enter` does the wrong thing.
-            if let text, text.count > 0,
+            if let text = effectiveText, text.count > 0,
                let codepoint = text.utf8.first, codepoint >= 0x20 {
                 return text.withCString { ptr in
                     key_ev.text = ptr

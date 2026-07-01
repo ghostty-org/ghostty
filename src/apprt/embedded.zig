@@ -16,7 +16,8 @@ const internal_os = @import("../os/main.zig");
 const renderer = @import("../renderer.zig");
 const terminal = @import("../terminal/main.zig");
 const CoreApp = @import("../App.zig");
-const CoreInspector = @import("../inspector/main.zig").Inspector;
+const inspectorpkg = @import("../inspector/main.zig");
+const CoreInspector = inspectorpkg.Inspector;
 const CoreSurface = @import("../Surface.zig");
 const configpkg = @import("../config.zig");
 const Config = configpkg.Config;
@@ -1773,6 +1774,41 @@ pub const CAPI = struct {
                 surface.app.keyboardLayout().detectOptionAsAlt(),
         );
         return @intCast(@as(input.Mods.Backing, @bitCast(result)));
+    }
+
+    /// Record a key event in the terminal inspector without executing any bindings.
+    export fn ghostty_surface_record_inspector_key(
+        surface: *Surface,
+        event: KeyEvent,
+    ) void {
+        const core_event = event.keyEvent().core() orelse return;
+        const inspector = surface.core_surface.inspector orelse return;
+
+        var insp_ev: inspectorpkg.KeyEvent = .{ .event = core_event };
+        insp_ev.event.utf8 = "";
+        if (core_event.utf8.len > 0) {
+            insp_ev.event.utf8 = surface.core_surface.alloc.dupe(
+                u8,
+                core_event.utf8,
+            ) catch &.{};
+        }
+
+        if (surface.core_surface.config.keybind.set.getEvent(core_event)) |entry| {
+            const actions = switch (entry.value_ptr.*) {
+                .leader => &.{},
+                inline .leaf, .leaf_chained => |leaf| leaf.generic().actionsSlice(),
+            };
+            insp_ev.binding = surface.core_surface.alloc.dupe(
+                input.Binding.Action,
+                actions,
+            ) catch &.{};
+        }
+
+        if (inspector.recordKeyEvent(surface.core_surface.alloc, insp_ev)) {
+            surface.queueInspectorRender();
+        } else |_| {
+            insp_ev.deinit(surface.core_surface.alloc);
+        }
     }
 
     /// Send this for raw keypresses (i.e. the keyDown event on macOS).
