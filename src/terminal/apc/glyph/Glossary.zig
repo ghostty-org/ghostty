@@ -108,8 +108,23 @@ pub fn clearAndFree(self: *Glossary, alloc: Allocator) void {
 }
 
 /// Contains returns true if the codepoint is covered by the glossary.
-pub fn contains(self: *Glossary, cp: u21) bool {
+pub fn contains(self: *const Glossary, cp: u21) bool {
     return self.entries.contains(cp);
+}
+
+/// Return true if the glossary has no registered glyphs.
+pub fn isEmpty(self: *const Glossary) bool {
+    return self.entries.count() == 0;
+}
+
+/// Return the registered layout width for `cp`, if any.
+///
+/// Glyph Protocol `width` is authoritative for terminal layout decisions for
+/// registered codepoints. Callers should still avoid this map lookup unless
+/// `cp` is in a Private Use Area, because registrations are PUA-only.
+pub fn registeredWidth(self: *const Glossary, cp: u21) ?request.Width {
+    const entry = self.entries.get(cp) orelse return null;
+    return entry.width;
 }
 
 /// A single glyph registration entry.
@@ -193,6 +208,23 @@ pub const Entry = struct {
         self.* = undefined;
     }
 
+    /// Deep copy this glossary entry using `alloc`.
+    ///
+    /// The returned entry owns decoded glyph memory and must be released with
+    /// `deinit`.
+    pub fn clone(self: *const Entry, alloc: Allocator) Allocator.Error!Entry {
+        const glyph: Glyph = switch (self.glyph) {
+            .glyf => |*outline| .{ .glyf = try outline.clone(alloc) },
+        };
+
+        return .{
+            .glyph = glyph,
+            .design = self.design,
+            .width = self.width,
+            .constraint = self.constraint,
+        };
+    }
+
     /// Return the renderer constraint for a register request.
     ///
     /// Glyph Protocol §8.5 defines sizing, alignment, and padding in terms of
@@ -251,7 +283,7 @@ pub const Entry = struct {
 };
 
 /// Return true if `cp` is in one of the Unicode Private Use Areas.
-fn isPrivateUse(cp: u21) bool {
+pub inline fn isPrivateUse(cp: u21) bool {
     return (cp >= 0xE000 and cp <= 0xF8FF) or
         (cp >= 0xF0000 and cp <= 0xFFFFD) or
         (cp >= 0x100000 and cp <= 0x10FFFD);
@@ -318,6 +350,26 @@ test "Entry init decodes glyf payload and applies register fields" {
 
     try testing.expectEqual(@as(usize, 3), entry.glyph.glyf.points.len);
     try testing.expectEqual(@as(usize, 1), entry.glyph.glyf.contours.len);
+}
+
+test "Entry clone deep copies decoded glyf payload" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var entry = try testRegisterEntry(alloc, 0xE000);
+    defer entry.deinit(alloc);
+
+    var cloned = try entry.clone(alloc);
+    defer cloned.deinit(alloc);
+
+    try testing.expectEqual(entry.design, cloned.design);
+    try testing.expectEqual(entry.width, cloned.width);
+    try testing.expectEqual(entry.constraint, cloned.constraint);
+
+    try testing.expectEqualSlices(u16, entry.glyph.glyf.contours, cloned.glyph.glyf.contours);
+    try testing.expectEqualSlices(Glyf.Outline.Point, entry.glyph.glyf.points, cloned.glyph.glyf.points);
+    try testing.expect(entry.glyph.glyf.contours.ptr != cloned.glyph.glyf.contours.ptr);
+    try testing.expect(entry.glyph.glyf.points.ptr != cloned.glyph.glyf.points.ptr);
 }
 
 test "Entry init rejects invalid register payload" {
@@ -441,4 +493,33 @@ test "Glossary contains reports registered slots" {
     try glossary.register(alloc, 0xE000, try testRegisterEntry(alloc, 0xE000));
     try testing.expect(glossary.contains(0xE000));
     try testing.expect(!glossary.contains(0xE001));
+}
+
+test "Glossary registeredWidth tracks register overwrite delete and clear" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var glossary: Glossary = .empty;
+    defer glossary.deinit(alloc);
+
+    try testing.expect(glossary.isEmpty());
+    try testing.expect(glossary.registeredWidth(0xE000) == null);
+
+    try glossary.register(alloc, 0xE000, try testRegisterEntry(alloc, 0xE000));
+    try testing.expect(!glossary.isEmpty());
+    try testing.expectEqual(request.Width.wide, glossary.registeredWidth(0xE000).?);
+
+    var entry = try testRegisterEntry(alloc, 0xE000);
+    entry.width = .narrow;
+    try glossary.register(alloc, 0xE000, entry);
+    try testing.expectEqual(request.Width.narrow, glossary.registeredWidth(0xE000).?);
+
+    try glossary.delete(alloc, 0xE000);
+    try testing.expect(glossary.isEmpty());
+    try testing.expect(glossary.registeredWidth(0xE000) == null);
+
+    try glossary.register(alloc, 0xE000, try testRegisterEntry(alloc, 0xE000));
+    glossary.clearAndFree(alloc);
+    try testing.expect(glossary.isEmpty());
+    try testing.expect(glossary.registeredWidth(0xE000) == null);
 }
