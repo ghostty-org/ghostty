@@ -226,7 +226,6 @@ pub const Target = enum(c_uint) {
     array = c.GL_ARRAY_BUFFER,
     element_array = c.GL_ELEMENT_ARRAY_BUFFER,
     uniform = c.GL_UNIFORM_BUFFER,
-    storage = c.GL_SHADER_STORAGE_BUFFER,
     _,
 };
 

@@ -70,6 +70,7 @@ pub const InternalFormat = enum(c_int) {
     red = c.GL_RED,
     rgb = c.GL_RGB8,
     rgba = c.GL_RGBA8,
+    r32ui = c.GL_R32UI,
 
     srgb = c.GL_SRGB8,
     srgba = c.GL_SRGB8_ALPHA8,
@@ -144,6 +145,19 @@ pub const Binding = struct {
             ),
             else => unreachable,
         }
+        try errors.getError();
+    }
+
+    pub fn buffer(
+        b: Binding,
+        internal_format: InternalFormat,
+        id: c.GLuint,
+    ) errors.Error!void {
+        glad.context.TexBuffer.?(
+            @intFromEnum(b.target),
+            @intCast(@intFromEnum(internal_format)),
+            id,
+        );
         try errors.getError();
     }
 
