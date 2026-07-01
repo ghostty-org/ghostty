@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const cli = @import("../cli.zig");
+const global = @import("../global.zig");
 
 /// The available actions for the CLI. This is the list of available
 /// benchmarks. View docs for each individual one in the predictably
@@ -36,19 +37,20 @@ pub const Action = enum {
 };
 
 /// An entrypoint for the benchmark CLI.
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
+    try global.init(.{ .main = init });
     const alloc = std.heap.c_allocator;
-    const action_ = try cli.action.detectArgs(Action, alloc);
+    const action_ = try cli.action.detectArgs(Action, alloc, init.minimal.args);
     const action = action_ orelse return error.NoAction;
-    try mainAction(alloc, action, .cli);
+    try mainAction(alloc, action, .{ .cli = init.minimal.args });
 }
 
 /// Arguments that can be passed to the benchmark.
 pub const Args = union(enum) {
     /// The arguments passed to the CLI via argc/argv.
-    cli,
+    cli: std.process.Args,
 
-    /// Simple string arguments, parsed via std.process.ArgIteratorGeneral.
+    /// Simple string arguments, parsed via ArgIteratorGeneral.
     string: []const u8,
 };
 
@@ -75,13 +77,13 @@ fn mainActionImpl(
     var opts: Options = .{};
     defer if (@hasDecl(Options, "deinit")) opts.deinit();
     switch (args) {
-        .cli => {
-            var iter = try cli.args.argsIterator(alloc);
+        .cli => |process_args| {
+            var iter = try cli.args.argsIterator(alloc, process_args);
             defer iter.deinit();
             try cli.args.parse(Options, alloc, &opts, &iter);
         },
         .string => |str| {
-            var iter = try std.process.ArgIteratorGeneral(.{}).init(
+            var iter = try std.process.Args.IteratorGeneral(.{}).init(
                 alloc,
                 str,
             );

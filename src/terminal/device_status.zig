@@ -9,24 +9,18 @@ pub const ColorScheme = lib.Enum(lib.target, &.{
 
 /// An enum(u16) of the available device status requests.
 pub const Request = dsr_enum: {
-    const EnumField = std.builtin.Type.EnumField;
-    var fields: [entries.len]EnumField = undefined;
-    for (entries, 0..) |entry, i| {
-        fields[i] = .{
-            .name = entry.name,
-            .value = @as(Tag.Backing, @bitCast(Tag{
-                .value = entry.value,
-                .question = entry.question,
-            })),
-        };
+    var names: [entries.len][]const u8 = undefined;
+    var values: [entries.len]Tag.Backing = undefined;
+
+    for (entries, &names, &values) |entry, *name, *value| {
+        name.* = entry.name;
+        value.* = @bitCast(Tag{
+            .value = entry.value,
+            .question = entry.question,
+        });
     }
 
-    break :dsr_enum @Type(.{ .@"enum" = .{
-        .tag_type = Tag.Backing,
-        .fields = &fields,
-        .decls = &.{},
-        .is_exhaustive = true,
-    } });
+    break :dsr_enum @Enum(Tag.Backing, .exhaustive, &names, &values);
 };
 
 /// The tag type for our enum is a u16 but we use a packed struct

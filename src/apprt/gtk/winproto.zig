@@ -141,7 +141,7 @@ pub const Window = union(Protocol) {
         };
     }
 
-    pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) !void {
+    pub fn addSubprocessEnv(self: *Window, env: *std.process.Environ.Map) !void {
         switch (self.*) {
             inline else => |*v| try v.addSubprocessEnv(env),
         }

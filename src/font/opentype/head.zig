@@ -1,5 +1,6 @@
 const std = @import("std");
 const sfnt = @import("sfnt.zig");
+const compat_reader = @import("../../lib/compat/reader.zig");
 
 /// Font Header Table
 ///
@@ -134,10 +135,9 @@ pub const Head = extern struct {
     glyphDataFormat: sfnt.int16 align(1),
 
     /// Parse the table from raw data.
-    pub fn init(data: []const u8) error{EndOfStream}!Head {
-        var fbs = std.io.fixedBufferStream(data);
-        const reader = fbs.reader();
-        return try reader.readStructEndian(Head, .big);
+    pub fn init(data: []const u8) std.Io.Reader.Error!Head {
+        var reader: std.Io.Reader = .fixed(data);
+        return try compat_reader.readStructEndian(&reader, Head, .big);
     }
 };
 

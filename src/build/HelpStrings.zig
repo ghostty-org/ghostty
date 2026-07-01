@@ -34,7 +34,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !HelpStrings {
 
     // Generated Zig files have to end with .zig
     const wf = b.addWriteFiles();
-    const output = wf.addCopyFile(help_run.captureStdOut(), "helpgen.zig");
+    const output = wf.addCopyFile(help_run.captureStdOut(.{}), "helpgen.zig");
 
     return .{
         .exe = exe,

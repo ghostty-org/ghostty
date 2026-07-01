@@ -21,21 +21,21 @@ pub fn build(b: *std.Build) !void {
         .linkage = .static,
     });
 
-    lib.addCSourceFile(.{
+    lib.root_module.addCSourceFile(.{
         .file = b.path("os/zig_macos.c"),
         .flags = &.{"-std=c99"},
     });
-    lib.addCSourceFile(.{
+    lib.root_module.addCSourceFile(.{
         .file = b.path("text/ext.c"),
     });
-    lib.linkFramework("CoreFoundation");
-    lib.linkFramework("CoreGraphics");
-    lib.linkFramework("CoreText");
-    lib.linkFramework("CoreVideo");
-    lib.linkFramework("QuartzCore");
-    lib.linkFramework("IOSurface");
+    lib.root_module.linkFramework("CoreFoundation", .{});
+    lib.root_module.linkFramework("CoreGraphics", .{});
+    lib.root_module.linkFramework("CoreText", .{});
+    lib.root_module.linkFramework("CoreVideo", .{});
+    lib.root_module.linkFramework("QuartzCore", .{});
+    lib.root_module.linkFramework("IOSurface", .{});
     if (target.result.os.tag == .macos) {
-        lib.linkFramework("Carbon");
+        lib.root_module.linkFramework("Carbon", .{});
         module.linkFramework("Carbon", .{});
     }
 
@@ -63,7 +63,7 @@ pub fn build(b: *std.Build) !void {
         if (target.result.os.tag.isDarwin()) {
             try apple_sdk.addPaths(b, test_exe);
         }
-        test_exe.linkLibrary(lib);
+        test_exe.root_module.linkLibrary(lib);
 
         var it = module.import_table.iterator();
         while (it.next()) |entry| {

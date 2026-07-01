@@ -17,10 +17,10 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
         .linkage = .static,
     });
-    lib.linkLibC();
     if (target.result.os.tag.isDarwin()) {
         const apple_sdk = @import("apple_sdk");
         try apple_sdk.addPaths(b, lib);
@@ -46,9 +46,9 @@ pub fn build(b: *std.Build) !void {
 
     if (b.lazyDependency("sentry", .{})) |upstream| {
         module.addIncludePath(upstream.path("include"));
-        lib.addIncludePath(upstream.path("include"));
-        lib.addIncludePath(upstream.path("src"));
-        lib.addCSourceFiles(.{
+        lib.root_module.addIncludePath(upstream.path("include"));
+        lib.root_module.addIncludePath(upstream.path("src"));
+        lib.root_module.addCSourceFiles(.{
             .root = upstream.path(""),
             .files = srcs,
             .flags = flags.items,
@@ -56,7 +56,7 @@ pub fn build(b: *std.Build) !void {
 
         // Linux-only
         if (target.result.os.tag == .linux) {
-            lib.addCSourceFiles(.{
+            lib.root_module.addCSourceFiles(.{
                 .root = upstream.path(""),
                 .files = &.{
                     "vendor/stb_sprintf.c",
@@ -67,7 +67,7 @@ pub fn build(b: *std.Build) !void {
 
         // Symbolizer + Unwinder
         if (target.result.os.tag == .windows) {
-            lib.addCSourceFiles(.{
+            lib.root_module.addCSourceFiles(.{
                 .root = upstream.path(""),
                 .files = &.{
                     "src/sentry_windows_dbghelp.c",
@@ -78,7 +78,7 @@ pub fn build(b: *std.Build) !void {
                 .flags = flags.items,
             });
         } else {
-            lib.addCSourceFiles(.{
+            lib.root_module.addCSourceFiles(.{
                 .root = upstream.path(""),
                 .files = &.{
                     "src/sentry_unix_pageallocator.c",
@@ -92,7 +92,7 @@ pub fn build(b: *std.Build) !void {
 
         // Module finder
         switch (target.result.os.tag) {
-            .windows => lib.addCSourceFiles(.{
+            .windows => lib.root_module.addCSourceFiles(.{
                 .root = upstream.path(""),
                 .files = &.{
                     "src/modulefinder/sentry_modulefinder_windows.c",
@@ -100,7 +100,7 @@ pub fn build(b: *std.Build) !void {
                 .flags = flags.items,
             }),
 
-            .macos, .ios => lib.addCSourceFiles(.{
+            .macos, .ios => lib.root_module.addCSourceFiles(.{
                 .root = upstream.path(""),
                 .files = &.{
                     "src/modulefinder/sentry_modulefinder_apple.c",
@@ -108,7 +108,7 @@ pub fn build(b: *std.Build) !void {
                 .flags = flags.items,
             }),
 
-            .linux => lib.addCSourceFiles(.{
+            .linux => lib.root_module.addCSourceFiles(.{
                 .root = upstream.path(""),
                 .files = &.{
                     "src/modulefinder/sentry_modulefinder_linux.c",
@@ -126,7 +126,7 @@ pub fn build(b: *std.Build) !void {
 
         // Transport
         switch (transport) {
-            .curl => lib.addCSourceFiles(.{
+            .curl => lib.root_module.addCSourceFiles(.{
                 .root = upstream.path(""),
                 .files = &.{
                     "src/transports/sentry_transport_curl.c",
@@ -134,7 +134,7 @@ pub fn build(b: *std.Build) !void {
                 .flags = flags.items,
             }),
 
-            .winhttp => lib.addCSourceFiles(.{
+            .winhttp => lib.root_module.addCSourceFiles(.{
                 .root = upstream.path(""),
                 .files = &.{
                     "src/transports/sentry_transport_winhttp.c",
@@ -142,7 +142,7 @@ pub fn build(b: *std.Build) !void {
                 .flags = flags.items,
             }),
 
-            .none => lib.addCSourceFiles(.{
+            .none => lib.root_module.addCSourceFiles(.{
                 .root = upstream.path(""),
                 .files = &.{
                     "src/transports/sentry_transport_none.c",
@@ -153,7 +153,7 @@ pub fn build(b: *std.Build) !void {
 
         // Backend
         switch (backend) {
-            .crashpad => lib.addCSourceFiles(.{
+            .crashpad => lib.root_module.addCSourceFiles(.{
                 .root = upstream.path(""),
                 .files = &.{
                     "src/backends/sentry_backend_crashpad.cpp",
@@ -162,7 +162,7 @@ pub fn build(b: *std.Build) !void {
             }),
 
             .breakpad => {
-                lib.addCSourceFiles(.{
+                lib.root_module.addCSourceFiles(.{
                     .root = upstream.path(""),
                     .files = &.{
                         "src/backends/sentry_backend_breakpad.cpp",
@@ -174,15 +174,15 @@ pub fn build(b: *std.Build) !void {
                     .target = target,
                     .optimize = optimize,
                 })) |breakpad_dep| {
-                    lib.linkLibrary(breakpad_dep.artifact("breakpad"));
+                    lib.root_module.linkLibrary(breakpad_dep.artifact("breakpad"));
 
                     // We need to add this because Sentry includes some breakpad
                     // headers that include this vendored file...
-                    lib.addIncludePath(breakpad_dep.path("vendor"));
+                    lib.root_module.addIncludePath(breakpad_dep.path("vendor"));
                 }
             },
 
-            .inproc => lib.addCSourceFiles(.{
+            .inproc => lib.root_module.addCSourceFiles(.{
                 .root = upstream.path(""),
                 .files = &.{
                     "src/backends/sentry_backend_inproc.c",
@@ -190,7 +190,7 @@ pub fn build(b: *std.Build) !void {
                 .flags = flags.items,
             }),
 
-            .none => lib.addCSourceFiles(.{
+            .none => lib.root_module.addCSourceFiles(.{
                 .root = upstream.path(""),
                 .files = &.{
                     "src/backends/sentry_backend_none.c",

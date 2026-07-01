@@ -117,6 +117,7 @@ test "StringMap searchIterator" {
 
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     // Initialize our regex
     try oni.testing.ensureInit();
@@ -130,7 +131,7 @@ test "StringMap searchIterator" {
     defer re.deinit();
 
     // Initialize our screen
-    var s = try Screen.init(alloc, .{ .cols = 5, .rows = 5, .max_scrollback = 0 });
+    var s = try Screen.init(io, alloc, .{ .cols = 5, .rows = 5, .max_scrollback = 0 });
     defer s.deinit();
     const str = "1ABCD2EFGH\n3IJKL";
     try s.testWriteString(str);
@@ -174,6 +175,7 @@ test "StringMap searchIterator URL detection" {
 
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
     const url = @import("../config/url.zig");
 
     // Initialize URL regex
@@ -188,7 +190,7 @@ test "StringMap searchIterator URL detection" {
     defer re.deinit();
 
     // Initialize our screen with text containing a URL
-    var s = try Screen.init(alloc, .{ .cols = 40, .rows = 5, .max_scrollback = 0 });
+    var s = try Screen.init(io, alloc, .{ .cols = 40, .rows = 5, .max_scrollback = 0 });
     defer s.deinit();
     try s.testWriteString("hello https://example.com/path world");
 
@@ -235,6 +237,7 @@ test "StringMap searchIterator URL with click position" {
 
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
     const url = @import("../config/url.zig");
 
     // Initialize URL regex
@@ -249,7 +252,7 @@ test "StringMap searchIterator URL with click position" {
     defer re.deinit();
 
     // Initialize our screen with text containing a URL
-    var s = try Screen.init(alloc, .{ .cols = 40, .rows = 5, .max_scrollback = 0 });
+    var s = try Screen.init(io, alloc, .{ .cols = 40, .rows = 5, .max_scrollback = 0 });
     defer s.deinit();
     try s.testWriteString("hello https://example.com world");
 

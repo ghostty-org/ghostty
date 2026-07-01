@@ -253,7 +253,7 @@ fn selectionFormatter(
     opts: FormatOptions,
 ) error{ InvalidValue, NoValue }!formatterpkg.TerminalFormatter {
     if (opts.size < @sizeOf(FormatOptions)) return error.InvalidValue;
-    _ = std.meta.intToEnum(Format, @intFromEnum(opts.emit)) catch
+    _ = std.enums.fromInt(Format, @intFromEnum(opts.emit)) orelse
         return error.InvalidValue;
 
     const sel = if (opts.selection) |sel|
@@ -308,7 +308,7 @@ pub fn adjust(
     adjustment: Selection.Adjustment,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(Selection.Adjustment, @intFromEnum(adjustment)) catch {
+        _ = std.enums.fromInt(Selection.Adjustment, @intFromEnum(adjustment)) orelse {
             log.warn("terminal_selection_adjust invalid adjustment value={d}", .{@intFromEnum(adjustment)});
             return .invalid_value;
         };
@@ -343,7 +343,7 @@ pub fn ordered(
     out_selection: ?*CSelection,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(Selection.Order, @intFromEnum(desired)) catch {
+        _ = std.enums.fromInt(Selection.Order, @intFromEnum(desired)) orelse {
             log.warn("terminal_selection_ordered invalid desired value={d}", .{@intFromEnum(desired)});
             return .invalid_value;
         };

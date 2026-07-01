@@ -941,8 +941,7 @@ pub const PageFormatter = struct {
                 // Setup our div. We use a buffer here that should always
                 // fit the stuff we need, in order to make counting bytes easier.
                 var buf: [1024]u8 = undefined;
-                var stream = std.io.fixedBufferStream(&buf);
-                const buf_writer = stream.writer();
+                var buf_writer: std.Io.Writer = .fixed(&buf);
 
                 // Monospace and whitespace preserving
                 buf_writer.writeAll("<div style=\"font-family: monospace; white-space: pre;") catch return error.WriteFailed;
@@ -959,7 +958,7 @@ pub const PageFormatter = struct {
 
                 buf_writer.writeAll("\">") catch return error.WriteFailed;
 
-                const header = stream.getWritten();
+                const header = buf_writer.buffered();
                 try writer.writeAll(header);
                 if (self.point_map) |*map| map.map.appendNTimes(
                     map.alloc,
@@ -971,8 +970,7 @@ pub const PageFormatter = struct {
             .vt => {
                 // OSC 10 sets foreground color, OSC 11 sets background color
                 var buf: [512]u8 = undefined;
-                var stream = std.io.fixedBufferStream(&buf);
-                const buf_writer = stream.writer();
+                var buf_writer: std.Io.Writer = .fixed(&buf);
                 if (self.opts.foreground) |fg| {
                     buf_writer.print(
                         "\x1b]10;rgb:{x:0>2}/{x:0>2}/{x:0>2}\x1b\\",
@@ -986,7 +984,7 @@ pub const PageFormatter = struct {
                     ) catch return error.WriteFailed;
                 }
 
-                const header = stream.getWritten();
+                const header = buf_writer.buffered();
                 try writer.writeAll(header);
                 if (self.point_map) |*map| map.map.appendNTimes(
                     map.alloc,
@@ -1375,7 +1373,7 @@ pub const PageFormatter = struct {
             return;
         }
 
-        try self.writeCodepointWithReplacement(writer, cell.content.codepoint);
+        try self.writeCodepointWithReplacement(writer, cell.content.codepoint.data);
         if (comptime tag == .codepoint_grapheme) {
             for (self.page.lookupGrapheme(cell).?) |cp| {
                 try self.writeCodepointWithReplacement(writer, cp);
@@ -1475,7 +1473,7 @@ pub const PageFormatter = struct {
 
             .bg_color_palette => .{
                 .bg_color = .{
-                    .palette = cell.content.color_palette,
+                    .palette = cell.content.color_palette.data,
                 },
             },
 
@@ -1591,11 +1589,12 @@ pub const PageFormatter = struct {
 test "Page plain single line" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -1638,11 +1637,12 @@ test "Page plain single line" {
 test "Page plain single line soft-wrapped unwrapped" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 3,
         .rows = 5,
     });
@@ -1708,11 +1708,12 @@ test "Page plain single line soft-wrapped unwrapped" {
 test "Page plain single wide char" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -1799,11 +1800,12 @@ test "Page plain single wide char" {
 test "Page plain single wide char soft-wrapped unwrapped" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 3,
         .rows = 24,
     });
@@ -1916,11 +1918,12 @@ test "Page plain single wide char soft-wrapped unwrapped" {
 test "Page plain multiline" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -1967,11 +1970,12 @@ test "Page plain multiline" {
 test "Page plain multiline rectangle" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -2021,11 +2025,12 @@ test "Page plain multiline rectangle" {
 test "Page plain multi blank lines" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -2074,11 +2079,12 @@ test "Page plain multi blank lines" {
 test "Page plain trailing blank lines" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -2127,11 +2133,12 @@ test "Page plain trailing blank lines" {
 test "Page plain trailing whitespace" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -2180,11 +2187,12 @@ test "Page plain trailing whitespace" {
 test "Page plain trailing whitespace no trim" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -2236,11 +2244,12 @@ test "Page plain trailing whitespace no trim" {
 test "Page plain with prior trailing state rows" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -2282,11 +2291,12 @@ test "Page plain with prior trailing state rows" {
 test "Page plain with prior trailing state cells no wrapped line" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -2327,11 +2337,12 @@ test "Page plain with prior trailing state cells no wrapped line" {
 test "Page plain with prior trailing state cells with wrap continuation" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -2381,11 +2392,12 @@ test "Page plain with prior trailing state cells with wrap continuation" {
 test "Page plain soft-wrapped without unwrap" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 10,
         .rows = 24,
     });
@@ -2430,11 +2442,12 @@ test "Page plain soft-wrapped without unwrap" {
 test "Page plain soft-wrapped with unwrap" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 10,
         .rows = 24,
     });
@@ -2478,11 +2491,12 @@ test "Page plain soft-wrapped with unwrap" {
 test "Page plain soft-wrapped 3 lines without unwrap" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 10,
         .rows = 24,
     });
@@ -2532,11 +2546,12 @@ test "Page plain soft-wrapped 3 lines without unwrap" {
 test "Page plain soft-wrapped 3 lines with unwrap" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 10,
         .rows = 24,
     });
@@ -2584,11 +2599,12 @@ test "Page plain soft-wrapped 3 lines with unwrap" {
 test "Page plain start_y subset" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -2631,11 +2647,12 @@ test "Page plain start_y subset" {
 test "Page plain end_y subset" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -2678,11 +2695,12 @@ test "Page plain end_y subset" {
 test "Page plain start_y and end_y range" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -2726,11 +2744,12 @@ test "Page plain start_y and end_y range" {
 test "Page plain start_y out of bounds" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -2764,11 +2783,12 @@ test "Page plain start_y out of bounds" {
 test "Page plain end_y greater than rows" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -2807,11 +2827,12 @@ test "Page plain end_y greater than rows" {
 test "Page plain end_y less than start_y" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -2846,11 +2867,12 @@ test "Page plain end_y less than start_y" {
 test "Page plain start_x on first row only" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -2888,11 +2910,12 @@ test "Page plain start_x on first row only" {
 test "Page plain end_x on last row only" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -2941,11 +2964,12 @@ test "Page plain end_x on last row only" {
 test "Page plain start_x and end_x multiline" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -2998,11 +3022,12 @@ test "Page plain start_x and end_x multiline" {
 test "Page plain start_x out of bounds" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -3036,11 +3061,12 @@ test "Page plain start_x out of bounds" {
 test "Page plain end_x greater than cols" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -3078,11 +3104,12 @@ test "Page plain end_x greater than cols" {
 test "Page plain end_x less than start_x single row" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -3118,11 +3145,12 @@ test "Page plain end_x less than start_x single row" {
 test "Page plain start_y non-zero ignores trailing state" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -3162,11 +3190,12 @@ test "Page plain start_y non-zero ignores trailing state" {
 test "Page plain start_x non-zero ignores trailing state" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -3206,11 +3235,12 @@ test "Page plain start_x non-zero ignores trailing state" {
 test "Page plain start_y and start_x zero uses trailing state" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -3253,11 +3283,12 @@ test "Page plain start_y and start_x zero uses trailing state" {
 test "Page plain single line with styling" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -3299,11 +3330,12 @@ test "Page plain single line with styling" {
 test "Page VT single line plain text" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -3338,11 +3370,12 @@ test "Page VT single line plain text" {
 test "Page VT single line with bold" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -3384,11 +3417,12 @@ test "Page VT single line with bold" {
 test "Page VT multiple styles" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -3419,11 +3453,12 @@ test "Page VT multiple styles" {
 test "Page VT with foreground color" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -3465,11 +3500,12 @@ test "Page VT with foreground color" {
 test "Page VT with background and foreground colors" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -3502,11 +3538,12 @@ test "Page VT with background and foreground colors" {
 test "Page VT multi-line with styles" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -3539,11 +3576,12 @@ test "Page VT multi-line with styles" {
 test "Page VT duplicate style not emitted twice" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -3574,11 +3612,12 @@ test "Page VT duplicate style not emitted twice" {
 test "PageList plain single line" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -3610,11 +3649,12 @@ test "PageList plain single line" {
 test "PageList plain spanning two pages" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -3683,11 +3723,12 @@ test "PageList plain spanning two pages" {
 test "PageList soft-wrapped line spanning two pages without unwrap" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 10,
         .rows = 3,
     });
@@ -3747,11 +3788,12 @@ test "PageList soft-wrapped line spanning two pages without unwrap" {
 test "PageList soft-wrapped line spanning two pages with unwrap" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 10,
         .rows = 3,
     });
@@ -3808,11 +3850,12 @@ test "PageList soft-wrapped line spanning two pages with unwrap" {
 test "PageList VT spanning two pages" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -3868,11 +3911,12 @@ test "PageList VT spanning two pages" {
 test "PageList plain with x offset on single page" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -3914,11 +3958,12 @@ test "PageList plain with x offset on single page" {
 test "PageList plain with x offset spanning two pages" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -3984,11 +4029,12 @@ test "PageList plain with x offset spanning two pages" {
 test "PageList plain with start_x only" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4025,11 +4071,12 @@ test "PageList plain with start_x only" {
 test "PageList plain with end_x only" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4078,11 +4125,12 @@ test "PageList plain with end_x only" {
 test "PageList plain rectangle basic" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 30,
         .rows = 5,
     });
@@ -4118,11 +4166,12 @@ test "PageList plain rectangle basic" {
 test "PageList plain rectangle with EOL" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 30,
         .rows = 5,
     });
@@ -4160,11 +4209,12 @@ test "PageList plain rectangle with EOL" {
 test "PageList plain rectangle more complex with breaks" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 30,
         .rows = 8,
     });
@@ -4206,11 +4256,12 @@ test "PageList plain rectangle more complex with breaks" {
 test "TerminalFormatter plain no selection" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4230,11 +4281,12 @@ test "TerminalFormatter plain no selection" {
 test "TerminalFormatter vt with palette" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4255,7 +4307,7 @@ test "TerminalFormatter vt with palette" {
     const output = builder.writer.buffered();
 
     // Create a second terminal and apply the output
-    var t2 = try Terminal.init(alloc, .{
+    var t2 = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4275,11 +4327,12 @@ test "TerminalFormatter vt with palette" {
 test "TerminalFormatter with selection" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4304,11 +4357,12 @@ test "TerminalFormatter with selection" {
 test "TerminalFormatter plain with pin_map" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4341,11 +4395,12 @@ test "TerminalFormatter plain with pin_map" {
 test "TerminalFormatter plain multiline with pin_map" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4389,11 +4444,12 @@ test "TerminalFormatter plain multiline with pin_map" {
 test "TerminalFormatter vt with palette and pin_map" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4426,11 +4482,12 @@ test "TerminalFormatter vt with palette and pin_map" {
 test "TerminalFormatter with selection and pin_map" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4470,11 +4527,12 @@ test "TerminalFormatter with selection and pin_map" {
 test "Screen plain single line" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4507,11 +4565,12 @@ test "Screen plain single line" {
 test "Screen plain multiline" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4555,11 +4614,12 @@ test "Screen plain multiline" {
 test "Screen plain with selection" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4599,11 +4659,12 @@ test "Screen plain with selection" {
 test "Screen vt with cursor position" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4626,7 +4687,7 @@ test "Screen vt with cursor position" {
     const output = builder.writer.buffered();
 
     // Create a second terminal and apply the output
-    var t2 = try Terminal.init(alloc, .{
+    var t2 = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4658,11 +4719,12 @@ test "Screen vt with cursor position" {
 test "Screen vt with style" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4685,7 +4747,7 @@ test "Screen vt with style" {
     const output = builder.writer.buffered();
 
     // Create a second terminal and apply the output
-    var t2 = try Terminal.init(alloc, .{
+    var t2 = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4710,11 +4772,12 @@ test "Screen vt with style" {
 test "Screen vt with hyperlink" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4737,7 +4800,7 @@ test "Screen vt with hyperlink" {
     const output = builder.writer.buffered();
 
     // Create a second terminal and apply the output
-    var t2 = try Terminal.init(alloc, .{
+    var t2 = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4770,11 +4833,12 @@ test "Screen vt with hyperlink" {
 test "Screen vt with protection" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4797,7 +4861,7 @@ test "Screen vt with protection" {
     const output = builder.writer.buffered();
 
     // Create a second terminal and apply the output
-    var t2 = try Terminal.init(alloc, .{
+    var t2 = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4822,11 +4886,12 @@ test "Screen vt with protection" {
 test "Screen vt with kitty keyboard" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4849,7 +4914,7 @@ test "Screen vt with kitty keyboard" {
     const output = builder.writer.buffered();
 
     // Create a second terminal and apply the output
-    var t2 = try Terminal.init(alloc, .{
+    var t2 = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4876,11 +4941,12 @@ test "Screen vt with kitty keyboard" {
 test "Screen vt with charsets" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4903,7 +4969,7 @@ test "Screen vt with charsets" {
     const output = builder.writer.buffered();
 
     // Create a second terminal and apply the output
-    var t2 = try Terminal.init(alloc, .{
+    var t2 = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4933,11 +4999,12 @@ test "Screen vt with charsets" {
 test "Terminal vt with scrolling region" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4956,7 +5023,7 @@ test "Terminal vt with scrolling region" {
     const output = builder.writer.buffered();
 
     // Create a second terminal and apply the output
-    var t2 = try Terminal.init(alloc, .{
+    var t2 = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -4977,11 +5044,12 @@ test "Terminal vt with scrolling region" {
 test "Terminal vt with modes" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5003,7 +5071,7 @@ test "Terminal vt with modes" {
     const output = builder.writer.buffered();
 
     // Create a second terminal and apply the output
-    var t2 = try Terminal.init(alloc, .{
+    var t2 = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5023,11 +5091,12 @@ test "Terminal vt with modes" {
 test "Terminal vt with tabstops" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5050,7 +5119,7 @@ test "Terminal vt with tabstops" {
     const output = builder.writer.buffered();
 
     // Create a second terminal and apply the output
-    var t2 = try Terminal.init(alloc, .{
+    var t2 = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5074,11 +5143,12 @@ test "Terminal vt with tabstops" {
 test "Terminal vt with keyboard modes" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5098,7 +5168,7 @@ test "Terminal vt with keyboard modes" {
     const output = builder.writer.buffered();
 
     // Create a second terminal and apply the output
-    var t2 = try Terminal.init(alloc, .{
+    var t2 = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5117,11 +5187,12 @@ test "Terminal vt with keyboard modes" {
 test "Terminal vt with pwd" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5140,7 +5211,7 @@ test "Terminal vt with pwd" {
     const output = builder.writer.buffered();
 
     // Create a second terminal and apply the output
-    var t2 = try Terminal.init(alloc, .{
+    var t2 = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5158,11 +5229,12 @@ test "Terminal vt with pwd" {
 test "Page html with multiple styles" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5194,11 +5266,12 @@ test "Page html with multiple styles" {
 test "Page html plain text" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5226,11 +5299,12 @@ test "Page html plain text" {
 test "Page html with colors" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5260,11 +5334,12 @@ test "Page html with colors" {
 test "TerminalFormatter html with palette" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5297,11 +5372,12 @@ test "TerminalFormatter html with palette" {
 test "Page html with background and foreground colors" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5332,11 +5408,12 @@ test "Page html with background and foreground colors" {
 test "Page html with escaping" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5402,11 +5479,12 @@ test "Page html with escaping" {
 test "Page html with unicode as numeric entities" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5436,11 +5514,12 @@ test "Page html with unicode as numeric entities" {
 test "Page html ascii characters unchanged" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5468,11 +5547,12 @@ test "Page html ascii characters unchanged" {
 test "Page html mixed ascii and unicode" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5500,11 +5580,12 @@ test "Page html mixed ascii and unicode" {
 test "Page VT with palette option emits RGB" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5544,11 +5625,12 @@ test "Page VT with palette option emits RGB" {
 test "Page html with palette option emits RGB" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5598,11 +5680,12 @@ test "Page html with palette option emits RGB" {
 test "Page VT style reset properly closes styles" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5629,11 +5712,12 @@ test "Page VT style reset properly closes styles" {
 test "Page codepoint_map single replacement" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5688,11 +5772,12 @@ test "Page codepoint_map single replacement" {
 test "Page codepoint_map conflicting replacement prefers last" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5730,11 +5815,12 @@ test "Page codepoint_map conflicting replacement prefers last" {
 test "Page codepoint_map replace with string" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5786,11 +5872,12 @@ test "Page codepoint_map replace with string" {
 test "Page codepoint_map range replacement" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5824,11 +5911,12 @@ test "Page codepoint_map range replacement" {
 test "Page codepoint_map multiple ranges" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5868,11 +5956,12 @@ test "Page codepoint_map multiple ranges" {
 test "Page codepoint_map unicode replacement" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -5933,11 +6022,12 @@ test "Page codepoint_map unicode replacement" {
 test "Page codepoint_map with styled formats" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 10,
         .rows = 24,
     });
@@ -5974,11 +6064,12 @@ test "Page codepoint_map with styled formats" {
 test "Page codepoint_map empty map" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -6011,11 +6102,12 @@ test "Page VT background color on trailing blank cells" {
     // This causes TUIs like htop to lose background colors on rehydration.
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 20,
         .rows = 5,
     });
@@ -6062,11 +6154,12 @@ test "Page VT background color on trailing blank cells" {
 test "Page HTML with hyperlinks" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -6096,11 +6189,12 @@ test "Page HTML with hyperlinks" {
 test "Page HTML with multiple hyperlinks" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -6133,11 +6227,12 @@ test "Page HTML with multiple hyperlinks" {
 test "Page HTML with hyperlink escaping" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -6167,11 +6262,12 @@ test "Page HTML with hyperlink escaping" {
 test "Page HTML with styled hyperlink" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -6202,11 +6298,12 @@ test "Page HTML with styled hyperlink" {
 test "Page HTML hyperlink closes style before anchor" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -6237,11 +6334,12 @@ test "Page HTML hyperlink closes style before anchor" {
 test "Page HTML hyperlink point map maps closing to previous cell" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });

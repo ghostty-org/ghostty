@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const assert = @import("../../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
@@ -10,16 +11,17 @@ const gtk = @import("gtk");
 
 const build_config = @import("../../../build_config.zig");
 const build_info = @import("../build/info.zig");
-const state = &@import("../../../global.zig").state;
+const global = @import("../../../global.zig");
 const i18n = @import("../../../os/main.zig").i18n;
 const apprt = @import("../../../apprt.zig");
 const CoreApp = @import("../../../App.zig");
+const compat_file = @import("../../../lib/compat/file.zig");
 const configpkg = @import("../../../config.zig");
 const input = @import("../../../input.zig");
 const internal_os = @import("../../../os/main.zig");
 const systemd = @import("../../../os/systemd.zig");
 const terminal = @import("../../../terminal/main.zig");
-const xev = @import("../../../global.zig").xev;
+const xev = global.xev;
 const Binding = @import("../../../input.zig").Binding;
 const CoreConfig = configpkg.Config;
 const CoreSurface = @import("../../../Surface.zig");
@@ -44,6 +46,8 @@ const GlobalShortcuts = @import("global_shortcuts.zig").GlobalShortcuts;
 const OpenURI = @import("../portal.zig").OpenURI;
 
 const log = std.log.scoped(.gtk_ghostty_application);
+
+extern "c" fn setenv(name: ?[*]const u8, value: ?[*]const u8, overwrite: c_int) c_int;
 
 /// Function used to funnel GLib/GObject/GTK log messages into Zig's logging
 /// system rather than just getting dumped directly to stderr.
@@ -271,15 +275,17 @@ pub const Application = extern struct {
         };
         defer config.deinit();
 
+        // Set the old language,
         const saved_language: ?[:0]const u8 = saved_language: {
             const old_language = old_language: {
-                const result = (internal_os.getenv(alloc, "LANG") catch break :old_language null) orelse break :old_language null;
-                defer result.deinit(alloc);
-                break :old_language alloc.dupeZ(u8, result.value) catch break :old_language null;
+                const lang = global.environ().getPosix("LANG") orelse break :old_language null;
+                break :old_language alloc.dupeSentinel(u8, @ptrCast(lang), 0) catch null;
             };
-
-            if (config.language) |language| _ = internal_os.setenv("LANG", language);
-
+            if (config.language) |language| {
+                // Override LANG if we need to (sync global environs if so)
+                _ = setenv("LANG", @ptrCast(language), 1);
+                global.syncEnviron();
+            }
             break :saved_language old_language;
         };
 
@@ -294,7 +300,7 @@ pub const Application = extern struct {
 
         // Setup our GTK init env vars
         setGtkEnv(&config) catch |err| switch (err) {
-            error.NoSpaceLeft => {
+            error.WriteFailed => {
                 // If we fail to set GTK environment variables then we still
                 // try to start the application...
                 log.warn(
@@ -338,7 +344,7 @@ pub const Application = extern struct {
             // I'm unsure of any scenario where this happens. Because we don't
             // want to litter null checks everywhere, we just exit here.
             log.warn("gdk display is null, exiting", .{});
-            std.posix.exit(1);
+            std.process.exit(1);
         };
 
         // Setup our windowing protocol logic
@@ -1063,7 +1069,11 @@ pub const Application = extern struct {
         }
     }
 
-    fn loadCustomCss(self: *Self) (std.fs.File.ReadError || Allocator.Error)!void {
+    const LoadCustomCssError = std.Io.File.OpenError ||
+        compat_file.ReadToEndAllocError ||
+        std.mem.Allocator.Error;
+
+    fn loadCustomCss(self: *Self) LoadCustomCssError!void {
         const priv: *Private = self.private();
         const alloc = self.allocator();
         const display = gdk.Display.getDefault() orelse {
@@ -1087,7 +1097,11 @@ pub const Application = extern struct {
                 .optional => |path| .{ path, true },
                 .required => |path| .{ path, false },
             };
-            const file = std.fs.openFileAbsolute(path, .{}) catch |err| {
+            const file = std.Io.Dir.openFileAbsolute(
+                global.io(),
+                path,
+                .{},
+            ) catch |err| {
                 if (err != error.FileNotFound or !optional) {
                     log.warn(
                         "error opening gtk-custom-css file {s}: {}",
@@ -1096,12 +1110,14 @@ pub const Application = extern struct {
                 }
                 continue;
             };
-            defer file.close();
+            defer file.close(global.io());
 
             const css_file_size_limit = 5 * 1024 * 1024; // 5MB
 
             log.info("loading gtk-custom-css path={s}", .{path});
-            const contents = file.readToEndAlloc(
+
+            const contents = compat_file.readToEndAlloc(
+                file,
                 alloc,
                 css_file_size_limit,
             ) catch |err| switch (err) {
@@ -1111,6 +1127,7 @@ pub const Application = extern struct {
                 },
                 else => |e| return e,
             };
+
             defer alloc.free(contents);
 
             const bytes = glib.Bytes.new(contents.ptr, contents.len);
@@ -1401,7 +1418,7 @@ pub const Application = extern struct {
         const priv = self.private();
         assert(priv.signal_source == null);
         priv.signal_source = glib.unixSignalAdd(
-            std.posix.SIG.USR2,
+            @intFromEnum(std.posix.SIG.USR2),
             handleSigusr2,
             self,
         );
@@ -1461,7 +1478,7 @@ pub const Application = extern struct {
 
         // Queue a new window
         const priv = self.private();
-        _ = priv.core_app.mailbox.push(.{
+        _ = priv.core_app.mailbox.push(global.io(), .{
             .new_window = .{},
         }, .{ .forever = {} });
 
@@ -1813,7 +1830,7 @@ pub const Application = extern struct {
         _: ?*glib.Variant,
         self: *Self,
     ) callconv(.c) void {
-        _ = self.core().mailbox.push(.open_config, .forever);
+        _ = self.core().mailbox.push(global.io(), .open_config, .forever);
     }
 
     fn actionPresentSurface(
@@ -1839,6 +1856,7 @@ pub const Application = extern struct {
         const surface = self.core().findSurfaceByID(surface_id) orelse return;
 
         _ = self.core().mailbox.push(
+            global.io(),
             .{
                 .surface_message = .{
                     .surface = surface,
@@ -1866,11 +1884,8 @@ pub const Application = extern struct {
         fn init(class: *Class) callconv(.c) void {
             // Register our compiled resources exactly once.
             {
-                const c = @cImport({
-                    // generated header files
-                    @cInclude("ghostty_resources.h");
-                });
-                if (c.ghostty_get_resource()) |ptr| {
+                const ghostty_gtk_resources = @import("ghostty_gtk_resources");
+                if (ghostty_gtk_resources.ghostty_get_resource()) |ptr| {
                     gio.resourcesRegister(@ptrCast(@alignCast(ptr)));
                 } else {
                     // If we fail to load resources then things will
@@ -1894,11 +1909,11 @@ pub const Application = extern struct {
     };
 
     pub fn openUrlFallback(self: *Application, kind: apprt.action.OpenUrl.Kind, url: []const u8) void {
+        _ = self;
         // Fallback to the minimal cross-platform way of opening a URL.
         // This is always a safe fallback and enables for example Windows
         // to open URLs (GTK on Windows via WSL is a thing).
         internal_os.open(
-            self.allocator(),
             kind,
             url,
         ) catch |err| log.warn("unable to open url: {}", .{err});
@@ -2846,7 +2861,7 @@ const Action = struct {
 /// given the runtime environment or configuration.
 ///
 /// This must be called BEFORE GTK initialization.
-fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
+fn setGtkEnv(config: *const CoreConfig) std.Io.Writer.Error!void {
     assert(gtk.isInitialized() == 0);
 
     var gdk_debug: struct {
@@ -2863,7 +2878,7 @@ fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
     } = .{
         // `gtk-opengl-debug` dumps logs directly to stderr so both must be true
         // to enable OpenGL debugging.
-        .opengl = state.logging.stderr and config.@"gtk-opengl-debug",
+        .opengl = global.logging().stderr and config.@"gtk-opengl-debug",
     };
 
     var gdk_disable: struct {
@@ -2915,8 +2930,7 @@ fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
 
     {
         var buf: [1024]u8 = undefined;
-        var fmt = std.io.fixedBufferStream(&buf);
-        const writer = fmt.writer();
+        var writer: std.Io.Writer = .fixed(&buf);
         var first: bool = true;
         inline for (@typeInfo(@TypeOf(gdk_debug)).@"struct".fields) |field| {
             if (@field(gdk_debug, field.name)) {
@@ -2926,15 +2940,14 @@ fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
             }
         }
         try writer.writeByte(0);
-        const value = fmt.getWritten();
+        const value = writer.buffered();
         log.warn("setting GDK_DEBUG={s}", .{value[0 .. value.len - 1]});
-        _ = internal_os.setenv("GDK_DEBUG", value[0 .. value.len - 1 :0]);
+        _ = setenv("GDK_DEBUG", @ptrCast(value[0 .. value.len - 1 :0]), 1);
     }
 
     {
         var buf: [1024]u8 = undefined;
-        var fmt = std.io.fixedBufferStream(&buf);
-        const writer = fmt.writer();
+        var writer: std.Io.Writer = .fixed(&buf);
         var first: bool = true;
         inline for (@typeInfo(@TypeOf(gdk_disable)).@"struct".fields) |field| {
             if (@field(gdk_disable, field.name)) {
@@ -2944,10 +2957,13 @@ fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
             }
         }
         try writer.writeByte(0);
-        const value = fmt.getWritten();
+        const value = writer.buffered();
         log.warn("setting GDK_DISABLE={s}", .{value[0 .. value.len - 1]});
-        _ = internal_os.setenv("GDK_DISABLE", value[0 .. value.len - 1 :0]);
+        _ = setenv("GDK_DISABLE", @ptrCast(value[0 .. value.len - 1 :0]), 1);
     }
+
+    // Sync environ after altering system env
+    global.syncEnviron();
 }
 
 fn findActiveWindow(data: ?*const anyopaque, _: ?*const anyopaque) callconv(.c) c_int {

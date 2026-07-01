@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
+const global = @import("../../../global.zig");
 
 const Binding = @import("../../../input.zig").Binding;
 const key = @import("../key.zig");
@@ -630,6 +631,9 @@ fn generateToken(buf: *Token) [:0]const u8 {
     return std.fmt.bufPrintZ(
         buf,
         "ghostty_{x:0<7}",
-        .{std.crypto.random.int(u28)},
+        .{rand_int: {
+            const rng_impl: std.Random.IoSource = .{ .io = global.io() };
+            break :rand_int rng_impl.interface().int(u28);
+        }},
     ) catch unreachable;
 }

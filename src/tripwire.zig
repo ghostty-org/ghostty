@@ -38,7 +38,7 @@
 //!     errdefer allocator.free(buf);
 //!
 //!     try tw.check(.open_file);
-//!     const file = try std.fs.cwd().openFile("foo.txt", .{});
+//!     const file = try std.Io.Dir.cwd().openFile(io, "foo.txt", .{});
 //!     // ...
 //! }
 //!

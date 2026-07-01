@@ -793,8 +793,6 @@ const VTHandler = struct {
                 vt_events.deleteOldest(1);
                 try vt_events.append(ev);
             },
-
-            else => return err,
         };
 
         // Do NOT skip it, because we want to record more information

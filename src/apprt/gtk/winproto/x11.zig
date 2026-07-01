@@ -317,7 +317,7 @@ pub const Window = struct {
         self.last_applied_decoration_hints = hints;
     }
 
-    pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) !void {
+    pub fn addSubprocessEnv(self: *Window, env: *std.process.Environ.Map) !void {
         var buf: [64]u8 = undefined;
         const window_id = try std.fmt.bufPrint(
             &buf,
