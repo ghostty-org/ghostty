@@ -1604,8 +1604,19 @@ fn mouseRefreshLinks(
         }
 
         const link = (try self.linkAtPos(pos)) orelse break :link .{ null, false };
+
+        // `linkAtPin` may allocate capture groups (owned by `self.alloc`,
+        // not the arena above) when the action is `.open` with a template.
+        // We don't need them for the hover preview, so free immediately.
+        defer link.deinit(self.alloc);
+
         switch (link.action) {
-            .open => {
+            .open => |_| {
+                // Note: the preview always shows the raw matched text, even
+                // if the link's action is configured with a capture-group
+                // template. Building the actual templated value here would
+                // require re-running capture-group extraction, which isn't
+                // currently worth the complexity for a hover preview.
                 const str = try self.io.terminal.screens.active.selectionString(alloc, .{
                     .sel = link.selection,
                     .trim = false,
@@ -2083,6 +2094,47 @@ fn resolvePathForOpening(
     }
 
     return null;
+}
+
+/// Resolves each of `groups` via `resolvePathForOpening`, falling back to
+/// the original (unresolved) string for any group that isn't a relative
+/// path that exists on disk (e.g. a captured line/column number). The
+/// returned slice always has the same length as `groups`; free it with
+/// `freeResolvedGroupPaths`.
+fn resolveGroupPaths(
+    self: *Surface,
+    groups: []const []const u8,
+) Allocator.Error![]const []const u8 {
+    const resolved = try self.alloc.alloc([]const u8, groups.len);
+    var i: usize = 0;
+    errdefer {
+        for (resolved[0..i], groups[0..i]) |r, g| {
+            if (r.ptr != g.ptr) self.alloc.free(r);
+        }
+        self.alloc.free(resolved);
+    }
+
+    while (i < groups.len) : (i += 1) {
+        resolved[i] = try self.resolvePathForOpening(groups[i]) orelse groups[i];
+    }
+
+    return resolved;
+}
+
+/// Frees a slice returned by `resolveGroupPaths`. `original` must be the
+/// same `groups` slice that was passed to `resolveGroupPaths`.
+fn freeResolvedGroupPaths(
+    self: *Surface,
+    original: []const []const u8,
+    resolved: []const []const u8,
+) void {
+    for (resolved, original) |r, g| {
+        // Only free entries that are distinct allocations (i.e. were
+        // actually resolved); entries that fell back to the original
+        // group string are not separately owned.
+        if (r.ptr != g.ptr) self.alloc.free(r);
+    }
+    self.alloc.free(resolved);
 }
 
 /// Returns the x/y coordinate of where the IME (Input Method Editor)
@@ -3996,6 +4048,10 @@ pub fn mouseButtonCallback(
                 )) |result_| {
                     if (result_) |result| {
                         press_selection = result.selection;
+
+                        // Discard any capture groups; we only need the
+                        // selection here, not the templated open action.
+                        result.deinit(self.alloc);
                     }
                 } else |_| {
                     // Ignore any errors, likely regex errors.
@@ -4083,6 +4139,7 @@ pub fn mouseButtonCallback(
                 // If there is a link at this position, we want to
                 // select the link. Otherwise, select the word.
                 if (try self.linkAtPos(pos)) |link| {
+                    link.deinit(self.alloc);
                     try self.setSelectionAndCopy(link.selection);
                 } else {
                     const sel = screen.selectWord(
@@ -4271,6 +4328,19 @@ fn maybePromptClick(self: *Surface) !bool {
 const Link = struct {
     action: input.Link.Action,
     selection: terminal.Selection,
+
+    /// Owned capture group substrings (index 0 is the whole match, index
+    /// N is capture group N). Only populated when `action` is `.open`
+    /// with a non-null template, since that's the only case that needs
+    /// them. Every caller of `linkAtPos`/`linkAtPin` must call `deinit`
+    /// (even if it doesn't use `groups`) to avoid leaking this.
+    groups: ?[]const []const u8 = null,
+
+    fn deinit(self: Link, alloc: Allocator) void {
+        const groups = self.groups orelse return;
+        for (groups) |g| alloc.free(g);
+        alloc.free(groups);
+    }
 };
 
 /// Returns the link at the given cursor position, if any.
@@ -4350,14 +4420,57 @@ fn linkAtPin(
             defer match.deinit();
             const sel = match.selection();
             if (!sel.contains(screen, mouse_pin)) continue;
+
+            // If this is an "open" action with a capture-group template,
+            // extract the capture group substrings now while the match's
+            // backing string is still alive (it's owned by `strmap`, which
+            // we're about to deinit).
+            const groups: ?[]const []const u8 = switch (link.action) {
+                .open => |template| if (template != null)
+                    try captureGroupStrings(self.alloc, &match)
+                else
+                    null,
+                ._open_osc8 => null,
+            };
+
             return .{
                 .action = link.action,
                 .selection = sel,
+                .groups = groups,
             };
         }
     }
 
     return null;
+}
+
+/// Extracts owned copies of all capture group substrings from a regex
+/// match (index 0 is the whole match, index N is capture group N). An
+/// unmatched optional group is returned as an empty string. Caller owns
+/// the returned slice and each string within it.
+fn captureGroupStrings(
+    alloc: Allocator,
+    match: *const terminal.StringMap.Match,
+) Allocator.Error![]const []const u8 {
+    const count = match.region.count();
+    const groups = try alloc.alloc([]const u8, count);
+    errdefer alloc.free(groups);
+
+    var i: usize = 0;
+    errdefer for (groups[0..i]) |g| alloc.free(g);
+
+    const starts = match.region.starts();
+    const ends = match.region.ends();
+    while (i < count) : (i += 1) {
+        const start = starts[i];
+        const end = ends[i];
+        groups[i] = if (start < 0 or end < 0)
+            try alloc.dupe(u8, "")
+        else
+            try alloc.dupe(u8, match.map.string[match.offset + @as(usize, @intCast(start)) .. match.offset + @as(usize, @intCast(end))]);
+    }
+
+    return groups;
 }
 
 /// This returns the mouse mods to consider for link highlighting or
@@ -4386,18 +4499,40 @@ fn mouseModsWithCapture(self: *Surface, mods: input.Mods) input.Mods {
 fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
     const link = try self.linkAtPos(pos) orelse return false;
     switch (link.action) {
-        .open => {
-            const str = try self.io.terminal.screens.active.selectionString(self.alloc, .{
-                .sel = link.selection,
-                .trim = false,
-            });
-            defer self.alloc.free(str);
+        .open => |maybe_template| {
+            defer link.deinit(self.alloc);
 
-            const resolved_path = try self.resolvePathForOpening(str);
-            defer if (resolved_path) |p| self.alloc.free(p);
+            if (maybe_template) |template| {
+                // Capture groups are the raw matched text (e.g. a path
+                // exactly as it appeared in terminal output, which is
+                // almost always relative to the terminal's pwd). Resolve
+                // each group that looks like a relative path that exists
+                // on disk to an absolute path before substituting, so
+                // templates like `vscode://file\1:\2:\3` work regardless
+                // of the terminal's current working directory. Groups
+                // that aren't resolvable paths (e.g. line/column numbers)
+                // are left as-is.
+                const groups = link.groups.?;
+                const resolved_groups = try self.resolveGroupPaths(groups);
+                defer self.freeResolvedGroupPaths(groups, resolved_groups);
 
-            const url_to_open = resolved_path orelse str;
-            try self.openUrl(.{ .kind = .unknown, .url = url_to_open });
+                const str = try substituteCaptureGroups(self.alloc, template, resolved_groups);
+                defer self.alloc.free(str);
+
+                try self.openUrl(.{ .kind = .unknown, .url = str });
+            } else {
+                const str = try self.io.terminal.screens.active.selectionString(self.alloc, .{
+                    .sel = link.selection,
+                    .trim = false,
+                });
+                defer self.alloc.free(str);
+
+                const resolved_path = try self.resolvePathForOpening(str);
+                defer if (resolved_path) |p| self.alloc.free(p);
+
+                const url_to_open = resolved_path orelse str;
+                try self.openUrl(.{ .kind = .unknown, .url = url_to_open });
+            }
         },
 
         ._open_osc8 => {
@@ -4410,6 +4545,95 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
     }
 
     return true;
+}
+
+/// Substitutes `\0`-`\9` placeholders in `template` with the corresponding
+/// capture group from `groups` (index 0 is the whole match). A `\` not
+/// followed by a digit, or a digit beyond `groups.len`, is left as literal
+/// text.
+fn substituteCaptureGroups(
+    alloc: Allocator,
+    template: []const u8,
+    groups: []const []const u8,
+) Allocator.Error![]const u8 {
+    var result: std.ArrayList(u8) = .empty;
+    errdefer result.deinit(alloc);
+
+    var i: usize = 0;
+    while (i < template.len) {
+        const c = template[i];
+        if (c == '\\' and
+            i + 1 < template.len and
+            std.ascii.isDigit(template[i + 1]))
+        {
+            const digit = template[i + 1] - '0';
+            if (digit < groups.len) {
+                try result.appendSlice(alloc, groups[digit]);
+            } else {
+                try result.appendSlice(alloc, template[i .. i + 2]);
+            }
+            i += 2;
+            continue;
+        }
+
+        try result.append(alloc, c);
+        i += 1;
+    }
+
+    return try result.toOwnedSlice(alloc);
+}
+
+test "substituteCaptureGroups full substitution" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const groups = [_][]const u8{
+        "cmd-device-type.go:229:32",
+        "cmd-device-type.go",
+        "229",
+        "32",
+    };
+    const result = try substituteCaptureGroups(
+        alloc,
+        "vscode://file\\1:\\2:\\3",
+        &groups,
+    );
+    defer alloc.free(result);
+    try testing.expectEqualStrings("vscode://filecmd-device-type.go:229:32", result);
+}
+
+test "substituteCaptureGroups unmatched optional group is empty" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const groups = [_][]const u8{ "file.go:229", "file.go", "229", "" };
+    const result = try substituteCaptureGroups(
+        alloc,
+        "vscode://file\\1:\\2:\\3",
+        &groups,
+    );
+    defer alloc.free(result);
+    try testing.expectEqualStrings("vscode://filefile.go:229:", result);
+}
+
+test "substituteCaptureGroups digit beyond group count is literal" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const groups = [_][]const u8{"whole"};
+    const result = try substituteCaptureGroups(alloc, "\\0 and \\5", &groups);
+    defer alloc.free(result);
+    try testing.expectEqualStrings("whole and \\5", result);
+}
+
+test "substituteCaptureGroups backslash without digit is literal" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const groups = [_][]const u8{"whole"};
+    const result = try substituteCaptureGroups(alloc, "\\a\\", &groups);
+    defer alloc.free(result);
+    try testing.expectEqualStrings("\\a\\", result);
 }
 
 fn openUrl(
@@ -5025,6 +5249,8 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             self.renderer_state.mutex.lock();
             defer self.renderer_state.mutex.unlock();
             if (try self.linkAtPos(pos)) |link_info| {
+                defer link_info.deinit(self.alloc);
+
                 const url_text = switch (link_info.action) {
                     .open => url_text: {
                         // For regex links, get the text from selection

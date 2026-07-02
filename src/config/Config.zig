@@ -22,6 +22,7 @@ const fontpkg = @import("../font/main.zig");
 const inputpkg = @import("../input.zig");
 const internal_os = @import("../os/main.zig");
 const cli = @import("../cli.zig");
+const oni = @import("oniguruma");
 
 const conditional = @import("conditional.zig");
 const Conditional = conditional.Conditional;
@@ -1404,17 +1405,35 @@ input: RepeatableReadableIO = .{},
 scrollbar: Scrollbar = .system,
 
 /// Match a regular expression against the terminal text and associate clicking
-/// it with an action. This can be used to match URLs, file paths, etc. Actions
-/// can be opening using the system opener (e.g. `open` or `xdg-open`) or
-/// executing any arbitrary binding action.
+/// it with an action.
+///
+/// The value takes the format `regex=action`, where `regex` is matched
+/// against terminal text and `action` determines what happens when the
+/// matched text is clicked. The only currently supported action is `open`,
+/// which opens the matched text (or a value built from it, see below) using
+/// the system opener (e.g. `open` on macOS or `xdg-open` on Linux).
+///
+/// By default, `open` opens the full matched text verbatim. You can instead
+/// give it a template with `open:template`, where `template` may contain
+/// `\0`-`\9` placeholders that are substituted with the whole match (`\0`)
+/// and the regex's capture groups (`\1`-`\9`) before opening. This is useful
+/// for jumping to a specific line/column in an editor that registers its own
+/// URL scheme, since Ghostty has no built-in knowledge of any particular
+/// editor. For example, to open `file.go:123:45`-style paths (as commonly
+/// seen in compiler/linter output) in Visual Studio Code at the exact line
+/// and column:
+///
+/// ```
+/// link = ([\w./-]+\.\w+):(\d+)(?::(\d+))?=open:vscode://file\1:\2:\3
+/// ```
 ///
 /// Links that are configured earlier take precedence over links that are
 /// configured later.
 ///
 /// A default link that matches a URL and opens it in the system opener always
-/// exists. This can be disabled using `link-url`.
+/// exists, at lowest priority. This can be disabled using `link-url`.
 ///
-/// TODO: This can't currently be set!
+/// Available since: 1.4.0
 link: RepeatableLink = .{},
 
 /// Enable URL matching. URLs are matched on hover with control (Linux) or
@@ -3879,12 +3898,9 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
     // Add our default command palette entries
     try result.@"command-palette-entry".init(alloc);
 
-    // Add our default link for URL detection
-    try result.link.links.append(alloc, .{
-        .regex = url.regex,
-        .action = .{ .open = {} },
-        .highlight = .{ .hover_mods = inputpkg.ctrlOrSuper(.{}) },
-    });
+    // Note: the default URL-matching link is NOT added here. It's appended
+    // in `finalize` (if `link-url` is enabled) so that it always ends up
+    // last, i.e. lowest priority, behind any user-configured `link` entries.
 
     return result;
 }
@@ -4691,9 +4707,17 @@ pub fn finalize(self: *Config) !void {
     if (self.@"window-width" > 0) self.@"window-width" = @max(10, self.@"window-width");
     if (self.@"window-height" > 0) self.@"window-height" = @max(4, self.@"window-height");
 
-    // If URLs are disabled, cut off the first link. The first link is
-    // always the URL matcher.
-    if (!self.@"link-url") self.link.links.items = self.link.links.items[1..];
+    // Append the default URL-matching link, unless disabled. This is
+    // appended (rather than added as part of our defaults) so that it always
+    // ends up last, i.e. lowest priority, behind any user-configured `link`
+    // entries (links configured earlier take precedence).
+    if (self.@"link-url") {
+        try self.link.links.append(alloc, .{
+            .regex = url.regex,
+            .action = .{ .open = null },
+            .highlight = .{ .hover_mods = inputpkg.ctrlOrSuper(.{}) },
+        });
+    }
 
     // We warn when the quit-after-last-window-closed-delay is set to a very
     // short value because it can cause Ghostty to quit before the first
@@ -8579,10 +8603,41 @@ pub const RepeatableLink = struct {
     links: std.ArrayListUnmanaged(inputpkg.Link) = .{},
 
     pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
-        _ = self;
-        _ = alloc;
-        _ = input_;
-        return error.NotImplemented;
+        const input = input_ orelse return error.ValueRequired;
+        const eql_idx = std.mem.indexOfScalar(u8, input, '=') orelse
+            return error.InvalidValue;
+        const whitespace = " \t";
+        const regex = std.mem.trim(u8, input[0..eql_idx], whitespace);
+        const action_str = std.mem.trim(u8, input[eql_idx + 1 ..], whitespace);
+        if (regex.len == 0) return error.InvalidValue;
+
+        // Validate that the regex actually compiles. We don't keep the
+        // compiled regex around; each usage site compiles its own copy
+        // on demand (see `inputpkg.Link.oniRegex`).
+        {
+            var re = oni.Regex.init(
+                regex,
+                .{},
+                oni.Encoding.utf8,
+                oni.Syntax.default,
+                null,
+            ) catch return error.InvalidValue;
+            re.deinit();
+        }
+
+        const action = inputpkg.Link.Action.parse(action_str) catch
+            return error.InvalidValue;
+
+        try self.links.append(alloc, .{
+            .regex = try alloc.dupe(u8, regex),
+            .action = switch (action) {
+                .open => |template| .{
+                    .open = if (template) |t| try alloc.dupe(u8, t) else null,
+                },
+                ._open_osc8 => unreachable, // Action.parse never returns this
+            },
+            .highlight = .{ .hover_mods = inputpkg.ctrlOrSuper(.{}) },
+        });
     }
 
     /// Deep copy of the struct. Required by Config.
@@ -8617,9 +8672,55 @@ pub const RepeatableLink = struct {
 
     /// Used by Formatter
     pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
-        // This currently can't be set so we don't format anything.
-        _ = self;
-        _ = formatter;
+        if (self.links.items.len == 0) {
+            try formatter.formatEntry(void, {});
+            return;
+        }
+
+        var buf: [4096]u8 = undefined;
+        for (self.links.items) |link| {
+            const str = switch (link.action) {
+                .open => |template| if (template) |t|
+                    std.fmt.bufPrint(&buf, "{s}=open:{s}", .{ link.regex, t })
+                else
+                    std.fmt.bufPrint(&buf, "{s}=open", .{link.regex}),
+
+                // "_open_osc8" links are internal-only and are never
+                // present in user-configurable `links`.
+                ._open_osc8 => unreachable,
+            } catch return error.OutOfMemory;
+            try formatter.formatEntry([]const u8, str);
+        }
+    }
+
+    test "RepeatableLink parseCLI" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: Self = .{};
+        try list.parseCLI(alloc, "https://example.com=open");
+        try testing.expectEqual(@as(usize, 1), list.links.items.len);
+        try testing.expect(list.links.items[0].action.open == null);
+
+        try list.parseCLI(alloc, "([\\w./-]+):(\\d+)=open:vscode://file\\1:\\2");
+        try testing.expectEqual(@as(usize, 2), list.links.items.len);
+        try testing.expectEqualStrings(
+            "vscode://file\\1:\\2",
+            list.links.items[1].action.open.?,
+        );
+
+        // Missing '='
+        try testing.expectError(error.InvalidValue, list.parseCLI(alloc, "foo"));
+        // Invalid regex
+        try testing.expectError(error.InvalidValue, list.parseCLI(alloc, "(=open"));
+        // Invalid action
+        try testing.expectError(error.InvalidValue, list.parseCLI(alloc, "foo=bogus"));
+        // Empty regex
+        try testing.expectError(error.InvalidValue, list.parseCLI(alloc, "=open"));
+        // Internal-only action can't be user-specified
+        try testing.expectError(error.InvalidValue, list.parseCLI(alloc, "foo=_open_osc8"));
     }
 };
 

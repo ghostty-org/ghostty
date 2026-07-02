@@ -22,13 +22,39 @@ action: Action,
 highlight: Highlight,
 
 pub const Action = union(enum) {
-    /// Open the full matched value using the default open program.
-    /// For example, on macOS this is "open" and on Linux this is "xdg-open".
-    open: void,
+    /// Open the matched value using the default open program. For example,
+    /// on macOS this is "open" and on Linux this is "xdg-open".
+    ///
+    /// If null, the full matched value is opened as-is. If set, the value
+    /// is a template containing `\0`-`\9` placeholders that are substituted
+    /// with the whole match (`\0`) and regex capture groups (`\1`-`\9`)
+    /// before opening. This allows building a URL or path from capture
+    /// groups, e.g. to open a specific line/column in an editor that
+    /// registers its own URL scheme: `vscode://file\1:\2:\3`.
+    open: ?[]const u8,
 
     /// Open the OSC8 hyperlink under the mouse position. _-prefixed means
     /// this can't be user-specified, it's only used internally.
     _open_osc8: void,
+
+    pub const Error = error{
+        InvalidFormat,
+    };
+
+    /// Parse an action in the format of "name" or "name:param", where
+    /// "param" is the (optional, depending on the action) parameter.
+    pub fn parse(input: []const u8) Error!Action {
+        const colon_idx = std.mem.indexOfScalar(u8, input, ':');
+        const name = input[0..(colon_idx orelse input.len)];
+
+        if (std.mem.eql(u8, name, "open")) {
+            const param = colon_idx orelse return .{ .open = null };
+            return .{ .open = input[param + 1 ..] };
+        }
+
+        // "_open_osc8" is intentionally not parseable; it is internal-only.
+        return Error.InvalidFormat;
+    }
 };
 
 pub const Highlight = union(enum) {
@@ -66,7 +92,12 @@ pub fn oniRegex(self: *const Link) !oni.Regex {
 pub fn clone(self: *const Link, alloc: Allocator) Allocator.Error!Link {
     return .{
         .regex = try alloc.dupe(u8, self.regex),
-        .action = self.action,
+        .action = switch (self.action) {
+            .open => |template| .{
+                .open = if (template) |t| try alloc.dupe(u8, t) else null,
+            },
+            ._open_osc8 => .{ ._open_osc8 = {} },
+        },
         .highlight = self.highlight,
     };
 }
@@ -76,4 +107,24 @@ pub fn equal(self: *const Link, other: *const Link) bool {
     return std.meta.eql(self.action, other.action) and
         std.meta.eql(self.highlight, other.highlight) and
         std.mem.eql(u8, self.regex, other.regex);
+}
+
+test "Action parse open" {
+    const testing = std.testing;
+    const action = try Action.parse("open");
+    try testing.expect(action == .open);
+    try testing.expect(action.open == null);
+}
+
+test "Action parse open with template" {
+    const testing = std.testing;
+    const action = try Action.parse("open:vscode://file\\1:\\2:\\3");
+    try testing.expect(action == .open);
+    try testing.expectEqualStrings("vscode://file\\1:\\2:\\3", action.open.?);
+}
+
+test "Action parse invalid" {
+    const testing = std.testing;
+    try testing.expectError(Action.Error.InvalidFormat, Action.parse("nope"));
+    try testing.expectError(Action.Error.InvalidFormat, Action.parse("_open_osc8"));
 }

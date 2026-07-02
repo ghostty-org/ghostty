@@ -158,13 +158,13 @@ test "renderCellMap" {
     var set = try Set.fromConfig(alloc, &.{
         .{
             .regex = "AB",
-            .action = .{ .open = {} },
+            .action = .{ .open = null },
             .highlight = .{ .always = {} },
         },
 
         .{
             .regex = "EF",
-            .action = .{ .open = {} },
+            .action = .{ .open = null },
             .highlight = .{ .always = {} },
         },
     });
@@ -211,13 +211,13 @@ test "renderCellMap hover links" {
     var set = try Set.fromConfig(alloc, &.{
         .{
             .regex = "AB",
-            .action = .{ .open = {} },
+            .action = .{ .open = null },
             .highlight = .{ .hover = {} },
         },
 
         .{
             .regex = "EF",
-            .action = .{ .open = {} },
+            .action = .{ .open = null },
             .highlight = .{ .always = {} },
         },
     });
@@ -289,13 +289,13 @@ test "renderCellMap mods no match" {
     var set = try Set.fromConfig(alloc, &.{
         .{
             .regex = "AB",
-            .action = .{ .open = {} },
+            .action = .{ .open = null },
             .highlight = .{ .always = {} },
         },
 
         .{
             .regex = "EF",
-            .action = .{ .open = {} },
+            .action = .{ .open = null },
             .highlight = .{ .always_mods = .{ .ctrl = true } },
         },
     });
