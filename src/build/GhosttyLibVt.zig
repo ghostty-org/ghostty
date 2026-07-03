@@ -232,12 +232,11 @@ fn initLib(
         // are incompatible with the MSVC linker (LNK4229).
         lib.bundle_ubsan_rt = false;
 
-        // When building a shared library (DLL) on Windows with MSVC,
-        // the full CRT library chain is required. linkLibC() provides
-        // msvcrt.lib, but that references symbols in vcruntime.lib and
-        // ucrt.lib. Zig's library search paths include the MSVC lib dir
-        // and the Windows SDK 'um' dir, but not the 'ucrt' dir.
-        // See the equivalent fix in GhosttyLib.zig.
+        // On Windows with MSVC, building a DLL requires the full CRT
+        // library chain. Linking libc provides 'msvcrt.lib', but that
+        // references symbols in 'vcruntime.lib' and 'ucrt.lib'. Zig's library
+        // search paths include the MSVC lib dir and the Windows SDK 'um'
+        // dir, but not the SDK 'ucrt' dir where 'ucrt.lib' lives.
         if (kind == .shared and target.result.abi == .msvc) {
             lib.linkSystemLibrary("libvcruntime");
 
