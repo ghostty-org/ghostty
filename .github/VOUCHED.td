@@ -103,6 +103,7 @@ ephemera
 -eric-assetpass Try talking, not botting
 eriksremess
 erral
+-eunos-1128 VectorPeak Cosplaying as a maintainer isn't cool.
 exlee
 -f1813483-netizen
 faukah
