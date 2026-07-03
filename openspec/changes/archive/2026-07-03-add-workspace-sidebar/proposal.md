@@ -14,6 +14,7 @@ Ghostty has no concept of grouping tabs into higher-level workspaces, and it doe
   - Ctrl+Shift+0: jump directly to the last (highest-index) workspace.
 - New keybinding actions (`new_workspace`, `workspace_previous`, `workspace_next`, `workspace_goto`, `toggle_sidebar`) registered through Ghostty's existing config/keybind system, so they are user-remappable the same way as built-in Ghostty actions.
 - Project is maintained as a fork of `ghostty-org/ghostty`, tracking upstream via periodic rebase; it ships and updates as its own independent binary (not linked against any system Ghostty package).
+- The built GTK application executable is installed as `lcmux`, distinguishing this fork's binary from upstream Ghostty while leaving inherited resources and terminal behavior unchanged.
 
 ## Capabilities
 
@@ -21,12 +22,13 @@ Ghostty has no concept of grouping tabs into higher-level workspaces, and it doe
 - `workspace-management`: Workspace lifecycle — creation, auto-destruction when empty, the zero-workspace guarantee, and the relationship between a workspace and the tabs/splits it owns.
 - `workspace-navigation`: Keyboard-driven switching between workspaces (prev/next with wraparound, direct positional jump 1-9, jump to last).
 - `workspace-sidebar-ui`: The visible sidebar itself — showing/hiding, what's listed per workspace, and how it reflects the active workspace and lifecycle events from `workspace-management`.
+- `lcmux-binary`: Build/install identity for this fork's executable, ensuring users run `lcmux` rather than an upstream-named `ghostty` binary.
 
 ### Modified Capabilities
 (none — this is a greenfield project with no existing specs)
 
 ## Impact
 
-- New fork of `ghostty-org/ghostty`; changes are concentrated in `src/apprt/gtk/` (new `Workspace` type/widget, sidebar widget, window changes to host both) and the keybinding action table/config parsing used to register new actions.
+- New fork of `ghostty-org/ghostty`; changes are concentrated in `src/apprt/gtk/` (new `Workspace` type/widget, sidebar widget, window changes to host both), the keybinding action table/config parsing used to register new actions, and the executable build name.
 - No changes to core terminal emulation, rendering, font handling, or config/theme parsing — these remain byte-for-byte Ghostty behavior.
 - Introduces an ongoing maintenance obligation: periodic rebase onto upstream Ghostty and independent build/release of the fork's binary.

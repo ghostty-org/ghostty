@@ -21,6 +21,27 @@
   </p>
 </p>
 
+## lcmux Fork
+
+lcmux is a Linux-focused fork of [`ghostty-org/ghostty`](https://github.com/ghostty-org/ghostty). The fork tracks Ghostty through an `upstream` git remote and is maintained with periodic rebases so the terminal emulator, renderer, configuration, themes, and other core behavior stay close to upstream.
+
+lcmux adds a workspace sidebar to the GTK app. Workspaces group tabs above Ghostty's existing tab and split model, can be switched from the sidebar or keyboard, and are intended to provide a lightweight Linux-native workflow inspired by cmux.
+
+### Workspace Keybindings
+
+| Shortcut | Action | Notes |
+| --- | --- | --- |
+| Ctrl+Shift+N | `new_workspace` | Overrides Ghostty's default `new_window` binding in this fork. |
+| Ctrl+Shift+PageUp | `previous_workspace` | Overrides Ghostty's default `move_tab -1` binding in this fork. |
+| Ctrl+Shift+PageDown | `next_workspace` | Overrides Ghostty's default `move_tab 1` binding in this fork. |
+| Ctrl+Shift+1 through Ctrl+Shift+9 | `goto_workspace 1` through `goto_workspace 9` | Switches to the workspace at that position, clamping to the last workspace. |
+| Ctrl+Shift+0 | `last_workspace` | Switches to the last workspace. |
+| Ctrl+Shift+B | `toggle_workspace_sidebar` | Shows or hides the workspace sidebar. |
+
+### Building lcmux
+
+Build lcmux with `zig build` and run it with `zig build run`. See [`HACKING.md`](HACKING.md) for the full development setup and build details inherited from Ghostty.
+
 ## About
 
 Ghostty is a terminal emulator that differentiates itself by being

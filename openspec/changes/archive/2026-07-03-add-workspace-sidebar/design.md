@@ -8,6 +8,7 @@ Relevant existing structure (confirmed by reading the source directly):
 - `src/apprt/action.zig`: defines a separate `apprt.Action` tagged union (the cross-apprt-boundary runtime action set, e.g. `goto_tab: GotoTab` where `GotoTab` is `previous | next | last | _` enum). `src/Surface.zig` (~line 5281) translates a subset of `Binding.Action` values into `apprt.Action` calls.
 - `src/apprt/gtk/class/application.zig`: `performAction()` switches on `apprt.Action.Key` and dispatches to functions like `Action.gotoTab(target, value)` / `Action.newTab(target)`, defined in the same file.
 - `src/config/Config.zig` (~line 6600-6900): hardcodes Ghostty's built-in default keybindings, including the two we found actual conflicts with (see Decisions).
+- `src/build/GhosttyExe.zig`: defines the installed executable name for the GTK application.
 
 ## Goals / Non-Goals
 
@@ -25,6 +26,16 @@ Relevant existing structure (confirmed by reading the source directly):
 
 ### Workspace = a wrapper around today's per-window tab_view
 Introduce `Workspace` (new file `src/apprt/gtk/class/workspace.zig`) as a GObject class owning what `Window` owns today: one `adw.TabView` plus the `newTabPage`/`selectTab`-equivalent logic, moved over largely as-is. `Window` changes from "owns one tab_view" to "owns an ordered list of `Workspace`s plus an active-workspace index."
+
+The existing `Window` template currently owns `tab_view` and binds it directly into `Adw.TabOverview`, `Adw.TabBar`, the computed subtitle binding, and tab lifecycle callbacks. During this change, `Window` remains the owner of the surrounding chrome (`Adw.TabOverview`, `Adw.TabBar`, header bar, toast overlay, sidebar, and action dispatch), but no longer template-owns a permanent `Adw.TabView`. Instead:
+
+1. `Workspace` creates and owns its `Adw.TabView` programmatically.
+2. `Window` stores workspaces in an ordered list and exposes `activeWorkspace().getTabView()` as the current tab view.
+3. Whenever the active workspace changes, `Window` rebinds `Adw.TabOverview.view` and `Adw.TabBar.view` to the new active workspace's tab view, updates tab-related title/subtitle state, and places that tab view in the content area.
+4. The tab-view callbacks that need `Window` state (`close-page`, `page-attached`, `page-detached`, `create-window`, `setup-menu`, `notify::selected-page`) are connected by `Window` to each workspace's tab view when the workspace is added, then disconnected when it is removed.
+5. The per-workspace empty lifecycle callback (`notify::n-pages`) lives in `Workspace` and emits `empty`; `Window` handles that signal by removing the workspace or creating a replacement when it was the last one.
+
+This keeps a single source of truth for tab ownership (`Workspace`) while preserving upstream's existing `Window` responsibilities for application actions, close confirmations, surface signal wiring, and window chrome.
 
 *Alternative considered*: keep `tab_view` directly on `Window` and fake "workspaces" as logical groupings of `AdwTabPage`s within a single shared tab_view. Rejected — this would require re-implementing tab-view semantics (page ordering, selection, close handling) per group instead of reusing `AdwTabView` wholesale, and would make hiding/showing "other workspaces' tabs" awkward since `AdwTabView` shows all its pages by default.
 
@@ -51,11 +62,17 @@ Decision: since no response was available to confirm, proceeded with overriding 
 
 No conflicts were found for Ctrl+Shift+1-9 (existing `goto_tab`/`last_tab` defaults use Alt+1-9 on Linux), Ctrl+Shift+0 (existing `reset_font_size` default is Ctrl+0 without Shift), or Ctrl+Shift+B (unused).
 
+### Executable name = lcmux
+The GTK executable produced by the build is named `lcmux` instead of `ghostty`. This makes the fork's runnable binary distinct from upstream Ghostty and matches the README build/run documentation. The rename is intentionally scoped to the executable target in `src/build/GhosttyExe.zig`; inherited resources, docs, library names, app IDs, and runtime behavior remain unchanged unless a later rebranding change explicitly covers them.
+
+*Alternative considered*: rename resources, docs, bundle IDs, and every Ghostty-facing path in the same change. Rejected — that would substantially widen the patch surface and rebase burden. This change only needs the user-facing command name to be `lcmux`.
+
 ## Risks / Trade-offs
 
 - **[Risk]** Moving tab_view ownership from `Window` into a new `Workspace` type touches a structurally central file (`window.zig`) → **Mitigation**: keep the extracted `Workspace` API shape (method names/signatures) as close as possible to `Window`'s current tab methods, minimizing the diff and easing future rebases.
 - **[Risk]** Overriding two existing default keybinds changes stock Ghostty behavior out of the box, which could surprise users migrating configs from vanilla Ghostty → **Mitigation**: documented explicitly in this design doc and in the README fork notice (separate task); both actions remain available via manual keybind config.
 - **[Risk]** `AdwOverlaySplitView` requires a minimum libadwaita version → **Mitigation**: check the version already required by Ghostty's existing `adw_version.zig` gating (e.g. `toggle_tab_overview`'s libadwaita 1.4+ requirement) and confirm `AdwOverlaySplitView` (available since libadwaita 1.4) doesn't raise the minimum further; if it does, gate sidebar availability the same way `toggle_tab_overview` is gated.
+- **[Risk]** Renaming only the executable may leave inherited resource paths/docs mentioning Ghostty → **Mitigation**: scope this change to binary invocation (`zig-out/bin/lcmux`) and defer broader product rebranding to a separate change.
 - **[Risk]** Rebasing onto upstream Ghostty will conflict most often in `window.zig` and `Config.zig`'s default keybind block, since both are actively developed upstream → **Mitigation**: accepted maintenance cost (see proposal.md), kept patch surface additive where possible.
 
 ## Open Questions

@@ -693,6 +693,8 @@ pub const Application = extern struct {
 
             .goto_tab => return Action.gotoTab(target, value),
 
+            .goto_workspace => return Action.gotoWorkspace(target, value),
+
             .initial_size => return Action.initialSize(target, value),
 
             .inspector => return Action.controlInspector(target, value),
@@ -709,6 +711,8 @@ pub const Application = extern struct {
             .new_split => return Action.newSplit(target, value),
 
             .new_tab => return Action.newTab(target),
+
+            .new_workspace => return Action.newWorkspace(target),
 
             .new_window => try Action.newWindow(
                 self,
@@ -761,6 +765,7 @@ pub const Application = extern struct {
             .toggle_fullscreen => Action.toggleFullscreen(target),
             .toggle_quick_terminal => return Action.toggleQuickTerminal(self),
             .toggle_tab_overview => return Action.toggleTabOverview(target),
+            .toggle_workspace_sidebar => return Action.toggleWorkspaceSidebar(target),
             .toggle_window_decorations => return Action.toggleWindowDecorations(target),
             .toggle_command_palette => return Action.toggleCommandPalette(target),
             .toggle_split_zoom => return Action.toggleSplitZoom(target),
@@ -2063,6 +2068,32 @@ const Action = struct {
         }
     }
 
+    pub fn gotoWorkspace(
+        target: apprt.Target,
+        workspace: apprt.action.GotoWorkspace,
+    ) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const window = ext.getAncestor(
+                    Window,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a window, ignoring goto_workspace", .{});
+                    return false;
+                };
+
+                return window.selectWorkspace(switch (workspace) {
+                    .previous => .previous,
+                    .next => .next,
+                    .last => .last,
+                    else => .{ .n = @intCast(@intFromEnum(workspace)) },
+                });
+            },
+        }
+    }
+
     pub fn gotoWindow(direction: apprt.action.GotoWindow) bool {
         const glist = gtk.Window.listToplevels();
         defer glist.free();
@@ -2244,6 +2275,28 @@ const Action = struct {
                     return false;
                 };
                 window.newTab(core);
+                return true;
+            },
+        }
+    }
+
+    pub fn newWorkspace(target: apprt.Target) bool {
+        switch (target) {
+            .app => {
+                log.warn("new workspace to app is unexpected", .{});
+                return false;
+            },
+
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const window = ext.getAncestor(
+                    Window,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a window, ignoring new_workspace", .{});
+                    return false;
+                };
+                window.newWorkspace();
                 return true;
             },
         }
@@ -2751,6 +2804,25 @@ const Action = struct {
                 };
 
                 window.toggleTabOverview();
+                return true;
+            },
+        }
+    }
+
+    pub fn toggleWorkspaceSidebar(target: apprt.Target) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const window = ext.getAncestor(
+                    Window,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a window, ignoring toggle_workspace_sidebar", .{});
+                    return false;
+                };
+
+                window.toggleWorkspaceSidebar();
                 return true;
             },
         }

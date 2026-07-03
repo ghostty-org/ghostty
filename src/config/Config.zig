@@ -6620,7 +6620,7 @@ pub const Keybinds = struct {
             try self.set.put(
                 alloc,
                 .{ .key = .{ .unicode = 'n' }, .mods = .{ .ctrl = true, .shift = true } },
-                .{ .new_window = {} },
+                .{ .new_workspace = {} },
             );
             try self.set.put(
                 alloc,
@@ -6778,17 +6778,42 @@ pub const Keybinds = struct {
                 .{ .jump_to_prompt = 1 },
             );
 
-            // Move tab
+            // Workspace navigation
             try self.set.putFlags(
                 alloc,
                 .{ .key = .{ .physical = .page_up }, .mods = .{ .shift = true, .ctrl = true } },
-                .{ .move_tab = -1 },
+                .{ .previous_workspace = {} },
                 .{ .performable = true },
             );
             try self.set.putFlags(
                 alloc,
                 .{ .key = .{ .physical = .page_down }, .mods = .{ .shift = true, .ctrl = true } },
-                .{ .move_tab = 1 },
+                .{ .next_workspace = {} },
+                .{ .performable = true },
+            );
+            {
+                const start: u21 = '1';
+                const end: u21 = '9';
+                comptime var i: u21 = start;
+                inline while (i <= end) : (i += 1) {
+                    try self.set.putFlags(
+                        alloc,
+                        .{ .key = .{ .unicode = i }, .mods = .{ .shift = true, .ctrl = true } },
+                        .{ .goto_workspace = (i - start) + 1 },
+                        .{ .performable = true },
+                    );
+                }
+            }
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .unicode = '0' }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .last_workspace = {} },
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .unicode = 'b' }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .toggle_workspace_sidebar = {} },
                 .{ .performable = true },
             );
 

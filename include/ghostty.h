@@ -616,6 +616,13 @@ typedef enum {
   GHOSTTY_GOTO_TAB_LAST = -3,
 } ghostty_action_goto_tab_e;
 
+// apprt.action.GotoWorkspace
+typedef enum {
+  GHOSTTY_GOTO_WORKSPACE_PREVIOUS = -1,
+  GHOSTTY_GOTO_WORKSPACE_NEXT = -2,
+  GHOSTTY_GOTO_WORKSPACE_LAST = -3,
+} ghostty_action_goto_workspace_e;
+
 // apprt.action.Fullscreen
 typedef enum {
   GHOSTTY_FULLSCREEN_NATIVE,
@@ -886,12 +893,14 @@ typedef enum {
   GHOSTTY_ACTION_QUIT,
   GHOSTTY_ACTION_NEW_WINDOW,
   GHOSTTY_ACTION_NEW_TAB,
+  GHOSTTY_ACTION_NEW_WORKSPACE,
   GHOSTTY_ACTION_CLOSE_TAB,
   GHOSTTY_ACTION_NEW_SPLIT,
   GHOSTTY_ACTION_CLOSE_ALL_WINDOWS,
   GHOSTTY_ACTION_TOGGLE_MAXIMIZE,
   GHOSTTY_ACTION_TOGGLE_FULLSCREEN,
   GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW,
+  GHOSTTY_ACTION_TOGGLE_WORKSPACE_SIDEBAR,
   GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS,
   GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL,
   GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE,
@@ -899,6 +908,7 @@ typedef enum {
   GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY,
   GHOSTTY_ACTION_MOVE_TAB,
   GHOSTTY_ACTION_GOTO_TAB,
+  GHOSTTY_ACTION_GOTO_WORKSPACE,
   GHOSTTY_ACTION_GOTO_SPLIT,
   GHOSTTY_ACTION_GOTO_WINDOW,
   GHOSTTY_ACTION_RESIZE_SPLIT,
@@ -956,6 +966,7 @@ typedef union {
   ghostty_action_fullscreen_e toggle_fullscreen;
   ghostty_action_move_tab_s move_tab;
   ghostty_action_goto_tab_e goto_tab;
+  ghostty_action_goto_workspace_e goto_workspace;
   ghostty_action_goto_split_e goto_split;
   ghostty_action_goto_window_e goto_window;
   ghostty_action_resize_split_s resize_split;

@@ -5268,6 +5268,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        .new_workspace => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .new_workspace,
+            {},
+        ),
+
         .close_tab => |v| return try self.rt_app.performAction(
             .{ .surface = self },
             .close_tab,
@@ -5292,6 +5298,28 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 .goto_tab => @enumFromInt(v),
                 else => comptime unreachable,
             },
+        ),
+
+        inline .previous_workspace,
+        .next_workspace,
+        .last_workspace,
+        .goto_workspace,
+        => |v, tag| return try self.rt_app.performAction(
+            .{ .surface = self },
+            .goto_workspace,
+            switch (tag) {
+                .previous_workspace => .previous,
+                .next_workspace => .next,
+                .last_workspace => .last,
+                .goto_workspace => @enumFromInt(v),
+                else => comptime unreachable,
+            },
+        ),
+
+        .toggle_workspace_sidebar => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .toggle_workspace_sidebar,
+            {},
         ),
 
         .move_tab => |position| return try self.rt_app.performAction(

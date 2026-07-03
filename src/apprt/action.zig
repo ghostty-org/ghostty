@@ -88,6 +88,9 @@ pub const Action = union(Key) {
     /// the tab should be opened in a new window.
     new_tab,
 
+    /// Open a new workspace in the same window as the target surface.
+    new_workspace,
+
     /// Closes the tab belonging to the currently focused split, or all other
     /// tabs, depending on the mode.
     close_tab: CloseTabMode,
@@ -107,6 +110,9 @@ pub const Action = union(Key) {
 
     /// Toggle tab overview.
     toggle_tab_overview,
+
+    /// Toggle workspace sidebar.
+    toggle_workspace_sidebar,
 
     /// Toggle whether window directions are shown.
     toggle_window_decorations,
@@ -135,6 +141,10 @@ pub const Action = union(Key) {
     /// Jump to a specific tab. Must handle the scenario that the tab
     /// value is invalid.
     goto_tab: GotoTab,
+
+    /// Jump to a specific workspace. Must handle the scenario that the
+    /// workspace value is invalid.
+    goto_workspace: GotoWorkspace,
 
     /// Jump to a specific split.
     goto_split: GotoSplit,
@@ -352,12 +362,14 @@ pub const Action = union(Key) {
         quit,
         new_window,
         new_tab,
+        new_workspace,
         close_tab,
         new_split,
         close_all_windows,
         toggle_maximize,
         toggle_fullscreen,
         toggle_tab_overview,
+        toggle_workspace_sidebar,
         toggle_window_decorations,
         toggle_quick_terminal,
         toggle_command_palette,
@@ -365,6 +377,7 @@ pub const Action = union(Key) {
         toggle_background_opacity,
         move_tab,
         goto_tab,
+        goto_workspace,
         goto_split,
         goto_window,
         resize_split,
@@ -567,6 +580,16 @@ pub const GotoTab = enum(c_int) {
     // test "ghostty.h GotoTab" {
     //     try lib.checkGhosttyHEnum(GotoTab, "GHOSTTY_GOTO_TAB_");
     // }
+};
+
+/// The workspace to jump to. This is non-exhaustive so that integer values
+/// represent the index (zero-based) of the workspace to jump to. Negative
+/// values are special values.
+pub const GotoWorkspace = enum(c_int) {
+    previous = -1,
+    next = -2,
+    last = -3,
+    _,
 };
 
 /// The fullscreen mode to toggle to if we're moving to fullscreen.

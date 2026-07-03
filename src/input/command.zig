@@ -419,6 +419,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Open a new tab.",
         }},
 
+        .new_workspace => comptime &.{.{
+            .action = .new_workspace,
+            .title = "New Workspace",
+            .description = "Open a new workspace.",
+        }},
+
         .move_tab => comptime &.{
             .{
                 .action = .{ .move_tab = -1 },
@@ -436,6 +442,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .action = .toggle_tab_overview,
             .title = "Toggle Tab Overview",
             .description = "Toggle the tab overview.",
+        }},
+
+        .toggle_workspace_sidebar => comptime &.{.{
+            .action = .toggle_workspace_sidebar,
+            .title = "Toggle Workspace Sidebar",
+            .description = "Toggle the workspace sidebar.",
         }},
 
         .prompt_surface_title => comptime &.{.{
@@ -699,6 +711,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .jump_to_prompt,
         .write_scrollback_file,
         .goto_tab,
+        .goto_workspace,
         .resize_split,
         .activate_key_table,
         .activate_key_table_once,
@@ -716,6 +729,9 @@ fn actionCommands(action: Action.Key) []const Command {
         .previous_tab,
         .next_tab,
         .last_tab,
+        .previous_workspace,
+        .next_workspace,
+        .last_workspace,
         => comptime &.{},
 
         // No commands for obvious reasons

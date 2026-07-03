@@ -559,20 +559,38 @@ pub const Action = union(enum) {
     /// Open a new tab.
     new_tab,
 
+    /// Open a new workspace.
+    new_workspace,
+
     /// Go to the previous tab.
     previous_tab,
+
+    /// Go to the previous workspace.
+    previous_workspace,
 
     /// Go to the next tab.
     next_tab,
 
+    /// Go to the next workspace.
+    next_workspace,
+
     /// Go to the last tab.
     last_tab,
+
+    /// Go to the last workspace.
+    last_workspace,
 
     /// Go to the tab with the specific index, starting from 1.
     ///
     /// If the tab number is higher than the number of tabs,
     /// this will go to the last tab.
     goto_tab: usize,
+
+    /// Go to the workspace with the specific index, starting from 1.
+    ///
+    /// If the workspace number is higher than the number of workspaces,
+    /// this will go to the last workspace.
+    goto_workspace: usize,
 
     /// Moves a tab by a relative offset.
     ///
@@ -593,6 +611,9 @@ pub const Action = union(enum) {
     /// version is 1.4 or newer. The current libadwaita version can be
     /// found by running `ghostty +version`.
     toggle_tab_overview,
+
+    /// Toggle the workspace sidebar.
+    toggle_workspace_sidebar,
 
     /// Change the title of the current focused surface via a pop-up prompt.
     prompt_surface_title,
@@ -1413,12 +1434,18 @@ pub const Action = union(enum) {
             // come from. For example `new_window` needs to be sourced to
             // a surface so inheritance can be done correctly.
             .new_tab,
+            .new_workspace,
             .previous_tab,
+            .previous_workspace,
             .next_tab,
+            .next_workspace,
             .last_tab,
+            .last_workspace,
             .goto_tab,
+            .goto_workspace,
             .move_tab,
             .toggle_tab_overview,
+            .toggle_workspace_sidebar,
             .new_split,
             .goto_split,
             .goto_window,
