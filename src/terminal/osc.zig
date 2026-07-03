@@ -156,6 +156,9 @@ pub const Command = union(Key) {
 
     kitty_clipboard_protocol: KittyClipboardProtocol,
 
+    /// Kitty desktop notifications (OSC 99)
+    kitty_desktop_notification: KittyDesktopNotification,
+
     /// OSC 3008. Hierarchical context signalling (UAPI spec).
     /// https://uapi-group.org/specifications/specs/osc_context/
     context_signal: parsers.context_signal.Command,
@@ -163,6 +166,8 @@ pub const Command = union(Key) {
     pub const SemanticPrompt = parsers.semantic_prompt.Command;
 
     pub const KittyClipboardProtocol = parsers.kitty_clipboard_protocol.OSC;
+
+    pub const KittyDesktopNotification = parsers.kitty_desktop_notification.OSC;
 
     pub const Key = LibEnum(
         lib.target,
@@ -192,6 +197,7 @@ pub const Command = union(Key) {
             "conemu_comment",
             "kitty_text_sizing",
             "kitty_clipboard_protocol",
+            "kitty_desktop_notification",
             "context_signal",
         },
     );
@@ -345,6 +351,7 @@ pub const Parser = struct {
         @"55",
         @"66",
         @"77",
+        @"99",
         @"104",
         @"110",
         @"111",
@@ -421,6 +428,7 @@ pub const Parser = struct {
             .show_desktop_notification,
             .kitty_text_sizing,
             .kitty_clipboard_protocol,
+            .kitty_desktop_notification,
             .context_signal,
             => {},
         }
@@ -724,11 +732,24 @@ pub const Parser = struct {
                 else => self.state = .invalid,
             },
 
+            .@"9",
+            => switch (c) {
+                ';' => self.captureTrailing(.fixed),
+                '9' => self.state = .@"99",
+                else => self.state = .invalid,
+            },
+
+            .@"99",
+            => switch (c) {
+                // OSC 99 can be up to 4096 bytes fully encoded.
+                ';' => self.captureTrailing(.allocating),
+                else => self.state = .invalid,
+            },
+
             .@"0",
             .@"22",
             .@"777",
             .@"8",
-            .@"9",
             => switch (c) {
                 ';' => self.captureTrailing(.fixed),
                 else => self.state = .invalid,
@@ -806,6 +827,8 @@ pub const Parser = struct {
             .@"66" => parsers.kitty_text_sizing.parse(self, terminator_ch),
 
             .@"77" => null,
+
+            .@"99" => parsers.kitty_desktop_notification.parse(self, terminator_ch),
 
             .@"133" => parsers.semantic_prompt.parse(self, terminator_ch),
 
