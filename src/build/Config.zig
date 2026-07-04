@@ -198,7 +198,7 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
         "i18n",
         "Enables gettext-based internationalization. Enabled by default only for macOS, and other Unix-like systems like Linux and FreeBSD when using glibc.",
     ) orelse switch (target.result.os.tag) {
-        .macos, .ios => true,
+        .macos, .ios, .visionos => true,
         .linux, .freebsd => target.result.isGnuLibC(),
         else => false,
     };
@@ -581,6 +581,13 @@ pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
         // iOS 17 picked arbitrarily
         .ios => .{ .semver = .{
             .major = 17,
+            .minor = 0,
+            .patch = 0,
+        } },
+
+        // visionOS 1 picked arbitrarily.
+        .visionos => .{ .semver = .{
+            .major = 1,
             .minor = 0,
             .patch = 0,
         } },

@@ -1,4 +1,5 @@
 const std = @import("std");
+const ghostty_compat = @import("../compat.zig");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 
@@ -66,12 +67,12 @@ pub fn resourcesDir(alloc: Allocator) !ResourcesDir {
     };
 
     // Get the path to our running binary
-    var exe_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var exe_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     var exe: []const u8 = std.fs.selfExePath(&exe_buf) catch return .{};
 
     // We have an exe path! Climb the tree looking for the terminfo
     // bundle as we expect it.
-    var dir_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var dir_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     while (std.fs.path.dirname(exe)) |dir| {
         exe = dir;
 

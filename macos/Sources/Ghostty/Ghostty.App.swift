@@ -260,8 +260,8 @@ extension Ghostty {
             }
         }
 
-        #if os(iOS)
-        // MARK: Ghostty Callbacks (iOS)
+        #if os(iOS) || os(visionOS)
+        // MARK: Ghostty Callbacks (UIKit)
 
         static func wakeup(_ userdata: UnsafeMutableRawPointer?) {}
         static func action(_ app: ghostty_app_t, target: ghostty_target_s, action: ghostty_action_s) -> Bool { return false }
@@ -669,12 +669,10 @@ extension Ghostty {
         }
 
         private static func quit(_ app: ghostty_app_t) {
-            // On iOS, applications do not terminate programmatically like they do
-            // on macOS. On iOS, applications are only terminated when a user physically
-            // closes the application (i.e. going to the home screen). If we request
-            // exit on iOS we ignore it.
-            #if os(iOS)
-            logger.info("quit request received, ignoring on iOS")
+            // UIKit-family apps do not terminate programmatically like they do
+            // on macOS. If we request exit on these platforms we ignore it.
+            #if os(iOS) || os(visionOS)
+            logger.info("quit request received, ignoring on UIKit platforms")
             #endif
 
             #if os(macOS)

@@ -12,7 +12,7 @@ const assert = @import("quirks.zig").inlineAssert;
 const posix = std.posix;
 const builtin = @import("builtin");
 const build_config = @import("build_config.zig");
-const main = @import("main_ghostty.zig");
+const macos = @import("macos");
 const state = &@import("global.zig").state;
 const apprt = @import("apprt.zig");
 const internal_os = @import("os/main.zig");
@@ -27,8 +27,66 @@ comptime {
     }
 }
 
-/// Global options so we can log. This is identical to main.
-pub const std_options = main.std_options;
+pub const panic = if (builtin.os.tag == .visionos)
+    std.debug.simple_panic
+else
+    std.debug.FullPanic(std.debug.defaultPanic);
+pub const os = if (builtin.os.tag == .visionos)
+    struct {
+        pub const PATH_MAX = 4096;
+        pub const NAME_MAX = 255;
+    }
+else
+    struct {};
+
+fn logFn(
+    comptime level: std.log.Level,
+    comptime scope: @TypeOf(.EnumLiteral),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    macos_log: {
+        if (comptime !builtin.target.os.tag.isDarwin()) break :macos_log;
+        if (!state.logging.macos) break :macos_log;
+
+        const prefix = if (scope == .default) "" else @tagName(scope) ++ ": ";
+        const mac_level: macos.os.LogType = switch (level) {
+            .debug => .debug,
+            .info => .info,
+            .warn => .err,
+            .err => .fault,
+        };
+
+        const logger = macos.os.Log.create(build_config.bundle_id, @tagName(scope));
+        defer logger.release();
+        logger.log(std.heap.c_allocator, mac_level, prefix ++ format, args);
+    }
+
+    stderr: {
+        if (comptime builtin.mode != .Debug and level == .debug) break :stderr;
+        if (!state.logging.stderr) break :stderr;
+
+        var buf: [64]u8 = undefined;
+        const stderr = std.debug.lockStderrWriter(&buf);
+        defer std.debug.unlockStderrWriter();
+
+        const level_txt = comptime level.asText();
+        const prefix = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
+        nosuspend stderr.print(level_txt ++ prefix ++ format ++ "\n", args) catch break :stderr;
+        nosuspend stderr.flush() catch break :stderr;
+    }
+}
+
+/// Global options so we can log. This is identical to the app entrypoint,
+/// but kept local so the embedded C API does not pull in the full CLI app.
+pub const std_options: std.Options = .{
+    .log_level = switch (builtin.mode) {
+        .Debug => .debug,
+        else => .info,
+    },
+    .logFn = logFn,
+    .enable_segfault_handler = builtin.os.tag != .visionos,
+};
 
 comptime {
     // These structs need to be referenced so the `export` functions

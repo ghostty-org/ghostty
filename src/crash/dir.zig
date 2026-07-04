@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const internal_os = @import("../os/main.zig");
@@ -20,6 +21,8 @@ pub const Dir = struct {
     /// iterator must be freed with `ReportIterator.deinit`. The iterator
     /// may have no reports.
     pub fn iterator(self: *const Dir) !ReportIterator {
+        if (comptime builtin.os.tag == .visionos) return .{};
+
         var dir = std.fs.openDirAbsolute(
             self.path,
             .{ .iterate = true },
@@ -33,7 +36,16 @@ pub const Dir = struct {
     }
 };
 
-pub const ReportIterator = struct {
+pub const ReportIterator = if (builtin.os.tag == .visionos) struct {
+    pub fn deinit(self: *ReportIterator) void {
+        _ = self;
+    }
+
+    pub fn next(self: *ReportIterator) !?Report {
+        _ = self;
+        return null;
+    }
+} else struct {
     dir: ?std.fs.Dir = null,
     it: std.fs.Dir.Iterator = undefined,
 

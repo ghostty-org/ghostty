@@ -4,6 +4,7 @@
 const Exec = @This();
 
 const std = @import("std");
+const ghostty_compat = @import("../compat.zig");
 const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
@@ -641,7 +642,7 @@ const Subprocess = struct {
 
             // Assume that the resources directory is adjacent to the terminfo
             // database
-            var buf: [std.fs.max_path_bytes]u8 = undefined;
+            var buf: [ghostty_compat.max_path_bytes]u8 = undefined;
             const dir = try std.fmt.bufPrint(&buf, "{s}/terminfo", .{
                 std.fs.path.dirname(base) orelse unreachable,
             });
@@ -666,7 +667,7 @@ const Subprocess = struct {
                 break :ghostty_path;
             }
 
-            var exe_buf: [std.fs.max_path_bytes]u8 = undefined;
+            var exe_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
             const exe_bin_path = std.fs.selfExePath(&exe_buf) catch |err| {
                 log.warn("failed to get ghostty exe path err={}", .{err});
                 break :ghostty_path;
@@ -703,7 +704,7 @@ const Subprocess = struct {
         if (comptime builtin.target.os.tag.isDarwin()) darwin: {
             const resources_dir = cfg.resources_dir orelse break :darwin;
 
-            var buf: [std.fs.max_path_bytes]u8 = undefined;
+            var buf: [ghostty_compat.max_path_bytes]u8 = undefined;
 
             const xdg_data_dir_key = "XDG_DATA_DIRS";
             if (std.fmt.bufPrint(&buf, "{s}/..", .{resources_dir})) |data_dir| {

@@ -11,6 +11,7 @@
 const Config = @This();
 
 const std = @import("std");
+const ghostty_compat = @import("../compat.zig");
 const builtin = @import("builtin");
 const build_config = @import("../build_config.zig");
 const assert = @import("../quirks.zig").inlineAssert;
@@ -4131,7 +4132,7 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
 
     // Any paths referenced from the CLI are relative to the current working
     // directory.
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     try self.expandPaths(try std.fs.cwd().realpath(".", &buf));
 }
 
@@ -4541,7 +4542,7 @@ pub fn finalize(self: *Config) !void {
                     }
 
                     if (wd_home) {
-                        var buf: [std.fs.max_path_bytes]u8 = undefined;
+                        var buf: [ghostty_compat.max_path_bytes]u8 = undefined;
                         if (try internal_os.home(&buf)) |home| {
                             self.@"working-directory" = try alloc.dupe(u8, home);
                         }
@@ -10218,9 +10219,9 @@ test "clone can then change conditional state" {
         try writer.interface.writeAll(@embedFile("testdata/theme_dark"));
         try writer.end();
     }
-    var light_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var light_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     const light = try td.dir.realpath("theme_light", &light_buf);
-    var dark_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var dark_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     const dark = try td.dir.realpath("theme_dark", &dark_buf);
 
     var cfg_light = try Config.default(alloc);
@@ -10350,7 +10351,7 @@ test "theme loading" {
         try writer.interface.writeAll(@embedFile("testdata/theme_simple"));
         try writer.end();
     }
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     const path = try td.dir.realpath("theme", &path_buf);
 
     var cfg = try Config.default(alloc);
@@ -10389,7 +10390,7 @@ test "theme loading preserves conditional state" {
         try writer.interface.writeAll(@embedFile("testdata/theme_simple"));
         try writer.end();
     }
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     const path = try td.dir.realpath("theme", &path_buf);
 
     var cfg = try Config.default(alloc);
@@ -10422,7 +10423,7 @@ test "theme priority is lower than config" {
         try writer.interface.writeAll(@embedFile("testdata/theme_simple"));
         try writer.end();
     }
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     const path = try td.dir.realpath("theme", &path_buf);
 
     var cfg = try Config.default(alloc);
@@ -10466,9 +10467,9 @@ test "theme loading correct light/dark" {
         try writer.interface.writeAll(@embedFile("testdata/theme_dark"));
         try writer.end();
     }
-    var light_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var light_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     const light = try td.dir.realpath("theme_light", &light_buf);
-    var dark_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var dark_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     const dark = try td.dir.realpath("theme_dark", &dark_buf);
 
     // Light

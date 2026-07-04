@@ -18,15 +18,21 @@ pub fn initStatic(
     b: *std.Build,
     deps: *const SharedDeps,
 ) !GhosttyLib {
+    const strip_debug = deps.config.strip or deps.config.target.result.os.tag == .visionos;
+    const optimize = if (deps.config.target.result.os.tag == .visionos)
+        .ReleaseFast
+    else
+        deps.config.optimize;
     const lib = b.addLibrary(.{
         .name = "ghostty",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main_c.zig"),
             .target = deps.config.target,
-            .optimize = deps.config.optimize,
-            .strip = deps.config.strip,
-            .omit_frame_pointer = deps.config.strip,
-            .unwind_tables = if (deps.config.strip) .none else .sync,
+            .optimize = optimize,
+            .strip = strip_debug,
+            .omit_frame_pointer = strip_debug,
+            .unwind_tables = if (strip_debug) .none else .sync,
+            .error_tracing = deps.config.target.result.os.tag != .visionos,
         }),
 
         // Fails on self-hosted x86_64 on macOS
@@ -71,16 +77,22 @@ pub fn initShared(
     b: *std.Build,
     deps: *const SharedDeps,
 ) !GhosttyLib {
+    const strip_debug = deps.config.strip or deps.config.target.result.os.tag == .visionos;
+    const optimize = if (deps.config.target.result.os.tag == .visionos)
+        .ReleaseFast
+    else
+        deps.config.optimize;
     const lib = b.addLibrary(.{
         .name = "ghostty",
         .linkage = .dynamic,
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main_c.zig"),
             .target = deps.config.target,
-            .optimize = deps.config.optimize,
-            .strip = deps.config.strip,
-            .omit_frame_pointer = deps.config.strip,
-            .unwind_tables = if (deps.config.strip) .none else .sync,
+            .optimize = optimize,
+            .strip = strip_debug,
+            .omit_frame_pointer = strip_debug,
+            .unwind_tables = if (strip_debug) .none else .sync,
+            .error_tracing = deps.config.target.result.os.tag != .visionos,
         }),
 
         // Fails on self-hosted x86_64

@@ -1,4 +1,5 @@
 const std = @import("std");
+const ghostty_compat = @import("../compat.zig");
 const builtin = @import("builtin");
 const passwd = @import("passwd.zig");
 const posix = std.posix;
@@ -17,7 +18,7 @@ pub inline fn home(buf: []u8) !?[]const u8 {
         .windows => try homeWindows(buf),
 
         // iOS doesn't have a user-writable home directory
-        .ios => null,
+        .ios, .visionos => null,
 
         else => @compileError("unimplemented"),
     };
@@ -127,7 +128,7 @@ pub fn expandHome(path: []const u8, buf: []u8) ExpandError![]const u8 {
         .windows => return path,
 
         // iOS doesn't have a user-writable home directory
-        .ios => return path,
+        .ios, .visionos => return path,
 
         else => @compileError("unimplemented"),
     };
@@ -151,7 +152,7 @@ fn expandHomeUnix(path: []const u8, buf: []u8) ExpandError![]const u8 {
 test "expandHomeUnix" {
     const testing = std.testing;
     const allocator = testing.allocator;
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     const home_dir = try expandHomeUnix("~/", &buf);
     // Joining the home directory `~` with the path `/`
     // the result should end with a separator here. (e.g. `/home/user/`)

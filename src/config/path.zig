@@ -1,4 +1,5 @@
 const std = @import("std");
+const ghostty_compat = @import("../compat.zig");
 const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
@@ -94,7 +95,7 @@ pub const Path = union(enum) {
 
     /// Used by formatter.
     pub fn formatEntry(self: *const Path, formatter: formatterpkg.EntryFormatter) !void {
-        var buf: [std.fs.max_path_bytes + 1]u8 = undefined;
+        var buf: [ghostty_compat.max_path_bytes + 1]u8 = undefined;
         const value = switch (self.*) {
             .optional => |path| std.fmt.bufPrint(
                 &buf,
@@ -154,7 +155,7 @@ pub const Path = union(enum) {
 
         // If it isn't absolute, we need to make it absolute relative
         // to the base.
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        var buf: [ghostty_compat.max_path_bytes]u8 = undefined;
 
         // Check if the path starts with a tilde and expand it to the
         // home directory on Linux/macOS. We explicitly look for "~/"
@@ -404,7 +405,7 @@ pub const RepeatablePath = struct {
             return;
         }
 
-        var buf: [std.fs.max_path_bytes + 1]u8 = undefined;
+        var buf: [ghostty_compat.max_path_bytes + 1]u8 = undefined;
         for (self.value.items) |item| {
             const value = switch (item) {
                 .optional => |path| std.fmt.bufPrint(

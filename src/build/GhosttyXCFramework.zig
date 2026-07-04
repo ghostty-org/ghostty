@@ -53,6 +53,29 @@ pub fn init(
         }),
     ));
 
+    // visionOS
+    const visionos = try GhosttyLib.initStatic(b, &try deps.retarget(
+        b,
+        b.resolveTargetQuery(.{
+            .cpu_arch = .aarch64,
+            .os_tag = .visionos,
+            .os_version_min = Config.osVersionMin(.visionos),
+            .abi = null,
+        }),
+    ));
+
+    // visionOS Simulator
+    const visionos_sim = try GhosttyLib.initStatic(b, &try deps.retarget(
+        b,
+        b.resolveTargetQuery(.{
+            .cpu_arch = .aarch64,
+            .os_tag = .visionos,
+            .os_version_min = Config.osVersionMin(.visionos),
+            .abi = .simulator,
+            .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.apple_m2 },
+        }),
+    ));
+
     // The xcframework wraps our ghostty library so that we can link
     // it to the final app built with Swift.
     const xcframework = XCFrameworkStep.create(b, .{
@@ -74,6 +97,16 @@ pub fn init(
                     .library = ios_sim.output,
                     .headers = b.path("include"),
                     .dsym = ios_sim.dsym,
+                },
+                .{
+                    .library = visionos.output,
+                    .headers = b.path("include"),
+                    .dsym = visionos.dsym,
+                },
+                .{
+                    .library = visionos_sim.output,
+                    .headers = b.path("include"),
+                    .dsym = visionos_sim.dsym,
                 },
             },
 

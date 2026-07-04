@@ -93,6 +93,10 @@ fn initTarget(
     const config = try b.allocator.create(Config);
     config.* = self.config.*;
     config.target = target;
+    if (target.result.os.tag == .visionos) {
+        // Sentry native is not available for visionOS yet.
+        config.sentry = false;
+    }
     self.config = config;
 
     // Setup our shared build options
@@ -302,7 +306,7 @@ pub fn add(
     }
 
     // Sentry
-    if (self.config.sentry) {
+    if (self.config.sentry and target.result.os.tag != .visionos) {
         if (b.lazyDependency("sentry", .{
             .target = target,
             .optimize = optimize,
@@ -391,8 +395,13 @@ pub fn add(
     if (b.lazyDependency("opengl", .{})) |dep| {
         step.root_module.addImport("opengl", dep.module("opengl"));
     }
-    if (b.lazyDependency("vaxis", .{})) |dep| {
-        step.root_module.addImport("vaxis", dep.module("vaxis"));
+    if (target.result.os.tag != .visionos) {
+        if (b.lazyDependency("vaxis", .{
+            .target = target,
+            .optimize = optimize,
+        })) |dep| {
+            step.root_module.addImport("vaxis", dep.module("vaxis"));
+        }
     }
     if (b.lazyDependency("wuffs", .{
         .target = target,
@@ -413,12 +422,14 @@ pub fn add(
         step.root_module.addImport("z2d", dep.module("z2d"));
     }
     self.addUucode(b, step.root_module, target, optimize);
-    if (b.lazyDependency("zf", .{
-        .target = target,
-        .optimize = optimize,
-        .with_tui = false,
-    })) |dep| {
-        step.root_module.addImport("zf", dep.module("zf"));
+    if (target.result.os.tag != .visionos) {
+        if (b.lazyDependency("zf", .{
+            .target = target,
+            .optimize = optimize,
+            .with_tui = false,
+        })) |dep| {
+            step.root_module.addImport("zf", dep.module("zf"));
+        }
     }
 
     // Mac Stuff

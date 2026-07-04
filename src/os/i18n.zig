@@ -1,4 +1,5 @@
 const std = @import("std");
+const ghostty_compat = @import("../compat.zig");
 const builtin = @import("builtin");
 const build_config = @import("../build_config.zig");
 const locales = @import("i18n_locales.zig");
@@ -39,7 +40,7 @@ pub fn init(resources_dir: []const u8) InitError!void {
                 return error.InvalidResourcesDir;
 
             // Build our locale path
-            var buf: [std.fs.max_path_bytes]u8 = undefined;
+            var buf: [ghostty_compat.max_path_bytes]u8 = undefined;
             const path = std.fmt.bufPrintZ(&buf, "{s}/locale", .{share_dir}) catch
                 return error.OutOfMemory;
 

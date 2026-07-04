@@ -1,13 +1,55 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const build_config = @import("build_config.zig");
-const cli = @import("cli.zig");
+const cli = if (builtin.target.os.tag == .visionos and build_config.artifact == .lib)
+    struct {
+        pub const ghostty = struct {
+            pub const Action = struct {
+                pub fn run(self: @This(), alloc: std.mem.Allocator) !u8 {
+                    _ = self;
+                    _ = alloc;
+                    return 0;
+                }
+            };
+        };
+
+        pub const action = struct {
+            pub fn detectArgs(
+                comptime Action: type,
+                alloc: std.mem.Allocator,
+            ) !?Action {
+                _ = alloc;
+                return null;
+            }
+        };
+
+        pub const args = struct {
+            pub fn parsePackedStruct(
+                comptime T: type,
+                value: []const u8,
+            ) !T {
+                _ = value;
+                return .{};
+            }
+        };
+    }
+else
+    @import("cli.zig");
 const internal_os = @import("os/main.zig");
 const fontconfig = @import("fontconfig");
 const glslang = @import("glslang");
 const harfbuzz = @import("harfbuzz");
 const oni = @import("oniguruma");
-const crash = @import("crash/main.zig");
+const crash = if (builtin.target.os.tag == .visionos and build_config.artifact == .lib)
+    struct {
+        pub fn init(alloc: std.mem.Allocator) !void {
+            _ = alloc;
+        }
+
+        pub fn deinit() void {}
+    }
+else
+    @import("crash/main.zig");
 const renderer = @import("renderer.zig");
 const apprt = @import("apprt.zig");
 

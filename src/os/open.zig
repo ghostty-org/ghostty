@@ -39,7 +39,7 @@ pub fn open(
             alloc,
         ),
 
-        .ios => return error.Unimplemented,
+        .ios, .visionos => return error.Unimplemented,
         else => @compileError("unsupported OS"),
     };
 

@@ -473,7 +473,7 @@ extension Ghostty {
             if !ghostty_config_get(config, &color, bg_key, UInt(bg_key.lengthOfBytes(using: .utf8))) {
 #if os(macOS)
                 return Color(NSColor.windowBackgroundColor)
-#elseif os(iOS)
+#elseif os(iOS) || os(visionOS)
                 return Color(UIColor.systemBackground)
 #else
 #error("unsupported")

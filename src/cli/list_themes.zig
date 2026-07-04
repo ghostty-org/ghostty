@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const args = @import("args.zig");
 const Action = @import("ghostty.zig").Action;
 const Config = @import("../config/Config.zig");
@@ -137,6 +138,8 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
     var it: themepkg.LocationIterator = .{ .arena_alloc = arena.allocator() };
 
     while (try it.next()) |loc| {
+        if (comptime builtin.os.tag == .visionos) continue;
+
         var dir = std.fs.cwd().openDir(loc.dir, .{ .iterate = true }) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => {

@@ -1,4 +1,5 @@
 const std = @import("std");
+const ghostty_compat = @import("../compat.zig");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
@@ -23,7 +24,7 @@ pub fn expand(alloc: Allocator, cmd: []const u8) !?[]u8 {
     };
     defer if (builtin.os.tag == .windows) alloc.free(PATH);
 
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     var it = std.mem.tokenizeScalar(u8, PATH, std.fs.path.delimiter);
     var seen_eacces = false;
     while (it.next()) |search_path| {

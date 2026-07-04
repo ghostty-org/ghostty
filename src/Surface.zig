@@ -16,6 +16,7 @@ pub const Mailbox = apprt.surface.Mailbox;
 pub const Message = apprt.surface.Message;
 
 const std = @import("std");
+const ghostty_compat = @import("compat.zig");
 const builtin = @import("builtin");
 const assert = @import("quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
@@ -5978,7 +5979,7 @@ fn writeScreenFile(
     var tmp_dir = try internal_os.TempDir.init();
     errdefer tmp_dir.deinit();
 
-    var filename_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var filename_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     const filename = try std.fmt.bufPrint(
         &filename_buf,
         "{s}.{s}",
@@ -6071,7 +6072,7 @@ fn writeScreenFile(
     try buf_writer.flush();
 
     // Get the final path
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     const path = try tmp_dir.dir.realpath(filename, &path_buf);
 
     switch (write_screen.action) {

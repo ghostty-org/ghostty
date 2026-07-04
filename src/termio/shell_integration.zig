@@ -1,4 +1,5 @@
 const std = @import("std");
+const ghostty_compat = @import("../compat.zig");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
@@ -367,7 +368,7 @@ fn setupBash(
     }
 
     // Set our new ENV to point to our integration script.
-    var script_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var script_path_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     const script_path = try std.fmt.bufPrint(
         &script_path_buf,
         "{s}/shell-integration/bash/ghostty.bash",
@@ -392,7 +393,7 @@ fn setupBash(
     if (env.get("HISTFILE") == null) {
         var home_buf: [1024]u8 = undefined;
         if (try homedir.home(&home_buf)) |home| {
-            var histfile_buf: [std.fs.max_path_bytes]u8 = undefined;
+            var histfile_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
             const histfile = try std.fmt.bufPrint(
                 &histfile_buf,
                 "{s}/.bash_history",
@@ -423,7 +424,7 @@ test "bash" {
     try testing.expectEqualStrings("bash --posix", command.?.shell);
     try testing.expectEqualStrings("1", env.get("GHOSTTY_BASH_INJECT").?);
 
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
         try std.fmt.bufPrint(&path_buf, "{s}/ghostty.bash", .{res.shell_path}),
         env.get("ENV").?,
@@ -562,7 +563,7 @@ test "bash: ENV" {
     _ = try setupBash(alloc, .{ .shell = "bash" }, res.path, &env);
     try testing.expectEqualStrings("env.sh", env.get("GHOSTTY_BASH_ENV").?);
 
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
         try std.fmt.bufPrint(&path_buf, "{s}/ghostty.bash", .{res.shell_path}),
         env.get("ENV").?,
@@ -625,7 +626,7 @@ fn setupXdgDataDirs(
     resource_dir: []const u8,
     env: *EnvMap,
 ) !bool {
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
 
     // Get our path to the shell integration directory.
     const integ_path = try std.fmt.bufPrint(
@@ -684,7 +685,7 @@ test "xdg: empty XDG_DATA_DIRS" {
 
     try testing.expect(try setupXdgDataDirs(alloc, res.path, &env));
 
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
         try std.fmt.bufPrint(&path_buf, "{s}/shell-integration", .{res.path}),
         env.get("GHOSTTY_SHELL_INTEGRATION_XDG_DIR").?,
@@ -712,7 +713,7 @@ test "xdg: existing XDG_DATA_DIRS" {
 
     try testing.expect(try setupXdgDataDirs(alloc, res.path, &env));
 
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
         try std.fmt.bufPrint(&path_buf, "{s}/shell-integration", .{res.path}),
         env.get("GHOSTTY_SHELL_INTEGRATION_XDG_DIR").?,
@@ -829,7 +830,7 @@ test "nushell" {
     const command = try setupNushell(alloc, .{ .shell = "nu" }, res.path, &env);
     try testing.expectEqualStrings("nu --execute 'use ghostty *'", command.?.shell);
 
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
         try std.fmt.bufPrint(&path_buf, "{s}/shell-integration", .{res.path}),
         env.get("GHOSTTY_SHELL_INTEGRATION_XDG_DIR").?,
@@ -900,7 +901,7 @@ fn setupZsh(
     }
 
     // Set our new ZDOTDIR to point to our shell resource directory.
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var path_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
     const integ_path = try std.fmt.bufPrint(
         &path_buf,
         "{s}/shell-integration/zsh",
@@ -986,7 +987,7 @@ const TmpResourcesDir = struct {
         var tmp_dir = std.testing.tmpDir(.{});
         errdefer tmp_dir.cleanup();
 
-        var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        var path_buf: [ghostty_compat.max_path_bytes]u8 = undefined;
         const relative_shell_path = try std.fmt.bufPrint(
             &path_buf,
             "shell-integration/{s}",

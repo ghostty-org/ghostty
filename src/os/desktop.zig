@@ -61,7 +61,7 @@ pub fn launchedFromDesktop() bool {
         .windows => false,
 
         // iPhone/iPad is always launched from the "desktop"
-        .ios => true,
+        .ios, .visionos => true,
 
         else => @compileError("unsupported platform"),
     };

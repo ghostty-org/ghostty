@@ -1,4 +1,5 @@
 const std = @import("std");
+const ghostty_compat = @import("../compat.zig");
 const Allocator = std.mem.Allocator;
 const args = @import("args.zig");
 const Action = @import("ghostty.zig").Action;
@@ -57,7 +58,7 @@ fn runInner(
 
     // If a config path is passed, validate it, otherwise validate default configs
     if (opts.@"config-file") |config_path| {
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        var buf: [ghostty_compat.max_path_bytes]u8 = undefined;
         const abs_path = try std.fs.cwd().realpath(config_path, &buf);
         try cfg.loadFile(alloc, abs_path);
         try cfg.loadRecursiveFiles(alloc);
