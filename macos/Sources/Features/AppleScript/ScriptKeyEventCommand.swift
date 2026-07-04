@@ -66,8 +66,29 @@ final class ScriptKeyEventCommand: NSScriptCommand {
         }
 
         // derive text and unshifted codepoint via `UCKeyTranslate`
+        let (text, unshiftedCodepoint) = ScriptKeyEventTranslator.translate(key: key, mods: mods)
+
+        let keyEvent = Ghostty.Input.KeyEvent(
+            key: key,
+            action: action,
+            text: text,
+            mods: mods,
+            unshiftedCodepoint: unshiftedCodepoint
+        )
+
+        surface.sendKeyEvent(keyEvent)
+
+        return nil
+    }
+}
+
+/// extracted translation logic to map a Ghostty key to its generated text and unshifted codepoint,
+/// primarily so it can be unit-tested without instantiating an `NSScriptCommand`.
+struct ScriptKeyEventTranslator {
+    static func translate(key: Ghostty.Input.Key, mods: Ghostty.Input.Mods) -> (text: String?, unshiftedCodepoint: UInt32) {
         let text: String?
         let unshiftedCodepoint: UInt32
+
         if let keyCode = key.keyCode {
             let source = TISCopyCurrentKeyboardLayoutInputSource().takeRetainedValue()
             let layoutData = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData)
@@ -105,16 +126,6 @@ final class ScriptKeyEventCommand: NSScriptCommand {
             unshiftedCodepoint = 0
         }
 
-        let keyEvent = Ghostty.Input.KeyEvent(
-            key: key,
-            action: action,
-            text: text,
-            mods: mods,
-            unshiftedCodepoint: unshiftedCodepoint
-        )
-
-        surface.sendKeyEvent(keyEvent)
-
-        return nil
+        return (text, unshiftedCodepoint)
     }
 }
