@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 
 /// Handler for the `send key` AppleScript command defined in `Ghostty.sdef`.
 ///
@@ -64,11 +65,54 @@ final class ScriptKeyEventCommand: NSScriptCommand {
             mods = []
         }
 
+        // derive text and unshifted codepoint via `UCKeyTranslate`
+        let text: String?
+        let unshiftedCodepoint: UInt32
+        if let keyCode = key.keyCode {
+            let source = TISCopyCurrentKeyboardLayoutInputSource().takeRetainedValue()
+            let layoutData = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData)
+            let layoutPtr = unsafeBitCast(layoutData, to: CFData.self)
+            let keyboardLayout = unsafeBitCast(CFDataGetBytePtr(layoutPtr), to: UnsafePointer<UCKeyboardLayout>.self)
+
+            var deadKeyState: UInt32 = 0
+            var unicodeLength = 0
+            var unicodeBuffer = [UniChar](repeating: 0, count: 4)
+
+            let shiftedModifiers = mods.contains(.shift) ? UInt32(shiftKey >> 8) : 0
+            let kbdType = UInt32(LMGetKbdType())
+
+            // source terminal already resolved any dead keys; bypass dead-key state entirely.
+            let noDeadKeys = OptionBits(kUCKeyTranslateNoDeadKeysBit)
+
+            UCKeyTranslate(
+                keyboardLayout, UInt16(keyCode),
+                UInt16(kUCKeyActionDown), shiftedModifiers,
+                kbdType, noDeadKeys,
+                &deadKeyState, 4, &unicodeLength, &unicodeBuffer)
+            text = unicodeLength > 0 ? String(utf16CodeUnits: unicodeBuffer, count: unicodeLength) : nil
+
+            deadKeyState = 0
+            UCKeyTranslate(
+                keyboardLayout, UInt16(keyCode),
+                UInt16(kUCKeyActionDown), 0,
+                kbdType, noDeadKeys,
+                &deadKeyState, 4, &unicodeLength, &unicodeBuffer)
+            let unshiftedChar = unicodeLength > 0 ? String(utf16CodeUnits: unicodeBuffer, count: unicodeLength) : nil
+
+            unshiftedCodepoint = unshiftedChar?.unicodeScalars.first?.value ?? 0
+        } else {
+            text = nil
+            unshiftedCodepoint = 0
+        }
+
         let keyEvent = Ghostty.Input.KeyEvent(
             key: key,
             action: action,
-            mods: mods
+            text: text,
+            mods: mods,
+            unshiftedCodepoint: unshiftedCodepoint
         )
+
         surface.sendKeyEvent(keyEvent)
 
         return nil
