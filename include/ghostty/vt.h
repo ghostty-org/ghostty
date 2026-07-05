@@ -34,6 +34,7 @@
  * - @ref osc "OSC Parser" - Parse OSC (Operating System Command) sequences
  * - @ref sgr "SGR Parser" - Parse SGR (Select Graphic Rendition) sequences
  * - @ref paste "Paste Utilities" - Validate paste data safety
+ * - @ref unicode "Unicode Utilities" - Codepoint properties for text layout
  * - @ref build_info "Build Info" - Query compile-time build configuration
  * - @ref allocator "Memory Management" - Memory management and custom allocators
  * - @ref wasm "WebAssembly Utilities" - WebAssembly convenience functions
@@ -145,6 +146,7 @@ extern "C" {
 #include <ghostty/vt/screen.h>
 #include <ghostty/vt/selection.h>
 #include <ghostty/vt/size_report.h>
+#include <ghostty/vt/unicode.h>
 #include <ghostty/vt/wasm.h>
 
 #ifdef __cplusplus

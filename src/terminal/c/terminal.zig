@@ -543,6 +543,7 @@ pub fn scroll_viewport(
         .top => .top,
         .bottom => .bottom,
         .delta => .{ .delta = behavior.value.delta },
+        .row => .{ .row = behavior.value.row },
     });
 }
 
@@ -997,8 +998,105 @@ test "scroll_viewport" {
     }
 }
 
+test "scroll_viewport row" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 5,
+            .rows = 2,
+            .max_scrollback = 10_000,
+        },
+    ));
+    defer free(t);
+
+    const zt = t.?.terminal;
+
+    // Write 4 rows so that rows "1" and "2" are pushed into scrollback:
+    // total rows is 4, viewport length is 2.
+    vt_write(t, "1\r\n2\r\n3\r\n4", 10);
+
+    var viewport_active: bool = false;
+    try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
+    try testing.expect(viewport_active);
+
+    // Row 0 is the top of the scrollback.
+    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 0 } });
+    try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
+    try testing.expect(!viewport_active);
+    {
+        const str = try zt.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("1\n2", str);
+    }
+
+    // An absolute row within the scrollback becomes the first visible
+    // row and round-trips through the scrollbar offset.
+    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 1 } });
+    {
+        const str = try zt.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("2\n3", str);
+    }
+    var scrollbar_data: TerminalScrollbar = undefined;
+    try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
+    try testing.expectEqual(@as(u64, 4), scrollbar_data.total);
+    try testing.expectEqual(@as(u64, 1), scrollbar_data.offset);
+    try testing.expectEqual(@as(u64, 2), scrollbar_data.len);
+
+    // A row past the end clamps to the active area.
+    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 9999 } });
+    try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
+    try testing.expect(viewport_active);
+    {
+        const str = try zt.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("3\n4", str);
+    }
+    try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
+    try testing.expectEqual(@as(u64, 2), scrollbar_data.offset);
+}
+
+test "scroll_viewport row alt screen" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 5,
+            .rows = 2,
+            .max_scrollback = 10_000,
+        },
+    ));
+    defer free(t);
+
+    // Enter the alternate screen, which has no scrollback.
+    vt_write(t, "\x1b[?1049h", 8);
+    var screen: TerminalScreen = undefined;
+    try testing.expectEqual(Result.success, get(t, .active_screen, @ptrCast(&screen)));
+    try testing.expectEqual(TerminalScreen.alternate, screen);
+
+    // Scrolling to any row keeps the viewport on the active area.
+    var viewport_active: bool = false;
+    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 0 } });
+    try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
+    try testing.expect(viewport_active);
+    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 9999 } });
+    try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
+    try testing.expect(viewport_active);
+
+    // With no scrollback the scrollbar covers exactly the active area.
+    var scrollbar_data: TerminalScrollbar = undefined;
+    try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
+    try testing.expectEqual(@as(u64, 2), scrollbar_data.total);
+    try testing.expectEqual(@as(u64, 0), scrollbar_data.offset);
+    try testing.expectEqual(@as(u64, 2), scrollbar_data.len);
+}
+
 test "scroll_viewport null" {
     scroll_viewport(null, .{ .tag = .top, .value = undefined });
+    scroll_viewport(null, .{ .tag = .row, .value = .{ .row = 1 } });
 }
 
 test "reset" {

@@ -191,6 +191,21 @@ typedef enum GHOSTTY_ENUM_TYPED {
 
   /** Scroll by a delta amount (up is negative). */
   GHOSTTY_SCROLL_VIEWPORT_DELTA,
+
+  /**
+   * Scroll to an absolute row offset from the top of the scrollable
+   * area. Row 0 is the top of the scrollback and the requested row
+   * becomes the first visible row of the viewport. The value is
+   * clamped so the viewport never scrolls beyond the top of the
+   * active area. If the terminal has no scrollback (e.g. the
+   * alternate screen is active), the viewport always remains on the
+   * active area.
+   *
+   * This is the same row space as the offset field of
+   * GhosttyTerminalScrollbar, so a scrollbar position obtained from
+   * GHOSTTY_TERMINAL_DATA_SCROLLBAR round-trips cleanly.
+   */
+  GHOSTTY_SCROLL_VIEWPORT_ROW,
   GHOSTTY_SCROLL_VIEWPORT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalScrollViewportTag;
 
@@ -202,6 +217,9 @@ typedef enum GHOSTTY_ENUM_TYPED {
 typedef union {
   /** Scroll delta (only used with GHOSTTY_SCROLL_VIEWPORT_DELTA). Up is negative. */
   intptr_t delta;
+
+  /** Absolute row offset (only used with GHOSTTY_SCROLL_VIEWPORT_ROW). */
+  size_t row;
 
   /** Padding for ABI compatibility. Do not use. */
   uint64_t _padding[2];
@@ -767,9 +785,16 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * Scrollbar state for the terminal viewport.
    *
-   * This may be expensive to calculate depending on where the viewport
-   * is (arbitrary pins are expensive). The caller should take care to only
-   * call this as needed and not too frequently.
+   * This is amortized O(1): the total is maintained incrementally as
+   * the terminal is modified and the viewport offset is cached. The
+   * first read after the viewport moves to an arbitrary position that
+   * isn't an absolute row (e.g. scrolling to a selection) may cost
+   * O(pages) to compute the offset, after which it is cached again.
+   *
+   * There is intentionally no change notification for scroll state.
+   * Callers building scrollbars should poll this once per frame or
+   * per write batch and diff the result to detect changes; this is
+   * what Ghostty's own renderer does.
    *
    * Output type: GhosttyTerminalScrollbar *
    */
@@ -1120,7 +1145,10 @@ GHOSTTY_API void ghostty_terminal_vt_write(GhosttyTerminal terminal,
  * Scrolls the terminal's viewport according to the given behavior.
  * When using GHOSTTY_SCROLL_VIEWPORT_DELTA, set the delta field in
  * the value union to specify the number of rows to scroll (negative
- * for up, positive for down). For other behaviors, the value is ignored.
+ * for up, positive for down). When using GHOSTTY_SCROLL_VIEWPORT_ROW,
+ * set the row field to the absolute row offset from the top of the
+ * scrollable area (the same row space as the offset field of
+ * GhosttyTerminalScrollbar). For other behaviors, the value is ignored.
  *
  * @param terminal The terminal handle (may be NULL, in which case this is a no-op)
  * @param behavior The scroll behavior as a tagged union

@@ -58,51 +58,61 @@ jobs:
           echo "build=$GHOSTTY_BUILD" >> $GITHUB_OUTPUT
           echo "commit=$GHOSTTY_COMMIT" >> $GITHUB_OUTPUT
           echo "commit_long=$GHOSTTY_COMMIT_LONG" >> $GITHUB_OUTPUT
-      - name: Check if tip already exists
+      # Classify what changed since the last tip. `build` matches any file that
+      # can reach the built artifact; `release_tip` re-adds release-tip.yml,
+      # which defines the build/tag/publish jobs. Everything else (all of
+      # .github plus docs and repo/lint/editor metadata) never changes the
+      # artifact. Skipped on manual dispatches, which always build.
+      - name: Detect changes since last tip
+        id: changes
+        if: github.event_name == 'workflow_run'
+        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        with:
+          token: ""
+          base: tip
+          predicate-quantifier: "every"
+          filters: |
+            build:
+              - '**'
+              - '!.github/**'
+              - '!README.md'
+              - '!CONTRIBUTING.md'
+              - '!HACKING.md'
+              - '!PACKAGING.md'
+              - '!AI_POLICY.md'
+              - '!AGENTS.md'
+              - '!CLAUDE.md'
+              - '!Doxyfile'
+              - '!DoxygenLayout.xml'
+              - '!LICENSE'
+              - '!CODEOWNERS'
+              - '!.clang-format'
+              - '!.editorconfig'
+              - '!.envrc'
+              - '!.gitattributes'
+              - '!.gitignore'
+              - '!.mailmap'
+              - '!.prettierignore'
+              - '!.shellcheckrc'
+              - '!.swiftlint.yml'
+              - '!typos.toml'
+              - '!valgrind.supp'
+            release_tip:
+              - '.github/workflows/release-tip.yml'
+
+      - name: Determine skip
         id: check
         run: |
-          GHOSTTY_COMMIT_LONG=$(git rev-parse HEAD)
-          if nix develop -c nu .github/scripts/ghostty-tip $GHOSTTY_COMMIT_LONG; then
-            echo "Tip release already exists for commit $GHOSTTY_COMMIT_LONG"
-            echo "should_skip=true" >> $GITHUB_OUTPUT
-            exit 0
+          if nix develop -c nu .github/scripts/ghostty-tip "$(git rev-parse HEAD)"; then
+            echo "Tip already built for this commit, skipping"
+            echo "should_skip=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.changes.outputs.build }}" = "false" ] &&
+            [ "${{ steps.changes.outputs.release_tip }}" = "false" ]; then
+            echo "Only non-artifact files changed since the last tip, skipping"
+            echo "should_skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_skip=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "No tip release found for commit $GHOSTTY_COMMIT_LONG"
-
-          # Skip the release when nothing release-relevant changed since
-          # the last tip (e.g. only VOUCHED.td or other .github metadata
-          # changed). Files under .github don't affect the built artifacts,
-          # with the exception of the release workflows and scripts, which
-          # affect how the artifacts are built and should therefore be
-          # exercised by a fresh build.
-          #
-          # This list is intentionally independent from the skip filter in
-          # test.yml: that one gates CI jobs and must stay narrow so that
-          # .github changes are still linted.
-          #
-          # Manual dispatches always build.
-          if [ "$GITHUB_EVENT_NAME" = "workflow_run" ] &&
-            git rev-parse -q --verify refs/tags/tip >/dev/null; then
-            relevant=false
-            while IFS= read -r path; do
-              case "$path" in
-                .github/workflows/release-*.yml | .github/scripts/*)
-                  relevant=true
-                  ;;
-                .github/*) ;;
-                *)
-                  relevant=true
-                  ;;
-              esac
-            done < <(git diff --name-only tip..HEAD)
-            if [ "$relevant" = "false" ]; then
-              echo "Only non-release files changed since the last tip, skipping"
-              echo "should_skip=true" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-          fi
-
-          echo "should_skip=false" >> $GITHUB_OUTPUT
 
   tag:
     runs-on: namespace-profile-ghostty-sm

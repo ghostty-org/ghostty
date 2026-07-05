@@ -43,6 +43,7 @@ pub const size_report = @import("size_report.zig");
 pub const style = @import("style.zig");
 pub const sys = @import("sys.zig");
 pub const terminal = @import("terminal.zig");
+pub const unicode = @import("unicode.zig");
 
 // The full C API, unexported.
 pub const build_info = buildpkg.get;
@@ -198,6 +199,9 @@ pub const terminal_point_from_grid_ref = terminal.point_from_grid_ref;
 
 pub const type_json = types.get_json;
 
+pub const unicode_codepoint_width = unicode.codepoint_width;
+pub const unicode_grapheme_width = unicode.grapheme_width;
+
 pub const grid_ref_cell = grid_ref.grid_ref_cell;
 pub const grid_ref_row = grid_ref.grid_ref_row;
 pub const grid_ref_graphemes = grid_ref.grid_ref_graphemes;
@@ -236,6 +240,7 @@ test {
     _ = sys;
     _ = terminal;
     _ = types;
+    _ = unicode;
 
     // We want to make sure we run the tests for the C allocator interface.
     _ = @import("../../lib/allocator.zig");

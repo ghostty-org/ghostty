@@ -16,6 +16,53 @@ const Command = command.Command;
 
 const log = std.log.scoped(.kitty_gfx);
 
+/// Process-global counter backing all generation stamps (see
+/// ImageStorage.generation and Image.generation). This is global rather
+/// than per-storage so that stamps are unique across every storage in
+/// the process: two mutation events never produce the same value, even
+/// across separate screens (main vs. alt), storage resets, or separate
+/// terminals. This lets consumers use a generation value alone as a
+/// cache key without any ambiguity.
+///
+/// Thread-safe because separate terminals may mutate their storages
+/// from different threads. On single-threaded targets this lowers to
+/// plain operations.
+var generation_counter: GenerationCounter = .{};
+
+/// Returns the next generation stamp. Stamps are unique and strictly
+/// monotonically increasing process-wide, starting at 1 (0 is reserved
+/// to mean "never stamped").
+pub fn nextGeneration() u64 {
+    return generation_counter.next();
+}
+
+/// Backing implementation for the generation counter. We use a
+/// lock-free atomic counter where we can, but not all targets support
+/// 64-bit atomic operations (e.g. 32-bit ARM Android), so we fall back
+/// to a mutex-protected counter on those. This is a cold path (only
+/// invoked on content mutations) so the mutex cost is irrelevant.
+///
+/// The pointer-width check is a conservative proxy for 64-bit atomic
+/// support: every 64-bit target supports 64-bit atomics, while 32-bit
+/// targets may not (per the compiler's atomic operand validation).
+const GenerationCounter = if (@bitSizeOf(usize) >= 64) struct {
+    value: std.atomic.Value(u64) = .init(0),
+
+    fn next(self: *@This()) u64 {
+        return self.value.fetchAdd(1, .monotonic) + 1;
+    }
+} else struct {
+    mutex: std.Thread.Mutex = .{},
+    value: u64 = 0,
+
+    fn next(self: *@This()) u64 {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.value += 1;
+        return self.value;
+    }
+};
+
 /// An image storage is associated with a terminal screen (i.e. main
 /// screen, alt screen) and contains all the transmitted images and
 /// placements.
@@ -27,7 +74,31 @@ pub const ImageStorage = struct {
     /// purely informational for the renderer and doesn't affect the
     /// correctness of the program. The renderer must set this to false
     /// if it cares about this value.
+    ///
+    /// Note that dirty is also set by scrolling and resizing (outside
+    /// of this struct) because those move placement pins, even though
+    /// the set of images/placements itself is unchanged. See generation
+    /// for a signal that only tracks content mutations.
+    ///
+    /// Invariant: dirty is always set when generation changes
+    /// (markMutated sets both); dirty set without a generation change
+    /// means a geometry-only event.
     dirty: bool = false,
+
+    /// Generation stamp of the last content mutation to this storage:
+    /// any image transmit/replace, placement add, or delete of either.
+    /// Zero means the storage has never been mutated (and is therefore
+    /// empty).
+    ///
+    /// Unlike dirty, this is NOT updated by scrolling/resizing, so an
+    /// unchanged generation means the placement set and all image data
+    /// are identical; only placement geometry (pins) may have moved.
+    /// Values come from a process-global monotonic counter, so a value
+    /// observed from any storage never recurs for different content,
+    /// even across screen switches or storage resets.
+    ///
+    /// This field must only be written via markMutated.
+    generation: u64 = 0,
 
     /// This is the next automatically assigned image ID. We start mid-way
     /// through the u32 range to avoid collisions with buggy programs.
@@ -80,6 +151,19 @@ pub const ImageStorage = struct {
         return self.total_limit != 0;
     }
 
+    /// Record a content mutation: marks the storage dirty and assigns a
+    /// fresh generation stamp. Must be called by anything that changes
+    /// the set of images or placements (or image contents).
+    ///
+    /// Do NOT call this for geometry-only events (scrolling, resizing,
+    /// screen switches); those must set only the dirty flag directly.
+    /// Bumping the generation for geometry changes would break the
+    /// contract that an unchanged generation means unchanged contents.
+    fn markMutated(self: *ImageStorage) void {
+        self.dirty = true;
+        self.generation = nextGeneration();
+    }
+
     /// Sets the limit in bytes for the total amount of image data that
     /// can be loaded. If this limit is lower, this will do an eviction
     /// if necessary. If the value is zero, then Kitty image protocol will
@@ -95,6 +179,7 @@ pub const ImageStorage = struct {
             const image_limits = self.image_limits;
             self.deinit(alloc, s);
             self.* = .{ .image_limits = image_limits };
+            self.markMutated();
         }
 
         // If we re lowering our limit, check if we need to evict.
@@ -144,7 +229,12 @@ pub const ImageStorage = struct {
         gop.value_ptr.* = img;
         self.total_bytes += img.data.len;
 
-        self.dirty = true;
+        // Stamp the stored image with a fresh generation. This gives
+        // every add/replace a unique stamp even when the same image ID
+        // is retransmitted with identical dimensions, so consumers
+        // (e.g. renderer texture caches) can detect content changes.
+        self.markMutated();
+        gop.value_ptr.generation = self.generation;
     }
 
     /// Add a placement for a given image. The caller must verify in advance
@@ -185,7 +275,7 @@ pub const ImageStorage = struct {
         const gop = try self.placements.getOrPut(alloc, key);
         gop.value_ptr.* = p;
 
-        self.dirty = true;
+        self.markMutated();
     }
 
     fn clearPlacements(self: *ImageStorage, s: *terminal.Screen) void {
@@ -207,7 +297,7 @@ pub const ImageStorage = struct {
         while (it.next()) |kv| {
             if (kv.value_ptr.number == image_number) {
                 if (newest == null or
-                    kv.value_ptr.transmit_time.order(newest.?.transmit_time) == .gt)
+                    kv.value_ptr.generation > newest.?.generation)
                 {
                     newest = kv.value_ptr.*;
                 }
@@ -224,6 +314,17 @@ pub const ImageStorage = struct {
         t: *terminal.Terminal,
         cmd: command.Delete,
     ) void {
+        // Deletes only ever remove placements/images, so comparing counts
+        // before and after tells us whether anything actually changed.
+        // Only then do we mark a mutation. This matters because a
+        // delete-all runs on every screen clear (e.g. `ESC [ 2 J`), and
+        // we don't want empty clears to dirty the image state or bump
+        // the generation.
+        const placements_before = self.placements.count();
+        const images_before = self.images.count();
+        defer if (self.placements.count() != placements_before or
+            self.images.count() != images_before) self.markMutated();
+
         switch (cmd) {
             .all => |delete_images| {
                 var it = self.placements.iterator();
@@ -245,8 +346,6 @@ pub const ImageStorage = struct {
                     var image_it = self.images.iterator();
                     while (image_it.next()) |kv| self.deleteIfUnused(alloc, kv.key_ptr.*);
                 }
-
-                self.dirty = true;
             },
 
             .id => |v| self.deleteById(
@@ -341,9 +440,6 @@ pub const ImageStorage = struct {
                         if (v.delete) self.deleteIfUnused(alloc, img.id);
                     }
                 }
-
-                // Mark dirty to force redraw
-                self.dirty = true;
             },
 
             .row => |v| row: {
@@ -373,9 +469,6 @@ pub const ImageStorage = struct {
                         if (v.delete) self.deleteIfUnused(alloc, img.id);
                     }
                 }
-
-                // Mark dirty to force redraw
-                self.dirty = true;
             },
 
             .z => |v| {
@@ -396,9 +489,6 @@ pub const ImageStorage = struct {
                         if (v.delete) self.deleteIfUnused(alloc, image_id);
                     }
                 }
-
-                // Mark dirty to force redraw
-                self.dirty = true;
             },
 
             .range => |v| range: {
@@ -420,9 +510,6 @@ pub const ImageStorage = struct {
                         if (v.delete) self.deleteIfUnused(alloc, image_id);
                     }
                 }
-
-                // Mark dirty to force redraw
-                self.dirty = true;
             },
 
             // We don't support animation frames yet so they are successfully
@@ -461,9 +548,6 @@ pub const ImageStorage = struct {
         // If this is specified, then we also delete the image
         // if it is no longer in use.
         if (delete_unused) self.deleteIfUnused(alloc, image_id);
-
-        // Mark dirty to force redraw
-        self.dirty = true;
     }
 
     /// Delete an image if it is unused.
@@ -507,9 +591,6 @@ pub const ImageStorage = struct {
                 if (delete_unused) self.deleteIfUnused(alloc, img.id);
             }
         }
-
-        // Mark dirty to force redraw
-        self.dirty = true;
     }
 
     /// Evict image to make space. This will evict the oldest image,
@@ -526,7 +607,7 @@ pub const ImageStorage = struct {
         // bit is fine compared to the megabytes we're looking to save.
         const Candidate = struct {
             id: u32,
-            time: std.time.Instant,
+            generation: u64,
             used: bool,
         };
 
@@ -554,7 +635,7 @@ pub const ImageStorage = struct {
 
             try candidates.append(alloc, .{
                 .id = img.id,
-                .time = img.transmit_time,
+                .generation = img.generation,
                 .used = used,
             });
         }
@@ -572,18 +653,25 @@ pub const ImageStorage = struct {
                 ) bool {
                     _ = ctx;
 
-                    // If they're usage matches, then its based on time.
-                    if (lhs.used == rhs.used) return switch (lhs.time.order(rhs.time)) {
-                        .lt => true,
-                        .gt => false,
-                        .eq => lhs.id < rhs.id,
-                    };
+                    // If their usage matches, then it's based on the
+                    // generation stamp, which orders by transmit time.
+                    // (Stamps are unique but tie-break by ID anyway to
+                    // stay deterministic for hand-built test images.)
+                    if (lhs.used == rhs.used) return if (lhs.generation == rhs.generation)
+                        lhs.id < rhs.id
+                    else
+                        lhs.generation < rhs.generation;
 
                     // If not used, then its a better candidate
                     return !lhs.used;
                 }
             }.lessThan,
         );
+
+        // Evicting anything is a content mutation. This matters for the
+        // setLimit path in particular, which doesn't otherwise mark it.
+        var any_evicted = false;
+        defer if (any_evicted) self.markMutated();
 
         // They're in order of best to evict.
         var evicted: usize = 0;
@@ -593,6 +681,7 @@ pub const ImageStorage = struct {
             while (p_it.next()) |entry| {
                 if (entry.key_ptr.image_id == c.id) {
                     self.placements.removeByPtr(entry.key_ptr);
+                    any_evicted = true;
                 }
             }
 
@@ -604,6 +693,7 @@ pub const ImageStorage = struct {
 
                 entry.value_ptr.deinit(alloc);
                 self.images.removeByPtr(entry.key_ptr);
+                any_evicted = true;
 
                 if (evicted > req) return true;
             }
@@ -1361,4 +1451,151 @@ test "storage: aspect ratio calculation when only columns or rows specified" {
         try testing.expectEqual(@as(u32, 178), calc_size.width);
         try testing.expectEqual(@as(u32, 100), calc_size.height);
     }
+}
+
+test "storage: generation stamps on image add and replace" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var t = try terminal.Terminal.init(alloc, .{ .rows = 3, .cols = 3 });
+    defer t.deinit(alloc);
+
+    var s: ImageStorage = .{};
+    defer s.deinit(alloc, t.screens.active);
+
+    // Fresh storage has generation zero (never mutated).
+    try testing.expectEqual(@as(u64, 0), s.generation);
+
+    try s.addImage(alloc, .{ .id = 1, .width = 1, .height = 1 });
+    const gen1 = s.generation;
+    try testing.expect(gen1 > 0);
+
+    const img1 = s.imageById(1).?;
+    try testing.expectEqual(gen1, img1.generation);
+
+    // A second image gets a strictly greater stamp.
+    try s.addImage(alloc, .{ .id = 2, .width = 1, .height = 1 });
+    const gen2 = s.generation;
+    try testing.expect(gen2 > gen1);
+    try testing.expectEqual(gen2, s.imageById(2).?.generation);
+
+    // Retransmitting the same image ID (identical dimensions) gets a
+    // fresh stamp: this is what makes same-sized retransmissions
+    // detectable by renderers.
+    try s.addImage(alloc, .{ .id = 1, .width = 1, .height = 1 });
+    const gen3 = s.generation;
+    try testing.expect(gen3 > gen2);
+    try testing.expectEqual(gen3, s.imageById(1).?.generation);
+
+    // Image 2 kept its stamp.
+    try testing.expectEqual(gen2, s.imageById(2).?.generation);
+}
+
+test "storage: generation bumps on placement and delete" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var t = try terminal.Terminal.init(alloc, .{ .rows = 3, .cols = 3 });
+    defer t.deinit(alloc);
+
+    var s: ImageStorage = .{};
+    defer s.deinit(alloc, t.screens.active);
+    try s.addImage(alloc, .{ .id = 1 });
+    const gen_add = s.generation;
+
+    try s.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+    const gen_place = s.generation;
+    try testing.expect(gen_place > gen_add);
+
+    // Reads don't change the generation.
+    _ = s.imageById(1);
+    _ = s.imageByNumber(1);
+    try testing.expectEqual(gen_place, s.generation);
+
+    s.delete(alloc, &t, .{ .all = true });
+    try testing.expect(s.generation > gen_place);
+}
+
+test "storage: generation bumps when setLimit evicts or disables" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var t = try terminal.Terminal.init(alloc, .{ .rows = 3, .cols = 3 });
+    defer t.deinit(alloc);
+
+    var s: ImageStorage = .{};
+    defer s.deinit(alloc, t.screens.active);
+
+    const data = try alloc.dupe(u8, "1234");
+    try s.addImage(alloc, .{ .id = 1, .width = 1, .height = 1, .data = data });
+    const gen_add = s.generation;
+
+    // Lowering the limit evicts the image and must mark a mutation.
+    s.dirty = false;
+    try s.setLimit(alloc, t.screens.active, 1);
+    try testing.expect(s.dirty);
+    try testing.expect(s.generation > gen_add);
+    try testing.expectEqual(@as(usize, 0), s.images.count());
+    const gen_evict = s.generation;
+
+    // Disabling (limit=0) resets the storage and must mark a mutation.
+    s.dirty = false;
+    try s.setLimit(alloc, t.screens.active, 0);
+    try testing.expect(s.dirty);
+    try testing.expect(s.generation > gen_evict);
+}
+
+test "storage: imageByNumber returns most recently transmitted" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var t = try terminal.Terminal.init(alloc, .{ .rows = 3, .cols = 3 });
+    defer t.deinit(alloc);
+
+    var s: ImageStorage = .{};
+    defer s.deinit(alloc, t.screens.active);
+
+    // Two images sharing a number: the newest transmission wins,
+    // regardless of insertion order or clock resolution.
+    try s.addImage(alloc, .{ .id = 1, .number = 7 });
+    try s.addImage(alloc, .{ .id = 2, .number = 7 });
+    try testing.expectEqual(@as(u32, 2), s.imageByNumber(7).?.id);
+
+    // Retransmit the first: it becomes the newest.
+    try s.addImage(alloc, .{ .id = 1, .number = 7 });
+    try testing.expectEqual(@as(u32, 1), s.imageByNumber(7).?.id);
+}
+
+test "storage: nextGeneration is unique and monotonic" {
+    const testing = std.testing;
+    const a = nextGeneration();
+    const b = nextGeneration();
+    try testing.expect(b > a);
+    try testing.expect(a > 0);
+}
+
+test "storage: no-op delete does not mark a mutation" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var t = try terminal.Terminal.init(alloc, .{ .rows = 3, .cols = 3 });
+    defer t.deinit(alloc);
+
+    var s: ImageStorage = .{};
+    defer s.deinit(alloc, t.screens.active);
+
+    // A delete-all on an empty storage (this runs on every screen
+    // clear) must not dirty the state or bump the generation.
+    s.delete(alloc, &t, .{ .all = true });
+    try testing.expect(!s.dirty);
+    try testing.expectEqual(@as(u64, 0), s.generation);
+
+    // Same for a delete that matches nothing.
+    try s.addImage(alloc, .{ .id = 1 });
+    try s.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+    const gen = s.generation;
+    s.dirty = false;
+    s.delete(alloc, &t, .{ .id = .{ .image_id = 42 } });
+    try testing.expect(!s.dirty);
+    try testing.expectEqual(gen, s.generation);
+
+    // But a delete that removes something does mark a mutation.
+    s.delete(alloc, &t, .{ .id = .{ .image_id = 1 } });
+    try testing.expect(s.dirty);
+    try testing.expect(s.generation > gen);
 }

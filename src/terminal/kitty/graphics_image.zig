@@ -401,12 +401,6 @@ pub const LoadingImage = struct {
             return error.InvalidData;
         }
 
-        // Set our time
-        self.image.transmit_time = std.time.Instant.now() catch |err| {
-            log.warn("failed to get time: {}", .{err});
-            return error.InternalError;
-        };
-
         // Everything looks good, copy the image data over.
         var result = self.image;
         result.data = try self.data.toOwnedSlice(alloc);
@@ -504,6 +498,12 @@ pub const LoadingImage = struct {
 };
 
 /// Image represents a single fully loaded image.
+///
+/// The image data is always fully decoded raw pixels: loading inflates
+/// any zlib-compressed payload and decodes PNG into RGBA before an image
+/// is completed, so `compression` is always `.none` and `format` is
+/// never `.png` for a stored image, and `data.len` always equals
+/// `width * height * bytes-per-pixel`.
 pub const Image = struct {
     id: u32 = 0,
     number: u32 = 0,
@@ -512,7 +512,14 @@ pub const Image = struct {
     format: command.Transmission.Format = .rgb,
     compression: command.Transmission.Compression = .none,
     data: []const u8 = "",
-    transmit_time: std.time.Instant = undefined,
+
+    /// Unique, monotonically increasing stamp assigned each time an
+    /// image is added to (or replaced in) an ImageStorage. A changed
+    /// generation for a given image ID means the image contents may
+    /// have changed, even if the dimensions and byte length are the
+    /// same (e.g. a retransmission of the same ID). Stamps order by
+    /// transmission time. Zero means "never stored".
+    generation: u64 = 0,
 
     /// Set this to true if this image was loaded by a command that
     /// doesn't specify an ID or number, since such commands should
@@ -521,7 +528,6 @@ pub const Image = struct {
     implicit_id: bool = false,
 
     pub const Error = error{
-        InternalError,
         InvalidData,
         DecompressionFailed,
         DimensionsRequired,

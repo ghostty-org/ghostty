@@ -591,7 +591,7 @@ fn rowCellsGetGraphemesUtf8(
 
     if (!cell.hasText()) return .success;
 
-    var needed = std.unicode.utf8CodepointSequenceLength(cell.codepoint()) catch
+    var needed: usize = std.unicode.utf8CodepointSequenceLength(cell.codepoint()) catch
         return .invalid_value;
     for (extra) |cp| {
         needed += std.unicode.utf8CodepointSequenceLength(cp) catch
@@ -1293,6 +1293,82 @@ test "render: row cells get has_styling" {
 }
 
 test "render: row cells get graphemes utf8" {
+    const cases = [_]struct {
+        terminal_input: []const u8,
+        expected: []const u8,
+    }{
+        .{
+            .terminal_input = "e\u{301}",
+            .expected = "e\u{301}",
+        },
+        .{
+            .terminal_input = "\x1b[?2027h\u{1F1FA}\u{1F1F8}",
+            .expected = "\u{1F1FA}\u{1F1F8}",
+        },
+        .{
+            .terminal_input = "\x1b[?2027h\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}",
+            .expected = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}",
+        },
+    };
+
+    for (cases) |case| {
+        var terminal: terminal_c.Terminal = null;
+        try testing.expectEqual(Result.success, terminal_c.new(
+            &lib.alloc.test_allocator,
+            &terminal,
+            .{ .cols = 10, .rows = 3, .max_scrollback = 10_000 },
+        ));
+        defer terminal_c.free(terminal);
+
+        terminal_c.vt_write(terminal, case.terminal_input.ptr, case.terminal_input.len);
+
+        var state: RenderState = null;
+        try testing.expectEqual(Result.success, new(
+            &lib.alloc.test_allocator,
+            &state,
+        ));
+        defer free(state);
+
+        try testing.expectEqual(Result.success, update(state, terminal));
+
+        var it: RowIterator = null;
+        try testing.expectEqual(Result.success, row_iterator_new(
+            &lib.alloc.test_allocator,
+            &it,
+        ));
+        defer row_iterator_free(it);
+
+        var cells: RowCells = null;
+        try testing.expectEqual(Result.success, row_cells_new(
+            &lib.alloc.test_allocator,
+            &cells,
+        ));
+        defer row_cells_free(cells);
+
+        try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&it)));
+        try testing.expect(row_iterator_next(it));
+        try testing.expectEqual(Result.success, row_get(it, .cells, @ptrCast(&cells)));
+
+        try testing.expectEqual(Result.success, row_cells_select(cells, 0));
+
+        var text: lib.Buffer = .{};
+        try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_utf8, @ptrCast(&text)));
+        try testing.expectEqual(case.expected.len, text.len);
+
+        var small = [_]u8{'x'} ** 32;
+        const small_cap = case.expected.len - 1;
+        text = .{ .ptr = small[0..small_cap].ptr, .cap = small_cap };
+        try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_utf8, @ptrCast(&text)));
+        try testing.expectEqual(case.expected.len, text.len);
+        try testing.expectEqualSlices(u8, &([_]u8{'x'} ** 32), &small);
+
+        var buf: [32]u8 = undefined;
+        text = .{ .ptr = &buf, .cap = case.expected.len };
+        try testing.expectEqual(Result.success, row_cells_get(cells, .graphemes_utf8, @ptrCast(&text)));
+        try testing.expectEqual(case.expected.len, text.len);
+        try testing.expectEqualStrings(case.expected, buf[0..text.len]);
+    }
+
     var terminal: terminal_c.Terminal = null;
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
@@ -1331,26 +1407,9 @@ test "render: row cells get graphemes utf8" {
     try testing.expect(row_iterator_next(it));
     try testing.expectEqual(Result.success, row_get(it, .cells, @ptrCast(&cells)));
 
-    try testing.expectEqual(Result.success, row_cells_select(cells, 0));
-
-    var text: lib.Buffer = .{};
-    try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_utf8, @ptrCast(&text)));
-    try testing.expectEqual(@as(usize, input.len), text.len);
-
-    var small = [_]u8{ 'x', 'x' };
-    text = .{ .ptr = &small, .cap = small.len };
-    try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_utf8, @ptrCast(&text)));
-    try testing.expectEqual(@as(usize, input.len), text.len);
-    try testing.expectEqualSlices(u8, &.{ 'x', 'x' }, &small);
-
-    var buf: [8]u8 = undefined;
-    text = .{ .ptr = &buf, .cap = buf.len };
-    try testing.expectEqual(Result.success, row_cells_get(cells, .graphemes_utf8, @ptrCast(&text)));
-    try testing.expectEqual(input.len, text.len);
-    try testing.expectEqualStrings(input, buf[0..text.len]);
-
     try testing.expectEqual(Result.success, row_cells_select(cells, 1));
-    text = .{ .ptr = &buf, .cap = buf.len };
+    var buf: [8]u8 = undefined;
+    var text: lib.Buffer = .{ .ptr = &buf, .cap = buf.len };
     try testing.expectEqual(Result.success, row_cells_get(cells, .graphemes_utf8, @ptrCast(&text)));
     try testing.expectEqual(@as(usize, 0), text.len);
 }

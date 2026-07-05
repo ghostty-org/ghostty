@@ -71,6 +71,7 @@ pub const RenderState = terminal.RenderState;
 pub const Screen = terminal.Screen;
 pub const ScreenSet = terminal.ScreenSet;
 pub const Selection = terminal.Selection;
+pub const SelectionGesture = terminal.SelectionGesture;
 pub const size_report = terminal.size_report;
 pub const SizeReportStyle = terminal.SizeReportStyle;
 pub const StringMap = terminal.StringMap;
@@ -132,6 +133,14 @@ pub const input = struct {
     pub const encodeMouse = mouse_encode.encode;
 };
 
+/// Unicode utilities that match the terminal's text layout semantics.
+pub const unicode = struct {
+    const unicode_pkg = @import("unicode/main.zig");
+
+    pub const codepointWidth = unicode_pkg.codepointWidth;
+    pub const graphemeWidth = unicode_pkg.graphemeWidth;
+};
+
 comptime {
     // If we're building the C library (vs. the Zig module) then
     // we want to reference the C API so that it gets exported.
@@ -186,6 +195,8 @@ comptime {
         @export(&c.mode_report_encode, .{ .name = "ghostty_mode_report_encode" });
         @export(&c.paste_is_safe, .{ .name = "ghostty_paste_is_safe" });
         @export(&c.paste_encode, .{ .name = "ghostty_paste_encode" });
+        @export(&c.unicode_codepoint_width, .{ .name = "ghostty_unicode_codepoint_width" });
+        @export(&c.unicode_grapheme_width, .{ .name = "ghostty_unicode_grapheme_width" });
         @export(&c.size_report_encode, .{ .name = "ghostty_size_report_encode" });
         @export(&c.style_default, .{ .name = "ghostty_style_default" });
         @export(&c.style_is_default, .{ .name = "ghostty_style_is_default" });
@@ -340,6 +351,7 @@ test {
     _ = terminal;
     _ = @import("lib/main.zig");
     @import("std").testing.refAllDecls(input);
+    @import("std").testing.refAllDecls(unicode);
     if (comptime terminal.options.c_abi) {
         _ = terminal.c_api;
     }
