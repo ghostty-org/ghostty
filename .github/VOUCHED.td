@@ -203,6 +203,7 @@ mrconnorkenway
 mrmage
 mtak
 mustafa0x
+nagato-yuzuru
 natesmyth
 neo773
 neurosnap
