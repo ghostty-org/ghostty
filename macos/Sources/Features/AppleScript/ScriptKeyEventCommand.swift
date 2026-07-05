@@ -67,7 +67,9 @@ final class ScriptKeyEventCommand: NSScriptCommand {
         let keyEvent = Ghostty.Input.KeyEvent(
             key: key,
             action: action,
-            mods: mods
+            text: NSEvent.ghosttyCharacters(for: key.keyCode, modifierFlags: mods.nsFlags),
+            mods: mods,
+            unshiftedCodepoint: NSEvent.unshiftedCodepoint(for: key.keyCode) ?? 0,
         )
         surface.sendKeyEvent(keyEvent)
 
