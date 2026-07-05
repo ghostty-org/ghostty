@@ -496,27 +496,39 @@ class QuickTerminalController: BaseTerminalController {
                 // focus of a non-visible window.
                 self.makeWindowKey(window)
 
-                // If our application is not active, then we grab focus. Its important
+                // If our application is not frontmost, then we grab focus. Its important
                 // we do this AFTER our window is animated in and focused because
                 // otherwise macOS will bring forward another window.
-                if !NSApp.isActive {
+                //
+                // We skip activation on fullscreen Spaces so the quick terminal can
+                // remain a fullscreen auxiliary panel over the current application.
+                if Self.shouldActivateApplication(activeSpaceType: CGSSpace.active().type),
+                   !Self.isCurrentProcessFrontmost {
                     NSApp.activate(ignoringOtherApps: true)
+                }
 
-                    // This works around a really funky bug where if the terminal is
-                    // shown on a screen that has no other Ghostty windows, it takes
-                    // a few (variable) event loop ticks until we can actually focus it.
-                    // https://github.com/ghostty-org/ghostty/issues/2409
-                    //
-                    // We wait one event loop tick to try it because under the happy
-                    // path (we have windows on this screen) it takes one event loop
-                    // tick for window.isKeyWindow to return true.
-                    DispatchQueue.main.async {
-                        guard !window.isKeyWindow else { return }
-                        self.makeWindowKey(window, retries: 10)
-                    }
+                // This works around a really funky bug where if the terminal is
+                // shown on a screen that has no other Ghostty windows, it takes
+                // a few (variable) event loop ticks until we can actually focus it.
+                // https://github.com/ghostty-org/ghostty/issues/2409
+                //
+                // We wait one event loop tick to try it because under the happy
+                // path (we have windows on this screen) it takes one event loop
+                // tick for window.isKeyWindow to return true.
+                DispatchQueue.main.async {
+                    guard !window.isKeyWindow else { return }
+                    self.makeWindowKey(window, retries: 10)
                 }
             }
         })
+    }
+
+    static func shouldActivateApplication(activeSpaceType: CGSSpaceType) -> Bool {
+        activeSpaceType != .fullscreen
+    }
+
+    private static var isCurrentProcessFrontmost: Bool {
+        NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier
     }
 
     /// Attempt to make a window key, supporting retries if necessary. The retries will be attempted

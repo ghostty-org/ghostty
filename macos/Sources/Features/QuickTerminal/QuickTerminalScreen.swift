@@ -24,7 +24,15 @@ enum QuickTerminalScreen {
     var screen: NSScreen? {
         switch self {
         case .main:
-            return NSScreen.main
+            let activeSpace = CGSSpace.active()
+            return Self.resolveMainScreen(
+                activeSpaceType: activeSpace.type,
+                activeSpaceScreen: activeSpace.screen,
+                fullscreenSpaceScreen: CGSSpace.currentFullscreenScreen(
+                    frontmostApplicationProcessIdentifier: NSWorkspace.shared.frontmostApplication?.processIdentifier
+                ),
+                mainScreen: NSScreen.main
+            )
 
         case .mouse:
             let mouseLoc = NSEvent.mouseLocation
@@ -33,5 +41,18 @@ enum QuickTerminalScreen {
         case .menuBar:
             return NSScreen.screens.first
         }
+    }
+
+    static func resolveMainScreen<Screen>(
+        activeSpaceType: CGSSpaceType,
+        activeSpaceScreen: Screen?,
+        fullscreenSpaceScreen: Screen?,
+        mainScreen: Screen?
+    ) -> Screen? {
+        if activeSpaceType == .fullscreen {
+            return activeSpaceScreen ?? fullscreenSpaceScreen ?? mainScreen
+        }
+
+        return fullscreenSpaceScreen ?? mainScreen
     }
 }

@@ -26,7 +26,9 @@ class QuickTerminalWindow: NSPanel {
         // window remains resizable.
         self.styleMask.remove(.titled)
 
-        // We don't want to activate the owning app when quick terminal is triggered.
+        // The quick terminal must be able to appear on another application's
+        // fullscreen Space. Activation is handled by QuickTerminalController so
+        // we can still activate Ghostty on non-fullscreen Spaces.
         self.styleMask.insert(.nonactivatingPanel)
     }
 
