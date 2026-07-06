@@ -17,6 +17,7 @@ const noMinContrast = cellpkg.noMinContrast;
 const constraintWidth = cellpkg.constraintWidth;
 const isCovering = cellpkg.isCovering;
 const rowNeverExtendBg = @import("row.zig").neverExtendBg;
+const glyph_protocol = @import("glyph_protocol.zig");
 const Overlay = @import("Overlay.zig");
 const imagepkg = @import("image.zig");
 const ImageState = imagepkg.State;
@@ -172,6 +173,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         font_grid: *font.SharedGrid,
         font_shaper: font.Shaper,
         font_shaper_cache: font.ShaperCache,
+
+        /// Renderer-local snapshot of per-session Glyph Protocol entries.
+        glyph_protocol: glyph_protocol.State = .empty,
 
         /// The images that we may render.
         images: ImageState = .empty,
@@ -815,6 +819,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             self.font_shaper.deinit();
             self.font_shaper_cache.deinit(self.alloc);
+            self.glyph_protocol.deinit(self.alloc);
 
             self.config.deinit();
 
@@ -1074,6 +1079,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Update our grid
             self.font_grid = grid;
 
+            // When our font grid changes, our cell metrics can change,
+            // our atlas is gone, etc. so invalid all prior glyph
+            // protocol rasterizations.
+            self.glyph_protocol.invalidateRasterized();
+
             // Update all our textures so that they sync on the next frame.
             // We can modify this without a lock because the GPU does not
             // touch this data.
@@ -1197,6 +1207,20 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                     // Scroll
                     state.terminal.scrollViewport(.bottom);
+                }
+
+                // Sync our Glyph Protocol state before updating the render
+                // state because RenderState.update consumes terminal dirty
+                // flags, including glyph_glossary.
+                if (state.terminal.flags.dirty.glyph_glossary) {
+                    self.glyph_protocol.syncFromGlossary(
+                        self.alloc,
+                        &state.terminal.glyph_glossary,
+                    ) catch |err| {
+                        // Don't hard fail the frame update, just degrade
+                        // to showing some invalid glyphs.
+                        log.warn("error syncing glyph protocol state err={}", .{err});
+                    };
                 }
 
                 // Update our terminal state
@@ -3172,6 +3196,59 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         ) !void {
             const cell = cell_raws[x];
             const cp = cell.codepoint();
+
+            // If we have a glyph via the glyph protocol, render that.
+            if (self.glyph_protocol.renderGlyph(
+                self.alloc,
+                self.font_grid,
+                self.grid_metrics,
+                cp,
+            ) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.RasterizationFailed => glyph: {
+                    // If rasterization fails for any reason, just render the
+                    // replacement char to show some invalid character is
+                    // here.
+                    log.warn("error rasterizing glyph protocol glyph, rendering replacement character cp={X}", .{cp});
+                    const replacement = try self.font_grid.renderCodepoint(
+                        self.alloc,
+                        0xFFFD,
+                        .regular,
+                        .text,
+                        .{
+                            .grid_metrics = self.grid_metrics,
+                            .cell_width = cell.gridWidth(),
+                        },
+                    );
+
+                    break :glyph if (replacement) |render|
+                        render.glyph
+                    else {
+                        // Super weird, we should always have something for
+                        // the replacement char. Log it and just render
+                        // nothing I guess.
+                        log.warn("replacement character couldn't render", .{});
+                        return;
+                    };
+                },
+            }) |glyph| {
+                // If the glyph is 0 width or height, it will be invisible
+                // when drawn, so don't bother adding it to the buffer.
+                if (glyph.width == 0 or glyph.height == 0) return;
+                try self.cells.add(self.alloc, .text, .{
+                    // For now, we only support grayscale glyphs.
+                    .atlas = .grayscale,
+                    .grid_pos = .{ @intCast(x), @intCast(y) },
+                    .color = .{ color.r, color.g, color.b, alpha },
+                    .glyph_pos = .{ glyph.atlas_x, glyph.atlas_y },
+                    .glyph_size = .{ glyph.width, glyph.height },
+                    .bearings = .{
+                        @intCast(glyph.offset_x),
+                        @intCast(glyph.offset_y),
+                    },
+                });
+                return;
+            }
 
             // Render
             const render = try self.font_grid.renderGlyph(
