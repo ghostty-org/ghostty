@@ -38,14 +38,20 @@ extension NSPasteboard {
     /// - Tries to get any string from the pasteboard.
     /// If all of the above fail, returns None.
     func getOpinionatedStringContents() -> String? {
-        if let urls = readObjects(forClasses: [NSURL.self]) as? [URL],
-           urls.count > 0 {
-            return urls
-                .map { $0.isFileURL ? Ghostty.Shell.escape($0.path) : $0.absoluteString }
-                .joined(separator: " ")
+        let strings = (pasteboardItems ?? []).compactMap { item in
+            if let plist = item.propertyList(forType: .fileURL),
+               let fileURL = NSURL(pasteboardPropertyList: plist, ofType: .fileURL) as URL?,
+               fileURL.isFileURL {
+                return Ghostty.Shell.escape(fileURL.path)
+            } else {
+                return item.string(forType: .string)
+            }
         }
 
-        return self.string(forType: .string)
+        guard !strings.isEmpty else {
+            return nil
+        }
+        return strings.joined(separator: " ")
     }
 
     /// The pasteboard for the Ghostty enum type.

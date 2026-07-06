@@ -66,7 +66,7 @@ jobs:
       - name: Detect changes since last tip
         id: changes
         if: github.event_name == 'workflow_run'
-        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
         with:
           token: ""
           base: tip

@@ -406,33 +406,8 @@ pub fn print(self: *Terminal, c: u21) !void {
         // If we can NOT break, this means that "c" is part of a grapheme
         // with the previous char.
         if (!grapheme_break) {
-            var desired_wide: enum { no_change, wide, narrow } = .no_change;
-
-            // If this is an emoji variation selector then we need to modify
-            // the cell width accordingly. VS16 makes the character wide and
-            // VS15 makes it narrow.
-            if (c == 0xFE0F or c == 0xFE0E) {
-                const prev_props = unicode.table.get(previous_codepoint);
-                // Check if it is a valid variation sequence in
-                // emoji-variation-sequences.txt, and if not, ignore the char.
-                if (!prev_props.emoji_vs_base) return;
-
-                switch (c) {
-                    0xFE0F => desired_wide = .wide,
-                    0xFE0E => desired_wide = .narrow,
-                    else => unreachable,
-                }
-            } else if (!unicode.table.get(c).width_zero_in_grapheme) {
-                // If we have a code point that contributes to the width of a
-                // grapheme, it necessarily means that we're at least at width
-                // 2, since the first code point must be at least width 1 to
-                // start. (Note that Prepend code points could effectively mean
-                // the first code point should be width 0, but we don't handle
-                // that yet.)
-                desired_wide = .wide;
-            }
-
-            switch (desired_wide) {
+            switch (unicode.graphemeWidthEffect(previous_codepoint, c)) {
+                .ignore => return,
                 .wide => wide: {
                     if (prev.cell.wide == .wide) break :wide;
 
@@ -549,7 +524,7 @@ pub fn print(self: *Terminal, c: u21) !void {
                     break :narrow;
                 },
 
-                else => {},
+                .no_change => {},
             }
 
             log.debug("c={X} grapheme attach to left={} primary_cp={X}", .{
@@ -1739,10 +1714,18 @@ pub const ScrollViewport = union(Tag) {
     /// Scroll by some delta amount, up is negative.
     delta: isize,
 
+    /// Scroll to the given absolute row offset from the top of the
+    /// scrollable area. A value of zero is the top row. The requested
+    /// row becomes the first visible row of the viewport, clamped so
+    /// the viewport never scrolls beyond the top of the active area.
+    /// This is the same row space as PageList.Scrollbar offset.
+    row: usize,
+
     pub const Tag = lib.Enum(lib.target, &.{
         "top",
         "bottom",
         "delta",
+        "row",
     });
 
     const c_union = lib.TaggedUnion(
@@ -1763,6 +1746,7 @@ pub fn scrollViewport(self: *Terminal, behavior: ScrollViewport) void {
         .top => .{ .top = {} },
         .bottom => .{ .active = {} },
         .delta => |delta| .{ .delta_row = delta },
+        .row => |row| .{ .row = row },
     });
 }
 
@@ -3679,6 +3663,44 @@ test "Terminal: print multicodepoint grapheme, disabled mode 2027" {
     }
 
     try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
+}
+
+// Terminal.print receives one codepoint at a time, so it can't use
+// unicode.graphemeWidth directly; that API requires a complete buffered
+// cluster or string end. This keeps the streaming printer's cursor advance
+// in sync with the buffered measurement API for representative clusters.
+fn expectGraphemeWidthParity(cps: []const u21) !void {
+    var t = try init(testing.allocator, .{ .cols = 80, .rows = 5 });
+    defer t.deinit(testing.allocator);
+
+    t.modes.set(.grapheme_cluster, true);
+
+    var expected: usize = 0;
+    var i: usize = 0;
+    while (i < cps.len) {
+        const result = unicode.graphemeWidth(u21, cps[i..]);
+        try testing.expect(result.len > 0);
+        i += result.len;
+        expected += result.width;
+    }
+
+    for (cps) |cp| try t.print(cp);
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
+    try testing.expectEqual(expected, t.screens.active.cursor.x);
+}
+
+test "Terminal: graphemeWidth parity" {
+    try expectGraphemeWidthParity(&.{ 0x2764, 0xFE0F });
+    try expectGraphemeWidthParity(&.{ 'x', 0xFE0F, 0xFE0F });
+    try expectGraphemeWidthParity(&.{ 0x231A, 0xFE0E, 0xFE0F });
+    try expectGraphemeWidthParity(&.{ 0x1F3F4, 0x200D, 0x2620, 0xFE0F });
+    try expectGraphemeWidthParity(&.{ 0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467 });
+    try expectGraphemeWidthParity(&.{ 0x23, 0xFE0F, 0x20E3 });
+    try expectGraphemeWidthParity(&.{ '1', 0x20E3 });
+    try expectGraphemeWidthParity(&.{ 0x1F44B, 0x1F3FF });
+    try expectGraphemeWidthParity(&.{ 0x1F1E6, 0x1F1E7, 0x1F1E8 });
+    try expectGraphemeWidthParity(&.{ 'a', 'b' });
+    try expectGraphemeWidthParity(&.{ 0x0301, 0x0302 });
 }
 
 test "Terminal: VS16 doesn't make character with 2027 disabled" {

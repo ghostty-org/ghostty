@@ -3012,9 +3012,11 @@ pub const Scrollbar = struct {
 
 /// Return the scrollbar state for this PageList.
 ///
-/// This may be expensive to calculate depending on where the viewport
-/// is (arbitrary pins are expensive). The caller should take care to only
-/// call this as needed and not too frequently.
+/// This is amortized O(1): the total is maintained incrementally and
+/// the viewport offset is cached. The first call after the viewport
+/// moves to an arbitrary pin (e.g. scrolling to a selection) may cost
+/// O(pages) to compute the offset, after which it is cached again.
+/// See viewportRowOffset for more details.
 pub fn scrollbar(self: *PageList) Scrollbar {
     // If we have no scrollback, special case no scrollbar.
     // We need to do this because the way PageList works is that

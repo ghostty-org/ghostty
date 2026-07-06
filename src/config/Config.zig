@@ -51,7 +51,6 @@ const terminal = struct {
     const color = @import("../terminal/color.zig");
     const selection_codepoints = @import("../terminal/selection_codepoints.zig");
     const style = @import("../terminal/style.zig");
-    const x11_color = @import("../terminal/x11_color.zig");
 };
 
 const log = std.log.scoped(.config);
@@ -5441,16 +5440,8 @@ pub const Color = struct {
 
     pub fn parseCLI(input_: ?[]const u8) !Color {
         const input = input_ orelse return error.ValueRequired;
-        // Trim any whitespace before processing
-        const trimmed = std.mem.trim(u8, input, " \t");
-
-        if (terminal.x11_color.map.get(trimmed)) |rgb| return .{
-            .r = rgb.r,
-            .g = rgb.g,
-            .b = rgb.b,
-        };
-
-        return fromHex(trimmed);
+        const rgb: terminal.color.RGB = terminal.color.RGB.parse(input) catch return error.InvalidValue;
+        return .{ .r = rgb.r, .g = rgb.g, .b = rgb.b };
     }
 
     /// Deep copy of the struct. Required by Config.
@@ -5481,48 +5472,15 @@ pub const Color = struct {
         ) catch error.OutOfMemory;
     }
 
-    /// fromHex parses a color from a hex value such as #RRGGBB. The "#"
-    /// is optional.
-    pub fn fromHex(input: []const u8) !Color {
-        // Trim the beginning '#' if it exists
-        const trimmed = if (input.len != 0 and input[0] == '#') input[1..] else input;
-        if (trimmed.len != 6 and trimmed.len != 3) return error.InvalidValue;
-
-        // Expand short hex values to full hex values
-        const rgb: []const u8 = if (trimmed.len == 3) &.{
-            trimmed[0], trimmed[0],
-            trimmed[1], trimmed[1],
-            trimmed[2], trimmed[2],
-        } else trimmed;
-
-        // Parse the colors two at a time.
-        var result: Color = undefined;
-        comptime var i: usize = 0;
-        inline while (i < 6) : (i += 2) {
-            const v: u8 =
-                ((try std.fmt.charToDigit(rgb[i], 16)) * 16) +
-                try std.fmt.charToDigit(rgb[i + 1], 16);
-
-            @field(result, switch (i) {
-                0 => "r",
-                2 => "g",
-                4 => "b",
-                else => unreachable,
-            }) = v;
-        }
-
-        return result;
-    }
-
-    test "fromHex" {
+    test "parseCLI hex" {
         const testing = std.testing;
 
-        try testing.expectEqual(Color{ .r = 0, .g = 0, .b = 0 }, try Color.fromHex("#000000"));
-        try testing.expectEqual(Color{ .r = 10, .g = 11, .b = 12 }, try Color.fromHex("#0A0B0C"));
-        try testing.expectEqual(Color{ .r = 10, .g = 11, .b = 12 }, try Color.fromHex("0A0B0C"));
-        try testing.expectEqual(Color{ .r = 255, .g = 255, .b = 255 }, try Color.fromHex("FFFFFF"));
-        try testing.expectEqual(Color{ .r = 255, .g = 255, .b = 255 }, try Color.fromHex("FFF"));
-        try testing.expectEqual(Color{ .r = 51, .g = 68, .b = 85 }, try Color.fromHex("#345"));
+        try testing.expectEqual(Color{ .r = 0, .g = 0, .b = 0 }, try Color.parseCLI("#000000"));
+        try testing.expectEqual(Color{ .r = 10, .g = 11, .b = 12 }, try Color.parseCLI("#0A0B0C"));
+        try testing.expectEqual(Color{ .r = 10, .g = 11, .b = 12 }, try Color.parseCLI("0A0B0C"));
+        try testing.expectEqual(Color{ .r = 255, .g = 255, .b = 255 }, try Color.parseCLI("FFFFFF"));
+        try testing.expectEqual(Color{ .r = 255, .g = 255, .b = 255 }, try Color.parseCLI("FFF"));
+        try testing.expectEqual(Color{ .r = 51, .g = 68, .b = 85 }, try Color.parseCLI("#345"));
     }
 
     test "parseCLI from name" {
@@ -5868,20 +5826,12 @@ pub const Palette = struct {
         input: ?[]const u8,
     ) !void {
         const value = input orelse return error.ValueRequired;
-        const eqlIdx = std.mem.indexOf(u8, value, "=") orelse
-            return error.InvalidValue;
-
-        // Parse the key part (trim whitespace)
-        const key = try std.fmt.parseInt(
-            u8,
-            std.mem.trim(u8, value[0..eqlIdx], " \t"),
-            0,
-        );
-
-        // Parse the color part (Color.parseCLI will handle whitespace)
-        const rgb = try Color.parseCLI(value[eqlIdx + 1 ..]);
-        self.value[key] = .{ .r = rgb.r, .g = rgb.g, .b = rgb.b };
-        self.mask.set(key);
+        const entry = terminal.color.parsePaletteEntry(value) catch |err| switch (err) {
+            error.Overflow => return error.Overflow,
+            error.InvalidFormat => return error.InvalidValue,
+        };
+        self.value[entry.index] = entry.color;
+        self.mask.set(entry.index);
     }
 
     /// Deep copy of the struct. Required by Config.
