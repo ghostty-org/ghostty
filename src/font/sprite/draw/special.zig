@@ -278,7 +278,6 @@ pub fn overline(
         .height = @intCast(metrics.overline_thickness),
     }, .on);
 }
-
 pub fn cursor_rect(
     cp: u32,
     canvas: *font.sprite.Canvas,
@@ -287,13 +286,20 @@ pub fn cursor_rect(
     metrics: font.Metrics,
 ) !void {
     _ = cp;
-    _ = metrics;
+
+    // Clamp the configured cursor height to ensure it fits completely within
+    // the bounds of the current cell height.
+    const cursor_h = @min(metrics.cursor_height, height);
+
+    // Center the cursor vertically by splitting the remaining line space
+    // evenly between the top and bottom of the cell.
+    const y = (height -| cursor_h) / 2;
 
     canvas.rect(.{
         .x = 0,
-        .y = 0,
+        .y = @intCast(y),
         .width = @intCast(width),
-        .height = @intCast(height),
+        .height = @intCast(cursor_h),
     }, .on);
 }
 
@@ -306,19 +312,23 @@ pub fn cursor_hollow_rect(
 ) !void {
     _ = cp;
 
-    // We fill the entire rect and then hollow out the inside, this isn't very
-    // efficient but it doesn't need to be and it's the easiest way to write it.
+    const cursor_h = @min(metrics.cursor_height, height);
+    const y = (height -| cursor_h) / 2;
+
+    // Draw the outer frame of the centered cursor box.
     canvas.rect(.{
         .x = 0,
-        .y = 0,
+        .y = @intCast(y),
         .width = @intCast(width),
-        .height = @intCast(height),
+        .height = @intCast(cursor_h),
     }, .on);
+
+    // Hollow out the center relative to the thickness and calculated Y position.
     canvas.rect(.{
         .x = @intCast(metrics.cursor_thickness),
-        .y = @intCast(metrics.cursor_thickness),
+        .y = @intCast(y + metrics.cursor_thickness),
         .width = @intCast(width -| metrics.cursor_thickness * 2),
-        .height = @intCast(height -| metrics.cursor_thickness * 2),
+        .height = @intCast(cursor_h -| metrics.cursor_thickness * 2),
     }, .off);
 }
 
@@ -332,6 +342,9 @@ pub fn cursor_bar(
     _ = cp;
     _ = width;
 
+    const cursor_h = @min(metrics.cursor_height, height);
+    const y = (height -| cursor_h) / 2;
+
     // We place the bar cursor half of its thickness over the left edge of the
     // cell, so that it sits centered between characters, not biased to a side.
     //
@@ -339,12 +352,11 @@ pub fn cursor_bar(
     // 1px cursor shifted left a pixel looks better than having it not shifted.
     canvas.rect(.{
         .x = -@as(i32, @intCast((metrics.cursor_thickness + 1) / 2)),
-        .y = 0,
+        .y = @intCast(y),
         .width = @intCast(metrics.cursor_thickness),
-        .height = @intCast(height),
+        .height = @intCast(cursor_h),
     }, .on);
 }
-
 pub fn cursor_underline(
     cp: u32,
     canvas: *font.sprite.Canvas,
