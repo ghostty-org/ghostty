@@ -121,7 +121,15 @@ class BaseTerminalController: NSWindowController,
 
     struct SavedFrame {
         let window: NSRect
-        let screen: NSRect
+        let screen: ScreenBoundsSnapshot
+
+        var stableVisibleFrame: NSRect {
+            screen.stableVisibleFrame()
+        }
+
+        var isManagedMaximized: Bool {
+            window.approximatelyEqual(to: stableVisibleFrame)
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -314,7 +322,7 @@ class BaseTerminalController: NSWindowController,
         // changes (see didChangeScreenParameters notification).
         savedFrame = nil
         guard let window, let screen = window.screen else { return }
-        savedFrame = .init(window: window.frame, screen: screen.visibleFrame)
+        savedFrame = .init(window: window.frame, screen: .init(screen))
     }
 
     func confirmCloseAsync(
@@ -539,7 +547,20 @@ class BaseTerminalController: NSWindowController,
         guard !window.styleMask.contains(.fullScreen) else { return }
 
         guard let screen = window.screen else { return }
-        let visibleFrame = screen.visibleFrame
+        let screenSnapshot = ScreenBoundsSnapshot(screen)
+        if let savedFrame,
+           savedFrame.screen.isDockVisibleFrameChange(comparedTo: screenSnapshot),
+           savedFrame.isManagedMaximized
+        {
+            if !window.frame.approximatelyEqual(to: savedFrame.window) {
+                window.setFrame(savedFrame.window, display: true)
+            }
+
+            self.savedFrame = .init(window: savedFrame.window, screen: screenSnapshot)
+            return
+        }
+
+        let visibleFrame = screen.visibleFrameIgnoringHiddenDock
         var newFrame = window.frame
 
         // Clamp width/height
@@ -554,14 +575,14 @@ class BaseTerminalController: NSWindowController,
         // was also on screen. If a user explicitly wanted their window off screen
         // then we let it stay that way.
         x: if newFrame.origin.x < visibleFrame.origin.x {
-            if let savedFrame, savedFrame.window.origin.x < savedFrame.screen.origin.x {
+            if let savedFrame, savedFrame.window.origin.x < savedFrame.stableVisibleFrame.origin.x {
                 break x
             }
 
             newFrame.origin.x = visibleFrame.origin.x
         }
         y: if newFrame.origin.y < visibleFrame.origin.y {
-            if let savedFrame, savedFrame.window.origin.y < savedFrame.screen.origin.y {
+            if let savedFrame, savedFrame.window.origin.y < savedFrame.stableVisibleFrame.origin.y {
                 break y
             }
 
@@ -569,7 +590,11 @@ class BaseTerminalController: NSWindowController,
         }
 
         // Apply the new window frame
-        window.setFrame(newFrame, display: true)
+        if !window.frame.approximatelyEqual(to: newFrame) {
+            window.setFrame(newFrame, display: true)
+        }
+
+        savedFrame = .init(window: newFrame, screen: screenSnapshot)
     }
 
     @objc private func ghosttyConfigDidChangeBase(_ notification: Notification) {
@@ -1203,7 +1228,7 @@ class BaseTerminalController: NSWindowController,
     /// Check whether window should be closed without showing an alert
     func windowCanBeClosedWithoutConfirmation() -> Bool {
         // We must have a window. Is it even possible not to?
-        guard let window = self.window else { return true }
+        guard self.window != nil else { return true }
 
         // If we have no surfaces, close.
         if surfaceTree.isEmpty { return true }

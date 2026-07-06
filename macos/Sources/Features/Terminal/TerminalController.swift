@@ -1698,7 +1698,7 @@ extension TerminalController {
     private var defaultSize: DefaultSize? {
         if derivedConfig.maximize, let screen = window?.screen ?? NSScreen.main {
             // Maximize takes priority, we take up the full screen we're on.
-            return .frame(screen.visibleFrame)
+            return .frame(screen.visibleFrameIgnoringHiddenDock)
         } else if focusedSurface?.initialSize != nil {
             // Initial size as requested by the configuration (e.g. `window-width`)
             // takes next priority.

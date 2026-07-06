@@ -38,7 +38,7 @@ class LastWindowPosition {
         let lastPosition = CGPoint(x: values[0], y: values[1])
 
         guard let screen = window.screen ?? NSScreen.main else { return false }
-        let visibleFrame = screen.visibleFrame
+        let visibleFrame = screen.visibleFrameIgnoringHiddenDock
 
         var newFrame = window.frame
         if restoreOrigin {

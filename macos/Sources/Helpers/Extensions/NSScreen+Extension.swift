@@ -1,6 +1,139 @@
 import Cocoa
 
+struct ScreenBoundsSnapshot: Equatable {
+    let displayUUID: UUID?
+    let frame: NSRect
+    let visibleFrame: NSRect
+    let topInset: CGFloat
+
+    init(_ screen: NSScreen) {
+        self.init(
+            displayUUID: screen.displayUUID,
+            frame: screen.frame,
+            visibleFrame: screen.visibleFrame,
+            topInset: max(NSApp.mainMenu?.menuBarHeight ?? 0, screen.safeAreaInsets.top))
+    }
+
+    init(
+        displayUUID: UUID? = nil,
+        frame: NSRect,
+        visibleFrame: NSRect,
+        topInset: CGFloat
+    ) {
+        self.displayUUID = displayUUID
+        self.frame = frame
+        self.visibleFrame = visibleFrame
+        self.topInset = topInset
+    }
+
+    func stableVisibleFrame(
+        dockOrientation: DockOrientation? = Dock.orientation
+    ) -> NSRect {
+        NSScreen.normalizeVisibleFrame(
+            frame: frame,
+            visibleFrame: visibleFrame,
+            topInset: topInset,
+            dockOrientation: dockOrientation,
+            includeDock: true)
+    }
+
+    func isDockVisibleFrameChange(
+        comparedTo previous: Self,
+        dockOrientation: DockOrientation? = Dock.orientation
+    ) -> Bool {
+        guard displayUUID == previous.displayUUID else { return false }
+        guard frame == previous.frame else { return false }
+        guard visibleFrame != previous.visibleFrame else { return false }
+
+        return stableVisibleFrame(dockOrientation: dockOrientation) ==
+            previous.stableVisibleFrame(dockOrientation: dockOrientation)
+    }
+
+    func isTransientVisibleFrameChange(
+        comparedTo previous: Self,
+        dockAutohides: Bool,
+        dockOrientation: DockOrientation? = Dock.orientation
+    ) -> Bool {
+        dockAutohides && isDockVisibleFrameChange(
+            comparedTo: previous,
+            dockOrientation: dockOrientation)
+    }
+}
+
+extension NSRect {
+    func approximatelyEqual(to other: NSRect, tolerance: CGFloat = 1) -> Bool {
+        abs(origin.x - other.origin.x) <= tolerance &&
+            abs(origin.y - other.origin.y) <= tolerance &&
+            abs(size.width - other.size.width) <= tolerance &&
+            abs(size.height - other.size.height) <= tolerance
+    }
+}
+
 extension NSScreen {
+    static var dockAutohides: Bool {
+        if let dockAutohide = UserDefaults.ghostty
+            .persistentDomain(forName: "com.apple.dock")?["autohide"] as? Bool
+        {
+            return dockAutohide
+        }
+
+        return Dock.autoHideEnabled
+    }
+
+    static func normalizeVisibleFrame(
+        frame: NSRect,
+        visibleFrame: NSRect,
+        topInset: CGFloat,
+        dockOrientation: DockOrientation?,
+        includeDock: Bool
+    ) -> NSRect {
+        guard includeDock else { return visibleFrame }
+
+        let leftInset = max(0, visibleFrame.minX - frame.minX)
+        let rightInset = max(0, frame.maxX - visibleFrame.maxX)
+        let bottomInset = max(0, visibleFrame.minY - frame.minY)
+        let topDockInset = max(0, frame.maxY - visibleFrame.maxY - topInset)
+
+        let effectiveOrientation: DockOrientation? = dockOrientation ?? {
+            if bottomInset > 0 { return .bottom }
+            if leftInset > 0 { return .left }
+            if rightInset > 0 { return .right }
+            if topDockInset > 0 { return .top }
+            return nil
+        }()
+
+        var rect = visibleFrame
+        switch effectiveOrientation {
+        case .bottom:
+            guard bottomInset > 0 else { return rect }
+            rect.origin.y = frame.minY
+            rect.size.height += bottomInset
+        case .left:
+            guard leftInset > 0 else { return rect }
+            rect.origin.x = frame.minX
+            rect.size.width += leftInset
+        case .right:
+            guard rightInset > 0 else { return rect }
+            rect.size.width += rightInset
+        case .top:
+            guard topDockInset > 0 else { return rect }
+            rect.size.height += topDockInset
+        case nil:
+            break
+        }
+
+        return rect
+    }
+
+    var visibleFrameIgnoringHiddenDock: NSRect {
+        Self.normalizeVisibleFrame(
+            frame: frame,
+            visibleFrame: visibleFrame,
+            topInset: max(NSApp.mainMenu?.menuBarHeight ?? 0, safeAreaInsets.top),
+            dockOrientation: Dock.orientation,
+            includeDock: Self.dockAutohides)
+    }
+
     /// The unique CoreGraphics display ID for this screen.
     var displayID: UInt32? {
         deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32
@@ -18,9 +151,7 @@ extension NSScreen {
     // AND present on this screen.
     var hasDock: Bool {
         // If the dock autohides then we don't have a dock ever.
-        if let dockAutohide = UserDefaults.ghostty.persistentDomain(forName: "com.apple.dock")?["autohide"] as? Bool {
-            if dockAutohide { return false }
-        }
+        if Self.dockAutohides { return false }
 
         // There is no public API to directly ask about dock visibility, so we have to figure it out
         // by comparing the sizes of visibleFrame (the currently usable area of the screen) and

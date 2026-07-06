@@ -14,7 +14,7 @@ extension NSWindow {
     /// This constrains both the size (to not exceed the screen) and the origin (to keep the window on screen).
     func constrainToScreen() {
         guard let screen = screen ?? NSScreen.main else { return }
-        let visibleFrame = screen.visibleFrame
+        let visibleFrame = screen.visibleFrameIgnoringHiddenDock
         var windowFrame = frame
 
         windowFrame.size.width = min(windowFrame.size.width, visibleFrame.size.width)

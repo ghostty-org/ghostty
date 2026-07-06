@@ -78,13 +78,80 @@ struct NSScreenExtensionTests {
         #expect(origin.x == 500)
         #expect(origin.y == 580)
     }
+
+    @Test func testNormalizeVisibleFrameRestoresBottomDockTriggerArea() async throws {
+        let frame = NSRect(x: 0, y: 0, width: 1728, height: 1117)
+        let visibleFrame = NSRect(x: 0, y: 4, width: 1728, height: 1080)
+
+        let normalized = NSScreen.normalizeVisibleFrame(
+            frame: frame,
+            visibleFrame: visibleFrame,
+            topInset: 33,
+            dockOrientation: .bottom,
+            includeDock: true)
+
+        #expect(normalized == NSRect(x: 0, y: 0, width: 1728, height: 1084))
+    }
+
+    @Test func testNormalizeVisibleFrameRestoresVisibleBottomDockWhenAutohideIsOn() async throws {
+        let frame = NSRect(x: 0, y: 0, width: 1728, height: 1117)
+        let visibleFrame = NSRect(x: 0, y: 79, width: 1728, height: 1005)
+
+        let normalized = NSScreen.normalizeVisibleFrame(
+            frame: frame,
+            visibleFrame: visibleFrame,
+            topInset: 33,
+            dockOrientation: .bottom,
+            includeDock: true)
+
+        #expect(normalized == NSRect(x: 0, y: 0, width: 1728, height: 1084))
+    }
+
+    @Test func testNormalizeVisibleFrameKeepsVisibleDockWhenNotIncludingDock() async throws {
+        let frame = NSRect(x: 0, y: 0, width: 1728, height: 1117)
+        let visibleFrame = NSRect(x: 0, y: 79, width: 1728, height: 1005)
+
+        let normalized = NSScreen.normalizeVisibleFrame(
+            frame: frame,
+            visibleFrame: visibleFrame,
+            topInset: 33,
+            dockOrientation: .bottom,
+            includeDock: false)
+
+        #expect(normalized == visibleFrame)
+    }
+
+    @Test func testDockVisibleFrameChangeDetectionIgnoresAutohideToggle() async throws {
+        let previous = ScreenBoundsSnapshot(
+            displayUUID: UUID(),
+            frame: NSRect(x: 0, y: 0, width: 1728, height: 1117),
+            visibleFrame: NSRect(x: 0, y: 0, width: 1728, height: 1084),
+            topInset: 33)
+        let current = ScreenBoundsSnapshot(
+            displayUUID: previous.displayUUID,
+            frame: previous.frame,
+            visibleFrame: NSRect(x: 0, y: 79, width: 1728, height: 1005),
+            topInset: 33)
+
+        #expect(current.isDockVisibleFrameChange(comparedTo: previous, dockOrientation: .bottom))
+        #expect(!current.isTransientVisibleFrameChange(
+            comparedTo: previous,
+            dockAutohides: false,
+            dockOrientation: .bottom))
+        #expect(current.isTransientVisibleFrameChange(
+            comparedTo: previous,
+            dockAutohides: true,
+            dockOrientation: .bottom))
+    }
 }
 
 /// Mock NSScreen class for testing coordinate conversion
 private class MockNSScreen: NSScreen {
+    private let mockFrame: NSRect
     private let mockVisibleFrame: NSRect
 
-    init(visibleFrame: NSRect) {
+    init(frame: NSRect? = nil, visibleFrame: NSRect) {
+        self.mockFrame = frame ?? visibleFrame
         self.mockVisibleFrame = visibleFrame
         super.init()
     }
@@ -95,5 +162,9 @@ private class MockNSScreen: NSScreen {
 
     override var visibleFrame: NSRect {
         return mockVisibleFrame
+    }
+
+    override var frame: NSRect {
+        return mockFrame
     }
 }
