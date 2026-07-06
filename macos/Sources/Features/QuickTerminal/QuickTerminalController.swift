@@ -372,24 +372,29 @@ class QuickTerminalController: BaseTerminalController {
         }
 
         let close: () -> Void = { [weak self] in
-            self?.tabManager.closeTab(currentTab)
+            // We confirm below ourselves so the tab manager must not re-prompt.
+            self?.tabManager.closeTab(currentTab, withConfirmation: false)
         }
 
         if withConfirmation {
-            confirmCloseIfNeeded(of: currentTab.surfaceTree, action: close)
+            // Use our live surface tree rather than the tab's copy, which is
+            // only synced when switching away from the tab.
+            confirmCloseIfNeeded(of: [surfaceTree], action: close)
         } else {
             close()
         }
     }
 
-    /// Runs `action` immediately if no surface in `tree` requires confirmation,
-    /// otherwise shows the standard "Close Terminal?" prompt and runs `action`
-    /// only if the user confirms.
-    private func confirmCloseIfNeeded(
-        of tree: SplitTree<Ghostty.SurfaceView>,
+    /// Runs `action` immediately if no surface in `trees` requires confirmation,
+    /// otherwise shows a single standard "Close Terminal?" prompt for the whole
+    /// set and runs `action` only if the user confirms.
+    func confirmCloseIfNeeded(
+        of trees: [SplitTree<Ghostty.SurfaceView>],
         action: @escaping () -> Void
     ) {
-        guard tree.contains(where: { $0.needsConfirmQuit }) else {
+        guard trees.contains(where: { tree in
+            tree.contains(where: { $0.needsConfirmQuit })
+        }) else {
             action()
             return
         }

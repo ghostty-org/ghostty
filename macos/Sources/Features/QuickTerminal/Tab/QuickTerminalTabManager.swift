@@ -195,36 +195,91 @@ class QuickTerminalTabManager: ObservableObject {
         currentTab = tab
     }
 
-    func closeTab(_ tab: QuickTerminalTab) {
-        guard tabs.contains(where: { $0.id == tab.id }) else { return }
-        removeTab(tab, undoActionName: "Close Tab")
+    /// The live surface tree for a tab. The controller owns the selected tab's
+    /// tree; the tab's own copy is only synced when switching away from it.
+    func liveSurfaceTree(for tab: QuickTerminalTab) -> SplitTree<Ghostty.SurfaceView> {
+        guard tab.id == currentTab?.id, let controller else { return tab.surfaceTree }
+        return controller.surfaceTree
     }
 
-    func closeAllTabs(except: QuickTerminalTab) {
+    /// Closes `tab`, prompting for confirmation if any of its surfaces still
+    /// has a running process. Callers that already confirmed (or must not
+    /// prompt) pass `withConfirmation: false`.
+    func closeTab(_ tab: QuickTerminalTab, withConfirmation: Bool = true) {
+        guard tabs.contains(where: { $0.id == tab.id }) else { return }
+
+        let close: () -> Void = { [weak self] in
+            self?.removeTab(tab, undoActionName: "Close Tab")
+        }
+
+        if withConfirmation {
+            confirmCloseIfNeeded(of: [tab], action: close)
+        } else {
+            close()
+        }
+    }
+
+    /// Closes all tabs except `except`, showing a single confirmation prompt
+    /// if any surface being closed still has a running process.
+    func closeAllTabs(except: QuickTerminalTab, withConfirmation: Bool = true) {
         let toClose = self.tabs.filter { $0.id != except.id }
         guard !toClose.isEmpty else { return }
 
-        undoManager?.beginUndoGrouping()
-        undoManager?.setActionName("Close Other Tabs")
-        defer { undoManager?.endUndoGrouping() }
+        let close: () -> Void = { [weak self] in
+            guard let self else { return }
+            self.undoManager?.beginUndoGrouping()
+            self.undoManager?.setActionName("Close Other Tabs")
+            defer { self.undoManager?.endUndoGrouping() }
 
-        for tab in toClose {
-            self.closeTab(tab)
+            for tab in toClose {
+                self.closeTab(tab, withConfirmation: false)
+            }
+        }
+
+        if withConfirmation {
+            confirmCloseIfNeeded(of: toClose, action: close)
+        } else {
+            close()
         }
     }
 
-    func closeTabsToTheRight(of tab: QuickTerminalTab) {
+    /// Closes all tabs to the right of `tab`, showing a single confirmation
+    /// prompt if any surface being closed still has a running process.
+    func closeTabsToTheRight(of tab: QuickTerminalTab, withConfirmation: Bool = true) {
         guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
-        let toClose = tabs.enumerated().filter { $0.offset > index }.map { $0.element }
+        let toClose = Array(tabs[(index + 1)...])
         guard !toClose.isEmpty else { return }
 
-        undoManager?.beginUndoGrouping()
-        undoManager?.setActionName("Close Tabs to the Right")
-        defer { undoManager?.endUndoGrouping() }
+        let close: () -> Void = { [weak self] in
+            guard let self else { return }
+            self.undoManager?.beginUndoGrouping()
+            self.undoManager?.setActionName("Close Tabs to the Right")
+            defer { self.undoManager?.endUndoGrouping() }
 
-        for tabToClose in toClose {
-            self.closeTab(tabToClose)
+            for tabToClose in toClose {
+                self.closeTab(tabToClose, withConfirmation: false)
+            }
         }
+
+        if withConfirmation {
+            confirmCloseIfNeeded(of: toClose, action: close)
+        } else {
+            close()
+        }
+    }
+
+    /// Runs `action` after confirming with the user if any surface in `tabs`
+    /// still has a running process. Shows a single prompt for the whole set,
+    /// matching how regular window tabs behave.
+    private func confirmCloseIfNeeded(of tabs: [QuickTerminalTab], action: @escaping () -> Void) {
+        guard let controller else {
+            action()
+            return
+        }
+        controller.confirmCloseIfNeeded(
+            of: tabs.map { liveSurfaceTree(for: $0) },
+            action: action
+        )
     }
 
     func moveTab(from source: IndexSet, to destination: Int) {
