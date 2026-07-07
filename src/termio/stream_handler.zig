@@ -205,6 +205,10 @@ pub const StreamHandler = struct {
                 @branchHint(.likely);
                 try self.terminal.print(value.cp);
             },
+            .print_slice => {
+                @branchHint(.likely);
+                try self.terminal.printSlice(value.cps);
+            },
             .print_repeat => try self.terminal.printRepeat(value),
             .bell => self.bell(),
             .backspace => self.terminal.backspace(),

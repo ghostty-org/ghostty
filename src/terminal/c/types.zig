@@ -7,6 +7,7 @@
 const std = @import("std");
 const lib = @import("../lib.zig");
 const color = @import("../color.zig");
+const color_c = @import("color.zig");
 const mouse_event = @import("mouse_event.zig");
 const point = @import("../point.zig");
 const size_report = @import("size_report.zig");
@@ -38,7 +39,9 @@ pub const structs: std.StaticStringMap(StructInfo) = structs: {
     break :structs .initComptime(.{
         .{ "GhosttyBuffer", StructInfo.init(lib.Buffer) },
         .{ "GhosttyCodepoints", StructInfo.init(Codepoints) },
+        .{ "GhosttyColorPaletteMask", StructInfo.init(color_c.PaletteMask) },
         .{ "GhosttyColorRgb", StructInfo.init(color.RGB.C) },
+        .{ "GhosttyColorX11Entry", StructInfo.init(color_c.X11Entry) },
         .{ "GhosttyDeviceAttributes", StructInfo.init(terminal.DeviceAttributes) },
         .{ "GhosttyDeviceAttributesPrimary", StructInfo.init(terminal.DeviceAttributes.Primary) },
         .{ "GhosttyDeviceAttributesSecondary", StructInfo.init(terminal.DeviceAttributes.Secondary) },

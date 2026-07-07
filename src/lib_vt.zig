@@ -191,6 +191,7 @@ comptime {
         @export(&c.osc_end, .{ .name = "ghostty_osc_end" });
         @export(&c.osc_command_type, .{ .name = "ghostty_osc_command_type" });
         @export(&c.osc_command_data, .{ .name = "ghostty_osc_command_data" });
+        @export(&c.color_scheme_report_encode, .{ .name = "ghostty_color_scheme_report_encode" });
         @export(&c.focus_encode, .{ .name = "ghostty_focus_encode" });
         @export(&c.mode_report_encode, .{ .name = "ghostty_mode_report_encode" });
         @export(&c.paste_is_safe, .{ .name = "ghostty_paste_is_safe" });
@@ -207,6 +208,16 @@ comptime {
         @export(&c.row_get, .{ .name = "ghostty_row_get" });
         @export(&c.row_get_multi, .{ .name = "ghostty_row_get_multi" });
         @export(&c.color_rgb_get, .{ .name = "ghostty_color_rgb_get" });
+        @export(&c.color_contrast, .{ .name = "ghostty_color_contrast" });
+        @export(&c.color_luminance, .{ .name = "ghostty_color_luminance" });
+        @export(&c.color_parse, .{ .name = "ghostty_color_parse" });
+        @export(&c.color_parse_palette_entry, .{ .name = "ghostty_color_parse_palette_entry" });
+        @export(&c.color_parse_x11, .{ .name = "ghostty_color_parse_x11" });
+        @export(&c.color_palette_default, .{ .name = "ghostty_color_palette_default" });
+        @export(&c.color_palette_generate, .{ .name = "ghostty_color_palette_generate" });
+        @export(&c.color_perceived_luminance, .{ .name = "ghostty_color_perceived_luminance" });
+        @export(&c.color_x11_name_count, .{ .name = "ghostty_color_x11_name_count" });
+        @export(&c.color_x11_names, .{ .name = "ghostty_color_x11_names" });
         @export(&c.sgr_new, .{ .name = "ghostty_sgr_new" });
         @export(&c.sgr_free, .{ .name = "ghostty_sgr_free" });
         @export(&c.sgr_reset, .{ .name = "ghostty_sgr_reset" });
@@ -224,6 +235,8 @@ comptime {
         @export(&c.terminal_selection_format_alloc, .{ .name = "ghostty_terminal_selection_format_alloc" });
         @export(&c.render_state_new, .{ .name = "ghostty_render_state_new" });
         @export(&c.render_state_update, .{ .name = "ghostty_render_state_update" });
+        @export(&c.render_state_begin_update, .{ .name = "ghostty_render_state_begin_update" });
+        @export(&c.render_state_end_update, .{ .name = "ghostty_render_state_end_update" });
         @export(&c.render_state_get, .{ .name = "ghostty_render_state_get" });
         @export(&c.render_state_get_multi, .{ .name = "ghostty_render_state_get_multi" });
         @export(&c.render_state_set, .{ .name = "ghostty_render_state_set" });

@@ -137,6 +137,7 @@ pub const Handler = struct {
     ) !void {
         switch (action) {
             .print => try self.terminal.print(value.cp),
+            .print_slice => try self.terminal.printSlice(value.cps),
             .print_repeat => try self.terminal.printRepeat(value),
             .backspace => self.terminal.backspace(),
             .carriage_return => self.terminal.carriageReturn(),
@@ -348,10 +349,11 @@ pub const Handler = struct {
             .color_scheme => {
                 const func = self.effects.color_scheme orelse return;
                 const scheme = func(self) orelse return;
-                self.writePty(switch (scheme) {
-                    .dark => "\x1B[?997;1n",
-                    .light => "\x1B[?997;2n",
-                });
+                var buf: [device_status.max_color_scheme_report_encode_size + 1]u8 = undefined;
+                var writer: std.Io.Writer = .fixed(buf[0..device_status.max_color_scheme_report_encode_size]);
+                device_status.encodeColorSchemeReport(&writer, scheme) catch return;
+                buf[writer.end] = 0;
+                self.writePty(buf[0..writer.end :0]);
             },
         }
     }

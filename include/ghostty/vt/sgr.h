@@ -19,8 +19,11 @@
  * The parser processes SGR parameters from CSI sequences (e.g., `ESC[1;31m`)
  * and returns individual text attributes like bold, italic, colors, etc.
  * It supports both semicolon (`;`) and colon (`:`) separators, possibly mixed,
- * and handles various color formats including 8-color, 16-color, 256-color,
- * X11 named colors, and RGB in multiple formats.
+ * and handles SGR color attributes including 8-color, 16-color, 256-color,
+ * direct RGB, underline color, and reset forms. Color values are returned
+ * using the shared @ref color types; applications that need to parse Ghostty
+ * config/theme color strings, generate palettes, inspect X11 color names, or
+ * calculate luminance and contrast should use the @ref color APIs directly.
  *
  * ## Basic Usage
  *

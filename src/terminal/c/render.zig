@@ -188,6 +188,25 @@ pub fn update(
     return .success;
 }
 
+pub fn begin_update(
+    state_: RenderState,
+    terminal_: terminal_c.Terminal,
+) callconv(lib.calling_conv) Result {
+    const state = state_ orelse return .invalid_value;
+    const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
+
+    state.state.beginUpdate(state.alloc, t) catch return .out_of_memory;
+    return .success;
+}
+
+pub fn end_update(
+    state_: RenderState,
+) callconv(lib.calling_conv) Result {
+    const state = state_ orelse return .invalid_value;
+    state.state.endUpdate();
+    return .success;
+}
+
 pub fn get(
     state_: RenderState,
     data: Data,
@@ -785,6 +804,61 @@ test "render: update invalid value" {
 
     try testing.expectEqual(Result.invalid_value, update(null, null));
     try testing.expectEqual(Result.invalid_value, update(state, null));
+}
+
+test "render: begin/end update invalid value" {
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+
+    try testing.expectEqual(Result.invalid_value, begin_update(null, null));
+    try testing.expectEqual(Result.invalid_value, begin_update(state, null));
+    try testing.expectEqual(Result.invalid_value, end_update(null));
+
+    // End without a begin is safe.
+    try testing.expectEqual(Result.success, end_update(state));
+}
+
+test "render: begin/end update" {
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &terminal,
+        .{
+            .cols = 10,
+            .rows = 3,
+            .max_scrollback = 10_000,
+        },
+    ));
+    defer terminal_c.free(terminal);
+
+    // Write some styled text so that the update has deferred work.
+    const t = terminal.?.terminal;
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("\x1b[1mAB"); // Bold
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+
+    // Begin should record pending work, end should complete it.
+    try testing.expectEqual(Result.success, begin_update(state, terminal));
+    try testing.expect(state.?.state.pending_styles.items.len > 0);
+    try testing.expectEqual(Result.success, end_update(state));
+    try testing.expectEqual(0, state.?.state.pending_styles.items.len);
+
+    // The cell styles should be complete.
+    const row_data = state.?.state.row_data.slice();
+    const cells = row_data.items(.cells);
+    try testing.expect(cells[0].get(0).style.flags.bold);
+    try testing.expect(cells[0].get(1).style.flags.bold);
 }
 
 test "render: get invalid value" {

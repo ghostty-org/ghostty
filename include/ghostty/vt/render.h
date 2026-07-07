@@ -39,6 +39,18 @@ extern "C" {
  *   2. Update it from a terminal instance whenever you need.
  *   3. Read from the render state to get the data needed to draw your frame.
  *
+ * ## Two-Phase Updates
+ *
+ * For callers that synchronize terminal access (e.g. a renderer thread
+ * sharing a lock with an IO thread), the update can be split into two
+ * phases to minimize the time the terminal must be held exclusively:
+ * ghostty_render_state_begin_update requires terminal access, while
+ * ghostty_render_state_end_update completes any deferred work using only
+ * memory owned by the render state. A typical renderer would lock, begin
+ * the update, unlock, and then end the update while the IO thread is free
+ * to continue modifying the terminal. ghostty_render_state_update is a
+ * convenience that performs both phases in one call.
+ *
  * ## Dirty Tracking
  *
  * Dirty tracking is a key feature of the render state that allows renderers
@@ -331,6 +343,12 @@ GHOSTTY_API void ghostty_render_state_free(GhosttyRenderState state);
  * This consumes terminal/screen dirty state in the same way as the internal
  * render state update path.
  *
+ * This is a convenience function that performs a full update in one call,
+ * equivalent to ghostty_render_state_begin_update immediately followed by
+ * ghostty_render_state_end_update. Callers that hold a lock over the
+ * terminal state should prefer calling the two phases directly so that the
+ * lock is only held for the begin phase.
+ *
  * @param state The render state handle (NULL returns GHOSTTY_INVALID_VALUE)
  * @param terminal The terminal handle to read from (NULL returns GHOSTTY_INVALID_VALUE)
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `state` or
@@ -341,6 +359,54 @@ GHOSTTY_API void ghostty_render_state_free(GhosttyRenderState state);
  */
 GHOSTTY_API GhosttyResult ghostty_render_state_update(GhosttyRenderState state,
                                           GhosttyTerminal terminal);
+
+/**
+ * Begin an update of a render state instance from a terminal.
+ *
+ * Every begin must be completed with a ghostty_render_state_end_update call
+ * before the render state is read.
+ *
+ * This two-phase structure exists for callers that synchronize access to the
+ * terminal state (e.g. with a lock shared with an IO thread): only this
+ * function requires terminal access, so a caller can hold its lock for this
+ * call only and then call ghostty_render_state_end_update after releasing
+ * it. The end phase exclusively reads and writes memory owned by the render
+ * state, so it is safe to call while the terminal is being modified.
+ *
+ * Work that doesn't require terminal access may be deferred to the end phase
+ * to keep this call (and therefore lock hold time) as short as possible.
+ * Callers must treat the render state as incomplete until
+ * ghostty_render_state_end_update is called.
+ *
+ * This consumes terminal/screen dirty state in the same way as the internal
+ * render state update path.
+ *
+ * @param state The render state handle (NULL returns GHOSTTY_INVALID_VALUE)
+ * @param terminal The terminal handle to read from (NULL returns GHOSTTY_INVALID_VALUE)
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `state` or
+ * `terminal` is NULL, GHOSTTY_OUT_OF_MEMORY if updating the state requires
+ * allocation and that allocation fails
+ *
+ * @ingroup render
+ */
+GHOSTTY_API GhosttyResult ghostty_render_state_begin_update(GhosttyRenderState state,
+                                                GhosttyTerminal terminal);
+
+/**
+ * Complete a prior ghostty_render_state_begin_update call by performing any
+ * deferred work.
+ *
+ * This only reads and writes memory owned by the render state, so it is safe
+ * to call while the terminal is being modified (no terminal synchronization
+ * is required). Calling this without a prior begin is a safe no-op.
+ *
+ * @param state The render state handle (NULL returns GHOSTTY_INVALID_VALUE)
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `state` is
+ * NULL
+ *
+ * @ingroup render
+ */
+GHOSTTY_API GhosttyResult ghostty_render_state_end_update(GhosttyRenderState state);
 
 /**
  * Get a value from a render state.

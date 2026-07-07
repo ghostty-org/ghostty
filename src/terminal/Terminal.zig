@@ -321,6 +321,518 @@ pub fn printRepeat(self: *Terminal, count_req: usize) !void {
     }
 }
 
+/// Print multiple codepoints to the terminal at once. This is
+/// semantically identical to calling `print` for each codepoint in
+/// order, but is much faster because it can batch cell writes and
+/// hoist per-codepoint checks out of the hot loop.
+///
+/// The codepoints must all be printable: it is illegal for any
+/// codepoint in this slice to be a C0 control character. Therefore,
+/// this should only be called as a result of a proper VT parser
+/// (like our own).
+///
+/// This is optimized for the common case: ASCII, soft-wrap, etc.
+/// Sequences of codepoints that require special handling (e.g. wide characters,
+/// grapheme clustering) are handled correctly but fall back to the
+/// slower per-codepoint path. They're less common and this is optimized
+/// for the aforementioned cases.
+pub fn printSlice(self: *Terminal, cps: []const u32) !void {
+    var i: usize = 0;
+    while (i < cps.len) {
+        // Try the fast-path print first. This will return the number of
+        // codepoints it consumed.
+        const consumed = try self.printSliceFast(cps[i..]);
+        if (consumed > 0) {
+            i += consumed;
+            continue;
+        }
+
+        // Consuming zero bytes means that the fast path can't handle
+        // the next codepoint or the terminal is in a state we can't
+        // fast-path. Fall back to the slow cp-by-cp print then try
+        // fast paths again.
+        try self.print(@intCast(cps[i]));
+        i += 1;
+    }
+}
+
+/// Attempt to print a prefix of `cps` using a batched fast path that
+/// writes cells directly. Returns the number of codepoints consumed.
+/// A return value of zero means the caller must print the first
+/// codepoint via the normal `print` path.
+///
+/// The fast path handles runs of narrow (width 1) and wide (width 2)
+/// codepoints being written to simple cells. Everything else (zero
+/// width codepoints, grapheme cluster continuations, insert mode,
+/// charset mapping, hyperlinks, complex cells, etc.) is rejected so
+/// `print` can handle it with full generality.
+fn printSliceFast(self: *Terminal, cps: []const u32) !usize {
+    // Only the main display is supported.
+    if (self.status_display != .main) return 0;
+
+    // Modes that require per-codepoint handling in print(). Wraparound
+    // is required (its the default) so that our row-fill logic below can
+    // assume soft-wrap semantics. Insert mode shifts cells per print.
+    if (self.modes.get(.insert)) return 0;
+    if (!self.modes.get(.wraparound)) return 0;
+
+    const screen: *Screen = self.screens.active;
+
+    // Charset must map ASCII as-is (true unless a DEC special charset
+    // is actively invoked, which is rare).
+    if (screen.charset.single_shift != null) return 0;
+    switch (screen.charset.charsets.get(screen.charset.gl)) {
+        .utf8, .ascii => {},
+        else => return 0,
+    }
+
+    // Hyperlinks require per-cell map bookkeeping.
+    if (screen.cursor.hyperlink_id != 0) return 0;
+
+    // Codepoints in [0x10, 0xFF] are always narrow (width 1, matching
+    // the c <= 0xFF fast path in print) and can never interact with
+    // grapheme clustering (which requires a codepoint > 0xFF).
+    //
+    // Codepoints above 0xFF are batchable if their width is 1 or 2
+    // (excluding zero-width characters such as combining marks, ZWJ,
+    // and variation selectors) and, when grapheme clustering (mode
+    // 2027) is enabled, if they are a grapheme break from the
+    // previously printed codepoint (so print would never attach them
+    // to the previous cell).
+    const grapheme_cluster = self.modes.get(.grapheme_cluster);
+
+    // When grapheme clustering is enabled and a left margin is set,
+    // print() consults the cell left of the margin after wrapping,
+    // which we can't reason about here. Restrict the fast path to
+    // the [0x10, 0xFF] range in that case (those never cluster).
+    const allow_unicode = !grapheme_cluster or self.scrolling_region.left == 0;
+
+    // Codepoints in [0x10, 0xFF] are always narrow: print()
+    // hardcodes width 1 for c <= 0xFF (no width table lookup).
+    // They also can never interact with grapheme clustering,
+    // which print() only performs for c > 0xFF, so they're
+    // immediately eligible for the narrow fill with no further
+    // checks.
+    const cp0 = cps[0];
+    if (cp0 <= 0xFF) {
+        // C0 control characters (0x00-0x0F) aren't printable. The
+        // stream never sends these (they're routed to execute), but
+        // printSlice is a public API so defer to print() for safety.
+        if (cp0 < 0x10) return 0;
+        return self.printSliceFill(
+            .narrow,
+            cps,
+            grapheme_cluster,
+            allow_unicode,
+        );
+    }
+
+    if (!allow_unicode) return 0;
+    if (comptime build_options.kitty_graphics) {
+        // The Kitty graphics placeholder requires row bookkeeping.
+        if (cp0 == kitty.graphics.unicode.placeholder) return 0;
+    }
+
+    // The first codepoint requires care when grapheme clustering is
+    // enabled: print() examines the previous *cell* which can hold
+    // state (grapheme data) that we can't cheaply reason about here.
+    // Note this includes the pending-wrap state: print() may attach
+    // to the pending cell *instead of wrapping*. We only take the
+    // first codepoint if the cursor is at column zero with no pending
+    // wrap, where print() skips clustering entirely.
+    if (grapheme_cluster) {
+        if (screen.cursor.pending_wrap or screen.cursor.x != 0) return 0;
+    }
+
+    // The width lookup is a runtime value while printSliceFill is
+    // specialized at comptime by width class, so this switch selects
+    // between the two instantiations rather than passing the width
+    // through as an argument.
+    return switch (unicode.table.get(@intCast(cp0)).width) {
+        1 => self.printSliceFill(
+            .narrow,
+            cps,
+            grapheme_cluster,
+            allow_unicode,
+        ),
+        2 => self.printSliceFill(
+            .wide,
+            cps,
+            grapheme_cluster,
+            allow_unicode,
+        ),
+        else => 0,
+    };
+}
+
+/// The width class of a printSlice batch. Each batch contains only
+/// codepoints of a single width class because they fill cells
+/// differently: wide codepoints occupy a (wide, spacer_tail) cell
+/// pair while narrow codepoints occupy a single cell.
+const PrintSliceWidth = enum(u1) {
+    narrow,
+    wide,
+
+    /// The number of cells each codepoint of this width class occupies.
+    fn cellsPerCp(comptime self: PrintSliceWidth) usize {
+        return switch (self) {
+            .narrow => 1,
+            .wide => 2,
+        };
+    }
+};
+
+/// Whether a codepoint above 0xFF is eligible for the batched print
+/// fast path with the given width class.
+inline fn printSliceEligible(cp: u32, comptime width: PrintSliceWidth) bool {
+    assert(cp > 0xFF);
+    if (comptime build_options.kitty_graphics) {
+        if (cp == kitty.graphics.unicode.placeholder) return false;
+    }
+
+    return unicode.table.get(@intCast(cp)).width == comptime @as(u2, switch (width) {
+        .narrow => 1,
+        .wide => 2,
+    });
+}
+
+/// The row-filling portion of the printSlice fast path, specialized by
+/// width class. The first codepoint must already be validated by the
+/// caller (printSliceFast).
+fn printSliceFill(
+    self: *Terminal,
+    comptime width: PrintSliceWidth,
+    cps: []const u32,
+    grapheme_cluster: bool,
+    allow_unicode: bool,
+) !usize {
+    const screen: *Screen = self.screens.active;
+
+    // Our fast path can only handle "simple" cells. A simple cell is
+    // a codepoint cell (no grapheme data or bg-color tag), narrow, and
+    // not a hyperlink. The mask covers every field that must match
+    // the expected value (see printSliceCheckExpected) exactly.
+    const SimpleMask = pagepkg.Mask(Cell, &.{
+        "content_tag",
+        "style_id",
+        "wide",
+        "hyperlink",
+    }, 4);
+
+    // The bit offset of the codepoint content within a Cell, used to
+    // construct cell values from a template without field assignments.
+    const cp_shift = @bitOffsetOf(Cell, "content");
+
+    // Determine the run of codepoints in the same width class that we
+    // can batch. For codepoints after the first, the previous codepoint
+    // in the run is always written as a fresh, single-codepoint cell,
+    // so the grapheme break check against it is exact.
+    const run_len: usize = run: {
+        var idx: usize = 1;
+
+        // Vectorized scan for the narrow class: codepoints in
+        // [0x10, 0xFF] are always eligible with no further checks
+        // and dominate real-world input, so scan for the first
+        // codepoint outside that range several lanes at a time.
+        // Anything else (including eligible unicode) proceeds via
+        // the scalar loop below.
+        if (comptime width == .narrow) {
+            const lanes = 8;
+            const V = @Vector(lanes, u32);
+            const lo: V = @splat(0x10);
+            const hi: V = @splat(0xFF);
+            while (idx + lanes <= cps.len) {
+                const v: V = cps[idx..][0..lanes].*;
+                const in_range = (v >= lo) & (v <= hi);
+                if (!@reduce(.And, in_range)) {
+                    const bits: std.meta.Int(.unsigned, lanes) = @bitCast(in_range);
+                    idx += @ctz(~bits);
+                    break;
+                }
+                idx += lanes;
+            }
+        }
+
+        while (idx < cps.len) : (idx += 1) {
+            const cp = cps[idx];
+            if (comptime width == .narrow) {
+                if (cp >= 0x10 and cp <= 0xFF) continue;
+            }
+            if (cp > 0xFF and allow_unicode and printSliceEligible(cp, width)) {
+                if (!grapheme_cluster) continue;
+                var state: uucode.grapheme.BreakState = .default;
+                if (unicode.graphemeBreak(@intCast(cps[idx - 1]), @intCast(cp), &state)) continue;
+            }
+            break :run idx;
+        }
+        break :run cps.len;
+    };
+    assert(run_len > 0);
+
+    // After doing any printing, wrapping, scrolling, etc. we want to
+    // ensure that our screen remains in a consistent state.
+    defer screen.assertIntegrity();
+
+    // The number of cells each codepoint occupies.
+    const cells_per_cp: usize = comptime width.cellsPerCp();
+
+    var printed: usize = 0;
+    outer: while (printed < run_len) {
+        // If we're soft-wrapping, handle that first so that our cursor
+        // is in the row/column that will receive the next codepoint.
+        if (screen.cursor.pending_wrap) try self.printWrap();
+
+        // Our right margin depends on where our cursor is now,
+        // matching the logic in print().
+        const right_limit: usize = if (screen.cursor.x > self.scrolling_region.right)
+            self.cols
+        else
+            self.scrolling_region.right + 1;
+
+        // A degenerate 1-wide region can't hold a wide char; print()
+        // has special handling so fall back to it.
+        if (comptime width == .wide) {
+            if (right_limit - self.scrolling_region.left <= 1) break;
+        }
+
+        const cursor = &screen.cursor;
+        const avail: usize = right_limit - cursor.x;
+        assert(avail > 0);
+
+        const page = &cursor.page_pin.node.data;
+        const cells: [*]Cell = @ptrCast(cursor.page_cell);
+        const style_id = cursor.style_id;
+        const template: Cell = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = 0 },
+            .style_id = style_id,
+            .wide = .narrow,
+            .protected = cursor.protected,
+            .semantic_content = cursor.semantic_content,
+        };
+        const template_bits: u64 = @bitCast(template);
+        const check_expected: u64 = printSliceCheckExpected(style_id);
+
+        if (comptime width == .wide) {
+            if (avail == 1) {
+                // Only one cell left in the row: print() writes a
+                // spacer head (or a blank narrow cell if we're inside
+                // a right margin) and wraps. We require a simple cell,
+                // otherwise fall back to print() for the cleanup.
+                if (!SimpleMask.eqlScalar(cells[0], check_expected)) break;
+
+                var spacer = template;
+                if (right_limit == self.cols) {
+                    cursor.page_row.wrap = true;
+                    spacer.wide = .spacer_head;
+                }
+                cursor.page_row.dirty = true;
+                if (style_id != style.default_id) cursor.page_row.styled = true;
+                cells[0] = spacer;
+                try self.printWrap();
+                continue :outer;
+            }
+        }
+
+        // Number of codepoints and cells we're writing to this row.
+        const count = @min(avail / cells_per_cp, run_len - printed);
+        assert(count > 0);
+        const cell_count = count * cells_per_cp;
+
+        // Wide cells always come in (wide, spacer_tail) pairs.
+        const spacer_bits: u64 = if (comptime width == .wide) spacer: {
+            var spacer = template;
+            spacer.wide = .spacer_tail;
+            break :spacer @bitCast(spacer);
+        } else undefined;
+        const wide_bits: u64 = if (comptime width == .wide) wb: {
+            var w = template;
+            w.wide = .wide;
+            break :wb @bitCast(w);
+        } else undefined;
+
+        var k: usize = 0; // cells written
+        fill: while (k < cell_count) {
+            // Find the run of simple cells so the store loop below is
+            // branch-free (and vectorizable). This is an early-exit
+            // search loop that LLVM won't auto-vectorize, and reused
+            // rows typically match the whole way through, so scan
+            // several cells at a time manually.
+            var simple = k;
+            simple: {
+                while (simple + SimpleMask.group_len <= cell_count) {
+                    const p = SimpleMask.eqlPrefix(
+                        cells[0..cell_count],
+                        simple,
+                        check_expected,
+                    );
+                    simple += p;
+                    if (p != SimpleMask.group_len) break :simple;
+                }
+                while (simple < cell_count) : (simple += 1) {
+                    if (!SimpleMask.eqlScalar(
+                        cells[simple],
+                        check_expected,
+                    )) break;
+                }
+            }
+
+            if (comptime width == .wide) {
+                // We can only write whole (wide, spacer) pairs.
+                const pair_end = k + (simple - k) / 2 * 2;
+                var idx = k;
+                while (idx < pair_end) : (idx += 2) {
+                    cells[idx] = @bitCast(
+                        wide_bits | (@as(u64, cps[printed + idx / 2]) << cp_shift),
+                    );
+                    cells[idx + 1] = @bitCast(spacer_bits);
+                }
+                // If the simple run ended mid-pair we stop at the pair
+                // boundary and handle the offending cell below.
+                k = pair_end;
+                if (simple != pair_end) {
+                    // The first cell of the next pair is simple but the
+                    // second isn't; handle both via the general path.
+                    simple = pair_end;
+                }
+            } else {
+                for (k..simple) |idx| {
+                    cells[idx] = @bitCast(
+                        template_bits | (@as(u64, cps[printed + idx]) << cp_shift),
+                    );
+                }
+                k = simple;
+            }
+            if (k >= cell_count) break;
+
+            // Bulk path for runs of cells that differ from the
+            // expected simple cell only by their style: this is the
+            // common case when styled text overwrites previously
+            // styled (or default-styled) rows, e.g. TUI redraws.
+            // These runs are handled wholesale: one scan to find the
+            // run of identical old styles, two ref-count updates,
+            // and a branch-free fill.
+            if (comptime width == .narrow) bulk: {
+                const first = SimpleMask.pattern(cells[k]);
+
+                // The old cell must be a plain narrow codepoint cell
+                // with no hyperlink whose only difference is the
+                // style id (see printSliceCheckExpected: every other
+                // masked field must be zero).
+                const style_shift = @bitOffsetOf(Cell, "style_id");
+                const old_style: style.Id = @truncate(first >> style_shift);
+                if (first != printSliceCheckExpected(old_style)) break :bulk;
+                assert(old_style != style_id); // it failed the simple check
+
+                // Find the run of cells with identical masked bits.
+                var m = k + 1;
+                scan: {
+                    while (m + SimpleMask.group_len <= cell_count) {
+                        const p = SimpleMask.eqlPrefix(
+                            cells[0..cell_count],
+                            m,
+                            first,
+                        );
+                        m += p;
+                        if (p != SimpleMask.group_len) break :scan;
+                    }
+                    while (m < cell_count) : (m += 1) {
+                        if (!SimpleMask.eqlScalar(cells[m], first)) break;
+                    }
+                }
+
+                // Fix up the style ref counts for the whole run at
+                // once. Each of the old cells held a reference to
+                // old_style so the release is safe by construction.
+                const n = m - k;
+                if (old_style != style.default_id) {
+                    page.styles.releaseMultiple(page.memory, old_style, @intCast(n));
+                }
+                if (style_id != style.default_id) {
+                    page.styles.useMultiple(page.memory, style_id, @intCast(n));
+                }
+
+                for (k..m) |idx| {
+                    cells[idx] = @bitCast(
+                        template_bits | (@as(u64, cps[printed + idx]) << cp_shift),
+                    );
+                }
+                k = m;
+                continue :fill;
+            }
+
+            // General path for cells that failed the masked check:
+            // style-only mismatches are handled inline; anything that
+            // needs cleanup (wide chars and their spacers, grapheme
+            // data, hyperlinks) falls back to print().
+            const general_count: usize = cells_per_cp;
+            for (0..general_count) |offset| {
+                const cell = &cells[k + offset];
+                if (cell.wide != .narrow or
+                    cell.hasGrapheme() or
+                    cell.hyperlink) break :fill;
+            }
+            for (0..general_count) |offset| {
+                const cell = &cells[k + offset];
+                if (cell.style_id != style_id) {
+                    if (cell.style_id != style.default_id) {
+                        page.styles.release(page.memory, cell.style_id);
+                    }
+                    if (style_id != style.default_id) {
+                        page.styles.use(page.memory, style_id);
+                    }
+                }
+            }
+            if (comptime width == .wide) {
+                cells[k] = @bitCast(
+                    wide_bits | (@as(u64, cps[printed + k / 2]) << cp_shift),
+                );
+                cells[k + 1] = @bitCast(spacer_bits);
+            } else {
+                cells[k] = @bitCast(
+                    template_bits | (@as(u64, cps[printed + k]) << cp_shift),
+                );
+            }
+            k += cells_per_cp;
+        }
+
+        if (k > 0) {
+            assert(k % cells_per_cp == 0);
+            cursor.page_row.dirty = true;
+            if (style_id != style.default_id) cursor.page_row.styled = true;
+            self.previous_char = @intCast(cps[printed + k / cells_per_cp - 1]);
+            printed += k / cells_per_cp;
+
+            // Advance the cursor. If we filled through the right limit
+            // then the cursor stays on the last cell with the pending
+            // wrap flag set, matching print().
+            if (cursor.x + k >= right_limit) {
+                assert(cursor.x + k == right_limit);
+                screen.cursorRight(@intCast(k - 1));
+                cursor.pending_wrap = true;
+            } else {
+                screen.cursorRight(@intCast(k));
+            }
+        }
+
+        // We hit a cell that requires the slow path. The cursor is
+        // exactly at that cell so return and let the caller print the
+        // next codepoint via print().
+        if (k < cell_count) break;
+    }
+
+    return printed;
+}
+
+/// The expected value of a simple cell (per SimpleMask in
+/// printSliceFill) that already has the given style (so no
+/// ref-counting is needed).
+inline fn printSliceCheckExpected(style_id: style.Id) u64 {
+    var e: Cell = @bitCast(@as(u64, 0));
+    e.style_id = style_id;
+    return @bitCast(e);
+}
+
 pub fn print(self: *Terminal, c: u21) !void {
     // log.debug("print={x} y={} x={}", .{ c, self.screens.active.cursor.y, self.screens.active.cursor.x });
 
@@ -11590,6 +12102,241 @@ test "Terminal: printRepeat no previous character" {
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("", str);
     }
+}
+
+test "Terminal: printSlice simple ascii" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 10, .rows = 3 });
+    defer t.deinit(alloc);
+
+    try t.printSlice(&.{ 'h', 'e', 'l', 'l', 'o' });
+    try testing.expectEqual(@as(usize, 5), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(u21, 'o'), t.previous_char.?);
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 0 } }));
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("hello", str);
+    }
+}
+
+test "Terminal: printSlice wraps and scrolls" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 5, .rows = 2 });
+    defer t.deinit(alloc);
+
+    // 12 chars: fills row 1 (5), row 2 (5), wraps+scrolls, 2 more.
+    try t.printSlice(&.{ 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l' });
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("fghij\nkl", str);
+    }
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+    try testing.expect(!t.screens.active.cursor.pending_wrap);
+}
+
+test "Terminal: printSlice pending wrap state" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 5, .rows = 2 });
+    defer t.deinit(alloc);
+
+    try t.printSlice(&.{ 'a', 'b', 'c', 'd', 'e' });
+    try testing.expectEqual(@as(usize, 4), t.screens.active.cursor.x);
+    try testing.expect(t.screens.active.cursor.pending_wrap);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("abcde", str);
+    }
+}
+
+/// Differential testing helper: applies the same logical print
+/// operations to two terminals, one using per-codepoint print() and
+/// the other using printSlice() with random chunking, verifying that
+/// the results are identical.
+fn testPrintSliceDifferential(
+    alloc: Allocator,
+    rand: std.Random,
+    ops: usize,
+    cols: size.CellCountInt,
+    rows: size.CellCountInt,
+) !void {
+    var t1 = try init(alloc, .{
+        .cols = cols,
+        .rows = rows,
+    });
+    defer t1.deinit(alloc);
+    var t2 = try init(alloc, .{
+        .cols = cols,
+        .rows = rows,
+    });
+    defer t2.deinit(alloc);
+
+    // Alphabet of interesting codepoints: ascii, latin-1, combining
+    // marks, CJK (wide), emoji (wide), ZWJ, variation selectors.
+    const alphabet = [_]u21{
+        'a',     'b',     'Z',     '0',    ' ',    0x10,    0x1F,   0x7F,
+        'é',    0xFF,    0x301,   0x4E00, 0x4E01, 0x1F600, 0x200D, 0xFE0F,
+        'x',     'y',     0x1F9D1, 0x0308, 0xAD,   0x3042,  0xAC00, 'q',
+        'r',     's',     't',     'u',    'v',    'w',     '1',    '2',
+        0x1F1E6, 0x1F1E7, 0x1100,  0x1161, 0x11A8, 0x200C,  0x0430, 0x03B1,
+    };
+
+    var cps_buf: [64]u32 = undefined;
+    var last_n: usize = 0;
+
+    for (0..ops) |_| {
+        switch (rand.intRangeAtMost(u8, 0, 20)) {
+            // Print a run of codepoints (most common op).
+            0...9 => {
+                const n = rand.intRangeAtMost(usize, 1, cps_buf.len);
+                last_n = n;
+                for (cps_buf[0..n]) |*cp| {
+                    cp.* = alphabet[rand.intRangeLessThan(usize, 0, alphabet.len)];
+                }
+
+                // t1: per-codepoint print
+                for (cps_buf[0..n]) |cp| try t1.print(@intCast(cp));
+
+                // t2: printSlice with random chunking
+                var i: usize = 0;
+                while (i < n) {
+                    const chunk = rand.intRangeAtMost(usize, 1, n - i);
+                    try t2.printSlice(cps_buf[i..][0..chunk]);
+                    i += chunk;
+                }
+            },
+            10 => {
+                t1.carriageReturn();
+                t2.carriageReturn();
+                try t1.linefeed();
+                try t2.linefeed();
+            },
+            11 => {
+                const row = rand.intRangeAtMost(usize, 1, rows);
+                const col = rand.intRangeAtMost(usize, 1, cols);
+                t1.setCursorPos(row, col);
+                t2.setCursorPos(row, col);
+            },
+            12 => {
+                const attr: sgr.Attribute = switch (rand.intRangeAtMost(u8, 0, 3)) {
+                    0 => .{ .unset = {} },
+                    1 => .{ .bold = {} },
+                    2 => .{ .direct_color_fg = .{
+                        .r = rand.int(u8),
+                        .g = rand.int(u8),
+                        .b = rand.int(u8),
+                    } },
+                    3 => .{ .@"8_fg" = .red },
+                    else => unreachable,
+                };
+                try t1.setAttribute(attr);
+                try t2.setAttribute(attr);
+            },
+            13 => {
+                const v = rand.boolean();
+                t1.modes.set(.insert, v);
+                t2.modes.set(.insert, v);
+            },
+            14 => {
+                const v = rand.boolean();
+                t1.modes.set(.wraparound, v);
+                t2.modes.set(.wraparound, v);
+            },
+            15 => {
+                const v = rand.boolean();
+                // Erase the display first: grapheme clusters created
+                // while mode 2027 was off can trip a pre-existing
+                // debug assert in print()'s cluster walk when the mode
+                // is toggled on (unrelated to printSlice; it reproduces
+                // with per-codepoint print alone).
+                t1.eraseDisplay(.complete, false);
+                t2.eraseDisplay(.complete, false);
+                t1.modes.set(.grapheme_cluster, v);
+                t2.modes.set(.grapheme_cluster, v);
+            },
+            16 => {
+                // Margins.
+                t1.modes.set(.enable_left_and_right_margin, true);
+                t2.modes.set(.enable_left_and_right_margin, true);
+                const left = rand.intRangeAtMost(usize, 1, cols / 2);
+                const right = rand.intRangeAtMost(usize, cols / 2, cols);
+                t1.setLeftAndRightMargin(left, right);
+                t2.setLeftAndRightMargin(left, right);
+            },
+            17 => {
+                t1.setLeftAndRightMargin(0, 0);
+                t2.setLeftAndRightMargin(0, 0);
+            },
+            18 => {
+                try t1.screens.active.startHyperlink("http://example.com", null);
+                try t2.screens.active.startHyperlink("http://example.com", null);
+            },
+            19 => {
+                t1.screens.active.endHyperlink();
+                t2.screens.active.endHyperlink();
+            },
+            20 => {
+                const set: charsets.Charset = if (rand.boolean())
+                    .dec_special
+                else
+                    .utf8;
+                t1.configureCharset(.G0, set);
+                t2.configureCharset(.G0, set);
+            },
+            else => unreachable,
+        }
+
+        // Cursor state must match exactly after every op.
+        try testing.expectEqual(t1.screens.active.cursor.x, t2.screens.active.cursor.x);
+        try testing.expectEqual(t1.screens.active.cursor.y, t2.screens.active.cursor.y);
+        try testing.expectEqual(
+            t1.screens.active.cursor.pending_wrap,
+            t2.screens.active.cursor.pending_wrap,
+        );
+
+        // Full screen contents must match after every op. On failure,
+        // dump diagnostics that make the failure reproducible.
+        {
+            const str1 = try t1.screens.active.dumpStringAlloc(alloc, .{ .screen = .{} });
+            defer alloc.free(str1);
+            const str2 = try t2.screens.active.dumpStringAlloc(alloc, .{ .screen = .{} });
+            defer alloc.free(str2);
+            testing.expectEqualStrings(str1, str2) catch |err| {
+                std.debug.print("last print cps: {any}\n", .{cps_buf[0..last_n]});
+                std.debug.print("modes: 2027={} insert={} wrap={} sr.left={} sr.right={} cols={}\n", .{
+                    t1.modes.get(.grapheme_cluster),
+                    t1.modes.get(.insert),
+                    t1.modes.get(.wraparound),
+                    t1.scrolling_region.left,
+                    t1.scrolling_region.right,
+                    cols,
+                });
+                return err;
+            };
+        }
+    }
+
+    // Page integrity (styles refcounts, grapheme maps, etc.) must hold.
+    try t1.screens.active.cursor.page_pin.node.data.verifyIntegrity(alloc);
+    try t2.screens.active.cursor.page_pin.node.data.verifyIntegrity(alloc);
+}
+
+test "Terminal: printSlice differential fuzz vs print" {
+    const alloc = testing.allocator;
+
+    // Multiple seeds and terminal sizes for coverage, including a
+    // tiny terminal to stress wrap/scroll edge cases.
+    var prng = std.Random.DefaultPrng.init(0xC0FFEE);
+    const rand = prng.random();
+    try testPrintSliceDifferential(alloc, rand, 500, 80, 24);
+    try testPrintSliceDifferential(alloc, rand, 500, 10, 4);
+    try testPrintSliceDifferential(alloc, rand, 500, 5, 2);
+    try testPrintSliceDifferential(alloc, rand, 200, 2, 2);
 }
 
 test "Terminal: printAttributes" {

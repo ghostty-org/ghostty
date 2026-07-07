@@ -126,6 +126,7 @@ extern "C" {
 #include <ghostty/vt/allocator.h>
 #include <ghostty/vt/build_info.h>
 #include <ghostty/vt/color.h>
+#include <ghostty/vt/color_scheme.h>
 #include <ghostty/vt/device.h>
 #include <ghostty/vt/focus.h>
 #include <ghostty/vt/formatter.h>
