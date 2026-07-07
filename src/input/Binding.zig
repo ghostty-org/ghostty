@@ -1952,23 +1952,11 @@ pub const Trigger = struct {
         std.hash.autoHash(hasher, self.mods.binding());
     }
 
-    /// The codepoint we use for comparisons. Case folding can result
-    /// in more codepoints so we need to use a 3 element array.
-    fn foldedCodepoint(cp: u21) [3]u21 {
-        // ASCII fast path
-        if (uucode.ascii.isAlphabetic(cp)) {
-            return .{ uucode.ascii.toLower(cp), 0, 0 };
-        }
-
-        // Unicode slow path. Case folding can result in more codepoints.
-        // If more codepoints are produced then we return the codepoint
-        // as-is which isn't correct but until we have a failing test
-        // then I don't want to handle this.
-        var buffer: [1]u21 = undefined;
-        const slice = uucode.get(.case_folding_full, cp).with(&buffer, cp);
-        var array: [3]u21 = [_]u21{0} ** 3;
-        @memcpy(array[0..slice.len], slice);
-        return array;
+    /// Returns the codepoint used for comparisons. Simple case folding
+    /// always maps a single codepoint to a single codepoint (full case
+    /// folding can expand, e.g. ß to "ss"), so no buffer is needed.
+    fn foldedCodepoint(cp: u21) u21 {
+        return uucode.get(.case_folding_simple, cp);
     }
 
     /// Returns true if two triggers are equal.
@@ -1992,11 +1980,7 @@ pub const Trigger = struct {
         if (self_tag != other_tag) return false;
         return switch (self.key) {
             .physical => |v| v == other.key.physical,
-            .unicode => |v| deepEqual(
-                [3]u21,
-                foldedCodepoint(v),
-                foldedCodepoint(other.key.unicode),
-            ),
+            .unicode => |v| foldedCodepoint(v) == foldedCodepoint(other.key.unicode),
             .catch_all => true,
         };
     }
@@ -2651,8 +2635,11 @@ pub const Set = struct {
     /// Get an entry for the given key event. This will attempt to find
     /// a binding using multiple parts of the event in the following order:
     ///
-    ///   1. Physical key (event.physical_key)
-    ///   2. Unshifted Unicode codepoint (event.unshifted_codepoint)
+    ///   1. Physical key (event.physical_key) with raw modifiers
+    ///   2. Unshifted Unicode codepoint (event.unshifted_codepoint) with raw modifiers
+    ///   3. Produced Unicode codepoint (event.utf8) with modifiers masked when its
+    ///      simple folded value differs from the simple folded unshifted codepoint
+    ///   4. catch_all with remaining modifiers, then with no modifiers
     ///
     pub fn getEvent(self: *const Set, event: KeyEvent) ?Entry {
         var trigger: Trigger = .{
@@ -2660,6 +2647,12 @@ pub const Set = struct {
             .key = .{ .physical = event.key },
         };
         if (self.get(trigger)) |v| return v;
+
+        // Match the raw modifier set against the unshifted codepoint.
+        if (event.unshifted_codepoint > 0) {
+            trigger.key = .{ .unicode = event.unshifted_codepoint };
+            if (self.get(trigger)) |v| return v;
+        }
 
         // If our UTF-8 text is exactly one codepoint, we try to match that.
         if (event.utf8.len > 0) unicode: {
@@ -2670,16 +2663,14 @@ pub const Set = struct {
             const cp = it.nextCodepoint() orelse break :unicode;
             if (it.nextCodepoint() != null) break :unicode;
 
-            trigger.key = .{ .unicode = cp };
-            if (self.get(trigger)) |v| return v;
-        }
+            // Strip consumed modifiers via effectiveMods unless the produced
+            // character is only a case variant of the unshifted codepoint,
+            // in which case the raw modifiers are kept.
+            const case_change_only = event.unshifted_codepoint > 0 and
+                Trigger.foldedCodepoint(cp) == Trigger.foldedCodepoint(event.unshifted_codepoint);
 
-        // Finally fallback to the full unshifted codepoint if we have one.
-        // Question: should we be doing this if we have UTF-8 text? I
-        // suspect "no" but we don't currently have any failing scenarios
-        // to verify this.
-        if (event.unshifted_codepoint > 0) {
-            trigger.key = .{ .unicode = event.unshifted_codepoint };
+            trigger.mods = if (case_change_only) event.mods.binding() else event.effectiveMods().binding();
+            trigger.key = .{ .unicode = cp };
             if (self.get(trigger)) |v| return v;
         }
 

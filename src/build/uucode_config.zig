@@ -87,7 +87,7 @@ pub const tables = [_]config.Table{
         .extensions = &.{},
         .fields = &.{
             d.field("is_emoji_presentation"),
-            d.field("case_folding_full"),
+            d.field("case_folding_simple"),
         },
     },
     .{
