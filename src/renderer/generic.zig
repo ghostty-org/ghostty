@@ -1170,6 +1170,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 //     std.log.err("[updateFrame critical time] start={}\tduration={} us", .{ start_micro, end.since(start) / std.time.ns_per_us });
                 // }
 
+                state.renderer_waiting_for_state.store(1, .release);
+                defer {
+                    state.renderer_waiting_for_state.store(0, .release);
+                    std.Thread.Futex.wake(&state.renderer_waiting_for_state, std.math.maxInt(u32));
+                }
+
                 state.mutex.lock();
                 defer state.mutex.unlock();
 

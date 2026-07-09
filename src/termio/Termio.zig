@@ -26,6 +26,11 @@ const log = std.log.scoped(.io_exec);
 /// Mutex state argument for queueMessage.
 pub const MutexState = enum { locked, unlocked };
 
+/// Maximum bytes of alternate-screen output to process while holding the
+/// renderer state lock. Alternate-screen programs often repaint forever, so
+/// large pty batches can otherwise keep the renderer from observing progress.
+const alternate_screen_output_chunk_size = 2 * 1024;
+
 /// Allocator
 alloc: Allocator,
 
@@ -641,18 +646,42 @@ pub fn focusGained(self: *Termio, td: *ThreadData, focused: bool) !void {
 /// call with pty data but it is also called by the read thread when using
 /// an exec subprocess.
 pub fn processOutput(self: *Termio, buf: []const u8) void {
-    // We are modifying terminal state from here on out and we need
-    // the lock to grab our read data.
-    self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
-    self.processOutputLocked(buf);
+    var offset: usize = 0;
+    while (offset < buf.len) {
+        const chunk_len: usize = chunk: {
+            self.waitForRendererStateCapture();
+
+            // We are modifying terminal state from here on out and we need
+            // the lock to grab our read data.
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
+
+            const chunk_len = if (self.terminal.screens.active_key == .alternate)
+                @min(alternate_screen_output_chunk_size, buf.len - offset)
+            else
+                buf.len - offset;
+
+            self.processOutputLocked(buf[offset .. offset + chunk_len]);
+            break :chunk chunk_len;
+        };
+
+        self.terminal_stream.handler.queueRender() catch unreachable;
+
+        offset += chunk_len;
+        if (offset < buf.len) std.Thread.yield() catch {};
+    }
+}
+
+fn waitForRendererStateCapture(self: *Termio) void {
+    while (true) {
+        const value = self.renderer_state.renderer_waiting_for_state.load(.acquire);
+        if (value == 0) return;
+        std.Thread.Futex.wait(&self.renderer_state.renderer_waiting_for_state, value);
+    }
 }
 
 /// Process output from readdata but the lock is already held.
 fn processOutputLocked(self: *Termio, buf: []const u8) void {
-    // Schedule a render. We can call this first because we have the lock.
-    self.terminal_stream.handler.queueRender() catch unreachable;
-
     // Whenever a character is typed, we ensure the cursor is in the
     // non-blink state so it is rendered if visible. If we're under
     // HEAVY read load, we don't want to send a ton of these so we

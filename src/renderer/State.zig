@@ -30,6 +30,15 @@ preedit: ?Preedit = null,
 /// need about the mouse.
 mouse: Mouse = .{},
 
+/// True while a renderer wakeup has been queued but not yet consumed.
+/// This lets IO avoid issuing redundant wakeups in repaint-heavy workloads.
+render_pending: std.atomic.Value(bool) = .init(false),
+
+/// Non-zero while the renderer is waiting for, or currently holding, `mutex`
+/// to capture terminal state. Parsers check this between chunks so a hot
+/// producer doesn't repeatedly relock and starve the renderer.
+renderer_waiting_for_state: std.atomic.Value(u32) = .init(0),
+
 pub const Mouse = struct {
     /// The point on the viewport where the mouse currently is. We use
     /// viewport points to avoid the complexity of mapping the mouse to

@@ -614,6 +614,7 @@ fn renderCallback(
 
     // If we're not visible there's no point spending CPU rebuilding cells —
     // we'll catch up when the .visible mailbox message flips us back on.
+    t.state.render_pending.store(false, .release);
     if (!t.flags.visible) return .disarm;
 
     // Update our frame data

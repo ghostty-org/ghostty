@@ -280,7 +280,18 @@ pub fn RefCountedSet(
                 // rehash with only a few IDs left.
                 const rehash_threshold = 0.9;
                 if (self.living < @as(Id, @intFromFloat(@as(f64, @floatFromInt(self.layout.cap)) * rehash_threshold))) {
-                    return AddError.NeedsRehash;
+                    const reuse_id = for (items[1..self.layout.cap], 1..) |item, id| {
+                        if (item.meta.ref == 0) break @as(Id, @intCast(id));
+                    } else return AddError.NeedsRehash;
+
+                    self.deleteItem(base, reuse_id, ctx);
+
+                    const id = self.insert(base, value, reuse_id, ctx);
+                    items[id].meta.ref += 1;
+                    assert(items[id].meta.ref == 1);
+                    self.living += 1;
+
+                    return id;
                 }
 
                 // If we don't have at least 10% dead items then
@@ -720,4 +731,40 @@ pub fn RefCountedSet(
             }
         }
     };
+}
+
+test "RefCountedSet reuses dead IDs when exhausted" {
+    const testing = std.testing;
+
+    const Context = struct {
+        pub fn hash(_: @This(), value: u16) u64 {
+            return value;
+        }
+
+        pub fn eql(_: @This(), a: u16, b: u16) bool {
+            return a == b;
+        }
+    };
+
+    const Set = RefCountedSet(u16, u8, u8, Context);
+    const layout: Set.Layout = .init(8);
+    const buf = try testing.allocator.alignedAlloc(u8, Set.base_align, layout.total_size);
+    defer testing.allocator.free(buf);
+
+    var set = Set.init(.init(buf), layout, .{});
+
+    var ids: [8]Set.Id = undefined;
+    var value: u16 = 1;
+    while (value < layout.cap) : (value += 1) {
+        ids[value] = try set.add(buf, value);
+    }
+
+    try testing.expectEqual(layout.cap, set.next_id);
+
+    const released_id = ids[2];
+    set.release(buf, released_id);
+
+    const reused_id = try set.add(buf, value);
+    try testing.expectEqual(released_id, reused_id);
+    try testing.expectEqual(layout.cap, set.next_id);
 }

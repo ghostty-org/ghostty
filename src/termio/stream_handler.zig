@@ -102,7 +102,10 @@ pub const StreamHandler = struct {
     /// isn't guaranteed to happen immediately but it will happen as soon as
     /// practical.
     pub inline fn queueRender(self: *StreamHandler) !void {
-        try self.renderer_wakeup.notify();
+        if (!self.renderer_state.render_pending.swap(true, .acq_rel)) {
+            errdefer self.renderer_state.render_pending.store(false, .release);
+            try self.renderer_wakeup.notify();
+        }
     }
 
     /// Change the configuration for this handler.
