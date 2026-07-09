@@ -1291,6 +1291,21 @@ pub const ReadThread = struct {
     /// this bounds both gather latency and lock hold time.
     const buffer_capacity = 64 * 1024;
 
+    /// Alternate-screen frame-style programs are latency-sensitive: if
+    /// the gather stage drains too far ahead, they can queue multiple
+    /// stale frames inside Ghostty while the renderer samples too slowly.
+    /// Keep the default large buffers for normal bulk output, but use a
+    /// smaller active window once parsed output enters the alternate screen.
+    const alternate_screen_buffer_count = 2;
+    const alternate_screen_buffer_capacity = 8 * 1024;
+
+    comptime {
+        assert(alternate_screen_buffer_count > 0);
+        assert(alternate_screen_buffer_count <= buffer_count);
+        assert(alternate_screen_buffer_capacity > 0);
+        assert(alternate_screen_buffer_capacity <= buffer_capacity);
+    }
+
     /// How many gathered bytes mark a stream as saturated. The macOS
     /// kernel tty output queue hands the master at most about 1 KiB
     /// per read, so gathering a full 1 KiB means the writer filled
@@ -1356,6 +1371,12 @@ pub const ReadThread = struct {
         head: usize = 0,
         tail: usize = 0,
         count: usize = 0,
+
+        /// Active limits for the gather stage. These default to the
+        /// full bulk-throughput window and are lowered by the parse
+        /// stage while terminal output is targeting the alternate screen.
+        max_count: usize = buffer_count,
+        max_batch_size: usize = buffer_capacity,
 
         /// Set by the gather stage (under the mutex) while it sleeps
         /// in a bridge poll. The parse stage only writes to the idle
@@ -1467,16 +1488,30 @@ pub const ReadThread = struct {
             // The batch buffer is owned by this stage until we advance
             // the tail below, so it is safe to read outside the lock.
             io.processOutput(batch);
+            const alternate_screen = alternate_screen: {
+                io.renderer_state.mutex.lock();
+                defer io.renderer_state.mutex.unlock();
+                break :alternate_screen io.terminal.screens.active_key == .alternate;
+            };
 
             {
                 pipeline.mutex.lock();
                 pipeline.tail = (pipeline.tail + 1) % buffer_count;
                 pipeline.count -= 1;
+                pipeline.max_count = if (alternate_screen)
+                    alternate_screen_buffer_count
+                else
+                    buffer_count;
+                pipeline.max_batch_size = if (alternate_screen)
+                    alternate_screen_buffer_capacity
+                else
+                    buffer_capacity;
+                const signal_slot_free = pipeline.count < pipeline.max_count;
                 const wake = pipeline.count == 0 and
                     pipeline.bridging and
                     pipeline.idle_write_fd >= 0;
                 pipeline.mutex.unlock();
-                pipeline.slot_free.signal();
+                if (signal_slot_free) pipeline.slot_free.signal();
 
                 // We ran out of batches while the gather stage is
                 // bridging a refill gap: interrupt its poll so it
@@ -1523,14 +1558,19 @@ pub const ReadThread = struct {
             // parse stage is a full ring behind, which is exactly when
             // we should stop reading and let the kernel queue exert
             // backpressure on the child.
-            const buf: *[buffer_capacity]u8 = buf: {
+            const claimed = claimed: {
                 pipeline.mutex.lock();
                 defer pipeline.mutex.unlock();
-                while (pipeline.count == buffer_count) {
+                while (pipeline.count >= pipeline.max_count) {
                     pipeline.slot_free.wait(&pipeline.mutex);
                 }
-                break :buf &pipeline.bufs[pipeline.head];
+                break :claimed .{
+                    .buf = &pipeline.bufs[pipeline.head],
+                    .max_batch_size = pipeline.max_batch_size,
+                };
             };
+            const buf: *[buffer_capacity]u8 = claimed.buf;
+            const max_batch_size = claimed.max_batch_size;
 
             var total: usize = 0;
             var bridge_start: ?std.time.Instant = null;
@@ -1542,10 +1582,10 @@ pub const ReadThread = struct {
             // refills it in parallel, so we bridge those gaps with
             // spin retries and a short poll instead of delivering a
             // tiny batch.
-            gather: while (total < buffer_capacity) {
+            gather: while (total < max_batch_size) {
                 const n = posix.read(
                     fd,
-                    buf[total..],
+                    buf[total..max_batch_size],
                 ) catch |err| switch (err) {
                     error.WouldBlock => {
                         // Anything below the threshold is interactive.
@@ -1679,7 +1719,7 @@ pub const ReadThread = struct {
 
             // A full buffer means the stream is still hot, so go
             // claim the next buffer without an intervening poll.
-            if (total == buffer_capacity) continue;
+            if (total == max_batch_size) continue;
 
             // Wait for data. The idle fd is sliced off: the parse
             // stage only writes to it while we're bridging.
