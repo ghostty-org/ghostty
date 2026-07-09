@@ -454,6 +454,7 @@ pub const Handler = struct {
                 // Clear the progress bar
                 self.progressReport(.{ .state = .remove });
             },
+            .soft_reset => self.terminal.softReset(),
             .start_hyperlink => try self.terminal.screens.active.startHyperlink(value.uri, value.id),
             .end_hyperlink => self.terminal.screens.active.endHyperlink(),
             .semantic_prompt => try self.terminal.semanticPrompt(value),
