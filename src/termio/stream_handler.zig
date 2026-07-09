@@ -259,6 +259,7 @@ pub const StreamHandler = struct {
             .next_line => try self.nextLine(),
             .reverse_index => try self.reverseIndex(),
             .full_reset => try self.fullReset(),
+            .soft_reset => self.terminal.softReset(),
             .set_mode => try self.setMode(value.mode, true),
             .reset_mode => try self.setMode(value.mode, false),
             .save_mode => self.terminal.modes.save(value.mode),
