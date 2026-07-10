@@ -1,5 +1,6 @@
 const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
+const build_options = @import("terminal_options");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const fastmem = @import("../fastmem.zig");
@@ -16,6 +17,7 @@ const Screen = @import("Screen.zig");
 const ScreenSet = @import("ScreenSet.zig");
 const Style = @import("style.zig").Style;
 const Terminal = @import("Terminal.zig");
+const kitty = @import("kitty.zig");
 
 // Developer note: this is in src/terminal and not src/renderer because
 // the goal is that this remains generic to multiple renderers. This can
@@ -70,6 +72,10 @@ const Terminal = @import("Terminal.zig");
 /// waste, it is recommended that the caller `deinit` and start with an
 /// empty render state every so often.
 pub const RenderState = struct {
+    pub const Options = struct { kitty_graphics: bool = false };
+
+    options: Options,
+    kitty: KittySnapshot,
     /// The current screen dimensions. It is possible that these don't match
     /// the renderer's current dimensions in grid cells because resizing
     /// can happen asynchronously. For example, for Metal, our NSView resizes
@@ -124,8 +130,46 @@ pub const RenderState = struct {
     /// beginUpdate.
     pending_styles: std.ArrayList(StyleRun) = .empty,
 
+    pub const KittySnapshot = if (build_options.kitty_graphics) struct {
+        images: std.AutoHashMapUnmanaged(u32, *kitty.graphics.Image) = .{},
+        placements: std.ArrayListUnmanaged(Placement) = .{},
+        generation: u64 = 0,
+        bg_end: u32 = 0,
+        text_end: u32 = 0,
+        virtual: bool = false,
+        dirty: bool = false,
+
+        pub const Placement = struct {
+            image_id: u32,
+            x: i32,
+            y: i32,
+            z: i32,
+            width: u32,
+            height: u32,
+            cell_offset_x: u32,
+            cell_offset_y: u32,
+            source_x: u32,
+            source_y: u32,
+            source_width: u32,
+            source_height: u32,
+        };
+
+        fn deinit(self: *KittySnapshot, alloc: Allocator) void {
+            var it = self.images.valueIterator();
+            while (it.next()) |image| image.*.release();
+            self.images.deinit(alloc);
+            self.placements.deinit(alloc);
+        }
+    } else struct {
+        dirty: bool = false,
+
+        fn deinit(_: *@This(), _: Allocator) void {}
+    };
+
     /// Initial state.
     pub const empty: RenderState = .{
+        .options = .{},
+        .kitty = .{},
         .rows = 0,
         .cols = 0,
         .colors = .{
@@ -148,6 +192,12 @@ pub const RenderState = struct {
         .dirty = .false,
         .screen = .primary,
     };
+
+    pub fn init(options: Options) RenderState {
+        var result: RenderState = .empty;
+        result.options = options;
+        return result;
+    }
 
     /// The color state for the terminal.
     ///
@@ -295,6 +345,7 @@ pub const RenderState = struct {
     };
 
     pub fn deinit(self: *RenderState, alloc: Allocator) void {
+        self.kitty.deinit(alloc);
         for (
             self.row_data.items(.arena),
             self.row_data.items(.cells),
@@ -353,6 +404,7 @@ pub const RenderState = struct {
         t: *Terminal,
     ) Allocator.Error!void {
         const s: *Screen = t.screens.active;
+        try self.updateKitty(alloc, t);
         const viewport_pin = s.pages.getTopLeft(.viewport);
         const redraw = redraw: {
             // If our screen key changed, we need to do a full rebuild
@@ -702,6 +754,94 @@ pub const RenderState = struct {
         // Clear our dirty flags
         t.flags.dirty = .{};
         s.dirty = .{};
+    }
+
+    fn updateKitty(self: *RenderState, alloc: Allocator, t: *Terminal) Allocator.Error!void {
+        if (comptime !build_options.kitty_graphics) return;
+        if (!self.options.kitty_graphics) return;
+        const storage = &t.screens.active.kitty_images;
+        if (!storage.dirty and
+            !self.kitty.virtual and
+            self.kitty.generation == storage.generation) return;
+
+        var next: KittySnapshot = .{ .generation = storage.generation };
+        errdefer next.deinit(alloc);
+        var images = storage.images.iterator();
+        while (images.next()) |entry| {
+            try next.images.ensureUnusedCapacity(alloc, 1);
+            const retained = entry.value_ptr.*.retain();
+            next.images.putAssumeCapacity(entry.key_ptr.*, retained);
+        }
+
+        const pages = &t.screens.active.pages;
+        const top = pages.getTopLeft(.viewport);
+        const bot = pages.getBottomRight(.viewport).?;
+        const top_y = pages.pointFromPin(.screen, top).?.screen.y;
+        const bot_y = pages.pointFromPin(.screen, bot).?.screen.y;
+        var placements = storage.placements.iterator();
+        while (placements.next()) |entry| {
+            const p = entry.value_ptr;
+            if (p.location == .virtual) {
+                next.virtual = true;
+                continue;
+            }
+            const image = next.images.get(entry.key_ptr.image_id) orelse continue;
+            const rect = p.rect(image, t) orelse continue;
+            const image_top = pages.pointFromPin(.screen, rect.top_left).?.screen.y;
+            const image_bot = pages.pointFromPin(.screen, rect.bottom_right).?.screen.y;
+            if (image_top > bot_y or image_bot < top_y) continue;
+            const dest = p.pixelSize(image, t);
+            if (dest.width == 0 or dest.height == 0) continue;
+            const sx = @min(image.width, p.source_x);
+            const sy = @min(image.height, p.source_y);
+            try next.placements.append(alloc, .{
+                .image_id = image.id,
+                .x = @intCast(rect.top_left.x),
+                .y = @as(i32, @intCast(image_top)) - @as(i32, @intCast(top_y)),
+                .z = p.z,
+                .width = dest.width,
+                .height = dest.height,
+                .cell_offset_x = p.x_offset,
+                .cell_offset_y = p.y_offset,
+                .source_x = sx,
+                .source_y = sy,
+                .source_width = if (p.source_width > 0) @min(image.width - sx, p.source_width) else image.width,
+                .source_height = if (p.source_height > 0) @min(image.height - sy, p.source_height) else image.height,
+            });
+        }
+        const cell_width = if (pages.cols > 0) t.width_px / pages.cols else 0;
+        const cell_height = if (pages.rows > 0) t.height_px / pages.rows else 0;
+        if (next.virtual and cell_width > 0 and cell_height > 0) {
+            var vit = kitty.graphics.unicode.placementIterator(top, bot);
+            while (vit.next()) |vp| {
+                const image = next.images.get(vp.image_id) orelse continue;
+                const rp = vp.renderPlacement(
+                    storage,
+                    image,
+                    cell_width,
+                    cell_height,
+                ) catch continue;
+                if (rp.dest_width == 0 or rp.dest_height == 0) continue;
+                const viewport = pages.pointFromPin(.viewport, rp.top_left) orelse continue;
+                try next.placements.append(alloc, .{ .image_id = image.id, .x = @intCast(rp.top_left.x), .y = @intCast(viewport.viewport.y), .z = -1, .width = rp.dest_width, .height = rp.dest_height, .cell_offset_x = rp.offset_x, .cell_offset_y = rp.offset_y, .source_x = rp.source_x, .source_y = rp.source_y, .source_width = rp.source_width, .source_height = rp.source_height });
+            }
+        }
+        std.mem.sortUnstable(KittySnapshot.Placement, next.placements.items, {}, struct {
+            fn lessThan(_: void, a: KittySnapshot.Placement, b: KittySnapshot.Placement) bool {
+                return a.z < b.z or (a.z == b.z and a.image_id < b.image_id);
+            }
+        }.lessThan);
+        const bg_limit = std.math.minInt(i32) / 2;
+        next.bg_end = @intCast(next.placements.items.len);
+        next.text_end = @intCast(next.placements.items.len);
+        for (next.placements.items, 0..) |p, i| {
+            if (next.bg_end == next.placements.items.len and p.z >= bg_limit) next.bg_end = @intCast(i);
+            if (next.text_end == next.placements.items.len and p.z >= 0) next.text_end = @intCast(i);
+        }
+        next.dirty = true;
+        self.kitty.deinit(alloc);
+        self.kitty = next;
+        storage.dirty = false;
     }
 
     /// Complete a prior `beginUpdate` call by performing any deferred
@@ -2097,4 +2237,138 @@ test "dirty row resets highlights" {
         const row_highlights = row_data.items(.highlights);
         try testing.expectEqual(0, row_highlights[0].items.len);
     }
+}
+
+fn addKittyTestImage(
+    storage: *kitty.graphics.ImageStorage,
+    alloc: Allocator,
+    init_options: kitty.graphics.Image.Init,
+) Allocator.Error!*const kitty.graphics.Image {
+    const image = try kitty.graphics.Image.create(alloc, init_options);
+    errdefer image.release();
+    try storage.addImage(alloc, image);
+    return image;
+}
+
+test "render state kitty opt-out does not consume storage" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(alloc, .{ .cols = 3, .rows = 3 });
+    defer t.deinit(alloc);
+
+    const image = try addKittyTestImage(&t.screens.active.kitty_images, alloc, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = try alloc.dupe(u8, &.{ 1, 2, 3, 4 }),
+    });
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    try testing.expect(t.screens.active.kitty_images.dirty);
+    try testing.expect(!state.kitty.dirty);
+    try testing.expectEqual(@as(usize, 0), state.kitty.images.count());
+    try testing.expectEqual(@as(usize, 1), image.refs.load(.monotonic));
+}
+
+test "render state kitty snapshot retains images across terminal mutation" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(alloc, .{ .cols = 3, .rows = 3 });
+    defer t.deinit(alloc);
+    const storage = &t.screens.active.kitty_images;
+
+    const old = try addKittyTestImage(storage, alloc, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = try alloc.dupe(u8, &.{ 1, 2, 3, 4 }),
+    });
+
+    var state = RenderState.init(.{ .kitty_graphics = true });
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+    try testing.expect(state.kitty.dirty);
+    try testing.expect(!storage.dirty);
+    try testing.expectEqual(old, state.kitty.images.get(1).?);
+
+    const observer = old.retain();
+    defer observer.release();
+    const replacement = try addKittyTestImage(storage, alloc, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = try alloc.dupe(u8, &.{ 5, 6, 7, 8 }),
+    });
+
+    try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, state.kitty.images.get(1).?.data);
+    try state.update(alloc, &t);
+    try testing.expectEqual(replacement, state.kitty.images.get(1).?);
+    try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, observer.data);
+
+    const generation = state.kitty.generation;
+    state.deinit(alloc);
+    state = RenderState.init(.{ .kitty_graphics = true });
+    try state.update(alloc, &t);
+    try testing.expect(state.kitty.dirty);
+    try testing.expectEqual(generation, state.kitty.generation);
+    try testing.expectEqual(replacement, state.kitty.images.get(1).?);
+
+    const current = replacement.retain();
+    defer current.release();
+    storage.delete(alloc, &t, .{ .id = .{ .image_id = 1, .delete = true } });
+    try testing.expectEqualSlices(u8, &.{ 5, 6, 7, 8 }, state.kitty.images.get(1).?.data);
+    try state.update(alloc, &t);
+    try testing.expectEqual(@as(usize, 0), state.kitty.images.count());
+    try testing.expectEqualSlices(u8, &.{ 5, 6, 7, 8 }, current.data);
+}
+
+test "render state kitty snapshot computes placement geometry" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(alloc, .{ .cols = 3, .rows = 3 });
+    defer t.deinit(alloc);
+    t.width_px = 30;
+    t.height_px = 60;
+    const storage = &t.screens.active.kitty_images;
+
+    _ = try addKittyTestImage(storage, alloc, .{
+        .id = 1,
+        .width = 1,
+        .height = 2,
+        .format = .rgb,
+        .data = try alloc.dupe(u8, &.{ 1, 2, 3, 4, 5, 6 }),
+    });
+    const pin = try t.screens.active.pages.trackPin(
+        t.screens.active.pages.pin(.{ .active = .{ .x = 1, .y = 1 } }).?,
+    );
+    try storage.addPlacement(alloc, 1, 1, .{
+        .location = .{ .pin = pin },
+        .columns = 2,
+        .rows = 1,
+        .z = -1,
+    });
+
+    var state = RenderState.init(.{ .kitty_graphics = true });
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    try testing.expectEqual(@as(usize, 1), state.kitty.placements.items.len);
+    const placement = state.kitty.placements.items[0];
+    try testing.expectEqual(@as(u32, 1), placement.image_id);
+    try testing.expectEqual(@as(i32, 1), placement.x);
+    try testing.expectEqual(@as(i32, 1), placement.y);
+    try testing.expectEqual(@as(i32, -1), placement.z);
+    try testing.expectEqual(@as(u32, 20), placement.width);
+    try testing.expectEqual(@as(u32, 20), placement.height);
+    try testing.expectEqual(@as(u32, 1), placement.source_width);
+    try testing.expectEqual(@as(u32, 2), placement.source_height);
 }

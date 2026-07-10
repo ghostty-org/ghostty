@@ -7,7 +7,6 @@ const terminal = @import("../terminal/main.zig");
 const Renderer = @import("../renderer.zig").Renderer;
 const GraphicsAPI = Renderer.API;
 const Texture = GraphicsAPI.Texture;
-const CellSize = @import("size.zig").CellSize;
 const Overlay = @import("Overlay.zig");
 
 const log = std.log.scoped(.renderer_image);
@@ -28,11 +27,6 @@ pub const State = struct {
     kitty_bg_end: u32,
     kitty_text_end: u32,
 
-    /// True if there are any virtual placements. This needs to be known
-    /// because virtual placements need to be recalculated more often
-    /// on frame builds and are generally more expensive to handle.
-    kitty_virtual: bool,
-
     /// Overlays
     overlay_placements: std.ArrayListUnmanaged(Placement),
 
@@ -41,7 +35,6 @@ pub const State = struct {
         .kitty_placements = .empty,
         .kitty_bg_end = 0,
         .kitty_text_end = 0,
-        .kitty_virtual = false,
         .overlay_placements = .empty,
     };
 
@@ -58,9 +51,6 @@ pub const State = struct {
     /// Upload any images to the GPU that need to be uploaded,
     /// and remove any images that are no longer needed on the GPU.
     ///
-    /// If any uploads fail, they are ignored. The return value
-    /// can be used to detect if upload was a total success (true)
-    /// or not (false).
     pub fn upload(
         self: *State,
         alloc: Allocator,
@@ -117,20 +107,15 @@ pub const State = struct {
 
         for (placements) |p| {
             // Look up the image
-            const image = self.images.get(p.image_id) orelse {
+            const image = self.images.getPtr(p.image_id) orelse {
                 log.warn("image not found for placement image_id={}", .{p.image_id});
                 continue;
             };
 
             // Get the texture
-            const texture = switch (image.image) {
-                .ready,
-                .unload_ready,
-                => |t| t,
-                else => {
-                    log.warn("image not ready for placement image_id={}", .{p.image_id});
-                    continue;
-                },
+            const texture = image.image.textureForDraw() orelse {
+                log.warn("image not ready for placement image_id={}", .{p.image_id});
+                continue;
             };
 
             // Create our vertex buffer, which is always exactly one item.
@@ -229,296 +214,55 @@ pub const State = struct {
         });
     }
 
-    /// Returns true if the Kitty graphics state requires an update based
-    /// on the terminal state and our internal state.
-    ///
-    /// This does not read/write state used by drawing.
-    pub fn kittyRequiresUpdate(
-        self: *const State,
-        t: *const terminal.Terminal,
-    ) bool {
-        // If the terminal kitty image state is dirty, we must update.
-        if (t.screens.active.kitty_images.dirty) return true;
-
-        // If we have any virtual references, we must also rebuild our
-        // kitty state on every frame because any cell change can move
-        // an image. If the virtual placements were removed, this will
-        // be set to false on the next update.
-        if (self.kitty_virtual) return true;
-
-        return false;
-    }
-
-    /// Update the Kitty graphics state from the terminal.
-    ///
-    /// This reads/writes state used by drawing.
+    /// Update Kitty GPU state from the terminal-independent retained snapshot.
     pub fn kittyUpdate(
         self: *State,
         alloc: Allocator,
-        t: *const terminal.Terminal,
-        cell_size: CellSize,
-    ) void {
-        const storage = &t.screens.active.kitty_images;
-        defer storage.dirty = false;
+        state: *const terminal.RenderState,
+    ) bool {
+        const snapshot = &state.kitty;
 
-        // We always clear our previous placements no matter what because
-        // we rebuild them from scratch.
+        self.kitty_placements.ensureUnusedCapacity(alloc, snapshot.placements.items.len) catch {
+            return false;
+        };
+
+        var cached = self.images.iterator();
+        while (cached.next()) |entry| switch (entry.key_ptr.*) {
+            .kitty => |id| if (!snapshot.images.contains(id)) entry.value_ptr.image.markForUnload(),
+            .overlay => {},
+        };
+
+        var complete = true;
+        for (snapshot.placements.items) |placement| {
+            const image = snapshot.images.get(placement.image_id) orelse continue;
+            self.prepKittyImageRetained(alloc, image) catch |err| {
+                complete = false;
+                log.warn("error preparing kitty image err={}", .{err});
+            };
+        }
         self.kitty_placements.clearRetainingCapacity();
-        self.kitty_virtual = false;
-
-        // Go through our known images and if there are any that are no longer
-        // in use then mark them to be freed.
-        //
-        // This never conflicts with the below because a placement can't
-        // reference an image that doesn't exist.
-        {
-            var it = self.images.iterator();
-            while (it.next()) |kv| {
-                switch (kv.key_ptr.*) {
-                    // We're only looking at Kitty images
-                    .kitty => |id| if (storage.imageById(id) == null) {
-                        kv.value_ptr.image.markForUnload();
-                    },
-
-                    .overlay => {},
-                }
-            }
-        }
-
-        // The top-left and bottom-right corners of our viewport in screen
-        // points. This lets us determine offsets and containment of placements.
-        const top = t.screens.active.pages.getTopLeft(.viewport);
-        const bot = t.screens.active.pages.getBottomRight(.viewport).?;
-        const top_y = t.screens.active.pages.pointFromPin(.screen, top).?.screen.y;
-        const bot_y = t.screens.active.pages.pointFromPin(.screen, bot).?.screen.y;
-
-        // Go through the placements and ensure the image is
-        // on the GPU or else is ready to be sent to the GPU.
-        var it = storage.placements.iterator();
-        while (it.next()) |kv| {
-            const p = kv.value_ptr;
-
-            // Special logic based on location
-            switch (p.location) {
-                .pin => {},
-                .virtual => {
-                    // We need to mark virtual placements on our renderer so that
-                    // we know to rebuild in more scenarios since cell changes can
-                    // now trigger placement changes.
-                    self.kitty_virtual = true;
-
-                    // We also continue out because virtual placements are
-                    // only triggered by the unicode placeholder, not by the
-                    // placement itself.
-                    continue;
-                },
-            }
-
-            // Get the image for the placement
-            const image = storage.imageById(kv.key_ptr.image_id) orelse {
-                log.warn(
-                    "missing image for placement, ignoring image_id={}",
-                    .{kv.key_ptr.image_id},
-                );
-                continue;
-            };
-
-            self.prepKittyPlacement(
-                alloc,
-                t,
-                top_y,
-                bot_y,
-                &image,
-                p,
-            ) catch |err| {
-                // For errors we log and continue. We try to place
-                // other placements even if one fails.
-                log.warn("error preparing kitty placement err={}", .{err});
-            };
-        }
-
-        // If we have virtual placements then we need to scan for placeholders.
-        if (self.kitty_virtual) {
-            var v_it = terminal.kitty.graphics.unicode.placementIterator(top, bot);
-            while (v_it.next()) |virtual_p| {
-                self.prepKittyVirtualPlacement(
-                    alloc,
-                    t,
-                    &virtual_p,
-                    cell_size,
-                ) catch |err| {
-                    // For errors we log and continue. We try to place
-                    // other placements even if one fails.
-                    log.warn("error preparing kitty placement err={}", .{err});
-                };
-            }
-        }
-
-        // Sort the placements by their Z value.
-        std.mem.sortUnstable(
-            Placement,
-            self.kitty_placements.items,
-            {},
-            struct {
-                fn lessThan(
-                    ctx: void,
-                    lhs: Placement,
-                    rhs: Placement,
-                ) bool {
-                    _ = ctx;
-                    return lhs.z < rhs.z or
-                        (lhs.z == rhs.z and lhs.image_id.zLessThan(rhs.image_id));
-                }
-            }.lessThan,
-        );
-
-        // Find our indices. The values are sorted by z so we can
-        // find the first placement out of bounds to find the limits.
-        const bg_limit = std.math.minInt(i32) / 2;
-        var bg_end: ?u32 = null;
-        var text_end: ?u32 = null;
-        for (self.kitty_placements.items, 0..) |p, i| {
-            if (bg_end == null and p.z >= bg_limit) bg_end = @intCast(i);
-            if (text_end == null and p.z >= 0) text_end = @intCast(i);
-        }
-
-        // If we didn't see any images with a z > the bg limit,
-        // then our bg end is the end of our placement list.
-        self.kitty_bg_end =
-            bg_end orelse @intCast(self.kitty_placements.items.len);
-        // Same idea for the image_text_end.
-        self.kitty_text_end =
-            text_end orelse @intCast(self.kitty_placements.items.len);
+        for (snapshot.placements.items) |p| self.kitty_placements.appendAssumeCapacity(.{
+            .image_id = .{ .kitty = p.image_id },
+            .x = p.x,
+            .y = p.y,
+            .z = p.z,
+            .width = p.width,
+            .height = p.height,
+            .cell_offset_x = p.cell_offset_x,
+            .cell_offset_y = p.cell_offset_y,
+            .source_x = p.source_x,
+            .source_y = p.source_y,
+            .source_width = p.source_width,
+            .source_height = p.source_height,
+        });
+        self.kitty_bg_end = snapshot.bg_end;
+        self.kitty_text_end = snapshot.text_end;
+        return complete;
     }
 
     const PrepImageError = error{
         OutOfMemory,
-        ImageConversionError,
     };
-
-    /// Get the viewport-relative position for this
-    /// placement and add it to the placements list.
-    fn prepKittyPlacement(
-        self: *State,
-        alloc: Allocator,
-        t: *const terminal.Terminal,
-        top_y: u32,
-        bot_y: u32,
-        image: *const terminal.kitty.graphics.Image,
-        p: *const terminal.kitty.graphics.ImageStorage.Placement,
-    ) PrepImageError!void {
-        // Get the rect for the placement. If this placement doesn't have
-        // a rect then its virtual or something so skip it.
-        const rect = p.rect(image.*, t) orelse return;
-
-        // This is expensive but necessary.
-        const img_top_y = t.screens.active.pages.pointFromPin(.screen, rect.top_left).?.screen.y;
-        const img_bot_y = t.screens.active.pages.pointFromPin(.screen, rect.bottom_right).?.screen.y;
-
-        // If the selection isn't within our viewport then skip it.
-        if (img_top_y > bot_y) return;
-        if (img_bot_y < top_y) return;
-
-        // We need to prep this image for upload if it isn't in the
-        // cache OR it is in the cache but the transmit time doesn't
-        // match meaning this image is different.
-        try self.prepKittyImage(alloc, image);
-
-        // Calculate the dimensions of our image, taking in to
-        // account the rows / columns specified by the placement.
-        const dest_size = p.pixelSize(image.*, t);
-
-        // Calculate the source rectangle
-        const source_x = @min(image.width, p.source_x);
-        const source_y = @min(image.height, p.source_y);
-        const source_width = if (p.source_width > 0)
-            @min(image.width - source_x, p.source_width)
-        else
-            image.width;
-        const source_height = if (p.source_height > 0)
-            @min(image.height - source_y, p.source_height)
-        else
-            image.height;
-
-        // Get the viewport-relative Y position of the placement.
-        const y_pos: i32 = @as(i32, @intCast(img_top_y)) - @as(i32, @intCast(top_y));
-
-        // Accumulate the placement
-        if (dest_size.width > 0 and dest_size.height > 0) {
-            try self.kitty_placements.append(alloc, .{
-                .image_id = .{ .kitty = image.id },
-                .x = @intCast(rect.top_left.x),
-                .y = y_pos,
-                .z = p.z,
-                .width = dest_size.width,
-                .height = dest_size.height,
-                .cell_offset_x = p.x_offset,
-                .cell_offset_y = p.y_offset,
-                .source_x = source_x,
-                .source_y = source_y,
-                .source_width = source_width,
-                .source_height = source_height,
-            });
-        }
-    }
-
-    fn prepKittyVirtualPlacement(
-        self: *State,
-        alloc: Allocator,
-        t: *const terminal.Terminal,
-        p: *const terminal.kitty.graphics.unicode.Placement,
-        cell_size: CellSize,
-    ) PrepImageError!void {
-        const storage = &t.screens.active.kitty_images;
-        const image = storage.imageById(p.image_id) orelse {
-            log.warn(
-                "missing image for virtual placement, ignoring image_id={}",
-                .{p.image_id},
-            );
-            return;
-        };
-
-        const rp = p.renderPlacement(
-            storage,
-            &image,
-            cell_size.width,
-            cell_size.height,
-        ) catch |err| {
-            log.warn("error rendering virtual placement err={}", .{err});
-            return;
-        };
-
-        // If our placement is zero sized then we don't do anything.
-        if (rp.dest_width == 0 or rp.dest_height == 0) return;
-
-        const viewport: terminal.point.Point = t.screens.active.pages.pointFromPin(
-            .viewport,
-            rp.top_left,
-        ) orelse {
-            // This is unreachable with virtual placements because we should
-            // only ever be looking at virtual placements that are in our
-            // viewport in the renderer and virtual placements only ever take
-            // up one row.
-            unreachable;
-        };
-
-        // Prepare the image for the GPU and store the placement.
-        try self.prepKittyImage(alloc, &image);
-        try self.kitty_placements.append(alloc, .{
-            .image_id = .{ .kitty = image.id },
-            .x = @intCast(rp.top_left.x),
-            .y = @intCast(viewport.viewport.y),
-            .z = -1,
-            .width = rp.dest_width,
-            .height = rp.dest_height,
-            .cell_offset_x = rp.offset_x,
-            .cell_offset_y = rp.offset_y,
-            .source_x = rp.source_x,
-            .source_y = rp.source_y,
-            .source_width = rp.source_width,
-            .source_height = rp.source_height,
-        });
-    }
 
     /// Prepare an image for upload to the GPU.
     fn prepImage(
@@ -526,7 +270,7 @@ pub const State = struct {
         alloc: Allocator,
         id: Id,
         generation: u64,
-        pending: Image.Pending,
+        source: Image.Source,
     ) PrepImageError!void {
         // If this image exists and its generation is the same it is the
         // identical image so we don't need to send it to the GPU.
@@ -534,13 +278,14 @@ pub const State = struct {
         if (gop.found_existing and
             gop.value_ptr.generation == generation)
         {
+            gop.value_ptr.image.cancelUnload();
             return;
         }
 
         // Copy the data so we own it.
         const data = if (alloc.dupe(
             u8,
-            pending.dataSlice(),
+            source.data,
         )) |v| v else |_| {
             if (!gop.found_existing) {
                 // If this is a new entry we can just remove it since it
@@ -554,69 +299,56 @@ pub const State = struct {
 
             return error.OutOfMemory;
         };
-        // Note: we don't need to errdefer free the data because it is
-        // put into the map immediately below and our errdefer to
-        // handle our map state will fix this up.
-
         // Store it in the map
-        const new_image: Image = .{
-            .pending = .{
-                .width = pending.width,
-                .height = pending.height,
-                .pixel_format = pending.pixel_format,
-                .data = data.ptr,
-            },
+        var pending: Image.Pending = .{
+            .width = source.width,
+            .height = source.height,
+            .pixel_format = source.pixel_format,
+            .backing = .{ .renderer_owned = data },
         };
         if (!gop.found_existing) {
             gop.value_ptr.* = .{
-                .image = new_image,
+                .image = .{ .pending = pending.take() },
                 .generation = 0,
             };
         } else {
             gop.value_ptr.image.markForReplace(
                 alloc,
-                new_image,
+                &pending,
             );
         }
-
-        // If any error happens, we unload the image and it is invalid.
-        errdefer gop.value_ptr.image.markForUnload();
-
-        gop.value_ptr.image.prepForUpload(alloc) catch |err| {
-            log.warn("error preparing image for upload err={}", .{err});
-            return error.ImageConversionError;
-        };
         gop.value_ptr.generation = generation;
     }
 
-    /// Prepare the provided Kitty image for upload to the GPU by copying its
-    /// data with our allocator and setting it to the pending state.
-    fn prepKittyImage(
+    fn prepKittyImageRetained(
         self: *State,
         alloc: Allocator,
         image: *const terminal.kitty.graphics.Image,
     ) PrepImageError!void {
-        try self.prepImage(
-            alloc,
-            .{ .kitty = image.id },
-            image.generation,
-            .{
-                .width = image.width,
-                .height = image.height,
-                .pixel_format = switch (image.format) {
-                    .gray => .gray,
-                    .gray_alpha => .gray_alpha,
-                    .rgb => .rgb,
-                    .rgba => .rgba,
-                    .png => unreachable, // should be decoded by now
-                },
+        const id: Id = .{ .kitty = image.id };
+        if (self.images.getPtr(id)) |entry| {
+            if (entry.generation == image.generation) {
+                entry.image.cancelUnload();
+                return;
+            }
+        } else try self.images.ensureUnusedCapacity(alloc, 1);
 
-                // constCasts are always gross but this one is safe is because
-                // the data is only read from here and copied into its own
-                // buffer.
-                .data = @constCast(image.data.ptr),
+        const retained = image.retain();
+        var pending: Image.Pending = .{
+            .width = image.width,
+            .height = image.height,
+            .pixel_format = switch (image.format) {
+                .gray => .gray,
+                .gray_alpha => .gray_alpha,
+                .rgb => .rgb,
+                .rgba => .rgba,
+                .png => unreachable,
             },
-        );
+            .backing = .{ .kitty_retained = retained },
+        };
+        const gop = self.images.getOrPutAssumeCapacity(id);
+        if (gop.found_existing) gop.value_ptr.image.markForReplace(alloc, &pending) else gop.value_ptr.* = .{ .image = .{ .pending = pending.take() }, .generation = 0 };
+        gop.value_ptr.generation = image.generation;
     }
 };
 
@@ -724,21 +456,77 @@ pub const Image = union(enum) {
         pending: Pending,
     };
 
+    /// Non-owning source data used only while copying generic images into
+    /// renderer-owned pending storage.
+    pub const Source = struct {
+        height: u32,
+        width: u32,
+        pixel_format: Pending.PixelFormat,
+        data: []const u8,
+    };
+
     /// Pending image data that needs to be uploaded to the GPU.
     pub const Pending = struct {
         height: u32,
         width: u32,
         pixel_format: PixelFormat,
 
-        /// Data is always expected to be (width * height * bpp).
-        data: [*]u8,
+        /// Explicit ownership of the immutable CPU bytes. Retained Kitty data
+        /// must be released with the same allocator used by terminal storage.
+        backing: Backing,
 
-        pub fn dataSlice(self: Pending) []u8 {
-            return self.data[0..self.len()];
+        pub const Backing = union(enum) {
+            /// Moved-from sentinel. Live Pending values never use this.
+            none,
+
+            /// Mutable allocation owned by the renderer allocator.
+            renderer_owned: []u8,
+
+            /// Immutable terminal image held through the core retain API.
+            kitty_retained: *terminal.kitty.graphics.Image,
+
+            pub fn dataSlice(self: *const Backing) []const u8 {
+                return switch (self.*) {
+                    .none => &.{},
+                    .renderer_owned => |data| data,
+                    .kitty_retained => |retained| retained.data,
+                };
+            }
+
+            pub fn deinit(self: *Backing, alloc: Allocator) void {
+                switch (self.*) {
+                    .none => {},
+                    .renderer_owned => |data| alloc.free(data),
+                    .kitty_retained => self.kitty_retained.release(),
+                }
+                self.* = .none;
+            }
+
+            pub fn isRetained(self: *const Backing) bool {
+                return self.* == .kitty_retained;
+            }
+        };
+
+        pub fn dataSlice(self: *const Pending) []const u8 {
+            const data = self.backing.dataSlice();
+            assert(data.len == self.len());
+            return data;
         }
 
-        pub fn len(self: Pending) usize {
+        pub fn len(self: *const Pending) usize {
             return self.width * self.height * self.pixel_format.bpp();
+        }
+
+        pub fn deinit(self: *Pending, alloc: Allocator) void {
+            self.backing.deinit(alloc);
+        }
+
+        /// Explicitly move this ownership-bearing value and invalidate the
+        /// source so only the returned Pending may release its backing.
+        pub fn take(self: *Pending) Pending {
+            const result = self.*;
+            self.backing = .none;
+            return result;
         }
 
         pub const PixelFormat = enum {
@@ -769,72 +557,157 @@ pub const Image = union(enum) {
         };
     };
 
-    pub fn deinit(self: Image, alloc: Allocator) void {
-        switch (self) {
-            .pending,
-            .unload_pending,
-            => |p| alloc.free(p.dataSlice()),
+    pub fn deinit(self: *Image, alloc: Allocator) void {
+        switch (self.*) {
+            .pending => self.pending.deinit(alloc),
+            .unload_pending => self.unload_pending.deinit(alloc),
 
-            .replace, .unload_replace => |r| {
-                alloc.free(r.pending.dataSlice());
-                r.texture.deinit();
+            .replace => {
+                self.replace.pending.deinit(alloc);
+                self.replace.texture.deinit();
+            },
+            .unload_replace => {
+                self.unload_replace.pending.deinit(alloc);
+                self.unload_replace.texture.deinit();
             },
 
-            .ready,
-            .unload_ready,
-            => |t| t.deinit(),
+            .ready => self.ready.deinit(),
+            .unload_ready => self.unload_ready.deinit(),
         }
+        self.* = undefined;
     }
 
     /// Mark this image for unload whatever state it is in.
     pub fn markForUnload(self: *Image) void {
-        self.* = switch (self.*) {
+        switch (self.*) {
             .unload_pending,
             .unload_replace,
             .unload_ready,
             => return,
 
-            .ready => |t| .{ .unload_ready = t },
-            .pending => |p| .{ .unload_pending = p },
-            .replace => |r| .{ .unload_replace = r },
-        };
+            .ready => {
+                const texture = self.ready;
+                self.* = .{ .unload_ready = texture };
+            },
+            .pending => {
+                const pending = self.pending.take();
+                self.* = .{ .unload_pending = pending };
+            },
+            .replace => {
+                const texture = self.replace.texture;
+                const pending = self.replace.pending.take();
+                self.* = .{ .unload_replace = .{
+                    .texture = texture,
+                    .pending = pending,
+                } };
+            },
+        }
+    }
+
+    /// Cancel a pending unload without changing or duplicating ownership.
+    /// This is used when the same source generation becomes active again
+    /// before the renderer processes its unload transition.
+    fn cancelUnload(self: *Image) void {
+        switch (self.*) {
+            .pending,
+            .replace,
+            .ready,
+            => {},
+
+            .unload_pending => {
+                const pending = self.unload_pending.take();
+                self.* = .{ .pending = pending };
+            },
+            .unload_ready => {
+                const texture = self.unload_ready;
+                self.* = .{ .ready = texture };
+            },
+            .unload_replace => {
+                const texture = self.unload_replace.texture;
+                const pending = self.unload_replace.pending.take();
+                self.* = .{ .replace = .{
+                    .texture = texture,
+                    .pending = pending,
+                } };
+            },
+        }
     }
 
     /// Mark the current image to be replaced with a pending one. This will
     /// attempt to update the existing texture if we have one, otherwise it
     /// will act like a new upload.
-    pub fn markForReplace(self: *Image, alloc: Allocator, img: Image) void {
-        assert(img.isPending());
-
-        // If we have pending data right now, free it.
-        if (self.getPending()) |p| {
-            alloc.free(p.dataSlice());
+    pub fn markForReplace(
+        self: *Image,
+        alloc: Allocator,
+        pending: *Pending,
+    ) void {
+        const replacement = pending.take();
+        switch (self.*) {
+            .pending => {
+                self.pending.deinit(alloc);
+                self.* = .{ .pending = replacement };
+            },
+            .unload_pending => {
+                self.unload_pending.deinit(alloc);
+                self.* = .{ .pending = replacement };
+            },
+            .ready => {
+                const texture = self.ready;
+                self.* = .{ .replace = .{
+                    .texture = texture,
+                    .pending = replacement,
+                } };
+            },
+            .unload_ready => {
+                const texture = self.unload_ready;
+                self.* = .{ .replace = .{
+                    .texture = texture,
+                    .pending = replacement,
+                } };
+            },
+            .replace => {
+                self.replace.pending.deinit(alloc);
+                const texture = self.replace.texture;
+                self.* = .{ .replace = .{
+                    .texture = texture,
+                    .pending = replacement,
+                } };
+            },
+            .unload_replace => {
+                self.unload_replace.pending.deinit(alloc);
+                const texture = self.unload_replace.texture;
+                self.* = .{ .replace = .{
+                    .texture = texture,
+                    .pending = replacement,
+                } };
+            },
         }
-        // If we have an existing texture, use it in the replace.
-        if (self.getTexture()) |t| {
-            self.* = .{ .replace = .{
-                .texture = t,
-                .pending = img.getPending().?,
-            } };
-            return;
-        }
-        // Otherwise we just become a pending image.
-        self.* = .{ .pending = img.getPending().? };
     }
 
     /// Returns true if this image is pending upload.
-    pub fn isPending(self: Image) bool {
-        return self.getPending() != null;
+    pub fn isPending(self: *const Image) bool {
+        return self.getPendingPointerConst() != null;
     }
 
     /// Returns true if this image has an associated texture.
-    pub fn hasTexture(self: Image) bool {
-        return self.getTexture() != null;
+    pub fn hasTexture(self: *const Image) bool {
+        return switch (self.*) {
+            .ready, .unload_ready, .replace, .unload_replace => true,
+            .pending, .unload_pending => false,
+        };
+    }
+
+    fn textureForDraw(self: *const Image) ?Texture {
+        return switch (self.*) {
+            .ready => self.ready,
+            .unload_ready => self.unload_ready,
+            else => null,
+        };
     }
 
     /// Returns true if this image is marked for unload.
-    pub fn isUnloading(self: Image) bool {
-        return switch (self) {
+    pub fn isUnloading(self: *const Image) bool {
+        return switch (self.*) {
             .unload_pending,
             .unload_replace,
             .unload_ready,
@@ -866,8 +739,8 @@ pub const Image = union(enum) {
             .rgba => unreachable,
             .bgra => wuffs.swizzle.bgraToRgba(alloc, data),
         };
-        alloc.free(data);
-        p.data = rgba.ptr;
+        p.backing.deinit(alloc);
+        p.backing = .{ .renderer_owned = rgba };
         p.pixel_format = .rgba;
     }
 
@@ -895,7 +768,7 @@ pub const Image = union(enum) {
         try self.prepForUpload(alloc);
 
         // Get our pending info
-        const p = self.getPending().?;
+        const p = self.getPendingPointerConst().?;
 
         // Create our texture
         const texture = Texture.init(
@@ -915,40 +788,6 @@ pub const Image = union(enum) {
         self.* = .{ .ready = texture };
     }
 
-    /// Returns any pending image data for this image that requires upload.
-    ///
-    /// If there is no pending data to upload, returns null.
-    fn getPending(self: Image) ?Pending {
-        return switch (self) {
-            .pending,
-            .unload_pending,
-            => |p| p,
-
-            .replace,
-            .unload_replace,
-            => |r| r.pending,
-
-            else => null,
-        };
-    }
-
-    /// Returns the texture for this image.
-    ///
-    /// If there is no texture for it yet, returns null.
-    fn getTexture(self: Image) ?Texture {
-        return switch (self) {
-            .ready,
-            .unload_ready,
-            => |t| t,
-
-            .replace,
-            .unload_replace,
-            => |r| r.texture,
-
-            else => null,
-        };
-    }
-
     // Same as getPending but returns a pointer instead of a copy.
     fn getPendingPointer(self: *Image) ?*Pending {
         return switch (self.*) {
@@ -961,4 +800,394 @@ pub const Image = union(enum) {
             else => null,
         };
     }
+
+    fn getPendingPointerConst(self: *const Image) ?*const Pending {
+        return switch (self.*) {
+            .pending => &self.pending,
+            .unload_pending => &self.unload_pending,
+
+            .replace => &self.replace.pending,
+            .unload_replace => &self.unload_replace.pending,
+
+            else => null,
+        };
+    }
 };
+
+/// Test-only convenience for constructing and transferring a Kitty image.
+fn addTestImage(
+    storage: *terminal.kitty.graphics.ImageStorage,
+    alloc: Allocator,
+    init: terminal.kitty.graphics.Image.Init,
+) Allocator.Error!void {
+    const image = try terminal.kitty.graphics.Image.create(alloc, init);
+    errdefer image.release();
+    try storage.addImage(alloc, image);
+}
+
+test "renderer kitty snapshot transfers retained images without copying" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var term = try terminal.Terminal.init(alloc, .{ .rows = 3, .cols = 3 });
+    defer term.deinit(alloc);
+    term.width_px = 3;
+    term.height_px = 3;
+    const storage = &term.screens.active.kitty_images;
+    try addTestImage(storage, alloc, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = try alloc.dupe(u8, &.{ 1, 2, 3, 4 }),
+    });
+    try addTestImage(storage, alloc, .{
+        .id = 2,
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = try alloc.dupe(u8, &.{ 5, 6, 7, 8 }),
+    });
+    const pin = try term.screens.active.pages.trackPin(
+        term.screens.active.pages.pin(.{ .active = .{} }).?,
+    );
+    try storage.addPlacement(alloc, 1, 1, .{
+        .location = .{ .pin = pin },
+        .columns = 1,
+        .rows = 1,
+    });
+
+    var render_state = terminal.RenderState.init(.{ .kitty_graphics = true });
+    defer render_state.deinit(alloc);
+    try render_state.update(alloc, &term);
+    const snapshot_image = render_state.kitty.images.get(1).?;
+    try testing.expectEqual(@as(usize, 2), snapshot_image.refs.load(.monotonic));
+
+    var state: State = .empty;
+    defer state.deinit(alloc);
+    try testing.expect(state.kittyUpdate(alloc, &render_state));
+    try testing.expect(state.images.getPtr(.{ .kitty = 2 }) == null);
+    const pending = state.images.getPtr(.{ .kitty = 1 }).?.image.getPendingPointerConst().?;
+    try testing.expectEqual(snapshot_image.data.ptr, pending.dataSlice().ptr);
+    try testing.expectEqual(@as(usize, 3), snapshot_image.refs.load(.monotonic));
+
+    try testing.expect(state.kittyUpdate(alloc, &render_state));
+    try testing.expectEqual(@as(usize, 3), snapshot_image.refs.load(.monotonic));
+}
+
+test "renderer kitty prep retains payload without copy or duplicate retain" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var term = try terminal.Terminal.init(alloc, .{ .rows = 3, .cols = 3 });
+    defer term.deinit(alloc);
+
+    var storage: terminal.kitty.graphics.ImageStorage = .{};
+    defer storage.deinit(alloc, term.screens.active);
+
+    try addTestImage(&storage, alloc, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .format = .rgb,
+        .data = try alloc.dupe(u8, &.{ 1, 2, 3 }),
+    });
+    const borrowed = storage.imageById(1).?;
+
+    var state: State = .empty;
+    defer state.deinit(alloc);
+    try state.prepKittyImageRetained(alloc, borrowed);
+
+    const pending = state.images.getPtr(.{ .kitty = 1 }).?.image.getPendingPointerConst().?;
+    try testing.expectEqual(borrowed.data.ptr, pending.dataSlice().ptr);
+    const payload = pending.backing.kitty_retained;
+    try testing.expectEqual(@as(usize, 2), payload.refs.load(.monotonic));
+
+    var failing = testing.FailingAllocator.init(alloc, .{ .fail_index = 0 });
+    try state.prepKittyImageRetained(failing.allocator(), borrowed);
+    try testing.expect(!failing.has_induced_failure);
+    try testing.expectEqual(@as(usize, 2), payload.refs.load(.monotonic));
+}
+
+test "renderer kitty same generation cancels pending unload without retaining again" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var term = try terminal.Terminal.init(alloc, .{ .rows = 3, .cols = 3 });
+    defer term.deinit(alloc);
+
+    var storage: terminal.kitty.graphics.ImageStorage = .{};
+    defer storage.deinit(alloc, term.screens.active);
+
+    try addTestImage(&storage, alloc, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = try alloc.dupe(u8, &.{ 1, 2, 3, 4 }),
+    });
+    const borrowed = storage.imageById(1).?;
+
+    var state: State = .empty;
+    defer state.deinit(alloc);
+    try state.prepKittyImageRetained(alloc, borrowed);
+
+    const renderer_image = &state.images.getPtr(.{ .kitty = 1 }).?.image;
+    const pending_before = renderer_image.getPendingPointerConst().?;
+    const data_ptr = pending_before.dataSlice().ptr;
+    const payload = pending_before.backing.kitty_retained;
+    renderer_image.markForUnload();
+    try testing.expect(renderer_image.isUnloading());
+
+    var failing = testing.FailingAllocator.init(alloc, .{ .fail_index = 0 });
+    try state.prepKittyImageRetained(failing.allocator(), borrowed);
+    try testing.expect(!failing.has_induced_failure);
+    try testing.expect(!renderer_image.isUnloading());
+    try testing.expect(renderer_image.isPending());
+    try testing.expectEqual(
+        data_ptr,
+        renderer_image.getPendingPointerConst().?.dataSlice().ptr,
+    );
+    try testing.expectEqual(@as(usize, 2), payload.refs.load(.monotonic));
+}
+
+test "renderer kitty retained pending survives replacement and releases old payload" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var term = try terminal.Terminal.init(alloc, .{ .rows = 3, .cols = 3 });
+    defer term.deinit(alloc);
+
+    var storage: terminal.kitty.graphics.ImageStorage = .{};
+    defer storage.deinit(alloc, term.screens.active);
+
+    try addTestImage(&storage, alloc, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = try alloc.dupe(u8, &.{ 1, 2, 3, 4 }),
+    });
+    const original = storage.imageById(1).?;
+
+    var state: State = .empty;
+    defer state.deinit(alloc);
+    try state.prepKittyImageRetained(alloc, original);
+    const old_pending = state.images.getPtr(.{ .kitty = 1 }).?.image.getPendingPointerConst().?;
+    try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, old_pending.dataSlice());
+    const old_observer = original.retain();
+    defer old_observer.release();
+    const old_payload = old_observer;
+    try testing.expectEqual(@as(usize, 3), old_payload.refs.load(.monotonic));
+
+    try addTestImage(&storage, alloc, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = try alloc.dupe(u8, &.{ 5, 6, 7, 8 }),
+    });
+    try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, old_pending.dataSlice());
+    try testing.expectEqual(@as(usize, 2), old_payload.refs.load(.monotonic));
+
+    const replacement = storage.imageById(1).?;
+    try state.prepKittyImageRetained(alloc, replacement);
+    try testing.expectEqual(@as(usize, 1), old_payload.refs.load(.monotonic));
+    const new_pending = state.images.getPtr(.{ .kitty = 1 }).?.image.getPendingPointerConst().?;
+    try testing.expectEqual(replacement.data.ptr, new_pending.dataSlice().ptr);
+    try testing.expectEqualSlices(u8, &.{ 5, 6, 7, 8 }, new_pending.dataSlice());
+}
+
+test "renderer kitty retained pending survives deletion" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var term = try terminal.Terminal.init(alloc, .{ .rows = 3, .cols = 3 });
+    defer term.deinit(alloc);
+
+    var storage: terminal.kitty.graphics.ImageStorage = .{};
+    defer storage.deinit(alloc, term.screens.active);
+
+    try addTestImage(&storage, alloc, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = try alloc.dupe(u8, &.{ 1, 2, 3, 4 }),
+    });
+    const borrowed = storage.imageById(1).?;
+
+    var state: State = .empty;
+    defer state.deinit(alloc);
+    try state.prepKittyImageRetained(alloc, borrowed);
+    const pending = state.images.getPtr(.{ .kitty = 1 }).?.image.getPendingPointerConst().?;
+
+    storage.delete(alloc, &term, .{ .id = .{ .image_id = 1, .delete = true } });
+    try testing.expect(storage.imageById(1) == null);
+    try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, pending.dataSlice());
+}
+
+test "renderer kitty retained pending survives eviction" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var term = try terminal.Terminal.init(alloc, .{ .rows = 3, .cols = 3 });
+    defer term.deinit(alloc);
+
+    var storage: terminal.kitty.graphics.ImageStorage = .{ .total_limit = 4 };
+    defer storage.deinit(alloc, term.screens.active);
+
+    try addTestImage(&storage, alloc, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = try alloc.dupe(u8, &.{ 1, 2, 3, 4 }),
+    });
+    const borrowed = storage.imageById(1).?;
+
+    var state: State = .empty;
+    defer state.deinit(alloc);
+    try state.prepKittyImageRetained(alloc, borrowed);
+    const pending = state.images.getPtr(.{ .kitty = 1 }).?.image.getPendingPointerConst().?;
+
+    try addTestImage(&storage, alloc, .{
+        .id = 2,
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = try alloc.dupe(u8, &.{ 5, 6, 7, 8 }),
+    });
+    try testing.expect(storage.imageById(1) == null);
+    try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, pending.dataSlice());
+}
+
+test "renderer kitty retained pending survives storage deinit" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var term = try terminal.Terminal.init(alloc, .{ .rows = 3, .cols = 3 });
+    defer term.deinit(alloc);
+
+    var storage: terminal.kitty.graphics.ImageStorage = .{};
+    var storage_live = true;
+    defer if (storage_live) storage.deinit(alloc, term.screens.active);
+
+    try addTestImage(&storage, alloc, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = try alloc.dupe(u8, &.{ 1, 2, 3, 4 }),
+    });
+    const borrowed = storage.imageById(1).?;
+
+    var state: State = .empty;
+    defer state.deinit(alloc);
+    try state.prepKittyImageRetained(alloc, borrowed);
+    const pending = state.images.getPtr(.{ .kitty = 1 }).?.image.getPendingPointerConst().?;
+
+    storage.deinit(alloc, term.screens.active);
+    storage_live = false;
+    try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, pending.dataSlice());
+}
+
+test "renderer kitty RGB conversion releases retained source" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var term = try terminal.Terminal.init(alloc, .{ .rows = 3, .cols = 3 });
+    defer term.deinit(alloc);
+
+    var storage: terminal.kitty.graphics.ImageStorage = .{};
+    defer storage.deinit(alloc, term.screens.active);
+
+    try addTestImage(&storage, alloc, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .format = .rgb,
+        .data = try alloc.dupe(u8, &.{ 1, 2, 3 }),
+    });
+    const borrowed = storage.imageById(1).?;
+
+    var state: State = .empty;
+    defer state.deinit(alloc);
+    try state.prepKittyImageRetained(alloc, borrowed);
+
+    const image = &state.images.getPtr(.{ .kitty = 1 }).?.image;
+    const retained = image.getPendingPointerConst().?;
+    const payload = retained.backing.kitty_retained;
+    try testing.expectEqual(@as(usize, 2), payload.refs.load(.monotonic));
+
+    try image.prepForUpload(alloc);
+    const converted = image.getPendingPointerConst().?;
+    try testing.expectEqual(Image.Pending.PixelFormat.rgba, converted.pixel_format);
+    try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 255 }, converted.dataSlice());
+    try testing.expect(!converted.backing.isRetained());
+    try testing.expectEqual(@as(usize, 1), payload.refs.load(.monotonic));
+}
+
+test "renderer kitty RGBA remains retained without an intermediate copy" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var term = try terminal.Terminal.init(alloc, .{ .rows = 3, .cols = 3 });
+    defer term.deinit(alloc);
+
+    var storage: terminal.kitty.graphics.ImageStorage = .{};
+    defer storage.deinit(alloc, term.screens.active);
+
+    try addTestImage(&storage, alloc, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = try alloc.dupe(u8, &.{ 1, 2, 3, 4 }),
+    });
+    const borrowed = storage.imageById(1).?;
+
+    var state: State = .empty;
+    try state.prepKittyImageRetained(alloc, borrowed);
+    const image = &state.images.getPtr(.{ .kitty = 1 }).?.image;
+    const payload = image.getPendingPointerConst().?.backing.kitty_retained;
+
+    try image.prepForUpload(alloc);
+    const pending = image.getPendingPointerConst().?;
+    try testing.expect(pending.backing.isRetained());
+    try testing.expectEqual(borrowed.data.ptr, pending.dataSlice().ptr);
+    try testing.expectEqual(@as(usize, 2), payload.refs.load(.monotonic));
+
+    state.deinit(alloc);
+    try testing.expectEqual(@as(usize, 1), payload.refs.load(.monotonic));
+}
+
+test "renderer deinit and pending unload release retained Kitty payloads" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var term = try terminal.Terminal.init(alloc, .{ .rows = 3, .cols = 3 });
+    defer term.deinit(alloc);
+
+    var storage: terminal.kitty.graphics.ImageStorage = .{};
+    defer storage.deinit(alloc, term.screens.active);
+
+    try addTestImage(&storage, alloc, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .format = .rgba,
+        .data = try alloc.dupe(u8, &.{ 1, 2, 3, 4 }),
+    });
+    const borrowed = storage.imageById(1).?;
+
+    var state: State = .empty;
+    try state.prepKittyImageRetained(alloc, borrowed);
+    const image = &state.images.getPtr(.{ .kitty = 1 }).?.image;
+    const payload = image.getPendingPointerConst().?.backing.kitty_retained;
+    image.markForUnload();
+    try testing.expect(image.isUnloading());
+
+    state.deinit(alloc);
+    try testing.expectEqual(@as(usize, 1), payload.refs.load(.monotonic));
+}

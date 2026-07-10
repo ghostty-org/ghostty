@@ -106,14 +106,31 @@ pub fn deinit(self: *Overlay, alloc: Allocator) void {
     self.surface.deinit(alloc);
 }
 
-/// Returns a pending image that can be used to copy, convert, upload, etc.
-pub fn pendingImage(self: *const Overlay) Image.Pending {
+/// Returns a borrowed image source that the renderer copies before storing.
+pub fn pendingImage(self: *const Overlay) Image.Source {
     return .{
         .width = @intCast(self.surface.getWidth()),
         .height = @intCast(self.surface.getHeight()),
         .pixel_format = .rgba,
-        .data = @ptrCast(self.surface.image_surface_rgba.buf.ptr),
+        .data = std.mem.sliceAsBytes(self.surface.image_surface_rgba.buf),
     };
+}
+
+test "pending image exposes all RGBA bytes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var overlay = try Overlay.init(alloc, .{
+        .screen = .{ .width = 7, .height = 5 },
+        .cell = .{ .width = 1, .height = 1 },
+        .padding = .{},
+    });
+    defer overlay.deinit(alloc);
+
+    const source = overlay.pendingImage();
+    try testing.expectEqual(@as(u32, 7), source.width);
+    try testing.expectEqual(@as(u32, 5), source.height);
+    try testing.expectEqual(@as(usize, 7 * 5 * 4), source.data.len);
 }
 
 /// Clear the overlay.

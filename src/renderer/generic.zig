@@ -220,7 +220,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         shaders: Shaders,
 
         /// The render state we update per loop.
-        terminal_state: terminal.RenderState = .empty,
+        terminal_state: terminal.RenderState = terminal.RenderState.init(.{ .kitty_graphics = true }),
 
         /// The number of frames since the last terminal state reset.
         /// We reset the terminal state after ~100,000 frames (about 10 to
@@ -820,7 +820,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             self.images.deinit(self.alloc);
 
-            if (self.bg_image) |img| img.deinit(self.alloc);
+            if (self.bg_image) |*img| img.deinit(self.alloc);
 
             self.deinitShaders();
 
@@ -1143,7 +1143,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const max_terminal_state_frame_count = 100_000;
             if (self.terminal_state_frame_count >= max_terminal_state_frame_count) {
                 self.terminal_state.deinit(self.alloc);
-                self.terminal_state = .empty;
+                self.terminal_state = terminal.RenderState.init(.{ .kitty_graphics = true });
             }
             self.terminal_state_frame_count += 1;
 
@@ -1230,28 +1230,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     break :preedit try p.clone(arena_alloc);
                 };
 
-                // If we have Kitty graphics data, we enter a SLOW SLOW SLOW path.
-                // We only do this if the Kitty image state is dirty meaning only if
-                // it changes.
-                //
-                // If we have any virtual references, we must also rebuild our
-                // kitty state on every frame because any cell change can move
-                // an image.
-                if (self.images.kittyRequiresUpdate(state.terminal)) {
-                    // We need to grab the draw mutex since this updates
-                    // our image state that drawFrame uses.
-                    self.draw_mutex.lock();
-                    defer self.draw_mutex.unlock();
-                    self.images.kittyUpdate(
-                        self.alloc,
-                        state.terminal,
-                        .{
-                            .width = self.grid_metrics.cell_width,
-                            .height = self.grid_metrics.cell_height,
-                        },
-                    );
-                }
-
                 // Get our OSC8 links we're hovering if we have a mouse.
                 // This requires terminal state because of URLs.
                 const links: terminal.RenderState.CellSet = osc8: {
@@ -1292,6 +1270,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // within it. This must be done before anything reads the
             // render state (e.g. rebuildCells).
             self.terminal_state.endUpdate();
+
+            if (self.terminal_state.kitty.dirty) {
+                self.draw_mutex.lock();
+                defer self.draw_mutex.unlock();
+                if (self.images.kittyUpdate(self.alloc, &self.terminal_state)) {
+                    self.terminal_state.kitty.dirty = false;
+                }
+            }
 
             // Outside the critical area we can update our links to contain
             // our regex results.
@@ -1816,21 +1802,19 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     },
                 };
 
-                const image: imagepkg.Image = .{
-                    .pending = .{
-                        .width = image_data.width,
-                        .height = image_data.height,
-                        .pixel_format = .rgba,
-                        .data = image_data.data.ptr,
-                    },
+                var pending: imagepkg.Image.Pending = .{
+                    .width = image_data.width,
+                    .height = image_data.height,
+                    .pixel_format = .rgba,
+                    .backing = .{ .renderer_owned = image_data.data },
                 };
 
                 // If we have an existing background image, replace it.
                 // Otherwise, set this as our background image directly.
                 if (self.bg_image) |*img| {
-                    img.markForReplace(self.alloc, image);
+                    img.markForReplace(self.alloc, &pending);
                 } else {
-                    self.bg_image = image;
+                    self.bg_image = .{ .pending = pending.take() };
                 }
             } else {
                 // If we don't have a background image path, mark our

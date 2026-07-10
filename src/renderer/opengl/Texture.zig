@@ -38,7 +38,10 @@ pub const Error = error{
     OpenGLFailed,
 };
 
-/// Initialize a texture
+/// Initialize a texture.
+///
+/// `image2D` synchronously consumes client memory. This renderer does not use
+/// a pixel-unpack buffer, so `data` may be released after this returns.
 pub fn init(
     opts: Options,
     width: usize,
