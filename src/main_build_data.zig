@@ -24,6 +24,7 @@ pub const Action = enum {
     @"vim-compiler",
 
     // Other
+    @"help-book",
     terminfo,
 };
 
@@ -32,7 +33,8 @@ pub fn main(init: std.process.Init) !void {
     const action_ = try cli.action.detectArgs(Action, alloc, init.minimal.args);
     const action = action_ orelse return error.NoAction;
 
-    // Our output always goes to stdout.
+    // Our output goes to stdout, except for the help book, which is a
+    // directory tree written to the path given as an argument.
     var buffer: [1024]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writerStreaming(init.io, &buffer);
     const writer = &stdout_writer.interface;
@@ -45,6 +47,7 @@ pub fn main(init: std.process.Init) !void {
         .@"vim-ftdetect" => try writer.writeAll(@import("extra/vim.zig").ftdetect),
         .@"vim-ftplugin" => try writer.writeAll(@import("extra/vim.zig").ftplugin),
         .@"vim-compiler" => try writer.writeAll(@import("extra/vim.zig").compiler),
+        .@"help-book" => try @import("extra/help_book.zig").writeCli(alloc),
         .terminfo => try @import("terminfo/ghostty.zig").ghostty.encode(writer),
     }
     try stdout_writer.end();
