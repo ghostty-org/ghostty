@@ -83,6 +83,8 @@ loca = "loca"
 # TinyIo
 tio = "tio"
 WRONLY = "WRONLY"
+# hiutil flags (-Caf: create index with anchors into file)
+Caf = "Caf"
 
 [type.po]
 extend-glob = ["*.po"]
