@@ -229,6 +229,12 @@ class AppDelegate: NSObject,
         // This registers the Ghostty => Services menu to exist.
         NSApp.servicesMenu = menuServices
 
+        // Register our Help Book. `helpd` only auto-registers apps installed in /Applications.
+        // Explicit registration makes Help work when running from the build directory or Xcode as well.
+        if !NSHelpManager.shared.registerBooks(in: Bundle.main) {
+            Ghostty.logger.warning("help book registration failed; Help falls back to online docs")
+        }
+
         // Setup a local event monitor for app-level keyboard shortcuts. See
         // localEventHandler for more info why.
         _ = NSEvent.addLocalMonitorForEvents(

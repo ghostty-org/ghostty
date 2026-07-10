@@ -228,6 +228,9 @@ test {
     // Extra
     _ = @import("extra/bash.zig");
     _ = @import("extra/fish.zig");
+    _ = @import("extra/help_book.zig");
+    _ = @import("extra/help_book/markdown.zig");
+    _ = @import("extra/help_book/template.zig");
     _ = @import("extra/sublime.zig");
     _ = @import("extra/vim.zig");
     _ = @import("extra/zsh.zig");

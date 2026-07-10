@@ -1,0 +1,249 @@
+/* Layout and typography modeled on the Ghostty website documentation
+ * (spacing, sizes, monospace headings, rounded blocks) with neutral,
+ * system-adaptive colors: no explicit backgrounds so the pages follow
+ * light and dark mode. The dark palette uses a media query rather than
+ * light-dark() because Help Viewer's WebKit only supports the latter
+ * from macOS 14.5 and the app targets macOS 13.
+ * Fully self-contained; nothing loads remotely. */
+:root {
+  color-scheme: light dark;
+  --accent: #3551f3;
+  --muted: #6e6e73;
+  --code-bg: rgba(0, 0, 0, 0.05);
+  --border: rgba(0, 0, 0, 0.12);
+  --warn: #9a6700;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent: #7c8ef8;
+    --muted: #959597;
+    --code-bg: rgba(255, 255, 255, 0.08);
+    --border: rgba(255, 255, 255, 0.14);
+    --warn: #e6c07b;
+  }
+}
+body {
+  margin: 0 auto;
+  padding: 1.25rem 1.75rem 2.5rem;
+  max-width: 44rem;
+  font:
+    15px/1.6 -apple-system,
+    BlinkMacSystemFont,
+    "Helvetica Neue",
+    sans-serif;
+}
+h1,
+h2,
+h3 {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+h1 {
+  font-size: 1.6rem;
+  margin: 1rem 0;
+}
+h2 {
+  font-size: 1.2rem;
+  margin-top: 2rem;
+}
+h3 {
+  font-size: 1rem;
+  margin-top: 1.5rem;
+}
+hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.5rem 0;
+}
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  background: var(--code-bg);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+}
+pre code {
+  background: none;
+  border-radius: 0;
+  padding: 0;
+}
+blockquote {
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+  margin: 1rem 0;
+  padding: 0 1rem;
+}
+.note,
+.warning {
+  border-left: 3px solid var(--accent);
+  border-radius: 3px;
+  background: var(--code-bg);
+  padding: 0.5rem 1rem;
+  margin: 1rem 0;
+}
+.warning {
+  border-left-color: var(--warn);
+}
+ul {
+  padding-left: 1.25rem;
+}
+li {
+  margin: 0.15rem 0;
+}
+table {
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+th,
+td {
+  border: 1px solid var(--border);
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  background: var(--code-bg);
+}
+.def {
+  margin: 0.25rem 0 1rem 1.5rem;
+}
+.variants {
+  color: var(--muted);
+  margin: -0.5rem 0 1.25rem;
+}
+.footer {
+  margin-top: 2rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+  margin: 1.5rem 0 0.5rem;
+}
+.hero h1.wordmark {
+  margin: 0;
+  font-size: 1.9rem;
+}
+.hero .subtitle {
+  color: var(--muted);
+  font-size: 1.05rem;
+  margin: 0;
+}
+footer.footer {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+footer.footer p {
+  margin: 0.25rem 0;
+}
+footer.footer code {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+footer.footer a:hover {
+  text-decoration: none;
+}
+footer.footer a:hover code {
+  color: var(--accent);
+}
+body.shell {
+  display: flex;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  max-width: none;
+  overflow: hidden;
+}
+iframe.content {
+  flex: 1;
+  height: 100%;
+  border: none;
+}
+nav.sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 12px;
+  font-size: 13px;
+}
+nav.sidebar .sidebar-title {
+  margin: 4px 6px 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+nav.sidebar .sidebar-title a {
+  color: inherit;
+}
+nav.sidebar summary {
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 8px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+nav.sidebar summary::-webkit-details-marker {
+  display: none;
+}
+nav.sidebar summary:hover {
+  background: var(--code-bg);
+  color: inherit;
+}
+nav.sidebar summary::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 0.2s;
+}
+nav.sidebar details[open] > summary::after {
+  transform: rotate(225deg);
+}
+nav.sidebar ul {
+  list-style: none;
+  margin: 2px 0 8px;
+  padding-left: 12px;
+}
+nav.sidebar li {
+  margin: 0 0 2px;
+}
+nav.sidebar li a {
+  display: block;
+  color: var(--muted);
+  padding: 7px 6px;
+  border-radius: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+nav.sidebar li a:hover {
+  background: var(--code-bg);
+  color: inherit;
+  text-decoration: none;
+}
+nav.sidebar li a.current {
+  background: var(--accent);
+  color: #fff;
+}
