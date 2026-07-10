@@ -66,8 +66,13 @@ extern "C" {
  * @ref GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IMAGE_ID), call
  * ghostty_kitty_graphics_image() to get a @ref GhosttyKittyGraphicsImage
  * handle. From this handle, ghostty_kitty_graphics_image_get() provides
- * the image dimensions, pixel format, compression, and a borrowed pointer
- * to the raw pixel data.
+ * the image dimensions, pixel format, compression, and a pointer to the raw
+ * pixel data owned by and valid for the lifetime of the image handle. The
+ * pointer carries no additional ownership.
+ *
+ * GhosttyKittyGraphicsImage is an owned handle that remains valid across
+ * terminal mutations. Release every returned handle with
+ * ghostty_kitty_graphics_image_free().
  *
  * ## Rendering Helpers
  *
@@ -108,11 +113,13 @@ extern "C" {
  *
  * ## Lifetime and Thread Safety
  *
- * All handles borrowed from the terminal (GhosttyKittyGraphics,
- * GhosttyKittyGraphicsImage) are invalidated by any mutating terminal
- * call. The placement iterator is independently owned and must be freed
- * by the caller, but the data it yields is only valid while the
- * underlying terminal is not mutated.
+ * GhosttyKittyGraphics is borrowed from the terminal and invalidated by any
+ * mutating terminal call. GhosttyKittyGraphicsImage is independently owned
+ * and keeps its immutable image data valid across terminal mutations.
+ *
+ * The placement iterator is independently owned and must be freed by the
+ * caller, but the data it yields is only valid while the underlying terminal
+ * is not mutated.
  *
  * ## Example
  *
@@ -389,8 +396,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
   GHOSTTY_KITTY_IMAGE_DATA_COMPRESSION = 6,
 
   /**
-   * Borrowed pointer to the raw pixel data. Valid as long as the
-   * underlying terminal is not mutated.
+   * Pointer to raw pixel data owned by the image handle. It remains valid until
+   * the image handle is freed and carries no additional ownership.
    *
    * The data is always fully decoded, uncompressed pixels in the
    * format reported by GHOSTTY_KITTY_IMAGE_DATA_FORMAT: zlib payloads
@@ -502,13 +509,37 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_get(
  *
  * @param graphics The kitty graphics handle
  * @param image_id The image ID to look up
- * @return An opaque image handle, or NULL if not found
+ * @return An owned image handle, or NULL if not found. The caller must free
+ *         non-NULL handles with ghostty_kitty_graphics_image_free().
  *
  * @ingroup kitty_graphics
  */
 GHOSTTY_API GhosttyKittyGraphicsImage ghostty_kitty_graphics_image(
     GhosttyKittyGraphics graphics,
     uint32_t image_id);
+
+/**
+ * Increment an image handle's reference count.
+ *
+ * @param image The image to retain, or NULL
+ * @return The same image handle, or NULL if image is NULL
+ *
+ * @ingroup kitty_graphics
+ */
+GHOSTTY_API GhosttyKittyGraphicsImage ghostty_kitty_graphics_image_retain(
+    GhosttyKittyGraphicsImage image);
+
+/**
+ * Release an owned Kitty graphics image handle.
+ *
+ * Passing NULL is allowed and is a no-op.
+ *
+ * @param image The owned image handle to free, or NULL
+ *
+ * @ingroup kitty_graphics
+ */
+GHOSTTY_API void ghostty_kitty_graphics_image_free(
+    GhosttyKittyGraphicsImage image);
 
 /**
  * Get data from a Kitty graphics image.

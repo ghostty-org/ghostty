@@ -216,6 +216,7 @@ int main() {
             &cols, &rows) == GHOSTTY_SUCCESS) {
       printf("    grid size: %u cols x %u rows\n", cols, rows);
     }
+    ghostty_kitty_graphics_image_free(image);
   }
   printf("Total placements: %d\n", placement_count);
   ghostty_kitty_graphics_placement_iterator_free(iter);
