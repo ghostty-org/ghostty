@@ -149,7 +149,6 @@ fn transmit(
         encodeError(&result, err);
         return result;
     };
-    errdefer load.image.deinit(alloc);
 
     // If we're also displaying, then do that now. This function does
     // both transmit and transmit and display. The display might also be
@@ -200,7 +199,7 @@ fn display(
 
     // Verify the requested image exists if we have an ID
     const storage = &terminal.screens.active.kitty_images;
-    const img_: ?Image = if (d.image_id != 0)
+    const img_: ?*const Image = if (d.image_id != 0)
         storage.imageById(d.image_id)
     else
         storage.imageByNumber(d.image_number);
@@ -302,7 +301,7 @@ fn loadAndAddImage(
     terminal: *Terminal,
     cmd: *const Command,
 ) !struct {
-    image: Image,
+    image: Image.Metadata,
     more: bool = false,
     display: ?command.Display = null,
 } {
@@ -360,8 +359,8 @@ fn loadAndAddImage(
     // loading.debugDump() catch unreachable;
 
     // Validate and store our image
-    var img = try loading.complete(alloc);
-    errdefer img.deinit(alloc);
+    const img = try loading.complete(alloc);
+    errdefer img.release();
     try storage.addImage(alloc, img);
 
     // Get our display settings
@@ -371,7 +370,7 @@ fn loadAndAddImage(
     // won't be deinit because of "complete" above.
     loading.deinit(alloc);
 
-    return .{ .image = img, .display = display_ };
+    return .{ .image = img.withoutData(), .display = display_ };
 }
 
 const EncodeableError = Image.Error || Allocator.Error;

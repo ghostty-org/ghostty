@@ -203,7 +203,7 @@ pub fn image_get_handle(
     if (comptime !build_options.kitty_graphics) return null;
 
     const storage = graphics_;
-    return storage.images.getPtr(image_id);
+    return storage.imageById(image_id);
 }
 
 pub fn image_get(
@@ -423,7 +423,7 @@ pub fn placement_rect(
     const iter = iter_ orelse return .invalid_value;
     const entry = iter.entry orelse return .invalid_value;
     const r = entry.value_ptr.rect(
-        image.*,
+        image,
         wrapper.terminal,
     ) orelse return .no_value;
 
@@ -449,7 +449,7 @@ pub fn placement_pixel_size(
     const image = image_ orelse return .invalid_value;
     const iter = iter_ orelse return .invalid_value;
     const entry = iter.entry orelse return .invalid_value;
-    const s = entry.value_ptr.pixelSize(image.*, wrapper.terminal);
+    const s = entry.value_ptr.pixelSize(image, wrapper.terminal);
 
     out_width.* = s.width;
     out_height.* = s.height;
@@ -470,7 +470,7 @@ pub fn placement_grid_size(
     const image = image_ orelse return .invalid_value;
     const iter = iter_ orelse return .invalid_value;
     const entry = iter.entry orelse return .invalid_value;
-    const s = entry.value_ptr.gridSize(image.*, wrapper.terminal);
+    const s = entry.value_ptr.gridSize(image, wrapper.terminal);
 
     out_cols.* = s.cols;
     out_rows.* = s.rows;
@@ -563,11 +563,11 @@ pub fn placement_render_info(
 
     const p = entry.value_ptr;
 
-    const ps = p.pixelSize(image.*, wrapper.terminal);
+    const ps = p.pixelSize(image, wrapper.terminal);
     out.pixel_width = ps.width;
     out.pixel_height = ps.height;
 
-    const gs = p.gridSize(image.*, wrapper.terminal);
+    const gs = p.gridSize(image, wrapper.terminal);
     out.grid_cols = gs.cols;
     out.grid_rows = gs.rows;
 
@@ -630,7 +630,7 @@ fn computeViewportPos(
     // A placement is invisible if its bottom edge (row + height)
     // is above the viewport, or its top edge is at or below the
     // viewport's last row.
-    const grid_size = p.gridSize(image.*, t);
+    const grid_size = p.gridSize(image, t);
     const rows_i32: i32 = @intCast(grid_size.rows);
     const term_rows: i32 = @intCast(t.rows);
     const visible = vp_row + rows_i32 > 0 and vp_row < term_rows;

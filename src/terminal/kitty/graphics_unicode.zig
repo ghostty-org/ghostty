@@ -1182,7 +1182,8 @@ test "unicode render placement: dog 4x2" {
     var s: ImageStorage = .{};
     defer s.deinit(alloc, t.screens.active);
 
-    const image: Image = .{ .id = 1, .width = 500, .height = 306 };
+    const image = try Image.create(alloc, .{ .id = 1, .width = 500, .height = 306 });
+    errdefer image.release();
     try s.addImage(alloc, image);
     try s.addPlacement(alloc, 1, 0, .{
         .location = .{ .virtual = {} },
@@ -1201,7 +1202,7 @@ test "unicode render placement: dog 4x2" {
             .width = 4,
             .height = 1,
         };
-        const rp = try p.renderPlacement(&s, &image, cell_width, cell_height);
+        const rp = try p.renderPlacement(&s, image, cell_width, cell_height);
         try testing.expectEqual(0, rp.offset_x);
         try testing.expectEqual(36, rp.offset_y);
         try testing.expectEqual(0, rp.source_x);
@@ -1222,7 +1223,7 @@ test "unicode render placement: dog 4x2" {
             .width = 4,
             .height = 1,
         };
-        const rp = try p.renderPlacement(&s, &image, cell_width, cell_height);
+        const rp = try p.renderPlacement(&s, image, cell_width, cell_height);
         try testing.expectEqual(0, rp.offset_x);
         try testing.expectEqual(0, rp.offset_y);
         try testing.expectEqual(0, rp.source_x);
@@ -1249,7 +1250,8 @@ test "unicode render placement: dog 2x2 with blank cells" {
     var s: ImageStorage = .{};
     defer s.deinit(alloc, t.screens.active);
 
-    const image: Image = .{ .id = 1, .width = 500, .height = 306 };
+    const image = try Image.create(alloc, .{ .id = 1, .width = 500, .height = 306 });
+    errdefer image.release();
     try s.addImage(alloc, image);
     try s.addPlacement(alloc, 1, 0, .{
         .location = .{ .virtual = {} },
@@ -1268,7 +1270,7 @@ test "unicode render placement: dog 2x2 with blank cells" {
             .width = 4,
             .height = 1,
         };
-        const rp = try p.renderPlacement(&s, &image, cell_width, cell_height);
+        const rp = try p.renderPlacement(&s, image, cell_width, cell_height);
         try testing.expectEqual(0, rp.offset_x);
         try testing.expectEqual(58, rp.offset_y);
         try testing.expectEqual(0, rp.source_x);
@@ -1289,7 +1291,7 @@ test "unicode render placement: dog 2x2 with blank cells" {
             .width = 4,
             .height = 1,
         };
-        const rp = try p.renderPlacement(&s, &image, cell_width, cell_height);
+        const rp = try p.renderPlacement(&s, image, cell_width, cell_height);
         try testing.expectEqual(0, rp.offset_x);
         try testing.expectEqual(0, rp.offset_y);
         try testing.expectEqual(0, rp.source_x);
@@ -1315,7 +1317,8 @@ test "unicode render placement: dog 1x1" {
     var s: ImageStorage = .{};
     defer s.deinit(alloc, t.screens.active);
 
-    const image: Image = .{ .id = 1, .width = 500, .height = 306 };
+    const image = try Image.create(alloc, .{ .id = 1, .width = 500, .height = 306 });
+    errdefer image.release();
     try s.addImage(alloc, image);
     try s.addPlacement(alloc, 1, 0, .{
         .location = .{ .virtual = {} },
@@ -1334,7 +1337,7 @@ test "unicode render placement: dog 1x1" {
             .width = 4,
             .height = 1,
         };
-        const rp = try p.renderPlacement(&s, &image, cell_width, cell_height);
+        const rp = try p.renderPlacement(&s, image, cell_width, cell_height);
         try testing.expectEqual(0, rp.offset_x);
         try testing.expectEqual(29, rp.offset_y);
         try testing.expectEqual(0, rp.source_x);

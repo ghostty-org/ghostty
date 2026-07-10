@@ -31,7 +31,7 @@ const max_size = 400 * 1024 * 1024; // 400MB
 pub const LoadingImage = struct {
     /// The in-progress image. The first chunk must have all the metadata
     /// so this comes from that initially.
-    image: Image,
+    image: Image.Metadata,
 
     /// The data that is being built up.
     data: std.ArrayListUnmanaged(u8) = .{},
@@ -345,7 +345,6 @@ pub const LoadingImage = struct {
     }
 
     pub fn deinit(self: *LoadingImage, alloc: Allocator) void {
-        self.image.deinit(alloc);
         self.data.deinit(alloc);
     }
 
@@ -376,7 +375,7 @@ pub const LoadingImage = struct {
     }
 
     /// Complete the chunked image, returning a completed image.
-    pub fn complete(self: *LoadingImage, alloc: Allocator) !Image {
+    pub fn complete(self: *LoadingImage, alloc: Allocator) !*Image {
         const img = &self.image;
 
         // Decompress the data if it is compressed.
@@ -402,9 +401,9 @@ pub const LoadingImage = struct {
         }
 
         // Everything looks good, copy the image data over.
-        var result = self.image;
-        result.data = try self.data.toOwnedSlice(alloc);
-        errdefer result.deinit(alloc);
+        const data = try self.data.toOwnedSlice(alloc);
+        errdefer alloc.free(data);
+        const result = try Image.create(alloc, .fromMetadata(self.image, data));
         self.image = .{};
         return result;
     }
@@ -504,14 +503,23 @@ pub const LoadingImage = struct {
 /// is completed, so `compression` is always `.none` and `format` is
 /// never `.png` for a stored image, and `data.len` always equals
 /// `width * height * bytes-per-pixel`.
+///
+/// Images are pointer-owned and reference counted. They are immutable after
+/// publication, except that ImageStorage stamps `generation` immediately
+/// before publishing an image. The allocator interface is copied into the
+/// image; any backing state used by that allocator must outlive every image
+/// reference. References may be retained and released on different threads.
 pub const Image = struct {
+    refs: std.atomic.Value(usize) = .init(1),
+    allocator: Allocator,
+
     id: u32 = 0,
     number: u32 = 0,
     width: u32 = 0,
     height: u32 = 0,
     format: command.Transmission.Format = .rgb,
     compression: command.Transmission.Compression = .none,
-    data: []const u8 = "",
+    data: []const u8,
 
     /// Unique, monotonically increasing stamp assigned each time an
     /// image is added to (or replaced in) an ImageStorage. A changed
@@ -527,6 +535,43 @@ pub const Image = struct {
     /// IDs in the public range (which is bad!).
     implicit_id: bool = false,
 
+    pub const Metadata = struct {
+        id: u32 = 0,
+        number: u32 = 0,
+        width: u32 = 0,
+        height: u32 = 0,
+        format: command.Transmission.Format = .rgb,
+        compression: command.Transmission.Compression = .none,
+        generation: u64 = 0,
+        implicit_id: bool = false,
+    };
+
+    pub const Init = struct {
+        id: u32 = 0,
+        number: u32 = 0,
+        width: u32 = 0,
+        height: u32 = 0,
+        format: command.Transmission.Format = .rgb,
+        compression: command.Transmission.Compression = .none,
+        data: []const u8 = "",
+        generation: u64 = 0,
+        implicit_id: bool = false,
+
+        fn fromMetadata(metadata: Metadata, data: []const u8) Init {
+            return .{
+                .id = metadata.id,
+                .number = metadata.number,
+                .width = metadata.width,
+                .height = metadata.height,
+                .format = metadata.format,
+                .compression = metadata.compression,
+                .data = data,
+                .generation = metadata.generation,
+                .implicit_id = metadata.implicit_id,
+            };
+        }
+    };
+
     pub const Error = error{
         InvalidData,
         DecompressionFailed,
@@ -540,15 +585,55 @@ pub const Image = struct {
         UnsupportedDepth,
     };
 
-    pub fn deinit(self: *Image, alloc: Allocator) void {
-        if (self.data.len > 0) alloc.free(self.data);
+    /// Create an image that adopts `init.data`. On success the caller owns
+    /// one reference; on failure ownership of the data remains with the caller.
+    pub fn create(alloc: Allocator, init: Init) Allocator.Error!*Image {
+        const result = try alloc.create(Image);
+        result.* = .{
+            .allocator = alloc,
+            .id = init.id,
+            .number = init.number,
+            .width = init.width,
+            .height = init.height,
+            .format = init.format,
+            .compression = init.compression,
+            .data = init.data,
+            .generation = init.generation,
+            .implicit_id = init.implicit_id,
+        };
+        return result;
+    }
+
+    pub fn retain(self: *const Image) *Image {
+        const result = @constCast(self);
+        const previous = result.refs.fetchAdd(1, .monotonic);
+        assert(previous > 0);
+        return result;
+    }
+
+    pub fn release(self: *Image) void {
+        const previous = self.refs.fetchSub(1, .release);
+        assert(previous > 0);
+        if (previous == 1) {
+            _ = self.refs.load(.acquire);
+            const alloc = self.allocator;
+            if (self.data.len > 0) alloc.free(self.data);
+            alloc.destroy(self);
+        }
     }
 
     /// Mostly for logging
-    pub fn withoutData(self: *const Image) Image {
-        var copy = self.*;
-        copy.data = "";
-        return copy;
+    pub fn withoutData(self: *const Image) Metadata {
+        return .{
+            .id = self.id,
+            .number = self.number,
+            .width = self.width,
+            .height = self.height,
+            .format = self.format,
+            .compression = self.compression,
+            .generation = self.generation,
+            .implicit_id = self.implicit_id,
+        };
     }
 };
 
@@ -641,7 +726,7 @@ test "image load: rgb, zlib compressed, direct" {
     var loading = try LoadingImage.init(alloc, &cmd, .direct);
     defer loading.deinit(alloc);
     var img = try loading.complete(alloc);
-    defer img.deinit(alloc);
+    defer img.release();
 
     // should be decompressed
     try testing.expect(img.compression == .none);
@@ -669,7 +754,7 @@ test "image load: rgb, not compressed, direct" {
     var loading = try LoadingImage.init(alloc, &cmd, .direct);
     defer loading.deinit(alloc);
     var img = try loading.complete(alloc);
-    defer img.deinit(alloc);
+    defer img.release();
 
     // should be decompressed
     try testing.expect(img.compression == .none);
@@ -708,7 +793,7 @@ test "image load: rgb, zlib compressed, direct, chunked" {
 
     // Complete
     var img = try loading.complete(alloc);
-    defer img.deinit(alloc);
+    defer img.release();
     try testing.expect(img.compression == .none);
 }
 
@@ -744,7 +829,7 @@ test "image load: rgb, zlib compressed, direct, chunked with zero initial chunk"
 
     // Complete
     var img = try loading.complete(alloc);
-    defer img.deinit(alloc);
+    defer img.release();
     try testing.expect(img.compression == .none);
 }
 
@@ -811,7 +896,7 @@ test "image load: rgb, not compressed, temporary file" {
     var loading = try LoadingImage.init(alloc, &cmd, .all);
     defer loading.deinit(alloc);
     var img = try loading.complete(alloc);
-    defer img.deinit(alloc);
+    defer img.release();
     try testing.expect(img.compression == .none);
 
     // Temporary file should be gone
@@ -848,7 +933,7 @@ test "image load: rgb, not compressed, regular file" {
     var loading = try LoadingImage.init(alloc, &cmd, .all);
     defer loading.deinit(alloc);
     var img = try loading.complete(alloc);
-    defer img.deinit(alloc);
+    defer img.release();
     try testing.expect(img.compression == .none);
     try tmp_dir.dir.access(path, .{});
 }
@@ -885,7 +970,7 @@ test "image load: png, not compressed, regular file" {
     var loading = try LoadingImage.init(alloc, &cmd, .all);
     defer loading.deinit(alloc);
     var img = try loading.complete(alloc);
-    defer img.deinit(alloc);
+    defer img.release();
     try testing.expect(img.compression == .none);
     try testing.expect(img.format == .rgba);
     try tmp_dir.dir.access(path, .{});
