@@ -214,10 +214,13 @@ pub fn write(alloc: Allocator, dir: std.fs.Dir) !void {
     }
 
     // The landing page, showing the app version linked as in the About
-    // window.
+    // window. The wordmark is the website's, downloaded from
+    // https://ghostty.org/_next/static/media/ghostty-wordmark.815bf882.svg
+    // with the lettering fill changed to currentColor.
     try writeTemplateFile(lproj, "home.html", @embedFile("help_book/home.html"), .{
         .version = build_config.version_string,
         .version_url = version_url,
+        .wordmark = @embedFile("help_book/wordmark.svg"),
     });
 
     // The persistent shell: sidebar plus a content iframe. All other pages
@@ -394,6 +397,7 @@ test "help book" {
         try testing.expect(std.mem.indexOf(u8, home, "<a name=\"main\"></a>") != null);
         try testing.expect(std.mem.indexOf(u8, home, "<p class=\"subtitle\">Help for macOS</p>") != null);
         try testing.expect(std.mem.indexOf(u8, home, "<script src=\"content.js\"></script>") != null);
+        try testing.expect(std.mem.indexOf(u8, home, "fill=\"currentColor\"") != null);
         try testing.expect(std.mem.indexOf(u8, home, "<a href=\"" ++ version_url ++ "\"><code>" ++ build_config.version_string ++ "</code></a>") != null);
         try testing.expect(std.mem.indexOf(u8, home, "{{") == null);
     }
