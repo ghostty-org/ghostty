@@ -138,7 +138,11 @@ th {
 }
 .hero h1.wordmark {
   margin: 0;
-  font-size: 1.9rem;
+  line-height: 0;
+}
+.hero h1.wordmark svg {
+  width: 214px;
+  height: auto;
 }
 .hero .subtitle {
   color: var(--muted);
