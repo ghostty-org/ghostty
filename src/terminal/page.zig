@@ -1477,7 +1477,7 @@ pub const Page = struct {
         const entry = map.getEntry(src_offset).?;
         const value = entry.value_ptr.*;
         map.removeByPtr(entry.key_ptr);
-        map.putAssumeCapacity(dst_offset, value);
+        map.putAssumeCapacityNoClobber(dst_offset, value);
 
         // NOTE: We must not set src/dst.hyperlink here because this
         // function is used in various cases where we swap cell contents
@@ -1625,7 +1625,7 @@ pub const Page = struct {
         const entry = map.getEntry(src_offset).?;
         const value = entry.value_ptr.*;
         map.removeByPtr(entry.key_ptr);
-        map.putAssumeCapacity(dst_offset, value);
+        map.putAssumeCapacityNoClobber(dst_offset, value);
     }
 
     /// Clear the graphemes for a given cell.
