@@ -282,6 +282,12 @@ fn findFreeChunks(bitmaps: []u64, n: usize) ?usize {
                 rem -= 64;
             }
 
+            // The prefix may consume the final bitmap while leaving up to
+            // one bitmap of chunks still required. The loop above only
+            // checks bounds when more than one full bitmap remains, so guard
+            // the final partial-or-full bitmap separately.
+            if (i >= bitmaps.len) return null;
+
             // If the number of available chunks at the start of this bitmap
             // is less than the remaining required, we have to try again.
             if (@ctz(~bitmaps[i]) < rem) continue;
@@ -317,18 +323,34 @@ fn findFreeChunks(bitmaps: []u64, n: usize) ?usize {
         var shifted: u64 = bitmap.*;
         for (1..n) |i| shifted &= bitmap.* >> @intCast(i);
 
-        // If we have zero then we have no matches
-        if (shifted == 0) continue;
+        if (shifted != 0) {
+            // Trailing zeroes gets us the index of the first bit index with at
+            // least `n` sequential 1s. In the example above, that would be `4`.
+            const bit = @ctz(shifted);
 
-        // Trailing zeroes gets us the index of the first bit index with at
-        // least `n` sequential 1s. In the example above, that would be `4`.
-        const bit = @ctz(shifted);
+            // Calculate the mask so we can mark it as used.
+            const mask = (@as(u64, std.math.maxInt(u64)) >> @intCast(64 - n)) << @intCast(bit);
+            bitmap.* ^= mask;
 
-        // Calculate the mask so we can mark it as used
-        const mask = (@as(u64, std.math.maxInt(u64)) >> @intCast(64 - n)) << @intCast(bit);
-        bitmap.* ^= mask;
+            return (idx * 64) + bit;
+        }
 
-        return (idx * 64) + bit;
+        // A run of at most 64 chunks can also straddle two bitmap words.
+        // The single-word search above cannot see it. Since there was no
+        // in-word match, the free suffix is necessarily shorter than n.
+        if (idx + 1 < bitmaps.len) {
+            const suffix = @clz(~bitmap.*);
+            if (suffix > 0) {
+                const next_prefix = @ctz(~bitmaps[idx + 1]);
+                if (suffix + next_prefix >= n) {
+                    const start_bit = 64 - suffix;
+                    const rem = n - suffix;
+                    bitmap.* ^= @as(u64, std.math.maxInt(u64)) << @intCast(start_bit);
+                    bitmaps[idx + 1] ^= @as(u64, std.math.maxInt(u64)) >> @intCast(64 - rem);
+                    return idx * 64 + start_bit;
+                }
+            }
+        }
     }
 
     return null;
@@ -385,6 +407,30 @@ test "findFreeChunks exactly 64 chunks" {
     try testing.expectEqual(@as(usize, 0), idx);
 }
 
+test "findFreeChunks small allocation across bitmap boundary" {
+    const testing = std.testing;
+
+    var bitmaps = [_]u64{
+        @as(u64, 1) << 63,
+        0b1,
+    };
+    const idx = findFreeChunks(&bitmaps, 2).?;
+    try testing.expectEqual(@as(usize, 63), idx);
+    try testing.expectEqualSlices(u64, &.{ 0, 0 }, &bitmaps);
+}
+
+test "findFreeChunks 64 chunks across bitmap boundary" {
+    const testing = std.testing;
+
+    var bitmaps = [_]u64{
+        @as(u64, std.math.maxInt(u64)) << 32,
+        @as(u64, std.math.maxInt(u64)) >> 32,
+    };
+    const idx = findFreeChunks(&bitmaps, 64).?;
+    try testing.expectEqual(@as(usize, 32), idx);
+    try testing.expectEqualSlices(u64, &.{ 0, 0 }, &bitmaps);
+}
+
 test "findFreeChunks larger than 64 chunks" {
     const testing = std.testing;
 
@@ -402,6 +448,14 @@ test "findFreeChunks larger than 64 chunks" {
         bitmaps[1],
     );
     try testing.expectEqual(@as(usize, 0), idx);
+}
+
+test "findFreeChunks larger than available bitmap" {
+    const testing = std.testing;
+
+    var bitmaps = [_]u64{std.math.maxInt(u64)};
+    try testing.expectEqual(null, findFreeChunks(&bitmaps, 65));
+    try testing.expectEqual(std.math.maxInt(u64), bitmaps[0]);
 }
 
 test "findFreeChunks larger than 64 chunks not at beginning" {
@@ -445,6 +499,44 @@ test "findFreeChunks larger than 64 chunks exact" {
         bitmaps[1],
     );
     try testing.expectEqual(@as(usize, 0), idx);
+}
+
+test "findFreeChunks random operations against bit oracle" {
+    const testing = std.testing;
+    const Oracle = struct {
+        fn find(bitmaps: []const u64, n: usize) ?usize {
+            var run: usize = 0;
+            for (0..bitmaps.len * 64) |i| {
+                const free = bitmaps[i / 64] &
+                    (@as(u64, 1) << @intCast(i % 64)) != 0;
+                if (free) {
+                    run += 1;
+                    if (run == n) return i + 1 - n;
+                } else {
+                    run = 0;
+                }
+            }
+            return null;
+        }
+    };
+
+    var prng = std.Random.DefaultPrng.init(0xB17);
+    const random = prng.random();
+    for (0..10_000) |_| {
+        var bitmaps: [4]u64 = undefined;
+        for (&bitmaps) |*bitmap| bitmap.* = random.int(u64);
+        var expected = bitmaps;
+        const n = random.intRangeAtMost(usize, 1, 96);
+        const expected_idx = Oracle.find(&bitmaps, n);
+        if (expected_idx) |start| {
+            for (start..start + n) |i| {
+                expected[i / 64] &= ~(@as(u64, 1) << @intCast(i % 64));
+            }
+        }
+
+        try testing.expectEqual(expected_idx, findFreeChunks(&bitmaps, n));
+        try testing.expectEqualSlices(u64, &expected, &bitmaps);
+    }
 }
 
 test "BitmapAllocator layout" {
