@@ -3860,11 +3860,11 @@ test "Page exactRowCapacity styles max single row" {
     const row = &page.rows.ptr(page.memory)[0];
     row.styled = true;
 
-    // Fill cells with styles until we get OOM, but limit to a reasonable count
-    // to avoid overflow when computing capacityForCount near maxInt
+    // Fill cells with styles until we get OOM, but limit the count to keep
+    // this maximum-dimension regression test reasonably fast.
     const cells = row.cells.ptr(page.memory)[0..page.size.cols];
     var count: usize = 0;
-    const max_count: usize = 1000; // Limit to avoid overflow in capacity calculation
+    const max_count: usize = 1000; // Keep test runtime bounded.
     for (cells, 0..) |*cell, i| {
         if (count >= max_count) break;
         const style_id = page.styles.add(page.memory, .{

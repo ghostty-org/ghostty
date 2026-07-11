@@ -68,14 +68,34 @@ pub fn RefCountedSet(
         /// requires more capacity.
         ///
         /// Experimentally, this load factor works quite well.
-        pub const load_factor = 0.8125;
+        const load_numerator = 13;
+        const load_denominator = 16;
+        pub const load_factor: f64 =
+            @as(f64, load_numerator) / @as(f64, load_denominator);
+
+        /// Maximum number of living items representable by this set. One
+        /// item-array slot is reserved for ID 0.
+        pub const max_count: usize =
+            ((@as(usize, std.math.maxInt(Id)) + 1) * load_numerator /
+                load_denominator) - 1;
 
         /// Returns the minimum capacity needed to store `n` items,
         /// accounting for the load factor and the reserved ID 0.
         pub fn capacityForCount(n: usize) usize {
             if (n == 0) return 0;
+            assert(n <= max_count);
+
             // +1 because ID 0 is reserved, so we need at least n+1 slots.
-            return @intFromFloat(@ceil(@as(f64, @floatFromInt(n + 1)) / load_factor));
+            const requested = std.math.divCeil(
+                usize,
+                (n + 1) * load_denominator,
+                load_numerator,
+            ) catch unreachable;
+
+            // The largest supported table has maxInt(Id)+1 slots. Capacity
+            // is stored in Id by page callers, so represent that request as
+            // maxInt(Id); Layout.init rounds it up to the same table size.
+            return @min(requested, std.math.maxInt(Id));
         }
 
         /// Set item
@@ -93,8 +113,11 @@ pub fn RefCountedSet(
 
                 /// The length of the probe sequence between this
                 /// item's starting bucket and the bucket it's in,
-                /// used for Robin Hood hashing.
-                psl: Id = 0,
+                /// used for Robin Hood hashing. maxInt is reserved to mark
+                /// items that are not present in the table. We cannot use
+                /// maxInt(bucket) for this because the largest supported
+                /// table has that bucket.
+                psl: Id = std.math.maxInt(Id),
 
                 /// The reference count for this item.
                 ref: RefCountInt = 0,
@@ -104,6 +127,12 @@ pub fn RefCountedSet(
         // Re-export these types so they can be referenced by the caller.
         pub const Id = IdT;
         pub const Context = ContextT;
+
+        comptime {
+            // psl_stats caps valid probe lengths at 31, leaving maxInt(Id)
+            // available as the out-of-table sentinel.
+            assert(std.math.maxInt(Id) >= 32);
+        }
 
         /// A hash table of item indices
         table: Offset(Id),
@@ -181,7 +210,8 @@ pub fn RefCountedSet(
                 };
 
                 const table_cap: usize = std.math.ceilPowerOfTwoAssert(usize, cap);
-                const items_cap: usize = @intFromFloat(load_factor * @as(f64, @floatFromInt(table_cap)));
+                const items_cap = table_cap * load_numerator /
+                    load_denominator;
 
                 const table_mask: Id = @intCast((@as(usize, 1) << std.math.log2_int(usize, table_cap)) - 1);
 
@@ -455,8 +485,9 @@ pub fn RefCountedSet(
 
             const item = items[id];
 
-            if (item.meta.bucket > self.layout.table_cap) return;
+            if (item.meta.psl == std.math.maxInt(Id)) return;
 
+            assert(item.meta.bucket < self.layout.table_cap);
             assert(table[item.meta.bucket] == id);
 
             if (comptime @hasDecl(Context, "deleted")) {
@@ -691,7 +722,7 @@ pub fn RefCountedSet(
                 var psl_stats: [32]Id = @splat(0);
 
                 for (items[0..self.layout.cap], 0..) |item, id| {
-                    if (item.meta.bucket < std.math.maxInt(Id)) {
+                    if (item.meta.psl != std.math.maxInt(Id)) {
                         assert(table[item.meta.bucket] == id);
                         psl_stats[item.meta.psl] += 1;
                     }
@@ -705,7 +736,7 @@ pub fn RefCountedSet(
 
                 for (table[0..self.layout.table_cap], 0..) |id, bucket| {
                     const item = items[id];
-                    if (item.meta.bucket < std.math.maxInt(Id)) {
+                    if (item.meta.psl != std.math.maxInt(Id)) {
                         assert(item.meta.bucket == bucket);
 
                         const hash: u64 = ctx.hash(item.value);
@@ -720,4 +751,146 @@ pub fn RefCountedSet(
             }
         }
     };
+}
+
+test "RefCountedSet random operations against live-value oracle" {
+    const testing = std.testing;
+    const Value = u8;
+    const Id = u8;
+    const value_count = 16;
+
+    const Context = struct {
+        pub fn hash(_: *const @This(), value: Value) u64 {
+            return std.hash.int(@as(u64, value));
+        }
+
+        pub fn eql(_: *const @This(), a: Value, b: Value) bool {
+            return a == b;
+        }
+    };
+    const Set = RefCountedSet(Value, Id, u16, Context);
+
+    const layout: Set.Layout = .init(64);
+    const buf = try testing.allocator.alignedAlloc(
+        u8,
+        Set.base_align,
+        layout.total_size,
+    );
+    defer testing.allocator.free(buf);
+    var set = Set.init(.init(buf), layout, .{});
+
+    var refs: [value_count]u16 = @splat(0);
+    var ids: [value_count]?Id = @splat(null);
+    var living: usize = 0;
+    var prng = std.Random.DefaultPrng.init(0x5E7);
+    const random = prng.random();
+
+    for (0..20_000) |iteration| {
+        const value: Value = random.uintLessThan(Value, value_count);
+        switch (random.uintLessThan(u8, 4)) {
+            0, 1 => {
+                const id = try set.add(buf, value);
+                if (refs[value] == 0) {
+                    ids[value] = id;
+                    living += 1;
+                } else {
+                    try testing.expectEqual(ids[value].?, id);
+                }
+                refs[value] += 1;
+            },
+            2 => if (refs[value] > 0) {
+                set.release(buf, ids[value].?);
+                refs[value] -= 1;
+                if (refs[value] == 0) {
+                    ids[value] = null;
+                    living -= 1;
+                }
+            },
+            3 => try testing.expectEqual(ids[value], set.lookup(buf, value)),
+            else => unreachable,
+        }
+
+        // Periodically validate every live ID and value, not only the value
+        // selected for this operation. This catches displacement, deletion,
+        // dead-ID reuse, and max-PSL bookkeeping errors that surface later.
+        if (iteration % 64 == 0) {
+            try testing.expectEqual(living, set.count());
+            for (0..value_count) |i| {
+                const v: Value = @intCast(i);
+                try testing.expectEqual(ids[i], set.lookup(buf, v));
+                if (ids[i]) |id| {
+                    try testing.expectEqual(v, set.get(buf, id).*);
+                    try testing.expectEqual(refs[i], set.refCount(buf, id));
+                }
+            }
+        }
+    }
+}
+
+test "RefCountedSet empty marker at maximum table capacity" {
+    const testing = std.testing;
+    const Context = struct {
+        pub fn hash(_: *const @This(), _: u8) u64 {
+            // Force one cluster so insertion deterministically reaps the
+            // higher dead ID used by the reproduction below.
+            return 0;
+        }
+
+        pub fn eql(_: *const @This(), a: u8, b: u8) bool {
+            return a == b;
+        }
+    };
+    const Set = RefCountedSet(u8, u8, u16, Context);
+
+    // u8 IDs support buckets 0...255. This exercises the same boundary as
+    // the production u16 set's 65,536-slot maximum without a large buffer.
+    const layout: Set.Layout = .init(256);
+    try testing.expectEqual(256, layout.table_cap);
+    const buf = try testing.allocator.alignedAlloc(
+        u8,
+        Set.base_align,
+        layout.total_size,
+    );
+    defer testing.allocator.free(buf);
+    var set = Set.init(.init(buf), layout, .{});
+
+    const first = try set.add(buf, 1);
+    const second = try set.add(buf, 2);
+    const third = try set.add(buf, 3);
+    try testing.expectEqual(1, first);
+    try testing.expectEqual(2, second);
+    try testing.expectEqual(3, third);
+
+    // Replacing the dead second ID encounters and reaps the higher dead
+    // third ID, leaving it reset but still below next_id.
+    set.release(buf, second);
+    set.release(buf, third);
+    try testing.expectEqual(null, try set.addWithId(buf, 4, second));
+
+    // Reusing that reset gap must recognize that it is not in the table.
+    // A bucket-based maxInt sentinel aliases bucket 255 at this capacity.
+    try testing.expectEqual(null, try set.addWithId(buf, 5, third));
+    try testing.expectEqual(third, set.lookup(buf, 5).?);
+    try testing.expectEqual(@as(usize, 3), set.count());
+}
+
+test "RefCountedSet capacityForCount maximum" {
+    const testing = std.testing;
+    const Context = struct {
+        pub fn hash(_: *const @This(), value: u16) u64 {
+            return std.hash.int(@as(u64, value));
+        }
+
+        pub fn eql(_: *const @This(), a: u16, b: u16) bool {
+            return a == b;
+        }
+    };
+    const Set = RefCountedSet(u16, u16, u16, Context);
+
+    const capacity = Set.capacityForCount(Set.max_count);
+    try testing.expectEqual(std.math.maxInt(u16), capacity);
+
+    const layout: Set.Layout = .init(capacity);
+    try testing.expectEqual(@as(usize, 65_536), layout.table_cap);
+    try testing.expect(layout.cap - 1 >= Set.max_count);
 }
