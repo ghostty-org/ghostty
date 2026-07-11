@@ -76,6 +76,45 @@ pub const Hyperlink = struct {
 
         return .{ .id = id, .uri = uri };
     }
+
+    /// Hash a decoded hyperlink identically to its page-resident form so it
+    /// can be used for an adapted lookup before allocating page strings.
+    /// This must remain bit-identical to PageEntry.hash.
+    pub fn hash(self: *const Hyperlink) u64 {
+        var hasher = Wyhash.init(0);
+        autoHash(&hasher, std.meta.activeTag(self.id));
+        switch (self.id) {
+            .implicit => |v| autoHash(&hasher, v),
+            .explicit => |v| autoHashStrat(&hasher, v, .Deep),
+        }
+        autoHashStrat(&hasher, self.uri, .Deep);
+        return hasher.final();
+    }
+
+    /// Compare decoded input against a page-resident entry without copying
+    /// the input strings into the page first.
+    pub fn eqlPageEntry(
+        self: *const Hyperlink,
+        other: *const PageEntry,
+        other_base: anytype,
+    ) bool {
+        switch (self.id) {
+            .implicit => |id| switch (other.id) {
+                .implicit => |other_id| if (id != other_id) return false,
+                .explicit => return false,
+            },
+            .explicit => |id| switch (other.id) {
+                .implicit => return false,
+                .explicit => |other_id| if (!std.mem.eql(
+                    u8,
+                    id,
+                    other_id.slice(other_base),
+                )) return false,
+            },
+        }
+
+        return std.mem.eql(u8, self.uri, other.uri.slice(other_base));
+    }
 };
 
 /// A hyperlink that has been committed to page memory. This
@@ -145,6 +184,8 @@ pub const PageEntry = struct {
         return copy;
     }
 
+    /// This must remain bit-identical to Hyperlink.hash so decoded links can
+    /// probe the resident set before allocating page strings.
     pub fn hash(self: *const PageEntry, base: anytype) u64 {
         var hasher = Wyhash.init(0);
         autoHash(&hasher, std.meta.activeTag(self.id));
@@ -226,16 +267,24 @@ pub const Set = RefCountedSet(
         /// if different from the destination page.
         src_page: ?*const Page = null,
 
-        pub fn hash(self: *const @This(), link: PageEntry) u64 {
-            return link.hash((self.src_page orelse self.page.?).memory);
+        pub fn hash(self: *const @This(), link: anytype) u64 {
+            return switch (@TypeOf(link)) {
+                Hyperlink => link.hash(),
+                PageEntry => link.hash((self.src_page orelse self.page.?).memory),
+                else => @compileError("unsupported hyperlink lookup type"),
+            };
         }
 
-        pub fn eql(self: *const @This(), a: PageEntry, b: PageEntry) bool {
-            return a.eql(
-                (self.src_page orelse self.page.?).memory,
-                &b,
-                self.page.?.memory,
-            );
+        pub fn eql(self: *const @This(), a: anytype, b: PageEntry) bool {
+            return switch (@TypeOf(a)) {
+                Hyperlink => a.eqlPageEntry(&b, self.page.?.memory),
+                PageEntry => a.eql(
+                    (self.src_page orelse self.page.?).memory,
+                    &b,
+                    self.page.?.memory,
+                ),
+                else => @compileError("unsupported hyperlink lookup type"),
+            };
         }
 
         pub fn deleted(self: *const @This(), link: PageEntry) void {
@@ -243,3 +292,26 @@ pub const Set = RefCountedSet(
         }
     },
 );
+
+test "decoded and resident hyperlink hashes match" {
+    var page = try Page.init(.{
+        .cols = 1,
+        .rows = 1,
+    });
+    defer page.deinit();
+
+    for ([_]Hyperlink{
+        .{
+            .id = .{ .explicit = "explicit-id" },
+            .uri = "https://example.com/explicit",
+        },
+        .{
+            .id = .{ .implicit = 42 },
+            .uri = "https://example.com/implicit",
+        },
+    }) |link| {
+        const id = try page.insertHyperlink(link);
+        const entry = page.hyperlink_set.get(page.memory, id);
+        try std.testing.expectEqual(link.hash(), entry.hash(page.memory));
+    }
+}

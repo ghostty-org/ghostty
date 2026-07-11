@@ -37,9 +37,11 @@ const OffsetBuf = size.OffsetBuf;
 /// `Context`
 ///   A type containing methods to define behaviors.
 ///
-///   - `fn hash(*Context, T) u64`    - Return a hash for an item.
+///   - `fn hash(*Context, T) u64`    - Return a hash for an item. This may
+///     be generic if `lookupAdapted` is used with another key type.
 ///
-///   - `fn eql(*Context, T, T) bool` - Check two items for equality.
+///   - `fn eql(*Context, T, T) bool` - Check two items for equality. This may
+///     accept a generic first argument if `lookupAdapted` is used.
 ///     The first of the two items passed in is guaranteed to be from
 ///     a value passed in to an `add` or `lookup` function, the second
 ///     is guaranteed to be a value already resident in the set.
@@ -528,6 +530,12 @@ pub fn RefCountedSet(
             return self.lookupContext(base, value, self.context);
         }
         pub fn lookupContext(self: *const Self, base: anytype, value: T, ctx: Context) ?Id {
+            return self.lookupAdapted(base, value, ctx);
+        }
+
+        /// Look up a value using a key and context whose hash and equality
+        /// functions adapt that key to resident values of type T.
+        pub fn lookupAdapted(self: *const Self, base: anytype, value: anytype, ctx: anytype) ?Id {
             // A zero-capacity set (a valid special case of Layout.init)
             // contains nothing and has a zero-size table, so we can't
             // probe it: table[0] would read whatever memory follows the

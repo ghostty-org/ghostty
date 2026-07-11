@@ -1337,8 +1337,9 @@ pub const Page = struct {
 
     /// Convert a hyperlink into a page entry, returning the ID.
     ///
-    /// This does not de-dupe any strings, so if the URI, explicit ID,
-    /// etc. is already in the strings table this will duplicate it.
+    /// A matching live hyperlink entry is reused before allocating. On a
+    /// miss, this does not independently de-duplicate strings, so strings
+    /// shared with some different hyperlink entry are copied.
     ///
     /// To release the memory associated with the given hyperlink,
     /// release the ID from the `hyperlink_set`. If the refcount reaches
@@ -1348,6 +1349,23 @@ pub const Page = struct {
         self: *Page,
         link: hyperlink.Hyperlink,
     ) InsertHyperlinkError!hyperlink.Id {
+        // Probe explicit IDs with the decoded input before allocating page
+        // strings. OSC 8 producers commonly re-assert them for many spans;
+        // if the link is still used by a cell, its strings can be shared.
+        // Implicit IDs are generated uniquely, so probing them is guaranteed
+        // to miss in normal operation and would only duplicate add's lookup.
+        switch (link.id) {
+            .implicit => {},
+            .explicit => if (self.hyperlink_set.lookupAdapted(
+                self.memory,
+                link,
+                hyperlink.Set.Context{ .page = self },
+            )) |id| {
+                self.hyperlink_set.use(self.memory, id);
+                return id;
+            },
+        }
+
         // Insert our URI into the page strings table.
         const page_uri: Offset(u8).Slice = uri: {
             const buf = self.string_alloc.alloc(
@@ -3052,6 +3070,38 @@ test "Page cloneFrom hyperlinks exact capacity" {
 
     // We should have the same number of hyperlinks
     try testing.expectEqual(page2.hyperlinkCount(), page.hyperlinkCount());
+}
+
+test "Page insertHyperlink reuses live resident strings" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .hyperlink_bytes = 8 * @sizeOf(hyperlink.Set.Item),
+        .string_bytes = 256,
+    });
+    defer page.deinit();
+
+    const link: hyperlink.Hyperlink = .{
+        .id = .{ .explicit = "same-id" },
+        .uri = "https://example.com/same-link",
+    };
+    const first = try page.insertHyperlink(link);
+
+    // Consume the remaining string storage. Re-inserting a live entry must
+    // not require space for a transient copy of strings that it will discard.
+    while (true) {
+        _ = page.string_alloc.alloc(u8, page.memory, 1) catch break;
+    }
+    const used = page.string_alloc.usedBytes(page.memory);
+    const second = try page.insertHyperlink(link);
+
+    try testing.expectEqual(first, second);
+    try testing.expectEqual(used, page.string_alloc.usedBytes(page.memory));
+    try testing.expectEqual(@as(usize, 1), page.hyperlink_set.count());
+    try testing.expectEqual(@as(size.CellCountInt, 2), page.hyperlink_set.refCount(
+        page.memory,
+        first,
+    ));
 }
 
 test "Page cloneFrom graphemes" {
