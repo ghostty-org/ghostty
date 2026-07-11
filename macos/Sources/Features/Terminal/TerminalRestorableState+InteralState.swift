@@ -15,20 +15,6 @@ extension TerminalRestorableState {
         let effectiveFullscreenMode: FullscreenMode?
         let tabColor: TerminalTabColor?
         let titleOverride: String?
-
-        init(
-            focusedSurface: String?,
-            surfaceTree: SplitTree<ViewType>,
-            effectiveFullscreenMode: FullscreenMode?,
-            tabColor: TerminalTabColor?,
-            titleOverride: String?,
-        ) {
-            self.focusedSurface = focusedSurface
-            self.surfaceTree = surfaceTree
-            self.effectiveFullscreenMode = effectiveFullscreenMode
-            self.tabColor = tabColor
-            self.titleOverride = titleOverride
-        }
     }
 }
 

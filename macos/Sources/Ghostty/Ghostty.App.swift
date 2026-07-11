@@ -190,14 +190,14 @@ extension Ghostty {
         func newTab(surface: ghostty_surface_t) {
             let action = "new_tab"
             if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
-                logger.warning("action failed action=\(action)")
+                logger.warning("action failed action=\(action, privacy: .public)")
             }
         }
 
         func newWindow(surface: ghostty_surface_t) {
             let action = "new_window"
             if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
-                logger.warning("action failed action=\(action)")
+                logger.warning("action failed action=\(action, privacy: .public)")
             }
         }
 
@@ -220,14 +220,14 @@ extension Ghostty {
         func splitToggleZoom(surface: ghostty_surface_t) {
             let action = "toggle_split_zoom"
             if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
-                logger.warning("action failed action=\(action)")
+                logger.warning("action failed action=\(action, privacy: .public)")
             }
         }
 
         func toggleFullscreen(surface: ghostty_surface_t) {
             let action = "toggle_fullscreen"
             if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
-                logger.warning("action failed action=\(action)")
+                logger.warning("action failed action=\(action, privacy: .public)")
             }
         }
 
@@ -248,21 +248,21 @@ extension Ghostty {
                 action = "reset_font_size"
             }
             if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
-                logger.warning("action failed action=\(action)")
+                logger.warning("action failed action=\(action, privacy: .public)")
             }
         }
 
         func toggleTerminalInspector(surface: ghostty_surface_t) {
             let action = "inspector:toggle"
             if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
-                logger.warning("action failed action=\(action)")
+                logger.warning("action failed action=\(action, privacy: .public)")
             }
         }
 
         func resetTerminal(surface: ghostty_surface_t) {
             let action = "reset"
             if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
-                logger.warning("action failed action=\(action)")
+                logger.warning("action failed action=\(action, privacy: .public)")
             }
         }
 
@@ -485,7 +485,7 @@ extension Ghostty {
                 break
 
             default:
-                Ghostty.logger.warning("unknown action target=\(target.tag.rawValue)")
+                Ghostty.logger.warning("unknown action target=\(target.tag.rawValue, privacy: .public)")
                 return false
             }
 
@@ -620,6 +620,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_RING_BELL:
                 ringBell(app, target: target)
 
+            case GHOSTTY_ACTION_SELECTION_CHANGED:
+                selectionChanged(app, target: target)
+
             case GHOSTTY_ACTION_READONLY:
                 setReadonly(app, target: target, v: action.action.readonly)
 
@@ -672,7 +675,7 @@ extension Ghostty {
             case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
                 return copyTitleToClipboard(app, target: target)
             default:
-                Ghostty.logger.warning("unknown action action=\(action.tag.rawValue)")
+                Ghostty.logger.warning("unknown action action=\(action.tag.rawValue, privacy: .public)")
                 return false
             }
 
@@ -979,7 +982,7 @@ extension Ghostty {
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
                 guard let mode = FullscreenMode.from(ghostty: raw) else {
-                    Ghostty.logger.warning("unknown fullscreen mode raw=\(raw.rawValue)")
+                    Ghostty.logger.warning("unknown fullscreen mode raw=\(raw.rawValue, privacy: .public)")
                     return
                 }
                 NotificationCenter.default.post(
@@ -1062,6 +1065,27 @@ extension Ghostty {
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
                 NotificationCenter.default.post(
                     name: .ghosttyBellDidRing,
+                    object: surfaceView
+                )
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func selectionChanged(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s) {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("selection changed does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                NotificationCenter.default.post(
+                    name: .ghosttySelectionDidChange,
                     object: surfaceView
                 )
 
@@ -1399,7 +1423,7 @@ extension Ghostty {
             let center = UNUserNotificationCenter.current()
             center.requestAuthorization(options: [.alert, .sound]) { _, error in
                 if let error = error {
-                    Ghostty.logger.error("Error while requesting notification authorization: \(error)")
+                    Ghostty.logger.error("Error while requesting notification authorization: \(error, privacy: .public)")
                 }
             }
 

@@ -1333,7 +1333,7 @@ test "shape emoji width long" {
     var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
     defer t.deinit(alloc);
 
-    var page = t.screens.active.pages.pages.first.?.data;
+    var page = t.screens.active.pages.pages.first.?.page();
     var row = page.getRow(1);
     const cell = &row.cells.ptr(page.memory)[0];
     cell.* = .{

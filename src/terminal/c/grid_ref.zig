@@ -98,7 +98,8 @@ pub fn grid_ref_hyperlink_uri(
     out_len: *usize,
 ) callconv(lib.calling_conv) Result {
     const p = ref.toPin() orelse return .invalid_value;
-    const rac = p.node.data.getRowAndCell(p.x, p.y);
+    const terminal_page = p.node.page();
+    const rac = terminal_page.getRowAndCell(p.x, p.y);
     const cell = rac.cell;
 
     if (!cell.hyperlink) {
@@ -106,12 +107,15 @@ pub fn grid_ref_hyperlink_uri(
         return .success;
     }
 
-    const link_id = p.node.data.lookupHyperlink(cell) orelse {
+    const link_id = terminal_page.lookupHyperlink(cell) orelse {
         out_len.* = 0;
         return .success;
     };
-    const entry = p.node.data.hyperlink_set.get(p.node.data.memory, link_id);
-    const uri = entry.uri.slice(p.node.data.memory);
+    const entry = terminal_page.hyperlink_set.get(
+        terminal_page.memory,
+        link_id,
+    );
+    const uri = entry.uri.slice(terminal_page.memory);
 
     if (out_buf == null or buf_len < uri.len) {
         out_len.* = uri.len;
@@ -133,8 +137,9 @@ pub fn grid_ref_style(
         if (cell.style_id == stylepkg.default_id) {
             o.* = .fromStyle(.{});
         } else {
-            o.* = .fromStyle(p.node.data.styles.get(
-                p.node.data.memory,
+            const terminal_page = p.node.page();
+            o.* = .fromStyle(terminal_page.styles.get(
+                terminal_page.memory,
                 cell.style_id,
             ).*);
         }

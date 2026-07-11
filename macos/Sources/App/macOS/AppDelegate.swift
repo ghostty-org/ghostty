@@ -104,6 +104,14 @@ class AppDelegate: NSObject,
     /// The current state of the quick terminal.
     private var quickTerminalControllerState: QuickTerminalState = .uninitialized
 
+    /// Whether the quick terminal has already been initialized.
+    var quickControllerInitialized: Bool {
+        if case .initialized = quickTerminalControllerState {
+            return true
+        }
+        return false
+    }
+
     /// Our quick terminal. This starts out uninitialized and only initializes if used.
     var quickController: QuickTerminalController {
         switch quickTerminalControllerState {
@@ -607,7 +615,7 @@ class AppDelegate: NSObject,
         // Build our event input and call ghostty
         if ghostty_app_key(ghostty, event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)) {
             // The key was used so we want to stop it from going to our Mac app
-            Ghostty.logger.debug("local key event handled event=\(event)")
+            Ghostty.logger.debug("local key event handled event=\(event, privacy: .public)")
             return nil
         }
 
@@ -662,7 +670,7 @@ class AppDelegate: NSObject,
     private func requestBadgeAuthorizationAndSet(_ center: UNUserNotificationCenter) {
         center.requestAuthorization(options: [.badge]) { granted, error in
             if let error = error {
-                Self.logger.warning("Error requesting badge authorization: \(error)")
+                Self.logger.warning("Error requesting badge authorization: \(error, privacy: .public)")
                 return
             }
 

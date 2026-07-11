@@ -295,6 +295,10 @@ pub const Action = union(Key) {
     /// it needs to ring the bell. This is usually a sound or visual effect.
     ring_bell,
 
+    /// Called when the active selection changes. The apprt should read the
+    /// current selection itself; this carries no payload.
+    selection_changed,
+
     /// Undo the last action. See the "undo" keybinding for more
     /// details on what can and cannot be undone.
     undo,
@@ -396,6 +400,7 @@ pub const Action = union(Key) {
         config_change,
         close_window,
         ring_bell,
+        selection_changed,
         undo,
         redo,
         check_for_updates,

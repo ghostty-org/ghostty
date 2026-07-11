@@ -41,6 +41,29 @@ const Terminal = @import("Terminal.zig");
 ///     defer state.deinit(alloc);
 ///     state.update(alloc, &terminal);
 ///
+/// ## Two-Phase Updates
+///
+/// For callers that synchronize terminal access (e.g. a renderer thread
+/// sharing a lock with an IO thread), the update can be split into two
+/// phases to minimize the time the terminal must be held exclusively:
+/// `beginUpdate` requires terminal access, while `endUpdate` completes
+/// any deferred work using only memory owned by the render state.
+///
+///     {
+///         mutex.lock();
+///         defer mutex.unlock();
+///         try state.beginUpdate(alloc, &terminal);
+///     }
+///
+///     // The IO thread is free to modify the terminal while we
+///     // complete the update.
+///     state.endUpdate();
+///
+/// The render state must be treated as incomplete between the two calls.
+/// `update` is a convenience that performs both phases in one call.
+///
+/// ## Memory
+///
 /// Note: the render state retains as much memory as possible between updates
 /// to prevent future allocations. If a very large frame is rendered once,
 /// the render state will retain that much memory until deinit. To avoid
@@ -90,6 +113,16 @@ pub const RenderState = struct {
     /// The cached selection so we can avoid expensive selection calculations
     /// if possible.
     selection_cache: ?SelectionCache = null,
+
+    /// The pending style runs requiring an endUpdate call, in the
+    /// order they were recorded. If multiple begins happen without an
+    /// endUpdate call, runs accumulate; rows rebuilt more than once
+    /// may then have superseded (stale) runs in this list, which is
+    /// harmless: newer runs are appended later so they win, and cells
+    /// not covered by newer runs have a default style ID in their raw
+    /// data so their style is undefined by contract anyway. See
+    /// beginUpdate.
+    pending_styles: std.ArrayList(StyleRun) = .empty,
 
     /// Initial state.
     pub const empty: RenderState = .{
@@ -176,9 +209,15 @@ pub const RenderState = struct {
         /// change often.
         arena: ArenaAllocator.State,
 
-        /// The page pin. This is not safe to read unless you can guarantee
-        /// the terminal state hasn't changed since the last `update` call.
+        /// The page pin. Its copied values may be compared, but its node must
+        /// not be dereferenced unless the terminal state is protected from
+        /// changes since the last `update` call.
         pin: PageList.Pin,
+
+        /// The page node generation captured alongside `pin`. This lets
+        /// consumers validate the pin without dereferencing its node after
+        /// the terminal lock has been released.
+        serial: u64,
 
         /// Raw row data.
         raw: page.Row,
@@ -244,6 +283,23 @@ pub const RenderState = struct {
         br_pin: PageList.Pin,
     };
 
+    /// A run of cells within one row sharing one style, pending
+    /// denormalization into the per-cell data. This is populated by
+    /// `beginUpdate` and consumed by `endUpdate`. This exists so that
+    /// the (potentially large) denormalization of styles into cells
+    /// can happen outside of any terminal locks. See `beginUpdate`.
+    pub const StyleRun = struct {
+        /// The viewport row.
+        y: size.CellCountInt,
+
+        /// Start (inclusive) and end (exclusive) x coordinates.
+        start: size.CellCountInt,
+        end: size.CellCountInt,
+
+        /// The style for this cell range.
+        style: Style,
+    };
+
     pub fn deinit(self: *RenderState, alloc: Allocator) void {
         for (
             self.row_data.items(.arena),
@@ -254,13 +310,50 @@ pub const RenderState = struct {
             cells.deinit(alloc);
         }
         self.row_data.deinit(alloc);
+        self.pending_styles.deinit(alloc);
     }
 
     /// Update the render state to the latest terminal state.
     ///
+    /// This is a convenience function that performs a full update in
+    /// one call, equivalent to `beginUpdate` immediately followed by
+    /// `endUpdate`. Callers that hold a lock over the terminal state
+    /// should prefer calling the two phases directly so that the lock
+    /// is only held for `beginUpdate`.
+    ///
     /// This will reset the terminal dirty state since it is consumed
     /// by this render state update.
     pub fn update(
+        self: *RenderState,
+        alloc: Allocator,
+        t: *Terminal,
+    ) Allocator.Error!void {
+        try self.beginUpdate(alloc, t);
+        self.endUpdate();
+    }
+
+    /// Begin an update of the render state to the latest terminal
+    /// state. Every begin must be completed with an `endUpdate` call
+    /// before the render state is read.
+    ///
+    /// This two-phase structure exists for callers that lock the
+    /// terminal state: only this function requires terminal access, so
+    /// a caller can hold its lock for this call only and then call
+    /// `endUpdate` after releasing it. `endUpdate` exclusively reads
+    /// and writes memory owned by the render state.
+    ///
+    /// Work that doesn't require terminal access may be deferred to
+    /// `endUpdate` to keep this call (and therefore lock hold time) as
+    /// short as possible. At the time of writing, the deferred work is
+    /// the per-cell style denormalization, so between this call and
+    /// `endUpdate` the per-cell `style` data of any updated rows is
+    /// stale and must not be read. More work may be deferred in the
+    /// future; callers should treat the render state as incomplete
+    /// until `endUpdate` is called.
+    ///
+    /// This will reset the terminal dirty state since it is consumed
+    /// by this render state update.
+    pub fn beginUpdate(
         self: *RenderState,
         alloc: Allocator,
         t: *Terminal,
@@ -322,7 +415,14 @@ pub const RenderState = struct {
 
         // Colors.
         self.colors.cursor = t.colors.cursor.get();
-        self.colors.palette = t.colors.palette.current;
+
+        // The palette is a relatively large copy (768 bytes at the time
+        // of writing) so we only copy it when it could have changed. All
+        // palette modifications set a terminal-level dirty flag (see
+        // Terminal.Dirty.palette), and any terminal-level dirty flag
+        // forces a redraw, so checking redraw is sufficient.
+        if (redraw) self.colors.palette = t.colors.palette.current;
+
         bg_fg: {
             // Background/foreground can be unset initially which would
             // depend on "default" background/foreground. The expected use
@@ -358,6 +458,7 @@ pub const RenderState = struct {
                     row_data.set(y, .{
                         .arena = .{},
                         .pin = undefined,
+                        .serial = undefined,
                         .raw = undefined,
                         .cells = .empty,
                         .dirty = true,
@@ -383,33 +484,62 @@ pub const RenderState = struct {
         const row_data = self.row_data.slice();
         const row_arenas = row_data.items(.arena);
         const row_pins = row_data.items(.pin);
+        const row_serials = row_data.items(.serial);
         const row_rows = row_data.items(.raw);
         const row_cells = row_data.items(.cells);
         const row_sels = row_data.items(.selection);
         const row_highlights = row_data.items(.highlights);
         const row_dirties = row_data.items(.dirty);
 
-        // Track the last page that we know was dirty. This lets us
-        // more quickly do the full-page dirty check.
-        var last_dirty_page: ?*page.Page = null;
+        // If we're redrawing then every row will be rebuilt, superseding
+        // any pending style runs from prior updates. Clearing also
+        // guarantees pending runs always match the current dimensions
+        // (dimension changes force a redraw).
+        if (redraw) self.pending_styles.clearRetainingCapacity();
 
-        // Go through and setup our rows.
-        var row_it = s.pages.rowIterator(
-            .right_down,
-            .{ .viewport = .{} },
-            null,
-        );
-        var y: size.CellCountInt = 0;
+        // Go through and setup our rows. We iterate page chunks rather
+        // than individual rows so that per-page work (dirty flags, cursor
+        // detection, memory pointers) is hoisted out of the row loop. This
+        // makes the common case of a clean (or mostly clean) frame very
+        // cheap: a contiguous scan of row dirty flags.
+        const builder: RowBuilder = .{
+            .alloc = alloc,
+            .cols = self.cols,
+            .arenas = row_arenas,
+            .raws = row_rows,
+            .cells = row_cells,
+            .sels = row_sels,
+            .highlights = row_highlights,
+            .dirties = row_dirties,
+            .pending_styles = &self.pending_styles,
+        };
+        var y: usize = 0;
         var any_dirty: bool = false;
-        while (row_it.next()) |row_pin| : (y = y + 1) {
+        var page_it = viewport_pin.pageIterator(.right_down, null);
+        while (y < self.rows) {
+            const chunk = page_it.next() orelse break;
+            const node = chunk.node;
+            const node_serial = node.serial;
+            const p: *page.Page = node.page();
+
+            // The number of rows we consume from this chunk. The chunk
+            // may extend beyond the viewport (the viewport is always
+            // exactly `rows` tall) so we clamp.
+            const take: usize = @min(
+                @as(usize, chunk.end - chunk.start),
+                self.rows - y,
+            );
+
             // Find our cursor if we haven't found it yet. We do this even
-            // if the row is not dirty because the cursor is unrelated.
+            // if rows are not dirty because the cursor is unrelated. We
+            // can check the chunk bounds once rather than every row.
             if (self.cursor.viewport == null and
-                row_pin.node == s.cursor.page_pin.node and
-                row_pin.y == s.cursor.page_pin.y)
-            {
+                node == s.cursor.page_pin.node)
+            cursor: {
+                const cy = s.cursor.page_pin.y;
+                if (cy < chunk.start or cy >= chunk.start + take) break :cursor;
                 self.cursor.viewport = .{
-                    .y = y,
+                    .y = @intCast(y + (cy - chunk.start)),
                     .x = s.cursor.x,
 
                     // Future: we should use our own state here to look this
@@ -421,135 +551,82 @@ pub const RenderState = struct {
                 };
             }
 
-            // Store our pin. We have to store these even if we're not dirty
-            // because dirty is only a renderer optimization. It doesn't
-            // apply to memory movement. This will let us remap any cell
-            // pins back to an exact entry in our RenderState.
-            row_pins[y] = row_pin;
+            // The page-level dirty flag applies to every row in the chunk.
+            // We consume (clear) it now; each node appears at most once in
+            // this iteration and we're the only consumer of dirty state.
+            const page_dirty = p.dirty;
+            if (page_dirty) p.dirty = false;
 
-            // Get all our cells in the page.
-            const p: *page.Page = &row_pin.node.data;
-            const page_rac = row_pin.rowAndCell();
+            // Get our contiguous rows for this chunk.
+            const page_rows: []page.Row = p.rows.ptr(p.memory)[chunk.start..][0..take];
+            assert(p.size.cols == self.cols);
 
-            dirty: {
-                // If we're redrawing then we're definitely dirty.
-                if (redraw) break :dirty;
-
-                // If our page is the same as last time then its dirty.
-                if (p == last_dirty_page) break :dirty;
-                if (p.dirty) {
-                    // If this page is dirty then clear the dirty flag
-                    // of the last page and then store this one. This benchmarks
-                    // faster than iterating pages again later.
-                    if (last_dirty_page) |last_p| last_p.dirty = false;
-                    last_dirty_page = p;
-                    break :dirty;
+            // Store our pins and their node generations. We have to store
+            // these even for rows that aren't dirty because dirty is only a
+            // renderer optimization; it doesn't apply to memory movement.
+            // This lets us remap any cell pins back to an exact entry in our
+            // RenderState and validate them later without dereferencing a
+            // potentially stale node.
+            //
+            // We can skip the writes when the pins and serials are unchanged:
+            // if we're not redrawing, every value was stored by a prior update
+            // (row count changes force a redraw). Within a single update a
+            // node appears at most once and its stored pins have consecutive
+            // y values, so if the first and last entries of this chunk's range
+            // already match then every entry in between matches too.
+            if (redraw or
+                row_pins[y].node != node or
+                row_pins[y].y != chunk.start or
+                row_serials[y] != node_serial or
+                row_pins[y + take - 1].node != node or
+                row_pins[y + take - 1].y != chunk.start + take - 1 or
+                row_serials[y + take - 1] != node_serial)
+            {
+                for (
+                    row_pins[y..][0..take],
+                    row_serials[y..][0..take],
+                    chunk.start..,
+                ) |*pin, *serial, py| {
+                    pin.* = .{ .node = node, .y = @intCast(py) };
+                    serial.* = node_serial;
                 }
-
-                // If our row is dirty then we're dirty.
-                if (page_rac.row.dirty) break :dirty;
-
-                // Not dirty!
-                continue;
             }
 
-            // Set that at least one row was dirty.
-            any_dirty = true;
-
-            // Clear our row dirty, we'll clear our page dirty later.
-            // We can't clear it now because we have more rows to go through.
-            page_rac.row.dirty = false;
-
-            // Promote our arena. State is copied by value so we need to
-            // restore it on all exit paths so we don't leak memory.
-            var arena = row_arenas[y].promote(alloc);
-            defer row_arenas[y] = arena.state;
-
-            // Reset our cells if we're rebuilding this row.
-            if (row_cells[y].len > 0) {
-                _ = arena.reset(.retain_capacity);
-                row_cells[y].clearRetainingCapacity();
-                row_sels[y] = null;
-                row_highlights[y] = .empty;
-            }
-            row_dirties[y] = true;
-
-            // Get all our cells in the page.
-            const page_cells: []const page.Cell = p.getCells(page_rac.row);
-            assert(page_cells.len == self.cols);
-
-            // Copy our raw row data
-            row_rows[y] = page_rac.row.*;
-
-            // Note: our cells MultiArrayList uses our general allocator.
-            // We do this on purpose because as rows become dirty, we do
-            // not want to reallocate space for cells (which are large). This
-            // was a source of huge slowdown.
-            //
-            // Our per-row arena is only used for temporary allocations
-            // pertaining to cells directly (e.g. graphemes, hyperlinks).
-            const cells: *std.MultiArrayList(Cell) = &row_cells[y];
-            try cells.resize(alloc, self.cols);
-
-            // We always copy our raw cell data. In the case we have no
-            // managed memory, we can skip setting any other fields.
-            //
-            // This is an important optimization. For plain-text screens
-            // this ends up being something around 300% faster based on
-            // the `screen-clone` benchmark.
-            const cells_slice = cells.slice();
-            fastmem.copy(
-                page.Cell,
-                cells_slice.items(.raw),
-                page_cells,
-            );
-            if (!page_rac.row.managedMemory()) continue;
-
-            const arena_alloc = arena.allocator();
-            const cells_grapheme = cells_slice.items(.grapheme);
-            const cells_style = cells_slice.items(.style);
-            for (page_cells, 0..) |*page_cell, x| {
-                // Append assuming its a single-codepoint, styled cell
-                // (most common by far).
-                if (page_cell.style_id > 0) cells_style[x] = p.styles.get(
-                    p.memory,
-                    page_cell.style_id,
-                ).*;
-
-                // Switch on our content tag to handle less likely cases.
-                switch (page_cell.content_tag) {
-                    .codepoint => {
+            if (!redraw and !page_dirty) {
+                // Only dirty rows (usually none) need a rebuild. Scan the
+                // dirty flags a group at a time; the dirty bit is directly
+                // testable on the packed row representation.
+                var i: usize = 0;
+                while (take - i >= RowDirtyMask.group_len) : (i += RowDirtyMask.group_len) {
+                    if (RowDirtyMask.match(page_rows, i)) {
                         @branchHint(.likely);
-                        // Primary codepoint goes into `raw` field.
-                    },
+                        continue;
+                    }
 
-                    // If we have a multi-codepoint grapheme, look it up and
-                    // set our content type.
-                    .codepoint_grapheme => {
-                        @branchHint(.unlikely);
-                        cells_grapheme[x] = try arena_alloc.dupe(
-                            u21,
-                            p.lookupGrapheme(page_cell) orelse &.{},
-                        );
-                    },
-
-                    .bg_color_rgb => {
-                        @branchHint(.unlikely);
-                        cells_style[x] = .{ .bg_color = .{ .rgb = .{
-                            .r = page_cell.content.color_rgb.r,
-                            .g = page_cell.content.color_rgb.g,
-                            .b = page_cell.content.color_rgb.b,
-                        } } };
-                    },
-
-                    .bg_color_palette => {
-                        @branchHint(.unlikely);
-                        cells_style[x] = .{ .bg_color = .{
-                            .palette = page_cell.content.color_palette,
-                        } };
-                    },
+                    for (page_rows[i..][0..RowDirtyMask.group_len], i..) |*page_row, j| {
+                        if (!page_row.dirty) continue;
+                        page_row.dirty = false;
+                        any_dirty = true;
+                        try builder.row(p, page_row, y + j);
+                    }
+                }
+                while (i < take) : (i += 1) {
+                    const page_row = &page_rows[i];
+                    if (!page_row.dirty) continue;
+                    page_row.dirty = false;
+                    any_dirty = true;
+                    try builder.row(p, page_row, y + i);
+                }
+            } else {
+                // Rebuild every row in the chunk.
+                any_dirty = true;
+                for (page_rows, 0..) |*page_row, i| {
+                    page_row.dirty = false;
+                    try builder.row(p, page_row, y + i);
                 }
             }
+
+            y += take;
         }
         assert(y == self.rows);
 
@@ -640,12 +717,38 @@ pub const RenderState = struct {
             self.dirty = .partial;
         }
 
-        // Finalize our final dirty page
-        if (last_dirty_page) |last_p| last_p.dirty = false;
-
         // Clear our dirty flags
         t.flags.dirty = .{};
         s.dirty = .{};
+    }
+
+    /// Complete a prior `beginUpdate` call by performing any deferred
+    /// work. At the time of writing, this denormalizes the pending
+    /// style runs into the per-cell style data.
+    ///
+    /// This only reads and writes memory owned by the render state, so
+    /// it is safe to call while the terminal is being modified (no
+    /// terminal lock is required).
+    pub fn endUpdate(self: *RenderState) void {
+        // Common case: no styled rows were rebuilt.
+        if (self.pending_styles.items.len == 0) return;
+
+        const row_data = self.row_data.slice();
+        const row_cells = row_data.items(.cells);
+        for (self.pending_styles.items) |run| {
+            // Defensive: the row data may have changed shape if the
+            // caller violated ordering (e.g. an error path skipped an
+            // endUpdate between updates). Any update that changes
+            // dimensions clears the pending list (redraw), so this
+            // should never actually trigger, but the cost is trivial.
+            if (run.y >= row_cells.len) continue;
+            const styles = row_cells[run.y].slice().items(.style);
+            const end = @min(run.end, styles.len);
+            const start = @min(run.start, end);
+
+            @memset(styles[start..end], run.style);
+        }
+        self.pending_styles.clearRetainingCapacity();
     }
 
     /// Update the highlights in the render state from the given flattened
@@ -678,22 +781,28 @@ pub const RenderState = struct {
         const row_arenas = row_data.items(.arena);
         const row_dirties = row_data.items(.dirty);
         const row_pins = row_data.items(.pin);
+        const row_serials = row_data.items(.serial);
         const row_highlights_slice = row_data.items(.highlights);
         for (
             row_arenas,
             row_pins,
+            row_serials,
             row_highlights_slice,
             row_dirties,
-        ) |*row_arena, row_pin, *row_highlights, *dirty| {
+        ) |*row_arena, row_pin, row_serial, *row_highlights, *dirty| {
             for (hls) |hl| {
                 const chunks_slice = hl.chunks.slice();
                 const nodes = chunks_slice.items(.node);
+                const serials = chunks_slice.items(.serial);
                 const starts = chunks_slice.items(.start);
                 const ends = chunks_slice.items(.end);
                 for (0.., nodes) |i, node| {
-                    // If this node doesn't match or we're not within
-                    // the row range, skip it.
+                    // If this node generation doesn't match or we're not
+                    // within the row range, skip it. Both serials are copied
+                    // values, so this never dereferences a node outside the
+                    // terminal lock.
                     if (node != row_pin.node or
+                        serials[i] != row_serial or
                         row_pin.y < starts[i] or
                         row_pin.y >= ends[i]) continue;
 
@@ -825,7 +934,7 @@ pub const RenderState = struct {
 
         // Grab our link ID
         const link_pin: PageList.Pin = row_pins[viewport_point.y];
-        const link_page: *page.Page = &link_pin.node.data;
+        const link_page: *page.Page = link_pin.node.page();
         const link = link: {
             const rac = link_page.getRowAndCell(
                 viewport_point.x,
@@ -854,7 +963,7 @@ pub const RenderState = struct {
             for (0.., cells.items(.raw)) |x, cell| {
                 if (!cell.hyperlink) continue;
 
-                const other_page: *page.Page = &pin.node.data;
+                const other_page: *page.Page = pin.node.page();
                 const other = link: {
                     const rac = other_page.getRowAndCell(x, pin.y);
                     const link_id = other_page.lookupHyperlink(rac.cell) orelse continue;
@@ -876,6 +985,231 @@ pub const RenderState = struct {
         }
 
         return result;
+    }
+};
+
+/// The number of rows/cells we scan as a single group when looking for
+/// dirty rows or special cells. Rows and cells are small packed structs
+/// so a group is scanned with a handful of vector operations.
+const scan_group_len = 8;
+
+/// Group scan helper for the row dirty flag. A row that matches has
+/// its dirty flag unset.
+const RowDirtyMask = page.Mask(
+    page.Row,
+    &.{"dirty"},
+    scan_group_len,
+);
+
+/// Group scan helper for the cell fields that require managed memory
+/// handling. A cell that matches is a plain (possibly zero) codepoint
+/// with a default style, requiring no work beyond the raw copy. See
+/// RowBuilder.row.
+const CellSpecialMask = page.Mask(page.Cell, &.{
+    "content_tag",
+    "style_id",
+}, scan_group_len);
+
+/// Internal helper for RenderState.update that rebuilds a single row of
+/// the render state from the current page contents.
+const RowBuilder = struct {
+    alloc: Allocator,
+    cols: usize,
+    arenas: []ArenaAllocator.State,
+    raws: []page.Row,
+    cells: []std.MultiArrayList(RenderState.Cell),
+    sels: []?[2]size.CellCountInt,
+    highlights: []std.ArrayList(RenderState.Highlight),
+    dirties: []bool,
+    pending_styles: *std.ArrayList(RenderState.StyleRun),
+
+    fn row(
+        b: *const RowBuilder,
+        p: *page.Page,
+        page_row: *const page.Row,
+        vy: usize,
+    ) Allocator.Error!void {
+        // Promote our arena. State is copied by value so we need to
+        // restore it on all exit paths so we don't leak memory.
+        var arena = b.arenas[vy].promote(b.alloc);
+        defer b.arenas[vy] = arena.state;
+
+        // Reset our per-row state if we're rebuilding this row. A
+        // non-zero cell length means the row was populated by a prior
+        // update.
+        if (b.cells[vy].len > 0) {
+            _ = arena.reset(.retain_capacity);
+            b.sels[vy] = null;
+            b.highlights[vy] = .empty;
+        }
+        b.dirties[vy] = true;
+
+        // Get all our cells in the page.
+        const page_cells: []const page.Cell = page_row.cells.ptr(p.memory)[0..b.cols];
+
+        // Copy our raw row data
+        b.raws[vy] = page_row.*;
+
+        // Note: our cells MultiArrayList uses our general allocator.
+        // We do this on purpose because as rows become dirty, we do
+        // not want to reallocate space for cells (which are large). This
+        // was a source of huge slowdown.
+        //
+        // Our per-row arena is only used for temporary allocations
+        // pertaining to cells directly (e.g. graphemes, hyperlinks).
+        const cells: *std.MultiArrayList(RenderState.Cell) = &b.cells[vy];
+        if (cells.len != b.cols) try cells.resize(b.alloc, b.cols);
+
+        // We always copy our raw cell data. In the case we have no
+        // managed memory, we can skip setting any other fields.
+        //
+        // This is an important optimization. For plain-text screens
+        // this ends up being something around 300% faster based on
+        // the `screen-clone` benchmark.
+        const cells_slice = cells.slice();
+        fastmem.copy(
+            page.Cell,
+            cells_slice.items(.raw),
+            page_cells,
+        );
+        if (!page_row.managedMemory()) return;
+
+        const arena_alloc = arena.allocator();
+        const cells_grapheme = cells_slice.items(.grapheme);
+        const n = page_cells.len;
+        var x: usize = 0;
+        scan: while (x < n) {
+            // Skip runs of plain cells a group at a time. Cells that
+            // need managed handling are often rare even within rows that
+            // have managed memory (e.g. a row is "styled" if a single
+            // cell has a style) so groups are skipped with a few vector
+            // operations.
+            while (n - x >= CellSpecialMask.group_len) {
+                if (!CellSpecialMask.match(page_cells, x)) break;
+                x += CellSpecialMask.group_len;
+            }
+
+            // Scalar scan to the next special cell.
+            while (true) {
+                if (x >= n) break :scan;
+                if (!CellSpecialMask.matchScalar(page_cells[x])) break;
+                x += 1;
+            }
+
+            const page_cell = &page_cells[x];
+
+            switch (page_cell.content_tag) {
+                // Single-codepoint styled cells are by far the most
+                // common special cells, and they usually come in long
+                // runs sharing one style ID (e.g. a fully styled row
+                // usually uses a single style). Find the run and record
+                // it: this does one style lookup per run and defers the
+                // (large) per-cell fill to endUpdate, outside of any
+                // terminal locks.
+                .codepoint => {
+                    @branchHint(.likely);
+                    const sid = page_cell.style_id;
+                    assert(sid > 0); // special + codepoint implies styled
+                    const style_val: Style = p.styles.get(p.memory, sid).*;
+
+                    // A cell continues the run if its masked special
+                    // bits are exactly the style ID of the run (in
+                    // particular the content tag must be a plain
+                    // codepoint). We can check groups of cells at a
+                    // time this way.
+                    const pattern = CellSpecialMask.pattern(page_cell.*);
+                    const start = x;
+                    x += 1;
+                    while (n - x >= CellSpecialMask.group_len) {
+                        if (!CellSpecialMask.eql(
+                            page_cells,
+                            x,
+                            pattern,
+                        )) break;
+                        x += CellSpecialMask.group_len;
+                    }
+                    while (x < n) : (x += 1) {
+                        if (!CellSpecialMask.eqlScalar(
+                            page_cells[x],
+                            pattern,
+                        )) break;
+                    }
+
+                    try b.pending_styles.append(b.alloc, .{
+                        .y = @intCast(vy),
+                        .start = @intCast(start),
+                        .end = @intCast(x),
+                        .style = style_val,
+                    });
+                },
+
+                // If we have a multi-codepoint grapheme, look it up and
+                // set our content type. Note grapheme cells may also
+                // be styled. The style must be recorded as a run (rather
+                // than written directly) so that it is ordered correctly
+                // relative to possibly-stale runs from prior updates.
+                .codepoint_grapheme => {
+                    if (page_cell.style_id > 0) {
+                        try b.pending_styles.append(b.alloc, .{
+                            .y = @intCast(vy),
+                            .start = @intCast(x),
+                            .end = @intCast(x + 1),
+                            .style = p.styles.get(
+                                p.memory,
+                                page_cell.style_id,
+                            ).*,
+                        });
+                    }
+                    cells_grapheme[x] = try arena_alloc.dupe(
+                        u21,
+                        p.lookupGrapheme(page_cell) orelse &.{},
+                    );
+                    x += 1;
+                },
+
+                // Background-color-only cells. The style is derived
+                // entirely from the cell contents. Consecutive cleared
+                // cells with the same background are bit-identical, so
+                // we run-detect on full equality (e.g. a line cleared
+                // with a background color pending is one run).
+                .bg_color_rgb, .bg_color_palette => {
+                    const style_val: Style = switch (page_cell.content_tag) {
+                        .bg_color_rgb => .{ .bg_color = .{ .rgb = .{
+                            .r = page_cell.content.color_rgb.r,
+                            .g = page_cell.content.color_rgb.g,
+                            .b = page_cell.content.color_rgb.b,
+                        } } },
+                        .bg_color_palette => .{ .bg_color = .{
+                            .palette = page_cell.content.color_palette,
+                        } },
+                        else => unreachable,
+                    };
+
+                    const first_bits = CellSpecialMask.bits(page_cell.*);
+                    const start = x;
+                    x += 1;
+                    while (n - x >= CellSpecialMask.group_len) {
+                        if (!CellSpecialMask.eqlExact(
+                            page_cells,
+                            x,
+                            first_bits,
+                        )) break;
+                        x += CellSpecialMask.group_len;
+                    }
+                    while (x < n) : (x += 1) {
+                        if (CellSpecialMask.bits(page_cells[x]) != first_bits)
+                            break;
+                    }
+
+                    try b.pending_styles.append(b.alloc, .{
+                        .y = @intCast(vy),
+                        .start = @intCast(start),
+                        .end = @intCast(x),
+                        .style = style_val,
+                    });
+                },
+            }
+        }
     }
 };
 
@@ -977,6 +1311,331 @@ test "styled text" {
     }
     try testing.expectEqual('C', cells[0].get(2).raw.codepoint());
     try testing.expectEqual(0, cells[0].get(3).raw.codepoint());
+}
+
+/// Verifies that an incrementally updated render state has identical
+/// contents to a from-scratch rebuild. This is the load-bearing check
+/// for our dirty tracking: if any terminal operation changes row
+/// contents without setting a dirty signal that `update` honors
+/// (terminal dirty, screen dirty, page dirty, row dirty, viewport pin,
+/// or dimensions), the incremental state will contain stale rows and
+/// this comparison will fail.
+fn testCompareStates(
+    incremental: *const RenderState,
+    fresh: *const RenderState,
+) !void {
+    const testing = std.testing;
+
+    // Row metadata that is allowed to be stale in an incremental
+    // update. Dirty tracking only guarantees that VISUAL changes are
+    // flagged (see page.Row.dirty); these fields are non-visual
+    // metadata that the terminal may change without dirtying the row
+    // (e.g. Screen.cursorResetWrap clears wrap flags without a dirty
+    // mark). This staleness predates the chunked update
+    // implementation; it is present in the row-iterator implementation
+    // as well.
+    const StaleOkMask = page.Mask(page.Row, &.{
+        "wrap",
+        "wrap_continuation",
+        "semantic_prompt",
+        "dirty",
+    }, 1);
+
+    try testing.expectEqual(fresh.rows, incremental.rows);
+    try testing.expectEqual(fresh.cols, incremental.cols);
+    try testing.expectEqual(fresh.cursor.active, incremental.cursor.active);
+    try testing.expectEqual(fresh.cursor.viewport, incremental.cursor.viewport);
+    try testing.expectEqual(
+        @as(page.Cell.Backing, @bitCast(fresh.cursor.cell)),
+        @as(page.Cell.Backing, @bitCast(incremental.cursor.cell)),
+    );
+
+    const inc_data = incremental.row_data.slice();
+    const new_data = fresh.row_data.slice();
+    try testing.expectEqual(new_data.len, inc_data.len);
+    for (0..new_data.len) |y| {
+        errdefer std.log.warn("mismatch on row y={}", .{y});
+
+        // Pins must match exactly.
+        const inc_pin = inc_data.items(.pin)[y];
+        const new_pin = new_data.items(.pin)[y];
+        try testing.expectEqual(new_pin.node, inc_pin.node);
+        try testing.expectEqual(new_pin.y, inc_pin.y);
+
+        // Raw row data must match, except for non-visual metadata
+        // fields which may legitimately be stale (see StaleOkMask).
+        const inc_row = inc_data.items(.raw)[y];
+        const new_row = new_data.items(.raw)[y];
+        try testing.expectEqual(
+            StaleOkMask.strip(new_row),
+            StaleOkMask.strip(inc_row),
+        );
+
+        const inc_cells = inc_data.items(.cells)[y].slice();
+        const new_cells = new_data.items(.cells)[y].slice();
+        try testing.expectEqual(new_cells.len, inc_cells.len);
+        const managed = new_row.managedMemory();
+        for (0..new_cells.len) |x| {
+            errdefer std.log.warn("mismatch on cell x={}", .{x});
+
+            // Raw cell contents must match.
+            const inc_cell = inc_cells.items(.raw)[x];
+            const new_cell = new_cells.items(.raw)[x];
+            try testing.expectEqual(
+                @as(page.Cell.Backing, @bitCast(new_cell)),
+                @as(page.Cell.Backing, @bitCast(inc_cell)),
+            );
+
+            // The style is only defined if the cell is styled or is
+            // a bg-color cell within a row that has managed memory.
+            if (new_cell.style_id != 0 or
+                (managed and switch (new_cell.content_tag) {
+                    .bg_color_rgb, .bg_color_palette => true,
+                    else => false,
+                }))
+            {
+                try testing.expect(std.meta.eql(
+                    new_cells.items(.style)[x],
+                    inc_cells.items(.style)[x],
+                ));
+            }
+
+            // Graphemes are only defined for grapheme cells.
+            if (new_cell.content_tag == .codepoint_grapheme) {
+                try testing.expectEqualSlices(
+                    u21,
+                    new_cells.items(.grapheme)[x],
+                    inc_cells.items(.grapheme)[x],
+                );
+            }
+        }
+    }
+}
+
+test "incremental updates match full rebuild" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Deterministic so failures are reproducible.
+    var prng = std.Random.DefaultPrng.init(0xB0BA_CAFE);
+    const rand = prng.random();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 20,
+        .rows = 8,
+        .max_scrollback = 500,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    var inc: RenderState = .empty;
+    defer inc.deinit(alloc);
+
+    var buf: [64]u8 = undefined;
+    for (0..300) |_| {
+        // Perform a random batch of operations between updates.
+        for (0..rand.intRangeAtMost(usize, 1, 6)) |_| {
+            switch (rand.intRangeAtMost(u8, 0, 18)) {
+                // Plain text (possibly wrapping and scrolling).
+                0, 1, 2 => for (0..rand.intRangeAtMost(usize, 1, 30)) |_| {
+                    s.nextSlice(&.{rand.intRangeAtMost(u8, 'A', 'Z')});
+                },
+
+                // Newlines to build scrollback and trigger pruning.
+                3, 4 => for (0..rand.intRangeAtMost(usize, 1, 10)) |_| {
+                    s.nextSlice("x\r\n");
+                },
+
+                // Cursor movement.
+                5 => s.nextSlice(try std.fmt.bufPrint(&buf, "\x1b[{};{}H", .{
+                    rand.intRangeAtMost(u16, 1, 8),
+                    rand.intRangeAtMost(u16, 1, 20),
+                })),
+
+                // Styling: bold, truecolor bg, palette fg, reset.
+                6 => s.nextSlice(switch (rand.intRangeAtMost(u8, 0, 3)) {
+                    0 => "\x1b[1m",
+                    1 => "\x1b[48;2;30;60;90m",
+                    2 => "\x1b[38;5;120m",
+                    else => "\x1b[0m",
+                }),
+
+                // Erase ops (EL, ED variants including scrollback).
+                7 => s.nextSlice(switch (rand.intRangeAtMost(u8, 0, 4)) {
+                    0 => "\x1b[K",
+                    1 => "\x1b[1K",
+                    2 => "\x1b[J",
+                    3 => "\x1b[2J",
+                    else => "\x1b[3J",
+                }),
+
+                // Insert/delete lines (row rotations within regions).
+                8 => s.nextSlice(try std.fmt.bufPrint(&buf, "\x1b[{}L", .{
+                    rand.intRangeAtMost(u16, 1, 4),
+                })),
+                9 => s.nextSlice(try std.fmt.bufPrint(&buf, "\x1b[{}M", .{
+                    rand.intRangeAtMost(u16, 1, 4),
+                })),
+
+                // Scroll up/down (page-dirty row rotations).
+                10 => s.nextSlice(try std.fmt.bufPrint(&buf, "\x1b[{}S", .{
+                    rand.intRangeAtMost(u16, 1, 4),
+                })),
+                11 => s.nextSlice(try std.fmt.bufPrint(&buf, "\x1b[{}T", .{
+                    rand.intRangeAtMost(u16, 1, 4),
+                })),
+
+                // Set/reset scroll regions to exercise bounded scrolls.
+                12 => {
+                    const top = rand.intRangeAtMost(u16, 1, 4);
+                    const bot = rand.intRangeAtMost(u16, top + 1, 8);
+                    s.nextSlice(try std.fmt.bufPrint(
+                        &buf,
+                        "\x1b[{};{}r",
+                        .{ top, bot },
+                    ));
+                },
+
+                // Insert/delete/erase chars within a row.
+                13 => s.nextSlice(try std.fmt.bufPrint(&buf, "\x1b[{}@", .{
+                    rand.intRangeAtMost(u16, 1, 5),
+                })),
+                14 => s.nextSlice(try std.fmt.bufPrint(&buf, "\x1b[{}P", .{
+                    rand.intRangeAtMost(u16, 1, 5),
+                })),
+
+                // Reverse index (scroll down at top).
+                15 => s.nextSlice("\x1bM"),
+
+                // Wide chars and multi-codepoint graphemes.
+                16 => s.nextSlice("字👨‍👩‍👧"),
+
+                // Alternate screen switching (screen key redraw path).
+                17 => s.nextSlice(if (rand.boolean())
+                    "\x1b[?1049h"
+                else
+                    "\x1b[?1049l"),
+
+                // DECALN full-screen fill.
+                18 => s.nextSlice("\x1b#8"),
+
+                else => unreachable,
+            }
+        }
+
+        // Occasionally scroll the viewport into scrollback and back.
+        switch (rand.intRangeAtMost(u8, 0, 9)) {
+            0 => t.scrollViewport(.{ .delta = -3 }),
+            1 => t.scrollViewport(.{ .delta = 2 }),
+            2 => t.scrollViewport(.bottom),
+            3 => t.scrollViewport(.top),
+            else => {},
+        }
+
+        // Update our incremental state first: it must consume the dirty
+        // state. The fresh state always fully rebuilds (its dimensions
+        // start empty so it always redraws) and so does not depend on
+        // any dirty flags.
+        try inc.update(alloc, &t);
+
+        var fresh: RenderState = .empty;
+        defer fresh.deinit(alloc);
+        try fresh.update(alloc, &t);
+
+        try testCompareStates(&inc, &fresh);
+    }
+}
+
+test "begin and end update" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 10,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("\x1b[1mAB"); // Bold
+    s.nextSlice("\x1b[0;3mC"); // Italic
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.beginUpdate(alloc, &t);
+
+    // We should have pending style runs on row 0: one for the bold
+    // run and one for the italic run.
+    {
+        const runs = state.pending_styles.items;
+        try testing.expectEqual(2, runs.len);
+        try testing.expectEqual(0, runs[0].y);
+        try testing.expectEqual(0, runs[0].start);
+        try testing.expectEqual(2, runs[0].end);
+        try testing.expect(runs[0].style.flags.bold);
+        try testing.expectEqual(0, runs[1].y);
+        try testing.expectEqual(2, runs[1].start);
+        try testing.expectEqual(3, runs[1].end);
+        try testing.expect(runs[1].style.flags.italic);
+    }
+
+    // End our update. This should denormalize the runs into cells
+    // and clear the pending runs.
+    state.endUpdate();
+    {
+        try testing.expectEqual(0, state.pending_styles.items.len);
+
+        const row_data = state.row_data.slice();
+        const cells = row_data.items(.cells);
+        try testing.expect(cells[0].get(0).style.flags.bold);
+        try testing.expect(cells[0].get(1).style.flags.bold);
+        try testing.expect(cells[0].get(2).style.flags.italic);
+    }
+}
+
+test "bg color cells" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 10,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Write a styled cell (so the row has managed memory) then erase
+    // the rest of the line with a palette background pending. The
+    // erase produces bg_color content cells rather than styled cells.
+    s.nextSlice("\x1b[1mA\x1b[48;5;1m\x1b[K");
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    const row_data = state.row_data.slice();
+    const cells = row_data.items(.cells);
+    {
+        const cell = cells[0].get(0);
+        try testing.expectEqual('A', cell.raw.codepoint());
+        try testing.expect(cell.style.flags.bold);
+    }
+    for (1..10) |x| {
+        const cell = cells[0].get(x);
+        try testing.expectEqual(
+            page.Cell.ContentTag.bg_color_palette,
+            cell.raw.content_tag,
+        );
+        try testing.expectEqual(
+            Style.Color{ .palette = 1 },
+            cell.style.bg_color,
+        );
+    }
 }
 
 test "grapheme" {
@@ -1343,7 +2002,7 @@ test "linkCells with scrollback spanning pages" {
     defer s.deinit();
 
     const pages = &t.screens.active.pages;
-    const first_page_cap = pages.pages.first.?.data.capacity.rows;
+    const first_page_cap = pages.pages.first.?.capacity().rows;
 
     // Fill first page
     for (0..first_page_cap - 1) |_| s.nextSlice("\r\n");
@@ -1402,6 +2061,73 @@ test "linkCells with invalid viewport point" {
         );
         defer cells.deinit(alloc);
         try testing.expectEqual(0, cells.count());
+    }
+}
+
+test "flattened highlights require matching page serial" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 10,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    // Capture the live generation while terminal-owned state is in scope so
+    // we can also verify beginUpdate copies it into the render row.
+    const live_pin = t.screens.active.pages.getTopLeft(.viewport);
+    const live_serial = live_pin.node.serial;
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    const pin: PageList.Pin = pin: {
+        const row_data = state.row_data.slice();
+        @memset(row_data.items(.dirty), false);
+        state.dirty = .false;
+        break :pin row_data.items(.pin)[0];
+    };
+    const row_serial = state.row_data.items(.serial)[0];
+    try testing.expectEqual(live_pin.node, pin.node);
+    try testing.expectEqual(live_serial, row_serial);
+
+    // Use the exact node pointer and row captured by the render state, but a
+    // different generation. A reused node address must not make this stale
+    // flattened highlight match.
+    var hl: highlight.Flattened = .{
+        .chunks = .empty,
+        .top_x = 2,
+        .bot_x = 4,
+    };
+    defer hl.deinit(alloc);
+    try hl.chunks.append(alloc, .{
+        .node = pin.node,
+        .serial = live_serial ^ 1,
+        .start = pin.y,
+        .end = pin.y + 1,
+    });
+
+    try state.updateHighlightsFlattened(alloc, 42, &.{hl});
+    {
+        const row_data = state.row_data.slice();
+        try testing.expectEqual(0, row_data.items(.highlights)[0].items.len);
+        try testing.expect(!row_data.items(.dirty)[0]);
+        try testing.expectEqual(.false, state.dirty);
+    }
+
+    // The same chunk is accepted once its copied serial also matches.
+    hl.chunks.items(.serial)[0] = live_serial;
+    try state.updateHighlightsFlattened(alloc, 42, &.{hl});
+    {
+        const row_data = state.row_data.slice();
+        const row_highlights = row_data.items(.highlights)[0].items;
+        try testing.expectEqual(1, row_highlights.len);
+        try testing.expectEqual(42, row_highlights[0].tag);
+        try testing.expectEqual([2]size.CellCountInt{ 2, 4 }, row_highlights[0].range);
+        try testing.expect(row_data.items(.dirty)[0]);
+        try testing.expectEqual(.partial, state.dirty);
     }
 }
 

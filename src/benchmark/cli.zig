@@ -6,8 +6,11 @@ const cli = @import("../cli.zig");
 /// benchmarks. View docs for each individual one in the predictably
 /// named files.
 pub const Action = enum {
+    @"apc-parser",
     @"codepoint-width",
     @"grapheme-break",
+    @"page-compression",
+    @"scrollback-compression",
     @"screen-clone",
     @"terminal-parser",
     @"terminal-stream",
@@ -24,7 +27,10 @@ pub const Action = enum {
     /// See TerminalStream for an example.
     pub fn Struct(comptime action: Action) type {
         return switch (action) {
+            .@"apc-parser" => @import("ApcParser.zig"),
             .@"screen-clone" => @import("ScreenClone.zig"),
+            .@"page-compression" => @import("PageCompression.zig"),
+            .@"scrollback-compression" => @import("ScrollbackCompression.zig"),
             .@"terminal-stream" => @import("TerminalStream.zig"),
             .@"codepoint-width" => @import("CodepointWidth.zig"),
             .@"grapheme-break" => @import("GraphemeBreak.zig"),

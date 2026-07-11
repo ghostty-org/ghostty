@@ -738,7 +738,13 @@ fn clearWordBoundaryCodepoints(event: *EventWrapper, target: *[]const u21) void 
     target.* = &selection_codepoints.default_word_boundaries;
 }
 
-fn instantFromNs(ns: u64) std.time.Instant {
+fn instantFromNs(ns: u64) SelectionGesture.Time {
+    if (comptime builtin.target.cpu.arch == .wasm32 and
+        builtin.target.os.tag == .freestanding)
+    {
+        return ns;
+    }
+
     return switch (builtin.os.tag) {
         .windows, .uefi, .wasi => .{ .timestamp = ns },
         else => .{ .timestamp = .{

@@ -47,6 +47,81 @@ pub const default: Palette = default: {
 /// Palette is the 256 color palette.
 pub const Palette = [256]RGB;
 
+/// A parsed palette entry from Ghostty's config "N=COLOR" syntax.
+pub const PaletteEntry = struct {
+    index: u8,
+    color: RGB,
+};
+
+/// Parse a palette entry in Ghostty config syntax: "N=COLOR" where N is
+/// a palette index 0-255 (decimal, or 0x/0o/0b-prefixed per Zig's
+/// parseInt base-0 rules) and COLOR is anything RGB.parse accepts.
+/// Whitespace (spaces/tabs) around N and COLOR is ignored.
+pub fn parsePaletteEntry(value: []const u8) error{ InvalidFormat, Overflow }!PaletteEntry {
+    const eql_idx = std.mem.indexOfScalar(u8, value, '=') orelse
+        return error.InvalidFormat;
+    const index = std.fmt.parseInt(
+        u8,
+        std.mem.trim(u8, value[0..eql_idx], " \t"),
+        0,
+    ) catch |err| switch (err) {
+        error.Overflow => return error.Overflow,
+        error.InvalidCharacter => return error.InvalidFormat,
+    };
+    const rgb = try RGB.parse(value[eql_idx + 1 ..]);
+    return .{ .index = index, .color = rgb };
+}
+
+test "parsePaletteEntry" {
+    const testing = std.testing;
+
+    {
+        const entry = try parsePaletteEntry("0=#AABBCC");
+        try testing.expectEqual(@as(u8, 0), entry.index);
+        try testing.expectEqual(RGB{ .r = 170, .g = 187, .b = 204 }, entry.color);
+    }
+    {
+        const entry = try parsePaletteEntry("0b1=#014589");
+        try testing.expectEqual(@as(u8, 1), entry.index);
+        try testing.expectEqual(RGB{ .r = 1, .g = 69, .b = 137 }, entry.color);
+    }
+    {
+        const entry = try parsePaletteEntry("0o7=#234567");
+        try testing.expectEqual(@as(u8, 7), entry.index);
+        try testing.expectEqual(RGB{ .r = 35, .g = 69, .b = 103 }, entry.color);
+    }
+    {
+        const entry = try parsePaletteEntry("0xF=#ABCDEF");
+        try testing.expectEqual(@as(u8, 15), entry.index);
+        try testing.expectEqual(RGB{ .r = 171, .g = 205, .b = 239 }, entry.color);
+    }
+    {
+        const entry = try parsePaletteEntry("0 =  #AABBCC");
+        try testing.expectEqual(@as(u8, 0), entry.index);
+        try testing.expectEqual(RGB{ .r = 170, .g = 187, .b = 204 }, entry.color);
+    }
+    {
+        const entry = try parsePaletteEntry(" 1= #DDEEFF    ");
+        try testing.expectEqual(@as(u8, 1), entry.index);
+        try testing.expectEqual(RGB{ .r = 221, .g = 238, .b = 255 }, entry.color);
+    }
+    {
+        const entry = try parsePaletteEntry("  2  =  #123456 ");
+        try testing.expectEqual(@as(u8, 2), entry.index);
+        try testing.expectEqual(RGB{ .r = 18, .g = 52, .b = 86 }, entry.color);
+    }
+    {
+        const entry = try parsePaletteEntry("1=black");
+        try testing.expectEqual(@as(u8, 1), entry.index);
+        try testing.expectEqual(RGB{ .r = 0, .g = 0, .b = 0 }, entry.color);
+    }
+
+    try testing.expectError(error.InvalidFormat, parsePaletteEntry(" "));
+    try testing.expectError(error.InvalidFormat, parsePaletteEntry("a"));
+    try testing.expectError(error.Overflow, parsePaletteEntry("256=#AABBCC"));
+    try testing.expectError(error.InvalidFormat, parsePaletteEntry("1=notacolor"));
+}
+
 /// C-compatible palette type using the extern RGB struct.
 pub const PaletteC = [256]RGB.C;
 
@@ -441,6 +516,24 @@ pub const RGB = packed struct(u24) {
         return self.r == other.r and self.g == other.g and self.b == other.b;
     }
 
+    pub fn encodeRgb8(self: RGB, writer: *std.Io.Writer) !void {
+        try writer.print(
+            "rgb:{x:0>2}/{x:0>2}/{x:0>2}",
+            .{ self.r, self.g, self.b },
+        );
+    }
+
+    pub fn encodeRgb16(self: RGB, writer: *std.Io.Writer) !void {
+        try writer.print(
+            "rgb:{x:0>4}/{x:0>4}/{x:0>4}",
+            .{
+                @as(u16, self.r) * 257,
+                @as(u16, self.g) * 257,
+                @as(u16, self.b) * 257,
+            },
+        );
+    }
+
     /// Calculates the contrast ratio between two colors. The contrast
     /// ration is a value between 1 and 21 where 1 is the lowest contrast
     /// and 21 is the highest contrast.
@@ -541,6 +634,8 @@ pub const RGB = packed struct(u24) {
 
     /// Parse a color specification.
     ///
+    /// Leading and trailing spaces and tabs are ignored.
+    ///
     /// Any of the following forms are accepted:
     ///
     /// 1. rgb:<red>/<green>/<blue>
@@ -554,38 +649,42 @@ pub const RGB = packed struct(u24) {
     ///    where <red>, <green>, and <blue> are floating point values between
     ///    0.0 and 1.0 (inclusive).
     ///
-    /// 3. #rgb, #rrggbb, #rrrgggbbb #rrrrggggbbbb
+    /// 3. #rgb, #rrggbb, rgb, rrggbb, #rrrgggbbb, #rrrrggggbbbb
     ///
-    ///    where `r`, `g`, and `b` are a single hexadecimal digit.
-    ///    These specify a color with 4, 8, 12, and 16 bits of precision
-    ///    per color channel.
+    ///    where `r`, `g`, and `b` are hexadecimal digits. The forms with
+    ///    a leading # specify a color with 4, 8, 12, and 16 bits of
+    ///    precision per color channel. The forms without a leading # are
+    ///    accepted for compatibility with Ghostty config/theme color values.
+    ///
+    /// 4. X11 color names
     pub fn parse(value: []const u8) error{InvalidFormat}!RGB {
-        if (value.len == 0) {
+        const input = std.mem.trim(u8, value, " \t");
+        if (input.len == 0) {
             @branchHint(.cold);
             return error.InvalidFormat;
         }
 
-        if (value[0] == '#') {
-            switch (value.len) {
+        if (input[0] == '#') {
+            switch (input.len) {
                 4 => return RGB{
-                    .r = try RGB.fromHex(value[1..2]),
-                    .g = try RGB.fromHex(value[2..3]),
-                    .b = try RGB.fromHex(value[3..4]),
+                    .r = try RGB.fromHex(input[1..2]),
+                    .g = try RGB.fromHex(input[2..3]),
+                    .b = try RGB.fromHex(input[3..4]),
                 },
                 7 => return RGB{
-                    .r = try RGB.fromHex(value[1..3]),
-                    .g = try RGB.fromHex(value[3..5]),
-                    .b = try RGB.fromHex(value[5..7]),
+                    .r = try RGB.fromHex(input[1..3]),
+                    .g = try RGB.fromHex(input[3..5]),
+                    .b = try RGB.fromHex(input[5..7]),
                 },
                 10 => return RGB{
-                    .r = try RGB.fromHex(value[1..4]),
-                    .g = try RGB.fromHex(value[4..7]),
-                    .b = try RGB.fromHex(value[7..10]),
+                    .r = try RGB.fromHex(input[1..4]),
+                    .g = try RGB.fromHex(input[4..7]),
+                    .b = try RGB.fromHex(input[7..10]),
                 },
                 13 => return RGB{
-                    .r = try RGB.fromHex(value[1..5]),
-                    .g = try RGB.fromHex(value[5..9]),
-                    .b = try RGB.fromHex(value[9..13]),
+                    .r = try RGB.fromHex(input[1..5]),
+                    .g = try RGB.fromHex(input[5..9]),
+                    .b = try RGB.fromHex(input[9..13]),
                 },
 
                 else => {
@@ -595,24 +694,36 @@ pub const RGB = packed struct(u24) {
             }
         }
 
-        // Check for X11 named colors. We allow whitespace around the edges
-        // of the color because Kitty allows whitespace. This is not part of
-        // any spec I could find.
-        if (x11_color.map.get(std.mem.trim(u8, value, " "))) |rgb| return rgb;
+        // Check for X11 named colors. We allow whitespace around the edges.
+        if (x11_color.map.get(input)) |rgb| return rgb;
 
-        if (value.len < "rgb:a/a/a".len or !std.mem.eql(u8, value[0..3], "rgb")) {
+        switch (input.len) {
+            3 => return RGB{
+                .r = try RGB.fromHex(input[0..1]),
+                .g = try RGB.fromHex(input[1..2]),
+                .b = try RGB.fromHex(input[2..3]),
+            },
+            6 => return RGB{
+                .r = try RGB.fromHex(input[0..2]),
+                .g = try RGB.fromHex(input[2..4]),
+                .b = try RGB.fromHex(input[4..6]),
+            },
+            else => {},
+        }
+
+        if (input.len < "rgb:a/a/a".len or !std.mem.eql(u8, input[0..3], "rgb")) {
             @branchHint(.cold);
             return error.InvalidFormat;
         }
 
         var i: usize = 3;
 
-        const use_intensity = if (value[i] == 'i') blk: {
+        const use_intensity = if (input[i] == 'i') blk: {
             i += 1;
             break :blk true;
         } else false;
 
-        if (value[i] != ':') {
+        if (input[i] != ':') {
             @branchHint(.cold);
             return error.InvalidFormat;
         }
@@ -620,8 +731,8 @@ pub const RGB = packed struct(u24) {
         i += 1;
 
         const r = r: {
-            const slice = if (std.mem.indexOfScalarPos(u8, value, i, '/')) |end|
-                value[i..end]
+            const slice = if (std.mem.indexOfScalarPos(u8, input, i, '/')) |end|
+                input[i..end]
             else {
                 @branchHint(.cold);
                 return error.InvalidFormat;
@@ -636,8 +747,8 @@ pub const RGB = packed struct(u24) {
         };
 
         const g = g: {
-            const slice = if (std.mem.indexOfScalarPos(u8, value, i, '/')) |end|
-                value[i..end]
+            const slice = if (std.mem.indexOfScalarPos(u8, input, i, '/')) |end|
+                input[i..end]
             else {
                 @branchHint(.cold);
                 return error.InvalidFormat;
@@ -652,9 +763,9 @@ pub const RGB = packed struct(u24) {
         };
 
         const b = if (use_intensity)
-            try RGB.fromIntensity(value[i..])
+            try RGB.fromIntensity(input[i..])
         else
-            try RGB.fromHex(value[i..]);
+            try RGB.fromHex(input[i..]);
 
         return RGB{
             .r = r,
@@ -780,6 +891,11 @@ test "RGB.parse" {
     try testing.expectEqual(RGB{ .r = 255, .g = 255, .b = 255 }, try RGB.parse("#fffffffff"));
     try testing.expectEqual(RGB{ .r = 255, .g = 255, .b = 255 }, try RGB.parse("#ffffffffffff"));
     try testing.expectEqual(RGB{ .r = 255, .g = 0, .b = 16 }, try RGB.parse("#ff0010"));
+    try testing.expectEqual(RGB{ .r = 10, .g = 11, .b = 12 }, try RGB.parse("0A0B0C"));
+    try testing.expectEqual(RGB{ .r = 255, .g = 255, .b = 255 }, try RGB.parse("FFFFFF"));
+    try testing.expectEqual(RGB{ .r = 255, .g = 255, .b = 255 }, try RGB.parse("FFF"));
+    try testing.expectEqual(RGB{ .r = 51, .g = 68, .b = 85 }, try RGB.parse("#345"));
+    try testing.expectEqual(RGB{ .r = 170, .g = 187, .b = 204 }, try RGB.parse(" #AABBCC   "));
 
     try testing.expectEqual(RGB{ .r = 0, .g = 0, .b = 0 }, try RGB.parse("black"));
     try testing.expectEqual(RGB{ .r = 255, .g = 0, .b = 0 }, try RGB.parse("red"));
@@ -790,8 +906,11 @@ test "RGB.parse" {
     try testing.expectEqual(RGB{ .r = 124, .g = 252, .b = 0 }, try RGB.parse("LawnGreen"));
     try testing.expectEqual(RGB{ .r = 0, .g = 250, .b = 154 }, try RGB.parse("medium spring green"));
     try testing.expectEqual(RGB{ .r = 34, .g = 139, .b = 34 }, try RGB.parse(" Forest Green "));
+    try testing.expectEqual(RGB{ .r = 34, .g = 139, .b = 34 }, try RGB.parse("\tForestGreen\t"));
 
     // Invalid format
+    try testing.expectError(error.InvalidFormat, RGB.parse(""));
+    try testing.expectError(error.InvalidFormat, RGB.parse("  "));
     try testing.expectError(error.InvalidFormat, RGB.parse("rgb;"));
     try testing.expectError(error.InvalidFormat, RGB.parse("rgb:"));
     try testing.expectError(error.InvalidFormat, RGB.parse(":a/a/a"));
@@ -807,6 +926,22 @@ test "RGB.parse" {
     try testing.expectError(error.InvalidFormat, RGB.parse("#ffff"));
     try testing.expectError(error.InvalidFormat, RGB.parse("#fffff"));
     try testing.expectError(error.InvalidFormat, RGB.parse("#gggggg"));
+    try testing.expectError(error.InvalidFormat, RGB.parse("#12345"));
+    try testing.expectError(error.InvalidFormat, RGB.parse("12345"));
+    try testing.expectError(error.InvalidFormat, RGB.parse("nosuchcolor"));
+}
+
+test "RGB: encode" {
+    const rgb: RGB = .{ .r = 0x01, .g = 0x23, .b = 0xff };
+
+    var buf: [64]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try rgb.encodeRgb8(&writer);
+    try std.testing.expectEqualStrings("rgb:01/23/ff", writer.buffered());
+
+    writer = .fixed(&buf);
+    try rgb.encodeRgb16(&writer);
+    try std.testing.expectEqualStrings("rgb:0101/2323/ffff", writer.buffered());
 }
 
 test "DynamicPalette: init" {

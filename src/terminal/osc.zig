@@ -156,6 +156,9 @@ pub const Command = union(Key) {
 
     kitty_clipboard_protocol: KittyClipboardProtocol,
 
+    /// Kitty drag and drop protocol (OSC 72)
+    kitty_dnd_protocol: KittyDndProtocol,
+
     /// OSC 3008. Hierarchical context signalling (UAPI spec).
     /// https://uapi-group.org/specifications/specs/osc_context/
     context_signal: parsers.context_signal.Command,
@@ -163,6 +166,8 @@ pub const Command = union(Key) {
     pub const SemanticPrompt = parsers.semantic_prompt.Command;
 
     pub const KittyClipboardProtocol = parsers.kitty_clipboard_protocol.OSC;
+
+    pub const KittyDndProtocol = parsers.kitty_dnd_protocol.OSC;
 
     pub const Key = LibEnum(
         lib.target,
@@ -192,6 +197,7 @@ pub const Command = union(Key) {
             "conemu_comment",
             "kitty_text_sizing",
             "kitty_clipboard_protocol",
+            "kitty_dnd_protocol",
             "context_signal",
         },
     );
@@ -344,6 +350,7 @@ pub const Parser = struct {
         @"52",
         @"55",
         @"66",
+        @"72",
         @"77",
         @"104",
         @"110",
@@ -398,10 +405,12 @@ pub const Parser = struct {
             .kitty_color_protocol => |*v| kitty_color_protocol: {
                 v.deinit(self.alloc orelse break :kitty_color_protocol);
             },
+            .color_operation => |*v| color_operation: {
+                v.requests.deinit(self.alloc orelse break :color_operation);
+            },
             .change_window_icon,
             .change_window_title,
             .clipboard_contents,
-            .color_operation,
             .conemu_change_tab_title,
             .conemu_comment,
             .conemu_guimacro,
@@ -421,6 +430,7 @@ pub const Parser = struct {
             .show_desktop_notification,
             .kitty_text_sizing,
             .kitty_clipboard_protocol,
+            .kitty_dnd_protocol,
             .context_signal,
             => {},
         }
@@ -691,7 +701,13 @@ pub const Parser = struct {
 
             .@"7" => switch (c) {
                 ';' => self.captureTrailing(.fixed),
+                '2' => self.state = .@"72",
                 '7' => self.state = .@"77",
+                else => self.state = .invalid,
+            },
+
+            .@"72" => switch (c) {
+                ';' => self.captureTrailing(.allocating),
                 else => self.state = .invalid,
             },
 
@@ -804,6 +820,8 @@ pub const Parser = struct {
             .@"6" => null,
 
             .@"66" => parsers.kitty_text_sizing.parse(self, terminator_ch),
+
+            .@"72" => parsers.kitty_dnd_protocol.parse(self, terminator_ch),
 
             .@"77" => null,
 

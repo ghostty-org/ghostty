@@ -1217,7 +1217,7 @@ fn selectionScrollTick(self: *Surface) !void {
 
     // We modified our viewport and selection so we need to queue
     // a render.
-    try self.io.terminal.screens.active.select(selection);
+    try self.setSelection(selection);
     try self.queueRender();
 }
 
@@ -2326,22 +2326,45 @@ fn copySelectionToClipboards(
     };
 }
 
-/// Set the selection contents.
+/// Set the active selection and notify the apprt on a genuine state
+/// transition. All selection mutations route through here rather than
+/// `screen.select` directly so the notification fires consistently. To
+/// also copy per `copy_on_select`, use `setSelectionAndCopy`.
 ///
 /// This must be called with the renderer mutex held.
 fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
+    // Compute the transition before `select` below, which untracks (frees)
+    // the previous selection's tracked pins; reading them after would be a
+    // use-after-free.
     const prev_ = self.io.terminal.screens.active.selection;
+    const changed = changed: {
+        const prev = prev_ orelse break :changed sel_ != null;
+        const sel = sel_ orelse break :changed true;
+        break :changed !sel.eql(prev);
+    };
+
     try self.io.terminal.screens.active.select(sel_);
+
+    if (changed) {
+        _ = self.rt_app.performAction(
+            .{ .surface = self },
+            .selection_changed,
+            {},
+        ) catch |err| {
+            log.warn("apprt failed selection_changed notification err={}", .{err});
+        };
+    }
+}
+
+/// Set a selection and, per `copy_on_select`, copy it to the clipboard.
+/// For committing selection gestures (mouse release, select-all binding).
+///
+/// This must be called with the renderer mutex held.
+fn setSelectionAndCopy(self: *Surface, sel: terminal.Selection) !void {
+    try self.setSelection(sel);
 
     // If copy on select is false then exit early.
     if (self.config.copy_on_select == .false) return;
-
-    // Set our selection clipboard. If the selection is cleared we do not
-    // clear the clipboard. If the selection is set, we only set the clipboard
-    // again if it changed, since setting the clipboard can be an expensive
-    // operation.
-    const sel = sel_ orelse return;
-    if (prev_) |prev| if (sel.eql(prev)) return;
 
     switch (self.config.copy_on_select) {
         .false => unreachable, // handled above with an early exit
@@ -3840,7 +3863,7 @@ pub fn mouseButtonCallback(
         if (self.config.copy_on_select != .false) {
             const prev_ = self.io.terminal.screens.active.selection;
             if (prev_) |prev| {
-                try self.setSelection(terminal.Selection.init(
+                try self.setSelectionAndCopy(terminal.Selection.init(
                     prev.start(),
                     prev.end(),
                     prev.rectangle,
@@ -3985,16 +4008,16 @@ pub fn mouseButtonCallback(
             else => unreachable,
         }
 
-        // We set the selection directly rather than use `setSelection` because
-        // we want to avoid copying the selection to the selection clipboard.
-        // For left mouse clicks we only set the clipboard on release.
+        // Use `setSelection` (not `setSelectionAndCopy`) here to avoid
+        // touching the selection clipboard: for left mouse clicks we only
+        // copy on release.
         if (press_selection) |selection| {
-            try self.io.terminal.screens.active.select(selection);
+            try self.setSelection(selection);
             try self.queueRender();
         } else if (self.mouse.selection_gesture.left_click_count == 1 and
             self.io.terminal.screens.active.selection != null)
         {
-            try self.io.terminal.screens.active.select(null);
+            try self.setSelection(null);
             try self.queueRender();
         }
     }
@@ -4060,13 +4083,13 @@ pub fn mouseButtonCallback(
                 // If there is a link at this position, we want to
                 // select the link. Otherwise, select the word.
                 if (try self.linkAtPos(pos)) |link| {
-                    try self.setSelection(link.selection);
+                    try self.setSelectionAndCopy(link.selection);
                 } else {
                     const sel = screen.selectWord(
                         pin,
                         self.config.selection_word_chars,
                     ) orelse break :sel;
-                    try self.setSelection(sel);
+                    try self.setSelectionAndCopy(sel);
                 }
                 try self.queueRender();
 
@@ -4195,20 +4218,24 @@ fn maybePromptClick(self: *Surface) !bool {
         // Guarded at the start of this function
         .none => unreachable,
 
-        .click_events => {
+        .click_events => |v| {
             // For the event, we always send a left-click press event.
             // This matches what Kitty sends.
+            const key: u8, const y: u32 = switch (v) {
+                .absolute => .{ 1, pos_vp.y +| 1 },
+                .relative => .{ 2, pos_vp.y -| prompt_pin.y +| 1 },
+            };
             var data: termio.Message.WriteReq.Small.Array = undefined;
             const resp = try std.fmt.bufPrint(
                 &data,
                 "\x1B[<0;{d};{d}M",
-                .{ pos_vp.x + 1, pos_vp.y + 1 },
+                .{ pos_vp.x + 1, y },
             );
 
             // Not that noisy since this only happens on prompt clicks.
             log.debug(
-                "sending click_events=1 event=ESC{s}",
-                .{resp[1..]},
+                "sending click_events={} event=ESC{s}",
+                .{ key, resp[1..] },
             );
 
             // Ask our IO thread to write the data
@@ -4411,7 +4438,7 @@ fn openUrl(
 /// if there is no hyperlink.
 fn osc8URI(self: *Surface, pin: terminal.Pin) ?[]const u8 {
     _ = self;
-    const page = &pin.node.data;
+    const page = pin.node.page();
     const cell = pin.rowAndCell().cell;
     const link_id = page.lookupHyperlink(cell) orelse return null;
     const entry = page.hyperlink_set.get(page.memory, link_id);
@@ -4464,7 +4491,7 @@ pub fn mousePressureCallback(
             );
         }
 
-        try self.io.terminal.screens.active.select(sel orelse break :select);
+        try self.setSelection(sel orelse break :select);
         try self.queueRender();
     }
 }
@@ -4669,7 +4696,7 @@ pub fn cursorPosCallback(
         }
 
         // Update our selection based on the gesture state
-        try self.io.terminal.screens.active.select(drag_selection);
+        try self.setSelection(drag_selection);
     }
 }
 
@@ -5420,7 +5447,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
             const sel = self.io.terminal.screens.active.selectAll();
             if (sel) |s| {
-                try self.setSelection(s);
+                try self.setSelectionAndCopy(s);
                 try self.queueRender();
             }
         },

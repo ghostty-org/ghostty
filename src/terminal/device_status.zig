@@ -7,6 +7,32 @@ pub const ColorScheme = lib.Enum(lib.target, &.{
     "dark",
 });
 
+/// Maximum number of bytes that `encodeColorSchemeReport` will write.
+pub const max_color_scheme_report_encode_size = max: {
+    var result: usize = 0;
+    for (@typeInfo(ColorScheme).@"enum".fields) |field| {
+        var discarding: std.Io.Writer.Discarding = .init(&.{});
+        encodeColorSchemeReport(
+            &discarding.writer,
+            @enumFromInt(field.value),
+        ) catch unreachable;
+        result = @max(result, @as(usize, @intCast(discarding.count)));
+    }
+
+    break :max result;
+};
+
+/// Encode a color scheme report response for CSI ? 996 n queries.
+pub fn encodeColorSchemeReport(
+    writer: *std.Io.Writer,
+    scheme: ColorScheme,
+) std.Io.Writer.Error!void {
+    try writer.writeAll(switch (scheme) {
+        .dark => "\x1B[?997;1n",
+        .light => "\x1B[?997;2n",
+    });
+}
+
 /// An enum(u16) of the available device status requests.
 pub const Request = dsr_enum: {
     const EnumField = std.builtin.Type.EnumField;
@@ -72,3 +98,19 @@ const entries: []const Entry = &.{
     .{ .name = "cursor_position", .value = 6 },
     .{ .name = "color_scheme", .value = 996, .question = true },
 };
+
+test "encode color scheme report dark" {
+    try std.testing.expectEqual(@as(usize, 9), max_color_scheme_report_encode_size);
+
+    var buf: [max_color_scheme_report_encode_size]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try encodeColorSchemeReport(&writer, .dark);
+    try std.testing.expectEqualStrings("\x1B[?997;1n", writer.buffered());
+}
+
+test "encode color scheme report light" {
+    var buf: [max_color_scheme_report_encode_size]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try encodeColorSchemeReport(&writer, .light);
+    try std.testing.expectEqualStrings("\x1B[?997;2n", writer.buffered());
+}

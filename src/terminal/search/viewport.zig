@@ -103,9 +103,9 @@ pub const ViewportSearch = struct {
                     // If our viewport contains the start or end of the active area,
                     // we are in the active area. We purposely do this first
                     // because our viewport is always larger than the active area.
-                    for (old.nodes) |node| {
-                        if (node == active_tl.node) break :match;
-                        if (node == active_br.node) break :match;
+                    for (old.entries) |entry| {
+                        if (entry.node == active_tl.node) break :match;
+                        if (entry.node == active_br.node) break :match;
                     }
                 }
 
@@ -134,40 +134,39 @@ pub const ViewportSearch = struct {
         // Add enough overlap to cover needle.len - 1 bytes (if it
         // exists) so we can cover the overlap. We only do this for the
         // soft-wrapped prior pages.
-        var node_ = fingerprint.nodes[0].prev;
+        const overlap_len = self.window.needle.len -| 1;
+        var node_ = fingerprint.entries[0].node.prev;
         var added: usize = 0;
         while (node_) |node| : (node_ = node.prev) {
-            // If the last row of this node isn't wrapped we can't overlap.
-            const row = node.data.getRow(node.data.size.rows - 1);
-            if (!row.wrap) break;
-
             // We could be more accurate here and count bytes since the
             // last wrap but its complicated and unlikely multiple pages
             // wrap so this should be fine.
-            added += try self.window.append(node);
-            if (added >= self.window.needle.len - 1) break;
+            const appended = try self.window.appendIfWrapped(node) orelse break;
+            added += appended.content_len;
+            if (added >= overlap_len) break;
         }
 
         // We can use our fingerprint nodes to initialize our sliding
         // window, since we already traversed the viewport once.
-        for (fingerprint.nodes) |node| {
-            _ = try self.window.append(node);
+        var end_append: SlidingWindow.AppendResult = undefined;
+        for (fingerprint.entries) |entry| {
+            end_append = try self.window.append(entry.node);
         }
 
         // Add any trailing overlap as well.
         trailing: {
-            const end: *PageList.List.Node = fingerprint.nodes[fingerprint.nodes.len - 1];
-            if (!end.data.getRow(end.data.size.rows - 1).wrap) break :trailing;
+            const end: *PageList.List.Node = fingerprint.entries[fingerprint.entries.len - 1].node;
+            if (!end_append.last_row_wrapped) break :trailing;
 
             node_ = end.next;
             added = 0;
             while (node_) |node| : (node_ = node.next) {
-                added += try self.window.append(node);
-                if (added >= self.window.needle.len - 1) break;
+                const appended = try self.window.append(node);
+                added += appended.content_len;
+                if (added >= overlap_len) break;
 
                 // If this row doesn't wrap, then we can quit
-                const row = node.data.getRow(node.data.size.rows - 1);
-                if (!row.wrap) break;
+                if (!appended.last_row_wrapped) break;
             }
         }
 
@@ -182,14 +181,18 @@ pub const ViewportSearch = struct {
 
     /// Viewport fingerprint so we can detect when the viewport moves.
     const Fingerprint = struct {
-        /// The nodes that make up the viewport. We need to flatten this
-        /// to a single list because we can't safely traverse the cached values
-        /// because the page nodes may be invalid. All that is safe is comparing
-        /// the actual pointer values.
-        nodes: []const *PageList.List.Node,
+        /// The node addresses and generations that make up the viewport. We
+        /// can't safely dereference cached node pointers because the nodes may
+        /// be invalid, so equality only compares these captured values.
+        entries: []const Entry,
+
+        const Entry = struct {
+            node: *PageList.List.Node,
+            serial: u64,
+        };
 
         pub fn init(alloc: Allocator, pages: *PageList) Allocator.Error!Fingerprint {
-            var list: std.ArrayList(*PageList.List.Node) = .empty;
+            var list: std.ArrayList(Entry) = .empty;
             defer list.deinit(alloc);
 
             // Get our viewport area. Bottom right of a viewport can never
@@ -198,18 +201,22 @@ pub const ViewportSearch = struct {
             const br = pages.getBottomRight(.viewport).?;
 
             var it = tl.pageIterator(.right_down, br);
-            while (it.next()) |chunk| try list.append(alloc, chunk.node);
-            return .{ .nodes = try list.toOwnedSlice(alloc) };
+            while (it.next()) |chunk| try list.append(alloc, .{
+                .node = chunk.node,
+                .serial = chunk.node.serial,
+            });
+            return .{ .entries = try list.toOwnedSlice(alloc) };
         }
 
         pub fn deinit(self: *Fingerprint, alloc: Allocator) void {
-            alloc.free(self.nodes);
+            alloc.free(self.entries);
         }
 
         pub fn eql(self: Fingerprint, other: Fingerprint) bool {
-            if (self.nodes.len != other.nodes.len) return false;
-            for (self.nodes, other.nodes) |a, b| {
-                if (a != b) return false;
+            if (self.entries.len != other.entries.len) return false;
+            for (self.entries, other.entries) |a, b| {
+                if (a.node != b.node) return false;
+                if (a.serial != b.serial) return false;
             }
             return true;
         }
@@ -257,6 +264,33 @@ test "simple search" {
         } }, t.screens.active.pages.pointFromPin(.active, sel.end).?);
     }
     try testing.expect(search.next() == null);
+}
+
+test "fingerprint detects node generation changes" {
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(alloc);
+
+    var search: ViewportSearch = try .init(alloc, "needle");
+    defer search.deinit();
+    search.active_dirty = false;
+
+    try testing.expect(try search.update(&t.screens.active.pages));
+    try testing.expect(!try search.update(&t.screens.active.pages));
+
+    const old_entry = search.fingerprint.?.entries[0];
+    const node = t.screens.active.pages.pages.first.?;
+    try testing.expectEqual(node, old_entry.node);
+    const original_serial = node.serial;
+    defer node.serial = original_serial;
+    node.serial += 1;
+
+    // The viewport still contains the same pointer, but its generation has
+    // changed, so the cached window must be rebuilt.
+    try testing.expect(try search.update(&t.screens.active.pages));
+    const new_entry = search.fingerprint.?.entries[0];
+    try testing.expectEqual(old_entry.node, new_entry.node);
+    try testing.expect(old_entry.serial != new_entry.serial);
 }
 
 test "clear screen and search" {
@@ -348,7 +382,7 @@ test "history search, no active area" {
     defer s.deinit();
 
     // Fill up first page
-    const first_page_rows = t.screens.active.pages.pages.first.?.data.capacity.rows;
+    const first_page_rows = t.screens.active.pages.pages.first.?.capacity().rows;
     s.nextSlice("Fizz\r\n");
     for (1..first_page_rows - 1) |_| s.nextSlice("\r\n");
     try testing.expect(t.screens.active.pages.pages.first == t.screens.active.pages.pages.last);

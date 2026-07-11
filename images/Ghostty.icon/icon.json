@@ -18,6 +18,7 @@
               "srgb:0.00000,0.00000,0.00000,1.00000"
             ]
           },
+          "glass" : false,
           "hidden" : false,
           "image-name" : "gloss.png",
           "name" : "GlossTop",
@@ -33,6 +34,7 @@
         {
           "blend-mode" : "normal",
           "fill" : "automatic",
+          "glass" : false,
           "hidden" : false,
           "image-name" : "gloss.png",
           "name" : "gloss",
@@ -93,6 +95,7 @@
         {
           "blend-mode" : "normal",
           "fill" : "automatic",
+          "glass" : false,
           "hidden" : false,
           "image-name" : "Ghostty.png",
           "name" : "Ghostty",
@@ -122,6 +125,7 @@
           }
         },
         {
+          "glass" : false,
           "hidden" : false,
           "image-name" : "Screen.png",
           "name" : "Screen"
@@ -144,6 +148,7 @@
       "hidden" : false,
       "layers" : [
         {
+          "glass" : false,
           "image-name" : "Inner Bevel 6px.png",
           "name" : "Inner Bevel 6px"
         }

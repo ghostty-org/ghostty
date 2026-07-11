@@ -21,6 +21,10 @@ pub const Options = struct {
     /// The type of codepoint width calculation to use.
     mode: Mode = .clone,
 
+    /// Multiplier on the number of iterations each step runs. This is
+    /// useful to make a benchmark run long enough for profiling.
+    loops: u32 = 1,
+
     /// The size of the terminal. This affects benchmarking when
     /// dealing with soft line wrapping and the memory impact
     /// of page sizes.
@@ -48,6 +52,22 @@ pub const Mode = enum {
 
     /// RenderState rather than a screen clone.
     render,
+
+    /// Like render, but only the portion of the render state update
+    /// that requires holding a terminal lock (beginUpdate). The
+    /// deferred work (endUpdate) is excluded since it happens outside
+    /// of any locks.
+    @"render-locked",
+
+    /// RenderState update with no changes to the terminal. This is
+    /// the common case for a renderer that is redrawing frames (e.g.
+    /// cursor blink, mouse movement) without terminal changes.
+    @"render-clean",
+
+    /// RenderState update where a single row is dirty. This models the
+    /// common case of a shell prompt or TUI updating a small portion
+    /// of the screen between frames.
+    @"render-partial",
 };
 
 pub fn create(
@@ -79,6 +99,9 @@ pub fn benchmark(self: *ScreenClone) Benchmark {
             .noop => stepNoop,
             .clone => stepClone,
             .render => stepRender,
+            .@"render-locked" => stepRenderLocked,
+            .@"render-clean" => stepRenderClean,
+            .@"render-partial" => stepRenderPartial,
         },
         .setupFn = setup,
         .teardownFn = teardown,
@@ -178,16 +201,102 @@ fn stepRender(ptr: *anyopaque) Benchmark.Error!void {
 
     // We loop because its so fast that a single benchmark run doesn't
     // properly capture our speeds.
-    for (0..1000) |_| {
+    for (0..50_000 * @as(u64, self.opts.loops)) |_| {
         // Forces a full rebuild because it thinks our screen changed
         state.screen = .alternate;
         state.update(alloc, &self.terminal) catch |err| {
             log.warn("error cloning screen err={}", .{err});
             return error.BenchmarkFailed;
         };
-        std.mem.doNotOptimizeAway(state);
+        std.mem.doNotOptimizeAway(&state);
 
         // Note: we purposely do not free memory because we don't want
         // to benchmark that. We'll free when the benchmark exits.
+    }
+}
+
+fn stepRenderLocked(ptr: *anyopaque) Benchmark.Error!void {
+    const self: *ScreenClone = @ptrCast(@alignCast(ptr));
+
+    // We do this once out of the loop because a significant slowdown
+    // on the first run is allocation. After that first run, even with
+    // a full rebuild, it is much faster. Let's ignore that first run
+    // slowdown.
+    const alloc = self.terminal.screens.active.alloc;
+    var state: terminalpkg.RenderState = .empty;
+    state.update(alloc, &self.terminal) catch |err| {
+        log.warn("error cloning screen err={}", .{err});
+        return error.BenchmarkFailed;
+    };
+
+    // We loop because its so fast that a single benchmark run doesn't
+    // properly capture our speeds.
+    for (0..50_000 * @as(u64, self.opts.loops)) |_| {
+        // Forces a full rebuild because it thinks our screen changed
+        state.screen = .alternate;
+        state.beginUpdate(alloc, &self.terminal) catch |err| {
+            log.warn("error cloning screen err={}", .{err});
+            return error.BenchmarkFailed;
+        };
+        std.mem.doNotOptimizeAway(&state);
+
+        // Note: we purposely do not free memory because we don't want
+        // to benchmark that. We'll free when the benchmark exits.
+    }
+}
+
+fn stepRenderClean(ptr: *anyopaque) Benchmark.Error!void {
+    const self: *ScreenClone = @ptrCast(@alignCast(ptr));
+
+    // Initial update so that subsequent updates are clean (nothing
+    // dirty, no rebuilds).
+    const alloc = self.terminal.screens.active.alloc;
+    var state: terminalpkg.RenderState = .empty;
+    state.update(alloc, &self.terminal) catch |err| {
+        log.warn("error cloning screen err={}", .{err});
+        return error.BenchmarkFailed;
+    };
+
+    // We loop because its so fast that a single benchmark run doesn't
+    // properly capture our speeds.
+    for (0..3_000_000 * @as(u64, self.opts.loops)) |_| {
+        state.update(alloc, &self.terminal) catch |err| {
+            log.warn("error cloning screen err={}", .{err});
+            return error.BenchmarkFailed;
+        };
+        std.mem.doNotOptimizeAway(&state);
+    }
+}
+
+fn stepRenderPartial(ptr: *anyopaque) Benchmark.Error!void {
+    const self: *ScreenClone = @ptrCast(@alignCast(ptr));
+
+    // Initial update so that subsequent updates are incremental.
+    const alloc = self.terminal.screens.active.alloc;
+    var state: terminalpkg.RenderState = .empty;
+    state.update(alloc, &self.terminal) catch |err| {
+        log.warn("error cloning screen err={}", .{err});
+        return error.BenchmarkFailed;
+    };
+
+    // Grab a pin roughly in the middle of the active area that we
+    // dirty on every iteration to simulate a small screen update.
+    const pages = &self.terminal.screens.active.pages;
+    const pin = pages.pin(.{ .active = .{
+        .x = 0,
+        .y = self.terminal.rows / 2,
+    } }).?;
+
+    // We loop because its so fast that a single benchmark run doesn't
+    // properly capture our speeds.
+    for (0..2_000_000 * @as(u64, self.opts.loops)) |_| {
+        // Mark a single row dirty. `update` clears this so each
+        // iteration rebuilds exactly one row.
+        pin.markDirty();
+        state.update(alloc, &self.terminal) catch |err| {
+            log.warn("error cloning screen err={}", .{err});
+            return error.BenchmarkFailed;
+        };
+        std.mem.doNotOptimizeAway(&state);
     }
 }

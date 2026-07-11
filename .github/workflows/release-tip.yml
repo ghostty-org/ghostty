@@ -33,16 +33,16 @@ jobs:
       commit: ${{ steps.extract_build_info.outputs.commit }}
       commit_long: ${{ steps.extract_build_info.outputs.commit_long }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           # Important so that build number generation works
           fetch-depth: 0
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@15799a6b54e5765f85b2aac25b3f0df43ed571c0 # v1.4.3
+        uses: namespacelabs/nscloud-cache-action@58bf6e08898e88803c098e2b522668541cd3b2e3 # v1.6.0
         with:
           path: |
             /nix
-      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31.10.6
+      - uses: cachix/install-nix-action@a49548c11d9846ad46ecc0115273879b045f001c # v31.10.7
         with:
           nix_path: nixpkgs=channel:nixos-unstable
       - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
@@ -58,16 +58,60 @@ jobs:
           echo "build=$GHOSTTY_BUILD" >> $GITHUB_OUTPUT
           echo "commit=$GHOSTTY_COMMIT" >> $GITHUB_OUTPUT
           echo "commit_long=$GHOSTTY_COMMIT_LONG" >> $GITHUB_OUTPUT
-      - name: Check if tip already exists
+      # Classify what changed since the last tip. `build` matches any file that
+      # can reach the built artifact; `release_tip` re-adds release-tip.yml,
+      # which defines the build/tag/publish jobs. Everything else (all of
+      # .github plus docs and repo/lint/editor metadata) never changes the
+      # artifact. Skipped on manual dispatches, which always build.
+      - name: Detect changes since last tip
+        id: changes
+        if: github.event_name == 'workflow_run'
+        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        with:
+          token: ""
+          base: tip
+          predicate-quantifier: "every"
+          filters: |
+            build:
+              - '**'
+              - '!.github/**'
+              - '!README.md'
+              - '!CONTRIBUTING.md'
+              - '!HACKING.md'
+              - '!PACKAGING.md'
+              - '!AI_POLICY.md'
+              - '!AGENTS.md'
+              - '!CLAUDE.md'
+              - '!Doxyfile'
+              - '!DoxygenLayout.xml'
+              - '!LICENSE'
+              - '!CODEOWNERS'
+              - '!.clang-format'
+              - '!.editorconfig'
+              - '!.envrc'
+              - '!.gitattributes'
+              - '!.gitignore'
+              - '!.mailmap'
+              - '!.prettierignore'
+              - '!.shellcheckrc'
+              - '!.swiftlint.yml'
+              - '!typos.toml'
+              - '!valgrind.supp'
+            release_tip:
+              - '.github/workflows/release-tip.yml'
+
+      - name: Determine skip
         id: check
         run: |
-          GHOSTTY_COMMIT_LONG=$(git rev-parse HEAD)
-          if nix develop -c nu .github/scripts/ghostty-tip $GHOSTTY_COMMIT_LONG; then
-            echo "Tip release already exists for commit $GHOSTTY_COMMIT_LONG"
-            echo "should_skip=true" >> $GITHUB_OUTPUT
+          if nix develop -c nu .github/scripts/ghostty-tip "$(git rev-parse HEAD)"; then
+            echo "Tip already built for this commit, skipping"
+            echo "should_skip=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.changes.outputs.build }}" = "false" ] &&
+            [ "${{ steps.changes.outputs.release_tip }}" = "false" ]; then
+            echo "Only non-artifact files changed since the last tip, skipping"
+            echo "should_skip=true" >> "$GITHUB_OUTPUT"
           else
-            echo "No tip release found for commit $GHOSTTY_COMMIT_LONG"
-            echo "should_skip=false" >> $GITHUB_OUTPUT
+            echo "should_skip=false" >> "$GITHUB_OUTPUT"
           fi
 
   tag:
@@ -75,7 +119,7 @@ jobs:
     needs: [setup, build-macos]
     if: needs.setup.outputs.should_skip != 'true'
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Tip Tag
         run: |
           git config user.name "github-actions[bot]"
@@ -90,7 +134,7 @@ jobs:
     env:
       GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install sentry-cli
         run: |
@@ -113,7 +157,7 @@ jobs:
     env:
       GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install sentry-cli
         run: |
@@ -136,7 +180,7 @@ jobs:
     env:
       GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install sentry-cli
         run: |
@@ -168,14 +212,14 @@ jobs:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@15799a6b54e5765f85b2aac25b3f0df43ed571c0 # v1.4.3
+        uses: namespacelabs/nscloud-cache-action@58bf6e08898e88803c098e2b522668541cd3b2e3 # v1.6.0
         with:
           path: |
             /nix
             /zig
-      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31.10.6
+      - uses: cachix/install-nix-action@a49548c11d9846ad46ecc0115273879b045f001c # v31.10.7
         with:
           nix_path: nixpkgs=channel:nixos-unstable
       - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
@@ -195,7 +239,7 @@ jobs:
           nix develop -c minisign -S -m ghostty-source.tar.gz -s minisign.key < minisign.password
 
       - name: Update Release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -223,14 +267,14 @@ jobs:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@15799a6b54e5765f85b2aac25b3f0df43ed571c0 # v1.4.3
+        uses: namespacelabs/nscloud-cache-action@58bf6e08898e88803c098e2b522668541cd3b2e3 # v1.6.0
         with:
           path: |
             /nix
             /zig
-      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31.10.6
+      - uses: cachix/install-nix-action@a49548c11d9846ad46ecc0115273879b045f001c # v31.10.7
         with:
           nix_path: nixpkgs=channel:nixos-unstable
       - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
@@ -250,7 +294,7 @@ jobs:
           nix develop -c minisign -S -m libghostty-vt-source.tar.gz -s minisign.key < minisign.password
 
       - name: Update Release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -298,10 +342,10 @@ jobs:
       ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@15799a6b54e5765f85b2aac25b3f0df43ed571c0 # v1.4.3
+        uses: namespacelabs/nscloud-cache-action@58bf6e08898e88803c098e2b522668541cd3b2e3 # v1.6.0
         with:
           cache: |
             xcode
@@ -335,7 +379,7 @@ jobs:
           nix develop -c minisign -S -m ghostty-vt.xcframework.zip -s minisign.key < minisign.password
 
       - name: Update Release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -387,13 +431,13 @@ jobs:
       ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           # Important so that build number generation works
           fetch-depth: 0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@15799a6b54e5765f85b2aac25b3f0df43ed571c0 # v1.4.3
+        uses: namespacelabs/nscloud-cache-action@58bf6e08898e88803c098e2b522668541cd3b2e3 # v1.6.0
         with:
           cache: |
             xcode
@@ -537,7 +581,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -643,13 +687,13 @@ jobs:
       ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           # Important so that build number generation works
           fetch-depth: 0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@15799a6b54e5765f85b2aac25b3f0df43ed571c0 # v1.4.3
+        uses: namespacelabs/nscloud-cache-action@58bf6e08898e88803c098e2b522668541cd3b2e3 # v1.6.0
         with:
           cache: |
             xcode
@@ -786,7 +830,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -840,13 +884,13 @@ jobs:
       ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           # Important so that build number generation works
           fetch-depth: 0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@15799a6b54e5765f85b2aac25b3f0df43ed571c0 # v1.4.3
+        uses: namespacelabs/nscloud-cache-action@58bf6e08898e88803c098e2b522668541cd3b2e3 # v1.6.0
         with:
           cache: |
             xcode
@@ -983,7 +1027,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true

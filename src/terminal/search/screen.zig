@@ -157,10 +157,29 @@ pub const ScreenSearch = struct {
     }
 
     pub fn deinit(self: *ScreenSearch) void {
+        self.deinitInternal(true);
+    }
+
+    /// Release owned search state after the underlying Screen has already
+    /// been destroyed. Tracked pins belonged to that Screen's PageList pool
+    /// and were freed with it, so only independently owned memory is freed.
+    pub fn deinitScreenInvalid(self: *ScreenSearch) void {
+        self.deinitInternal(false);
+    }
+
+    fn deinitInternal(self: *ScreenSearch, screen_valid: bool) void {
         const alloc = self.allocator();
         self.active.deinit();
-        if (self.history) |*h| h.deinit(self.screen);
-        if (self.selected) |*m| m.deinit(self.screen);
+        if (self.history) |*h| {
+            if (screen_valid) {
+                h.deinit(self.screen);
+            } else {
+                h.searcher.deinitListInvalid();
+            }
+        }
+        if (screen_valid) {
+            if (self.selected) |*m| m.deinit(self.screen);
+        }
         for (self.active_results.items) |*hl| hl.deinit(alloc);
         self.active_results.deinit(alloc);
         for (self.history_results.items) |*hl| hl.deinit(alloc);
@@ -180,6 +199,33 @@ pub const ScreenSearch = struct {
     /// Returns the total number of matches found so far.
     pub fn matchesLen(self: *const ScreenSearch) usize {
         return self.active_results.items.len + self.history_results.items.len;
+    }
+
+    /// Reinitialize cached search state after a screen resize. Reflow can
+    /// replace every PageList node, so even flattened highlights that weren't
+    /// selected contain invalid node pointers once either dimension changes.
+    ///
+    /// Returns true when the reset occurred. The replacement search has
+    /// already loaded its active area through `init` in that case.
+    fn resetIfDimensionsChanged(self: *ScreenSearch) Allocator.Error!bool {
+        if (self.screen.pages.rows == self.rows and
+            self.screen.pages.cols == self.cols)
+        {
+            return false;
+        }
+
+        const new: ScreenSearch = try .init(
+            self.allocator(),
+            self.screen,
+            self.needle(),
+        );
+
+        self.deinit();
+        self.* = new;
+
+        assert(self.screen.pages.rows == self.rows);
+        assert(self.screen.pages.cols == self.cols);
+        return true;
     }
 
     /// Returns all matches as an owned slice (caller must free).
@@ -260,28 +306,9 @@ pub const ScreenSearch = struct {
     /// Feed on a complete screen search will perform some cleanup of
     /// potentially stale history results (pruned) and reclaim some memory.
     pub fn feed(self: *ScreenSearch) Allocator.Error!void {
-        // If the screen resizes, we have to reset our entire search. That
-        // isn't ideal but we don't have a better way right now to handle
-        // reflowing the search results beyond putting a tracked pin for
-        // every single result.
-        if (self.screen.pages.rows != self.rows or
-            self.screen.pages.cols != self.cols)
-        {
-            // Reinit
-            const new: ScreenSearch = try .init(
-                self.allocator(),
-                self.screen,
-                self.needle(),
-            );
-
-            // Deinit/reinit
-            self.deinit();
-            self.* = new;
-
-            // New result should have matching dimensions
-            assert(self.screen.pages.rows == self.rows);
-            assert(self.screen.pages.cols == self.cols);
-        }
+        // Resize/reflow invalidates every flattened result, not just search
+        // state that needs another history feed.
+        _ = try self.resetIfDimensionsChanged();
 
         const history: *PageListSearch = if (self.history) |*h| &h.searcher else {
             // No history to feed, search is complete.
@@ -317,22 +344,88 @@ pub const ScreenSearch = struct {
         }
     }
 
+    fn historyResultIsValid(
+        self: *const ScreenSearch,
+        hl: *const FlattenedHighlight,
+    ) bool {
+        const chunks = hl.chunks.slice();
+        const nodes = chunks.items(.node);
+        const serials = chunks.items(.serial);
+        for (nodes, serials) |node, serial| {
+            if (!self.screen.pages.nodeIsValid(node, serial)) return false;
+        }
+
+        return true;
+    }
+
+    /// Clear a selected history match if its flattened page coordinates are
+    /// stale. reloadActive only inspects the selected history result, so this
+    /// avoids validating every cached result on each active-area refresh.
+    fn validateSelectedHistory(self: *ScreenSearch) void {
+        const m = if (self.selected) |*m| m else return;
+        const active_len = self.active_results.items.len;
+        if (m.idx < active_len) return;
+
+        const history_idx = m.idx - active_len;
+        if (history_idx < self.history_results.items.len and
+            self.historyResultIsValid(&self.history_results.items[history_idx]))
+        {
+            return;
+        }
+
+        m.deinit(self.screen);
+        self.selected = null;
+    }
+
     fn pruneHistory(self: *ScreenSearch) void {
         // Go through our history results in order (newest to oldest) to find
-        // any result that contains an invalid serial. Prune up to that
-        // point.
-        for (0..self.history_results.items.len) |i| {
+        // any result that contains an invalid serial.
+        var i: usize = 0;
+        while (i < self.history_results.items.len) {
             const hl = &self.history_results.items[i];
-            const serials = hl.chunks.items(.serial);
-            const lowest = serials[0];
-            if (lowest < self.screen.pages.page_serial_min) {
-                // Everything from here forward we assume is invalid because
-                // our history results only get older.
+            const chunks = hl.chunks.slice();
+            const serials = chunks.items(.serial);
+            const first_serial = serials[0];
+            if (first_serial < self.screen.pages.page_serial_epoch) {
+                // Only a whole-list reset advances the epoch. Results are
+                // newest to oldest, so this result and the entire remaining
+                // suffix predate that reset. Drop them without scanning the
+                // live page list for every captured chunk.
                 const alloc = self.allocator();
+                if (self.selected) |*m| {
+                    const first_pruned = self.active_results.items.len + i;
+                    if (m.idx >= first_pruned) {
+                        m.deinit(self.screen);
+                        self.selected = null;
+                    }
+                }
                 for (self.history_results.items[i..]) |*prune_hl| prune_hl.deinit(alloc);
                 self.history_results.shrinkAndFree(alloc, i);
                 return;
             }
+
+            // Ordinary pruning, layout changes, and replacements do not
+            // advance the epoch. Validate their pointer-plus-generation pairs
+            // against the live list.
+            if (self.historyResultIsValid(hl)) {
+                i += 1;
+                continue;
+            }
+
+            // Only this result is known to be invalid. Older results may live
+            // on unrelated pages and remain usable, so remove it individually.
+            const result_idx = self.active_results.items.len + i;
+            if (self.selected) |*m| {
+                if (m.idx == result_idx) {
+                    m.deinit(self.screen);
+                    self.selected = null;
+                } else if (m.idx > result_idx) {
+                    m.idx -= 1;
+                }
+            }
+
+            var removed = self.history_results.orderedRemove(i);
+            removed.deinit(self.allocator());
         }
     }
 
@@ -392,6 +485,14 @@ pub const ScreenSearch = struct {
     ///
     /// The caller must hold the necessary locks to access the screen state.
     pub fn reloadActive(self: *ScreenSearch) Allocator.Error!void {
+        // This check must precede all inspection of cached highlights and
+        // searchers: column reflow may have freed every node they reference.
+        if (try self.resetIfDimensionsChanged()) return;
+
+        // reloadActive only inspects the selected history result, so validate
+        // that result without scanning every cached match on this hot path.
+        self.validateSelectedHistory();
+
         const tw = reloadActive_tw;
 
         // If our selection pin became garbage it means we scrolled off
@@ -696,9 +797,14 @@ pub const ScreenSearch = struct {
     /// access to the underlying screen, since we utilize tracked pins to
     /// ensure our selection sticks with contents changing.
     pub fn select(self: *ScreenSearch, to: Select) Allocator.Error!bool {
-        // All selection requires valid pins so we prune history and
-        // reload our active area immediately. This ensures all search
-        // results point to valid nodes.
+        // A resize can replace any page node, including nodes retained by
+        // flattened history results. Reset before reloadActive or tracking a
+        // selected result so no pre-resize pointer is ever dereferenced.
+        _ = try self.resetIfDimensionsChanged();
+
+        // Reload validates the selected history result before inspecting its
+        // cached coordinates. Prune the remaining results afterward so every
+        // candidate is valid before selection tracks it.
         try self.reloadActive();
         self.pruneHistory();
 
@@ -798,7 +904,7 @@ pub const ScreenSearch = struct {
 
         const active_len = self.active_results.items.len;
         const history_len = self.history_results.items.len;
-        const next_idx = if (prev.idx != 0) prev.idx - 1 else active_len - 1 + history_len;
+        const next_idx = if (prev.idx != 0) prev.idx - 1 else active_len + history_len - 1;
 
         const hl: FlattenedHighlight = if (next_idx < active_len)
             self.active_results.items[active_len - 1 - next_idx]
@@ -1090,6 +1196,40 @@ test "select next" {
     }
 }
 
+test "select after resize resets stale flattened results" {
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{
+        .cols = 10,
+        .rows = 3,
+        .max_scrollback = std.math.maxInt(usize),
+    });
+    defer t.deinit(alloc);
+
+    var stream = t.vtStream();
+    defer stream.deinit();
+    stream.nextSlice("Fizz\r\nBuzz");
+
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
+    defer search.deinit();
+    try search.searchAll();
+    try testing.expect(try search.select(.next));
+    try testing.expect(search.selectedMatch() != null);
+    try testing.expectEqual(@as(size.CellCountInt, 10), search.cols);
+
+    // Column reflow replaces the nodes referenced by the cached flattened
+    // active result. select() calls reloadActive(), so dimension invalidation
+    // must run before either path dereferences those old nodes.
+    try t.screens.active.pages.resize(.{ .cols = 5 });
+    try testing.expectEqual(@as(size.CellCountInt, 10), search.cols);
+
+    try testing.expect(try search.select(.next));
+    try testing.expectEqual(@as(size.CellCountInt, 5), search.cols);
+
+    const selected = search.selectedMatch().?.untracked();
+    try testing.expectEqual(@as(size.CellCountInt, 5), selected.start.node.cols());
+    try testing.expectEqual(@as(size.CellCountInt, 5), selected.end.node.cols());
+}
+
 test "select in active changes contents completely" {
     const alloc = testing.allocator;
     var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 5 });
@@ -1378,6 +1518,276 @@ test "select prev with history" {
             .y = 1,
         } }, t.screens.active.pages.pointFromPin(.active, sel.end).?);
     }
+}
+
+test "select prev wraps when all matches are in history" {
+    // Regression test: when every match is in scrollback (the active area
+    // has none, so active_len == 0), selecting prev from index 0 must wrap
+    // to the last result without underflowing `active_len - 1`.
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{
+        .cols = 10,
+        .rows = 2,
+        .max_scrollback = std.math.maxInt(usize),
+    });
+    defer t.deinit(alloc);
+    const list: *PageList = &t.screens.active.pages;
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Put the only match in scrollback, then scroll the active area to all
+    // blank lines so it contains no match (active_len == 0, history_len == 1).
+    s.nextSlice("Fizz\r\n");
+    while (list.totalPages() < 3) s.nextSlice("\r\n");
+    for (0..list.rows) |_| s.nextSlice("\r\n");
+
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
+    defer search.deinit();
+    try search.searchAll();
+    try testing.expectEqual(0, search.active_results.items.len);
+
+    // Select the first match (idx 0), then wrap backwards. This must not
+    // panic and must keep a valid selection.
+    _ = try search.select(.next);
+    _ = try search.select(.prev);
+    try testing.expect(search.selectedMatch() != null);
+}
+
+test "select after all matches disappear drops the selection" {
+    // The wrap arithmetic in selectPrev (active_len + history_len - 1) would
+    // underflow if a selection were ever live while both result lists are
+    // empty. This guards the invariant that makes that unreachable: when a
+    // reload/prune empties the results, the selection is dropped, so the next
+    // select() hits the "no matches" guard instead of the wrap arithmetic.
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 2 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("Fizz");
+
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
+    defer search.deinit();
+    try search.searchAll();
+    try testing.expectEqual(1, search.active_results.items.len);
+
+    // Take a selection, then overwrite the only match so a reload finds none
+    // (active and history both empty).
+    _ = try search.select(.next);
+    try testing.expect(search.selectedMatch() != null);
+    s.nextSlice("\x1b[1;1H    ");
+
+    // Must not underflow; the selection is dropped and nothing is selected.
+    _ = try search.select(.prev);
+    try testing.expect(search.selectedMatch() == null);
+    try testing.expectEqual(0, search.active_results.items.len);
+    try testing.expectEqual(0, search.history_results.items.len);
+}
+
+test "select after partial history erase drops a pruned selection" {
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{
+        .cols = 10,
+        .rows = 2,
+        .max_scrollback = std.math.maxInt(usize),
+    });
+    defer t.deinit(alloc);
+    const list: *PageList = &t.screens.active.pages;
+
+    var stream = t.vtStream();
+    defer stream.deinit();
+
+    stream.nextSlice("error\r\n");
+    const first = list.pages.first.?;
+    while (list.totalPages() < 3) stream.nextSlice("\r\n");
+    const first_rows = first.rows();
+
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "error");
+    defer search.deinit();
+    try search.searchAll();
+    try testing.expectEqual(0, search.active_results.items.len);
+    try testing.expectEqual(1, search.history_results.items.len);
+    try testing.expect(try search.select(.next));
+
+    list.eraseHistory(.{ .history = .{ .y = first_rows - 1 } });
+    try testing.expect(!search.selected.?.highlight.start.garbage);
+
+    try testing.expect(!try search.select(.next));
+    try testing.expect(search.selected == null);
+}
+
+test "select after history compaction ignores replaced results" {
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{
+        .cols = 10,
+        .rows = 2,
+        .max_scrollback = std.math.maxInt(usize),
+    });
+    defer t.deinit(alloc);
+    const list: *PageList = &t.screens.active.pages;
+
+    var stream = t.vtStream();
+    defer stream.deinit();
+
+    stream.nextSlice("error\r\n");
+    const first = list.pages.first.?;
+    while (list.totalPages() < 3) stream.nextSlice("\r\n");
+    try list.split(.{
+        .node = first,
+        .y = first.rows() / 2,
+        .x = 0,
+    });
+
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "error");
+    defer search.deinit();
+    try search.searchAll();
+    try testing.expectEqual(1, search.history_results.items.len);
+
+    const replacement = (try list.compact(first)).?;
+    try testing.expect(replacement != first);
+
+    try testing.expect(!try search.select(.next));
+    try testing.expect(search.selected == null);
+}
+
+test "select after partial history page erase ignores shifted results" {
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{
+        .cols = 10,
+        .rows = 2,
+        .max_scrollback = std.math.maxInt(usize),
+    });
+    defer t.deinit(alloc);
+    const list: *PageList = &t.screens.active.pages;
+
+    var stream = t.vtStream();
+    defer stream.deinit();
+
+    const first = list.pages.first.?;
+    while (first.rows() < first.capacity().rows) stream.nextSlice("\r\n");
+    stream.nextSlice("error");
+    for (0..list.rows + 1) |_| stream.nextSlice("\r\n");
+    try testing.expect(first != list.pages.last.?);
+
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "error");
+    defer search.deinit();
+    try search.searchAll();
+    try testing.expectEqual(0, search.active_results.items.len);
+    try testing.expectEqual(1, search.history_results.items.len);
+
+    const old_rows = first.rows();
+    list.eraseHistory(.{ .history = .{ .y = 0 } });
+    try testing.expectEqual(old_rows - 1, first.rows());
+
+    try testing.expect(!try search.select(.next));
+    try testing.expect(search.selected == null);
+}
+
+test "reload defers pruning unselected history results" {
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{
+        .cols = 10,
+        .rows = 2,
+        .max_scrollback = std.math.maxInt(usize),
+    });
+    defer t.deinit(alloc);
+    const list: *PageList = &t.screens.active.pages;
+
+    var stream = t.vtStream();
+    defer stream.deinit();
+
+    const first = list.pages.first.?;
+    while (first.rows() < first.capacity().rows) stream.nextSlice("\r\n");
+    stream.nextSlice("error");
+    for (0..list.rows + 1) |_| stream.nextSlice("\r\n");
+
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "error");
+    defer search.deinit();
+    try search.searchAll();
+    try testing.expectEqual(1, search.history_results.items.len);
+
+    list.eraseHistory(.{ .history = .{ .y = 0 } });
+
+    // Routine active refreshes don't inspect unselected history results.
+    try search.reloadActive();
+    try testing.expectEqual(1, search.history_results.items.len);
+
+    // Selection prunes every candidate before attempting to track it.
+    try testing.expect(!try search.select(.next));
+    try testing.expectEqual(0, search.history_results.items.len);
+}
+
+test "reload after partial history page erase drops shifted selection first" {
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{
+        .cols = 10,
+        .rows = 2,
+        .max_scrollback = std.math.maxInt(usize),
+    });
+    defer t.deinit(alloc);
+    const list: *PageList = &t.screens.active.pages;
+
+    var stream = t.vtStream();
+    defer stream.deinit();
+
+    const first = list.pages.first.?;
+    while (first.rows() < first.capacity().rows) stream.nextSlice("\r\n");
+    stream.nextSlice("error");
+    for (0..list.rows + 1) |_| stream.nextSlice("\r\n");
+
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "error");
+    defer search.deinit();
+    try search.searchAll();
+    try testing.expect(try search.select(.next));
+    try testing.expect(search.selected != null);
+
+    list.eraseHistory(.{ .history = .{ .y = 0 } });
+
+    // Advance the active boundary into another node and add matches so
+    // reloadActive updates the history result offsets. It must discard the
+    // stale selected result before comparing any of its captured coordinates.
+    const active_node = list.getTopLeft(.active).node;
+    while (list.getTopLeft(.active).node == active_node) {
+        stream.nextSlice("error\r\n");
+    }
+
+    try search.reloadActive();
+    try testing.expect(search.selected == null);
+}
+
+test "select after history page split ignores moved results" {
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{
+        .cols = 10,
+        .rows = 2,
+        .max_scrollback = std.math.maxInt(usize),
+    });
+    defer t.deinit(alloc);
+    const list: *PageList = &t.screens.active.pages;
+
+    var stream = t.vtStream();
+    defer stream.deinit();
+
+    const first = list.pages.first.?;
+    while (first.rows() < first.capacity().rows) stream.nextSlice("\r\n");
+    stream.nextSlice("error");
+    for (0..list.rows + 1) |_| stream.nextSlice("\r\n");
+
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "error");
+    defer search.deinit();
+    try search.searchAll();
+    try testing.expectEqual(1, search.history_results.items.len);
+
+    try list.split(.{
+        .node = first,
+        .y = first.rows() / 2,
+        .x = 0,
+    });
+
+    try testing.expect(!try search.select(.next));
+    try testing.expect(search.selected == null);
 }
 
 test "screen search no scrollback has no history" {

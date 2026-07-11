@@ -966,6 +966,36 @@ test "Set capacities" {
     _ = Set.Layout.init(16384);
 }
 
+test "Set zero capacity" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // A zero-capacity set is a valid special case (see Layout.init).
+    // It occurs in practice for pages with exact capacities where no
+    // cell is styled (see Page.exactRowCapacity).
+    const layout: Set.Layout = .init(0);
+    try testing.expectEqual(0, layout.total_size);
+
+    // We allocate a nonzero buffer filled with 0xFF to simulate the
+    // set being embedded in a larger structure (e.g. a Page) where
+    // other data follows it. Lookups must not probe the zero-size
+    // table: table[0] would read this adjacent memory and treat it
+    // as an item ID, leading to far out-of-bounds item reads.
+    const buf = try alloc.alignedAlloc(u8, Set.base_align, 64);
+    defer alloc.free(buf);
+    @memset(buf, 0xFF);
+
+    var set = Set.init(.init(buf), layout, .{});
+
+    const style: Style = .{ .flags = .{ .bold = true } };
+    try testing.expectEqual(null, set.lookup(buf, style));
+    try testing.expectError(error.OutOfMemory, set.add(buf, style));
+    try testing.expectEqual(0, set.count());
+
+    // The adjacent memory must be untouched.
+    for (buf) |b| try testing.expectEqual(0xFF, b);
+}
+
 test "Style HTML formatting basic bold" {
     const testing = std.testing;
     const alloc = testing.allocator;

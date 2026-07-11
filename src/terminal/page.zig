@@ -145,6 +145,15 @@ pub const Page = struct {
             @alignOf(Cell),
             StyleSet.base_align.toByteUnits(),
         ) == 0);
+
+        // The PageList memory pool requires that initBuf overwrites at
+        // least the first pointer-size bytes of the backing buffer:
+        // std.heap.MemoryPool stores its free list node there when a
+        // page buffer is returned to it, and pool reuse skips zeroing
+        // in release builds. This holds because the rows array is at
+        // offset 0 (see layout), a page always has at least one row,
+        // and initBuf fully rewrites every row.
+        assert(@sizeOf(Row) >= @sizeOf(usize));
     }
 
     /// The backing memory for the page. A page is always made up of a
@@ -238,6 +247,13 @@ pub const Page = struct {
     /// It is up to the caller to not call deinit on these pages.
     pub inline fn initBuf(buf: OffsetBuf, l: Layout) Page {
         const cap = l.capacity;
+
+        // A page must always have at least one row. Aside from being
+        // useless otherwise, the row initialization below must always
+        // overwrite the start of the buffer for pool reuse. See the
+        // comptime assert at the top of Page.
+        assert(cap.rows > 0);
+
         const rows = buf.member(Row, l.rows_start);
         const cells = buf.member(Cell, l.cells_start);
 
@@ -1703,6 +1719,11 @@ pub const Page = struct {
     /// and rows size.
     pub inline fn layout(cap: Capacity) Layout {
         const rows_count: usize = @intCast(cap.rows);
+
+        // The rows array must stay at offset 0: the PageList memory
+        // pool relies on initBuf overwriting the first bytes of a
+        // reused page buffer, which hold the pool's free list node.
+        // See the comptime assert at the top of Page.
         const rows_start = 0;
         const rows_end: usize = rows_start + (rows_count * @sizeOf(Row));
 
@@ -1988,6 +2009,11 @@ pub const Row = packed struct(u64) {
         prompt_continuation = 2,
     };
 
+    /// The backing integer of this packed struct. Prefer this over
+    /// hardcoding the integer type so that code is resilient to the
+    /// size changing.
+    pub const Backing = @typeInfo(Row).@"struct".backing_integer.?;
+
     /// C ABI type.
     pub const C = u64;
 
@@ -2100,6 +2126,11 @@ pub const Cell = packed struct(u64) {
         prompt = 2,
     };
 
+    /// The backing integer of this packed struct. Prefer this over
+    /// hardcoding the integer type so that code is resilient to the
+    /// size changing.
+    pub const Backing = @typeInfo(Cell).@"struct".backing_integer.?;
+
     /// C ABI type.
     pub const C = u64;
 
@@ -2193,6 +2224,270 @@ pub const Cell = packed struct(u64) {
         return false;
     }
 };
+
+/// Returns a mask with all bits set for the given fields of the packed
+/// struct T, used for masked compares of raw backing-integer values
+/// (e.g. `Row.Backing`, `Cell.Backing`). This is an implementation
+/// detail of `Mask`, which is the public API built on top of this.
+fn fieldMask(
+    comptime T: type,
+    comptime fields: []const []const u8,
+) @typeInfo(T).@"struct".backing_integer.? {
+    // Backing int of the packed struct
+    const Int = @typeInfo(T).@"struct".backing_integer.?;
+
+    var mask: Int = 0;
+    inline for (fields) |field| {
+        // The type that fits all the bits we need to set.
+        const Ones = std.meta.Int(
+            .unsigned,
+            @bitSizeOf(@FieldType(T, field)),
+        );
+
+        // Mask out the ones
+        mask |= @as(Int, std.math.maxInt(Ones)) << @bitOffsetOf(T, field);
+    }
+
+    return mask;
+}
+
+/// A comptime-generated helper for classifying and comparing packed
+/// struct values (e.g. Row, Cell) in bulk, using masked compares of
+/// their raw backing integers.
+///
+/// Masked compares are the key to making bulk row/cell processing fast.
+/// Rows and cells are small packed structs specifically so that a single
+/// integer load observes every field at once. A masked compare can then
+/// answer a multi-field question with one AND and one compare, instead
+/// of extracting and branching on each field individually (each packed
+/// field access compiles to its own shift/mask). Just as importantly,
+/// the integer form vectorizes trivially: `@splat` the mask and expected
+/// value, and whole groups of rows or cells can be classified with a
+/// few SIMD instructions.
+///
+/// Some real examples of this in use:
+///
+///   - Terminal print fast path: a cell can be overwritten by the
+///     simple/fast path only if its content tag is a plain codepoint,
+///     it has no style, isn't wide, and isn't a hyperlink. Masking
+///     with those fields and comparing against a template answers all
+///     four questions in one compare per cell.
+///
+///   - Render state updates: a cell whose masked
+///     `{content_tag, style_id}` bits are zero is a plain cell that
+///     needs no managed-memory handling, so a vector OR-reduce can
+///     skip entire groups of plain cells at once. Similarly, cells
+///     whose masked bits equal the first cell's form a run sharing one
+///     style, letting the update record one style lookup per run
+///     rather than per cell.
+///
+///   - Dirty scans: OR-reducing groups of rows against the `dirty`
+///     field mask finds whether any row in the group needs a rebuild
+///     without touching each row's flag individually.
+///
+/// T is the packed struct type, fields are the fields covered by the
+/// mask, and group_len is the number of values processed at once by
+/// the group (vectorized) operations. Callers typically scan a slice
+/// with the group operations and fall back to the scalar variants for
+/// the remainder and for pinpointing values within a matched group.
+pub fn Mask(
+    comptime T: type,
+    comptime fields: []const []const u8,
+    comptime group_len_param: comptime_int,
+) type {
+    return struct {
+        const Backing = @typeInfo(T).@"struct".backing_integer.?;
+        const mask: Backing = fieldMask(T, fields);
+
+        /// The number of values processed at once by group operations.
+        pub const group_len = group_len_param;
+
+        /// A group of raw values for the vectorized operations.
+        const Group = @Vector(group_len, Backing);
+
+        /// Load a group of values from the slice starting at index i.
+        /// Asserts that at least group_len values are available.
+        inline fn load(values: []const T, i: usize) Group {
+            return @bitCast(values[i..][0..group_len].*);
+        }
+
+        /// Returns the raw backing bits of a single value.
+        pub inline fn bits(v: T) Backing {
+            return @bitCast(v);
+        }
+
+        /// Returns the masked bits of a single value: the bits of the
+        /// masked fields with all other fields zeroed. Use this to
+        /// build the expected value for the eql functions.
+        pub inline fn pattern(v: T) Backing {
+            return bits(v) & mask;
+        }
+
+        /// Returns the backing bits of a single value with the masked
+        /// fields zeroed: the complement of `pattern`. Use this to
+        /// compare values while ignoring the masked fields.
+        pub inline fn strip(v: T) Backing {
+            return bits(v) & ~mask;
+        }
+
+        /// Returns true if every value in the group of group_len
+        /// values starting at index i matches, where a value matches
+        /// when none of the masked fields have any bits set: false
+        /// for bools, zero for ints, the zero tag for enums, and so
+        /// on. Asserts that at least group_len values are available.
+        pub inline fn match(values: []const T, i: usize) bool {
+            return @reduce(.Or, load(values, i)) & mask == 0;
+        }
+
+        /// Scalar variant of `match` for a single value.
+        pub inline fn matchScalar(v: T) bool {
+            return bits(v) & mask == 0;
+        }
+
+        /// Returns true if the masked fields of every value in the
+        /// group of group_len values starting at index i equal the
+        /// expected pattern (see `pattern`).
+        ///
+        /// This is a masked compare: fields outside the mask may vary
+        /// freely. Use this to detect runs of values that share the
+        /// masked field contents while other fields differ, e.g. a run
+        /// of cells with the same style ID but different codepoints.
+        /// If the result you derive from a run depends on fields
+        /// outside the mask, use `eqlExact` instead.
+        pub inline fn eql(
+            values: []const T,
+            i: usize,
+            expected: Backing,
+        ) bool {
+            const masked = load(values, i) & @as(Group, @splat(mask));
+            return @reduce(.And, masked == @as(Group, @splat(expected)));
+        }
+
+        /// Scalar variant of `eql` for a single value.
+        pub inline fn eqlScalar(v: T, expected: Backing) bool {
+            return pattern(v) == expected;
+        }
+
+        /// Like `eql` but returns the number of leading values whose
+        /// masked fields equal the expected pattern, i.e. group_len if
+        /// the entire group matches. This is useful for early-exit run
+        /// scans that need to pinpoint exactly where a run ends rather
+        /// than only whether the whole group matches.
+        pub inline fn eqlPrefix(
+            values: []const T,
+            i: usize,
+            expected: Backing,
+        ) usize {
+            const masked = load(values, i) & @as(Group, @splat(mask));
+            const ok = masked == @as(Group, @splat(expected));
+
+            // Test the whole group before extracting the prefix
+            // count: turning a vector compare into a scalar bitmask
+            // is expensive on some targets (e.g. NEON has no movemask
+            // instruction) and run scans overwhelmingly see fully
+            // matching groups, so we only pay for the extraction on
+            // the final group of a run.
+            if (@reduce(.And, ok)) {
+                @branchHint(.likely);
+                return group_len;
+            }
+
+            const ok_bits: std.meta.Int(
+                .unsigned,
+                group_len,
+            ) = @bitCast(ok);
+            return @ctz(~ok_bits);
+        }
+
+        /// Returns true if every value in the group of group_len
+        /// values starting at index i is bit-identical to the expected
+        /// value. Note: this compares entire values; it is NOT
+        /// affected by the field mask.
+        ///
+        /// This exists alongside `eql` for run detection where the
+        /// derived result depends on fields outside the mask, so a
+        /// masked compare would incorrectly extend the run. For
+        /// example, the background color of a bg-color cell lives in
+        /// the content field: two such cells only share a background
+        /// if their content bits are identical, not merely their
+        /// content tag. Values in such runs are typically produced by
+        /// bulk fills (e.g. erase with a pending background) and are
+        /// bit-identical in practice, so exact equality is both
+        /// correct and cheap.
+        pub inline fn eqlExact(
+            values: []const T,
+            i: usize,
+            expected: Backing,
+        ) bool {
+            const group = load(values, i);
+            return @reduce(.And, group == @as(Group, @splat(expected)));
+        }
+    };
+}
+
+test "Mask" {
+    const M = Mask(Cell, &.{ "content_tag", "style_id" }, 4);
+
+    const plain: Cell = .init('A');
+    var styled: Cell = .init('B');
+    styled.style_id = 5;
+    var styled2: Cell = .init('C');
+    styled2.style_id = 5;
+    var other: Cell = .init('D');
+    other.style_id = 6;
+
+    // match: plain cells only
+    {
+        var cells: [4]Cell = .{ plain, plain, plain, plain };
+        try testing.expect(M.match(&cells, 0));
+        try testing.expect(M.matchScalar(plain));
+
+        cells[2] = styled;
+        try testing.expect(!M.match(&cells, 0));
+        try testing.expect(!M.matchScalar(styled));
+    }
+
+    // eql: runs of matching masked fields, other fields may vary
+    {
+        const expected = M.pattern(styled);
+        var cells: [4]Cell = .{ styled, styled2, styled, styled2 };
+        try testing.expect(M.eql(&cells, 0, expected));
+        try testing.expect(M.eqlScalar(styled2, expected));
+
+        cells[1] = other;
+        try testing.expect(!M.eql(&cells, 0, expected));
+        try testing.expect(!M.eqlScalar(other, expected));
+    }
+
+    // eqlPrefix: count of leading values matching the pattern
+    {
+        const expected = M.pattern(styled);
+        var cells: [4]Cell = .{ styled, styled2, other, styled };
+        try testing.expectEqual(2, M.eqlPrefix(&cells, 0, expected));
+
+        cells[2] = styled;
+        try testing.expectEqual(4, M.eqlPrefix(&cells, 0, expected));
+    }
+
+    // eqlExact: bit-identical values only
+    {
+        const expected = M.bits(styled);
+        var cells: [4]Cell = .{ styled, styled, styled, styled };
+        try testing.expect(M.eqlExact(&cells, 0, expected));
+
+        // Same masked fields but different codepoint is not exact.
+        cells[3] = styled2;
+        try testing.expect(!M.eqlExact(&cells, 0, expected));
+    }
+
+    // strip: compare values while ignoring the masked fields
+    {
+        var styled_other: Cell = .init('B');
+        styled_other.style_id = 6;
+        try testing.expectEqual(M.strip(styled), M.strip(styled_other));
+        try testing.expect(M.strip(styled) != M.strip(styled2));
+    }
+}
 
 // Uncomment this when you want to do some math.
 // test "Page size calculator" {

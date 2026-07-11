@@ -71,6 +71,7 @@ pub const RenderState = terminal.RenderState;
 pub const Screen = terminal.Screen;
 pub const ScreenSet = terminal.ScreenSet;
 pub const Selection = terminal.Selection;
+pub const SelectionGesture = terminal.SelectionGesture;
 pub const size_report = terminal.size_report;
 pub const SizeReportStyle = terminal.SizeReportStyle;
 pub const StringMap = terminal.StringMap;
@@ -132,6 +133,14 @@ pub const input = struct {
     pub const encodeMouse = mouse_encode.encode;
 };
 
+/// Unicode utilities that match the terminal's text layout semantics.
+pub const unicode = struct {
+    const unicode_pkg = @import("unicode/main.zig");
+
+    pub const codepointWidth = unicode_pkg.codepointWidth;
+    pub const graphemeWidth = unicode_pkg.graphemeWidth;
+};
+
 comptime {
     // If we're building the C library (vs. the Zig module) then
     // we want to reference the C API so that it gets exported.
@@ -182,10 +191,13 @@ comptime {
         @export(&c.osc_end, .{ .name = "ghostty_osc_end" });
         @export(&c.osc_command_type, .{ .name = "ghostty_osc_command_type" });
         @export(&c.osc_command_data, .{ .name = "ghostty_osc_command_data" });
+        @export(&c.color_scheme_report_encode, .{ .name = "ghostty_color_scheme_report_encode" });
         @export(&c.focus_encode, .{ .name = "ghostty_focus_encode" });
         @export(&c.mode_report_encode, .{ .name = "ghostty_mode_report_encode" });
         @export(&c.paste_is_safe, .{ .name = "ghostty_paste_is_safe" });
         @export(&c.paste_encode, .{ .name = "ghostty_paste_encode" });
+        @export(&c.unicode_codepoint_width, .{ .name = "ghostty_unicode_codepoint_width" });
+        @export(&c.unicode_grapheme_width, .{ .name = "ghostty_unicode_grapheme_width" });
         @export(&c.size_report_encode, .{ .name = "ghostty_size_report_encode" });
         @export(&c.style_default, .{ .name = "ghostty_style_default" });
         @export(&c.style_is_default, .{ .name = "ghostty_style_is_default" });
@@ -196,6 +208,16 @@ comptime {
         @export(&c.row_get, .{ .name = "ghostty_row_get" });
         @export(&c.row_get_multi, .{ .name = "ghostty_row_get_multi" });
         @export(&c.color_rgb_get, .{ .name = "ghostty_color_rgb_get" });
+        @export(&c.color_contrast, .{ .name = "ghostty_color_contrast" });
+        @export(&c.color_luminance, .{ .name = "ghostty_color_luminance" });
+        @export(&c.color_parse, .{ .name = "ghostty_color_parse" });
+        @export(&c.color_parse_palette_entry, .{ .name = "ghostty_color_parse_palette_entry" });
+        @export(&c.color_parse_x11, .{ .name = "ghostty_color_parse_x11" });
+        @export(&c.color_palette_default, .{ .name = "ghostty_color_palette_default" });
+        @export(&c.color_palette_generate, .{ .name = "ghostty_color_palette_generate" });
+        @export(&c.color_perceived_luminance, .{ .name = "ghostty_color_perceived_luminance" });
+        @export(&c.color_x11_name_count, .{ .name = "ghostty_color_x11_name_count" });
+        @export(&c.color_x11_names, .{ .name = "ghostty_color_x11_names" });
         @export(&c.sgr_new, .{ .name = "ghostty_sgr_new" });
         @export(&c.sgr_free, .{ .name = "ghostty_sgr_free" });
         @export(&c.sgr_reset, .{ .name = "ghostty_sgr_reset" });
@@ -213,6 +235,8 @@ comptime {
         @export(&c.terminal_selection_format_alloc, .{ .name = "ghostty_terminal_selection_format_alloc" });
         @export(&c.render_state_new, .{ .name = "ghostty_render_state_new" });
         @export(&c.render_state_update, .{ .name = "ghostty_render_state_update" });
+        @export(&c.render_state_begin_update, .{ .name = "ghostty_render_state_begin_update" });
+        @export(&c.render_state_end_update, .{ .name = "ghostty_render_state_end_update" });
         @export(&c.render_state_get, .{ .name = "ghostty_render_state_get" });
         @export(&c.render_state_get_multi, .{ .name = "ghostty_render_state_get_multi" });
         @export(&c.render_state_set, .{ .name = "ghostty_render_state_set" });
@@ -237,6 +261,8 @@ comptime {
         @export(&c.terminal_set, .{ .name = "ghostty_terminal_set" });
         @export(&c.terminal_vt_write, .{ .name = "ghostty_terminal_vt_write" });
         @export(&c.terminal_scroll_viewport, .{ .name = "ghostty_terminal_scroll_viewport" });
+        @export(&c.terminal_compression_activity, .{ .name = "ghostty_terminal_compression_activity" });
+        @export(&c.terminal_compress, .{ .name = "ghostty_terminal_compress" });
         @export(&c.terminal_mode_get, .{ .name = "ghostty_terminal_mode_get" });
         @export(&c.terminal_mode_set, .{ .name = "ghostty_terminal_mode_set" });
         @export(&c.terminal_get, .{ .name = "ghostty_terminal_get" });
@@ -340,6 +366,7 @@ test {
     _ = terminal;
     _ = @import("lib/main.zig");
     @import("std").testing.refAllDecls(input);
+    @import("std").testing.refAllDecls(unicode);
     if (comptime terminal.options.c_abi) {
         _ = terminal.c_api;
     }

@@ -2,6 +2,31 @@ const std = @import("std");
 const table = @import("props_table.zig").table;
 const uucode = @import("uucode");
 
+/// Width change requested by a codepoint that continues a grapheme cluster.
+pub const GraphemeWidthEffect = enum {
+    /// Do not append the codepoint to the cluster and leave break state as it
+    /// was before seeing it.
+    ignore,
+
+    /// Append the codepoint but leave the current cluster width unchanged.
+    no_change,
+
+    /// Make the cluster occupy two terminal cells.
+    wide,
+
+    /// Make the cluster occupy one terminal cell.
+    narrow,
+};
+
+/// Result of measuring the first grapheme cluster in a codepoint slice.
+pub const GraphemeWidth = struct {
+    /// Number of codepoints consumed from the input slice.
+    len: usize,
+
+    /// Display width in terminal cells.
+    width: u2,
+};
+
 /// Determines if there is a grapheme break between two codepoints. This
 /// must be called sequentially maintaining the state between calls.
 ///
@@ -19,6 +44,99 @@ pub fn graphemeBreak(cp1: u21, cp2: u21, state: *uucode.grapheme.BreakState) boo
     ];
     state.* = value.state;
     return value.result;
+}
+
+/// Returns the width effect of appending cp after prev within a grapheme.
+///
+/// This is the shared width-decision kernel for the streaming terminal
+/// printer and for graphemeWidth. It assumes graphemeBreak has already said
+/// there is no break between prev and cp; it does not perform segmentation.
+///
+/// The .ignore result is important for invalid emoji variation selectors. The
+/// terminal does not store those selectors in the cell, so callers must also
+/// restore their grapheme break state and leave prev unchanged when they see
+/// .ignore.
+pub inline fn graphemeWidthEffect(prev: u21, cp: u21) GraphemeWidthEffect {
+    // Emoji variation selectors modify the width of a valid base:
+    // VS16 makes the grapheme wide and VS15 makes it narrow. Check that
+    // prev forms a valid variation sequence in emoji-variation-sequences.txt;
+    // if it does not, ignore the selector entirely.
+    if (cp == 0xFE0F or cp == 0xFE0E) {
+        const prev_props = table.get(prev);
+        if (!prev_props.emoji_vs_base) return .ignore;
+
+        return switch (cp) {
+            0xFE0F => .wide,
+            0xFE0E => .narrow,
+            else => unreachable,
+        };
+    }
+
+    // If a code point contributes to the width of a grapheme, the whole
+    // grapheme is at least width 2 because the first code point must be at
+    // least width 1 to start. Prepend code points could effectively mean
+    // the first code point should be width 0, but we don't handle that yet.
+    if (!table.get(cp).width_zero_in_grapheme) return .wide;
+
+    return .no_change;
+}
+
+/// Measures the first grapheme cluster in cps using the same segmentation and
+/// width rules as Terminal.print with mode 2027.
+///
+/// This is not a streaming API: cps must contain a complete first grapheme
+/// cluster or the logical end of the string. If bytes/codepoints arrive in
+/// chunks, keep buffering when this consumes all available codepoints and more
+/// input may still arrive.
+///
+/// For codepoint types wider than u21, values greater than U+10FFFF are
+/// accepted so FFI-facing callers can use u32 input without trapping. An
+/// invalid value consumes one codepoint at width 1 when it starts the slice,
+/// and terminates the current cluster when it appears later. For u21 callers
+/// these checks are comptime-dead.
+pub fn graphemeWidth(comptime T: type, cps: []const T) GraphemeWidth {
+    const check_invalid = comptime @bitSizeOf(T) > @bitSizeOf(u21);
+
+    if (cps.len == 0) return .{ .len = 0, .width = 0 };
+
+    // The C API accepts u32 codepoints, so it can receive values outside
+    // Unicode's range. Guard before narrowing to u21; native u21 callers
+    // skip this path at comptime.
+    if (check_invalid and invalidCodepoint(cps[0])) return .{ .len = 1, .width = 1 };
+
+    var len: usize = 1;
+    var width = table.get(@as(u21, @intCast(cps[0]))).width;
+    var prev: u21 = @intCast(cps[0]);
+    var state: uucode.grapheme.BreakState = .default;
+
+    while (len < cps.len) : (len += 1) {
+        // Treat invalid u32 input as a boundary so a valid prefix cluster can
+        // still be returned without attempting to narrow the invalid value.
+        if (check_invalid and invalidCodepoint(cps[len])) break;
+
+        const cp: u21 = @intCast(cps[len]);
+        const state_before = state;
+        if (graphemeBreak(prev, cp, &state)) break;
+
+        switch (graphemeWidthEffect(prev, cp)) {
+            .ignore => state = state_before,
+            .no_change => prev = cp,
+            .wide => {
+                width = 2;
+                prev = cp;
+            },
+            .narrow => {
+                width = 1;
+                prev = cp;
+            },
+        }
+    }
+
+    return .{ .len = len, .width = width };
+}
+
+inline fn invalidCodepoint(cp: anytype) bool {
+    return cp > 0x10FFFF;
 }
 
 /// This is all the structures and data for the precomputed lookup table
@@ -177,4 +295,71 @@ test "long emoji zwj sequences" {
     cp2 = it.next() orelse unreachable;
     try std.testing.expect(cp1 == 0x1F466); // 👦
     try std.testing.expect(graphemeBreak(cp1, cp2, &state)); // break
+}
+
+test "grapheme width: variation selectors" {
+    const testing = std.testing;
+
+    try testing.expectEqual(GraphemeWidthEffect.wide, graphemeWidthEffect(0x2764, 0xFE0F));
+    try testing.expectEqual(GraphemeWidthEffect.narrow, graphemeWidthEffect(0x23, 0xFE0E));
+    try testing.expectEqual(GraphemeWidthEffect.ignore, graphemeWidthEffect('x', 0xFE0F));
+
+    try testing.expectEqual(GraphemeWidth{ .len = 2, .width = 2 }, graphemeWidth(u21, &.{ 0x2764, 0xFE0F }));
+    try testing.expectEqual(GraphemeWidth{ .len = 2, .width = 2 }, graphemeWidth(u21, &.{ 0x23, 0xFE0F }));
+    try testing.expectEqual(GraphemeWidth{ .len = 2, .width = 1 }, graphemeWidth(u21, &.{ 'x', 0xFE0F }));
+    try testing.expectEqual(GraphemeWidth{ .len = 3, .width = 1 }, graphemeWidth(u21, &.{ 'x', 0xFE0F, 0xFE0F }));
+    try testing.expectEqual(GraphemeWidth{ .len = 2, .width = 1 }, graphemeWidth(u21, &.{ 0x23, 0xFE0E }));
+    try testing.expectEqual(GraphemeWidth{ .len = 2, .width = 1 }, graphemeWidth(u21, &.{ 0x231A, 0xFE0E }));
+    try testing.expectEqual(GraphemeWidth{ .len = 3, .width = 1 }, graphemeWidth(u21, &.{ 0x231A, 0xFE0E, 0xFE0F }));
+    try testing.expectEqual(GraphemeWidth{ .len = 4, .width = 2 }, graphemeWidth(u21, &.{ 0x1F3F4, 0x200D, 0x2620, 0xFE0F }));
+}
+
+test "grapheme width: emoji sequences" {
+    const testing = std.testing;
+
+    try testing.expectEqual(GraphemeWidth{ .len = 5, .width = 2 }, graphemeWidth(u21, &.{ 0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467 }));
+    try testing.expectEqual(GraphemeWidth{ .len = 3, .width = 2 }, graphemeWidth(u21, &.{ 0x23, 0xFE0F, 0x20E3 }));
+    try testing.expectEqual(GraphemeWidth{ .len = 2, .width = 1 }, graphemeWidth(u21, &.{ '1', 0x20E3 }));
+    try testing.expectEqual(GraphemeWidth{ .len = 2, .width = 2 }, graphemeWidth(u21, &.{ 0x1F44B, 0x1F3FF }));
+}
+
+test "grapheme width: spacing marks can widen narrow clusters" {
+    const testing = std.testing;
+
+    var mark: ?u21 = null;
+    for (0..0x110000) |cp_usize| {
+        const cp: u21 = @intCast(cp_usize);
+        const props = table.get(cp);
+        if (props.width != 1 or props.width_zero_in_grapheme) continue;
+
+        var state: uucode.grapheme.BreakState = .default;
+        if (!graphemeBreak('a', cp, &state)) {
+            mark = cp;
+            break;
+        }
+    }
+
+    try testing.expect(mark != null);
+    const cp = mark.?;
+    try testing.expectEqual(@as(u2, 1), table.get(cp).width);
+    try testing.expect(!table.get(cp).width_zero_in_grapheme);
+    try testing.expectEqual(GraphemeWidth{ .len = 2, .width = 2 }, graphemeWidth(u21, &.{ 'a', cp }));
+}
+
+test "grapheme width: segmentation" {
+    const testing = std.testing;
+
+    try testing.expectEqual(GraphemeWidth{ .len = 1, .width = 1 }, graphemeWidth(u21, &.{'a'}));
+    try testing.expectEqual(GraphemeWidth{ .len = 1, .width = 1 }, graphemeWidth(u21, &.{ 'a', 'b' }));
+    try testing.expectEqual(GraphemeWidth{ .len = 2, .width = 2 }, graphemeWidth(u21, &.{ 0x1F1E6, 0x1F1E7, 0x1F1E8 }));
+    try testing.expectEqual(GraphemeWidth{ .len = 1, .width = 2 }, graphemeWidth(u21, &.{0x1F1E8}));
+    try testing.expectEqual(GraphemeWidth{ .len = 0, .width = 0 }, graphemeWidth(u21, &.{}));
+    try testing.expectEqual(GraphemeWidth{ .len = 2, .width = 0 }, graphemeWidth(u21, &.{ 0x0301, 0x0302 }));
+}
+
+test "grapheme width: u32 invalid codepoints stand alone" {
+    const testing = std.testing;
+
+    try testing.expectEqual(GraphemeWidth{ .len = 1, .width = 1 }, graphemeWidth(u32, &.{ 0x110000, 0x0301 }));
+    try testing.expectEqual(GraphemeWidth{ .len = 1, .width = 1 }, graphemeWidth(u32, &.{ 'a', 0x110000 }));
 }

@@ -33,7 +33,7 @@ const Library = font.Library;
 const Metrics = font.Metrics;
 const Presentation = font.Presentation;
 const Style = font.Style;
-const RenderOptions = font.face.RenderOptions;
+const RenderOptions = font.Glyph.RenderOptions;
 
 const log = std.log.scoped(.font_shared_grid);
 

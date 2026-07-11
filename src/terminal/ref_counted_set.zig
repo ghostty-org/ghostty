@@ -497,6 +497,15 @@ pub fn RefCountedSet(
             return self.lookupContext(base, value, self.context);
         }
         pub fn lookupContext(self: *const Self, base: anytype, value: T, ctx: Context) ?Id {
+            // A zero-capacity set (a valid special case of Layout.init)
+            // contains nothing and has a zero-size table, so we can't
+            // probe it: table[0] would read whatever memory follows the
+            // set in the backing buffer.
+            if (self.layout.table_cap == 0) {
+                @branchHint(.cold);
+                return null;
+            }
+
             const table = self.table.ptr(base);
             const items = self.items.ptr(base);
 

@@ -121,7 +121,11 @@ pub fn deinit(self: *Thread) void {
     // Nothing can possibly access the mailbox anymore, destroy it.
     self.mailbox.destroy(self.alloc);
 
-    if (self.search) |*s| s.deinit();
+    if (self.search) |*s| {
+        self.opts.mutex.lock();
+        defer self.opts.mutex.unlock();
+        s.deinit(self.opts.terminal);
+    }
 }
 
 /// The main entrypoint for the thread.
@@ -252,10 +256,14 @@ fn drainMailbox(self: *Thread) !void {
 
 fn select(self: *Thread, sel: ScreenSearch.Select) !void {
     const s = if (self.search) |*s| s else return;
-    const screen_search = s.screens.getPtr(s.last_screen.key) orelse return;
 
     self.opts.mutex.lock();
     defer self.opts.mutex.unlock();
+
+    // A screen can be removed or replaced between refresh ticks. Reconcile
+    // while holding the terminal lock before touching any ScreenSearch pins.
+    s.feed(self.alloc, self.opts.terminal);
+    const screen_search = s.screens.getPtr(s.last_screen.key) orelse return;
 
     // Make the selection. Ignore the result because we don't
     // care if the selection didn't change.
@@ -308,7 +316,11 @@ fn changeNeedle(self: *Thread, needle: []const u8) !void {
         // If our search is unchanged, do nothing.
         if (std.ascii.eqlIgnoreCase(s.viewport.needle(), needle)) return;
 
-        s.deinit();
+        {
+            self.opts.mutex.lock();
+            defer self.opts.mutex.unlock();
+            s.deinit(self.opts.terminal);
+        }
         self.search = null;
 
         // When the search changes then we need to emit that it stopped.
@@ -497,6 +509,11 @@ const Search = struct {
     /// The searchers for all the screens.
     screens: std.EnumMap(ScreenSet.Key, ScreenSearch),
 
+    /// ScreenSet generations captured when each searcher was initialized.
+    /// Allocators may reuse a destroyed Screen address, so pointer equality
+    /// alone cannot distinguish replacement screens from stale handles.
+    screen_generations: std.EnumMap(ScreenSet.Key, usize),
+
     /// All state related to screen switches, collected so that when
     /// we switch screens it makes everything related stale, too.
     last_screen: ScreenState,
@@ -537,16 +554,35 @@ const Search = struct {
         return .{
             .viewport = vp,
             .screens = .init(.{}),
+            .screen_generations = .init(.{}),
             .last_screen = .{ .key = .primary },
             .last_complete = false,
             .stale_viewport_matches = true,
         };
     }
 
-    pub fn deinit(self: *Search) void {
+    pub fn deinit(self: *Search, t: *Terminal) void {
         self.viewport.deinit();
         var it = self.screens.iterator();
-        while (it.next()) |entry| entry.value.deinit();
+        while (it.next()) |entry| {
+            if (self.screenIsValid(&t.screens, entry.key, entry.value)) {
+                entry.value.deinit();
+            } else {
+                entry.value.deinitScreenInvalid();
+            }
+        }
+    }
+
+    fn screenIsValid(
+        self: *const Search,
+        screens: *const ScreenSet,
+        key: ScreenSet.Key,
+        search: *const ScreenSearch,
+    ) bool {
+        const generation = self.screen_generations.get(key) orelse return false;
+        if (generation != screens.generation(key)) return false;
+        const actual = screens.get(key) orelse return false;
+        return actual == search.screen;
     }
 
     /// Returns true if all searches on all screens are complete.
@@ -629,18 +665,16 @@ const Search = struct {
             // Remove screens we have that no longer exist or changed.
             var it = self.screens.iterator();
             while (it.next()) |entry| {
-                const remove: bool = remove: {
-                    // If the screen doesn't exist at all, remove it.
-                    const actual = t.screens.all.get(entry.key) orelse break :remove true;
-
-                    // If the screen pointer changed, remove it, the screen
-                    // was totally reinitialized.
-                    break :remove actual != entry.value.screen;
-                };
+                const remove = !self.screenIsValid(
+                    &t.screens,
+                    entry.key,
+                    entry.value,
+                );
 
                 if (remove) {
-                    entry.value.deinit();
+                    entry.value.deinitScreenInvalid();
                     _ = self.screens.remove(entry.key);
+                    _ = self.screen_generations.remove(entry.key);
                 }
             }
         }
@@ -649,7 +683,7 @@ const Search = struct {
             var it = t.screens.all.iterator();
             while (it.next()) |entry| {
                 if (self.screens.contains(entry.key)) continue;
-                self.screens.put(entry.key, ScreenSearch.init(
+                const screen_search = ScreenSearch.init(
                     alloc,
                     entry.value.*,
                     self.viewport.needle(),
@@ -664,7 +698,12 @@ const Search = struct {
                         );
                         continue;
                     },
-                });
+                };
+                self.screens.put(entry.key, screen_search);
+                self.screen_generations.put(
+                    entry.key,
+                    t.screens.generation(entry.key),
+                );
             }
         }
 
@@ -902,4 +941,33 @@ test {
             .y = 0,
         } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
     }
+}
+
+test "select after active screen removal" {
+    const alloc = testing.allocator;
+    var mutex: std.Thread.Mutex = .{};
+    var t: Terminal = try .init(alloc, .{ .cols = 20, .rows = 2 });
+    defer t.deinit(alloc);
+
+    _ = try t.switchScreen(.alternate);
+
+    var search: Search = try .init(alloc, "needle");
+    search.feed(alloc, &t);
+    try testing.expectEqual(ScreenSet.Key.alternate, search.last_screen.key);
+    try testing.expect(search.screens.contains(.alternate));
+
+    var thread: Thread = undefined;
+    thread.search = search;
+    thread.opts = .{
+        .mutex = &mutex,
+        .terminal = &t,
+    };
+    defer if (thread.search) |*active| active.deinit(&t);
+
+    _ = try t.switchScreen(.primary);
+    t.screens.remove(alloc, .alternate);
+
+    try thread.select(.next);
+    try testing.expectEqual(ScreenSet.Key.primary, thread.search.?.last_screen.key);
+    try testing.expect(!thread.search.?.screens.contains(.alternate));
 }

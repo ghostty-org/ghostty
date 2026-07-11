@@ -5,6 +5,7 @@ const lib = @import("../lib.zig");
 const CAllocator = lib.alloc.Allocator;
 pub const ZigTerminal = @import("../Terminal.zig");
 const Stream = @import("../stream_terminal.zig").Stream;
+const Screen = @import("../Screen.zig");
 const ScreenSet = @import("../ScreenSet.zig");
 const PageList = @import("../PageList.zig");
 const apc = @import("../apc.zig");
@@ -23,6 +24,7 @@ const grid_ref_tracked_c = @import("grid_ref_tracked.zig");
 const selection_c = @import("selection.zig");
 const style_c = @import("style.zig");
 const color = @import("../color.zig");
+const clipboard = @import("../clipboard.zig");
 const Result = @import("result.zig").Result;
 
 const Handler = @import("../stream_terminal.zig").Handler;
@@ -39,6 +41,24 @@ const TerminalWrapper = struct {
     tracked_grid_refs: std.AutoArrayHashMapUnmanaged(*grid_ref_tracked_c.TrackedGridRef, void) = .{},
 };
 
+/// A single MIME representation in a clipboard write.
+///
+/// C: GhosttyClipboardContent
+pub const ClipboardContent = extern struct {
+    mime: lib.String,
+    data: lib.String,
+};
+
+/// A protocol-neutral request to replace or clear clipboard contents.
+///
+/// C: GhosttyClipboardWrite
+pub const ClipboardWrite = extern struct {
+    size: usize,
+    location: clipboard.Location,
+    contents: ?[*]const ClipboardContent,
+    contents_len: usize,
+};
+
 /// C callback state for terminal effects. Trampolines are always
 /// installed on the stream handler; they check these fields and
 /// no-op when the corresponding callback is null.
@@ -51,7 +71,9 @@ const Effects = struct {
     enquiry: ?EnquiryFn = null,
     xtversion: ?XtversionFn = null,
     title_changed: ?TitleChangedFn = null,
+    pwd_changed: ?PwdChangedFn = null,
     size_cb: ?SizeFn = null,
+    clipboard_write: ?ClipboardWriteFn = null,
 
     /// Scratch buffer for DA1 feature codes. The device attributes
     /// trampoline converts C feature codes into this buffer and returns
@@ -82,8 +104,15 @@ const Effects = struct {
     /// (len=0) causes the default "libghostty" to be reported.
     pub const XtversionFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) lib.String;
 
+    /// C function pointer type for the clipboard_write callback. The request
+    /// and its contents are borrowed and only valid for the callback duration.
+    pub const ClipboardWriteFn = *const fn (Terminal, ?*anyopaque, *const ClipboardWrite) callconv(lib.calling_conv) clipboard.WriteResult;
+
     /// C function pointer type for the title_changed callback.
     pub const TitleChangedFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) void;
+
+    /// C function pointer type for the pwd_changed callback.
+    pub const PwdChangedFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) void;
 
     /// C function pointer type for the size callback.
     /// Returns true and fills out_size if size is available,
@@ -131,6 +160,44 @@ const Effects = struct {
         const wrapper: *TerminalWrapper = @fieldParentPtr("stream", stream_ptr);
         const func = wrapper.effects.bell orelse return;
         func(@ptrCast(wrapper), wrapper.effects.userdata);
+    }
+
+    fn clipboardWriteTrampoline(handler: *Handler, write: clipboard.Write) clipboard.WriteResult {
+        const stream_ptr: *Stream = @fieldParentPtr("handler", handler);
+        const wrapper: *TerminalWrapper = @fieldParentPtr("stream", stream_ptr);
+        const func = wrapper.effects.clipboard_write orelse return .unsupported;
+
+        // Most protocols currently produce one representation, so keep that
+        // path allocation-free while supporting arbitrary multi-MIME writes.
+        var stack_contents: [4]ClipboardContent = undefined;
+        const contents: []ClipboardContent = if (write.contents.len <= stack_contents.len)
+            stack_contents[0..write.contents.len]
+        else
+            wrapper.terminal.gpa().alloc(ClipboardContent, write.contents.len) catch
+                return .io_error;
+        defer if (write.contents.len > stack_contents.len)
+            wrapper.terminal.gpa().free(contents);
+
+        for (contents, write.contents) |*c_content, content| {
+            c_content.* = .{
+                .mime = .{
+                    .ptr = content.mime.ptr,
+                    .len = content.mime.len,
+                },
+                .data = .{
+                    .ptr = content.data.ptr,
+                    .len = content.data.len,
+                },
+            };
+        }
+
+        const request: ClipboardWrite = .{
+            .size = @sizeOf(ClipboardWrite),
+            .location = write.location,
+            .contents = if (contents.len > 0) contents.ptr else null,
+            .contents_len = contents.len,
+        };
+        return func(@ptrCast(wrapper), wrapper.effects.userdata, &request);
     }
 
     fn colorSchemeTrampoline(handler: *Handler) ?device_status.ColorScheme {
@@ -198,6 +265,13 @@ const Effects = struct {
         func(@ptrCast(wrapper), wrapper.effects.userdata);
     }
 
+    fn pwdChangedTrampoline(handler: *Handler) void {
+        const stream_ptr: *Stream = @fieldParentPtr("handler", handler);
+        const wrapper: *TerminalWrapper = @fieldParentPtr("stream", stream_ptr);
+        const func = wrapper.effects.pwd_changed orelse return;
+        func(@ptrCast(wrapper), wrapper.effects.userdata);
+    }
+
     fn sizeTrampoline(handler: *Handler) ?size_report.Size {
         const stream_ptr: *Stream = @fieldParentPtr("handler", handler);
         const wrapper: *TerminalWrapper = @fieldParentPtr("stream", stream_ptr);
@@ -210,6 +284,12 @@ const Effects = struct {
 
 /// C: GhosttyTerminal
 pub const Terminal = ?*TerminalWrapper;
+
+/// C: GhosttyTerminalCompressionMode
+pub const CompressionMode = ZigTerminal.CompressionMode;
+
+/// C: GhosttyTerminalCompressionResult
+pub const CompressionResult = ZigTerminal.CompressionResult;
 
 pub fn zigTerminal(terminal_: Terminal) ?*ZigTerminal {
     return (terminal_ orelse return null).terminal;
@@ -266,6 +346,11 @@ fn new_(
     });
     errdefer t.deinit(alloc);
 
+    // libghostty-vt embedders don't necessarily install Ghostty's shell
+    // integration, so don't assume OSC 133 prompts can be redrawn on resize.
+    // Shells can still opt in with OSC 133;A;redraw=1.
+    t.flags.shell_redraws_prompt = .false;
+
     // Setup our stream with trampolines always installed so that
     // setting C callbacks at any time takes effect immediately.
     var handler: Stream.Handler = t.vtHandler();
@@ -277,7 +362,9 @@ fn new_(
         .enquiry = &Effects.enquiryTrampoline,
         .xtversion = &Effects.xtversionTrampoline,
         .title_changed = &Effects.titleChangedTrampoline,
+        .pwd_changed = &Effects.pwdChangedTrampoline,
         .size = &Effects.sizeTrampoline,
+        .clipboard_write = &Effects.clipboardWriteTrampoline,
     };
 
     wrapper.* = .{
@@ -295,6 +382,30 @@ pub fn vt_write(
 ) callconv(lib.calling_conv) void {
     const wrapper = terminal_ orelse return;
     wrapper.stream.nextSlice(ptr[0..len]);
+}
+
+pub fn compression_activity(
+    terminal_: Terminal,
+    out_activity_: ?*u64,
+) callconv(lib.calling_conv) Result {
+    const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
+    const out_activity = out_activity_ orelse return .invalid_value;
+    out_activity.* = t.compressionActivity();
+    return .success;
+}
+
+pub fn compress(
+    terminal_: Terminal,
+    mode_: c_int,
+    out_result_: ?*CompressionResult,
+) callconv(lib.calling_conv) Result {
+    const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
+    const out_result = out_result_ orelse return .invalid_value;
+    const mode = std.meta.intToEnum(CompressionMode, mode_) catch
+        return .invalid_value;
+
+    out_result.* = t.compress(mode);
+    return .success;
 }
 
 /// C: GhosttyTerminalOption
@@ -321,6 +432,11 @@ pub const Option = enum(c_int) {
     apc_max_bytes = 19,
     apc_max_bytes_kitty = 20,
     selection = 21,
+    default_cursor_style = 22,
+    default_cursor_blink = 23,
+    glyph_protocol = 24,
+    pwd_changed = 25,
+    clipboard_write = 26,
 
     /// Input type expected for setting the option.
     pub fn InType(comptime self: Option) type {
@@ -333,7 +449,9 @@ pub const Option = enum(c_int) {
             .enquiry => ?Effects.EnquiryFn,
             .xtversion => ?Effects.XtversionFn,
             .title_changed => ?Effects.TitleChangedFn,
+            .pwd_changed => ?Effects.PwdChangedFn,
             .size_cb => ?Effects.SizeFn,
+            .clipboard_write => ?Effects.ClipboardWriteFn,
             .title, .pwd => ?*const lib.String,
             .color_foreground, .color_background, .color_cursor => ?*const color.RGB.C,
             .color_palette => ?*const color.PaletteC,
@@ -341,9 +459,12 @@ pub const Option = enum(c_int) {
             .kitty_image_medium_file,
             .kitty_image_medium_temp_file,
             .kitty_image_medium_shared_mem,
+            .glyph_protocol,
             => ?*const bool,
             .apc_max_bytes, .apc_max_bytes_kitty => ?*const usize,
             .selection => ?*const selection_c.CSelection,
+            .default_cursor_style => ?*const TerminalCursorStyle,
+            .default_cursor_blink => ?*const bool,
         };
     }
 };
@@ -385,7 +506,9 @@ fn setTyped(
         .enquiry => wrapper.effects.enquiry = value,
         .xtversion => wrapper.effects.xtversion = value,
         .title_changed => wrapper.effects.title_changed = value,
+        .pwd_changed => wrapper.effects.pwd_changed = value,
         .size_cb => wrapper.effects.size_cb = value,
+        .clipboard_write => wrapper.effects.clipboard_write = value,
         .title => {
             const str = if (value) |v| v.ptr[0..v.len] else "";
             wrapper.terminal.setTitle(str) catch return .out_of_memory;
@@ -451,6 +574,11 @@ fn setTyped(
                 wrapper.stream.handler.apc_handler.max_bytes.remove(.kitty);
             }
         },
+        .glyph_protocol => {
+            const enabled = (value orelse return .success).*;
+            wrapper.stream.handler.apc_handler.enable(.glyph, enabled);
+            if (!enabled) wrapper.terminal.glyph_glossary.clearAndFree(wrapper.terminal.gpa());
+        },
         .selection => {
             if (value) |ptr| {
                 const sel = ptr.toZig() orelse return .invalid_value;
@@ -459,9 +587,42 @@ fn setTyped(
                 wrapper.terminal.screens.active.clearSelection();
             }
         },
+        .default_cursor_style => {
+            const style = (if (value) |ptr| ptr.* else TerminalCursorStyle.block).toZig() orelse return .invalid_value;
+            wrapper.stream.handler.default_cursor_style = style;
+            if (wrapper.stream.handler.default_cursor) {
+                wrapper.terminal.screens.active.cursor.cursor_style = style;
+            }
+        },
+        .default_cursor_blink => {
+            const blink = if (value) |ptr| ptr.* else false;
+            wrapper.stream.handler.default_cursor_blink = blink;
+            if (wrapper.stream.handler.default_cursor) {
+                wrapper.terminal.modes.set(.cursor_blinking, blink);
+            }
+        },
     }
     return .success;
 }
+
+/// C: GhosttyTerminalCursorStyle
+pub const TerminalCursorStyle = enum(c_int) {
+    bar = 0,
+    block = 1,
+    underline = 2,
+    block_hollow = 3,
+    _,
+
+    fn toZig(self: TerminalCursorStyle) ?Screen.CursorStyle {
+        return switch (self) {
+            .bar => .bar,
+            .block => .block,
+            .underline => .underline,
+            .block_hollow => .block_hollow,
+            _ => null,
+        };
+    }
+};
 
 /// C: GhosttyDeviceAttributes
 pub const DeviceAttributes = Effects.CDeviceAttributes;
@@ -478,6 +639,7 @@ pub fn scroll_viewport(
         .top => .top,
         .bottom => .bottom,
         .delta => .{ .delta = behavior.value.delta },
+        .row => .{ .row = behavior.value.row },
     });
 }
 
@@ -932,8 +1094,211 @@ test "scroll_viewport" {
     }
 }
 
+test "scroll_viewport row" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 5,
+            .rows = 2,
+            .max_scrollback = 10_000,
+        },
+    ));
+    defer free(t);
+
+    const zt = t.?.terminal;
+
+    // Write 4 rows so that rows "1" and "2" are pushed into scrollback:
+    // total rows is 4, viewport length is 2.
+    vt_write(t, "1\r\n2\r\n3\r\n4", 10);
+
+    var viewport_active: bool = false;
+    try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
+    try testing.expect(viewport_active);
+
+    // Row 0 is the top of the scrollback.
+    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 0 } });
+    try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
+    try testing.expect(!viewport_active);
+    {
+        const str = try zt.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("1\n2", str);
+    }
+
+    // An absolute row within the scrollback becomes the first visible
+    // row and round-trips through the scrollbar offset.
+    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 1 } });
+    {
+        const str = try zt.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("2\n3", str);
+    }
+    var scrollbar_data: TerminalScrollbar = undefined;
+    try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
+    try testing.expectEqual(@as(u64, 4), scrollbar_data.total);
+    try testing.expectEqual(@as(u64, 1), scrollbar_data.offset);
+    try testing.expectEqual(@as(u64, 2), scrollbar_data.len);
+
+    // A row past the end clamps to the active area.
+    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 9999 } });
+    try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
+    try testing.expect(viewport_active);
+    {
+        const str = try zt.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("3\n4", str);
+    }
+    try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
+    try testing.expectEqual(@as(u64, 2), scrollbar_data.offset);
+}
+
+test "scroll_viewport row alt screen" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 5,
+            .rows = 2,
+            .max_scrollback = 10_000,
+        },
+    ));
+    defer free(t);
+
+    // Enter the alternate screen, which has no scrollback.
+    vt_write(t, "\x1b[?1049h", 8);
+    var screen: TerminalScreen = undefined;
+    try testing.expectEqual(Result.success, get(t, .active_screen, @ptrCast(&screen)));
+    try testing.expectEqual(TerminalScreen.alternate, screen);
+
+    // Scrolling to any row keeps the viewport on the active area.
+    var viewport_active: bool = false;
+    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 0 } });
+    try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
+    try testing.expect(viewport_active);
+    scroll_viewport(t, .{ .tag = .row, .value = .{ .row = 9999 } });
+    try testing.expectEqual(Result.success, get(t, .viewport_active, @ptrCast(&viewport_active)));
+    try testing.expect(viewport_active);
+
+    // With no scrollback the scrollbar covers exactly the active area.
+    var scrollbar_data: TerminalScrollbar = undefined;
+    try testing.expectEqual(Result.success, get(t, .scrollbar, @ptrCast(&scrollbar_data)));
+    try testing.expectEqual(@as(u64, 2), scrollbar_data.total);
+    try testing.expectEqual(@as(u64, 0), scrollbar_data.offset);
+    try testing.expectEqual(@as(u64, 2), scrollbar_data.len);
+}
+
 test "scroll_viewport null" {
     scroll_viewport(null, .{ .tag = .top, .value = undefined });
+    scroll_viewport(null, .{ .tag = .row, .value = .{ .row = 1 } });
+}
+
+test "compression invalid arguments" {
+    var activity: u64 = undefined;
+    var compression_result: CompressionResult = undefined;
+
+    try testing.expectEqual(
+        Result.invalid_value,
+        compression_activity(null, &activity),
+    );
+    try testing.expectEqual(
+        Result.invalid_value,
+        compress(null, @intFromEnum(CompressionMode.incremental), &compression_result),
+    );
+
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 10_000_000,
+        },
+    ));
+    defer free(t);
+
+    try testing.expectEqual(
+        Result.invalid_value,
+        compression_activity(t, null),
+    );
+    try testing.expectEqual(
+        Result.invalid_value,
+        compress(t, @intFromEnum(CompressionMode.incremental), null),
+    );
+    try testing.expectEqual(
+        Result.invalid_value,
+        compress(t, -1, &compression_result),
+    );
+}
+
+test "compression activity and incremental scheduling" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 10_000_000,
+        },
+    ));
+    defer free(t);
+
+    var initial_activity: u64 = undefined;
+    try testing.expectEqual(
+        Result.success,
+        compression_activity(t, &initial_activity),
+    );
+
+    const line = "repeated and compressible terminal history\r\n";
+    const repeat = 4_000;
+    const input = try testing.allocator.alloc(u8, line.len * repeat);
+    defer testing.allocator.free(input);
+    for (0..repeat) |i|
+        @memcpy(input[i * line.len ..][0..line.len], line);
+    vt_write(t, input.ptr, input.len);
+
+    var activity: u64 = undefined;
+    try testing.expectEqual(
+        Result.success,
+        compression_activity(t, &activity),
+    );
+    try testing.expect(activity != initial_activity);
+
+    var compression_result: CompressionResult = undefined;
+    for (0..1_000) |_| {
+        try testing.expectEqual(
+            Result.success,
+            compress(
+                t,
+                @intFromEnum(CompressionMode.incremental),
+                &compression_result,
+            ),
+        );
+
+        switch (compression_result) {
+            .pending => continue,
+            .complete => break,
+            .unsupported => unreachable,
+        }
+    } else return error.TestUnexpectedResult;
+
+    // Compression changes storage representation, not the activity token.
+    var final_activity: u64 = undefined;
+    try testing.expectEqual(
+        Result.success,
+        compression_activity(t, &final_activity),
+    );
+    try testing.expectEqual(activity, final_activity);
+
+    try testing.expectEqual(
+        Result.success,
+        compress(t, @intFromEnum(CompressionMode.full), &compression_result),
+    );
+    try testing.expectEqual(CompressionResult.complete, compression_result);
 }
 
 test "reset" {
@@ -998,6 +1363,30 @@ test "resize invalid value" {
 
     try testing.expectEqual(Result.invalid_value, resize(t, 0, 24, 9, 18));
     try testing.expectEqual(Result.invalid_value, resize(t, 80, 0, 9, 18));
+}
+
+test "resize shrinks both axes with cursor at bottom" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    // CSI 24;1H -> park the cursor on the bottom row (1-based).
+    const move = "\x1b[24;1H";
+    vt_write(t, move, move.len);
+
+    // Shrink both axes; pre-resize cursor.y sits past the new bottom row.
+    // Previously this underflowed in PageList.resizeCols.
+    try testing.expectEqual(Result.success, resize(t, 79, 23, 8, 16));
+    try testing.expectEqual(79, t.?.terminal.cols);
+    try testing.expectEqual(23, t.?.terminal.rows);
 }
 
 test "mode_get and mode_set" {
@@ -1370,6 +1759,45 @@ test "get invalid" {
     defer free(t);
 
     try testing.expectEqual(Result.invalid_value, get(t, .invalid, null));
+}
+
+test "set default cursor style and blink" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    var default_style: TerminalCursorStyle = .bar;
+    var default_blink = true;
+    try testing.expectEqual(Result.success, set(t, .default_cursor_style, @ptrCast(&default_style)));
+    try testing.expectEqual(Result.success, set(t, .default_cursor_blink, @ptrCast(&default_blink)));
+
+    // Setting defaults applies them immediately while the cursor is still default.
+    try testing.expectEqual(Screen.CursorStyle.bar, t.?.terminal.screens.active.cursor.cursor_style);
+    try testing.expect(t.?.terminal.modes.get(.cursor_blinking));
+
+    // An explicit DECSCUSR style overrides the configured defaults.
+    vt_write(t, "\x1b[2 q", 5);
+    try testing.expectEqual(Screen.CursorStyle.block, t.?.terminal.screens.active.cursor.cursor_style);
+    try testing.expect(!t.?.terminal.modes.get(.cursor_blinking));
+
+    // Changing defaults does not override an explicit cursor style.
+    default_style = .underline;
+    try testing.expectEqual(Result.success, set(t, .default_cursor_style, @ptrCast(&default_style)));
+    try testing.expectEqual(Screen.CursorStyle.block, t.?.terminal.screens.active.cursor.cursor_style);
+    try testing.expect(!t.?.terminal.modes.get(.cursor_blinking));
+
+    // DECSCUSR reset restores the configured default style and blink.
+    vt_write(t, "\x1b[0 q", 5);
+    try testing.expectEqual(Screen.CursorStyle.underline, t.?.terminal.screens.active.cursor.cursor_style);
+    try testing.expect(t.?.terminal.modes.get(.cursor_blinking));
 }
 
 test "set and get selection" {
@@ -1953,6 +2381,46 @@ test "set write_pty callback" {
     try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
 }
 
+test "write_pty receives OSC color query response" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    const S = struct {
+        var last_data: ?[]u8 = null;
+
+        fn deinit() void {
+            if (last_data) |d| testing.allocator.free(d);
+            last_data = null;
+        }
+
+        fn writePty(_: Terminal, _: ?*anyopaque, ptr: [*]const u8, len: usize) callconv(lib.calling_conv) void {
+            if (last_data) |d| testing.allocator.free(d);
+            last_data = testing.allocator.dupe(u8, ptr[0..len]) catch @panic("OOM");
+        }
+    };
+    defer S.deinit();
+
+    try testing.expectEqual(Result.success, set(t, .write_pty, @ptrCast(&S.writePty)));
+
+    const set_fg = "\x1B]10;rgb:01/02/03\x1B\\";
+    vt_write(t, set_fg, set_fg.len);
+    try testing.expect(S.last_data == null);
+
+    const query_fg = "\x1B]10;?\x1B\\";
+    vt_write(t, query_fg, query_fg.len);
+    try testing.expect(S.last_data != null);
+    try testing.expectEqualStrings("\x1B]10;rgb:0101/0202/0303\x1B\\", S.last_data.?);
+}
+
 test "set write_pty without callback ignores queries" {
     var t: Terminal = null;
     try testing.expectEqual(Result.success, new(
@@ -2248,6 +2716,248 @@ test "title_changed without callback is silent" {
 
     // OSC 2 without a callback should not crash
     vt_write(t, "\x1B]2;Hello\x1B\\", 10);
+}
+
+test "set pwd_changed callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    const S = struct {
+        var pwd_count: usize = 0;
+        var last_userdata: ?*anyopaque = null;
+
+        fn pwdChanged(_: Terminal, ud: ?*anyopaque) callconv(lib.calling_conv) void {
+            pwd_count += 1;
+            last_userdata = ud;
+        }
+    };
+    S.pwd_count = 0;
+    S.last_userdata = null;
+
+    var sentinel: u8 = 88;
+    try testing.expectEqual(Result.success, set(t, .userdata, @ptrCast(&sentinel)));
+    try testing.expectEqual(Result.success, set(t, .pwd_changed, @ptrCast(&S.pwdChanged)));
+
+    // OSC 7 ; file:///tmp ST — report pwd
+    const seq1 = "\x1B]7;file:///tmp\x1B\\";
+    vt_write(t, seq1, seq1.len);
+    try testing.expectEqual(@as(usize, 1), S.pwd_count);
+    try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
+    try testing.expectEqualStrings("file:///tmp", zigTerminal(t).?.getPwd().?);
+
+    // Another pwd change
+    const seq2 = "\x1B]7;file:///home/user\x1B\\";
+    vt_write(t, seq2, seq2.len);
+    try testing.expectEqual(@as(usize, 2), S.pwd_count);
+    try testing.expectEqualStrings("file:///home/user", zigTerminal(t).?.getPwd().?);
+}
+
+test "set clipboard_write callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    const S = struct {
+        var count: usize = 0;
+        var last_terminal: Terminal = null;
+        var last_userdata: ?*anyopaque = null;
+        var last_size: usize = 0;
+        var last_location: clipboard.Location = .standard;
+        var last_contents_null: bool = false;
+        var last_contents_len: usize = 0;
+        var last_mimes: [8][64]u8 = undefined;
+        var last_mime_lens: [8]usize = @splat(0);
+        var last_data: [8][64]u8 = undefined;
+        var last_data_lens: [8]usize = @splat(0);
+        var next_result: clipboard.WriteResult = .success;
+
+        fn clipboardWrite(
+            terminal_: Terminal,
+            ud: ?*anyopaque,
+            request: *const ClipboardWrite,
+        ) callconv(lib.calling_conv) clipboard.WriteResult {
+            count += 1;
+            last_terminal = terminal_;
+            last_userdata = ud;
+            last_size = request.size;
+            last_location = request.location;
+            last_contents_null = request.contents == null;
+            last_contents_len = request.contents_len;
+
+            if (request.contents) |ptr| {
+                for (ptr[0..@min(request.contents_len, last_mimes.len)], 0..) |content, i| {
+                    last_mime_lens[i] = @min(content.mime.len, last_mimes[i].len);
+                    @memcpy(
+                        last_mimes[i][0..last_mime_lens[i]],
+                        content.mime.ptr[0..last_mime_lens[i]],
+                    );
+
+                    last_data_lens[i] = @min(content.data.len, last_data[i].len);
+                    @memcpy(
+                        last_data[i][0..last_data_lens[i]],
+                        content.data.ptr[0..last_data_lens[i]],
+                    );
+                }
+            }
+
+            return next_result;
+        }
+    };
+    S.count = 0;
+    S.last_terminal = null;
+    S.last_userdata = null;
+    S.next_result = .denied;
+
+    var sentinel: u8 = 88;
+    try testing.expectEqual(Result.success, set(t, .userdata, @ptrCast(&sentinel)));
+    try testing.expectEqual(Result.success, set(t, .clipboard_write, @ptrCast(&S.clipboardWrite)));
+
+    // Split OSC 52 write whose decoded payload contains an embedded NUL.
+    const seq1_a = "\x1B]52;c;aGVs";
+    const seq1_b = "bG8Ad29ybGQ=\x1B\\";
+    vt_write(t, seq1_a, seq1_a.len);
+    vt_write(t, seq1_b, seq1_b.len);
+    try testing.expectEqual(@as(usize, 1), S.count);
+    try testing.expectEqual(t, S.last_terminal);
+    try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
+    try testing.expectEqual(@sizeOf(ClipboardWrite), S.last_size);
+    try testing.expectEqual(clipboard.Location.standard, S.last_location);
+    try testing.expect(!S.last_contents_null);
+    try testing.expectEqual(@as(usize, 1), S.last_contents_len);
+    try testing.expectEqualStrings("text/plain", S.last_mimes[0][0..S.last_mime_lens[0]]);
+    try testing.expectEqualSlices(u8, "hello\x00world", S.last_data[0][0..S.last_data_lens[0]]);
+
+    // OSC 52 destinations are normalized rather than exposed as wire bytes.
+    const location_cases = [_]struct {
+        selector: u8,
+        expected: clipboard.Location,
+    }{
+        .{ .selector = 's', .expected = .selection },
+        .{ .selector = 'p', .expected = .primary },
+        .{ .selector = 'q', .expected = .standard },
+    };
+    for (location_cases) |case| {
+        const seq = [_]u8{ '\x1B', ']', '5', '2', ';', case.selector, ';', 'e', 'A', '=', '=', '\x1B', '\\' };
+        vt_write(t, &seq, seq.len);
+        try testing.expectEqual(case.expected, S.last_location);
+    }
+    try testing.expectEqual(@as(usize, 4), S.count);
+
+    // An empty content list is a clear and retains a null descriptor pointer.
+    const clear = "\x1B]52;s;\x1B\\";
+    vt_write(t, clear, clear.len);
+    try testing.expectEqual(@as(usize, 5), S.count);
+    try testing.expectEqual(clipboard.Location.selection, S.last_location);
+    try testing.expect(S.last_contents_null);
+    try testing.expectEqual(@as(usize, 0), S.last_contents_len);
+
+    // Read requests and malformed base64 must never reach the callback.
+    const read = "\x1B]52;c;?\x1B\\";
+    vt_write(t, read, read.len);
+    const malformed = "\x1B]52;c;%%%\x1B\\";
+    vt_write(t, malformed, malformed.len);
+    try testing.expectEqual(@as(usize, 5), S.count);
+
+    // iTerm2 Copy reaches the same normalized callback.
+    const iterm = "\x1B]1337;Copy=:aVRlcm0=\x1B\\";
+    vt_write(t, iterm, iterm.len);
+    try testing.expectEqual(@as(usize, 6), S.count);
+    try testing.expectEqual(clipboard.Location.standard, S.last_location);
+    try testing.expectEqualStrings("text/plain", S.last_mimes[0][0..S.last_mime_lens[0]]);
+    try testing.expectEqualStrings("iTerm", S.last_data[0][0..S.last_data_lens[0]]);
+
+    // Every representation is converted, and callback results propagate
+    // through the C trampoline for protocols that can acknowledge writes.
+    const internal_contents = [_]clipboard.Content{
+        .{ .mime = "text/plain", .data = "plain" },
+        .{ .mime = "application/octet-stream", .data = "a\x00b" },
+        .{ .mime = "text/html", .data = "<b>plain</b>" },
+        .{ .mime = "text/rtf", .data = "{\\rtf1 plain}" },
+        .{ .mime = "image/png", .data = "\x89PNG" },
+    };
+    S.next_result = .busy;
+    const handler = &t.?.stream.handler;
+    const write_result = handler.effects.clipboard_write.?(handler, .{
+        .location = .primary,
+        .contents = &internal_contents,
+    });
+    try testing.expectEqual(clipboard.WriteResult.busy, write_result);
+    try testing.expectEqual(@as(usize, 7), S.count);
+    try testing.expectEqual(@as(usize, 5), S.last_contents_len);
+    try testing.expectEqualStrings(
+        "application/octet-stream",
+        S.last_mimes[1][0..S.last_mime_lens[1]],
+    );
+    try testing.expectEqualSlices(u8, "a\x00b", S.last_data[1][0..S.last_data_lens[1]]);
+    try testing.expectEqualStrings("image/png", S.last_mimes[4][0..S.last_mime_lens[4]]);
+    try testing.expectEqualSlices(u8, "\x89PNG", S.last_data[4][0..S.last_data_lens[4]]);
+
+    // Removing the callback takes effect immediately.
+    try testing.expectEqual(Result.success, set(t, .clipboard_write, null));
+    const after_remove = "\x1B]52;c;eA==\x1B\\";
+    vt_write(t, after_remove, after_remove.len);
+    try testing.expectEqual(@as(usize, 7), S.count);
+}
+
+test "clipboard_write without callback is unsupported and silent" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    // OSC 52 without a callback should not crash
+    const seq = "\x1B]52;c;aGVsbG8=\x1B\\";
+    vt_write(t, seq, seq.len);
+
+    const handler = &t.?.stream.handler;
+    const result = handler.effects.clipboard_write.?(handler, .{
+        .location = .standard,
+        .contents = &.{.{ .mime = "text/plain", .data = "hello" }},
+    });
+    try testing.expectEqual(clipboard.WriteResult.unsupported, result);
+}
+
+test "pwd_changed without callback is silent" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{
+            .cols = 80,
+            .rows = 24,
+            .max_scrollback = 0,
+        },
+    ));
+    defer free(t);
+
+    // OSC 7 without a callback should not crash, but should still set the pwd
+    const seq = "\x1B]7;file:///tmp\x1B\\";
+    vt_write(t, seq, seq.len);
+    try testing.expectEqualStrings("file:///tmp", zigTerminal(t).?.getPwd().?);
 }
 
 test "set size callback" {
@@ -3075,6 +3785,33 @@ test "set color sets dirty flag" {
     const fg: color.RGB.C = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF };
     try testing.expectEqual(Result.success, set(t, .color_foreground, @ptrCast(&fg)));
     try testing.expect(zt.flags.dirty.palette);
+}
+
+test "set glyph protocol disables APC handling and clears glossary" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{ .cols = 80, .rows = 24, .max_scrollback = 0 },
+    ));
+    defer free(t);
+
+    const register = "\x1B_25a1;r;cp=e0a0;AAAAAAAAAAAAAA==\x1B\\";
+    vt_write(t, register, register.len);
+    try testing.expect(t.?.terminal.glyph_glossary.contains(0xE0A0));
+
+    const disabled = false;
+    try testing.expectEqual(Result.success, set(t, .glyph_protocol, @ptrCast(&disabled)));
+    try testing.expect(!t.?.stream.handler.apc_handler.enabled.contains(.glyph));
+    try testing.expect(!t.?.terminal.glyph_glossary.contains(0xE0A0));
+
+    vt_write(t, register, register.len);
+    try testing.expect(!t.?.terminal.glyph_glossary.contains(0xE0A0));
+
+    const enabled = true;
+    try testing.expectEqual(Result.success, set(t, .glyph_protocol, @ptrCast(&enabled)));
+    vt_write(t, register, register.len);
+    try testing.expect(t.?.terminal.glyph_glossary.contains(0xE0A0));
 }
 
 test "get_multi success" {

@@ -743,6 +743,9 @@ pub const Application = extern struct {
 
             .ring_bell => Action.ringBell(target),
 
+            // GTK has no accessibility consumer for this yet.
+            .selection_changed => {},
+
             .scrollbar => Action.scrollbar(target, value),
 
             .set_title => Action.setTitle(target, value),

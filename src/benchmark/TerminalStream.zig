@@ -2,15 +2,13 @@
 //! handler from input to terminal state update. This is useful to
 //! test general throughput of VT parsing and handling.
 //!
-//! Note that the handler used for this benchmark isn't the full
-//! terminal handler, since that requires a significant amount of
-//! state. This is a simplified version that only handles specific
-//! terminal operations like printing characters. We should expand
-//! this to include more operations to improve the accuracy of the
-//! benchmark.
+//! This uses the full readonly terminal stream handler
+//! (terminal.TerminalStream) so every escape sequence updates real
+//! terminal state (styles, cursor movement, erases, modes, etc.).
+//! This closely mirrors the work done by the real IO thread.
 //!
-//! It is a fairly broad benchmark that can be used to determine
-//! if we need to optimize something more specific (e.g. the parser).
+//! For more isolated measurements see the terminal-parser and
+//! osc-parser benchmarks.
 const TerminalStream = @This();
 
 const std = @import("std");
@@ -20,13 +18,12 @@ const terminalpkg = @import("../terminal/main.zig");
 const Benchmark = @import("Benchmark.zig");
 const options = @import("options.zig");
 const Terminal = terminalpkg.Terminal;
-const Stream = terminalpkg.Stream(*Handler);
+const Stream = terminalpkg.TerminalStream;
 
 const log = std.log.scoped(.@"terminal-stream-bench");
 
 opts: Options,
 terminal: Terminal,
-handler: Handler,
 stream: Stream,
 
 /// The file, opened in the setup function.
@@ -61,14 +58,15 @@ pub fn create(
             .rows = opts.@"terminal-rows",
             .cols = opts.@"terminal-cols",
         }),
-        .handler = .{ .t = &ptr.terminal },
-        .stream = .init(&ptr.handler),
+        .stream = undefined,
     };
+    ptr.stream = .initAlloc(alloc, .init(&ptr.terminal));
 
     return ptr;
 }
 
 pub fn destroy(self: *TerminalStream, alloc: Allocator) void {
+    self.stream.deinit();
     self.terminal.deinit(alloc);
     alloc.destroy(self);
 }
@@ -114,11 +112,14 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
     // aren't currently IO bound.
     const f = self.data_f orelse return;
 
-    var read_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
+    var read_buf: [64 * 1024]u8 align(std.atomic.cache_line) = undefined;
     var f_reader = f.reader(&read_buf);
     const r = &f_reader.interface;
 
-    var buf: [4096]u8 = undefined;
+    // This buffer size matches the read buffer size used by the
+    // real IO thread (see termio Exec.zig buffer_capacity) so that
+    // the benchmark exercises the stream with realistic chunk sizes.
+    var buf: [64 * 1024]u8 = undefined;
     while (true) {
         const n = r.readSliceShort(&buf) catch {
             log.warn("error reading data file err={?}", .{f_reader.err});
@@ -128,26 +129,6 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
         self.stream.nextSlice(buf[0..n]);
     }
 }
-
-/// Implements the handler interface for the terminal.Stream.
-/// We should expand this to include more operations to make
-/// our benchmark more realistic.
-const Handler = struct {
-    t: *Terminal,
-
-    pub fn vt(
-        self: *Handler,
-        comptime action: Stream.Action.Tag,
-        value: Stream.Action.Value(action),
-    ) void {
-        switch (action) {
-            .print => self.t.print(value.cp) catch |err| {
-                log.warn("error processing benchmark print err={}", .{err});
-            },
-            else => {},
-        }
-    }
-};
 
 test TerminalStream {
     const testing = std.testing;

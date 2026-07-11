@@ -11,3 +11,9 @@ pub const String = extern struct {
         };
     }
 };
+
+pub const Buffer = extern struct {
+    ptr: ?[*]u8 = null,
+    cap: usize = 0,
+    len: usize = 0,
+};

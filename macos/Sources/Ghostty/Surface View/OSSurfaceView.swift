@@ -160,7 +160,7 @@ extension Ghostty.OSSurfaceView {
         let action = "navigate_search:next"
         if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
 #if canImport(AppKit)
-            AppDelegate.logger.warning("action failed action=\(action)")
+            AppDelegate.logger.warning("action failed action=\(action, privacy: .public)")
 #endif
             return false
         }
@@ -172,7 +172,7 @@ extension Ghostty.OSSurfaceView {
         let action = "navigate_search:previous"
         if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
 #if canImport(AppKit)
-            AppDelegate.logger.warning("action failed action=\(action)")
+            AppDelegate.logger.warning("action failed action=\(action, privacy: .public)")
 #endif
             return false
         }

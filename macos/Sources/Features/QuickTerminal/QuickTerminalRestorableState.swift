@@ -44,16 +44,6 @@ extension QuickTerminalRestorableState {
         let focusedSurface: String?
         let surfaceTree: SplitTree<ViewType>
         let screenStateEntries: QuickTerminalScreenStateCache.Entries
-
-        init(
-            focusedSurface: String?,
-            surfaceTree: SplitTree<ViewType>,
-            screenStateEntries: QuickTerminalScreenStateCache.Entries,
-        ) {
-            self.focusedSurface = focusedSurface
-            self.surfaceTree = surfaceTree
-            self.screenStateEntries = screenStateEntries
-        }
     }
 }
 

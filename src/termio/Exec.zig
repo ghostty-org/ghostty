@@ -1240,23 +1240,149 @@ const Subprocess = struct {
     }
 };
 
-/// The read thread sits in a loop doing the following pseudo code:
+/// The read thread works with a companion gather thread to form a two-stage
+/// pipeline that moves pty output into the terminal:
+///
+///   io-gather:  read()/poll() the pty into one of a few rotating
+///               buffers, batching bulk output.
+///   io-reader:  hand each filled buffer to processOutput (terminal
+///               lock, VT parse, state update, render scheduling).
+///
+/// This used to be a single serial loop (and still is on Windows):
 ///
 ///   while (true) { blocking_read(); exit_if_eof(); process(); }
 ///
-/// Almost all terminal-modifying activity is from the pty read, so
-/// putting this on a dedicated thread keeps performance very predictable
-/// while also almost optimal. "Locking is fast, lock contention is slow."
-/// and since we rarely have contention, this is fast.
+/// I found on macOS that the kernel tty output queue caps every read
+/// on the master at 1 KB no matter how large the read buffer is. This means
+/// that producers (e.g. `cat`) stall with the above architecture because
+/// there are windows in the `process()` part where we aren't draining
+/// the kernel pty fd.
 ///
-/// This is also empirically fast compared to putting the read into
-/// an async mechanism like io_uring/epoll because the reads are generally
-/// small.
+/// Instead, having a separate thread gather and drain the kernel pty
+/// into a rotating set of preallocated buffers minimizes this stall
+/// period to effectively zero: while the io-reader thread parses
+/// one batch, the gather thread is draining the kernel queue. There is
+/// still stalling (our VT parse is a bottleneck now), but we don't stall
+/// between them.
 ///
-/// We use a basic poll syscall here because we are only monitoring two
-/// fds and this is still much faster and lower overhead than any async
-/// mechanism.
+/// Interactive latency is preserved: a batch is delivered on the
+/// first EAGAIN unless the stream is saturated (>= 1 KiB gathered
+/// means the writer filled the kernel queue), in which case we bridge
+/// the producer's microsecond refill gaps with a short poll, bounded
+/// by a small total budget per batch that is well under a display
+/// frame. This means that small outputs that are more typical continue
+/// to be interactive.
+///
+/// We use basic poll/read syscalls here because we are only
+/// monitoring two fds and this is still much faster and lower
+/// overhead than any async mechanism.
 pub const ReadThread = struct {
+    /// The number of buffers rotated between the gather and parse
+    /// stages. The gather stage can run at most this many batches
+    /// ahead of the parse stage before it blocks, which (via the
+    /// kernel pty queue) is also what preserves flow control to the
+    /// child. Empirically chosen through measurements on an M4 Max.
+    /// Less than 4 there are minor slowdowns, above 4 there are no
+    /// improvements.
+    const buffer_count = 4;
+
+    /// The capacity of each gather buffer. One batch is also the unit
+    /// of work the parse stage does per terminal lock acquisition, so
+    /// this bounds both gather latency and lock hold time.
+    const buffer_capacity = 64 * 1024;
+
+    /// How many gathered bytes mark a stream as saturated. The macOS
+    /// kernel tty output queue hands the master at most about 1 KiB
+    /// per read, so gathering a full 1 KiB means the writer filled
+    /// the queue (a bulk stream worth briefly waiting on), while
+    /// anything smaller is an interactive trickle that must be
+    /// delivered with no added latency.
+    const bridge_threshold = 1024;
+
+    /// How many times an EAGAIN on a saturated stream is retried
+    /// with an immediate read before we're willing to sleep in poll.
+    /// Basically, a spin retry.
+    ///
+    /// The writer refills the drained kernel queue within a few
+    /// microseconds, while a sleep and wakeup through poll costs
+    /// several more. If the gather stage sleeps on every refill gap,
+    /// the whole pipeline degenerates to lockstep with the writer at
+    /// about 1 KiB per wakeup. A short burst of nonblocking reads
+    /// bridges nearly all refill gaps without sleeping. Measured, 8
+    /// to 16 retries catches over 90% of the gaps and nearly doubles
+    /// the saturated drain rate, and larger values helped little.
+    /// The cost is bounded to at most this many extra ~0.5us read
+    /// syscalls per gap, and we only spin on streams that already
+    /// gathered a full kernel queue, so an idle or interactive
+    /// terminal never spins.
+    const bridge_spin_max = 16;
+
+    /// How long one bridge poll waits for the writer's next refill
+    /// once the spin retries above have failed. If the stream is
+    /// quiet for this long the burst is over and we deliver what we
+    /// have.
+    const bridge_poll_timeout_ms = 1;
+
+    /// The longest one batch may spend bridging refill gaps before it
+    /// is delivered regardless. This bounds output latency for
+    /// streams that produce just enough to keep bridging. Three
+    /// milliseconds is well under one display frame, so batching is
+    /// invisible on screen.
+    const gather_budget_ns = 3 * std.time.ns_per_ms;
+
+    /// The state shared between the gather and parse stages. This is
+    /// a fixed ring of buffers plus the metadata to rotate ownership
+    /// between the two threads. A buffer is owned by exactly one
+    /// stage at a time, so buffer contents need no locking. Only the
+    /// ring metadata is guarded by the mutex.
+    const Pipeline = struct {
+        mutex: std.Thread.Mutex = .{},
+
+        /// Signaled when a batch is published or the gather stage is
+        /// done. Waited on by the parse stage.
+        batch_ready: std.Thread.Condition = .{},
+
+        /// Signaled when a batch has been consumed. Waited on by the
+        /// gather stage when all buffers are in flight (backpressure).
+        slot_free: std.Thread.Condition = .{},
+
+        /// The number of valid bytes in each buffer. Set at publish
+        /// time by the gather stage, read by the parse stage.
+        lens: [buffer_count]usize = @splat(0),
+
+        /// Ring state: head is the next slot the gather stage fills,
+        /// tail is the next slot the parse stage consumes, count is
+        /// the number of published, unconsumed batches.
+        head: usize = 0,
+        tail: usize = 0,
+        count: usize = 0,
+
+        /// Set by the gather stage (under the mutex) while it sleeps
+        /// in a bridge poll. The parse stage only writes to the idle
+        /// pipe when this is set, so an interactive terminal never
+        /// pays the pipe syscalls.
+        bridging: bool = false,
+
+        /// A self-pipe the parse stage uses to interrupt the gather
+        /// stage's bridge poll the moment it runs out of batches.
+        /// Bridging a refill gap is only free while the parse stage
+        /// is busy; once it goes idle, every additional microsecond
+        /// spent bridging is added straight to output latency. The
+        /// write end is used by the parse stage, the read end is
+        /// polled by the gather stage. -1 when unavailable, in which
+        /// case bridge polls are bounded by their timeout only.
+        idle_read_fd: posix.fd_t = -1,
+        idle_write_fd: posix.fd_t = -1,
+
+        /// Set by the gather stage when the stream is over (quit
+        /// signal, EOF, or pty error). The parse stage drains any
+        /// remaining batches and then exits.
+        done: bool = false,
+
+        /// The buffer storage itself.
+        bufs: [buffer_count][buffer_capacity]u8 = undefined,
+    };
+
     fn threadMainPosix(fd: posix.fd_t, io: *termio.Termio, quit: posix.fd_t) void {
         // Always close our end of the pipe when we exit.
         defer posix.close(quit);
@@ -1266,6 +1392,7 @@ pub const ReadThread = struct {
         // so instead we use this code to name the thread instead.
         if (builtin.os.tag.isDarwin()) {
             internal_os.macos.pthread_setname_np(&"io-reader".*);
+            setQosClass();
         }
 
         // Setup our crash metadata
@@ -1275,71 +1402,292 @@ pub const ReadThread = struct {
         };
         defer crash.sentry.thread_state = null;
 
-        // First thing, we want to set the fd to non-blocking. We do this
-        // so that we can try to read from the fd in a tight loop and only
-        // check the quit fd occasionally.
-        if (posix.fcntl(fd, posix.F.GETFL, 0)) |flags| {
-            _ = posix.fcntl(
-                fd,
-                posix.F.SETFL,
-                flags | @as(u32, @bitCast(posix.O{ .NONBLOCK = true })),
-            ) catch |err| {
-                log.warn("read thread failed to set flags err={}", .{err});
-                log.warn("this isn't a fatal error, but may cause performance issues", .{});
-            };
-        } else |err| {
-            log.warn("read thread failed to get flags err={}", .{err});
-            log.warn("this isn't a fatal error, but may cause performance issues", .{});
+        // Set the fd to non-blocking so the gather stage can drain it
+        // in a tight loop and fall back to poll for readiness. The
+        // pipeline can't run with a blocking fd (a blocking read
+        // would hang the gather stage on a quiet pty), but this also
+        // can't realistically fail on a valid pty master.
+        if (!setNonblock(fd)) {
+            log.err("read thread exiting, pty fd must be non-blocking", .{});
+            return;
         }
 
-        // Build up the list of fds we're going to poll. We are looking
-        // for data on the pty and our quit notification.
-        var pollfds: [2]posix.pollfd = .{
-            .{ .fd = fd, .events = posix.POLL.IN, .revents = undefined },
-            .{ .fd = quit, .events = posix.POLL.IN, .revents = undefined },
+        // Shared pipeline
+        var pipeline: Pipeline = .{};
+
+        // The idle self-pipe (see the Pipeline field docs). If we
+        // can't create it we still run correctly, bridge polls are
+        // just bounded by their timeout instead of being interrupted
+        // when the parse stage goes idle.
+        if (posix.pipe2(.{
+            .CLOEXEC = true,
+            .NONBLOCK = true,
+        })) |fds| {
+            pipeline.idle_read_fd = fds[0];
+            pipeline.idle_write_fd = fds[1];
+        } else |err| {
+            log.warn("read thread failed to create idle pipe err={}", .{err});
+        }
+        defer if (pipeline.idle_read_fd >= 0) {
+            posix.close(pipeline.idle_read_fd);
+            posix.close(pipeline.idle_write_fd);
         };
 
-        var buf: [1024]u8 = undefined;
+        const gather_thread = std.Thread.spawn(
+            .{},
+            gatherMainPosix,
+            .{ fd, quit, &pipeline },
+        ) catch |err| {
+            // If we can't spawn a thread the process is already
+            // doomed (every surface spawns several), so don't try
+            // to limp along.
+            log.err("read thread exiting, failed to spawn gather thread err={}", .{err});
+            return;
+        };
+        defer gather_thread.join();
+        if (comptime !builtin.os.tag.isDarwin()) {
+            gather_thread.setName("io-gather") catch {};
+        }
+
+        // This thread is the parse stage. We consume batches in ring
+        // order until the gather stage reports the stream is over and
+        // the ring is drained.
         while (true) {
-            // We try to read from the file descriptor as long as possible
-            // to maximize performance. We only check the quit fd if the
-            // main fd blocks. This optimizes for the realistic scenario that
-            // the data will eventually stop while we're trying to quit. This
-            // is always true because we kill the process.
-            while (true) {
-                const n = posix.read(fd, &buf) catch |err| {
-                    switch (err) {
-                        // This means our pty is closed. We're probably
-                        // gracefully shutting down.
-                        error.NotOpenForReading,
-                        error.InputOutput,
-                        => {
-                            log.info("io reader exiting", .{});
-                            return;
-                        },
+            const batch: []const u8 = batch: {
+                pipeline.mutex.lock();
+                defer pipeline.mutex.unlock();
+                while (pipeline.count == 0) {
+                    if (pipeline.done) return;
+                    pipeline.batch_ready.wait(&pipeline.mutex);
+                }
+                const slot = pipeline.tail;
+                break :batch pipeline.bufs[slot][0..pipeline.lens[slot]];
+            };
 
-                        // No more data, fall back to poll and check for
-                        // exit conditions.
-                        error.WouldBlock => break,
+            // The batch buffer is owned by this stage until we advance
+            // the tail below, so it is safe to read outside the lock.
+            io.processOutput(batch);
 
-                        else => {
-                            log.err("io reader error err={}", .{err});
-                            unreachable;
-                        },
-                    }
+            {
+                pipeline.mutex.lock();
+                pipeline.tail = (pipeline.tail + 1) % buffer_count;
+                pipeline.count -= 1;
+                const wake = pipeline.count == 0 and
+                    pipeline.bridging and
+                    pipeline.idle_write_fd >= 0;
+                pipeline.mutex.unlock();
+                pipeline.slot_free.signal();
+
+                // We ran out of batches while the gather stage is
+                // bridging a refill gap: interrupt its poll so it
+                // delivers what it has instead of sleeping out the
+                // timeout while we sit idle.
+                if (wake) {
+                    _ = posix.write(pipeline.idle_write_fd, "i") catch {};
+                }
+            }
+
+            // Batch boundary: hand the renderer state mutex off if
+            // the renderer is waiting. See renderer.State.lockDemand.
+            io.renderer_state.yieldToDemand();
+        }
+    }
+
+    /// The gather stage. This drains the pty into rotating buffers,
+    /// bridging the kernel queue's refill gaps for saturated streams,
+    /// and publishes each batch to the parse stage. This thread owns
+    /// all fd monitoring, including the quit fd.
+    fn gatherMainPosix(fd: posix.fd_t, quit: posix.fd_t, pipeline: *Pipeline) void {
+        if (builtin.os.tag.isDarwin()) {
+            internal_os.macos.pthread_setname_np(&"io-gather".*);
+            setQosClass();
+        }
+
+        // However we exit, tell the parse stage the stream is over so
+        // it drains the ring and joins us.
+        defer {
+            pipeline.mutex.lock();
+            pipeline.done = true;
+            pipeline.mutex.unlock();
+            pipeline.batch_ready.signal();
+        }
+
+        // The fds we poll: data on the pty, our quit notification,
+        // and the parse stage's idle wake. The idle fd only
+        // participates in bridge polls (the parse stage only writes
+        // while we're bridging), so the outer poll slices it off.
+        var pollfds: [3]posix.pollfd = .{
+            .{ .fd = fd, .events = posix.POLL.IN, .revents = undefined },
+            .{ .fd = quit, .events = posix.POLL.IN, .revents = undefined },
+            .{ .fd = pipeline.idle_read_fd, .events = posix.POLL.IN, .revents = undefined },
+        };
+
+        while (true) {
+            // Claim the next free buffer. This blocks only when the
+            // parse stage is a full ring behind, which is exactly when
+            // we should stop reading and let the kernel queue exert
+            // backpressure on the child.
+            const buf: *[buffer_capacity]u8 = buf: {
+                pipeline.mutex.lock();
+                defer pipeline.mutex.unlock();
+                while (pipeline.count == buffer_count) {
+                    pipeline.slot_free.wait(&pipeline.mutex);
+                }
+                break :buf &pipeline.bufs[pipeline.head];
+            };
+
+            var total: usize = 0;
+            var bridge_start: ?std.time.Instant = null;
+            var spins: usize = 0;
+            var fatal = false;
+
+            // Fill the buffer from the pty. For a saturated stream the
+            // kernel queue momentarily runs dry while the writer
+            // refills it in parallel, so we bridge those gaps with
+            // spin retries and a short poll instead of delivering a
+            // tiny batch.
+            gather: while (total < buffer_capacity) {
+                const n = posix.read(
+                    fd,
+                    buf[total..],
+                ) catch |err| switch (err) {
+                    error.WouldBlock => {
+                        // Anything below the threshold is interactive.
+                        if (total < bridge_threshold) break :gather;
+
+                        // The stream is saturated, so we bridge the
+                        // gap. First retry the read directly a bounded
+                        // number of times, since the refill usually
+                        // lands within microseconds.
+                        if (spins < bridge_spin_max) {
+                            spins += 1;
+                            continue :gather;
+                        }
+
+                        // Still dry, so we want to sleep in poll for
+                        // the next refill, within our latency budget.
+                        const now = std.time.Instant.now() catch
+                            break :gather;
+                        if (bridge_start) |start| {
+                            if (now.since(start) >= gather_budget_ns)
+                                break :gather;
+                        } else bridge_start = now;
+
+                        // Bridging a refill gap is only free while the
+                        // parse stage is busy, since the wait hides
+                        // behind parse time. Once the parser is idle,
+                        // every microsecond we hold this batch is
+                        // added straight to output latency, and for a
+                        // request/response producer (a burst ending
+                        // in a query, e.g. frame + cursor position
+                        // report) the writer is blocked on a reply to
+                        // data sitting in this buffer, so a poll here
+                        // would always sleep its full timeout. Deliver
+                        // now if the parser is idle, and otherwise arm
+                        // the idle wake so it can interrupt our poll
+                        // the moment that changes.
+                        {
+                            pipeline.mutex.lock();
+                            defer pipeline.mutex.unlock();
+                            if (pipeline.count == 0) break :gather;
+                            pipeline.bridging = true;
+                        }
+
+                        const r = posix.poll(
+                            &pollfds,
+                            bridge_poll_timeout_ms,
+                        ) catch |poll_err| {
+                            clearBridging(pipeline);
+                            log.warn("bridge poll failed err={}", .{poll_err});
+                            break :gather;
+                        };
+                        clearBridging(pipeline);
+
+                        // Quiet for a full timeout means the burst
+                        // ended.
+                        if (r == 0) break :gather;
+
+                        // On a quit signal we deliver what we have
+                        // and stop.
+                        if (pollfds[1].revents & posix.POLL.IN != 0) {
+                            log.info("read thread got quit signal", .{});
+                            fatal = true;
+                            break :gather;
+                        }
+
+                        // The parse stage went idle: drain the wake
+                        // and deliver what we have. The pty may have
+                        // data as well, but the next batch can pick
+                        // that up; an idle parser means delivery must
+                        // not wait.
+                        if (pollfds[2].revents & posix.POLL.IN != 0) {
+                            var trash: [16]u8 = undefined;
+                            while (true) {
+                                const drained = posix.read(
+                                    pipeline.idle_read_fd,
+                                    &trash,
+                                ) catch break;
+                                if (drained < trash.len) break;
+                            }
+                            break :gather;
+                        }
+
+                        // HUP without IN means no more data is
+                        // coming. Deliver and let the outer poll
+                        // decide what to do.
+                        if (pollfds[0].revents & posix.POLL.IN == 0)
+                            break :gather;
+
+                        continue :gather;
+                    },
+
+                    // The pty is closed. We're probably gracefully
+                    // shutting down.
+                    error.NotOpenForReading,
+                    error.InputOutput,
+                    => {
+                        log.info("io gather exiting", .{});
+                        fatal = true;
+                        break :gather;
+                    },
+
+                    else => {
+                        log.err("io gather error err={}", .{err});
+                        unreachable;
+                    },
                 };
 
                 // This happens on macOS instead of WouldBlock when the
-                // child process dies. To be safe, we just break the loop
-                // and let our poll happen.
-                if (n == 0) break;
+                // child process dies. Deliver what we have and let the
+                // outer poll detect HUP.
+                if (n == 0) break :gather;
 
-                // log.info("DATA: {d}", .{n});
-                @call(.always_inline, termio.Termio.processOutput, .{ io, buf[0..n] });
+                total += n;
+
+                // Each refill gap gets a fresh spin budget.
+                spins = 0;
             }
 
-            // Wait for data.
-            _ = posix.poll(&pollfds, -1) catch |err| {
+            // Publish the batch (if any) to the parse stage and rotate
+            // to the next buffer.
+            if (total > 0) {
+                pipeline.mutex.lock();
+                pipeline.lens[pipeline.head] = total;
+                pipeline.head = (pipeline.head + 1) % buffer_count;
+                pipeline.count += 1;
+                pipeline.mutex.unlock();
+                pipeline.batch_ready.signal();
+            }
+
+            if (fatal) return;
+
+            // A full buffer means the stream is still hot, so go
+            // claim the next buffer without an intervening poll.
+            if (total == buffer_capacity) continue;
+
+            // Wait for data. The idle fd is sliced off: the parse
+            // stage only writes to it while we're bridging.
+            _ = posix.poll(pollfds[0..2], -1) catch |err| {
                 log.warn("poll failed on read thread, exiting early err={}", .{err});
                 return;
             };
@@ -1357,6 +1705,50 @@ pub const ReadThread = struct {
                 return;
             }
         }
+    }
+
+    /// Clears the bridging flag armed before a bridge poll, closing
+    /// the window in which the parse stage writes idle wakes.
+    fn clearBridging(pipeline: *Pipeline) void {
+        pipeline.mutex.lock();
+        defer pipeline.mutex.unlock();
+        pipeline.bridging = false;
+    }
+
+    /// Sets the QoS class of the calling thread for the read pipeline
+    /// (macOS only). Both pipeline threads feed content the user is
+    /// actively watching, and at default QoS the scheduler may place
+    /// them on efficiency cores with wakeup latencies that are large
+    /// compared to the ~10us cadence of the pty producer/consumer
+    /// dance. Measured on an M4 Max, this results in a 15% throughput
+    /// difference (on the change, not 15% total).
+    fn setQosClass() void {
+        internal_os.macos.setQosClass(.user_initiated) catch |err| {
+            log.warn("error setting QoS class err={}", .{err});
+        };
+    }
+
+    /// Sets the fd to non-blocking mode. Returns false on failure.
+    fn setNonblock(fd: posix.fd_t) bool {
+        const flags = posix.fcntl(
+            fd,
+            posix.F.GETFL,
+            0,
+        ) catch |err| {
+            log.warn("read thread failed to get flags err={}", .{err});
+            return false;
+        };
+
+        _ = posix.fcntl(
+            fd,
+            posix.F.SETFL,
+            flags | @as(u32, @bitCast(posix.O{ .NONBLOCK = true })),
+        ) catch |err| {
+            log.warn("read thread failed to set flags err={}", .{err});
+            return false;
+        };
+
+        return true;
     }
 
     fn threadMainWindows(fd: posix.fd_t, io: *termio.Termio, quit: posix.fd_t) void {
@@ -1388,6 +1780,11 @@ pub const ReadThread = struct {
                 }
 
                 @call(.always_inline, termio.Termio.processOutput, .{ io, buf[0..n] });
+
+                // See threadMainPosix: hand the renderer state mutex
+                // off if the renderer is waiting, since this loop
+                // would otherwise starve it under heavy output.
+                io.renderer_state.yieldToDemand();
             }
 
             var quit_bytes: windows.DWORD = 0;

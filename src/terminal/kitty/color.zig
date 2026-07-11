@@ -51,6 +51,23 @@ pub const Kind = union(enum) {
         return .{ .palette = std.fmt.parseUnsigned(u8, key, 10) catch return null };
     }
 
+    /// Returns true when a terminal has built-in state for this key.
+    ///
+    /// Unsupported special colors may still be valid Kitty protocol keys, but
+    /// libghostty-vt cannot report them because Terminal does not store them.
+    pub fn hasTerminalQueryColor(self: Kind) bool {
+        return switch (self) {
+            .palette => true,
+            .special => |special| switch (special) {
+                .foreground,
+                .background,
+                .cursor,
+                => true,
+                else => false,
+            },
+        };
+    }
+
     pub fn format(
         self: Kind,
         writer: *std.Io.Writer,
@@ -74,4 +91,8 @@ test "OSC: kitty color protocol kind string" {
         const actual = try std.fmt.bufPrint(&buf, "{f}", .{Kind{ .palette = 42 }});
         try testing.expectEqualStrings("42", actual);
     }
+
+    try testing.expect((Kind{ .palette = 42 }).hasTerminalQueryColor());
+    try testing.expect((Kind{ .special = .foreground }).hasTerminalQueryColor());
+    try testing.expect(!(Kind{ .special = .selection_background }).hasTerminalQueryColor());
 }

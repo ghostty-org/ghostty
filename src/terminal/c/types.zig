@@ -7,6 +7,7 @@
 const std = @import("std");
 const lib = @import("../lib.zig");
 const color = @import("../color.zig");
+const color_c = @import("color.zig");
 const mouse_event = @import("mouse_event.zig");
 const point = @import("../point.zig");
 const size_report = @import("size_report.zig");
@@ -36,8 +37,13 @@ pub const Codepoints = extern struct {
 pub const structs: std.StaticStringMap(StructInfo) = structs: {
     @setEvalBranchQuota(10_000);
     break :structs .initComptime(.{
+        .{ "GhosttyBuffer", StructInfo.init(lib.Buffer) },
+        .{ "GhosttyClipboardContent", StructInfo.init(terminal.ClipboardContent) },
+        .{ "GhosttyClipboardWrite", StructInfo.init(terminal.ClipboardWrite) },
         .{ "GhosttyCodepoints", StructInfo.init(Codepoints) },
+        .{ "GhosttyColorPaletteMask", StructInfo.init(color_c.PaletteMask) },
         .{ "GhosttyColorRgb", StructInfo.init(color.RGB.C) },
+        .{ "GhosttyColorX11Entry", StructInfo.init(color_c.X11Entry) },
         .{ "GhosttyDeviceAttributes", StructInfo.init(terminal.DeviceAttributes) },
         .{ "GhosttyDeviceAttributesPrimary", StructInfo.init(terminal.DeviceAttributes.Primary) },
         .{ "GhosttyDeviceAttributesSecondary", StructInfo.init(terminal.DeviceAttributes.Secondary) },
@@ -208,8 +214,22 @@ test "json parses" {
     const root = parsed.value.object;
 
     // Verify we have all expected structs
+    try std.testing.expect(root.contains("GhosttyClipboardContent"));
+    try std.testing.expect(root.contains("GhosttyClipboardWrite"));
     try std.testing.expect(root.contains("GhosttyTerminalOptions"));
     try std.testing.expect(root.contains("GhosttyFormatterTerminalOptions"));
+
+    const clipboard_content = root.get("GhosttyClipboardContent").?.object;
+    const clipboard_content_fields = clipboard_content.get("fields").?.object;
+    try std.testing.expect(clipboard_content_fields.contains("mime"));
+    try std.testing.expect(clipboard_content_fields.contains("data"));
+
+    const clipboard_write = root.get("GhosttyClipboardWrite").?.object;
+    const clipboard_write_fields = clipboard_write.get("fields").?.object;
+    try std.testing.expect(clipboard_write_fields.contains("size"));
+    try std.testing.expect(clipboard_write_fields.contains("location"));
+    try std.testing.expect(clipboard_write_fields.contains("contents"));
+    try std.testing.expect(clipboard_write_fields.contains("contents_len"));
 
     // Verify GhosttyTerminalOptions fields
     const term_opts = root.get("GhosttyTerminalOptions").?.object;

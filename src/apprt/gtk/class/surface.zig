@@ -3030,37 +3030,56 @@ pub const Surface = extern struct {
     ) callconv(.c) c_int {
         const priv: *Private = self.private();
 
-        switch (ec.getUnit()) {
-            .surface => {},
-            .wheel => return @intFromBool(false),
-            else => return @intFromBool(false),
-        }
+        // Check if horizontal tab scrolling is enabled and this is a
+        // touchpad surface scroll. If not, forward to the terminal.
+        const tab_scroll_enabled = if (priv.config) |config|
+            config.get().@"gtk-horizontal-tab-scroll"
+        else
+            true;
 
-        priv.pending_horizontal_scroll += x;
+        const is_surface_scroll = ec.getUnit() == .surface;
 
-        if (@abs(priv.pending_horizontal_scroll) < 120) {
+        if (tab_scroll_enabled and is_surface_scroll) {
+            priv.pending_horizontal_scroll += x;
+
+            if (@abs(priv.pending_horizontal_scroll) < 120) {
+                if (priv.pending_horizontal_scroll_reset) |v| {
+                    _ = glib.Source.remove(v);
+                    priv.pending_horizontal_scroll_reset = null;
+                }
+                priv.pending_horizontal_scroll_reset = glib.timeoutAdd(500, ecMouseScrollHorizontalReset, self);
+                return @intFromBool(true);
+            }
+
+            _ = self.as(gtk.Widget).activateAction(
+                if (priv.pending_horizontal_scroll < 0.0)
+                    "tab.next-page"
+                else
+                    "tab.previous-page",
+                null,
+            );
+
             if (priv.pending_horizontal_scroll_reset) |v| {
                 _ = glib.Source.remove(v);
                 priv.pending_horizontal_scroll_reset = null;
             }
-            priv.pending_horizontal_scroll_reset = glib.timeoutAdd(500, ecMouseScrollHorizontalReset, self);
+
+            priv.pending_horizontal_scroll = 0.0;
+
             return @intFromBool(true);
         }
 
-        _ = self.as(gtk.Widget).activateAction(
-            if (priv.pending_horizontal_scroll < 0.0)
-                "tab.next-page"
-            else
-                "tab.previous-page",
-            null,
-        );
-
-        if (priv.pending_horizontal_scroll_reset) |v| {
-            _ = glib.Source.remove(v);
-            priv.pending_horizontal_scroll_reset = null;
-        }
-
-        priv.pending_horizontal_scroll = 0.0;
+        // Forward horizontal scroll to the terminal (e.g. for neovim).
+        const surface = priv.core_surface orelse return @intFromBool(false);
+        const scaled = self.scaledCoordinates(x, 0);
+        surface.scrollCallback(
+            scaled.x * -1,
+            0,
+            .{},
+        ) catch |err| {
+            log.warn("error in scroll callback err={}", .{err});
+            return @intFromBool(false);
+        };
 
         return @intFromBool(true);
     }

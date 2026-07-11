@@ -228,6 +228,23 @@ typedef struct {
 } GhosttyString;
 
 /**
+ * A caller-provided byte buffer.
+ *
+ * APIs that write to this type use `len` for the number of bytes written on
+ * GHOSTTY_SUCCESS and the required byte capacity on GHOSTTY_OUT_OF_SPACE.
+ */
+typedef struct {
+  /** Destination buffer for bytes. May be NULL when cap is 0 to query required size. */
+  uint8_t* ptr;
+
+  /** Capacity of ptr in bytes. */
+  size_t cap;
+
+  /** Bytes written on success, or required byte capacity on GHOSTTY_OUT_OF_SPACE. */
+  size_t len;
+} GhosttyBuffer;
+
+/**
  * A surface-space position in pixels.
  *
  * This is not a terminal grid coordinate. It represents an x/y position in the

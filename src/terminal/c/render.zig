@@ -188,6 +188,25 @@ pub fn update(
     return .success;
 }
 
+pub fn begin_update(
+    state_: RenderState,
+    terminal_: terminal_c.Terminal,
+) callconv(lib.calling_conv) Result {
+    const state = state_ orelse return .invalid_value;
+    const t: *ZigTerminal = (terminal_ orelse return .invalid_value).terminal;
+
+    state.state.beginUpdate(state.alloc, t) catch return .out_of_memory;
+    return .success;
+}
+
+pub fn end_update(
+    state_: RenderState,
+) callconv(lib.calling_conv) Result {
+    const state = state_ orelse return .invalid_value;
+    state.state.endUpdate();
+    return .success;
+}
+
 pub fn get(
     state_: RenderState,
     data: Data,
@@ -467,6 +486,7 @@ pub const RowCellsData = enum(c_int) {
     fg_color = 6,
     selected = 7,
     has_styling = 8,
+    graphemes_utf8 = 9,
 
     /// Output type expected for querying the data of the given kind.
     pub fn OutType(comptime self: RowCellsData) type {
@@ -478,6 +498,7 @@ pub const RowCellsData = enum(c_int) {
             .graphemes_buf => u32,
             .bg_color, .fg_color => colorpkg.RGB.C,
             .selected, .has_styling => bool,
+            .graphemes_utf8 => lib.Buffer,
         };
     }
 };
@@ -493,6 +514,7 @@ pub fn row_cells_get(
             return .invalid_value;
         };
     }
+    if (out == null) return .invalid_value;
 
     return switch (data) {
         .invalid => .invalid_value,
@@ -573,8 +595,41 @@ fn rowCellsGetTyped(
         else
             false,
         .has_styling => out.* = cell.hasStyling(),
+        .graphemes_utf8 => return rowCellsGetGraphemesUtf8(cell, if (cell.hasGrapheme()) cells.graphemes[x] else &.{}, out),
     }
 
+    return .success;
+}
+
+fn rowCellsGetGraphemesUtf8(
+    cell: page.Cell,
+    extra: []const u21,
+    out: *lib.Buffer,
+) Result {
+    out.len = 0;
+
+    if (!cell.hasText()) return .success;
+
+    var needed: usize = std.unicode.utf8CodepointSequenceLength(cell.codepoint()) catch
+        return .invalid_value;
+    for (extra) |cp| {
+        needed += std.unicode.utf8CodepointSequenceLength(cp) catch
+            return .invalid_value;
+    }
+    out.len = needed;
+
+    if (out.ptr == null or out.cap < needed) return .out_of_space;
+
+    const buf = out.ptr.?[0..out.cap];
+    var i: usize = 0;
+    i += std.unicode.utf8Encode(cell.codepoint(), buf[i..]) catch
+        return .invalid_value;
+    for (extra) |cp| {
+        i += std.unicode.utf8Encode(cp, buf[i..]) catch
+            return .invalid_value;
+    }
+
+    out.len = i;
     return .success;
 }
 
@@ -749,6 +804,61 @@ test "render: update invalid value" {
 
     try testing.expectEqual(Result.invalid_value, update(null, null));
     try testing.expectEqual(Result.invalid_value, update(state, null));
+}
+
+test "render: begin/end update invalid value" {
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+
+    try testing.expectEqual(Result.invalid_value, begin_update(null, null));
+    try testing.expectEqual(Result.invalid_value, begin_update(state, null));
+    try testing.expectEqual(Result.invalid_value, end_update(null));
+
+    // End without a begin is safe.
+    try testing.expectEqual(Result.success, end_update(state));
+}
+
+test "render: begin/end update" {
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &terminal,
+        .{
+            .cols = 10,
+            .rows = 3,
+            .max_scrollback = 10_000,
+        },
+    ));
+    defer terminal_c.free(terminal);
+
+    // Write some styled text so that the update has deferred work.
+    const t = terminal.?.terminal;
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("\x1b[1mAB"); // Bold
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+
+    // Begin should record pending work, end should complete it.
+    try testing.expectEqual(Result.success, begin_update(state, terminal));
+    try testing.expect(state.?.state.pending_styles.items.len > 0);
+    try testing.expectEqual(Result.success, end_update(state));
+    try testing.expectEqual(0, state.?.state.pending_styles.items.len);
+
+    // The cell styles should be complete.
+    const row_data = state.?.state.row_data.slice();
+    const cells = row_data.items(.cells);
+    try testing.expect(cells[0].get(0).style.flags.bold);
+    try testing.expect(cells[0].get(1).style.flags.bold);
 }
 
 test "render: get invalid value" {
@@ -1254,6 +1364,128 @@ test "render: row cells get has_styling" {
     try testing.expectEqual(Result.success, row_cells_get_multi(cells, keys.len, &keys, &values, &written));
     try testing.expectEqual(keys.len, written);
     try testing.expect(has_styling);
+}
+
+test "render: row cells get graphemes utf8" {
+    const cases = [_]struct {
+        terminal_input: []const u8,
+        expected: []const u8,
+    }{
+        .{
+            .terminal_input = "e\u{301}",
+            .expected = "e\u{301}",
+        },
+        .{
+            .terminal_input = "\x1b[?2027h\u{1F1FA}\u{1F1F8}",
+            .expected = "\u{1F1FA}\u{1F1F8}",
+        },
+        .{
+            .terminal_input = "\x1b[?2027h\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}",
+            .expected = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}",
+        },
+    };
+
+    for (cases) |case| {
+        var terminal: terminal_c.Terminal = null;
+        try testing.expectEqual(Result.success, terminal_c.new(
+            &lib.alloc.test_allocator,
+            &terminal,
+            .{ .cols = 10, .rows = 3, .max_scrollback = 10_000 },
+        ));
+        defer terminal_c.free(terminal);
+
+        terminal_c.vt_write(terminal, case.terminal_input.ptr, case.terminal_input.len);
+
+        var state: RenderState = null;
+        try testing.expectEqual(Result.success, new(
+            &lib.alloc.test_allocator,
+            &state,
+        ));
+        defer free(state);
+
+        try testing.expectEqual(Result.success, update(state, terminal));
+
+        var it: RowIterator = null;
+        try testing.expectEqual(Result.success, row_iterator_new(
+            &lib.alloc.test_allocator,
+            &it,
+        ));
+        defer row_iterator_free(it);
+
+        var cells: RowCells = null;
+        try testing.expectEqual(Result.success, row_cells_new(
+            &lib.alloc.test_allocator,
+            &cells,
+        ));
+        defer row_cells_free(cells);
+
+        try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&it)));
+        try testing.expect(row_iterator_next(it));
+        try testing.expectEqual(Result.success, row_get(it, .cells, @ptrCast(&cells)));
+
+        try testing.expectEqual(Result.success, row_cells_select(cells, 0));
+
+        var text: lib.Buffer = .{};
+        try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_utf8, @ptrCast(&text)));
+        try testing.expectEqual(case.expected.len, text.len);
+
+        var small = [_]u8{'x'} ** 32;
+        const small_cap = case.expected.len - 1;
+        text = .{ .ptr = small[0..small_cap].ptr, .cap = small_cap };
+        try testing.expectEqual(Result.out_of_space, row_cells_get(cells, .graphemes_utf8, @ptrCast(&text)));
+        try testing.expectEqual(case.expected.len, text.len);
+        try testing.expectEqualSlices(u8, &([_]u8{'x'} ** 32), &small);
+
+        var buf: [32]u8 = undefined;
+        text = .{ .ptr = &buf, .cap = case.expected.len };
+        try testing.expectEqual(Result.success, row_cells_get(cells, .graphemes_utf8, @ptrCast(&text)));
+        try testing.expectEqual(case.expected.len, text.len);
+        try testing.expectEqualStrings(case.expected, buf[0..text.len]);
+    }
+
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &terminal,
+        .{ .cols = 10, .rows = 3, .max_scrollback = 10_000 },
+    ));
+    defer terminal_c.free(terminal);
+
+    const input = "e\u{301}";
+    terminal_c.vt_write(terminal, input, input.len);
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &state,
+    ));
+    defer free(state);
+
+    try testing.expectEqual(Result.success, update(state, terminal));
+
+    var it: RowIterator = null;
+    try testing.expectEqual(Result.success, row_iterator_new(
+        &lib.alloc.test_allocator,
+        &it,
+    ));
+    defer row_iterator_free(it);
+
+    var cells: RowCells = null;
+    try testing.expectEqual(Result.success, row_cells_new(
+        &lib.alloc.test_allocator,
+        &cells,
+    ));
+    defer row_cells_free(cells);
+
+    try testing.expectEqual(Result.success, get(state, .row_iterator, @ptrCast(&it)));
+    try testing.expect(row_iterator_next(it));
+    try testing.expectEqual(Result.success, row_get(it, .cells, @ptrCast(&cells)));
+
+    try testing.expectEqual(Result.success, row_cells_select(cells, 1));
+    var buf: [8]u8 = undefined;
+    var text: lib.Buffer = .{ .ptr = &buf, .cap = buf.len };
+    try testing.expectEqual(Result.success, row_cells_get(cells, .graphemes_utf8, @ptrCast(&text)));
+    try testing.expectEqual(@as(usize, 0), text.len);
 }
 
 test "render: row iterator next" {

@@ -95,13 +95,13 @@ extension Ghostty {
             // pop-up window too.
             let diagsCount = ghostty_config_diagnostics_count(cfg)
             if diagsCount > 0 {
-                logger.warning("config error: \(diagsCount) configuration errors on reload")
+                logger.warning("config error: \(diagsCount, privacy: .public) configuration errors on reload")
                 var diags: [String] = []
                 for i in 0..<diagsCount {
                     let diag = ghostty_config_get_diagnostic(cfg, UInt32(i))
                     let message = String(cString: diag.message)
                     diags.append(message)
-                    logger.warning("config error: \(message)")
+                    logger.warning("config error: \(message, privacy: .public)")
                 }
             }
 

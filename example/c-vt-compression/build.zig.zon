@@ -1,0 +1,14 @@
+.{
+    .name = .c_vt_compression,
+    .version = "0.0.0",
+    .fingerprint = 0x3d527aa68a4cf8d,
+    .minimum_zig_version = "0.15.1",
+    .dependencies = .{
+        .ghostty = .{ .path = "../../" },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
