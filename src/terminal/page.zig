@@ -21,7 +21,7 @@ const Offset = size.Offset;
 const OffsetBuf = size.OffsetBuf;
 const BitmapAllocator = @import("bitmap_allocator.zig").BitmapAllocator;
 const hash_map = @import("hash_map.zig");
-const AutoOffsetHashMap = hash_map.AutoOffsetHashMap;
+const OffsetHashMap = hash_map.OffsetHashMap;
 const alignForward = std.mem.alignForward;
 const alignBackward = std.mem.alignBackward;
 
@@ -92,9 +92,10 @@ const grapheme_chunk = grapheme_chunk_len * @sizeOf(u21);
 const GraphemeAlloc = BitmapAllocator(grapheme_chunk);
 const grapheme_count_default = GraphemeAlloc.bitmap_bit_size;
 pub const grapheme_bytes_default = grapheme_count_default * grapheme_chunk;
-const GraphemeMap = AutoOffsetHashMap(
+const GraphemeMap = OffsetHashMap(
     Offset(Cell),
     Offset(u21).Slice,
+    hash_map.OffsetContext(Cell),
     hash_map.default_max_load_percentage,
 );
 
