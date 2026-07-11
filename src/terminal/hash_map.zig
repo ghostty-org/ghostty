@@ -646,6 +646,8 @@ fn HashMapUnmanaged(
             return null;
         }
 
+        /// The get-or-put family may rehash a fragmented table. Any key or
+        /// value pointers previously returned by this map may be invalidated.
         pub fn getOrPut(self: *Self, key: K) Allocator.Error!GetOrPutResult {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getOrPutContext instead.");
@@ -705,6 +707,7 @@ fn HashMapUnmanaged(
             var idx = @as(usize, @truncate(hash & mask));
 
             var first_tombstone_idx: usize = self.capacity(); // invalid index
+            var tombstones: Size = 0;
             var metadata = self.metadata.? + idx;
             while (!metadata[0].isFree() and limit != 0) {
                 if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
@@ -724,8 +727,24 @@ fn HashMapUnmanaged(
                             .found_existing = true,
                         };
                     }
-                } else if (first_tombstone_idx == self.capacity() and metadata[0].isTombstone()) {
-                    first_tombstone_idx = idx;
+                } else if (metadata[0].isTombstone()) {
+                    if (first_tombstone_idx == self.capacity()) {
+                        first_tombstone_idx = idx;
+                    }
+
+                    // Rehash once this probe demonstrates meaningful
+                    // fragmentation. Only canonical lookups have the
+                    // context required to rehash resident K values.
+                    if (comptime @TypeOf(key) == K and @TypeOf(ctx) == Context) {
+                        tombstones += 1;
+                        // Amortize the O(capacity) rebuild and avoid doing it
+                        // for an otherwise healthy, nearly full table.
+                        const threshold = @max(self.capacity() / 8, 1);
+                        if (tombstones >= threshold) {
+                            self.rehash(ctx);
+                            return self.getOrPutAssumeCapacityAdapted(key, ctx);
+                        }
+                    }
                 }
 
                 limit -= 1;
@@ -825,6 +844,80 @@ fn HashMapUnmanaged(
 
         fn initMetadatas(self: *Self) void {
             @memset(@as([*]u8, @ptrCast(self.metadata.?))[0 .. @sizeOf(Metadata) * self.capacity()], 0);
+        }
+
+        /// Rebuild the map in place, removing all tombstones. This moves
+        /// entries and invalidates existing key and value pointers.
+        pub fn rehash(self: *Self, ctx: Context) void {
+            const mask = self.capacity() - 1;
+
+            const metadata = self.metadata.?;
+            const keys_ptr = self.keys();
+            const values_ptr = self.values();
+            var curr: Size = 0;
+
+            // Mark used buckets as awaiting rehash and clear tombstones.
+            while (curr < self.capacity()) : (curr += 1) {
+                metadata[curr].fingerprint = Metadata.free;
+            }
+
+            curr = 0;
+            while (curr < self.capacity()) {
+                if (!metadata[curr].isUsed()) {
+                    assert(metadata[curr].isFree());
+                    curr += 1;
+                    continue;
+                }
+
+                const hash = ctx.hash(keys_ptr[curr]);
+                const fingerprint = Metadata.takeFingerprint(hash);
+                var idx = @as(usize, @truncate(hash & mask));
+
+                // For each bucket, rehash to an index:
+                // 1) before the cursor, probed into a free slot, or
+                // 2) equal to the cursor, no need to move, or
+                // 3) ahead of the cursor, probing over already rehashed.
+                while ((idx < curr and metadata[idx].isUsed()) or
+                    (idx > curr and metadata[idx].fingerprint == Metadata.tombstone))
+                {
+                    idx = (idx + 1) & mask;
+                }
+
+                if (idx < curr) {
+                    assert(metadata[idx].isFree());
+                    metadata[idx].fill(fingerprint);
+                    keys_ptr[idx] = keys_ptr[curr];
+                    values_ptr[idx] = values_ptr[curr];
+
+                    metadata[curr].used = 0;
+                    assert(metadata[curr].isFree());
+                    keys_ptr[curr] = undefined;
+                    values_ptr[curr] = undefined;
+
+                    curr += 1;
+                } else if (idx == curr) {
+                    metadata[idx].fingerprint = fingerprint;
+                    curr += 1;
+                } else {
+                    assert(metadata[idx].fingerprint != Metadata.tombstone);
+                    metadata[idx].fingerprint = Metadata.tombstone;
+                    if (metadata[idx].isUsed()) {
+                        mem.swap(K, &keys_ptr[curr], &keys_ptr[idx]);
+                        mem.swap(V, &values_ptr[curr], &values_ptr[idx]);
+                    } else {
+                        metadata[idx].used = 1;
+                        keys_ptr[idx] = keys_ptr[curr];
+                        values_ptr[idx] = values_ptr[curr];
+
+                        metadata[curr].fingerprint = Metadata.free;
+                        metadata[curr].used = 0;
+                        keys_ptr[curr] = undefined;
+                        values_ptr[curr] = undefined;
+
+                        curr += 1;
+                    }
+                }
+            }
         }
 
         fn growIfNeeded(self: *Self, new_count: Size) Allocator.Error!void {
@@ -1281,6 +1374,126 @@ test "HashMap repeat putAssumeCapacity/remove" {
         try expectEqual(map.get(limit + i), i);
     }
     try expectEqual(map.count(), limit);
+}
+
+test "HashMap getOrPut rehashes a fragmented probe" {
+    const Context = struct {
+        pub fn hash(_: @This(), _: u32) u64 {
+            return 0;
+        }
+
+        pub fn eql(_: @This(), a: u32, b: u32) bool {
+            return a == b;
+        }
+    };
+    const AdaptedContext = struct {
+        pub fn hash(_: @This(), _: []const u8) u64 {
+            return 0;
+        }
+
+        pub fn eql(_: @This(), adapted: []const u8, key: u32) bool {
+            return std.fmt.parseInt(u32, adapted, 10) catch unreachable == key;
+        }
+    };
+    const Map = HashMapUnmanaged(u32, u32, Context);
+    const cap = 32;
+
+    const alloc = testing.allocator;
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
+    defer alloc.free(buf);
+    var map = Map.init(.init(buf), layout);
+
+    for (0..cap) |i| {
+        map.putAssumeCapacityNoClobberContext(@intCast(i), @intCast(i), .{});
+    }
+
+    // Rehashing preserves a table at the supported 100% live occupancy.
+    map.rehash(.{});
+    try expectEqual(cap, map.count());
+    for (0..cap) |i| {
+        try expectEqual(i, map.getContext(@intCast(i), .{}).?);
+    }
+
+    for (0..cap / 2) |i| {
+        try expect(map.removeContext(@intCast(i), .{}));
+    }
+
+    var tombstones: usize = 0;
+    for (map.metadata.?[0..map.capacity()]) |metadata| {
+        if (metadata.isTombstone()) tombstones += 1;
+    }
+    try expectEqual(cap / 2, tombstones);
+
+    // An adapted lookup cannot rehash without the context for resident keys.
+    const adapted = try map.getOrPutAdapted("31", AdaptedContext{});
+    try expect(adapted.found_existing);
+    try expectEqual(cap - 1, adapted.value_ptr.*);
+    tombstones = 0;
+    for (map.metadata.?[0..map.capacity()]) |metadata| {
+        if (metadata.isTombstone()) tombstones += 1;
+    }
+    try expectEqual(cap / 2, tombstones);
+
+    // Looking up an existing key beyond the tombstones rehashes and retries
+    // before returning pointers into the map.
+    const gop = try map.getOrPutContext(cap - 1, .{});
+    try expect(gop.found_existing);
+    try expectEqual(cap - 1, gop.value_ptr.*);
+    try expectEqual(cap / 2, map.count());
+
+    tombstones = 0;
+    for (map.metadata.?[0..map.capacity()]) |metadata| {
+        if (metadata.isTombstone()) tombstones += 1;
+    }
+    try expectEqual(0, tombstones);
+
+    for (cap / 2..cap) |i| {
+        try expectEqual(i, map.getContext(@intCast(i), .{}).?);
+    }
+}
+
+test "HashMap rehash with real hashes" {
+    const Map = AutoHashMapUnmanaged(u32, u32);
+    const cap = 512;
+
+    const alloc = testing.allocator;
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
+    defer alloc.free(buf);
+    var map = Map.init(.init(buf), layout);
+
+    for (0..cap) |i| {
+        map.putAssumeCapacityNoClobber(@intCast(i), @intCast(i));
+    }
+
+    map.rehash(undefined);
+    try expectEqual(cap, map.count());
+    for (0..cap) |i| {
+        try expectEqual(i, map.get(@intCast(i)).?);
+    }
+
+    var expected_count: usize = cap;
+    for (0..cap) |i| {
+        if (i % 3 == 0) {
+            try expect(map.remove(@intCast(i)));
+            expected_count -= 1;
+        }
+    }
+
+    map.rehash(undefined);
+    try expectEqual(expected_count, map.count());
+    for (0..cap) |i| {
+        if (i % 3 == 0) {
+            try expectEqual(null, map.get(@intCast(i)));
+        } else {
+            try expectEqual(i, map.get(@intCast(i)).?);
+        }
+    }
+
+    for (map.metadata.?[0..map.capacity()]) |metadata| {
+        try expect(!metadata.isTombstone());
+    }
 }
 
 test "HashMap getOrPut" {
