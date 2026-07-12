@@ -47,6 +47,12 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
         /// The contiguous buffer of chunks.
         chunks: Offset(u8),
 
+        /// First bitmap that may contain a free chunk. Every bitmap before
+        /// this index is completely full, so no first-fit allocation can
+        /// begin there. Allocation advances the hint past full bitmaps and
+        /// free lowers it again.
+        scan_start: size.OffsetInt = 0,
+
         /// Initialize the allocator map with a given buf and memory layout.
         pub fn init(buf: OffsetBuf, l: Layout) Self {
             assert(base_align.check(@intFromPtr(buf.start())));
@@ -60,6 +66,7 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
                 .bitmap = bitmap,
                 .bitmap_count = l.bitmap_count,
                 .chunks = buf.member(u8, l.chunks_start),
+                .scan_start = 0,
             };
         }
 
@@ -94,10 +101,19 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
             const chunk_count = std.math.divCeil(usize, byte_count, chunk_size) catch
                 return error.OutOfMemory;
 
+            const bitmaps = self.bitmap.ptr(base)[0..self.bitmap_count];
+
+            // Skip completely full leading bitmaps. They remain full until
+            // free lowers the hint, so repeated allocation amortizes this
+            // scan instead of restarting at word zero every time.
+            var start: usize = self.scan_start;
+            while (start < bitmaps.len and bitmaps[start] == 0) start += 1;
+            self.scan_start = @intCast(start);
+
             // Find the index of the free chunk. This also marks it as used.
-            const bitmaps = self.bitmap.ptr(base);
-            const idx = findFreeChunks(bitmaps[0..self.bitmap_count], chunk_count) orelse
+            const rel_idx = findFreeChunks(bitmaps[start..], chunk_count) orelse
                 return error.OutOfMemory;
+            const idx = start * bitmap_bit_size + rel_idx;
 
             const chunks = self.chunks.ptr(base);
             const ptr: [*]T = @ptrCast(@alignCast(&chunks[idx * chunk_size]));
@@ -119,7 +135,15 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
             const bitmaps = self.bitmap.ptr(base);
 
             // Current bitmap index.
-            var i: usize = @divFloor(chunk_idx, 64);
+            const bitmap_idx = @divFloor(chunk_idx, bitmap_bit_size);
+            var i: usize = bitmap_idx;
+
+            // This bitmap now contains free chunks and may be the earliest
+            // place where a first-fit allocation can begin.
+            self.scan_start = @min(
+                self.scan_start,
+                @as(size.OffsetInt, @intCast(bitmap_idx)),
+            );
             // Number of chunks we still have to mark as free.
             var rem: usize = chunk_count;
 
@@ -745,6 +769,108 @@ test "BitmapAllocator alloc large" {
     const ptr = try bm.alloc(u8, buf, 129);
     ptr[0] = 'A';
     bm.free(buf, ptr);
+}
+
+test "BitmapAllocator scan hint preserves cross-word first fit" {
+    const Alloc = BitmapAllocator(1);
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const layout = Alloc.layout(Alloc.bitmap_bit_size * 3);
+    const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
+    defer alloc.free(buf);
+
+    // OffsetInt uses the trailing padding after chunks on 64-bit targets.
+    if (@sizeOf(usize) == 8) {
+        try testing.expectEqual(@as(usize, 24), @sizeOf(Alloc));
+    }
+
+    var bm = Alloc.init(.init(buf), layout);
+
+    // Consume all but the final bit of the first two words. The next
+    // two-chunk allocation must begin at bit 127 and cross into word three.
+    _ = try bm.alloc(u8, buf, 127);
+    const across = try bm.alloc(u8, buf, 2);
+    const chunks = bm.chunks.ptr(buf);
+    try testing.expectEqual(
+        @intFromPtr(chunks) + 127,
+        @intFromPtr(across.ptr),
+    );
+
+    // The cross-word allocation leaves the first word full, so future scans
+    // can safely begin at the second word without skipping an earlier fit.
+    try testing.expectEqual(@as(size.OffsetInt, 1), bm.scan_start);
+}
+
+test "BitmapAllocator scan hint matches first-fit oracle" {
+    const Alloc = BitmapAllocator(4);
+    const bitmap_count = 16;
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const layout = Alloc.layout(
+        bitmap_count * Alloc.bitmap_bit_size * 4,
+    );
+    const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
+    defer alloc.free(buf);
+    var bm = Alloc.init(.init(buf), layout);
+
+    // Independently scan individual chunks to establish the allocator's
+    // required first-fit result without consulting its scan hint.
+    const naiveFirstFit = struct {
+        fn search(bitmaps: []const u64, n: usize) ?usize {
+            var run: usize = 0;
+            for (0..bitmaps.len * Alloc.bitmap_bit_size) |i| {
+                const free = bitmaps[i / Alloc.bitmap_bit_size] &
+                    (@as(u64, 1) << @intCast(i % Alloc.bitmap_bit_size)) != 0;
+                if (free) {
+                    run += 1;
+                    if (run == n) return i + 1 - n;
+                } else {
+                    run = 0;
+                }
+            }
+            return null;
+        }
+    }.search;
+
+    var prng = std.Random.DefaultPrng.init(0x1234);
+    const random = prng.random();
+    var live: std.ArrayList([]u8) = .empty;
+    defer live.deinit(alloc);
+
+    const chunks_base = @intFromPtr(bm.chunks.ptr(buf));
+    for (0..10_000) |_| {
+        // Bias toward allocations while interleaving frees so the bitmap
+        // develops holes before and after the moving scan hint.
+        if (live.items.len == 0 or random.uintLessThan(u8, 3) != 0) {
+            const n = random.uintLessThan(usize, 24) + 1;
+            const chunk_count = std.math.divCeil(usize, n, 4) catch unreachable;
+
+            // Snapshot before allocating because bm.alloc mutates the bitmap.
+            var snapshot: [bitmap_count]u64 = undefined;
+            @memcpy(&snapshot, bm.bitmap.ptr(buf)[0..bitmap_count]);
+            const expected = naiveFirstFit(&snapshot, chunk_count);
+
+            if (bm.alloc(u8, buf, n)) |slice| {
+                // A successful allocation must start at the oracle's first
+                // free run, even when that run crosses a bitmap word.
+                const idx = (@intFromPtr(slice.ptr) - chunks_base) / 4;
+                try testing.expectEqual(expected.?, idx);
+                try live.append(alloc, slice);
+            } else |_| {
+                // Failure is valid only when the full scan also finds no run.
+                try testing.expectEqual(@as(?usize, null), expected);
+            }
+        } else {
+            const i = random.uintLessThan(usize, live.items.len);
+            bm.free(buf, live.swapRemove(i));
+        }
+
+        // scan_start may advance only past words that contain no free chunks.
+        const scan_start: usize = bm.scan_start;
+        for (bm.bitmap.ptr(buf)[0..scan_start]) |bitmap| {
+            try testing.expectEqual(@as(u64, 0), bitmap);
+        }
+    }
 }
 
 test "BitmapAllocator alloc and free one bitmap" {
