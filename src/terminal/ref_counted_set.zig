@@ -769,6 +769,61 @@ pub fn RefCountedSet(
             return chosen_id;
         }
 
+        /// Verify the internal consistency of the set. This is O(n) over
+        /// both the table and items so it is only intended for tests and
+        /// debugging.
+        fn verifyIntegrity(self: *const Self, base: anytype, ctx: Context) !void {
+            comptime assert(@import("builtin").is_test);
+
+            const table = self.table.ptr(base);
+            const items = self.items.ptr(base);
+
+            var table_ids: usize = 0;
+            for (table[0..self.layout.table_cap], 0..) |id, bucket| {
+                if (id == 0) continue;
+                table_ids += 1;
+
+                const item = items[id];
+                try std.testing.expectEqual(@as(usize, item.meta.bucket), bucket);
+
+                const hash: u64 = ctx.hash(item.value);
+                const home: usize = @intCast(hash & self.layout.table_mask);
+                const dist: usize = (bucket + self.layout.table_cap - home) &
+                    self.layout.table_mask;
+                try std.testing.expectEqual(dist, item.meta.psl);
+                try std.testing.expect(item.meta.psl <= self.max_psl);
+            }
+
+            var living: usize = 0;
+            var psl_stats: [32]Id = @splat(0);
+            for (items[1..self.layout.cap], 1..) |item, id| {
+                if (item.meta.psl != std.math.maxInt(Id)) {
+                    try std.testing.expect(item.meta.bucket < self.layout.table_cap);
+                    try std.testing.expectEqual(
+                        @as(Id, @intCast(id)),
+                        table[item.meta.bucket],
+                    );
+                    psl_stats[item.meta.psl] += 1;
+                }
+
+                if (item.meta.ref > 0) {
+                    living += 1;
+                    try std.testing.expectEqual(
+                        @as(?Id, @intCast(id)),
+                        self.lookupContext(base, item.value, ctx),
+                    );
+                }
+            }
+
+            try std.testing.expectEqual(living, self.living);
+            try std.testing.expectEqualSlices(Id, &psl_stats, &self.psl_stats);
+            try std.testing.expectEqual(table_ids, blk: {
+                var n: usize = 0;
+                for (psl_stats) |psl_count| n += psl_count;
+                break :blk n;
+            });
+        }
+
         fn assertIntegrity(
             self: *const Self,
             base: anytype,
@@ -812,6 +867,152 @@ pub fn RefCountedSet(
             }
         }
     };
+}
+
+const TestContext = struct {
+    pub fn hash(_: *const @This(), value: u64) u64 {
+        return std.hash.int(value);
+    }
+
+    pub fn eql(_: *const @This(), a: u64, b: u64) bool {
+        return a == b;
+    }
+};
+
+const TestSet = RefCountedSet(u64, u16, u16, TestContext);
+
+fn testSetInit(cap: usize) !struct {
+    set: TestSet,
+    buf: []align(TestSet.base_align.toByteUnits()) u8,
+} {
+    const layout: TestSet.Layout = .init(cap);
+    const buf = try std.testing.allocator.alignedAlloc(
+        u8,
+        TestSet.base_align,
+        layout.total_size,
+    );
+    errdefer std.testing.allocator.free(buf);
+    return .{
+        .set = .init(.init(buf), layout, .{}),
+        .buf = buf,
+    };
+}
+
+test "RefCountedSet basic usage" {
+    const testing = std.testing;
+    var t = try testSetInit(64);
+    defer testing.allocator.free(t.buf);
+    const set = &t.set;
+
+    const id1 = try set.add(t.buf, 100);
+    const id2 = try set.add(t.buf, 200);
+    try testing.expectEqual(@as(u16, 1), id1);
+    try testing.expectEqual(@as(u16, 2), id2);
+    try testing.expectEqual(@as(usize, 2), set.count());
+
+    try testing.expectEqual(@as(?u16, id1), set.lookup(t.buf, 100));
+    try testing.expectEqual(@as(?u16, id2), set.lookup(t.buf, 200));
+    try testing.expectEqual(@as(?u16, null), set.lookup(t.buf, 300));
+    try testing.expectEqual(@as(u64, 100), set.get(t.buf, id1).*);
+
+    try testing.expectEqual(id1, try set.add(t.buf, 100));
+    try testing.expectEqual(@as(u16, 2), set.refCount(t.buf, id1));
+    try testing.expectEqual(@as(usize, 2), set.count());
+
+    set.use(t.buf, id2);
+    try testing.expectEqual(@as(u16, 2), set.refCount(t.buf, id2));
+    set.release(t.buf, id2);
+    set.releaseMultiple(t.buf, id1, 2);
+    try testing.expectEqual(@as(usize, 1), set.count());
+    try testing.expectEqual(@as(?u16, null), set.lookup(t.buf, 100));
+    try testing.expectEqual(@as(?u16, id2), set.lookup(t.buf, 200));
+
+    try set.verifyIntegrity(t.buf, .{});
+}
+
+test "RefCountedSet reuses dead item IDs" {
+    const testing = std.testing;
+    var t = try testSetInit(64);
+    defer testing.allocator.free(t.buf);
+    const set = &t.set;
+
+    const id1 = try set.add(t.buf, 100);
+    const id2 = try set.add(t.buf, 200);
+    set.release(t.buf, id1);
+
+    try testing.expectEqual(id1, try set.add(t.buf, 100));
+    try testing.expectEqual(@as(u16, 1), set.refCount(t.buf, id1));
+
+    set.release(t.buf, id2);
+    try testing.expectEqual(id2, try set.add(t.buf, 300));
+
+    try set.verifyIntegrity(t.buf, .{});
+}
+
+test "RefCountedSet addWithId" {
+    const testing = std.testing;
+    var t = try testSetInit(64);
+    defer testing.allocator.free(t.buf);
+    const set = &t.set;
+
+    const id1 = try set.add(t.buf, 100);
+    try testing.expectEqual(
+        @as(?u16, null),
+        try set.addWithId(t.buf, 100, id1),
+    );
+    try testing.expectEqual(@as(u16, 2), set.refCount(t.buf, id1));
+
+    const id2 = (try set.addWithId(t.buf, 200, id1)).?;
+    try testing.expect(id2 != id1);
+
+    set.releaseMultiple(t.buf, id1, 2);
+    try testing.expectEqual(
+        @as(?u16, null),
+        try set.addWithId(t.buf, 300, id1),
+    );
+    try testing.expectEqual(@as(u64, 300), set.get(t.buf, id1).*);
+    try testing.expectEqual(@as(?u16, null), set.lookup(t.buf, 100));
+
+    try set.verifyIntegrity(t.buf, .{});
+}
+
+test "RefCountedSet out of memory" {
+    const testing = std.testing;
+    var t = try testSetInit(64);
+    defer testing.allocator.free(t.buf);
+    const set = &t.set;
+
+    const cap = set.layout.cap;
+    for (0..cap - 1) |i| {
+        _ = try set.add(t.buf, @intCast(i + 1000));
+    }
+    try testing.expectEqual(cap - 1, set.count());
+    try testing.expectError(error.OutOfMemory, set.add(t.buf, 99999));
+
+    const id = set.lookup(t.buf, 1000).?;
+    try testing.expectEqual(id, try set.add(t.buf, 1000));
+
+    try set.verifyIntegrity(t.buf, .{});
+}
+
+test "RefCountedSet needs rehash when dead items dominate" {
+    const testing = std.testing;
+    var t = try testSetInit(64);
+    defer testing.allocator.free(t.buf);
+    const set = &t.set;
+
+    const cap = set.layout.cap;
+    for (0..cap - 1) |i| {
+        _ = try set.add(t.buf, @intCast(i + 1000));
+    }
+
+    for (0..cap - 2) |i| {
+        const id = set.lookup(t.buf, @intCast(i + 1000)).?;
+        set.release(t.buf, id);
+    }
+
+    try testing.expectError(error.NeedsRehash, set.add(t.buf, 99999));
+    try set.verifyIntegrity(t.buf, .{});
 }
 
 test "RefCountedSet random operations against live-value oracle" {
