@@ -278,10 +278,17 @@ pub fn RefCountedSet(
 
             const items = self.items.ptr(base);
 
-            // Trim dead items from the end of the list.
-            while (self.next_id > 1 and items[self.next_id - 1].meta.ref == 0) {
-                self.next_id -= 1;
-                self.deleteItem(base, self.next_id, ctx);
+            // If every item is dead, reset the table in bulk. Deleting each
+            // item individually would repeatedly backshift probe sequences
+            // even though no entries need to survive.
+            if (self.living == 0 and self.next_id > 1) {
+                self.clearDead(base, ctx);
+            } else {
+                // Trim dead items from the end of the list.
+                while (self.next_id > 1 and items[self.next_id - 1].meta.ref == 0) {
+                    self.next_id -= 1;
+                    self.deleteItem(base, self.next_id, ctx);
+                }
             }
 
             const hash: u64 = ctx.hash(value);
@@ -484,6 +491,29 @@ pub fn RefCountedSet(
         /// Get the current number of non-dead items in the set.
         pub fn count(self: *const Self) usize {
             return self.living;
+        }
+
+        /// Reset the table after every stored item has become dead.
+        fn clearDead(self: *Self, base: anytype, ctx: Context) void {
+            assert(self.living == 0);
+
+            const table = self.table.ptr(base)[0..self.layout.table_cap];
+            const items = self.items.ptr(base)[0..self.next_id];
+
+            if (comptime @hasDecl(Context, "deleted")) {
+                for (items[1..]) |item| {
+                    if (item.meta.psl != std.math.maxInt(Id)) {
+                        assert(item.meta.ref == 0);
+                        ctx.deleted(item.value);
+                    }
+                }
+            }
+
+            @memset(table, 0);
+            @memset(items[1..], .{});
+            self.next_id = 1;
+            self.max_psl = 0;
+            self.psl_stats = @splat(0);
         }
 
         /// Delete an item, removing any references from
@@ -853,6 +883,54 @@ test "RefCountedSet random operations against live-value oracle" {
             }
         }
     }
+}
+
+test "RefCountedSet bulk reset calls deleted exactly once" {
+    const testing = std.testing;
+    const Context = struct {
+        deleted_count: *usize,
+
+        pub fn hash(_: *const @This(), value: u8) u64 {
+            return std.hash.int(@as(u64, value));
+        }
+
+        pub fn eql(_: *const @This(), a: u8, b: u8) bool {
+            return a == b;
+        }
+
+        pub fn deleted(self: *const @This(), _: u8) void {
+            self.deleted_count.* += 1;
+        }
+    };
+    const Set = RefCountedSet(u8, u8, u16, Context);
+
+    const layout: Set.Layout = .init(16);
+    const buf = try testing.allocator.alignedAlloc(
+        u8,
+        Set.base_align,
+        layout.total_size,
+    );
+    defer testing.allocator.free(buf);
+
+    var deleted_count: usize = 0;
+    var set = Set.init(.init(buf), layout, .{
+        .deleted_count = &deleted_count,
+    });
+
+    const first = try set.add(buf, 1);
+    const second = try set.add(buf, 2);
+    const third = try set.add(buf, 3);
+    set.release(buf, first);
+    set.release(buf, second);
+    set.release(buf, third);
+
+    // The next add resets all three dead entries before inserting. The new
+    // value starts from the lowest ID again and remains owned by the set.
+    const replacement = try set.add(buf, 4);
+    try testing.expectEqual(@as(usize, 3), deleted_count);
+    try testing.expectEqual(@as(u8, 1), replacement);
+    try testing.expectEqual(@as(usize, 1), set.count());
+    try testing.expectEqual(replacement, set.lookup(buf, 4).?);
 }
 
 test "RefCountedSet zero capacity bypasses context" {
