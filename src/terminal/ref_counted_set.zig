@@ -271,6 +271,11 @@ pub fn RefCountedSet(
             return try self.addContext(base, value, self.context);
         }
         pub fn addContext(self: *Self, base: anytype, value: T, ctx: Context) AddError!Id {
+            if (self.layout.table_cap == 0) {
+                @branchHint(.cold);
+                return AddError.OutOfMemory;
+            }
+
             const items = self.items.ptr(base);
 
             // Trim dead items from the end of the list.
@@ -279,8 +284,10 @@ pub fn RefCountedSet(
                 self.deleteItem(base, self.next_id, ctx);
             }
 
+            const hash: u64 = ctx.hash(value);
+
             // If the item already exists, return it.
-            if (self.lookupContext(base, value, ctx)) |id| {
+            if (self.lookupAdaptedHash(base, value, ctx, hash)) |id| {
                 // Notify the context that the value is "deleted" because
                 // we're reusing the existing value in the set. This allows
                 // callers to clean up any resources associated with the value.
@@ -320,7 +327,7 @@ pub fn RefCountedSet(
                 return AddError.OutOfMemory;
             }
 
-            const id = self.insert(base, value, self.next_id, ctx);
+            const id = self.insert(base, value, self.next_id, ctx, hash);
             items[id].meta.ref += 1;
             assert(items[id].meta.ref == 1);
             self.living += 1;
@@ -536,19 +543,25 @@ pub fn RefCountedSet(
         /// Look up a value using a key and context whose hash and equality
         /// functions adapt that key to resident values of type T.
         pub fn lookupAdapted(self: *const Self, base: anytype, value: anytype, ctx: anytype) ?Id {
-            // A zero-capacity set (a valid special case of Layout.init)
-            // contains nothing and has a zero-size table, so we can't
-            // probe it: table[0] would read whatever memory follows the
-            // set in the backing buffer.
+            // A zero-capacity set has no table to probe. Check before hashing
+            // because adapted contexts may require initialized backing data.
             if (self.layout.table_cap == 0) {
                 @branchHint(.cold);
                 return null;
             }
 
+            return self.lookupAdaptedHash(base, value, ctx, ctx.hash(value));
+        }
+
+        fn lookupAdaptedHash(
+            self: *const Self,
+            base: anytype,
+            value: anytype,
+            ctx: anytype,
+            hash: u64,
+        ) ?Id {
             const table = self.table.ptr(base);
             const items = self.items.ptr(base);
-
-            const hash: u64 = ctx.hash(value);
 
             for (0..self.max_psl + 1) |i| {
                 const p: usize = @intCast((hash +% i) & self.layout.table_mask);
@@ -591,8 +604,10 @@ pub fn RefCountedSet(
         /// be used as the ID. If an existing item is found, the `new_id`
         /// is ignored and the existing item's ID is returned.
         fn upsert(self: *Self, base: anytype, value: T, new_id: Id, ctx: Context) Id {
+            const hash: u64 = ctx.hash(value);
+
             // If the item already exists, return it.
-            if (self.lookupContext(base, value, ctx)) |id| {
+            if (self.lookupAdaptedHash(base, value, ctx, hash)) |id| {
                 // Notify the context that the value is "deleted" because
                 // we're reusing the existing value in the set. This allows
                 // callers to clean up any resources associated with the value.
@@ -601,16 +616,23 @@ pub fn RefCountedSet(
                 return id;
             }
 
-            return self.insert(base, value, new_id, ctx);
+            return self.insert(base, value, new_id, ctx, hash);
         }
 
         /// Insert the given value into the hash table with the given ID.
         ///
         /// If runtime safety is enabled, asserts that
         /// the value is not already present in the table.
-        fn insert(self: *Self, base: anytype, value: T, new_id: Id, ctx: Context) Id {
+        fn insert(
+            self: *Self,
+            base: anytype,
+            value: T,
+            new_id: Id,
+            ctx: Context,
+            hash: u64,
+        ) Id {
             if (comptime std.debug.runtime_safety)
-                assert(self.lookupContext(base, value, ctx) == null);
+                assert(self.lookupAdaptedHash(base, value, ctx, hash) == null);
 
             const table = self.table.ptr(base);
             const items = self.items.ptr(base);
@@ -620,8 +642,6 @@ pub fn RefCountedSet(
                 .value = value,
                 .meta = .{ .psl = 0, .ref = 0 },
             };
-
-            const hash: u64 = ctx.hash(value);
 
             var held_id: Id = new_id;
             var held_item: *Item = &new_item;
@@ -833,6 +853,25 @@ test "RefCountedSet random operations against live-value oracle" {
             }
         }
     }
+}
+
+test "RefCountedSet zero capacity bypasses context" {
+    const testing = std.testing;
+    const Context = struct {
+        pub fn hash(_: *const @This(), _: u8) u64 {
+            unreachable;
+        }
+
+        pub fn eql(_: *const @This(), _: u8, _: u8) bool {
+            unreachable;
+        }
+    };
+    const Set = RefCountedSet(u8, u8, u16, Context);
+
+    var buf: [0]u8 = .{};
+    var set = Set.init(.init(&buf), .init(0), .{});
+    try testing.expectEqual(null, set.lookup(&buf, 1));
+    try testing.expectError(error.OutOfMemory, set.add(&buf, 1));
 }
 
 test "RefCountedSet empty marker at maximum table capacity" {
