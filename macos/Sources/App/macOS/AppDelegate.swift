@@ -992,6 +992,12 @@ class AppDelegate: NSObject,
             return
         }
 
+        let hasTerminalWindow = NSApp.windows.contains { $0.windowController is TerminalController }
+        if !hasTerminalWindow {
+            _ = TerminalController.newWindow(ghostty)
+            return
+        }
+
         // If we're not active, we want to become active
         NSApp.activate(ignoringOtherApps: true)
 
