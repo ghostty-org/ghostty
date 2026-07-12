@@ -310,23 +310,33 @@ fn findFreeChunks(bitmaps: []u64, n: usize) ?usize {
 
     assert(n <= @bitSizeOf(u64));
     for (bitmaps, 0..) |*bitmap, idx| {
-        // Shift the bitmap to find `n` sequential free chunks.
+        // Fold the bitmap onto itself to find `n` sequential free chunks.
+        // Each fold extends the represented run by h, so doubling the
+        // represented run takes O(log n) steps rather than n - 1.
         // EXAMPLE:
         // n = 4
-        // shifted = 001111001011110010
-        //         & 000111100101111001
-        //         & 000011110010111100
-        //         & 000001111001011110
+        // shifted = 001111001011110010 (runs of 1)
+        //         & 000111100101111001 (runs of 2)
+        //         = 000111000001110000
+        //         & 000001110000011100 (runs of 4)
         //         = 000001000000010000
         //                ^       ^
         // In this example there are 2 places with at least 4 sequential 1s.
-        var shifted: u64 = bitmap.*;
-        for (1..n) |i| shifted &= bitmap.* >> @intCast(i);
+        const run: u64 = run: {
+            var shifted: u64 = bitmap.*;
+            var len: usize = 1;
+            while (len < n) {
+                const h = @min(len, n - len);
+                shifted &= shifted >> @intCast(h);
+                len += h;
+            }
+            break :run shifted;
+        };
 
-        if (shifted != 0) {
+        if (run != 0) {
             // Trailing zeroes gets us the index of the first bit index with at
             // least `n` sequential 1s. In the example above, that would be `4`.
-            const bit = @ctz(shifted);
+            const bit = @ctz(run);
 
             // Calculate the mask so we can mark it as used.
             const mask = (@as(u64, std.math.maxInt(u64)) >> @intCast(64 - n)) << @intCast(bit);
@@ -405,6 +415,21 @@ test "findFreeChunks exactly 64 chunks" {
         bitmaps[0],
     );
     try testing.expectEqual(@as(usize, 0), idx);
+}
+
+test "findFreeChunks folded in-word search is exhaustive" {
+    const testing = std.testing;
+
+    for (1..65) |n| {
+        for (0..65 - n) |start| {
+            var bitmaps = [_]u64{
+                (@as(u64, std.math.maxInt(u64)) >> @intCast(64 - n)) <<
+                    @intCast(start),
+            };
+            try testing.expectEqual(start, findFreeChunks(&bitmaps, n).?);
+            try testing.expectEqual(@as(u64, 0), bitmaps[0]);
+        }
+    }
 }
 
 test "findFreeChunks small allocation across bitmap boundary" {
@@ -503,6 +528,9 @@ test "findFreeChunks larger than 64 chunks exact" {
 
 test "findFreeChunks random operations against bit oracle" {
     const testing = std.testing;
+
+    // Search individual bits instead of sharing any of findFreeChunks' word
+    // folding or cross-word logic. This is deliberately simple and slow.
     const Oracle = struct {
         fn find(bitmaps: []const u64, n: usize) ?usize {
             var run: usize = 0;
@@ -523,10 +551,15 @@ test "findFreeChunks random operations against bit oracle" {
     var prng = std.Random.DefaultPrng.init(0xB17);
     const random = prng.random();
     for (0..10_000) |_| {
+        // Random words and requests through 96 chunks exercise both the
+        // single-word and multi-word implementations.
         var bitmaps: [4]u64 = undefined;
         for (&bitmaps) |*bitmap| bitmap.* = random.int(u64);
         var expected = bitmaps;
         const n = random.intRangeAtMost(usize, 1, 96);
+
+        // Apply the oracle's allocation to a separate copy so both the
+        // returned offset and the mutated bitmap state can be compared.
         const expected_idx = Oracle.find(&bitmaps, n);
         if (expected_idx) |start| {
             for (start..start + n) |i| {
