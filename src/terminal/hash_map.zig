@@ -124,6 +124,13 @@ pub fn OffsetHashMap(
             return Unmanaged.layoutForSize(cap);
         }
 
+        /// Returns the backing layout for an exact raw slot capacity. The
+        /// capacity must be zero or a power of two. Unlike layout(), this
+        /// does not scale the request by the configured load factor.
+        pub fn layoutForCapacity(cap: Unmanaged.Size) Layout {
+            return Unmanaged.layoutForCapacity(cap);
+        }
+
         /// Initialize a new HashMap with the given capacity and backing
         /// memory. The backing memory must be aligned to base_align.
         pub fn init(buf: OffsetBuf, l: Layout) Self {

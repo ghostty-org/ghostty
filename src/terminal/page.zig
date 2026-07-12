@@ -1735,6 +1735,7 @@ pub const Page = struct {
         hyperlink_map_layout: hyperlink.Map.Layout,
         hyperlink_set_start: usize,
         hyperlink_set_layout: hyperlink.Set.Layout,
+        /// Actual usable capacity after allocator layout rounding.
         capacity: Capacity,
     };
 
@@ -1762,20 +1763,40 @@ pub const Page = struct {
         const grapheme_alloc_start = alignForward(usize, styles_end, GraphemeAlloc.base_align.toByteUnits());
         const grapheme_alloc_end = grapheme_alloc_start + grapheme_alloc_layout.total_size;
 
-        const grapheme_count: usize = count: {
-            if (cap.grapheme_bytes == 0) break :count 0;
-            // Use divCeil to match GraphemeAlloc.layout() which uses alignForward,
-            // ensuring grapheme_map has capacity when grapheme_alloc has chunks.
-            const base = std.math.divCeil(usize, cap.grapheme_bytes, grapheme_chunk) catch unreachable;
-            break :count std.math.ceilPowerOfTwo(usize, base) catch unreachable;
-        };
-        const grapheme_map_layout = GraphemeMap.layout(@intCast(grapheme_count));
+        // Size the map for every chunk the allocator can address. Using the
+        // allocator layout makes Page.layout idempotent after capacity
+        // rounding and avoids applying a separate rounding policy here.
+        const grapheme_count = grapheme_alloc_layout.bitmap_count *
+            GraphemeAlloc.bitmap_bit_size;
+        const grapheme_map_capacity = if (grapheme_count == 0)
+            0
+        else
+            std.math.ceilPowerOfTwo(usize, grapheme_count) catch unreachable;
+        const grapheme_map_layout = GraphemeMap.layoutForCapacity(
+            @intCast(grapheme_map_capacity),
+        );
         const grapheme_map_start = alignForward(usize, grapheme_alloc_end, GraphemeMap.base_align.toByteUnits());
         const grapheme_map_end = grapheme_map_start + grapheme_map_layout.total_size;
 
         const string_layout = StringAlloc.layout(cap.string_bytes);
         const string_start = alignForward(usize, grapheme_map_end, StringAlloc.base_align.toByteUnits());
         const string_end = string_start + string_layout.total_size;
+
+        // Bitmap allocators address complete 64-chunk words. Preserve their
+        // actual usable byte capacities so doubling a Page capacity always
+        // advances to a larger allocator layout rather than repeating the
+        // same rounded layout.
+        var actual_capacity = cap;
+        actual_capacity.grapheme_bytes = std.math.cast(
+            size.GraphemeBytesInt,
+            grapheme_alloc_layout.bitmap_count *
+                GraphemeAlloc.bitmap_bit_size * grapheme_chunk,
+        ) orelse std.math.maxInt(size.GraphemeBytesInt);
+        actual_capacity.string_bytes = std.math.cast(
+            size.StringBytesInt,
+            string_layout.bitmap_count *
+                StringAlloc.bitmap_bit_size * string_chunk,
+        ) orelse std.math.maxInt(size.StringBytesInt);
 
         const hyperlink_count = @divFloor(cap.hyperlink_bytes, @sizeOf(hyperlink.Set.Item));
         const hyperlink_set_layout: hyperlink.Set.Layout = .init(@intCast(hyperlink_count));
@@ -1814,7 +1835,7 @@ pub const Page = struct {
             .hyperlink_map_layout = hyperlink_map_layout,
             .hyperlink_set_start = hyperlink_set_start,
             .hyperlink_set_layout = hyperlink_set_layout,
-            .capacity = cap,
+            .capacity = actual_capacity,
         };
     }
 };
@@ -2673,6 +2694,56 @@ test "Page init" {
         .styles = 32,
     });
     defer page.deinit();
+}
+
+test "Page capacity reflects bitmap allocator rounding" {
+    var page = try Page.init(.{
+        .cols = 1,
+        .rows = 1,
+        .grapheme_bytes = 1,
+        .string_bytes = 1,
+    });
+    defer page.deinit();
+
+    try testing.expectEqual(
+        page.grapheme_alloc.capacityBytes(),
+        @as(usize, page.capacity.grapheme_bytes),
+    );
+    try testing.expectEqual(
+        page.string_alloc.capacityBytes(),
+        @as(usize, page.capacity.string_bytes),
+    );
+    try testing.expectEqual(
+        page.memory.len,
+        Page.layout(page.capacity).total_size,
+    );
+}
+
+test "Page grapheme map covers rounded allocator" {
+    for ([_]usize{ 0, 1, 65, 129, 192, 512 }) |requested_chunks| {
+        const cap: Capacity = .{
+            .cols = 1,
+            .rows = 1,
+            .grapheme_bytes = @intCast(
+                requested_chunks * grapheme_chunk,
+            ),
+        };
+        const layout = Page.layout(cap);
+        const alloc_chunks = layout.grapheme_alloc_layout.bitmap_count *
+            GraphemeAlloc.bitmap_bit_size;
+        try testing.expect(
+            layout.grapheme_map_layout.capacity >= alloc_chunks,
+        );
+        const normalized = Page.layout(layout.capacity);
+        try testing.expectEqual(
+            layout.grapheme_alloc_layout.total_size,
+            normalized.grapheme_alloc_layout.total_size,
+        );
+        try testing.expectEqual(
+            layout.grapheme_map_layout.capacity,
+            normalized.grapheme_map_layout.capacity,
+        );
+    }
 }
 
 test "Page read and write cells" {
