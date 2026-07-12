@@ -9,12 +9,10 @@ pub const Action = enum {
     @"apc-parser",
     @"codepoint-width",
     @"grapheme-break",
-    @"grapheme-map",
     @"hyperlink-map",
     @"page-compression",
     @"scrollback-compression",
     @"screen-clone",
-    @"style-set",
     @"terminal-parser",
     @"terminal-stream",
     @"is-symbol",
@@ -31,10 +29,8 @@ pub const Action = enum {
     pub fn Struct(comptime action: Action) type {
         return switch (action) {
             .@"apc-parser" => @import("ApcParser.zig"),
-            .@"grapheme-map" => @import("GraphemeMap.zig"),
             .@"hyperlink-map" => @import("HyperlinkMap.zig"),
             .@"screen-clone" => @import("ScreenClone.zig"),
-            .@"style-set" => @import("StyleSet.zig"),
             .@"page-compression" => @import("PageCompression.zig"),
             .@"scrollback-compression" => @import("ScrollbackCompression.zig"),
             .@"terminal-stream" => @import("TerminalStream.zig"),
