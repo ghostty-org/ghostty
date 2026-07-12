@@ -33,7 +33,8 @@ pub const Options = struct {
     cps: u8 = 1,
 
     /// Percentage of the entries populated before the timed operation.
-    /// Values above 100 are treated as 100.
+    /// Values above 100 are treated as 100. The resident count is capped
+    /// by the page's production grapheme capacity.
     @"load-percent": u8 = 100,
 
     /// Number of complete passes over the populated cells per step.
@@ -68,8 +69,9 @@ pub fn create(alloc: Allocator, opts: Options) !*GraphemeMap {
     errdefer alloc.free(cps);
     for (cps, 0..) |*cp, i| cp.* = @intCast(0x1F600 + i);
 
-    // Size the allocator to exactly fit the working set so that at 100%
-    // load we exercise a full allocator, the worst case for chunk searches.
+    // Size the allocator to exactly fit the requested working set. The
+    // production map load limit may cap the resident set before every
+    // allocator chunk can be occupied.
     const chunks_per_entry = std.math.divCeil(
         usize,
         @as(usize, opts.cps) * @sizeOf(u21),
@@ -85,10 +87,10 @@ pub fn create(alloc: Allocator, opts: Options) !*GraphemeMap {
     errdefer page.deinit();
 
     const load = @min(opts.@"load-percent", 100);
-    const entry_count = @max(
-        1,
+    const entry_count = @max(1, @min(
+        page.graphemeCapacity(),
         @divFloor(@as(usize, opts.entries) * load, 100),
-    );
+    ));
     for (0..entry_count) |x| {
         const rac = page.getRowAndCell(x, 0);
         rac.cell.* = .{
@@ -151,15 +153,17 @@ fn stepChurn(ptr: *anyopaque) Benchmark.Error!void {
 test GraphemeMap {
     const alloc = std.testing.allocator;
 
-    inline for (.{ Mode.lookup, Mode.churn }) |mode| {
-        const impl = try GraphemeMap.create(alloc, .{
-            .entries = 64,
-            .cps = 5,
-            .mode = mode,
-        });
-        defer impl.destroy(alloc);
+    inline for (.{ @as(u8, 1), 5 }) |cps| {
+        inline for (.{ Mode.lookup, Mode.churn }) |mode| {
+            const impl = try GraphemeMap.create(alloc, .{
+                .entries = 64,
+                .cps = cps,
+                .mode = mode,
+            });
+            defer impl.destroy(alloc);
 
-        const bench = impl.benchmark();
-        _ = try bench.run(.once);
+            const bench = impl.benchmark();
+            _ = try bench.run(.once);
+        }
     }
 }

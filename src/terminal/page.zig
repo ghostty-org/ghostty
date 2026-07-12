@@ -92,11 +92,14 @@ pub const grapheme_chunk = grapheme_chunk_len * @sizeOf(u21);
 const GraphemeAlloc = BitmapAllocator(grapheme_chunk);
 const grapheme_count_default = GraphemeAlloc.bitmap_bit_size;
 pub const grapheme_bytes_default = grapheme_count_default * grapheme_chunk;
+/// Keep spare slots in the grapheme map so missed lookups and insertions
+/// cannot degrade into full-table scans as grapheme storage fills.
+const grapheme_map_max_load_percentage = 80;
 const GraphemeMap = OffsetHashMap(
     Offset(Cell),
     Offset(u21).Slice,
     hash_map.OffsetContext(Cell),
-    hash_map.default_max_load_percentage,
+    grapheme_map_max_load_percentage,
 );
 
 /// The allocator used for shared utf8-encoded strings within a page.
@@ -695,6 +698,71 @@ pub const Page = struct {
         HyperlinkError ||
         GraphemeError;
 
+    /// Derive the grapheme map layout from an allocator layout. Both
+    /// Page.layout and exact capacity sizing use this helper so changes to
+    /// their shared rounding policy cannot drift apart.
+    fn graphemeMapLayoutForAllocator(
+        alloc_layout: GraphemeAlloc.Layout,
+    ) GraphemeMap.Layout {
+        // Every allocator bit can describe one grapheme entry. Page.layout
+        // rounds that raw entry count to the map's power-of-two capacity.
+        const grapheme_count = alloc_layout.bitmap_count *
+            GraphemeAlloc.bitmap_bit_size;
+        const map_capacity = if (grapheme_count == 0)
+            0
+        else
+            std.math.ceilPowerOfTwo(usize, grapheme_count) catch unreachable;
+        return GraphemeMap.layoutForCapacity(@intCast(map_capacity));
+    }
+
+    /// Return the smallest byte request that accommodates both the occupied
+    /// grapheme chunks and the map entries under Page.layout's policy.
+    fn minimumGraphemeBytes(
+        self: *const Page,
+        storage_bytes: usize,
+        entry_count: usize,
+    ) usize {
+        assert(storage_bytes % grapheme_chunk == 0);
+        if (entry_count == 0) {
+            assert(storage_bytes == 0);
+            return 0;
+        }
+
+        // Ask the map for the raw capacity needed to keep entry_count within
+        // its load limit rather than duplicating that load-factor arithmetic.
+        const required_map_capacity =
+            GraphemeMap.layout(@intCast(entry_count)).capacity;
+
+        // The occupied chunks are the smallest possible allocation. The
+        // source page's current capacity is a known-sufficient upper bound.
+        var lower = @divExact(storage_bytes, grapheme_chunk);
+        var upper = @divExact(
+            @as(usize, self.capacity.grapheme_bytes),
+            grapheme_chunk,
+        );
+        assert(lower <= upper);
+        assert(graphemeMapLayoutForAllocator(
+            GraphemeAlloc.layout(upper * grapheme_chunk),
+        ).capacity >= required_map_capacity);
+
+        // Capacity is monotonic in requested chunks, so binary-search the
+        // real layout policy instead of inverting its current power-of-two
+        // and bitmap-word rounding algebra here.
+        while (lower < upper) {
+            const mid = lower + (upper - lower) / 2;
+            const map_layout = graphemeMapLayoutForAllocator(
+                GraphemeAlloc.layout(mid * grapheme_chunk),
+            );
+            if (map_layout.capacity >= required_map_capacity) {
+                upper = mid;
+            } else {
+                lower = mid + 1;
+            }
+        }
+
+        return lower * grapheme_chunk;
+    }
+
     /// Compute the exact capacity required to store a range of rows from
     /// this page.
     ///
@@ -723,6 +791,7 @@ pub const Page = struct {
 
         // Accumulators
         var id_set: CellCountSet = .initEmpty();
+        var grapheme_entries: usize = 0;
         var grapheme_bytes: usize = 0;
         var string_bytes: usize = 0;
 
@@ -737,12 +806,18 @@ pub const Page = struct {
 
                 if (cell.hasGrapheme()) {
                     if (self.lookupGrapheme(cell)) |cps| {
+                        grapheme_entries += 1;
                         grapheme_bytes += GraphemeAlloc.bytesRequired(u21, cps.len);
                     }
                 }
             }
         }
         const styles_cap = StyleSet.capacityForCount(id_set.count());
+
+        const grapheme_cap = self.minimumGraphemeBytes(
+            grapheme_bytes,
+            grapheme_entries,
+        );
 
         // Second pass: count hyperlinks and string bytes
         // We count both unique hyperlinks (for hyperlink_set) and total
@@ -797,7 +872,7 @@ pub const Page = struct {
             .cols = self.size.cols,
             .rows = @intCast(y_end - y_start),
             .styles = @intCast(styles_cap),
-            .grapheme_bytes = @intCast(grapheme_bytes),
+            .grapheme_bytes = @intCast(grapheme_cap),
             .hyperlink_bytes = @intCast(hyperlink_cap * @sizeOf(hyperlink.Set.Item)),
             .string_bytes = @intCast(string_bytes),
         };
@@ -1695,7 +1770,10 @@ pub const Page = struct {
     /// Returns the grapheme capacity for the page. This isn't the byte
     /// size but the number of unique cells that can have grapheme data.
     pub inline fn graphemeCapacity(self: *const Page) usize {
-        return self.grapheme_map.map(self.memory).capacity();
+        const map_capacity = self.grapheme_map.map(self.memory).maxLoad();
+        const alloc_capacity =
+            self.grapheme_alloc.capacityBytes() / grapheme_chunk;
+        return @min(map_capacity, alloc_capacity);
     }
 
     /// Checks if the row contains any styles and sets
@@ -1766,14 +1844,8 @@ pub const Page = struct {
         // Size the map for every chunk the allocator can address. Using the
         // allocator layout makes Page.layout idempotent after capacity
         // rounding and avoids applying a separate rounding policy here.
-        const grapheme_count = grapheme_alloc_layout.bitmap_count *
-            GraphemeAlloc.bitmap_bit_size;
-        const grapheme_map_capacity = if (grapheme_count == 0)
-            0
-        else
-            std.math.ceilPowerOfTwo(usize, grapheme_count) catch unreachable;
-        const grapheme_map_layout = GraphemeMap.layoutForCapacity(
-            @intCast(grapheme_map_capacity),
+        const grapheme_map_layout = graphemeMapLayoutForAllocator(
+            grapheme_alloc_layout,
         );
         const grapheme_map_start = alignForward(usize, grapheme_alloc_end, GraphemeMap.base_align.toByteUnits());
         const grapheme_map_end = grapheme_map_start + grapheme_map_layout.total_size;
@@ -2744,6 +2816,122 @@ test "Page grapheme map covers rounded allocator" {
             normalized.grapheme_map_layout.capacity,
         );
     }
+}
+
+test "Page grapheme map reserves probe headroom" {
+    const Case = struct {
+        requested_chunks: usize,
+        map_slots: u32,
+    };
+    for ([_]Case{
+        .{ .requested_chunks = 0, .map_slots = 0 },
+        .{ .requested_chunks = 1, .map_slots = 64 },
+        .{ .requested_chunks = 65, .map_slots = 128 },
+        .{ .requested_chunks = 129, .map_slots = 256 },
+        .{ .requested_chunks = 192, .map_slots = 256 },
+        .{ .requested_chunks = 512, .map_slots = 512 },
+    }) |case| {
+        const cap: Capacity = .{
+            .cols = 1,
+            .rows = 1,
+            .grapheme_bytes = @intCast(
+                case.requested_chunks * grapheme_chunk,
+            ),
+        };
+        const layout = Page.layout(cap);
+        try testing.expectEqual(
+            case.map_slots,
+            layout.grapheme_map_layout.capacity,
+        );
+
+        var page = try Page.init(cap);
+        defer page.deinit();
+        const alloc_chunks =
+            page.grapheme_alloc.capacityBytes() / grapheme_chunk;
+        const map_capacity =
+            page.grapheme_map.map(page.memory).maxLoad();
+        try testing.expectEqual(
+            @min(map_capacity, alloc_chunks),
+            page.graphemeCapacity(),
+        );
+    }
+}
+
+test "Page minimum grapheme bytes follow map layout policy" {
+    const max_entries = 4096;
+    const source_chunks = GraphemeMap.layout(max_entries).capacity;
+    var page = try Page.init(.{
+        .cols = 1,
+        .rows = 1,
+        .grapheme_bytes = source_chunks * grapheme_chunk,
+    });
+    defer page.deinit();
+
+    for (1..max_entries + 1) |entry_count| {
+        const storage_bytes = entry_count * grapheme_chunk;
+        const required_bytes = page.minimumGraphemeBytes(
+            storage_bytes,
+            entry_count,
+        );
+        const required_map = GraphemeMap.layout(@intCast(entry_count));
+        const layout = Page.layout(.{
+            .cols = 1,
+            .rows = 1,
+            .grapheme_bytes = @intCast(required_bytes),
+        });
+
+        // Matching the raw capacity selected by layout(entry_count) means
+        // the resulting map's configured maximum load covers every entry.
+        try testing.expect(
+            layout.grapheme_map_layout.capacity >= required_map.capacity,
+        );
+        try testing.expect(required_bytes >= storage_bytes);
+
+        // If map headroom increased the request, one fewer chunk must be
+        // insufficient. This also verifies that the helper stays exact.
+        if (required_bytes > storage_bytes) {
+            const previous = Page.layout(.{
+                .cols = 1,
+                .rows = 1,
+                .grapheme_bytes = @intCast(
+                    required_bytes - grapheme_chunk,
+                ),
+            });
+            try testing.expect(
+                previous.grapheme_map_layout.capacity < required_map.capacity,
+            );
+        }
+    }
+}
+
+test "Page grapheme capacity is bounded by storage" {
+    const entries = GraphemeAlloc.bitmap_bit_size;
+    var page = try Page.init(.{
+        .cols = entries,
+        .rows = 1,
+        .grapheme_bytes = entries * grapheme_chunk,
+    });
+    defer page.deinit();
+
+    // The map keeps headroom by limiting usable slots rather than doubling
+    // its raw storage. A full map therefore grows the page before all
+    // allocator chunks are consumed.
+    const capacity = page.graphemeCapacity();
+    try testing.expect(capacity < entries);
+
+    for (0..capacity) |x| {
+        const rac = page.getRowAndCell(x, 0);
+        rac.cell.* = .init('A');
+        try page.setGraphemes(rac.row, rac.cell, &.{0x0301});
+    }
+    try testing.expectEqual(capacity, page.graphemeCount());
+
+    const rac = page.getRowAndCell(capacity, 0);
+    rac.cell.* = .init('A');
+    try testing.expectError(
+        error.GraphemeMapOutOfMemory,
+        page.setGraphemes(rac.row, rac.cell, &.{0x0301}),
+    );
 }
 
 test "Page read and write cells" {
@@ -4122,6 +4310,40 @@ test "Page exactRowCapacity grapheme_bytes larger than chunk" {
     try cloned.cloneRowFrom(&page, dst_row, src_row);
     const cloned_cap = cloned.exactRowCapacity(0, 1);
     try testing.expectEqual(cap, cloned_cap);
+}
+
+test "Page exactRowCapacity includes grapheme map headroom" {
+    const entry_count = 103;
+    var page = try Page.init(.{
+        .cols = entry_count,
+        .rows = 1,
+        // 129 requested chunks round to 192 allocator chunks and a
+        // 256-slot map. This source can hold all 103 entries at 80% load.
+        .grapheme_bytes = 129 * grapheme_chunk,
+    });
+    defer page.deinit();
+
+    for (0..entry_count) |x| {
+        const rac = page.getRowAndCell(x, 0);
+        rac.cell.* = .init('a');
+        try page.appendGrapheme(rac.row, rac.cell, 0x0301);
+    }
+
+    // Merely summing the 103 occupied chunks would round to a 128-slot
+    // map, whose maximum load is 102. The exact capacity must force the
+    // next map size so cloning the final entry cannot fail.
+    const cap = page.exactRowCapacity(0, 1);
+    try testing.expectEqual(129 * grapheme_chunk, cap.grapheme_bytes);
+
+    var cloned = try Page.init(cap);
+    defer cloned.deinit();
+    try cloned.cloneFrom(&page, 0, 1);
+    try testing.expectEqual(entry_count, cloned.graphemeCount());
+
+    for (0..entry_count) |x| {
+        const cell = cloned.getRowAndCell(x, 0).cell;
+        try testing.expect(cloned.lookupGrapheme(cell) != null);
+    }
 }
 
 test "Page exactRowCapacity hyperlinks" {
