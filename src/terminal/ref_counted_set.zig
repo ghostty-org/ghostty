@@ -560,7 +560,7 @@ pub fn RefCountedSet(
                     return null;
                 }
 
-                const item = items[id];
+                const item = &items[id];
 
                 // An item with a shorter probe sequence length would never
                 // end up in the middle of another sequence, since it would
