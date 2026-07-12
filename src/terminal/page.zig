@@ -87,8 +87,8 @@ const AllocWindows = struct {
 /// is that most skin-tone emoji are <= 4 codepoints, letter combiners
 /// are usually <= 4 codepoints, and 4 codepoints is a nice power of two
 /// for alignment.
-const grapheme_chunk_len = 4;
-const grapheme_chunk = grapheme_chunk_len * @sizeOf(u21);
+pub const grapheme_chunk_len = 4;
+pub const grapheme_chunk = grapheme_chunk_len * @sizeOf(u21);
 const GraphemeAlloc = BitmapAllocator(grapheme_chunk);
 const grapheme_count_default = GraphemeAlloc.bitmap_bit_size;
 pub const grapheme_bytes_default = grapheme_count_default * grapheme_chunk;

@@ -4,6 +4,7 @@ pub const CApi = @import("CApi.zig");
 pub const TerminalStream = @import("TerminalStream.zig");
 pub const CodepointWidth = @import("CodepointWidth.zig");
 pub const GraphemeBreak = @import("GraphemeBreak.zig");
+pub const GraphemeMap = @import("GraphemeMap.zig");
 pub const HyperlinkMap = @import("HyperlinkMap.zig");
 pub const ScreenClone = @import("ScreenClone.zig");
 pub const StyleSet = @import("StyleSet.zig");
