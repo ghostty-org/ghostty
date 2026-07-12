@@ -593,8 +593,9 @@ pub fn RefCountedSet(
             const table = self.table.ptr(base);
             const items = self.items.ptr(base);
 
+            var p: Id = @truncate(hash);
+            p &= self.layout.table_mask;
             for (0..self.max_psl + 1) |i| {
-                const p: usize = @intCast((hash +% i) & self.layout.table_mask);
                 const id = table[p];
 
                 // Empty bucket, our item cannot have probed to
@@ -624,6 +625,8 @@ pub fn RefCountedSet(
                 {
                     return id;
                 }
+
+                p = (p +% 1) & self.layout.table_mask;
             }
 
             return null;
