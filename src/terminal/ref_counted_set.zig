@@ -700,7 +700,14 @@ pub fn RefCountedSet(
                 // for our value so that we can reuse its ID,
                 // unless its ID is greater than the one we're
                 // given (i.e. prefer smaller IDs).
-                if (item.meta.ref == 0) {
+                //
+                // Replacing it with an item that has a shorter probe
+                // sequence would break the Robin Hood lookup invariant:
+                // lookups stop when an occupant's PSL is shorter than their
+                // current probe distance, making later entries unreachable.
+                if (item.meta.ref == 0 and
+                    held_item.meta.psl >= item.meta.psl)
+                {
                     // Dead items aren't super common relative
                     // to other places to insert/swap the held
                     // item in to the set.
@@ -1087,6 +1094,106 @@ test "RefCountedSet random operations against live-value oracle" {
             }
         }
     }
+}
+
+test "RefCountedSet random high-load operations against live-value oracle" {
+    const testing = std.testing;
+    var t = try testSetInit(128);
+    defer testing.allocator.free(t.buf);
+    const set = &t.set;
+
+    var prng = std.Random.DefaultPrng.init(0xcafef00d);
+    const random = prng.random();
+    var oracle: std.AutoHashMapUnmanaged(u64, struct {
+        id: u16,
+        refs: u16,
+    }) = .empty;
+    defer oracle.deinit(testing.allocator);
+
+    const key_space: u64 = 96;
+    for (0..10_000) |_| {
+        const value = random.uintLessThan(u64, key_space) + 1;
+        const gop = try oracle.getOrPut(testing.allocator, value);
+        if (!gop.found_existing or gop.value_ptr.refs == 0) {
+            if (set.add(t.buf, value)) |id| {
+                gop.value_ptr.* = .{ .id = id, .refs = 1 };
+            } else |_| {
+                if (!gop.found_existing) _ = oracle.remove(value);
+                continue;
+            }
+        } else if (random.boolean()) {
+            set.release(t.buf, gop.value_ptr.id);
+            gop.value_ptr.refs -= 1;
+        } else {
+            try testing.expectEqual(
+                gop.value_ptr.id,
+                try set.add(t.buf, value),
+            );
+            gop.value_ptr.refs += 1;
+        }
+    }
+
+    var living: usize = 0;
+    var it = oracle.iterator();
+    while (it.next()) |entry| {
+        if (entry.value_ptr.refs > 0) {
+            living += 1;
+            try testing.expectEqual(
+                @as(?u16, entry.value_ptr.id),
+                set.lookup(t.buf, entry.key_ptr.*),
+            );
+            try testing.expectEqual(
+                entry.value_ptr.refs,
+                set.refCount(t.buf, entry.value_ptr.id),
+            );
+        } else {
+            try testing.expectEqual(
+                @as(?u16, null),
+                set.lookup(t.buf, entry.key_ptr.*),
+            );
+        }
+    }
+    try testing.expectEqual(living, set.count());
+    try set.verifyIntegrity(t.buf, .{});
+}
+
+test "RefCountedSet dead item replacement preserves probe invariant" {
+    const testing = std.testing;
+    const IdentityContext = struct {
+        pub fn hash(_: *const @This(), value: u64) u64 {
+            return value;
+        }
+
+        pub fn eql(_: *const @This(), a: u64, b: u64) bool {
+            return a == b;
+        }
+    };
+    const Set = RefCountedSet(u64, u16, u16, IdentityContext);
+
+    const layout: Set.Layout = .init(64);
+    const buf = try testing.allocator.alignedAlloc(
+        u8,
+        Set.base_align,
+        layout.total_size,
+    );
+    defer testing.allocator.free(buf);
+    var set: Set = .init(.init(buf), layout, .{});
+
+    // Build: b0=A(psl 0), b1=X(psl 1), b2=C(psl 1), b3=B(psl 2).
+    _ = try set.add(buf, 0);
+    const id_b = try set.add(buf, 1);
+    const id_c = try set.add(buf, 65);
+    _ = try set.add(buf, 64);
+
+    // A value homed at b2 must not replace the dead C with a shorter PSL.
+    // Doing so would make B unreachable through the Robin Hood early exit.
+    set.release(buf, id_c);
+    _ = try set.add(buf, 2);
+
+    try testing.expectEqual(@as(?u16, id_b), set.lookup(buf, 1));
+    try testing.expectEqual(id_b, try set.add(buf, 1));
+    try testing.expectEqual(@as(u16, 2), set.refCount(buf, id_b));
+    try set.verifyIntegrity(buf, .{});
 }
 
 test "RefCountedSet bulk reset calls deleted exactly once" {
