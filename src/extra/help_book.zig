@@ -252,7 +252,6 @@ pub fn write(alloc: Allocator, dir: std.fs.Dir) !void {
     // (the same sources as the ghostty(1)/ghostty(5) man pages).
     try writeTemplateFile(lproj, "docs.config.html", @embedFile("help_book/docs_config.html"), .{
         .header = try renderMarkdown(arena, @embedFile("../build/mdgen/ghostty_5_header.md")),
-        .footer = try renderMarkdown(arena, @embedFile("../build/mdgen/ghostty_5_footer.md")),
     });
     {
         var actions_html: std.Io.Writer.Allocating = .init(arena);
@@ -266,7 +265,6 @@ pub fn write(alloc: Allocator, dir: std.fs.Dir) !void {
         try writeTemplateFile(lproj, "docs.cli.html", @embedFile("help_book/docs_cli.html"), .{
             .header = try renderMarkdown(arena, @embedFile("../build/mdgen/ghostty_1_header.md")),
             .actions = actions_html.written(),
-            .footer = try renderMarkdown(arena, @embedFile("../build/mdgen/ghostty_1_footer.md")),
         });
     }
 
@@ -449,12 +447,18 @@ test "help book" {
         defer alloc.free(page);
         try testing.expect(std.mem.indexOf(u8, page, "<h1>Configuration File</h1>") != null);
         try testing.expect(std.mem.indexOf(u8, page, "configuration file") != null);
+        // The man-page FILES/ENVIRONMENT/BUGS/AUTHOR/SEE ALSO footer is
+        // not part of the help book.
+        try testing.expect(std.mem.indexOf(u8, page, "<h2 id=\"files\">FILES</h2>") == null);
+        try testing.expect(std.mem.indexOf(u8, page, "SEE ALSO") == null);
     }
     {
         const page = try tmp.dir.readFileAlloc(alloc, "Contents/Resources/en.lproj/docs.cli.html", 1 << 20);
         defer alloc.free(page);
         try testing.expect(std.mem.indexOf(u8, page, "<h3 id=\"cli.list-fonts\"><code>+list-fonts</code></h3>") != null);
         try testing.expect(std.mem.indexOf(u8, page, "<code>--version</code>") != null);
+        try testing.expect(std.mem.indexOf(u8, page, "<h2 id=\"files\">FILES</h2>") == null);
+        try testing.expect(std.mem.indexOf(u8, page, "SEE ALSO") == null);
     }
 }
 
