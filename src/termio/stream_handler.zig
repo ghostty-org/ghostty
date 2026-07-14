@@ -303,6 +303,7 @@ pub const StreamHandler = struct {
             .device_attributes => try self.deviceAttributes(value),
             .device_status => try self.deviceStatusReport(value.request),
             .kitty_keyboard_query => try self.queryKittyKeyboard(),
+            .modify_key_query => try self.queryModifyOtherKeys(),
             .kitty_keyboard_push => {
                 log.debug("pushing kitty keyboard mode: {}", .{value.flags});
                 self.terminal.screens.active.kitty_keyboard.push(value.flags);
@@ -986,6 +987,22 @@ pub const StreamHandler = struct {
             self.terminal.screens.active.kitty_keyboard.current().int(),
         });
 
+        self.messageWriter(.{
+            .write_small = .{
+                .data = data,
+                .len = @intCast(resp.len),
+            },
+        });
+    }
+
+    pub fn queryModifyOtherKeys(self: *StreamHandler) !void {
+        log.debug("querying modifyOtherKeys", .{});
+        // XTQMODKEYS reply: `CSI > 4 ; Pv m`. Ghostty's default encoder already
+        // emits the numeric form for ambiguous keys (mode 1), so the floor is
+        // 1; mode 2 (`>4;2m`) reports 2.
+        const pv: u8 = if (self.terminal.flags.modify_other_keys_2) 2 else 1;
+        var data: termio.Message.WriteReq.Small.Array = undefined;
+        const resp = try std.fmt.bufPrint(&data, "\x1b[>4;{d}m", .{pv});
         self.messageWriter(.{
             .write_small = .{
                 .data = data,

@@ -89,6 +89,7 @@ pub const Action = union(Key) {
     save_cursor,
     restore_cursor,
     modify_key_format: ansi.ModifyKeyFormat,
+    modify_key_query,
     mouse_shift_capture: bool,
     protected_mode_off,
     protected_mode_iso,
@@ -188,6 +189,7 @@ pub const Action = union(Key) {
             "save_cursor",
             "restore_cursor",
             "modify_key_format",
+            "modify_key_query",
             "mouse_shift_capture",
             "protected_mode_off",
             "protected_mode_iso",
@@ -1780,6 +1782,24 @@ pub fn Stream(comptime H: type) type {
                                 self.handler.vt(.modify_key_format, format);
                             },
 
+                            // XTQMODKEYS: query key modifier options. We only
+                            // support modifyOtherKeys (resource 4); `vim --clean`
+                            // sends `CSI ? 4 m`. Reply is `CSI > 4 ; Pv m`.
+                            '?' => switch (input.params.len) {
+                                1 => switch (input.params[0]) {
+                                    4 => self.handler.vt(.modify_key_query, {}),
+                                    else => logUnsupportedOnce(
+                                        "unsupported XTQMODKEYS resource: {f}",
+                                        .{input},
+                                        @intCast(input.params[0]),
+                                    ),
+                                },
+                                else => log.warn(
+                                    "invalid XTQMODKEYS: {f}",
+                                    .{input},
+                                ),
+                            },
+
                             else => logUnsupportedOnce(
                                 "unknown CSI m with intermediate: {}",
                                 .{input.intermediates[0]},
@@ -1787,16 +1807,10 @@ pub fn Stream(comptime H: type) type {
                             ),
                         },
 
-                        else => {
-                            // Nothing, but I wanted a place to put this comment:
-                            // there are others forms of CSI m that have intermediates.
-                            // `vim --clean` uses `CSI ? 4 m` and I don't know what
-                            // that means.
-                            log.warn(
-                                "ignoring unimplemented CSI m with intermediates: {s}",
-                                .{input.intermediates},
-                            );
-                        },
+                        else => log.warn(
+                            "ignoring unimplemented CSI m with intermediates: {s}",
+                            .{input.intermediates},
+                        ),
                     }
                 },
 
