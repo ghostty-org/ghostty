@@ -40,11 +40,19 @@ final class ScriptTab: NSObject {
 
     /// Exposed as the AppleScript `title` property.
     ///
-    /// Returns the title of the tab's window.
+    /// Reads the title of the tab's window and writes its title override.
+    /// An empty value clears the override and restores the computed title.
     @objc(title)
     var title: String {
-        guard NSApp.isAppleScriptEnabled else { return "" }
-        return controller?.window?.title ?? ""
+        get {
+            guard NSApp.isAppleScriptEnabled else { return "" }
+            return controller?.window?.title ?? ""
+        }
+
+        set {
+            guard NSApp.isAppleScriptEnabled else { return }
+            controller?.titleOverride = newValue.isEmpty ? nil : newValue
+        }
     }
 
     /// Exposed as the AppleScript `index` property.

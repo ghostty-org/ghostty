@@ -64,7 +64,7 @@
     <class name="tab" code="Gtab" plural="tabs" description="A tab within a Ghostty window.">
       <cocoa class="GhosttyScriptTab"/>
       <property name="id" code="ID  " type="text" access="r" description="Stable ID for this tab."/>
-      <property name="name" code="pnam" type="text" access="r" description="The title of the tab.">
+      <property name="name" code="pnam" type="text" access="rw" description="The title override of the tab. Set to an empty string to clear the override.">
         <cocoa key="title"/>
       </property>
       <property name="index" code="pidx" type="integer" access="r" description="1-based index of this tab in its window."/>
