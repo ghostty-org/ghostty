@@ -561,6 +561,7 @@ pub const Handler = struct {
     }
 
     fn queryModifyOtherKeys(self: *Handler) void {
+        if (self.effects.write_pty == null) return;
         // XTQMODKEYS reply for modifyOtherKeys: `CSI > 4 ; Pv m`. Ghostty's
         // default encoder already emits the numeric form for ambiguous keys
         // (mode 1), so the floor is 1; mode 2 (`>4;2m`) reports 2.

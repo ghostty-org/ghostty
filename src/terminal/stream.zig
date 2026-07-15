@@ -2879,6 +2879,40 @@ test "stream: cursor right (CUF)" {
     try testing.expectEqual(@as(u16, 0), s.handler.amount);
 }
 
+test "stream: XTQMODKEYS query modifyOtherKeys (CSI ? 4 m)" {
+    const H = struct {
+        queries: u32 = 0,
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: Action.Tag,
+            value: Action.Value(action),
+        ) void {
+            _ = value;
+            switch (action) {
+                .modify_key_query => self.queries += 1,
+                else => {},
+            }
+        }
+    };
+
+    var s: Stream(H) = .init(.{});
+
+    // Resource 4 (modifyOtherKeys) is the only one we answer.
+    s.nextSlice("\x1B[?4m");
+    try testing.expectEqual(@as(u32, 1), s.handler.queries);
+
+    // Other resources are ignored (no reply).
+    s.nextSlice("\x1B[?0m");
+    s.nextSlice("\x1B[?1m");
+    s.nextSlice("\x1B[?2m");
+    try testing.expectEqual(@as(u32, 1), s.handler.queries);
+
+    // Multiple params is invalid and ignored.
+    s.nextSlice("\x1B[?4;2m");
+    try testing.expectEqual(@as(u32, 1), s.handler.queries);
+}
+
 test "stream: dec set mode (SM) and reset mode (RM)" {
     const H = struct {
         mode: modes.Mode = @as(modes.Mode, @enumFromInt(1)),

@@ -996,7 +996,6 @@ pub const StreamHandler = struct {
     }
 
     pub fn queryModifyOtherKeys(self: *StreamHandler) !void {
-        log.debug("querying modifyOtherKeys", .{});
         // XTQMODKEYS reply: `CSI > 4 ; Pv m`. Ghostty's default encoder already
         // emits the numeric form for ambiguous keys (mode 1), so the floor is
         // 1; mode 2 (`>4;2m`) reports 2.
