@@ -3493,6 +3493,17 @@ pub fn printAttributes(self: *Terminal, buf: []u8) ![]const u8 {
     return stream.getWritten();
 }
 
+/// Writes the XTMODKEYS report for modifyOtherKeys into buf and returns the
+/// written slice. This is the payload for XTQMODKEYS (both the `CSI ? 4 m`
+/// and `DCS $ q > 4 m ST` query forms) and is formatted as an XTMODKEYS
+/// control: `> 4 ; Pv m`. Ghostty's default encoder already emits the
+/// numeric form for ambiguous keys (mode 1), so the floor is 1; mode 2
+/// reports 2.
+pub fn modifyOtherKeysReport(self: *Terminal, buf: []u8) ![]const u8 {
+    const pv: u8 = if (self.flags.modify_other_keys_2) 2 else 1;
+    return try std.fmt.bufPrint(buf, ">4;{d}m", .{pv});
+}
+
 /// The modes for DECCOLM.
 pub const DeccolmMode = enum(u1) {
     @"80_cols" = 0,
@@ -12760,6 +12771,26 @@ test "Terminal: printAttributes" {
         const buf = try t.printAttributes(&storage);
         try testing.expectEqualStrings("0", buf);
     }
+}
+
+test "Terminal: modifyOtherKeysReport" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    var storage: [16]u8 = undefined;
+
+    // Default (mode 1): Ghostty always encodes ambiguous keys in the
+    // numeric form, so the floor is 1.
+    try testing.expectEqualStrings(">4;1m", try t.modifyOtherKeysReport(&storage));
+
+    // Mode 2.
+    t.flags.modify_other_keys_2 = true;
+    try testing.expectEqualStrings(">4;2m", try t.modifyOtherKeysReport(&storage));
+
+    // Back to mode 1.
+    t.flags.modify_other_keys_2 = false;
+    try testing.expectEqualStrings(">4;1m", try t.modifyOtherKeysReport(&storage));
 }
 
 test "Terminal: eraseDisplay simple erase below" {

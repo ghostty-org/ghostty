@@ -531,6 +531,13 @@ pub const StreamHandler = struct {
                             });
                         }
                     },
+
+                    .modify_other_keys => {
+                        const report = try self.terminal.modifyOtherKeysReport(
+                            stream.buffer[stream.pos..],
+                        );
+                        stream.pos += report.len;
+                    },
                 }
 
                 // Our response is valid if we have a response payload
@@ -996,12 +1003,11 @@ pub const StreamHandler = struct {
     }
 
     pub fn queryModifyOtherKeys(self: *StreamHandler) !void {
-        // XTQMODKEYS reply: `CSI > 4 ; Pv m`. Ghostty's default encoder already
-        // emits the numeric form for ambiguous keys (mode 1), so the floor is
-        // 1; mode 2 (`>4;2m`) reports 2.
-        const pv: u8 = if (self.terminal.flags.modify_other_keys_2) 2 else 1;
+        // XTQMODKEYS reply: `CSI > 4 ; Pv m`.
+        var buf: [16]u8 = undefined;
+        const report = try self.terminal.modifyOtherKeysReport(&buf);
         var data: termio.Message.WriteReq.Small.Array = undefined;
-        const resp = try std.fmt.bufPrint(&data, "\x1b[>4;{d}m", .{pv});
+        const resp = try std.fmt.bufPrint(&data, "\x1b[{s}", .{report});
         self.messageWriter(.{
             .write_small = .{
                 .data = data,
