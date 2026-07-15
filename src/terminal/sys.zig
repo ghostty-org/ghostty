@@ -30,6 +30,7 @@ pub const Image = struct {
     width: u32,
     height: u32,
     data: []u8,
+    data_cap: usize,
 };
 
 fn decodePngWuffs(
@@ -50,5 +51,6 @@ fn decodePngWuffs(
         .width = result.width,
         .height = result.height,
         .data = result.data,
+        .data_cap = result.data.len,
     };
 }

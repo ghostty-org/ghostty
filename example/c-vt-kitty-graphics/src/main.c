@@ -40,6 +40,7 @@ bool decode_png(void* userdata,
   out->height = 1;
   out->data = pixels;
   out->data_len = pixel_len;
+  out->data_cap = pixel_len;
   return true;
 }
 //! [kitty-graphics-decode-png]

@@ -11,6 +11,7 @@ pub const Image = extern struct {
     height: u32,
     data: ?[*]u8,
     data_len: usize,
+    data_cap: usize,
 };
 
 /// C: GhosttySysDecodePngFn
@@ -85,15 +86,27 @@ fn decodePngWrapper(
     const func = global.decode_png orelse return error.InvalidData;
 
     const c_alloc = CAllocator.fromZig(&alloc);
-    var out: Image = undefined;
+    var out: Image = .{
+        .width = 0,
+        .height = 0,
+        .data = null,
+        .data_len = 0,
+        .data_cap = 0,
+    };
     if (!func(global.userdata, &c_alloc, data.ptr, data.len, &out)) return error.InvalidData;
 
     const result_data = out.data orelse return error.InvalidData;
+    const data_cap = if (out.data_cap == 0) out.data_len else out.data_cap;
+    if (data_cap < out.data_len) {
+        alloc.free(result_data[0..data_cap]);
+        return error.InvalidData;
+    }
 
     return .{
         .width = out.width,
         .height = out.height,
         .data = result_data[0..out.data_len],
+        .data_cap = data_cap,
     };
 }
 
@@ -262,7 +275,13 @@ test "set decode_png with null clears" {
 test "set decode_png installs wrapper" {
     const S = struct {
         fn decode(_: ?*anyopaque, _: *const CAllocator, _: [*]const u8, _: usize, out: *Image) callconv(lib.calling_conv) bool {
-            out.* = .{ .width = 1, .height = 1, .data = null, .data_len = 0 };
+            out.* = .{
+                .width = 1,
+                .height = 1,
+                .data = null,
+                .data_len = 0,
+                .data_cap = 0,
+            };
             return true;
         }
     };
@@ -276,6 +295,103 @@ test "set decode_png installs wrapper" {
     // Clear it again.
     try std.testing.expectEqual(Result.success, set(.decode_png, null));
     try std.testing.expect(terminal_sys.decode_png == null);
+}
+
+test "decode_png preserves allocation capacity" {
+    const S = struct {
+        fn decode(
+            _: ?*anyopaque,
+            allocator: *const CAllocator,
+            _: [*]const u8,
+            _: usize,
+            out: *Image,
+        ) callconv(lib.calling_conv) bool {
+            const pixels = allocator.zig().alloc(u8, 8) catch return false;
+            const rgba: [4]u8 = .{ 0xFF, 0, 0, 0xFF };
+            @memcpy(pixels[0..4], &rgba);
+            out.* = .{
+                .width = 1,
+                .height = 1,
+                .data = pixels.ptr,
+                .data_len = 4,
+                .data_cap = pixels.len,
+            };
+            return true;
+        }
+    };
+
+    const old_decode_png = global.decode_png;
+    global.decode_png = &S.decode;
+    defer global.decode_png = old_decode_png;
+
+    const result = try decodePngWrapper(std.testing.allocator, "png");
+    defer std.testing.allocator.free(result.data.ptr[0..result.data_cap]);
+
+    try std.testing.expectEqual(@as(usize, 4), result.data.len);
+    try std.testing.expectEqual(@as(usize, 8), result.data_cap);
+    try std.testing.expectEqualSlices(u8, &.{ 0xFF, 0, 0, 0xFF }, result.data);
+}
+
+test "decode_png defaults zero allocation capacity to data length" {
+    const S = struct {
+        fn decode(
+            _: ?*anyopaque,
+            allocator: *const CAllocator,
+            _: [*]const u8,
+            _: usize,
+            out: *Image,
+        ) callconv(lib.calling_conv) bool {
+            const pixels = allocator.zig().alloc(u8, 4) catch return false;
+            out.* = .{
+                .width = 1,
+                .height = 1,
+                .data = pixels.ptr,
+                .data_len = pixels.len,
+                .data_cap = 0,
+            };
+            return true;
+        }
+    };
+
+    const old_decode_png = global.decode_png;
+    global.decode_png = &S.decode;
+    defer global.decode_png = old_decode_png;
+
+    const result = try decodePngWrapper(std.testing.allocator, "png");
+    defer std.testing.allocator.free(result.data.ptr[0..result.data_cap]);
+
+    try std.testing.expectEqual(result.data.len, result.data_cap);
+}
+
+test "decode_png rejects data length greater than allocation capacity" {
+    const S = struct {
+        fn decode(
+            _: ?*anyopaque,
+            allocator: *const CAllocator,
+            _: [*]const u8,
+            _: usize,
+            out: *Image,
+        ) callconv(lib.calling_conv) bool {
+            const pixels = allocator.zig().alloc(u8, 8) catch return false;
+            out.* = .{
+                .width = 1,
+                .height = 1,
+                .data = pixels.ptr,
+                .data_len = 9,
+                .data_cap = pixels.len,
+            };
+            return true;
+        }
+    };
+
+    const old_decode_png = global.decode_png;
+    global.decode_png = &S.decode;
+    defer global.decode_png = old_decode_png;
+
+    try std.testing.expectError(
+        error.InvalidData,
+        decodePngWrapper(std.testing.allocator, "png"),
+    );
 }
 
 test "set log with null clears" {

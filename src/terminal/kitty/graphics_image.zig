@@ -36,6 +36,11 @@ pub const LoadingImage = struct {
     /// The data that is being built up.
     data: std.ArrayListUnmanaged(u8) = .{},
 
+    /// Preserve the allocation capacity when completing the image. PNG
+    /// decoders may intentionally return an over-allocated buffer whose
+    /// ownership can be transferred directly into image storage.
+    preserve_data_capacity: bool = false,
+
     /// This is non-null when a transmit and display command is given
     /// so that we display the image after it is fully loaded.
     display: ?command.Display = null,
@@ -401,10 +406,18 @@ pub const LoadingImage = struct {
             return error.InvalidData;
         }
 
-        // Everything looks good, copy the image data over.
+        // Everything looks good, transfer the image data over. PNG decoders
+        // can return an over-allocated buffer, in which case we preserve its
+        // capacity so ownership can be transferred without a copy.
         var result = self.image;
-        result.data = try self.data.toOwnedSlice(alloc);
-        errdefer result.deinit(alloc);
+        if (self.preserve_data_capacity) {
+            result.data = self.data.items;
+            result.data_cap = self.data.capacity;
+            self.data = .{};
+        } else {
+            result.data = try self.data.toOwnedSlice(alloc);
+            result.data_cap = result.data.len;
+        }
         self.image = .{};
         return result;
     }
@@ -477,7 +490,15 @@ pub const LoadingImage = struct {
             error.InvalidData => return error.InvalidData,
             error.OutOfMemory => return error.OutOfMemory,
         };
-        defer alloc.free(result.data);
+        errdefer alloc.free(result.data.ptr[0..result.data_cap]);
+
+        if (result.data_cap < result.data.len) {
+            log.warn(
+                "png image capacity smaller than data size cap={} size={}",
+                .{ result.data_cap, result.data.len },
+            );
+            return error.InvalidData;
+        }
 
         if (result.data.len > max_size) {
             log.warn("png image too large size={} max_size={}", .{ result.data.len, max_size });
@@ -486,9 +507,11 @@ pub const LoadingImage = struct {
 
         // Replace our data
         self.data.deinit(alloc);
-        self.data = .{};
-        try self.data.ensureUnusedCapacity(alloc, result.data.len);
-        try self.data.appendSlice(alloc, result.data[0..result.data.len]);
+        self.data = .{
+            .items = result.data,
+            .capacity = result.data_cap,
+        };
+        self.preserve_data_capacity = true;
 
         // Store updated image dimensions
         self.image.width = result.width;
@@ -512,6 +535,7 @@ pub const Image = struct {
     format: command.Transmission.Format = .rgb,
     compression: command.Transmission.Compression = .none,
     data: []const u8 = "",
+    data_cap: usize = 0,
 
     /// Unique, monotonically increasing stamp assigned each time an
     /// image is added to (or replaced in) an ImageStorage. A changed
@@ -541,13 +565,17 @@ pub const Image = struct {
     };
 
     pub fn deinit(self: *Image, alloc: Allocator) void {
-        if (self.data.len > 0) alloc.free(self.data);
+        const cap = if (self.data_cap > 0) self.data_cap else self.data.len;
+        if (cap > 0) {
+            alloc.free(@constCast(self.data.ptr)[0..cap]);
+        }
     }
 
     /// Mostly for logging
     pub fn withoutData(self: *const Image) Image {
         var copy = self.*;
         copy.data = "";
+        copy.data_cap = 0;
         return copy;
     }
 };
@@ -889,6 +917,51 @@ test "image load: png, not compressed, regular file" {
     try testing.expect(img.compression == .none);
     try testing.expect(img.format == .rgba);
     try tmp_dir.dir.access(path, .{});
+}
+
+test "image load: png preserves decoder allocation capacity" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const S = struct {
+        var decoded_ptr: [*]u8 = undefined;
+
+        fn decode(allocator: Allocator, _: []const u8) sys.DecodeError!sys.Image {
+            const pixels = try allocator.alloc(u8, 8);
+            const rgba: [4]u8 = .{ 0xFF, 0, 0, 0xFF };
+            @memcpy(pixels[0..4], &rgba);
+            decoded_ptr = pixels.ptr;
+            return .{
+                .width = 1,
+                .height = 1,
+                .data = pixels[0..4],
+                .data_cap = pixels.len,
+            };
+        }
+    };
+
+    const old_decode_png = sys.decode_png;
+    sys.decode_png = &S.decode;
+    defer sys.decode_png = old_decode_png;
+
+    var cmd: command.Command = .{
+        .control = .{ .transmit = .{
+            .format = .png,
+            .medium = .direct,
+            .image_id = 31,
+        } },
+        .data = try alloc.dupe(u8, "png"),
+    };
+    defer cmd.deinit(alloc);
+
+    var loading = try LoadingImage.init(alloc, &cmd, .direct);
+    defer loading.deinit(alloc);
+    var img = try loading.complete(alloc);
+    defer img.deinit(alloc);
+
+    try testing.expectEqual(@intFromPtr(S.decoded_ptr), @intFromPtr(img.data.ptr));
+    try testing.expectEqual(@as(usize, 4), img.data.len);
+    try testing.expectEqual(@as(usize, 8), img.data_cap);
 }
 
 test "limits: direct medium always allowed" {
