@@ -191,6 +191,13 @@ extension Ghostty {
         // This is set to non-null during keyDown to accumulate insertText contents
         private var keyTextAccumulator: [String]?
 
+        // True when interpretKeyEvents dispatches a scrolling command from keyDown.
+        private var standardScrollCommandHandled = false
+
+        // Physical keys whose press was consumed by a standard scrolling command.
+        // Their releases must not be forwarded to the terminal either.
+        private var standardScrollCommandKeyCodes: Set<UInt16> = []
+
         // True when we've consumed a left mouse-down only to move focus and
         // should suppress the matching mouse-up from being reported.
         private var suppressNextLeftMouseUp: Bool = false
@@ -1076,6 +1083,12 @@ extension Ghostty {
         }
 
         override func keyDown(with event: NSEvent) {
+            // A fresh press for this key proves any prior suppressed release was
+            // missed, so don't let stale state suppress this press's release.
+            if !event.isARepeat {
+                standardScrollCommandKeyCodes.remove(event.keyCode)
+            }
+
             guard let surface = self.surface else {
                 self.interpretKeyEvents([event])
                 return
@@ -1133,7 +1146,11 @@ extension Ghostty {
             // we call interpretKeyEvents so that we can handle complex input such as Korean
             // language.
             keyTextAccumulator = []
-            defer { keyTextAccumulator = nil }
+            standardScrollCommandHandled = false
+            defer {
+                keyTextAccumulator = nil
+                standardScrollCommandHandled = false
+            }
 
             // We need to know what the length of marked text was before this event to
             // know if these events cleared it.
@@ -1154,6 +1171,12 @@ extension Ghostty {
             self.lastPerformKeyEvent = nil
 
             self.interpretKeyEvents([translationEvent])
+
+            // The system keybinding performed its action directly, so don't also
+            // send the physical key event to the terminal.
+            if standardScrollCommandHandled {
+                return
+            }
 
             // If our keyboard changed from this we just assume an input method
             // grabbed it and do nothing.
@@ -1247,6 +1270,10 @@ extension Ghostty {
         }
 
         override func keyUp(with event: NSEvent) {
+            if standardScrollCommandKeyCodes.remove(event.keyCode) != nil {
+                return
+            }
+
             _ = keyAction(GHOSTTY_ACTION_RELEASE, event: event)
         }
 
@@ -2069,12 +2096,48 @@ extension Ghostty.SurfaceView: NSTextInputClient {
     /// 1. Prevents an audible NSBeep for unimplemented actions.
     /// 2. Allows us to properly encode super+key input events that we don't handle
     override func doCommand(by selector: Selector) {
+        if let action = Self.standardScrollAction(for: selector) {
+            lastPerformKeyEvent = nil
+
+            if let event = NSApp.currentEvent, event.type == .keyDown {
+                standardScrollCommandKeyCodes.insert(event.keyCode)
+            }
+
+            _ = surfaceModel?.perform(action: action)
+
+            // When interpretKeyEvents dispatches this command from keyDown, tell
+            // keyDown not to also encode the physical key event.
+            if keyTextAccumulator != nil {
+                standardScrollCommandHandled = true
+            }
+            return
+        }
+
         // If we are being processed by performKeyEquivalent with a command binding,
         // we send it back through the event system so it can be encoded.
         if let lastPerformKeyEvent,
            let current = NSApp.currentEvent,
            lastPerformKeyEvent == current.timestamp {
             NSApp.sendEvent(current)
+        }
+    }
+
+    static func standardScrollAction(for selector: Selector) -> String? {
+        switch selector {
+        case #selector(NSStandardKeyBindingResponding.scrollToBeginningOfDocument(_:)):
+            "scroll_to_top"
+        case #selector(NSStandardKeyBindingResponding.scrollToEndOfDocument(_:)):
+            "scroll_to_bottom"
+        case #selector(NSStandardKeyBindingResponding.scrollPageUp(_:)):
+            "scroll_page_up"
+        case #selector(NSStandardKeyBindingResponding.scrollPageDown(_:)):
+            "scroll_page_down"
+        case #selector(NSStandardKeyBindingResponding.scrollLineUp(_:)):
+            "scroll_page_lines:-1"
+        case #selector(NSStandardKeyBindingResponding.scrollLineDown(_:)):
+            "scroll_page_lines:1"
+        default:
+            nil
         }
     }
 

@@ -1,7 +1,42 @@
 @testable import Ghostty
+import AppKit
 import Testing
 
 struct SurfaceViewAppKitTests {
+    @Test func standardScrollingSelectorsMapToGhosttyActions() {
+        let cases: [(Selector, String)] = [
+            (
+                #selector(NSStandardKeyBindingResponding.scrollToBeginningOfDocument(_:)),
+                "scroll_to_top"
+            ),
+            (
+                #selector(NSStandardKeyBindingResponding.scrollToEndOfDocument(_:)),
+                "scroll_to_bottom"
+            ),
+            (#selector(NSStandardKeyBindingResponding.scrollPageUp(_:)), "scroll_page_up"),
+            (#selector(NSStandardKeyBindingResponding.scrollPageDown(_:)), "scroll_page_down"),
+            (#selector(NSStandardKeyBindingResponding.scrollLineUp(_:)), "scroll_page_lines:-1"),
+            (#selector(NSStandardKeyBindingResponding.scrollLineDown(_:)), "scroll_page_lines:1"),
+        ]
+
+        for (selector, action) in cases {
+            #expect(Ghostty.SurfaceView.standardScrollAction(for: selector) == action)
+        }
+    }
+
+    @Test func terminalNavigationSelectorsAreNotMappedToScrollingActions() {
+        let selectors: [Selector] = [
+            #selector(NSStandardKeyBindingResponding.moveToBeginningOfDocument(_:)),
+            #selector(NSStandardKeyBindingResponding.moveToEndOfDocument(_:)),
+            #selector(NSStandardKeyBindingResponding.pageUp(_:)),
+            #selector(NSStandardKeyBindingResponding.pageDown(_:)),
+        ]
+
+        for selector in selectors {
+            #expect(Ghostty.SurfaceView.standardScrollAction(for: selector) == nil)
+        }
+    }
+
     @Test(arguments: [
         ("\u{0008}", true),
         ("\u{001F}", true),
