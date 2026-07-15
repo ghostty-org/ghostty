@@ -628,12 +628,11 @@ pub const Handler = struct {
 
     fn queryModifyOtherKeys(self: *Handler) void {
         if (self.effects.write_pty == null) return;
-        // XTQMODKEYS reply for modifyOtherKeys: `CSI > 4 ; Pv m`. Ghostty's
-        // default encoder already emits the numeric form for ambiguous keys
-        // (mode 1), so the floor is 1; mode 2 (`>4;2m`) reports 2.
-        const pv: u8 = if (self.terminal.flags.modify_other_keys_2) 2 else 1;
-        var buf: [16]u8 = undefined;
-        const resp = std.fmt.bufPrintZ(&buf, "\x1b[>4;{d}m", .{pv}) catch return;
+        // XTQMODKEYS reply: `CSI > 4 ; Pv m`.
+        var report_buf: [16]u8 = undefined;
+        const report = self.terminal.modifyOtherKeysReport(&report_buf) catch return;
+        var buf: [24]u8 = undefined;
+        const resp = std.fmt.bufPrintZ(&buf, "\x1b[{s}", .{report}) catch return;
         self.writePty(resp);
     }
 
@@ -1415,7 +1414,7 @@ test "DECRQSS responses" {
 
     // Requests larger than the parser's fixed request buffer are ignored,
     // and the next DCS command must still be processed normally.
-    s.nextSlice("\x1BP$qfoo\x1B\\");
+    s.nextSlice("\x1BP$qfoob\x1B\\");
     try testing.expectEqual(@as(usize, 0), S.calls);
     try testing.expect(!s.handler.semantic_failure);
     s.nextSlice("\x1BP$qm\x1B\\");
