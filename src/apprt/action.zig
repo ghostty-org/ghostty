@@ -114,6 +114,9 @@ pub const Action = union(Key) {
     /// Toggle the quick terminal in or out.
     toggle_quick_terminal,
 
+    /// Toggle the worktree sidebar.
+    toggle_worktree_sidebar,
+
     /// Toggle the command palette.
     toggle_command_palette,
 
@@ -138,6 +141,9 @@ pub const Action = union(Key) {
 
     /// Jump to a specific split.
     goto_split: GotoSplit,
+
+    /// Jump to next/previous worktree.
+    goto_worktree: GotoWorktree,
 
     /// Jump to next/previous window.
     goto_window: GotoWindow,
@@ -360,12 +366,14 @@ pub const Action = union(Key) {
         toggle_tab_overview,
         toggle_window_decorations,
         toggle_quick_terminal,
+        toggle_worktree_sidebar,
         toggle_command_palette,
         toggle_visibility,
         toggle_background_opacity,
         move_tab,
         goto_tab,
         goto_split,
+        goto_worktree,
         goto_window,
         resize_split,
         equalize_splits,
@@ -519,6 +527,17 @@ pub const GotoSplit = enum(c_int) {
 
     test "ghostty.h GotoSplit" {
         try lib.checkGhosttyHEnum(GotoSplit, "GHOSTTY_GOTO_SPLIT_");
+    }
+};
+
+// This is made extern (c_int) to make interop easier with our embedded
+// runtime. The small size cost doesn't make a difference in our union.
+pub const GotoWorktree = enum(c_int) {
+    previous,
+    next,
+
+    test "ghostty.h GotoWorktree" {
+        try lib.checkGhosttyHEnum(GotoWorktree, "GHOSTTY_GOTO_WORKTREE_");
     }
 };
 

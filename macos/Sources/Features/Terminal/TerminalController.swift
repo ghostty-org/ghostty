@@ -1576,6 +1576,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         returnToDefaultSize(nil)
     }
 
+    func toggleWorktreeSidebar() {
+        // worktree-sidebar:
+        Ghostty.logger.info("worktree-sidebar: toggleWorktreeSidebar")
+    }
+
+    func gotoWorktree(_ direction: Ghostty.WorktreeFocusDirection) {
+        // worktree-sidebar:
+        Ghostty.logger.info("worktree-sidebar: gotoWorktree direction=\(direction.rawValue, privacy: .public)")
+    }
+
     @objc private func onToggleFullscreen(notification: SwiftUI.Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard target == self.focusedSurface else { return }

@@ -182,6 +182,25 @@ extension Ghostty {
         }
     }
 
+    /// An enum that is used for worktree focus movement.
+    enum WorktreeFocusDirection: String {
+        case previous, next
+
+        /// Initialize from a Ghostty API enum.
+        static func from(direction: ghostty_action_goto_worktree_e) -> Self? {
+            switch direction {
+            case GHOSTTY_GOTO_WORKTREE_PREVIOUS:
+                return .previous
+
+            case GHOSTTY_GOTO_WORKTREE_NEXT:
+                return .next
+
+            default:
+                return nil
+            }
+        }
+    }
+
     /// Enum used for resizing splits. This is the direction the split divider will move.
     enum SplitResizeDirection {
         case up, down, left, right

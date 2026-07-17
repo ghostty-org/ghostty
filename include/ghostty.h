@@ -584,6 +584,12 @@ typedef enum {
   GHOSTTY_GOTO_SPLIT_RIGHT,
 } ghostty_action_goto_split_e;
 
+// apprt.action.GotoWorktree
+typedef enum {
+  GHOSTTY_GOTO_WORKTREE_PREVIOUS,
+  GHOSTTY_GOTO_WORKTREE_NEXT,
+} ghostty_action_goto_worktree_e;
+
 // apprt.action.GotoWindow
 typedef enum {
   GHOSTTY_GOTO_WINDOW_PREVIOUS,
@@ -894,12 +900,14 @@ typedef enum {
   GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW,
   GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS,
   GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL,
+  GHOSTTY_ACTION_TOGGLE_WORKTREE_SIDEBAR,
   GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE,
   GHOSTTY_ACTION_TOGGLE_VISIBILITY,
   GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY,
   GHOSTTY_ACTION_MOVE_TAB,
   GHOSTTY_ACTION_GOTO_TAB,
   GHOSTTY_ACTION_GOTO_SPLIT,
+  GHOSTTY_ACTION_GOTO_WORKTREE,
   GHOSTTY_ACTION_GOTO_WINDOW,
   GHOSTTY_ACTION_RESIZE_SPLIT,
   GHOSTTY_ACTION_EQUALIZE_SPLITS,
@@ -957,6 +965,7 @@ typedef union {
   ghostty_action_move_tab_s move_tab;
   ghostty_action_goto_tab_e goto_tab;
   ghostty_action_goto_split_e goto_split;
+  ghostty_action_goto_worktree_e goto_worktree;
   ghostty_action_goto_window_e goto_window;
   ghostty_action_resize_split_s resize_split;
   ghostty_action_size_limit_s size_limit;

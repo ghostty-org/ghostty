@@ -699,6 +699,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .jump_to_prompt,
         .write_scrollback_file,
         .goto_tab,
+        .goto_worktree,
         .resize_split,
         .activate_key_table,
         .activate_key_table_once,
@@ -711,6 +712,7 @@ fn actionCommands(action: Action.Key) []const Command {
         // No commands because I'm not sure they make sense in a command
         // palette context.
         .toggle_command_palette,
+        .toggle_worktree_sidebar,
         .toggle_quick_terminal,
         .toggle_visibility,
         .previous_tab,

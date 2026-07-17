@@ -521,6 +521,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_GOTO_SPLIT:
                 return gotoSplit(app, target: target, direction: action.action.goto_split)
 
+            case GHOSTTY_ACTION_GOTO_WORKTREE:
+                return gotoWorktree(app, target: target, direction: action.action.goto_worktree)
+
             case GHOSTTY_ACTION_GOTO_WINDOW:
                 return gotoWindow(app, target: target, direction: action.action.goto_window)
 
@@ -532,6 +535,9 @@ extension Ghostty {
 
             case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
                 return toggleSplitZoom(app, target: target)
+
+            case GHOSTTY_ACTION_TOGGLE_WORKTREE_SIDEBAR:
+                return toggleWorktreeSidebar(app, target: target)
 
             case GHOSTTY_ACTION_INSPECTOR:
                 controlInspector(app, target: target, mode: action.action.inspector)
@@ -1228,6 +1234,54 @@ extension Ghostty {
                     assertionFailure()
                     return false
                 }
+        }
+
+        private static func toggleWorktreeSidebar(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s
+        ) -> Bool {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("toggle worktree sidebar does nothing with an app target")
+                return false
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                guard let controller = surfaceView.window?.windowController as? TerminalController else { return false }
+
+                controller.toggleWorktreeSidebar()
+                return true
+
+            default:
+                assertionFailure()
+                return false
+            }
+        }
+
+        private static func gotoWorktree(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            direction: ghostty_action_goto_worktree_e
+        ) -> Bool {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("goto worktree does nothing with an app target")
+                return false
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                guard let controller = surfaceView.window?.windowController as? TerminalController else { return false }
+                guard let worktreeDirection = WorktreeFocusDirection.from(direction: direction) else { return false }
+
+                controller.gotoWorktree(worktreeDirection)
+                return true
+
+            default:
+                assertionFailure()
+                return false
+            }
         }
 
         private static func gotoWindow(
