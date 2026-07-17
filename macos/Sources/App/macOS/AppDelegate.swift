@@ -75,6 +75,8 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuQuickTerminal: NSMenuItem?
     @IBOutlet private var menuTerminalInspector: NSMenuItem?
     @IBOutlet private var menuCommandPalette: NSMenuItem?
+    // worktree-sidebar: Temporary until feat/wt-keybinds adds the generated menu outlet/action.
+    private var menuWorktreeSidebar: NSMenuItem?
 
     @IBOutlet private var menuEqualizeSplits: NSMenuItem?
     @IBOutlet private var menuMoveSplitDividerUp: NSMenuItem?
@@ -312,6 +314,7 @@ class AppDelegate: NSObject,
         }
 
         // Setup our menu
+        setupWorktreeSidebarMenuItem()
         setupMenuImages()
 
         // Setup signal handlers
@@ -1092,6 +1095,26 @@ extension AppDelegate {
         dockMenu.addItem(newTab)
     }
 
+    private func setupWorktreeSidebarMenuItem() {
+        // worktree-sidebar: TODO(feat/wt-keybinds): connect this to the generated
+        // toggle_worktree_sidebar action once the keybind branch is merged.
+        guard menuWorktreeSidebar == nil,
+              let menu = menuCommandPalette?.menu,
+              let commandPaletteItem = menuCommandPalette else { return }
+
+        let item = NSMenuItem(
+            title: "Worktree Sidebar",
+            action: #selector(TerminalController.toggleWorktreeSidebar(_:)),
+            keyEquivalent: ""
+        )
+        item.target = nil
+        item.setImageIfDesired(systemSymbolName: "sidebar.left")
+
+        let insertionIndex = menu.index(of: commandPaletteItem) + 1
+        menu.insertItem(item, at: insertionIndex)
+        menuWorktreeSidebar = item
+    }
+
     /// Setup all the images for our menu items.
     private func setupMenuImages() {
         // Note: This COULD Be done all in the xib file, but I find it easier to
@@ -1195,6 +1218,8 @@ extension AppDelegate {
         syncMenuShortcut(config, action: "toggle_window_float_on_top", menuItem: self.menuFloatOnTop)
         syncMenuShortcut(config, action: "inspector:toggle", menuItem: self.menuTerminalInspector)
         syncMenuShortcut(config, action: "toggle_command_palette", menuItem: self.menuCommandPalette)
+        // worktree-sidebar: Harmless until feat/wt-keybinds teaches config parsing this action.
+        syncMenuShortcut(config, action: "toggle_worktree_sidebar", menuItem: self.menuWorktreeSidebar)
 
         syncMenuShortcut(config, action: "toggle_secure_input", menuItem: self.menuSecureInput)
 

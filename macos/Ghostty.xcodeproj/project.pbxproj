@@ -190,6 +190,7 @@
 				Features/Terminal/TerminalTabColor.swift,
 				Features/Terminal/TerminalView.swift,
 				Features/Terminal/TerminalViewContainer.swift,
+				Features/Terminal/WorktreeSidebarViewController.swift,
 				"Features/Terminal/Window Styles/HiddenTitlebarTerminalWindow.swift",
 				"Features/Terminal/Window Styles/Terminal.xib",
 				"Features/Terminal/Window Styles/TerminalHiddenTitlebar.xib",

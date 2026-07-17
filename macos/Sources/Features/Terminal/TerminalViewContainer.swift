@@ -86,7 +86,12 @@ class TerminalViewContainer: NSView {
 
 extension BaseTerminalController {
     var terminalViewContainer: TerminalViewContainer? {
-        window?.contentView as? TerminalViewContainer
+        // worktree-sidebar: The terminal content may be wrapped by the sidebar shell.
+        if let direct = window?.contentView as? TerminalViewContainer {
+            return direct
+        }
+
+        return window?.contentView?.firstDescendant(withClassName: "TerminalViewContainer") as? TerminalViewContainer
     }
 }
 
