@@ -62,7 +62,7 @@ final class WorktreeSidebarViewController: NSSplitViewController {
         Task { await viewModel.refresh(cwd: cwd) }
     }
 
-    func toggleSidebar(_ sender: Any?) {
+    override func toggleSidebar(_ sender: Any?) {
         guard let sidebarSplitViewItem else { return }
 
         NSAnimationContext.runAnimationGroup { context in
