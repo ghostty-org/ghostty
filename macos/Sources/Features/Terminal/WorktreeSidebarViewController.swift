@@ -8,10 +8,13 @@ final class WorktreeSidebarViewController: NSSplitViewController {
 
     init(
         contentView terminalViewContainer: TerminalViewContainer,
-        viewModel: WorktreeSidebarViewModel = WorktreeSidebarViewModel()
+        viewModel: WorktreeSidebarViewModel? = nil
     ) {
         self.terminalViewContainer = terminalViewContainer
-        self.viewModel = viewModel
+        // Construct the default view model in the init body (main-actor isolated)
+        // rather than as a default argument, which Swift evaluates in a nonisolated
+        // context and would reject for the @MainActor view model.
+        self.viewModel = viewModel ?? WorktreeSidebarViewModel()
         super.init(nibName: nil, bundle: nil)
     }
 
