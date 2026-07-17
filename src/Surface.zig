@@ -5326,6 +5326,15 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             },
         ),
 
+        .goto_worktree => |direction| return try self.rt_app.performAction(
+            .{ .surface = self },
+            .goto_worktree,
+            switch (direction) {
+                .previous => .previous,
+                .next => .next,
+            },
+        ),
+
         .goto_window => |direction| return try self.rt_app.performAction(
             .{ .surface = self },
             .goto_window,
@@ -5358,6 +5367,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .toggle_split_zoom => return try self.rt_app.performAction(
             .{ .surface = self },
             .toggle_split_zoom,
+            {},
+        ),
+
+        .toggle_worktree_sidebar => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .toggle_worktree_sidebar,
             {},
         ),
 

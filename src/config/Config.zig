@@ -7030,6 +7030,11 @@ pub const Keybinds = struct {
             );
             try self.set.put(
                 alloc,
+                .{ .key = .{ .unicode = 'e' }, .mods = .{ .super = true, .shift = true } },
+                .{ .toggle_worktree_sidebar = {} },
+            );
+            try self.set.put(
+                alloc,
                 .{ .key = .{ .unicode = '[' }, .mods = .{ .super = true } },
                 .{ .goto_split = .previous },
             );

@@ -633,6 +633,9 @@ pub const Action = union(enum) {
     /// (`previous` and `next`).
     goto_split: SplitFocusDirection,
 
+    /// Focus on the previous or next worktree, wrapping around.
+    goto_worktree: WorktreeFocusDirection,
+
     /// Focus on either the previous window or the next one ('previous', 'next')
     goto_window: GotoWindow,
 
@@ -792,6 +795,9 @@ pub const Action = union(enum) {
     /// This requires libadwaita 1.5 or newer on Linux. The current libadwaita
     /// version can be found by running `ghostty +version`.
     toggle_command_palette,
+
+    /// Toggle the worktree sidebar.
+    toggle_worktree_sidebar,
 
     /// Toggle the quick terminal.
     ///
@@ -1079,6 +1085,11 @@ pub const Action = union(enum) {
             try testing.expectError(error.InvalidFormat, SplitFocusDirection.parse(""));
             try testing.expectError(error.InvalidFormat, SplitFocusDirection.parse("green"));
         }
+    };
+
+    pub const WorktreeFocusDirection = enum {
+        previous,
+        next,
     };
 
     pub const SplitResizeDirection = enum {
@@ -1397,6 +1408,7 @@ pub const Action = union(enum) {
             .toggle_secure_input,
             .toggle_mouse_reporting,
             .toggle_command_palette,
+            .toggle_worktree_sidebar,
             .toggle_background_opacity,
             .show_on_screen_keyboard,
             .reset_window_size,
@@ -1421,6 +1433,7 @@ pub const Action = union(enum) {
             .toggle_tab_overview,
             .new_split,
             .goto_split,
+            .goto_worktree,
             .goto_window,
             .toggle_split_zoom,
             .toggle_readonly,
