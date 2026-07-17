@@ -214,6 +214,18 @@ extension Ghostty {
             return String(cString: ptr)
         }
 
+        // worktree-sidebar: configured `working-directory`, used as the cwd
+        // fallback when a surface reports no live pwd (e.g. bare commands).
+        var workingDirectory: String? {
+            guard let config = self.config else { return nil }
+            var v: UnsafePointer<Int8>?
+            let key = "working-directory"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return nil }
+            guard let ptr = v else { return nil }
+            let str = String(cString: ptr)
+            return str.isEmpty ? nil : str
+        }
+
         var windowSaveState: String {
             guard let config = self.config else { return "" }
             var v: UnsafePointer<Int8>?
