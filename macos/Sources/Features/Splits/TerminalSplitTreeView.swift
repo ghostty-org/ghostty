@@ -26,11 +26,21 @@ enum TerminalSplitOperation {
 }
 
 struct TerminalSplitTreeView: View {
+    @EnvironmentObject var ghostty: Ghostty.App
+
     let tree: SplitTree<Ghostty.SurfaceView>
     let action: (TerminalSplitOperation) -> Void
 
+    /// The currently-focused surface, if any. Threaded from the embedder's
+    /// own focus tracking (see `TerminalView`'s `@FocusedValue`/
+    /// `lastFocusedSurface`) rather than tracked independently here, so
+    /// there's a single source of truth for "what's focused."
+    var focusedSurfaceID: Ghostty.SurfaceView.ID?
+
     var body: some View {
-        if let node = tree.zoomed ?? tree.root {
+        if ghostty.config.adaptiveLayout, tree.isSplit {
+            AdaptiveLayoutContainer(tree: tree, focusedSurfaceID: focusedSurfaceID)
+        } else if let node = tree.zoomed ?? tree.root {
             TerminalSplitSubtreeView(
                 node: node,
                 isRoot: node == tree.root,
@@ -86,7 +96,7 @@ private struct TerminalSplitSubtreeView: View {
     }
 }
 
-private struct TerminalSplitLeaf: View {
+struct TerminalSplitLeaf: View {
     let surfaceView: Ghostty.SurfaceView
     let isSplit: Bool
     let action: (TerminalSplitOperation) -> Void

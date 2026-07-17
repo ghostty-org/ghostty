@@ -81,7 +81,8 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
 
                     TerminalSplitTreeView(
                         tree: viewModel.surfaceTree,
-                        action: { delegate?.performSplitAction($0) })
+                        action: { delegate?.performSplitAction($0) },
+                        focusedSurfaceID: (focusedSurface ?? lastFocusedSurface?.value)?.id)
                         .environmentObject(ghostty)
                         .ghosttyLastFocusedSurface(lastFocusedSurface)
                         .focused($focused)

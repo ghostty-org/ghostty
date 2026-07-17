@@ -460,6 +460,14 @@ extension Ghostty {
             return v
         }
 
+        var adaptiveLayout: Bool {
+            guard let config = self.config else { return true }
+            var v = true
+            let key = "adaptive-layout"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
         var backgroundColor: Color {
             var color: ghostty_config_color_s = .init()
             let bg_key = "background"

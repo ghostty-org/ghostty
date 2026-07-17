@@ -2445,6 +2445,19 @@ keybind: Keybinds = .{},
 /// Default is false.
 @"focus-follows-mouse": bool = false,
 
+/// If true, enables an adaptive split layout on macOS: the focused split
+/// takes up roughly two-thirds of the window along each axis it shares
+/// splits with, while other splits condense down to smaller live-scaled
+/// tiles (or a title-only tile if too small to render live), instead of
+/// each split keeping its manually-set size. Manual split/drag/resize
+/// behavior is unaffected when this is off.
+///
+/// This is a RoundedStone-specific option, only read by the macOS app —
+/// it has no effect on other platforms.
+///
+/// Default is true.
+@"adaptive-layout": bool = true,
+
 /// Whether to allow programs running in the terminal to read/write to the
 /// system clipboard (OSC 52, for googling). The default is to allow clipboard
 /// reading after prompting the user and allow writing unconditionally.
