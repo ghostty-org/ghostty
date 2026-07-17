@@ -1229,6 +1229,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         self.relabelTabs()
         self.fixTabBar()
         terminalViewContainer?.updateGlassTintOverlay(isKeyWindow: true)
+
+        // worktree-sidebar: refresh the sidebar on window focus so its data
+        // stays current. Only worth doing when the sidebar is actually open;
+        // the toggle-open path handles the first reveal.
+        if let controller = worktreeSidebarViewController, !controller.isSidebarCollapsed {
+            refreshWorktreeSidebar()
+        }
     }
 
     override func windowDidResignKey(_ notification: Notification) {

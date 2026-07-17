@@ -1,35 +1,17 @@
 import AppKit
 import SwiftUI
 
-struct WorktreeSidebarRow: Identifiable, Hashable {
-    let id: String
-    let title: String
-    let subtitle: String
-}
-
-protocol WorktreeSidebarDataSource {
-    var rows: [WorktreeSidebarRow] { get }
-}
-
-struct PlaceholderWorktreeSidebarDataSource: WorktreeSidebarDataSource {
-    let rows: [WorktreeSidebarRow] = [
-        .init(id: "main", title: "main", subtitle: "Current repository"),
-        .init(id: "feature", title: "feature/example", subtitle: "Placeholder worktree"),
-        .init(id: "review", title: "review/design-notes", subtitle: "Placeholder worktree"),
-    ]
-}
-
 final class WorktreeSidebarViewController: NSSplitViewController {
     private let terminalViewContainer: TerminalViewContainer
-    private let dataSource: any WorktreeSidebarDataSource
+    let viewModel: WorktreeSidebarViewModel
     private var sidebarSplitViewItem: NSSplitViewItem?
 
     init(
         contentView terminalViewContainer: TerminalViewContainer,
-        dataSource: any WorktreeSidebarDataSource = PlaceholderWorktreeSidebarDataSource()
+        viewModel: WorktreeSidebarViewModel = WorktreeSidebarViewModel()
     ) {
         self.terminalViewContainer = terminalViewContainer
-        self.dataSource = dataSource
+        self.viewModel = viewModel
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -50,7 +32,7 @@ final class WorktreeSidebarViewController: NSSplitViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        let sidebarViewController = WorktreeSidebarListViewController(dataSource: dataSource)
+        let sidebarViewController = WorktreeSidebarListViewController(viewModel: viewModel)
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarViewController)
         sidebarItem.canCollapse = true
         sidebarItem.isCollapsed = true
@@ -73,7 +55,14 @@ final class WorktreeSidebarViewController: NSSplitViewController {
         sidebarSplitViewItem?.isCollapsed ?? true
     }
 
-    override func toggleSidebar(_ sender: Any?) {
+    /// Reload the sidebar's worktrees for the given cwd. The cwd is sourced by
+    /// the owning `TerminalController` from its first surface (see
+    /// `TerminalController.refreshWorktreeSidebar`).
+    func refresh(cwd: URL?) {
+        Task { await viewModel.refresh(cwd: cwd) }
+    }
+
+    func toggleSidebar(_ sender: Any?) {
         guard let sidebarSplitViewItem else { return }
 
         NSAnimationContext.runAnimationGroup { context in
@@ -101,10 +90,10 @@ private final class WorktreeSidebarSplitView: NSSplitView {
 }
 
 private final class WorktreeSidebarListViewController: NSViewController {
-    private let dataSource: any WorktreeSidebarDataSource
+    private let viewModel: WorktreeSidebarViewModel
 
-    init(dataSource: any WorktreeSidebarDataSource) {
-        self.dataSource = dataSource
+    init(viewModel: WorktreeSidebarViewModel) {
+        self.viewModel = viewModel
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -120,7 +109,7 @@ private final class WorktreeSidebarListViewController: NSViewController {
         visualEffectView.state = .active
 
         let hostingView = NSHostingView(
-            rootView: WorktreeSidebarList(dataSource: dataSource)
+            rootView: WorktreeSidebarList(viewModel: viewModel)
         )
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         visualEffectView.addSubview(hostingView)
@@ -136,21 +125,83 @@ private final class WorktreeSidebarListViewController: NSViewController {
 }
 
 private struct WorktreeSidebarList: View {
-    let dataSource: any WorktreeSidebarDataSource
+    @ObservedObject var viewModel: WorktreeSidebarViewModel
 
     var body: some View {
-        List(dataSource.rows) { row in
-            VStack(alignment: .leading, spacing: 2) {
-                Text(row.title)
-                    .font(.body)
-                Text(row.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            filterField
+
+            if viewModel.isEmptyState {
+                emptyState
+            } else {
+                list
             }
-            .padding(.vertical, 2)
+        }
+    }
+
+    private var filterField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .foregroundStyle(.secondary)
+            TextField("Filter", text: $viewModel.filterText)
+                .textFieldStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+    }
+
+    private var emptyState: some View {
+        VStack {
+            Spacer()
+            Text("Not a git repository")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 12)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var list: some View {
+        List(viewModel.filteredWorktrees, id: \.path) { worktree in
+            WorktreeSidebarRowView(
+                worktree: worktree,
+                isActive: worktree.path == viewModel.selectedWorktree?.path
+            )
+            .listRowBackground(
+                worktree.path == viewModel.selectedWorktree?.path
+                    ? Color.accentColor.opacity(0.18)
+                    : Color.clear
+            )
         }
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
+    }
+}
+
+private struct WorktreeSidebarRowView: View {
+    let worktree: Worktree
+    let isActive: Bool
+
+    private var title: String {
+        WorktreeSidebar.displayName(for: worktree)
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: worktree.isDetached ? "arrow.triangle.pull" : "arrow.triangle.branch")
+                .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
+            Text(title)
+                // Truncate long branch names in the middle, with a tooltip
+                // showing the full name.
+                .truncationMode(.middle)
+                .lineLimit(1)
+                .fontWeight(worktree.isMain ? .semibold : .regular)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 2)
+        .help(title)
     }
 }
 
@@ -161,6 +212,26 @@ extension TerminalController {
         window.contentViewController = controller
     }
 
+    /// The cwd to source worktrees from: the window's first surface's live pwd,
+    /// falling back to the configured `working-directory` (bare commands report
+    /// no pwd). Returns nil when neither is available.
+    // worktree-sidebar:
+    private var worktreeSidebarCwd: URL? {
+        let surface = surfaceTree.first
+        return WorktreeSidebar.resolveCwd(
+            pwd: surface?.pwd,
+            configuredWorkingDirectory: ghostty.config.workingDirectory
+        )
+    }
+
+    /// Reload the sidebar's worktrees from the current first-surface cwd.
+    /// Refresh triggers: the window becoming key and the sidebar being toggled
+    /// open (see `toggleWorktreeSidebar` / `windowDidBecomeKey`).
+    // worktree-sidebar:
+    func refreshWorktreeSidebar() {
+        worktreeSidebarViewController?.refresh(cwd: worktreeSidebarCwd)
+    }
+
     /// Semantic entry point for toggling the sidebar. This no-arg signature is kept
     /// aligned with the `toggle_worktree_sidebar` keybind stub in feat/wt-keybinds so
     /// that, at integration, the keybind path replaces that stub's body rather than
@@ -168,7 +239,15 @@ extension TerminalController {
     /// and correct — resolve it by keeping this real implementation.
     // worktree-sidebar:
     func toggleWorktreeSidebar() {
-        worktreeSidebarViewController?.toggleSidebar(nil)
+        guard let controller = worktreeSidebarViewController else { return }
+        let willOpen = controller.isSidebarCollapsed
+        controller.toggleSidebar(nil)
+
+        // Refresh when the sidebar is being opened so it reflects the current
+        // repository state without waiting for a window-focus change.
+        if willOpen {
+            refreshWorktreeSidebar()
+        }
     }
 
     @IBAction func toggleWorktreeSidebar(_ sender: Any?) {
