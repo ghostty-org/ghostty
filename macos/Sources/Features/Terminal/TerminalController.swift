@@ -61,6 +61,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
 
+    // worktree-sidebar: Retains the collapsed sidebar shell around the terminal content.
+    var worktreeSidebarViewController: WorktreeSidebarViewController?
+
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
@@ -1088,7 +1091,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // SwiftUI focus chain.
         container.initialContentSize = focusedSurface?.initialSize
 
-        window.contentView = container
+        // worktree-sidebar: Wrap terminal content in a collapsed AppKit sidebar shell.
+        installWorktreeSidebar(around: container, in: window)
 
         // If we have a default size, we want to apply it.
         if let defaultSize {
@@ -1185,6 +1189,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     override func windowWillClose(_ notification: Notification) {
         super.windowWillClose(notification)
+        // worktree-sidebar: Release the wrapper controller with the window content.
+        worktreeSidebarViewController = nil
         cancelPendingInitialPresentation()
         self.relabelTabs()
 
