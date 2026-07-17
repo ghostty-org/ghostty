@@ -1582,11 +1582,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         returnToDefaultSize(nil)
     }
 
-    func toggleWorktreeSidebar() {
-        // worktree-sidebar:
-        Ghostty.logger.info("worktree-sidebar: toggleWorktreeSidebar")
-    }
-
+    // worktree-sidebar: toggleWorktreeSidebar() is defined for real in the
+    // WorktreeSidebarViewController extension (from feat/wt-sidebar-shell); the
+    // keybind path calls into that. Only gotoWorktree remains a stub here.
     func gotoWorktree(_ direction: Ghostty.WorktreeFocusDirection) {
         // worktree-sidebar:
         Ghostty.logger.info("worktree-sidebar: gotoWorktree direction=\(direction.rawValue, privacy: .public)")
