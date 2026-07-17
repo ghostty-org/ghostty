@@ -55,6 +55,9 @@ pub fn create(b: *std.Build, opts: Options) ?*MetallibStep {
         b,
         b.fmt("metal {s}", .{opts.name}),
     );
+    // TEMPORARY (research spike): Metal toolchain requires full Xcode on
+    // this machine while xcode-select points at the CLT.
+    run_ir.setEnvironmentVariable("DEVELOPER_DIR", "/Applications/Xcode.app/Contents/Developer");
     run_ir.addArgs(&.{ "/usr/bin/xcrun", "-sdk", sdk, "metal", "-o" });
     const output_ir = run_ir.addOutputFileArg(b.fmt("{s}.ir", .{opts.name}));
     run_ir.addArgs(&.{"-c"});
@@ -70,6 +73,8 @@ pub fn create(b: *std.Build, opts: Options) ?*MetallibStep {
         b,
         b.fmt("metallib {s}", .{opts.name}),
     );
+    // TEMPORARY (research spike): see above.
+    run_lib.setEnvironmentVariable("DEVELOPER_DIR", "/Applications/Xcode.app/Contents/Developer");
     run_lib.addArgs(&.{ "/usr/bin/xcrun", "-sdk", sdk, "metallib", "-o" });
     const output_lib = run_lib.addOutputFileArg(b.fmt("{s}.metallib", .{opts.name}));
     run_lib.addFileArg(output_ir);

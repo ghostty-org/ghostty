@@ -58,6 +58,9 @@ pub fn init(
         const env_map = try b.allocator.create(std.process.EnvMap);
         env_map.* = .init(b.allocator);
         if (env.get("PATH")) |v| try env_map.put("PATH", v);
+        // TEMPORARY (research spike): xcodebuild requires full Xcode on
+        // this machine while xcode-select points at the CLT.
+        try env_map.put("DEVELOPER_DIR", "/Applications/Xcode.app/Contents/Developer");
 
         const step = RunStep.create(b, "xcodebuild");
         step.has_side_effects = true;
