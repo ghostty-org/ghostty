@@ -33,6 +33,12 @@ final class WorktreeSidebarViewModel: ObservableObject {
     /// initial (pre-load) state from a genuinely empty / non-repo result.
     @Published private(set) var hasLoaded: Bool = false
 
+    /// Invoked when the user picks a worktree row. The M3 switching layer
+    /// (TerminalController) wires this to the workspace switch; selection
+    /// state is then updated by the switcher, so the highlight tracks the
+    /// active workspace rather than the click.
+    var onSelect: ((Worktree) -> Void)?
+
     private let model: GitWorktreeModel
     private(set) var currentCwd: URL?
 
@@ -70,12 +76,22 @@ final class WorktreeSidebarViewModel: ObservableObject {
 
         // Preserve an existing selection if it still exists after the refresh;
         // otherwise default to the active worktree (the one containing cwd).
+        //
+        // TODO(worktree-sidebar): a worktree deleted on disk while its
+        // workspace is open disappears from this list, orphaning the (still
+        // usable) workspace. Mark such rows as missing instead of dropping
+        // them so the user can still reach and close that workspace.
         if let selectedWorktree,
            loaded.contains(where: { $0.path == selectedWorktree.path }) {
             // Keep the current selection.
         } else {
             selectedWorktree = WorktreeSidebar.activeWorktree(in: loaded, cwd: cwd)
         }
+    }
+
+    /// Forward a row click to the switching layer (see `onSelect`).
+    func select(_ worktree: Worktree) {
+        onSelect?(worktree)
     }
 }
 
@@ -117,6 +133,28 @@ enum WorktreeSidebar {
             let haystacks = [displayName(for: worktree), worktree.path.lastPathComponent]
             return haystacks.contains { $0.range(of: trimmed, options: .caseInsensitive) != nil }
         }
+    }
+
+    /// The worktree `offset` steps away from `current` in sidebar order,
+    /// wrapping around either end. `current` is matched by standardized path;
+    /// when it is nil or not in the list, the first worktree is returned so
+    /// cycling from an unknown state lands somewhere deterministic. Returns
+    /// nil for an empty list or when the result would be `current` itself
+    /// (a single-entry list): there is nothing to switch to.
+    static func cycleTarget(in worktrees: [Worktree], from current: URL?, offset: Int) -> Worktree? {
+        guard !worktrees.isEmpty else { return nil }
+
+        let currentPath = current?.standardizedFileURL.path
+        guard let index = worktrees.firstIndex(where: {
+            $0.path.standardizedFileURL.path == currentPath
+        }) else {
+            return worktrees.first
+        }
+
+        let count = worktrees.count
+        let target = ((index + offset) % count + count) % count
+        guard target != index else { return nil }
+        return worktrees[target]
     }
 
     /// Resolve the cwd to source worktrees from: prefer the surface's live pwd,

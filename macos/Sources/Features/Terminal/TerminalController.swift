@@ -64,6 +64,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     // worktree-sidebar: Retains the collapsed sidebar shell around the terminal content.
     var worktreeSidebarViewController: WorktreeSidebarViewController?
 
+    // worktree-sidebar: Retains detached worktree workspaces (their split trees
+    // and ptys) while another worktree is shown. Created on the first switch.
+    var worktreeWorkspaces: WorktreeWorkspaceManager?
+
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
@@ -198,6 +202,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // We have a special case if our tree is empty to close our tab immediately.
         // This makes it so that undo is handled properly.
         if newTree.isEmpty {
+            // worktree-sidebar: if other worktree workspaces are still alive,
+            // fall back to one of them instead of closing the tab (which would
+            // tear down their processes too).
+            if let fallback = worktreeWorkspaces?.anyDetached() {
+                attachFallbackWorkspace(fallback)
+                return
+            }
+
             closeTabImmediately()
             return
         }
@@ -207,6 +219,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             moveFocusTo: newView,
             moveFocusFrom: oldView,
             undoAction: undoAction)
+    }
+
+    override func windowCanBeClosedWithoutConfirmation() -> Bool {
+        guard super.windowCanBeClosedWithoutConfirmation() else { return false }
+
+        // worktree-sidebar: detached workspaces keep their processes alive,
+        // and closing the window tears them down too.
+        return !(worktreeWorkspaces?.needsConfirmQuit ?? false)
     }
 
     // MARK: Terminal Creation
@@ -947,9 +967,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // The window we use for confirmations. Try to find the first window that
         // needs quit confirmation. This lets us attach the confirmation to something
         // that is running.
+        // worktree-sidebar: consult detached workspaces too via
+        // anySurfaceNeedsConfirmQuit; the alert attaches to the controller's
+        // window, which is also the window of any of its surfaces.
         guard let confirmWindow = all
-            .first(where: { $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) })?
-            .surfaceTree.first(where: { $0.needsConfirmQuit })?
+            .first(where: { $0.anySurfaceNeedsConfirmQuit })?
             .window
         else {
             closeAllWindowsImmediately()
@@ -1189,7 +1211,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     override func windowWillClose(_ notification: Notification) {
         super.windowWillClose(notification)
-        // worktree-sidebar: Release the wrapper controller with the window content.
+        // worktree-sidebar: Release the wrapper controller with the window content,
+        // and tear down detached workspaces so their surfaces (and ptys) are freed.
+        worktreeWorkspaces?.removeAll()
+        worktreeWorkspaces = nil
         worktreeSidebarViewController = nil
         cancelPendingInitialPresentation()
         self.relabelTabs()
@@ -1294,7 +1319,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return
         }
 
-        guard surfaceTree.contains(where: { $0.needsConfirmQuit }) else {
+        guard anySurfaceNeedsConfirmQuit else {
             closeTabImmediately()
             return
         }
@@ -1325,7 +1350,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             }
 
             // Check if any surfaces require confirmation
-            return controller.surfaceTree.contains(where: { $0.needsConfirmQuit })
+            return controller.anySurfaceNeedsConfirmQuit
         }) else {
             self.closeOtherTabsImmediately()
             return
@@ -1352,7 +1377,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 return false
             }
 
-            return controller.surfaceTree.contains(where: { $0.needsConfirmQuit })
+            return controller.anySurfaceNeedsConfirmQuit
         }
 
         if !needsConfirm {
@@ -1382,7 +1407,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let windows: [NSWindow] = window.tabGroup?.windows ?? [window]
         guard let confirmController = windows
             .compactMap({ $0.windowController as? TerminalController })
-            .first(where: { $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) })
+            .first(where: { $0.anySurfaceNeedsConfirmQuit })
         else {
             closeWindowImmediately()
             return
@@ -1590,11 +1615,26 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     // worktree-sidebar: toggleWorktreeSidebar() is defined for real in the
-    // WorktreeSidebarViewController extension (from feat/wt-sidebar-shell); the
-    // keybind path calls into that. Only gotoWorktree remains a stub here.
+    // WorktreeSidebarViewController extension (from feat/wt-sidebar-shell).
+    // Keybind entry point for goto_worktree:next/previous: cycle through the
+    // worktrees in sidebar order, wrapping. The switching itself lives in
+    // TerminalController+WorktreeSwitching.swift.
     func gotoWorktree(_ direction: Ghostty.WorktreeFocusDirection) {
         // worktree-sidebar:
-        Ghostty.logger.info("worktree-sidebar: gotoWorktree direction=\(direction.rawValue, privacy: .public)")
+        guard let viewModel = worktreeSidebarViewController?.viewModel else { return }
+
+        // The sidebar loads lazily (when opened or on window focus). If the
+        // keybind fires before any load, load first so there is a list to
+        // cycle through.
+        if viewModel.hasLoaded {
+            cycleWorktree(direction, viewModel: viewModel)
+        } else {
+            let cwd = worktreeSidebarCwd
+            Task { @MainActor in
+                await viewModel.refresh(cwd: cwd)
+                self.cycleWorktree(direction, viewModel: viewModel)
+            }
+        }
     }
 
     @objc private func onToggleFullscreen(notification: SwiftUI.Notification) {
