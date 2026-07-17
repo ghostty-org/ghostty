@@ -24,6 +24,21 @@ extension Ghostty {
         }
 
         deinit {
+            guard !Thread.isMainThread else {
+                // Free synchronously when it’s on the main thread.
+                // Since the renderer thread now emits scrollbar events
+                // on almost every frame, there's always a `.scrollbar` message
+                // for the dying surface in the app mailbox.
+                //
+                // OS runtime seems to schedule `appTick` and `ghostty_surface_free` differently for pre-26, 26 and 27.
+                // On macOS 26.x, `ghostty_surface_free` happens after `App.scrollbar(_:target:v:)`,
+                // which results in `surface.userdata` pointing at a freed `SurfaceView`.
+                //
+                // This fixes both crashes mentioned in https://github.com/ghostty-org/ghostty/pull/9512
+                // and https://github.com/ghostty-org/ghostty/issues/13359
+                ghostty_surface_free(surface)
+                return
+            }
             // deinit is not guaranteed to happen on the main actor and our API
             // calls into libghostty must happen there so we capture the surface
             // value so we don't capture `self` and then we detach it in a task.
