@@ -161,7 +161,17 @@ extension TerminalController {
         window.contentViewController = controller
     }
 
+    /// Semantic entry point for toggling the sidebar. This no-arg signature is kept
+    /// aligned with the `toggle_worktree_sidebar` keybind stub in feat/wt-keybinds so
+    /// that, at integration, the keybind path replaces that stub's body rather than
+    /// silently adding a second no-op overload. A merge conflict here is intentional
+    /// and correct — resolve it by keeping this real implementation.
+    // worktree-sidebar:
+    func toggleWorktreeSidebar() {
+        worktreeSidebarViewController?.toggleSidebar(nil)
+    }
+
     @IBAction func toggleWorktreeSidebar(_ sender: Any?) {
-        worktreeSidebarViewController?.toggleSidebar(sender)
+        toggleWorktreeSidebar()
     }
 }
