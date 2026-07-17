@@ -1,6 +1,6 @@
 # 01 — research/spike
 
-**Base:** `main` · **Status:** ready now · **Blocks:** the whole milestone chain
+**Base:** `main` · **Status:** ✅ complete — see [`01-research-spike-findings.md`](./01-research-spike-findings.md) (detachment assumption: **PASS**) · **Blocks:** the whole milestone chain
 **Read first:** [`plan.md`](../../plan.md) §"Before writing code" and [`00-OVERVIEW.md`](./00-OVERVIEW.md)
 
 ## Purpose
