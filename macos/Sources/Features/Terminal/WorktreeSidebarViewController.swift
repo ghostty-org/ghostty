@@ -5,6 +5,7 @@ final class WorktreeSidebarViewController: NSSplitViewController {
     private let terminalViewContainer: TerminalViewContainer
     let viewModel: WorktreeSidebarViewModel
     private var sidebarSplitViewItem: NSSplitViewItem?
+    private var sidebarState = WorktreeSidebarState()
 
     init(
         contentView terminalViewContainer: TerminalViewContainer,
@@ -40,7 +41,7 @@ final class WorktreeSidebarViewController: NSSplitViewController {
         let sidebarViewController = WorktreeSidebarListViewController(viewModel: viewModel)
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarViewController)
         sidebarItem.canCollapse = true
-        sidebarItem.isCollapsed = true
+        sidebarItem.isCollapsed = sidebarState.isCollapsed
         sidebarItem.minimumThickness = 180
         sidebarItem.maximumThickness = 280
 
@@ -69,15 +70,47 @@ final class WorktreeSidebarViewController: NSSplitViewController {
 
     override func toggleSidebar(_ sender: Any?) {
         guard let sidebarSplitViewItem else { return }
+        let willOpen = sidebarSplitViewItem.isCollapsed
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.2
             context.allowsImplicitAnimation = true
             sidebarSplitViewItem.animator().isCollapsed = !sidebarSplitViewItem.isCollapsed
         } completionHandler: {
+            self.rememberSidebarState()
+            if willOpen {
+                self.restoreSidebarWidth()
+            }
             self.view.invalidateIntrinsicContentSize()
         }
     }
+
+    override func splitViewDidResizeSubviews(_ notification: Notification) {
+        rememberSidebarState()
+    }
+
+    private func rememberSidebarState() {
+        guard let sidebarSplitViewItem else { return }
+
+        sidebarState.isCollapsed = sidebarSplitViewItem.isCollapsed
+        let width = sidebarSplitViewItem.viewController.view.frame.width
+        if !sidebarSplitViewItem.isCollapsed,
+           width >= sidebarSplitViewItem.minimumThickness,
+           width <= sidebarSplitViewItem.maximumThickness {
+            sidebarState.width = width
+        }
+    }
+
+    private func restoreSidebarWidth() {
+        guard let sidebarSplitViewItem, !sidebarSplitViewItem.isCollapsed else { return }
+        let width = min(max(sidebarState.width, sidebarSplitViewItem.minimumThickness), sidebarSplitViewItem.maximumThickness)
+        splitView.setPosition(width, ofDividerAt: 0)
+    }
+}
+
+private struct WorktreeSidebarState {
+    var isCollapsed = true
+    var width: CGFloat = 220
 }
 
 private final class WorktreeSidebarSplitView: NSSplitView {
@@ -136,6 +169,10 @@ private struct WorktreeSidebarList: View {
         VStack(spacing: 0) {
             filterField
 
+            if let message = viewModel.sidebarMessage {
+                WorktreeSidebarMessageView(message: message)
+            }
+
             if viewModel.isEmptyState {
                 emptyState
             } else {
@@ -169,24 +206,65 @@ private struct WorktreeSidebarList: View {
     }
 
     private var list: some View {
-        List(viewModel.filteredWorktrees, id: \.path) { worktree in
-            WorktreeSidebarRowView(
-                worktree: worktree,
-                isActive: worktree.path == viewModel.selectedWorktree?.path
-            )
-            // Whole row is clickable; the click switches workspaces (M3).
-            .contentShape(Rectangle())
-            .onTapGesture {
-                viewModel.select(worktree)
+        List {
+            ForEach(viewModel.filteredWorktrees, id: \.path) { worktree in
+                WorktreeSidebarRowView(
+                    worktree: worktree,
+                    isActive: worktree.path == viewModel.selectedWorktree?.path
+                )
+                // Whole row is clickable; the click switches workspaces (M3).
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    viewModel.select(worktree)
+                }
+                .listRowBackground(
+                    worktree.path == viewModel.selectedWorktree?.path
+                        ? Color.accentColor.opacity(0.18)
+                        : Color.clear
+                )
             }
-            .listRowBackground(
-                worktree.path == viewModel.selectedWorktree?.path
-                    ? Color.accentColor.opacity(0.18)
-                    : Color.clear
-            )
+
+            Button {
+                viewModel.requestCreateWorktree()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: viewModel.isCreatingWorktree ? "hourglass" : "plus")
+                        .foregroundStyle(.secondary)
+                    Text(viewModel.isCreatingWorktree ? "Creating worktree..." : "New worktree...")
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 2)
+            }
+            .buttonStyle(.plain)
+            .disabled(viewModel.isCreatingWorktree || viewModel.worktrees.isEmpty)
+            .help("Create a new git worktree")
+            .listRowBackground(Color.clear)
         }
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
+    }
+}
+
+private struct WorktreeSidebarMessageView: View {
+    let message: WorktreeSidebarMessage
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: message.kind == .error ? "exclamationmark.triangle" : "info.circle")
+                .foregroundStyle(message.kind == .error ? Color.orange : Color.secondary)
+            Text(message.text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(3)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            (message.kind == .error ? Color.orange : Color.secondary)
+                .opacity(0.10)
+        )
     }
 }
 
@@ -224,6 +302,9 @@ extension TerminalController {
         // Clicking a row switches to that worktree's workspace (M3).
         controller.viewModel.onSelect = { [weak self] worktree in
             self?.switchToWorktree(worktree)
+        }
+        controller.viewModel.onCreate = { [weak self] in
+            self?.promptForNewWorktree()
         }
     }
 
@@ -271,5 +352,34 @@ extension TerminalController {
 
     @IBAction func toggleWorktreeSidebar(_ sender: Any?) {
         toggleWorktreeSidebar()
+    }
+
+    // worktree-sidebar:
+    private func promptForNewWorktree() {
+        guard let viewModel = worktreeSidebarViewController?.viewModel,
+              let window else { return }
+
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        input.placeholderString = "branch-name"
+
+        let alert = NSAlert()
+        alert.messageText = "New Worktree"
+        alert.informativeText = "Enter the branch name to create. The worktree will be created beside this repository."
+        alert.accessoryView = input
+        alert.addButton(withTitle: "Create")
+        alert.addButton(withTitle: "Cancel")
+
+        alert.beginSheetModal(for: window) { [weak self, weak viewModel] response in
+            guard response == .alertFirstButtonReturn,
+                  let self,
+                  let viewModel else { return }
+
+            let branchName = input.stringValue
+            Task { @MainActor in
+                if let worktree = await viewModel.createWorktree(branchName: branchName) {
+                    self.switchToWorktree(worktree)
+                }
+            }
+        }
     }
 }

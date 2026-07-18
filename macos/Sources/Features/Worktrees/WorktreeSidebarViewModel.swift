@@ -33,11 +33,22 @@ final class WorktreeSidebarViewModel: ObservableObject {
     /// initial (pre-load) state from a genuinely empty / non-repo result.
     @Published private(set) var hasLoaded: Bool = false
 
+    /// Inline status/error message displayed in the sidebar.
+    @Published var sidebarMessage: WorktreeSidebarMessage?
+
+    /// True while `git worktree add` is running.
+    @Published private(set) var isCreatingWorktree: Bool = false
+
     /// Invoked when the user picks a worktree row. The M3 switching layer
     /// (TerminalController) wires this to the workspace switch; selection
     /// state is then updated by the switcher, so the highlight tracks the
     /// active workspace rather than the click.
     var onSelect: ((Worktree) -> Void)?
+
+    /// Invoked when the user clicks the "New worktree..." row. The AppKit
+    /// controller owns the prompt so git failures can stay as inline sidebar
+    /// messages rather than alerts.
+    var onCreate: (() -> Void)?
 
     private let model: GitWorktreeModel
     private(set) var currentCwd: URL?
@@ -91,7 +102,59 @@ final class WorktreeSidebarViewModel: ObservableObject {
 
     /// Forward a row click to the switching layer (see `onSelect`).
     func select(_ worktree: Worktree) {
+        sidebarMessage = nil
         onSelect?(worktree)
+    }
+
+    func requestCreateWorktree() {
+        onCreate?()
+    }
+
+    /// Create a worktree for `branchName`, refresh the list, select the new
+    /// worktree, and return it so the switching layer can open it.
+    func createWorktree(branchName: String) async -> Worktree? {
+        guard !isCreatingWorktree else { return nil }
+        guard let currentCwd else {
+            sidebarMessage = .error("Not a git repository.")
+            return nil
+        }
+
+        isCreatingWorktree = true
+        sidebarMessage = .info("Creating worktree...")
+        defer { isCreatingWorktree = false }
+
+        switch await model.createWorktree(branchName: branchName, forCwd: currentCwd) {
+        case .success(let path):
+            await refresh(cwd: path)
+
+            let created = worktrees.first {
+                WorktreeSidebar.canonicalPath($0.path) == WorktreeSidebar.canonicalPath(path)
+            }
+            selectedWorktree = created
+            sidebarMessage = nil
+            return created
+        case .failure(let error):
+            sidebarMessage = .error(error.message)
+            return nil
+        }
+    }
+}
+
+struct WorktreeSidebarMessage: Equatable {
+    enum Kind: Equatable {
+        case info
+        case error
+    }
+
+    let kind: Kind
+    let text: String
+
+    static func info(_ text: String) -> Self {
+        .init(kind: .info, text: text)
+    }
+
+    static func error(_ text: String) -> Self {
+        .init(kind: .error, text: text)
     }
 }
 

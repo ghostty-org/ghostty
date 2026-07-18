@@ -60,6 +60,48 @@ struct GitWorktreeModel {
         return WorktreePorcelainParser.parse(output, mainRoot: root)
     }
 
+    func createWorktree(branchName rawBranchName: String, forCwd cwd: URL) async -> Result<URL, GitWorktreeCreationError> {
+        let branchName = rawBranchName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !branchName.isEmpty else {
+            return .failure(.init(message: "Enter a branch name."))
+        }
+
+        guard let root = await repoRoot(forCwd: cwd) else {
+            return .failure(.init(message: "Not a git repository."))
+        }
+
+        let path = Self.defaultNewWorktreePath(repoRoot: root, branchName: branchName)
+        let result = await runner.runGit(
+            arguments: ["worktree", "add", "-b", branchName, path.path],
+            cwd: root,
+            timeout: timeout
+        )
+
+        switch result {
+        case .success:
+            return .success(path)
+        case .failure(let status, let stderr):
+            logFailure(result, command: "worktree add", cwd: root)
+            let detail = stderr.isEmpty ? "git worktree add failed with status \(status)." : stderr
+            return .failure(.init(message: detail))
+        case .timedOut:
+            logFailure(result, command: "worktree add", cwd: root)
+            return .failure(.init(message: "git worktree add timed out."))
+        case .launchFailed(let message):
+            logFailure(result, command: "worktree add", cwd: root)
+            return .failure(.init(message: "Could not launch git: \(message)"))
+        }
+    }
+
+    static func defaultNewWorktreePath(repoRoot: URL, branchName: String) -> URL {
+        let repoName = repoRoot.lastPathComponent
+        let branchComponent = pathComponent(forBranchName: branchName)
+        return repoRoot
+            .deletingLastPathComponent()
+            .appendingPathComponent("\(repoName)-\(branchComponent)")
+            .standardizedFileURL
+    }
+
     private func logFailure(_ result: GitCommandResult, command: String, cwd: URL) {
         switch result {
         case .success:
@@ -76,6 +118,10 @@ struct GitWorktreeModel {
             )
         }
     }
+}
+
+struct GitWorktreeCreationError: Error, Equatable {
+    let message: String
 }
 
 protocol GitCommandRunning {
@@ -153,7 +199,17 @@ private struct WorktreePorcelainParser {
             parseBlock(block, mainPath: mainPath)
         }
 
-        return parsed.filter(\.isMain) + parsed.filter { !$0.isMain }
+        let linked = parsed
+            .filter { !$0.isMain }
+            .sorted {
+                if $0.isDetached != $1.isDetached {
+                    return !$0.isDetached
+                }
+
+                return sortKey($0) < sortKey($1)
+            }
+
+        return parsed.filter(\.isMain) + linked
     }
 
     private static func parseBlock(_ block: String, mainPath: String) -> Worktree? {
@@ -194,6 +250,10 @@ private struct WorktreePorcelainParser {
     private static func normalizedPath(_ url: URL) -> String {
         url.standardizedFileURL.path
     }
+
+    private static func sortKey(_ worktree: Worktree) -> String {
+        worktree.branch ?? worktree.path.lastPathComponent
+    }
 }
 
 private final class PipeDrain {
@@ -230,7 +290,7 @@ private func absoluteURL(forGitPath path: String, relativeTo cwd: URL) -> URL {
         return URL(fileURLWithPath: path).standardizedFileURL
     }
 
-    return URL(fileURLWithPath: path, relativeTo: cwd).standardizedFileURL
+    return cwd.appendingPathComponent(path).standardizedFileURL
 }
 
 private func worktreeRoot(fromCommonGitDir commonDir: URL) -> URL {
@@ -239,6 +299,15 @@ private func worktreeRoot(fromCommonGitDir commonDir: URL) -> URL {
     }
 
     return commonDir.standardizedFileURL
+}
+
+private func pathComponent(forBranchName branchName: String) -> String {
+    let separators = CharacterSet(charactersIn: "/:")
+    let pieces = branchName
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .components(separatedBy: separators)
+        .filter { !$0.isEmpty }
+    return pieces.isEmpty ? "worktree" : pieces.joined(separator: "-")
 }
 
 private let logger = Logger(

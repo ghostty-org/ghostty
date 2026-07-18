@@ -42,6 +42,29 @@ For more details, see [About Ghostty](https://ghostty.org/docs/about).
 
 See the [download page](https://ghostty.org/download) on the Ghostty website.
 
+## Worktree Sidebar
+
+This fork adds a macOS-only worktree sidebar for windows opened inside git
+repositories. Toggle it with `cmd+shift+e` or the Window menu item, then select a
+worktree to switch the whole window workspace to that worktree. Each worktree
+keeps its own split tree alive in the background, including running processes,
+scrollback, and focus state.
+
+The sidebar lists `git worktree list --porcelain` results for the repository
+owning the window's current working directory. `goto_worktree:next` and
+`goto_worktree:previous` are available as keybind actions; they are unbound by
+default so they do not replace Ghostty's split-navigation defaults. Example:
+
+```text
+keybind = cmd+[=goto_worktree:previous
+keybind = cmd+]=goto_worktree:next
+```
+
+Use the `New worktree...` row to create a branch and sibling worktree using
+`git worktree add -b <branch> ../<repo>-<branch>`. Slashes in the branch name are
+collapsed to dashes for the directory name, so `feature/foo` in `ghostty` becomes
+`../ghostty-feature-foo`. Git failures are shown inline in the sidebar.
+
 ## Documentation
 
 See the [documentation](https://ghostty.org/docs) on the Ghostty website.

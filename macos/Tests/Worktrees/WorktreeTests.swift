@@ -73,6 +73,43 @@ struct WorktreeTests {
         #expect(root == nil)
         #expect(worktrees.isEmpty)
     }
+
+    @Test func createWorktreeAddsSiblingUsingBranchName() async throws {
+        let fixture = try GitWorktreeFixture()
+        let branch = "topic/new-flow"
+        let expected = GitWorktreeModel.defaultNewWorktreePath(repoRoot: fixture.main, branchName: branch)
+
+        let result = await GitWorktreeModel().createWorktree(branchName: branch, forCwd: fixture.main)
+
+        guard case .success(let path) = result else {
+            Issue.record("Expected worktree creation to succeed")
+            return
+        }
+
+        #expect(path.standardizedFileURL == expected.standardizedFileURL)
+
+        let worktrees = await GitWorktreeModel().worktrees(forCwd: fixture.main)
+        let created = worktrees.first { $0.branch == branch }
+        #expect(created?.path.standardizedFileURL == expected.standardizedFileURL)
+    }
+
+    @Test func createWorktreeRejectsEmptyBranchBeforeGit() async throws {
+        let directory = try TemporaryDirectory()
+        let model = GitWorktreeModel(runner: StubGitRunner(result: .success("unused")))
+
+        let result = await model.createWorktree(branchName: "   ", forCwd: directory.url)
+
+        #expect(result == .failure(.init(message: "Enter a branch name.")))
+    }
+
+    @Test func createWorktreeReportsGitFailure() async throws {
+        let directory = try TemporaryDirectory()
+        let model = GitWorktreeModel(runner: CreateFailureGitRunner())
+
+        let result = await model.createWorktree(branchName: "bad branch", forCwd: directory.url)
+
+        #expect(result == .failure(.init(message: "fatal: invalid branch name")))
+    }
 }
 
 private struct StubGitRunner: GitCommandRunning {
@@ -80,6 +117,18 @@ private struct StubGitRunner: GitCommandRunning {
 
     func runGit(arguments: [String], cwd: URL, timeout: TimeInterval) async -> GitCommandResult {
         result
+    }
+}
+
+private struct CreateFailureGitRunner: GitCommandRunning {
+    func runGit(arguments: [String], cwd: URL, timeout: TimeInterval) async -> GitCommandResult {
+        if arguments == ["rev-parse", "--git-common-dir"] {
+            return .success(".git")
+        }
+        if arguments.starts(with: ["worktree", "add"]) {
+            return .failure(status: 128, stderr: "fatal: invalid branch name")
+        }
+        return .failure(status: 1, stderr: "unexpected command \(arguments)")
     }
 }
 

@@ -29,6 +29,15 @@ struct WorktreeSidebarViewModelTests {
     HEAD 3333333333333333333333333333333333333333
     detached
     """
+    private static let porcelainWithCreated = """
+    worktree /repo/main
+    HEAD 1111111111111111111111111111111111111111
+    branch refs/heads/main
+
+    worktree /repo/main-new-flow
+    HEAD 4444444444444444444444444444444444444444
+    branch refs/heads/new/flow
+    """
 
     private func repoModel() -> GitWorktreeModel {
         GitWorktreeModel(runner: FakeGitRunner(
@@ -115,6 +124,38 @@ struct WorktreeSidebarViewModelTests {
         #expect(viewModel.selectedWorktree?.path.standardizedFileURL.path == "/repo/feature")
     }
 
+    @Test func createWorktreeRefreshesSelectsAndClearsMessage() async {
+        let viewModel = WorktreeSidebarViewModel(model: GitWorktreeModel(runner: FakeGitRunner(
+            commonDir: Self.commonDir,
+            porcelain: Self.porcelainWithCreated,
+            addResult: .success("")
+        )))
+        await viewModel.refresh(cwd: URL(fileURLWithPath: "/repo/main"))
+
+        let created = await viewModel.createWorktree(branchName: "new/flow")
+
+        #expect(created?.branch == "new/flow")
+        #expect(created?.path.standardizedFileURL.path == "/repo/main-new-flow")
+        #expect(viewModel.selectedWorktree?.branch == "new/flow")
+        #expect(viewModel.sidebarMessage == nil)
+        #expect(viewModel.isCreatingWorktree == false)
+    }
+
+    @Test func createWorktreeFailureShowsInlineError() async {
+        let viewModel = WorktreeSidebarViewModel(model: GitWorktreeModel(runner: FakeGitRunner(
+            commonDir: Self.commonDir,
+            porcelain: Self.porcelain,
+            addResult: .failure(status: 128, stderr: "fatal: bad branch")
+        )))
+        await viewModel.refresh(cwd: URL(fileURLWithPath: "/repo/main"))
+
+        let created = await viewModel.createWorktree(branchName: "bad branch")
+
+        #expect(created == nil)
+        #expect(viewModel.sidebarMessage == .error("fatal: bad branch"))
+        #expect(viewModel.isCreatingWorktree == false)
+    }
+
     // MARK: Pure helpers
 
     @Test func displayNameFallsBackToDirectoryForDetached() {
@@ -171,6 +212,7 @@ struct WorktreeSidebarViewModelTests {
 private struct FakeGitRunner: GitCommandRunning {
     let commonDir: String?
     let porcelain: String?
+    var addResult: GitCommandResult = .success("")
 
     func runGit(arguments: [String], cwd: URL, timeout: TimeInterval) async -> GitCommandResult {
         if arguments.contains("rev-parse") {
@@ -180,6 +222,9 @@ private struct FakeGitRunner: GitCommandRunning {
         if arguments.contains("list") {
             guard let porcelain else { return .failure(status: 128, stderr: "not a git repository") }
             return .success(porcelain)
+        }
+        if arguments.starts(with: ["worktree", "add"]) {
+            return addResult
         }
         return .failure(status: 1, stderr: "unexpected command \(arguments)")
     }
