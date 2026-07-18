@@ -172,6 +172,11 @@ private struct WorktreeSidebarList: View {
                 worktree: worktree,
                 isActive: worktree.path == viewModel.selectedWorktree?.path
             )
+            // Whole row is clickable; the click switches workspaces (M3).
+            .contentShape(Rectangle())
+            .onTapGesture {
+                viewModel.select(worktree)
+            }
             .listRowBackground(
                 worktree.path == viewModel.selectedWorktree?.path
                     ? Color.accentColor.opacity(0.18)
@@ -213,13 +218,22 @@ extension TerminalController {
         let controller = WorktreeSidebarViewController(contentView: container)
         worktreeSidebarViewController = controller
         window.contentViewController = controller
+
+        // Clicking a row switches to that worktree's workspace (M3).
+        controller.viewModel.onSelect = { [weak self] worktree in
+            self?.switchToWorktree(worktree)
+        }
     }
 
     /// The cwd to source worktrees from: the window's first surface's live pwd,
     /// falling back to the configured `working-directory` (bare commands report
     /// no pwd). Returns nil when neither is available.
+    ///
+    /// Internal (not private) because the goto_worktree keybind path in
+    /// TerminalController.swift loads the sidebar data on demand from this cwd
+    /// when the sidebar has never been opened.
     // worktree-sidebar:
-    private var worktreeSidebarCwd: URL? {
+    var worktreeSidebarCwd: URL? {
         let surface = surfaceTree.first
         return WorktreeSidebar.resolveCwd(
             pwd: surface?.pwd,
