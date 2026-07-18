@@ -16,20 +16,22 @@ final class WorktreeSidebarViewController: NSSplitViewController {
         // context and would reject for the @MainActor view model.
         self.viewModel = viewModel ?? WorktreeSidebarViewModel()
         super.init(nibName: nil, bundle: nil)
+
+        // NSSplitViewController manages `splitView`, not `view`: items added
+        // via addSplitViewItem land in `splitView`. Assigning a custom split
+        // view to `view` in loadView leaves `splitView` as a detached default
+        // NSSplitView, so the window's content view stays empty. The custom
+        // subclass must be assigned to `splitView` before the view loads.
+        let splitView = WorktreeSidebarSplitView()
+        splitView.isVertical = true
+        splitView.dividerStyle = .thin
+        splitView.terminalViewContainer = terminalViewContainer
+        self.splitView = splitView
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    override func loadView() {
-        let splitView = WorktreeSidebarSplitView()
-        splitView.isVertical = true
-        splitView.dividerStyle = .thin
-        splitView.terminalViewContainer = terminalViewContainer
-
-        view = splitView
     }
 
     override func viewDidLoad() {

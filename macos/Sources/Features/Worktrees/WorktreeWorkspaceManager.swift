@@ -57,9 +57,12 @@ final class WorktreeWorkspaceManager: NSObject {
         NotificationCenter.default.removeObserver(self)
     }
 
-    /// The canonical dictionary key for a worktree path.
+    /// The canonical dictionary key for a worktree path. Uses filesystem
+    /// canonicalization (case + symlinks) so differently-spelled paths for
+    /// the same directory can't create two workspaces (see
+    /// `WorktreeSidebar.canonicalPath`).
     static func key(_ url: URL) -> URL {
-        url.standardizedFileURL
+        URL(fileURLWithPath: WorktreeSidebar.canonicalPath(url))
     }
 
     /// Store a workspace that is being detached from the view hierarchy.
