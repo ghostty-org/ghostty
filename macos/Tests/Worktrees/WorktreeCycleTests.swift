@@ -71,6 +71,28 @@ struct WorktreeCycleTests {
         #expect(WorktreeSidebar.cycleTarget(in: [], from: nil, offset: 1) == nil)
     }
 
+    /// A cwd spelled with different case than git's canonical worktree path
+    /// (possible because the default macOS filesystem is case-insensitive:
+    /// `cd ~/documents/...` works and the shell reports that spelling) must
+    /// still resolve to its worktree. Uses real directories because the
+    /// canonicalization goes through the filesystem; skipped in effect on
+    /// case-sensitive filesystems where the miscased path doesn't exist.
+    @Test func differentlyCasedPathsResolveToSameWorktree() throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory
+            .appendingPathComponent("WtCaseTest-\(UUID().uuidString.prefix(8))-Dir")
+        try fm.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: base) }
+
+        let miscased = URL(fileURLWithPath: base.path.lowercased())
+        guard fm.fileExists(atPath: miscased.path) else { return }
+
+        let worktree = Worktree(path: base, branch: "main", isMain: true, isDetached: false)
+
+        #expect(WorktreeSidebar.activeWorktree(in: [worktree], cwd: miscased)?.branch == "main")
+        #expect(WorktreeSidebar.cycleTarget(in: [worktree], from: miscased, offset: 1) == nil)
+    }
+
     @Test func singleEntryListHasNothingToSwitchTo() {
         let only = [Self.worktrees[0]]
         let target = WorktreeSidebar.cycleTarget(

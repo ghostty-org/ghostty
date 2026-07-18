@@ -108,19 +108,34 @@ enum WorktreeSidebar {
         return worktree.path.lastPathComponent
     }
 
+    /// Canonicalize a file URL's path for comparison: resolves symlinks and
+    /// filesystem case via the filesystem itself. The default macOS filesystem
+    /// is case-insensitive, so a user-typed `cd ~/documents/...` makes the
+    /// shell report a differently-cased pwd than git's canonical worktree
+    /// paths — a plain string comparison then never matches. Falls back to
+    /// the standardized path when the path doesn't exist on disk (which also
+    /// keeps the pure-path unit tests deterministic).
+    static func canonicalPath(_ url: URL) -> String {
+        let standardized = url.standardizedFileURL
+        if let canonical = try? standardized.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath {
+            return canonical
+        }
+        return standardized.path
+    }
+
     /// The worktree containing `cwd`, if any. Uses a longest-path-prefix match
     /// so that a cwd inside a linked worktree resolves to that worktree rather
     /// than to the (ancestor) main repository root.
     static func activeWorktree(in worktrees: [Worktree], cwd: URL?) -> Worktree? {
         guard let cwd else { return nil }
-        let target = cwd.standardizedFileURL.path
+        let target = canonicalPath(cwd)
 
         return worktrees
             .filter { worktree in
-                let base = worktree.path.standardizedFileURL.path
+                let base = canonicalPath(worktree.path)
                 return target == base || target.hasPrefix(base.hasSuffix("/") ? base : base + "/")
             }
-            .max { $0.path.standardizedFileURL.path.count < $1.path.standardizedFileURL.path.count }
+            .max { canonicalPath($0.path).count < canonicalPath($1.path).count }
     }
 
     /// Case-insensitive substring filter over branch + directory names. An
@@ -144,9 +159,9 @@ enum WorktreeSidebar {
     static func cycleTarget(in worktrees: [Worktree], from current: URL?, offset: Int) -> Worktree? {
         guard !worktrees.isEmpty else { return nil }
 
-        let currentPath = current?.standardizedFileURL.path
+        let currentPath = current.map { canonicalPath($0) }
         guard let index = worktrees.firstIndex(where: {
-            $0.path.standardizedFileURL.path == currentPath
+            canonicalPath($0.path) == currentPath
         }) else {
             return worktrees.first
         }
