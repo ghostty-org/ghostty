@@ -24,8 +24,10 @@ pub fn init(
         Config.genericMacOSTarget(b, null),
     ));
 
+    // TEMPORARY (research spike): only configure iOS slices for universal
+    // builds so native-only builds work without an iOS SDK.
     // iOS
-    const ios = try GhosttyLib.initStatic(b, &try deps.retarget(
+    const ios: ?GhosttyLib = if (target != .universal) null else try GhosttyLib.initStatic(b, &try deps.retarget(
         b,
         b.resolveTargetQuery(.{
             .cpu_arch = .aarch64,
@@ -36,7 +38,7 @@ pub fn init(
     ));
 
     // iOS Simulator
-    const ios_sim = try GhosttyLib.initStatic(b, &try deps.retarget(
+    const ios_sim: ?GhosttyLib = if (target != .universal) null else try GhosttyLib.initStatic(b, &try deps.retarget(
         b,
         b.resolveTargetQuery(.{
             .cpu_arch = .aarch64,
@@ -76,14 +78,14 @@ pub fn init(
                     .dsym = macos_universal.dsym,
                 },
                 .{
-                    .library = ios.output,
+                    .library = ios.?.output,
                     .headers = headers,
-                    .dsym = ios.dsym,
+                    .dsym = ios.?.dsym,
                 },
                 .{
-                    .library = ios_sim.output,
+                    .library = ios_sim.?.output,
                     .headers = headers,
-                    .dsym = ios_sim.dsym,
+                    .dsym = ios_sim.?.dsym,
                 },
             },
 
