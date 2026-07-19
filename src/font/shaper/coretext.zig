@@ -2032,7 +2032,7 @@ test "shape Bengali sentence keeps base clusters anchored" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("পছন্দের ভাষা টাইপ করা আরো সহজ করে তোলে৷ আরো জানুন");
+    s.nextSlice("পছন্দের ভাষা টাইপ করা আরো সহজ করে তোলে৷ আরো জানুন");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2091,7 +2091,7 @@ test "shape Bengali sentence in mixed-direction line keeps base clusters anchore
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("ABC পছন্দের ভাষা টাইপ করা আরো সহজ করে তোলে৷ আরো জানুন مرحبا");
+    s.nextSlice("ABC পছন্দের ভাষা টাইপ করা আরো সহজ করে তোলে৷ আরো জানুন مرحبا");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2752,7 +2752,7 @@ test "shape LTR neutral RTL splits and sets direction" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("Hello مرحبا");
+    s.nextSlice("Hello مرحبا");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2790,7 +2790,7 @@ test "shape hebrew RTL" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("שלום עולם");
+    s.nextSlice("שלום עולם");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2822,6 +2822,76 @@ test "shape hebrew RTL" {
     try testing.expectEqual(@as(usize, 1), count);
 }
 
+// Regression test for the `base_dir = .auto_ltr` paragraph-direction fix
+// in run.zig. Under a forced LTR base direction (the old behavior), the
+// trailing ASCII punctuation `?` in an RTL-leading row resolves to an LTR
+// embedding level via UAX #9 N2 (because `eos` falls back to base_level=0=L,
+// N1 does not match, and the neutral adopts the embedding direction). The
+// `?` then splits off into a separate LTR visual run and lands at the
+// visual-left of the row, ahead of the Hebrew text.
+//
+// With `base_dir = .auto_ltr`, UAX #9 P2-P3 sees the first strong character
+// `ש` (Bidi_Class=R) and sets base_level=1 (RTL). The trailing `?` now has
+// `eos=R`, N1 matches the surrounding Hebrew, the neutral resolves to R,
+// and it stays in the same RTL visual run as the Hebrew — appearing at the
+// visual-right (end of the sentence), where a user expects it.
+//
+// This test pins that behavior: the row must produce a single RTL run
+// covering the full input (including the trailing `?`), not a split with
+// the `?` in a separate LTR run.
+test "shape hebrew RTL with trailing punctuation at visual-right" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = try testShaperWithFont(alloc, .julia_mono);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("שלום, עולם! מה שלומך?");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+
+    // "שלום, עולם! מה שלומך?" = 21 codepoints/cells.
+    const expected_cells: u16 = 21;
+
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        count += 1;
+        try testing.expect(run.rtl);
+        try testing.expectEqual(expected_cells, run.cells);
+
+        const cells = try shaper.shape(run);
+        try testing.expect(cells.len > 1);
+
+        // Shaped cells must all fall within the run and be in monotonic
+        // (non-decreasing) x order, as the renderer requires.
+        var x: u16 = cells[0].x;
+        try testing.expect(x < run.cells);
+        for (cells[1..]) |cell| {
+            try testing.expect(cell.x < run.cells);
+            try testing.expect(cell.x >= x);
+            x = cell.x;
+        }
+    }
+
+    // A single RTL run means the trailing `?` stayed with the Hebrew.
+    // Under the old forced-LTR base direction this would be 2+ runs
+    // (the `?` splits off into a separate LTR run).
+    try testing.expectEqual(@as(usize, 1), count);
+}
+
 test "shape arabic with tashkeel at EOL" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -2834,7 +2904,7 @@ test "shape arabic with tashkeel at EOL" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("مرحباً");
+    s.nextSlice("مرحباً");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2876,7 +2946,7 @@ test "shape arabic with tashkeel on middle letters" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("وفُكَّ");
+    s.nextSlice("وفُكَّ");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2919,7 +2989,7 @@ test "shape arabic tanween stays on hamza before space" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("شيءٍ جميل");
+    s.nextSlice("شيءٍ جميل");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2969,7 +3039,7 @@ test "shape arabic end tashkeel no overlap" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("بحقِّ");
+    s.nextSlice("بحقِّ");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -3046,7 +3116,7 @@ test "shape arabic end tanween no overlap" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("عينٍ");
+    s.nextSlice("عينٍ");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -3119,7 +3189,7 @@ test "shape arabic multiword end tashkeel stays anchored" {
 
     var s = t.vtStream();
     defer s.deinit();
-    try s.nextSlice("الحيِّ الذي");
+    s.nextSlice("الحيِّ الذي");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);

@@ -343,8 +343,10 @@ pub const RunIterator = struct {
             return;
         }
 
-        // Build bidi inputs from logical cells and derive visual runs in a
-        // paragraph that is always anchored LTR (terminal line model).
+        // Build bidi inputs from logical cells and derive visual runs.
+        // Paragraph direction follows UAX #9 P2-P3 (first-strong detection):
+        // rows starting with LTR text stay LTR, rows starting with Hebrew/Arabic
+        // become RTL so trailing punctuation resolves correctly via N1/N2.
         var bidi_codepoints = try alloc.alloc(u21, self.max);
         defer alloc.free(bidi_codepoints);
         for (cells[0..self.max], 0..) |cell, i| {
@@ -355,7 +357,7 @@ pub const RunIterator = struct {
             alloc,
             self.hooks.bidiLayoutScratch(),
             bidi_codepoints,
-            .{ .base_dir = .ltr },
+            .{ .base_dir = .auto_ltr },
         );
         self.visual_runs = layout.runs;
     }
