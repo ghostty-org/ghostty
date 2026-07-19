@@ -119,11 +119,10 @@ typedef struct GhosttyTrackedGridRefImpl* GhosttyTrackedGridRef;
 typedef struct GhosttyKittyGraphicsImpl* GhosttyKittyGraphics;
 
 /**
- * Opaque handle to a Kitty graphics image.
+ * Owned handle to a Kitty graphics image.
  *
- * Obtained via ghostty_kitty_graphics_image() with an image ID. The
- * pointer is borrowed from the storage and remains valid until the next
- * mutating terminal call.
+ * Images remain valid across terminal mutations. Every non-NULL handle must
+ * be released with ghostty_kitty_graphics_image_free().
  *
  * @ingroup kitty_graphics
  */

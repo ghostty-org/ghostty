@@ -36,7 +36,10 @@ pub const Error = error{
     MetalFailed,
 };
 
-/// Initialize a texture
+/// Initialize a texture.
+///
+/// Metal's `replaceRegion:...withBytes:` synchronously copies `data`, so the
+/// caller may release the CPU bytes after this returns.
 pub fn init(
     opts: Options,
     width: usize,

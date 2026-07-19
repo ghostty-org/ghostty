@@ -20,9 +20,9 @@ else
 
 /// C: GhosttyKittyGraphicsImage
 pub const ImageHandle = if (build_options.kitty_graphics)
-    ?*const Image
+    ?*Image
 else
-    ?*const anyopaque;
+    ?*anyopaque;
 
 /// C: GhosttyKittyGraphicsPlacementIterator
 pub const PlacementIterator = if (build_options.kitty_graphics)
@@ -203,7 +203,19 @@ pub fn image_get_handle(
     if (comptime !build_options.kitty_graphics) return null;
 
     const storage = graphics_;
-    return storage.images.getPtr(image_id);
+    return storage.retainImageById(image_id);
+}
+
+pub fn image_retain(image_: ImageHandle) callconv(lib.calling_conv) ImageHandle {
+    if (comptime !build_options.kitty_graphics) return null;
+    const image = image_ orelse return null;
+    return image.retain();
+}
+
+pub fn image_free(image_: ImageHandle) callconv(lib.calling_conv) void {
+    if (comptime !build_options.kitty_graphics) return;
+    const image = image_ orelse return;
+    image.release();
 }
 
 pub fn image_get(
@@ -423,7 +435,7 @@ pub fn placement_rect(
     const iter = iter_ orelse return .invalid_value;
     const entry = iter.entry orelse return .invalid_value;
     const r = entry.value_ptr.rect(
-        image.*,
+        image,
         wrapper.terminal,
     ) orelse return .no_value;
 
@@ -449,7 +461,7 @@ pub fn placement_pixel_size(
     const image = image_ orelse return .invalid_value;
     const iter = iter_ orelse return .invalid_value;
     const entry = iter.entry orelse return .invalid_value;
-    const s = entry.value_ptr.pixelSize(image.*, wrapper.terminal);
+    const s = entry.value_ptr.pixelSize(image, wrapper.terminal);
 
     out_width.* = s.width;
     out_height.* = s.height;
@@ -470,7 +482,7 @@ pub fn placement_grid_size(
     const image = image_ orelse return .invalid_value;
     const iter = iter_ orelse return .invalid_value;
     const entry = iter.entry orelse return .invalid_value;
-    const s = entry.value_ptr.gridSize(image.*, wrapper.terminal);
+    const s = entry.value_ptr.gridSize(image, wrapper.terminal);
 
     out_cols.* = s.cols;
     out_rows.* = s.rows;
@@ -563,11 +575,11 @@ pub fn placement_render_info(
 
     const p = entry.value_ptr;
 
-    const ps = p.pixelSize(image.*, wrapper.terminal);
+    const ps = p.pixelSize(image, wrapper.terminal);
     out.pixel_width = ps.width;
     out.pixel_height = ps.height;
 
-    const gs = p.gridSize(image.*, wrapper.terminal);
+    const gs = p.gridSize(image, wrapper.terminal);
     out.grid_cols = gs.cols;
     out.grid_rows = gs.rows;
 
@@ -630,7 +642,7 @@ fn computeViewportPos(
     // A placement is invisible if its bottom edge (row + height)
     // is above the viewport, or its top edge is at or below the
     // viewport's last row.
-    const grid_size = p.gridSize(image.*, t);
+    const grid_size = p.gridSize(image, t);
     const rows_i32: i32 = @intCast(grid_size.rows);
     const term_rows: i32 = @intCast(t.rows);
     const visible = vp_row + rows_i32 > 0 and vp_row < term_rows;
@@ -956,6 +968,7 @@ test "image_get_handle and image_get with transmitted image" {
     ));
 
     const img = image_get_handle(graphics, 1);
+    defer image_free(img);
     try testing.expect(img != null);
 
     var id: u32 = undefined;
@@ -981,6 +994,221 @@ test "image_get_handle and image_get with transmitted image" {
     var data_len: usize = undefined;
     try testing.expectEqual(Result.success, image_get(img, .data_len, @ptrCast(&data_len)));
     try testing.expect(data_len > 0);
+}
+
+test "image retain returns same owned handle and null is safe" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{ .cols = 80, .rows = 24, .max_scrollback = 0 },
+    ));
+    defer terminal_c.free(t);
+
+    const transmit = "\x1b_Ga=t,t=d,f=24,i=1,s=1,v=2;////////\x1b\\";
+    terminal_c.vt_write(t, transmit.ptr, transmit.len);
+
+    var graphics: KittyGraphics = undefined;
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics,
+        @ptrCast(&graphics),
+    ));
+
+    const image = image_get_handle(graphics, 1);
+    defer image_free(image);
+    const retained = image_retain(image);
+    try testing.expectEqual(image, retained);
+    image_free(retained);
+    try testing.expect(image_retain(null) == null);
+    image_free(null);
+}
+
+test "owned image survives same-ID replacement" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{ .cols = 80, .rows = 24, .max_scrollback = 0 },
+    ));
+    defer terminal_c.free(t);
+
+    const transmit1 = "\x1b_Ga=t,t=d,f=24,i=1,s=1,v=2;////////\x1b\\";
+    terminal_c.vt_write(t, transmit1.ptr, transmit1.len);
+
+    var graphics: KittyGraphics = undefined;
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics,
+        @ptrCast(&graphics),
+    ));
+    const view = image_get_handle(graphics, 1);
+    defer image_free(view);
+    var original_ptr: [*]const u8 = undefined;
+    try testing.expectEqual(Result.success, image_get(
+        view,
+        .data_ptr,
+        @ptrCast(&original_ptr),
+    ));
+
+    const transmit2 = "\x1b_Ga=t,t=d,f=24,i=1,s=1,v=2;AAAAAAAA\x1b\\";
+    terminal_c.vt_write(t, transmit2.ptr, transmit2.len);
+
+    var retained_ptr: [*]const u8 = undefined;
+    var retained_len: usize = 0;
+    try testing.expectEqual(Result.success, image_get(
+        view,
+        .data_ptr,
+        @ptrCast(&retained_ptr),
+    ));
+    try testing.expectEqual(Result.success, image_get(
+        view,
+        .data_len,
+        @ptrCast(&retained_len),
+    ));
+    try testing.expectEqual(original_ptr, retained_ptr);
+    try testing.expectEqualSlices(u8, &([_]u8{0xFF} ** 6), retained_ptr[0..retained_len]);
+
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics,
+        @ptrCast(&graphics),
+    ));
+    const replacement = image_get_handle(graphics, 1);
+    defer image_free(replacement);
+    var replacement_ptr: [*]const u8 = undefined;
+    try testing.expectEqual(Result.success, image_get(
+        replacement,
+        .data_ptr,
+        @ptrCast(&replacement_ptr),
+    ));
+    try testing.expect(replacement_ptr != retained_ptr);
+    try testing.expectEqualSlices(u8, &([_]u8{0} ** 6), replacement_ptr[0..6]);
+}
+
+test "owned image survives deletion and final free releases ownership" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    var failing = testing.FailingAllocator.init(testing.allocator, .{});
+    const alloc = failing.allocator();
+    const c_alloc = CAllocator.fromZig(&alloc);
+
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &c_alloc,
+        &t,
+        .{ .cols = 80, .rows = 24, .max_scrollback = 0 },
+    ));
+    defer terminal_c.free(t);
+
+    const transmit = "\x1b_Ga=t,t=d,f=24,i=1,s=1,v=2;////////\x1b\\";
+    terminal_c.vt_write(t, transmit.ptr, transmit.len);
+
+    var graphics: KittyGraphics = undefined;
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics,
+        @ptrCast(&graphics),
+    ));
+    var view = image_get_handle(graphics, 1);
+    defer image_free(view);
+
+    const delete = "\x1b_Ga=d,d=A\x1b\\";
+    terminal_c.vt_write(t, delete.ptr, delete.len);
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics,
+        @ptrCast(&graphics),
+    ));
+    try testing.expect(image_get_handle(graphics, 1) == null);
+
+    var data_ptr: [*]const u8 = undefined;
+    var data_len: usize = 0;
+    try testing.expectEqual(Result.success, image_get(
+        view,
+        .data_ptr,
+        @ptrCast(&data_ptr),
+    ));
+    try testing.expectEqual(Result.success, image_get(
+        view,
+        .data_len,
+        @ptrCast(&data_len),
+    ));
+    try testing.expectEqualSlices(u8, &([_]u8{0xFF} ** 6), data_ptr[0..data_len]);
+
+    const deallocations = failing.deallocations;
+    image_free(view);
+    view = null;
+    // Final release frees the pixel allocation and image owner.
+    try testing.expectEqual(deallocations + 2, failing.deallocations);
+}
+
+test "owned image survives quota eviction" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        .{ .cols = 80, .rows = 24, .max_scrollback = 0 },
+    ));
+    defer terminal_c.free(t);
+
+    var graphics: KittyGraphics = undefined;
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics,
+        @ptrCast(&graphics),
+    ));
+    graphics.total_limit = 6;
+
+    const transmit1 = "\x1b_Ga=t,t=d,f=24,i=1,s=1,v=2;////////\x1b\\";
+    terminal_c.vt_write(t, transmit1.ptr, transmit1.len);
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics,
+        @ptrCast(&graphics),
+    ));
+
+    const view = image_get_handle(graphics, 1);
+    defer image_free(view);
+
+    const transmit2 = "\x1b_Ga=t,t=d,f=24,i=2,s=1,v=2;AAAAAAAA\x1b\\";
+    terminal_c.vt_write(t, transmit2.ptr, transmit2.len);
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics,
+        @ptrCast(&graphics),
+    ));
+    try testing.expect(image_get_handle(graphics, 1) == null);
+    const current = image_get_handle(graphics, 2);
+    defer image_free(current);
+    try testing.expect(current != null);
+
+    var data_ptr: [*]const u8 = undefined;
+    var data_len: usize = 0;
+    try testing.expectEqual(Result.success, image_get(
+        view,
+        .data_ptr,
+        @ptrCast(&data_ptr),
+    ));
+    try testing.expectEqual(Result.success, image_get(
+        view,
+        .data_len,
+        @ptrCast(&data_len),
+    ));
+    try testing.expectEqualSlices(u8, &([_]u8{0xFF} ** 6), data_ptr[0..data_len]);
+}
+
+test "image handle kitty-disabled behavior" {
+    if (comptime build_options.kitty_graphics) return error.SkipZigTest;
+
+    try testing.expect(image_retain(null) == null);
+    image_free(null);
 }
 
 test "placement_rect with transmit and display" {
@@ -1011,6 +1239,7 @@ test "placement_rect with transmit and display" {
     ));
 
     const img = image_get_handle(graphics, 1);
+    defer image_free(img);
     try testing.expect(img != null);
 
     var iter: PlacementIterator = null;
@@ -1071,6 +1300,7 @@ test "placement_pixel_size with transmit and display" {
     ));
 
     const img = image_get_handle(graphics, 1);
+    defer image_free(img);
     try testing.expect(img != null);
 
     var iter: PlacementIterator = null;
@@ -1125,6 +1355,7 @@ test "placement_grid_size with transmit and display" {
     ));
 
     const img = image_get_handle(graphics, 1);
+    defer image_free(img);
     try testing.expect(img != null);
 
     var iter: PlacementIterator = null;
@@ -1178,6 +1409,7 @@ test "placement_viewport_pos with transmit and display" {
     ));
 
     const img = image_get_handle(graphics, 1);
+    defer image_free(img);
     try testing.expect(img != null);
 
     var iter: PlacementIterator = null;
@@ -1224,6 +1456,7 @@ test "placement_viewport_pos fully off-screen above" {
     var graphics: KittyGraphics = undefined;
     try testing.expectEqual(Result.success, terminal_c.get(t, .kitty_graphics, @ptrCast(&graphics)));
     const img = image_get_handle(graphics, 1);
+    defer image_free(img);
     try testing.expect(img != null);
 
     var iter: PlacementIterator = null;
@@ -1265,6 +1498,7 @@ test "placement_viewport_pos top off-screen" {
     var graphics: KittyGraphics = undefined;
     try testing.expectEqual(Result.success, terminal_c.get(t, .kitty_graphics, @ptrCast(&graphics)));
     const img = image_get_handle(graphics, 1);
+    defer image_free(img);
     try testing.expect(img != null);
 
     var iter: PlacementIterator = null;
@@ -1305,6 +1539,7 @@ test "placement_viewport_pos bottom off-screen" {
     var graphics: KittyGraphics = undefined;
     try testing.expectEqual(Result.success, terminal_c.get(t, .kitty_graphics, @ptrCast(&graphics)));
     const img = image_get_handle(graphics, 1);
+    defer image_free(img);
     try testing.expect(img != null);
 
     var iter: PlacementIterator = null;
@@ -1348,6 +1583,7 @@ test "placement_viewport_pos top and bottom off-screen" {
     var graphics: KittyGraphics = undefined;
     try testing.expectEqual(Result.success, terminal_c.get(t, .kitty_graphics, @ptrCast(&graphics)));
     const img = image_get_handle(graphics, 1);
+    defer image_free(img);
     try testing.expect(img != null);
 
     var iter: PlacementIterator = null;
@@ -1391,6 +1627,7 @@ test "placement_source_rect defaults to full image" {
     var graphics: KittyGraphics = undefined;
     try testing.expectEqual(Result.success, terminal_c.get(t, .kitty_graphics, @ptrCast(&graphics)));
     const img = image_get_handle(graphics, 1);
+    defer image_free(img);
     try testing.expect(img != null);
 
     var iter: PlacementIterator = null;
@@ -1435,6 +1672,7 @@ test "placement_source_rect with explicit source rect" {
     var graphics: KittyGraphics = undefined;
     try testing.expectEqual(Result.success, terminal_c.get(t, .kitty_graphics, @ptrCast(&graphics)));
     const img = image_get_handle(graphics, 1);
+    defer image_free(img);
     try testing.expect(img != null);
 
     var iter: PlacementIterator = null;
@@ -1479,6 +1717,7 @@ test "placement_source_rect clamps to image bounds" {
     var graphics: KittyGraphics = undefined;
     try testing.expectEqual(Result.success, terminal_c.get(t, .kitty_graphics, @ptrCast(&graphics)));
     const img = image_get_handle(graphics, 1);
+    defer image_free(img);
     try testing.expect(img != null);
 
     var iter: PlacementIterator = null;
@@ -1533,6 +1772,7 @@ test "placement_render_info returns all fields" {
     var graphics: KittyGraphics = undefined;
     try testing.expectEqual(Result.success, terminal_c.get(t, .kitty_graphics, @ptrCast(&graphics)));
     const img = image_get_handle(graphics, 1);
+    defer image_free(img);
     try testing.expect(img != null);
 
     var iter: PlacementIterator = null;
@@ -1578,6 +1818,7 @@ test "placement_render_info off-screen sets viewport_visible false" {
     var graphics: KittyGraphics = undefined;
     try testing.expectEqual(Result.success, terminal_c.get(t, .kitty_graphics, @ptrCast(&graphics)));
     const img = image_get_handle(graphics, 1);
+    defer image_free(img);
     try testing.expect(img != null);
 
     var iter: PlacementIterator = null;
@@ -1621,6 +1862,7 @@ test "image_get_multi success" {
     var graphics: KittyGraphics = undefined;
     try testing.expectEqual(Result.success, terminal_c.get(t, .kitty_graphics, @ptrCast(&graphics)));
     const img = image_get_handle(graphics, 1);
+    defer image_free(img);
     try testing.expect(img != null);
 
     var id: u32 = 0;
@@ -1791,6 +2033,7 @@ test "image generation detects same-sized retransmission" {
     var len1: usize = 0;
     {
         const img = image_get_handle(graphics, 1);
+        defer image_free(img);
         try testing.expect(img != null);
         try testing.expectEqual(Result.success, image_get(img, .generation, @ptrCast(&gen1)));
         try testing.expectEqual(Result.success, image_get(img, .width, @ptrCast(&w1)));
@@ -1808,6 +2051,7 @@ test "image generation detects same-sized retransmission" {
 
     {
         const img = image_get_handle(graphics, 1);
+        defer image_free(img);
         try testing.expect(img != null);
         var gen2: u64 = 0;
         var w2: u32 = 0;
@@ -1845,6 +2089,7 @@ test "image generation via image_get_multi" {
     var graphics: KittyGraphics = undefined;
     try testing.expectEqual(Result.success, terminal_c.get(t, .kitty_graphics, @ptrCast(&graphics)));
     const img = image_get_handle(graphics, 1);
+    defer image_free(img);
     try testing.expect(img != null);
 
     var id: u32 = 0;
@@ -1892,6 +2137,7 @@ test "image compression and format always report decoded data" {
     var graphics: KittyGraphics = undefined;
     try testing.expectEqual(Result.success, terminal_c.get(t, .kitty_graphics, @ptrCast(&graphics)));
     const img = image_get_handle(graphics, 1);
+    defer image_free(img);
     try testing.expect(img != null);
 
     // Compression must report NONE: the data was inflated at
