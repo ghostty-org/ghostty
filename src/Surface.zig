@@ -843,6 +843,17 @@ pub fn close(self: *Surface) void {
     self.rt_surface.close(self.needsConfirmQuit());
 }
 
+/// Send SIGHUP to the child process without waiting for it to exit.
+/// child_exited will be set once the child process has stopped.
+///
+/// Used during app shutdown to hang up all children in parallel before
+/// any individual surface starts its (bounded) wait in deinit.
+pub fn hangupProcess(self: *Surface) void {
+    switch (self.io.backend) {
+        .exec => |*exec| exec.subprocess.hangup(),
+    }
+}
+
 /// Returns a mailbox that can be used to send messages to this surface.
 inline fn surfaceMailbox(self: *Surface) Mailbox {
     return .{

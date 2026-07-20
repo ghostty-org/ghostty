@@ -1442,6 +1442,15 @@ pub const CAPI = struct {
         core_app.destroy();
     }
 
+    /// Begin a graceful application shutdown by sending SIGHUP to every
+    /// surface's child process and waiting up to timeout_ms (total, across
+    /// all children) for them to exit. Intended to be called once during
+    /// app termination so children can clean up (e.g., shells writing
+    /// history) before the apprt tears down each surface.
+    export fn ghostty_app_quit(v: *App, timeout_ms: u64) void {
+        v.core_app.quit(v, timeout_ms);
+    }
+
     /// Update the focused state of the app.
     export fn ghostty_app_set_focus(
         app: *App,
