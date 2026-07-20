@@ -1558,30 +1558,33 @@ class: ?[:0]const u8 = null,
 /// overwrite previously set values. The list of actions is available in
 /// the documentation or using the `ghostty +list-actions` command.
 ///
-/// Trigger: `+`-separated list of keys and modifiers. Example: `ctrl+a`,
-/// `ctrl+shift+b`, `up`.
+/// Trigger: zero or more modifiers and one character or key, separated by `+`.
+/// Examples: `ctrl+a`, `ctrl+shift+b`, `ctrl++`, `up`, `ctrl+page_down`
 ///
-/// If the key is a single Unicode codepoint, the trigger will match
-/// any presses that produce that codepoint. These are impacted by
-/// keyboard layouts. For example, `a` will match the `a` key on a
-/// QWERTY keyboard, but will match the `q` key on a AZERTY keyboard
-/// (assuming US physical layout).
+/// The character in a trigger is matched case-insensitively using simple case
+/// folding, so configuring `ctrl+G` is identical to configuring `ctrl+g`.
 ///
-/// For Unicode codepoints, matching is done by comparing the set of
-/// modifiers with the unmodified codepoint. The unmodified codepoint is
-/// sometimes called an "unshifted character" in other software, but all
-/// modifiers are considered, not only shift. For example, `ctrl+a` will match
-/// `a` but not `ctrl+shift+a` (which is `A` on a US keyboard).
+/// If a key event's raw modifiers, paired with either its physical key
+/// (detailed further below) or its base character, match a configured trigger,
+/// the associated action executes.
 ///
-/// Further, codepoint matching is case-insensitive and the unmodified
-/// codepoint is always case folded for comparison. As a result,
-/// `ctrl+A` configured will match when `ctrl+a` is pressed. Note that
-/// this means some key combinations are impossible depending on keyboard
-/// layout. For example, `ctrl+_` is impossible on a US keyboard because
-/// `_` is `shift+-` and `ctrl+shift+-` is not equal to `ctrl+_` (because
-/// the modifiers don't match!). More details on impossible key combinations
-/// can be found at this excellent source written by Qt developers:
-/// https://doc.qt.io/qt-6/qkeysequence.html#keyboard-layout-issues
+/// To support different keyboard layouts, Ghostty also matches against the
+/// Unicode character a keypress produces, after stripping the layout-required
+/// modifiers that produced the character from the event. For example, `ctrl+\`
+/// matches whether `\` is a single key on a US layout or typed using
+/// `option+shift+:` on a French AZERTY layout. However, when the produced
+/// character differs from the base character only in case (such as `a` versus
+/// `A`), no modifiers are stripped, so pressing `ctrl+shift+a` keeps its shift
+/// and does not match `ctrl+a`.
+///
+/// Because translation modifiers are stripped for character-based triggers, a
+/// binding that uses the produced character cannot require a modifier that is
+/// also needed to type that character. On a US keyboard, `{` is typed as
+/// `shift+[`, so a trigger `ctrl+shift+{` is impossible to match. `ctrl+{` and
+/// `ctrl+shift+[` both work.
+///
+/// System shortcuts may prevent custom keybinds from triggering in Ghostty,
+/// such as `Cmd+Shift+3` taking a screenshot on macOS.
 ///
 /// Physical key codes can be specified by using any of the key codes
 /// as specified by the [W3C specification](https://www.w3.org/TR/uievents-code/).

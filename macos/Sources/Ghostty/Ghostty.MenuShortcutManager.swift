@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import GhosttyKit
 
 extension Ghostty {
     /// The manager that's responsible for updating shortcuts of Ghostty's app menu
@@ -34,41 +35,36 @@ extension Ghostty {
         /// bindings through the menu so they flash but also lets our surface override macOS built-ins
         /// like Cmd+H.
         func performGhosttyBindingMenuKeyEquivalent(with event: NSEvent) -> Bool {
-            // Convert this event into the same normalized lookup key we use when
-            // syncing menu shortcuts from configuration.
-            guard let key = MenuShortcutKey(event: event) else {
-                return false
+            // Look up and dispatch the menu item for a given shortcut key.
+            func dispatch(_ key: MenuShortcutKey) -> Bool {
+                guard let weakItem = menuItemsByShortcut[key] else { return false }
+                guard let item = weakItem.value else {
+                    menuItemsByShortcut.removeValue(forKey: key)
+                    return false
+                }
+                guard let parentMenu = item.menu else { return false }
+                parentMenu.update()
+                guard item.isEnabled else { return false }
+                let index = parentMenu.index(of: item)
+                guard index >= 0 else { return false }
+                parentMenu.performActionForItem(at: index)
+                return true
             }
 
-            // If we don't have an entry for this key combo, no Ghostty-owned
-            // menu shortcut exists for this event.
-            guard let weakItem = menuItemsByShortcut[key] else {
-                return false
+            // Match the unshifted character with full modifiers,
+            // matching how shortcuts are stored from configuration.
+            if let key = MenuShortcutKey(event: event), dispatch(key) {
+                return true
             }
 
-            // Weak references can be nil if a menu item was deallocated after sync.
-            guard let item = weakItem.value else {
-                menuItemsByShortcut.removeValue(forKey: key)
-                return false
+            // Match the produced character with consumed modifiers stripped,
+            // for shortcuts where the character requires translation
+            // modifiers to type.
+            if let key = MenuShortcutKey(producedFromEvent: event), dispatch(key) {
+                return true
             }
 
-            guard let parentMenu = item.menu else {
-                return false
-            }
-
-            // Keep enablement state fresh in case menu validation hasn't run yet.
-            parentMenu.update()
-            guard item.isEnabled else {
-                return false
-            }
-
-            let index = parentMenu.index(of: item)
-            guard index >= 0 else {
-                return false
-            }
-
-            parentMenu.performActionForItem(at: index)
-            return true
+            return false
         }
     }
 }
@@ -126,9 +122,26 @@ extension Ghostty.MenuShortcutManager {
             self.modifiersRawValue = mods.rawValue
         }
 
+        /// Create from an `NSEvent` using the unshifted character with full
+        /// modifiers, matching how shortcuts are stored from configuration.
         init?(event: NSEvent) {
             guard let keyEquivalent = event.charactersIgnoringModifiers else { return nil }
             self.init(keyEquivalent: keyEquivalent, modifiers: event.modifierFlags)
+        }
+
+        /// Create from an `NSEvent` using the produced character with consumed
+        /// modifiers stripped, for shortcuts where the character requires
+        /// translation modifiers to type.
+        init?(producedFromEvent event: NSEvent) {
+            guard let keyEquivalent = event.ghosttyCharacters else { return nil }
+
+            let consumed = Ghostty.Input.Mods(
+                cMods: event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS).consumed_mods
+            ).nsFlags
+            self.init(
+                keyEquivalent: keyEquivalent,
+                modifiers: event.modifierFlags.subtracting(consumed),
+            )
         }
 
         /// Create from a `NSMenuItem`
