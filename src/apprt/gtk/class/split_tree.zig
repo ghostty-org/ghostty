@@ -1115,12 +1115,17 @@ const SplitTreeSplit = extern struct {
         /// Assumed to be correct.
         handle: Surface.Tree.Node.Handle,
 
+        /// Cache the split ratio. Looking it up is relatively expensive
+        /// because we have to first walk the widget tree to find the
+        /// SplitTree widget.
+        ratio: f64,
+
         /// Source to handle repositioning the split when properties change.
         idle: ?c_uint = null,
 
         /// Whether the max-position/position property of the gtk.Paned widget
         /// changed. We use these to distinguish between a resize and the user
-        /// manually moving the split divider. See the "on-idle" function.
+        /// manually moving the split divider. See the "onIdle" function.
         max_changed: bool = false,
         pos_changed: bool = false,
 
@@ -1144,6 +1149,7 @@ const SplitTreeSplit = extern struct {
         const self = gobject.ext.newInstance(Self, .{});
         const priv = self.private();
         priv.handle = handle;
+        priv.ratio = split.ratio;
 
         // Setup our paned fields
         const paned = priv.paned;
@@ -1154,6 +1160,17 @@ const SplitTreeSplit = extern struct {
             .vertical => .vertical,
         });
 
+        // Request min width/height 1 for surfaces to prevent them from
+        // becoming temporarily invisible in nested layouts. Otherwise
+        // gtk.Paned might mark a surface as not visible and unmap it
+        // for a single frame. See the comments below in propMaxPosition.
+        if (gobject.ext.isA(start_child, SurfaceScrolledWindow)) {
+            start_child.setSizeRequest(1, 1);
+        }
+        if (gobject.ext.isA(end_child, SurfaceScrolledWindow)) {
+            end_child.setSizeRequest(1, 1);
+        }
+
         // Signals and so on are setup in the template.
 
         return self;
@@ -1163,48 +1180,12 @@ const SplitTreeSplit = extern struct {
         gtk.Widget.initTemplate(self.as(gtk.Widget));
     }
 
-    // We need to keep the split ratios from the tree datastructure and
-    // widget tree in sync. Using the max-position and position properties
-    // of the gtk.Paned widget, we can distinguish a resize from a manual
-    // update (e.g. the user dragging the divider).If max-position changes,
-    // we always have a widget resize. Usually position will change as well
-    // but it might not if the size change is small enough. If only position
-    // changes, we have a manual human update.
-    //
-    // This is a hack, it relies on the timing of property notifcations.
-    // From looking at the GTK source code, it should not be possible that
-    // we interpret a position change from a resize as a manual update.
-    // When a gtk.Paned is resized, internally the gtk_paned_calc_position
-    // function will change both max-position and position and synchronously
-    // call our propMaxPosition and propPosition functions. I.e. when the
-    // widget is resized, it should not be possible for onIdle to run before
-    // we have been notified of both property changes.
-    fn onIdle(ud: ?*anyopaque) callconv(.c) c_int {
-        const self: *Self = @ptrCast(@alignCast(ud orelse return 0));
+    // Sync split ratio between the gtk.Paned widget and the split tree.
+    // If to_paned=true, update the gtk.Paned widget to match the ratio
+    // in the split tree and vice-versa for to_paned=false.
+    fn syncSplitRatio(self: *Self, to_paned: bool) void {
         const priv = self.private();
         const paned = priv.paned;
-
-        // Clear source and fields at the end. Otherwise if setPosition is
-        // called below, propPosition is triggered and would add another
-        // idle callback before this one is finished.
-        defer priv.idle = null;
-        defer priv.max_changed = false;
-        defer priv.pos_changed = false;
-
-        if (!priv.max_changed and !priv.pos_changed) {
-            return 0;
-        }
-
-        // Get our split. This is the most dangerous part of this entire
-        // widget. We assume that this widget is always a child of a
-        // SplitTree, we assume that our handle is valid, and we assume
-        // the handle is always a split node.
-        const split_tree = ext.getAncestor(
-            SplitTree,
-            self.as(gtk.Widget),
-        ) orelse return 0;
-        const tree = split_tree.getTree() orelse return 0;
-        const split: *const Surface.Tree.Split = &tree.nodes[priv.handle.idx()].split;
 
         // Current, min, and max positions as pixels.
         const pos = paned.getPosition();
@@ -1236,7 +1217,7 @@ const SplitTreeSplit = extern struct {
         // If our max is zero then we can't do any math. I don't know
         // if this is possible but I suspect it can be if you make a nested
         // split completely minimized.
-        if (max == 0) return 0;
+        if (max == 0) return;
 
         // Determine our current ratio.
         const current_ratio: f64 = ratio: {
@@ -1244,7 +1225,7 @@ const SplitTreeSplit = extern struct {
             const max_f64: f64 = @floatFromInt(max);
             break :ratio pos_f64 / max_f64;
         };
-        const desired_ratio: f64 = @floatCast(split.ratio);
+        const desired_ratio: f64 = priv.ratio;
 
         // If our ratio is close enough to our desired ratio, then
         // we ignore the update. This is to avoid constant split updates
@@ -1255,11 +1236,10 @@ const SplitTreeSplit = extern struct {
             desired_ratio,
             0.001,
         )) {
-            return 0;
+            return;
         }
 
-        if (priv.max_changed) {
-            // Widget got resized, update position to match desired ratio.
+        if (to_paned) {
             // Note that if max-position is small, it might not be possible
             // to accurately set the desired ratio. E.g. with max-position=2
             // you can only have ratios 0, 0.5 and 1.
@@ -1269,10 +1249,60 @@ const SplitTreeSplit = extern struct {
             };
             paned.setPosition(desired_pos);
         } else {
-            // If only position changed, this is a manual human update and
-            // we need to write our update back to the tree.
+            // Update ratio of the split tree node. This is the most dangerous
+            // part of this widget. We assume that this widget is always a child
+            // of a SplitTree, we assume that our handle is valid, and we assume
+            // the handle is always a split node.
+            const split_tree = ext.getAncestor(
+                SplitTree,
+                self.as(gtk.Widget),
+            ) orelse return;
+            const tree = split_tree.getTree() orelse return;
             tree.resizeInPlace(priv.handle, @floatCast(current_ratio));
+            priv.ratio = current_ratio;
         }
+    }
+
+    // We need to keep the split ratios from the tree datastructure and
+    // widget tree in sync. Using the max-position and position properties
+    // of the gtk.Paned widget, we can distinguish a resize from a manual
+    // update (e.g. the user dragging the divider). If max-position changes,
+    // we always have a widget resize and we sync the ratio directly from
+    // the propMaxPosition function. Usually position will change as well
+    // but it might not if the size change is small enough. If only position
+    // changes, we have a manual human update and we sync the ratio here.
+    //
+    // This is a hack, it relies on the timing of property notifcations.
+    // From looking at the GTK source code, it should not be possible that
+    // we interpret a position change from a resize as a manual update.
+    // When a gtk.Paned is resized, internally the gtk_paned_calc_position
+    // function will change both max-position and position and synchronously
+    // call our propMaxPosition and propPosition functions. I.e. when the
+    // widget is resized, it should not be possible for onIdle to run before
+    // we have been notified of both property changes.
+    fn onIdle(ud: ?*anyopaque) callconv(.c) c_int {
+        const self: *Self = @ptrCast(@alignCast(ud orelse return 0));
+        const priv = self.private();
+
+        // Clear source and fields.
+        defer {
+            priv.idle = null;
+            priv.max_changed = false;
+            priv.pos_changed = false;
+        }
+
+        if (priv.max_changed) {
+            // Nothing to do, syncSplitRatio was already called
+            // directly from propMaxPosition.
+            return 0;
+        }
+        if (!priv.pos_changed) {
+            return 0;
+        }
+
+        // If only position changed, this is a manual human update and
+        // we need to write our update back to the tree.
+        self.syncSplitRatio(false);
         return 0;
     }
 
@@ -1286,6 +1316,41 @@ const SplitTreeSplit = extern struct {
     ) callconv(.c) void {
         const priv = self.private();
         priv.max_changed = true;
+
+        // Widget got resized, update position to match desired ratio.
+        //
+        // Syncing the split ratio directly here ensures that every surface
+        // gets the correct size allocated immediately. This works because
+        // this callback runs during size allocation, so that we update the
+        // divider position right after the gtk.Paned widget computes it and
+        // right before it will use the position to compute the sizes of its
+        // children. See the size_allocate and calc_position functions of the
+        // gtk.Paned widget.
+        //
+        // If we synced the ratio in an idle callback, there might be some
+        // flickering as surfaces are shown with the wrong size for a few
+        // frames until our idle callback runs. Depending on the split layout
+        // it might take multiple rounds of size allocation and idle callbacks
+        // for every widget to get the correct size.
+        //
+        // Note that gtk.Paned calls Widget.setChildVisible(true/false) for
+        // both children based on the initial divider position it computes.
+        // If we then update the position here, we might sometimes have to
+        // call setChildVisible again. This would be necessary if we updated
+        // the position from initially 0 (max), where start (end) child is
+        // invisible, to a value > 0 (< max). However, we can skip this because
+        // set_position already queues another round of size allocation, during
+        // which gtk.Paned will keep the correct position we set manually and
+        // then call setChildVisible again based on that. The only problematic
+        // situation is when we update the position from 0 to a value > 0,
+        // because setChildVisible(false) will unmap the start child widget.
+        // It will not be visible for a single frame which introduces some
+        // flickering. To prevent this from happening we set a min size request
+        // of 1 for all surfaces (see the "new" function above).
+        self.syncSplitRatio(true);
+
+        // We still need the idle callback to clear the max_changed field
+        // later, because propPosition might or might not still get called.
         if (priv.idle == null) priv.idle = glib.idleAdd(
             onIdle,
             self,
