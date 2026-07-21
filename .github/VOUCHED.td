@@ -69,6 +69,7 @@ bousii
 brentschroeter
 brianc442
 c0x0o
+carldaws
 cespare
 charliie-dev
 chernetskyi
