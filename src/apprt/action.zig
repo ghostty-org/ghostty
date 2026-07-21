@@ -347,6 +347,11 @@ pub const Action = union(Key) {
     /// otherwise the terminal-set title.
     copy_title_to_clipboard,
 
+    /// Terminal content has changed (new output rendered). Used by
+    /// the macOS accessibility layer to post NSAccessibility notifications
+    /// so VoiceOver stays in sync without polling.
+    content_changed,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -415,6 +420,7 @@ pub const Action = union(Key) {
         search_selected,
         readonly,
         copy_title_to_clipboard,
+        content_changed,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
