@@ -1180,10 +1180,15 @@ const SplitTreeSplit = extern struct {
         gtk.Widget.initTemplate(self.as(gtk.Widget));
     }
 
+    const SyncDirection = enum {
+        // Update gtk.Paned widget to match ratio from split tree node.
+        tree_to_widget,
+        // Update split tree node to match ratio from gtk.Paned widget.
+        widget_to_tree,
+    };
+
     // Sync split ratio between the gtk.Paned widget and the split tree.
-    // If to_paned=true, update the gtk.Paned widget to match the ratio
-    // in the split tree and vice-versa for to_paned=false.
-    fn syncSplitRatio(self: *Self, to_paned: bool) void {
+    fn syncSplitRatio(self: *Self, direction: SyncDirection) void {
         const priv = self.private();
         const paned = priv.paned;
 
@@ -1239,27 +1244,33 @@ const SplitTreeSplit = extern struct {
             return;
         }
 
-        if (to_paned) {
-            // Note that if max-position is small, it might not be possible
-            // to accurately set the desired ratio. E.g. with max-position=2
-            // you can only have ratios 0, 0.5 and 1.
-            const desired_pos: c_int = desired_pos: {
-                const max_f64: f64 = @floatFromInt(max);
-                break :desired_pos @intFromFloat(@round(max_f64 * desired_ratio));
-            };
-            paned.setPosition(desired_pos);
-        } else {
-            // Update ratio of the split tree node. This is the most dangerous
-            // part of this widget. We assume that this widget is always a child
-            // of a SplitTree, we assume that our handle is valid, and we assume
-            // the handle is always a split node.
-            const split_tree = ext.getAncestor(
-                SplitTree,
-                self.as(gtk.Widget),
-            ) orelse return;
-            const tree = split_tree.getTree() orelse return;
-            tree.resizeInPlace(priv.handle, @floatCast(current_ratio));
-            priv.ratio = current_ratio;
+        switch (direction) {
+            .tree_to_widget => {
+                // Update position in gtk.Paned to match desired ratio. Note that if
+                // max-position is small, it might not be possible to accurately set
+                // the desired ratio. E.g. with max-position=2 you can only have
+                // ratios 0, 0.5 and 1.
+                const desired_pos: c_int = desired_pos: {
+                    const max_f64: f64 = @floatFromInt(max);
+                    break :desired_pos @intFromFloat(@round(max_f64 * desired_ratio));
+                };
+                paned.setPosition(desired_pos);
+            },
+            .widget_to_tree => {
+                // Update ratio of the split tree node. This is the most dangerous
+                // part of this widget. We assume that this widget is always a child
+                // of a SplitTree, we assume that our handle is valid, and we assume
+                // the handle is always a split node.
+                const split_tree = ext.getAncestor(
+                    SplitTree,
+                    self.as(gtk.Widget),
+                ) orelse unreachable;
+                const tree = split_tree.getTree() orelse unreachable;
+                assert(priv.handle.idx() < tree.nodes.len);
+                assert(tree.nodes[priv.handle.idx()] == .split);
+                tree.resizeInPlace(priv.handle, @floatCast(current_ratio));
+                priv.ratio = current_ratio;
+            },
         }
     }
 
@@ -1302,7 +1313,7 @@ const SplitTreeSplit = extern struct {
 
         // If only position changed, this is a manual human update and
         // we need to write our update back to the tree.
-        self.syncSplitRatio(false);
+        self.syncSplitRatio(.widget_to_tree);
         return 0;
     }
 
@@ -1347,7 +1358,7 @@ const SplitTreeSplit = extern struct {
         // It will not be visible for a single frame which introduces some
         // flickering. To prevent this from happening we set a min size request
         // of 1 for all surfaces (see the "new" function above).
-        self.syncSplitRatio(true);
+        self.syncSplitRatio(.tree_to_widget);
 
         // We still need the idle callback to clear the max_changed field
         // later, because propPosition might or might not still get called.
