@@ -3,7 +3,11 @@ import AppIntents
 
 /// App intent that retrieves details about a specific terminal.
 struct GetTerminalDetailsIntent: AppIntent {
+#if DEBUG
+    static var title: LocalizedStringResource = "[DEBUG] Get Details of Terminal"
+#else
     static var title: LocalizedStringResource = "Get Details of Terminal"
+#endif
 
     @Parameter(
         title: "Detail",
