@@ -970,6 +970,29 @@ pub const Action = union(enum) {
     ///
     crash: CrashThread,
 
+    /// Mark the current tab with the color defined.
+    /// This is equivalent to right-click a tab and selecting one of the predefine color.
+    ///
+    /// For example, `colorize_tab:#632CA6`
+    ///
+    /// Any of the following forms are accepted:
+    ///
+    ///  - rgb:<red>/<green>/<blue>
+    ///    <red>, <green>, <blue> := h | hh | hhh | hhhh
+    ///    where `h` is a single hexadecimal digit.
+    ///
+    ///  - rgbi:<red>/<green>/<blue>
+    ///    where <red>, <green>, and <blue> are floating point values between
+    ///    0.0 and 1.0 (inclusive).
+    ///
+    ///  - #rgb, #rrggbb, #rrrgggbbb #rrrrggggbbbb
+    ///    where `r`, `g`, and `b` are a single hexadecimal digit.
+    ///    These specify a color with 4, 8, 12, and 16 bits of precision
+    ///    per color channel.
+    ///
+    /// Only implemented on macOS.
+    colorize_tab: []const u8,
+
     pub const Key = @typeInfo(Action).@"union".tag_type.?;
 
     /// Make this a valid gobject if we're in a GTK environment.
@@ -1427,6 +1450,7 @@ pub const Action = union(enum) {
             .resize_split,
             .equalize_splits,
             .inspector,
+            .colorize_tab,
             => .surface,
         };
     }
