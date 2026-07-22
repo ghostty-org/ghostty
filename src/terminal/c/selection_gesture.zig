@@ -738,6 +738,13 @@ fn clearWordBoundaryCodepoints(event: *EventWrapper, target: *[]const u21) void 
     target.* = &selection_codepoints.default_word_boundaries;
 }
 
+fn nanosecondsToQpcTicks(ns: u64) u64 {
+    var result: std.os.windows.LARGE_INTEGER = undefined;
+    _ = std.os.windows.ntdll.RtlQueryPerformanceFrequency(&result);
+    const frequency = @as(u64, @bitCast(result));
+    return @intCast(@as(u128, ns) * frequency / std.time.ns_per_s);
+}
+
 fn instantFromNs(ns: u64) SelectionGesture.Time {
     if (comptime builtin.target.cpu.arch == .wasm32 and
         builtin.target.os.tag == .freestanding)
@@ -746,12 +753,28 @@ fn instantFromNs(ns: u64) SelectionGesture.Time {
     }
 
     return switch (builtin.os.tag) {
-        .windows, .uefi, .wasi => .{ .timestamp = ns },
+        .uefi, .wasi => .{ .timestamp = ns },
+        .windows => .{ .timestamp = nanosecondsToQpcTicks(ns) },
         else => .{ .timestamp = .{
             .sec = @intCast(ns / std.time.ns_per_s),
             .nsec = @intCast(ns % std.time.ns_per_s),
         } },
     };
+}
+
+test "instant from nanoseconds preserves elapsed time" {
+    const start_ns = std.time.ns_per_s;
+    const elapsed_ns = 10 * std.time.ns_per_ms;
+    const start = instantFromNs(start_ns);
+    const end = instantFromNs(start_ns + elapsed_ns);
+    const actual = if (comptime builtin.target.cpu.arch == .wasm32 and
+        builtin.target.os.tag == .freestanding)
+        end - start
+    else
+        end.since(start);
+
+    try testing.expect(actual >= elapsed_ns - std.time.ns_per_us);
+    try testing.expect(actual <= elapsed_ns + std.time.ns_per_us);
 }
 
 fn validBehavior(behavior: Behavior) bool {
