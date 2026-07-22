@@ -1,5 +1,6 @@
 const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
+const testing = std.testing;
 
 const size = @import("size.zig");
 const Offset = size.Offset;
@@ -447,6 +448,47 @@ pub fn RefCountedSet(
             return self.living;
         }
 
+        /// A live entry returned by `Iterator`.
+        pub const Entry = struct {
+            id: Id,
+            value_ptr: *T,
+        };
+
+        /// Iterates live entries in ascending ID order.
+        ///
+        /// Released entries whose reference count reached zero are skipped.
+        /// Any mutation of the set invalidates the iterator.
+        pub const Iterator = struct {
+            items: [*]Item,
+            id: Id = 1,
+            end: Id,
+
+            pub fn next(self: *Iterator) ?Entry {
+                while (self.id < self.end) {
+                    const id = self.id;
+                    self.id += 1;
+
+                    const item = &self.items[id];
+                    if (item.meta.ref == 0) continue;
+
+                    return .{
+                        .id = id,
+                        .value_ptr = &item.value,
+                    };
+                }
+
+                return null;
+            }
+        };
+
+        /// Return an iterator over the live entries in this set.
+        pub fn iterator(self: *const Self, base: anytype) Iterator {
+            return .{
+                .items = self.items.ptr(base),
+                .end = self.next_id,
+            };
+        }
+
         /// Delete an item, removing any references from
         /// the table, and freeing its ID to be reused.
         fn deleteItem(self: *Self, base: anytype, id: Id, ctx: Context) void {
@@ -720,4 +762,49 @@ pub fn RefCountedSet(
             }
         }
     };
+}
+
+test "iterator visits live entries in ID order" {
+    const alloc = testing.allocator;
+    const TestSet = RefCountedSet(
+        u32,
+        u16,
+        u16,
+        struct {
+            pub fn hash(_: *const @This(), value: u32) u64 {
+                return std.hash.int(value);
+            }
+
+            pub fn eql(_: *const @This(), a: u32, b: u32) bool {
+                return a == b;
+            }
+        },
+    );
+
+    const layout: TestSet.Layout = .init(8);
+    const buf = try alloc.alignedAlloc(
+        u8,
+        TestSet.base_align,
+        layout.total_size,
+    );
+    defer alloc.free(buf);
+
+    var set: TestSet = .init(.init(buf), layout, .{});
+    const first = try set.add(buf, 11);
+    const released = try set.add(buf, 22);
+    const last = try set.add(buf, 33);
+    _ = try set.add(buf, 11);
+    set.release(buf, released);
+
+    var it = set.iterator(buf);
+
+    const first_entry = it.next().?;
+    try testing.expectEqual(first, first_entry.id);
+    try testing.expectEqual(@as(u32, 11), first_entry.value_ptr.*);
+
+    const last_entry = it.next().?;
+    try testing.expectEqual(last, last_entry.id);
+    try testing.expectEqual(@as(u32, 33), last_entry.value_ptr.*);
+
+    try testing.expect(it.next() == null);
 }
