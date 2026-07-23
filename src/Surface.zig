@@ -4398,7 +4398,28 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
             const resolved_path = try self.resolvePathForOpening(str);
             defer if (resolved_path) |p| self.alloc.free(p);
 
-            const url_to_open = resolved_path orelse str;
+            // Compilers and tools commonly suffix file paths with
+            // `:line[:col]` (e.g. `src/main.zig:42:10`). If the text
+            // as-is doesn't resolve to a real file but the path with
+            // the suffix stripped does, open the stripped path so that
+            // the click does something useful instead of silently
+            // failing. Exact matches above take precedence so that
+            // files whose names actually contain a numeric suffix
+            // still open correctly.
+            const stripped_path: ?[]const u8 = stripped: {
+                if (resolved_path != null) break :stripped null;
+                const parsed = input.Link.parseFilePath(str);
+                if (parsed.line == null) break :stripped null;
+                if (std.fs.path.isAbsolute(parsed.path)) {
+                    std.fs.accessAbsolute(parsed.path, .{}) catch
+                        break :stripped null;
+                    break :stripped try self.alloc.dupe(u8, parsed.path);
+                }
+                break :stripped try self.resolvePathForOpening(parsed.path);
+            };
+            defer if (stripped_path) |p| self.alloc.free(p);
+
+            const url_to_open = resolved_path orelse stripped_path orelse str;
             try self.openUrl(.{ .kind = .unknown, .url = url_to_open });
         },
 
