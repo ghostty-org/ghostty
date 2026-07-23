@@ -102,6 +102,17 @@ pub fn initShared(
     b: *std.Build,
     zig: *const GhosttyZig,
 ) !GhosttyLibVt {
+    const target = zig.vt.resolved_target.?;
+
+    // Zig's Mach-O linker does not emit LC_ENCRYPTION_INFO_64. Physical
+    // iOS dylibs require Apple's linker until Zig supports that load command.
+    if (target.result.os.tag == .ios and
+        target.result.abi != .simulator and
+        builtin.os.tag.isDarwin())
+    {
+        return initIosShared(b, zig);
+    }
+
     return initLib(b, zig, .dynamic);
 }
 
@@ -337,6 +348,102 @@ fn initLib(
         .dsym = dsymutil,
         .pkg_config = if (pcs) |v| v.shared else null,
         .pkg_config_static = if (pcs) |v| v.static else null,
+    };
+}
+
+fn initIosShared(
+    b: *std.Build,
+    zig: *const GhosttyZig,
+) !GhosttyLibVt {
+    const target = zig.vt.resolved_target.?;
+    assert(target.result.cpu.arch == .aarch64);
+
+    const static = try initStatic(b, zig);
+    const exports = b.addWriteFiles().add(
+        "libghostty-vt.exports",
+        "_ghostty_*\n",
+    );
+    const minimum = target.query.os_version_min.?.semver;
+    const real_name = b.fmt("libghostty-vt.{d}.{d}.{d}.dylib", .{
+        zig.version.major,
+        zig.version.minor,
+        zig.version.patch,
+    });
+    const soname = b.fmt("libghostty-vt.{d}.dylib", .{zig.version.major});
+
+    const link = b.addSystemCommand(&.{
+        "xcrun",
+        "--sdk",
+        "iphoneos",
+        "clang",
+        "-fuse-ld=ld",
+        "-target",
+        b.fmt("arm64-apple-ios{f}", .{minimum}),
+        "-dynamiclib",
+        "-Wl,-all_load",
+        "-Wl,-dead_strip",
+        "-Wl,-headerpad_max_install_names",
+    });
+    link.addPrefixedFileArg("-Wl,-exported_symbols_list,", exports);
+    link.addFileArg(static.output);
+    link.addArgs(&.{
+        "-install_name",
+        "@rpath/libghostty-vt.dylib",
+        "-current_version",
+        b.fmt("{d}.{d}.{d}", .{
+            zig.version.major,
+            zig.version.minor,
+            zig.version.patch,
+        }),
+        "-compatibility_version",
+        "1.0.0",
+        "-o",
+    });
+    const output = link.addOutputFileArg(real_name);
+
+    const artifact_install = b.addInstallFileWithDir(
+        output,
+        .lib,
+        real_name,
+    );
+    const soname_install = b.addSystemCommand(&.{
+        "/bin/ln",
+        "-sf",
+        real_name,
+        b.getInstallPath(.lib, soname),
+    });
+    soname_install.step.dependOn(&artifact_install.step);
+    const unversioned_install = b.addSystemCommand(&.{
+        "/bin/ln",
+        "-sf",
+        soname,
+        b.getInstallPath(.lib, "libghostty-vt.dylib"),
+    });
+    unversioned_install.step.dependOn(&soname_install.step);
+
+    const headers_install = b.addInstallDirectory(.{
+        .source_dir = b.path("include/ghostty"),
+        .install_dir = .header,
+        .install_subdir = "ghostty",
+        .include_extensions = &.{".h"},
+    });
+    unversioned_install.step.dependOn(&headers_install.step);
+
+    const dsymutil = RunStep.create(b, "dsymutil");
+    dsymutil.addArgs(&.{"dsymutil"});
+    dsymutil.addFileArg(output);
+    dsymutil.addArgs(&.{"-o"});
+    const dsym = dsymutil.addOutputFileArg("libghostty-vt.dSYM");
+
+    const pcs = pkgConfigFiles(b, zig, .ios);
+    return .{
+        .step = &link.step,
+        .artifact = &unversioned_install.step,
+        .kind = .shared,
+        .output = output,
+        .dsym = dsym,
+        .pkg_config = pcs.shared,
+        .pkg_config_static = pcs.static,
     };
 }
 
