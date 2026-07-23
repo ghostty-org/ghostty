@@ -4072,6 +4072,41 @@ pub fn mouseButtonCallback(
 
         switch (self.config.right_click_action) {
             .ignore => {},
+            .extend => {
+                // Extend to the clicked location from the last left-click
+                // anchor, reusing the same gesture-drag mechanism as
+                // shift+left-click. The anchor is kept fixed and the other end
+                // moves to the click. Note the anchor exists after any
+                // left-click, even a bare click that produced no selection
+                // object (e.g. a single click), so the classic xterm workflow
+                // of "click one end, right-click the other" works without a
+                // drag. We consume the event either way so we never fall back
+                // to the context menu.
+                const t: *terminal.Terminal = self.renderer_state.terminal;
+                const drag_selection = self.mouse.selection_gesture.drag(t, .{
+                    .pin = pin,
+                    .xpos = pos.x,
+                    .ypos = pos.y,
+                    .rectangle = SurfaceMouse.isRectangleSelectState(self.mouse.mods),
+                    .word_boundary_codepoints = self.config.selection_word_chars,
+                    .geometry = .{
+                        .columns = @intCast(self.size.grid().columns),
+                        .cell_width = self.size.cell.width,
+                        .padding_left = self.size.padding.left,
+                        .screen_height = self.size.screen.height,
+                    },
+                });
+
+                // `drag` returns null when there is no live left-click anchor
+                // (no prior left-click this session, or the selection was made
+                // some other way such as select-all/keyboard). In that case
+                // there is nothing to extend from, so leave any existing
+                // selection untouched.
+                if (drag_selection) |sel| {
+                    try self.setSelectionAndCopy(sel);
+                    try self.queueRender();
+                }
+            },
             .@"context-menu" => {
                 // If we already have a selection and the selection contains
                 // where we clicked then we don't want to modify the selection.

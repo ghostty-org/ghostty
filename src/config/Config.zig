@@ -2445,6 +2445,13 @@ keybind: Keybinds = .{},
 ///   * `copy` - Copy the selected text to the clipboard.
 ///   * `copy-or-paste` - If there is a selection, copy the selected text to
 ///      the clipboard; otherwise, paste the contents of the clipboard.
+///   * `extend` - Extend the selection to the clicked location, matching the
+///      classic xterm/rxvt right-button behavior. This uses the same mechanism
+///      as shift+left-click: the anchor from the most recent left-click is
+///      kept fixed and the other end is moved to the click. Because a bare
+///      left-click sets that anchor, you can left-click one end of a region
+///      and right-click the other to select it without dragging. If there has
+///      been no left-click to anchor from, this does nothing.
 ///   * `ignore` - Do nothing, ignore the right-click.
 ///
 /// The default value is `context-menu`.
@@ -8640,6 +8647,11 @@ pub const RightClickAction = enum {
     /// Copies the selected text to the system clipboard and
     /// pastes the clipboard if no text is selected.
     @"copy-or-paste",
+
+    /// Extends the selection to the clicked location from the most recent
+    /// left-click anchor, matching the classic xterm/rxvt right-button
+    /// behavior. Does nothing if there has been no left-click to anchor from.
+    extend,
 
     /// Shows a context menu with options.
     @"context-menu",
