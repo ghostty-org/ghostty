@@ -313,6 +313,7 @@ pub const Handler = struct {
             .device_status => self.deviceStatus(value.request),
             .enquiry => self.reportEnquiry(),
             .kitty_keyboard_query => self.queryKittyKeyboard(),
+            .modify_key_query => self.queryModifyOtherKeys(),
             .request_mode => self.requestMode(value.mode),
             .request_mode_unknown => self.requestModeUnknown(value.mode, value.ansi),
             .size_report => self.reportSize(value),
@@ -579,6 +580,16 @@ pub const Handler = struct {
         const resp = std.fmt.bufPrintZ(&buf, "\x1b[?{}u", .{
             self.terminal.screens.active.kitty_keyboard.current().int(),
         }) catch return;
+        self.writePty(resp);
+    }
+
+    fn queryModifyOtherKeys(self: *Handler) void {
+        if (self.effects.write_pty == null) return;
+        // XTQMODKEYS reply: `CSI > 4 ; Pv m`.
+        var report_buf: [16]u8 = undefined;
+        const report = self.terminal.modifyOtherKeysReport(&report_buf) catch return;
+        var buf: [24]u8 = undefined;
+        const resp = std.fmt.bufPrintZ(&buf, "\x1b[{s}", .{report}) catch return;
         self.writePty(resp);
     }
 
@@ -2184,6 +2195,41 @@ test "window_title effect with empty title" {
     s.nextSlice("\x1b]2;\x1b\\");
     try testing.expect(t.getTitle() == null);
     try testing.expectEqual(@as(usize, 1), S.title_changed_count);
+}
+
+test "modifyOtherKeys query XTQMODKEYS" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var written: ?[:0]const u8 = null;
+        fn writePty(_: *Handler, data: [:0]const u8) void {
+            written = data;
+        }
+    };
+    S.written = null;
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+
+    var s: Stream = .initAlloc(testing.allocator, handler);
+    defer s.deinit();
+
+    // Default modifyOtherKeys is mode 1 (ambiguous keys already numeric)
+    s.nextSlice("\x1b[?4m");
+    try testing.expectEqualStrings("\x1b[>4;1m", S.written.?);
+
+    // Enable numeric (mode 2) form and query again
+    S.written = null;
+    s.nextSlice("\x1b[>4;2m");
+    s.nextSlice("\x1b[?4m");
+    try testing.expectEqualStrings("\x1b[>4;2m", S.written.?);
+
+    // Reset back to default and confirm we report mode 1 again
+    S.written = null;
+    s.nextSlice("\x1b[>4m");
+    s.nextSlice("\x1b[?4m");
+    try testing.expectEqualStrings("\x1b[>4;1m", S.written.?);
 }
 
 test "kitty_keyboard_query" {

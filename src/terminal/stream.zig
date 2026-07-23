@@ -89,6 +89,7 @@ pub const Action = union(Key) {
     save_cursor,
     restore_cursor,
     modify_key_format: ansi.ModifyKeyFormat,
+    modify_key_query,
     mouse_shift_capture: bool,
     protected_mode_off,
     protected_mode_iso,
@@ -188,6 +189,7 @@ pub const Action = union(Key) {
             "save_cursor",
             "restore_cursor",
             "modify_key_format",
+            "modify_key_query",
             "mouse_shift_capture",
             "protected_mode_off",
             "protected_mode_iso",
@@ -1802,6 +1804,24 @@ pub fn Stream(comptime H: type) type {
                                 self.handler.vt(.modify_key_format, format);
                             },
 
+                            // XTQMODKEYS: query key modifier options. We only
+                            // support modifyOtherKeys (resource 4); `vim --clean`
+                            // sends `CSI ? 4 m`. Reply is `CSI > 4 ; Pv m`.
+                            '?' => switch (input.params.len) {
+                                1 => switch (input.params[0]) {
+                                    4 => self.handler.vt(.modify_key_query, {}),
+                                    else => logUnsupportedOnce(
+                                        "unsupported XTQMODKEYS resource: {f}",
+                                        .{input},
+                                        @intCast(input.params[0]),
+                                    ),
+                                },
+                                else => log.warn(
+                                    "invalid XTQMODKEYS: {f}",
+                                    .{input},
+                                ),
+                            },
+
                             else => logUnsupportedOnce(
                                 "unknown CSI m with intermediate: {}",
                                 .{input.intermediates[0]},
@@ -1809,16 +1829,10 @@ pub fn Stream(comptime H: type) type {
                             ),
                         },
 
-                        else => {
-                            // Nothing, but I wanted a place to put this comment:
-                            // there are others forms of CSI m that have intermediates.
-                            // `vim --clean` uses `CSI ? 4 m` and I don't know what
-                            // that means.
-                            log.warn(
-                                "ignoring unimplemented CSI m with intermediates: {s}",
-                                .{input.intermediates},
-                            );
-                        },
+                        else => log.warn(
+                            "ignoring unimplemented CSI m with intermediates: {s}",
+                            .{input.intermediates},
+                        ),
                     }
                 },
 
@@ -2885,6 +2899,40 @@ test "stream: cursor right (CUF)" {
     s.handler.amount = 0;
     s.nextSlice("\x1b[?3C");
     try testing.expectEqual(@as(u16, 0), s.handler.amount);
+}
+
+test "stream: XTQMODKEYS query modifyOtherKeys (CSI ? 4 m)" {
+    const H = struct {
+        queries: u32 = 0,
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: Action.Tag,
+            value: Action.Value(action),
+        ) void {
+            _ = value;
+            switch (action) {
+                .modify_key_query => self.queries += 1,
+                else => {},
+            }
+        }
+    };
+
+    var s: Stream(H) = .init(.{});
+
+    // Resource 4 (modifyOtherKeys) is the only one we answer.
+    s.nextSlice("\x1B[?4m");
+    try testing.expectEqual(@as(u32, 1), s.handler.queries);
+
+    // Other resources are ignored (no reply).
+    s.nextSlice("\x1B[?0m");
+    s.nextSlice("\x1B[?1m");
+    s.nextSlice("\x1B[?2m");
+    try testing.expectEqual(@as(u32, 1), s.handler.queries);
+
+    // Multiple params is invalid and ignored.
+    s.nextSlice("\x1B[?4;2m");
+    try testing.expectEqual(@as(u32, 1), s.handler.queries);
 }
 
 test "stream: dec set mode (SM) and reset mode (RM)" {
