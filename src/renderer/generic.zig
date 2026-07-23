@@ -12,6 +12,7 @@ const renderer = @import("../renderer.zig");
 const math = @import("../math.zig");
 const Surface = @import("../Surface.zig");
 const link = @import("link.zig");
+const search_selected = @import("search_selected.zig");
 const cellpkg = @import("cell.zig");
 const noMinContrast = cellpkg.noMinContrast;
 const constraintWidth = cellpkg.constraintWidth;
@@ -144,6 +145,29 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         search_selected_match: ?renderer.Message.SearchMatch,
         search_matches_dirty: bool,
 
+        /// Last `.search_selected` reported to the apprt, used to dedupe
+        /// pushes. `regions` is a non-empty slice owned by `alloc`; null when
+        /// nothing is reported. The index is part of the dedupe key so cycling
+        /// between matches with identical geometry still notifies the apprt.
+        last_search_selected: ?LastSearchSelected,
+
+        /// Scratch buffer for the selected match's rects, reused each frame so
+        /// an unchanged selection allocates nothing. Owned by `alloc`.
+        search_selected_scratch: std.ArrayListUnmanaged(renderer.Bounds),
+
+        /// Set on match→null. The region pushes self-heal via the per-frame
+        /// `updateSearchSelected`, but a cleared selection has no live match to
+        /// drive that, so `updateFrame` retries the clear push until it lands.
+        /// `.instant` + retry avoids the deadlock a `.forever` to the surface
+        /// mailbox could cause.
+        search_selected_clear_pending: bool,
+
+        /// The upstream reason for the *current* match's next push. Set when
+        /// a new match arrives via `setSearchSelectedMatch`, consumed on the
+        /// first successful push. Subsequent pushes for the same match (e.g.
+        /// region recompute after a resize) default to `.frame_update`.
+        search_selected_pending_reason: ?apprt.action.SearchSelected.Reason,
+
         /// The current set of cells to render. This is rebuilt on every frame
         /// but we keep this around so that we don't reallocate. Each set of
         /// cells goes into a separate shader.
@@ -236,6 +260,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         const HighlightTag = enum(u8) {
             search_match,
             search_match_selected,
+        };
+
+        const LastSearchSelected = struct {
+            selected: usize,
+            regions: []const renderer.Bounds,
         };
         /// Swap chain which maintains multiple copies of the state needed to
         /// render a frame, so that we can start building the next frame while
@@ -716,6 +745,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .search_matches = null,
                 .search_selected_match = null,
                 .search_matches_dirty = false,
+                .last_search_selected = null,
+                .search_selected_scratch = .empty,
+                .search_selected_clear_pending = false,
+                .search_selected_pending_reason = null,
 
                 // Render state
                 .cells = .{},
@@ -806,6 +839,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self.terminal_state.deinit(self.alloc);
             if (self.search_selected_match) |*m| m.arena.deinit();
             if (self.search_matches) |*m| m.arena.deinit();
+            self.clearLastSearchSelected();
+            self.search_selected_scratch.deinit(self.alloc);
             self.swap_chain.deinit();
 
             if (DisplayLink != void) {
@@ -1141,6 +1176,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
             self.terminal_state_frame_count += 1;
 
+            // Retry a pending search_selected clear, before the recompute
+            // below so the clear stays ordered ahead of any fresh push.
+            self.flushSearchSelectedClear();
+
             // Create an arena for all our temporary allocations while rebuilding
             var arena = ArenaAllocator.init(self.alloc);
             defer arena.deinit();
@@ -1344,6 +1383,17 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         // Not a critical error, we just won't show highlights.
                         log.warn("error updating search highlights err={}", .{err});
                     };
+                }
+
+                // Recompute the on-screen rects of the selected match (if any)
+                // now that the per-row highlights are current, and push the
+                // combined `.search_selected` action to the apprt if anything
+                // has changed since last frame. The cleared-selection
+                // transition (match→null) is handled in `renderer.Thread`
+                // when the search thread tells us about it, so no work to
+                // do here when there's no selected match.
+                if (self.search_selected_match != null) {
+                    self.updateSearchSelected();
                 }
             }
 
@@ -1933,7 +1983,130 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             self.updateScreenSizeUniforms();
 
+            // The cached rects are now stale (they're in surface pixels), but
+            // no explicit clear is needed: the resize dirties the frame, so the
+            // next updateSearchSelected recomputes and re-pushes (the dedupe key
+            // includes the rects), or clears if the match scrolled off-screen.
+
             log.debug("screen size size={}", .{size});
+        }
+
+        /// Set (or clear) the selected search match, taking ownership of
+        /// `match` and freeing the previous one. Marks highlights dirty.
+        ///
+        /// On match→null we flag a clear here rather than in
+        /// `updateSearchSelected` (which is gated on a live match), keeping the
+        /// renderer the sole owner of search_selected state.
+        pub fn setSearchSelectedMatch(
+            self: *Self,
+            match: ?renderer.Message.SearchMatch,
+        ) void {
+            const had_prev = self.search_selected_match != null;
+
+            // Note we don't free the new value because we expect our
+            // allocators to match.
+            if (self.search_selected_match) |*m| m.arena.deinit();
+            self.search_selected_match = match;
+            self.search_matches_dirty = true;
+            self.search_selected_pending_reason = if (match) |m| m.reason else null;
+
+            if (had_prev and match == null) {
+                self.clearLastSearchSelected();
+                self.search_selected_clear_pending = true;
+            }
+        }
+
+        /// Recompute the selected match's on-screen rects and push
+        /// `.search_selected` to the apprt if they changed since last frame.
+        /// Best-effort: on alloc failure or a full mailbox we keep the prior
+        /// cache and retry next frame. Caller must have a non-null match.
+        fn updateSearchSelected(self: *Self) void {
+            const sm = self.search_selected_match orelse return;
+
+            // Scratch is reused frame to frame: no alloc when unchanged.
+            self.search_selected_scratch.clearRetainingCapacity();
+            search_selected.appendRegions(
+                &self.search_selected_scratch,
+                self.alloc,
+                self.terminal_state.row_data.slice().items(.highlights),
+                self.size,
+                @intFromEnum(HighlightTag.search_match_selected),
+            ) catch return;
+            const regions = self.search_selected_scratch.items;
+
+            const last = self.last_search_selected;
+            switch (search_selected.decide(
+                last != null,
+                if (last) |l| l.selected else 0,
+                if (last) |l| l.regions else &.{},
+                sm.idx,
+                regions,
+                self.search_selected_pending_reason == .navigation,
+            )) {
+                .skip => {},
+
+                // Match scrolled off-screen: drop the overlay, keep the index.
+                // Keep the cache until the push lands so a full mailbox retries.
+                .clear => {
+                    if (self.surface_mailbox.push(.{ .search_selected = .{
+                        .alloc = self.alloc,
+                        .selected = sm.idx,
+                        .regions = &.{},
+                        .reason = .frame_update,
+                    } }, .instant) != 0) {
+                        self.search_selected_pending_reason = null;
+                        self.clearLastSearchSelected();
+                    }
+                },
+
+                .push => {
+                    // Two copies: one to send (surface owns/frees it) and one
+                    // to cache. Alloc both before mutating state so a failure
+                    // leaves the prior cache intact for a retry.
+                    const cache = self.alloc.dupe(renderer.Bounds, regions) catch return;
+                    const send = self.alloc.dupe(renderer.Bounds, regions) catch {
+                        self.alloc.free(cache);
+                        return;
+                    };
+
+                    const reason = self.search_selected_pending_reason orelse .frame_update;
+
+                    if (self.surface_mailbox.push(.{ .search_selected = .{
+                        .alloc = self.alloc,
+                        .selected = sm.idx,
+                        .regions = send,
+                        .reason = reason,
+                    } }, .instant) == 0) {
+                        // Dropped: free both, keep the prior cache, retry next.
+                        self.alloc.free(send);
+                        self.alloc.free(cache);
+                        return;
+                    }
+
+                    self.search_selected_pending_reason = null;
+                    self.clearLastSearchSelected();
+                    self.last_search_selected = .{
+                        .selected = sm.idx,
+                        .regions = cache,
+                    };
+                },
+            }
+        }
+
+        fn clearLastSearchSelected(self: *Self) void {
+            if (self.last_search_selected) |last| {
+                self.alloc.free(last.regions);
+                self.last_search_selected = null;
+            }
+        }
+
+        /// Deliver the pending match-deselected clear, if any. Stays pending on
+        /// a full mailbox so `updateFrame` retries it next frame.
+        fn flushSearchSelectedClear(self: *Self) void {
+            if (!self.search_selected_clear_pending) return;
+            if (self.surface_mailbox.push(.{ .search_selected = null }, .instant) != 0) {
+                self.search_selected_clear_pending = false;
+            }
         }
 
         /// Update uniforms that are based on the screen size.

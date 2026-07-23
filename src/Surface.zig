@@ -1168,10 +1168,22 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         },
 
         .search_selected => |v| {
+            // When non-null, the renderer owns the regions slice; free it after
+            // we've handed it to the apprt. `performAction` is synchronous so
+            // the slice is valid for the duration of the call.
+            defer if (v) |sr| sr.alloc.free(sr.regions);
             _ = try self.rt_app.performAction(
                 .{ .surface = self },
                 .search_selected,
-                .{ .selected = v },
+                if (v) |sr| .{
+                    .selected = sr.selected,
+                    .regions = sr.regions,
+                    .reason = sr.reason,
+                } else .{
+                    .selected = null,
+                    .regions = &.{},
+                    .reason = .match_update,
+                },
             );
         },
     }
@@ -1458,7 +1470,7 @@ fn searchCallback_(
 
         .selected_match => |selected_| {
             if (selected_) |sel| {
-                // Copy the flattened match.
+                // Copy the flattened match and idx, then forward to the renderer thread.
                 var arena: ArenaAllocator = .init(self.alloc);
                 errdefer arena.deinit();
                 const alloc = arena.allocator();
@@ -1469,26 +1481,20 @@ fn searchCallback_(
                     .{ .search_selected_match = .{
                         .arena = arena,
                         .match = match,
+                        .idx = sel.idx,
+                        .reason = switch (sel.reason) {
+                            .navigation => .navigation,
+                            .match_update => .match_update,
+                        },
                     } },
                     .forever,
                 );
-
-                // Send the selected index to the surface mailbox
-                _ = self.surfaceMailbox().push(
-                    .{ .search_selected = sel.idx },
-                    .forever,
-                );
             } else {
-                // Reset our selected match
+                // Reset our selected match.
+                // search_selected will then be reset in renderer thread
                 _ = self.renderer_thread.mailbox.push(
                     global.io(),
                     .{ .search_selected_match = null },
-                    .forever,
-                );
-
-                // Reset the selected index
-                _ = self.surfaceMailbox().push(
-                    .{ .search_selected = null },
                     .forever,
                 );
             }
@@ -1521,12 +1527,9 @@ fn searchCallback_(
             try self.renderer_thread.wakeup.notify();
 
             // Reset search totals in the surface
+            // search_selected will then be reset in renderer thread
             _ = self.surfaceMailbox().push(
                 .{ .search_total = null },
-                .forever,
-            );
-            _ = self.surfaceMailbox().push(
-                .{ .search_selected = null },
                 .forever,
             );
         },
