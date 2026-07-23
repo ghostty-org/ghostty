@@ -500,6 +500,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_NEW_TAB:
                 newTab(app, target: target)
 
+            case GHOSTTY_ACTION_NEW_TAB_WITH_COMMAND:
+                newTabWithCommand(app, target: target, v: action.action.new_tab_with_command)
+
             case GHOSTTY_ACTION_NEW_SPLIT:
                 newSplit(app, target: target, direction: action.action.new_split)
 
@@ -843,6 +846,54 @@ extension Ghostty {
                     object: surfaceView,
                     userInfo: [
                         Notification.NewSurfaceConfigKey: SurfaceConfiguration(from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_TAB)),
+                    ]
+                )
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func newTabWithCommand(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_new_tab_with_command_s
+        ) {
+            let command = String(
+                bytes: UnsafeRawBufferPointer(start: v.command, count: Int(v.len)),
+                encoding: .utf8
+            )
+
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                // A new tab with a command requires a surface context so
+                // we can inherit the proper configuration. Without one we
+                // do nothing.
+                Ghostty.logger.warning("new_tab_with_command does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let appState = self.appState(fromView: surfaceView) else { return }
+                guard appState.config.windowDecorations else {
+                    let alert = NSAlert()
+                    alert.messageText = "Tabs are disabled"
+                    alert.informativeText = "Enable window decorations to use tabs"
+                    alert.addButton(withTitle: "OK")
+                    alert.alertStyle = .warning
+                    _ = alert.runModal()
+                    return
+                }
+
+                var config = SurfaceConfiguration(from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_TAB))
+                config.command = command
+
+                NotificationCenter.default.post(
+                    name: Notification.ghosttyNewTab,
+                    object: surfaceView,
+                    userInfo: [
+                        Notification.NewSurfaceConfigKey: config,
                     ]
                 )
 

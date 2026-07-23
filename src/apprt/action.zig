@@ -348,6 +348,10 @@ pub const Action = union(Key) {
     /// otherwise the terminal-set title.
     copy_title_to_clipboard,
 
+    /// Open a new tab running the given command instead of the default.
+    /// Otherwise behaves the same as new_tab.
+    new_tab_with_command: NewTabCommand,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -416,6 +420,7 @@ pub const Action = union(Key) {
         search_selected,
         readonly,
         copy_title_to_clipboard,
+        new_tab_with_command,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
@@ -923,6 +928,25 @@ pub const OpenUrl = struct {
             .kind = self.kind,
             .url = self.url.ptr,
             .len = self.url.len,
+        };
+    }
+};
+
+/// The command to run in a new tab for new_tab_with_command.
+pub const NewTabCommand = struct {
+    /// The command to execute.
+    command: []const u8,
+
+    // Sync with: ghostty_action_new_tab_with_command_s
+    pub const C = extern struct {
+        command: [*]const u8,
+        len: usize,
+    };
+
+    pub fn cval(self: NewTabCommand) C {
+        return .{
+            .command = self.command.ptr,
+            .len = self.command.len,
         };
     }
 };
