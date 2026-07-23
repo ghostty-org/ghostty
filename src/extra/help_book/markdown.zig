@@ -113,7 +113,7 @@ const Renderer = struct {
             while (i < lines.len) : (i += 1) {
                 var t = std.mem.trim(u8, lines[i], " ");
                 if (t.len == 0 or t[0] != '>') break;
-                t = std.mem.trimLeft(u8, t[1..], " ");
+                t = std.mem.trimStart(u8, t[1..], " ");
                 if (i == start) {
                     if (std.mem.eql(u8, t, "[!NOTE]")) {
                         class = "note";
@@ -150,7 +150,7 @@ const Renderer = struct {
             while (i < lines.len) : (i += 1) {
                 var t = std.mem.trim(u8, lines[i], " ");
                 if (t.len == 0) break;
-                if (std.mem.startsWith(u8, t, ": ")) t = std.mem.trimLeft(u8, t[2..], " ");
+                if (std.mem.startsWith(u8, t, ": ")) t = std.mem.trimStart(u8, t[2..], " ");
                 if (i > start) try text.append(self.arena, '\n');
                 try text.appendSlice(self.arena, t);
             }
@@ -189,7 +189,7 @@ const Renderer = struct {
                 try text.append(self.arena, '\n');
             } else if (callout) |class| {
                 // The class name plus ':' is the matched prefix length.
-                t = std.mem.trimLeft(u8, t[class.len + 1 ..], " ");
+                t = std.mem.trimStart(u8, t[class.len + 1 ..], " ");
             }
             try text.appendSlice(self.arena, t);
         }
@@ -213,7 +213,7 @@ const Renderer = struct {
 
     /// Parse a list item marker: `- `, `* `, or `1. ` after any indent.
     fn listItem(line: []const u8) ?ListItem {
-        const indent = line.len - std.mem.trimLeft(u8, line, " ").len;
+        const indent = line.len - std.mem.trimStart(u8, line, " ").len;
         const rest = line[indent..];
         if (rest.len >= 2 and (rest[0] == '-' or rest[0] == '*') and rest[1] == ' ')
             return .{ .indent = indent, .ordered = false, .text = rest[2..] };
@@ -282,7 +282,7 @@ const Renderer = struct {
             }
 
             // Continuation line: must be indented past the item marker.
-            const indent = line.len - std.mem.trimLeft(u8, line, " ").len;
+            const indent = line.len - std.mem.trimStart(u8, line, " ").len;
             if (stack.items.len > 0 and
                 indent >= stack.items[stack.items.len - 1].indent + 2)
             {
