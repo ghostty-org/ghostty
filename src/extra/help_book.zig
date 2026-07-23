@@ -170,34 +170,35 @@ fn docOf(comptime T: type, comptime name: [:0]const u8) []const u8 {
 
 /// CLI entrypoint for `+help-book <dir>`: write the bundle into the
 /// directory given as the first non-action argument.
-pub fn writeCli(alloc: Allocator) !void {
-    const args = try std.process.argsAlloc(alloc);
-    defer std.process.argsFree(alloc, args);
-    const path = for (args[1..]) |arg| {
+pub fn writeCli(alloc: Allocator, io: std.Io, args: std.process.Args) !void {
+    var arena_state = std.heap.ArenaAllocator.init(alloc);
+    defer arena_state.deinit();
+    const argv = try args.toSlice(arena_state.allocator());
+    const path = for (argv[1..]) |arg| {
         if (arg.len > 0 and arg[0] != '+') break arg;
     } else return error.MissingOutputDirectory;
 
-    var dir = try std.fs.cwd().makeOpenPath(path, .{});
-    defer dir.close();
-    try write(alloc, dir);
+    var dir = try std.Io.Dir.cwd().createDirPathOpen(io, path, .{});
+    defer dir.close(io);
+    try write(alloc, io, dir);
 }
 
 /// Write the complete help book bundle contents into the given directory,
 /// which becomes the `Ghostty.help` bundle root.
-pub fn write(alloc: Allocator, dir: std.fs.Dir) !void {
+pub fn write(alloc: Allocator, io: std.Io, dir: std.Io.Dir) !void {
     var arena_state = std.heap.ArenaAllocator.init(alloc);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    try dir.makePath("Contents/Resources/en.lproj");
+    try dir.createDirPath(io, "Contents/Resources/en.lproj");
     // We need this for macOS to recognize this bundle as a help book
     // and indexing it properly.
-    try dir.writeFile(.{ .sub_path = "Contents/PkgInfo", .data = "BNDLhbwr" });
+    try dir.writeFile(io, .{ .sub_path = "Contents/PkgInfo", .data = "BNDLhbwr" });
     // The book version mirrors the app version (`ghostty +version`) so
     // Help Viewer's helpd cache is invalidated on every app update. The
     // short version is the plain semver triple as Apple requires for
     // CFBundleShortVersionString.
-    try writeTemplateFile(dir, "Contents/Info.plist", @embedFile("help_book/Info.plist"), .{
+    try writeTemplateFile(io, dir, "Contents/Info.plist", @embedFile("help_book/Info.plist"), .{
         .identifier = book_identifier,
         .title = book_title,
         .version = build_config.version_string,
@@ -208,18 +209,18 @@ pub fn write(alloc: Allocator, dir: std.fs.Dir) !void {
         }),
     });
 
-    var lproj = try dir.openDir("Contents/Resources/en.lproj", .{});
-    defer lproj.close();
+    var lproj = try dir.openDir(io, "Contents/Resources/en.lproj", .{});
+    defer lproj.close(io);
 
     for (static_files) |file| {
-        try lproj.writeFile(.{ .sub_path = file.name, .data = file.data });
+        try lproj.writeFile(io, .{ .sub_path = file.name, .data = file.data });
     }
 
     // The landing page, showing the app version linked as in the About
     // window. The wordmark is the website's, downloaded from
     // https://ghostty.org/_next/static/media/ghostty-wordmark.815bf882.svg
     // with the lettering fill changed to currentColor.
-    try writeTemplateFile(lproj, "home.html", @embedFile("help_book/home.html"), .{
+    try writeTemplateFile(io, lproj, "home.html", @embedFile("help_book/home.html"), .{
         .version = build_config.version_string,
         .version_url = version_url,
         .wordmark = @embedFile("help_book/wordmark.svg"),
@@ -244,7 +245,7 @@ pub fn write(alloc: Allocator, dir: std.fs.Dir) !void {
                 .{ @tagName(topic.kind), name, @tagName(topic.kind), name, name },
             );
         }
-        try writeTemplateFile(lproj, "index.html", @embedFile("help_book/index.html"), .{
+        try writeTemplateFile(io, lproj, "index.html", @embedFile("help_book/index.html"), .{
             .options_toc = options_toc.written(),
             .actions_toc = actions_toc.written(),
         });
@@ -252,7 +253,7 @@ pub fn write(alloc: Allocator, dir: std.fs.Dir) !void {
 
     // Documentation pages rendered from the in-repo markdown docs
     // (the same sources as the ghostty(1)/ghostty(5) man pages).
-    try writeTemplateFile(lproj, "docs.config.html", @embedFile("help_book/docs_config.html"), .{
+    try writeTemplateFile(io, lproj, "docs.config.html", @embedFile("help_book/docs_config.html"), .{
         .header = try renderMarkdown(arena, @embedFile("../build/mdgen/ghostty_5_header.md")),
     });
     {
@@ -264,7 +265,7 @@ pub fn write(alloc: Allocator, dir: std.fs.Dir) !void {
             );
             try markdown.render(arena, &actions_html.writer, action.doc);
         }
-        try writeTemplateFile(lproj, "docs.cli.html", @embedFile("help_book/docs_cli.html"), .{
+        try writeTemplateFile(io, lproj, "docs.cli.html", @embedFile("help_book/docs_cli.html"), .{
             .header = try renderMarkdown(arena, @embedFile("../build/mdgen/ghostty_1_header.md")),
             .actions = actions_html.written(),
         });
@@ -273,11 +274,11 @@ pub fn write(alloc: Allocator, dir: std.fs.Dir) !void {
     // One page per config option and keybind action.
     for (topics) |topic| {
         _ = arena_state.reset(.retain_capacity);
-        try writeTopicFile(arena, lproj, topic);
+        try writeTopicFile(arena, io, lproj, topic);
     }
 }
 
-fn writeTopicFile(arena: Allocator, lproj: std.fs.Dir, topic: Topic) !void {
+fn writeTopicFile(arena: Allocator, io: std.Io, lproj: std.Io.Dir, topic: Topic) !void {
     var body: std.Io.Writer.Allocating = .init(arena);
     try markdown.render(arena, &body.writer, topic.doc);
 
@@ -306,7 +307,7 @@ fn writeTopicFile(arena: Allocator, lproj: std.fs.Dir, topic: Topic) !void {
     }
 
     const file_name = try std.fmt.allocPrint(arena, "{s}.{s}.html", .{ kind, primary });
-    try writeTemplateFile(lproj, file_name, @embedFile("help_book/topic.html"), .{
+    try writeTemplateFile(io, lproj, file_name, @embedFile("help_book/topic.html"), .{
         .name = primary,
         .names = names.written(),
         .description = description.written(),
@@ -320,15 +321,16 @@ fn writeTopicFile(arena: Allocator, lproj: std.fs.Dir, topic: Topic) !void {
 
 /// Create the file and write the template with placeholders substituted.
 fn writeTemplateFile(
-    dir: std.fs.Dir,
+    io: std.Io,
+    dir: std.Io.Dir,
     sub_path: []const u8,
     comptime source: []const u8,
     args: anytype,
 ) !void {
-    var f = try dir.createFile(sub_path, .{});
-    defer f.close();
+    var f = try dir.createFile(io, sub_path, .{});
+    defer f.close(io);
     var buf: [4096]u8 = undefined;
-    var fw = f.writerStreaming(&buf);
+    var fw = f.writerStreaming(io, &buf);
     try template.write(&fw.interface, source, args);
     try fw.end();
 }
@@ -359,21 +361,22 @@ fn writeMetaDescription(w: *std.Io.Writer, doc: []const u8) !void {
 test "help book" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    try write(alloc, tmp.dir);
+    try write(alloc, io, tmp.dir);
 
     // Undocumented options share the page of the option documenting them,
     // with no page of their own: searchable there through the keywords and
     // called out below the title. Topic pages link back to the online docs.
     {
-        const page = try tmp.dir.readFileAlloc(alloc, "Contents/Resources/en.lproj/option.font-family.html", 1 << 20);
+        const page = try tmp.dir.readFileAlloc(io, "Contents/Resources/en.lproj/option.font-family.html", alloc, .limited(1 << 20));
         defer alloc.free(page);
         try testing.expect(std.mem.indexOf(u8, page, "content=\"ghostty, config, font-family, font-family-bold, font-family-italic, font-family-bold-italic\"") != null);
         try testing.expect(std.mem.indexOf(u8, page, "<p class=\"variants\">") != null);
         try testing.expect(std.mem.indexOf(u8, page, "https://ghostty.org/docs/config/reference#font-family") != null);
-        try testing.expectError(error.FileNotFound, tmp.dir.access("Contents/Resources/en.lproj/option.font-family-bold.html", .{}));
+        try testing.expectError(error.FileNotFound, tmp.dir.access(io, "Contents/Resources/en.lproj/option.font-family-bold.html", .{}));
     }
 }
