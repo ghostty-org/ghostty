@@ -127,7 +127,7 @@ label.resize-overlay {
 }
 
 .surface .bell-overlay {
-  border-color: rgba(58, 148, 74, 0.5);
+  border-color: rgba(53, 132, 228, 0.5);
   /* after GTK 4.16 is a requirement, switch to the following: */
   /* background-color: color-mix(in srgb, var(--accent-color), transparent 50%); */
   border-width: 3px;
@@ -144,6 +144,58 @@ label.resize-overlay {
   outline-style: solid;
   outline-width: 1px;
 }
+/*
+ * Drag and drop overlay
+ */
+.drag-handle {
+  background-color: rgba(0, 0, 0, 0.15);
+  opacity: 0;
+  transition: 0.1s opacity;
+}
+.drag-handle:hover {
+  opacity: 1;
+}
+.drop-overlay.drop-left {
+  /* after GTK 4.16 is a requirement, switch to the following: */
+  /* background: linear-gradient(to left, transparent, 50%, color-mix(in srgb, var(--accent-color), transparent 50%) 50%); */
+  background: linear-gradient(
+    to left,
+    transparent,
+    50%,
+    rgba(53, 132, 228, 0.2) 50%
+  );
+}
+.drop-overlay.drop-right {
+  /* after GTK 4.16 is a requirement, switch to the following: */
+  /* background: linear-gradient(to right, transparent, 50%, color-mix(in srgb, var(--accent-color), transparent 50%) 50%); */
+  background: linear-gradient(
+    to right,
+    transparent,
+    50%,
+    rgba(53, 132, 228, 0.2) 50%
+  );
+}
+.drop-overlay.drop-top {
+  /* after GTK 4.16 is a requirement, switch to the following: */
+  /* background: linear-gradient(to top, transparent, 50%, color-mix(in srgb, var(--accent-color), transparent 50%) 50%); */
+  background: linear-gradient(
+    to top,
+    transparent,
+    50%,
+    rgba(53, 132, 228, 0.2) 50%
+  );
+}
+.drop-overlay.drop-bottom {
+  /* after GTK 4.16 is a requirement, switch to the following: */
+  /* background: linear-gradient(to bottom, transparent, 50%, color-mix(in srgb, var(--accent-color), transparent 50%) 50%); */
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    50%,
+    rgba(53, 132, 228, 0.2) 50%
+  );
+}
+
 /*
  * Command Palette
  */
