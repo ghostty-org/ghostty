@@ -79,6 +79,19 @@ pub const ModeState = struct {
     /// Return a DECRPM report for the given mode tag. If the tag does
     /// not correspond to a known mode, the report state is .not_recognized.
     pub fn getReport(self: *const ModeState, tag: ModeTag) Report {
+        // DECECM (Erase Color Mode, DEC private mode 117) controls whether erasing
+        // and scrolling use the default background or the active background color.
+        // Ghostty's behavior is fixed equivalent to DECECM reset, and DECRQM has a
+        // "permanently reset" response for recognized modes that cannot be changed.
+        // Report that instead of "not recognized" so applications can query and adapt
+        // to Ghostty's erase-color behavior.
+        //
+        // See VT520/VT525 Programmer Information, "Erase Color" and DECRQM/DECRPM:
+        // https://web.mit.edu/dosathena/doc/www/ek-vt520-rm.pdf
+
+        if (!tag.ansi and tag.value == 117) {
+            return .{ .tag = tag, .state = .permanently_reset };
+        }
         const mode = modeFromInt(tag.value, tag.ansi) orelse return .{
             .tag = tag,
             .state = .not_recognized,
@@ -331,6 +344,13 @@ test "getReport known ANSI mode" {
     const report = state.getReport(.{ .value = 4, .ansi = true });
     try testing.expectEqual(Report.State.set, report.state);
     try testing.expectEqual(true, report.tag.ansi);
+}
+
+test "getReport DECECM permanently reset" {
+    const state: ModeState = .{};
+    const report = state.getReport(.{ .value = 117, .ansi = false });
+    try testing.expectEqual(Report.State.permanently_reset, report.state);
+    try testing.expectEqual(false, report.tag.ansi);
 }
 
 test "getReport unknown mode" {
