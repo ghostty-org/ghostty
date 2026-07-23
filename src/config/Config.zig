@@ -873,6 +873,18 @@ palette: Palette = .{},
 ///   * `block_hollow`
 @"cursor-style": terminal.CursorStyle = .block,
 
+/// The style of the unfocused cursor. When a window loses focus,
+/// its cursor is always shown so its position stays visible.
+///
+/// The default is `block_hollow`, which preserves the original behavior.
+///
+/// When the window is focused, the cursor style is unaffected by this option
+/// and instead follows `cursor-style`, `DECSCUSR` (`CSI q`), and shell
+/// integration.
+///
+/// Accepts the same values as `cursor-style`.
+@"cursor-style-unfocused": terminal.CursorStyle = .block_hollow,
+
 /// Sets the default blinking state of the cursor. This is just the default
 /// state; running programs may override the cursor style using `DECSCUSR` (`CSI
 /// q`).
