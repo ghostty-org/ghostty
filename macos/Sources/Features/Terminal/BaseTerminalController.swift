@@ -534,6 +534,13 @@ class BaseTerminalController: NSWindowController,
         guard let window else { return }
         guard window.isVisible else { return }
 
+        defer {
+            // Always resync appearance. A display change can leave window
+            // appearance in a stale state (e.g. a black/hidden tab bar):
+            // https://github.com/ghostty-org/ghostty/discussions/5389
+            syncAppearance()
+        }
+
         // We ignore fullscreen windows because macOS automatically resizes
         // those back to the fullscreen bounds.
         guard !window.styleMask.contains(.fullScreen) else { return }
@@ -1024,6 +1031,7 @@ class BaseTerminalController: NSWindowController,
     /// as we add new things:
     ///
     ///  - ``toggleBackgroundOpacity``
+    ///  - ``didChangeScreenParametersNotification``
     func syncAppearance() {
         // Purposely a no-op. This lets subclasses override this and we can call
         // it virtually from here.
