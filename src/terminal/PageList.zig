@@ -10094,7 +10094,10 @@ test "PageList increaseCapacity to increase graphemes" {
     var s = try init(alloc, 2, 2, 0);
     defer s.deinit();
 
-    const original_cap = s.pages.first.?.capacity().grapheme_bytes;
+    const original_page = s.pages.first.?.page();
+    const original_cap = original_page.capacity.grapheme_bytes;
+    const original_alloc_cap = original_page.grapheme_alloc.capacityBytes();
+    try testing.expectEqual(original_alloc_cap, @as(usize, original_cap));
 
     {
         try testing.expect(s.pages.first == s.pages.last);
@@ -10118,6 +10121,11 @@ test "PageList increaseCapacity to increase graphemes" {
         const page = s.pages.first.?.page();
 
         try testing.expectEqual(original_cap * 2, page.capacity.grapheme_bytes);
+        try testing.expect(page.grapheme_alloc.capacityBytes() > original_alloc_cap);
+        try testing.expectEqual(
+            page.grapheme_alloc.capacityBytes(),
+            @as(usize, page.capacity.grapheme_bytes),
+        );
 
         for (0..s.rows) |y| {
             for (0..s.cols) |x| {
@@ -10182,7 +10190,10 @@ test "PageList increaseCapacity to increase string_bytes" {
     var s = try init(alloc, 2, 2, 0);
     defer s.deinit();
 
-    const original_cap = s.pages.first.?.capacity().string_bytes;
+    const original_page = s.pages.first.?.page();
+    const original_cap = original_page.capacity.string_bytes;
+    const original_alloc_cap = original_page.string_alloc.capacityBytes();
+    try testing.expectEqual(original_alloc_cap, @as(usize, original_cap));
 
     {
         try testing.expect(s.pages.first == s.pages.last);
@@ -10206,6 +10217,11 @@ test "PageList increaseCapacity to increase string_bytes" {
         const page = s.pages.first.?.page();
 
         try testing.expectEqual(original_cap * 2, page.capacity.string_bytes);
+        try testing.expect(page.string_alloc.capacityBytes() > original_alloc_cap);
+        try testing.expectEqual(
+            page.string_alloc.capacityBytes(),
+            @as(usize, page.capacity.string_bytes),
+        );
 
         for (0..s.rows) |y| {
             for (0..s.cols) |x| {

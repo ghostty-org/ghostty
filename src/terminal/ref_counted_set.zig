@@ -37,9 +37,11 @@ const OffsetBuf = size.OffsetBuf;
 /// `Context`
 ///   A type containing methods to define behaviors.
 ///
-///   - `fn hash(*Context, T) u64`    - Return a hash for an item.
+///   - `fn hash(*Context, T) u64`    - Return a hash for an item. This may
+///     be generic if `lookupAdapted` is used with another key type.
 ///
-///   - `fn eql(*Context, T, T) bool` - Check two items for equality.
+///   - `fn eql(*Context, T, T) bool` - Check two items for equality. This may
+///     accept a generic first argument if `lookupAdapted` is used.
 ///     The first of the two items passed in is guaranteed to be from
 ///     a value passed in to an `add` or `lookup` function, the second
 ///     is guaranteed to be a value already resident in the set.
@@ -68,14 +70,34 @@ pub fn RefCountedSet(
         /// requires more capacity.
         ///
         /// Experimentally, this load factor works quite well.
-        pub const load_factor = 0.8125;
+        const load_numerator = 13;
+        const load_denominator = 16;
+        pub const load_factor: f64 =
+            @as(f64, load_numerator) / @as(f64, load_denominator);
+
+        /// Maximum number of living items representable by this set. One
+        /// item-array slot is reserved for ID 0.
+        pub const max_count: usize =
+            ((@as(usize, std.math.maxInt(Id)) + 1) * load_numerator /
+                load_denominator) - 1;
 
         /// Returns the minimum capacity needed to store `n` items,
         /// accounting for the load factor and the reserved ID 0.
         pub fn capacityForCount(n: usize) usize {
             if (n == 0) return 0;
+            assert(n <= max_count);
+
             // +1 because ID 0 is reserved, so we need at least n+1 slots.
-            return @intFromFloat(@ceil(@as(f64, @floatFromInt(n + 1)) / load_factor));
+            const requested = std.math.divCeil(
+                usize,
+                (n + 1) * load_denominator,
+                load_numerator,
+            ) catch unreachable;
+
+            // The largest supported table has maxInt(Id)+1 slots. Capacity
+            // is stored in Id by page callers, so represent that request as
+            // maxInt(Id); Layout.init rounds it up to the same table size.
+            return @min(requested, std.math.maxInt(Id));
         }
 
         /// Set item
@@ -93,8 +115,11 @@ pub fn RefCountedSet(
 
                 /// The length of the probe sequence between this
                 /// item's starting bucket and the bucket it's in,
-                /// used for Robin Hood hashing.
-                psl: Id = 0,
+                /// used for Robin Hood hashing. maxInt is reserved to mark
+                /// items that are not present in the table. We cannot use
+                /// maxInt(bucket) for this because the largest supported
+                /// table has that bucket.
+                psl: Id = std.math.maxInt(Id),
 
                 /// The reference count for this item.
                 ref: RefCountInt = 0,
@@ -104,6 +129,12 @@ pub fn RefCountedSet(
         // Re-export these types so they can be referenced by the caller.
         pub const Id = IdT;
         pub const Context = ContextT;
+
+        comptime {
+            // psl_stats caps valid probe lengths at 31, leaving maxInt(Id)
+            // available as the out-of-table sentinel.
+            assert(std.math.maxInt(Id) >= 32);
+        }
 
         /// A hash table of item indices
         table: Offset(Id),
@@ -181,7 +212,8 @@ pub fn RefCountedSet(
                 };
 
                 const table_cap: usize = std.math.ceilPowerOfTwoAssert(usize, cap);
-                const items_cap: usize = @intFromFloat(load_factor * @as(f64, @floatFromInt(table_cap)));
+                const items_cap = table_cap * load_numerator /
+                    load_denominator;
 
                 const table_mask: Id = @intCast((@as(usize, 1) << std.math.log2_int(usize, table_cap)) - 1);
 
@@ -239,16 +271,30 @@ pub fn RefCountedSet(
             return try self.addContext(base, value, self.context);
         }
         pub fn addContext(self: *Self, base: anytype, value: T, ctx: Context) AddError!Id {
-            const items = self.items.ptr(base);
-
-            // Trim dead items from the end of the list.
-            while (self.next_id > 1 and items[self.next_id - 1].meta.ref == 0) {
-                self.next_id -= 1;
-                self.deleteItem(base, self.next_id, ctx);
+            if (self.layout.table_cap == 0) {
+                @branchHint(.cold);
+                return AddError.OutOfMemory;
             }
 
+            const items = self.items.ptr(base);
+
+            // If every item is dead, reset the table in bulk. Deleting each
+            // item individually would repeatedly backshift probe sequences
+            // even though no entries need to survive.
+            if (self.living == 0 and self.next_id > 1) {
+                self.clearDead(base, ctx);
+            } else {
+                // Trim dead items from the end of the list.
+                while (self.next_id > 1 and items[self.next_id - 1].meta.ref == 0) {
+                    self.next_id -= 1;
+                    self.deleteItem(base, self.next_id, ctx);
+                }
+            }
+
+            const hash: u64 = ctx.hash(value);
+
             // If the item already exists, return it.
-            if (self.lookupContext(base, value, ctx)) |id| {
+            if (self.lookupAdaptedHash(base, value, ctx, hash)) |id| {
                 // Notify the context that the value is "deleted" because
                 // we're reusing the existing value in the set. This allows
                 // callers to clean up any resources associated with the value.
@@ -288,7 +334,7 @@ pub fn RefCountedSet(
                 return AddError.OutOfMemory;
             }
 
-            const id = self.insert(base, value, self.next_id, ctx);
+            const id = self.insert(base, value, self.next_id, ctx, hash);
             items[id].meta.ref += 1;
             assert(items[id].meta.ref == 1);
             self.living += 1;
@@ -447,6 +493,29 @@ pub fn RefCountedSet(
             return self.living;
         }
 
+        /// Reset the table after every stored item has become dead.
+        fn clearDead(self: *Self, base: anytype, ctx: Context) void {
+            assert(self.living == 0);
+
+            const table = self.table.ptr(base)[0..self.layout.table_cap];
+            const items = self.items.ptr(base)[0..self.next_id];
+
+            if (comptime @hasDecl(Context, "deleted")) {
+                for (items[1..]) |item| {
+                    if (item.meta.psl != std.math.maxInt(Id)) {
+                        assert(item.meta.ref == 0);
+                        ctx.deleted(item.value);
+                    }
+                }
+            }
+
+            @memset(table, 0);
+            @memset(items[1..], .{});
+            self.next_id = 1;
+            self.max_psl = 0;
+            self.psl_stats = @splat(0);
+        }
+
         /// Delete an item, removing any references from
         /// the table, and freeing its ID to be reused.
         fn deleteItem(self: *Self, base: anytype, id: Id, ctx: Context) void {
@@ -455,8 +524,9 @@ pub fn RefCountedSet(
 
             const item = items[id];
 
-            if (item.meta.bucket > self.layout.table_cap) return;
+            if (item.meta.psl == std.math.maxInt(Id)) return;
 
+            assert(item.meta.bucket < self.layout.table_cap);
             assert(table[item.meta.bucket] == id);
 
             if (comptime @hasDecl(Context, "deleted")) {
@@ -497,22 +567,35 @@ pub fn RefCountedSet(
             return self.lookupContext(base, value, self.context);
         }
         pub fn lookupContext(self: *const Self, base: anytype, value: T, ctx: Context) ?Id {
-            // A zero-capacity set (a valid special case of Layout.init)
-            // contains nothing and has a zero-size table, so we can't
-            // probe it: table[0] would read whatever memory follows the
-            // set in the backing buffer.
+            return self.lookupAdapted(base, value, ctx);
+        }
+
+        /// Look up a value using a key and context whose hash and equality
+        /// functions adapt that key to resident values of type T.
+        pub fn lookupAdapted(self: *const Self, base: anytype, value: anytype, ctx: anytype) ?Id {
+            // A zero-capacity set has no table to probe. Check before hashing
+            // because adapted contexts may require initialized backing data.
             if (self.layout.table_cap == 0) {
                 @branchHint(.cold);
                 return null;
             }
 
+            return self.lookupAdaptedHash(base, value, ctx, ctx.hash(value));
+        }
+
+        fn lookupAdaptedHash(
+            self: *const Self,
+            base: anytype,
+            value: anytype,
+            ctx: anytype,
+            hash: u64,
+        ) ?Id {
             const table = self.table.ptr(base);
             const items = self.items.ptr(base);
 
-            const hash: u64 = ctx.hash(value);
-
+            var p: Id = @truncate(hash);
+            p &= self.layout.table_mask;
             for (0..self.max_psl + 1) |i| {
-                const p: usize = @intCast((hash +% i) & self.layout.table_mask);
                 const id = table[p];
 
                 // Empty bucket, our item cannot have probed to
@@ -521,7 +604,7 @@ pub fn RefCountedSet(
                     return null;
                 }
 
-                const item = items[id];
+                const item = &items[id];
 
                 // An item with a shorter probe sequence length would never
                 // end up in the middle of another sequence, since it would
@@ -542,6 +625,8 @@ pub fn RefCountedSet(
                 {
                     return id;
                 }
+
+                p = (p +% 1) & self.layout.table_mask;
             }
 
             return null;
@@ -552,8 +637,10 @@ pub fn RefCountedSet(
         /// be used as the ID. If an existing item is found, the `new_id`
         /// is ignored and the existing item's ID is returned.
         fn upsert(self: *Self, base: anytype, value: T, new_id: Id, ctx: Context) Id {
+            const hash: u64 = ctx.hash(value);
+
             // If the item already exists, return it.
-            if (self.lookupContext(base, value, ctx)) |id| {
+            if (self.lookupAdaptedHash(base, value, ctx, hash)) |id| {
                 // Notify the context that the value is "deleted" because
                 // we're reusing the existing value in the set. This allows
                 // callers to clean up any resources associated with the value.
@@ -562,16 +649,23 @@ pub fn RefCountedSet(
                 return id;
             }
 
-            return self.insert(base, value, new_id, ctx);
+            return self.insert(base, value, new_id, ctx, hash);
         }
 
         /// Insert the given value into the hash table with the given ID.
         ///
         /// If runtime safety is enabled, asserts that
         /// the value is not already present in the table.
-        fn insert(self: *Self, base: anytype, value: T, new_id: Id, ctx: Context) Id {
+        fn insert(
+            self: *Self,
+            base: anytype,
+            value: T,
+            new_id: Id,
+            ctx: Context,
+            hash: u64,
+        ) Id {
             if (comptime std.debug.runtime_safety)
-                assert(self.lookupContext(base, value, ctx) == null);
+                assert(self.lookupAdaptedHash(base, value, ctx, hash) == null);
 
             const table = self.table.ptr(base);
             const items = self.items.ptr(base);
@@ -581,8 +675,6 @@ pub fn RefCountedSet(
                 .value = value,
                 .meta = .{ .psl = 0, .ref = 0 },
             };
-
-            const hash: u64 = ctx.hash(value);
 
             var held_id: Id = new_id;
             var held_item: *Item = &new_item;
@@ -608,7 +700,14 @@ pub fn RefCountedSet(
                 // for our value so that we can reuse its ID,
                 // unless its ID is greater than the one we're
                 // given (i.e. prefer smaller IDs).
-                if (item.meta.ref == 0) {
+                //
+                // Replacing it with an item that has a shorter probe
+                // sequence would break the Robin Hood lookup invariant:
+                // lookups stop when an occupant's PSL is shorter than their
+                // current probe distance, making later entries unreachable.
+                if (item.meta.ref == 0 and
+                    held_item.meta.psl >= item.meta.psl)
+                {
                     // Dead items aren't super common relative
                     // to other places to insert/swap the held
                     // item in to the set.
@@ -677,6 +776,61 @@ pub fn RefCountedSet(
             return chosen_id;
         }
 
+        /// Verify the internal consistency of the set. This is O(n) over
+        /// both the table and items so it is only intended for tests and
+        /// debugging.
+        fn verifyIntegrity(self: *const Self, base: anytype, ctx: Context) !void {
+            comptime assert(@import("builtin").is_test);
+
+            const table = self.table.ptr(base);
+            const items = self.items.ptr(base);
+
+            var table_ids: usize = 0;
+            for (table[0..self.layout.table_cap], 0..) |id, bucket| {
+                if (id == 0) continue;
+                table_ids += 1;
+
+                const item = items[id];
+                try std.testing.expectEqual(@as(usize, item.meta.bucket), bucket);
+
+                const hash: u64 = ctx.hash(item.value);
+                const home: usize = @intCast(hash & self.layout.table_mask);
+                const dist: usize = (bucket + self.layout.table_cap - home) &
+                    self.layout.table_mask;
+                try std.testing.expectEqual(dist, item.meta.psl);
+                try std.testing.expect(item.meta.psl <= self.max_psl);
+            }
+
+            var living: usize = 0;
+            var psl_stats: [32]Id = @splat(0);
+            for (items[1..self.layout.cap], 1..) |item, id| {
+                if (item.meta.psl != std.math.maxInt(Id)) {
+                    try std.testing.expect(item.meta.bucket < self.layout.table_cap);
+                    try std.testing.expectEqual(
+                        @as(Id, @intCast(id)),
+                        table[item.meta.bucket],
+                    );
+                    psl_stats[item.meta.psl] += 1;
+                }
+
+                if (item.meta.ref > 0) {
+                    living += 1;
+                    try std.testing.expectEqual(
+                        @as(?Id, @intCast(id)),
+                        self.lookupContext(base, item.value, ctx),
+                    );
+                }
+            }
+
+            try std.testing.expectEqual(living, self.living);
+            try std.testing.expectEqualSlices(Id, &psl_stats, &self.psl_stats);
+            try std.testing.expectEqual(table_ids, blk: {
+                var n: usize = 0;
+                for (psl_stats) |psl_count| n += psl_count;
+                break :blk n;
+            });
+        }
+
         fn assertIntegrity(
             self: *const Self,
             base: anytype,
@@ -691,7 +845,7 @@ pub fn RefCountedSet(
                 var psl_stats: [32]Id = @splat(0);
 
                 for (items[0..self.layout.cap], 0..) |item, id| {
-                    if (item.meta.bucket < std.math.maxInt(Id)) {
+                    if (item.meta.psl != std.math.maxInt(Id)) {
                         assert(table[item.meta.bucket] == id);
                         psl_stats[item.meta.psl] += 1;
                     }
@@ -705,7 +859,7 @@ pub fn RefCountedSet(
 
                 for (table[0..self.layout.table_cap], 0..) |id, bucket| {
                     const item = items[id];
-                    if (item.meta.bucket < std.math.maxInt(Id)) {
+                    if (item.meta.psl != std.math.maxInt(Id)) {
                         assert(item.meta.bucket == bucket);
 
                         const hash: u64 = ctx.hash(item.value);
@@ -720,4 +874,459 @@ pub fn RefCountedSet(
             }
         }
     };
+}
+
+const TestContext = struct {
+    pub fn hash(_: *const @This(), value: u64) u64 {
+        return std.hash.int(value);
+    }
+
+    pub fn eql(_: *const @This(), a: u64, b: u64) bool {
+        return a == b;
+    }
+};
+
+const TestSet = RefCountedSet(u64, u16, u16, TestContext);
+
+fn testSetInit(cap: usize) !struct {
+    set: TestSet,
+    buf: []align(TestSet.base_align.toByteUnits()) u8,
+} {
+    const layout: TestSet.Layout = .init(cap);
+    const buf = try std.testing.allocator.alignedAlloc(
+        u8,
+        TestSet.base_align,
+        layout.total_size,
+    );
+    errdefer std.testing.allocator.free(buf);
+    return .{
+        .set = .init(.init(buf), layout, .{}),
+        .buf = buf,
+    };
+}
+
+test "RefCountedSet basic usage" {
+    const testing = std.testing;
+    var t = try testSetInit(64);
+    defer testing.allocator.free(t.buf);
+    const set = &t.set;
+
+    const id1 = try set.add(t.buf, 100);
+    const id2 = try set.add(t.buf, 200);
+    try testing.expectEqual(@as(u16, 1), id1);
+    try testing.expectEqual(@as(u16, 2), id2);
+    try testing.expectEqual(@as(usize, 2), set.count());
+
+    try testing.expectEqual(@as(?u16, id1), set.lookup(t.buf, 100));
+    try testing.expectEqual(@as(?u16, id2), set.lookup(t.buf, 200));
+    try testing.expectEqual(@as(?u16, null), set.lookup(t.buf, 300));
+    try testing.expectEqual(@as(u64, 100), set.get(t.buf, id1).*);
+
+    try testing.expectEqual(id1, try set.add(t.buf, 100));
+    try testing.expectEqual(@as(u16, 2), set.refCount(t.buf, id1));
+    try testing.expectEqual(@as(usize, 2), set.count());
+
+    set.use(t.buf, id2);
+    try testing.expectEqual(@as(u16, 2), set.refCount(t.buf, id2));
+    set.release(t.buf, id2);
+    set.releaseMultiple(t.buf, id1, 2);
+    try testing.expectEqual(@as(usize, 1), set.count());
+    try testing.expectEqual(@as(?u16, null), set.lookup(t.buf, 100));
+    try testing.expectEqual(@as(?u16, id2), set.lookup(t.buf, 200));
+
+    try set.verifyIntegrity(t.buf, .{});
+}
+
+test "RefCountedSet reuses dead item IDs" {
+    const testing = std.testing;
+    var t = try testSetInit(64);
+    defer testing.allocator.free(t.buf);
+    const set = &t.set;
+
+    const id1 = try set.add(t.buf, 100);
+    const id2 = try set.add(t.buf, 200);
+    set.release(t.buf, id1);
+
+    try testing.expectEqual(id1, try set.add(t.buf, 100));
+    try testing.expectEqual(@as(u16, 1), set.refCount(t.buf, id1));
+
+    set.release(t.buf, id2);
+    try testing.expectEqual(id2, try set.add(t.buf, 300));
+
+    try set.verifyIntegrity(t.buf, .{});
+}
+
+test "RefCountedSet addWithId" {
+    const testing = std.testing;
+    var t = try testSetInit(64);
+    defer testing.allocator.free(t.buf);
+    const set = &t.set;
+
+    const id1 = try set.add(t.buf, 100);
+    try testing.expectEqual(
+        @as(?u16, null),
+        try set.addWithId(t.buf, 100, id1),
+    );
+    try testing.expectEqual(@as(u16, 2), set.refCount(t.buf, id1));
+
+    const id2 = (try set.addWithId(t.buf, 200, id1)).?;
+    try testing.expect(id2 != id1);
+
+    set.releaseMultiple(t.buf, id1, 2);
+    try testing.expectEqual(
+        @as(?u16, null),
+        try set.addWithId(t.buf, 300, id1),
+    );
+    try testing.expectEqual(@as(u64, 300), set.get(t.buf, id1).*);
+    try testing.expectEqual(@as(?u16, null), set.lookup(t.buf, 100));
+
+    try set.verifyIntegrity(t.buf, .{});
+}
+
+test "RefCountedSet out of memory" {
+    const testing = std.testing;
+    var t = try testSetInit(64);
+    defer testing.allocator.free(t.buf);
+    const set = &t.set;
+
+    const cap = set.layout.cap;
+    for (0..cap - 1) |i| {
+        _ = try set.add(t.buf, @intCast(i + 1000));
+    }
+    try testing.expectEqual(cap - 1, set.count());
+    try testing.expectError(error.OutOfMemory, set.add(t.buf, 99999));
+
+    const id = set.lookup(t.buf, 1000).?;
+    try testing.expectEqual(id, try set.add(t.buf, 1000));
+
+    try set.verifyIntegrity(t.buf, .{});
+}
+
+test "RefCountedSet needs rehash when dead items dominate" {
+    const testing = std.testing;
+    var t = try testSetInit(64);
+    defer testing.allocator.free(t.buf);
+    const set = &t.set;
+
+    const cap = set.layout.cap;
+    for (0..cap - 1) |i| {
+        _ = try set.add(t.buf, @intCast(i + 1000));
+    }
+
+    for (0..cap - 2) |i| {
+        const id = set.lookup(t.buf, @intCast(i + 1000)).?;
+        set.release(t.buf, id);
+    }
+
+    try testing.expectError(error.NeedsRehash, set.add(t.buf, 99999));
+    try set.verifyIntegrity(t.buf, .{});
+}
+
+test "RefCountedSet random operations against live-value oracle" {
+    const testing = std.testing;
+    const Value = u8;
+    const Id = u8;
+    const value_count = 16;
+
+    const Context = struct {
+        pub fn hash(_: *const @This(), value: Value) u64 {
+            return std.hash.int(@as(u64, value));
+        }
+
+        pub fn eql(_: *const @This(), a: Value, b: Value) bool {
+            return a == b;
+        }
+    };
+    const Set = RefCountedSet(Value, Id, u16, Context);
+
+    const layout: Set.Layout = .init(64);
+    const buf = try testing.allocator.alignedAlloc(
+        u8,
+        Set.base_align,
+        layout.total_size,
+    );
+    defer testing.allocator.free(buf);
+    var set = Set.init(.init(buf), layout, .{});
+
+    var refs: [value_count]u16 = @splat(0);
+    var ids: [value_count]?Id = @splat(null);
+    var living: usize = 0;
+    var prng = std.Random.DefaultPrng.init(0x5E7);
+    const random = prng.random();
+
+    for (0..20_000) |iteration| {
+        const value: Value = random.uintLessThan(Value, value_count);
+        switch (random.uintLessThan(u8, 4)) {
+            0, 1 => {
+                const id = try set.add(buf, value);
+                if (refs[value] == 0) {
+                    ids[value] = id;
+                    living += 1;
+                } else {
+                    try testing.expectEqual(ids[value].?, id);
+                }
+                refs[value] += 1;
+            },
+            2 => if (refs[value] > 0) {
+                set.release(buf, ids[value].?);
+                refs[value] -= 1;
+                if (refs[value] == 0) {
+                    ids[value] = null;
+                    living -= 1;
+                }
+            },
+            3 => try testing.expectEqual(ids[value], set.lookup(buf, value)),
+            else => unreachable,
+        }
+
+        // Periodically validate every live ID and value, not only the value
+        // selected for this operation. This catches displacement, deletion,
+        // dead-ID reuse, and max-PSL bookkeeping errors that surface later.
+        if (iteration % 64 == 0) {
+            try testing.expectEqual(living, set.count());
+            for (0..value_count) |i| {
+                const v: Value = @intCast(i);
+                try testing.expectEqual(ids[i], set.lookup(buf, v));
+                if (ids[i]) |id| {
+                    try testing.expectEqual(v, set.get(buf, id).*);
+                    try testing.expectEqual(refs[i], set.refCount(buf, id));
+                }
+            }
+        }
+    }
+}
+
+test "RefCountedSet random high-load operations against live-value oracle" {
+    const testing = std.testing;
+    var t = try testSetInit(128);
+    defer testing.allocator.free(t.buf);
+    const set = &t.set;
+
+    var prng = std.Random.DefaultPrng.init(0xcafef00d);
+    const random = prng.random();
+    var oracle: std.AutoHashMapUnmanaged(u64, struct {
+        id: u16,
+        refs: u16,
+    }) = .empty;
+    defer oracle.deinit(testing.allocator);
+
+    const key_space: u64 = 96;
+    for (0..10_000) |_| {
+        const value = random.uintLessThan(u64, key_space) + 1;
+        const gop = try oracle.getOrPut(testing.allocator, value);
+        if (!gop.found_existing or gop.value_ptr.refs == 0) {
+            if (set.add(t.buf, value)) |id| {
+                gop.value_ptr.* = .{ .id = id, .refs = 1 };
+            } else |_| {
+                if (!gop.found_existing) _ = oracle.remove(value);
+                continue;
+            }
+        } else if (random.boolean()) {
+            set.release(t.buf, gop.value_ptr.id);
+            gop.value_ptr.refs -= 1;
+        } else {
+            try testing.expectEqual(
+                gop.value_ptr.id,
+                try set.add(t.buf, value),
+            );
+            gop.value_ptr.refs += 1;
+        }
+    }
+
+    var living: usize = 0;
+    var it = oracle.iterator();
+    while (it.next()) |entry| {
+        if (entry.value_ptr.refs > 0) {
+            living += 1;
+            try testing.expectEqual(
+                @as(?u16, entry.value_ptr.id),
+                set.lookup(t.buf, entry.key_ptr.*),
+            );
+            try testing.expectEqual(
+                entry.value_ptr.refs,
+                set.refCount(t.buf, entry.value_ptr.id),
+            );
+        } else {
+            try testing.expectEqual(
+                @as(?u16, null),
+                set.lookup(t.buf, entry.key_ptr.*),
+            );
+        }
+    }
+    try testing.expectEqual(living, set.count());
+    try set.verifyIntegrity(t.buf, .{});
+}
+
+test "RefCountedSet dead item replacement preserves probe invariant" {
+    const testing = std.testing;
+    const IdentityContext = struct {
+        pub fn hash(_: *const @This(), value: u64) u64 {
+            return value;
+        }
+
+        pub fn eql(_: *const @This(), a: u64, b: u64) bool {
+            return a == b;
+        }
+    };
+    const Set = RefCountedSet(u64, u16, u16, IdentityContext);
+
+    const layout: Set.Layout = .init(64);
+    const buf = try testing.allocator.alignedAlloc(
+        u8,
+        Set.base_align,
+        layout.total_size,
+    );
+    defer testing.allocator.free(buf);
+    var set: Set = .init(.init(buf), layout, .{});
+
+    // Build: b0=A(psl 0), b1=X(psl 1), b2=C(psl 1), b3=B(psl 2).
+    _ = try set.add(buf, 0);
+    const id_b = try set.add(buf, 1);
+    const id_c = try set.add(buf, 65);
+    _ = try set.add(buf, 64);
+
+    // A value homed at b2 must not replace the dead C with a shorter PSL.
+    // Doing so would make B unreachable through the Robin Hood early exit.
+    set.release(buf, id_c);
+    _ = try set.add(buf, 2);
+
+    try testing.expectEqual(@as(?u16, id_b), set.lookup(buf, 1));
+    try testing.expectEqual(id_b, try set.add(buf, 1));
+    try testing.expectEqual(@as(u16, 2), set.refCount(buf, id_b));
+    try set.verifyIntegrity(buf, .{});
+}
+
+test "RefCountedSet bulk reset calls deleted exactly once" {
+    const testing = std.testing;
+    const Context = struct {
+        deleted_count: *usize,
+
+        pub fn hash(_: *const @This(), value: u8) u64 {
+            return std.hash.int(@as(u64, value));
+        }
+
+        pub fn eql(_: *const @This(), a: u8, b: u8) bool {
+            return a == b;
+        }
+
+        pub fn deleted(self: *const @This(), _: u8) void {
+            self.deleted_count.* += 1;
+        }
+    };
+    const Set = RefCountedSet(u8, u8, u16, Context);
+
+    const layout: Set.Layout = .init(16);
+    const buf = try testing.allocator.alignedAlloc(
+        u8,
+        Set.base_align,
+        layout.total_size,
+    );
+    defer testing.allocator.free(buf);
+
+    var deleted_count: usize = 0;
+    var set = Set.init(.init(buf), layout, .{
+        .deleted_count = &deleted_count,
+    });
+
+    const first = try set.add(buf, 1);
+    const second = try set.add(buf, 2);
+    const third = try set.add(buf, 3);
+    set.release(buf, first);
+    set.release(buf, second);
+    set.release(buf, third);
+
+    // The next add resets all three dead entries before inserting. The new
+    // value starts from the lowest ID again and remains owned by the set.
+    const replacement = try set.add(buf, 4);
+    try testing.expectEqual(@as(usize, 3), deleted_count);
+    try testing.expectEqual(@as(u8, 1), replacement);
+    try testing.expectEqual(@as(usize, 1), set.count());
+    try testing.expectEqual(replacement, set.lookup(buf, 4).?);
+}
+
+test "RefCountedSet zero capacity bypasses context" {
+    const testing = std.testing;
+    const Context = struct {
+        pub fn hash(_: *const @This(), _: u8) u64 {
+            unreachable;
+        }
+
+        pub fn eql(_: *const @This(), _: u8, _: u8) bool {
+            unreachable;
+        }
+    };
+    const Set = RefCountedSet(u8, u8, u16, Context);
+
+    var buf: [0]u8 = .{};
+    var set = Set.init(.init(&buf), .init(0), .{});
+    try testing.expectEqual(null, set.lookup(&buf, 1));
+    try testing.expectError(error.OutOfMemory, set.add(&buf, 1));
+}
+
+test "RefCountedSet empty marker at maximum table capacity" {
+    const testing = std.testing;
+    const Context = struct {
+        pub fn hash(_: *const @This(), _: u8) u64 {
+            // Force one cluster so insertion deterministically reaps the
+            // higher dead ID used by the reproduction below.
+            return 0;
+        }
+
+        pub fn eql(_: *const @This(), a: u8, b: u8) bool {
+            return a == b;
+        }
+    };
+    const Set = RefCountedSet(u8, u8, u16, Context);
+
+    // u8 IDs support buckets 0...255. This exercises the same boundary as
+    // the production u16 set's 65,536-slot maximum without a large buffer.
+    const layout: Set.Layout = .init(256);
+    try testing.expectEqual(256, layout.table_cap);
+    const buf = try testing.allocator.alignedAlloc(
+        u8,
+        Set.base_align,
+        layout.total_size,
+    );
+    defer testing.allocator.free(buf);
+    var set = Set.init(.init(buf), layout, .{});
+
+    const first = try set.add(buf, 1);
+    const second = try set.add(buf, 2);
+    const third = try set.add(buf, 3);
+    try testing.expectEqual(1, first);
+    try testing.expectEqual(2, second);
+    try testing.expectEqual(3, third);
+
+    // Replacing the dead second ID encounters and reaps the higher dead
+    // third ID, leaving it reset but still below next_id.
+    set.release(buf, second);
+    set.release(buf, third);
+    try testing.expectEqual(null, try set.addWithId(buf, 4, second));
+
+    // Reusing that reset gap must recognize that it is not in the table.
+    // A bucket-based maxInt sentinel aliases bucket 255 at this capacity.
+    try testing.expectEqual(null, try set.addWithId(buf, 5, third));
+    try testing.expectEqual(third, set.lookup(buf, 5).?);
+    try testing.expectEqual(@as(usize, 3), set.count());
+}
+
+test "RefCountedSet capacityForCount maximum" {
+    const testing = std.testing;
+    const Context = struct {
+        pub fn hash(_: *const @This(), value: u16) u64 {
+            return std.hash.int(@as(u64, value));
+        }
+
+        pub fn eql(_: *const @This(), a: u16, b: u16) bool {
+            return a == b;
+        }
+    };
+    const Set = RefCountedSet(u16, u16, u16, Context);
+
+    const capacity = Set.capacityForCount(Set.max_count);
+    try testing.expectEqual(std.math.maxInt(u16), capacity);
+
+    const layout: Set.Layout = .init(capacity);
+    try testing.expectEqual(@as(usize, 65_536), layout.table_cap);
+    try testing.expect(layout.cap - 1 >= Set.max_count);
 }

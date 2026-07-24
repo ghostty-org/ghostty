@@ -530,11 +530,20 @@ pub const Style = struct {
     };
 
     pub fn hash(self: *const Style) u64 {
-        // We pack the style in to 128 bits, fold it to 64 bits,
-        // then use std.hash.int to make it sufficiently uniform.
+        // We pack the style in to 128 bits, fold it to 64 bits, then use the
+        // SplitMix64 finalizer to make it sufficiently uniform:
+        // https://prng.di.unimi.it/splitmix64.c
+        //
+        // This finalizer provides sufficient diffusion for the folded style
+        // key with two multiply rounds. The u64 mixer used by std.hash.int
+        // has three, and benchmarks show that extra round costs throughput on
+        // this SGR hot path without improving style-set lookup performance.
         const packed_style: PackedStyle = .fromStyle(self.*);
         const wide: [2]u64 = @bitCast(packed_style);
-        return @call(.always_inline, std.hash.int, .{wide[0] ^ wide[1]});
+        var result = wide[0] ^ wide[1];
+        result = (result ^ (result >> 30)) *% 0xbf58476d1ce4e5b9;
+        result = (result ^ (result >> 27)) *% 0x94d049bb133111eb;
+        return result ^ (result >> 31);
     }
 
     comptime {
