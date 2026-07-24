@@ -247,6 +247,37 @@ fn initLib(
         // Zig's ubsan emits /exclude-symbols linker directives that
         // are incompatible with the MSVC linker (LNK4229).
         lib.bundle_ubsan_rt = false;
+
+        // On Windows with MSVC, building a DLL requires the full CRT
+        // library chain. Linking libc provides 'msvcrt.lib', but that
+        // references symbols in 'vcruntime.lib' and 'ucrt.lib'. Zig's library
+        // search paths include the MSVC lib dir and the Windows SDK 'um'
+        // dir, but not the SDK 'ucrt' dir where 'ucrt.lib' lives.
+        if (kind == .shared and target.result.abi == .msvc) {
+            lib.linkSystemLibrary("libvcruntime");
+
+            const arch = target.result.cpu.arch;
+            const sdk = std.zig.WindowsSdk.find(b.allocator, arch) catch null;
+            if (sdk) |s| {
+                if (s.windows10sdk) |w10| {
+                    const arch_str: []const u8 = switch (arch) {
+                        .x86_64 => "x64",
+                        .x86 => "x86",
+                        .aarch64 => "arm64",
+                        else => "x64",
+                    };
+                    const ucrt_lib_path = std.fmt.allocPrint(
+                        b.allocator,
+                        "{s}\\Lib\\{s}\\ucrt\\{s}",
+                        .{ w10.path, w10.version, arch_str },
+                    ) catch null;
+                    if (ucrt_lib_path) |path| {
+                        lib.addLibraryPath(.{ .cwd_relative = path });
+                    }
+                }
+            }
+            lib.linkSystemLibrary("libucrt");
+        }
     }
 
     if (lib.rootModuleTarget().abi.isAndroid()) {
