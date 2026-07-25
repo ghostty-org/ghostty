@@ -885,10 +885,8 @@ pub fn close(self: *Surface) void {
 }
 
 /// Send SIGHUP to the child process without waiting for it to exit.
-/// child_exited will be set once the child process has stopped.
-///
-/// Used during app shutdown to hang up all children in parallel before
-/// any individual surface starts its (bounded) wait in deinit.
+/// Used during application termination to give the process a chance to
+/// handle the signal before teardown closes its PTY.
 pub fn hangupProcess(self: *Surface) void {
     switch (self.io.backend) {
         .exec => |*exec| exec.subprocess.hangup(),

@@ -35,13 +35,6 @@ const log = std.log.scoped(.io_exec);
 /// The termios poll rate in milliseconds.
 const TERMIOS_POLL_MS = 200;
 
-/// Default deadline for waiting on the child to exit after SIGHUP, in
-/// milliseconds. SIGHUP delivery is effectively instant and well-behaved
-/// shells exit within microseconds; the deadline only matters when a child
-/// is hung (e.g., in trapped SIGHUP and refusing to exit) and we don't
-/// want that to stall application shutdown.
-const stop_deadline_ms: u64 = 500;
-
 /// If we build with flatpak support then we have to keep track of
 /// a potential execution on the host.
 const FlatpakHostCommand = if (!build_config.flatpak) struct {
@@ -1082,7 +1075,7 @@ const Subprocess = struct {
                 else => return err,
             }
         };
-        errdefer killCommand(&cmd, stop_deadline_ms) catch |err| {
+        errdefer killCommand(&cmd) catch |err| {
             log.warn("error killing command during cleanup err={}", .{err});
         };
         log.info("started subcommand path={s} pid={?}", .{ self.args[0], cmd.pid });
@@ -1115,14 +1108,9 @@ const Subprocess = struct {
         self.process = null;
     }
 
-    /// Send SIGHUP to the subprocess without waiting for it to exit.
-    ///
-    /// Calling this before stop() lets multiple subprocesses begin shutting
-    /// down in parallel rather than serially: hangup all, then deinit each
-    /// (which only has to wait for exit, not also for signal delivery).
-    ///
-    /// This is safe to call multiple times and will do nothing if the
-    /// process has already been stopped.
+    /// Send SIGHUP to the subprocess without waiting for it to exit. This is
+    /// safe to call multiple times and does nothing if the process has already
+    /// stopped.
     pub fn hangup(self: *Subprocess) void {
         switch (self.process orelse return) {
             .fork_exec => |*cmd| {
@@ -1136,7 +1124,7 @@ const Subprocess = struct {
                         }
                     },
 
-                    else => _ = hangupPid(pid) catch |err|
+                    else => hangupPid(pid) catch |err|
                         log.err("error sending SIGHUP to command: {}", .{err}),
                 };
             },
@@ -1148,18 +1136,17 @@ const Subprocess = struct {
         }
     }
 
-    /// Stop the subprocess. This is safe to call anytime. Sends SIGHUP and
-    /// waits up to stop_deadline_ms for the child to exit before returning.
-    /// Calling hangup() first is harmless and lets the child start exiting
-    /// sooner, which shortens this wait in practice.
+    /// Stop the subprocess. This is safe to call anytime. This will wait
+    /// for the subprocess to register that it has been signalled, but not
+    /// for it to terminate, so it will not block.
     /// This does not close the pty.
     pub fn stop(self: *Subprocess) void {
         switch (self.process orelse return) {
             .fork_exec => |*cmd| {
                 // Note: this will also wait for the command to exit, so
                 // DO NOT call cmd.wait
-                killCommand(cmd, stop_deadline_ms) catch |err|
-                    log.err("error stopping command: {}", .{err});
+                killCommand(cmd) catch |err|
+                    log.err("error sending SIGHUP to command, may hang: {}", .{err});
             },
 
             .flatpak => |*cmd| if (comptime build_config.flatpak) {
@@ -1197,10 +1184,9 @@ const Subprocess = struct {
     }
 
     /// Kill the underlying subprocess. This sends a SIGHUP to the child
-    /// process and then waits up to deadline_ms for it to exit. Returns
-    /// regardless of whether the child has actually exited once the
-    /// deadline has passed; a stuck child shouldn't stall teardown.
-    fn killCommand(command: *Command, deadline_ms: u64) !void {
+    /// process. This also waits for the command to exit and will return the
+    /// exit code.
+    fn killCommand(command: *Command) !void {
         if (command.pid) |pid| {
             switch (builtin.target.os.tag) {
                 .windows => {
@@ -1211,16 +1197,17 @@ const Subprocess = struct {
                     _ = try command.wait(false);
                 },
 
-                else => try killPid(pid, deadline_ms),
+                else => try killPid(pid),
             }
         }
     }
 
-    /// Send SIGHUP to a process group. Returns true on success, false if
-    /// the process group could not be found (already exited).
-    fn hangupPid(pid: c.pid_t) !bool {
-        const pgid = getpgid(pid) orelse return false;
+    fn hangupPid(pid: c.pid_t) !void {
+        const pgid = getpgid(pid) orelse return;
+        try hangupProcessGroup(pgid);
+    }
 
+    fn hangupProcessGroup(pgid: c.pid_t) !void {
         switch (posix.errno(c.killpg(pgid, c.SIGHUP))) {
             .SUCCESS => log.debug("process group killed pgid={}", .{pgid}),
             else => |err| {
@@ -1230,28 +1217,27 @@ const Subprocess = struct {
                     err == .PERM)
                 {
                     log.debug("killpg failed with EPERM, expected on Darwin and ignoring", .{});
-                    return true;
+                    return;
                 }
 
                 log.warn("error killing process group pgid={} err={}", .{ pgid, err });
                 return error.KillFailed;
             },
         }
-        return true;
     }
 
-    fn killPid(pid: c.pid_t, deadline_ms: u64) !void {
-        const wait_start = std.Io.Timestamp.now(global.io(), .awake);
+    fn killPid(pid: c.pid_t) !void {
+        const pgid = getpgid(pid) orelse return;
 
         // It is possible to send a killpg between the time that
         // our child process calls setsid but before or simultaneous
         // to calling execve. In this case, the direct child dies
         // but grandchildren survive. To work around this, we loop
         // and repeatedly kill the process group until all
-        // descendents are well and truly dead, or until our deadline
-        // expires.
+        // descendents are well and truly dead. We will not rest
+        // until the entire family tree is obliterated.
         while (true) {
-            if (!try hangupPid(pid)) return;
+            try hangupProcessGroup(pgid);
 
             // See Command.zig wait for why we specify WNOHANG.
             // The gist is that it lets us detect when children
@@ -1264,12 +1250,6 @@ const Subprocess = struct {
             };
             log.debug("waitpid result={}", .{res_pid});
             if (res_pid != 0) break;
-
-            if (wait_start.durationTo(.now(global.io(), .awake)).toMilliseconds() >= deadline_ms) {
-                log.warn("child pid={} did not exit within {}ms", .{ pid, deadline_ms });
-                break;
-            }
-
             try std.Io.sleep(global.io(), .fromMilliseconds(10), .awake);
         }
     }
