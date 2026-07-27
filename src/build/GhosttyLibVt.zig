@@ -254,7 +254,7 @@ fn initLib(
         // search paths include the MSVC lib dir and the Windows SDK 'um'
         // dir, but not the SDK 'ucrt' dir where 'ucrt.lib' lives.
         if (kind == .shared and target.result.abi == .msvc) {
-            lib.linkSystemLibrary("libvcruntime");
+            lib.root_module.linkSystemLibrary("libvcruntime", .{});
 
             const arch = target.result.cpu.arch;
             const sdk = std.zig.WindowsSdk.find(b.allocator, arch) catch null;
@@ -272,11 +272,11 @@ fn initLib(
                         .{ w10.path, w10.version, arch_str },
                     ) catch null;
                     if (ucrt_lib_path) |path| {
-                        lib.addLibraryPath(.{ .cwd_relative = path });
+                        lib.root_module.addLibraryPath(.{ .cwd_relative = path });
                     }
                 }
             }
-            lib.linkSystemLibrary("libucrt");
+            lib.root_module.linkSystemLibrary("libucrt", .{});
         }
 
         if (kind == .static) {
