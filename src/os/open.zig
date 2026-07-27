@@ -63,21 +63,32 @@ fn openThread(io: std.Io, exe_: std.process.Child) void {
     // requires a mutable reference and we can't have one as a thread
     // param.
     var exe = exe_;
+    // Always reap the child, even if the stderr loop exits early.
+    defer _ = exe.wait(io) catch {};
+
     if (exe.stderr) |stderr| {
         var buffer: [256]u8 = undefined;
         var stream = stderr.readerStreaming(io, &buffer);
         const reader = &stream.interface;
+        // Guard against a tight loop when the reader returns zero-length
+        // slices without signaling EndOfStream (observed under EOF races
+        // in std.Io.Reader). After a short run of empty reads we assume
+        // the stream is done and exit.
+        var empty_streak: u32 = 0;
         while (true) {
             const line = reader.takeDelimiterExclusive('\n') catch |outer| switch (outer) {
-                error.EndOfStream => break,
-                error.ReadFailed => break,
+                error.EndOfStream, error.ReadFailed => break,
                 error.StreamTooLong => reader.take(buffer.len) catch |inner| switch (inner) {
-                    error.ReadFailed => break,
-                    error.EndOfStream => break,
+                    error.ReadFailed, error.EndOfStream => break,
                 },
             };
+            if (line.len == 0) {
+                empty_streak += 1;
+                if (empty_streak >= 16) break;
+                continue;
+            }
+            empty_streak = 0;
             log.warn("open stderr={s}", .{line});
         }
     }
-    _ = exe.wait(io) catch {};
 }
