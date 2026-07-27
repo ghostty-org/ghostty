@@ -405,10 +405,12 @@ pub const Parser = struct {
             .kitty_color_protocol => |*v| kitty_color_protocol: {
                 v.deinit(self.alloc orelse break :kitty_color_protocol);
             },
+            .color_operation => |*v| color_operation: {
+                v.requests.deinit(self.alloc orelse break :color_operation);
+            },
             .change_window_icon,
             .change_window_title,
             .clipboard_contents,
-            .color_operation,
             .conemu_change_tab_title,
             .conemu_comment,
             .conemu_guimacro,

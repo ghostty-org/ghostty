@@ -64,7 +64,7 @@ fn initInner(
     vt_c_name: []const u8,
 ) !GhosttyZig {
     // Terminal module build options
-    var vt_options = cfg.terminalOptions(.lib);
+    var vt_options = cfg.terminalOptions(.lib, cfg.optimize);
     vt_options.artifact = .lib;
     // We presently don't allow Oniguruma in our Zig module at all.
     // We should expose this as a build option in the future so we can
@@ -135,7 +135,7 @@ fn initVt(
     deps.unicode_tables.addModuleImport(vt);
 
     // We need uucode for grapheme break support
-    deps.addUucode(b, vt, cfg.target, cfg.optimize);
+    vt.addImport("uucode", deps.uucode_mod);
 
     // If SIMD is enabled, add all our SIMD dependencies.
     if (cfg.simd) {

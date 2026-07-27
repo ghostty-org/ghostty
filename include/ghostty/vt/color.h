@@ -88,8 +88,8 @@
  * ghostty_color_palette_generate(
  *     palette,
  *     &skip,
- *     background,
- *     foreground,
+ *     &background,
+ *     &foreground,
  *     true,
  *     palette);
  * @endcode
@@ -265,14 +265,14 @@ typedef struct {
  * from a GhosttyColorRgb value. Primarily useful in WebAssembly environments
  * where accessing struct fields directly is difficult.
  *
- * @param color The RGB color value
+ * @param color Pointer to the RGB color value
  * @param r Pointer to store the red component (0-255)
  * @param g Pointer to store the green component (0-255)
  * @param b Pointer to store the blue component (0-255)
  *
  * @ingroup color
  */
-GHOSTTY_API void ghostty_color_rgb_get(GhosttyColorRgb color,
+GHOSTTY_API void ghostty_color_rgb_get(const GhosttyColorRgb* color,
                            uint8_t* r,
                            uint8_t* g,
                            uint8_t* b);
@@ -374,8 +374,8 @@ GHOSTTY_API void ghostty_color_palette_default(GhosttyColorRgb* out);
  * values, or NULL to use Ghostty's default palette
  * @param skip The palette indices to preserve from @p base, or NULL for
  * an empty mask
- * @param bg The terminal background color
- * @param fg The terminal foreground color
+ * @param bg The terminal background color (must not be NULL)
+ * @param fg The terminal foreground color (must not be NULL)
  * @param harmonious Whether light themes keep background-to-foreground
  * orientation
  * @param[out] out The output palette, an array of exactly 256
@@ -386,8 +386,8 @@ GHOSTTY_API void ghostty_color_palette_default(GhosttyColorRgb* out);
 GHOSTTY_API void ghostty_color_palette_generate(
     const GhosttyColorRgb* base,
     const GhosttyColorPaletteMask* skip,
-    GhosttyColorRgb bg,
-    GhosttyColorRgb fg,
+    const GhosttyColorRgb* bg,
+    const GhosttyColorRgb* fg,
     bool harmonious,
     GhosttyColorRgb* out);
 
@@ -397,12 +397,12 @@ GHOSTTY_API void ghostty_color_palette_generate(
  * Returns a normalized value from 0.0 for black to 1.0 for white.
  * See https://www.w3.org/TR/WCAG20/#relativeluminancedef.
  *
- * @param color The RGB color
+ * @param color The RGB color (must not be NULL)
  * @return Relative luminance in the range 0.0 to 1.0
  *
  * @ingroup color
  */
-GHOSTTY_API double ghostty_color_luminance(GhosttyColorRgb color);
+GHOSTTY_API double ghostty_color_luminance(const GhosttyColorRgb* color);
 
 /**
  * Calculate perceived luminance for an RGB color.
@@ -412,12 +412,12 @@ GHOSTTY_API double ghostty_color_luminance(GhosttyColorRgb color);
  * This is not the metric used internally by
  * ghostty_color_palette_generate(), which uses CIELAB lightness.
  *
- * @param color The RGB color
+ * @param color The RGB color (must not be NULL)
  * @return Perceived luminance in the range 0.0 to 1.0
  *
  * @ingroup color
  */
-GHOSTTY_API double ghostty_color_perceived_luminance(GhosttyColorRgb color);
+GHOSTTY_API double ghostty_color_perceived_luminance(const GhosttyColorRgb* color);
 
 /**
  * Calculate the WCAG contrast ratio between two RGB colors.
@@ -425,13 +425,14 @@ GHOSTTY_API double ghostty_color_perceived_luminance(GhosttyColorRgb color);
  * The contrast ratio is symmetric and ranges from 1.0 for identical
  * colors to 21.0 for black and white.
  *
- * @param a The first RGB color
- * @param b The second RGB color
+ * @param a The first RGB color (must not be NULL)
+ * @param b The second RGB color (must not be NULL)
  * @return WCAG contrast ratio in the range 1.0 to 21.0
  *
  * @ingroup color
  */
-GHOSTTY_API double ghostty_color_contrast(GhosttyColorRgb a, GhosttyColorRgb b);
+GHOSTTY_API double ghostty_color_contrast(const GhosttyColorRgb* a,
+                              const GhosttyColorRgb* b);
 
 /**
  * Get Ghostty's X11 color name table.

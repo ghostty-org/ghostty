@@ -18,7 +18,7 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
             .target = cfg.target,
             .optimize = cfg.optimize,
             .strip = cfg.strip,
-            .omit_frame_pointer = cfg.strip,
+            .omit_frame_pointer = cfg.omitFramePointer(),
             .unwind_tables = if (cfg.strip) .none else .sync,
         }),
         // Crashes on x86_64 self-hosted on 0.15.1
@@ -36,21 +36,14 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
     // Check for possible issues
     try checkNixShell(exe, cfg);
 
-    // Patch our rpath if that option is specified.
-    if (cfg.patch_rpath) |rpath| {
-        if (rpath.len > 0) {
-            const run = std.Build.Step.Run.create(b, "patchelf rpath");
-            run.addArgs(&.{ "patchelf", "--set-rpath", rpath });
-            run.addArtifactArg(exe);
-            install_step.step.dependOn(&run.step);
-        }
-    }
+    // Add patchelf step if that option is specified.
+    cfg.addPatchElf(exe, &install_step.step);
 
     // OS-specific
     switch (cfg.target.result.os.tag) {
         .windows => {
             exe.subsystem = .Windows;
-            exe.addWin32ResourceFile(.{
+            exe.root_module.addWin32ResourceFile(.{
                 .file = b.path("dist/windows/ghostty.rc"),
             });
         },
@@ -85,7 +78,7 @@ fn checkNixShell(exe: *std.Build.Step.Compile, cfg: *const Config) !void {
     if (!cfg.target.query.isNativeOs()) return;
 
     // Verify we're in NixOS
-    std.fs.accessAbsolute("/etc/NIXOS", .{}) catch return;
+    std.Io.Dir.accessAbsolute(exe.step.owner.graph.io, "/etc/NIXOS", .{}) catch return;
 
     // If we're in a nix shell, not a problem
     if (cfg.env.get("IN_NIX_SHELL") != null) return;

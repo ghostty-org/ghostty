@@ -5,6 +5,7 @@ const assert = @import("../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const z2d = @import("z2d");
 const font = @import("../main.zig");
+const global = @import("../../global.zig");
 
 pub fn Point(comptime T: type) type {
     return struct {
@@ -255,7 +256,7 @@ pub const Canvas = struct {
 
     /// Acquires a z2d drawing context, caller MUST deinit context.
     pub fn getContext(self: *Canvas) z2d.Context {
-        var ctx = z2d.Context.init(self.alloc, &self.sfc);
+        var ctx = z2d.Context.init(global.io(), self.alloc, &self.sfc);
         // Offset by our padding to keep
         // coordinates relative to the cell.
         ctx.setTransformation(self.transformation());

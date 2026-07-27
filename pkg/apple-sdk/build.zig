@@ -1,6 +1,34 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+/// Helpers for linking Mach-O artifacts with Apple's native toolchain.
+pub const nativeLink = @import("native_link.zig");
+
+// The cache. This always uses b.allocator and never frees memory
+// (which is idiomatic for a Zig build exe). We cache the libc txt
+// file we create because it is expensive to generate (subprocesses).
+pub const Cache = struct {
+    const Key = struct {
+        arch: std.Target.Cpu.Arch,
+        os: std.Target.Os.Tag,
+        abi: std.Target.Abi,
+    };
+
+    pub const Value = union(enum) {
+        native: struct {
+            libc: std.Build.LazyPath,
+            framework: []const u8,
+            system_include: []const u8,
+            library: []const u8,
+        },
+        cross: struct {
+            libc: std.Build.LazyPath,
+        },
+    };
+
+    var map: std.AutoHashMapUnmanaged(Key, ?Value) = .{};
+};
+
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -8,40 +36,11 @@ pub fn build(b: *std.Build) !void {
     _ = optimize;
 }
 
-/// Setup the step to point to the proper Apple SDK for libc and
+/// Fetch or load the paths for the proper Apple SDK for libc and
 /// frameworks. When running on a Darwin host, this uses the native
 /// SDK installed on the system via `xcrun`. When cross-compiling from
 /// a non-Darwin host, it falls back to Zig's bundled Darwin headers.
-pub fn addPaths(
-    b: *std.Build,
-    step: *std.Build.Step.Compile,
-) !void {
-    // The cache. This always uses b.allocator and never frees memory
-    // (which is idiomatic for a Zig build exe). We cache the libc txt
-    // file we create because it is expensive to generate (subprocesses).
-    const Cache = struct {
-        const Key = struct {
-            arch: std.Target.Cpu.Arch,
-            os: std.Target.Os.Tag,
-            abi: std.Target.Abi,
-        };
-
-        const Value = union(enum) {
-            native: struct {
-                libc: std.Build.LazyPath,
-                framework: []const u8,
-                system_include: []const u8,
-                library: []const u8,
-            },
-            cross: struct {
-                libc: std.Build.LazyPath,
-            },
-        };
-
-        var map: std.AutoHashMapUnmanaged(Key, ?Value) = .{};
-    };
-
-    const target = step.rootModuleTarget();
+pub fn pathsForTarget(b: *std.Build, target: std.Target) !Cache.Value {
     const gop = try Cache.map.getOrPut(b.allocator, .{
         .arch = target.cpu.arch,
         .os = target.os.tag,
@@ -53,14 +52,32 @@ pub fn addPaths(
             // Detect our SDK using the "findNative" Zig stdlib function.
             // This is really important because it forces using `xcrun` to
             // find the SDK path.
-            const libc = std.zig.LibCInstallation.findNative(.{
-                .allocator = b.allocator,
-                .target = &step.rootModuleTarget(),
-                .verbose = false,
-            }) catch break :darwin;
+            var libc = std.zig.LibCInstallation.findNative(
+                b.allocator,
+                b.graph.io,
+                .{
+                    .environ_map = &b.graph.environ_map,
+                    .target = &target,
+                    .verbose = false,
+                },
+            ) catch break :darwin;
+
+            // Xcode 27's math.h requests infinity and NaN definitions from
+            // Clang's float.h using the __need_infinity_nan protocol. Zig
+            // 0.16's bundled Clang resource headers predate that protocol, so
+            // compiling Zig's bundled libc++ against the new SDK fails.
+            //
+            // Put our compatibility include directory between Zig's resource
+            // headers and the selected SDK headers. Its math.h forwards to the
+            // SDK with #include_next, then supplies the definitions missing
+            // from Zig's float.h. This can be removed once Zig's bundled Clang
+            // headers implement __need_infinity_nan.
+            libc.include_dir = b.dependency("apple_sdk", .{})
+                .path("include")
+                .getPath(b);
 
             // Render the file compatible with the `--libc` Zig flag.
-            var stream: std.io.Writer.Allocating = .init(b.allocator);
+            var stream: std.Io.Writer.Allocating = .init(b.allocator);
             defer stream.deinit();
             try libc.render(&stream.writer);
 
@@ -112,7 +129,7 @@ pub fn addPaths(
         // Fall back to Zig's bundled Darwin headers for libc resolution.
         const zig_lib_path = b.graph.zig_lib_directory.path.?;
         const include_dir = b.pathJoin(&.{
-            zig_lib_path, "libc", "include", "any-macos-any",
+            zig_lib_path, "libc", "include", "any-darwin-any",
         });
 
         const wf = b.addWriteFiles();
@@ -129,7 +146,7 @@ pub fn addPaths(
         gop.value_ptr.* = .{ .cross = .{ .libc = path } };
     }
 
-    const value = gop.value_ptr.* orelse return switch (target.os.tag) {
+    return gop.value_ptr.* orelse return switch (target.os.tag) {
         // Return a more descriptive error. Before we just returned the
         // generic error but this was confusing a lot of community members.
         // It costs us nothing in the build script to return something better.
@@ -139,8 +156,42 @@ pub fn addPaths(
         .watchos => error.XcodeWatchOSSDKNotFound,
         else => error.XcodeAppleSDKNotFound,
     };
+}
 
-    switch (value) {
+/// Setup the step to point to the proper Apple SDK for libc and
+/// frameworks. When running on a Darwin host, this uses the native
+/// SDK installed on the system via `xcrun`. When cross-compiling from
+/// a non-Darwin host, it falls back to Zig's bundled Darwin headers.
+pub fn addPaths(
+    b: *std.Build,
+    step: *std.Build.Step.Compile,
+) !void {
+    const target = step.rootModuleTarget();
+
+    // A three paragraph comment to describe a single C macro. Strap in.
+    //
+    // Zig uses its own libc++ headers when compiling C++. In Zig 0.16,
+    // `__config` skips `__config_site`, the file that normally contains
+    // platform settings, and expects those settings as `-D` flags:
+    // https://codeberg.org/ziglang/zig/src/tag/0.16.0/lib/libcxx/include/__config#L13
+    //
+    // This macro enables Apple's availability checks. Without them, libc++
+    // assumes every symbol declared by these newer headers also exists in the
+    // target's runtime library:
+    // https://github.com/llvm/llvm-project/blob/llvmorg-21.1.0/libcxx/include/__configuration/availability.h#L63-L125
+    //
+    // For example, `hash.h` either calls `std::__hash_memory` from the runtime
+    // library or compiles an inline fallback:
+    // https://github.com/llvm/llvm-project/blob/llvmorg-21.1.0/libcxx/include/__functional/hash.h#L244-L250
+    // Without the checks, it chooses the runtime symbol. Older macOS versions
+    // don't have that symbol, so dyld aborts at launch:
+    // https://github.com/llvm/llvm-project/issues/155531
+    step.root_module.addCMacro(
+        "_LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS",
+        "1",
+    );
+
+    switch (try pathsForTarget(b, target)) {
         .native => |native| {
             step.setLibCFile(native.libc);
 

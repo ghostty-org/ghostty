@@ -353,7 +353,12 @@ pub fn internalStateTable(
     _ = cimgui.c.ImGui_TableSetColumnIndex(0);
     cimgui.c.ImGui_Text("Memory Limit");
     _ = cimgui.c.ImGui_TableSetColumnIndex(1);
-    cimgui.c.ImGui_Text("%d bytes (%d KiB)", pages.maxSize(), units.toKibiBytes(pages.maxSize()));
+    const max_bytes = pages.limits.max(.bytes);
+    cimgui.c.ImGui_Text(
+        "%d bytes (%d KiB)",
+        max_bytes,
+        units.toKibiBytes(max_bytes),
+    );
 
     cimgui.c.ImGui_TableNextRow();
     _ = cimgui.c.ImGui_TableSetColumnIndex(0);

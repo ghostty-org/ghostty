@@ -47,8 +47,12 @@ andrejdaskalov
 anhthang
 anmitalidev
 anthonyzhoon
+aprilnea
+arvin7liu
 athaapa
 atomk
+aurelleb
+aymanbagabas
 b0uks
 b1nar10
 balazs-szucs
@@ -62,9 +66,11 @@ bitigchi
 bkircher
 bleikurr
 bo2themax
+bousii
 brentschroeter
 brianc442
 c0x0o
+carldaws
 cespare
 charliie-dev
 chernetskyi
@@ -103,6 +109,7 @@ ephemera
 -eric-assetpass Try talking, not botting
 eriksremess
 erral
+escalonc
 eunos-1128
 exlee
 -f1813483-netizen
@@ -238,6 +245,7 @@ puzza007
 qappell
 quinnypig
 qwerasd205
+ragnoroct
 raphamorim
 reo101
 rewdy
@@ -249,9 +257,11 @@ rmengelbrecht
 rmunn
 rockorager
 rpfaeffle
+ruoyouz
 sahilkmishra
 samasaur1
 sandydoo
+sanjj1
 -schickling-assistant NHITL
 secrus
 seruman

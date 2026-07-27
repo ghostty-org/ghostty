@@ -6,29 +6,31 @@
 //! Setting either env var to an empty string disables paging.
 //! If stdout is not a TTY, writes go directly to stdout.
 const Pager = @This();
+const builtin = @import("builtin");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const internal_os = @import("../os/main.zig");
+const global = @import("../global.zig");
 
 /// The pager child process, if one was spawned.
 child: ?std.process.Child = null,
 
 /// The buffered file writer used for both the pager pipe and direct
 /// stdout paths.
-file_writer: std.fs.File.Writer = undefined,
+file_writer: std.Io.File.Writer = undefined,
 
 /// Initialize the pager. If stdout is a TTY, this spawns the pager
 /// process. Otherwise, output goes directly to stdout.
-pub fn init(alloc: Allocator) Pager {
-    return .{ .child = initPager(alloc) };
+pub fn init() Pager {
+    return .{ .child = initPager() };
 }
 
 /// Writes to the pager process if available; otherwise, stdout.
 pub fn writer(self: *Pager, buffer: []u8) *std.Io.Writer {
     if (self.child) |child| {
-        self.file_writer = child.stdin.?.writer(buffer);
+        self.file_writer = child.stdin.?.writer(global.io(), buffer);
     } else {
-        self.file_writer = std.fs.File.stdout().writer(buffer);
+        self.file_writer = std.Io.File.stdout().writer(global.io(), buffer);
     }
     return &self.file_writer.interface;
 }
@@ -40,45 +42,44 @@ pub fn deinit(self: *Pager) void {
         // pager sees EOF, then wait for it to exit.
         self.file_writer.interface.flush() catch {};
         if (child.stdin) |stdin| {
-            stdin.close();
+            stdin.close(global.io());
             child.stdin = null;
         }
-        _ = child.wait() catch {};
+        _ = child.wait(global.io()) catch {};
     }
 
     self.* = undefined;
 }
 
-fn initPager(alloc: Allocator) ?std.process.Child {
-    const stdout_file: std.fs.File = .stdout();
-    if (!stdout_file.isTty()) return null;
+fn initPager() ?std.process.Child {
+    const stdout_file: std.Io.File = .stdout();
+    if (!(stdout_file.isTty(global.io()) catch return null)) return null;
+
+    var env = global.environMap() catch return null;
+    defer env.deinit();
 
     // Resolve the pager command: $GHOSTTY_PAGER > $PAGER > `less`.
     // An empty value for either env var disables paging.
-    const ghostty_var = internal_os.getenv(alloc, "GHOSTTY_PAGER") catch null;
-    defer if (ghostty_var) |v| v.deinit(alloc);
-    const pager_var = internal_os.getenv(alloc, "PAGER") catch null;
-    defer if (pager_var) |v| v.deinit(alloc);
-
+    const ghostty_var = env.get("GHOSTTY_PAGER");
+    const pager_var = env.get("PAGER");
     const cmd: ?[]const u8 = cmd: {
-        if (ghostty_var) |v| break :cmd if (v.value.len > 0) v.value else null;
-        if (pager_var) |v| break :cmd if (v.value.len > 0) v.value else null;
+        if (ghostty_var) |v| break :cmd if (v.len > 0) v else null;
+        if (pager_var) |v| break :cmd if (v.len > 0) v else null;
         break :cmd "less";
     };
 
     if (cmd == null) return null;
 
-    var child: std.process.Child = .init(&.{cmd.?}, alloc);
-    child.stdin_behavior = .Pipe;
-    child.stdout_behavior = .Inherit;
-    child.stderr_behavior = .Inherit;
-
-    child.spawn() catch return null;
-    return child;
+    return std.process.spawn(global.io(), .{
+        .argv = &.{cmd.?},
+        .stdin = .pipe,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    }) catch null;
 }
 
 test "pager: non-tty" {
-    var pager: Pager = .init(std.testing.allocator);
+    var pager: Pager = .init();
     defer pager.deinit();
     try std.testing.expect(pager.child == null);
 }

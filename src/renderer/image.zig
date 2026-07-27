@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const assert = @import("../quirks.zig").inlineAssert;
 const wuffs = @import("wuffs");
 const terminal = @import("../terminal/main.zig");
+const global = @import("../global.zig");
 
 const Renderer = @import("../renderer.zig").Renderer;
 const GraphicsAPI = Renderer.API;
@@ -194,7 +195,7 @@ pub const State = struct {
 
         // Overlays are always considered new content, so we take a
         // fresh generation stamp to force replacing any existing one.
-        const generation = terminal.kitty.graphics.nextGeneration();
+        const generation = terminal.kitty.graphics.nextGeneration(global.io());
 
         // Ensure we have space for our overlay placement. Do this before
         // we upload our image so we don't have to deal with cleaning

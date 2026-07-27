@@ -107,12 +107,12 @@ enum BackportPointerStyle {
         case .horizontalText: return .horizontalText
         case .verticalText: return .verticalText
         case .link: return .link
-        case .resizeLeft: return .frameResize(position: .trailing, directions: [.inward])
-        case .resizeRight: return .frameResize(position: .leading, directions: [.inward])
-        case .resizeUp: return .frameResize(position: .bottom, directions: [.inward])
-        case .resizeDown: return .frameResize(position: .top, directions: [.inward])
-        case .resizeUpDown: return .frameResize(position: .top)
-        case .resizeLeftRight: return .frameResize(position: .trailing)
+        case .resizeLeft: return .columnResize(directions: .leading)
+        case .resizeRight: return .columnResize(directions: .trailing)
+        case .resizeUp: return .rowResize(directions: .up)
+        case .resizeDown: return .rowResize(directions: .down)
+        case .resizeUpDown: return .rowResize
+        case .resizeLeftRight: return .columnResize
         }
     }
     #endif

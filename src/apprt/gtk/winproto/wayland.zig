@@ -17,8 +17,10 @@ const xdg = wayland.client.xdg;
 
 const Config = @import("../../../config.zig").Config;
 const Globals = @import("wayland/Globals.zig");
+const Hotkeys = @import("wayland/Hotkeys.zig");
 const input = @import("../../../input.zig");
 const ApprtWindow = @import("../class/window.zig").Window;
+const GlobalShortcuts = @import("../class/global_shortcuts.zig").GlobalShortcuts;
 const BlurRegion = @import("BlurRegion.zig");
 
 const log = std.log.scoped(.winproto_wayland);
@@ -27,6 +29,7 @@ const log = std.log.scoped(.winproto_wayland);
 pub const App = struct {
     display: *wl.Display,
     globals: *Globals,
+    hotkeys: Hotkeys,
 
     pub fn init(
         alloc: Allocator,
@@ -35,7 +38,6 @@ pub const App = struct {
         config: *const Config,
     ) !?App {
         _ = config;
-        _ = app_id;
 
         const gdk_wayland_display = gobject.ext.cast(
             gdk_wayland.WaylandDisplay,
@@ -49,14 +51,33 @@ pub const App = struct {
         const globals: *Globals = try .init(alloc, display);
         errdefer globals.deinit();
 
+        var hotkeys: Hotkeys = try .init(alloc, app_id);
+        errdefer hotkeys.deinit();
+
         return .{
             .display = display,
             .globals = globals,
+            .hotkeys = hotkeys,
         };
     }
 
     pub fn deinit(self: *App) void {
+        self.hotkeys.deinit();
         self.globals.deinit();
+    }
+
+    pub fn bindGlobalShortcuts(
+        self: *App,
+        shortcuts: *GlobalShortcuts,
+        config: *const Config,
+    ) bool {
+        const manager = self.globals.get(.vicinae_hotkey_manager) orelse return false;
+        self.hotkeys.bind(manager, shortcuts, config);
+        return true;
+    }
+
+    pub fn clearGlobalShortcuts(self: *App) void {
+        self.hotkeys.clear();
     }
 
     pub fn eventMods(
@@ -225,7 +246,7 @@ pub const Window = struct {
         };
     }
 
-    pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) !void {
+    pub fn addSubprocessEnv(self: *Window, env: *std.process.Environ.Map) !void {
         _ = self;
         _ = env;
     }

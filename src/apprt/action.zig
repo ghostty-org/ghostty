@@ -8,6 +8,7 @@ const renderer = @import("../renderer.zig");
 const terminal = @import("../terminal/main.zig");
 const CoreSurface = @import("../Surface.zig");
 const lib = @import("../lib/main.zig");
+const compat_testing = @import("../lib/compat/testing.zig");
 
 /// The target for an action. This is generally the thing that had focus
 /// while the action was made but the concept of "focus" is not guaranteed
@@ -424,8 +425,11 @@ pub const Action = union(Key) {
     /// Sync with: ghostty_action_u
     pub const CValue = cvalue: {
         const key_fields = @typeInfo(Key).@"enum".fields;
-        var union_fields: [key_fields.len]std.builtin.Type.UnionField = undefined;
-        for (key_fields, 0..) |field, i| {
+        var names: [key_fields.len][]const u8 = undefined;
+        var types: [key_fields.len]type = undefined;
+        var attrs: [key_fields.len]std.builtin.Type.UnionField.Attributes = undefined;
+
+        for (key_fields, &names, &types, &attrs) |field, *name, *ty, *attr| {
             const action = @unionInit(Action, field.name, undefined);
             const Type = t: {
                 const Type = @TypeOf(@field(action, field.name));
@@ -434,19 +438,12 @@ pub const Action = union(Key) {
                 break :t Type;
             };
 
-            union_fields[i] = .{
-                .name = field.name,
-                .type = Type,
-                .alignment = @alignOf(Type),
-            };
+            name.* = field.name;
+            ty.* = Type;
+            attr.* = .{ .@"align" = @alignOf(Type) };
         }
 
-        break :cvalue @Type(.{ .@"union" = .{
-            .layout = .@"extern",
-            .tag_type = null,
-            .fields = &union_fields,
-            .decls = &.{},
-        } });
+        break :cvalue @Union(.@"extern", null, &names, &types, &attrs);
     };
 
     /// Sync with: ghostty_action_s
@@ -713,7 +710,7 @@ pub const SetTitle = struct {
     pub fn format(
         value: @This(),
         comptime _: []const u8,
-        _: std.fmt.FormatOptions,
+        _: std.fmt.Options,
         writer: *std.Io.Writer,
     ) !void {
         try writer.print("{s}{{ {s} }}", .{ @typeName(@This()), value.title });
@@ -737,7 +734,7 @@ pub const Pwd = struct {
     pub fn format(
         value: @This(),
         comptime _: []const u8,
-        _: std.fmt.FormatOptions,
+        _: std.fmt.Options,
         writer: *std.Io.Writer,
     ) !void {
         try writer.print("{s}{{ {s} }}", .{ @typeName(@This()), value.pwd });
@@ -765,7 +762,7 @@ pub const DesktopNotification = struct {
     pub fn format(
         value: @This(),
         comptime _: []const u8,
-        _: std.fmt.FormatOptions,
+        _: std.fmt.Options,
         writer: *std.Io.Writer,
     ) !void {
         try writer.print("{s}{{ title: {s}, body: {s} }}", .{
@@ -1008,5 +1005,5 @@ pub const SearchSelected = struct {
 };
 
 test {
-    _ = std.testing.refAllDeclsRecursive(@This());
+    _ = compat_testing.refAllDeclsRecursive(@This());
 }

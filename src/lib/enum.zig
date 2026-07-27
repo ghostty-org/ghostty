@@ -21,42 +21,38 @@ pub fn Enum(
     target: Target,
     keys: []const ?[:0]const u8,
 ) type {
-    var fields: [keys.len]std.builtin.Type.EnumField = undefined;
-    var fields_i: usize = 0;
-    var holes: usize = 0;
-    for (keys) |key_| {
-        const key: [:0]const u8 = key_ orelse {
-            switch (target) {
-                // For Zig we don't track holes because the enum value
-                // isn't guaranteed to be stable and we want to use the
-                // smallest possible backing type.
-                .zig => {},
-
-                // For C we must track holes to preserve ABI compatibility
-                // with subsequent values.
-                .c => holes += 1,
+    var names_raw: [keys.len][]const u8 = undefined;
+    var values_raw: [keys.len]comptime_int = undefined;
+    const names_actual, const values_actual = kv: {
+        // Remove any holes in the input (null values). As mentioned in the
+        // function docs, in the event of the C ABI, we need to preserve the
+        // original value, so we account for that.
+        var to: comptime_int = 0;
+        for (0..keys.len) |from| {
+            if (keys[from]) |key| {
+                names_raw[to] = key;
+                values_raw[to] = if (target == .c) from else to;
+                to += 1;
             }
-            continue;
-        };
+        }
 
-        fields[fields_i] = .{
-            .name = key,
-            .value = fields_i + holes,
-        };
-        fields_i += 1;
-    }
+        break :kv .{ names_raw[0..to], values_raw[0..to] };
+    };
 
-    // Assigned to var so that the type name is nicer in stack traces.
-    const Result = @Type(.{ .@"enum" = .{
-        .tag_type = switch (target) {
-            .c => c_int,
-            .zig => std.math.IntFittingRange(0, fields_i - 1),
-        },
-        .fields = fields[0..fields_i],
-        .decls = &.{},
-        .is_exhaustive = true,
-    } });
-    return Result;
+    const TagInt = switch (target) {
+        .c => c_int,
+        .zig => std.math.IntFittingRange(0, names_actual.len - 1),
+    };
+
+    return @Enum(TagInt, .exhaustive, names_actual, &(values: {
+        // We have to transform our comptime_int values into the actual int
+        // we're creating the enum as.
+        var result_int_values: [values_actual.len]TagInt = undefined;
+        for (0..values_actual.len) |idx| {
+            result_int_values[idx] = values_actual[idx];
+        }
+        break :values result_int_values;
+    }));
 }
 
 test "zig" {

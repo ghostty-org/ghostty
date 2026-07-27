@@ -10,6 +10,7 @@ const vaxis = @import("vaxis");
 const input = @import("../input.zig");
 const tui = @import("tui.zig");
 const Binding = input.Binding;
+const global = @import("../global.zig");
 
 pub const Options = struct {
     /// If `true`, print out the default keybinds instead of the ones configured
@@ -56,7 +57,7 @@ pub fn run(alloc: Allocator) !u8 {
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc);
+        var iter = try args.argsIterator(alloc, global.args());
         defer iter.deinit();
         try args.parse(Options, alloc, &opts, &iter);
     }
@@ -65,11 +66,11 @@ pub fn run(alloc: Allocator) !u8 {
     defer config.deinit();
 
     var buffer: [1024]u8 = undefined;
-    const stdout: std.fs.File = .stdout();
-    var stdout_writer = stdout.writer(&buffer);
+    const stdout: std.Io.File = .stdout();
+    var stdout_writer = stdout.writer(global.io(), &buffer);
     const writer = &stdout_writer.interface;
 
-    if (tui.can_pretty_print and !opts.plain and stdout.isTty()) {
+    if (tui.can_pretty_print and !opts.plain and try stdout.isTty(global.io())) {
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();
         return prettyPrint(arena.allocator(), config.keybind);
@@ -218,11 +219,14 @@ const ChordBinding = struct {
 };
 
 fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
+    var env_map = try global.environMap();
+    defer env_map.deinit();
+
     // Set up vaxis
     var buf: [1024]u8 = undefined;
-    var tty = try vaxis.Tty.init(&buf);
+    var tty = try vaxis.Tty.init(global.io(), &buf);
     defer tty.deinit();
-    var vx = try vaxis.init(alloc, .{});
+    var vx = try vaxis.init(global.io(), alloc, &env_map, .{});
     const writer = tty.writer();
     defer vx.deinit(alloc, writer);
 
@@ -242,7 +246,7 @@ fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
             .y_pixel = 768,
         },
 
-        else => try vaxis.Tty.getWinsize(tty.fd),
+        else => try tty.getWinsize(),
     };
     try vx.resize(alloc, writer, winsize);
 

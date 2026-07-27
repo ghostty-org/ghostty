@@ -25,8 +25,9 @@ pub fn inspector(page: *const terminal.Page) void {
 /// the tree node is open or not. If it is open you must close it with
 /// TreePop.
 pub fn treeNode(state: struct {
-    /// The page
-    page: *const terminal.Page,
+    /// Page dimensions available without reading its backing memory.
+    cols: terminal.size.CellCountInt,
+    rows: terminal.size.CellCountInt,
     /// The index of the page in a page list, used for headers.
     index: usize,
     /// The range of rows this page covers, inclusive.
@@ -34,6 +35,10 @@ pub fn treeNode(state: struct {
     /// Whether this page is the active or viewport node.
     active: bool,
     viewport: bool,
+    /// Whether the page backing memory is currently compressed.
+    compressed: bool,
+    /// Dirty state is unavailable without restoring a compressed page.
+    dirty: ?bool,
 }) bool {
     // Setup our node.
     const open = open: {
@@ -61,8 +66,8 @@ pub fn treeNode(state: struct {
     // Metadata
     cimgui.c.ImGui_TextDisabled(
         "%dc x %dr",
-        state.page.size.cols,
-        state.page.size.rows,
+        state.cols,
+        state.rows,
     );
     cimgui.c.ImGui_SameLine();
     cimgui.c.ImGui_Text("rows %d..%d", state.row_range[0], state.row_range[1]);
@@ -76,7 +81,11 @@ pub fn treeNode(state: struct {
         cimgui.c.ImGui_SameLine();
         cimgui.c.ImGui_TextColored(.{ .x = 0.4, .y = 0.8, .z = 1.0, .w = 1.0 }, "viewport");
     }
-    if (state.page.isDirty()) {
+    if (state.compressed) {
+        cimgui.c.ImGui_SameLine();
+        cimgui.c.ImGui_TextColored(.{ .x = 0.8, .y = 0.6, .z = 1.0, .w = 1.0 }, "compressed");
+    }
+    if (state.dirty orelse false) {
         cimgui.c.ImGui_SameLine();
         cimgui.c.ImGui_TextColored(.{ .x = 1.0, .y = 0.4, .z = 0.4, .w = 1.0 }, "dirty");
     }

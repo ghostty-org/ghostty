@@ -24,6 +24,13 @@ extension Ghostty {
         }
 
         deinit {
+            guard !Thread.isMainThread else {
+                // The surface remains registered with the app and holds unretained
+                // userdata until it is freed. When already on the main thread, free
+                // it synchronously so teardown completes before we disappear.
+                ghostty_surface_free(surface)
+                return
+            }
             // deinit is not guaranteed to happen on the main actor and our API
             // calls into libghostty must happen there so we capture the surface
             // value so we don't capture `self` and then we detach it in a task.

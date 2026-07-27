@@ -1,5 +1,6 @@
 const std = @import("std");
 const sfnt = @import("sfnt.zig");
+const compat_reader = @import("../../lib/compat/reader.zig");
 
 /// Horizontal Header Table
 ///
@@ -71,10 +72,8 @@ pub const Hhea = extern struct {
 
     /// Parse the table from raw data.
     pub fn init(data: []const u8) !Hhea {
-        var fbs = std.io.fixedBufferStream(data);
-        const reader = fbs.reader();
-
-        return try reader.readStructEndian(Hhea, .big);
+        var reader: std.Io.Reader = .fixed(data);
+        return try compat_reader.readStructEndian(&reader, Hhea, .big);
     }
 };
 

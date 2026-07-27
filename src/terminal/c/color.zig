@@ -40,7 +40,7 @@ const x11_entries: [x11_color.entries.len + 1]X11Entry = entries: {
 };
 
 pub fn rgb_get(
-    c: color.RGB.C,
+    c: *const color.RGB.C,
     r: *u8,
     g: *u8,
     b: *u8,
@@ -81,8 +81,8 @@ pub fn palette_default(out: *color.PaletteC) callconv(lib.calling_conv) void {
 pub fn palette_generate(
     base_: ?*const color.PaletteC,
     skip_: ?*const PaletteMask,
-    bg: color.RGB.C,
-    fg: color.RGB.C,
+    bg: *const color.RGB.C,
+    fg: *const color.RGB.C,
     harmonious: bool,
     out: *color.PaletteC,
 ) callconv(lib.calling_conv) void {
@@ -97,8 +97,8 @@ pub fn palette_generate(
     const result = color.generate256Color(
         base,
         skip,
-        .fromC(bg),
-        .fromC(fg),
+        .fromC(bg.*),
+        .fromC(fg.*),
         harmonious,
     );
     out.* = color.paletteCval(&result);
@@ -125,16 +125,16 @@ pub fn parse_palette_entry(
     return .success;
 }
 
-pub fn luminance(c: color.RGB.C) callconv(lib.calling_conv) f64 {
-    return color.RGB.fromC(c).luminance();
+pub fn luminance(c: *const color.RGB.C) callconv(lib.calling_conv) f64 {
+    return color.RGB.fromC(c.*).luminance();
 }
 
-pub fn perceived_luminance(c: color.RGB.C) callconv(lib.calling_conv) f64 {
-    return color.RGB.fromC(c).perceivedLuminance();
+pub fn perceived_luminance(c: *const color.RGB.C) callconv(lib.calling_conv) f64 {
+    return color.RGB.fromC(c.*).perceivedLuminance();
 }
 
-pub fn contrast(a: color.RGB.C, b: color.RGB.C) callconv(lib.calling_conv) f64 {
-    return color.RGB.fromC(a).contrast(.fromC(b));
+pub fn contrast(a: *const color.RGB.C, b: *const color.RGB.C) callconv(lib.calling_conv) f64 {
+    return color.RGB.fromC(a.*).contrast(.fromC(b.*));
 }
 
 fn expectRgb(expected: color.RGB, actual: color.RGB.C) !void {
@@ -155,7 +155,9 @@ fn generatePalette(
     harmonious: bool,
 ) color.PaletteC {
     var out: color.PaletteC = undefined;
-    palette_generate(base_, skip_, bg.cval(), fg.cval(), harmonious, &out);
+    const bg_c = bg.cval();
+    const fg_c = fg.cval();
+    palette_generate(base_, skip_, &bg_c, &fg_c, harmonious, &out);
     return out;
 }
 
@@ -485,7 +487,9 @@ test "color: palette_generate in-place" {
     const fg = color.RGB{ .r = 255, .g = 255, .b = 255 };
     const expected = generatePalette(&base, null, bg, fg, false);
 
-    palette_generate(&base, null, bg.cval(), fg.cval(), false, &base);
+    const bg_c = bg.cval();
+    const fg_c = fg.cval();
+    palette_generate(&base, null, &bg_c, &fg_c, false, &base);
     try expectPaletteC(&expected, &base);
 }
 
@@ -494,8 +498,10 @@ test "color: luminance" {
 
     const black = color.RGB{ .r = 0, .g = 0, .b = 0 };
     const white = color.RGB{ .r = 255, .g = 255, .b = 255 };
-    try testing.expectApproxEqAbs(@as(f64, 0.0), luminance(black.cval()), 0.000001);
-    try testing.expectApproxEqAbs(@as(f64, 1.0), luminance(white.cval()), 0.000001);
+    const black_c = black.cval();
+    const white_c = white.cval();
+    try testing.expectApproxEqAbs(@as(f64, 0.0), luminance(&black_c), 0.000001);
+    try testing.expectApproxEqAbs(@as(f64, 1.0), luminance(&white_c), 0.000001);
 
     const samples = [_]color.RGB{
         .{ .r = 40, .g = 44, .b = 52 },
@@ -503,7 +509,8 @@ test "color: luminance" {
         .{ .r = 12, .g = 34, .b = 56 },
     };
     for (samples) |sample| {
-        try testing.expectApproxEqAbs(sample.luminance(), luminance(sample.cval()), 0.000001);
+        const sample_c = sample.cval();
+        try testing.expectApproxEqAbs(sample.luminance(), luminance(&sample_c), 0.000001);
     }
 }
 
@@ -513,10 +520,13 @@ test "color: perceived_luminance" {
     const black = color.RGB{ .r = 0, .g = 0, .b = 0 };
     const white = color.RGB{ .r = 255, .g = 255, .b = 255 };
     const dark = color.RGB{ .r = 0x28, .g = 0x2C, .b = 0x34 };
-    try testing.expectApproxEqAbs(@as(f64, 0.0), perceived_luminance(black.cval()), 0.000001);
-    try testing.expectApproxEqAbs(@as(f64, 1.0), perceived_luminance(white.cval()), 0.000001);
-    try testing.expect(perceived_luminance(dark.cval()) < 0.5);
-    try testing.expect(perceived_luminance(white.cval()) > 0.5);
+    const black_c = black.cval();
+    const white_c = white.cval();
+    const dark_c = dark.cval();
+    try testing.expectApproxEqAbs(@as(f64, 0.0), perceived_luminance(&black_c), 0.000001);
+    try testing.expectApproxEqAbs(@as(f64, 1.0), perceived_luminance(&white_c), 0.000001);
+    try testing.expect(perceived_luminance(&dark_c) < 0.5);
+    try testing.expect(perceived_luminance(&white_c) > 0.5);
 
     const samples = [_]color.RGB{
         dark,
@@ -524,9 +534,10 @@ test "color: perceived_luminance" {
         .{ .r = 12, .g = 34, .b = 56 },
     };
     for (samples) |sample| {
+        const sample_c = sample.cval();
         try testing.expectApproxEqAbs(
             sample.perceivedLuminance(),
-            perceived_luminance(sample.cval()),
+            perceived_luminance(&sample_c),
             0.000001,
         );
     }
@@ -538,14 +549,17 @@ test "color: contrast" {
     const black = color.RGB{ .r = 0, .g = 0, .b = 0 };
     const white = color.RGB{ .r = 255, .g = 255, .b = 255 };
     const gray = color.RGB{ .r = 128, .g = 128, .b = 128 };
+    const black_c = black.cval();
+    const white_c = white.cval();
+    const gray_c = gray.cval();
 
-    try testing.expectApproxEqAbs(@as(f64, 21.0), contrast(white.cval(), black.cval()), 0.000001);
+    try testing.expectApproxEqAbs(@as(f64, 21.0), contrast(&white_c, &black_c), 0.000001);
     try testing.expectApproxEqAbs(
-        contrast(black.cval(), white.cval()),
-        contrast(white.cval(), black.cval()),
+        contrast(&black_c, &white_c),
+        contrast(&white_c, &black_c),
         0.000001,
     );
-    try testing.expectApproxEqAbs(@as(f64, 1.0), contrast(gray.cval(), gray.cval()), 0.000001);
+    try testing.expectApproxEqAbs(@as(f64, 1.0), contrast(&gray_c, &gray_c), 0.000001);
 }
 
 test "color: x11_names" {

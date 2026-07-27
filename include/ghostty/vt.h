@@ -56,6 +56,7 @@
  * - @ref c-vt-formatter/src/main.c - Terminal formatter example
  * - @ref c-vt-grid-traverse/src/main.c - Grid traversal example using grid refs
  * - @ref c-vt-grid-ref-tracked/src/main.c - Tracked grid ref example
+ * - @ref c-vt-compression/src/main.c - Idle scrollback compression example
  *
  */
 
@@ -103,6 +104,11 @@
 /** @example c-vt-grid-ref-tracked/src/main.c
  * This example demonstrates how to track a grid ref as the terminal scrolls,
  * detect when it loses its value, and move it to a new point.
+ */
+
+/** @example c-vt-compression/src/main.c
+ * This example demonstrates how to schedule incremental scrollback compression
+ * after compression-relevant terminal activity becomes idle.
  */
 
 /** @example c-vt-selection-gesture/src/main.c

@@ -156,6 +156,9 @@ const COMMAND_QUEUE_INITIAL = 8;
 /// session.
 ///
 pub const Viewer = struct {
+    /// I/O implementation used for all internal state.
+    io: std.Io,
+
     /// Allocator used for all internal state.
     alloc: Allocator,
 
@@ -265,12 +268,13 @@ pub const Viewer = struct {
     ///
     /// The given allocator is used for all internal state. You must
     /// call deinit when you're done with the viewer to free it.
-    pub fn init(alloc: Allocator) Allocator.Error!Viewer {
+    pub fn init(io: std.Io, alloc: Allocator) Allocator.Error!Viewer {
         // Create our initial command queue
         var command_queue: CommandQueue = try .init(alloc, COMMAND_QUEUE_INITIAL);
         errdefer command_queue.deinit(alloc);
 
         return .{
+            .io = io,
             .alloc = alloc,
             .state = .startup_block,
             // The default value here is meaningless. We don't get started
@@ -639,6 +643,7 @@ pub const Viewer = struct {
             panes.deinit(self.alloc);
         }
         for (windows) |window| try initLayout(
+            self.io,
             self.alloc,
             &self.panes,
             &panes,
@@ -723,7 +728,7 @@ pub const Viewer = struct {
         session_id: usize,
     ) (Allocator.Error || std.Io.Writer.Error)!void {
         // Build up a new viewer. Its the easiest way to reset ourselves.
-        var replacement: Viewer = try .init(self.alloc);
+        var replacement: Viewer = try .init(self.io, self.alloc);
         errdefer replacement.deinit();
 
         // Our actions must start out empty so we don't mix arenas
@@ -1115,6 +1120,7 @@ pub const Viewer = struct {
     }
 
     fn initLayout(
+        io: std.Io,
         gpa_alloc: Allocator,
         panes_old: *const PanesMap,
         panes_new: *PanesMap,
@@ -1125,6 +1131,7 @@ pub const Viewer = struct {
             .horizontal, .vertical => |layouts| {
                 for (layouts) |l| {
                     try initLayout(
+                        io,
                         gpa_alloc,
                         panes_old,
                         panes_new,
@@ -1149,7 +1156,7 @@ pub const Viewer = struct {
                 // TODO: We need to gracefully handle overflow of our
                 // max cols/width here. In practice we shouldn't hit this
                 // so we cast but its not safe.
-                var t: Terminal = try .init(gpa_alloc, .{
+                var t: Terminal = try .init(io, gpa_alloc, .{
                     .cols = @intCast(layout.width),
                     .rows = @intCast(layout.height),
                 });
@@ -1494,7 +1501,7 @@ fn testViewer(viewer: *Viewer, steps: []const TestStep) !void {
 }
 
 test "immediate exit" {
-    var viewer = try Viewer.init(testing.allocator);
+    var viewer = try Viewer.init(testing.io, testing.allocator);
     defer viewer.deinit();
 
     try testViewer(&viewer, &.{
@@ -1514,7 +1521,7 @@ test "immediate exit" {
 }
 
 test "session changed resets state" {
-    var viewer = try Viewer.init(testing.allocator);
+    var viewer = try Viewer.init(testing.io, testing.allocator);
     defer viewer.deinit();
 
     try testViewer(&viewer, &.{
@@ -1605,7 +1612,7 @@ test "session changed resets state" {
 }
 
 test "initial flow" {
-    var viewer = try Viewer.init(testing.allocator);
+    var viewer = try Viewer.init(testing.io, testing.allocator);
     defer viewer.deinit();
 
     try testViewer(&viewer, &.{
@@ -1786,7 +1793,7 @@ test "initial flow" {
 }
 
 test "layout change" {
-    var viewer = try Viewer.init(testing.allocator);
+    var viewer = try Viewer.init(testing.io, testing.allocator);
     defer viewer.deinit();
 
     try testViewer(&viewer, &.{
@@ -1857,7 +1864,7 @@ test "layout change" {
 }
 
 test "layout_change does not return command when queue not empty" {
-    var viewer = try Viewer.init(testing.allocator);
+    var viewer = try Viewer.init(testing.io, testing.allocator);
     defer viewer.deinit();
 
     try testViewer(&viewer, &.{
@@ -1918,7 +1925,7 @@ test "layout_change does not return command when queue not empty" {
 }
 
 test "layout_change returns command when queue was empty" {
-    var viewer = try Viewer.init(testing.allocator);
+    var viewer = try Viewer.init(testing.io, testing.allocator);
     defer viewer.deinit();
 
     try testViewer(&viewer, &.{
@@ -1985,7 +1992,7 @@ test "layout_change returns command when queue was empty" {
 }
 
 test "window_add queues list_windows when queue empty" {
-    var viewer = try Viewer.init(testing.allocator);
+    var viewer = try Viewer.init(testing.io, testing.allocator);
     defer viewer.deinit();
 
     try testViewer(&viewer, &.{
@@ -2046,7 +2053,7 @@ test "window_add queues list_windows when queue empty" {
 }
 
 test "window_add queues list_windows when queue not empty" {
-    var viewer = try Viewer.init(testing.allocator);
+    var viewer = try Viewer.init(testing.io, testing.allocator);
     defer viewer.deinit();
 
     try testViewer(&viewer, &.{
@@ -2102,7 +2109,7 @@ test "window_add queues list_windows when queue not empty" {
 }
 
 test "two pane flow with pane state" {
-    var viewer = try Viewer.init(testing.allocator);
+    var viewer = try Viewer.init(testing.io, testing.allocator);
     defer viewer.deinit();
 
     try testViewer(&viewer, &.{

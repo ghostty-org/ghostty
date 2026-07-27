@@ -141,10 +141,31 @@ pub const unicode = struct {
     pub const graphemeWidth = unicode_pkg.graphemeWidth;
 };
 
+/// Used for MSVC builds (see below)
+var msvc_fltused: c_int = 1;
+
 comptime {
     // If we're building the C library (vs. the Zig module) then
     // we want to reference the C API so that it gets exported.
     if (@import("root") == lib) {
+        // MSVC requires this marker whenever floating-point code is present.
+        // Zig's compiler_rt only provides it when libc is not linked.
+        if (builtin.os.tag == .windows and
+            builtin.abi == .msvc and
+            builtin.link_mode == .static)
+        {
+            @export(
+                &msvc_fltused,
+                .{ .name = "_fltused" },
+            );
+        }
+
+        // Force-reference our memset override so its export is
+        // emitted. This must stay inside the root guard so that
+        // downstream Zig module consumers don't get the override
+        // injected into their binaries. See quirks_memset.zig.
+        _ = @import("quirks_memset.zig");
+
         const c = terminal.c_api;
         @export(&c.key_event_new, .{ .name = "ghostty_key_event_new" });
         @export(&c.key_event_free, .{ .name = "ghostty_key_event_free" });
@@ -235,6 +256,8 @@ comptime {
         @export(&c.terminal_selection_format_alloc, .{ .name = "ghostty_terminal_selection_format_alloc" });
         @export(&c.render_state_new, .{ .name = "ghostty_render_state_new" });
         @export(&c.render_state_update, .{ .name = "ghostty_render_state_update" });
+        @export(&c.render_state_begin_update, .{ .name = "ghostty_render_state_begin_update" });
+        @export(&c.render_state_end_update, .{ .name = "ghostty_render_state_end_update" });
         @export(&c.render_state_get, .{ .name = "ghostty_render_state_get" });
         @export(&c.render_state_get_multi, .{ .name = "ghostty_render_state_get_multi" });
         @export(&c.render_state_set, .{ .name = "ghostty_render_state_set" });
@@ -259,6 +282,8 @@ comptime {
         @export(&c.terminal_set, .{ .name = "ghostty_terminal_set" });
         @export(&c.terminal_vt_write, .{ .name = "ghostty_terminal_vt_write" });
         @export(&c.terminal_scroll_viewport, .{ .name = "ghostty_terminal_scroll_viewport" });
+        @export(&c.terminal_compression_activity, .{ .name = "ghostty_terminal_compression_activity" });
+        @export(&c.terminal_compress, .{ .name = "ghostty_terminal_compress" });
         @export(&c.terminal_mode_get, .{ .name = "ghostty_terminal_mode_get" });
         @export(&c.terminal_mode_set, .{ .name = "ghostty_terminal_mode_set" });
         @export(&c.terminal_get, .{ .name = "ghostty_terminal_get" });
@@ -335,30 +360,53 @@ comptime {
     }
 }
 
-pub const std_options: std.Options = options: {
-    if (builtin.target.cpu.arch.isWasm()) break :options .{
+pub const std_options: std.Options = opts: {
+    var options: std.Options = .{};
+
+    if (builtin.target.cpu.arch.isWasm()) {
         // Wasm builds we specifically want to optimize for space with small
         // releases so we bump up to warn. Everything else acts pretty normal.
-        .log_level = switch (builtin.mode) {
+        options.log_level = switch (builtin.mode) {
             .Debug => .debug,
             .ReleaseSmall => .warn,
             else => .info,
-        },
+        };
 
         // Wasm doesn't have access to stdio so we have a custom log function.
-        .logFn = @import("os/wasm/log.zig").log,
-    };
+        options.logFn = @import("os/wasm/log.zig").log;
+    } else if (terminal.options.c_abi) {
+        // For C ABI builds, use a custom log function that dispatches to an
+        // embedder-provided callback (or silently discards when none is set).
+        options.logFn = @import("terminal/c/sys.zig").logFn;
+    }
 
-    // For C ABI builds, use a custom log function that dispatches to an
-    // embedder-provided callback (or silently discards when none is set).
-    if (terminal.options.c_abi) break :options .{
-        .logFn = @import("terminal/c/sys.zig").logFn,
-    };
+    if (builtin.target.os.tag.isDarwin() and builtin.target.os.tag != .macos) {
+        // If are building for a non-MacOS Darwin target (e.g., iOS), we need to
+        // disable stack tracing for the time being. This is due to the fact that
+        // Zig switched to using _dyld_get_image_header_containing_address and some
+        // other (deprecated) calls to speed up stack unwinding; these calls are
+        // available on MacOS, but not on other platforms.
+        //
+        // A fix has already been submitted to exempt non-MacOS (but still Darwin)
+        // targets, so this can likely be removed in Zig 0.17.0, or a 0.16.x patch
+        // version if it releases beforehand.
+        //
+        // More details:
+        //   https://codeberg.org/ziglang/zig/commit/89f86e46d278a35a613bbc662cdd3f65ffc76ed7
+        //
+        options.allow_stack_tracing = false;
+    }
 
-    break :options .{};
+    break :opts options;
 };
 
 test {
+    // Zig 0.16.0 has made test logging more strict. Now, *anything* that gets
+    // printed to stderr results in a "failed command" message, even if the
+    // tests ultimately passed. To reduce confusion here (and honestly, test
+    // log spam in general), we bump the default testing log level to error.
+    @import("std").testing.log_level = std.log.Level.err;
+
     _ = terminal;
     _ = @import("lib/main.zig");
     @import("std").testing.refAllDecls(input);

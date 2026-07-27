@@ -2,6 +2,7 @@ const std = @import("std");
 const fs = std.fs;
 const Allocator = std.mem.Allocator;
 const args = @import("args.zig");
+const global = @import("../global.zig");
 const Action = @import("ghostty.zig").Action;
 const Duration = @import("../config.zig").Config.Duration;
 pub const Entry = @import("ssh-cache/Entry.zig");
@@ -64,13 +65,13 @@ pub fn run(alloc_gpa: Allocator) !u8 {
     defer opts.deinit();
 
     var stdout_buffer: [1024]u8 = undefined;
-    var stdout_file: std.fs.File = .stdout();
-    var stdout_writer = stdout_file.writer(&stdout_buffer);
+    var stdout_file: std.Io.File = .stdout();
+    var stdout_writer = stdout_file.writer(global.io(), &stdout_buffer);
     const stdout = &stdout_writer.interface;
 
     var stderr_buffer: [1024]u8 = undefined;
-    var stderr_file: std.fs.File = .stderr();
-    var stderr_writer = stderr_file.writer(&stderr_buffer);
+    var stderr_file: std.Io.File = .stderr();
+    var stderr_writer = stderr_file.writer(global.io(), &stderr_buffer);
     const stderr = &stderr_writer.interface;
 
     // The cache is queried by a positional destination (`user@host` or a
@@ -81,7 +82,7 @@ pub fn run(alloc_gpa: Allocator) !u8 {
     var query: ?[]const u8 = null;
     var flags: std.ArrayList([]const u8) = .empty;
     {
-        var iter = try args.argsIterator(alloc_gpa);
+        var iter = try args.argsIterator(alloc_gpa, global.args());
         defer iter.deinit();
         while (iter.next()) |arg| {
             const is_host_flag = std.mem.startsWith(u8, arg, "--host=");
@@ -174,7 +175,11 @@ pub fn runInner(
     }
 
     if (opts.add) |dest| {
-        cache.add(alloc, dest, std.time.timestamp()) catch |err| switch (err) {
+        cache.add(
+            alloc,
+            dest,
+            std.Io.Timestamp.now(global.io(), .real).toSeconds(),
+        ) catch |err| switch (err) {
             error.InvalidCacheKey => {
                 try stderr.print(
                     "Error: Invalid destination '{s}' (expected hostname or user@hostname)\n",
@@ -295,7 +300,7 @@ fn listEntries(
         widest = @max(widest, entry.hostname.len);
     }
 
-    const now = std.time.timestamp();
+    const now = std.Io.Timestamp.now(global.io(), .real).toSeconds();
     for (items.items) |entry| {
         try writer.print("{s}", .{entry.hostname});
         try writer.splatByteAll(' ', widest - entry.hostname.len + 2);

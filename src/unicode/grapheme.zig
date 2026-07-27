@@ -141,22 +141,28 @@ inline fn invalidCodepoint(cp: anytype) bool {
 
 /// This is all the structures and data for the precomputed lookup table
 /// for all possible permutations of state and grapheme break properties.
-/// Precomputation requires 2^13 keys of 4 bit values so the whole table is
-/// 8KB.
+/// Precomputation requires 2^13 keys of byte-sized values so the whole
+/// table is 8KB.
 const Precompute = struct {
     const Key = packed struct(u13) {
         state: uucode.grapheme.BreakState,
-        gb1: uucode.x.types.GraphemeBreakNoControl,
-        gb2: uucode.x.types.GraphemeBreakNoControl,
+        gb1: uucode.types.GraphemeBreakNoControl,
+        gb2: uucode.types.GraphemeBreakNoControl,
 
         fn index(self: Key) usize {
             return @intCast(@as(u13, @bitCast(self)));
         }
     };
 
-    const Value = packed struct(u4) {
+    const Value = packed struct(u8) {
         result: bool,
         state: uucode.grapheme.BreakState,
+
+        /// Explicit padding to give the struct a power-of-two backing
+        /// integer, for the same reason as `Properties._padding` (avoids
+        /// exotic-width LLVM integer accesses that defeat register
+        /// promotion). @sizeOf was already 1, so the table stays 8KB.
+        _padding: u4 = 0,
     };
 
     const data = precompute: {
@@ -171,18 +177,18 @@ const Precompute = struct {
         };
 
         @setEvalBranchQuota(10_000);
-        const info = @typeInfo(uucode.x.types.GraphemeBreakNoControl).@"enum";
+        const info = @typeInfo(uucode.types.GraphemeBreakNoControl).@"enum";
         for (0..max_state_int + 1) |state_int| {
             for (info.fields) |field1| {
                 for (info.fields) |field2| {
                     var state: uucode.grapheme.BreakState = @enumFromInt(state_int);
 
                     const key: Key = .{
-                        .gb1 = @field(uucode.x.types.GraphemeBreakNoControl, field1.name),
-                        .gb2 = @field(uucode.x.types.GraphemeBreakNoControl, field2.name),
+                        .gb1 = @field(uucode.types.GraphemeBreakNoControl, field1.name),
+                        .gb2 = @field(uucode.types.GraphemeBreakNoControl, field2.name),
                         .state = state,
                     };
-                    const v = uucode.x.grapheme.computeGraphemeBreakNoControl(
+                    const v = uucode.grapheme.computeGraphemeBreakNoControl(
                         key.gb1,
                         key.gb2,
                         &state,
