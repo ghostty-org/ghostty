@@ -254,6 +254,63 @@ pub const Command = union(enum) {
         decscusr,
         decstbm,
         decslrm,
+
+        /// Fixed upper bound for an encoded DECRPSS response. The comptime
+        /// calculated max at the time of writing this was around 63 so this
+        /// leaves a ton of space for future stuff. We don't do the comptime
+        /// calculation cause it complicated the implementation a bit too
+        /// much.
+        pub const max_response_bytes = 256;
+
+        /// Encode the response for this request.
+        pub fn encode(
+            self: DECRQSS,
+            t: *terminal.Terminal,
+            response: []u8,
+        ) ![]const u8 {
+            var writer: std.Io.Writer = .fixed(response);
+
+            const prefix_fmt = "\x1bP{d}$r";
+            const prefix_len = std.fmt.comptimePrint(prefix_fmt, .{0}).len;
+            writer.end = prefix_len;
+
+            switch (self) {
+                .none => {},
+                .sgr => {
+                    const buf = try t.printAttributes(writer.buffer[writer.end..]);
+                    writer.end += buf.len;
+                    try writer.writeByte('m');
+                },
+                .decscusr => {
+                    const blink = t.modes.get(.cursor_blinking);
+                    const style: u8 = switch (t.screens.active.cursor.cursor_style) {
+                        .block, .block_hollow => if (blink) 1 else 2,
+                        .underline => if (blink) 3 else 4,
+                        .bar => if (blink) 5 else 6,
+                    };
+                    try writer.print("{d} q", .{style});
+                },
+                .decstbm => try writer.print("{d};{d}r", .{
+                    t.scrolling_region.top + 1,
+                    t.scrolling_region.bottom + 1,
+                }),
+                .decslrm => if (t.modes.get(.enable_left_and_right_margin)) {
+                    try writer.print("{d};{d}s", .{
+                        t.scrolling_region.left + 1,
+                        t.scrolling_region.right + 1,
+                    });
+                },
+            }
+
+            const valid = writer.end > prefix_len;
+            try writer.writeAll("\x1b\\");
+            _ = try std.fmt.bufPrint(
+                response[0..prefix_len],
+                prefix_fmt,
+                .{@intFromBool(valid)},
+            );
+            return writer.buffered();
+        }
     };
 };
 
@@ -403,6 +460,89 @@ test "DECRQSS invalid command" {
     _ = h.put(' ');
     _ = h.put('q');
     try testing.expect(h.unhook() == null);
+}
+
+test "DECRQSS response encoding" {
+    const testing = std.testing;
+
+    var t: terminal.Terminal = try .init(
+        testing.io,
+        testing.allocator,
+        .{ .cols = 80, .rows = 24 },
+    );
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        fn expectResponse(
+            term: *terminal.Terminal,
+            request: Command.DECRQSS,
+            expected: []const u8,
+        ) !void {
+            var buf: [Command.DECRQSS.max_response_bytes]u8 = undefined;
+            const encoded = try request.encode(term, &buf);
+            try testing.expectEqualStrings(expected, encoded);
+        }
+    };
+
+    try S.expectResponse(&t, .none, "\x1BP0$r\x1B\\");
+    try S.expectResponse(&t, .sgr, "\x1BP1$r0m\x1B\\");
+
+    try t.setAttribute(.bold);
+    try t.setAttribute(.{ .underline = .curly });
+    try S.expectResponse(&t, .sgr, "\x1BP1$r0;1;4:3m\x1B\\");
+
+    t.setCursorStyle(.steady_underline);
+    try S.expectResponse(&t, .decscusr, "\x1BP1$r4 q\x1B\\");
+
+    t.scrolling_region.top = 4;
+    t.scrolling_region.bottom = 19;
+    try S.expectResponse(&t, .decstbm, "\x1BP1$r5;20r\x1B\\");
+
+    try S.expectResponse(&t, .decslrm, "\x1BP0$r\x1B\\");
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.scrolling_region.left = 2;
+    t.scrolling_region.right = 69;
+    try S.expectResponse(&t, .decslrm, "\x1BP1$r3;70s\x1B\\");
+}
+
+test "DECRQSS largest response fits fixed buffer" {
+    const testing = std.testing;
+
+    var t: terminal.Terminal = try .init(
+        testing.io,
+        testing.allocator,
+        .{ .cols = 80, .rows = 24 },
+    );
+    defer t.deinit(testing.allocator);
+
+    try t.setAttribute(.bold);
+    try t.setAttribute(.faint);
+    try t.setAttribute(.italic);
+    try t.setAttribute(.{ .underline = .dashed });
+    try t.setAttribute(.blink);
+    try t.setAttribute(.inverse);
+    try t.setAttribute(.invisible);
+    try t.setAttribute(.strikethrough);
+    try t.setAttribute(.{ .direct_color_fg = .{
+        .r = 255,
+        .g = 255,
+        .b = 255,
+    } });
+    try t.setAttribute(.{ .direct_color_bg = .{
+        .r = 255,
+        .g = 255,
+        .b = 255,
+    } });
+
+    var buf: [Command.DECRQSS.max_response_bytes]u8 = undefined;
+    const encoded = try Command.DECRQSS.sgr.encode(&t, &buf);
+
+    const expected =
+        "\x1BP1$r0;1;2;3;4:5;5;7;8;9" ++
+        ";38:2::255:255:255" ++
+        ";48:2::255:255:255m\x1B\\";
+    try testing.expectEqualStrings(expected, encoded);
+    try testing.expect(encoded.len <= Command.DECRQSS.max_response_bytes);
 }
 
 test "tmux enter and implicit exit" {

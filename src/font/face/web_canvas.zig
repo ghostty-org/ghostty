@@ -189,7 +189,7 @@ pub const Face = struct {
         alloc: Allocator,
         atlas: *font.Atlas,
         glyph_index: u32,
-        opts: font.face.RenderOptions,
+        opts: font.Glyph.RenderOptions,
     ) !font.Glyph {
         _ = opts;
 

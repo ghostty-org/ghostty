@@ -10,6 +10,7 @@ pub const dcs = @import("dcs.zig");
 pub const osc = @import("osc.zig");
 pub const point = @import("point.zig");
 pub const color = @import("color.zig");
+pub const clipboard = @import("clipboard.zig");
 pub const device_attributes = @import("device_attributes.zig");
 pub const device_status = @import("device_status.zig");
 pub const focus = @import("focus.zig");
@@ -75,6 +76,9 @@ pub const Attribute = sgr.Attribute;
 pub const Options = @import("build_options.zig").Options;
 pub const options = @import("terminal_options");
 
+/// Whether this target supports terminal page compression.
+pub const compression_enabled = @import("mem.zig").canReclaim(.strict);
+
 /// This is set to true when we're building the C library.
 pub const c_api = if (options.c_abi) @import("c/main.zig") else void;
 
@@ -83,7 +87,9 @@ test {
 
     // Internals
     _ = @import("bitmap_allocator.zig");
+    _ = @import("compress.zig");
     _ = @import("hash_map.zig");
+    _ = @import("mem.zig");
     _ = @import("ref_counted_set.zig");
     _ = @import("size.zig");
 }

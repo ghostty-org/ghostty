@@ -315,6 +315,16 @@ class QuickTerminalController: BaseTerminalController {
         animateOut()
     }
 
+    override func newSplit(
+        at oldView: Ghostty.SurfaceView,
+        direction: SplitTree<Ghostty.SurfaceView>.NewDirection,
+        baseConfig config: Ghostty.SurfaceConfiguration? = nil
+    ) -> Ghostty.SurfaceView? {
+        var config = config ?? Ghostty.SurfaceConfiguration()
+        config.environmentVariables["GHOSTTY_QUICK_TERMINAL"] = "1"
+        return super.newSplit(at: oldView, direction: direction, baseConfig: config)
+    }
+
     // MARK: Methods
 
     func toggle() {

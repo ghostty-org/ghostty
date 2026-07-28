@@ -6,6 +6,7 @@ export module ghostty {
 
   # Wrap `ssh` with `ghostty +ssh` and translate the shell-integration
   # feature flags into command options.
+  @complete external
   export def --wrapped ssh [...args] {
     if not ((has_feature "ssh-env") or (has_feature "ssh-terminfo")) {
       ^ssh ...$args
@@ -24,6 +25,7 @@ export module ghostty {
   }
 
   # Wrap `sudo` to preserve Ghostty's TERMINFO environment variable
+  @complete external
   export def --wrapped sudo [...args] {
     mut sudo_args = $args
 

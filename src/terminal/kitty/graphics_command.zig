@@ -149,6 +149,26 @@ pub const Parser = struct {
         }
     }
 
+    /// Feed a slice of bytes to the parser. This is equivalent to
+    /// calling feed for each byte in order, but once we're in the data
+    /// state the remainder of the slice is appended in bulk, avoiding
+    /// per-byte overhead for large payloads.
+    pub fn feedSlice(self: *Parser, bytes: []const u8) !void {
+        var rem = bytes;
+        while (rem.len > 0) {
+            if (self.state == .data) {
+                if (self.data.items.len + rem.len > self.max_bytes) {
+                    return error.OutOfMemory;
+                }
+                try self.data.appendSlice(self.arena.child_allocator, rem);
+                return;
+            }
+
+            try self.feed(rem[0]);
+            rem = rem[1..];
+        }
+    }
+
     /// Complete the parsing. This must be called after all the
     /// bytes have been fed to the parser.
     ///
@@ -402,6 +422,7 @@ pub const Transmission = struct {
     placement_id: u32 = 0, // p
     compression: Compression = .none, // o
     more_chunks: bool = false, // m
+    usage: Usage = .default, // N
 
     pub const Format = lib.Enum(lib.target, &.{
         "rgb", // 24
@@ -425,6 +446,19 @@ pub const Transmission = struct {
         "none",
         "zlib_deflate", // z
     });
+
+    /// Usage hints allow for optimising resource consumption strategies.
+    ///
+    /// https://sw.kovidgoyal.net/kitty/graphics-protocol/#usage-hints
+    pub const Usage = packed struct(u32) {
+        /// Image with this usage hint is assumed to be used for only a short
+        /// time, so may be evicted before other images if memory pressure is
+        /// encountered.
+        transient: bool = false,
+        _padding: u31 = 0,
+
+        pub const default: Usage = .{};
+    };
 
     pub fn formatBpp(format: Format) u8 {
         return switch (format) {
@@ -507,6 +541,10 @@ pub const Transmission = struct {
             if (kv.get('m')) |v| {
                 result.more_chunks = v > 0;
             }
+        }
+
+        if (kv.get('N')) |v| {
+            result.usage = @bitCast(v);
         }
 
         return result;
@@ -985,6 +1023,77 @@ test "transmission command" {
     try testing.expectEqual(Transmission.Format.rgb, v.format);
     try testing.expectEqual(@as(u32, 10), v.width);
     try testing.expectEqual(@as(u32, 20), v.height);
+    try testing.expectEqual(false, v.usage.transient);
+}
+
+test "transmission command with transient hint" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var p = Parser.init(alloc, 1024 * 1024);
+    defer p.deinit();
+
+    const input = "f=24,s=10,v=20,N=1";
+    for (input) |c| try p.feed(c);
+    const command = try p.complete(alloc);
+    defer command.deinit(alloc);
+
+    try testing.expect(command.control == .transmit);
+    const v = command.control.transmit;
+    try testing.expectEqual(Transmission.Format.rgb, v.format);
+    try testing.expectEqual(@as(u32, 10), v.width);
+    try testing.expectEqual(@as(u32, 20), v.height);
+    try testing.expectEqual(true, v.usage.transient);
+}
+
+test "feedSlice matches per-byte feed" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const input = "f=24,s=10,v=20;aGVsbG8gd29ybGQ=";
+
+    var p1 = Parser.init(alloc, 1024 * 1024);
+    defer p1.deinit();
+    for (input) |c| try p1.feed(c);
+    const c1 = try p1.complete(alloc);
+    defer c1.deinit(alloc);
+
+    var p2 = Parser.init(alloc, 1024 * 1024);
+    defer p2.deinit();
+    try p2.feedSlice(input);
+    const c2 = try p2.complete(alloc);
+    defer c2.deinit(alloc);
+
+    try testing.expect(c1.control == .transmit);
+    try testing.expect(c2.control == .transmit);
+    try testing.expectEqualStrings(c1.data, c2.data);
+}
+
+test "feedSlice across slice boundaries" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var p = Parser.init(alloc, 1024 * 1024);
+    defer p.deinit();
+
+    try p.feedSlice("f=24,s=10");
+    try p.feedSlice(",v=20;aGVsbG8g");
+    try p.feedSlice("d29ybGQ=");
+    const command = try p.complete(alloc);
+    defer command.deinit(alloc);
+
+    try testing.expect(command.control == .transmit);
+
+    // The payload is base64-decoded on completion.
+    try testing.expectEqualStrings("hello world", command.data);
+}
+
+test "feedSlice respects max_bytes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var p = Parser.init(alloc, 4);
+    defer p.deinit();
+
+    try p.feedSlice("f=24;ab");
+    try testing.expectError(error.OutOfMemory, p.feedSlice("cde"));
 }
 
 test "transmission ignores 'm' if medium is not direct" {

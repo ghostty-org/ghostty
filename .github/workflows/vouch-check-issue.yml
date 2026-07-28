@@ -14,11 +14,11 @@ jobs:
           app-id: ${{ secrets.VOUCH_APP_ID }}
           private-key: ${{ secrets.VOUCH_APP_PRIVATE_KEY }}
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: .github/issue-unvouched-message
 
-      - uses: mitchellh/vouch/action/check-issue@52aec3d64655edf2fdb58f298e02da754a056daf # unreleased main
+      - uses: mitchellh/vouch/action/check-issue@d66fa29a64600490892131ad87597c30c91fcac4 # v1.5.0
         with:
           issue-number: ${{ github.event.issue.number }}
           auto-close: true

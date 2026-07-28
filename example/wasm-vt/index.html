@@ -199,20 +199,15 @@
                 const rows = parseInt(document.getElementById('rows').value, 10);
                 const vtText = parseEscapes(document.getElementById('vtInput').value);
 
-                const TERM_OPTS_SIZE = typeLayout['GhosttyTerminalOptions'].size;
-                const optsPtr = wasmInstance.exports.ghostty_wasm_alloc_u8_array(TERM_OPTS_SIZE);
-                new Uint8Array(getBuffer(), optsPtr, TERM_OPTS_SIZE).fill(0);
-                const optsView = new DataView(getBuffer(), optsPtr, TERM_OPTS_SIZE);
-                setField(optsView, 'GhosttyTerminalOptions', 'cols', cols);
-                setField(optsView, 'GhosttyTerminalOptions', 'rows', rows);
-                setField(optsView, 'GhosttyTerminalOptions', 'max_scrollback', 0);
-
                 // Allocate pointer to receive the terminal handle
                 const termPtrPtr = wasmInstance.exports.ghostty_wasm_alloc_opaque();
 
                 // Create terminal
-                const newResult = wasmInstance.exports.ghostty_terminal_new(0, termPtrPtr, optsPtr);
-                wasmInstance.exports.ghostty_wasm_free_u8_array(optsPtr, TERM_OPTS_SIZE);
+                const newResult = wasmInstance.exports.ghostty_terminal_new(
+                    0,
+                    termPtrPtr,
+                    cols,
+                    rows);
 
                 if (newResult !== GHOSTTY_SUCCESS) {
                     throw new Error(`ghostty_terminal_new failed with result ${newResult}`);

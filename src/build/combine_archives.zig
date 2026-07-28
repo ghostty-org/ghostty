@@ -11,11 +11,10 @@
 
 const std = @import("std");
 
-pub fn main() !void {
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
-    const alloc = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const alloc = init.arena.allocator();
 
-    const args = try std.process.argsAlloc(alloc);
+    const args = try init.minimal.args.toSlice(alloc);
     if (args.len < 4) {
         std.log.err("usage: combine_archives <zig_exe> <output> <input...>", .{});
         std.process.exit(1);
@@ -37,19 +36,20 @@ pub fn main() !void {
     }
     try script.appendSlice(alloc, "SAVE\nEND\n");
 
-    var child: std.process.Child = .init(&.{ zig_exe, "ar", "-M" }, alloc);
-    child.stdin_behavior = .Pipe;
-    child.stdout_behavior = .Inherit;
-    child.stderr_behavior = .Inherit;
+    var child = try std.process.spawn(init.io, .{
+        .argv = &.{ zig_exe, "ar", "-M" },
+        .stdin = .pipe,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    });
 
-    try child.spawn();
-    try child.stdin.?.writeAll(script.items);
-    child.stdin.?.close();
+    try child.stdin.?.writeStreamingAll(init.io, script.items);
+    child.stdin.?.close(init.io);
     child.stdin = null;
 
-    const term = try child.wait();
-    if (term.Exited != 0) {
-        std.log.err("zig ar -M exited with code {d}", .{term.Exited});
+    const term = try child.wait(init.io);
+    if (term.exited != 0) {
+        std.log.err("zig ar -M exited with code {d}", .{term.exited});
         std.process.exit(1);
     }
 }

@@ -2,7 +2,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const builtin = @import("builtin");
 const posix = std.posix;
-const xev = @import("../global.zig").xev;
+const global = @import("../global.zig");
+const xev = global.xev;
 
 const log = std.log.scoped(.flatpak);
 
@@ -10,7 +11,10 @@ const log = std.log.scoped(.flatpak);
 pub fn isFlatpak() bool {
     // If we're not on Linux then we'll make this comptime false.
     if (comptime builtin.os.tag != .linux) return false;
-    return if (std.fs.accessAbsolute("/.flatpak-info", .{})) true else |_| false;
+    return if (std.Io.Dir.accessAbsolute(global.io(), "/.flatpak-info", .{}))
+        true
+    else |_|
+        false;
 }
 
 /// A struct to help execute commands on the host via the
@@ -28,11 +32,8 @@ pub fn isFlatpak() bool {
 /// Requires GIO, GLib to be available and linked.
 pub const FlatpakHostCommand = struct {
     const fd_t = posix.fd_t;
-    const EnvMap = std.process.EnvMap;
-    const c = @cImport({
-        @cInclude("gio/gio.h");
-        @cInclude("gio/gunixfdlist.h");
-    });
+    const EnvMap = std.process.Environ.Map;
+    const gio_c = @import("gio_c");
     /// Flags for HostCommand method
     ///
     /// Ref: https://docs.flatpak.org/en/latest/libflatpak-api-reference.html#gdbus-method-org-freedesktop-Flatpak-Development.HostCommand
@@ -65,8 +66,8 @@ pub const FlatpakHostCommand = struct {
     /// State of the process. This is updated by the dedicated thread it
     /// runs in and is protected by the given lock and condition variable.
     state: State = .{ .init = {} },
-    state_mutex: std.Thread.Mutex = .{},
-    state_cv: std.Thread.Condition = .{},
+    state_mutex: std.Io.Mutex = .init,
+    state_cv: std.Io.Condition = .init,
 
     /// State the process is in. This can't be inspected directly, you
     /// must use getters on the struct to get access.
@@ -84,8 +85,8 @@ pub const FlatpakHostCommand = struct {
             pid: u32,
             loop_xev: ?*xev.Loop,
             completion: ?*Completion,
-            subscription: c.guint,
-            loop: *c.GMainLoop,
+            subscription: gio_c.guint,
+            loop: *gio_c.GMainLoop,
         },
 
         /// Process exited
@@ -120,14 +121,14 @@ pub const FlatpakHostCommand = struct {
     /// Precondition: The self pointer MUST be stable.
     pub fn spawn(self: *FlatpakHostCommand, alloc: Allocator) !u32 {
         const thread = try std.Thread.spawn(.{}, threadMain, .{ self, alloc });
-        thread.setName("flatpak-host-command") catch {};
+        thread.setName(global.io(), "flatpak-host-command") catch {};
         // We don't track this thread, it will terminate on its own on command exit
         thread.detach();
 
         // Wait for the process to start or error.
-        self.state_mutex.lock();
-        defer self.state_mutex.unlock();
-        while (self.state == .init) self.state_cv.wait(&self.state_mutex);
+        self.state_mutex.lockUncancelable(global.io());
+        defer self.state_mutex.unlock(global.io());
+        while (self.state == .init) self.state_cv.waitUncancelable(global.io(), &self.state_mutex);
 
         return switch (self.state) {
             .init => unreachable,
@@ -140,8 +141,8 @@ pub const FlatpakHostCommand = struct {
     /// Wait for the process to end and return the exit status. This
     /// can only be called ONCE. Once this returns, the state is reset.
     pub fn wait(self: *FlatpakHostCommand) !u8 {
-        self.state_mutex.lock();
-        defer self.state_mutex.unlock();
+        self.state_mutex.lockUncancelable(global.io());
+        defer self.state_mutex.unlock(global.io());
 
         while (true) {
             switch (self.state) {
@@ -150,12 +151,12 @@ pub const FlatpakHostCommand = struct {
                 .started => {},
                 .exited => |v| {
                     self.state = .{ .init = {} };
-                    self.state_cv.broadcast();
+                    self.state_cv.broadcast(global.io());
                     return v.status;
                 },
             }
 
-            self.state_cv.wait(&self.state_mutex);
+            self.state_cv.waitUncancelable(global.io(), &self.state_mutex);
         }
     }
 
@@ -174,8 +175,8 @@ pub const FlatpakHostCommand = struct {
             r: WaitError!u8,
         ) void,
     ) void {
-        self.state_mutex.lock();
-        defer self.state_mutex.unlock();
+        self.state_mutex.lockUncancelable(global.io());
+        defer self.state_mutex.unlock(global.io());
 
         completion.* = .{
             .callback = (struct {
@@ -234,8 +235,8 @@ pub const FlatpakHostCommand = struct {
     /// command is not in the started state.
     pub fn signal(self: *FlatpakHostCommand, sig: u8, pg: bool) !void {
         const pid = pid: {
-            self.state_mutex.lock();
-            defer self.state_mutex.unlock();
+            self.state_mutex.lockUncancelable(global.io());
+            defer self.state_mutex.unlock(global.io());
             switch (self.state) {
                 .started => |v| break :pid v.pid,
                 else => return,
@@ -243,29 +244,29 @@ pub const FlatpakHostCommand = struct {
         };
 
         // Get our bus connection.
-        var g_err: ?*c.GError = null;
-        defer if (g_err) |ptr| c.g_error_free(ptr);
-        const bus = c.g_bus_get_sync(c.G_BUS_TYPE_SESSION, null, &g_err) orelse {
+        var g_err: ?*gio_c.GError = null;
+        defer if (g_err) |ptr| gio_c.g_error_free(ptr);
+        const bus = gio_c.g_bus_get_sync(gio_c.G_BUS_TYPE_SESSION, null, &g_err) orelse {
             log.warn("signal error getting bus: {s}", .{g_err.?.*.message});
             return Error.FlatpakSetupFail;
         };
-        defer c.g_object_unref(bus);
+        defer gio_c.g_object_unref(bus);
 
-        const reply = c.g_dbus_connection_call_sync(
+        const reply = gio_c.g_dbus_connection_call_sync(
             bus,
             "org.freedesktop.Flatpak",
             "/org/freedesktop/Flatpak/Development",
             "org.freedesktop.Flatpak.Development",
             "HostCommandSignal",
-            c.g_variant_new(
+            gio_c.g_variant_new(
                 "(uub)",
                 pid,
                 sig,
                 @as(c_int, @intCast(@intFromBool(pg))),
             ),
-            c.G_VARIANT_TYPE("()"),
-            c.G_DBUS_CALL_FLAGS_NONE,
-            c.G_MAXINT,
+            gio_c.G_VARIANT_TYPE("()"),
+            gio_c.G_DBUS_CALL_FLAGS_NONE,
+            gio_c.G_MAXINT,
             null,
             &g_err,
         );
@@ -273,31 +274,31 @@ pub const FlatpakHostCommand = struct {
             log.warn("signal send error: {s}", .{g_err.?.*.message});
             return;
         }
-        defer c.g_variant_unref(reply);
+        defer gio_c.g_variant_unref(reply);
     }
 
     fn threadMain(self: *FlatpakHostCommand, alloc: Allocator) void {
         // Create a new thread-local context so that all our sources go
         // to this context and we can run our loop correctly.
-        const ctx = c.g_main_context_new();
-        defer c.g_main_context_unref(ctx);
-        c.g_main_context_push_thread_default(ctx);
-        defer c.g_main_context_pop_thread_default(ctx);
+        const ctx = gio_c.g_main_context_new();
+        defer gio_c.g_main_context_unref(ctx);
+        gio_c.g_main_context_push_thread_default(ctx);
+        defer gio_c.g_main_context_pop_thread_default(ctx);
 
         // Get our loop for the current thread
-        const loop = c.g_main_loop_new(ctx, 1).?;
-        defer c.g_main_loop_unref(loop);
+        const loop = gio_c.g_main_loop_new(ctx, 1).?;
+        defer gio_c.g_main_loop_unref(loop);
 
         // Get our bus connection. This has to remain active until we exit
         // the thread otherwise our signals won't be called.
-        var g_err: ?*c.GError = null;
-        defer if (g_err) |ptr| c.g_error_free(ptr);
-        const bus = c.g_bus_get_sync(c.G_BUS_TYPE_SESSION, null, &g_err) orelse {
+        var g_err: ?*gio_c.GError = null;
+        defer if (g_err) |ptr| gio_c.g_error_free(ptr);
+        const bus = gio_c.g_bus_get_sync(gio_c.G_BUS_TYPE_SESSION, null, &g_err) orelse {
             log.warn("spawn error getting bus: {s}", .{g_err.?.*.message});
             self.updateState(.{ .err = {} });
             return;
         };
-        defer c.g_object_unref(bus);
+        defer gio_c.g_object_unref(bus);
 
         // Spawn the command first. This will setup all our IO.
         self.start(alloc, bus, loop) catch |err| {
@@ -307,7 +308,7 @@ pub const FlatpakHostCommand = struct {
         };
 
         // Run the event loop. It quits in the exit callback.
-        c.g_main_loop_run(loop);
+        gio_c.g_main_loop_run(loop);
     }
 
     /// Start the command. This will start the host command and set the
@@ -318,47 +319,47 @@ pub const FlatpakHostCommand = struct {
     fn start(
         self: *FlatpakHostCommand,
         alloc: Allocator,
-        bus: *c.GDBusConnection,
-        loop: *c.GMainLoop,
+        bus: *gio_c.GDBusConnection,
+        loop: *gio_c.GMainLoop,
     ) !void {
-        var err: ?*c.GError = null;
-        defer if (err) |ptr| c.g_error_free(ptr);
+        var err: ?*gio_c.GError = null;
+        defer if (err) |ptr| gio_c.g_error_free(ptr);
         var arena_allocator = std.heap.ArenaAllocator.init(alloc);
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
         // Our list of file descriptors that we need to send to the process.
-        const fd_list = c.g_unix_fd_list_new();
-        defer c.g_object_unref(fd_list);
-        if (c.g_unix_fd_list_append(fd_list, self.stdin, &err) < 0) {
+        const fd_list = gio_c.g_unix_fd_list_new();
+        defer gio_c.g_object_unref(fd_list);
+        if (gio_c.g_unix_fd_list_append(fd_list, self.stdin, &err) < 0) {
             log.warn("error adding fd: {s}", .{err.?.*.message});
             return Error.FlatpakSetupFail;
         }
-        if (c.g_unix_fd_list_append(fd_list, self.stdout, &err) < 0) {
+        if (gio_c.g_unix_fd_list_append(fd_list, self.stdout, &err) < 0) {
             log.warn("error adding fd: {s}", .{err.?.*.message});
             return Error.FlatpakSetupFail;
         }
-        if (c.g_unix_fd_list_append(fd_list, self.stderr, &err) < 0) {
+        if (gio_c.g_unix_fd_list_append(fd_list, self.stderr, &err) < 0) {
             log.warn("error adding fd: {s}", .{err.?.*.message});
             return Error.FlatpakSetupFail;
         }
 
         // Build our arguments for the file descriptors.
-        const fd_builder = c.g_variant_builder_new(c.G_VARIANT_TYPE("a{uh}"));
-        defer c.g_variant_builder_unref(fd_builder);
-        c.g_variant_builder_add(fd_builder, "{uh}", @as(c_int, 0), self.stdin);
-        c.g_variant_builder_add(fd_builder, "{uh}", @as(c_int, 1), self.stdout);
-        c.g_variant_builder_add(fd_builder, "{uh}", @as(c_int, 2), self.stderr);
+        const fd_builder = gio_c.g_variant_builder_new(gio_c.G_VARIANT_TYPE("a{uh}"));
+        defer gio_c.g_variant_builder_unref(fd_builder);
+        gio_c.g_variant_builder_add(fd_builder, "{uh}", @as(c_int, 0), self.stdin);
+        gio_c.g_variant_builder_add(fd_builder, "{uh}", @as(c_int, 1), self.stdout);
+        gio_c.g_variant_builder_add(fd_builder, "{uh}", @as(c_int, 2), self.stderr);
 
         // Build our env vars
-        const env_builder = c.g_variant_builder_new(c.G_VARIANT_TYPE("a{ss}"));
-        defer c.g_variant_builder_unref(env_builder);
+        const env_builder = gio_c.g_variant_builder_new(gio_c.G_VARIANT_TYPE("a{ss}"));
+        defer gio_c.g_variant_builder_unref(env_builder);
         if (self.env) |env| {
             var it = env.iterator();
             while (it.next()) |pair| {
                 const key = try arena.dupeZ(u8, pair.key_ptr.*);
                 const value = try arena.dupeZ(u8, pair.value_ptr.*);
-                c.g_variant_builder_add(env_builder, "{ss}", key.ptr, value.ptr);
+                gio_c.g_variant_builder_add(env_builder, "{ss}", key.ptr, value.ptr);
             }
         }
 
@@ -373,26 +374,26 @@ pub const FlatpakHostCommand = struct {
         // Get the cwd in case we don't have ours set. A small optimization
         // would be to do this only if we need it but this isn't a
         // common code path.
-        const g_cwd = c.g_get_current_dir();
-        defer c.g_free(g_cwd);
+        const g_cwd = gio_c.g_get_current_dir();
+        defer gio_c.g_free(g_cwd);
 
         // Terminate session if Ghostty drops off the bus (e.g. due to crashes)
         const flags: Flags = .{ .watch_bus = true };
 
         // The params for our RPC call
-        const params = c.g_variant_new(
+        const params = gio_c.g_variant_new(
             "(^ay^aay@a{uh}@a{ss}u)",
             @as(*const anyopaque, if (self.cwd) |*cwd| cwd.ptr else g_cwd),
             args.ptr,
-            c.g_variant_builder_end(fd_builder),
-            c.g_variant_builder_end(env_builder),
+            gio_c.g_variant_builder_end(fd_builder),
+            gio_c.g_variant_builder_end(env_builder),
             @as(c_uint, @bitCast(flags)),
         );
-        _ = c.g_variant_ref_sink(params); // take ownership
-        defer c.g_variant_unref(params);
+        _ = gio_c.g_variant_ref_sink(params); // take ownership
+        defer gio_c.g_variant_unref(params);
 
         // Subscribe to exit notifications
-        const subscription_id = c.g_dbus_connection_signal_subscribe(
+        const subscription_id = gio_c.g_dbus_connection_signal_subscribe(
             bus,
             "org.freedesktop.Flatpak",
             "org.freedesktop.Flatpak.Development",
@@ -404,19 +405,19 @@ pub const FlatpakHostCommand = struct {
             self,
             null,
         );
-        errdefer c.g_dbus_connection_signal_unsubscribe(bus, subscription_id);
+        errdefer gio_c.g_dbus_connection_signal_unsubscribe(bus, subscription_id);
 
         // Go!
-        const reply = c.g_dbus_connection_call_with_unix_fd_list_sync(
+        const reply = gio_c.g_dbus_connection_call_with_unix_fd_list_sync(
             bus,
             "org.freedesktop.Flatpak",
             "/org/freedesktop/Flatpak/Development",
             "org.freedesktop.Flatpak.Development",
             "HostCommand",
             params,
-            c.G_VARIANT_TYPE("(u)"),
-            c.G_DBUS_CALL_FLAGS_NONE,
-            c.G_MAXINT,
+            gio_c.G_VARIANT_TYPE("(u)"),
+            gio_c.G_DBUS_CALL_FLAGS_NONE,
+            gio_c.G_MAXINT,
             fd_list,
             null,
             null,
@@ -425,10 +426,10 @@ pub const FlatpakHostCommand = struct {
             log.warn("Flatpak.HostCommand failed: {s}", .{err.?.*.message});
             return Error.FlatpakRPCFail;
         };
-        defer c.g_variant_unref(reply);
+        defer gio_c.g_variant_unref(reply);
 
         var pid: u32 = 0;
-        c.g_variant_get(reply, "(u)", &pid);
+        gio_c.g_variant_get(reply, "(u)", &pid);
         log.debug("HostCommand started pid={} subscription={}", .{
             pid,
             subscription_id,
@@ -447,31 +448,31 @@ pub const FlatpakHostCommand = struct {
 
     /// Helper to update the state and notify waiters via the cv.
     fn updateState(self: *FlatpakHostCommand, state: State) void {
-        self.state_mutex.lock();
-        defer self.state_mutex.unlock();
-        defer self.state_cv.broadcast();
+        self.state_mutex.lockUncancelable(global.io());
+        defer self.state_mutex.unlock(global.io());
+        defer self.state_cv.broadcast(global.io());
         self.state = state;
     }
 
     fn onExit(
-        bus: ?*c.GDBusConnection,
+        bus: ?*gio_c.GDBusConnection,
         _: [*c]const u8,
         _: [*c]const u8,
         _: [*c]const u8,
         _: [*c]const u8,
-        params: ?*c.GVariant,
+        params: ?*gio_c.GVariant,
         ud: ?*anyopaque,
     ) callconv(.c) void {
         const self = @as(*FlatpakHostCommand, @ptrCast(@alignCast(ud)));
         const state = state: {
-            self.state_mutex.lock();
-            defer self.state_mutex.unlock();
+            self.state_mutex.lockUncancelable(global.io());
+            defer self.state_mutex.unlock(global.io());
             break :state self.state.started;
         };
 
         var pid: u32 = 0;
         var exit_status_raw: u32 = 0;
-        c.g_variant_get(params.?, "(uu)", &pid, &exit_status_raw);
+        gio_c.g_variant_get(params.?, "(uu)", &pid, &exit_status_raw);
         if (state.pid != pid) return;
 
         const exit_status = posix.W.EXITSTATUS(exit_status_raw);
@@ -510,10 +511,10 @@ pub const FlatpakHostCommand = struct {
         log.debug("HostCommand exited pid={} status={}", .{ pid, exit_status });
 
         // We're done now, so we can unsubscribe
-        c.g_dbus_connection_signal_unsubscribe(bus.?, state.subscription);
+        gio_c.g_dbus_connection_signal_unsubscribe(bus.?, state.subscription);
 
         // We are also done with our loop so we can exit.
-        c.g_main_loop_quit(state.loop);
+        gio_c.g_main_loop_quit(state.loop);
     }
 
     fn noopCallback(_: ?*anyopaque, _: *xev.Loop, _: *Completion, _: WaitError!u8) void {}

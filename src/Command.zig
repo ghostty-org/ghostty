@@ -14,12 +14,15 @@
 //!   * posix_spawn is used for Mac, but doesn't support the necessary
 //!     features for tty setup.
 //!
+//!
+//! TODO: This may have changed a lot now with the new I/O implementations in
+//! >= 0.16.0, so this might warrant a recheck.
 const Command = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
 const configpkg = @import("config.zig");
-const global_state = &@import("global.zig").state;
+const global = @import("global.zig");
 const internal_os = @import("os/main.zig");
 const windows = internal_os.windows;
 const TempDir = internal_os.TempDir;
@@ -29,8 +32,8 @@ const posix = std.posix;
 const debug = std.debug;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
-const File = std.fs.File;
-const EnvMap = std.process.EnvMap;
+const File = std.Io.File;
+const EnvMap = std.process.Environ.Map;
 const apprt = @import("apprt.zig");
 
 /// Function prototype for a function executed /in the child process/ after the
@@ -65,7 +68,7 @@ env: ?*const EnvMap = null,
 
 /// Working directory to change to in the child process. If not set, the
 /// working directory of the calling process is preserved.
-cwd: ?[]const u8 = null,
+cwd: ?[:0]const u8 = null,
 
 /// The file handle to set for stdin/out/err. If this isn't set, we do
 /// nothing explicitly so it is up to the behavior of the operating system.
@@ -98,7 +101,7 @@ rt_post_fork_info: RtPostForkInfo,
 
 /// If set, then the process will be created attached to this pseudo console.
 /// `stdin`, `stdout`, and `stderr` will be ignored if set.
-pseudo_console: if (builtin.os.tag == .windows) ?windows.exp.HPCON else void =
+pseudo_console: if (builtin.os.tag == .windows) ?windows.HPCON else void =
     if (builtin.os.tag == .windows) null else {},
 
 /// User data that is sent to the callback. Set with setData and getData
@@ -106,7 +109,7 @@ pseudo_console: if (builtin.os.tag == .windows) ?windows.exp.HPCON else void =
 data: ?*anyopaque = null,
 
 /// Process ID is set after start is called.
-pid: ?posix.pid_t = null,
+pid: ?posix.system.pid_t = null,
 
 /// The various methods a process may exit.
 pub const Exit = if (builtin.os.tag == .windows) union(enum) {
@@ -128,9 +131,9 @@ pub const Exit = if (builtin.os.tag == .windows) union(enum) {
         return if (posix.W.IFEXITED(status))
             Exit{ .Exited = posix.W.EXITSTATUS(status) }
         else if (posix.W.IFSIGNALED(status))
-            Exit{ .Signal = posix.W.TERMSIG(status) }
+            Exit{ .Signal = @intFromEnum(posix.W.TERMSIG(status)) }
         else if (posix.W.IFSTOPPED(status))
-            Exit{ .Stopped = posix.W.STOPSIG(status) }
+            Exit{ .Stopped = @intFromEnum(posix.W.STOPSIG(status)) }
         else
             Exit{ .Unknown = status };
     }
@@ -186,7 +189,7 @@ fn startPosix(self: *Command, arena: Allocator) !void {
         @compileError("missing env vars");
 
     // Fork.
-    const pid = try posix.fork();
+    const pid = try fork();
 
     if (pid != 0) {
         // Parent, return immediately.
@@ -205,37 +208,68 @@ fn startPosix(self: *Command, arena: Allocator) !void {
     if (self.stderr) |f| setupFd(f.handle, posix.STDERR_FILENO) catch
         return error.ExecFailedInChild;
 
-    // Setup our working directory
-    if (self.cwd) |cwd| posix.chdir(cwd) catch {
-        // This can fail if we don't have permission to go to
-        // this directory or if due to race conditions it doesn't
-        // exist or any various other reasons. We don't want to
-        // crash the entire process if this fails so we ignore it.
-        // We don't log because that'll show up in the output.
-    };
+    // Setup our working directory.
+    //
+    // NOTE: this can fail if we don't have permission to go to this directory
+    // or if due to race conditions it doesn't exist or any various other
+    // reasons. We don't want to crash the entire process if this fails so we
+    // ignore it. We don't log because that'll show up in the output.
+    if (self.cwd) |cwd| _ = posix.system.chdir(cwd);
 
     // Restore any rlimits that were set by Ghostty. This might fail but
     // any failures are ignored (its best effort).
-    global_state.rlimits.restore();
+    global.rlimits().restore();
 
     // If there are pre exec callbacks, call them now.
-    if (self.os_pre_exec) |f| if (f(self)) |exitcode| posix.exit(exitcode);
-    if (self.rt_pre_exec) |f| if (f(self)) |exitcode| posix.exit(exitcode);
+    if (self.os_pre_exec) |f| if (f(self)) |exitcode| posix.system.exit(exitcode);
+    if (self.rt_pre_exec) |f| if (f(self)) |exitcode| posix.system.exit(exitcode);
 
-    // Finally, replace our process.
-    // Note: we must use the "p"-variant of exec here because we
-    // do not guarantee our command is looked up already in the path.
-    const err = posix.execvpeZ(self.path, argsZ, envp);
+    const err: posix.E = execve: {
+        // This functionality has been taken from Zig stdlib, a simplified
+        // version of the exec bits with PATH search so that we can just
+        // offload to execve below.
+        const file_slice = std.mem.sliceTo(self.path, 0);
+        if (std.mem.findScalar(u8, file_slice, '/') != null) {
+            break :execve posix.errno(posix.system.execve(self.path, argsZ, envp));
+        }
+
+        var path_expanded_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const PATH = global.environ().getPosix("PATH") orelse "/usr/local/bin:/bin/:/usr/bin";
+        var it = std.mem.tokenizeScalar(u8, PATH, ':');
+        var err: posix.system.E = .NOENT;
+        var seen_eacces = false;
+
+        while (it.next()) |search_path| {
+            const path_len = search_path.len + file_slice.len + 1;
+            if (path_expanded_buf.len < path_len + 1) break :execve .NAMETOOLONG;
+            @memcpy(path_expanded_buf[0..search_path.len], search_path);
+            path_expanded_buf[search_path.len] = '/';
+            @memcpy(path_expanded_buf[search_path.len + 1 ..][0..file_slice.len], file_slice);
+            path_expanded_buf[path_len] = 0;
+            const full_path = path_expanded_buf[0..path_len :0].ptr;
+            // Replace here, switch on error (any error means that replace
+            // failed, but we might need to retry).
+            err = posix.errno(posix.system.execve(full_path, argsZ, envp));
+            switch (err) {
+                .ACCES => seen_eacces = true,
+                .NOENT, .NOTDIR => {},
+                else => break :execve err,
+            }
+        }
+
+        if (seen_eacces) break :execve .ACCES;
+        break :execve err;
+    };
 
     // If we are executing this code, the exec failed. We're in the
     // child process so there isn't much we can do. We try to output
     // something reasonable. Its important to note we MUST NOT return
     // any other error condition from here on out.
     var stderr_buf: [1024]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&stderr_buf);
+    var stderr_writer = std.Io.File.stderr().writer(global.io(), &stderr_buf);
     const stderr = &stderr_writer.interface;
     switch (err) {
-        error.FileNotFound => stderr.print(
+        posix.system.E.NOENT => stderr.print(
             \\Requested executable not found. Please verify the command is on
             \\the PATH and try again.
             \\
@@ -243,11 +277,11 @@ fn startPosix(self: *Command, arena: Allocator) !void {
             .{},
         ) catch {},
 
-        else => stderr.print(
-            \\exec syscall failed with unexpected error: {}
+        else => |e| stderr.print(
+            \\exec syscall failed with unexpected error: E{s}
             \\
         ,
-            .{err},
+            .{@tagName(e)},
         ) catch {},
     }
     stderr.flush() catch {};
@@ -255,6 +289,17 @@ fn startPosix(self: *Command, arena: Allocator) !void {
     // We return a very specific error that can be detected to determine
     // we're in the child.
     return error.ExecFailedInChild;
+}
+
+/// Wrapper for the raw fork syscall. This preserves the error handling from
+/// the std.posix wrapper that was removed in Zig 0.16.
+fn fork() !posix.pid_t {
+    const rc = posix.system.fork();
+    switch (posix.errno(rc)) {
+        .SUCCESS => return @intCast(rc),
+        .AGAIN, .NOMEM => return error.SystemResources,
+        else => |err| return posix.unexpectedErrno(err),
+    }
 }
 
 fn startWindows(self: *Command, arena: Allocator) !void {
@@ -275,15 +320,37 @@ fn startWindows(self: *Command, arena: Allocator) !void {
     const env_w = if (self.env) |env_map| try createWindowsEnvBlock(arena, env_map) else null;
 
     const any_null_fd = self.stdin == null or self.stdout == null or self.stderr == null;
-    const null_fd = if (any_null_fd) try windows.OpenFile(
-        &[_]u16{ '\\', 'D', 'e', 'v', 'i', 'c', 'e', '\\', 'N', 'u', 'l', 'l' },
-        .{
-            .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
-            .share_access = windows.FILE_SHARE_READ,
-            .creation = windows.OPEN_EXISTING,
-        },
-    ) else null;
-    defer if (null_fd) |fd| posix.close(fd);
+    const null_fd = if (any_null_fd) null_fd: {
+        // path = "\Device\Null"
+        const path = [_]u16{ '\\', 'D', 'e', 'v', 'i', 'c', 'e', '\\', 'N', 'u', 'l', 'l' };
+        var path_unicode_string: windows.UNICODE_STRING = .init(&path);
+        var attrs: windows.OBJECT_ATTRIBUTES = .{ .ObjectName = &path_unicode_string };
+
+        var fd: windows.HANDLE = undefined;
+        var io_status: windows.IO_STATUS_BLOCK = undefined; // unused
+        const result = windows.exp.ntdll.NtCreateFile(
+            &fd,
+            .{ .GENERIC = .{ .READ = true }, .STANDARD = .{ .SYNCHRONIZE = true } },
+            &attrs,
+            &io_status,
+            null,
+            windows.FILE_ATTRIBUTE_NORMAL,
+            windows.FILE_SHARE_READ,
+            windows.OPEN_EXISTING,
+            windows.FILE_NON_DIRECTORY_FILE,
+            null,
+            0,
+        );
+
+        if (result != .SUCCESS) {
+            return windows.unexpectedStatus(result);
+        }
+
+        break :null_fd fd;
+    } else null;
+    defer {
+        if (null_fd) |fd| _ = windows.exp.kernel32.CloseHandle(fd);
+    }
 
     // TODO: In the case of having FDs instead of pty, need to set up
     // attributes such that the child process only inherits these handles,
@@ -304,17 +371,17 @@ fn startWindows(self: *Command, arena: Allocator) !void {
             1,
             0,
             &attribute_list_size,
-        ) == 0) return windows.unexpectedError(windows.kernel32.GetLastError());
+        ) == windows.FALSE) return windows.unexpectedError(windows.GetLastError());
 
         if (windows.exp.kernel32.UpdateProcThreadAttribute(
             attribute_list_buf.ptr,
             0,
-            windows.exp.PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
+            windows.PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
             pseudo_console,
-            @sizeOf(windows.exp.HPCON),
+            @sizeOf(windows.HPCON),
             null,
             null,
-        ) == 0) return windows.unexpectedError(windows.kernel32.GetLastError());
+        ) == windows.FALSE) return windows.unexpectedError(windows.GetLastError());
 
         break :b .{ attribute_list_buf.ptr, null, null, null };
     } else b: {
@@ -324,9 +391,9 @@ fn startWindows(self: *Command, arena: Allocator) !void {
         break :b .{ null, stdin, stdout, stderr };
     };
 
-    var startup_info_ex = windows.exp.STARTUPINFOEX{
+    var startup_info_ex = windows.STARTUPINFOEX{
         .StartupInfo = .{
-            .cb = if (attribute_list != null) @sizeOf(windows.exp.STARTUPINFOEX) else @sizeOf(windows.STARTUPINFOW),
+            .cb = if (attribute_list != null) @sizeOf(windows.STARTUPINFOEX) else @sizeOf(windows.STARTUPINFOW),
             .hStdError = stderr,
             .hStdOutput = stdout,
             .hStdInput = stdin,
@@ -348,8 +415,8 @@ fn startWindows(self: *Command, arena: Allocator) !void {
         .lpAttributeList = attribute_list,
     };
 
-    var flags: windows.DWORD = windows.exp.CREATE_UNICODE_ENVIRONMENT;
-    if (attribute_list != null) flags |= windows.exp.EXTENDED_STARTUPINFO_PRESENT;
+    var flags: windows.DWORD = windows.CREATE_UNICODE_ENVIRONMENT;
+    if (attribute_list != null) flags |= windows.EXTENDED_STARTUPINFO_PRESENT;
 
     var process_information: windows.PROCESS_INFORMATION = undefined;
     if (windows.exp.kernel32.CreateProcessW(
@@ -363,21 +430,18 @@ fn startWindows(self: *Command, arena: Allocator) !void {
         if (cwd_w) |w| w.ptr else null,
         @ptrCast(&startup_info_ex.StartupInfo),
         &process_information,
-    ) == 0) return windows.unexpectedError(windows.kernel32.GetLastError());
+    ) == windows.FALSE) return windows.unexpectedError(windows.GetLastError());
 
     self.pid = process_information.hProcess;
 }
 
 fn setupFd(src: File.Handle, target: i32) !void {
-    switch (builtin.os.tag) {
-        .linux => {
-            // We use dup3 so that we can clear CLO_ON_EXEC. We do NOT want this
-            // file descriptor to be closed on exec since we're exactly exec-ing after
-            // this.
+    const PosixCall = struct {
+        fn f(func: anytype, args: anytype) !usize {
             while (true) {
-                const rc = linux.dup3(src, target, 0);
+                const rc = @call(.auto, func, args);
                 switch (posix.errno(rc)) {
-                    .SUCCESS => break,
+                    .SUCCESS => return @intCast(rc),
                     .INTR => continue,
                     .AGAIN, .ACCES => return error.Locked,
                     .BADF => unreachable,
@@ -391,16 +455,28 @@ fn setupFd(src: File.Handle, target: i32) !void {
                     else => |err| return posix.unexpectedErrno(err),
                 }
             }
+        }
+    };
+
+    switch (builtin.os.tag) {
+        .linux => {
+            // We use dup3 so that we can clear CLO_ON_EXEC. We do NOT want this
+            // file descriptor to be closed on exec since we're exactly exec-ing after
+            // this.
+            _ = try PosixCall.f(linux.dup3, .{ src, target, 0 });
         },
         .freebsd, .ios, .macos => {
             // Mac doesn't support dup3 so we use dup2. We purposely clear
             // CLO_ON_EXEC for this fd.
-            const flags = try posix.fcntl(src, posix.F.GETFD, 0);
+            const flags = try PosixCall.f(posix.system.fcntl, .{ src, posix.F.GETFD });
             if (flags & posix.FD_CLOEXEC != 0) {
-                _ = try posix.fcntl(src, posix.F.SETFD, flags & ~@as(u32, posix.FD_CLOEXEC));
+                _ = try PosixCall.f(
+                    posix.system.fcntl,
+                    .{ src, posix.F.SETFD, flags & ~@as(u32, posix.FD_CLOEXEC) },
+                );
             }
 
-            try posix.dup2(src, target);
+            _ = try PosixCall.f(posix.system.dup2, .{ src, target });
         },
         else => @compileError("unsupported platform"),
     }
@@ -411,21 +487,29 @@ pub fn wait(self: Command, block: bool) !Exit {
     if (comptime builtin.os.tag == .windows) {
         // Block until the process exits. This returns immediately if the
         // process already exited.
-        const result = windows.kernel32.WaitForSingleObject(self.pid.?, windows.INFINITE);
+        //
+        // NOTE: We can use the pid directly as posix.system.pid_t is still an
+        // alias for a handle under Windows. We might want to keep an eye on if
+        // this changes, though.
+        const result = windows.exp.kernel32.WaitForSingleObject(self.pid.?, windows.INFINITE);
         if (result == windows.WAIT_FAILED) {
-            return windows.unexpectedError(windows.kernel32.GetLastError());
+            return windows.unexpectedError(windows.GetLastError());
         }
 
         var exit_code: windows.DWORD = undefined;
-        const has_code = windows.kernel32.GetExitCodeProcess(self.pid.?, &exit_code) != 0;
+        const has_code = windows.exp.kernel32.GetExitCodeProcess(self.pid.?, &exit_code) != windows.FALSE;
         if (!has_code) {
-            return windows.unexpectedError(windows.kernel32.GetLastError());
+            return windows.unexpectedError(windows.GetLastError());
         }
 
         return .{ .Exited = exit_code };
     }
 
-    const res = if (block) posix.waitpid(self.pid.?, 0) else res: {
+    const status: u32 = if (block) wait_block: {
+        var status: if (builtin.link_libc) c_int else u32 = undefined;
+        _ = try waitPid(self.pid.?, &status, 0);
+        break :wait_block @bitCast(status);
+    } else wait_nohang: {
         // We specify NOHANG because its not our fault if the process we launch
         // for the tty doesn't properly waitpid its children. We don't want
         // to hang the terminal over it.
@@ -434,12 +518,32 @@ pub fn wait(self: Command, block: bool) !Exit {
         // wait call has not been performed, so we need to keep trying until we get
         // a non-zero pid back, otherwise we end up with zombie processes.
         while (true) {
-            const res = posix.waitpid(self.pid.?, std.c.W.NOHANG);
-            if (res.pid != 0) break :res res;
+            var status: if (builtin.link_libc) c_int else u32 = undefined;
+            const pid = try waitPid(self.pid.?, &status, posix.system.W.NOHANG);
+            if (pid != 0) break :wait_nohang @bitCast(status);
         }
     };
 
-    return .init(res.status);
+    return .init(status);
+}
+
+/// Wrapper for the raw waitpid syscall. Status is only initialized on success;
+/// interrupted waits are retried and all other errors are propagated.
+fn waitPid(
+    pid: posix.pid_t,
+    status: *if (builtin.link_libc) c_int else u32,
+    flags: u32,
+) !posix.pid_t {
+    while (true) {
+        const rc = posix.system.waitpid(pid, status, @intCast(flags));
+        switch (posix.errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+            .INTR => continue,
+            .CHILD => return error.NoChildProcess,
+            .INVAL => return error.InvalidWaitOptions,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
 }
 
 /// Sets command->data to data.
@@ -587,7 +691,7 @@ test "Command: os pre exec 1" {
             fn do(_: *Command) ?u8 {
                 // This runs in the child, so we can exit and it won't
                 // kill the test runner.
-                posix.exit(42);
+                posix.system.exit(42);
             }
         }).do,
         .rt_pre_exec = null,
@@ -638,7 +742,7 @@ test "Command: rt pre exec 1" {
             fn do(_: *Command) ?u8 {
                 // This runs in the child, so we can exit and it won't
                 // kill the test runner.
-                posix.exit(42);
+                posix.system.exit(42);
             }
         }).do,
         .rt_post_fork = null,
@@ -697,27 +801,31 @@ test "Command: rt post fork 1" {
     try testing.expectError(error.PostForkError, cmd.testingStart());
 }
 
-fn createTestStdout(dir: std.fs.Dir) !File {
-    const file = try dir.createFile("stdout.txt", .{ .read = true });
+fn createTestStdout(io: std.Io, dir: std.Io.Dir) !File {
+    const file = try dir.createFile(io, "stdout.txt", .{ .read = true });
     if (builtin.os.tag == .windows) {
-        try windows.SetHandleInformation(
+        if (windows.exp.kernel32.SetHandleInformation(
             file.handle,
             windows.HANDLE_FLAG_INHERIT,
             windows.HANDLE_FLAG_INHERIT,
-        );
+        ) == windows.FALSE) {
+            return windows.unexpectedError(windows.GetLastError());
+        }
     }
 
     return file;
 }
 
-fn createTestStderr(dir: std.fs.Dir) !File {
-    const file = try dir.createFile("stderr.txt", .{ .read = true });
+fn createTestStderr(io: std.Io, dir: std.Io.Dir) !File {
+    const file = try dir.createFile(io, "stderr.txt", .{ .read = true });
     if (builtin.os.tag == .windows) {
-        try windows.SetHandleInformation(
+        if (windows.exp.kernel32.SetHandleInformation(
             file.handle,
             windows.HANDLE_FLAG_INHERIT,
             windows.HANDLE_FLAG_INHERIT,
-        );
+        ) == windows.FALSE) {
+            return windows.unexpectedError(windows.GetLastError());
+        }
     }
 
     return file;
@@ -726,8 +834,8 @@ fn createTestStderr(dir: std.fs.Dir) !File {
 test "Command: redirect stdout to file" {
     var td = try TempDir.init();
     defer td.deinit();
-    var stdout = try createTestStdout(td.dir);
-    defer stdout.close();
+    var stdout = try createTestStdout(testing.io, td.dir);
+    defer stdout.close(testing.io);
 
     var cmd: Command = if (builtin.os.tag == .windows) .{
         .path = "C:\\Windows\\System32\\whoami.exe",
@@ -756,8 +864,13 @@ test "Command: redirect stdout to file" {
     try testing.expectEqual(@as(u32, 0), @as(u32, exit.Exited));
 
     // Read our stdout
-    try stdout.seekTo(0);
-    const contents = try stdout.readToEndAlloc(testing.allocator, 1024 * 128);
+    const contents = contents: {
+        const size = (try stdout.stat(testing.io)).size;
+        const data = try testing.allocator.alloc(u8, size);
+        errdefer testing.allocator.free(data);
+        try testing.expectEqual(size, try stdout.readPositionalAll(testing.io, data, 0));
+        break :contents data;
+    };
     defer testing.allocator.free(contents);
     try testing.expect(contents.len > 0);
 }
@@ -765,8 +878,8 @@ test "Command: redirect stdout to file" {
 test "Command: custom env vars" {
     var td = try TempDir.init();
     defer td.deinit();
-    var stdout = try createTestStdout(td.dir);
-    defer stdout.close();
+    var stdout = try createTestStdout(testing.io, td.dir);
+    defer stdout.close(testing.io);
 
     var env = EnvMap.init(testing.allocator);
     defer env.deinit();
@@ -801,8 +914,13 @@ test "Command: custom env vars" {
     try testing.expect(exit.Exited == 0);
 
     // Read our stdout
-    try stdout.seekTo(0);
-    const contents = try stdout.readToEndAlloc(testing.allocator, 4096);
+    const contents = contents: {
+        const size = (try stdout.stat(testing.io)).size;
+        const data = try testing.allocator.alloc(u8, size);
+        errdefer testing.allocator.free(data);
+        try testing.expectEqual(size, try stdout.readPositionalAll(testing.io, data, 0));
+        break :contents data;
+    };
     defer testing.allocator.free(contents);
 
     if (builtin.os.tag == .windows) {
@@ -815,8 +933,8 @@ test "Command: custom env vars" {
 test "Command: custom working directory" {
     var td = try TempDir.init();
     defer td.deinit();
-    var stdout = try createTestStdout(td.dir);
-    defer stdout.close();
+    var stdout = try createTestStdout(testing.io, td.dir);
+    defer stdout.close(testing.io);
 
     var cmd: Command = if (builtin.os.tag == .windows) .{
         .path = "C:\\Windows\\System32\\cmd.exe",
@@ -847,8 +965,13 @@ test "Command: custom working directory" {
     try testing.expect(exit.Exited == 0);
 
     // Read our stdout
-    try stdout.seekTo(0);
-    const contents = try stdout.readToEndAlloc(testing.allocator, 4096);
+    const contents = contents: {
+        const size = (try stdout.stat(testing.io)).size;
+        const data = try testing.allocator.alloc(u8, size);
+        errdefer testing.allocator.free(data);
+        try testing.expectEqual(size, try stdout.readPositionalAll(testing.io, data, 0));
+        break :contents data;
+    };
     defer testing.allocator.free(contents);
 
     if (builtin.os.tag == .windows) {
@@ -872,10 +995,10 @@ test "Command: posix fork handles execveZ failure" {
     }
     var td = try TempDir.init();
     defer td.deinit();
-    var stdout = try createTestStdout(td.dir);
-    defer stdout.close();
-    var stderr = try createTestStderr(td.dir);
-    defer stderr.close();
+    var stdout = try createTestStdout(testing.io, td.dir);
+    defer stdout.close(testing.io);
+    var stderr = try createTestStderr(testing.io, td.dir);
+    defer stderr.close(testing.io);
 
     var cmd: Command = .{
         .path = "/not/a/binary",
@@ -904,7 +1027,7 @@ fn testingStart(self: *Command) !void {
     self.start(testing.allocator) catch |err| {
         if (err == error.ExecFailedInChild) {
             // I am a child process, I must not get confused and continue running the rest of the test suite.
-            posix.exit(1);
+            posix.system.exit(1);
         }
         return err;
     };

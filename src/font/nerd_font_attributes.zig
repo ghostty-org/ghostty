@@ -4,7 +4,7 @@
 //! This file provides info extracted from the nerd fonts patcher script,
 //! specifying the scaling/positioning attributes of various glyphs.
 
-const Constraint = @import("face.zig").RenderOptions.Constraint;
+const Constraint = @import("Glyph.zig").RenderOptions.Constraint;
 
 /// Get the constraints for the provided codepoint.
 pub fn getConstraint(cp: u21) ?Constraint {

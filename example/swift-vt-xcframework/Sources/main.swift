@@ -3,12 +3,7 @@ import GhosttyVt
 
 // Create a terminal with a small grid
 var terminal: GhosttyTerminal?
-var opts = GhosttyTerminalOptions(
-    cols: 80,
-    rows: 24,
-    max_scrollback: 0
-)
-let result = ghostty_terminal_new(nil, &terminal, opts)
+let result = ghostty_terminal_new(nil, &terminal, 80, 24)
 guard result == GHOSTTY_SUCCESS, let terminal else {
     fatalError("Failed to create terminal")
 }

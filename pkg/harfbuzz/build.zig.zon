@@ -4,6 +4,12 @@
     .fingerprint = 0xbd60917cd18865d8,
     .paths = .{""},
     .dependencies = .{
+        .translate_c = .{
+            .url = "https://codeberg.org/vancluever/translate-c/archive/80f8b6e4f45a303268717d8e5f4f91d7837138bb.tar.gz",
+            .hash = "translate_c-0.0.0-Q_BUWmU6BwB_9JKG2l2W7i_mhmYWeRseTGBEHi_YlV5f",
+            .lazy = true,
+        },
+
         // harfbuzz/harfbuzz
         .harfbuzz = .{
             .url = "https://deps.files.ghostty.org/harfbuzz-11.0.0.tar.xz",

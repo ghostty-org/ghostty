@@ -198,6 +198,92 @@ size_t DecodeUTF8(const uint8_t* HWY_RESTRICT input,
   return static_cast<size_t>(out - output);
 }
 
+// Widen the N uint8 lanes of v into N uint32 values stored at out.
+// This is the UTF-8 to UTF-32 "decode" for ASCII bytes.
+template <class D>
+static HWY_INLINE void WidenAsciiStore(D d,
+                                       hn::Vec<D> v,
+                                       char32_t* HWY_RESTRICT out) {
+  uint32_t* HWY_RESTRICT out32 = reinterpret_cast<uint32_t*>(out);
+#if HWY_TARGET == HWY_SCALAR
+  // The scalar fallback target has single-lane vectors, which cannot
+  // be halved; widen the one lane directly.
+  (void)d;
+  out32[0] = hn::GetLane(v);
+#else
+  const hn::Half<D> dh;
+  const hn::Half<hn::Half<D>> dq;
+  const hn::Rebind<uint32_t, decltype(dq)> d32;
+  const size_t N4 = hn::Lanes(dq);
+  const auto lo = hn::LowerHalf(dh, v);
+  const auto hi = hn::UpperHalf(dh, v);
+  hn::StoreU(hn::PromoteTo(d32, hn::LowerHalf(dq, lo)), d32, out32 + 0 * N4);
+  hn::StoreU(hn::PromoteTo(d32, hn::UpperHalf(dq, lo)), d32, out32 + 1 * N4);
+  hn::StoreU(hn::PromoteTo(d32, hn::LowerHalf(dq, hi)), d32, out32 + 2 * N4);
+  hn::StoreU(hn::PromoteTo(d32, hn::UpperHalf(dq, hi)), d32, out32 + 3 * N4);
+#endif
+}
+
+// The general (non-ASCII) portion of DecodeUTF8UntilControlSeqImpl.
+// Continues scanning for ESC starting at byte offset `base` and decodes
+// input[base..stop) via simdutf. The caller must have already decoded
+// input[0..base) as ASCII into output[0..base) (one codepoint per byte).
+template <class D>
+static HWY_NOINLINE size_t DecodeNonAsciiUntilControlSeq(
+    D d,
+    const T* HWY_RESTRICT input,
+    size_t count,
+    size_t base,
+    char32_t* output,
+    size_t* output_count) {
+  const size_t N = hn::Lanes(d);
+  const hn::Vec<D> esc_vec = Set(d, 0x1B);
+
+  // Compare N elements at a time.
+  size_t i = base;
+  for (; i + N <= count; i += N) {
+    // Load the N elements from our input into a vector.
+    const hn::Vec<D> input_vec = hn::LoadU(d, input + i);
+
+    // If we don't have any escapes we keep going. We want to accumulate
+    // the largest possible valid UTF-8 sequence before decoding.
+    const size_t esc_idx = IndexOfChunk(d, esc_vec, input_vec);
+    if (esc_idx == kNotFound) {
+      continue;
+    }
+
+    // We have an ESC char, decode up to this point. We start by assuming
+    // a valid UTF-8 sequence and slow-path into error handling if we find
+    // an invalid sequence.
+    *output_count = base + DecodeUTF8(input + base, i + esc_idx - base,
+                                      output + base);
+    return i + esc_idx;
+  }
+
+  // If we have leftover input then we scan it one byte at a time (slow!)
+  // using pretty much the same logic as above.
+  for (; i < count; ++i) {
+    if (input[i] == 0x1B) {
+      *output_count = base + DecodeUTF8(input + base, i - base, output + base);
+      return i;
+    }
+  }
+
+  // If we reached this point, its possible for our input to have an
+  // incomplete sequence because we're consuming the full input. We need
+  // to trim any incomplete sequences from the end of the input.
+  //
+  // We use our own trim instead of simdutf::trim_partial_utf8 because
+  // we only want to trim sequences that are valid-so-far (true partial
+  // sequences that may be completed by future input). Invalid bytes
+  // like C0, C1, F5-FF should NOT be trimmed — they should be passed
+  // through to DecodeUTF8 which will replace them with U+FFFD per the
+  // maximal subpart algorithm.
+  const size_t trimmed_len = TrimValidPartialUTF8(input + base, count - base);
+  *output_count = base + DecodeUTF8(input + base, trimmed_len, output + base);
+  return base + trimmed_len;
+}
+
 /// Decode the UTF-8 text in input into output until an escape
 /// character is found. This returns the number of bytes consumed
 /// from input and writes the number of decoded characters into
@@ -217,59 +303,62 @@ size_t DecodeUTF8UntilControlSeqImpl(D d,
 
   // Create a vector containing ESC since that denotes a control sequence.
   const hn::Vec<D> esc_vec = Set(d, 0x1B);
+  // Any byte >= 0x80 is part of a multi-byte UTF-8 sequence.
+  const hn::Vec<D> high_vec = Set(d, 0x80);
 
-  // Compare N elements at a time.
+  // ASCII fast path: terminal input is overwhelmingly ASCII, for which
+  // UTF-8 decoding is a simple widening of each byte to 32 bits. We
+  // fuse the ESC scan with the decode, one chunk at a time, and only
+  // fall back to the full UTF-8 decoder (simdutf) when we encounter a
+  // non-ASCII byte. This avoids a second pass over the input and, for
+  // the common short runs between escape sequences, avoids the fixed
+  // overhead of the general-purpose decoder.
   size_t i = 0;
   for (; i + N <= count; i += N) {
-    // Load the N elements from our input into a vector.
     const hn::Vec<D> input_vec = hn::LoadU(d, input + i);
 
-    // If we don't have any escapes we keep going. We want to accumulate
-    // the largest possible valid UTF-8 sequence before decoding.
-    // TODO(mitchellh): benchmark this vs decoding every time
-    const size_t esc_idx = IndexOfChunk(d, esc_vec, input_vec);
-    if (esc_idx == kNotFound) {
-      continue;
+    // Find the first byte that stops the ASCII fast path: an ESC or
+    // any non-ASCII byte.
+    const hn::Mask<D> stop_mask =
+        hn::Or(hn::Eq(input_vec, esc_vec), hn::Ge(input_vec, high_vec));
+    const intptr_t stop = hn::FindFirstTrue(d, stop_mask);
+
+    // Widen the whole chunk unconditionally: output is guaranteed to
+    // be at least as large as input, and if we stop mid-chunk only
+    // the prefix is reported (the rest is scratch that the caller
+    // never reads).
+    WidenAsciiStore(d, input_vec, output + i);
+    if (stop < 0) continue;
+
+    const size_t stop_idx = i + static_cast<size_t>(stop);
+    if (input[stop_idx] == 0x1B) {
+      // ESC: everything before it was ASCII, one codepoint per byte.
+      *output_count = stop_idx;
+      return stop_idx;
     }
 
-    // We have an ESC char, decode up to this point. We start by assuming
-    // a valid UTF-8 sequence and slow-path into error handling if we find
-    // an invalid sequence.
-    *output_count = DecodeUTF8(input, i + esc_idx, output);
-    return i + esc_idx;
+    // Non-ASCII: decode the rest (up to an ESC) with the full decoder.
+    return DecodeNonAsciiUntilControlSeq(d, input, count, stop_idx, output,
+                                         output_count);
   }
 
-  // If we have leftover input then we decode it one byte at a time (slow!)
-  // using pretty much the same logic as above.
-  if (i != count) {
-    const hn::CappedTag<T, 1> d1;
-    using D1 = decltype(d1);
-    const hn::Vec<D1> esc1 = Set(d1, hn::GetLane(esc_vec));
-    for (; i < count; ++i) {
-      const hn::Vec<D1> input_vec = hn::LoadU(d1, input + i);
-      const size_t esc_idx = IndexOfChunk(d1, esc1, input_vec);
-      if (esc_idx == kNotFound) {
-        continue;
-      }
-
-      *output_count = DecodeUTF8(input, i + esc_idx, output);
-      return i + esc_idx;
+  // Leftover input (< N bytes): process one byte at a time.
+  for (; i < count; ++i) {
+    const T b = input[i];
+    if (b == 0x1B) {
+      *output_count = i;
+      return i;
     }
+    if (b >= 0x80) {
+      return DecodeNonAsciiUntilControlSeq(d, input, count, i, output,
+                                           output_count);
+    }
+    output[i] = b;
   }
 
-  // If we reached this point, its possible for our input to have an
-  // incomplete sequence because we're consuming the full input. We need
-  // to trim any incomplete sequences from the end of the input.
-  //
-  // We use our own trim instead of simdutf::trim_partial_utf8 because
-  // we only want to trim sequences that are valid-so-far (true partial
-  // sequences that may be completed by future input). Invalid bytes
-  // like C0, C1, F5-FF should NOT be trimmed — they should be passed
-  // through to DecodeUTF8 which will replace them with U+FFFD per the
-  // maximal subpart algorithm.
-  const size_t trimmed_len = TrimValidPartialUTF8(input, i);
-  *output_count = DecodeUTF8(input, trimmed_len, output);
-  return trimmed_len;
+  // The entire input was ASCII (no ESC, no partial sequences possible).
+  *output_count = count;
+  return count;
 }
 
 size_t DecodeUTF8UntilControlSeq(const uint8_t* HWY_RESTRICT input,

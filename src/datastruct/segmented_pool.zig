@@ -1,6 +1,7 @@
 const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
+const SegmentedList = @import("segmented_list.zig").SegmentedList;
 const testing = std.testing;
 
 /// A data structure where you can get stable (never copied) pointers to
@@ -18,7 +19,7 @@ pub fn SegmentedPool(comptime T: type, comptime prealloc: usize) type {
 
         i: usize = 0,
         available: usize = prealloc,
-        list: std.SegmentedList(T, prealloc) = .{ .len = prealloc },
+        list: SegmentedList(T, prealloc) = .{ .len = prealloc },
 
         pub fn deinit(self: *Self, alloc: Allocator) void {
             self.list.deinit(alloc);

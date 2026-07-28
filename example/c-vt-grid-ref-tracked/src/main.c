@@ -25,12 +25,7 @@ static uint32_t codepoint_at_tracked_ref(GhosttyTrackedGridRef tracked) {
 
 int main() {
   GhosttyTerminal terminal;
-  GhosttyTerminalOptions opts = {
-    .cols = 8,
-    .rows = 3,
-    .max_scrollback = 100,
-  };
-  GhosttyResult result = ghostty_terminal_new(NULL, &terminal, opts);
+  GhosttyResult result = ghostty_terminal_new(NULL, &terminal, 8, 3);
   assert(result == GHOSTTY_SUCCESS);
 
   const char *text = "alpha\r\n"

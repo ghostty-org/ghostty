@@ -15,6 +15,7 @@ pub const Collection = @import("Collection.zig");
 pub const DeferredFace = @import("DeferredFace.zig");
 pub const Face = face.Face;
 pub const Glyph = @import("Glyph.zig");
+pub const glyf_rasterize = @import("glyf_rasterize.zig");
 pub const Metrics = @import("Metrics.zig");
 pub const opentype = @import("opentype.zig");
 pub const shape = @import("shape.zig");

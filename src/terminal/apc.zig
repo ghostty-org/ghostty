@@ -2,7 +2,7 @@ const std = @import("std");
 const build_options = @import("terminal_options");
 const Allocator = std.mem.Allocator;
 
-const glyph = @import("apc/glyph.zig");
+pub const glyph = @import("apc/glyph.zig");
 const kitty_gfx = @import("kitty/graphics.zig");
 
 const log = std.log.scoped(.terminal_apc);
@@ -22,6 +22,11 @@ pub const Handler = struct {
         .glyph = Protocol.defaultMaxBytes(.glyph),
     }),
 
+    /// Protocols recognized by this APC handler. When a protocol is absent,
+    /// matching APC sequences are ignored so callers see the same behavior as
+    /// an unsupported protocol: no command execution and no response.
+    enabled: std.EnumSet(Protocol) = .initFull(),
+
     pub fn deinit(self: *Handler) void {
         self.state.deinit();
     }
@@ -29,6 +34,12 @@ pub const Handler = struct {
     pub fn start(self: *Handler) void {
         self.state.deinit();
         self.state = .{ .identify = .{} };
+    }
+
+    /// Enable or disable APC protocol recognition for future APC sequences.
+    /// This does not affect any APC command already being parsed.
+    pub fn enable(self: *Handler, protocol: Protocol, enabled: bool) void {
+        self.enabled.setPresent(protocol, enabled);
     }
 
     pub fn feed(self: *Handler, alloc: Allocator, byte: u8) void {
@@ -45,7 +56,10 @@ pub const Handler = struct {
                 // since commands begin immediately after with no termination
                 // character after the 'G'.
                 if (comptime build_options.kitty_graphics) {
-                    if (id.len == 0 and byte == 'G') {
+                    if (id.len == 0 and
+                        byte == 'G' and
+                        self.enabled.contains(.kitty))
+                    {
                         self.state = .{ .kitty = .init(
                             alloc,
                             self.max_bytes.get(.kitty) orelse
@@ -58,7 +72,9 @@ pub const Handler = struct {
                 // If we hit `;` then identify...
                 if (byte == ';') {
                     const str = id.buf[0..id.len];
-                    if (std.mem.eql(u8, str, "25a1")) {
+                    if (std.mem.eql(u8, str, "25a1") and
+                        self.enabled.contains(.glyph))
+                    {
                         self.state = .{ .glyph = .init(
                             alloc,
                             self.max_bytes.get(.glyph) orelse
@@ -94,6 +110,47 @@ pub const Handler = struct {
                 p.deinit();
                 self.state = .ignore;
             },
+        }
+    }
+
+    /// Feed a slice of bytes to the handler. This is equivalent to
+    /// calling feed for each byte in order, but protocol payload bytes
+    /// are passed through in bulk so large payloads (e.g. Kitty graphics
+    /// images) avoid per-byte dispatch overhead.
+    pub fn feedSlice(self: *Handler, alloc: Allocator, bytes: []const u8) void {
+        var rem = bytes;
+        while (rem.len > 0) {
+            switch (self.state) {
+                .inactive => unreachable,
+
+                // We're ignoring this APC command; drop the whole slice.
+                .ignore => return,
+
+                // Identification consumes at most a few bytes; step
+                // through them one at a time until the state changes.
+                .identify => {
+                    self.feed(alloc, rem[0]);
+                    rem = rem[1..];
+                },
+
+                .kitty => |*p| if (comptime build_options.kitty_graphics) {
+                    p.feedSlice(rem) catch |err| {
+                        log.warn("kitty graphics protocol error: {}", .{err});
+                        p.deinit();
+                        self.state = .ignore;
+                    };
+                    return;
+                } else unreachable,
+
+                .glyph => |*p| {
+                    p.feedSlice(rem) catch |err| {
+                        log.warn("glyph protocol error: {}", .{err});
+                        p.deinit();
+                        self.state = .ignore;
+                    };
+                    return;
+                },
+            }
         }
     }
 
@@ -372,4 +429,94 @@ test "valid glyph command" {
     defer cmd.deinit(alloc);
     try testing.expect(cmd == .glyph);
     try testing.expect(cmd.glyph == .query);
+}
+
+test "feedSlice valid Kitty command" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var h: Handler = .{};
+    h.start();
+    h.feedSlice(alloc, "Gf=24,s=10,v=20;aGVsbG8=");
+
+    var cmd = h.end().?;
+    defer cmd.deinit(alloc);
+    try testing.expect(cmd == .kitty);
+
+    // The payload is base64-decoded by the parser on completion.
+    try testing.expectEqualStrings("hello", cmd.kitty.data);
+}
+
+test "feedSlice identify split across slices" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var h: Handler = .{};
+    h.start();
+    h.feedSlice(alloc, "G");
+    h.feedSlice(alloc, "f=24,s=10,");
+    h.feedSlice(alloc, "v=20;aGVsbG8=");
+
+    var cmd = h.end().?;
+    defer cmd.deinit(alloc);
+    try testing.expect(cmd == .kitty);
+
+    // The payload is base64-decoded by the parser on completion.
+    try testing.expectEqualStrings("hello", cmd.kitty.data);
+}
+
+test "feedSlice unknown APC command is ignored" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var h: Handler = .{};
+    h.start();
+    h.feedSlice(alloc, "Xabcdef1234");
+    try testing.expect(h.state == .ignore);
+    h.feedSlice(alloc, "more data that is dropped");
+    try testing.expect(h.end() == null);
+}
+
+test "feedSlice valid glyph command" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var h: Handler = .{};
+    h.start();
+    h.feedSlice(alloc, "25a1;q;cp=E0A0");
+
+    var cmd = h.end().?;
+    defer cmd.deinit(alloc);
+    try testing.expect(cmd == .glyph);
+    try testing.expect(cmd.glyph == .query);
+}
+
+test "feedSlice kitty max bytes exceeded" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var h: Handler = .{ .max_bytes = .init(.{ .kitty = 4 }) };
+    defer h.deinit();
+    h.start();
+    h.feedSlice(alloc, "Ga=t;abcd");
+    try testing.expect(h.state != .ignore);
+    h.feedSlice(alloc, "e");
+    try testing.expect(h.state == .ignore);
+}
+
+test "disabled glyph command is ignored" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var h: Handler = .{};
+    h.enable(.glyph, false);
+    h.start();
+    for ("25a1;q;cp=e0a0") |c| h.feed(alloc, c);
+    try testing.expect(h.end() == null);
 }

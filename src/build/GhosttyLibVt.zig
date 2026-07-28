@@ -5,6 +5,7 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const RunStep = std.Build.Step.Run;
 const CombineArchivesStep = @import("CombineArchivesStep.zig");
+const LibsystemOverrideStep = @import("LibsystemOverrideStep.zig");
 const Config = @import("Config.zig");
 const GhosttyZig = @import("GhosttyZig.zig");
 const LipoStep = @import("LipoStep.zig");
@@ -101,6 +102,16 @@ pub fn initShared(
     b: *std.Build,
     zig: *const GhosttyZig,
 ) !GhosttyLibVt {
+    const target = zig.vt.resolved_target.?;
+
+    // Prefer Apple's linker for final Darwin dylibs when its toolchain is
+    // available. Besides producing the platform load commands expected by
+    // Apple distribution, this lets the static archive's libSystem symbol
+    // override take effect. Cross-compiled macOS dylibs continue through Zig.
+    if (@import("apple_sdk").nativeLink.available(target)) {
+        return initLibApple(b, zig);
+    }
+
     return initLib(b, zig, .dynamic);
 }
 
@@ -174,7 +185,12 @@ pub fn initStaticAppleUniversal(
             .os_tag = p.os_tag,
             .os_version_min = Config.osVersionMin(p.os_tag),
         };
-        if (detectAppleSDK(b.resolveTargetQuery(target_query).result)) {
+        if (detectAppleSDK(
+            b.graph.io,
+            b.allocator,
+            &b.graph.environ_map,
+            b.resolveTargetQuery(target_query).result,
+        )) {
             const dev_zig = try zig.retarget(b, cfg, deps, b.resolveTargetQuery(target_query));
             result.put(p.device, try initStatic(b, &dev_zig));
 
@@ -231,6 +247,19 @@ fn initLib(
         // Zig's ubsan emits /exclude-symbols linker directives that
         // are incompatible with the MSVC linker (LNK4229).
         lib.bundle_ubsan_rt = false;
+
+        if (kind == .static) {
+            if (target.result.abi == .msvc) {
+                // Zig's compiler runtime doesn't provide MSVC's security
+                // cookie symbols when libc is linked. Disable stack-protector
+                // generation so static consumers don't need BufferOverflowU.
+                lib.root_module.stack_protector = false;
+            }
+
+            // The Zig standard library uses NT and kernel32 symbols.
+            lib.root_module.linkSystemLibrary("ntdll", .{});
+            lib.root_module.linkSystemLibrary("kernel32", .{});
+        }
     }
 
     if (lib.rootModuleTarget().abi.isAndroid()) {
@@ -290,25 +319,168 @@ fn initLib(
         const combined = CombineArchivesStep.create(b, target, "ghostty-vt", sources.items);
         combined.step.dependOn(&lib.step);
 
+        // On Darwin, prefer libSystem's libc/libm over the bundled
+        // compiler-rt for consumers of this archive. See GhosttyLib
+        // and libsystem_override.sh for details.
+        const override = LibsystemOverrideStep.create(
+            b,
+            target,
+            combined.output,
+            "libghostty-vt-fat.a",
+        );
+
         return .{
-            .step = combined.step,
+            .step = override.step orelse combined.step,
             .artifact = &b.addInstallArtifact(lib, .{}).step,
             .kind = kind,
-            .output = combined.output,
+            .output = override.output,
             .dsym = dsymutil,
             .pkg_config = if (pcs) |v| v.shared else null,
             .pkg_config_static = if (pcs) |v| v.static else null,
         };
     }
 
+    // Same libSystem preference for the plain (no vendored SIMD)
+    // static archive; a no-op off Darwin.
+    const override: LibsystemOverrideStep.Result = if (kind == .static) LibsystemOverrideStep.create(
+        b,
+        target,
+        lib.getEmittedBin(),
+        "libghostty-vt-static.a",
+    ) else .{
+        .step = null,
+        .output = lib.getEmittedBin(),
+    };
+
     return .{
-        .step = &lib.step,
+        .step = override.step orelse &lib.step,
         .artifact = &b.addInstallArtifact(lib, .{}).step,
         .kind = kind,
-        .output = lib.getEmittedBin(),
+        .output = override.output,
         .dsym = dsymutil,
         .pkg_config = if (pcs) |v| v.shared else null,
         .pkg_config_static = if (pcs) |v| v.static else null,
+    };
+}
+
+/// Builds a shared Darwin library with Apple's linker.
+fn initLibApple(
+    b: *std.Build,
+    zig: *const GhosttyZig,
+) !GhosttyLibVt {
+    // Sorry, this function has a lot of comments because there are
+    // a lot of flags that aren't obvious.
+
+    const target = zig.vt.resolved_target.?;
+    assert(target.result.os.tag.isDarwin());
+
+    // Build the combined archive through the normal static path first.
+    const static = try initStatic(b, zig);
+
+    // Zig's module-level export metadata does not carry into this separate
+    // native link, so explicitly expose only libghostty-vt's public C ABI.
+    const exports = b.addWriteFiles().add(
+        "libghostty-vt.exports",
+        "_ghostty_*\n",
+    );
+
+    // Match Zig's versioned dylib naming so existing consumers and packaging
+    // continue to receive the same real name and compatibility symlinks.
+    const real_name = b.fmt("libghostty-vt.{d}.{d}.{d}.dylib", .{
+        zig.version.major,
+        zig.version.minor,
+        zig.version.patch,
+    });
+    const soname = b.fmt("libghostty-vt.{d}.dylib", .{zig.version.major});
+
+    const native_link = try @import("apple_sdk").nativeLink.addCommand(
+        b,
+        "link libghostty-vt with Apple ld",
+        target,
+    );
+
+    native_link.addArgs(&.{
+        // Emit a Mach-O dynamic library instead of an executable.
+        "-dynamiclib",
+        // Pull every object from the combined static archive.
+        "-Wl,-all_load",
+        // Remove unreachable private code pulled in by all_load.
+        "-Wl,-dead_strip",
+        // Leave room for packaging tools to rewrite install names.
+        "-Wl,-headerpad_max_install_names",
+    });
+    // Restrict exports to libghostty-vt's public C ABI.
+    native_link.addPrefixedFileArg("-Wl,-exported_symbols_list,", exports);
+    // Link the archive produced by the normal static-library path.
+    native_link.addFileArg(static.output);
+    native_link.addArgs(&.{
+        // Give framework consumers a stable runtime-relative identity.
+        "-install_name",
+        "@rpath/libghostty-vt.dylib",
+        // Record the exact package version for runtime inspection.
+        "-current_version",
+        b.fmt("{d}.{d}.{d}", .{
+            zig.version.major,
+            zig.version.minor,
+            zig.version.patch,
+        }),
+        // Preserve compatibility with the initial public ABI.
+        "-compatibility_version",
+        "1.0.0",
+        // Write the fully versioned dylib used by the install symlinks.
+        "-o",
+    });
+    const output = native_link.addOutputFileArg(real_name);
+
+    // Recreate addInstallArtifact's dylib layout: install the fully versioned
+    // file, then point the major-version and unversioned names at it.
+    const artifact_install = b.addInstallFileWithDir(
+        output,
+        .lib,
+        real_name,
+    );
+    const soname_install = b.addSystemCommand(&.{
+        "/bin/ln",
+        "-sf",
+        real_name,
+        b.getInstallPath(.lib, soname),
+    });
+    soname_install.step.dependOn(&artifact_install.step);
+    const unversioned_install = b.addSystemCommand(&.{
+        "/bin/ln",
+        "-sf",
+        soname,
+        b.getInstallPath(.lib, "libghostty-vt.dylib"),
+    });
+    unversioned_install.step.dependOn(&soname_install.step);
+
+    // The native link is a Run step rather than a Compile step, so install the
+    // public headers explicitly instead of relying on addInstallArtifact.
+    const headers_install = b.addInstallDirectory(.{
+        .source_dir = b.path("include/ghostty"),
+        .install_dir = .header,
+        .install_subdir = "ghostty",
+        .include_extensions = &.{".h"},
+    });
+    unversioned_install.step.dependOn(&headers_install.step);
+
+    // Preserve the debug-symbol output exposed by the normal shared-library
+    // path for framework and release packaging.
+    const dsymutil = RunStep.create(b, "dsymutil");
+    dsymutil.addArgs(&.{"dsymutil"});
+    dsymutil.addFileArg(output);
+    dsymutil.addArgs(&.{"-o"});
+    const dsym = dsymutil.addOutputFileArg("libghostty-vt.dSYM");
+
+    const pcs = pkgConfigFiles(b, zig, target.result.os.tag);
+    return .{
+        .step = &native_link.step,
+        .artifact = &unversioned_install.step,
+        .kind = .shared,
+        .output = output,
+        .dsym = dsym,
+        .pkg_config = pcs.shared,
+        .pkg_config_static = pcs.static,
     };
 }
 
@@ -438,12 +610,21 @@ pub fn xcframework(
 }
 
 /// Returns true if the Apple SDK for the given target is installed.
-fn detectAppleSDK(target: std.Target) bool {
-    _ = std.zig.LibCInstallation.findNative(.{
-        .allocator = std.heap.page_allocator,
-        .target = &target,
-        .verbose = false,
-    }) catch return false;
+fn detectAppleSDK(
+    io: std.Io,
+    alloc: std.mem.Allocator,
+    environ_map: *const std.process.Environ.Map,
+    target: std.Target,
+) bool {
+    _ = std.zig.LibCInstallation.findNative(
+        alloc,
+        io,
+        .{
+            .environ_map = environ_map,
+            .target = &target,
+            .verbose = false,
+        },
+    ) catch return false;
     return true;
 }
 

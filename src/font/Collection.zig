@@ -28,6 +28,7 @@ const Library = font.Library;
 const Metrics = font.Metrics;
 const Presentation = font.Presentation;
 const Style = font.Style;
+const SegmentedList = @import("../datastruct/segmented_list.zig").SegmentedList;
 
 const log = std.log.scoped(.font_collection);
 
@@ -662,7 +663,7 @@ fn scaleFactor(
     return primary_metric / face_metric;
 }
 
-const UpdateMetricsError = error{
+pub const UpdateMetricsError = error{
     CannotLoadPrimaryFont,
 };
 
@@ -694,7 +695,7 @@ pub fn updateMetrics(self: *Collection) UpdateMetricsError!void {
 ///
 /// WARNING: We cannot use any prealloc yet for the segmented list because
 /// the collection is copied around by value and pointers aren't stable.
-const StyleArray = std.EnumArray(Style, std.SegmentedList(EntryOrAlias, 0));
+const StyleArray = std.EnumArray(Style, SegmentedList(EntryOrAlias, 0));
 
 /// Load options are used to configure all the details a Collection
 /// needs to load deferred faces.
@@ -894,7 +895,7 @@ pub const Index = packed struct(Index.Backing) {
 
     /// The number of bits we use for the index.
     const idx_bits = backing_bits - @typeInfo(@typeInfo(Style).@"enum".tag_type).int.bits;
-    pub const IndexInt = @Type(.{ .int = .{ .signedness = .unsigned, .bits = idx_bits } });
+    pub const IndexInt = @Int(.unsigned, idx_bits);
 
     /// The special-case fonts that we support.
     pub const Special = enum(IndexInt) {

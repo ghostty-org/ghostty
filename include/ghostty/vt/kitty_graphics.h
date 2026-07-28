@@ -84,6 +84,28 @@ extern "C" {
  * - ghostty_kitty_graphics_placement_rect() — bounding rectangle as a
  *   @ref GhosttySelection.
  *
+ * ## Change Detection
+ *
+ * Generation stamps allow renderers to cheaply detect whether Kitty
+ * graphics state changed between frames:
+ *
+ * - @ref GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION is a storage-wide stamp
+ *   updated on any transmit, placement, or delete. If unchanged, the
+ *   placement set and all image data are identical and both placement
+ *   snapshots and per-image staleness checks can be skipped. Placement
+ *   geometry can still change independently (scrolling moves
+ *   placements), so ghostty_kitty_graphics_placement_render_info()
+ *   should still be recomputed on dirty frames.
+ * - @ref GHOSTTY_KITTY_IMAGE_DATA_GENERATION is a per-image stamp
+ *   changed on every add/replace of that image ID. Texture caches
+ *   should treat a cached texture as stale when this differs from the
+ *   cached value; dimension/length heuristics cannot detect a
+ *   same-sized retransmission.
+ *
+ * Stamps are unique and monotonically increasing process-wide, so
+ * caches keyed on a generation value never alias across screens
+ * (main/alternate), resets, or terminals.
+ *
  * ## Lifetime and Thread Safety
  *
  * All handles borrowed from the terminal (GhosttyKittyGraphics,
@@ -119,6 +141,29 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Output type: GhosttyKittyGraphicsPlacementIterator *
    */
   GHOSTTY_KITTY_GRAPHICS_DATA_PLACEMENT_ITERATOR = 1,
+
+  /**
+   * Generation stamp of the last content mutation to this storage:
+   * any image transmit/replace, placement add, or delete. Zero means
+   * the storage has never been mutated (and is therefore empty).
+   *
+   * If the generation is unchanged since a previous query, the set of
+   * placements and all image data are identical, so placement iteration
+   * and image staleness checks can be skipped entirely. Note that
+   * placement *geometry* may still have changed (scrolling and resizing
+   * move placements without changing the storage contents), so rendering
+   * geometry such as ghostty_kitty_graphics_placement_render_info()
+   * must still be recomputed for frames marked dirty.
+   *
+   * Stamps are unique and monotonically increasing process-wide: a
+   * value observed from any storage never recurs for different content,
+   * even across screen switches (main vs. alternate screen have
+   * independent storages) or terminal resets. It is therefore safe to
+   * key caches on this value alone.
+   *
+   * Output type: uint64_t *
+   */
+  GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION = 2,
   GHOSTTY_KITTY_GRAPHICS_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyKittyGraphicsData;
 
@@ -255,6 +300,12 @@ typedef enum GHOSTTY_ENUM_TYPED {
 /**
  * Pixel format of a Kitty graphics image.
  *
+ * Note that stored images are always fully decoded:
+ * GHOSTTY_KITTY_IMAGE_FORMAT_PNG is never returned by
+ * ghostty_kitty_graphics_image_get() because PNG payloads are decoded
+ * to GHOSTTY_KITTY_IMAGE_FORMAT_RGBA before storage. The PNG value
+ * exists only for protocol-level completeness.
+ *
  * @ingroup kitty_graphics
  */
 typedef enum GHOSTTY_ENUM_TYPED {
@@ -268,6 +319,12 @@ typedef enum GHOSTTY_ENUM_TYPED {
 
 /**
  * Compression of a Kitty graphics image.
+ *
+ * Note that stored images are always decompressed:
+ * GHOSTTY_KITTY_IMAGE_COMPRESSION_ZLIB_DEFLATE payloads are inflated
+ * before storage, so ghostty_kitty_graphics_image_get() always reports
+ * GHOSTTY_KITTY_IMAGE_COMPRESSION_NONE. Consumers never need to
+ * inflate image data themselves.
  *
  * @ingroup kitty_graphics
  */
@@ -315,14 +372,17 @@ typedef enum GHOSTTY_ENUM_TYPED {
   GHOSTTY_KITTY_IMAGE_DATA_HEIGHT = 4,
 
   /**
-   * Pixel format of the image.
+   * Pixel format of the image. Never GHOSTTY_KITTY_IMAGE_FORMAT_PNG;
+   * PNG payloads are decoded to RGBA before storage.
    *
    * Output type: GhosttyKittyImageFormat *
    */
   GHOSTTY_KITTY_IMAGE_DATA_FORMAT = 5,
 
   /**
-   * Compression of the image.
+   * Compression of the image. Always
+   * GHOSTTY_KITTY_IMAGE_COMPRESSION_NONE; compressed payloads are
+   * inflated before storage.
    *
    * Output type: GhosttyKittyImageCompression *
    */
@@ -332,16 +392,40 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Borrowed pointer to the raw pixel data. Valid as long as the
    * underlying terminal is not mutated.
    *
+   * The data is always fully decoded, uncompressed pixels in the
+   * format reported by GHOSTTY_KITTY_IMAGE_DATA_FORMAT: zlib payloads
+   * are inflated and PNG payloads are decoded to RGBA at transmission
+   * time, before the image is stored. Consumers can upload this
+   * directly to the GPU without any decode step.
+   *
    * Output type: const uint8_t **
    */
   GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR = 7,
 
   /**
-   * Length of the raw pixel data in bytes.
+   * Length of the raw pixel data in bytes. Always equal to
+   * width * height * bytes-per-pixel for the reported format.
    *
    * Output type: size_t *
    */
   GHOSTTY_KITTY_IMAGE_DATA_DATA_LEN = 8,
+
+  /**
+   * Generation stamp assigned when this image was added to (or
+   * replaced in) the storage. A changed generation for a given image
+   * ID means the pixel contents may have changed even when the
+   * dimensions, format, and data length are identical (e.g. a
+   * retransmission of the same image ID), so texture caches must key
+   * staleness on this value rather than on size heuristics.
+   *
+   * Stamps are unique and monotonically increasing process-wide and
+   * are drawn from the same sequence as
+   * GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION. Never zero for a stored
+   * image, so zero can be used as an "empty" sentinel by callers.
+   *
+   * Output type: uint64_t *
+   */
+  GHOSTTY_KITTY_IMAGE_DATA_GENERATION = 9,
 
   GHOSTTY_KITTY_IMAGE_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyKittyGraphicsImageData;

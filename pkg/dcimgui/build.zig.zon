@@ -15,7 +15,7 @@
 
         .imgui = .{
             // https://github.com/ocornut/imgui
-            .url = "https://github.com/ocornut/imgui/archive/refs/tags/v1.92.5-docking.tar.gz",
+            .url = "https://deps.files.ghostty.org/N-V-__8AAEbOfQBnvcFcCX2W5z7tDaN8vaNZGamEQtNOe0UI.tar.gz",
             .hash = "N-V-__8AAEbOfQBnvcFcCX2W5z7tDaN8vaNZGamEQtNOe0UI",
             .lazy = true,
         },

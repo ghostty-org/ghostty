@@ -2,22 +2,33 @@
 
 # This script downloads external dependencies from build.zig.zon.json that
 # are not already mirrored at deps.files.ghostty.org, saves them to a local
-# directory, and updates build.zig.zon to point to the new mirror URLs.
+# directory, and updates the build.zig.zon files (the root one as well as
+# every pkg/*/build.zig.zon) to point to the new mirror URLs.
 #
 # The downloaded files are unmodified so their checksums and content hashes
 # will match the originals.
 #
 # After running this script, the files in the output directory can be uploaded
-# to blob storage, and build.zig.zon will already be updated with the new URLs.
+# to blob storage, and the build.zig.zon files will already be updated with
+# the new URLs.
 def main [
   --output: string = "tmp-mirror", # Output directory for the mirrored files
   --prefix: string = "https://deps.files.ghostty.org/", # Final URL prefix to ignore
   --dry-run, # Print what would be downloaded without downloading
 ] {
   let script_dir = ($env.CURRENT_FILE | path dirname)
-  let input_file = ($script_dir | path join ".." ".." "build.zig.zon.json")
-  let zon_file = ($script_dir | path join ".." ".." "build.zig.zon")
+  let root_dir = ($script_dir | path join ".." ".." | path expand)
+  let input_file = ($root_dir | path join "build.zig.zon.json")
   let output_dir = $output
+
+  # All build.zig.zon files that may reference external URLs: the root
+  # one plus every package under pkg/. build.zig.zon.json is generated
+  # from the full dependency tree so it covers all of these.
+  let zon_files = (
+    [($root_dir | path join "build.zig.zon")]
+    | append (glob ($root_dir | path join "pkg" "*" "build.zig.zon"))
+    | sort
+  )
 
   # Ensure the output directory exists
   mkdir $output_dir
@@ -75,22 +86,34 @@ def main [
 
   if $dry_run {
     print "Dry run complete - no files were downloaded\n"
-    print $"Would update ($url_replacements | length) URLs in build.zig.zon"
   } else {
     print "All dependencies downloaded successfully\n"
-    print $"Updating ($zon_file)..."
-    
-    # Backup the old file
-    let backup_file = $"($zon_file).bak"
-    cp $zon_file $backup_file
-    print $"Backed up to ($backup_file)"
-    
-    mut zon_content = (open $zon_file)
-    for replacement in $url_replacements {
-      $zon_content = ($zon_content | str replace $replacement.old $replacement.new)
-    }
-    $zon_content | save -f $zon_file
+  }
 
-    print $"Updated ($url_replacements | length) URLs in build.zig.zon"
+  # Apply the URL replacements to every build.zig.zon that references them.
+  for zon_file in $zon_files {
+    mut zon_content = (open --raw $zon_file)
+    mut count = 0
+    for replacement in $url_replacements {
+      if ($zon_content | str contains $replacement.old) {
+        $zon_content = ($zon_content | str replace --all $replacement.old $replacement.new)
+        $count = $count + 1
+      }
+    }
+
+    if $count == 0 {
+      continue
+    }
+
+    let relative_path = ($zon_file | path relative-to $root_dir)
+    if $dry_run {
+      print $"Would update ($count) URLs in ($relative_path)"
+    } else {
+      # Backup the old file
+      let backup_file = $"($zon_file).bak"
+      cp $zon_file $backup_file
+      $zon_content | save -f $zon_file
+      print $"Updated ($count) URLs in ($relative_path), backup at ($relative_path).bak"
+    }
   }
 }

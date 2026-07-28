@@ -140,7 +140,7 @@ pub fn resize(
 
     // What we need in the dynamic size
     const size = cols - prealloc_columns;
-    if (size < self.dynamic_stops.len) {
+    if (size <= self.dynamic_stops.len) {
         self.cols = cols;
         return;
     }
@@ -170,11 +170,11 @@ pub fn reset(self: *Tabstops, interval: usize) void {
     @memset(&self.prealloc_stops, 0);
     @memset(self.dynamic_stops, 0);
 
-    if (interval > 0) {
-        var i: usize = interval;
-        while (i < self.cols - 1) : (i += interval) {
-            self.set(i);
-        }
+    if (interval == 0 or self.cols <= 1) return;
+
+    var i: usize = interval;
+    while (i < self.cols - 1) : (i += interval) {
+        self.set(i);
     }
 }
 
@@ -221,6 +221,15 @@ test "Tabstops: dynamic allocations" {
     try testing.expect(!t.get(5));
 }
 
+test "Tabstops: resize to existing capacity does not allocate" {
+    var backing: [prealloc_columns]Unit = undefined;
+    var fixed = std.heap.FixedBufferAllocator.init(&backing);
+    var t: Tabstops = .{};
+
+    try t.resize(fixed.allocator(), prealloc_columns * 2);
+    try t.resize(fixed.allocator(), prealloc_columns * 2);
+}
+
 test "Tabstops: interval" {
     var t: Tabstops = try init(testing.allocator, 80, 4);
     defer t.deinit(testing.allocator);
@@ -228,6 +237,13 @@ test "Tabstops: interval" {
     try testing.expect(t.get(4));
     try testing.expect(!t.get(5));
     try testing.expect(t.get(8));
+}
+
+test "Tabstops: interval with zero columns" {
+    var t: Tabstops = try init(testing.allocator, 0, 8);
+    defer t.deinit(testing.allocator);
+
+    try testing.expectEqual(@as(usize, 0), t.cols);
 }
 
 test "Tabstops: count on 80" {

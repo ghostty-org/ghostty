@@ -43,7 +43,7 @@ lib_version: std.SemanticVersion = .{ .major = 0, .minor = 0, .patch = 0 },
 /// Binary properties
 pie: bool = false,
 strip: bool = false,
-patch_rpath: ?[]const u8 = null,
+patchelf: ?PatchElf = null,
 
 /// Artifacts
 flatpak: bool = false,
@@ -67,7 +67,7 @@ emit_unicode_table_gen: bool = false,
 is_dep: bool = false,
 
 /// Environmental properties
-env: std.process.EnvMap,
+env: *const std.process.Environ.Map,
 
 pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Config {
     // Setup our standard Zig target and optimize options, i.e.
@@ -124,10 +124,10 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     // defaults.
     const gtk_targets = gtk.targets(b);
 
-    // We use env vars throughout the build so we grab them immediately here.
-    var env = try std.process.getEnvMap(b.allocator);
-    errdefer env.deinit();
+    // Grab the environment from build state
+    const env = &b.graph.environ_map;
 
+    // We use env vars throughout the build so we grab them immediately here.
     var config: Config = .{
         .optimize = optimize,
         .target = target,
@@ -312,24 +312,38 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     //---------------------------------------------------------------
     // Binary Properties
 
-    // On NixOS, the built binary from `zig build` needs to patch the rpath
-    // into the built binary for it to be portable across the NixOS system
-    // it was built for. We default this to true if we can detect we're in
-    // a Nix shell and have LD_LIBRARY_PATH set.
-    config.patch_rpath = b.option(
-        []const u8,
-        "patch-rpath",
-        "Inject the LD_LIBRARY_PATH as the rpath in the built binary. " ++
-            "This defaults to LD_LIBRARY_PATH if we're in a Nix shell environment on NixOS.",
-    ) orelse patch_rpath: {
-        // We only do the patching if we're targeting our own CPU and its Linux.
-        if (!(target.result.os.tag == .linux) or !target.query.isNativeCpu()) break :patch_rpath null;
-
-        // If we're in a nix shell we default to doing this.
-        // Note: we purposely never deinit envmap because we leak the strings
-        if (env.get("IN_NIX_SHELL") == null) break :patch_rpath null;
-        break :patch_rpath env.get("LD_LIBRARY_PATH");
-    };
+    // On NixOS, the built binary from `zig build` needs to patch the interp
+    // and rpath into the built binary for it to be portable across the NixOS
+    // system it was built for. We default this to true if we can detect we're
+    // in a Nix shell.
+    //
+    // Note that this option is only available on Linux and if building
+    // natively.
+    //
+    // NOTE: Zig does now have an option to pass in the dynamic linker
+    // (-Ddynamic-linker), but it does seem to have some issues in 0.16.0 that
+    // may be fixed in 0.17.0. We may want to revisit this afterwards; although
+    // I'm not too sure if that helps to clean up rpath, this may just be the
+    // better option. See https://codeberg.org/ziglang/zig/issues/31760.
+    if ((target.result.os.tag == .linux) and target.query.isNativeCpu()) {
+        const in_nix_shell = env.get("IN_NIX_SHELL") != null;
+        if (b.option(
+            bool,
+            "patchelf",
+            "Patch interpreter and rpath in the built binary (default if IN_NIX_SHELL is set)",
+        ) orelse in_nix_shell) {
+            var patchelf: PatchElf = .{};
+            if (b.findProgram(&.{"ld.so"}, &.{})) |ld_so| {
+                patchelf.interp = std.Io.Dir.realPathFileAbsoluteAlloc(b.graph.io, ld_so, b.allocator) catch null;
+            } else |_| {}
+            if (env.get("LD_LIBRARY_PATH")) |ld_library_path| {
+                patchelf.rpath = if (ld_library_path.len > 0) ld_library_path else null;
+            }
+            if (patchelf.interp != null or patchelf.rpath != null) {
+                config.patchelf = patchelf;
+            }
+        }
+    }
 
     config.pie = b.option(
         bool,
@@ -401,7 +415,7 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         if (system_package) break :emit_docs true;
 
         // We only default to true if we can find pandoc.
-        const path = expandPath(b.allocator, "pandoc") catch
+        const path = expandPath(b.graph.io, b.allocator, &b.graph.environ_map, "pandoc") catch
             break :emit_docs false;
         defer if (path) |p| b.allocator.free(p);
         break :emit_docs path != null;
@@ -450,7 +464,7 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         if (config.emit_lib_vt) {
             // In lib-vt mode default to whether xcodebuild is available,
             // since xcodebuild is required to produce the XCFramework.
-            const path = expandPath(b.allocator, "xcodebuild") catch
+            const path = expandPath(b.graph.io, b.allocator, &b.graph.environ_map, "xcodebuild") catch
                 break :emit_xcfw false;
             defer if (path) |p| b.allocator.free(p);
             break :emit_xcfw path != null;
@@ -522,6 +536,27 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     return config;
 }
 
+const PatchElf = struct {
+    interp: ?[]const u8 = null,
+    rpath: ?[]const u8 = null,
+};
+
+/// Add a patchelf step for the supplied `artifact`, depending on the supplied
+/// `step`, if `patchelf` is present in the config.
+pub fn addPatchElf(self: *const Config, artifact: *std.Build.Step.Compile, step: *std.Build.Step) void {
+    const b = artifact.step.owner;
+    std.debug.assert(b == step.owner);
+
+    if (self.patchelf) |patchelf| {
+        const run = std.Build.Step.Run.create(b, "patchelf");
+        run.addArgs(&.{"patchelf"});
+        if (patchelf.interp) |interp| run.addArgs(&.{ "--set-interpreter", interp });
+        if (patchelf.rpath) |rpath| run.addArgs(&.{ "--set-rpath", rpath });
+        run.addArtifactArg(artifact);
+        step.dependOn(&run.step);
+    }
+}
+
 /// Configure the build options with our values.
 pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     // We need to break these down individual because addOption doesn't
@@ -570,7 +605,11 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
 
 /// Returns the build options for the terminal module. This assumes a
 /// Ghostty executable being built. Callers should modify this as needed.
-pub fn terminalOptions(self: *const Config, artifact: TerminalBuildOptions.Artifact) TerminalBuildOptions {
+pub fn terminalOptions(
+    self: *const Config,
+    artifact: TerminalBuildOptions.Artifact,
+    optimize: std.builtin.OptimizeMode,
+) TerminalBuildOptions {
     return .{
         .artifact = artifact,
         .simd = self.simd,
@@ -580,7 +619,7 @@ pub fn terminalOptions(self: *const Config, artifact: TerminalBuildOptions.Artif
             .ghostty => self.version,
             .lib => self.lib_version,
         },
-        .slow_runtime_safety = switch (self.optimize) {
+        .slow_runtime_safety = switch (optimize) {
             .Debug => true,
             .ReleaseSafe,
             .ReleaseSmall,
@@ -591,7 +630,7 @@ pub fn terminalOptions(self: *const Config, artifact: TerminalBuildOptions.Artif
 }
 
 /// Returns a baseline CPU target retaining all the other CPU configs.
-pub fn baselineTarget(self: *const Config) std.Build.ResolvedTarget {
+pub fn baselineTarget(self: *const Config, io: std.Io) std.Build.ResolvedTarget {
     // Set our cpu model as baseline. There may need to be other modifications
     // we need to make such as resetting CPU features but for now this works.
     var q = self.target.query;
@@ -601,7 +640,7 @@ pub fn baselineTarget(self: *const Config) std.Build.ResolvedTarget {
     // handle the native case.
     return .{
         .query = q,
-        .result = std.zig.system.resolveTargetQuery(q) catch
+        .result = std.zig.system.resolveTargetQuery(io, q) catch
             @panic("unable to resolve baseline query"),
     };
 }
@@ -628,6 +667,17 @@ pub fn fromOptions() Config {
         .wasm_shared = options.wasm_shared,
         .i18n = options.i18n,
     };
+}
+
+/// Whether release artifacts should omit frame pointers.
+///
+/// Stripped release builds omit them in general, but we always keep frame
+/// pointers on Apple platforms: the Apple arm64 ABI expects x29 to
+/// be a valid frame pointer and Apple's profiling and crash reporting
+/// tools rely on it for backtraces.
+pub fn omitFramePointer(self: *const Config) bool {
+    if (self.target.result.os.tag.isDarwin()) return false;
+    return self.strip;
 }
 
 /// Returns the minimum OS version for the given OS tag. This shouldn't

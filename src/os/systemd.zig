@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const global = @import("../global.zig");
 
 const log = std.log.scoped(.systemd);
 
@@ -16,8 +17,8 @@ pub fn launchedBySystemd() bool {
             // `JOURNAL_STREAM` (v231+) environment variables. If these
             // environment variables are not present we were not launched by
             // systemd.
-            if (std.posix.getenv("INVOCATION_ID") == null) break :linux false;
-            if (std.posix.getenv("JOURNAL_STREAM") == null) break :linux false;
+            if (global.environ().getPosix("INVOCATION_ID") == null) break :linux false;
+            if (global.environ().getPosix("JOURNAL_STREAM") == null) break :linux false;
 
             // If `INVOCATION_ID` and `JOURNAL_STREAM` are present, check to make sure
             // that our parent process is actually `systemd`, not some other terminal
@@ -33,7 +34,7 @@ pub fn launchedBySystemd() bool {
                 log.err("unable to format comm path for pid {d}", .{ppid});
                 break :linux false;
             };
-            const comm_file = std.fs.openFileAbsolute(comm_path, .{ .mode = .read_only }) catch {
+            const comm_file = std.Io.Dir.openFileAbsolute(global.io(), comm_path, .{ .mode = .read_only }) catch {
                 log.err("unable to open '{s}' for reading", .{comm_path});
                 break :linux false;
             };
@@ -91,7 +92,7 @@ pub const notify = struct {
         if (comptime builtin.os.tag != .linux) return;
 
         // Get the socket address that should receive notifications.
-        const socket_path = std.posix.getenv("NOTIFY_SOCKET") orelse return;
+        const socket_path = global.environ().getPosix("NOTIFY_SOCKET") orelse return;
 
         // If the socket address is an empty string return.
         if (socket_path.len == 0) return;
@@ -121,7 +122,7 @@ pub const notify = struct {
                 std.os.linux.SOCK.DGRAM | std.os.linux.SOCK.CLOEXEC,
                 0,
             );
-            switch (std.os.linux.E.init(rc)) {
+            switch (linuxErrnoFromSyscall(rc)) {
                 .SUCCESS => break :socket @intCast(rc),
                 else => |e| {
                     log.warn("creating socket failed: {s}", .{@tagName(e)});
@@ -138,7 +139,7 @@ pub const notify = struct {
                 &socket_address,
                 @offsetOf(std.os.linux.sockaddr.un, "path") + socket_address.path.len,
             );
-            switch (std.os.linux.E.init(rc)) {
+            switch (linuxErrnoFromSyscall(rc)) {
                 .SUCCESS => break :connect,
                 else => |e| {
                     log.warn("unable to connect to notify socket: {s}", .{@tagName(e)});
@@ -149,7 +150,7 @@ pub const notify = struct {
 
         write: {
             const rc = std.os.linux.write(socket, message.ptr, message.len);
-            switch (std.os.linux.E.init(rc)) {
+            switch (linuxErrnoFromSyscall(rc)) {
                 .SUCCESS => {
                     const written = rc;
                     if (written < message.len) {
@@ -180,12 +181,7 @@ pub const notify = struct {
     pub fn reloading() void {
         if (comptime builtin.os.tag != .linux) return;
 
-        const ts = std.posix.clock_gettime(.MONOTONIC) catch |err| {
-            log.err("unable to get MONOTONIC clock: {}", .{err});
-            return;
-        };
-
-        const now = ts.sec * std.time.us_per_s + @divFloor(ts.nsec, std.time.ns_per_us);
+        const now = std.Io.Timestamp.now(global.io(), .awake).toMicroseconds();
 
         var buffer: [64]u8 = undefined;
         const message = std.fmt.bufPrint(&buffer, "RELOADING=1\nMONOTONIC_USEC={d}", .{now}) catch |err| {
@@ -196,3 +192,9 @@ pub const notify = struct {
         send(message);
     }
 };
+
+fn linuxErrnoFromSyscall(r: usize) std.os.linux.E {
+    const signed_r: isize = @bitCast(r);
+    const int = if (signed_r > -4096 and signed_r < 0) -signed_r else 0;
+    return @enumFromInt(int);
+}
