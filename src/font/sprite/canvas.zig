@@ -375,85 +375,17 @@ pub const Canvas = struct {
         );
     }
 
-    /// Do an inner stroke on a z2d path, right now this involves a pretty
-    /// heavy workaround that uses two extra surfaces; in the future, z2d
-    /// should add inner and outer strokes natively.
+    /// Do an inner stroke using a 1/2 stroke width inset of the supplied
+    /// `path`.
     pub fn innerStrokePath(
         self: *Canvas,
         path: z2d.Path,
         opts: z2d.painter.StrokeOptions,
         color: Color,
-    ) (z2d.painter.StrokeError || z2d.painter.FillError)!void {
-        // On one surface we fill the shape, this will be a mask we
-        // multiply with the double-width stroke so that only the
-        // part inside is used.
-        var fill_sfc: z2d.Surface = try .init(
-            .image_surface_alpha8,
-            self.alloc,
-            self.sfc.getWidth(),
-            self.sfc.getHeight(),
-        );
-        defer fill_sfc.deinit(self.alloc);
-
-        // On the other we'll do the double width stroke.
-        var stroke_sfc: z2d.Surface = try .init(
-            .image_surface_alpha8,
-            self.alloc,
-            self.sfc.getWidth(),
-            self.sfc.getHeight(),
-        );
-        defer stroke_sfc.deinit(self.alloc);
-
-        // Make a closed version of the path for our fill, so
-        // that we can support open paths for inner stroke.
-        var closed_path = path;
-        closed_path.nodes = try path.nodes.clone(self.alloc);
-        defer closed_path.deinit(self.alloc);
-        try closed_path.close(self.alloc);
-
-        // Fill the shape in white to the fill surface, we use
-        // white because this is a mask that we'll multiply with
-        // the stroke, we want everything inside to be the stroke
-        // color.
-        try z2d.painter.fill(
-            self.alloc,
-            &fill_sfc,
-            &.{ .opaque_pattern = .{
-                .pixel = .{ .alpha8 = .{ .a = 255 } },
-            } },
-            closed_path.nodes.items,
-            .{},
-        );
-
-        // Stroke the shape with double the desired width.
-        var mut_opts = opts;
-        mut_opts.line_width *= 2;
-        try z2d.painter.stroke(
-            self.alloc,
-            &stroke_sfc,
-            &.{ .opaque_pattern = .{
-                .pixel = .{ .alpha8 = .{ .a = @intFromEnum(color) } },
-            } },
-            path.nodes.items,
-            mut_opts,
-        );
-
-        // We multiply the stroke sfc on to the fill surface.
-        // The z2d composite operation doesn't seem to work for
-        // this with alpha8 surfaces, so we have to do it manually.
-        for (
-            std.mem.sliceAsBytes(fill_sfc.image_surface_alpha8.buf),
-            std.mem.sliceAsBytes(stroke_sfc.image_surface_alpha8.buf),
-        ) |*d, s| {
-            d.* = @intFromFloat(@round(
-                255.0 *
-                    (@as(f64, @floatFromInt(s)) / 255.0) *
-                    (@as(f64, @floatFromInt(d.*)) / 255.0),
-            ));
-        }
-
-        // Then we composite the result on to the main surface.
-        self.sfc.composite(&fill_sfc, .src_over, 0, 0, .{});
+    ) (z2d.Path.OffsetError || z2d.painter.StrokeError)!void {
+        var inset_path = try path.offset(self.alloc, -opts.line_width / 2.0);
+        defer inset_path.deinit(self.alloc);
+        return self.strokePath(inset_path, opts, color);
     }
 
     /// Fill a z2d path.

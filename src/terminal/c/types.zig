@@ -68,6 +68,8 @@ pub const structs: std.StaticStringMap(StructInfo) = structs: {
         .{ "GhosttySurfacePosition", StructInfo.init(SurfacePosition) },
         .{ "GhosttyStyle", StructInfo.init(style_c.Style) },
         .{ "GhosttyStyleColor", StructInfo.init(style_c.Color) },
+        .{ "GhosttyTerminalDesktopNotification", StructInfo.init(terminal.DesktopNotification) },
+        .{ "GhosttyTerminalProgressReport", StructInfo.init(terminal.ProgressReport) },
         .{ "GhosttyTerminalScrollbar", StructInfo.init(terminal.TerminalScrollbar) },
         .{ "GhosttyTerminalScrollViewport", StructInfo.init(terminal.ScrollViewport) },
     });

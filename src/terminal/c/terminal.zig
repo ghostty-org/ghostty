@@ -5,6 +5,8 @@ const build_options = @import("terminal_options");
 const lib = @import("../lib.zig");
 const CAllocator = lib.alloc.Allocator;
 pub const ZigTerminal = @import("../Terminal.zig");
+const Action = @import("../stream.zig").Action;
+const osc = @import("../osc.zig");
 const Stream = @import("../stream_terminal.zig").Stream;
 const Screen = @import("../Screen.zig");
 const ScreenSet = @import("../ScreenSet.zig");
@@ -81,6 +83,27 @@ pub const ClipboardWrite = extern struct {
     contents_len: usize,
 };
 
+/// A request to show a desktop notification.
+///
+/// C: GhosttyTerminalDesktopNotification
+pub const DesktopNotification = extern struct {
+    size: usize,
+    title: lib.String,
+    body: lib.String,
+};
+
+/// C: GhosttyTerminalProgressState
+pub const ProgressState = osc.Command.ProgressReport.State;
+
+/// A progress report emitted by the running program.
+///
+/// C: GhosttyTerminalProgressReport
+pub const ProgressReport = extern struct {
+    size: usize,
+    state: ProgressState,
+    progress: i8,
+};
+
 /// C callback state for terminal effects. Trampolines are always
 /// installed on the stream handler; they check these fields and
 /// no-op when the corresponding callback is null.
@@ -89,11 +112,13 @@ const Effects = struct {
     write_pty: ?WritePtyFn = null,
     bell: ?BellFn = null,
     color_scheme: ?ColorSchemeFn = null,
+    desktop_notification: ?DesktopNotificationFn = null,
     device_attributes_cb: ?DeviceAttributesFn = null,
     enquiry: ?EnquiryFn = null,
     xtversion: ?XtversionFn = null,
     title_changed: ?TitleChangedFn = null,
     pwd_changed: ?PwdChangedFn = null,
+    progress_report: ?ProgressReportFn = null,
     size_cb: ?SizeFn = null,
     clipboard_write: ?ClipboardWriteFn = null,
 
@@ -130,11 +155,18 @@ const Effects = struct {
     /// and its contents are borrowed and only valid for the callback duration.
     pub const ClipboardWriteFn = *const fn (Terminal, ?*anyopaque, *const ClipboardWrite) callconv(lib.calling_conv) clipboard.WriteResult;
 
+    /// C function pointer type for the desktop_notification callback. The
+    /// request and its strings are borrowed for the callback duration.
+    pub const DesktopNotificationFn = *const fn (Terminal, ?*anyopaque, *const DesktopNotification) callconv(lib.calling_conv) void;
+
     /// C function pointer type for the title_changed callback.
     pub const TitleChangedFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) void;
 
     /// C function pointer type for the pwd_changed callback.
     pub const PwdChangedFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) void;
+
+    /// C function pointer type for the progress_report callback.
+    pub const ProgressReportFn = *const fn (Terminal, ?*anyopaque, *const ProgressReport) callconv(lib.calling_conv) void;
 
     /// C function pointer type for the size callback.
     /// Returns true and fills out_size if size is available,
@@ -219,6 +251,26 @@ const Effects = struct {
         return func(@ptrCast(wrapper), wrapper.effects.userdata, &request);
     }
 
+    fn desktopNotificationTrampoline(
+        handler: *Handler,
+        notification: Action.ShowDesktopNotification,
+    ) void {
+        const wrapper = TerminalWrapper.fromHandler(handler);
+        const func = wrapper.effects.desktop_notification orelse return;
+        const request: DesktopNotification = .{
+            .size = @sizeOf(DesktopNotification),
+            .title = .{
+                .ptr = notification.title.ptr,
+                .len = notification.title.len,
+            },
+            .body = .{
+                .ptr = notification.body.ptr,
+                .len = notification.body.len,
+            },
+        };
+        func(@ptrCast(wrapper), wrapper.effects.userdata, &request);
+    }
+
     fn colorSchemeTrampoline(handler: *Handler) ?device_status.ColorScheme {
         const wrapper = TerminalWrapper.fromHandler(handler);
         const func = wrapper.effects.color_scheme orelse return null;
@@ -283,6 +335,20 @@ const Effects = struct {
         const wrapper = TerminalWrapper.fromHandler(handler);
         const func = wrapper.effects.pwd_changed orelse return;
         func(@ptrCast(wrapper), wrapper.effects.userdata);
+    }
+
+    fn progressReportTrampoline(
+        handler: *Handler,
+        report: osc.Command.ProgressReport,
+    ) void {
+        const wrapper = TerminalWrapper.fromHandler(handler);
+        const func = wrapper.effects.progress_report orelse return;
+        const c_report: ProgressReport = .{
+            .size = @sizeOf(ProgressReport),
+            .state = @enumFromInt(@intFromEnum(report.state)),
+            .progress = if (report.progress) |value| @intCast(value) else -1,
+        };
+        func(@ptrCast(wrapper), wrapper.effects.userdata, &c_report);
     }
 
     fn sizeTrampoline(handler: *Handler) ?size_report.Size {
@@ -376,11 +442,13 @@ fn new_(
         .write_pty = &Effects.writePtyTrampoline,
         .bell = &Effects.bellTrampoline,
         .color_scheme = &Effects.colorSchemeTrampoline,
+        .desktop_notification = &Effects.desktopNotificationTrampoline,
         .device_attributes = &Effects.deviceAttributesTrampoline,
         .enquiry = &Effects.enquiryTrampoline,
         .xtversion = &Effects.xtversionTrampoline,
         .title_changed = &Effects.titleChangedTrampoline,
         .pwd_changed = &Effects.pwdChangedTrampoline,
+        .progress_report = &Effects.progressReportTrampoline,
         .size = &Effects.sizeTrampoline,
         .clipboard_write = &Effects.clipboardWriteTrampoline,
     };
@@ -457,6 +525,8 @@ pub const Option = enum(c_int) {
     clipboard_write = 26,
     scrollback_max_bytes = 27,
     scrollback_max_lines = 28,
+    desktop_notification = 29,
+    progress_report = 30,
 
     /// Input type expected for setting the option.
     pub fn InType(comptime self: Option) type {
@@ -465,11 +535,13 @@ pub const Option = enum(c_int) {
             .write_pty => ?Effects.WritePtyFn,
             .bell => ?Effects.BellFn,
             .color_scheme => ?Effects.ColorSchemeFn,
+            .desktop_notification => ?Effects.DesktopNotificationFn,
             .device_attributes => ?Effects.DeviceAttributesFn,
             .enquiry => ?Effects.EnquiryFn,
             .xtversion => ?Effects.XtversionFn,
             .title_changed => ?Effects.TitleChangedFn,
             .pwd_changed => ?Effects.PwdChangedFn,
+            .progress_report => ?Effects.ProgressReportFn,
             .size_cb => ?Effects.SizeFn,
             .clipboard_write => ?Effects.ClipboardWriteFn,
             .title, .pwd => ?*const lib.String,
@@ -526,11 +598,13 @@ fn setTyped(
         .write_pty => wrapper.effects.write_pty = value,
         .bell => wrapper.effects.bell = value,
         .color_scheme => wrapper.effects.color_scheme = value,
+        .desktop_notification => wrapper.effects.desktop_notification = value,
         .device_attributes => wrapper.effects.device_attributes_cb = value,
         .enquiry => wrapper.effects.enquiry = value,
         .xtversion => wrapper.effects.xtversion = value,
         .title_changed => wrapper.effects.title_changed = value,
         .pwd_changed => wrapper.effects.pwd_changed = value,
+        .progress_report => wrapper.effects.progress_report = value,
         .size_cb => wrapper.effects.size_cb = value,
         .clipboard_write => wrapper.effects.clipboard_write = value,
         .title => {
@@ -2841,6 +2915,151 @@ test "title_changed without callback is silent" {
 
     // OSC 2 without a callback should not crash
     vt_write(t, "\x1B]2;Hello\x1B\\", 10);
+}
+
+test "set desktop_notification callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var count: usize = 0;
+        var last_userdata: ?*anyopaque = null;
+        var last_size: usize = 0;
+        var title: [64]u8 = undefined;
+        var title_len: usize = 0;
+        var body: [64]u8 = undefined;
+        var body_len: usize = 0;
+
+        fn desktopNotification(
+            _: Terminal,
+            ud: ?*anyopaque,
+            notification: *const DesktopNotification,
+        ) callconv(lib.calling_conv) void {
+            count += 1;
+            last_userdata = ud;
+            last_size = notification.size;
+            title_len = notification.title.len;
+            body_len = notification.body.len;
+            @memcpy(title[0..title_len], notification.title.ptr[0..title_len]);
+            @memcpy(body[0..body_len], notification.body.ptr[0..body_len]);
+        }
+    };
+    S.count = 0;
+    S.last_userdata = null;
+    S.last_size = 0;
+    S.title_len = 0;
+    S.body_len = 0;
+
+    var sentinel: u8 = 99;
+    try testing.expectEqual(Result.success, set(t, .userdata, @ptrCast(&sentinel)));
+    try testing.expectEqual(Result.success, set(
+        t,
+        .desktop_notification,
+        @ptrCast(&S.desktopNotification),
+    ));
+
+    // Split OSC 777 across writes to exercise the persistent VT parser.
+    const seq_a = "\x1B]777;notify;Codex;";
+    const seq_b = "Needs attention\x1B\\";
+    vt_write(t, seq_a, seq_a.len);
+    try testing.expectEqual(@as(usize, 0), S.count);
+    vt_write(t, seq_b, seq_b.len);
+    try testing.expectEqual(@as(usize, 1), S.count);
+    try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
+    try testing.expectEqual(@sizeOf(DesktopNotification), S.last_size);
+    try testing.expectEqualStrings("Codex", S.title[0..S.title_len]);
+    try testing.expectEqualStrings("Needs attention", S.body[0..S.body_len]);
+
+    // OSC 9 has no title and preserves its body.
+    const seq_c = "\x1B]9;Build complete\x07";
+    vt_write(t, seq_c, seq_c.len);
+    try testing.expectEqual(@as(usize, 2), S.count);
+    try testing.expectEqualStrings("", S.title[0..S.title_len]);
+    try testing.expectEqualStrings("Build complete", S.body[0..S.body_len]);
+
+    // Removing the callback takes effect immediately.
+    try testing.expectEqual(Result.success, set(t, .desktop_notification, null));
+    vt_write(t, seq_c, seq_c.len);
+    try testing.expectEqual(@as(usize, 2), S.count);
+}
+
+test "set progress_report callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var count: usize = 0;
+        var last_userdata: ?*anyopaque = null;
+        var last_size: usize = 0;
+        var last_state: ProgressState = .remove;
+        var last_progress: i8 = -1;
+
+        fn progressReport(
+            _: Terminal,
+            ud: ?*anyopaque,
+            report: *const ProgressReport,
+        ) callconv(lib.calling_conv) void {
+            count += 1;
+            last_userdata = ud;
+            last_size = report.size;
+            last_state = report.state;
+            last_progress = report.progress;
+        }
+    };
+    S.count = 0;
+    S.last_userdata = null;
+    S.last_size = 0;
+    S.last_state = .remove;
+    S.last_progress = -1;
+
+    var sentinel: u8 = 100;
+    try testing.expectEqual(Result.success, set(t, .userdata, @ptrCast(&sentinel)));
+    try testing.expectEqual(Result.success, set(
+        t,
+        .progress_report,
+        @ptrCast(&S.progressReport),
+    ));
+
+    const cases = [_]struct {
+        sequence: []const u8,
+        state: ProgressState,
+        progress: i8,
+    }{
+        .{ .sequence = "\x1B]9;4;0;\x1B\\", .state = .remove, .progress = -1 },
+        .{ .sequence = "\x1B]9;4;1;42\x07", .state = .set, .progress = 42 },
+        .{ .sequence = "\x1B]9;4;2;7\x1B\\", .state = .@"error", .progress = 7 },
+        .{ .sequence = "\x1B]9;4;3\x1B\\", .state = .indeterminate, .progress = -1 },
+        .{ .sequence = "\x1B]9;4;4;75\x1B\\", .state = .pause, .progress = 75 },
+    };
+
+    for (cases, 1..) |case, expected_count| {
+        const midpoint = case.sequence.len / 2;
+        vt_write(t, case.sequence.ptr, midpoint);
+        try testing.expectEqual(expected_count - 1, S.count);
+        vt_write(t, case.sequence.ptr + midpoint, case.sequence.len - midpoint);
+        try testing.expectEqual(expected_count, S.count);
+        try testing.expectEqual(@as(?*anyopaque, @ptrCast(&sentinel)), S.last_userdata);
+        try testing.expectEqual(@sizeOf(ProgressReport), S.last_size);
+        try testing.expectEqual(case.state, S.last_state);
+        try testing.expectEqual(case.progress, S.last_progress);
+    }
+
+    try testing.expectEqual(Result.success, set(t, .progress_report, null));
+    const ignored = "\x1B]9;4;1;90\x1B\\";
+    vt_write(t, ignored, ignored.len);
+    try testing.expectEqual(@as(usize, cases.len), S.count);
 }
 
 test "set pwd_changed callback" {

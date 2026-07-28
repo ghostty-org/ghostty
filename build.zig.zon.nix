@@ -377,11 +377,11 @@ in
       };
     }
     {
-      name = "z2d-0.11.0-j5P_HtLzDwBGyQt49DrT0v4BuVqI_SRs6CXsuj7eBVhR";
+      name = "z2d-0.12.1-j5P_Hsw8EQAKyZTQICCQnAH2xYkLDW8k9uefbsYdfPZ-";
       path = fetchZigArtifact {
         name = "z2d";
-        url = "https://deps.files.ghostty.org/z2d-0.11.0-j5P_HtLzDwBGyQt49DrT0v4BuVqI_SRs6CXsuj7eBVhR.tar.gz";
-        hash = "sha256-/Yje2P+ro7IrPodQ26YKk7RsPSYj1Cqx6bdrmykXEKA=";
+        url = "https://github.com/vancluever/z2d/archive/7dbae85c81784dba9988320bf9543ed9a81350c8.tar.gz";
+        hash = "sha256-Fjr1ORn0ozxU7QY09o2ZOZQHIJsXfVw0UCdZxTKmZJ0=";
         unpack = true;
       };
     }

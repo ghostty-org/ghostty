@@ -187,9 +187,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/z2d-0.11.0-j5P_HtLzDwBGyQt49DrT0v4BuVqI_SRs6CXsuj7eBVhR.tar.gz",
-    "dest": "vendor/p/z2d-0.11.0-j5P_HtLzDwBGyQt49DrT0v4BuVqI_SRs6CXsuj7eBVhR",
-    "sha256": "d48b117307f767ca379bf31bd171880e66dcafb89eca4a8f923222619992fcb4"
+    "url": "https://github.com/vancluever/z2d/archive/7dbae85c81784dba9988320bf9543ed9a81350c8.tar.gz",
+    "dest": "vendor/p/z2d-0.12.1-j5P_Hsw8EQAKyZTQICCQnAH2xYkLDW8k9uefbsYdfPZ-",
+    "sha256": "e55c9d0b156edaddfea32fb1c0e3597e1b6306b9a4ec1888e2f8008c598bced8"
   },
   {
     "type": "archive",

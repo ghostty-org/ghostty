@@ -203,18 +203,15 @@ pub const Command = union(Key) {
     );
 
     pub const ProgressReport = struct {
-        pub const State = enum(c_int) {
-            remove,
-            set,
-            @"error",
-            indeterminate,
-            pause,
-
-            test "ghostty.h Command.ProgressReport.State" {
-                if (comptime build_options.artifact == .lib) return error.SkipZigTest;
-                try lib.checkGhosttyHEnum(State, "GHOSTTY_PROGRESS_STATE_");
-            }
+        const state_keys = &.{
+            "remove",
+            "set",
+            "error",
+            "indeterminate",
+            "pause",
         };
+
+        pub const State = LibEnum(lib.target, state_keys);
 
         state: State,
         progress: ?u8 = null,
@@ -234,6 +231,12 @@ pub const Command = union(Key) {
                     100,
                 )) else -1,
             };
+        }
+
+        test "ghostty.h Command.ProgressReport.State" {
+            if (comptime build_options.artifact == .lib) return error.SkipZigTest;
+            const CState = LibEnum(.c, state_keys);
+            try lib.checkGhosttyHEnum(CState, "GHOSTTY_PROGRESS_STATE_");
         }
     };
 

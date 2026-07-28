@@ -121,7 +121,10 @@ pub fn checkGhosttyHEnum(
 
         if (@hasDecl(c, expected_name)) {
             std.testing.expectEqual(field.value, @field(c, expected_name)) catch |e| {
-                std.log.err(@typeName(T) ++ " key " ++ field.name ++ " does not have the same backing int as " ++ expected_name, .{});
+                std.log.err(
+                    "{s} key {s} does not have the same backing int as " ++ expected_name,
+                    .{ @typeName(T), field.name },
+                );
                 return e;
             };
 
