@@ -290,6 +290,7 @@ uzaaft
 vancluever
 vaughanandrews
 -vectorpeak Stupid bot cosplaying as a maintainer
+vegerot
 viruslobster
 vlsi
 voidnv
