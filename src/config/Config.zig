@@ -106,6 +106,11 @@ pub const compatibility = std.StaticStringMap(
     // both. The semantics also changed but this is the correct mapping.
     // See: https://github.com/ghostty-org/ghostty/pull/12604
     .{ "copy-on-select", compatCopyOnSelect },
+
+    // Ghostty 1.4 rename the `download` to `install` for `auto-update`.
+    // Sparkle doesn't actually support downloading only.
+    // See: https://sparkle-project.org/documentation/customization/
+    .{ "auto-update", compatAutoUpdate },
 });
 
 /// Set Ghostty's graphical user interface language to a language other than the
@@ -3909,8 +3914,8 @@ term: []const u8 = "xterm-ghostty",
 ///  * `off` - Disable auto-updates.
 ///  * `check` - Check for updates and notify the user if an update is
 ///    available, but do not automatically download or install the update.
-///  * `download` - Check for updates, automatically download the update,
-///    notify the user, but do not automatically install the update.
+///  * `install` - Check for updates, automatically download and install
+///    the update, but do not automatically relaunch Ghostty.
 ///
 /// If unset, we defer to Sparkle's default behavior, which respects the
 /// preference stored in the standard user defaults (`defaults(1)`).
@@ -5076,6 +5081,23 @@ fn compatCopyOnSelect(
 
     if (std.mem.eql(u8, value orelse "", "false")) {
         self.@"copy-on-select" = .none;
+        return true;
+    }
+
+    return false;
+}
+
+fn compatAutoUpdate(
+    self: *Config,
+    alloc: Allocator,
+    key: []const u8,
+    value: ?[]const u8,
+) bool {
+    _ = alloc;
+    assert(std.mem.eql(u8, key, "auto-update"));
+
+    if (std.mem.eql(u8, value orelse "", "download")) {
+        self.@"auto-update" = .install;
         return true;
     }
 
@@ -9833,7 +9855,7 @@ pub const AsyncBackend = enum {
 pub const AutoUpdate = enum {
     off,
     check,
-    download,
+    install,
 };
 
 /// See background-blur
@@ -11266,6 +11288,25 @@ test "compatibility: window new-window" {
         try testing.expectEqual(
             MacOSDockDropBehavior.@"new-window",
             cfg.@"macos-dock-drop-behavior",
+        );
+    }
+}
+
+test "compatibility: download install" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            "--auto-update=download",
+        } };
+        try cfg.loadIter(alloc, &it);
+        try cfg.finalize();
+        try testing.expectEqual(
+            AutoUpdate.install,
+            cfg.@"auto-update",
         );
     }
 }
