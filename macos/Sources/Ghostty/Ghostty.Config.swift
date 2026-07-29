@@ -734,7 +734,7 @@ extension Ghostty.Config {
     enum AutoUpdate: String {
         case off
         case check
-        case download
+        case install
     }
 
     /// Background blur configuration that maps from the C API values.
