@@ -339,6 +339,12 @@ comptime {
         @export(&c.kitty_graphics_placement_viewport_pos, .{ .name = "ghostty_kitty_graphics_placement_viewport_pos" });
         @export(&c.kitty_graphics_placement_source_rect, .{ .name = "ghostty_kitty_graphics_placement_source_rect" });
         @export(&c.kitty_graphics_placement_render_info, .{ .name = "ghostty_kitty_graphics_placement_render_info" });
+        @export(&c.kitty_graphics_unicode_placement_iterator_new, .{ .name = "ghostty_kitty_graphics_unicode_placement_iterator_new" });
+        @export(&c.kitty_graphics_unicode_placement_iterator_free, .{ .name = "ghostty_kitty_graphics_unicode_placement_iterator_free" });
+        @export(&c.kitty_graphics_unicode_placement_next, .{ .name = "ghostty_kitty_graphics_unicode_placement_next" });
+        @export(&c.kitty_graphics_unicode_placement_get, .{ .name = "ghostty_kitty_graphics_unicode_placement_get" });
+        @export(&c.kitty_graphics_unicode_placement_get_multi, .{ .name = "ghostty_kitty_graphics_unicode_placement_get_multi" });
+        @export(&c.kitty_graphics_unicode_placement_render_info, .{ .name = "ghostty_kitty_graphics_unicode_placement_render_info" });
         @export(&c.grid_ref_cell, .{ .name = "ghostty_grid_ref_cell" });
         @export(&c.grid_ref_row, .{ .name = "ghostty_grid_ref_row" });
         @export(&c.grid_ref_graphemes, .{ .name = "ghostty_grid_ref_graphemes" });

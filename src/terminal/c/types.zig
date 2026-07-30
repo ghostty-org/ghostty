@@ -21,6 +21,7 @@ const style_c = @import("style.zig");
 const mouse_encode = @import("mouse_encode.zig");
 const grid_ref = @import("grid_ref.zig");
 const io = @import("io.zig");
+const kitty_graphics = @import("kitty_graphics.zig");
 
 /// C: GhosttySurfacePosition
 pub const SurfacePosition = extern struct {
@@ -57,6 +58,7 @@ pub const structs: std.StaticStringMap(StructInfo) = structs: {
         .{ "GhosttyFormatterTerminalExtra", StructInfo.init(formatter.TerminalOptions.Extra) },
         .{ "GhosttyFormatterScreenExtra", StructInfo.init(formatter.ScreenOptions.Extra) },
         .{ "GhosttyGridRef", StructInfo.init(grid_ref.CGridRef) },
+        .{ "GhosttyKittyGraphicsUnicodePlacementRenderInfo", StructInfo.init(kitty_graphics.UnicodePlacementRenderInfo) },
         .{ "GhosttyMouseEncoderSize", StructInfo.init(mouse_encode.Size) },
         .{ "GhosttyMousePosition", StructInfo.init(mouse_event.Position) },
         .{ "GhosttyPoint", StructInfo.init(point.Point.C) },
