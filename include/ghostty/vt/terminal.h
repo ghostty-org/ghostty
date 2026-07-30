@@ -547,8 +547,8 @@ typedef void (*GhosttyClipboardWriteReplyFn)(
  *
  * The write is answered by calling `reply` with this request and a
  * GhosttyClipboardWriteReply. This must happen within the clipboard write
- * request callback. This struct is only valid during that time. Calling 
- * `reply` more than once is safely ignored. Returning without replying 
+ * request callback. This struct is only valid during that time. Calling
+ * `reply` more than once is safely ignored. Returning without replying
  * denies the write.
  *
  * @ingroup terminal
@@ -595,13 +595,13 @@ struct GhosttyClipboardWrite {
 /**
  * Callback function type for clipboard_write.
  *
- * The embedder may ask for permission to write or perform the write 
+ * The embedder may ask for permission to write or perform the write
  * async, but the callback itself is synchronous and the reply function
  * must be called during the lifetime of this function. While this callback
  * is active the VT stream is paused.
  *
  * Answer by calling `write->reply(write, &reply)` before returning. See
- * GhosttyClipboardWrite for the full contract. 
+ * GhosttyClipboardWrite for the full contract.
  *
  * The request may carry an optional program name requesting the write
  * and the state of prior permission granted. If `can_remember` is set
@@ -1951,6 +1951,19 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Output type: size_t *
    */
   GHOSTTY_TERMINAL_DATA_CLIPBOARD_WRITE_MAX_BYTES = 40,
+
+  /**
+   * Populate and rewind a caller-owned Unicode placement iterator over the
+   * active viewport. The iterator returns decoded Kitty Unicode placeholder
+   * occurrences, including unresolved occurrences.
+   *
+   * The populated traversal state and returned grid references remain valid
+   * only until the next terminal mutation. Repopulate the iterator before
+   * using it again after mutation.
+   *
+   * Output type: GhosttyKittyGraphicsUnicodePlacementIterator *
+   */
+  GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS_UNICODE_PLACEMENT_ITERATOR = 41,
   GHOSTTY_TERMINAL_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalData;
 
