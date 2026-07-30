@@ -11,7 +11,6 @@ const internal_os = @import("../os/main.zig");
 const renderer = @import("../renderer.zig");
 const termio = @import("../termio.zig");
 const terminal = @import("../terminal/main.zig");
-const terminfo = @import("../terminfo/main.zig");
 const posix = std.posix;
 
 const log = std.log.scoped(.io_handler);
@@ -456,10 +455,11 @@ pub const StreamHandler = struct {
             },
 
             .xtgettcap => |*gettcap| {
-                const map = comptime terminfo.ghostty.xtgettcapMap();
-                while (gettcap.next()) |key| {
-                    const response = map.get(key) orelse continue;
-                    self.messageWriter(.{ .write_stable = response });
+                while (gettcap.nextResponse()) |response| {
+                    self.messageWriter(.{ .write_stable = switch (response) {
+                        .static => |v| v,
+                        .name => terminal.dcs.Command.XTGETTCAP.name_response,
+                    } });
                 }
             },
 

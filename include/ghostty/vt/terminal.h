@@ -90,6 +90,7 @@ extern "C" {
  * | `GHOSTTY_TERMINAL_OPT_PWD_CHANGED`      | `GhosttyTerminalPwdChangedFn`     | Pwd change via OSC 7 / OSC 9 / OSC 1337   |
  * | `GHOSTTY_TERMINAL_OPT_ENQUIRY`          | `GhosttyTerminalEnquiryFn`        | ENQ character (0x05)                      |
  * | `GHOSTTY_TERMINAL_OPT_XTVERSION`        | `GhosttyTerminalXtversionFn`      | XTVERSION query (CSI > q)                 |
+ * | `GHOSTTY_TERMINAL_OPT_TERMINFO_NAME`    | `GhosttyTerminalTerminfoNameFn`   | XTGETTCAP query for "TN" (DCS + q)        |
  * | `GHOSTTY_TERMINAL_OPT_SIZE`             | `GhosttyTerminalSizeFn`           | XTWINOPS size query (CSI 14/16/18 t)      |
  * | `GHOSTTY_TERMINAL_OPT_COLOR_SCHEME`     | `GhosttyTerminalColorSchemeFn`    | Color scheme query (CSI ? 996 n)          |
  * | `GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES`| `GhosttyTerminalDeviceAttributesFn`| Device attributes query (CSI c / > c / = c)|
@@ -695,6 +696,32 @@ typedef GhosttyString (*GhosttyTerminalXtversionFn)(GhosttyTerminal terminal,
                                                      void* userdata);
 
 /**
+ * Callback function type for the XTGETTCAP "TN" capability.
+ *
+ * Called when a program asks the terminal (via DCS + q) for the name of
+ * the terminfo entry it is running as. Return the name as a
+ * GhosttyString (e.g. "xterm-256color"). The memory must remain valid
+ * until the callback returns. Return a zero-length string to send no
+ * response.
+ *
+ * This must match the TERM environment variable you set for the process
+ * driving the terminal. libghostty-vt does not spawn processes and never
+ * sees TERM, so it cannot answer this on your behalf; if this callback
+ * is not set, the query goes unanswered. Every other capability is
+ * answered from Ghostty's built-in terminfo and needs no callback.
+ *
+ * Names longer than 128 bytes are silently ignored.
+ *
+ * @param terminal The terminal handle
+ * @param userdata The userdata pointer set via GHOSTTY_TERMINAL_OPT_USERDATA
+ * @return The terminfo entry name to report
+ *
+ * @ingroup terminal
+ */
+typedef GhosttyString (*GhosttyTerminalTerminfoNameFn)(GhosttyTerminal terminal,
+                                                        void* userdata);
+
+/**
  * Terminal option identifiers.
  *
  * These values are used with ghostty_terminal_set() to configure
@@ -1027,6 +1054,17 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Input type: GhosttyTerminalProgressReportFn
    */
   GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT = 30,
+
+  /**
+   * Callback invoked when a program queries XTGETTCAP for "TN", the
+   * name of the terminfo entry the terminal is running as. This must
+   * match the TERM you set for the process; libghostty-vt never sees
+   * TERM and cannot answer it for you. Set to NULL to leave the query
+   * unanswered.
+   *
+   * Input type: GhosttyTerminalTerminfoNameFn
+   */
+  GHOSTTY_TERMINAL_OPT_TERMINFO_NAME = 31,
   GHOSTTY_TERMINAL_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalOption;
 

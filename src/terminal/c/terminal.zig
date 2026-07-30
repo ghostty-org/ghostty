@@ -116,6 +116,7 @@ const Effects = struct {
     device_attributes_cb: ?DeviceAttributesFn = null,
     enquiry: ?EnquiryFn = null,
     xtversion: ?XtversionFn = null,
+    terminfo_name: ?TerminfoNameFn = null,
     title_changed: ?TitleChangedFn = null,
     pwd_changed: ?PwdChangedFn = null,
     progress_report: ?ProgressReportFn = null,
@@ -150,6 +151,13 @@ const Effects = struct {
     /// must remain valid until the callback returns. An empty string
     /// (len=0) causes the default "libghostty" to be reported.
     pub const XtversionFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) lib.String;
+
+    /// C function pointer type for the terminfo_name callback.
+    /// Returns the name of the terminfo entry this terminal runs as
+    /// (e.g. "xterm-256color"), which must match the TERM the embedder
+    /// set. The memory must remain valid until the callback returns.
+    /// An empty string (len=0) sends no response.
+    pub const TerminfoNameFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) lib.String;
 
     /// C function pointer type for the clipboard_write callback. The request
     /// and its contents are borrowed and only valid for the callback duration.
@@ -325,6 +333,14 @@ const Effects = struct {
         return result.ptr[0..result.len];
     }
 
+    fn terminfoNameTrampoline(handler: *Handler) []const u8 {
+        const wrapper = TerminalWrapper.fromHandler(handler);
+        const func = wrapper.effects.terminfo_name orelse return "";
+        const result = func(@ptrCast(wrapper), wrapper.effects.userdata);
+        if (result.len == 0) return "";
+        return result.ptr[0..result.len];
+    }
+
     fn titleChangedTrampoline(handler: *Handler) void {
         const wrapper = TerminalWrapper.fromHandler(handler);
         const func = wrapper.effects.title_changed orelse return;
@@ -446,6 +462,7 @@ fn new_(
         .device_attributes = &Effects.deviceAttributesTrampoline,
         .enquiry = &Effects.enquiryTrampoline,
         .xtversion = &Effects.xtversionTrampoline,
+        .terminfo_name = &Effects.terminfoNameTrampoline,
         .title_changed = &Effects.titleChangedTrampoline,
         .pwd_changed = &Effects.pwdChangedTrampoline,
         .progress_report = &Effects.progressReportTrampoline,
@@ -527,6 +544,7 @@ pub const Option = enum(c_int) {
     scrollback_max_lines = 28,
     desktop_notification = 29,
     progress_report = 30,
+    terminfo_name = 31,
 
     /// Input type expected for setting the option.
     pub fn InType(comptime self: Option) type {
@@ -539,6 +557,7 @@ pub const Option = enum(c_int) {
             .device_attributes => ?Effects.DeviceAttributesFn,
             .enquiry => ?Effects.EnquiryFn,
             .xtversion => ?Effects.XtversionFn,
+            .terminfo_name => ?Effects.TerminfoNameFn,
             .title_changed => ?Effects.TitleChangedFn,
             .pwd_changed => ?Effects.PwdChangedFn,
             .progress_report => ?Effects.ProgressReportFn,
@@ -602,6 +621,7 @@ fn setTyped(
         .device_attributes => wrapper.effects.device_attributes_cb = value,
         .enquiry => wrapper.effects.enquiry = value,
         .xtversion => wrapper.effects.xtversion = value,
+        .terminfo_name => wrapper.effects.terminfo_name = value,
         .title_changed => wrapper.effects.title_changed = value,
         .pwd_changed => wrapper.effects.pwd_changed = value,
         .progress_report => wrapper.effects.progress_report = value,
@@ -2865,6 +2885,89 @@ test "xtversion without callback reports default" {
     vt_write(t, "\x1B[>q", 4);
     try testing.expect(S.last_data != null);
     try testing.expectEqualStrings("\x1BP>|libghostty\x1B\\", S.last_data.?);
+}
+
+test "set terminfo_name callback" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var last_data: ?[]u8 = null;
+
+        fn deinit() void {
+            if (last_data) |d| testing.allocator.free(d);
+            last_data = null;
+        }
+
+        fn writePty(_: Terminal, _: ?*anyopaque, ptr: [*]const u8, len: usize) callconv(lib.calling_conv) void {
+            if (last_data) |d| testing.allocator.free(d);
+            last_data = testing.allocator.dupe(u8, ptr[0..len]) catch @panic("OOM");
+        }
+
+        const name = "xterm-256color";
+        fn terminfoName(_: Terminal, _: ?*anyopaque) callconv(lib.calling_conv) lib.String {
+            return .{ .ptr = name, .len = name.len };
+        }
+    };
+    defer S.deinit();
+
+    try testing.expectEqual(Result.success, set(t, .write_pty, @ptrCast(&S.writePty)));
+    try testing.expectEqual(Result.success, set(t, .terminfo_name, @ptrCast(&S.terminfoName)));
+
+    const query = "\x1BP+q" ++ std.fmt.bytesToHex("TN", .upper) ++ "\x1B\\";
+    vt_write(t, query, query.len);
+    try testing.expect(S.last_data != null);
+    try testing.expectEqualStrings(
+        "\x1BP1+r" ++ std.fmt.bytesToHex("TN", .upper) ++ "=" ++
+            std.fmt.bytesToHex(S.name, .upper) ++ "\x1B\\",
+        S.last_data.?,
+    );
+}
+
+test "terminfo_name without callback sends no response" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var last_data: ?[]u8 = null;
+
+        fn deinit() void {
+            if (last_data) |d| testing.allocator.free(d);
+            last_data = null;
+        }
+
+        fn writePty(_: Terminal, _: ?*anyopaque, ptr: [*]const u8, len: usize) callconv(lib.calling_conv) void {
+            if (last_data) |d| testing.allocator.free(d);
+            last_data = testing.allocator.dupe(u8, ptr[0..len]) catch @panic("OOM");
+        }
+    };
+    defer S.deinit();
+
+    try testing.expectEqual(Result.success, set(t, .write_pty, @ptrCast(&S.writePty)));
+
+    const tn_query = "\x1BP+q" ++ std.fmt.bytesToHex("TN", .upper) ++ "\x1B\\";
+    vt_write(t, tn_query, tn_query.len);
+    try testing.expect(S.last_data == null);
+
+    const co_query = "\x1BP+q" ++ std.fmt.bytesToHex("Co", .upper) ++ "\x1B\\";
+    vt_write(t, co_query, co_query.len);
+    try testing.expectEqualStrings(
+        "\x1BP1+r" ++ std.fmt.bytesToHex("Co", .upper) ++ "=" ++
+            std.fmt.bytesToHex("256", .upper) ++ "\x1B\\",
+        S.last_data.?,
+    );
 }
 
 test "set title_changed callback" {
