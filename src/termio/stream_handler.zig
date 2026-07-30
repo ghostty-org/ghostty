@@ -456,11 +456,11 @@ pub const StreamHandler = struct {
             },
 
             .xtgettcap => |*gettcap| {
-                const map = comptime terminfo.ghostty.xtgettcapMap();
-                while (gettcap.next()) |key| {
-                    const response = map.get(key) orelse continue;
-                    self.messageWriter(.{ .write_stable = response });
-                }
+                var buf: [terminal.dcs.Command.XTGETTCAP.max_name_response_bytes]u8 = undefined;
+                while (gettcap.nextResponse(terminfo.ghostty.names[0], &buf)) |response| switch (response) {
+                    .static => |v| self.messageWriter(.{ .write_stable = v }),
+                    .buffer => |v| self.messageWriter(try termio.Message.writeReq(self.alloc, v)),
+                };
             },
 
             .decrqss => |decrqss| {

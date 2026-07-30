@@ -61,6 +61,16 @@ pub const Handler = struct {
     /// inject text into the input stream of the foreground process.
     title_report: bool = false,
 
+    /// The name of the terminfo entry this terminal runs as, reported in
+    /// response to an XTGETTCAP query for "TN". This must match the TERM
+    /// the embedder set for the process driving the terminal, which this
+    /// library never sees; while null the query goes unanswered. Every
+    /// other capability is answered from Ghostty's static terminfo.
+    ///
+    /// The memory must remain valid for the lifetime of the handler.
+    /// Empty or over-long names are silently ignored.
+    terminfo_name: ?[]const u8 = null,
+
     /// The APC command handler maintains the APC state. APC is like
     /// CSI or OSC, but it is a private escape sequence that is used
     /// to send commands to the terminal emulator. This is used by
@@ -401,9 +411,14 @@ pub const Handler = struct {
                 self.writePty(response[0..encoded.len :0]);
             },
 
-            .tmux,
-            .xtgettcap,
-            => {},
+            .xtgettcap => |*gettcap| {
+                var buf: [dcs.Command.XTGETTCAP.max_name_response_bytes]u8 = undefined;
+                while (gettcap.nextResponse(self.terminfo_name, &buf)) |response| switch (response) {
+                    .static, .buffer => |v| self.writePty(v),
+                };
+            },
+
+            .tmux => {},
         }
     }
 
@@ -1477,6 +1492,195 @@ test "DECRQSS without write effect is ignored" {
     try testing.expect(!s.handler.semantic_failure);
 }
 
+test "XTGETTCAP responses are written to the pty" {
+    var t: Terminal = try .init(
+        testing.io,
+        testing.allocator,
+        .{ .cols = 80, .rows = 24 },
+    );
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var response: [128]u8 = undefined;
+        var response_len: usize = 0;
+        var calls: usize = 0;
+
+        fn writePty(_: *Handler, data: [:0]const u8) void {
+            @memcpy(response[0..data.len], data);
+            response_len = data.len;
+            calls += 1;
+        }
+    };
+    S.response_len = 0;
+    S.calls = 0;
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // The exact responses for each capability are covered by the dcs
+    // tests; this only checks the wiring.
+    s.nextSlice("\x1BP+q" ++ std.fmt.bytesToHex("Co", .upper) ++ "\x1B\\");
+    try testing.expectEqual(@as(usize, 1), S.calls);
+    try testing.expectEqualStrings(
+        "\x1BP1+r" ++ std.fmt.bytesToHex("Co", .upper) ++ "=" ++
+            std.fmt.bytesToHex("256", .upper) ++ "\x1B\\",
+        S.response[0..S.response_len],
+    );
+}
+
+test "XTGETTCAP writes one response per known key" {
+    var t: Terminal = try .init(
+        testing.io,
+        testing.allocator,
+        .{ .cols = 80, .rows = 24 },
+    );
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var responses: [2][128]u8 = undefined;
+        var response_lens: [2]usize = @splat(0);
+        var calls: usize = 0;
+
+        fn writePty(_: *Handler, data: [:0]const u8) void {
+            @memcpy(responses[calls][0..data.len], data);
+            response_lens[calls] = data.len;
+            calls += 1;
+        }
+    };
+    S.response_lens = @splat(0);
+    S.calls = 0;
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // Lowercase hex input is normalized by the DCS parser.
+    s.nextSlice("\x1BP+q" ++ std.fmt.bytesToHex("am", .lower) ++ ";" ++
+        std.fmt.bytesToHex("Co", .lower) ++ "\x1B\\");
+    try testing.expectEqual(@as(usize, 2), S.calls);
+    try testing.expectEqualStrings(
+        "\x1BP1+r" ++ std.fmt.bytesToHex("am", .upper) ++ "\x1B\\",
+        S.responses[0][0..S.response_lens[0]],
+    );
+    try testing.expectEqualStrings(
+        "\x1BP1+r" ++ std.fmt.bytesToHex("Co", .upper) ++ "=" ++
+            std.fmt.bytesToHex("256", .upper) ++ "\x1B\\",
+        S.responses[1][0..S.response_lens[1]],
+    );
+}
+
+test "XTGETTCAP ignores unknown and malformed keys" {
+    var t: Terminal = try .init(
+        testing.io,
+        testing.allocator,
+        .{ .cols = 80, .rows = 24 },
+    );
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var calls: usize = 0;
+
+        fn writePty(_: *Handler, _: [:0]const u8) void {
+            calls += 1;
+        }
+    };
+    S.calls = 0;
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    s.nextSlice("\x1BP+qWHO;5;GG\x1B\\");
+    try testing.expectEqual(@as(usize, 0), S.calls);
+    try testing.expect(!s.handler.semantic_failure);
+}
+
+test "XTGETTCAP without write effect is ignored" {
+    var t: Terminal = try .init(
+        testing.io,
+        testing.allocator,
+        .{ .cols = 80, .rows = 24 },
+    );
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
+    defer s.deinit();
+
+    s.nextSlice("\x1BP+q" ++ std.fmt.bytesToHex("TN", .upper) ++ ";" ++
+        std.fmt.bytesToHex("am", .upper) ++ "\x1B\\");
+    try testing.expect(!s.handler.semantic_failure);
+}
+
+test "XTGETTCAP TN reports the configured terminfo name" {
+    var t: Terminal = try .init(
+        testing.io,
+        testing.allocator,
+        .{ .cols = 80, .rows = 24 },
+    );
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var response: [128]u8 = undefined;
+        var response_len: usize = 0;
+
+        fn writePty(_: *Handler, data: [:0]const u8) void {
+            @memcpy(response[0..data.len], data);
+            response_len = data.len;
+        }
+    };
+    S.response_len = 0;
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+    handler.terminfo_name = "xterm-256color";
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    s.nextSlice("\x1BP+q" ++ std.fmt.bytesToHex("TN", .upper) ++ "\x1B\\");
+    try testing.expectEqualStrings(
+        "\x1BP1+r" ++ std.fmt.bytesToHex("TN", .upper) ++ "=" ++
+            std.fmt.bytesToHex("xterm-256color", .upper) ++ "\x1B\\",
+        S.response[0..S.response_len],
+    );
+}
+
+test "XTGETTCAP TN without a terminfo name is ignored" {
+    var t: Terminal = try .init(
+        testing.io,
+        testing.allocator,
+        .{ .cols = 80, .rows = 24 },
+    );
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var calls: usize = 0;
+
+        fn writePty(_: *Handler, _: [:0]const u8) void {
+            calls += 1;
+        }
+    };
+    S.calls = 0;
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    s.nextSlice("\x1BP+q" ++ std.fmt.bytesToHex("TN", .upper) ++ "\x1B\\");
+    try testing.expectEqual(@as(usize, 0), S.calls);
+
+    // An empty name is likewise silent; "Co" is still answered.
+    s.handler.terminfo_name = "";
+    s.nextSlice("\x1BP+q" ++ std.fmt.bytesToHex("TN", .upper) ++ ";" ++
+        std.fmt.bytesToHex("Co", .upper) ++ "\x1B\\");
+    try testing.expectEqual(@as(usize, 1), S.calls);
+    try testing.expect(!s.handler.semantic_failure);
+}
+
 test "DCS command memory is released" {
     var t: Terminal = try .init(
         testing.io,
@@ -1487,8 +1691,8 @@ test "DCS command memory is released" {
 
     var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
 
-    // A completed, unsupported command transfers its allocation to Command;
-    // dcsCommand must release it even though stream_terminal ignores it.
+    // A completed command transfers its allocation to Command; dcsCommand
+    // must release it even when there is no write effect.
     s.nextSlice("\x1BP+q536D756C78\x1B\\");
 
     // An incomplete command remains owned by the handler and must be released

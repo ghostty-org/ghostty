@@ -12,6 +12,7 @@ const Screen = @import("../Screen.zig");
 const ScreenSet = @import("../ScreenSet.zig");
 const PageList = @import("../PageList.zig");
 const apc = @import("../apc.zig");
+const dcs = @import("../dcs.zig");
 const kitty = @import("../kitty/key.zig");
 const kitty_gfx_c = @import("kitty_graphics.zig");
 const modes = @import("../modes.zig");
@@ -98,6 +99,9 @@ const TerminalWrapper = struct {
     /// We also need to store a temp dir path for some operations (e.g., kitty
     /// graphics). This provides stable storage for the API calls.
     tmp_dir_path: [max_path_bytes]u8,
+    /// Likewise for the terminfo name reported for XTGETTCAP "TN". The
+    /// stream handler holds a slice into this.
+    terminfo_name_buf: [dcs.Command.XTGETTCAP.max_name_bytes]u8,
     stream: Stream,
     effects: Effects = .{},
     tracked_grid_refs: std.AutoArrayHashMapUnmanaged(*grid_ref_tracked_c.TrackedGridRef, void) = .{},
@@ -463,6 +467,7 @@ fn wrap(
         .terminal = t,
         .io = io,
         .tmp_dir_path = undefined,
+        .terminfo_name_buf = undefined,
         .stream = Stream.init(.{
             .allocator = alloc,
             .handler = handler,
@@ -905,6 +910,7 @@ pub const Option = enum(c_int) {
     title_report = 32,
     mode_default = 33,
     mode = 34,
+    terminfo_name = 35,
 
     /// Input type expected for setting the option.
     pub fn InType(comptime self: Option) type {
@@ -922,7 +928,7 @@ pub const Option = enum(c_int) {
             .progress_report => ?Effects.ProgressReportFn,
             .size_cb => ?Effects.SizeFn,
             .clipboard_write => ?Effects.ClipboardWriteFn,
-            .title, .pwd => ?*const lib.String,
+            .title, .pwd, .terminfo_name => ?*const lib.String,
             .color_foreground, .color_background, .color_cursor => ?*const color.RGB.C,
             .color_palette => ?*const color.PaletteC,
             .kitty_image_storage_limit => ?*const u64,
@@ -999,6 +1005,15 @@ fn setTyped(
         .pwd => {
             const str = if (value) |v| v.ptr[0..v.len] else "";
             wrapper.terminal.setPwd(str) catch return .out_of_memory;
+        },
+        .terminfo_name => {
+            const str = if (value) |v| v.ptr[0..v.len] else "";
+            if (str.len > wrapper.terminfo_name_buf.len) return .invalid_value;
+            @memcpy(wrapper.terminfo_name_buf[0..str.len], str);
+            wrapper.stream.handler.terminfo_name = if (str.len > 0)
+                wrapper.terminfo_name_buf[0..str.len]
+            else
+                null;
         },
         .color_foreground => {
             wrapper.terminal.colors.foreground.default = if (value) |v| .fromC(v.*) else null;
@@ -3664,6 +3679,100 @@ test "xtversion without callback reports default" {
     vt_write(t, "\x1B[>q", 4);
     try testing.expect(S.last_data != null);
     try testing.expectEqualStrings("\x1BP>|libghostty\x1B\\", S.last_data.?);
+}
+
+test "set terminfo_name option" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var last_data: ?[]u8 = null;
+
+        fn deinit() void {
+            if (last_data) |d| testing.allocator.free(d);
+            last_data = null;
+        }
+
+        fn writePty(_: Terminal, _: ?*anyopaque, ptr: [*]const u8, len: usize) callconv(lib.calling_conv) void {
+            if (last_data) |d| testing.allocator.free(d);
+            last_data = testing.allocator.dupe(u8, ptr[0..len]) catch @panic("OOM");
+        }
+    };
+    defer S.deinit();
+
+    try testing.expectEqual(Result.success, set(t, .write_pty, @ptrCast(&S.writePty)));
+
+    // The name is copied, so the caller's buffer can go away afterwards.
+    var name: [14]u8 = "xterm-256color".*;
+    const value: lib.String = .{ .ptr = &name, .len = name.len };
+    try testing.expectEqual(Result.success, set(t, .terminfo_name, @ptrCast(&value)));
+    @memset(&name, 'z');
+
+    const query = "\x1BP+q" ++ std.fmt.bytesToHex("TN", .upper) ++ "\x1B\\";
+    vt_write(t, query, query.len);
+    try testing.expect(S.last_data != null);
+    try testing.expectEqualStrings(
+        "\x1BP1+r" ++ std.fmt.bytesToHex("TN", .upper) ++ "=" ++
+            std.fmt.bytesToHex("xterm-256color", .upper) ++ "\x1B\\",
+        S.last_data.?,
+    );
+
+    // Clearing with NULL leaves the query unanswered again.
+    S.deinit();
+    try testing.expectEqual(Result.success, set(t, .terminfo_name, null));
+    vt_write(t, query, query.len);
+    try testing.expect(S.last_data == null);
+
+    // Names beyond the maximum are rejected rather than truncated.
+    const long: [dcs.Command.XTGETTCAP.max_name_bytes + 1]u8 = @splat('a');
+    const long_value: lib.String = .{ .ptr = &long, .len = long.len };
+    try testing.expectEqual(Result.invalid_value, set(t, .terminfo_name, @ptrCast(&long_value)));
+}
+
+test "terminfo_name unset sends no response" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer free(t);
+
+    const S = struct {
+        var last_data: ?[]u8 = null;
+
+        fn deinit() void {
+            if (last_data) |d| testing.allocator.free(d);
+            last_data = null;
+        }
+
+        fn writePty(_: Terminal, _: ?*anyopaque, ptr: [*]const u8, len: usize) callconv(lib.calling_conv) void {
+            if (last_data) |d| testing.allocator.free(d);
+            last_data = testing.allocator.dupe(u8, ptr[0..len]) catch @panic("OOM");
+        }
+    };
+    defer S.deinit();
+
+    try testing.expectEqual(Result.success, set(t, .write_pty, @ptrCast(&S.writePty)));
+
+    const tn_query = "\x1BP+q" ++ std.fmt.bytesToHex("TN", .upper) ++ "\x1B\\";
+    vt_write(t, tn_query, tn_query.len);
+    try testing.expect(S.last_data == null);
+
+    const co_query = "\x1BP+q" ++ std.fmt.bytesToHex("Co", .upper) ++ "\x1B\\";
+    vt_write(t, co_query, co_query.len);
+    try testing.expectEqualStrings(
+        "\x1BP1+r" ++ std.fmt.bytesToHex("Co", .upper) ++ "=" ++
+            std.fmt.bytesToHex("256", .upper) ++ "\x1B\\",
+        S.last_data.?,
+    );
 }
 
 test "set title_changed callback" {

@@ -68,7 +68,11 @@ pub fn encode(self: Source, writer: *std.Io.Writer) !void {
 /// Returns a StaticStringMap for all of the capabilities in this terminfo.
 /// The value is the value that should be sent as a response to XTGETTCAP.
 /// Important: the value is the FULL response included the escape sequences.
-pub fn xtgettcapMap(comptime self: Source) std.StaticStringMap([]const u8) {
+///
+/// The responses are null-terminated so that they can be handed directly
+/// to APIs that require a sentinel (e.g. the libghostty-vt write_pty
+/// callback) without copying.
+pub fn xtgettcapMap(comptime self: Source) std.StaticStringMap([:0]const u8) {
     const KV = struct { []const u8, []const u8 };
 
     // We have all of our capabilities plus To, TN, and RGB which aren't
@@ -126,28 +130,32 @@ pub fn xtgettcapMap(comptime self: Source) std.StaticStringMap([]const u8) {
     }
 
     // Now go through and convert them all to hex-encoded strings.
-    for (&kvs) |*entry| {
+    const KVZ = struct { []const u8, [:0]const u8 };
+    var kvs_encoded: [len]KVZ = @splat(.{ "", "" });
+    for (kvs, &kvs_encoded) |entry, *encoded| {
         // The key is just the raw hex-encoded string
-        entry[0] = hexencode(entry[0]);
+        const key = hexencode(entry[0]);
 
-        // The value is more complex
-        var buf: [5 + entry[0].len + 1 + (entry[1].len * 2) + 2]u8 = undefined;
+        // The value is more complex. We reserve one extra byte beyond the
+        // exact response length for the null terminator; the buffer is
+        // zeroed so the remainder is already the sentinel.
+        var buf: [5 + key.len + 1 + (entry[1].len * 2) + 2 + 1]u8 = @splat(0);
         const out = if (std.mem.eql(u8, entry[1], "")) std.fmt.bufPrint(
             &buf,
             "\x1bP1+r{s}\x1b\\",
-            .{entry[0]}, // important: hex-encoded name
+            .{key}, // important: hex-encoded name
         ) catch unreachable else std.fmt.bufPrint(
             &buf,
             "\x1bP1+r{s}={s}\x1b\\",
-            .{ entry[0], hexencode(entry[1]) }, // important: hex-encoded name
+            .{ key, hexencode(entry[1]) }, // important: hex-encoded name
         ) catch unreachable;
 
         const final = buf;
-        entry[1] = final[0..out.len];
+        encoded.* = .{ key, final[0..out.len :0] };
     }
 
-    const kvs_final = kvs;
-    return std.StaticStringMap([]const u8).initComptime(&kvs_final);
+    const kvs_final = kvs_encoded;
+    return std.StaticStringMap([:0]const u8).initComptime(&kvs_final);
 }
 
 fn hexencode(comptime input: []const u8) []const u8 {

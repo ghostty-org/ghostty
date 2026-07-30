@@ -1103,6 +1103,19 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Input type: GhosttyTerminalModeConfig*
    */
   GHOSTTY_TERMINAL_OPT_MODE = 34,
+
+  /**
+   * Set the name of the terminfo entry this terminal runs as, reported
+   * in response to an XTGETTCAP query for "TN" (e.g. "xterm-256color").
+   *
+   * The string data is copied into the terminal. A NULL value pointer
+   * clears the name (equivalent to setting an empty string). Names
+   * longer than 128 bytes return GHOSTTY_INVALID_VALUE and leave the
+   * name unchanged.
+   *
+   * Input type: GhosttyString*
+   */
+  GHOSTTY_TERMINAL_OPT_TERMINFO_NAME = 35,
   GHOSTTY_TERMINAL_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalOption;
 

@@ -3,6 +3,7 @@ const build_options = @import("terminal_options");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const terminal = @import("main.zig");
+const terminfo = @import("../terminfo/main.zig");
 const DCS = terminal.DCS;
 
 const log = std.log.scoped(.terminal_dcs);
@@ -232,7 +233,7 @@ pub const Command = union(enum) {
         /// Returns the next terminfo key being requested and null
         /// when there are no more keys. The returned value is NOT hex-decoded
         /// because we expect to use a comptime lookup table.
-        pub fn next(self: *XTGETTCAP) ?[]const u8 {
+        fn next(self: *XTGETTCAP) ?[]const u8 {
             const items = self.data.written();
             if (self.i >= items.len) return null;
             var rem = items[self.i..];
@@ -244,6 +245,69 @@ pub const Command = union(enum) {
             self.i += idx + 1;
 
             return rem[0..idx];
+        }
+
+        pub const encoded_key_name = &std.fmt.bytesToHex("TN", .upper);
+
+        pub const Response = union(enum) {
+            static: [:0]const u8,
+
+            /// A reply stored in the caller-provided buffer.
+            buffer: [:0]const u8,
+        };
+
+        /// Returns the reply for the next requested capability, skipping
+        /// any keys we have no capability for. The terminal name is used
+        /// for "TN", which is skipped when the name is null or invalid.
+        /// Static replies are valid for the lifetime of the program;
+        /// buffered replies are valid until `buf` is reused.
+        pub fn nextResponse(
+            self: *XTGETTCAP,
+            terminal_name: ?[]const u8,
+            buf: []u8,
+        ) ?Response {
+            // The keys are uppercased by `unhook` before the command is
+            // produced, which matches how the map hex-encodes its keys.
+            const map = comptime terminfo.ghostty.xtgettcapMap();
+            while (self.next()) |key| {
+                if (std.mem.eql(u8, key, encoded_key_name)) {
+                    const name = terminal_name orelse continue;
+                    return .{ .buffer = encodeName(name, buf) orelse continue };
+                }
+                return .{ .static = map.get(key) orelse continue };
+            }
+
+            return null;
+        }
+
+        pub const max_name_bytes = 128;
+
+        pub const max_name_response_bytes =
+            "\x1bP1+r".len + encoded_key_name.len + "=".len +
+            (max_name_bytes * 2) + "\x1b\\".len +
+            1; // null terminator
+
+        /// Encodes the "TN" reply for the given terminal name. Returns
+        /// null for an empty or over-long name, or if the response does
+        /// not fit in `buf`.
+        fn encodeName(name: []const u8, buf: []u8) ?[:0]const u8 {
+            if (name.len == 0 or name.len > max_name_bytes) return null;
+
+            var writer: std.Io.Writer = .fixed(buf);
+            writer.writeAll("\x1bP1+r" ++ encoded_key_name ++ "=") catch return null;
+
+            // Values are hex-encoded uppercase, matching the static map.
+            const charset = "0123456789ABCDEF";
+            for (name) |b| {
+                writer.writeByte(charset[b >> 4]) catch return null;
+                writer.writeByte(charset[b & 0xF]) catch return null;
+            }
+
+            writer.writeAll("\x1b\\") catch return null;
+            writer.writeByte(0) catch return null;
+
+            const final = writer.buffered();
+            return final[0 .. final.len - 1 :0];
         }
     };
 
@@ -424,6 +488,104 @@ test "XTGETTCAP command invalid data" {
     try testing.expectEqualStrings("WHO", cmd.xtgettcap.next().?);
     try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
     try testing.expect(cmd.xtgettcap.next() == null);
+}
+
+test "XTGETTCAP response for a known key" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var h: Handler = .{};
+    defer h.deinit();
+    try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
+    for (comptime std.fmt.bytesToHex("Smulx", .lower)) |byte| _ = h.put(byte);
+    var cmd = h.unhook().?;
+    defer cmd.deinit();
+
+    var buf: [Command.XTGETTCAP.max_name_response_bytes]u8 = undefined;
+    try testing.expectEqualStrings(
+        "\x1bP1+r" ++ std.fmt.bytesToHex("Smulx", .upper) ++ "=" ++
+            std.fmt.bytesToHex("\\E[4:%p1%dm", .upper) ++ "\x1b\\",
+        cmd.xtgettcap.nextResponse(null, &buf).?.static,
+    );
+    try testing.expect(cmd.xtgettcap.nextResponse(null, &buf) == null);
+}
+
+test "XTGETTCAP response for the terminal name" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var h: Handler = .{};
+    defer h.deinit();
+    try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
+    for (comptime std.fmt.bytesToHex("TN", .upper)) |byte| _ = h.put(byte);
+    var cmd = h.unhook().?;
+    defer cmd.deinit();
+
+    var buf: [Command.XTGETTCAP.max_name_response_bytes]u8 = undefined;
+    try testing.expectEqualStrings(
+        "\x1bP1+r" ++ std.fmt.bytesToHex("TN", .upper) ++ "=" ++
+            std.fmt.bytesToHex("xterm-256color", .upper) ++ "\x1b\\",
+        cmd.xtgettcap.nextResponse("xterm-256color", &buf).?.buffer,
+    );
+    try testing.expect(cmd.xtgettcap.nextResponse("xterm-256color", &buf) == null);
+}
+
+test "XTGETTCAP encodeName" {
+    const testing = std.testing;
+
+    var buf: [Command.XTGETTCAP.max_name_response_bytes]u8 = undefined;
+    try testing.expectEqualStrings(
+        "\x1bP1+r" ++ std.fmt.bytesToHex("TN", .upper) ++ "=" ++
+            std.fmt.bytesToHex("xterm-256color", .upper) ++ "\x1b\\",
+        Command.XTGETTCAP.encodeName("xterm-256color", &buf).?,
+    );
+
+    try testing.expect(Command.XTGETTCAP.encodeName("", &buf) == null);
+
+    const long: [Command.XTGETTCAP.max_name_bytes + 1]u8 = @splat('a');
+    try testing.expect(Command.XTGETTCAP.encodeName(&long, &buf) == null);
+
+    const max: [Command.XTGETTCAP.max_name_bytes]u8 = @splat('a');
+    try testing.expect(Command.XTGETTCAP.encodeName(&max, &buf) != null);
+}
+
+test "XTGETTCAP response skips keys we have no capability for" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var h: Handler = .{};
+    defer h.deinit();
+    try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
+    const input = "who;" ++
+        std.fmt.bytesToHex("NOPE", .upper) ++ ";" ++
+        std.fmt.bytesToHex("Smulx", .upper);
+    for (input) |byte| _ = h.put(byte);
+    var cmd = h.unhook().?;
+    defer cmd.deinit();
+
+    var buf: [Command.XTGETTCAP.max_name_response_bytes]u8 = undefined;
+    try testing.expectEqualStrings(
+        "\x1bP1+r" ++ std.fmt.bytesToHex("Smulx", .upper) ++ "=" ++
+            std.fmt.bytesToHex("\\E[4:%p1%dm", .upper) ++ "\x1b\\",
+        cmd.xtgettcap.nextResponse(null, &buf).?.static,
+    );
+    try testing.expect(cmd.xtgettcap.nextResponse(null, &buf) == null);
+}
+
+test "XTGETTCAP response with no known keys" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var h: Handler = .{};
+    defer h.deinit();
+    try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
+    const input = "who;" ++ std.fmt.bytesToHex("NOPE", .upper);
+    for (input) |byte| _ = h.put(byte);
+    var cmd = h.unhook().?;
+    defer cmd.deinit();
+
+    var buf: [Command.XTGETTCAP.max_name_response_bytes]u8 = undefined;
+    try testing.expect(cmd.xtgettcap.nextResponse(null, &buf) == null);
 }
 
 test "DECRQSS command" {
