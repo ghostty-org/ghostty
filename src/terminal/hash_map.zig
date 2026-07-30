@@ -91,6 +91,22 @@ fn AutoContext(comptime K: type) type {
     };
 }
 
+/// Hash context specialized for offset keys. Offsets are already integers,
+/// so hashing them through autoHash's byte-oriented Wyhash path adds work to
+/// every page-map operation. Widen before mixing so the resulting u64 also
+/// has entropy in the high bits used by Metadata's fingerprint.
+pub fn OffsetContext(comptime T: type) type {
+    return struct {
+        pub inline fn hash(_: @This(), key: Offset(T)) u64 {
+            return std.hash.int(@as(u64, key.offset));
+        }
+
+        pub inline fn eql(_: @This(), a: Offset(T), b: Offset(T)) bool {
+            return a.offset == b.offset;
+        }
+    };
+}
+
 /// A HashMap type that uses offsets rather than pointers, making it
 /// possible to efficiently move around the backing memory without
 /// invalidating the HashMap.
@@ -122,6 +138,13 @@ pub fn OffsetHashMap(
         /// aligned to base_align.
         pub fn layout(cap: Unmanaged.Size) Layout {
             return Unmanaged.layoutForSize(cap);
+        }
+
+        /// Returns the backing layout for an exact raw slot capacity. The
+        /// capacity must be zero or a power of two. Unlike layout(), this
+        /// does not scale the request by the configured load factor.
+        pub fn layoutForCapacity(cap: Unmanaged.Size) Layout {
+            return Unmanaged.layoutForCapacity(cap);
         }
 
         /// Initialize a new HashMap with the given capacity and backing

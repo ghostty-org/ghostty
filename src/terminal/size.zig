@@ -25,9 +25,9 @@ pub const CellCountInt = u16;
 // We match CellCountInt here because each cell in a single row can have at
 // most one style, making it simple to split a page by splitting rows.
 //
-// Note due to the way RefCountedSet works, we are short one value, but
-// this is a theoretical limit we accept. A page with a single row max
-// columns wide would be one short of having every cell have a unique style.
+// RefCountedSet reserves both hash-table load headroom and ID 0, so its
+// maximum live-item count is lower than maxInt of these types. This is a
+// theoretical limit we accept; normal pages split long before reaching it.
 pub const StyleCountInt = CellCountInt;
 pub const HyperlinkCountInt = CellCountInt;
 
