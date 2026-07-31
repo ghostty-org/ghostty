@@ -406,7 +406,7 @@ pub const Handler = struct {
             },
 
             .xtgettcap => |*gettcap| {
-                while (gettcap.nextResponse()) |response| switch (response) {
+                while (gettcap.next()) |response| switch (response) {
                     .static => |v| self.writePty(v),
                     .name => self.reportTerminfoName(),
                 };

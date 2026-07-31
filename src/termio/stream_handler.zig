@@ -455,7 +455,7 @@ pub const StreamHandler = struct {
             },
 
             .xtgettcap => |*gettcap| {
-                while (gettcap.nextResponse()) |response| {
+                while (gettcap.next()) |response| {
                     self.messageWriter(.{ .write_stable = switch (response) {
                         .static => |v| v,
                         .name => terminal.dcs.Command.XTGETTCAP.name_response,

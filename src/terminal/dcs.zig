@@ -230,23 +230,6 @@ pub const Command = union(enum) {
         data: std.Io.Writer.Allocating,
         i: usize = 0,
 
-        /// Returns the next terminfo key being requested and null
-        /// when there are no more keys. The returned value is NOT hex-decoded
-        /// because we expect to use a comptime lookup table.
-        pub fn next(self: *XTGETTCAP) ?[]const u8 {
-            const items = self.data.written();
-            if (self.i >= items.len) return null;
-            var rem = items[self.i..];
-            const idx = std.mem.indexOf(u8, rem, ";") orelse rem.len;
-
-            // Note that if we're at the end, idx + 1 is len + 1 so we're over
-            // the end but that's okay because our check above is >= so we'll
-            // never read.
-            self.i += idx + 1;
-
-            return rem[0..idx];
-        }
-
         pub const encoded_key_name = &std.fmt.bytesToHex("TN", .upper);
 
         pub const name_response: [:0]const u8 = response: {
@@ -267,11 +250,17 @@ pub const Command = union(enum) {
         /// Returns the reply for the next requested capability, skipping
         /// any keys we have no capability for. Static replies are valid
         /// for the lifetime of the program.
-        pub fn nextResponse(self: *XTGETTCAP) ?Response {
+        pub fn next(self: *XTGETTCAP) ?Response {
             // The keys are uppercased by `unhook` before the command is
             // produced, which matches how the map hex-encodes its keys.
             const map = comptime terminfo.ghostty.xtgettcapMap();
-            while (self.next()) |key| {
+            const items = self.data.written();
+            while (self.i < items.len) {
+                const rem = items[self.i..];
+                const len = std.mem.indexOfScalar(u8, rem, ';') orelse rem.len;
+                self.i += len + 1;
+
+                const key = rem[0..len];
                 if (std.mem.eql(u8, key, encoded_key_name)) return .name;
                 return .{ .static = map.get(key) orelse continue };
             }
@@ -441,6 +430,10 @@ fn parseXTGETTCAP(input: []const u8) !Command {
     return h.unhook().?;
 }
 
+const smulx_response =
+    "\x1bP1+r" ++ std.fmt.bytesToHex("Smulx", .upper) ++ "=" ++
+    std.fmt.bytesToHex("\\E[4:%p1%dm", .upper) ++ "\x1b\\";
+
 test "XTGETTCAP command" {
     const testing = std.testing;
 
@@ -448,7 +441,7 @@ test "XTGETTCAP command" {
     defer cmd.deinit();
 
     try testing.expect(cmd == .xtgettcap);
-    try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
+    try testing.expectEqualStrings(smulx_response, cmd.xtgettcap.next().?.static);
     try testing.expect(cmd.xtgettcap.next() == null);
 }
 
@@ -459,7 +452,7 @@ test "XTGETTCAP mixed case" {
     defer cmd.deinit();
 
     try testing.expect(cmd == .xtgettcap);
-    try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
+    try testing.expectEqualStrings(smulx_response, cmd.xtgettcap.next().?.static);
     try testing.expect(cmd.xtgettcap.next() == null);
 }
 
@@ -471,8 +464,8 @@ test "XTGETTCAP command multiple keys" {
     defer cmd.deinit();
 
     try testing.expect(cmd == .xtgettcap);
-    try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
-    try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
+    try testing.expectEqualStrings(smulx_response, cmd.xtgettcap.next().?.static);
+    try testing.expectEqualStrings(smulx_response, cmd.xtgettcap.next().?.static);
     try testing.expect(cmd.xtgettcap.next() == null);
 }
 
@@ -485,8 +478,7 @@ test "XTGETTCAP command invalid data" {
     defer cmd.deinit();
 
     try testing.expect(cmd == .xtgettcap);
-    try testing.expectEqualStrings("NOT_HEX_ENCODED", cmd.xtgettcap.next().?);
-    try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
+    try testing.expectEqualStrings(smulx_response, cmd.xtgettcap.next().?.static);
     try testing.expect(cmd.xtgettcap.next() == null);
 }
 
@@ -497,11 +489,10 @@ test "XTGETTCAP response for a known key" {
     defer cmd.deinit();
 
     try testing.expectEqualStrings(
-        "\x1bP1+r" ++ std.fmt.bytesToHex("Smulx", .upper) ++ "=" ++
-            std.fmt.bytesToHex("\\E[4:%p1%dm", .upper) ++ "\x1b\\",
-        cmd.xtgettcap.nextResponse().?.static,
+        smulx_response,
+        cmd.xtgettcap.next().?.static,
     );
-    try testing.expect(cmd.xtgettcap.nextResponse() == null);
+    try testing.expect(cmd.xtgettcap.next() == null);
 }
 
 test "XTGETTCAP response defers the terminal name to the caller" {
@@ -510,8 +501,8 @@ test "XTGETTCAP response defers the terminal name to the caller" {
     var cmd = try parseXTGETTCAP(&std.fmt.bytesToHex("TN", .upper));
     defer cmd.deinit();
 
-    try testing.expect(cmd.xtgettcap.nextResponse().? == .name);
-    try testing.expect(cmd.xtgettcap.nextResponse() == null);
+    try testing.expect(cmd.xtgettcap.next().? == .name);
+    try testing.expect(cmd.xtgettcap.next() == null);
 }
 
 test "XTGETTCAP name_response uses Ghostty's own terminfo entry" {
@@ -559,11 +550,10 @@ test "XTGETTCAP response skips keys we have no capability for" {
     defer cmd.deinit();
 
     try testing.expectEqualStrings(
-        "\x1bP1+r" ++ std.fmt.bytesToHex("Smulx", .upper) ++ "=" ++
-            std.fmt.bytesToHex("\\E[4:%p1%dm", .upper) ++ "\x1b\\",
-        cmd.xtgettcap.nextResponse().?.static,
+        smulx_response,
+        cmd.xtgettcap.next().?.static,
     );
-    try testing.expect(cmd.xtgettcap.nextResponse() == null);
+    try testing.expect(cmd.xtgettcap.next() == null);
 }
 
 test "XTGETTCAP response with no known keys" {
@@ -574,7 +564,7 @@ test "XTGETTCAP response with no known keys" {
     var cmd = try parseXTGETTCAP(input);
     defer cmd.deinit();
 
-    try testing.expect(cmd.xtgettcap.nextResponse() == null);
+    try testing.expect(cmd.xtgettcap.next() == null);
 }
 
 test "DECRQSS command" {
