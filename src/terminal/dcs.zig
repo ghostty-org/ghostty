@@ -230,23 +230,6 @@ pub const Command = union(enum) {
         data: std.Io.Writer.Allocating,
         i: usize = 0,
 
-        /// Returns the next terminfo key being requested and null
-        /// when there are no more keys. The returned value is NOT hex-decoded
-        /// because we expect to use a comptime lookup table.
-        fn next(self: *XTGETTCAP) ?[]const u8 {
-            const items = self.data.written();
-            if (self.i >= items.len) return null;
-            var rem = items[self.i..];
-            const idx = std.mem.indexOf(u8, rem, ";") orelse rem.len;
-
-            // Note that if we're at the end, idx + 1 is len + 1 so we're over
-            // the end but that's okay because our check above is >= so we'll
-            // never read.
-            self.i += idx + 1;
-
-            return rem[0..idx];
-        }
-
         pub const encoded_key_name = &std.fmt.bytesToHex("TN", .upper);
 
         pub const name_response: [:0]const u8 = response: {
@@ -271,7 +254,13 @@ pub const Command = union(enum) {
             // The keys are uppercased by `unhook` before the command is
             // produced, which matches how the map hex-encodes its keys.
             const map = comptime terminfo.ghostty.xtgettcapMap();
-            while (self.next()) |key| {
+            const items = self.data.written();
+            while (self.i < items.len) {
+                const rem = items[self.i..];
+                const len = std.mem.indexOfScalar(u8, rem, ';') orelse rem.len;
+                self.i += len + 1;
+
+                const key = rem[0..len];
                 if (std.mem.eql(u8, key, encoded_key_name)) return .name;
                 return .{ .static = map.get(key) orelse continue };
             }
@@ -427,82 +416,92 @@ test "unknown DCS command" {
     try testing.expect(h.state == .inactive);
 }
 
-test "XTGETTCAP command" {
+fn parseXTGETTCAP(input: []const u8) !Command {
     const testing = std.testing;
-    const alloc = testing.allocator;
 
     var h: Handler = .{};
     defer h.deinit();
-    try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
-    for ("536D756C78") |byte| _ = h.put(byte);
-    var cmd = h.unhook().?;
+    try testing.expect(h.hook(
+        testing.allocator,
+        .{ .intermediates = "+", .final = 'q' },
+    ) == null);
+    for (input) |byte| _ = h.put(byte);
+
+    return h.unhook().?;
+}
+
+const smulx_response =
+    "\x1bP1+r" ++ std.fmt.bytesToHex("Smulx", .upper) ++ "=" ++
+    std.fmt.bytesToHex("\\E[4:%p1%dm", .upper) ++ "\x1b\\";
+
+test "XTGETTCAP command" {
+    const testing = std.testing;
+
+    var cmd = try parseXTGETTCAP(&std.fmt.bytesToHex("Smulx", .upper));
     defer cmd.deinit();
+
     try testing.expect(cmd == .xtgettcap);
-    try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
-    try testing.expect(cmd.xtgettcap.next() == null);
+    try testing.expectEqualStrings(
+        smulx_response,
+        cmd.xtgettcap.nextResponse().?.static,
+    );
+    try testing.expect(cmd.xtgettcap.nextResponse() == null);
 }
 
 test "XTGETTCAP mixed case" {
     const testing = std.testing;
-    const alloc = testing.allocator;
 
-    var h: Handler = .{};
-    defer h.deinit();
-    try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
-    for ("536d756C78") |byte| _ = h.put(byte);
-    var cmd = h.unhook().?;
+    var cmd = try parseXTGETTCAP(&std.fmt.bytesToHex("Smulx", .lower));
     defer cmd.deinit();
-    try testing.expect(cmd == .xtgettcap);
-    try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
-    try testing.expect(cmd.xtgettcap.next() == null);
+
+    try testing.expectEqualStrings(
+        smulx_response,
+        cmd.xtgettcap.nextResponse().?.static,
+    );
+    try testing.expect(cmd.xtgettcap.nextResponse() == null);
 }
 
 test "XTGETTCAP command multiple keys" {
     const testing = std.testing;
-    const alloc = testing.allocator;
 
-    var h: Handler = .{};
-    defer h.deinit();
-    try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
-    for ("536D756C78;536D756C78") |byte| _ = h.put(byte);
-    var cmd = h.unhook().?;
+    const key = std.fmt.bytesToHex("Smulx", .upper);
+    var cmd = try parseXTGETTCAP(key ++ ";" ++ key);
     defer cmd.deinit();
-    try testing.expect(cmd == .xtgettcap);
-    try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
-    try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
-    try testing.expect(cmd.xtgettcap.next() == null);
+
+    try testing.expectEqualStrings(
+        smulx_response,
+        cmd.xtgettcap.nextResponse().?.static,
+    );
+    try testing.expectEqualStrings(
+        smulx_response,
+        cmd.xtgettcap.nextResponse().?.static,
+    );
+    try testing.expect(cmd.xtgettcap.nextResponse() == null);
 }
 
 test "XTGETTCAP command invalid data" {
     const testing = std.testing;
-    const alloc = testing.allocator;
 
-    var h: Handler = .{};
-    defer h.deinit();
-    try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
-    for ("who;536D756C78") |byte| _ = h.put(byte);
-    var cmd = h.unhook().?;
+    var cmd = try parseXTGETTCAP(
+        "not_hex_encoded;" ++ std.fmt.bytesToHex("Smulx", .upper),
+    );
     defer cmd.deinit();
-    try testing.expect(cmd == .xtgettcap);
-    try testing.expectEqualStrings("WHO", cmd.xtgettcap.next().?);
-    try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
-    try testing.expect(cmd.xtgettcap.next() == null);
+
+    try testing.expectEqualStrings(
+        smulx_response,
+        cmd.xtgettcap.nextResponse().?.static,
+    );
+    try testing.expect(cmd.xtgettcap.nextResponse() == null);
 }
 
 test "XTGETTCAP response for a known key" {
     const testing = std.testing;
-    const alloc = testing.allocator;
 
-    var h: Handler = .{};
-    defer h.deinit();
-    try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
-    for (comptime std.fmt.bytesToHex("Smulx", .lower)) |byte| _ = h.put(byte);
-    var cmd = h.unhook().?;
+    var cmd = try parseXTGETTCAP(&std.fmt.bytesToHex("Smulx", .lower));
     defer cmd.deinit();
 
     try testing.expectEqualStrings(
-        "\x1bP1+r" ++ std.fmt.bytesToHex("Smulx", .upper) ++ "=" ++
-            std.fmt.bytesToHex("\\E[4:%p1%dm", .upper) ++ "\x1b\\",
+        smulx_response,
         cmd.xtgettcap.nextResponse().?.static,
     );
     try testing.expect(cmd.xtgettcap.nextResponse() == null);
@@ -510,13 +509,8 @@ test "XTGETTCAP response for a known key" {
 
 test "XTGETTCAP response defers the terminal name to the caller" {
     const testing = std.testing;
-    const alloc = testing.allocator;
 
-    var h: Handler = .{};
-    defer h.deinit();
-    try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
-    for (comptime std.fmt.bytesToHex("TN", .upper)) |byte| _ = h.put(byte);
-    var cmd = h.unhook().?;
+    var cmd = try parseXTGETTCAP(&std.fmt.bytesToHex("TN", .upper));
     defer cmd.deinit();
 
     try testing.expect(cmd.xtgettcap.nextResponse().? == .name);
@@ -560,21 +554,15 @@ test "XTGETTCAP encodeName" {
 
 test "XTGETTCAP response skips keys we have no capability for" {
     const testing = std.testing;
-    const alloc = testing.allocator;
 
-    var h: Handler = .{};
-    defer h.deinit();
-    try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
-    const input = "who;" ++
-        std.fmt.bytesToHex("NOPE", .upper) ++ ";" ++
+    const input = "not_hex_encoded;" ++
+        std.fmt.bytesToHex("unsupported_key", .upper) ++ ";" ++
         std.fmt.bytesToHex("Smulx", .upper);
-    for (input) |byte| _ = h.put(byte);
-    var cmd = h.unhook().?;
+    var cmd = try parseXTGETTCAP(input);
     defer cmd.deinit();
 
     try testing.expectEqualStrings(
-        "\x1bP1+r" ++ std.fmt.bytesToHex("Smulx", .upper) ++ "=" ++
-            std.fmt.bytesToHex("\\E[4:%p1%dm", .upper) ++ "\x1b\\",
+        smulx_response,
         cmd.xtgettcap.nextResponse().?.static,
     );
     try testing.expect(cmd.xtgettcap.nextResponse() == null);
@@ -582,14 +570,10 @@ test "XTGETTCAP response skips keys we have no capability for" {
 
 test "XTGETTCAP response with no known keys" {
     const testing = std.testing;
-    const alloc = testing.allocator;
 
-    var h: Handler = .{};
-    defer h.deinit();
-    try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
-    const input = "who;" ++ std.fmt.bytesToHex("NOPE", .upper);
-    for (input) |byte| _ = h.put(byte);
-    var cmd = h.unhook().?;
+    const input = "not_hex_encoded;" ++
+        std.fmt.bytesToHex("unsupported_key", .upper);
+    var cmd = try parseXTGETTCAP(input);
     defer cmd.deinit();
 
     try testing.expect(cmd.xtgettcap.nextResponse() == null);
