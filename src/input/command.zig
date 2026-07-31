@@ -747,6 +747,10 @@ fn actionCommands(action: Action.Key) []const Command {
         .last_tab,
         => comptime &.{},
 
+        // No command yet. The palette entry is added in a follow-up PR
+        // to avoid new translatable strings during the 1.4 string freeze.
+        .detach_split => comptime &.{},
+
         // No commands for obvious reasons
         .ignore,
         .unbind,
