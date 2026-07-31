@@ -153,6 +153,9 @@ pub const Action = union(Key) {
     /// to take up the entire window.
     toggle_split_zoom,
 
+    /// Detach the target split and move it into its own new window.
+    detach_split,
+
     /// Present the target terminal whether its a tab, split, or window.
     present_terminal,
 
@@ -371,6 +374,7 @@ pub const Action = union(Key) {
         resize_split,
         equalize_splits,
         toggle_split_zoom,
+        detach_split,
         present_terminal,
         size_limit,
         reset_window_size,

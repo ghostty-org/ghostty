@@ -643,6 +643,15 @@ pub const Action = union(enum) {
     /// reflect this by displaying an icon indicating the zoomed state.
     toggle_split_zoom,
 
+    /// Detach the current split and move it into its own new window.
+    ///
+    /// The running program, contents, and working directory all move with
+    /// the split. If the focused surface is not part of a split tree (it
+    /// is already alone in its window), this does nothing.
+    ///
+    /// This is currently only supported on macOS.
+    detach_split,
+
     /// Toggle read-only mode for the current surface.
     ///
     /// When a surface is in read-only mode:
@@ -1423,6 +1432,7 @@ pub const Action = union(enum) {
             .goto_split,
             .goto_window,
             .toggle_split_zoom,
+            .detach_split,
             .toggle_readonly,
             .resize_split,
             .equalize_splits,
