@@ -692,9 +692,9 @@ pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
             .patch = 0,
         } },
 
-        // iOS 17 picked arbitrarily
+        // We do not have dependencies requiring newer deployment target.
         .ios => .{ .semver = .{
-            .major = 17,
+            .major = 13,
             .minor = 0,
             .patch = 0,
         } },
