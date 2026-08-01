@@ -55,6 +55,16 @@ pub const Handler = struct {
     /// effects.
     effects: Effects = .readonly,
 
+    /// The name of the terminfo entry this terminal runs as, reported in
+    /// response to an XTGETTCAP query for "TN". This must match the TERM
+    /// the embedder set for the process driving the terminal, which this
+    /// library never sees; while null the query goes unanswered. Every
+    /// other capability is answered from Ghostty's static terminfo.
+    ///
+    /// The memory must remain valid for the lifetime of the handler.
+    /// Empty or over-long names are silently ignored.
+    terminfo_name: ?[]const u8 = null,
+
     /// The APC command handler maintains the APC state. APC is like
     /// CSI or OSC, but it is a private escape sequence that is used
     /// to send commands to the terminal emulator. This is used by
@@ -132,15 +142,6 @@ pub const Handler = struct {
         /// is 256 bytes; longer strings will be silently ignored.
         xtversion: ?*const fn (*Handler) []const u8,
 
-        /// Called in response to an XTGETTCAP query for "TN", the name of
-        /// the terminfo entry this terminal runs as. This must match the
-        /// TERM the embedder set, which this library never sees; without
-        /// this effect the query goes unanswered. Every other capability
-        /// is answered from Ghostty's static terminfo and needs no effect.
-        /// The returned memory must be valid for the lifetime of the
-        /// call. Empty or over-long names are silently ignored.
-        terminfo_name: ?*const fn (*Handler) []const u8,
-
         /// No effects means that the stream effectively becomes readonly
         /// that only affects pure terminal state and ignores all side
         /// effects beyond that.
@@ -155,7 +156,6 @@ pub const Handler = struct {
             .size = null,
             .title_changed = null,
             .pwd_changed = null,
-            .terminfo_name = null,
             .write_pty = null,
             .xtversion = null,
         };
@@ -563,8 +563,7 @@ pub const Handler = struct {
     }
 
     fn reportTerminfoName(self: *Handler) void {
-        const func = self.effects.terminfo_name orelse return;
-        const name = func(self);
+        const name = self.terminfo_name orelse return;
 
         var buf: [dcs.Command.XTGETTCAP.max_name_response_bytes]u8 = undefined;
         const resp = dcs.Command.XTGETTCAP.encodeName(name, &buf) orelse return;
@@ -1612,7 +1611,7 @@ test "XTGETTCAP without write effect is ignored" {
     try testing.expect(!s.handler.semantic_failure);
 }
 
-test "XTGETTCAP TN reports the name from the terminfo_name effect" {
+test "XTGETTCAP TN reports the configured terminfo name" {
     var t: Terminal = try .init(
         testing.io,
         testing.allocator,
@@ -1628,16 +1627,12 @@ test "XTGETTCAP TN reports the name from the terminfo_name effect" {
             @memcpy(response[0..data.len], data);
             response_len = data.len;
         }
-
-        fn terminfoName(_: *Handler) []const u8 {
-            return "xterm-256color";
-        }
     };
     S.response_len = 0;
 
     var handler: Handler = .init(&t);
     handler.effects.write_pty = &S.writePty;
-    handler.effects.terminfo_name = &S.terminfoName;
+    handler.terminfo_name = "xterm-256color";
     var s: Stream = .initAlloc(testing.allocator, handler);
     defer s.deinit();
 
@@ -1649,7 +1644,7 @@ test "XTGETTCAP TN reports the name from the terminfo_name effect" {
     );
 }
 
-test "XTGETTCAP TN without terminfo_name effect is ignored" {
+test "XTGETTCAP TN without a terminfo name is ignored" {
     var t: Terminal = try .init(
         testing.io,
         testing.allocator,
@@ -1663,10 +1658,6 @@ test "XTGETTCAP TN without terminfo_name effect is ignored" {
         fn writePty(_: *Handler, _: [:0]const u8) void {
             calls += 1;
         }
-
-        fn terminfoNameEmpty(_: *Handler) []const u8 {
-            return "";
-        }
     };
     S.calls = 0;
 
@@ -1679,7 +1670,7 @@ test "XTGETTCAP TN without terminfo_name effect is ignored" {
     try testing.expectEqual(@as(usize, 0), S.calls);
 
     // An empty name is likewise silent; "Co" is still answered.
-    s.handler.effects.terminfo_name = &S.terminfoNameEmpty;
+    s.handler.terminfo_name = "";
     s.nextSlice("\x1BP+q" ++ std.fmt.bytesToHex("TN", .upper) ++ ";" ++
         std.fmt.bytesToHex("Co", .upper) ++ "\x1B\\");
     try testing.expectEqual(@as(usize, 1), S.calls);
