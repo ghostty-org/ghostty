@@ -2,6 +2,7 @@ const std = @import("std");
 const fs = std.fs;
 const Allocator = std.mem.Allocator;
 const args = @import("args.zig");
+const global = @import("../global.zig");
 const Action = @import("ghostty.zig").Action;
 const Duration = @import("../config.zig").Config.Duration;
 pub const Entry = @import("ssh-cache/Entry.zig");
@@ -64,13 +65,13 @@ pub fn run(alloc_gpa: Allocator) !u8 {
     defer opts.deinit();
 
     var stdout_buffer: [1024]u8 = undefined;
-    var stdout_file: std.fs.File = .stdout();
-    var stdout_writer = stdout_file.writer(&stdout_buffer);
+    var stdout_file: std.Io.File = .stdout();
+    var stdout_writer = stdout_file.writer(global.io(), &stdout_buffer);
     const stdout = &stdout_writer.interface;
 
     var stderr_buffer: [1024]u8 = undefined;
-    var stderr_file: std.fs.File = .stderr();
-    var stderr_writer = stderr_file.writer(&stderr_buffer);
+    var stderr_file: std.Io.File = .stderr();
+    var stderr_writer = stderr_file.writer(global.io(), &stderr_buffer);
     const stderr = &stderr_writer.interface;
 
     // The cache is queried by a positional destination (`user@host` or a
@@ -81,7 +82,7 @@ pub fn run(alloc_gpa: Allocator) !u8 {
     var query: ?[]const u8 = null;
     var flags: std.ArrayList([]const u8) = .empty;
     {
-        var iter = try args.argsIterator(alloc_gpa);
+        var iter = try args.argsIterator(alloc_gpa, global.args());
         defer iter.deinit();
         while (iter.next()) |arg| {
             const is_host_flag = std.mem.startsWith(u8, arg, "--host=");
@@ -132,7 +133,24 @@ pub fn run(alloc_gpa: Allocator) !u8 {
         };
     }
 
-    const result = runInner(alloc, opts, query, stdout, stderr);
+    // Setup our disk cache to the standard location
+    const cache_path = DiskCache.defaultPath(alloc, "ghostty") catch |err| {
+        try stderr.print(
+            "Error: unable to determine the cache path: {t}\n",
+            .{err},
+        );
+        stderr.flush() catch {};
+        return 1;
+    };
+
+    const result = runInner(
+        alloc,
+        opts,
+        query,
+        .{ .path = cache_path },
+        stdout,
+        stderr,
+    );
 
     // Flushing *shouldn't* fail but...
     stdout.flush() catch {};
@@ -144,6 +162,7 @@ pub fn runInner(
     alloc: Allocator,
     opts: Options,
     query: ?[]const u8,
+    cache: DiskCache,
     stdout: *std.Io.Writer,
     stderr: *std.Io.Writer,
 ) !u8 {
@@ -164,28 +183,34 @@ pub fn runInner(
         return 2;
     }
 
-    // Setup our disk cache to the standard location
-    const cache_path = try DiskCache.defaultPath(alloc, "ghostty");
-    const cache: DiskCache = .{ .path = cache_path };
-
     if (opts.clear) {
-        try cache.clear();
+        cache.clear() catch |err| {
+            try stderr.print(
+                "Error: unable to clear cache '{s}': {t}\n",
+                .{ cache.path, err },
+            );
+            return 1;
+        };
         return 0;
     }
 
     if (opts.add) |dest| {
-        cache.add(alloc, dest, std.time.timestamp()) catch |err| switch (err) {
+        cache.add(
+            alloc,
+            dest,
+            std.Io.Timestamp.now(global.io(), .real).toSeconds(),
+        ) catch |err| switch (err) {
             error.InvalidCacheKey => {
                 try stderr.print(
-                    "Error: Invalid destination '{s}' (expected hostname or user@hostname)\n",
+                    "Error: invalid destination '{s}' (expected hostname or user@hostname)\n",
                     .{dest},
                 );
                 return 2;
             },
             else => {
                 try stderr.print(
-                    "Error: Unable to add '{s}' to cache. Error: {}\n",
-                    .{ dest, err },
+                    "Error: unable to add '{s}' to cache '{s}': {t}\n",
+                    .{ dest, cache.path, err },
                 );
                 return 1;
             },
@@ -197,15 +222,15 @@ pub fn runInner(
         const removed = cache.remove(alloc, dest) catch |err| switch (err) {
             error.InvalidCacheKey => {
                 try stderr.print(
-                    "Error: Invalid destination '{s}' (expected hostname or user@hostname)\n",
+                    "Error: invalid destination '{s}' (expected hostname or user@hostname)\n",
                     .{dest},
                 );
                 return 2;
             },
             else => {
                 try stderr.print(
-                    "Error: Unable to remove '{s}' from cache. Error: {}\n",
-                    .{ dest, err },
+                    "Error: unable to remove '{s}' from cache '{s}': {t}\n",
+                    .{ dest, cache.path, err },
                 );
                 return 1;
             },
@@ -228,14 +253,23 @@ pub fn runInner(
             return 2;
         }
         const pruned = cache.prune(alloc, max_age_s) catch |err| {
-            try stderr.print("Error: Unable to prune cache. Error: {}\n", .{err});
+            try stderr.print(
+                "Error: unable to prune cache '{s}': {t}\n",
+                .{ cache.path, err },
+            );
             return 1;
         };
         try stdout.print("Pruned cache entries: {d}\n", .{pruned});
         return 0;
     }
 
-    var entries = try cache.list(alloc);
+    var entries = cache.list(alloc) catch |err| {
+        try stderr.print(
+            "Error: unable to read cache '{s}': {t}\n",
+            .{ cache.path, err },
+        );
+        return 1;
+    };
     defer DiskCache.deinitEntries(alloc, &entries);
 
     // A positional query filters the listing: an exact `user@host` match,
@@ -243,7 +277,7 @@ pub fn runInner(
     if (query) |q| {
         if (!DiskCache.isValidCacheKey(q)) {
             try stderr.print(
-                "Error: Invalid destination '{s}' (expected hostname or user@hostname)\n",
+                "Error: invalid destination '{s}' (expected hostname or user@hostname)\n",
                 .{q},
             );
             return 2;
@@ -295,7 +329,7 @@ fn listEntries(
         widest = @max(widest, entry.hostname.len);
     }
 
-    const now = std.time.timestamp();
+    const now = std.Io.Timestamp.now(global.io(), .real).toSeconds();
     for (items.items) |entry| {
         try writer.print("{s}", .{entry.hostname});
         try writer.splatByteAll(' ', widest - entry.hostname.len + 2);
@@ -469,10 +503,11 @@ test "runInner rejects multiple actions" {
     defer stderr.deinit();
 
     // The check runs before any cache access, so it never touches disk.
+    const cache: DiskCache = .{ .path = "/nonexistent/ssh_cache" };
     const code = try runInner(alloc, .{
         .add = "example.com",
         .remove = "other.com",
-    }, null, &stdout.writer, &stderr.writer);
+    }, null, cache, &stdout.writer, &stderr.writer);
 
     try testing.expectEqual(@as(u8, 2), code);
     try testing.expectEqualStrings("", stdout.written());
@@ -482,7 +517,39 @@ test "runInner rejects multiple actions" {
     stderr.clearRetainingCapacity();
     const code2 = try runInner(alloc, .{
         .clear = true,
-    }, "example.com", &stdout.writer, &stderr.writer);
+    }, "example.com", cache, &stdout.writer, &stderr.writer);
     try testing.expectEqual(@as(u8, 2), code2);
     try testing.expect(std.mem.indexOf(u8, stderr.written(), "only one") != null);
+}
+
+test "runInner fails cleanly when the cache is unusable" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    // A directory where the cache file belongs fails every operation.
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(io, "ssh_cache");
+    const tmp_path = try tmp.dir.realPathFileAlloc(io, ".", alloc);
+    defer alloc.free(tmp_path);
+    const cache_path = try std.fs.path.join(alloc, &.{ tmp_path, "ssh_cache" });
+    defer alloc.free(cache_path);
+    const cache: DiskCache = .{ .path = cache_path };
+
+    var stdout: std.Io.Writer.Allocating = .init(alloc);
+    defer stdout.deinit();
+    var stderr: std.Io.Writer.Allocating = .init(alloc);
+    defer stderr.deinit();
+
+    const opts: []const Options = &.{
+        .{}, // the default listing
+        .{ .add = "example.com" },
+        .{ .remove = "example.com" },
+        .{ .prune = .{ .duration = std.time.ns_per_s } },
+    };
+    for (opts) |o| {
+        const code = try runInner(alloc, o, null, cache, &stdout.writer, &stderr.writer);
+        try testing.expectEqual(@as(u8, 1), code);
+    }
 }

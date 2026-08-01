@@ -1,6 +1,7 @@
 //! https://gitlab.freedesktop.org/Per_Bothner/specifications/blob/master/proposals/semantic-prompts.md
 const std = @import("std");
 
+const lib = @import("../../lib.zig");
 const Parser = @import("../../osc.zig").Parser;
 const OSCCommand = @import("../../osc.zig").Command;
 const string_encoding = @import("../../../os/string_encoding.zig");
@@ -68,7 +69,10 @@ pub const Command = struct {
 // See https://github.com/ghostty-org/ghostty/issues/10865 and
 // https://github.com/kovidgoyal/kitty/issues/9500
 // for further details.
-pub const ClickEvents = enum { absolute, relative };
+pub const ClickEvents = lib.Enum(
+    lib.target,
+    &.{ "absolute", "relative" },
+);
 
 pub const Option = enum {
     aid,
@@ -199,7 +203,7 @@ pub const Option = enum {
 
             return switch (self) {
                 .aid => value,
-                .cl => .init(value),
+                .cl => parseClick(value),
                 .prompt_kind => if (value.len == 1) PromptKind.init(value[0]) else null,
                 .err => value,
                 .redraw => if (std.mem.eql(u8, value, "0"))
@@ -234,42 +238,50 @@ pub const Option = enum {
 
 /// The `cl` option specifies what kind of cursor key sequences are handled
 /// by the application for click-to-move-cursor functionality.
-pub const Click = enum {
-    /// Value: "line". Allows motion within a single input line using standard
-    /// left/right arrow escape sequences. Only a single left/right sequence
-    /// should be emitted for double-width characters.
-    line,
+///
+/// `line` allows movement within one input line. `multiple` allows movement
+/// across lines with left/right sequences. The two vertical modes additionally
+/// allow up/down sequences, with `smart_vertical` permitting editor-aware
+/// column clamping.
+pub const Click = lib.Enum(
+    lib.target,
+    &.{
+        // Value: "line". Allows motion within a single input line using
+        // standard left/right arrow escape sequences. Only a single left/right
+        // sequence should be emitted for double-width characters.
+        "line",
 
-    /// Value: "m". Allows movement between different lines in the same group,
-    /// but only using left/right arrow escape sequences.
-    multiple,
+        // Value: "m". Allows movement between different lines in the same
+        // group, but only using left/right arrow escape sequences.
+        "multiple",
 
-    /// Value: "v". Like `multiple` but cursor up/down should be used. The
-    /// terminal should be conservative when moving between lines: move the
-    /// cursor left to the start of line, emit the needed up/down sequences,
-    /// then move the cursor right to the clicked destination.
-    conservative_vertical,
+        // Value: "v". Like `multiple` but cursor up/down should be used. The
+        // terminal should be conservative when moving between lines: move the
+        // cursor left to the start of line, emit the needed up/down sequences,
+        // then move the cursor right to the clicked destination.
+        "conservative_vertical",
 
-    /// Value: "w". Like `conservative_vertical` but specifies that there are
-    /// no spurious spaces at the end of the line, and the application editor
-    /// handles "smart vertical movement" (moving 2 lines up from position 20,
-    /// where the intermediate line is 15 chars wide and the destination is
-    /// 18 chars wide, ends at position 18).
-    smart_vertical,
+        // Value: "w". Like `conservative_vertical` but specifies that there
+        // are no spurious spaces at the end of the line, and the application
+        // editor handles "smart vertical movement" (moving 2 lines up from
+        // position 20, where the intermediate line is 15 chars wide and the
+        // destination is 18 chars wide, ends at position 18).
+        "smart_vertical",
+    },
+);
 
-    pub fn init(value: []const u8) ?Click {
-        return if (value.len == 1) switch (value[0]) {
-            'm' => .multiple,
-            'v' => .conservative_vertical,
-            'w' => .smart_vertical,
-            else => null,
-        } else if (std.mem.eql(
-            u8,
-            value,
-            "line",
-        )) .line else null;
-    }
-};
+fn parseClick(value: []const u8) ?Click {
+    return if (value.len == 1) switch (value[0]) {
+        'm' => .multiple,
+        'v' => .conservative_vertical,
+        'w' => .smart_vertical,
+        else => null,
+    } else if (std.mem.eql(
+        u8,
+        value,
+        "line",
+    )) .line else null;
+}
 
 pub const PromptKind = enum {
     initial,

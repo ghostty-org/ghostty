@@ -9,18 +9,10 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
         .linkage = .static,
     });
-    lib.linkLibC();
-    if (target.result.os.tag == .linux) {
-        lib.linkSystemLibrary("m");
-    }
-    if (target.result.os.tag.isDarwin()) {
-        const apple_sdk = @import("apple_sdk");
-        try apple_sdk.addPaths(b, lib);
-    }
-
     // For dynamic linking, we prefer dynamic linking and to search by
     // mode first. Mode first will search all paths for a dynamic library
     // before falling back to static.
@@ -28,20 +20,27 @@ pub fn build(b: *std.Build) !void {
         .preferred_link_mode = .dynamic,
         .search_strategy = .mode_first,
     };
+    if (target.result.os.tag == .linux) {
+        lib.root_module.linkSystemLibrary("m", dynamic_link_opts);
+    }
+    if (target.result.os.tag.isDarwin()) {
+        const apple_sdk = @import("apple_sdk");
+        try apple_sdk.addPaths(b, lib);
+    }
 
     if (b.systemIntegrationOption("zlib", .{})) {
-        lib.linkSystemLibrary2("zlib", dynamic_link_opts);
+        lib.root_module.linkSystemLibrary("zlib", dynamic_link_opts);
     } else {
         if (b.lazyDependency(
             "zlib",
             .{ .target = target, .optimize = optimize },
         )) |zlib_dep| {
-            lib.linkLibrary(zlib_dep.artifact("z"));
-            lib.addIncludePath(b.path(""));
+            lib.root_module.linkLibrary(zlib_dep.artifact("z"));
+            lib.root_module.addIncludePath(b.path(""));
         }
 
         if (b.lazyDependency("libpng", .{})) |upstream| {
-            lib.addIncludePath(upstream.path(""));
+            lib.root_module.addIncludePath(upstream.path(""));
         }
     }
 
@@ -61,7 +60,7 @@ pub fn build(b: *std.Build) !void {
             });
         }
 
-        lib.addCSourceFiles(.{
+        lib.root_module.addCSourceFiles(.{
             .root = upstream.path(""),
             .files = srcs,
             .flags = flags.items,

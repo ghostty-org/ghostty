@@ -20,6 +20,7 @@ const SharedGrid = font.SharedGrid;
 const Style = font.Style;
 const Presentation = font.Presentation;
 const CFReleaseThread = os.CFReleaseThread;
+const global = @import("../../global.zig");
 
 const log = std.log.scoped(.font_shaper);
 
@@ -90,7 +91,7 @@ pub const Shaper = struct {
         unichars: std.ArrayListUnmanaged(u16),
 
         fn init() RunState {
-            return .{ .codepoints = .{}, .unichars = .{} };
+            return .{ .codepoints = .empty, .unichars = .empty };
         }
 
         fn deinit(self: *RunState, alloc: Allocator) void {
@@ -213,18 +214,18 @@ pub const Shaper = struct {
             CFReleaseThread.threadMain,
             .{cf_release_thread},
         );
-        cf_release_thr.setName("cf_release") catch {};
+        cf_release_thr.setName(global.io(), "cf_release") catch {};
 
         return .{
             .alloc = alloc,
-            .cell_buf = .{},
+            .cell_buf = .empty,
             .run_state = run_state,
             .features = features,
             .features_no_default = features_no_default,
             .typesetter_attr_dict = typesetter_attr_dict,
-            .cached_fonts = .{},
+            .cached_fonts = .empty,
             .cached_font_grid = 0,
-            .cf_release_pool = .{},
+            .cf_release_pool = .empty,
             .cf_release_thread = cf_release_thread,
             .cf_release_thr = cf_release_thr,
         };
@@ -282,7 +283,7 @@ pub const Shaper = struct {
         // Send the items. If the send succeeds then we wake up the
         // thread to process the items. If the send fails then do a manual
         // cleanup.
-        if (self.cf_release_thread.mailbox.push(.{ .release = .{
+        if (self.cf_release_thread.mailbox.push(global.io(), .{ .release = .{
             .refs = items,
             .alloc = self.alloc,
         } }, .{ .forever = {} }) != 0) {
@@ -606,8 +607,8 @@ pub const Shaper = struct {
             //
             // Because of this, we only acquire the read lock to grab the
             // face and set it up, then release it.
-            grid.lock.lockShared();
-            defer grid.lock.unlockShared();
+            grid.lock.lockSharedUncancelable(global.io());
+            defer grid.lock.unlockShared(global.io());
 
             const face = try grid.resolver.collection.getFace(index);
             const original = face.font;
@@ -842,7 +843,7 @@ test "run iterator" {
     defer testdata.deinit();
 
     {
-        var t: terminal.Terminal = try .init(alloc, .{
+        var t: terminal.Terminal = try .init(testing.io, alloc, .{
             .cols = 5,
             .rows = 3,
         });
@@ -869,7 +870,7 @@ test "run iterator" {
 
     // Spaces should be part of a run
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+        var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 10, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
@@ -892,7 +893,7 @@ test "run iterator" {
 
     {
         // Make a screen with some data
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 5, .rows = 3 });
+        var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 5, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
@@ -917,7 +918,7 @@ test "run iterator" {
     // Bad ligatures
     for (&[_][]const u8{ "fl", "fi", "st" }) |bad| {
         // Make a screen with some data
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 5, .rows = 3 });
+        var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 5, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
@@ -949,7 +950,7 @@ test "run iterator: empty cells with background set" {
 
     {
         // Make a screen with some data
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 5, .rows = 3 });
+        var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 5, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
@@ -1009,7 +1010,7 @@ test "shape" {
     buf_idx += try std.unicode.utf8Encode(0x1F3FD, buf[buf_idx..]); // Medium skin tone
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+    var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 10, .rows = 3 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -1048,7 +1049,7 @@ test "shape nerd fonts" {
     buf_idx += try std.unicode.utf8Encode(' ', buf[buf_idx..]); // space
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+    var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 10, .rows = 3 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -1081,7 +1082,7 @@ test "shape inconsolata ligs" {
     defer testdata.deinit();
 
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 5, .rows = 3 });
+        var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 5, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
@@ -1110,7 +1111,7 @@ test "shape inconsolata ligs" {
     }
 
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 5, .rows = 3 });
+        var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 5, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
@@ -1147,7 +1148,7 @@ test "shape monaspace ligs" {
     defer testdata.deinit();
 
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 5, .rows = 3 });
+        var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 5, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
@@ -1185,7 +1186,7 @@ test "shape left-replaced lig in last run" {
     defer testdata.deinit();
 
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 5, .rows = 3 });
+        var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 5, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
@@ -1223,7 +1224,7 @@ test "shape left-replaced lig in early run" {
     defer testdata.deinit();
 
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 5, .rows = 3 });
+        var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 5, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
@@ -1258,7 +1259,7 @@ test "shape U+3C9 with JB Mono" {
     defer testdata.deinit();
 
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+        var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 10, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
@@ -1295,7 +1296,7 @@ test "shape emoji width" {
     defer testdata.deinit();
 
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 5, .rows = 3 });
+        var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 5, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
@@ -1330,15 +1331,15 @@ test "shape emoji width long" {
     defer testdata.deinit();
 
     // Make a screen and add a long emoji sequence to it.
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 30, .rows = 3 });
     defer t.deinit(alloc);
 
-    var page = t.screens.active.pages.pages.first.?.data;
+    var page = t.screens.active.pages.pages.first.?.page();
     var row = page.getRow(1);
     const cell = &row.cells.ptr(page.memory)[0];
     cell.* = .{
         .content_tag = .codepoint,
-        .content = .{ .codepoint = 0x1F9D4 }, // Person with beard
+        .content = .{ .codepoint = .{ .data = 0x1F9D4 } }, // Person with beard
     };
     var graphemes = [_]u21{
         0x1F3FB, // Light skin tone (Fitz 1-2)
@@ -1385,7 +1386,7 @@ test "shape variation selector VS15" {
     buf_idx += try std.unicode.utf8Encode(0xFE0E, buf[buf_idx..]); // ZWJ to force text
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+    var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 10, .rows = 3 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -1424,7 +1425,7 @@ test "shape variation selector VS16" {
     buf_idx += try std.unicode.utf8Encode(0xFE0F, buf[buf_idx..]); // ZWJ to force color
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+    var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 10, .rows = 3 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -1458,7 +1459,7 @@ test "shape with empty cells in between" {
     defer testdata.deinit();
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 30, .rows = 3 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -1502,7 +1503,7 @@ test "shape Combining characters" {
     buf_idx += try std.unicode.utf8Encode('a', buf[buf_idx..]);
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 30, .rows = 3 });
     defer t.deinit(alloc);
 
     // Enable grapheme clustering
@@ -1552,7 +1553,7 @@ test "shape Devanagari string" {
     defer testdata.deinit();
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 30, .rows = 3 });
     defer t.deinit(alloc);
 
     // Disable grapheme clustering
@@ -1611,7 +1612,7 @@ test "shape Tai Tham vowels (position differs from advance)" {
     buf_idx += try std.unicode.utf8Encode(0x1a70, buf[buf_idx..]); //  ᩰ
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 30, .rows = 3 });
     defer t.deinit(alloc);
 
     // Enable grapheme clustering
@@ -1672,7 +1673,7 @@ test "shape Tai Tham letters (position.y differs from advance)" {
     buf_idx += try std.unicode.utf8Encode(0x1a69, buf[buf_idx..]); // U
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 30, .rows = 3 });
     defer t.deinit(alloc);
 
     // Enable grapheme clustering
@@ -1732,7 +1733,7 @@ test "shape Javanese ligatures" {
     buf_idx += try std.unicode.utf8Encode(0xa9b8, buf[buf_idx..]); // Vowel sign SUKU
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 30, .rows = 3 });
     defer t.deinit(alloc);
 
     // Enable grapheme clustering
@@ -1795,7 +1796,7 @@ test "shape Chakma vowel sign with ligature (vowel sign renders first)" {
     buf_idx += try std.unicode.utf8Encode(0x1112c, buf[buf_idx..]); // Vowel Sign U
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 30, .rows = 3 });
     defer t.deinit(alloc);
 
     // Enable grapheme clustering
@@ -1866,7 +1867,7 @@ test "shape Bengali ligatures with out of order vowels" {
     buf_idx += try std.unicode.utf8Encode(0x09c7, buf[buf_idx..]); // Vowel sign E
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 30, .rows = 3 });
     defer t.deinit(alloc);
 
     // Enable grapheme clustering
@@ -1924,7 +1925,7 @@ test "shape box glyphs" {
     buf_idx += try std.unicode.utf8Encode(0x2501, buf[buf_idx..]); //
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+    var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 10, .rows = 3 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -1962,7 +1963,7 @@ test "shape selection boundary" {
     defer testdata.deinit();
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+    var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 10, .rows = 3 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -2067,7 +2068,7 @@ test "shape cursor boundary" {
     defer testdata.deinit();
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+    var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 10, .rows = 3 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -2204,7 +2205,7 @@ test "shape cursor boundary and colored emoji" {
     defer testdata.deinit();
 
     // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 3, .rows = 10 });
+    var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 3, .rows = 10 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -2301,7 +2302,7 @@ test "shape cell attribute change" {
 
     // Plain >= should shape into 1 run
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+        var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 10, .rows = 3 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
@@ -2327,7 +2328,7 @@ test "shape cell attribute change" {
 
     // Bold vs regular should split
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 3, .rows = 10 });
+        var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 3, .rows = 10 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
@@ -2355,7 +2356,7 @@ test "shape cell attribute change" {
 
     // Changing fg color should split
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 3, .rows = 10 });
+        var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 3, .rows = 10 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
@@ -2386,7 +2387,7 @@ test "shape cell attribute change" {
 
     // Changing bg color should NOT split
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 3, .rows = 10 });
+        var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 3, .rows = 10 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
@@ -2417,7 +2418,7 @@ test "shape cell attribute change" {
 
     // Same bg color should not split
     {
-        var t = try terminal.Terminal.init(alloc, .{ .cols = 3, .rows = 10 });
+        var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 3, .rows = 10 });
         defer t.deinit(alloc);
 
         var s = t.vtStream();
@@ -2462,7 +2463,7 @@ test "shape high plane sprite font codepoint" {
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
 
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 10, .rows = 3 });
+    var t = try terminal.Terminal.init(testing.io, alloc, .{ .cols = 10, .rows = 3 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();

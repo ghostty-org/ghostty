@@ -54,12 +54,7 @@ static GhosttySelectionGestureEvent new_event(
 
 int main() {
   GhosttyTerminal terminal;
-  GhosttyTerminalOptions opts = {
-    .cols = 20,
-    .rows = 4,
-    .max_scrollback = 100,
-  };
-  GhosttyResult result = ghostty_terminal_new(NULL, &terminal, opts);
+  GhosttyResult result = ghostty_terminal_new(NULL, &terminal, 20, 4);
   assert(result == GHOSTTY_SUCCESS);
 
   vt_write(terminal, "hello world\r\nsecond line");

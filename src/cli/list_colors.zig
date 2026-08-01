@@ -6,6 +6,7 @@ const args = @import("args.zig");
 const x11_color = @import("../terminal/main.zig").x11_color;
 const vaxis = @import("vaxis");
 const tui = @import("tui.zig");
+const global = @import("../global.zig");
 
 pub const Options = struct {
     pub fn deinit(self: Options) void {
@@ -34,7 +35,7 @@ pub fn run(alloc: Allocator) !u8 {
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc);
+        var iter = try args.argsIterator(alloc, global.args());
         defer iter.deinit();
         try args.parse(Options, alloc, &opts, &iter);
     }
@@ -49,15 +50,14 @@ pub fn run(alloc: Allocator) !u8 {
         }
     }.lessThan);
 
-    // Despite being under the posix namespace, this also works on Windows as of zig 0.13.0
-    var stdout: std.fs.File = .stdout();
-    if (tui.can_pretty_print and !opts.plain and std.posix.isatty(stdout.handle)) {
+    var stdout: std.Io.File = .stdout();
+    if (tui.can_pretty_print and !opts.plain and try stdout.isTty(global.io())) {
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();
         return prettyPrint(arena.allocator(), keys.items);
     } else {
         var buffer: [4096]u8 = undefined;
-        var stdout_writer = stdout.writer(&buffer);
+        var stdout_writer = stdout.writer(global.io(), &buffer);
         const writer = &stdout_writer.interface;
         for (keys.items) |name| {
             const rgb = x11_color.map.get(name).?;
@@ -74,11 +74,14 @@ pub fn run(alloc: Allocator) !u8 {
 }
 
 fn prettyPrint(alloc: Allocator, keys: [][]const u8) !u8 {
+    var env_map = try global.environMap();
+    defer env_map.deinit();
+
     // Set up vaxis
     var buf: [1024]u8 = undefined;
-    var tty = try vaxis.Tty.init(&buf);
+    var tty = try vaxis.Tty.init(global.io(), &buf);
     defer tty.deinit();
-    var vx = try vaxis.init(alloc, .{});
+    var vx = try vaxis.init(global.io(), alloc, &env_map, .{});
     defer vx.deinit(alloc, tty.writer());
 
     // We know we are ghostty, so let's enable mode 2027. Vaxis normally does this but you need an
@@ -97,7 +100,7 @@ fn prettyPrint(alloc: Allocator, keys: [][]const u8) !u8 {
             .y_pixel = 768,
         },
 
-        else => try vaxis.Tty.getWinsize(tty.fd),
+        else => try tty.getWinsize(),
     };
     try vx.resize(alloc, tty.writer(), winsize);
 

@@ -40,14 +40,14 @@ here:
 
 ## Extra Dependencies
 
+### Linux
+
 Building Ghostty from a Git checkout on Linux requires some additional
 dependencies:
 
 - `blueprint-compiler` (version 0.16.0 or newer)
 
-macOS users don't require any additional dependencies.
-
-## Xcode Version and SDKs
+### macOS
 
 Building the Ghostty macOS app requires that Xcode, the macOS SDK,
 the iOS SDK, and Metal Toolchain are all installed.
@@ -66,14 +66,6 @@ sudo xcode-select --switch /Applications/Xcode.app
 >
 > You do not need to be running on macOS 26 to build Ghostty, you can
 > still use Xcode 26 on macOS 15 stable.
-
-> [!WARNING]
->
-> Zig 0.15.x has a [known linking issue](https://codeberg.org/ziglang/zig/issues/31658)
-> with **Xcode 26.4**. If you are on Xcode 26.4, you must use a
-> Homebrew-installed Zig (`brew install zig@0.15`) or our Nix flake,
-> both of which contain a patch that works around the issue. Alternatively,
-> you can downgrade to **Xcode 26.3**.
 
 ## AI and Agents
 

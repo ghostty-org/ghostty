@@ -28,6 +28,8 @@ extend-exclude = [
   "valgrind.supp",
   # Fuzz corpus (binary test inputs)
   "test/fuzz-libghostty/corpus/*",
+  # Annotated binary snapshot fixtures
+  "src/terminal/snapshot/testdata/*.hex",
   # Other
   "*.pdf",
   "*.data",

@@ -14,5 +14,10 @@
             .hash = "N-V-__8AAKw-DAAaV8bOAAGqA0-oD7o-HNIlPFYKRXSPT03S",
             .lazy = true,
         },
+        .translate_c = .{
+            .url = "https://deps.files.ghostty.org/translate_c-80f8b6e4f45a303268717d8e5f4f91d7837138bb.tar.gz",
+            .hash = "translate_c-0.0.0-Q_BUWmU6BwB_9JKG2l2W7i_mhmYWeRseTGBEHi_YlV5f",
+            .lazy = true,
+        },
     },
 }

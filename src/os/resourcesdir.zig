@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
+const global = @import("../global.zig");
 
 pub const ResourcesDir = struct {
     /// Avoid accessing these directly, use the app() and host() methods instead.
@@ -16,7 +17,7 @@ pub const ResourcesDir = struct {
 
     /// Get the directory to the bundled resources directory accessible
     /// by the application.
-    pub fn app(self: *ResourcesDir) ?[]const u8 {
+    pub fn app(self: *const ResourcesDir) ?[]const u8 {
         return self.app_path;
     }
 
@@ -26,7 +27,7 @@ pub const ResourcesDir = struct {
     /// itself.
     ///
     /// In non-sandboxed environment, this should be the same as app().
-    pub fn host(self: *ResourcesDir) ?[]const u8 {
+    pub fn host(self: *const ResourcesDir) ?[]const u8 {
         return self.host_path orelse self.app_path;
     }
 };
@@ -47,13 +48,13 @@ pub fn resourcesDir(alloc: Allocator) !ResourcesDir {
     //
     // Note: we ALWAYS want to allocate here because the result is always
     // freed, do not try to use internal_os.getenv or posix getenv.
-    if (comptime builtin.mode != .Debug) {
-        if (std.process.getEnvVarOwned(alloc, "GHOSTTY_RESOURCES_DIR")) |dir| {
-            if (dir.len > 0) return .{ .app_path = dir };
-        } else |err| switch (err) {
-            error.EnvironmentVariableNotFound => {},
+    if (comptime builtin.mode != .Debug) env: {
+        const dir = global.environ().getAlloc(alloc, "GHOSTTY_RESOURCES_DIR") catch |err| switch (err) {
+            error.EnvironmentVariableMissing => break :env,
             else => return err,
-        }
+        };
+
+        if (dir.len > 0) return .{ .app_path = dir };
     }
 
     // This is the sentinel value we look for in the path to know
@@ -67,7 +68,10 @@ pub fn resourcesDir(alloc: Allocator) !ResourcesDir {
 
     // Get the path to our running binary
     var exe_buf: [std.fs.max_path_bytes]u8 = undefined;
-    var exe: []const u8 = std.fs.selfExePath(&exe_buf) catch return .{};
+    var exe: []const u8 = exe_buf[0 .. std.process.executablePath(
+        global.io(),
+        &exe_buf,
+    ) catch return .{}];
 
     // We have an exe path! Climb the tree looking for the terminfo
     // bundle as we expect it.
@@ -78,7 +82,12 @@ pub fn resourcesDir(alloc: Allocator) !ResourcesDir {
         // On MacOS, we look for the app bundle path.
         if (comptime builtin.target.os.tag.isDarwin()) {
             inline for (sentinels) |sentinel| {
-                if (try maybeDir(&dir_buf, dir, "Contents/Resources", sentinel)) |v| {
+                if (try maybeDir(
+                    &dir_buf,
+                    dir,
+                    "Contents/Resources",
+                    sentinel,
+                )) |v| {
                     return .{ .app_path = try std.fs.path.join(alloc, &.{ v, "ghostty" }) };
                 }
             }
@@ -102,10 +111,10 @@ pub fn resourcesDir(alloc: Allocator) !ResourcesDir {
     // If terminfo detection failed in debug builds (somehow),
     // fallback and use the provided resources dir.
     if (comptime builtin.mode == .Debug) {
-        if (std.process.getEnvVarOwned(alloc, "GHOSTTY_RESOURCES_DIR")) |dir| {
+        if (global.environ().getAlloc(alloc, "GHOSTTY_RESOURCES_DIR")) |dir| {
             if (dir.len > 0) return .{ .app_path = dir };
         } else |err| switch (err) {
-            error.EnvironmentVariableNotFound => {},
+            error.InvalidWtf8, error.EnvironmentVariableMissing => {},
             else => return err,
         }
     }
@@ -127,7 +136,7 @@ pub fn maybeDir(
 ) !?[]const u8 {
     const path = try std.fmt.bufPrint(buf, "{s}/{s}/{s}", .{ base, sub, suffix });
 
-    if (std.fs.accessAbsolute(path, .{})) {
+    if (std.Io.Dir.accessAbsolute(global.io(), path, .{})) {
         const len = path.len - suffix.len - 1;
         return buf[0..len];
     } else |_| {

@@ -2,6 +2,20 @@ const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
 const RGB = @import("color.zig").RGB;
 
+/// A single X11 color entry.
+pub const Entry = struct {
+    /// Color name. Null-terminated so it can be exposed through the C API
+    /// without runtime allocation.
+    name: [:0]const u8,
+    color: RGB,
+};
+
+/// All X11 colors in rgb.txt file order.
+///
+/// This is kept separate from `map` because the C API needs stable file order
+/// and null-terminated names. `ColorMap` keys do not provide that contract.
+pub const entries: []const Entry = entriesArray();
+
 /// The map of all available X11 colors.
 pub const map = colorMap();
 
@@ -10,15 +24,10 @@ pub const ColorMap = std.StaticStringMapWithEql(
     std.static_string_map.eqlAsciiIgnoreCase,
 );
 
-fn colorMap() ColorMap {
-    @setEvalBranchQuota(500_000);
-
-    const KV = struct { []const u8, RGB };
-
-    // The length of our data is the number of lines in the rgb file.
+fn entriesArray() []const Entry {
+    @setEvalBranchQuota(1_000_000);
     const len = std.mem.count(u8, data, "\n");
-    var kvs: [len]KV = undefined;
-
+    var result: [len]Entry = undefined;
     // Parse the line. This is not very robust parsing, because we expect
     // a very exact format for rgb.txt. However, this is all done at comptime
     // so if our data is bad, we should hopefully get an error here or one
@@ -37,10 +46,28 @@ fn colorMap() ColorMap {
         const g = try std.fmt.parseInt(u8, std.mem.trim(u8, line[4..7], " "), 10);
         const b = try std.fmt.parseInt(u8, std.mem.trim(u8, line[8..11], " "), 10);
         const name = std.mem.trim(u8, line[12..], " \t");
-        kvs[i] = .{ name, .{ .r = r, .g = g, .b = b } };
+        var name_z: [name.len:0]u8 = undefined;
+        @memcpy(name_z[0..name.len], name);
+        name_z[name.len] = 0;
+        const final_name = name_z;
+        result[i] = .{
+            .name = final_name[0..name.len :0],
+            .color = .{ .r = r, .g = g, .b = b },
+        };
         i += 1;
     }
     assert(i == len);
+
+    const final = result;
+    return &final;
+}
+
+fn colorMap() ColorMap {
+    @setEvalBranchQuota(1_000_000);
+
+    const KV = struct { []const u8, RGB };
+    var kvs: [entries.len]KV = undefined;
+    for (entries, 0..) |entry, i| kvs[i] = .{ entry.name, entry.color };
 
     return .initComptime(kvs);
 }
@@ -66,4 +93,15 @@ test {
     try testing.expectEqual(RGB{ .r = 124, .g = 252, .b = 0 }, map.get("lawngreen"));
     try testing.expectEqual(RGB{ .r = 0, .g = 250, .b = 154 }, map.get("mediumspringgreen"));
     try testing.expectEqual(RGB{ .r = 34, .g = 139, .b = 34 }, map.get("forestgreen"));
+}
+
+test "entries" {
+    const testing = std.testing;
+
+    try testing.expect(entries.len > 700);
+    for (entries) |entry| {
+        try testing.expectEqual(entry.color, map.get(entry.name).?);
+        try testing.expectEqual(@as(u8, 0), entry.name.ptr[entry.name.len]);
+    }
+    try testing.expectEqualStrings("snow", entries[0].name);
 }

@@ -69,12 +69,12 @@ class QuickTerminalScreenStateCache {
         for screen in screens {
             guard let key = screen.displayUUID else { continue }
             if var entry = stateByDisplay[key] {
-                // Drop on dimension/scale change that makes the entry invalid
+                // Drop on dimension/scale change that makes the entry invalid. The
+                // saved frame is only meaningful for the exact geometry it was
+                // captured on, so a present screen that no longer matches is dropped.
                 if !entry.isValid(for: screen) {
                     stateByDisplay.removeValue(forKey: key)
                 } else {
-                    // Update the screen size if it grew (keep entry valid for larger screens)
-                    entry.screenSize = screen.frame.size
                     entry.lastSeen = now
                     stateByDisplay[key] = entry
                 }
@@ -106,11 +106,15 @@ class QuickTerminalScreenStateCache {
         var lastSeen: Date
 
         /// Returns true if this entry is still valid for the given screen.
-        /// Valid if the scale matches and the cached size is not larger than the current screen size.
-        /// This allows entries to persist when screens grow, but invalidates them when screens shrink.
+        ///
+        /// An entry is only valid for the exact screen geometry it was captured on: both the
+        /// backing scale factor and the frame size must match. A saved frame is meaningless once
+        /// the display's resolution changes, which commonly happens when an external display is
+        /// disconnected and later reconnected at a different resolution (e.g. after travel). In
+        /// that case we drop the entry and fall back to the configured `quick-terminal-size`,
+        /// rather than restoring a stale frame that no longer fills the screen as expected.
         func isValid(for screen: NSScreen) -> Bool {
-            guard scale == screen.backingScaleFactor else { return false }
-            return screenSize.width <= screen.frame.size.width && screenSize.height <= screen.frame.size.height
+            scale == screen.backingScaleFactor && screenSize == screen.frame.size
         }
     }
 }

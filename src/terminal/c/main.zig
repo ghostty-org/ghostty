@@ -5,6 +5,7 @@ const buildpkg = @import("build_info.zig");
 pub const allocator = @import("allocator.zig");
 pub const cell = @import("cell.zig");
 pub const color = @import("color.zig");
+pub const color_scheme = @import("color_scheme.zig");
 pub const focus = @import("focus.zig");
 pub const formatter = @import("formatter.zig");
 pub const grid_ref = @import("grid_ref.zig");
@@ -43,6 +44,7 @@ pub const size_report = @import("size_report.zig");
 pub const style = @import("style.zig");
 pub const sys = @import("sys.zig");
 pub const terminal = @import("terminal.zig");
+pub const unicode = @import("unicode.zig");
 
 // The full C API, unexported.
 pub const build_info = buildpkg.get;
@@ -56,6 +58,18 @@ pub const osc_command_type = osc.commandType;
 pub const osc_command_data = osc.commandData;
 
 pub const color_rgb_get = color.rgb_get;
+pub const color_contrast = color.contrast;
+pub const color_luminance = color.luminance;
+pub const color_parse = color.parse;
+pub const color_parse_palette_entry = color.parse_palette_entry;
+pub const color_parse_x11 = color.parse_x11;
+pub const color_palette_default = color.palette_default;
+pub const color_palette_generate = color.palette_generate;
+pub const color_perceived_luminance = color.perceived_luminance;
+pub const color_x11_name_count = color.x11_name_count;
+pub const color_x11_names = color.x11_names;
+
+pub const color_scheme_report_encode = color_scheme.report_encode;
 
 pub const focus_encode = focus.encode;
 
@@ -69,6 +83,8 @@ pub const formatter_free = formatter.free;
 pub const render_state_new = render.new;
 pub const render_state_free = render.free;
 pub const render_state_update = render.update;
+pub const render_state_begin_update = render.begin_update;
+pub const render_state_end_update = render.end_update;
 pub const render_state_get = render.get;
 pub const render_state_get_multi = render.get_multi;
 pub const render_state_set = render.set;
@@ -167,6 +183,8 @@ pub const terminal_resize = terminal.resize;
 pub const terminal_set = terminal.set;
 pub const terminal_vt_write = terminal.vt_write;
 pub const terminal_scroll_viewport = terminal.scroll_viewport;
+pub const terminal_compression_activity = terminal.compression_activity;
+pub const terminal_compress = terminal.compress;
 pub const terminal_mode_get = terminal.mode_get;
 pub const terminal_mode_set = terminal.mode_set;
 pub const terminal_get = terminal.get;
@@ -198,6 +216,9 @@ pub const terminal_point_from_grid_ref = terminal.point_from_grid_ref;
 
 pub const type_json = types.get_json;
 
+pub const unicode_codepoint_width = unicode.codepoint_width;
+pub const unicode_grapheme_width = unicode.grapheme_width;
+
 pub const grid_ref_cell = grid_ref.grid_ref_cell;
 pub const grid_ref_row = grid_ref.grid_ref_row;
 pub const grid_ref_graphemes = grid_ref.grid_ref_graphemes;
@@ -214,6 +235,7 @@ test {
     _ = buildpkg;
     _ = cell;
     _ = color;
+    _ = color_scheme;
     _ = grid_ref;
     _ = grid_ref_tracked;
     _ = kitty_graphics;
@@ -236,6 +258,7 @@ test {
     _ = sys;
     _ = terminal;
     _ = types;
+    _ = unicode;
 
     // We want to make sure we run the tests for the C allocator interface.
     _ = @import("../../lib/allocator.zig");

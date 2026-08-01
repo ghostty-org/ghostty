@@ -3,6 +3,12 @@
     .version = "0.0.0",
     .fingerprint = 0x67c0c059de921c4f,
     .dependencies = .{
+        .translate_c = .{
+            .lazy = true,
+            .url = "https://deps.files.ghostty.org/translate_c-80f8b6e4f45a303268717d8e5f4f91d7837138bb.tar.gz",
+            .hash = "translate_c-0.0.0-Q_BUWmU6BwB_9JKG2l2W7i_mhmYWeRseTGBEHi_YlV5f",
+        },
+
         // google/wuffs
         .wuffs = .{
             .url = "https://deps.files.ghostty.org/wuffs-122037b39d577ec2db3fd7b2130e7b69ef6cc1807d68607a7c232c958315d381b5cd.tar.gz",

@@ -34,6 +34,13 @@ pub const CommandParser = struct {
         try self.data.append(self.alloc, byte);
     }
 
+    /// Append a slice of APC payload bytes to the buffered command.
+    /// Equivalent to calling feed for each byte, but appends in bulk.
+    pub fn feedSlice(self: *CommandParser, bytes: []const u8) Allocator.Error!void {
+        if (self.data.items.len + bytes.len > self.max_bytes) return error.OutOfMemory;
+        try self.data.appendSlice(self.alloc, bytes);
+    }
+
     /// Finish parsing and return an owned request that can outlive the parser.
     pub fn complete(self: *CommandParser, alloc: Allocator) Error!Request {
         // Normalize bare single-byte verbs like `s` into `s;` so the parsed
@@ -298,6 +305,7 @@ pub const Request = union(enum) {
                 error.CompositeNotSupported => error.CompositeUnsupported,
                 error.InstructionsNotSupported => error.HintingUnsupported,
                 // Various semantic issues
+                error.ReadFailed,
                 error.EndOfStream,
                 error.EndPointsOutOfOrder,
                 error.TooManyPoints,

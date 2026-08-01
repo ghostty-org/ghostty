@@ -4,6 +4,7 @@ const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const file_load = @import("file_load.zig");
+const global = @import("../global.zig");
 
 /// The path to the configuration that should be opened for editing.
 ///
@@ -28,11 +29,12 @@ pub fn openPath(alloc_gpa: Allocator) ![:0]const u8 {
 
     // Create config directory recursively.
     if (std.fs.path.dirname(config_path)) |config_dir| {
-        try std.fs.cwd().makePath(config_dir);
+        try std.Io.Dir.cwd().createDirPath(global.io(), config_dir);
     }
 
     // Try to create file and go on if it already exists
-    _ = std.fs.createFileAbsolute(
+    _ = std.Io.Dir.createFileAbsolute(
+        global.io(),
         config_path,
         .{ .exclusive = true },
     ) catch |err| {
@@ -58,7 +60,7 @@ fn configPath(alloc_arena: Allocator) ![]const u8 {
     // exists.
     var exists: ?[]const u8 = null;
     for (paths) |path| {
-        const f = std.fs.openFileAbsolute(path, .{}) catch |err| {
+        const f = std.Io.Dir.openFileAbsolute(global.io(), path, .{}) catch |err| {
             switch (err) {
                 // File doesn't exist, continue.
                 error.BadPathName, error.FileNotFound => continue,
@@ -67,10 +69,10 @@ fn configPath(alloc_arena: Allocator) ![]const u8 {
                 else => return err,
             }
         };
-        defer f.close();
+        defer f.close(global.io());
 
         // We expect stat to succeed because we just opened the file.
-        const stat = try f.stat();
+        const stat = try f.stat(global.io());
 
         // If the file is non-empty, return it.
         if (stat.size > 0) return path;

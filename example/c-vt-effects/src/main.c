@@ -39,16 +39,42 @@ void on_title_changed(GhosttyTerminal terminal, void* userdata) {
 }
 //! [effects-title-changed]
 
+//! [effects-clipboard-write]
+GhosttyClipboardWriteResult on_clipboard_write(
+    GhosttyTerminal terminal,
+    void* userdata,
+    const GhosttyClipboardWrite* write) {
+  (void)terminal;
+  (void)userdata;
+
+  printf("  clipboard write (location=%d, contents=%zu)\n",
+         (int)write->location, write->contents_len);
+  if (write->contents_len == 0) {
+    printf("    clear\n");
+  }
+
+  for (size_t i = 0; i < write->contents_len; i++) {
+    const GhosttyClipboardContent* content = &write->contents[i];
+    printf("    ");
+    if (content->mime.len > 0) {
+      fwrite(content->mime.ptr, 1, content->mime.len, stdout);
+    }
+    printf(" (%zu bytes): ", content->data.len);
+    if (content->data.len > 0) {
+      fwrite(content->data.ptr, 1, content->data.len, stdout);
+    }
+    printf("\n");
+  }
+
+  return GHOSTTY_CLIPBOARD_WRITE_RESULT_SUCCESS;
+}
+//! [effects-clipboard-write]
+
 //! [effects-register]
 int main() {
   // Create a terminal
   GhosttyTerminal terminal = NULL;
-  GhosttyTerminalOptions opts = {
-    .cols = 80,
-    .rows = 24,
-    .max_scrollback = 0,
-  };
-  if (ghostty_terminal_new(NULL, &terminal, opts) != GHOSTTY_SUCCESS) {
+  if (ghostty_terminal_new(NULL, &terminal, 80, 24) != GHOSTTY_SUCCESS) {
     fprintf(stderr, "Failed to create terminal\n");
     return 1;
   }
@@ -64,6 +90,8 @@ int main() {
       (const void *)on_bell);
   ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_TITLE_CHANGED,
       (const void *)on_title_changed);
+  ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE,
+      (const void *)on_clipboard_write);
 
   // Feed VT data that triggers effects:
 
@@ -85,7 +113,14 @@ int main() {
   ghostty_terminal_vt_write(terminal, (const uint8_t*)decrqm,
                             strlen(decrqm));
 
-  // 4. Another bell to show the counter increments
+  // 4. Clipboard write (OSC 52 ; c ; <base64 data> ST)
+  printf("Sending clipboard write:\n");
+  const char* clipboard_seq =
+      "\x1B]52;c;SGVsbG8gY2xpcGJvYXJk\x1B\\";
+  ghostty_terminal_vt_write(terminal, (const uint8_t*)clipboard_seq,
+                            strlen(clipboard_seq));
+
+  // 5. Another bell to show the counter increments
   printf("Sending another BEL:\n");
   ghostty_terminal_vt_write(terminal, &bel, 1);
 

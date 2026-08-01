@@ -46,7 +46,6 @@ pub fn run(_: *Ascii, writer: *std.Io.Writer, rand: std.Random) !void {
             switch (@as(Error, err)) {
                 error.BrokenPipe => return, // stdout closed
                 error.WriteFailed => return, // fixed buffer full
-                else => return err,
             }
         };
     }

@@ -503,14 +503,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 withTarget: controller,
                 expiresAfter: controller.undoExpiration
             ) { target in
-                // Close the tab when undoing. We do this in a DispatchQueue because
-                // for some people on macOS Tahoe this caused a crash and the queue
-                // fixes it.
-                // https://github.com/ghostty-org/ghostty/pull/9512
-                DispatchQueue.main.async {
-                    undoManager.disableUndoRegistration {
-                        target.closeTab(nil)
-                    }
+                // Close the tab when undoing
+                undoManager.disableUndoRegistration {
+                    target.closeTab(nil)
                 }
 
                 // Register redo action

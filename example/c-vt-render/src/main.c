@@ -26,12 +26,7 @@ int main(void) {
   // from the terminal. The render state captures a snapshot of everything
   // needed to draw a frame.
   GhosttyTerminal terminal = NULL;
-  GhosttyTerminalOptions terminal_opts = {
-      .cols = 40,
-      .rows = 5,
-      .max_scrollback = 10000,
-  };
-  result = ghostty_terminal_new(NULL, &terminal, terminal_opts);
+  result = ghostty_terminal_new(NULL, &terminal, 40, 5);
   assert(result == GHOSTTY_SUCCESS);
 
   GhosttyRenderState render_state = NULL;

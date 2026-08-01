@@ -9,7 +9,8 @@ const builtin = @import("builtin");
 const macos = @import("macos");
 
 const internal_os = @import("../os/main.zig");
-const xev = @import("../global.zig").xev;
+const global = @import("../global.zig");
+const xev = global.xev;
 const BlockingQueue = @import("../datastruct/main.zig").BlockingQueue;
 
 const Allocator = std.mem.Allocator;
@@ -142,11 +143,11 @@ fn threadMain_(self: *Thread) !void {
 fn drainMailbox(self: *Thread) !void {
     // If we're draining, we just drain the mailbox and return.
     if (self.flags.drain) {
-        while (self.mailbox.pop()) |_| {}
+        while (self.mailbox.pop(global.io())) |_| {}
         return;
     }
 
-    while (self.mailbox.pop()) |message| {
+    while (self.mailbox.pop(global.io())) |message| {
         // log.debug("mailbox message={}", .{message});
         switch (message) {
             .release => |msg| {

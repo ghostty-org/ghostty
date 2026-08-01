@@ -510,7 +510,7 @@ test "Cell constraint widths" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var t: terminal.Terminal = try .init(alloc, .{
+    var t: terminal.Terminal = try .init(testing.io, alloc, .{
         .cols = 4,
         .rows = 1,
     });

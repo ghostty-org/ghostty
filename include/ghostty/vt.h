@@ -34,6 +34,7 @@
  * - @ref osc "OSC Parser" - Parse OSC (Operating System Command) sequences
  * - @ref sgr "SGR Parser" - Parse SGR (Select Graphic Rendition) sequences
  * - @ref paste "Paste Utilities" - Validate paste data safety
+ * - @ref unicode "Unicode Utilities" - Codepoint properties for text layout
  * - @ref build_info "Build Info" - Query compile-time build configuration
  * - @ref allocator "Memory Management" - Memory management and custom allocators
  * - @ref wasm "WebAssembly Utilities" - WebAssembly convenience functions
@@ -55,6 +56,7 @@
  * - @ref c-vt-formatter/src/main.c - Terminal formatter example
  * - @ref c-vt-grid-traverse/src/main.c - Grid traversal example using grid refs
  * - @ref c-vt-grid-ref-tracked/src/main.c - Tracked grid ref example
+ * - @ref c-vt-compression/src/main.c - Idle scrollback compression example
  *
  */
 
@@ -104,6 +106,11 @@
  * detect when it loses its value, and move it to a new point.
  */
 
+/** @example c-vt-compression/src/main.c
+ * This example demonstrates how to schedule incremental scrollback compression
+ * after compression-relevant terminal activity becomes idle.
+ */
+
 /** @example c-vt-selection-gesture/src/main.c
  * This example demonstrates how to use synthetic selection gesture events to
  * derive drag and deep-press selection snapshots.
@@ -125,6 +132,7 @@ extern "C" {
 #include <ghostty/vt/allocator.h>
 #include <ghostty/vt/build_info.h>
 #include <ghostty/vt/color.h>
+#include <ghostty/vt/color_scheme.h>
 #include <ghostty/vt/device.h>
 #include <ghostty/vt/focus.h>
 #include <ghostty/vt/formatter.h>
@@ -145,6 +153,7 @@ extern "C" {
 #include <ghostty/vt/screen.h>
 #include <ghostty/vt/selection.h>
 #include <ghostty/vt/size_report.h>
+#include <ghostty/vt/unicode.h>
 #include <ghostty/vt/wasm.h>
 
 #ifdef __cplusplus

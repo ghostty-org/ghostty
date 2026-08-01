@@ -7,6 +7,7 @@ const Action = @import("ghostty.zig").Action;
 const configpkg = @import("../config.zig");
 const internal_os = @import("../os/main.zig");
 const Config = configpkg.Config;
+const global = @import("../global.zig");
 
 pub const Options = struct {
     pub fn deinit(self: Options) void {
@@ -48,14 +49,14 @@ pub fn run(alloc: Allocator) !u8 {
     // critical where setting up the defer cleanup is a problem.
 
     var buffer: [1024]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&buffer);
+    var stderr_writer = std.Io.File.stderr().writer(global.io(), &buffer);
     const stderr = &stderr_writer.interface;
 
     var opts: Options = .{};
     defer opts.deinit();
 
     {
-        var iter = try args.argsIterator(alloc);
+        var iter = try args.argsIterator(alloc, global.args());
         defer iter.deinit();
         try args.parse(Options, alloc, &opts, &iter);
     }
@@ -67,6 +68,12 @@ pub fn run(alloc: Allocator) !u8 {
 }
 
 fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
+    // We require libc because we want to use std.c.environ for envp
+    // and not have to build that ourselves. We can remove this
+    // limitation later but Ghostty already heavily requires libc
+    // so this is not a big deal.
+    comptime assert(builtin.link_libc);
+
     // We load the configuration once because that will write our
     // default configuration files to disk. We don't use the config.
     var config = try Config.load(alloc);
@@ -91,22 +98,19 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
     }
 
     // Get our editor
-    const get_env_: ?internal_os.GetEnvResult = env: {
+    const editor = env: {
         // VISUAL vs. EDITOR: https://unix.stackexchange.com/questions/4859/visual-vs-editor-what-s-the-difference
-        if (try internal_os.getenv(alloc, "VISUAL")) |v| {
-            if (v.value.len > 0) break :env v;
-            v.deinit(alloc);
+        if (try global.environ().containsUnempty(alloc, "VISUAL")) {
+            break :env try global.environ().getAlloc(alloc, "VISUAL");
         }
 
-        if (try internal_os.getenv(alloc, "EDITOR")) |v| {
-            if (v.value.len > 0) break :env v;
-            v.deinit(alloc);
+        if (try global.environ().containsUnempty(alloc, "EDITOR")) {
+            break :env try global.environ().getAlloc(alloc, "EDITOR");
         }
 
-        break :env null;
+        break :env "";
     };
-    defer if (get_env_) |v| v.deinit(alloc);
-    const editor: []const u8 = if (get_env_) |v| v.value else "";
+    defer alloc.free(editor);
 
     // If we don't have `$EDITOR` set then we can't do anything
     // but we can still print a helpful message.
@@ -136,8 +140,9 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
         return 1;
     }
 
+    // Build the command
     const command = command: {
-        var buffer: std.io.Writer.Allocating = .init(alloc);
+        var buffer: std.Io.Writer.Allocating = .init(alloc);
         defer buffer.deinit();
         const writer = &buffer.writer;
         try writer.writeAll(editor);
@@ -152,21 +157,18 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
     };
     defer alloc.free(command);
 
-    // We require libc because we want to use std.c.environ for envp
-    // and not have to build that ourselves. We can remove this
-    // limitation later but Ghostty already heavily requires libc
-    // so this is not a big deal.
-    comptime assert(builtin.link_libc);
-
-    const err = std.posix.execvpeZ(
+    // Run/replace process (using execve)
+    const argv = [_:null]?[*:0]const u8{
         "/bin/sh",
-        &.{ "/bin/sh", "-c", command },
-        std.c.environ,
-    );
+        "-c",
+        command.ptr,
+    };
+    const envp = std.c.environ;
+    const err = std.posix.errno(std.posix.system.execve(argv[0].?, &argv, envp));
 
     // If we reached this point then exec failed.
     try stderr.print(
-        \\Failed to execute the editor. Error code={}.
+        \\Failed to execute the editor (E{s}).
         \\
         \\This is usually due to the executable path not existing, invalid
         \\permissions, or the shell environment not being set up
@@ -175,6 +177,6 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
         \\Editor: {s}
         \\Path: {s}
         \\
-    , .{ err, editor, path });
+    , .{ @tagName(err), editor, path });
     return 1;
 }

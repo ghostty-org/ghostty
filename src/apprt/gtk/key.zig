@@ -57,6 +57,16 @@ pub fn xdgShortcutFromTrigger(
     return slice[0 .. slice.len - 1 :0];
 }
 
+/// Returns the keysym (identical to a GDK keyval) for a trigger key,
+/// or null if the trigger has no keysym representation.
+pub fn keysymFromTrigger(trigger: input.Binding.Trigger) ?c_uint {
+    return switch (trigger.key) {
+        .physical => |k| keyvalFromKey(k),
+        .unicode => |cp| gdk.unicodeToKeyval(cp),
+        .catch_all => null,
+    };
+}
+
 fn writeTriggerKey(
     writer: *std.Io.Writer,
     trigger: input.Binding.Trigger,
@@ -325,6 +335,28 @@ test "xdgShortcutFromTrigger" {
         .mods = .{ .ctrl = true, .alt = true, .super = true, .shift = true },
         .key = .{ .unicode = 92 },
     })).?);
+}
+
+test "keysymFromTrigger" {
+    const testing = std.testing;
+
+    // Unicode keys use the keysym numbering (latin-1 maps directly).
+    try testing.expectEqual(@as(?c_uint, 'q'), keysymFromTrigger(.{
+        .mods = .{ .super = true },
+        .key = .{ .unicode = 'q' },
+    }));
+
+    // Physical keys map through our keymap.
+    try testing.expectEqual(@as(?c_uint, gdk.KEY_a), keysymFromTrigger(.{
+        .mods = .{},
+        .key = .{ .physical = .key_a },
+    }));
+
+    // catch_all has no keysym representation.
+    try testing.expectEqual(@as(?c_uint, null), keysymFromTrigger(.{
+        .mods = .{},
+        .key = .catch_all,
+    }));
 }
 
 test "labelFromTrigger" {

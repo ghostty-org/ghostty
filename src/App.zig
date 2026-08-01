@@ -15,6 +15,7 @@ const Config = configpkg.Config;
 const BlockingQueue = @import("datastruct/main.zig").BlockingQueue;
 const renderer = @import("renderer.zig");
 const font = @import("font/main.zig");
+const global = @import("global.zig");
 
 const log = std.log.scoped(.app);
 
@@ -56,7 +57,7 @@ font_grid_set: font.SharedGridSet,
 // Used to rate limit desktop notifications. Some platforms (notably macOS) will
 // run out of resources if desktop notifications are sent too fast and the OS
 // will kill Ghostty.
-last_notification_time: ?std.time.Instant = null,
+last_notification_time: ?std.Io.Timestamp = null,
 last_notification_digest: u64 = 0,
 
 /// The conditional state of the configuration. See the equivalent field
@@ -95,7 +96,7 @@ pub fn init(
 
     self.* = .{
         .alloc = alloc,
-        .surfaces = .{},
+        .surfaces = .empty,
         .mailbox = .{},
         .font_grid_set = font_grid_set,
         .config_conditional_state = .{},
@@ -236,7 +237,7 @@ pub fn needsConfirmQuit(self: *const App) bool {
 
 /// Drain the mailbox.
 fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
-    while (self.mailbox.pop()) |message| {
+    while (self.mailbox.pop(global.io())) |message| {
         if (comptime std.log.logEnabled(.debug, .app)) {
             switch (message) {
                 // these tend to be way too verbose for normal debugging
@@ -566,7 +567,7 @@ pub const Mailbox = struct {
 
     /// Send a message to the surface.
     pub fn push(self: Mailbox, msg: Message, timeout: Queue.Timeout) Queue.Size {
-        const result = self.mailbox.push(msg, timeout);
+        const result = self.mailbox.push(global.io(), msg, timeout);
 
         // Wake up our app loop
         self.rt_app.wakeup();

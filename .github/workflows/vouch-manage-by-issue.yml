@@ -18,11 +18,11 @@ jobs:
           app-id: ${{ secrets.VOUCH_APP_ID }}
           private-key: ${{ secrets.VOUCH_APP_PRIVATE_KEY }}
 
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           token: ${{ steps.app-token.outputs.token }}
 
-      - uses: mitchellh/vouch/action/manage-by-issue@c6d80ead49839655b61b422700b7a3bc9d0804a9 # v1.4.2
+      - uses: mitchellh/vouch/action/manage-by-issue@d66fa29a64600490892131ad87597c30c91fcac4 # v1.5.0
         with:
           repo: ${{ github.repository }}
           issue-id: ${{ github.event.issue.number }}

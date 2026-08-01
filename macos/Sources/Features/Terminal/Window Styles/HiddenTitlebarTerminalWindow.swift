@@ -70,6 +70,18 @@ class HiddenTitlebarTerminalWindow: TerminalWindow {
            let titleBarContainer = themeFrame.firstDescendant(withClassName: "NSTitlebarContainerView") {
             titleBarContainer.isHidden = true
         }
+
+        // It seems AppKit moves `NSScrollPocket` to the title bar on macOS 27.
+        // We should hide it to prevent it covering terminal contents.
+        //
+        // Linked issue: https://github.com/ghostty-org/ghostty/issues/13390
+        // Reference: https://developer.apple.com/forums/thread/798392?answerId=856013022#856013022
+        // Note: hiding `NSTitlebarBackgroundView` won't work here, because it later uses the pocket view from the `SurfaceScrollView`.
+        if #available(macOS 27, *),
+           let themeFrame = contentView?.superview,
+           let scrollPocket = themeFrame.firstDescendant(withClassName: "NSScrollPocket") {
+            scrollPocket.isHidden = true
+        }
     }
 
     // MARK: NSWindow

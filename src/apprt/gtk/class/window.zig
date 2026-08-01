@@ -1156,6 +1156,38 @@ pub const Window = extern struct {
         };
     }
 
+    fn toplevelComputeSize(
+        _: *gdk.Toplevel,
+        size: *gdk.ToplevelSize,
+        self: *Self,
+    ) callconv(.c) void {
+        // The compositor/quick terminal own the size in these states.
+        if (self.isMaximized() or
+            self.isFullscreen() or
+            self.isQuickTerminal()) return;
+
+        // If there's no GdkSurface yet these dimensions will be zero size which
+        // will make the window start out as small as possible. These checks ensure
+        // we don't start with a 0, 0 window size.
+        const gdk_surface = self.as(gtk.Native).getSurface() orelse return;
+        const w = gdk_surface.getWidth();
+        const h = gdk_surface.getHeight();
+        if (w <= 0 or h <= 0) return;
+
+        // GTK clamps the requested size to the compositor-reported bounds, which
+        // go stale when the window moves to a larger monitor. Only re-assert the
+        // current size when it exceeds those bounds; otherwise let GTK's default
+        // sizing win so a freshly-mapped window isn't forced to a tiny size.
+        var bounds_w: c_int = undefined;
+        var bounds_h: c_int = undefined;
+        size.getBounds(&bounds_w, &bounds_h);
+
+        if (bounds_w <= 0 or bounds_h <= 0) return;
+        if (w <= bounds_w and h <= bounds_h) return;
+
+        size.setSize(w, h);
+    }
+
     fn propFullscreened(
         _: *adw.ApplicationWindow,
         _: *gobject.ParamSpec,
@@ -1330,11 +1362,43 @@ pub const Window = extern struct {
                 self,
                 .{ .detail = "height" },
             );
+            // Connect after GTK's compute-size handler so our size wins.
+            if (gobject.ext.cast(gdk.Toplevel, gdk_surface)) |toplevel| {
+                _ = gdk.Toplevel.signals.compute_size.connect(
+                    toplevel,
+                    *Self,
+                    toplevelComputeSize,
+                    self,
+                    .{ .after = true },
+                );
+            }
         }
+
+        // Notify every displayed surface when the compositor changes the
+        // Wayland xdg_toplevel suspended state.
+        _ = gobject.Object.signals.notify.connect(
+            self.as(gtk.Window),
+            *Self,
+            propSuspended,
+            self,
+            .{ .detail = "suspended" },
+        );
 
         // When we are realized we always setup our appearance since this
         // calls some winproto functions.
         self.syncAppearance();
+    }
+
+    fn propSuspended(
+        _: *gtk.Window,
+        _: *gobject.ParamSpec,
+        self: *Self,
+    ) callconv(.c) void {
+        const tab = self.getSelectedTab() orelse return;
+        const tree = tab.getSurfaceTree() orelse return;
+
+        var it = tree.iterator();
+        while (it.next()) |entry| entry.view.updateOcclusion();
     }
 
     fn btnNewTab(_: *adw.SplitButton, self: *Self) callconv(.c) void {

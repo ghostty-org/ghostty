@@ -219,7 +219,13 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
             const bitmap_start = 0;
             const bitmap_end = @sizeOf(u64) * bitmap_count;
             const chunks_start = alignForward(usize, bitmap_end, @alignOf(u8));
-            const chunks_end = chunks_start + (aligned_cap * chunk_size);
+
+            // The chunks region must be exactly the bytes addressable by
+            // the bitmaps: one chunk per bit of every bitmap. Anything more
+            // is unreachable waste, while anything less would let alloc
+            // hand out memory beyond the region, since init marks every
+            // bitmap bit as free.
+            const chunks_end = chunks_start + (aligned_chunk_count * chunk_size);
             const total_size = chunks_end;
 
             return Layout{
@@ -450,6 +456,79 @@ test "BitmapAllocator layout" {
 
     // We expect to use one bitmap since the cap is bytes.
     try testing.expectEqual(@as(usize, 1), layout.bitmap_count);
+}
+
+test "BitmapAllocator layout chunks region matches bitmap addressable bytes" {
+    const testing = std.testing;
+
+    // The chunks region must be exactly the bytes addressable by the
+    // bitmaps: one chunk per bit of every bitmap. Prior to this being
+    // fixed, the region was over-reserved by a factor of chunk_size
+    // (~186 KiB of dead space per standard page), while capacities
+    // smaller than one full bitmap were under-reserved, allowing
+    // out-of-bounds allocations.
+    inline for (.{ 1, 2, 4, 16, 32 }) |chunk| {
+        const Alloc = BitmapAllocator(chunk);
+        for ([_]usize{
+            1,
+            chunk,
+            chunk + 1,
+            48,
+            64,
+            512,
+            1024,
+            2048,
+            8192,
+            8193,
+        }) |cap| {
+            const layout = Alloc.layout(cap);
+            const chunks_size = layout.total_size - layout.chunks_start;
+
+            // Reserved == addressable by the bitmaps. This must match
+            // capacityBytes() which is computed from the bitmap count.
+            try testing.expectEqual(
+                layout.bitmap_count * Alloc.bitmap_bit_size * chunk,
+                chunks_size,
+            );
+
+            // We always reserve at least the requested capacity.
+            try testing.expect(chunks_size >= cap);
+        }
+    }
+}
+
+test "BitmapAllocator layout small capacity cannot alloc out of bounds" {
+    // Regression test: for capacities smaller than one full bitmap of
+    // chunks, init marks all bitmap bits as free, so alloc will hand out
+    // chunks up to the full bitmap. The layout must reserve that entire
+    // addressable region or those allocations would be out of bounds of
+    // the backing buffer.
+    const Alloc = BitmapAllocator(16);
+    const cap = 48; // 3 chunks, bitmap addresses 64
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const layout = Alloc.layout(cap);
+    const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
+    defer alloc.free(buf);
+
+    var bm = Alloc.init(.init(buf), layout);
+
+    // Allocate every chunk the bitmap can hand out and verify each is
+    // fully within the backing buffer. Writing to each allocation lets
+    // the testing allocator catch any out-of-bounds corruption.
+    const buf_start = @intFromPtr(buf.ptr);
+    const buf_end = buf_start + buf.len;
+    var count: usize = 0;
+    while (bm.alloc(u8, buf, 16)) |slice| {
+        try testing.expect(@intFromPtr(slice.ptr) >= buf_start);
+        try testing.expect(@intFromPtr(slice.ptr) + slice.len <= buf_end);
+        @memset(slice, 0xAA);
+        count += 1;
+    } else |err| {
+        try testing.expectEqual(error.OutOfMemory, err);
+    }
+    try testing.expectEqual(Alloc.bitmap_bit_size, count);
 }
 
 test "BitmapAllocator alloc sequentially" {

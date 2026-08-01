@@ -27,7 +27,6 @@
   wasmtime,
   wraptest,
   zig,
-  zig_0_15,
   zip,
   llvmPackages_latest,
   bzip2,
@@ -60,6 +59,7 @@
   zlib,
   alejandra,
   jq,
+  kaitai-struct-compiler,
   minisign,
   pandoc,
   pinact,
@@ -86,6 +86,11 @@
   gi_typelib_path = import ./build-support/gi-typelib-path.nix {
     inherit pkgs lib stdenv;
   };
+  python = python3.withPackages (python-pkgs: [
+    python-pkgs.blake3
+    python-pkgs.kaitaistruct
+    python-pkgs.ucs-detect
+  ]);
 in
   mkShell {
     name = "ghostty";
@@ -117,9 +122,10 @@ in
 
         # Testing
         parallel
-        python3
+        python
         vttest
         hyperfine
+        kaitai-struct-compiler
 
         # wasm
         wabt
@@ -139,11 +145,6 @@ in
         blueprint-compiler
         libadwaita
         gtk4
-
-        # Python packages
-        (python3.withPackages (python-pkgs: [
-          python-pkgs.ucs-detect
-        ]))
       ]
       ++ lib.optionals stdenv.hostPlatform.isLinux [
         # My nix shell environment installs the non-interactive version
@@ -243,6 +244,6 @@ in
         # We need to remove "xcrun" from the PATH. It is injected by
         # some dependency but we need to rely on system Xcode tools
         export PATH=$(echo "$PATH" | awk -v RS=: -v ORS=: '$0 !~ /xcrun/ || $0 == "/usr/bin" {print}' | sed 's/:$//')
-        export PATH="/opt/homebrew/opt/llvm/bin:/opt/homebrew/bin:/usr/local/opt/llvm/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+        export PATH="${python}/bin:/opt/homebrew/opt/llvm/bin:/opt/homebrew/bin:/usr/local/opt/llvm/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
       '');
   }
