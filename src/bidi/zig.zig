@@ -18,6 +18,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const scan = @import("scan.zig");
 const unicode = @import("../unicode/main.zig");
 const types = @import("types.zig");
 
@@ -132,12 +133,9 @@ pub const Resolver = struct {
         // Fast path: text that cannot be affected by the algorithm at all
         // resolves to the identity without touching any of the machinery
         // below. This is the overwhelmingly common case in a terminal.
-        //
-        // A SIMD version of this scan is a separate change; the scalar
-        // form here already keeps plain left-to-right rows off the slow
-        // path, which is what matters for correctness of the fast path
-        // being *sound* rather than merely fast.
-        if (opts.direction != .rtl and isTriviallyLtr(codepoints)) {
+        // See `scan.zig` for why one threshold suffices and why a forced
+        // right-to-left paragraph has to skip it.
+        if (opts.direction != .rtl and scan.isTriviallyLtr(codepoints)) {
             self.runs.clearRetainingCapacity();
             try self.runs.append(alloc, .{
                 .visual_start = 0,
@@ -156,6 +154,18 @@ pub const Resolver = struct {
             };
         }
 
+        return self.resolveFull(alloc, codepoints, opts);
+    }
+
+    /// The algorithm proper, with the fast path skipped. Split out so
+    /// that tests can assert the fast path agrees with it.
+    fn resolveFull(
+        self: *Resolver,
+        alloc: Allocator,
+        codepoints: []const u21,
+        opts: Options,
+    ) Allocator.Error!Result {
+        const n: u16 = @intCast(codepoints.len);
         try self.prepare(alloc, codepoints);
 
         // P2-P3: determine the paragraph embedding level.
@@ -180,21 +190,6 @@ pub const Resolver = struct {
             .l2v = self.l2v.items,
             .runs = self.runs.items,
         };
-    }
-
-    /// True if no codepoint in the input can influence bidi resolution,
-    /// meaning visual order is guaranteed to equal logical order.
-    ///
-    /// This must never produce a false negative. A false positive would
-    /// merely cost performance; a false negative renders text backwards.
-    /// Everything below U+0590 is left-to-right or neutral, which covers
-    /// Latin, Greek, Cyrillic, and all of ASCII.
-    fn isTriviallyLtr(codepoints: []const u21) bool {
-        for (codepoints) |cp| {
-            if (cp < 0x0590) continue;
-            return false;
-        }
-        return true;
     }
 
     /// Populate the per-element arrays and compute matching PDIs.
@@ -1337,5 +1332,82 @@ test "uba: empty and single element input" {
         try testing.expectEqual(@as(usize, 1), result.len);
         try testing.expectEqual(Direction.rtl, result.direction);
         try testing.expectEqual(@as(usize, 0), result.logicalIndex(0));
+    }
+}
+
+test "uba: the fast path never lies" {
+    const alloc = testing.allocator;
+    var r: Resolver = .empty;
+    defer r.deinit(alloc);
+
+    // The fast path claims that any input it accepts resolves to the
+    // identity. That claim is the one place where being wrong renders
+    // text backwards, so it is checked against the full algorithm rather
+    // than argued from the properties involved.
+    //
+    // First: every single codepoint the scan accepts.
+    var one: [1]u21 = undefined;
+    for (0..scan.threshold) |i| {
+        one[0] = @intCast(i);
+        if (!scan.isTriviallyLtr(&one)) continue;
+
+        const full = try r.resolveFull(alloc, &one, .{});
+        try testing.expectEqual(Direction.ltr, full.direction);
+        try testing.expectEqual(@as(Level, 0), full.level(0));
+        try testing.expectEqual(@as(usize, 0), full.logicalIndex(0));
+    }
+
+    // Second: randomized strings built from the accepted range, since
+    // resolution depends on context and single characters cannot show
+    // an interaction between them.
+    var prng = std.Random.DefaultPrng.init(0xFA57);
+    const rand = prng.random();
+
+    var buf: [128]u21 = undefined;
+    for (0..3000) |_| {
+        const len = rand.intRangeAtMost(usize, 1, buf.len);
+        for (buf[0..len]) |*cp| cp.* = rand.uintLessThan(u21, scan.threshold);
+
+        const cps = buf[0..len];
+        try testing.expect(scan.isTriviallyLtr(cps));
+
+        const full = try r.resolveFull(alloc, cps, .{});
+        try testing.expectEqual(Direction.ltr, full.direction);
+        for (0..len) |i| {
+            try testing.expectEqual(@as(Level, 0), full.level(i));
+            try testing.expectEqual(i, full.logicalIndex(i));
+        }
+    }
+}
+
+test "uba: fast path and full path agree on accepted input" {
+    const alloc = testing.allocator;
+    var r: Resolver = .empty;
+    defer r.deinit(alloc);
+
+    var prng = std.Random.DefaultPrng.init(0xC0FFEE);
+    const rand = prng.random();
+
+    var buf: [64]u21 = undefined;
+    for (0..1000) |_| {
+        const len = rand.intRangeAtMost(usize, 1, buf.len);
+        for (buf[0..len]) |*cp| cp.* = rand.uintLessThan(u21, scan.threshold);
+        const cps = buf[0..len];
+
+        // Take the fast path, copy what it produced, then take the slow
+        // path over the same input and compare. The result borrows the
+        // resolver's buffers, so the visual order has to be copied out
+        // before the second call overwrites them.
+        var fast_visual: [64]usize = undefined;
+        {
+            const fast = try r.resolve(alloc, cps, .{});
+            try testing.expect(fast.identity);
+            for (0..len) |i| fast_visual[i] = fast.logicalIndex(i);
+        }
+
+        const full = try r.resolveFull(alloc, cps, .{});
+        for (0..len) |i| {
+            try testing.expectEqual(fast_visual[i], full.logicalIndex(i));
+        }
     }
 }

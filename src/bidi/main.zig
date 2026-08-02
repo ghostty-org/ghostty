@@ -32,6 +32,7 @@ const builtin = @import("builtin");
 const build_config = @import("../build_config.zig");
 
 pub const noop = @import("noop.zig");
+pub const scan = @import("scan.zig");
 pub const types = @import("types.zig");
 pub const zig = @import("zig.zig");
 
@@ -74,6 +75,7 @@ test {
     // same way `src/font/shape.zig` always tests its noop shaper. The
     // conformance suite in particular must run on every build.
     _ = noop;
+    _ = scan;
     _ = zig;
     _ = @import("conformance_test.zig");
 }
