@@ -24,13 +24,21 @@ const global = @import("../global.zig");
 
 const log = std.log.scoped(.@"bidi-resolve-bench");
 
+/// The maximum corpus size we will read into memory.
+const max_corpus_size = 1 * 1024 * 1024 * 1024;
+
 opts: Options,
 
 /// The allocator used for the resolver and line buffer.
 alloc: Allocator,
 
-/// The file, opened in the setup function.
-data_f: ?std.Io.File = null,
+/// The corpus, read fully into memory during setup.
+///
+/// This is read up front rather than streamed per step so that a step can
+/// be run repeatedly, which `--duration` requires: a step that consumed a
+/// file handle would read nothing after its first invocation and report an
+/// enormous iteration count. It also keeps file I/O out of the measurement.
+data: []const u8 = &.{},
 
 /// The resolver under test. Created in setup so its buffers are warm for
 /// the whole run rather than being reallocated per step.
@@ -86,18 +94,29 @@ pub fn benchmark(self: *BidiResolve) Benchmark {
 fn setup(ptr: *anyopaque) Benchmark.Error!void {
     const self: *BidiResolve = @ptrCast(@alignCast(ptr));
 
-    assert(self.data_f == null);
-    self.data_f = options.dataFile(self.opts.data) catch |err| {
+    assert(self.data.len == 0);
+    const f = options.dataFile(self.opts.data) catch |err| {
         log.warn("error opening data file err={}", .{err});
+        return error.BenchmarkFailed;
+    } orelse return;
+    defer f.close(global.io());
+
+    var read_buf: [4096]u8 = undefined;
+    var f_reader = f.reader(global.io(), &read_buf);
+    self.data = f_reader.interface.allocRemaining(
+        self.alloc,
+        .limited(max_corpus_size),
+    ) catch |err| {
+        log.warn("error reading data file err={}", .{err});
         return error.BenchmarkFailed;
     };
 }
 
 fn teardown(ptr: *anyopaque) void {
     const self: *BidiResolve = @ptrCast(@alignCast(ptr));
-    if (self.data_f) |f| {
-        f.close(global.io());
-        self.data_f = null;
+    if (self.data.len > 0) {
+        self.alloc.free(self.data);
+        self.data = &.{};
     }
     self.line.deinit(self.alloc);
     self.line = .empty;
@@ -116,41 +135,27 @@ fn stepResolve(ptr: *anyopaque) Benchmark.Error!void {
 }
 
 fn run(self: *BidiResolve, comptime do_resolve: bool) Benchmark.Error!void {
-    const f = self.data_f orelse return;
-    var read_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
-    var f_reader = f.reader(global.io(), &read_buf);
-    var r = &f_reader.interface;
-
     self.line.clearRetainingCapacity();
 
     var d: UTF8Decoder = .{};
-    var buf: [4096]u8 align(std.atomic.cache_line) = undefined;
-    while (true) {
-        const n = r.readSliceShort(&buf) catch {
-            log.warn("error reading data file err={?}", .{f_reader.err});
-            return error.BenchmarkFailed;
-        };
-        if (n == 0) break; // EOF reached
+    for (self.data) |c| {
+        const cp_, const consumed = d.next(c);
+        assert(consumed);
+        const cp = cp_ orelse continue;
 
-        for (buf[0..n]) |c| {
-            const cp_, const consumed = d.next(c);
-            assert(consumed);
-            const cp = cp_ orelse continue;
-
-            if (cp != '\n') {
-                // Rows are bounded by the terminal width in practice; the
-                // resolver's index type is a u16 so we cap defensively.
-                if (self.line.items.len < std.math.maxInt(u16)) {
-                    self.line.append(self.alloc, cp) catch {
-                        log.warn("out of memory buffering line", .{});
-                        return error.BenchmarkFailed;
-                    };
-                }
-                continue;
+        if (cp != '\n') {
+            // Rows are bounded by the terminal width in practice; the
+            // resolver's index type is a u16 so we cap defensively.
+            if (self.line.items.len < std.math.maxInt(u16)) {
+                self.line.append(self.alloc, cp) catch {
+                    log.warn("out of memory buffering line", .{});
+                    return error.BenchmarkFailed;
+                };
             }
-
-            try self.flush(do_resolve);
+            continue;
         }
+
+        try self.flush(do_resolve);
     }
 
     // Trailing line without a newline.
