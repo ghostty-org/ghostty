@@ -129,6 +129,7 @@ gmile
 gordonbondon
 gpanders
 guilhermetk
+-guysoft LLM communication (likely automated)
 h3nock
 hakonhagland
 halosatrio
