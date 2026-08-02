@@ -8,6 +8,7 @@ const global = @import("../global.zig");
 /// named files.
 pub const Action = enum {
     @"apc-parser",
+    @"bidi-resolve",
     @"codepoint-width",
     @"grapheme-break",
     @"hyperlink-map",
@@ -31,6 +32,7 @@ pub const Action = enum {
     pub fn Struct(comptime action: Action) type {
         return switch (action) {
             .@"apc-parser" => @import("ApcParser.zig"),
+            .@"bidi-resolve" => @import("BidiResolve.zig"),
             .@"hyperlink-map" => @import("HyperlinkMap.zig"),
             .@"screen-clone" => @import("ScreenClone.zig"),
             .@"page-compression" => @import("PageCompression.zig"),
