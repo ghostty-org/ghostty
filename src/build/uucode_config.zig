@@ -54,6 +54,15 @@ pub const tables = [_]config.Table{
             "grapheme_break_no_control",
             "is_symbol",
             "is_emoji_vs_base",
+
+            // Bidi (UAX #9) properties. These are only read by the
+            // build-time table generator in `src/unicode/bidi_uucode.zig`;
+            // the shipped binary reads the generated table instead, so
+            // none of this ends up in the runtime image.
+            "bidi_class",
+            "bidi_paired_bracket",
+            "bidi_mirroring",
+            "is_bidi_mirrored",
         },
     },
 };
