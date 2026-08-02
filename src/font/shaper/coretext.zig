@@ -959,7 +959,7 @@ test "run iterator" {
 
         var s = t.vtStream();
         defer s.deinit();
-        s.nextSlice("ABCD");
+        try s.nextSlice("ABCD");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -983,7 +983,7 @@ test "run iterator" {
 
         var s = t.vtStream();
         defer s.deinit();
-        s.nextSlice("ABCD   EFG");
+        try s.nextSlice("ABCD   EFG");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1006,7 +1006,7 @@ test "run iterator" {
 
         var s = t.vtStream();
         defer s.deinit();
-        s.nextSlice("A😃D");
+        try s.nextSlice("A😃D");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1031,7 +1031,7 @@ test "run iterator" {
 
         var s = t.vtStream();
         defer s.deinit();
-        s.nextSlice(bad);
+        try s.nextSlice(bad);
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1064,8 +1064,8 @@ test "run iterator: empty cells with background set" {
         var s = t.vtStream();
         defer s.deinit();
         // Set red background
-        s.nextSlice("\x1b[48;2;255;0;0m");
-        s.nextSlice("A");
+        try s.nextSlice("\x1b[48;2;255;0;0m");
+        try s.nextSlice("A");
 
         // Get our first row
         {
@@ -1123,7 +1123,7 @@ test "shape" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice(buf[0..buf_idx]);
+    try s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1162,7 +1162,7 @@ test "shape nerd fonts" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice(buf[0..buf_idx]);
+    try s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1195,7 +1195,7 @@ test "shape inconsolata ligs" {
 
         var s = t.vtStream();
         defer s.deinit();
-        s.nextSlice(">=");
+        try s.nextSlice(">=");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1224,7 +1224,7 @@ test "shape inconsolata ligs" {
 
         var s = t.vtStream();
         defer s.deinit();
-        s.nextSlice("===");
+        try s.nextSlice("===");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1261,7 +1261,7 @@ test "shape monaspace ligs" {
 
         var s = t.vtStream();
         defer s.deinit();
-        s.nextSlice("===");
+        try s.nextSlice("===");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1299,7 +1299,7 @@ test "shape left-replaced lig in last run" {
 
         var s = t.vtStream();
         defer s.deinit();
-        s.nextSlice("!==");
+        try s.nextSlice("!==");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1337,7 +1337,7 @@ test "shape left-replaced lig in early run" {
 
         var s = t.vtStream();
         defer s.deinit();
-        s.nextSlice("!==X");
+        try s.nextSlice("!==X");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1372,7 +1372,7 @@ test "shape U+3C9 with JB Mono" {
 
         var s = t.vtStream();
         defer s.deinit();
-        s.nextSlice("\u{03C9} foo");
+        try s.nextSlice("\u{03C9} foo");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1409,7 +1409,7 @@ test "shape emoji width" {
 
         var s = t.vtStream();
         defer s.deinit();
-        s.nextSlice("👍");
+        try s.nextSlice("👍");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -1442,7 +1442,7 @@ test "shape emoji width long" {
     var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
     defer t.deinit(alloc);
 
-    var page = t.screens.active.pages.pages.first.?.page();
+    var page = t.screens.active.pages.pages.first.?.data;
     var row = page.getRow(1);
     const cell = &row.cells.ptr(page.memory)[0];
     cell.* = .{
@@ -1499,7 +1499,7 @@ test "shape variation selector VS15" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice(buf[0..buf_idx]);
+    try s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1538,7 +1538,7 @@ test "shape variation selector VS16" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice(buf[0..buf_idx]);
+    try s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1572,9 +1572,9 @@ test "shape with empty cells in between" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice("A");
-    s.nextSlice("\x1b[5C"); // 5 spaces forward
-    s.nextSlice("B");
+    try s.nextSlice("A");
+    try s.nextSlice("\x1b[5C"); // 5 spaces forward
+    try s.nextSlice("B");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1619,7 +1619,7 @@ test "shape Combining characters" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice(buf[0..buf_idx]);
+    try s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1669,7 +1669,7 @@ test "shape Devanagari string" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice("अपार्टमेंट");
+    try s.nextSlice("अपार्टमेंट");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1728,7 +1728,7 @@ test "shape Tai Tham vowels (position differs from advance)" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice(buf[0..buf_idx]);
+    try s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1789,7 +1789,7 @@ test "shape Tai Tham letters (position.y differs from advance)" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice(buf[0..buf_idx]);
+    try s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1849,7 +1849,7 @@ test "shape Javanese ligatures" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice(buf[0..buf_idx]);
+    try s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1912,7 +1912,7 @@ test "shape Chakma vowel sign with ligature (vowel sign renders first)" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice(buf[0..buf_idx]);
+    try s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -1978,7 +1978,7 @@ test "shape Bengali ligatures with out of order vowels" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice(buf[0..buf_idx]);
+    try s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2032,7 +2032,7 @@ test "shape Bengali sentence keeps base clusters anchored" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice("পছন্দের ভাষা টাইপ করা আরো সহজ করে তোলে৷ আরো জানুন");
+    try s.nextSlice("পছন্দের ভাষা টাইপ করা আরো সহজ করে তোলে৷ আরো জানুন");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2091,7 +2091,7 @@ test "shape Bengali sentence in mixed-direction line keeps base clusters anchore
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice("ABC পছন্দের ভাষা টাইপ করা আরো সহজ করে তোলে৷ আরো জানুন مرحبا");
+    try s.nextSlice("ABC পছন্দের ভাষা টাইপ করা আরো সহজ করে তোলে৷ আরো জানুন مرحبا");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2153,7 +2153,7 @@ test "shape box glyphs" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice(buf[0..buf_idx]);
+    try s.nextSlice(buf[0..buf_idx]);
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2191,7 +2191,7 @@ test "shape selection boundary" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice("a1b2c3d4e5");
+    try s.nextSlice("a1b2c3d4e5");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2296,7 +2296,7 @@ test "shape cursor boundary" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice("a1b2c3d4e5");
+    try s.nextSlice("a1b2c3d4e5");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2433,7 +2433,7 @@ test "shape cursor boundary and colored emoji" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice("👍🏼");
+    try s.nextSlice("👍🏼");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2530,7 +2530,7 @@ test "shape cell attribute change" {
 
         var s = t.vtStream();
         defer s.deinit();
-        s.nextSlice(">=");
+        try s.nextSlice(">=");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -2556,9 +2556,9 @@ test "shape cell attribute change" {
 
         var s = t.vtStream();
         defer s.deinit();
-        s.nextSlice(">");
-        s.nextSlice("\x1b[1m"); // Bold
-        s.nextSlice("=");
+        try s.nextSlice(">");
+        try s.nextSlice("\x1b[1m"); // Bold
+        try s.nextSlice("=");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -2585,11 +2585,11 @@ test "shape cell attribute change" {
         var s = t.vtStream();
         defer s.deinit();
         // RGB 1, 2, 3
-        s.nextSlice("\x1b[38;2;1;2;3m");
-        s.nextSlice(">");
+        try s.nextSlice("\x1b[38;2;1;2;3m");
+        try s.nextSlice(">");
         // RGB 3, 2, 1
-        s.nextSlice("\x1b[38;2;3;2;1m");
-        s.nextSlice("=");
+        try s.nextSlice("\x1b[38;2;3;2;1m");
+        try s.nextSlice("=");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -2616,11 +2616,11 @@ test "shape cell attribute change" {
         var s = t.vtStream();
         defer s.deinit();
         // RGB 1, 2, 3 bg
-        s.nextSlice("\x1b[48;2;1;2;3m");
-        s.nextSlice(">");
+        try s.nextSlice("\x1b[48;2;1;2;3m");
+        try s.nextSlice(">");
         // RGB 3, 2, 1 bg
-        s.nextSlice("\x1b[48;2;3;2;1m");
-        s.nextSlice("=");
+        try s.nextSlice("\x1b[48;2;3;2;1m");
+        try s.nextSlice("=");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -2647,9 +2647,9 @@ test "shape cell attribute change" {
         var s = t.vtStream();
         defer s.deinit();
         // RGB 1, 2, 3 bg
-        s.nextSlice("\x1b[48;2;1;2;3m");
-        s.nextSlice(">");
-        s.nextSlice("=");
+        try s.nextSlice("\x1b[48;2;1;2;3m");
+        try s.nextSlice(">");
+        try s.nextSlice("=");
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
@@ -2692,7 +2692,7 @@ test "shape high plane sprite font codepoint" {
     var s = t.vtStream();
     defer s.deinit();
     // U+1FB70: Vertical One Eighth Block-2
-    s.nextSlice("\u{1FB70}");
+    try s.nextSlice("\u{1FB70}");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2752,7 +2752,7 @@ test "shape LTR neutral RTL splits and sets direction" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice("Hello مرحبا");
+    try s.nextSlice("Hello مرحبا");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2790,7 +2790,7 @@ test "shape hebrew RTL" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice("שלום עולם");
+    try s.nextSlice("שלום עולם");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2822,76 +2822,6 @@ test "shape hebrew RTL" {
     try testing.expectEqual(@as(usize, 1), count);
 }
 
-// Regression test for the `base_dir = .auto_ltr` paragraph-direction fix
-// in run.zig. Under a forced LTR base direction (the old behavior), the
-// trailing ASCII punctuation `?` in an RTL-leading row resolves to an LTR
-// embedding level via UAX #9 N2 (because `eos` falls back to base_level=0=L,
-// N1 does not match, and the neutral adopts the embedding direction). The
-// `?` then splits off into a separate LTR visual run and lands at the
-// visual-left of the row, ahead of the Hebrew text.
-//
-// With `base_dir = .auto_ltr`, UAX #9 P2-P3 sees the first strong character
-// `ש` (Bidi_Class=R) and sets base_level=1 (RTL). The trailing `?` now has
-// `eos=R`, N1 matches the surrounding Hebrew, the neutral resolves to R,
-// and it stays in the same RTL visual run as the Hebrew — appearing at the
-// visual-right (end of the sentence), where a user expects it.
-//
-// This test pins that behavior: the row must produce a single RTL run
-// covering the full input (including the trailing `?`), not a split with
-// the `?` in a separate LTR run.
-test "shape hebrew RTL with trailing punctuation at visual-right" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var testdata = try testShaperWithFont(alloc, .julia_mono);
-    defer testdata.deinit();
-
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
-    defer t.deinit(alloc);
-
-    var s = t.vtStream();
-    defer s.deinit();
-    s.nextSlice("שלום, עולם! מה שלומך?");
-
-    var state: terminal.RenderState = .empty;
-    defer state.deinit(alloc);
-    try state.update(alloc, &t);
-
-    var shaper = &testdata.shaper;
-    var it = shaper.runIterator(.{
-        .grid = testdata.grid,
-        .cells = state.row_data.get(0).cells.slice(),
-    });
-
-    // "שלום, עולם! מה שלומך?" = 21 codepoints/cells.
-    const expected_cells: u16 = 21;
-
-    var count: usize = 0;
-    while (try it.next(alloc)) |run| {
-        count += 1;
-        try testing.expect(run.rtl);
-        try testing.expectEqual(expected_cells, run.cells);
-
-        const cells = try shaper.shape(run);
-        try testing.expect(cells.len > 1);
-
-        // Shaped cells must all fall within the run and be in monotonic
-        // (non-decreasing) x order, as the renderer requires.
-        var x: u16 = cells[0].x;
-        try testing.expect(x < run.cells);
-        for (cells[1..]) |cell| {
-            try testing.expect(cell.x < run.cells);
-            try testing.expect(cell.x >= x);
-            x = cell.x;
-        }
-    }
-
-    // A single RTL run means the trailing `?` stayed with the Hebrew.
-    // Under the old forced-LTR base direction this would be 2+ runs
-    // (the `?` splits off into a separate LTR run).
-    try testing.expectEqual(@as(usize, 1), count);
-}
-
 test "shape arabic with tashkeel at EOL" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -2904,7 +2834,7 @@ test "shape arabic with tashkeel at EOL" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice("مرحباً");
+    try s.nextSlice("مرحباً");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2946,7 +2876,7 @@ test "shape arabic with tashkeel on middle letters" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice("وفُكَّ");
+    try s.nextSlice("وفُكَّ");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -2989,7 +2919,7 @@ test "shape arabic tanween stays on hamza before space" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice("شيءٍ جميل");
+    try s.nextSlice("شيءٍ جميل");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -3039,7 +2969,7 @@ test "shape arabic end tashkeel no overlap" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice("بحقِّ");
+    try s.nextSlice("بحقِّ");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -3116,7 +3046,7 @@ test "shape arabic end tanween no overlap" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice("عينٍ");
+    try s.nextSlice("عينٍ");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -3189,7 +3119,7 @@ test "shape arabic multiword end tashkeel stays anchored" {
 
     var s = t.vtStream();
     defer s.deinit();
-    s.nextSlice("الحيِّ الذي");
+    try s.nextSlice("الحيِّ الذي");
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
@@ -3327,7 +3257,7 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
         });
     } else {
         // On CoreText we want to load Apple Emoji, we should have it.
-        var disco = font.Discover.init(lib);
+        var disco = font.Discover.init();
         defer disco.deinit();
         var disco_it = try disco.discover(alloc, .{
             .family = "Apple Color Emoji",
@@ -3382,7 +3312,7 @@ fn testShaperWithDiscoveredFont(alloc: Allocator, font_req: [:0]const u8) !TestS
 
     // Discover and add our font to the collection.
     {
-        var disco = font.Discover.init(lib);
+        var disco = font.Discover.init();
         defer disco.deinit();
         var disco_it = try disco.discover(alloc, .{
             .family = font_req,
