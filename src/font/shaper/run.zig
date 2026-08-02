@@ -36,6 +36,42 @@ pub const TextRun = struct {
 
     /// The font index to use for the glyphs of this run.
     font_index: font.Collection.Index,
+
+    /// The direction to shape this run in.
+    ///
+    /// Runs never span a change of direction, because rule L2 of UAX #9
+    /// reverses maximal ranges of equal embedding level, which makes such
+    /// a range contiguous in both logical and visual order. That is what
+    /// lets a shaper treat a run as a plain logical substring plus a
+    /// direction.
+    direction: shape.Direction = .ltr,
+
+    /// The resolved bidi embedding level of this run. Even levels are
+    /// left-to-right and odd levels right-to-left, so this always agrees
+    /// with `direction`; it is kept because later phases need the level
+    /// itself, not just its parity.
+    level: shape.Level = 0,
+
+    /// Fold a run's direction and embedding level into its content hash.
+    ///
+    /// This is a separate, separately tested function because of one
+    /// specific failure it exists to prevent. `shaper.Cache` keys purely
+    /// on `hash` and never compares the underlying run, so two runs over
+    /// identical codepoints shaped in opposite directions must not
+    /// produce the same hash. If they did, the cache would hand one run's
+    /// shaped cells to the other and the text would render backwards, but
+    /// only when the cache happened to be warm. That is the kind of
+    /// intermittent, ordering-dependent bug that survives to a release.
+    pub fn foldDirection(
+        content_hash: u64,
+        direction: shape.Direction,
+        level: shape.Level,
+    ) u64 {
+        var hasher = Hasher.init(content_hash);
+        autoHash(&hasher, direction);
+        autoHash(&hasher, level);
+        return hasher.final();
+    }
 };
 
 /// RunIterator is an iterator that yields text runs.
@@ -294,12 +330,22 @@ pub const RunIterator = struct {
         // Move our cursor. Must defer since we use self.i below.
         defer self.i = j;
 
+        // Runs are always left-to-right at level zero for now. Bidi
+        // resolution is not yet wired into the run iterator, so this is
+        // the only direction any run can have; the plumbing exists so
+        // that turning it on later is not also a cache-correctness
+        // change. See `foldDirection`.
+        const direction: shape.Direction = .ltr;
+        const level: shape.Level = 0;
+
         return .{
-            .hash = hasher.final(),
+            .hash = TextRun.foldDirection(hasher.final(), direction, level),
             .offset = @intCast(self.i),
             .cells = @intCast(j - self.i),
             .grid = self.opts.grid,
             .font_index = current_font,
+            .direction = direction,
+            .level = level,
         };
     }
 
@@ -406,4 +452,65 @@ fn comparableStyle(style: terminal.Style) terminal.Style {
     s.bg_color = .none;
 
     return s;
+}
+
+test "TextRun: direction and level are folded into the hash" {
+    const testing = std.testing;
+
+    // This is the test the whole phase exists for. `shaper.Cache` looks
+    // up shaped cells by `TextRun.hash` alone and never compares the run
+    // itself, so a run's direction and embedding level must reach the
+    // hash. If they do not, an RTL run over the same codepoints as an
+    // earlier LTR run gets that run's cells straight out of the cache and
+    // renders backwards.
+    const base: u64 = 0x1234_5678_9ABC_DEF0;
+
+    const ltr0 = TextRun.foldDirection(base, .ltr, 0);
+    const rtl1 = TextRun.foldDirection(base, .rtl, 1);
+    const ltr2 = TextRun.foldDirection(base, .ltr, 2);
+    const rtl3 = TextRun.foldDirection(base, .rtl, 3);
+
+    // Same content, opposite direction: must differ.
+    try testing.expect(ltr0 != rtl1);
+
+    // Same content and direction, different level: must also differ.
+    // Levels matter beyond their parity because a level change splits a
+    // run even when the direction is unchanged.
+    try testing.expect(ltr0 != ltr2);
+    try testing.expect(rtl1 != rtl3);
+
+    // All four distinct.
+    const all = [_]u64{ ltr0, rtl1, ltr2, rtl3 };
+    for (all, 0..) |a, i| {
+        for (all[i + 1 ..]) |b| try testing.expect(a != b);
+    }
+
+    // And the fold must be deterministic, or the cache would miss every
+    // time rather than hit wrongly.
+    try testing.expectEqual(ltr0, TextRun.foldDirection(base, .ltr, 0));
+
+    // Different content with the same direction must still differ.
+    try testing.expect(ltr0 != TextRun.foldDirection(base +% 1, .ltr, 0));
+}
+
+test "TextRun: adding direction and level did not change the layout class" {
+    const testing = std.testing;
+
+    // The run is copied around per frame and lives in a cache keyed by
+    // hash. Growing it, or worse changing its alignment, would be a
+    // silent per-frame cost. Both new fields fit in existing padding.
+    try testing.expectEqual(@as(usize, 8), @alignOf(TextRun));
+    try testing.expect(@sizeOf(TextRun) <= 24);
+
+    // The defaults keep the phase inert: anything that builds a run
+    // without mentioning bidi gets exactly the previous behavior.
+    const r: TextRun = .{
+        .hash = 0,
+        .offset = 0,
+        .cells = 0,
+        .grid = undefined,
+        .font_index = .{},
+    };
+    try testing.expectEqual(shape.Direction.ltr, r.direction);
+    try testing.expectEqual(@as(shape.Level, 0), r.level);
 }

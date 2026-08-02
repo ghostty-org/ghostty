@@ -1,4 +1,5 @@
 const std = @import("std");
+const bidi = @import("../bidi/types.zig");
 const options = @import("main.zig").options;
 const run = @import("shaper/run.zig");
 const feature = @import("shaper/feature.zig");
@@ -11,6 +12,14 @@ pub const coretext = @import("shaper/coretext.zig");
 pub const web_canvas = @import("shaper/web_canvas.zig");
 pub const Cache = @import("shaper/Cache.zig");
 pub const TextRun = run.TextRun;
+
+/// The direction a text run is shaped in. This is the bidi vocabulary
+/// type rather than a font-local one, because it always originates from
+/// bidi resolution and re-declaring it would invite the two to drift.
+pub const Direction = bidi.Direction;
+
+/// The resolved bidi embedding level of a text run.
+pub const Level = bidi.Level;
 pub const RunIterator = run.RunIterator;
 pub const Feature = feature.Feature;
 pub const FeatureList = feature.FeatureList;
@@ -96,6 +105,10 @@ pub const RunOptions = struct {
 test {
     _ = Cache;
     _ = Shaper;
+
+    // The run iterator had no tests before, so nothing referenced it here
+    // and its test block was never collected.
+    _ = run;
 
     // Always test noop
     _ = noop;
