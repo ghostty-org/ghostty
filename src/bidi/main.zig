@@ -33,6 +33,7 @@ const build_config = @import("../build_config.zig");
 
 pub const noop = @import("noop.zig");
 pub const types = @import("types.zig");
+pub const zig = @import("zig.zig");
 
 pub const Backend = @import("backend.zig").Backend;
 pub const Direction = types.Direction;
@@ -63,15 +64,18 @@ pub const options: struct {
 /// next `resolve` call.
 pub const Resolver = switch (options.backend) {
     .noop => noop.Resolver,
+    .zig => zig.Resolver,
 };
 
 test {
     _ = types;
-    _ = noop;
 
-    // Always test the noop backend regardless of what we're built with,
-    // the same way `src/font/shape.zig` always tests its noop shaper.
-    _ = noop.Resolver;
+    // Always test every backend regardless of what we're built with, the
+    // same way `src/font/shape.zig` always tests its noop shaper. The
+    // conformance suite in particular must run on every build.
+    _ = noop;
+    _ = zig;
+    _ = @import("conformance_test.zig");
 }
 
 test "Resolver: round trips through the selected backend" {

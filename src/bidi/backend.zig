@@ -17,6 +17,11 @@ pub const Backend = enum {
     /// bidi implementation and costs a single branch per resolve call.
     noop,
 
+    /// The native Zig implementation of UAX #9 in `zig.zig`. No third
+    /// party library is involved, so there is no licensing question and
+    /// nothing extra to cross-compile.
+    zig,
+
     pub fn default(target: std.Target) Backend {
         _ = target;
 
