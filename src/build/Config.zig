@@ -6,6 +6,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const ApprtRuntime = @import("../apprt/runtime.zig").Runtime;
+const BidiBackend = @import("../bidi/backend.zig").Backend;
 const FontBackend = @import("../font/backend.zig").Backend;
 const RendererBackend = @import("../renderer/backend.zig").Backend;
 const TerminalBuildOptions = @import("../terminal/build_options.zig").Options;
@@ -26,6 +27,7 @@ wasm_target: WasmTarget,
 app_runtime: ApprtRuntime = .none,
 renderer: RendererBackend = .opengl,
 font_backend: FontBackend = .freetype,
+bidi_backend: BidiBackend = .noop,
 
 /// Feature flags
 x11: bool = false,
@@ -163,6 +165,12 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         "renderer",
         "The app runtime to use. Not all values supported on all platforms.",
     ) orelse RendererBackend.default(target.result, wasm_target);
+
+    config.bidi_backend = b.option(
+        BidiBackend,
+        "bidi-backend",
+        "The Unicode bidirectional algorithm implementation to use.",
+    ) orelse BidiBackend.default(target.result);
 
     //---------------------------------------------------------------
     // Feature Flags
@@ -571,6 +579,7 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     step.addOption(ApprtRuntime, "app_runtime", self.app_runtime);
     step.addOption(FontBackend, "font_backend", self.font_backend);
     step.addOption(RendererBackend, "renderer", self.renderer);
+    step.addOption(BidiBackend, "bidi_backend", self.bidi_backend);
     step.addOption(ExeEntrypoint, "exe_entrypoint", self.exe_entrypoint);
     step.addOption(WasmTarget, "wasm_target", self.wasm_target);
     step.addOption(bool, "wasm_shared", self.wasm_shared);
@@ -661,6 +670,7 @@ pub fn fromOptions() Config {
         .app_runtime = std.meta.stringToEnum(ApprtRuntime, @tagName(options.app_runtime)).?,
         .font_backend = std.meta.stringToEnum(FontBackend, @tagName(options.font_backend)).?,
         .renderer = std.meta.stringToEnum(RendererBackend, @tagName(options.renderer)).?,
+        .bidi_backend = std.meta.stringToEnum(BidiBackend, @tagName(options.bidi_backend)).?,
         .snap = options.snap,
         .exe_entrypoint = std.meta.stringToEnum(ExeEntrypoint, @tagName(options.exe_entrypoint)).?,
         .wasm_target = std.meta.stringToEnum(WasmTarget, @tagName(options.wasm_target)).?,
