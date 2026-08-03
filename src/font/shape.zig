@@ -66,6 +66,57 @@ pub const Cell = struct {
     glyph_index: u32,
 };
 
+/// Build the logical-to-visual cell offset map for a right-to-left run.
+///
+/// Rule L2 of UAX #9 reverses a right-to-left run's cells, so the
+/// logically first cell is displayed rightmost. `Cell.x` is a visual
+/// offset relative to the run, so it needs that reversal applied.
+///
+/// Cells are not all one column wide, which is what makes this more than
+/// a subtraction. A cell occupying logical columns [c, c+w) must occupy
+/// visual columns [cells-c-w, cells-c), so the visual offset of a cell is
+/// `cells - c - w` rather than `cells - 1 - c`. Widths are recovered from
+/// the gaps between consecutive cluster values, since the run iterator
+/// skips spacer cells and therefore leaves a gap of exactly the cell's
+/// width.
+///
+/// `entries` is the shaper's record of the codepoints it fed the shaping
+/// engine, in logical order, each with a `.cluster` field giving its
+/// logical cell offset within the run. It lives here rather than in a
+/// shaper because the arithmetic is about terminal cells, not about
+/// HarfBuzz or CoreText, and both backends need exactly the same answer.
+pub fn buildVisualMap(
+    alloc: std.mem.Allocator,
+    out: *std.ArrayList(u16),
+    entries: anytype,
+    cells: u16,
+) std.mem.Allocator.Error!void {
+    out.clearRetainingCapacity();
+    try out.resize(alloc, cells);
+    @memset(out.items, 0);
+
+    // Cluster values are non-decreasing and equal for the codepoints of
+    // one grapheme, because they are assigned in logical cell order.
+    var i: usize = 0;
+    while (i < entries.len) {
+        const cluster = entries[i].cluster;
+
+        var j = i + 1;
+        while (j < entries.len and entries[j].cluster == cluster) j += 1;
+
+        const next: u32 = if (j < entries.len) entries[j].cluster else cells;
+        const width = next - cluster;
+
+        // A run always covers the cells its clusters address, so this
+        // cannot underflow unless the run and the shaping buffer
+        // disagree about the run's extent.
+        std.debug.assert(cluster + width <= cells);
+        out.items[@intCast(cluster)] = @intCast(cells - cluster - width);
+
+        i = j;
+    }
+}
+
 /// Options for shapers.
 pub const Options = struct {
     /// Font features to use when shaping.

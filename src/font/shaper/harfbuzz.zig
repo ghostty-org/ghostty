@@ -182,7 +182,12 @@ pub const Shaper = struct {
 
         // For a right-to-left run we need to know where each logical cell
         // lands visually, because `Cell.x` is a visual offset.
-        if (rtl) try self.buildVisualMap(run);
+        if (rtl) try font.shape.buildVisualMap(
+            self.alloc,
+            &self.visual_map,
+            self.codepoints.items,
+            run.cells,
+        );
 
         // This keeps track of the current x and y offsets (sum of advances)
         // and the furthest cluster we've seen so far in the direction the
@@ -319,50 +324,6 @@ pub const Shaper = struct {
         //log.warn("----------------", .{});
 
         return self.cell_buf.items;
-    }
-
-    /// Build the logical-to-visual cell offset map for a right-to-left run.
-    ///
-    /// Rule L2 of UAX #9 reverses a right-to-left run's cells, so the
-    /// logically first cell is displayed rightmost. `Cell.x` is a visual
-    /// offset relative to the run, so it needs that reversal applied.
-    ///
-    /// Cells are not all one column wide, which is what makes this more
-    /// than a subtraction. A cell occupying logical columns [c, c+w) must
-    /// occupy visual columns [cells-c-w, cells-c), so the visual offset of
-    /// a cell is `cells - c - w` rather than `cells - 1 - c`. Widths are
-    /// recovered from the gaps between consecutive cluster values, since
-    /// the run iterator skips spacer cells and therefore leaves a gap of
-    /// exactly the cell's width.
-    fn buildVisualMap(
-        self: *Shaper,
-        run: font.shape.TextRun,
-    ) Allocator.Error!void {
-        self.visual_map.clearRetainingCapacity();
-        try self.visual_map.resize(self.alloc, run.cells);
-        @memset(self.visual_map.items, 0);
-
-        // Codepoints are in logical order, so cluster values here are
-        // non-decreasing and equal for the codepoints of one grapheme.
-        const cps = self.codepoints.items;
-        var i: usize = 0;
-        while (i < cps.len) {
-            const cluster = cps[i].cluster;
-
-            var j = i + 1;
-            while (j < cps.len and cps[j].cluster == cluster) j += 1;
-
-            const next: u32 = if (j < cps.len) cps[j].cluster else run.cells;
-            const width = next - cluster;
-
-            // A run always covers the cells its clusters address, so this
-            // cannot underflow unless the run and the buffer disagree.
-            assert(cluster + width <= run.cells);
-            self.visual_map.items[@intCast(cluster)] =
-                @intCast(run.cells - cluster - width);
-
-            i = j;
-        }
     }
 
     /// The hooks for RunIterator.

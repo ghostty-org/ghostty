@@ -52,10 +52,17 @@ pub const Shaper = struct {
     /// The shared memory used for shaping results.
     cell_buf: CellBuf,
 
-    /// Cached attributes dict for creating CTTypesetter objects.
-    /// The values in this never change so we can avoid overhead
-    /// by just creating it once and saving it for reuse.
-    typesetter_attr_dict: *macos.foundation.Dictionary,
+    /// Cached attribute dicts for creating CTTypesetter objects, one per
+    /// direction. The values never change so they are created once and
+    /// reused. Indexed by `@intFromEnum(font.shape.Direction)`, which
+    /// lines up with the embedding level each one forces: zero for
+    /// left-to-right, one for right-to-left.
+    typesetter_attr_dicts: [2]*macos.foundation.Dictionary,
+
+    /// For a right-to-left run, maps a logical cell offset within the run
+    /// to its visual cell offset. Empty for left-to-right runs, where the
+    /// two are the same. Rebuilt per shape call.
+    visual_map: std.ArrayList(u16) = .empty,
 
     /// List where we cache fonts, so we don't have to remake them for
     /// every single shaping operation.
@@ -173,34 +180,52 @@ pub const Shaper = struct {
         var run_state = RunState.init();
         errdefer run_state.deinit(alloc);
 
-        // For now we only support LTR text. If we shape RTL text then
-        // rendering will be very wrong so we need to explicitly force
-        // LTR no matter what.
+        // We tell CoreText the embedding level explicitly rather than
+        // letting it decide, and we do it through the typesetter rather
+        // than through the attributed string.
         //
         // See: https://github.com/mitchellh/ghostty/issues/1737
         // See: https://github.com/mitchellh/ghostty/issues/1442
         //
-        // We used to do this by setting the writing direction attribute
-        // on the attributed string we used, but it seems like that will
-        // still allow some weird results, for example a single space at
-        // the end of a line composed of RTL characters will be cause it
-        // to output a run containing just that space, BEFORE it outputs
-        // the rest of the line as a separate run, very weirdly with the
-        // "right to left" flag set in the single space run's run status...
+        // We used to set the writing direction attribute on the
+        // attributed string, but that still allowed some weird results,
+        // for example a single space at the end of a line composed of RTL
+        // characters would cause it to output a run containing just that
+        // space, BEFORE it output the rest of the line as a separate run,
+        // very weirdly with the "right to left" flag set in the single
+        // space run's run status...
         //
         // So instead what we do is use a CTTypesetter to create our line,
         // using the kCTTypesetterOptionForcedEmbeddingLevel attribute to
-        // force CoreText not to try doing any sort of BiDi, instead just
-        // treat all text as embedding level 0 (left to right).
-        const typesetter_attr_dict = dict: {
-            const num = try macos.foundation.Number.create(.int, &0);
+        // tell CoreText the embedding level rather than letting it run
+        // its own bidi over the text.
+        //
+        // Ghostty resolves bidi itself and a run never spans a change of
+        // direction, so the level for a whole run is known up front. We
+        // build one dict per direction here and pick between them per run
+        // in `shape`, since creating a dict per shaping call would put a
+        // CoreFoundation allocation in the hot path.
+        const ltr_attr_dict = dict: {
+            const level: c_int = 0;
+            const num = try macos.foundation.Number.create(.int, &level);
             defer num.release();
             break :dict try macos.foundation.Dictionary.create(
                 &.{macos.c.kCTTypesetterOptionForcedEmbeddingLevel},
                 &.{num},
             );
         };
-        errdefer typesetter_attr_dict.release();
+        errdefer ltr_attr_dict.release();
+
+        const rtl_attr_dict = dict: {
+            const level: c_int = 1;
+            const num = try macos.foundation.Number.create(.int, &level);
+            defer num.release();
+            break :dict try macos.foundation.Dictionary.create(
+                &.{macos.c.kCTTypesetterOptionForcedEmbeddingLevel},
+                &.{num},
+            );
+        };
+        errdefer rtl_attr_dict.release();
 
         // Create the CF release thread.
         var cf_release_thread = try alloc.create(CFReleaseThread);
@@ -222,7 +247,7 @@ pub const Shaper = struct {
             .run_state = run_state,
             .features = features,
             .features_no_default = features_no_default,
-            .typesetter_attr_dict = typesetter_attr_dict,
+            .typesetter_attr_dicts = .{ ltr_attr_dict, rtl_attr_dict },
             .cached_fonts = .empty,
             .cached_font_grid = 0,
             .cf_release_pool = .empty,
@@ -236,7 +261,8 @@ pub const Shaper = struct {
         self.run_state.deinit(self.alloc);
         self.features.release();
         self.features_no_default.release();
-        self.typesetter_attr_dict.release();
+        for (self.typesetter_attr_dicts) |d| d.release();
+        self.visual_map.deinit(self.alloc);
 
         {
             for (self.cached_fonts.items) |ft| {
@@ -318,6 +344,16 @@ pub const Shaper = struct {
         run: font.shape.TextRun,
     ) ![]const font.shape.Cell {
         const state = &self.run_state;
+        const rtl = run.direction == .rtl;
+
+        // For a right-to-left run we need to know where each logical cell
+        // lands visually, because `Cell.x` is a visual offset.
+        if (rtl) try font.shape.buildVisualMap(
+            self.alloc,
+            &self.visual_map,
+            state.codepoints.items,
+            run.cells,
+        );
 
         // {
         //     log.debug("shape -----------------------------------", .{});
@@ -376,7 +412,7 @@ pub const Shaper = struct {
         const typesetter =
             try macos.text.Typesetter.createWithAttributedStringAndOptions(
                 attr_str,
-                self.typesetter_attr_dict,
+                self.typesetter_attr_dicts[@intFromEnum(run.direction)],
             );
         self.cf_release_pool.appendAssumeCapacity(typesetter);
 
@@ -384,9 +420,14 @@ pub const Shaper = struct {
         const line = typesetter.createLine(.{ .location = 0, .length = 0 });
         self.cf_release_pool.appendAssumeCapacity(line);
 
-        // This keeps track of the current x offset (sum of advance.width) and
-        // the furthest cluster we've seen so far (max).
-        var run_offset: Offset = .{};
+        // This keeps track of the current x offset (sum of advance.width)
+        // and the furthest cluster we've seen so far in the order glyphs
+        // are emitted: the largest for a left-to-right run, the smallest
+        // for a right-to-left one, since CoreText emits glyphs in visual
+        // order and RTL clusters therefore descend.
+        var run_offset: Offset = .{
+            .cluster = if (rtl) std.math.maxInt(u32) else 0,
+        };
 
         // This keeps track of the cell starting x and cluster.
         var cell_offset: Offset = .{};
@@ -417,7 +458,14 @@ pub const Shaper = struct {
             const ctrun = runs.getValueAtIndex(macos.text.Run, run_i);
 
             const status = ctrun.getStatus();
-            if (status.non_monotonic or status.right_to_left) non_ltr = true;
+
+            // A right-to-left run status is expected when we asked for a
+            // right-to-left embedding level, so on its own it is not a
+            // reason to sort. What we are guarding against is CoreText
+            // disagreeing with the direction we forced, or producing
+            // non-monotonic output within a run.
+            if (status.non_monotonic) non_ltr = true;
+            if (status.right_to_left != rtl) non_ltr = true;
 
             // Get our glyphs and positions
             const glyphs = ctrun.getGlyphsPtr() orelse try ctrun.getGlyphs(alloc);
@@ -443,10 +491,33 @@ pub const Shaper = struct {
                     // See e.g. the "shape Chakma vowel sign with ligature
                     // (vowel sign renders first)" test.
 
-                    const is_after_glyph_from_current_or_next_clusters =
+                    // Clusters ascend for a left-to-right run and descend
+                    // for a right-to-left one, so the comparison that
+                    // detects out-of-order arrival flips with direction.
+                    const is_after_glyph_from_current_or_next_clusters = if (rtl)
+                        cluster >= run_offset.cluster
+                    else
                         cluster <= run_offset.cluster;
 
+                    // Whether this is the first codepoint of its cluster
+                    // in the order glyphs are emitted. Laying out at a
+                    // right-to-left embedding level reverses the order
+                    // within a cluster too, so the search runs forward
+                    // through the logically ordered codepoints rather
+                    // than backward.
                     const is_first_codepoint_in_cluster = blk: {
+                        if (rtl) {
+                            var i = index + 1;
+                            while (i < state.codepoints.items.len) : (i += 1) {
+                                const codepoint = state.codepoints.items[i];
+
+                                // Skip surrogate pair padding
+                                if (codepoint.codepoint == 0) continue;
+                                break :blk codepoint.cluster != cluster;
+                            }
+                            break :blk true;
+                        }
+
                         var i = index;
                         while (i > 0) {
                             i -= 1;
@@ -505,7 +576,15 @@ pub const Shaper = struct {
                 const x_offset = position.x - cell_offset.x;
 
                 self.cell_buf.appendAssumeCapacity(.{
-                    .x = @intCast(cell_offset.cluster),
+                    // `Cell.x` is a visual offset within the run, because
+                    // the renderer walks visual columns and requires it
+                    // to ascend. For a left-to-right run the logical
+                    // cluster already is that offset; for a right-to-left
+                    // one it has to be mapped.
+                    .x = if (rtl)
+                        self.visual_map.items[@intCast(cell_offset.cluster)]
+                    else
+                        @intCast(cell_offset.cluster),
                     .x_offset = @intFromFloat(@round(x_offset)),
                     .y_offset = @intFromFloat(@round(position.y)),
                     .glyph_index = glyph,
@@ -514,7 +593,10 @@ pub const Shaper = struct {
                 // Add our advances to keep track of our run offsets.
                 // Advances apply to the NEXT cell.
                 run_offset.x += advance.width;
-                run_offset.cluster = @max(run_offset.cluster, cluster);
+                run_offset.cluster = if (rtl)
+                    @min(run_offset.cluster, cluster)
+                else
+                    @max(run_offset.cluster, cluster);
 
                 // For debugging positions, turn this on:
                 //run_offset_y += advance.height;
