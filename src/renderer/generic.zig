@@ -2667,17 +2667,28 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             //
             // This is comptime-gated on the backend so that the default
             // build, which does no reordering, does not pay for a row
-            // hash it would never use.
+            // hash it would never use. With the noop backend the maps
+            // stay empty and the run iterator walks logical order, which
+            // is exactly what it did before bidi existed.
+            //
+            // Note the cursor and selection columns passed below are
+            // still logical. Converting them to visual columns is a
+            // separate change; until then a build with reordering
+            // enabled will place the cursor and selection edges wrongly
+            // on rows that reorder.
+            var row_bidi: rendererbidi.RowBidi =
+                .identityFor(@intCast(cells_len), &.{});
             if (comptime bidipkg.options.backend != .noop) {
-                _ = self.bidi_cache.resolve(
+                row_bidi = self.bidi_cache.resolve(
                     self.alloc,
                     cells_slice,
                     @intCast(cells_len),
-                ) catch |err| {
+                ) catch |err| bidi: {
                     log.warn(
                         "error resolving bidi row y={} err={}",
                         .{ y, err },
                     );
+                    break :bidi .identityFor(@intCast(cells_len), &.{});
                 };
             }
 
@@ -2689,6 +2700,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .one(.{ .start = s[0], .end = s[1] })
                 else
                     .empty,
+
+                // Empty for a row that needs no reordering, which makes
+                // the run iterator walk logical columns.
+                .v2l = row_bidi.v2l,
+                .levels = row_bidi.levels,
 
                 // We want to do font shaping as long as the cursor is
                 // visible on this viewport.

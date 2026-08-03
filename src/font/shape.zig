@@ -194,6 +194,22 @@ pub const RunOptions = struct {
     /// The selected column ranges in this row. See `SelectionSegments`.
     selection: SelectionSegments = .empty,
 
+    /// Visual column to logical column for this row.
+    ///
+    /// Empty means visual order equals logical order, which is the case
+    /// whenever bidi is disabled and for any row with no right-to-left
+    /// content. The run iterator then reduces exactly to walking logical
+    /// columns, which is what it did before bidi existed.
+    ///
+    /// These are plain slices rather than the renderer's `RowBidi` so
+    /// that the font package does not depend on the renderer. The caller
+    /// fills them from whatever it resolved.
+    v2l: []const u16 = &.{},
+
+    /// Resolved embedding level per logical column. Empty means every
+    /// column is at level zero.
+    levels: []const Level = &.{},
+
     /// The cursor position within this row. This is used to break shaping
     /// on cursor boundaries. This can be disabled by setting this to
     /// null.

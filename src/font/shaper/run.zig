@@ -112,17 +112,58 @@ pub const RunIterator = struct {
     /// to decide whether a character is displayed mirrored.
     level: shape.Level = 0,
 
+    /// Cells accepted into a right-to-left run, in the visual order they
+    /// were walked. See the note on emission order in `next`.
+    rtl_buf: [rtl_max]RtlCell = undefined,
+    rtl_len: usize = 0,
+
+    /// A right-to-left run longer than this is split. Runs already break
+    /// on style, font, cursor and selection boundaries, so reaching this
+    /// takes a very long stretch of uniform right-to-left text, and
+    /// splitting it is harmless. The bound exists so that the iterator
+    /// needs no owned allocation: it is created per row per frame and
+    /// never deinitialized.
+    const rtl_max = 256;
+
+    const RtlCell = struct {
+        /// Logical column of the cell.
+        col: u16,
+
+        /// A single codepoint to emit in place of the cell's own
+        /// contents, for a font fallback or a Kitty placeholder.
+        fallback: ?u32,
+    };
+
+    /// The logical column displayed at visual column `v`.
+    inline fn logicalCol(self: *const RunIterator, v: usize) usize {
+        const map = self.opts.v2l;
+        return if (map.len == 0) v else map[v];
+    }
+
+    /// The resolved embedding level of logical column `l`.
+    inline fn levelAt(self: *const RunIterator, l: usize) shape.Level {
+        const levels = self.opts.levels;
+        return if (levels.len == 0) 0 else levels[l];
+    }
+
     pub fn next(self: *RunIterator, alloc: Allocator) !?TextRun {
         const slice = &self.opts.cells;
         const cells: []const terminal.page.Cell = slice.items(.raw);
         const graphemes: []const []const u21 = slice.items(.grapheme);
         const styles: []const terminal.Style = slice.items(.style);
 
-        // Trim the right side of a row that might be empty
+        // The iterator walks VISUAL columns. Without a bidi map that is
+        // the same thing as walking logical columns, so everything below
+        // reduces exactly to what it did before bidi existed.
+        const cols: usize = if (self.opts.v2l.len > 0) self.opts.v2l.len else cells.len;
+
+        // Trim the right side of a row that might be empty. "Right" is
+        // visual, so an empty logical cell that was reordered into the
+        // middle of the row is not trimmed.
         const max: usize = max: {
-            for (0..cells.len) |i| {
-                const rev_i = cells.len - i - 1;
-                if (!cells[rev_i].isEmpty()) break :max rev_i + 1;
+            for (0..cols) |i| {
+                const rev_i = cols - i - 1;
+                if (!cells[self.logicalCol(rev_i)].isEmpty()) break :max rev_i + 1;
             }
 
             break :max 0;
@@ -130,21 +171,31 @@ pub const RunIterator = struct {
 
         // Invisible cells don't have any glyphs rendered,
         // so we explicitly skip them in the shaping process.
-        while (self.i < max and
-            (cells[self.i].hasStyling() and
-                styles[self.i].flags.invisible)) self.i += 1;
+        while (self.i < max) : (self.i += 1) {
+            const l = self.logicalCol(self.i);
+            if (!(cells[l].hasStyling() and styles[l].flags.invisible)) break;
+        }
 
         // We're over at the max
         if (self.i >= max) return null;
 
-        // Runs are always left-to-right at level zero for now. Bidi
-        // resolution is not yet wired into the run iterator, so this is
-        // the only direction any run can have. It is decided here rather
-        // than at the end because the codepoints emitted below depend on
-        // it: rule L4 mirrors certain characters at odd levels.
-        const direction: shape.Direction = .ltr;
-        const level: shape.Level = 0;
+        // The run takes the embedding level of its first cell and breaks
+        // when the level changes, which is what makes a run shapeable as
+        // one direction. It is decided here rather than at the end
+        // because the codepoints emitted below depend on it: rule L4
+        // mirrors certain characters at odd levels.
+        const start_logical = self.logicalCol(self.i);
+        const level: shape.Level = self.levelAt(start_logical);
+        const direction: shape.Direction = if (level & 1 == 0) .ltr else .rtl;
+        const rtl = direction == .rtl;
         self.level = level;
+        self.rtl_len = 0;
+
+        // The lowest logical column in the run, which cluster values are
+        // relative to. For a left-to-right run that is the first cell
+        // walked; for a right-to-left one the walk descends through
+        // logical columns, so it is only known once the run ends.
+        var logical_min: usize = start_logical;
 
         // Track the font for our current run
         var current_font: font.Collection.Index = .{};
@@ -156,20 +207,28 @@ pub const RunIterator = struct {
         var hasher = Hasher.init(0);
 
         // Let's get our style that we'll expect for the run.
-        const style: terminal.Style = if (cells[self.i].hasStyling()) styles[self.i] else .{};
+        const style: terminal.Style = if (cells[start_logical].hasStyling())
+            styles[start_logical]
+        else
+            .{};
 
         // Go through cell by cell and accumulate while we build our run.
+        // `v` is a visual column and `l` the logical column shown there.
         var j: usize = self.i;
         while (j < max) : (j += 1) {
-            // Use relative cluster positions (offset from run start) to make
-            // the shaping cache position-independent. This ensures that runs
-            // with identical content but different starting positions in the
-            // row produce the same hash, enabling cache reuse.
-            const cluster = j - self.i;
-            const cell: *const terminal.page.Cell = &cells[j];
+            const l = self.logicalCol(j);
+            const cell: *const terminal.page.Cell = &cells[l];
+
+            // Runs never span a change of embedding level. This is what
+            // keeps a run shapeable in one direction, and it is also
+            // what keeps runs maximal: everything else being equal, a
+            // stretch of one level stays one run, so Arabic keeps its
+            // cursive joining instead of being split per cell.
+            if (j > self.i and self.levelAt(l) != level) break;
 
             // If we're at a selection boundary then we break the run
-            // here, so that a run is never partly selected.
+            // here, so that a run is never partly selected. Selection
+            // segments are visual, so this compares against `v`.
             if (j > self.i and
                 self.opts.selection.isBoundary(@intCast(j))) break;
 
@@ -182,8 +241,14 @@ pub const RunIterator = struct {
             // If our cell attributes are changing, then we split the run.
             // This prevents a single glyph for ">=" to be rendered with
             // one color when the two components have different styling.
+            //
+            // The comparison is against the previous VISUAL cell. Rule L2
+            // reverses maximal ranges of equal level, so within a run the
+            // visual neighbour is also the logical neighbour, just on the
+            // other side for a right-to-left run. Either way it is the
+            // cell the glyphs would be shaped next to.
             if (j > self.i) style: {
-                const prev_cell = cells[j - 1];
+                const prev_cell = cells[self.logicalCol(j - 1)];
 
                 // If the prev cell and this cell are both plain
                 // codepoints then we check if they are commonly "bad"
@@ -215,7 +280,7 @@ pub const RunIterator = struct {
                 // The style is different. We allow differing background
                 // styles but any other change results in a new run.
                 const c1 = comparableStyle(style);
-                const c2 = comparableStyle(if (cell.hasStyling()) styles[j] else .{});
+                const c2 = comparableStyle(if (cell.hasStyling()) styles[l] else .{});
                 if (!c1.eql(c2)) break;
             }
 
@@ -235,7 +300,7 @@ pub const RunIterator = struct {
             const presentation: ?font.Presentation = if (cell.hasGrapheme()) p: {
                 // We only check the FIRST codepoint because I believe the
                 // presentation format must be directly adjacent to the codepoint.
-                const cps = graphemes[j];
+                const cps = graphemes[l];
                 assert(cps.len > 0);
                 if (cps[0] == 0xFE0E) break :p .text;
                 if (cps[0] == 0xFE0F) break :p .emoji;
@@ -294,7 +359,7 @@ pub const RunIterator = struct {
                 if (try self.indexForCell(
                     alloc,
                     cell,
-                    graphemes[j],
+                    graphemes[l],
                     font_style,
                     presentation,
                 )) |idx| break :font_info .{ .idx = idx };
@@ -327,31 +392,50 @@ pub const RunIterator = struct {
             // If our fonts are not equal, then we're done with our run.
             if (font_info.idx != current_font) break;
 
-            // If we're a fallback character, add that and continue; we
-            // don't want to add the entire grapheme.
-            if (font_info.fallback) |cp| {
-                try self.addCodepoint(&hasher, cp, @intCast(cluster));
-                continue;
-            }
-
-            // If we're a Kitty unicode placeholder then we add a blank.
-            if (cell.codepoint() == terminal.kitty.graphics.unicode.placeholder) {
-                try self.addCodepoint(&hasher, ' ', @intCast(cluster));
-                continue;
-            }
-
-            // Add all the codepoints for our grapheme
-            try self.addCodepoint(
-                &hasher,
-                if (cell.codepoint() == 0) ' ' else cell.codepoint(),
-                @intCast(cluster),
-            );
-            if (cell.hasGrapheme()) {
-                for (graphemes[j]) |cp| {
-                    // Do not send presentation modifiers
-                    if (cp == 0xFE0E or cp == 0xFE0F) continue;
-                    try self.addCodepoint(&hasher, cp, @intCast(cluster));
+            // A Kitty unicode placeholder is shaped as a blank.
+            const fallback: ?u32 = font_info.fallback orelse blank: {
+                if (cell.codepoint() == terminal.kitty.graphics.unicode.placeholder) {
+                    break :blank ' ';
                 }
+                break :blank null;
+            };
+
+            // A right-to-left run is walked in visual order but has to be
+            // handed to the shaper in logical order: shaping engines
+            // decide Arabic joining from logical neighbours and reverse
+            // the glyphs themselves. So its cells are collected here and
+            // emitted after the run ends, in reverse. A left-to-right run
+            // is already in logical order and is emitted as it is walked,
+            // which is exactly what happened before bidi existed.
+            if (rtl) {
+                if (self.rtl_len >= rtl_max) break;
+                self.rtl_buf[self.rtl_len] = .{
+                    .col = @intCast(l),
+                    .fallback = fallback,
+                };
+                self.rtl_len += 1;
+                logical_min = @min(logical_min, l);
+                continue;
+            }
+
+            try self.emitCell(&hasher, cells, graphemes, l, l - logical_min, fallback);
+        }
+
+        // Emit a right-to-left run's cells in logical order, which is the
+        // reverse of the visual order they were collected in.
+        if (rtl) {
+            var k: usize = self.rtl_len;
+            while (k > 0) {
+                k -= 1;
+                const entry = self.rtl_buf[k];
+                try self.emitCell(
+                    &hasher,
+                    cells,
+                    graphemes,
+                    entry.col,
+                    entry.col - logical_min,
+                    entry.fallback,
+                );
             }
         }
 
@@ -376,6 +460,39 @@ pub const RunIterator = struct {
             .direction = direction,
             .level = level,
         };
+    }
+
+    /// Emit the codepoints for one cell at the given cluster.
+    fn emitCell(
+        self: *RunIterator,
+        hasher: anytype,
+        cells: []const terminal.page.Cell,
+        graphemes: []const []const u21,
+        l: usize,
+        cluster: usize,
+        fallback: ?u32,
+    ) !void {
+        // A fallback replaces the cell's contents entirely; we don't want
+        // to add the rest of the grapheme behind it.
+        if (fallback) |cp| {
+            try self.addCodepoint(hasher, cp, @intCast(cluster));
+            return;
+        }
+
+        const cell = cells[l];
+        try self.addCodepoint(
+            hasher,
+            if (cell.codepoint() == 0) ' ' else cell.codepoint(),
+            @intCast(cluster),
+        );
+
+        if (cell.hasGrapheme()) {
+            for (graphemes[l]) |cp| {
+                // Do not send presentation modifiers
+                if (cp == 0xFE0E or cp == 0xFE0F) continue;
+                try self.addCodepoint(hasher, cp, @intCast(cluster));
+            }
+        }
     }
 
     fn addCodepoint(self: *RunIterator, hasher: anytype, cp: u32, cluster: u32) !void {

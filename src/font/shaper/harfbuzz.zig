@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const harfbuzz = @import("harfbuzz");
 const font = @import("../main.zig");
 const terminal = @import("../../terminal/main.zig");
+const bidi = @import("../../bidi/main.zig");
 const unicode = @import("../../unicode/main.zig");
 const Feature = font.shape.Feature;
 const FeatureList = font.shape.FeatureList;
@@ -2733,5 +2734,290 @@ test "shape: mirroring never reaches the screen" {
     const raw = row.items(.raw);
     for (str, 0..) |want, i| {
         try testing.expectEqual(@as(u21, want), raw[i].codepoint());
+    }
+}
+
+test "run: identity bidi map produces byte-identical runs" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var testdata = try testShaper(alloc);
+    defer testdata.deinit();
+
+    // The acceptance gate for visual-order iteration. Walking visual
+    // columns through an identity map has to produce exactly what
+    // walking logical columns produced, run for run and field for
+    // field. Equal test counts are not enough: this compares the runs
+    // themselves, including the hash the shaper cache keys on.
+    inline for (.{
+        "hello world",
+        "abc def ghi jkl mno pqr",
+        "a\u{4E00}b\u{4E8C}c",
+        "\u{1F44D}\u{1F44D} ok",
+        "f\u{FE0F}i fl st >= != ->",
+        "",
+        " ",
+        "                    ",
+    }) |str| {
+        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 32, .rows = 3 });
+        defer t.deinit(alloc);
+
+        var s = t.vtStream();
+        defer s.deinit();
+        s.nextSlice(str);
+
+        var state: terminal.RenderState = .empty;
+        defer state.deinit(alloc);
+        try state.update(alloc, &t);
+
+        const cells = state.row_data.get(0).cells.slice();
+
+        // An identity map: every visual column shows the logical column
+        // of the same index, and every level is zero.
+        var v2l: [32]u16 = undefined;
+        for (&v2l, 0..) |*v, i| v.* = @intCast(i);
+        const levels: [32]bidi.Level = @splat(0);
+
+        var shaper = &testdata.shaper;
+
+        // Collect the runs produced without any map.
+        var plain: [64]font.shape.TextRun = undefined;
+        var plain_len: usize = 0;
+        {
+            var it = shaper.runIterator(.{ .grid = testdata.grid, .cells = cells });
+            while (try it.next(alloc)) |run| {
+                plain[plain_len] = run;
+                plain_len += 1;
+            }
+        }
+
+        // And with the identity map, which takes the mapped code path.
+        var mapped: [64]font.shape.TextRun = undefined;
+        var mapped_len: usize = 0;
+        {
+            var it = shaper.runIterator(.{
+                .grid = testdata.grid,
+                .cells = cells,
+                .v2l = &v2l,
+                .levels = &levels,
+            });
+            while (try it.next(alloc)) |run| {
+                mapped[mapped_len] = run;
+                mapped_len += 1;
+            }
+        }
+
+        try testing.expectEqual(plain_len, mapped_len);
+        for (plain[0..plain_len], mapped[0..mapped_len]) |a, b| {
+            try testing.expectEqual(a.hash, b.hash);
+            try testing.expectEqual(a.offset, b.offset);
+            try testing.expectEqual(a.cells, b.cells);
+            try testing.expectEqual(a.direction, b.direction);
+            try testing.expectEqual(a.level, b.level);
+            try testing.expectEqual(a.font_index, b.font_index);
+        }
+    }
+}
+
+test "run: breaks on level change and keeps rtl runs maximal" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 6, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Three Latin letters then three Arabic ones. In a left-to-right
+    // paragraph the Arabic resolves to level 1 and is displayed
+    // reversed, so the visual order is a b c and then the Arabic
+    // backwards.
+    s.nextSlice("abc\u{0628}\u{0628}\u{0628}");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    const v2l = [_]u16{ 0, 1, 2, 5, 4, 3 };
+    const levels = [_]bidi.Level{ 0, 0, 0, 1, 1, 1 };
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+        .v2l = &v2l,
+        .levels = &levels,
+    });
+
+    var runs: [8]font.shape.TextRun = undefined;
+    var len: usize = 0;
+    while (try it.next(alloc)) |run| {
+        runs[len] = run;
+        len += 1;
+    }
+
+    // The level change forces a break, so the row is at least two runs,
+    // and every run is at one level.
+    try testing.expect(len >= 2);
+
+    // Runs are emitted in visual order and tile the row without gaps.
+    var expect_offset: u16 = 0;
+    for (runs[0..len]) |run| {
+        try testing.expectEqual(expect_offset, run.offset);
+        expect_offset += run.cells;
+    }
+    try testing.expectEqual(@as(u16, 6), expect_offset);
+
+    // The Arabic is ONE run of three cells, not three runs of one. A run
+    // split per cell would pass every bidi test and still render Arabic
+    // unjoined, so this is the property worth pinning.
+    const last = runs[len - 1];
+    try testing.expectEqual(font.shape.Direction.rtl, last.direction);
+    try testing.expectEqual(@as(font.shape.Level, 1), last.level);
+    try testing.expectEqual(@as(u16, 3), last.cells);
+    try testing.expectEqual(@as(u16, 3), last.offset);
+
+    // And the first run is the left-to-right half.
+    try testing.expectEqual(font.shape.Direction.ltr, runs[0].direction);
+    try testing.expectEqual(@as(u16, 0), runs[0].offset);
+}
+
+test "run: rtl codepoints reach the shaper in logical order" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 3, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Beh, teh, meem: three different letters so their order is
+    // observable, unlike three of the same.
+    s.nextSlice("\u{0628}\u{062A}\u{0645}");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // A fully right-to-left row: visual order is the reverse of logical.
+    const v2l = [_]u16{ 2, 1, 0 };
+    const levels = [_]bidi.Level{ 1, 1, 1 };
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+        .v2l = &v2l,
+        .levels = &levels,
+    });
+
+    const run = (try it.next(alloc)).?;
+    try testing.expectEqual(font.shape.Direction.rtl, run.direction);
+    try testing.expectEqual(@as(u16, 3), run.cells);
+
+    // The run is walked in visual order but must be handed to HarfBuzz
+    // in logical order, because joining forms are decided from logical
+    // neighbours and HarfBuzz reverses the glyphs itself. Feeding it
+    // pre-reversed text produces the wrong contextual forms while still
+    // looking superficially plausible, so the order is asserted here
+    // rather than inferred from the rendered result.
+    const added = shaper.codepoints.items;
+    try testing.expectEqual(@as(usize, 3), added.len);
+    try testing.expectEqual(@as(u32, 0x0628), added[0].codepoint);
+    try testing.expectEqual(@as(u32, 0x062A), added[1].codepoint);
+    try testing.expectEqual(@as(u32, 0x0645), added[2].codepoint);
+
+    // Clusters are logical cell offsets within the run and ascend with
+    // the logical order.
+    try testing.expectEqual(@as(u32, 0), added[0].cluster);
+    try testing.expectEqual(@as(u32, 1), added[1].cluster);
+    try testing.expectEqual(@as(u32, 2), added[2].cluster);
+}
+
+test "run: clusters are relative to the run's logical start" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 6, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Latin then Arabic, in a right-to-left paragraph. Rule L2 reverses
+    // the whole row and then un-reverses the Latin, so the Arabic is
+    // displayed first and the Latin after it:
+    //
+    //   logical:  a  b  c  ب  ت  م      levels 2 2 2 1 1 1
+    //   visual:   م  ت  ب  a  b  c      v2l    5 4 3 0 1 2
+    //
+    // This is the arrangement where a run's visual offset and its lowest
+    // logical column differ, for both runs. Cluster values are offsets
+    // from the logical start, not from the visual one, and every other
+    // arrangement hides the difference because the two coincide.
+    s.nextSlice("abc\u{0628}\u{062A}\u{0645}");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    const v2l = [_]u16{ 5, 4, 3, 0, 1, 2 };
+    const levels = [_]bidi.Level{ 2, 2, 2, 1, 1, 1 };
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+        .v2l = &v2l,
+        .levels = &levels,
+    });
+
+    // First run: the Arabic, right-to-left, at visual 0 but logical 3.
+    {
+        const run = (try it.next(alloc)).?;
+        try testing.expectEqual(font.shape.Direction.rtl, run.direction);
+        try testing.expectEqual(@as(u16, 0), run.offset);
+        try testing.expectEqual(@as(u16, 3), run.cells);
+
+        // Logical order, with clusters counted from the run's logical
+        // start of 3 rather than from its visual offset of 0.
+        const added = shaper.codepoints.items;
+        try testing.expectEqual(@as(usize, 3), added.len);
+        try testing.expectEqual(@as(u32, 0x0628), added[0].codepoint);
+        try testing.expectEqual(@as(u32, 0), added[0].cluster);
+        try testing.expectEqual(@as(u32, 0x062A), added[1].codepoint);
+        try testing.expectEqual(@as(u32, 1), added[1].cluster);
+        try testing.expectEqual(@as(u32, 0x0645), added[2].codepoint);
+        try testing.expectEqual(@as(u32, 2), added[2].cluster);
+    }
+
+    // Second run: the Latin, left-to-right, at visual 3 but logical 0.
+    {
+        const run = (try it.next(alloc)).?;
+        try testing.expectEqual(font.shape.Direction.ltr, run.direction);
+        try testing.expectEqual(@as(u16, 3), run.offset);
+        try testing.expectEqual(@as(u16, 3), run.cells);
+
+        const added = shaper.codepoints.items;
+        try testing.expectEqual(@as(usize, 3), added.len);
+        try testing.expectEqual(@as(u32, 'a'), added[0].codepoint);
+        try testing.expectEqual(@as(u32, 0), added[0].cluster);
+        try testing.expectEqual(@as(u32, 'c'), added[2].codepoint);
+        try testing.expectEqual(@as(u32, 2), added[2].cluster);
     }
 }
