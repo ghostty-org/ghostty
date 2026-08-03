@@ -127,6 +127,61 @@ pub const Options = struct {
     features: []const []const u8 = &.{},
 };
 
+/// The selected column ranges within a single row, in visual columns.
+///
+/// A selection is stored logically and is always logically contiguous,
+/// but a logically contiguous range is not necessarily contiguous on
+/// screen: a selection that spans a change of direction appears as
+/// several separate stretches. So a row can carry more than one segment
+/// and the run iterator has to break at every segment edge, or a run
+/// would end up partly selected and be shaped and coloured as a unit.
+pub const SelectionSegments = struct {
+    pub const Segment = struct {
+        start: u16,
+        end: u16,
+    };
+
+    /// Almost every row has at most one segment. A row crossing several
+    /// direction changes can have a few; beyond this bound the extra
+    /// edges are dropped, which costs a missing run break rather than
+    /// correctness, and is not reachable by any realistic selection.
+    pub const max = 8;
+
+    buf: [max]Segment = undefined,
+    len: usize = 0,
+
+    pub const empty: SelectionSegments = .{};
+
+    /// A single segment, which is what a row without any direction
+    /// change always produces.
+    pub fn one(seg: Segment) SelectionSegments {
+        var self: SelectionSegments = .empty;
+        self.append(seg);
+        return self;
+    }
+
+    pub fn append(self: *SelectionSegments, seg: Segment) void {
+        if (self.len >= max) return;
+        self.buf[self.len] = seg;
+        self.len += 1;
+    }
+
+    pub fn slice(self: *const SelectionSegments) []const Segment {
+        return self.buf[0..self.len];
+    }
+
+    /// Whether column `x` is the first column of a run that must be
+    /// split off from the preceding one, because the selection starts or
+    /// ends there.
+    pub fn isBoundary(self: *const SelectionSegments, x: u16) bool {
+        for (self.slice()) |seg| {
+            if (seg.start > 0 and x == seg.start) return true;
+            if (seg.end > 0 and x == seg.end + 1) return true;
+        }
+        return false;
+    }
+};
+
 /// Options for runIterator.
 pub const RunOptions = struct {
     /// The font state for the terminal screen. This is mutable because
@@ -136,8 +191,8 @@ pub const RunOptions = struct {
     /// The cells for the row to shape.
     cells: std.MultiArrayList(terminal.RenderState.Cell).Slice = .empty,
 
-    /// The x boundaries of the selection in this row.
-    selection: ?[2]u16 = null,
+    /// The selected column ranges in this row. See `SelectionSegments`.
+    selection: SelectionSegments = .empty,
 
     /// The cursor position within this row. This is used to break shaping
     /// on cursor boundaries. This can be disabled by setting this to
@@ -152,6 +207,59 @@ pub const RunOptions = struct {
         if (!config.cursor) self.cursor_x = null;
     }
 };
+
+test "SelectionSegments: single segment matches the old behavior" {
+    const testing = std.testing;
+
+    // The bounds checks deliberately keep the original semantics,
+    // including treating a zero start or end as "no boundary here", so
+    // that a row with one selected range breaks runs exactly where it
+    // used to.
+    const one: SelectionSegments = .one(.{ .start = 2, .end = 5 });
+    try testing.expectEqual(@as(usize, 1), one.slice().len);
+    try testing.expect(one.isBoundary(2));
+    try testing.expect(one.isBoundary(6));
+    try testing.expect(!one.isBoundary(3));
+    try testing.expect(!one.isBoundary(5));
+    try testing.expect(!one.isBoundary(7));
+
+    // A selection starting at column zero has no left boundary to break
+    // on, because there is nothing before it in the row.
+    const from_zero: SelectionSegments = .one(.{ .start = 0, .end = 3 });
+    try testing.expect(!from_zero.isBoundary(0));
+    try testing.expect(from_zero.isBoundary(4));
+}
+
+test "SelectionSegments: several segments each break runs" {
+    const testing = std.testing;
+
+    // What a logically contiguous selection looks like once it has been
+    // mapped through a row that changes direction partway.
+    var segs: SelectionSegments = .empty;
+    segs.append(.{ .start = 1, .end = 2 });
+    segs.append(.{ .start = 6, .end = 8 });
+
+    try testing.expectEqual(@as(usize, 2), segs.slice().len);
+    for ([_]u16{ 1, 3, 6, 9 }) |x| try testing.expect(segs.isBoundary(x));
+    for ([_]u16{ 0, 2, 4, 5, 7, 8, 10 }) |x| try testing.expect(!segs.isBoundary(x));
+}
+
+test "SelectionSegments: empty never breaks, overflow is dropped" {
+    const testing = std.testing;
+
+    const none: SelectionSegments = .empty;
+    try testing.expectEqual(@as(usize, 0), none.slice().len);
+    for (0..16) |x| try testing.expect(!none.isBoundary(@intCast(x)));
+
+    // Past the bound the extra edges are dropped rather than corrupting
+    // memory. This costs a run break, not correctness, and no realistic
+    // selection reaches it.
+    var full: SelectionSegments = .empty;
+    for (0..SelectionSegments.max + 4) |i| {
+        full.append(.{ .start = @intCast(i * 2 + 1), .end = @intCast(i * 2 + 1) });
+    }
+    try testing.expectEqual(@as(usize, SelectionSegments.max), full.slice().len);
+}
 
 test {
     _ = Cache;

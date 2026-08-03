@@ -2685,7 +2685,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             var run_iter_opts: font.shape.RunOptions = .{
                 .grid = self.font_grid,
                 .cells = cells_slice,
-                .selection = if (selection) |s| s else null,
+                .selection = if (selection) |s|
+                    .one(.{ .start = s[0], .end = s[1] })
+                else
+                    .empty,
 
                 // We want to do font shaping as long as the cursor is
                 // visible on this viewport.

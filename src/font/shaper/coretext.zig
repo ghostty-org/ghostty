@@ -2063,7 +2063,7 @@ test "shape selection boundary" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .selection = .{ 0, @intCast(t.cols - 1) },
+            .selection = .one(.{ .start = 0, .end = @intCast(t.cols - 1) }),
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -2080,7 +2080,7 @@ test "shape selection boundary" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .selection = .{ 2, @intCast(t.cols - 1) },
+            .selection = .one(.{ .start = 2, .end = @intCast(t.cols - 1) }),
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -2097,7 +2097,7 @@ test "shape selection boundary" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .selection = .{ 0, 3 },
+            .selection = .one(.{ .start = 0, .end = 3 }),
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -2114,7 +2114,7 @@ test "shape selection boundary" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .selection = .{ 1, 3 },
+            .selection = .one(.{ .start = 1, .end = 3 }),
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -2131,7 +2131,7 @@ test "shape selection boundary" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .selection = .{ 1, 1 },
+            .selection = .one(.{ .start = 1, .end = 1 }),
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {

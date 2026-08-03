@@ -168,14 +168,10 @@ pub const RunIterator = struct {
             const cluster = j - self.i;
             const cell: *const terminal.page.Cell = &cells[j];
 
-            // If we have a selection and we're at a boundary point, then
-            // we break the run here.
-            if (self.opts.selection) |bounds| {
-                if (j > self.i) {
-                    if (bounds[0] > 0 and j == bounds[0]) break;
-                    if (bounds[1] > 0 and j == bounds[1] + 1) break;
-                }
-            }
+            // If we're at a selection boundary then we break the run
+            // here, so that a run is never partly selected.
+            if (j > self.i and
+                self.opts.selection.isBoundary(@intCast(j))) break;
 
             // If we're a spacer, then we ignore it
             switch (cell.wide) {
