@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const font = @import("../main.zig");
 const shape = @import("../shape.zig");
 const terminal = @import("../../terminal/main.zig");
+const unicode = @import("../../unicode/main.zig");
 const autoHash = std.hash.autoHash;
 const Hasher = std.hash.Wyhash;
 
@@ -74,11 +75,42 @@ pub const TextRun = struct {
     }
 };
 
+/// Rule L4 of UAX #9: the codepoint to actually display for `cp` at
+/// embedding level `level`.
+///
+/// A character is depicted by a mirrored glyph when the resolved
+/// direction is right-to-left and it has Bidi_Mirrored set. Parentheses
+/// and brackets are the everyday case: an opening parenthesis in
+/// right-to-left text must be drawn as a closing one so that the pair
+/// still visually encloses what is between them.
+///
+/// Substituting the codepoint is the only mirroring available to us, so
+/// characters that are mirrored but have no designated mirroring glyph
+/// (U+2202 PARTIAL DIFFERENTIAL, for instance) are left alone and the
+/// font is relied on. This matches what the property tables can express.
+///
+/// Sprite glyphs need no exclusion here even though the RFC calls for
+/// one. No codepoint Ghostty draws itself, box drawing, blocks, braille,
+/// Powerline separators, or the legacy computing symbols, is mirrored;
+/// a test below asserts that and will fail if a future sprite range
+/// overlaps the mirrored set.
+pub fn mirroredCodepoint(cp: u32, level: shape.Level) u32 {
+    // Even levels are left-to-right, where L4 does not apply.
+    if (level & 1 == 0) return cp;
+    if (cp > std.math.maxInt(u21)) return cp;
+    return unicode.bidiMirroringGlyph(@intCast(cp)) orelse cp;
+}
+
 /// RunIterator is an iterator that yields text runs.
 pub const RunIterator = struct {
     hooks: font.Shaper.RunIteratorHook,
     opts: shape.RunOptions,
     i: usize = 0,
+
+    /// The resolved bidi embedding level of the run currently being
+    /// built, set at the start of each `next` call. Rule L4 consults it
+    /// to decide whether a character is displayed mirrored.
+    level: shape.Level = 0,
 
     pub fn next(self: *RunIterator, alloc: Allocator) !?TextRun {
         const slice = &self.opts.cells;
@@ -104,6 +136,15 @@ pub const RunIterator = struct {
 
         // We're over at the max
         if (self.i >= max) return null;
+
+        // Runs are always left-to-right at level zero for now. Bidi
+        // resolution is not yet wired into the run iterator, so this is
+        // the only direction any run can have. It is decided here rather
+        // than at the end because the codepoints emitted below depend on
+        // it: rule L4 mirrors certain characters at odd levels.
+        const direction: shape.Direction = .ltr;
+        const level: shape.Level = 0;
+        self.level = level;
 
         // Track the font for our current run
         var current_font: font.Collection.Index = .{};
@@ -330,14 +371,6 @@ pub const RunIterator = struct {
         // Move our cursor. Must defer since we use self.i below.
         defer self.i = j;
 
-        // Runs are always left-to-right at level zero for now. Bidi
-        // resolution is not yet wired into the run iterator, so this is
-        // the only direction any run can have; the plumbing exists so
-        // that turning it on later is not also a cache-correctness
-        // change. See `foldDirection`.
-        const direction: shape.Direction = .ltr;
-        const level: shape.Level = 0;
-
         return .{
             .hash = TextRun.foldDirection(hasher.final(), direction, level),
             .offset = @intCast(self.i),
@@ -350,9 +383,19 @@ pub const RunIterator = struct {
     }
 
     fn addCodepoint(self: *RunIterator, hasher: anytype, cp: u32, cluster: u32) !void {
-        autoHash(hasher, cp);
+        // Rule L4. Note the font for this cell was chosen from the
+        // original codepoint, not the mirrored one. In practice a font
+        // covering one half of a mirrored pair covers the other, and
+        // resolving the font from the original keeps run splitting
+        // independent of direction.
+        const display_cp = mirroredCodepoint(cp, self.level);
+
+        // The hash covers what is actually shaped, so a mirrored run and
+        // an unmirrored one over the same source text cannot collide in
+        // the shaper cache.
+        autoHash(hasher, display_cp);
         autoHash(hasher, cluster);
-        try self.hooks.addCodepoint(cp, cluster);
+        try self.hooks.addCodepoint(display_cp, cluster);
     }
 
     /// Find a font index that supports the grapheme for the given cell,
@@ -513,4 +556,90 @@ test "TextRun: adding direction and level did not change the layout class" {
     };
     try testing.expectEqual(shape.Direction.ltr, r.direction);
     try testing.expectEqual(@as(shape.Level, 0), r.level);
+}
+
+test "mirroredCodepoint: applies only at odd levels" {
+    const testing = std.testing;
+
+    // Rule L4 applies at right-to-left (odd) levels only.
+    try testing.expectEqual(@as(u32, ')'), mirroredCodepoint('(', 1));
+    try testing.expectEqual(@as(u32, '('), mirroredCodepoint(')', 1));
+    try testing.expectEqual(@as(u32, '>'), mirroredCodepoint('<', 1));
+    try testing.expectEqual(@as(u32, ']'), mirroredCodepoint('[', 1));
+    try testing.expectEqual(@as(u32, '}'), mirroredCodepoint('{', 1));
+
+    // Higher odd levels mirror too; higher even levels do not.
+    try testing.expectEqual(@as(u32, ')'), mirroredCodepoint('(', 3));
+    try testing.expectEqual(@as(u32, ')'), mirroredCodepoint('(', 125));
+    try testing.expectEqual(@as(u32, '('), mirroredCodepoint('(', 0));
+    try testing.expectEqual(@as(u32, '('), mirroredCodepoint('(', 2));
+    try testing.expectEqual(@as(u32, '('), mirroredCodepoint('(', 124));
+}
+
+test "mirroredCodepoint: leaves unmirrored characters alone" {
+    const testing = std.testing;
+
+    for ([_]u32{ 'a', 'Z', '0', ' ', '.', 0x05D0, 0x0627, 0x4E00, 0x1F600 }) |cp| {
+        try testing.expectEqual(cp, mirroredCodepoint(cp, 0));
+        try testing.expectEqual(cp, mirroredCodepoint(cp, 1));
+    }
+
+    // Mirrored but with no designated mirroring glyph. Bidi_Mirrored is a
+    // strict superset of Bidi_Mirroring_Glyph, and a codepoint
+    // substitution cannot express the difference, so these pass through.
+    try testing.expect(unicode.isBidiMirrored(0x2202));
+    try testing.expectEqual(@as(u32, 0x2202), mirroredCodepoint(0x2202, 1));
+
+    // Out of Unicode range values are returned untouched rather than
+    // being fed to the table lookup.
+    try testing.expectEqual(
+        @as(u32, std.math.maxInt(u32)),
+        mirroredCodepoint(std.math.maxInt(u32), 1),
+    );
+}
+
+test "mirroredCodepoint: is an involution at odd levels" {
+    const testing = std.testing;
+
+    // Mirroring twice returns the original. If this failed, text that
+    // crossed a direction boundary twice would not round trip.
+    for (0..std.math.maxInt(u21) + 1) |i| {
+        const cp: u32 = @intCast(i);
+        const m = mirroredCodepoint(cp, 1);
+        if (m == cp) continue;
+        try testing.expectEqual(cp, mirroredCodepoint(m, 1));
+    }
+}
+
+test "mirroredCodepoint: no sprite glyph is ever mirrored" {
+    const testing = std.testing;
+
+    // The RFC calls for excluding the glyphs Ghostty draws itself, box
+    // drawing, blocks, braille, Powerline separators and the legacy
+    // computing symbols, from mirroring. No such exclusion exists in
+    // `mirroredCodepoint`, because none is needed: not one of those
+    // codepoints has Bidi_Mirrored set.
+    //
+    // That is a fact about the Unicode data rather than about this code,
+    // so it is asserted rather than assumed. Adding a sprite range that
+    // overlaps the mirrored set will fail here, which is the point.
+    const face: font.SpriteFace = .{ .metrics = undefined };
+
+    var checked: usize = 0;
+    for (0..std.math.maxInt(u21) + 1) |i| {
+        const cp: u32 = @intCast(i);
+        if (mirroredCodepoint(cp, 1) == cp) continue;
+        checked += 1;
+
+        if (face.hasCodepoint(cp, null)) {
+            std.log.warn(
+                "codepoint U+{X} is both mirrored and drawn as a sprite",
+                .{cp},
+            );
+            try testing.expect(false);
+        }
+    }
+
+    // Guard against the loop above silently checking nothing.
+    try testing.expect(checked > 400);
 }

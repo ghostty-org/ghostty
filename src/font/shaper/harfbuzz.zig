@@ -2702,3 +2702,36 @@ test "shape rtl: golden vectors" {
         return error.TestExpectedEqual;
     }
 }
+
+test "shape: mirroring never reaches the screen" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var testdata = try testShaper(alloc);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 20, .rows = 3 });
+    defer t.deinit(alloc);
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+
+    // Rule L4 substitutes a mirrored codepoint for display only. The
+    // screen must keep what the program actually wrote, because that is
+    // what gets copied to the clipboard and what the program will read
+    // back. A mirrored bracket landing in the buffer would be silent
+    // data corruption rather than a rendering glitch, so the invariant
+    // is asserted rather than assumed.
+    //
+    // Runs are still left-to-right at level zero, so no mirroring occurs
+    // yet; this pins the invariant for when that changes.
+    const str = "([{<>}])";
+    const r = try testShapeRtl(alloc, &testdata, str, .rtl, &t, &state);
+    try testing.expect(r.cells.len > 0);
+
+    const row = state.row_data.get(0).cells.slice();
+    const raw = row.items(.raw);
+    for (str, 0..) |want, i| {
+        try testing.expectEqual(@as(u21, want), raw[i].codepoint());
+    }
+}
