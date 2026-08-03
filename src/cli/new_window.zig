@@ -84,7 +84,7 @@ pub const Options = struct {
             const expanded = expanded: {
                 var environ_map = try global.environMap();
                 defer environ_map.deinit();
-                break :expanded try homedir.expandHome(&environ_map, stripped, &expandhome_buf);
+                break :expanded try homedir.expandHome(global.io(), &environ_map, stripped, &expandhome_buf);
             };
             var realpath_buf: [std.fs.max_path_bytes]u8 = undefined;
             const realpath = realpath_buf[0..try cwd.realPathFile(self._io, expanded, &realpath_buf)];

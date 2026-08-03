@@ -413,6 +413,12 @@ pub const Decoder = struct {
         page.DecodeError ||
         Allocator.Error ||
         error{
+            /// `next` was called before `ready` completed successfully.
+            DecoderNotReady,
+
+            /// A prior `next` call failed and invalidated the stream position.
+            DecoderFailed,
+
             /// A HISTORY names a key not declared by TERMINAL.
             UnexpectedHistoryKey,
 
@@ -420,6 +426,8 @@ pub const Decoder = struct {
             DuplicateHistory,
 
             /// A history PAGE cannot join a native PageList.
+            /// These propagate from `nextPage`'s non-limit finalize errors;
+            /// only limit failures are deliberately converted into drops.
             InvalidPageDimensions,
             RowCountOverflow,
             PageSizeOverflow,
@@ -457,7 +465,8 @@ pub const Decoder = struct {
         switch (self.state) {
             // `ready` must succeed before history exists to decode, and a
             // failed decoder no longer knows its stream position.
-            .start, .failed => unreachable,
+            .start => return error.DecoderNotReady,
+            .failed => return error.DecoderFailed,
             .finished => return null,
             .history => {},
         }
@@ -546,6 +555,12 @@ pub const Decoder = struct {
                 try page.discard(self.stream.reader());
                 break :rows 0;
             };
+            // The one-shot history decoder rejects a Screen which already has
+            // complete history. This incremental path intentionally bypasses
+            // that guard: the terminal has been live since READY and may have
+            // accumulated new history. Generation and width checks above keep
+            // the destination compatible, while per-page finalization enforces
+            // its current scrollback limits.
             break :rows history.decodePage(
                 self.stream.reader(),
                 alloc,
@@ -1774,6 +1789,23 @@ test "incremental decode restores a renderable terminal at READY" {
     try testing.expectEqualStrings(&test_complete_fixture, reencoded.written());
 }
 
+test "incremental next reports invalid decoder states" {
+    const testing = std.testing;
+    var source: std.Io.Reader = .fixed("");
+    var decoder: Decoder = .init(&source);
+    var terminal_value = try Terminal.init(
+        testing.io,
+        testing.allocator,
+        .{ .cols = 1, .rows = 1 },
+    );
+    defer terminal_value.deinit(testing.allocator);
+
+    try testing.expectError(
+        error.DecoderNotReady,
+        decoder.next(testing.allocator, &terminal_value),
+    );
+}
+
 test "incremental decode applies history below live PTY output" {
     const testing = std.testing;
 
@@ -2063,6 +2095,10 @@ test "incremental decode failure leaves applied history usable" {
     }
     try testing.expectError(
         error.EndOfStream,
+        decoder.next(testing.allocator, &restored),
+    );
+    try testing.expectError(
+        error.DecoderFailed,
         decoder.next(testing.allocator, &restored),
     );
 

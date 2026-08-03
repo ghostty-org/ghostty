@@ -16,6 +16,7 @@
 #include <ghostty/vt/modes.h>
 #include <ghostty/vt/size_report.h>
 #include <ghostty/vt/grid_ref.h>
+#include <ghostty/vt/io.h>
 #include <ghostty/vt/kitty_graphics.h>
 #include <ghostty/vt/screen.h>
 #include <ghostty/vt/point.h>
@@ -1027,6 +1028,26 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Input type: GhosttyTerminalProgressReportFn
    */
   GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT = 30,
+
+  /**
+   * Set the maximum number of replay-safe VT continuation bytes retained.
+   *
+   * Continuation bytes reconstruct an escape sequence or UTF-8 codepoint
+   * which was unfinished at the end of the most recent
+   * ghostty_terminal_vt_write() call. They are used automatically by terminal
+   * snapshots and may also be exported directly with the continuation APIs.
+   *
+   * Tracking is disabled by default. A nonzero value enables tracking and
+   * sets its byte limit. Passing NULL or a pointer to zero disables tracking.
+   * Lowering the limit below an already-retained
+   * continuation, or enabling tracking while the parser is already
+   * unfinished, makes the current continuation unavailable because earlier
+   * bytes cannot be reconstructed. Tracking recovers automatically after a
+   * later write reaches the ground state or contains a fresh replay start.
+   *
+   * Input type: size_t*
+   */
+  GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES = 31,
   GHOSTTY_TERMINAL_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalOption;
 
@@ -1376,6 +1397,17 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Output type: size_t *
    */
   GHOSTTY_TERMINAL_DATA_SCROLLBACK_MAX_LINES = 35,
+
+  /**
+   * The configured maximum retained VT continuation size in bytes.
+   *
+   * A value of zero means continuation tracking is disabled. This reports the
+   * configured limit even when a current unfinished continuation is
+   * temporarily unavailable.
+   *
+   * Output type: size_t *
+   */
+  GHOSTTY_TERMINAL_DATA_CONTINUATION_MAX_BYTES = 36,
   GHOSTTY_TERMINAL_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalData;
 
@@ -1500,6 +1532,97 @@ GHOSTTY_API GhosttyResult ghostty_terminal_set(GhosttyTerminal terminal,
 GHOSTTY_API void ghostty_terminal_vt_write(GhosttyTerminal terminal,
                                 const uint8_t* data,
                                 size_t len);
+
+/**
+ * Write the terminal's replay-safe VT continuation to a callback writer.
+ *
+ * The continuation is the exact byte suffix needed to reconstruct unfinished
+ * VT parser or UTF-8 decoder state in an equivalent terminal. It is empty
+ * when the stream is at ground. The callback is invoked synchronously and
+ * may be called more than once. It must not call terminal APIs with the same
+ * terminal handle.
+ *
+ * Continuation tracking must have been enabled by setting
+ * GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to a nonzero value before the
+ * input that produced the continuation was written.
+ *
+ * The caller must serialize this operation with ghostty_terminal_vt_write()
+ * and all other access to the same terminal.
+ *
+ * @param terminal Terminal to read from (must not be NULL)
+ * @param writer Destination writer whose write callback must not be NULL
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_IO_ERROR if the callback rejects
+ *         a write, GHOSTTY_LIMIT_EXCEEDED if output accounting overflows, or
+ *         GHOSTTY_INVALID_VALUE if an argument is invalid, tracking is
+ *         disabled, or the current continuation is unavailable
+ *
+ * @ingroup terminal
+ */
+GHOSTTY_API GhosttyResult ghostty_terminal_continuation_write(
+    GhosttyTerminal terminal,
+    GhosttyWriter writer);
+
+/**
+ * Copy the terminal's replay-safe VT continuation into a caller buffer.
+ *
+ * Pass NULL for buf with buf_len zero to query the required size. A size query
+ * returns GHOSTTY_OUT_OF_SPACE and stores the required size in out_written,
+ * including zero when the stream is at ground. If a non-NULL buffer is too
+ * small, the function has the same result and reports the full required size.
+ * Continuation tracking must have been enabled by setting
+ * GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to a nonzero value before the
+ * input that produced the continuation was written.
+ *
+ * The caller must serialize this operation with all other access to the same
+ * terminal.
+ *
+ * @param terminal Terminal to read from (must not be NULL)
+ * @param buf Destination buffer, or NULL when buf_len is zero
+ * @param buf_len Destination buffer capacity in bytes
+ * @param[out] out_written Bytes written, or required size on
+ *             GHOSTTY_OUT_OF_SPACE (must not be NULL)
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_SPACE for a size query or
+ *         insufficient buffer, or GHOSTTY_INVALID_VALUE if an argument is
+ *         invalid, tracking is disabled, or the current continuation is
+ *         unavailable
+ *
+ * @ingroup terminal
+ */
+GHOSTTY_API GhosttyResult ghostty_terminal_continuation_buf(
+    GhosttyTerminal terminal,
+    uint8_t* buf,
+    size_t buf_len,
+    size_t* out_written);
+
+/**
+ * Return an allocated copy of the terminal's replay-safe VT continuation.
+ *
+ * The returned bytes are allocated with allocator, or the default allocator
+ * when allocator is NULL. The caller must release them with ghostty_free(),
+ * passing the same allocator and returned length. An empty continuation is a
+ * successful zero-length allocation.
+ * Continuation tracking must have been enabled by setting
+ * GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to a nonzero value before the
+ * input that produced the continuation was written.
+ *
+ * The caller must serialize this operation with all other access to the same
+ * terminal.
+ *
+ * @param terminal Terminal to read from (must not be NULL)
+ * @param allocator Allocator for the output, or NULL for the default allocator
+ * @param[out] out_ptr Allocated continuation bytes (must not be NULL)
+ * @param[out] out_len Number of continuation bytes (must not be NULL)
+ * @return GHOSTTY_SUCCESS on success, GHOSTTY_OUT_OF_MEMORY on allocation
+ *         failure, or GHOSTTY_INVALID_VALUE if an argument is invalid,
+ *         tracking is disabled, or the current continuation is unavailable
+ *
+ * @ingroup terminal
+ */
+GHOSTTY_API GhosttyResult ghostty_terminal_continuation_alloc(
+    GhosttyTerminal terminal,
+    const GhosttyAllocator* allocator,
+    uint8_t** out_ptr,
+    size_t* out_len);
 
 /**
  * Scroll the terminal viewport.

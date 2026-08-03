@@ -13,6 +13,7 @@ pub fn defaultXdgPath(alloc: Allocator) ![]const u8 {
     var environ_map = try global.environMap();
     defer environ_map.deinit();
     return try internal_os.xdg.config(
+        global.io(),
         alloc,
         &environ_map,
         .{ .subdir = "ghostty/config.ghostty" },
@@ -25,6 +26,7 @@ pub fn legacyDefaultXdgPath(alloc: Allocator) ![]const u8 {
     var environ_map = try global.environMap();
     defer environ_map.deinit();
     return try internal_os.xdg.config(
+        global.io(),
         alloc,
         &environ_map,
         .{ .subdir = "ghostty/config" },

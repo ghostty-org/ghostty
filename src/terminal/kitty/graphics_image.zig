@@ -433,7 +433,7 @@ pub const LoadingImage = struct {
 
         // Everything looks good, copy the image data over.
         var result = self.image;
-        result.data = try self.data.toOwnedSlice(alloc);
+        result.data = .{ .complete = try self.data.toOwnedSlice(alloc) };
         errdefer result.deinit(alloc);
         self.image = .{};
         return result;
@@ -527,13 +527,13 @@ pub const LoadingImage = struct {
     }
 };
 
-/// Image represents a single fully loaded image.
+/// Image represents a single image whose metadata is fully known.
 ///
-/// The image data is always fully decoded raw pixels: loading inflates
-/// any zlib-compressed payload and decodes PNG into RGBA before an image
-/// is completed, so `compression` is always `.none` and `format` is
-/// never `.png` for a stored image, and `data.len` always equals
-/// `width * height * bytes-per-pixel`.
+/// Complete image data is always fully decoded raw pixels: loading inflates
+/// any zlib-compressed payload and decodes PNG into RGBA before an image is
+/// completed, so `compression` is always `.none` and `format` is never `.png`
+/// for a stored image. Pending image data reserves the exact decoded byte
+/// length that will be attached later.
 pub const Image = struct {
     id: u32 = 0,
     number: u32 = 0,
@@ -541,7 +541,7 @@ pub const Image = struct {
     height: u32 = 0,
     format: command.Transmission.Format = .rgb,
     compression: command.Transmission.Compression = .none,
-    data: []const u8 = "",
+    data: Data = .{ .complete = "" },
     usage: command.Transmission.Usage = .default,
 
     /// Unique, monotonically increasing stamp assigned each time an
@@ -571,14 +571,49 @@ pub const Image = struct {
         UnsupportedDepth,
     };
 
+    pub const Data = union(enum) {
+        /// Owned, decoded image bytes. The empty default is not allocated.
+        complete: []const u8,
+
+        /// Expected decoded byte length for a payload that has not arrived.
+        pending: usize,
+
+        /// Bytes reserved against the storage limit.
+        pub fn len(self: Data) usize {
+            return switch (self) {
+                .complete => |data| data.len,
+                .pending => |expected_len| expected_len,
+            };
+        }
+
+        /// Returns decoded bytes when the payload is complete.
+        pub fn bytes(self: Data) ?[]const u8 {
+            return switch (self) {
+                .complete => |data| data,
+                .pending => null,
+            };
+        }
+
+        pub fn isPending(self: Data) bool {
+            return self == .pending;
+        }
+
+        pub fn deinit(self: *Data, alloc: Allocator) void {
+            switch (self.*) {
+                .complete => |data| if (data.len > 0) alloc.free(data),
+                .pending => {},
+            }
+        }
+    };
+
     pub fn deinit(self: *Image, alloc: Allocator) void {
-        if (self.data.len > 0) alloc.free(self.data);
+        self.data.deinit(alloc);
     }
 
     /// Mostly for logging
     pub fn withoutData(self: *const Image) Image {
         var copy = self.*;
-        copy.data = "";
+        if (copy.data == .complete) copy.data = .{ .complete = "" };
         return copy;
     }
 };

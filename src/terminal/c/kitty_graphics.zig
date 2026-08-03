@@ -261,8 +261,8 @@ fn imageGetTyped(
         .height => out.* = image.height,
         .format => out.* = image.format,
         .compression => out.* = image.compression,
-        .data_ptr => out.* = image.data.ptr,
-        .data_len => out.* = image.data.len,
+        .data_ptr => out.* = (image.data.bytes() orelse return .no_value).ptr,
+        .data_len => out.* = image.data.len(),
         .generation => out.* = image.generation,
     }
 
@@ -988,6 +988,57 @@ test "image_get_handle and image_get with transmitted image" {
     var data_len: usize = undefined;
     try testing.expectEqual(Result.success, image_get(img, .data_len, @ptrCast(&data_len)));
     try testing.expect(data_len > 0);
+}
+
+test "image_get exposes pending metadata without a data pointer" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    var graphics: KittyGraphics = undefined;
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics,
+        @ptrCast(&graphics),
+    ));
+
+    const alloc = lib.alloc.default(&lib.alloc.test_allocator);
+    const pending = try graphics.addPendingImage(testing.io, alloc, .{
+        .id = 42,
+        .number = 7,
+        .width = 1,
+        .height = 4,
+        .format = .rgb,
+        .data = .{ .pending = 12 },
+    });
+
+    const img = image_get_handle(graphics, 42);
+    try testing.expect(img != null);
+
+    var number: u32 = 0;
+    try testing.expectEqual(Result.success, image_get(img, .number, @ptrCast(&number)));
+    try testing.expectEqual(@as(u32, 7), number);
+
+    var data_len: usize = 0;
+    try testing.expectEqual(Result.success, image_get(img, .data_len, @ptrCast(&data_len)));
+    try testing.expectEqual(@as(usize, 12), data_len);
+
+    var data_ptr: [*]const u8 = undefined;
+    try testing.expectEqual(Result.no_value, image_get(img, .data_ptr, @ptrCast(&data_ptr)));
+
+    const pixels = try alloc.dupe(u8, "*" ** 12);
+    try testing.expect(pending.complete(graphics, testing.io, pixels));
+    const completed_img = image_get_handle(graphics, 42);
+    try testing.expect(completed_img != null);
+    try testing.expectEqual(Result.success, image_get(completed_img, .data_ptr, @ptrCast(&data_ptr)));
+    try testing.expectEqualSlices(u8, pixels, data_ptr[0..data_len]);
 }
 
 test "placement_rect with transmit and display" {

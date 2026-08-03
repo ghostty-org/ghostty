@@ -394,7 +394,7 @@ fn setupBash(
         var environ_map = try global.environMap();
         defer environ_map.deinit();
         var home_buf: [1024]u8 = undefined;
-        if (try homedir.home(&environ_map, &home_buf)) |home| {
+        if (try homedir.home(global.io(), &environ_map, &home_buf)) |home| {
             var histfile_buf: [std.fs.max_path_bytes]u8 = undefined;
             const histfile = try std.fmt.bufPrint(
                 &histfile_buf,

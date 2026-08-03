@@ -553,7 +553,7 @@ pub fn Stream(comptime H: type) type {
 
         /// True when no continuation suffix is needed to reproduce the
         /// stream's current parsing state.
-        inline fn ground(self: *const Self) bool {
+        pub inline fn ground(self: *const Self) bool {
             // Parser ground alone is not sufficient because the UTF-8
             // decoder may have some state.
             return self.parser.state == .ground and self.utf8decoder.state == 0;

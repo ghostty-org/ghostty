@@ -102,6 +102,19 @@ pub const Message = union(enum) {
         };
     }
 
+    /// Free resources owned by a message that will not be processed.
+    /// The message is invalid after this call.
+    pub fn deinit(self: *const Message) void {
+        switch (self.*) {
+            .change_config => |v| {
+                v.ptr.deinit();
+                v.alloc.destroy(v.ptr);
+            },
+            .write_alloc => |v| v.alloc.free(v.data),
+            else => {},
+        }
+    }
+
     /// The types of size reports that we support.
     pub const SizeReport = terminal.size_report.Style;
 };

@@ -233,10 +233,13 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const test_fixture = @import("fixture.zig");
 const io = @import("io.zig");
-const kitty = @import("../kitty.zig");
 const terminal_hyperlink = @import("../hyperlink.zig");
 const terminal_page = @import("../page.zig");
 const terminal_style = @import("../style.zig");
+
+/// The Kitty virtual-placement placeholder remains wire-relevant even when
+/// runtime Kitty graphics support is compiled out.
+const kitty_virtual_placeholder: u21 = 0x10EEEE;
 
 const TerminalCell = terminal_page.Cell;
 const TerminalHyperlinkId = terminal_hyperlink.Id;
@@ -957,7 +960,7 @@ fn applyCell(
             // version, but the placeholder is still a valid Unicode scalar.
             // Preserve it and derive the native row hint so later row
             // operations remain correct.
-            if (wire.content == kitty.graphics.unicode.placeholder) {
+            if (wire.content == kitty_virtual_placeholder) {
                 row.kitty_virtual_placeholder = true;
             }
         },
@@ -1067,20 +1070,25 @@ fn decodeGraphemes(
             break :target .{ .row = row, .cell = cell };
         };
 
-        // Always consume every declared codepoint. Invalid scalars and
-        // suffixes that exceed the native capacity are dropped
-        // independently without affecting the rest of the grid.
+        // Always consume every declared codepoint. Invalid scalars and NUL are
+        // not meaningful grapheme suffix components and are ignored. If native
+        // capacity is exhausted, remove any prefix already attached so the
+        // cell never exposes a truncated cluster.
         var accept = target != null;
         for (0..cp_count) |_| {
             const cp = try io.readInt(reader, u32);
             if (!accept) continue;
-            if (!validScalar(cp)) continue;
+            if (cp == 0 or !validScalar(cp)) continue;
 
             page.appendGrapheme(
                 target.?.row,
                 target.?.cell,
                 @intCast(cp),
             ) catch {
+                if (target.?.cell.hasGrapheme()) {
+                    page.clearGrapheme(target.?.cell);
+                    page.updateRowGraphemeFlag(target.?.row);
+                }
                 accept = false;
             };
         }
@@ -1752,8 +1760,9 @@ test "grid drops undeliverable grapheme entries" {
     // Valid entry with one invalid scalar dropped from within it.
     try io.writeInt(&writer, u16, 0);
     try io.writeInt(&writer, u16, 0);
-    try io.writeInt(&writer, u16, 3);
+    try io.writeInt(&writer, u16, 4);
     try io.writeInt(&writer, u32, 0x0301);
+    try io.writeInt(&writer, u32, 0);
     try io.writeInt(&writer, u32, 0xD800);
     try io.writeInt(&writer, u32, 0x0302);
     // Duplicate entry for the same cell is consumed and dropped.
@@ -1792,6 +1801,48 @@ test "grid drops undeliverable grapheme entries" {
     try testing.expect(!second.hasGrapheme());
     try testing.expect(!page.getRowAndCell(2, 0).cell.hasGrapheme());
     try testing.expect(!page.getRowAndCell(3, 0).cell.hasGrapheme());
+}
+
+test "grid drops a complete grapheme when capacity fails mid-cluster" {
+    const testing = std.testing;
+    var page = try TerminalPage.init(.{
+        .cols = 1,
+        .rows = 1,
+        .grapheme_bytes = 16,
+    });
+    defer page.deinit();
+    var style_remap = try StyleRemap.init(testing.allocator);
+    defer style_remap.deinit(testing.allocator);
+    var hyperlink_remap = try HyperlinkRemap.init(testing.allocator);
+    defer hyperlink_remap.deinit(testing.allocator);
+
+    var payload: [1024]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&payload);
+    try writer.writeByte(@bitCast(Row{ .cell_width = .eight }));
+    try io.writeInt(&writer, u16, 1);
+    try io.writeInt(&writer, u64, @bitCast(Cell{ .kind = 1, .content = 'x' }));
+    try io.writeInt(&writer, u32, 1);
+    try io.writeInt(&writer, u16, 0);
+    try io.writeInt(&writer, u16, 0);
+    // BitmapAllocator rounds this capacity to 64 four-codepoint chunks. The
+    // 129th suffix needs 33 new chunks while the old 32-chunk slice is still
+    // live, forcing the append's atomic replacement allocation to fail.
+    try io.writeInt(&writer, u16, 129);
+    for (0..129) |i| try io.writeInt(
+        &writer,
+        u32,
+        @intCast(0x0300 + i),
+    );
+
+    var reader: std.Io.Reader = .fixed(writer.buffered());
+    try decode(&page, &reader, &style_remap, &hyperlink_remap);
+    try page.verifyIntegrity(testing.allocator);
+
+    const cell = page.getRowAndCell(0, 0);
+    try testing.expectEqual(@as(u21, 'x'), cell.cell.codepoint());
+    try testing.expect(!cell.cell.hasGrapheme());
+    try testing.expect(!cell.row.grapheme);
+    try testing.expectEqual(@as(usize, 0), page.graphemeCount());
 }
 
 test "grid encodes rows at their narrowest width" {
@@ -1972,7 +2023,7 @@ test "grid four-byte cells run full normalization" {
     // The Kitty placeholder does not fit two-byte cells but fits here
     // and must still derive the native row hint.
     try io.writeInt(&writer, u32, @truncate(@as(u64, @bitCast(Cell{
-        .content = kitty.graphics.unicode.placeholder,
+        .content = kitty_virtual_placeholder,
     }))));
 
     // An unknown small style reference degrades to the default style.
@@ -1994,7 +2045,7 @@ test "grid four-byte cells run full normalization" {
 
     const first = page.getRowAndCell(0, 0);
     try testing.expectEqual(
-        @as(u21, kitty.graphics.unicode.placeholder),
+        kitty_virtual_placeholder,
         first.cell.codepoint(),
     );
     try testing.expect(first.row.kitty_virtual_placeholder);

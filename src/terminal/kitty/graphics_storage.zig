@@ -132,6 +132,38 @@ pub const ImageStorage = struct {
     total_bytes: usize = 0,
     total_limit: usize = 320 * 1000 * 1000, // 320MB
 
+    /// Identifies one exact pending image transmission. The generation is
+    /// assigned by this storage when the pending image is inserted, so a
+    /// later replacement of the same ID cannot consume stale payload bytes.
+    pub const PendingImage = struct {
+        id: u32,
+        generation: u64,
+
+        /// Attach owned decoded bytes if this exact pending transmission is
+        /// still resident. On true, storage owns `data`; on false, the caller
+        /// retains ownership. Completion preserves the image generation (and
+        /// therefore eviction age) while marking storage content as mutated.
+        pub fn complete(
+            self: PendingImage,
+            storage: *ImageStorage,
+            io: std.Io,
+            data: []const u8,
+        ) bool {
+            const img = storage.images.getPtr(self.id) orelse return false;
+            if (img.generation != self.generation) return false;
+
+            const expected_len = switch (img.data) {
+                .complete => return false,
+                .pending => |len| len,
+            };
+            if (data.len != expected_len) return false;
+
+            img.data = .{ .complete = data };
+            storage.markMutated(io);
+            return true;
+        }
+    };
+
     pub fn deinit(
         self: *ImageStorage,
         alloc: Allocator,
@@ -196,40 +228,54 @@ pub const ImageStorage = struct {
         self.total_limit = limit;
     }
 
-    /// Add an already-loaded image to the storage. This will automatically
-    /// free any existing image with the same ID.
+    /// Add an image to the storage. This will automatically free any existing
+    /// image with the same ID. Prefer addPendingImage for pending data so the
+    /// caller receives a completion token.
     pub fn addImage(self: *ImageStorage, io: std.Io, alloc: Allocator, img: Image) Allocator.Error!void {
+        const new_len = img.data.len();
+
         // If the image itself is over the limit, then error immediately
-        if (img.data.len > self.total_limit) return error.OutOfMemory;
+        if (new_len > self.total_limit) return error.OutOfMemory;
+
+        // Credit an existing image's reservation before calculating the
+        // replacement size. In particular, a completed live transmission
+        // replacing pending snapshot metadata must be able to reuse the
+        // reservation without evicting its own ID and placements.
+        const old_len = if (self.images.get(img.id)) |old|
+            old.data.len()
+        else
+            0;
+        assert(old_len <= self.total_bytes);
+
+        // Reserve map capacity before evicting anything so allocation failure
+        // cannot leave storage partially evicted. Existing keys need no room.
+        if (!self.images.contains(img.id)) {
+            try self.images.ensureUnusedCapacity(alloc, 1);
+        }
 
         // If this would put us over the limit, then evict.
-        const total_bytes = self.total_bytes + img.data.len;
+        const total_bytes = self.total_bytes - old_len + new_len;
         if (total_bytes > self.total_limit) {
             const req_bytes = total_bytes - self.total_limit;
             log.info("evicting images to make space for {} bytes", .{req_bytes});
-            if (!try self.evictImage(io, alloc, req_bytes)) {
+            if (!try self.evictImageExcept(io, alloc, req_bytes, img.id)) {
                 log.warn("failed to evict enough images for required bytes", .{});
                 return error.OutOfMemory;
             }
         }
 
-        // Do the gop op first so if it fails we don't get a partial state
-        const gop = try self.images.getOrPut(alloc, img.id);
+        const gop = self.images.getOrPutAssumeCapacity(img.id);
 
-        log.debug("addImage image={}", .{img: {
-            var copy = img;
-            copy.data = "";
-            break :img copy;
-        }});
+        log.debug("addImage image={}", .{img.withoutData()});
 
         // Write our new image
         if (gop.found_existing) {
-            self.total_bytes -= gop.value_ptr.data.len;
+            self.total_bytes -= gop.value_ptr.data.len();
             gop.value_ptr.deinit(alloc);
         }
 
         gop.value_ptr.* = img;
-        self.total_bytes += img.data.len;
+        self.total_bytes += new_len;
 
         // Stamp the stored image with a fresh generation. This gives
         // every add/replace a unique stamp even when the same image ID
@@ -237,6 +283,20 @@ pub const ImageStorage = struct {
         // (e.g. renderer texture caches) can detect content changes.
         self.markMutated(io);
         gop.value_ptr.generation = self.generation;
+    }
+
+    /// Add an image whose decoded payload bytes have not arrived yet.
+    /// Returns the token required to complete this exact transmission.
+    pub fn addPendingImage(
+        self: *ImageStorage,
+        io: std.Io,
+        alloc: Allocator,
+        img: Image,
+    ) Allocator.Error!PendingImage {
+        assert(img.data == .pending);
+        try self.addImage(io, alloc, img);
+        const stored = self.images.get(img.id).?;
+        return .{ .id = stored.id, .generation = stored.generation };
     }
 
     /// Add a placement for a given image. The caller must verify in advance
@@ -565,7 +625,7 @@ pub const ImageStorage = struct {
 
         // If we get here, we can delete the image.
         if (self.images.getEntry(image_id)) |entry| {
-            self.total_bytes -= entry.value_ptr.data.len;
+            self.total_bytes -= entry.value_ptr.data.len();
             entry.value_ptr.deinit(alloc);
             self.images.removeByPtr(entry.key_ptr);
         }
@@ -604,6 +664,18 @@ pub const ImageStorage = struct {
     /// This will evict as many images as necessary to make space for
     /// req bytes.
     fn evictImage(self: *ImageStorage, io: std.Io, alloc: Allocator, req: usize) !bool {
+        return self.evictImageExcept(io, alloc, req, null);
+    }
+
+    /// Evict images while preserving `exclude_id`, used when replacing an
+    /// existing image whose old reservation has already been credited.
+    fn evictImageExcept(
+        self: *ImageStorage,
+        io: std.Io,
+        alloc: Allocator,
+        req: usize,
+        exclude_id: ?u32,
+    ) !bool {
         assert(req <= self.total_limit);
 
         // Ironically we allocate to evict. We should probably redesign the
@@ -624,9 +696,10 @@ pub const ImageStorage = struct {
         defer alloc.free(candidates);
 
         var it = self.images.iterator();
-        var i: usize = 0;
-        while (it.next()) |kv| : (i += 1) {
+        var candidate_count: usize = 0;
+        while (it.next()) |kv| {
             const img = kv.value_ptr;
+            if (exclude_id != null and img.id == exclude_id.?) continue;
 
             // This is a huge waste. See comment above about redesigning
             // our data structures to avoid this. Eviction should be very
@@ -645,7 +718,7 @@ pub const ImageStorage = struct {
 
             const transient = img.usage.transient;
 
-            candidates[i] = .{
+            candidates[candidate_count] = .{
                 .id = img.id,
                 .generation = img.generation,
                 // Map images into four distinct blocks:
@@ -655,12 +728,15 @@ pub const ImageStorage = struct {
                 // 3: not transient, used
                 .block = (if (transient) @as(u2, 0) else @as(u2, 1)) + (if (used) @as(u2, 2) else @as(u2, 0)),
             };
+            candidate_count += 1;
         }
+
+        const candidate_slice = candidates[0..candidate_count];
 
         // Sort
         std.mem.sortUnstable(
             Candidate,
-            candidates,
+            candidate_slice,
             {},
             struct {
                 fn lessThan(
@@ -695,7 +771,7 @@ pub const ImageStorage = struct {
 
         // They're in order of best to evict.
         var evicted: usize = 0;
-        for (candidates) |c| {
+        for (candidate_slice) |c| {
             // Delete all the placements for this image and the image.
             var p_it = self.placements.iterator();
             while (p_it.next()) |entry| {
@@ -706,16 +782,17 @@ pub const ImageStorage = struct {
             }
 
             if (self.images.getEntry(c.id)) |entry| {
-                log.info("evicting image id={} bytes={}", .{ c.id, entry.value_ptr.data.len });
+                const image_len = entry.value_ptr.data.len();
+                log.info("evicting image id={} bytes={}", .{ c.id, image_len });
 
-                evicted += entry.value_ptr.data.len;
-                self.total_bytes -= entry.value_ptr.data.len;
+                evicted += image_len;
+                self.total_bytes -= image_len;
 
                 entry.value_ptr.deinit(alloc);
                 self.images.removeByPtr(entry.key_ptr);
                 any_evicted = true;
 
-                if (evicted > req) return true;
+                if (evicted >= req) return true;
             }
         }
 
@@ -1566,7 +1643,12 @@ test "storage: generation bumps when setLimit evicts or disables" {
     defer s.deinit(alloc, t.screens.active);
 
     const data = try alloc.dupe(u8, "1234");
-    try s.addImage(io, alloc, .{ .id = 1, .width = 1, .height = 1, .data = data });
+    try s.addImage(io, alloc, .{
+        .id = 1,
+        .width = 1,
+        .height = 1,
+        .data = .{ .complete = data },
+    });
     const gen_add = s.generation;
 
     // Lowering the limit evicts the image and must mark a mutation.
@@ -1656,17 +1738,17 @@ test "storage: evict unused transient image" {
 
     try s.addImage(io, alloc, .{
         .id = 1,
-        .data = try alloc.dupe(u8, "*" ** 64),
+        .data = .{ .complete = try alloc.dupe(u8, "*" ** 64) },
         .usage = .{ .transient = false },
     });
     try s.addImage(io, alloc, .{
         .id = 2,
-        .data = try alloc.dupe(u8, "*" ** 64),
+        .data = .{ .complete = try alloc.dupe(u8, "*" ** 64) },
         .usage = .{ .transient = true },
     });
     try s.addImage(io, alloc, .{
         .id = 3,
-        .data = try alloc.dupe(u8, "*" ** 64),
+        .data = .{ .complete = try alloc.dupe(u8, "*" ** 64) },
         .usage = .{ .transient = true },
     });
     try s.addPlacement(
@@ -1686,4 +1768,192 @@ test "storage: evict unused transient image" {
     try testing.expect(s.images.contains(1));
     try testing.expect(s.images.contains(2));
     try testing.expect(!s.images.contains(3));
+}
+
+test "storage: pending image completes once and preserves age" {
+    const testing = std.testing;
+    const io = testing.io;
+    const alloc = testing.allocator;
+    var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
+    defer t.deinit(alloc);
+
+    var s: ImageStorage = .{ .total_limit = 16 };
+    defer s.deinit(alloc, t.screens.active);
+
+    const pending = try s.addPendingImage(io, alloc, .{
+        .id = 1,
+        .number = 7,
+        .width = 2,
+        .height = 2,
+        .format = .rgba,
+        .data = .{ .pending = 16 },
+    });
+    try testing.expectEqual(@as(usize, 16), s.total_bytes);
+    try testing.expectEqual(@as(u32, 1), s.imageByNumber(7).?.id);
+    try testing.expect(s.imageById(1).?.data.isPending());
+
+    try s.addPlacement(io, alloc, 1, 1, .{
+        .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) },
+    });
+    try testing.expectEqual(@as(usize, 1), s.placements.count());
+
+    const wrong = try alloc.dupe(u8, "short");
+    const wrong_completed = pending.complete(&s, io, wrong);
+    try testing.expect(!wrong_completed);
+    defer alloc.free(wrong);
+
+    const storage_generation = s.generation;
+    s.dirty = false;
+    const pixels = try alloc.dupe(u8, "*" ** 16);
+    try testing.expect(pending.complete(&s, io, pixels));
+    try testing.expect(s.dirty);
+    try testing.expect(s.generation > storage_generation);
+    try testing.expectEqual(pending.generation, s.imageById(1).?.generation);
+    try testing.expectEqual(@as(usize, 16), s.total_bytes);
+    try testing.expectEqualSlices(u8, pixels, s.imageById(1).?.data.bytes().?);
+
+    const duplicate = try alloc.dupe(u8, "!" ** 16);
+    const duplicate_completed = pending.complete(&s, io, duplicate);
+    try testing.expect(!duplicate_completed);
+    defer alloc.free(duplicate);
+}
+
+test "storage: stale pending completion loses to delete replacement and eviction" {
+    const testing = std.testing;
+    const io = testing.io;
+    const alloc = testing.allocator;
+    var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
+    defer t.deinit(alloc);
+
+    var s: ImageStorage = .{ .total_limit = 8 };
+    defer s.deinit(alloc, t.screens.active);
+
+    const deleted = try s.addPendingImage(io, alloc, .{
+        .id = 1,
+        .data = .{ .pending = 4 },
+    });
+    s.delete(io, alloc, &t, .{ .id = .{ .delete = true, .image_id = 1 } });
+    const deleted_data = try alloc.dupe(u8, "gone");
+    const deleted_completed = deleted.complete(&s, io, deleted_data);
+    try testing.expect(!deleted_completed);
+    defer alloc.free(deleted_data);
+
+    const replaced = try s.addPendingImage(io, alloc, .{
+        .id = 2,
+        .data = .{ .pending = 4 },
+    });
+    try s.addImage(io, alloc, .{
+        .id = 2,
+        .data = .{ .complete = try alloc.dupe(u8, "live") },
+    });
+    const replaced_data = try alloc.dupe(u8, "late");
+    const replaced_completed = replaced.complete(&s, io, replaced_data);
+    try testing.expect(!replaced_completed);
+    defer alloc.free(replaced_data);
+    try testing.expectEqualStrings("live", s.imageById(2).?.data.bytes().?);
+
+    const evicted = try s.addPendingImage(io, alloc, .{
+        .id = 3,
+        .data = .{ .pending = 4 },
+    });
+    try s.addImage(io, alloc, .{
+        .id = 4,
+        .data = .{ .complete = try alloc.dupe(u8, "12345678") },
+    });
+    try testing.expect(s.imageById(3) == null);
+    const evicted_data = try alloc.dupe(u8, "late");
+    const evicted_completed = evicted.complete(&s, io, evicted_data);
+    try testing.expect(!evicted_completed);
+    defer alloc.free(evicted_data);
+}
+
+test "storage: replacement reuses pending reservation and preserves placements" {
+    const testing = std.testing;
+    const io = testing.io;
+    const alloc = testing.allocator;
+    var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
+    defer t.deinit(alloc);
+
+    var s: ImageStorage = .{ .total_limit = 12 };
+    defer s.deinit(alloc, t.screens.active);
+
+    const pending = try s.addPendingImage(io, alloc, .{
+        .id = 1,
+        .width = 2,
+        .height = 1,
+        .format = .rgba,
+        .data = .{ .pending = 8 },
+    });
+    try s.addPlacement(io, alloc, 1, 1, .{
+        .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) },
+    });
+    try s.addImage(io, alloc, .{
+        .id = 2,
+        .data = .{ .complete = try alloc.dupe(u8, "keep") },
+    });
+
+    try s.addImage(io, alloc, .{
+        .id = 1,
+        .width = 2,
+        .height = 1,
+        .format = .rgba,
+        .data = .{ .complete = try alloc.dupe(u8, "12345678") },
+    });
+    try testing.expect(s.images.contains(1));
+    try testing.expect(s.images.contains(2));
+    try testing.expectEqual(@as(usize, 1), s.placements.count());
+    try testing.expectEqual(@as(usize, 12), s.total_bytes);
+
+    const stale = try alloc.dupe(u8, "snapshot");
+    const stale_completed = pending.complete(&s, io, stale);
+    try testing.expect(!stale_completed);
+    defer alloc.free(stale);
+
+    // Growing the replacement requires eviction, but the replacement ID and
+    // its placement are excluded. The other image supplies the needed bytes.
+    try s.addImage(io, alloc, .{
+        .id = 1,
+        .data = .{ .complete = try alloc.dupe(u8, "1234567890") },
+    });
+    try testing.expect(s.images.contains(1));
+    try testing.expect(!s.images.contains(2));
+    try testing.expectEqual(@as(usize, 1), s.placements.count());
+    try testing.expectEqual(@as(usize, 10), s.total_bytes);
+}
+
+test "storage: pending images share exact eviction ordering" {
+    const testing = std.testing;
+    const io = testing.io;
+    const alloc = testing.allocator;
+    var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
+    defer t.deinit(alloc);
+
+    var s: ImageStorage = .{ .total_limit = 192 };
+    defer s.deinit(alloc, t.screens.active);
+
+    _ = try s.addPendingImage(io, alloc, .{
+        .id = 1,
+        .data = .{ .pending = 64 },
+        .usage = .{ .transient = false },
+    });
+    _ = try s.addPendingImage(io, alloc, .{
+        .id = 2,
+        .data = .{ .pending = 64 },
+        .usage = .{ .transient = true },
+    });
+    try s.addImage(io, alloc, .{
+        .id = 3,
+        .data = .{ .complete = try alloc.dupe(u8, "*" ** 64) },
+        .usage = .{ .transient = true },
+    });
+    try s.addPlacement(io, alloc, 2, 1, .{
+        .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) },
+    });
+
+    // ID 3 is transient and unused, so one exact-size eviction is enough.
+    try testing.expect(try s.evictImage(io, alloc, 64));
+    try testing.expect(s.images.contains(1));
+    try testing.expect(s.images.contains(2));
+    try testing.expect(!s.images.contains(3));
+    try testing.expectEqual(@as(usize, 128), s.total_bytes);
 }

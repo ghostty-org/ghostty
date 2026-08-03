@@ -172,6 +172,27 @@ pub fn decodeOrDiscard(
     return decode(&source);
 }
 
+/// Decode one complete entry, returning null for invalid semantic contents.
+///
+/// Reader errors remain structural and are always propagated. This is the
+/// lenient entry point for enclosing codecs which can safely replace an
+/// invalid fixed-size style without treating truncation as invalid styling.
+pub fn decodeOrNull(
+    reader: *std.Io.Reader,
+) std.Io.Reader.Error!?terminal_style.Style {
+    return decodeOrDiscard(reader) catch |err| switch (err) {
+        error.ReadFailed => return error.ReadFailed,
+        error.EndOfStream => return error.EndOfStream,
+
+        error.InvalidColorKind,
+        error.InvalidColor,
+        error.InvalidUnderline,
+        error.InvalidFlags,
+        error.InvalidReserved,
+        => null,
+    };
+}
+
 fn encodeColor(
     value: terminal_style.Style.Color,
     writer: *std.Io.Writer,
@@ -381,6 +402,16 @@ test "decodeOrDiscard preserves the next entry boundary" {
     var reader: std.Io.Reader = .fixed(&fixture);
     try std.testing.expectError(error.InvalidColorKind, decodeOrDiscard(&reader));
     try std.testing.expectEqual(@as(u8, 0xFF), try reader.takeByte());
+}
+
+test "decodeOrNull distinguishes semantic errors from truncation" {
+    var invalid: [len]u8 = @splat(0);
+    invalid[0] = 3;
+    var invalid_reader: std.Io.Reader = .fixed(&invalid);
+    try std.testing.expectEqual(null, try decodeOrNull(&invalid_reader));
+
+    var truncated: std.Io.Reader = .fixed(invalid[0 .. len - 1]);
+    try std.testing.expectError(error.EndOfStream, decodeOrNull(&truncated));
 }
 
 test "reject every truncation" {

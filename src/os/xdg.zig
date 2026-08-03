@@ -6,7 +6,6 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
 const homedir = @import("homedir.zig");
-const global = @import("../global.zig");
 
 pub const Options = struct {
     /// Subdirectories to join to the base. This avoids extra allocations
@@ -20,8 +19,8 @@ pub const Options = struct {
 };
 
 /// Get the XDG user config directory. The returned value is allocated.
-pub fn config(alloc: Allocator, environ_map: *const std.process.Environ.Map, opts: Options) ![]u8 {
-    return try dir(alloc, environ_map, opts, .{
+pub fn config(io: std.Io, alloc: Allocator, environ_map: *const std.process.Environ.Map, opts: Options) ![]u8 {
+    return try dir(io, alloc, environ_map, opts, .{
         .env = "XDG_CONFIG_HOME",
         .windows_env = "LOCALAPPDATA",
         .default_subdir = ".config",
@@ -29,8 +28,8 @@ pub fn config(alloc: Allocator, environ_map: *const std.process.Environ.Map, opt
 }
 
 /// Get the XDG cache directory. The returned value is allocated.
-pub fn cache(alloc: Allocator, environ_map: *const std.process.Environ.Map, opts: Options) ![]u8 {
-    return try dir(alloc, environ_map, opts, .{
+pub fn cache(io: std.Io, alloc: Allocator, environ_map: *const std.process.Environ.Map, opts: Options) ![]u8 {
+    return try dir(io, alloc, environ_map, opts, .{
         .env = "XDG_CACHE_HOME",
         .windows_env = "LOCALAPPDATA",
         .default_subdir = ".cache",
@@ -38,8 +37,8 @@ pub fn cache(alloc: Allocator, environ_map: *const std.process.Environ.Map, opts
 }
 
 /// Get the XDG state directory. The returned value is allocated.
-pub fn state(alloc: Allocator, environ_map: *const std.process.Environ.Map, opts: Options) ![]u8 {
-    return try dir(alloc, environ_map, opts, .{
+pub fn state(io: std.Io, alloc: Allocator, environ_map: *const std.process.Environ.Map, opts: Options) ![]u8 {
+    return try dir(io, alloc, environ_map, opts, .{
         .env = "XDG_STATE_HOME",
         .windows_env = "LOCALAPPDATA",
         .default_subdir = ".local/state",
@@ -54,6 +53,7 @@ const InternalOptions = struct {
 
 /// Unified helper to get XDG directories that follow a common pattern.
 fn dir(
+    io: std.Io,
     alloc: Allocator,
     environ_map: *const std.process.Environ.Map,
     opts: Options,
@@ -89,7 +89,7 @@ fn dir(
 
     // Get our home dir
     var buf: [1024]u8 = undefined;
-    if (try homedir.home(environ_map, &buf)) |home| {
+    if (try homedir.home(io, environ_map, &buf)) |home| {
         return try std.fs.path.join(alloc, &[_][]const u8{
             home,
             internal_opts.default_subdir,
@@ -119,12 +119,13 @@ pub fn parseTerminalExec(argv: []const [*:0]const u8) ?[]const [*:0]const u8 {
 
 test {
     const testing = std.testing;
+    const io = testing.io;
     const alloc = testing.allocator;
     var environ_map = try testing.environ.createMap(alloc);
     defer environ_map.deinit();
 
     {
-        const value = try config(alloc, &environ_map, .{});
+        const value = try config(io, alloc, &environ_map, .{});
         defer alloc.free(value);
         try testing.expect(value.len > 0);
     }
@@ -132,6 +133,7 @@ test {
 
 test "cache directory paths" {
     const testing = std.testing;
+    const io = testing.io;
     const alloc = testing.allocator;
     const mock_home = if (builtin.os.tag == .windows) "C:\\Users\\test" else "/Users/test";
     var environ_map = try testing.environ.createMap(alloc);
@@ -141,7 +143,7 @@ test "cache directory paths" {
     {
         // Test base path
         {
-            const cache_path = try cache(alloc, &environ_map, .{ .home = mock_home });
+            const cache_path = try cache(io, alloc, &environ_map, .{ .home = mock_home });
             defer alloc.free(cache_path);
             const expected = try std.fs.path.join(alloc, &.{ mock_home, ".cache" });
             defer alloc.free(expected);
@@ -150,7 +152,7 @@ test "cache directory paths" {
 
         // Test with subdir
         {
-            const cache_path = try cache(alloc, &environ_map, .{
+            const cache_path = try cache(io, alloc, &environ_map, .{
                 .home = mock_home,
                 .subdir = "ghostty",
             });
@@ -165,11 +167,12 @@ test "cache directory paths" {
 test "fallback when xdg env empty" {
     if (builtin.os.tag == .windows) return error.SkipZigTest;
 
+    const io = std.testing.io;
     const alloc = std.testing.allocator;
 
     const DirCase = struct {
         name: [:0]const u8,
-        func: fn (Allocator, *std.process.Environ.Map, Options) anyerror![]u8,
+        func: fn (std.Io, Allocator, *std.process.Environ.Map, Options) anyerror![]u8,
         default_subdir: []const u8,
     };
 
@@ -193,7 +196,7 @@ test "fallback when xdg env empty" {
 
         // Test with empty string - should fallback to home
         try environ_map.put(case.name, "");
-        const actual = try case.func(alloc, &environ_map, .{});
+        const actual = try case.func(io, alloc, &environ_map, .{});
         defer alloc.free(actual);
 
         try std.testing.expectEqualStrings(expected, actual);
@@ -203,11 +206,12 @@ test "fallback when xdg env empty" {
 test "fallback when xdg env empty and subdir" {
     if (builtin.os.tag == .windows) return error.SkipZigTest;
 
+    const io = std.testing.io;
     const alloc = std.testing.allocator;
 
     const DirCase = struct {
         name: [:0]const u8,
-        func: fn (Allocator, *const std.process.Environ.Map, Options) anyerror![]u8,
+        func: fn (std.Io, Allocator, *const std.process.Environ.Map, Options) anyerror![]u8,
         default_subdir: []const u8,
     };
 
@@ -232,7 +236,7 @@ test "fallback when xdg env empty and subdir" {
 
         // Test with empty string - should fallback to home
         try environ_map.put(case.name, "");
-        const actual = try case.func(alloc, &environ_map, .{ .subdir = "ghostty" });
+        const actual = try case.func(io, alloc, &environ_map, .{ .subdir = "ghostty" });
         defer alloc.free(actual);
 
         try std.testing.expectEqualStrings(expected, actual);
