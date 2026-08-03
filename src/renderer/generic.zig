@@ -13,6 +13,8 @@ const math = @import("../math.zig");
 const Surface = @import("../Surface.zig");
 const link = @import("link.zig");
 const cellpkg = @import("cell.zig");
+const rendererbidi = @import("bidi.zig");
+const bidipkg = @import("../bidi/main.zig");
 const noMinContrast = cellpkg.noMinContrast;
 const constraintWidth = cellpkg.constraintWidth;
 const isCovering = cellpkg.isCovering;
@@ -174,6 +176,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         font_grid: *font.SharedGrid,
         font_shaper: font.Shaper,
         font_shaper_cache: font.ShaperCache,
+
+        /// Cached bidi resolution per row. Populated during rendering but
+        /// not yet consumed; run iteration still walks logical order.
+        bidi_cache: rendererbidi.BidiCache,
 
         /// The images that we may render.
         images: ImageState = .empty,
@@ -780,6 +786,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .font_grid = options.font_grid,
                 .font_shaper = font_shaper,
                 .font_shaper_cache = font.ShaperCache.init(),
+                .bidi_cache = .init(alloc),
 
                 // Shaders (initialized below)
                 .shaders = undefined,
@@ -819,6 +826,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             self.font_shaper.deinit();
             self.font_shaper_cache.deinit(self.alloc);
+            self.bidi_cache.deinit(self.alloc);
 
             self.config.deinit();
 
@@ -1097,6 +1105,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const font_shaper_cache = font.ShaperCache.init();
             self.font_shaper_cache.deinit(self.alloc);
             self.font_shaper_cache = font_shaper_cache;
+
+            // Bidi results are keyed by row content, so a font change
+            // cannot make them wrong. They are dropped anyway because the
+            // rows they describe are about to be re-laid out and holding
+            // their storage is not worth it.
+            self.bidi_cache.reset();
 
             // Update cell size.
             self.size.cell = .{
@@ -1863,6 +1877,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const font_shaper_cache = font.ShaperCache.init();
             self.font_shaper_cache.deinit(self.alloc);
             self.font_shaper_cache = font_shaper_cache;
+
+            // Config can change bidi behavior, so drop resolved rows.
+            self.bidi_cache.reset();
 
             // Set our new minimum contrast
             self.uniforms.min_contrast = config.min_contrast;
@@ -2639,6 +2656,29 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         state.colors.background,
                     );
                 },
+            }
+
+            // Resolve bidi for this row and cache it.
+            //
+            // Nothing consumes the result yet; run iteration still walks
+            // logical order. Populating the cache first means its memory
+            // behavior and cost can be measured on their own, before
+            // rendering depends on it.
+            //
+            // This is comptime-gated on the backend so that the default
+            // build, which does no reordering, does not pay for a row
+            // hash it would never use.
+            if (comptime bidipkg.options.backend != .noop) {
+                _ = self.bidi_cache.resolve(
+                    self.alloc,
+                    cells_slice,
+                    @intCast(cells_len),
+                ) catch |err| {
+                    log.warn(
+                        "error resolving bidi row y={} err={}",
+                        .{ y, err },
+                    );
+                };
             }
 
             // Iterator of runs for shaping.
