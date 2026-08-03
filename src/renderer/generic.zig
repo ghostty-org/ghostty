@@ -2527,10 +2527,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         // If we are a spacer tail of a wide cell, our cursor needs
                         // to move back one cell. The saturate is to ensure we don't
                         // overflow but this shouldn't happen with well-formed input.
-                        switch (wide) {
+                        // As in addCursor, the step back happens in logical
+                        // space and the result is then mapped to where it
+                        // is drawn.
+                        self.visualColFor(cursor_vp.y, switch (wide) {
                             .narrow, .spacer_head, .wide => cursor_vp.x,
                             .spacer_tail => cursor_vp.x -| 1,
-                        },
+                        }),
                         @intCast(cursor_vp.y),
                     };
 
@@ -2696,8 +2699,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             var run_iter_opts: font.shape.RunOptions = .{
                 .grid = self.font_grid,
                 .cells = cells_slice,
+                // The selection is stored logically. Mapping it can
+                // yield several visual stretches when it spans a change
+                // of direction.
                 .selection = if (selection) |s|
-                    .one(.{ .start = s[0], .end = s[1] })
+                    row_bidi.visualSegments(s[0], s[1])
                 else
                     .empty,
 
@@ -2708,10 +2714,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                 // We want to do font shaping as long as the cursor is
                 // visible on this viewport.
+                //
+                // The cursor position is logical, because that is what
+                // the running program addresses, but the run iterator
+                // walks visual columns, so it is mapped here.
                 .cursor_x = cursor_x: {
                     const vp = state.cursor.viewport orelse break :cursor_x null;
                     if (vp.y != y) break :cursor_x null;
-                    break :cursor_x vp.x;
+                    if (vp.x >= cells_len) break :cursor_x vp.x;
+                    break :cursor_x row_bidi.visualCol(.from(vp.x)).int();
                 },
             };
             run_iter_opts.applyBreakConfig(self.config.font_shaping_break);
@@ -2720,11 +2731,19 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             var shaper_cells: ?[]const font.shape.Cell = null;
             var shaper_cells_i: usize = 0;
 
-            for (
-                0..,
-                cells_raw[0..cells_len],
-                cells_style[0..cells_len],
-            ) |x, *cell, *managed_style| {
+            // The loop below walks VISUAL columns: `x` is where a cell
+            // is drawn, and is what the shaper's cells are matched
+            // against. `lx` is the logical column whose contents are
+            // displayed there, and is what the selection, highlight and
+            // link ranges are expressed in, since those come from the
+            // terminal and are always logical.
+            //
+            // Without reordering the two are equal and this is the same
+            // loop it has always been.
+            for (0..cells_len) |x| {
+                const lx: usize = row_bidi.logicalCol(.from(@intCast(x))).int();
+                const cell: *const terminal.page.Cell = &cells_raw[lx];
+                const managed_style: *const terminal.Style = &cells_style[lx];
                 // If this cell falls within our preedit range then we
                 // skip this because preedits are setup separately.
                 if (preedit_range) |range| preedit: {
@@ -2803,10 +2822,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     // Order below matters for precedence.
 
                     // Selection should take the highest precedence.
+                    // Membership is tested logically because that is
+                    // the space the ranges live in; the result is drawn
+                    // at the visual column, which is what makes a
+                    // logically contiguous selection render as several
+                    // stretches when it crosses a direction change.
                     const x_compare = if (wide == .spacer_tail)
-                        x -| 1
+                        lx -| 1
                     else
-                        x;
+                        lx;
                     if (selection) |sel| {
                         if (x_compare >= sel[0] and
                             x_compare <= sel[1]) break :selected .selection;
@@ -2977,7 +3001,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // distinguish them.
                 const underline: terminal.Attribute.Underline = underline: {
                     if (links.contains(.{
-                        .x = @intCast(x),
+                        .x = @intCast(lx),
                         .y = @intCast(y),
                     })) {
                         break :underline if (style.flags.underline == .single)
@@ -3266,6 +3290,39 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             });
         }
 
+        /// Map a logical column on a viewport row to the visual column
+        /// it is displayed at.
+        ///
+        /// The cursor position is logical, because that is the space the
+        /// running program addresses, but it has to be drawn where the
+        /// character actually appears. The row was already resolved
+        /// while its cells were built, so this is a cache hit.
+        fn visualColFor(
+            self: *Self,
+            y: usize,
+            logical_x: terminal.size.CellCountInt,
+        ) terminal.size.CellCountInt {
+            // Nothing reorders, so the two spaces coincide. This is the
+            // whole cost of the mapping in the default build.
+            if (comptime bidipkg.options.backend == .noop) return logical_x;
+
+            const state = &self.terminal_state;
+            const rows = state.row_data.items(.cells);
+            if (y >= rows.len) return logical_x;
+
+            const cells = rows[y].slice();
+            const cols: u16 = @intCast(cells.len);
+            if (logical_x >= cols) return logical_x;
+
+            const row_bidi = self.bidi_cache.resolve(
+                self.alloc,
+                cells,
+                cols,
+            ) catch return logical_x;
+
+            return @intCast(row_bidi.visualCol(.from(logical_x)).int());
+        }
+
         fn addCursor(
             self: *Self,
             cursor_state: *const terminal.RenderState.Cursor,
@@ -3276,7 +3333,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Add the cursor. We render the cursor over the wide character if
             // we're on the wide character tail.
-            const wide, const x = cell: {
+            //
+            // The logical column is resolved first, including the step
+            // back onto a wide character's head, and only then mapped to
+            // where that character is drawn. Mapping first would step
+            // back from a visual column into whatever happens to be to
+            // its left, which need not be the same character.
+            const wide, const logical_x = cell: {
                 // The cursor goes over the screen cursor position.
                 if (!cursor_vp.wide_tail) break :cell .{
                     cursor_state.cell.wide == .wide,
@@ -3287,6 +3350,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // to the actual character.
                 break :cell .{ true, cursor_vp.x - 1 };
             };
+            const x = self.visualColFor(cursor_vp.y, logical_x);
 
             const alpha: u8 = if (!self.focused) 255 else alpha: {
                 const alpha = 255 * self.config.cursor_opacity;

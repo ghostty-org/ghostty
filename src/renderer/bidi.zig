@@ -26,6 +26,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const bidi = @import("../bidi/main.zig");
+const font = @import("../font/main.zig");
 const terminal = @import("../terminal/main.zig");
 const point = @import("../terminal/point.zig");
 
@@ -88,6 +89,46 @@ pub const RowBidi = struct {
         const i = l.int();
         assert(i < self.cols);
         return if (self.identity) 0 else self.levels[i];
+    }
+
+    /// Convert a logical column range into the visual ranges it covers.
+    ///
+    /// A selection is logically contiguous, but a logically contiguous
+    /// range is not visually contiguous when it spans a change of
+    /// direction: selecting across a boundary highlights two separate
+    /// stretches, which is what every text editor does and what readers
+    /// of right-to-left scripts expect. Snapping it back to one range
+    /// would be wrong, not tidier.
+    ///
+    /// Each level run is contiguous in both orders, so the range is
+    /// clipped against each run in turn and mapped through `l2v`. For a
+    /// right-to-left run the endpoints swap, since the logically first
+    /// column is displayed rightmost.
+    pub fn visualSegments(
+        self: *const RowBidi,
+        lo: u16,
+        hi: u16,
+    ) font.shape.SelectionSegments {
+        // Nothing was reordered, so the range is already visual.
+        if (self.identity) return .one(.{ .start = lo, .end = hi });
+
+        var out: font.shape.SelectionSegments = .empty;
+        for (self.runs) |run| {
+            const run_lo = run.logical_start;
+            const run_hi = run.logical_start + run.len - 1;
+
+            const clip_lo = @max(lo, run_lo);
+            const clip_hi = @min(hi, run_hi);
+            if (clip_lo > clip_hi) continue;
+
+            const a = self.l2v[clip_lo];
+            const b = self.l2v[clip_hi];
+            out.append(if (a <= b)
+                .{ .start = a, .end = b }
+            else
+                .{ .start = b, .end = a });
+        }
+        return out;
     }
 
     /// An identity result for a row that needs no reordering.
@@ -650,4 +691,213 @@ test "BidiCache: reordering keeps wide cells intact" {
         expect_start += run.len;
     }
     try testing.expectEqual(@as(usize, r.cols), covered);
+}
+
+/// A hand-built RowBidi for the arrangement:
+///
+///   logical:  a  b  c  A  B  C     levels 0 0 0 1 1 1
+///   visual:   a  b  c  C  B  A     v2l    0 1 2 5 4 3
+///
+/// which is Latin followed by right-to-left text in a left-to-right
+/// paragraph, the most common mixed case there is.
+fn testMixedRow() RowBidi {
+    const S = struct {
+        const v2l = [_]u16{ 0, 1, 2, 5, 4, 3 };
+        const l2v = [_]u16{ 0, 1, 2, 5, 4, 3 };
+        const levels = [_]bidi.Level{ 0, 0, 0, 1, 1, 1 };
+        const runs = [_]bidi.LevelRun{
+            .{ .visual_start = 0, .len = 3, .logical_start = 0, .level = 0 },
+            .{ .visual_start = 3, .len = 3, .logical_start = 3, .level = 1 },
+        };
+    };
+    return .{
+        .hash = 0,
+        .direction = .ltr,
+        .cols = 6,
+        .identity = false,
+        .v2l = &S.v2l,
+        .l2v = &S.l2v,
+        .levels = &S.levels,
+        .runs = &S.runs,
+    };
+}
+
+test "visualSegments: identity passes the range through" {
+    const r: RowBidi = .identityFor(10, &.{});
+    const segs = r.visualSegments(2, 5);
+    try testing.expectEqual(@as(usize, 1), segs.slice().len);
+    try testing.expectEqual(@as(u16, 2), segs.slice()[0].start);
+    try testing.expectEqual(@as(u16, 5), segs.slice()[0].end);
+}
+
+test "visualSegments: a right-to-left run swaps its endpoints" {
+    const r = testMixedRow();
+
+    // Selecting the whole right-to-left half. Logical 3..5 is displayed
+    // at visual 5..3, so the segment runs 3..5 with its ends swapped.
+    const segs = r.visualSegments(3, 5);
+    try testing.expectEqual(@as(usize, 1), segs.slice().len);
+    try testing.expectEqual(@as(u16, 3), segs.slice()[0].start);
+    try testing.expectEqual(@as(u16, 5), segs.slice()[0].end);
+
+    // A partial one: logical 3..4 is displayed at visual 5 and 4.
+    const partial = r.visualSegments(3, 4);
+    try testing.expectEqual(@as(usize, 1), partial.slice().len);
+    try testing.expectEqual(@as(u16, 4), partial.slice()[0].start);
+    try testing.expectEqual(@as(u16, 5), partial.slice()[0].end);
+}
+
+test "visualSegments: a selection across a direction change splits" {
+    const r = testMixedRow();
+
+    // Selecting logical c, A, B. On screen "c" sits at visual 2 while A
+    // and B sit at visual 5 and 4, so the highlight is two separate
+    // stretches with a gap at visual 3. That is what a text editor does
+    // and what a reader of the script expects; collapsing it into one
+    // range would highlight a character that is not selected.
+    const segs = r.visualSegments(2, 4);
+    try testing.expectEqual(@as(usize, 2), segs.slice().len);
+
+    try testing.expectEqual(@as(u16, 2), segs.slice()[0].start);
+    try testing.expectEqual(@as(u16, 2), segs.slice()[0].end);
+
+    try testing.expectEqual(@as(u16, 4), segs.slice()[1].start);
+    try testing.expectEqual(@as(u16, 5), segs.slice()[1].end);
+}
+
+test "visualSegments: covers every column when the whole row is selected" {
+    const r = testMixedRow();
+
+    const segs = r.visualSegments(0, 5);
+
+    var seen: [6]bool = @splat(false);
+    for (segs.slice()) |seg| {
+        var i = seg.start;
+        while (i <= seg.end) : (i += 1) seen[i] = true;
+    }
+    for (seen) |v| try testing.expect(v);
+}
+
+test "visualSegments: a range outside every run yields nothing" {
+    const r = testMixedRow();
+
+    // Selecting past the end of the row covers no run.
+    const segs = r.visualSegments(8, 9);
+    try testing.expectEqual(@as(usize, 0), segs.slice().len);
+}
+
+test "visualCol and logicalCol round trip on a mixed row" {
+    const r = testMixedRow();
+
+    for (0..r.cols) |i| {
+        const l: LogicalCol = .from(@intCast(i));
+        const v: VisualCol = .from(@intCast(i));
+        try testing.expectEqual(i, r.logicalCol(r.visualCol(l)).int());
+        try testing.expectEqual(i, r.visualCol(r.logicalCol(v)).int());
+    }
+
+    // The right-to-left half really is reversed.
+    try testing.expectEqual(@as(u16, 5), r.visualCol(.from(3)).int());
+    try testing.expectEqual(@as(u16, 3), r.visualCol(.from(5)).int());
+}
+
+test "identity mapping is a true no-op for every accessor" {
+    // The acceptance criterion for the renderer's coordinate mapping:
+    // with no reordering, every mapping has to be the identity, so the
+    // frame is built from exactly the same columns it was before any of
+    // this existed.
+    const r: RowBidi = .identityFor(80, &.{});
+
+    for (0..80) |i| {
+        const l: LogicalCol = .from(@intCast(i));
+        const v: VisualCol = .from(@intCast(i));
+        try testing.expectEqual(i, r.logicalCol(v).int());
+        try testing.expectEqual(i, r.visualCol(l).int());
+        try testing.expectEqual(@as(bidi.Level, 0), r.level(l));
+    }
+
+    // And a selection maps to itself, unsplit.
+    for ([_][2]u16{ .{ 0, 0 }, .{ 0, 79 }, .{ 13, 42 }, .{ 79, 79 } }) |range| {
+        const segs = r.visualSegments(range[0], range[1]);
+        try testing.expectEqual(@as(usize, 1), segs.slice().len);
+        try testing.expectEqual(range[0], segs.slice()[0].start);
+        try testing.expectEqual(range[1], segs.slice()[0].end);
+    }
+}
+
+test "a resolved ascii row maps identically" {
+    const alloc = testing.allocator;
+
+    // The same check but through the real path: resolve an actual row
+    // of plain text and confirm the result is the identity, so the
+    // renderer's mapped code path is a no-op on ordinary content
+    // whatever backend is compiled in.
+    var cache: BidiCache = .init(alloc);
+    defer cache.deinit(alloc);
+
+    var row = try TestRow.init(alloc, 20, "hello world 123");
+    defer row.deinit(alloc);
+
+    const r = try cache.resolve(alloc, row.cells(), 20);
+    try testing.expect(r.identity);
+
+    for (0..20) |i| {
+        const l: LogicalCol = .from(@intCast(i));
+        const v: VisualCol = .from(@intCast(i));
+        try testing.expectEqual(i, r.logicalCol(v).int());
+        try testing.expectEqual(i, r.visualCol(l).int());
+    }
+
+    const segs = r.visualSegments(3, 8);
+    try testing.expectEqual(@as(usize, 1), segs.slice().len);
+    try testing.expectEqual(@as(u16, 3), segs.slice()[0].start);
+    try testing.expectEqual(@as(u16, 8), segs.slice()[0].end);
+}
+
+test "wide cell: stepping back happens logically, not visually" {
+    // A cursor on the spacer tail of a wide character steps back one
+    // column to reach the character's head, and only then is mapped to
+    // where that character is drawn.
+    //
+    // Doing it the other way round would step back from a visual column
+    // into whatever sits to its left on screen, which after reordering
+    // need not be part of the same character at all. This test pins the
+    // arrangement that makes the difference observable.
+    //
+    //   logical:  A  B  |  W  W      A,B rtl; W a wide cell at level 0
+    //   visual:   B  A  |  W  W
+    const S = struct {
+        const v2l = [_]u16{ 1, 0, 2, 3 };
+        const l2v = [_]u16{ 1, 0, 2, 3 };
+        const levels = [_]bidi.Level{ 1, 1, 0, 0 };
+        const runs = [_]bidi.LevelRun{
+            .{ .visual_start = 0, .len = 2, .logical_start = 0, .level = 1 },
+            .{ .visual_start = 2, .len = 2, .logical_start = 2, .level = 0 },
+        };
+    };
+    const r: RowBidi = .{
+        .hash = 0,
+        .direction = .ltr,
+        .cols = 4,
+        .identity = false,
+        .v2l = &S.v2l,
+        .l2v = &S.l2v,
+        .levels = &S.levels,
+        .runs = &S.runs,
+    };
+
+    // The wide character's head is logical column 2, drawn at visual 2.
+    // A cursor sitting on its tail is at logical 3; stepping back
+    // logically gives 2, which maps to visual 2. Correct.
+    const head_logical: LogicalCol = .from(3 - 1);
+    try testing.expectEqual(@as(u16, 2), r.visualCol(head_logical).int());
+
+    // Had the order been reversed, the cursor at logical 3 would map to
+    // visual 3 and then step back to visual 2, which happens to agree
+    // here but does not in general. The case that separates them is a
+    // cursor at logical 0: it maps to visual 1, and stepping back from
+    // there lands on visual 0, which displays logical 1, a different
+    // character entirely.
+    try testing.expectEqual(@as(u16, 1), r.visualCol(.from(0)).int());
+    try testing.expectEqual(@as(u16, 1), r.logicalCol(.from(0)).int());
 }
