@@ -1,0 +1,68 @@
+# Golden shaping vectors for right-to-left runs.
+#
+# Generated from KawkabMono-Regular (src/font/res) via the
+# "shape rtl: golden vectors" test. Regenerate by making that
+# test print its dump rather than compare it.
+#
+# These lock in mark placement, which is where a regression in
+# the cluster-to-cell mapping shows up as text that still looks
+# plausible. "arabic shadda+kasra" is the most sensitive case:
+# three glyphs on one cell, each with its own offset.
+#
+# Glyph ids are specific to this font. Changing the font
+# invalidates the file.
+
+arabic beh x3 (initial/medial/final)
+  cells=3 glyphs=3
+  x=0 xoff=0 yoff=0 gid=868
+  x=1 xoff=0 yoff=0 gid=869
+  x=2 xoff=0 yoff=0 gid=870
+arabic beh isolated
+  cells=1 glyphs=1
+  x=0 xoff=0 yoff=0 gid=867
+arabic beh+meem
+  cells=2 glyphs=2
+  x=0 xoff=0 yoff=0 gid=1004
+  x=1 xoff=0 yoff=0 gid=870
+arabic lam-alef ligature
+  cells=2 glyphs=1
+  x=1 xoff=0 yoff=0 gid=1064
+arabic tatweel
+  cells=3 glyphs=3
+  x=0 xoff=0 yoff=0 gid=1004
+  x=1 xoff=0 yoff=0 gid=1063
+  x=2 xoff=0 yoff=0 gid=870
+arabic fatha
+  cells=1 glyphs=2
+  x=0 xoff=0 yoff=1 gid=1734
+  x=0 xoff=0 yoff=0 gid=867
+arabic shadda+kasra
+  cells=1 glyphs=3
+  x=0 xoff=1 yoff=-4 gid=1736
+  x=0 xoff=0 yoff=1 gid=1737
+  x=0 xoff=0 yoff=0 gid=867
+arabic mark on second letter
+  cells=2 glyphs=3
+  x=0 xoff=0 yoff=0 gid=1734
+  x=0 xoff=0 yoff=0 gid=868
+  x=1 xoff=0 yoff=0 gid=870
+arabic marks on both letters
+  cells=2 glyphs=4
+  x=0 xoff=0 yoff=-4 gid=1736
+  x=0 xoff=0 yoff=0 gid=868
+  x=1 xoff=0 yoff=0 gid=1734
+  x=1 xoff=0 yoff=0 gid=870
+persian peh-cheh-jeh
+  cells=3 glyphs=3
+  x=0 xoff=0 yoff=0 gid=918
+  x=1 xoff=0 yoff=0 gid=893
+  x=2 xoff=0 yoff=0 gid=874
+persian gaf+farsi yeh
+  cells=2 glyphs=2
+  x=0 xoff=0 yoff=0 gid=1055
+  x=1 xoff=0 yoff=0 gid=992
+persian zwnj compound
+  cells=3 glyphs=3
+  x=0 xoff=0 yoff=0 gid=909
+  x=1 xoff=0 yoff=0 gid=1
+  x=2 xoff=0 yoff=0 gid=1003

@@ -39,6 +39,11 @@ pub const Shaper = struct {
     /// with glyph indices in the buffer.
     codepoints: std.ArrayList(Codepoint) = .empty,
 
+    /// For a right-to-left run, maps a logical cell offset within the run
+    /// to its visual cell offset. Empty for left-to-right runs, where the
+    /// two are the same. Rebuilt per shape call. See `buildVisualMap`.
+    visual_map: std.ArrayList(u16) = .empty,
+
     const Codepoint = struct {
         cluster: u32,
         codepoint: u32,
@@ -98,6 +103,7 @@ pub const Shaper = struct {
         self.cell_buf.deinit(self.alloc);
         self.alloc.free(self.hb_feats);
         self.codepoints.deinit(self.alloc);
+        self.visual_map.deinit(self.alloc);
     }
 
     pub fn endFrame(self: *const Shaper) void {
@@ -129,6 +135,21 @@ pub const Shaper = struct {
     ///
     /// If there is not enough space in the cell buffer, an error is returned.
     pub fn shape(self: *Shaper, run: font.shape.TextRun) ![]const font.shape.Cell {
+        const rtl = run.direction == .rtl;
+
+        // Force the buffer to the run's resolved direction. `finalize`
+        // already ran `guessSegmentProperties` to infer script and
+        // language; the direction it inferred from the script is only a
+        // guess, whereas the run's direction comes from bidi resolution
+        // and is authoritative. A run never spans a direction change, so
+        // one direction for the whole buffer is always correct.
+        //
+        // Codepoints were added in logical order and must stay that way:
+        // HarfBuzz decides Arabic joining forms from logical neighbours
+        // and emits the glyphs in visual order itself. Handing it
+        // pre-reversed text produces the wrong contextual forms.
+        self.hb_buf.setDirection(if (rtl) .rtl else .ltr);
+
         // We only do shaping if the font is not a special-case. For special-case
         // fonts, the codepoint == glyph_index so we don't need to run any shaping.
         if (run.font_index.special() == null) {
@@ -159,9 +180,18 @@ pub const Shaper = struct {
         // If it isn't true, I'd like to catch it and learn more.
         assert(info.len == pos.len);
 
+        // For a right-to-left run we need to know where each logical cell
+        // lands visually, because `Cell.x` is a visual offset.
+        if (rtl) try self.buildVisualMap(run);
+
         // This keeps track of the current x and y offsets (sum of advances)
-        // and the furthest cluster we've seen so far (max).
-        var run_offset: RunOffset = .{};
+        // and the furthest cluster we've seen so far in the direction the
+        // glyphs are being emitted: the largest for a left-to-right run,
+        // the smallest for a right-to-left one, since HarfBuzz emits
+        // glyphs in visual order and RTL clusters therefore descend.
+        var run_offset: RunOffset = .{
+            .cluster = if (rtl) std.math.maxInt(u32) else 0,
+        };
 
         // This keeps track of the cell starting x and cluster.
         var cell_offset: CellOffset = .{};
@@ -176,10 +206,31 @@ pub const Shaper = struct {
             // then we need to reset our current cell offsets.
             const cluster = self.codepoints.items[index].cluster;
             if (cell_offset.cluster != cluster) {
-                const is_after_glyph_from_current_or_next_clusters =
+                // Whether this glyph comes after one from the current or a
+                // later cluster, i.e. whether glyphs are arriving out of
+                // cluster order. Clusters ascend for a left-to-right run
+                // and descend for a right-to-left one, so the comparison
+                // flips with the direction.
+                const is_after_glyph_from_current_or_next_clusters = if (rtl)
+                    cluster >= run_offset.cluster
+                else
                     cluster <= run_offset.cluster;
 
+                // Whether this is the first codepoint of its cluster in
+                // the order the glyphs are being emitted. HarfBuzz
+                // reverses the whole buffer for a right-to-left run, which
+                // reverses the order within a cluster too, so the search
+                // runs forward through the logically ordered codepoints
+                // instead of backward.
                 const is_first_codepoint_in_cluster = blk: {
+                    if (rtl) {
+                        var i = index + 1;
+                        while (i < self.codepoints.items.len) : (i += 1) {
+                            break :blk self.codepoints.items[i].cluster != cluster;
+                        }
+                        break :blk true;
+                    }
+
                     var i = index;
                     while (i > 0) {
                         i -= 1;
@@ -236,7 +287,15 @@ pub const Shaper = struct {
             //try self.debugPositions(run_offset, cell_offset, pos_v, index);
 
             try self.cell_buf.append(self.alloc, .{
-                .x = @intCast(cell_offset.cluster),
+                // `Cell.x` is a visual offset within the run, because the
+                // renderer walks visual columns and requires it to ascend.
+                // For a left-to-right run the logical cluster already is
+                // that offset; for a right-to-left one it has to be
+                // mapped. See `buildVisualMap`.
+                .x = if (rtl)
+                    self.visual_map.items[@intCast(cell_offset.cluster)]
+                else
+                    @intCast(cell_offset.cluster),
                 .x_offset = @intCast(x_offset),
                 .y_offset = @intCast(y_offset),
                 .glyph_index = info_v.codepoint,
@@ -249,7 +308,10 @@ pub const Shaper = struct {
             // whole value here.
             run_offset.x += (pos_v.x_advance + 0b100_000) >> 6;
             run_offset.y += (pos_v.y_advance + 0b100_000) >> 6;
-            run_offset.cluster = @max(run_offset.cluster, cluster);
+            run_offset.cluster = if (rtl)
+                @min(run_offset.cluster, cluster)
+            else
+                @max(run_offset.cluster, cluster);
 
             // const i = self.cell_buf.items.len - 1;
             // log.warn("i={} info={} pos={} cell={}", .{ i, info_v, pos_v, self.cell_buf.items[i] });
@@ -257,6 +319,50 @@ pub const Shaper = struct {
         //log.warn("----------------", .{});
 
         return self.cell_buf.items;
+    }
+
+    /// Build the logical-to-visual cell offset map for a right-to-left run.
+    ///
+    /// Rule L2 of UAX #9 reverses a right-to-left run's cells, so the
+    /// logically first cell is displayed rightmost. `Cell.x` is a visual
+    /// offset relative to the run, so it needs that reversal applied.
+    ///
+    /// Cells are not all one column wide, which is what makes this more
+    /// than a subtraction. A cell occupying logical columns [c, c+w) must
+    /// occupy visual columns [cells-c-w, cells-c), so the visual offset of
+    /// a cell is `cells - c - w` rather than `cells - 1 - c`. Widths are
+    /// recovered from the gaps between consecutive cluster values, since
+    /// the run iterator skips spacer cells and therefore leaves a gap of
+    /// exactly the cell's width.
+    fn buildVisualMap(
+        self: *Shaper,
+        run: font.shape.TextRun,
+    ) Allocator.Error!void {
+        self.visual_map.clearRetainingCapacity();
+        try self.visual_map.resize(self.alloc, run.cells);
+        @memset(self.visual_map.items, 0);
+
+        // Codepoints are in logical order, so cluster values here are
+        // non-decreasing and equal for the codepoints of one grapheme.
+        const cps = self.codepoints.items;
+        var i: usize = 0;
+        while (i < cps.len) {
+            const cluster = cps[i].cluster;
+
+            var j = i + 1;
+            while (j < cps.len and cps[j].cluster == cluster) j += 1;
+
+            const next: u32 = if (j < cps.len) cps[j].cluster else run.cells;
+            const width = next - cluster;
+
+            // A run always covers the cells its clusters address, so this
+            // cannot underflow unless the run and the buffer disagree.
+            assert(cluster + width <= run.cells);
+            self.visual_map.items[@intCast(cluster)] =
+                @intCast(run.cells - cluster - width);
+
+            i = j;
+        }
     }
 
     /// The hooks for RunIterator.
@@ -275,10 +381,11 @@ pub const Shaper = struct {
 
             self.shaper.codepoints.clearRetainingCapacity();
 
-            // We don't support RTL text because RTL in terminals is messy.
-            // Its something we want to improve. For now, we force LTR because
-            // our renderers assume a strictly increasing X value.
-            self.shaper.hb_buf.setDirection(.ltr);
+            // Direction is deliberately left unset here. `finalize` calls
+            // `guessSegmentProperties`, which infers the script from the
+            // buffer contents, and `shape` then forces the direction from
+            // the run. Setting it here would only stop the guess from
+            // running and would be overridden anyway.
         }
 
         pub fn addCodepoint(self: RunIteratorHook, cp: u32, cluster: u32) !void {
@@ -295,6 +402,10 @@ pub const Shaper = struct {
         }
 
         pub fn finalize(self: RunIteratorHook) void {
+            // Infers script and language from the buffer contents. It also
+            // infers direction, but only because direction is still unset
+            // at this point; `shape` overrides it with the run's resolved
+            // direction, which is the authoritative value.
             self.shaper.hb_buf.guessSegmentProperties();
         }
     };
@@ -2198,4 +2309,435 @@ fn testShaperWithDiscoveredFont(alloc: Allocator, font_req: [:0]const u8) !TestS
         .grid = grid_ptr,
         .lib = lib,
     };
+}
+
+/// Shape a single-run string with the Arabic test font, returning the run
+/// and its shaped cells. `direction` overrides the run's direction, which
+/// is how these tests exercise RTL before the run iterator produces it.
+fn testShapeRtl(
+    alloc: Allocator,
+    testdata: *TestShaper,
+    str: []const u8,
+    direction: font.shape.Direction,
+    t: *terminal.Terminal,
+    state: *terminal.RenderState,
+) !struct { run: font.shape.TextRun, cells: []const font.shape.Cell } {
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice(str);
+    try state.update(alloc, t);
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+
+    var run = (try it.next(alloc)).?;
+    run.direction = direction;
+    run.level = if (direction == .rtl) 1 else 0;
+    const cells = try shaper.shape(run);
+    return .{ .run = run, .cells = cells };
+}
+
+test "shape rtl: visual x ascends and stays in range" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 120, .rows = 30 });
+    defer t.deinit(alloc);
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+
+    const r = try testShapeRtl(
+        alloc,
+        &testdata,
+        @embedFile("testdata/arabic.txt"),
+        .rtl,
+        &t,
+        &state,
+    );
+
+    // The renderer walks visual columns and matches shaped cells against
+    // them in lockstep, asserting x never moves backwards. That invariant
+    // has to survive right-to-left runs, which is the whole reason the
+    // cluster mapping had to be re-derived rather than just letting
+    // HarfBuzz emit RTL clusters as they come.
+    try testing.expect(r.cells.len > 0);
+    var x: u16 = 0;
+    for (r.cells) |cell| {
+        try testing.expect(cell.x >= x);
+        try testing.expect(cell.x < r.run.cells);
+        x = cell.x;
+    }
+}
+
+test "shape rtl: reorders and reshapes relative to ltr" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    // Beh followed by meem. An asymmetric word matters here: three of the
+    // same letter happens to produce the same (x, glyph) pairs either way
+    // by coincidence, which would make this test pass while proving
+    // nothing.
+    const str = "\u{0628}\u{0645}";
+
+    var ltr: [2]u32 = undefined;
+    {
+        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 20, .rows = 3 });
+        defer t.deinit(alloc);
+        var state: terminal.RenderState = .empty;
+        defer state.deinit(alloc);
+
+        const r = try testShapeRtl(alloc, &testdata, str, .ltr, &t, &state);
+        try testing.expectEqual(@as(usize, 2), r.cells.len);
+        for (r.cells, 0..) |c, i| {
+            try testing.expectEqual(@as(u16, @intCast(i)), c.x);
+            ltr[i] = c.glyph_index;
+        }
+    }
+
+    {
+        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 20, .rows = 3 });
+        defer t.deinit(alloc);
+        var state: terminal.RenderState = .empty;
+        defer state.deinit(alloc);
+
+        const r = try testShapeRtl(alloc, &testdata, str, .rtl, &t, &state);
+        try testing.expectEqual(@as(usize, 2), r.cells.len);
+
+        // Every visual position shows a different glyph than it did
+        // left-to-right. Two things changed at once, and both matter:
+        // the cells were reordered, so the logically first letter is now
+        // rightmost, and HarfBuzz picked different contextual forms
+        // because joining depends on the direction the run is shaped in.
+        // Forcing Arabic to left-to-right, as the shaper did before this,
+        // therefore did not merely reverse the word: it also rendered
+        // every letter in the wrong joining form.
+        for (r.cells, 0..) |c, i| {
+            try testing.expectEqual(@as(u16, @intCast(i)), c.x);
+            try testing.expect(c.glyph_index != ltr[i]);
+        }
+    }
+}
+
+test "shape rtl: arabic contextual joining forms" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    // A run of three identical letters exercises all four joining forms:
+    // the word gives initial, medial, and final, and the same letter
+    // alone gives isolated. If direction or buffer order were wrong,
+    // HarfBuzz would pick the wrong forms and these would collide.
+    var joined: [3]u32 = undefined;
+    {
+        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 20, .rows = 3 });
+        defer t.deinit(alloc);
+        var state: terminal.RenderState = .empty;
+        defer state.deinit(alloc);
+
+        const r = try testShapeRtl(
+            alloc,
+            &testdata,
+            "\u{0628}\u{0628}\u{0628}",
+            .rtl,
+            &t,
+            &state,
+        );
+        try testing.expectEqual(@as(usize, 3), r.cells.len);
+        for (r.cells, 0..) |c, i| joined[i] = c.glyph_index;
+    }
+
+    var isolated: u32 = undefined;
+    {
+        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 20, .rows = 3 });
+        defer t.deinit(alloc);
+        var state: terminal.RenderState = .empty;
+        defer state.deinit(alloc);
+
+        const r = try testShapeRtl(alloc, &testdata, "\u{0628}", .rtl, &t, &state);
+        try testing.expectEqual(@as(usize, 1), r.cells.len);
+        isolated = r.cells[0].glyph_index;
+    }
+
+    // All four forms must be distinct glyphs. Unjoined Arabic renders as
+    // a row of isolated letters, which is legible but wrong, and is
+    // exactly what a run that was split per cell would produce.
+    try testing.expect(joined[0] != joined[1]);
+    try testing.expect(joined[1] != joined[2]);
+    try testing.expect(joined[0] != joined[2]);
+    for (joined) |g| try testing.expect(g != isolated);
+}
+
+test "shape rtl: lam-alef ligature" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 20, .rows = 3 });
+    defer t.deinit(alloc);
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+
+    // Lam followed by alef is a mandatory ligature: two codepoints, two
+    // terminal cells, but a single glyph. The glyph belongs to the lam's
+    // cluster, which is logically first and therefore rightmost, so it
+    // lands at the higher visual offset. The other cell is left empty,
+    // which is the known cell-grid limitation noted in the RFC rather
+    // than a mapping bug.
+    const r = try testShapeRtl(
+        alloc,
+        &testdata,
+        "\u{0644}\u{0627}",
+        .rtl,
+        &t,
+        &state,
+    );
+
+    try testing.expectEqual(@as(u16, 2), r.run.cells);
+    try testing.expectEqual(@as(usize, 1), r.cells.len);
+    try testing.expectEqual(@as(u16, 1), r.cells[0].x);
+}
+
+test "shape rtl: marks share the cell of their base" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 20, .rows = 3 });
+    defer t.deinit(alloc);
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+
+    // Beh with fatha above it. The mark is non-spacing, so it occupies no
+    // column of its own and must land on the same cell as its base.
+    // HarfBuzz reverses the whole buffer for a right-to-left run, which
+    // reverses the order within a cluster too, so the mark arrives before
+    // its base; the cluster bookkeeping has to cope with that.
+    const r = try testShapeRtl(
+        alloc,
+        &testdata,
+        "\u{0628}\u{064E}",
+        .rtl,
+        &t,
+        &state,
+    );
+
+    try testing.expectEqual(@as(u16, 1), r.run.cells);
+    try testing.expectEqual(@as(usize, 2), r.cells.len);
+    for (r.cells) |c| try testing.expectEqual(@as(u16, 0), c.x);
+
+    // The two glyphs are different: one is the letter, one is the mark.
+    try testing.expect(r.cells[0].glyph_index != r.cells[1].glyph_index);
+}
+
+test "shape rtl: zwnj breaks cursive joining" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    // Two beh separated by a zero width non-joiner, the construction
+    // Persian uses inside compound words. The letters must not join, so
+    // the isolated form appears where a joined form otherwise would.
+    //
+    // Note this exercises less than it looks. The test font does not
+    // cover U+200C, so the run iterator's font fallback replaces the
+    // grapheme containing it, and the shaper never sees the ZWNJ itself.
+    // What is verified is the observable outcome: no cursive joining.
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 20, .rows = 3 });
+    defer t.deinit(alloc);
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+
+    // The shaper reuses one cell buffer, so the result of the first call
+    // has to be copied out before the second call overwrites it.
+    var glyphs: [8]u32 = undefined;
+    var xs: [8]u16 = undefined;
+    var len: usize = 0;
+    {
+        const r = try testShapeRtl(
+            alloc,
+            &testdata,
+            "\u{0628}\u{200C}\u{0628}",
+            .rtl,
+            &t,
+            &state,
+        );
+        len = r.cells.len;
+        for (r.cells, 0..) |c, i| {
+            glyphs[i] = c.glyph_index;
+            xs[i] = c.x;
+            try testing.expect(c.x < r.run.cells);
+        }
+    }
+
+    var isolated: u32 = undefined;
+    {
+        var t2 = try terminal.Terminal.init(io, alloc, .{ .cols = 20, .rows = 3 });
+        defer t2.deinit(alloc);
+        var state2: terminal.RenderState = .empty;
+        defer state2.deinit(alloc);
+        const iso = try testShapeRtl(alloc, &testdata, "\u{0628}", .rtl, &t2, &state2);
+        isolated = iso.cells[0].glyph_index;
+    }
+
+    var saw_isolated = false;
+    for (glyphs[0..len], xs[0..len]) |g, x| {
+        _ = x;
+        if (g == isolated) saw_isolated = true;
+    }
+    try testing.expect(saw_isolated);
+}
+
+test "shape rtl: visual map accounts for wide cells" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var testdata = try testShaper(alloc);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 20, .rows = 3 });
+    defer t.deinit(alloc);
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+
+    // Two double-width characters, so the run is four columns wide but
+    // only two of them start a cell. Reversing a run is not simply
+    // `cells - 1 - c`: a cell occupying logical columns [c, c+w) has to
+    // land on visual columns [cells-c-w, cells-c), or wide characters end
+    // up shifted one column from where they belong.
+    const r = try testShapeRtl(alloc, &testdata, "👍👍", .rtl, &t, &state);
+
+    try testing.expectEqual(@as(u16, 4), r.run.cells);
+
+    // Logical cell 0 is two columns wide, so it occupies visual columns
+    // 2 and 3, and logical cell 2 occupies visual columns 0 and 1.
+    const map = testdata.shaper.visual_map.items;
+    try testing.expectEqual(@as(usize, 4), map.len);
+    try testing.expectEqual(@as(u16, 2), map[0]);
+    try testing.expectEqual(@as(u16, 0), map[2]);
+
+    // And the emitted cells still ascend.
+    var x: u16 = 0;
+    for (r.cells) |cell| {
+        try testing.expect(cell.x >= x);
+        try testing.expect(cell.x < r.run.cells);
+        x = cell.x;
+    }
+}
+
+/// The cases covered by the golden vectors in `testdata/rtl_shaping.txt`.
+const rtl_golden_cases = [_]struct { name: []const u8, str: []const u8 }{
+    .{ .name = "arabic beh x3 (initial/medial/final)", .str = "\u{0628}\u{0628}\u{0628}" },
+    .{ .name = "arabic beh isolated", .str = "\u{0628}" },
+    .{ .name = "arabic beh+meem", .str = "\u{0628}\u{0645}" },
+    .{ .name = "arabic lam-alef ligature", .str = "\u{0644}\u{0627}" },
+    .{ .name = "arabic tatweel", .str = "\u{0628}\u{0640}\u{0645}" },
+    .{ .name = "arabic fatha", .str = "\u{0628}\u{064E}" },
+    .{ .name = "arabic shadda+kasra", .str = "\u{0628}\u{0651}\u{0650}" },
+    // A mark on a cell other than the first. This is the only case that
+    // reaches the direction-dependent "first codepoint in cluster"
+    // search, because a multi-codepoint cluster at offset zero never
+    // triggers a cell reset.
+    .{ .name = "arabic mark on second letter", .str = "\u{0628}\u{0628}\u{064E}" },
+    .{ .name = "arabic marks on both letters", .str = "\u{0628}\u{064E}\u{0628}\u{0650}" },
+    .{ .name = "persian peh-cheh-jeh", .str = "\u{067E}\u{0686}\u{0698}" },
+    .{ .name = "persian gaf+farsi yeh", .str = "\u{06AF}\u{06CC}" },
+    .{ .name = "persian zwnj compound", .str = "\u{0645}\u{06CC}\u{200C}\u{0631}" },
+};
+
+fn rtlGoldenDump(
+    alloc: Allocator,
+    writer: *std.Io.Writer,
+) !void {
+    const io = std.testing.io;
+
+    try writer.writeAll(
+        \\# Golden shaping vectors for right-to-left runs.
+        \\#
+        \\# Generated from KawkabMono-Regular (src/font/res) via the
+        \\# "shape rtl: golden vectors" test. Regenerate by making that
+        \\# test print its dump rather than compare it.
+        \\#
+        \\# These lock in mark placement, which is where a regression in
+        \\# the cluster-to-cell mapping shows up as text that still looks
+        \\# plausible. "arabic shadda+kasra" is the most sensitive case:
+        \\# three glyphs on one cell, each with its own offset.
+        \\#
+        \\# Glyph ids are specific to this font. Changing the font
+        \\# invalidates the file.
+        \\
+        \\
+    );
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    for (rtl_golden_cases) |case| {
+        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 20, .rows = 3 });
+        defer t.deinit(alloc);
+        var state: terminal.RenderState = .empty;
+        defer state.deinit(alloc);
+
+        const r = try testShapeRtl(alloc, &testdata, case.str, .rtl, &t, &state);
+
+        try writer.print("{s}\n  cells={d} glyphs={d}\n", .{
+            case.name,
+            r.run.cells,
+            r.cells.len,
+        });
+        for (r.cells) |c| {
+            try writer.print("  x={d} xoff={d} yoff={d} gid={d}\n", .{
+                c.x,
+                c.x_offset,
+                c.y_offset,
+                c.glyph_index,
+            });
+        }
+    }
+}
+
+test "shape rtl: golden vectors" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Regression vectors for right-to-left shaping. The relational tests
+    // above prove the behavior is right; these prove it stays that way.
+    // Mark placement in particular has no cheap invariant to assert, and
+    // a mispositioned tashkeel or niqqud is invisible to a reviewer who
+    // does not read the script, so the exact offsets are pinned here.
+    var buf: [16384]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    try rtlGoldenDump(alloc, &w);
+
+    const expected = @embedFile("testdata/rtl_shaping.txt");
+    if (!std.mem.eql(u8, expected, w.buffered())) {
+        std.debug.print(
+            "\ngolden mismatch. actual output:\n{s}\n",
+            .{w.buffered()},
+        );
+        return error.TestExpectedEqual;
+    }
 }
