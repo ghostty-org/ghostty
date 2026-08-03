@@ -2971,6 +2971,33 @@ fn maybeHandleBinding(
         inline .leaf, .leaf_chained => |leaf| leaf.generic(),
     };
 
+    // If this binding is gated on the Kitty keyboard protocol (kkp_on/kkp_off)
+    // and the condition isn't met, act as though the binding doesn't exist so
+    // the key is handled normally (native action, or encoded to the PTY).
+    if (leaf.flags.kkp_on or leaf.flags.kkp_off) {
+        const report_all = self.io.terminal.screens.active.kitty_keyboard.current().report_all;
+        if ((leaf.flags.kkp_on and !report_all) or (leaf.flags.kkp_off and report_all)) {
+            self.endKeySequence(.flush, .retain);
+
+            // The condition isn't met, so this binding acts as if it doesn't
+            // exist. If it shadowed a default action for this trigger, perform
+            // that instead (e.g. cmd+t -> new_tab when the protocol is off);
+            // otherwise fall through so the key is handled normally.
+            //
+            // NOTE: only the root config set is consulted for fallbacks;
+            // conditional bindings defined inside a key table are not covered.
+            if (self.config.keybind.set.kkp_fallback.get(entry.key_ptr.*)) |fallback| {
+                if (self.performBindingAction(fallback)) |_| {} else |err| {
+                    log.warn("kkp fallback action failed err={}", .{err});
+                }
+                if (closingAction(fallback)) return .closed;
+                return .consumed;
+            }
+
+            return null;
+        }
+    }
+
     // consumed determines if the input is consumed or if we continue
     // encoding the key (if we have a key to encode).
     const consumed = consumed: {

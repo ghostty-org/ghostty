@@ -13,6 +13,8 @@ const key = @import("key.zig");
 const key_mods = @import("key_mods.zig");
 const KeyEvent = key.KeyEvent;
 
+const log = std.log.scoped(.binding);
+
 /// The trigger that needs to be performed to execute the action.
 trigger: Trigger,
 
@@ -46,6 +48,14 @@ pub const Flags = packed struct {
     /// performed. If the action can't be performed then the binding acts as
     /// if it doesn't exist.
     performable: bool = false,
+
+    /// True only while the focused surface's program has the Kitty keyboard
+    /// protocol "report all keys" flag (report_all) enabled. If it isn't set,
+    /// the binding acts as if it doesn't exist and the key is handled normally.
+    kkp_on: bool = false,
+
+    /// Inverse of kkp_on: triggers only while report_all is NOT set.
+    kkp_off: bool = false,
 
     /// C type
     pub const C = u8;
@@ -168,6 +178,12 @@ pub const Parser = struct {
             } else if (std.mem.eql(u8, prefix, "performable")) {
                 if (flags.performable) return Error.InvalidFormat;
                 flags.performable = true;
+            } else if (std.mem.eql(u8, prefix, "kkp_on")) {
+                if (flags.kkp_on or flags.kkp_off) return Error.InvalidFormat;
+                flags.kkp_on = true;
+            } else if (std.mem.eql(u8, prefix, "kkp_off")) {
+                if (flags.kkp_on or flags.kkp_off) return Error.InvalidFormat;
+                flags.kkp_off = true;
             } else {
                 // If we don't recognize the prefix then we're done. We
                 // let any unknown prefix fallthrough to trigger-specific
@@ -2062,6 +2078,16 @@ pub const Set = struct {
         true,
     );
 
+    /// Map of trigger -> the simple action a conditional (kkp) binding
+    /// overwrote, so the binding can fall back to it when its condition
+    /// isn't met instead of swallowing the key.
+    const KkpFallbackMap = std.ArrayHashMapUnmanaged(
+        Trigger,
+        Action,
+        Context(Trigger),
+        true,
+    );
+
     /// The set of bindings.
     bindings: HashMap = .{},
 
@@ -2081,6 +2107,9 @@ pub const Set = struct {
     /// for performable to work so this is a conscious decision to ease the
     /// integration with GUI toolkits.
     reverse: ReverseMap = .{},
+
+    /// See KkpFallbackMap.
+    kkp_fallback: KkpFallbackMap = .{},
 
     /// The chain parent is the information necessary to attach a chained
     /// action to the proper location in our mapping. It tracks both the
@@ -2294,6 +2323,7 @@ pub const Set = struct {
 
         self.bindings.deinit(alloc);
         self.reverse.deinit(alloc);
+        self.kkp_fallback.deinit(alloc);
         self.* = undefined;
     }
 
@@ -2520,6 +2550,20 @@ pub const Set = struct {
         // unbind should never go into the set, it should be handled prior
         assert(action != .unbind);
 
+        // reload_config must always remain reachable as a keyboard recovery
+        // path, so refuse to overwrite a trigger already bound to it with a
+        // different action (conditional or not). (An explicit `unbind` is a
+        // separate path and is not guarded here.)
+        if (action != .reload_config) {
+            if (self.bindings.get(t)) |existing| switch (existing) {
+                .leaf => |l| if (l.action == .reload_config) {
+                    log.warn("ignoring keybind that would override reload_config", .{});
+                    return;
+                },
+                else => {},
+            };
+        }
+
         // This is true if we're going to track this entry as
         // a reverse mapping. There are certain scenarios we don't.
         // See the reverse map docs for more information.
@@ -2551,13 +2595,21 @@ pub const Set = struct {
 
             // If we have an existing binding for this trigger, we have to
             // update the reverse mapping to remove the old action.
-            .leaf => if (track_reverse) {
-                const t_hash = t.hash();
-                for (0.., self.reverse.values()) |i, *value| {
-                    if (t_hash == value.hash()) {
-                        self.reverse.swapRemoveAt(i);
-                        break;
+            .leaf => |old_leaf| {
+                if (track_reverse) {
+                    const t_hash = t.hash();
+                    for (0.., self.reverse.values()) |i, *value| {
+                        if (t_hash == value.hash()) {
+                            self.reverse.swapRemoveAt(i);
+                            break;
+                        }
                     }
+                }
+                // If a conditional (kkp) binding is overwriting a simple
+                // action, remember it so the binding can fall back to it
+                // when its condition isn't met.
+                if (flags.kkp_on or flags.kkp_off) {
+                    try self.kkp_fallback.put(alloc, t, old_leaf.action);
                 }
             },
 
@@ -2789,6 +2841,7 @@ pub const Set = struct {
         var result: Set = .{
             .bindings = try self.bindings.clone(alloc),
             .reverse = try self.reverse.clone(alloc),
+            .kkp_fallback = try self.kkp_fallback.clone(alloc),
         };
 
         // If we have any leaders we need to clone them.
@@ -2815,6 +2868,11 @@ pub const Set = struct {
         // We need to clone the action keys in the reverse map since
         // they may contain allocated values.
         for (result.reverse.keys()) |*action| {
+            action.* = try action.clone(alloc);
+        }
+
+        // Deep-clone the fallback actions; they may contain allocated values.
+        for (result.kkp_fallback.values()) |*action| {
             action.* = try action.clone(alloc);
         }
 
@@ -2940,6 +2998,29 @@ test "parse: triggers" {
         .action = .{ .ignore = {} },
         .flags = .{ .performable = true },
     }, try parseSingle("performable:shift+a=ignore"));
+
+    // kkp_on keys
+    try testing.expectEqual(Binding{
+        .trigger = .{
+            .mods = .{ .shift = true },
+            .key = .{ .unicode = 'a' },
+        },
+        .action = .{ .ignore = {} },
+        .flags = .{ .kkp_on = true },
+    }, try parseSingle("kkp_on:shift+a=ignore"));
+
+    // kkp_off keys
+    try testing.expectEqual(Binding{
+        .trigger = .{
+            .mods = .{ .shift = true },
+            .key = .{ .unicode = 'a' },
+        },
+        .action = .{ .ignore = {} },
+        .flags = .{ .kkp_off = true },
+    }, try parseSingle("kkp_off:shift+a=ignore"));
+
+    // kkp_on and kkp_off are mutually exclusive
+    try testing.expectError(Error.InvalidFormat, parseSingle("kkp_on:kkp_off:shift+a=ignore"));
 
     // invalid key
     try testing.expectError(Error.InvalidFormat, parseSingle("foo=ignore"));
