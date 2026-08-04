@@ -862,6 +862,41 @@ test "shape emoji width long" {
     try testing.expectEqual(@as(usize, 1), count);
 }
 
+test "shaper selects font for entire grapheme" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var testdata = try testShaper(alloc);
+    defer testdata.deinit();
+
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 5, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("#\u{20E3}"); // Combining enclosing keycap
+
+    const primary = (try testdata.grid.getIndex(alloc, '#', .regular, null)).?;
+    try testing.expect(testdata.grid.hasCodepoint(primary, '#', null));
+    try testing.expect(!testdata.grid.hasCodepoint(primary, 0x20E3, null));
+
+    const additional = (try testdata.grid.getIndex(alloc, 0x20E3, .regular, null)).?;
+    try testing.expect(testdata.grid.hasCodepoint(additional, '#', null));
+    try testing.expect(testdata.grid.hasCodepoint(additional, 0x20E3, null));
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var it = testdata.shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    const run = (try it.next(alloc)).?;
+    try testing.expectEqual(additional, run.font_index);
+}
+
 test "shape variation selector VS15" {
     const testing = std.testing;
     const alloc = testing.allocator;
