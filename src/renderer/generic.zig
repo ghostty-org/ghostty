@@ -2685,7 +2685,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             if (self.bidiEnabled()) {
                 row_bidi = self.bidi_cache.resolve(
                     self.alloc,
-                    cells_slice,
+                    cells_raw[0..cells_len],
                     @intCast(cells_len),
                     self.bidiOptions(),
                 ) catch |err| bidi: {
@@ -3335,7 +3335,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const rows = state.row_data.items(.cells);
             if (y >= rows.len) return logical_x;
 
-            const cells = rows[y].slice();
+            const cells = rows[y].slice().items(.raw);
             const cols: u16 = @intCast(cells.len);
             if (logical_x >= cols) return logical_x;
 

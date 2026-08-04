@@ -25,6 +25,8 @@ const oni = @import("oniguruma");
 const crash = @import("crash/main.zig");
 const unicode = @import("unicode/main.zig");
 const rendererpkg = @import("renderer.zig");
+const rendererbidi = @import("renderer/bidi.zig");
+const bidipkg = @import("bidi/main.zig");
 const termio = @import("termio.zig");
 const font = @import("font/main.zig");
 const Command = @import("Command.zig");
@@ -96,6 +98,15 @@ renderer_thr: std.Thread,
 
 /// Mouse state.
 mouse: Mouse,
+
+/// Bidi resolution for pointer input.
+///
+/// The renderer has its own cache on its own thread. This one exists so
+/// that mapping a pointer position needs no shared state and no lock on
+/// the render thread: mouse events are user-paced, so resolving a single
+/// row on demand costs microseconds and the duplication is cheaper than
+/// coordinating between threads on an input path.
+bidi_cache: rendererbidi.BidiCache,
 
 /// Keyboard input state.
 keyboard: Keyboard,
@@ -298,6 +309,8 @@ const DerivedConfig = struct {
     original_font_size: f32,
     keybind: configpkg.Keybinds,
     abnormal_command_exit_runtime_ms: u32,
+    bidi: configpkg.Config.Bidi,
+    bidi_default_direction: configpkg.Config.BidiDefaultDirection,
     clipboard_read: configpkg.ClipboardAccess,
     clipboard_write: configpkg.ClipboardAccess,
     clipboard_trim_trailing_spaces: bool,
@@ -377,6 +390,8 @@ const DerivedConfig = struct {
             .original_font_size = config.@"font-size",
             .keybind = try config.keybind.clone(alloc),
             .abnormal_command_exit_runtime_ms = config.@"abnormal-command-exit-runtime",
+            .bidi = config.bidi,
+            .bidi_default_direction = config.@"bidi-default-direction",
             .clipboard_read = config.@"clipboard-read",
             .clipboard_write = config.@"clipboard-write",
             .clipboard_trim_trailing_spaces = config.@"clipboard-trim-trailing-spaces",
@@ -610,6 +625,7 @@ pub fn init(
         },
         .renderer_thr = undefined,
         .mouse = .{},
+        .bidi_cache = .init(alloc),
         .keyboard = .{},
         .io = undefined,
         .io_thread = io_thread,
@@ -795,6 +811,8 @@ pub fn init(
 }
 
 pub fn deinit(self: *Surface) void {
+    self.bidi_cache.deinit(self.alloc);
+
     // Stop search thread
     if (self.search) |*s| s.deinit();
 
@@ -1196,12 +1214,16 @@ fn selectionScrollTick(self: *Surface) !void {
     }
 
     const pos = try self.rt_surface.getCursorPos();
-    const pos_vp = self.posToViewport(pos.x, pos.y);
+    const pos_visual = self.posToViewport(pos.x, pos.y);
 
     // We need our locked state for the remainder
     self.renderer_state.mutex.lockUncancelable(global.io());
     defer self.renderer_state.mutex.unlock(global.io());
     const t: *terminal.Terminal = self.renderer_state.terminal;
+
+    // Reading the screen to map the column requires the lock, so this
+    // happens after it is taken rather than alongside posToViewport.
+    const pos_vp = self.viewportToLogical(pos_visual);
 
     const selection = self.mouse.selection_gesture.autoscrollTick(t, .{
         .viewport = pos_vp,
@@ -3972,7 +3994,9 @@ pub fn mouseButtonCallback(
 
         const pos = try self.rt_surface.getCursorPos();
         const pin = pin: {
-            const pt_viewport = self.posToViewport(pos.x, pos.y);
+            const pt_viewport = self.viewportToLogical(
+                self.posToViewport(pos.x, pos.y),
+            );
             const pin = screen.pages.pin(.{
                 .viewport = .{
                     .x = pt_viewport.x,
@@ -4078,7 +4102,9 @@ pub fn mouseButtonCallback(
         const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
         const pos = try self.rt_surface.getCursorPos();
         const pin = pin: {
-            const pt_viewport = self.posToViewport(pos.x, pos.y);
+            const pt_viewport = self.viewportToLogical(
+                self.posToViewport(pos.x, pos.y),
+            );
             const pin = screen.pages.pin(.{
                 .viewport = .{
                     .x = pt_viewport.x,
@@ -4751,6 +4777,55 @@ pub fn posToViewport(self: Surface, xpos: f64, ypos: f64) terminal.point.Coordin
     const coord: rendererpkg.Coordinate = .{ .surface = .{ .x = xpos, .y = ypos } };
     const grid = coord.convert(.grid, self.size).grid;
     return .{ .x = grid.x, .y = grid.y };
+}
+
+/// Map a viewport coordinate from the visual column the pointer is over
+/// to the logical column stored there.
+///
+/// A pointer position is inherently visual: it says where on the glass
+/// the mouse is. Everything downstream of it, mouse reporting, selection
+/// and link hits, works in logical columns, because that is the space
+/// the running program and the screen buffer use. On a row that was
+/// reordered the two differ, and reporting the visual column would make
+/// every click land somewhere else in a program showing right-to-left
+/// text.
+///
+/// The caller must hold the renderer state mutex, since this reads the
+/// screen.
+fn viewportToLogical(
+    self: *Surface,
+    vp: terminal.point.Coordinate,
+) terminal.point.Coordinate {
+    // Nothing can reorder, so the two spaces coincide.
+    if (comptime bidipkg.options.backend == .noop) return vp;
+    if (self.config.bidi == .never) return vp;
+
+    const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
+    const pin = screen.pages.pin(.{ .viewport = .{ .x = 0, .y = vp.y } }) orelse
+        return vp;
+
+    const cells = pin.cells(.all);
+    const cols: u16 = @intCast(cells.len);
+    if (vp.x >= cols) return vp;
+
+    const row_bidi = self.bidi_cache.resolve(
+        self.alloc,
+        cells,
+        cols,
+        .{ .direction = switch (self.config.bidi_default_direction) {
+            .auto => .auto,
+            .ltr => .ltr,
+            .rtl => .rtl,
+        } },
+    ) catch |err| {
+        log.warn("error resolving bidi for pointer row err={}", .{err});
+        return vp;
+    };
+
+    return .{
+        .x = @intCast(row_bidi.hitTest(.from(vp.x)).int()),
+        .y = vp.y,
+    };
 }
 
 /// Scroll to the bottom of the viewport.

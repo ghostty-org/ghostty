@@ -3057,7 +3057,7 @@ test "end to end: arabic renders in visual order with joining" {
     try state.update(alloc, &t);
 
     const cells = state.row_data.get(0).cells.slice();
-    const row_bidi = try cache.resolve(alloc, cells, 8, .{});
+    const row_bidi = try cache.resolve(alloc, cells.items(.raw), 8, .{});
 
     // The row contains right-to-left text, so it must have been
     // reordered. If this fails the rest of the test proves nothing.

@@ -299,7 +299,7 @@ pub const BidiCache = struct {
     pub fn resolve(
         self: *BidiCache,
         alloc: Allocator,
-        cells: std.MultiArrayList(terminal.RenderState.Cell).Slice,
+        cells: []const terminal.page.Cell,
         cols: u16,
         opts: Options,
     ) Allocator.Error!RowBidi {
@@ -324,7 +324,7 @@ pub const BidiCache = struct {
     fn resolveUncached(
         self: *BidiCache,
         alloc: Allocator,
-        cells: std.MultiArrayList(terminal.RenderState.Cell).Slice,
+        cells: []const terminal.page.Cell,
         cols: u16,
         hash: u64,
         opts: Options,
@@ -353,15 +353,12 @@ pub const BidiCache = struct {
     fn buildElements(
         self: *BidiCache,
         alloc: Allocator,
-        cells: std.MultiArrayList(terminal.RenderState.Cell).Slice,
+        cells: []const terminal.page.Cell,
         cols: u16,
     ) Allocator.Error!void {
-        const raw = cells.items(.raw);
-        const graphemes = cells.items(.grapheme);
-
         var x: u16 = 0;
-        while (x < cols and x < raw.len) : (x += 1) {
-            const cell = raw[x];
+        while (x < cols and x < cells.len) : (x += 1) {
+            const cell = cells[x];
 
             // A spacer belongs to the cell before it and contributes no
             // element of its own; its width is accounted for there.
@@ -371,18 +368,13 @@ pub const BidiCache = struct {
             }
 
             // The base codepoint decides the character's bidi class.
-            // Combining marks in a grapheme are all Nonspacing_Mark and
-            // would resolve to the base's level anyway, so feeding only
-            // the base keeps one element per cell without changing the
-            // answer.
-            const cp: u21 = cp: {
-                if (cell.hasGrapheme()) {
-                    const cps = graphemes[x];
-                    if (cps.len > 0) break :cp cell.codepoint();
-                }
-                if (cell.isEmpty()) break :cp ' ';
-                break :cp cell.codepoint();
-            };
+            // Combining marks in a grapheme are all Nonspacing_Mark, and
+            // rule W1 gives those the type of the character before them,
+            // so they resolve to the base's level regardless. Feeding
+            // only the base keeps one element per cell without changing
+            // the answer, and means the whole adapter needs nothing but
+            // the raw cells.
+            const cp: u21 = if (cell.isEmpty()) ' ' else cell.codepoint();
 
             try self.scratch.codepoints.append(alloc, cp);
             try self.scratch.cols.append(alloc, x);
@@ -512,27 +504,24 @@ pub const BidiCache = struct {
 
 /// Hash a row's content for cache lookup.
 ///
-/// Only what bidi resolution actually depends on is hashed: the
-/// codepoints and the cell widths. Styles are deliberately excluded, so
-/// two rows with the same text in different colours share one entry.
+/// Only what bidi resolution actually depends on is hashed: the base
+/// codepoints and the cell widths. Styles are excluded, so two rows with
+/// the same text in different colours share an entry. Combining marks
+/// are excluded for the same reason they are excluded from resolution:
+/// they take the level of the character they attach to, so a row with
+/// and without them resolve identically.
 pub fn hashRow(
-    cells: std.MultiArrayList(terminal.RenderState.Cell).Slice,
+    cells: []const terminal.page.Cell,
     cols: u16,
 ) u64 {
     var hasher = std.hash.Wyhash.init(0);
-    const raw = cells.items(.raw);
-    const graphemes = cells.items(.grapheme);
-
     std.hash.autoHash(&hasher, cols);
 
     var x: u16 = 0;
-    while (x < cols and x < raw.len) : (x += 1) {
-        const cell = raw[x];
+    while (x < cols and x < cells.len) : (x += 1) {
+        const cell = cells[x];
         std.hash.autoHash(&hasher, cell.wide);
         std.hash.autoHash(&hasher, cell.codepoint());
-        if (cell.hasGrapheme()) {
-            for (graphemes[x]) |cp| std.hash.autoHash(&hasher, cp);
-        }
     }
 
     return hasher.final();
@@ -568,8 +557,8 @@ const TestRow = struct {
         self.t.deinit(alloc);
     }
 
-    fn cells(self: *TestRow) std.MultiArrayList(terminal.RenderState.Cell).Slice {
-        return self.state.row_data.get(0).cells.slice();
+    fn cells(self: *TestRow) []const terminal.page.Cell {
+        return self.state.row_data.get(0).cells.slice().items(.raw);
     }
 };
 
