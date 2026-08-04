@@ -425,6 +425,26 @@ bidi: Bidi = .never,
 /// Has no effect when `bidi` is `never`.
 @"bidi-default-direction": BidiDefaultDirection = .auto,
 
+/// What to do with Unicode bidirectional formatting characters when
+/// copying text.
+///
+/// These characters are part of what a program wrote and are meaningful,
+/// so the default keeps them: removing them changes what the text says,
+/// and a copy that does not round trip is worse than one carrying
+/// characters the destination ignores.
+///
+/// Valid values:
+///
+///   * `keep` - Copy them as they are.
+///
+///   * `strip` - Remove them from copied text.
+///
+/// Note that a selection starting or ending inside an embedding or
+/// isolate carries an unbalanced control either way, and will resolve
+/// differently when pasted elsewhere. `strip` avoids that at the cost of
+/// discarding directional information the text depended on.
+@"clipboard-bidi-controls": ClipboardBidiControls = .keep,
+
 /// What color space to use when performing alpha blending.
 ///
 /// This affects the appearance of text and of any images with transparency.
@@ -8642,6 +8662,12 @@ pub const FontSyntheticStyle = packed struct {
     bold: bool = true,
     italic: bool = true,
     @"bold-italic": bool = true,
+};
+
+/// See "clipboard-bidi-controls" for documentation.
+pub const ClipboardBidiControls = enum {
+    keep,
+    strip,
 };
 
 /// See "bidi" for documentation.

@@ -133,6 +133,59 @@ pub fn isSafe(data: []const u8) bool {
         std.mem.indexOf(u8, data, "\x1b[201~") == null;
 }
 
+/// Whether the data contains a bidi directional override.
+///
+/// These are the characters behind CVE-2021-42574, "Trojan Source". An
+/// override forces the characters after it to display in the opposite
+/// direction, so the text on screen can be made to read completely
+/// differently from the bytes that a shell will execute. The classic
+/// shape is a filename whose extension appears harmless while the bytes
+/// say otherwise.
+///
+/// Ghostty was never affected before, because it did not reorder text at
+/// all. Enabling bidi is what makes these characters do something, which
+/// is exactly why this check arrives alongside it.
+///
+/// Only the two overrides are treated as suspicious. Embeddings and
+/// isolates also reorder, but they appear routinely in legitimate
+/// right-to-left text, and warning on those would train people to click
+/// through the warning. An override in a terminal paste has essentially
+/// no honest use.
+pub fn hasBidiOverride(data: []const u8) bool {
+    // U+202D LEFT-TO-RIGHT OVERRIDE and U+202E RIGHT-TO-LEFT OVERRIDE.
+    // Searching the UTF-8 bytes directly avoids decoding the paste, and
+    // these sequences cannot occur as a subsequence of any other valid
+    // encoding.
+    return std.mem.indexOf(u8, data, "\u{202D}") != null or
+        std.mem.indexOf(u8, data, "\u{202E}") != null;
+}
+
+test hasBidiOverride {
+    const testing = std.testing;
+
+    try testing.expect(!hasBidiOverride(""));
+    try testing.expect(!hasBidiOverride("rm -rf /tmp/file.txt"));
+
+    // Plain right-to-left text is not suspicious.
+    try testing.expect(!hasBidiOverride("\u{05D0}\u{05D1}\u{05D2}"));
+
+    // Neither are embeddings or isolates, which legitimate text uses.
+    try testing.expect(!hasBidiOverride("a\u{202A}b\u{202C}c"));
+    try testing.expect(!hasBidiOverride("a\u{2066}b\u{2069}c"));
+
+    // The overrides are, wherever they appear.
+    try testing.expect(hasBidiOverride("\u{202E}"));
+    try testing.expect(hasBidiOverride("\u{202D}"));
+    try testing.expect(hasBidiOverride("rm -rf /tmp/\u{202E}txt.exe"));
+    try testing.expect(hasBidiOverride("trailing\u{202E}"));
+
+    // A canonical Trojan Source line: what is displayed and what is
+    // executed differ.
+    try testing.expect(hasBidiOverride(
+        "if access_level != \"user\u{202E} \u{2066}// Check if admin\u{2069} \u{2066}\" {",
+    ));
+}
+
 test isSafe {
     const testing = std.testing;
     try testing.expect(isSafe("hello"));

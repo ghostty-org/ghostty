@@ -317,6 +317,7 @@ const DerivedConfig = struct {
     clipboard_paste_protection: bool,
     clipboard_paste_bracketed_safe: bool,
     clipboard_codepoint_map: configpkg.Config.RepeatableClipboardCodepointMap,
+    clipboard_bidi_controls: configpkg.Config.ClipboardBidiControls,
     copy_on_select: configpkg.CopyOnSelect,
     right_click_action: configpkg.RightClickAction,
     middle_click_action: configpkg.MiddleClickAction,
@@ -398,6 +399,7 @@ const DerivedConfig = struct {
             .clipboard_paste_protection = config.@"clipboard-paste-protection",
             .clipboard_paste_bracketed_safe = config.@"clipboard-paste-bracketed-safe",
             .clipboard_codepoint_map = try config.@"clipboard-codepoint-map".clone(alloc),
+            .clipboard_bidi_controls = config.@"clipboard-bidi-controls",
             .copy_on_select = config.@"copy-on-select",
             .right_click_action = config.@"right-click-action",
             .middle_click_action = config.@"middle-click-action",
@@ -2266,6 +2268,7 @@ fn copySelectionToClipboards(
         .unwrap = true,
         .trim = self.config.clipboard_trim_trailing_spaces,
         .codepoint_map = self.config.clipboard_codepoint_map.map.list,
+        .strip_bidi_controls = self.config.clipboard_bidi_controls == .strip,
         .background = self.io.terminal.colors.background.get(),
         .foreground = self.io.terminal.colors.foreground.get(),
         .palette = &self.io.terminal.colors.palette.current,
@@ -6004,6 +6007,24 @@ fn completeClipboardPaste(
             // If we're allowed to paste unsafe data then we always allow the paste.
             // This is set during confirmation usually.
             if (allow_unsafe) break :unsafe false;
+
+            // A bidi directional override is checked before anything
+            // else, and deliberately before the bracketed paste
+            // shortcuts below.
+            //
+            // Bracketing makes a paste safe in the sense that the
+            // terminal cannot be tricked into interpreting it as input.
+            // It does nothing about text that a human then reads and
+            // runs, which is precisely the Trojan Source problem: the
+            // line on screen and the bytes underneath say different
+            // things. Framing the paste does not change that.
+            if (input.paste.hasBidiOverride(data)) {
+                log.info(
+                    "paste contains a bidi directional override, requesting confirmation",
+                    .{},
+                );
+                break :unsafe true;
+            }
 
             if (opts.bracketed) {
                 // If we're bracketed and the paste contains and ending

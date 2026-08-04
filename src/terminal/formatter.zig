@@ -81,6 +81,21 @@ pub const CodepointMap = struct {
 };
 
 /// Common encoding options regardless of what exact formatter is used.
+/// The Unicode bidirectional formatting characters: the marks, the
+/// embeddings and overrides with their terminator, and the isolates with
+/// theirs.
+fn isBidiControl(cp: u21) bool {
+    return switch (cp) {
+        0x200E, // LEFT-TO-RIGHT MARK
+        0x200F, // RIGHT-TO-LEFT MARK
+        0x061C, // ARABIC LETTER MARK
+        0x202A...0x202E, // LRE, RLE, PDF, LRO, RLO
+        0x2066...0x2069, // LRI, RLI, FSI, PDI
+        => true,
+        else => false,
+    };
+}
+
 pub const Options = struct {
     /// The format to emit.
     emit: Format,
@@ -98,6 +113,18 @@ pub const Options = struct {
     /// Replace matching Unicode codepoints with some other values.
     /// This will use the last matching range found in the list.
     codepoint_map: ?std.MultiArrayList(CodepointMap) = .{},
+
+    /// Drop the Unicode bidirectional formatting characters.
+    ///
+    /// These are part of the text a program wrote and are meaningful, so
+    /// they are kept by default: removing them changes what the text
+    /// says, and a copy that does not round trip is worse than one
+    /// carrying characters the destination ignores.
+    ///
+    /// It is offered because a selection that starts or ends inside an
+    /// embedding or isolate carries an unbalanced control, which
+    /// resolves differently once pasted somewhere else.
+    strip_bidi_controls: bool = false,
 
     /// Set a background and foreground color to use for the "screen".
     /// For styled formats, this will emit the proper sequences or styles.
@@ -1386,6 +1413,8 @@ pub const PageFormatter = struct {
         writer: *std.Io.Writer,
         codepoint: u21,
     ) !void {
+        if (self.opts.strip_bidi_controls and isBidiControl(codepoint)) return;
+
         // Search for our replacement
         const r_: ?CodepointMap.Replacement = replacement: {
             const map = self.opts.codepoint_map orelse break :replacement null;
@@ -6374,4 +6403,72 @@ test "Page HTML hyperlink point map maps closing to previous cell" {
     for (closing_idx..closing_idx + "</a>".len) |i| {
         try testing.expectEqual(expected_coord, point_map.items[i]);
     }
+}
+
+test "strip_bidi_controls removes formatting characters" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try Screen.init(io, alloc, .{ .cols = 40, .rows = 3, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+
+    // Latin, an isolate around some Hebrew, then Latin again.
+    try s.testWriteString("a\u{2066}\u{05D0}\u{05D1}\u{2069}b");
+
+    // Kept by default. The controls are part of what the program wrote,
+    // and a copy that silently differs from the source is worse than one
+    // carrying characters the destination may ignore.
+    {
+        var aw: std.Io.Writer.Allocating = .init(alloc);
+        defer aw.deinit();
+        var f: ScreenFormatter = .init(&s, .{ .emit = .plain, .trim = false });
+        try f.format(&aw.writer);
+        try testing.expect(std.mem.indexOf(u8, aw.written(), "\u{2066}") != null);
+        try testing.expect(std.mem.indexOf(u8, aw.written(), "\u{2069}") != null);
+    }
+
+    // Stripped on request, leaving the text itself untouched and in the
+    // order it was written.
+    {
+        var aw: std.Io.Writer.Allocating = .init(alloc);
+        defer aw.deinit();
+        var f: ScreenFormatter = .init(&s, .{
+            .emit = .plain,
+            .trim = false,
+            .strip_bidi_controls = true,
+        });
+        try f.format(&aw.writer);
+
+        try testing.expect(std.mem.indexOf(u8, aw.written(), "\u{2066}") == null);
+        try testing.expect(std.mem.indexOf(u8, aw.written(), "\u{2069}") == null);
+        try testing.expect(std.mem.startsWith(u8, aw.written(), "a\u{05D0}\u{05D1}b"));
+    }
+}
+
+test "copied text is always in logical order" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try Screen.init(io, alloc, .{ .cols = 40, .rows = 3, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+
+    // Right-to-left text is displayed reversed but stored in the order
+    // the program wrote it. Copying must produce the stored order.
+    //
+    // Putting visual order on the clipboard would look right when pasted
+    // into something that does not reorder, and be wrong everywhere
+    // else: it would not compare equal, would not grep, and would not
+    // survive being pasted back. Every other program on the system puts
+    // logical order on the clipboard.
+    const written = "abc \u{05D0}\u{05D1}\u{05D2} 123";
+    try s.testWriteString(written);
+
+    var aw: std.Io.Writer.Allocating = .init(alloc);
+    defer aw.deinit();
+    var f: ScreenFormatter = .init(&s, .{ .emit = .plain, .trim = true });
+    try f.format(&aw.writer);
+
+    try testing.expect(std.mem.startsWith(u8, aw.written(), written));
 }
