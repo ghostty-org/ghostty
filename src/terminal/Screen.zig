@@ -9786,6 +9786,90 @@ test "Screen: selectLine semantic all same content" {
     }
 }
 
+test "Screen: selectWord across scripts" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    const boundaries = &selection_codepoints.default_word_boundaries;
+
+    // Arabic separated by an Arabic comma. Without that comma in the
+    // boundary set nothing in the line breaks a word and a double click
+    // selects the entire sentence.
+    {
+        var s = try init(io, alloc, .{ .cols = 20, .rows = 3, .max_scrollback_bytes = 0 });
+        defer s.deinit();
+        try s.testWriteString("\u{0628}\u{0627}\u{0628}\u{060C}\u{0645}\u{064A}\u{0645}");
+
+        // Click on the first word.
+        const sel = s.selectWord(s.pages.pin(.{ .active = .{
+            .x = 1,
+            .y = 0,
+        } }).?, boundaries).?;
+        try testing.expectEqual(@as(u16, 0), s.pages.pointFromPin(.active, sel.start()).?.active.x);
+        try testing.expectEqual(@as(u16, 2), s.pages.pointFromPin(.active, sel.end()).?.active.x);
+    }
+
+    // Hebrew separated by a maqaf, which reads as a hyphen.
+    {
+        var s = try init(io, alloc, .{ .cols = 20, .rows = 3, .max_scrollback_bytes = 0 });
+        defer s.deinit();
+        try s.testWriteString("\u{05D0}\u{05D1}\u{05BE}\u{05D2}\u{05D3}");
+
+        const sel = s.selectWord(s.pages.pin(.{ .active = .{
+            .x = 0,
+            .y = 0,
+        } }).?, boundaries).?;
+        try testing.expectEqual(@as(u16, 0), s.pages.pointFromPin(.active, sel.start()).?.active.x);
+        try testing.expectEqual(@as(u16, 1), s.pages.pointFromPin(.active, sel.end()).?.active.x);
+    }
+
+    // Eastern Arabic-Indic digits are word characters, not boundaries,
+    // so a Persian number selects as one word.
+    {
+        var s = try init(io, alloc, .{ .cols = 20, .rows = 3, .max_scrollback_bytes = 0 });
+        defer s.deinit();
+        try s.testWriteString("\u{06F1}\u{06F2}\u{06F3} \u{06AF}");
+
+        const sel = s.selectWord(s.pages.pin(.{ .active = .{
+            .x = 1,
+            .y = 0,
+        } }).?, boundaries).?;
+        try testing.expectEqual(@as(u16, 0), s.pages.pointFromPin(.active, sel.start()).?.active.x);
+        try testing.expectEqual(@as(u16, 2), s.pages.pointFromPin(.active, sel.end()).?.active.x);
+    }
+}
+
+test "Screen: selectWord keeps a persian zwnj compound together" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{ .cols = 20, .rows = 3, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+
+    // "می‌رود": mim, yeh, ZWNJ, reh, waw, dal. Persian joins the two
+    // halves of a compound with a zero width non-joiner, which breaks
+    // the cursive connection without being a word break. Double
+    // clicking anywhere in it has to select the whole compound.
+    //
+    // This works because the joiner has no width of its own, so it is
+    // stored as part of the preceding cell's grapheme and never appears
+    // as a cell the word scan can stop at.
+    try s.testWriteString("\u{0645}\u{06CC}\u{200C}\u{0631}\u{0648}\u{062F} x");
+
+    const boundaries = &selection_codepoints.default_word_boundaries;
+    const sel = s.selectWord(s.pages.pin(.{ .active = .{
+        .x = 0,
+        .y = 0,
+    } }).?, boundaries).?;
+
+    // Five cells, because the joiner shares a cell with the yeh before
+    // it, and all five belong to one word.
+    try testing.expectEqual(@as(u16, 0), s.pages.pointFromPin(.active, sel.start()).?.active.x);
+    try testing.expectEqual(@as(u16, 4), s.pages.pointFromPin(.active, sel.end()).?.active.x);
+}
+
 test "Screen: selectWord" {
     const testing = std.testing;
     const alloc = testing.allocator;
