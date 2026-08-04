@@ -1225,7 +1225,12 @@ fn selectionScrollTick(self: *Surface) !void {
 
     // Reading the screen to map the column requires the lock, so this
     // happens after it is taken rather than alongside posToViewport.
-    const pos_vp = self.viewportToLogical(pos_visual);
+    // A rectangular selection keeps visual coordinates; see the note at
+    // the click sites.
+    const pos_vp = if (SurfaceMouse.isRectangleSelectState(self.mouse.mods))
+        pos_visual
+    else
+        self.viewportToLogical(pos_visual);
 
     const selection = self.mouse.selection_gesture.autoscrollTick(t, .{
         .viewport = pos_vp,
@@ -2250,6 +2255,144 @@ fn clipboardWrite(self: *const Surface, data: []const u8, loc: apprt.Clipboard) 
     };
 }
 
+/// Extract a rectangular selection whose rows have been reordered.
+///
+/// Returns null when this does not apply, which is any selection that is
+/// not rectangular, any build without reordering, and any rectangle over
+/// rows that were not reordered. The caller then takes its usual path,
+/// so ordinary rectangle copies are untouched.
+///
+/// A rectangle's corners are visual, because taking a column out of
+/// something laid out in columns is a geometric operation. The text it
+/// covers is not: on a reordered row the visual span maps to a set of
+/// logical columns, which is generally several disjoint ranges rather
+/// than one. Each is emitted separately and in logical order, so the
+/// copied text reads the way the program wrote it, as everything else
+/// on the clipboard does.
+///
+/// This lives here rather than in Screen because the mapping needs the
+/// bidi cache, and src/terminal deliberately depends on neither the
+/// renderer nor the font package. The surface already owns a cache for
+/// pointer hit-testing.
+/// The widest row a reordered rectangle copy handles. Beyond this it
+/// falls back to the normal path rather than dropping columns.
+const max_rect_cols = 1024;
+
+fn rectangleBidiText(
+    self: *Surface,
+    alloc: Allocator,
+    sel: terminal.Selection,
+    opts: terminal.formatter.Options,
+) !?[:0]const u8 {
+    if (!sel.rectangle) return null;
+    if (comptime bidipkg.options.backend == .noop) return null;
+    if (self.config.bidi == .never) return null;
+
+    const screen: *terminal.Screen = self.io.terminal.screens.active;
+    const tl = sel.topLeft(screen);
+    const br = sel.bottomRight(screen);
+
+    const tl_pt = screen.pages.pointFromPin(.viewport, tl) orelse return null;
+    const br_pt = screen.pages.pointFromPin(.viewport, br) orelse return null;
+
+    const vx0 = @min(tl_pt.viewport.x, br_pt.viewport.x);
+    const vx1 = @max(tl_pt.viewport.x, br_pt.viewport.x);
+
+    // Resolve every row first. If not one of them reordered then the
+    // visual and logical spans are identical everywhere and the normal
+    // path produces the same bytes, so hand it back.
+    var any_reordered = false;
+    {
+        var y = tl_pt.viewport.y;
+        while (y <= br_pt.viewport.y) : (y += 1) {
+            const pin = screen.pages.pin(.{ .viewport = .{ .x = 0, .y = y } }) orelse continue;
+            const cells = pin.cells(.all);
+            const row = self.bidi_cache.resolve(
+                self.alloc,
+                cells,
+                @intCast(cells.len),
+                .{ .direction = switch (self.config.bidi_default_direction) {
+                    .auto => .auto,
+                    .ltr => .ltr,
+                    .rtl => .rtl,
+                } },
+            ) catch return null;
+            if (!row.identity) {
+                any_reordered = true;
+                break;
+            }
+        }
+    }
+    if (!any_reordered) return null;
+
+    var aw: std.Io.Writer.Allocating = .init(alloc);
+
+    var y = tl_pt.viewport.y;
+    while (y <= br_pt.viewport.y) : (y += 1) {
+        if (y > tl_pt.viewport.y) try aw.writer.writeByte('\n');
+
+        const row_pin = screen.pages.pin(.{ .viewport = .{ .x = 0, .y = y } }) orelse continue;
+        const cells = row_pin.cells(.all);
+        const cols: u16 = @intCast(cells.len);
+        if (cols == 0) continue;
+
+        const row = self.bidi_cache.resolve(
+            self.alloc,
+            cells,
+            cols,
+            .{ .direction = switch (self.config.bidi_default_direction) {
+                .auto => .auto,
+                .ltr => .ltr,
+                .rtl => .rtl,
+            } },
+        ) catch continue;
+
+        // Which logical columns this row's visual span covers. Walking
+        // the span and marking what it displays gives the answer
+        // directly, and a run of marked columns is one range to emit.
+        //
+        // A row wider than the buffer would have to drop columns, and
+        // silently copying less than was selected is worse than copying
+        // it in the wrong order, so fall back instead.
+        var covered: [max_rect_cols]bool = @splat(false);
+        if (cols > covered.len) return null;
+
+        var v = vx0;
+        while (v <= vx1 and v < cols) : (v += 1) {
+            const l = row.logicalCol(.from(v)).int();
+            covered[l] = true;
+        }
+
+        var l: u16 = 0;
+        while (l < cols) {
+            if (!covered[l]) {
+                l += 1;
+                continue;
+            }
+
+            var end = l;
+            while (end + 1 < cols and covered[end + 1]) end += 1;
+
+            const start_pin = screen.pages.pin(.{
+                .viewport = .{ .x = l, .y = y },
+            }) orelse break;
+            const end_pin = screen.pages.pin(.{
+                .viewport = .{ .x = end, .y = y },
+            }) orelse break;
+
+            var seg_opts = opts;
+            seg_opts.unwrap = false;
+            var formatter: terminal.formatter.ScreenFormatter = .init(screen, seg_opts);
+            formatter.content = .{ .selection = .init(start_pin, end_pin, false) };
+            try formatter.format(&aw.writer);
+
+            l = end + 1;
+        }
+    }
+
+    return try aw.toOwnedSliceSentinel(0);
+}
+
 fn copySelectionToClipboards(
     self: *Surface,
     sel: terminal.Selection,
@@ -2279,13 +2422,20 @@ fn copySelectionToClipboards(
     var contents: std.ArrayList(apprt.ClipboardContent) = .empty;
     switch (format) {
         .plain => {
-            var formatter: ScreenFormatter = .init(self.io.terminal.screens.active, opts);
-            formatter.content = .{ .selection = sel };
-            try formatter.format(&aw.writer);
-            try contents.append(alloc, .{
-                .mime = "text/plain",
-                .data = try aw.toOwnedSliceSentinel(0),
-            });
+            if (try self.rectangleBidiText(alloc, sel, opts)) |text| {
+                try contents.append(alloc, .{
+                    .mime = "text/plain",
+                    .data = text,
+                });
+            } else {
+                var formatter: ScreenFormatter = .init(self.io.terminal.screens.active, opts);
+                formatter.content = .{ .selection = sel };
+                try formatter.format(&aw.writer);
+                try contents.append(alloc, .{
+                    .mime = "text/plain",
+                    .data = try aw.toOwnedSliceSentinel(0),
+                });
+            }
         },
 
         .vt => {
@@ -4013,9 +4163,17 @@ pub fn mouseButtonCallback(
 
         const pos = try self.rt_surface.getCursorPos();
         const pin = pin: {
-            const pt_viewport = self.viewportToLogical(
-                self.posToViewport(pos.x, pos.y),
-            );
+            // A rectangular selection is a geometric operation on the
+            // grid: the point of it is to take a column out of something
+            // laid out in columns, so its corners are visual and are
+            // left unmapped. Every other selection anchors on a
+            // character, so its coordinates are mapped to the logical
+            // column that character lives at.
+            const visual = self.posToViewport(pos.x, pos.y);
+            const pt_viewport = if (SurfaceMouse.isRectangleSelectState(self.mouse.mods))
+                visual
+            else
+                self.viewportToLogical(visual);
             const pin = screen.pages.pin(.{
                 .viewport = .{
                     .x = pt_viewport.x,
@@ -4121,9 +4279,17 @@ pub fn mouseButtonCallback(
         const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
         const pos = try self.rt_surface.getCursorPos();
         const pin = pin: {
-            const pt_viewport = self.viewportToLogical(
-                self.posToViewport(pos.x, pos.y),
-            );
+            // A rectangular selection is a geometric operation on the
+            // grid: the point of it is to take a column out of something
+            // laid out in columns, so its corners are visual and are
+            // left unmapped. Every other selection anchors on a
+            // character, so its coordinates are mapped to the logical
+            // column that character lives at.
+            const visual = self.posToViewport(pos.x, pos.y);
+            const pt_viewport = if (SurfaceMouse.isRectangleSelectState(self.mouse.mods))
+                visual
+            else
+                self.viewportToLogical(visual);
             const pin = screen.pages.pin(.{
                 .viewport = .{
                     .x = pt_viewport.x,

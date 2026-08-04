@@ -1178,3 +1178,52 @@ test "selectionAnchor: identity rows behave as they always did" {
         try testing.expectEqual(i + 1, r.selectionAnchor(v, true).int());
     }
 }
+
+test "rectangle: a visual span covers a set of logical columns" {
+    // The extraction for a rectangular selection walks the visual span
+    // and marks the logical column each position displays. This is the
+    // same relationship visualSegments expresses from the other
+    // direction, so the two must agree: a rectangle from visual a to b
+    // has to cover exactly the columns a selection would.
+    const r = testMixedRow();
+
+    var vx0: u16 = 0;
+    while (vx0 < r.cols) : (vx0 += 1) {
+        var vx1: u16 = vx0;
+        while (vx1 < r.cols) : (vx1 += 1) {
+            // What the rectangle extraction marks.
+            var covered: [6]bool = @splat(false);
+            var v = vx0;
+            while (v <= vx1) : (v += 1) {
+                covered[r.logicalCol(.from(v)).int()] = true;
+            }
+
+            // The same set arrived at by mapping each logical column
+            // forward instead of each visual column back.
+            var expect: [6]bool = @splat(false);
+            for (0..r.cols) |i| {
+                const vis = r.visualCol(.from(@intCast(i))).int();
+                if (vis >= vx0 and vis <= vx1) expect[i] = true;
+            }
+
+            try testing.expectEqualSlices(bool, &expect, &covered);
+        }
+    }
+}
+
+test "rectangle: a visual column span is discontiguous logically" {
+    const r = testMixedRow();
+
+    // Visual columns 2 and 3 sit either side of the direction change:
+    // one shows logical 2, the other logical 5. Taking that two-column
+    // strip out of the row yields two separate pieces of text, not one
+    // range, which is why extraction cannot just use the corners.
+    try testing.expectEqual(@as(u16, 2), r.logicalCol(.from(2)).int());
+    try testing.expectEqual(@as(u16, 5), r.logicalCol(.from(3)).int());
+
+    // And the columns between them logically are not in the strip.
+    for ([_]u16{ 3, 4 }) |l| {
+        const vis = r.visualCol(.from(l)).int();
+        try testing.expect(vis < 2 or vis > 3);
+    }
+}
