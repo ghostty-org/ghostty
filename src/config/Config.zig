@@ -402,7 +402,7 @@ language: ?[:0]const u8 = null,
 /// Note that some programs perform their own reordering and send text
 /// already in visual order. Those need `never`, or their output will be
 /// reordered twice.
-bidi: Bidi = .never,
+bidi: Bidi = .auto,
 
 /// The paragraph direction to assume for a line with no strongly
 /// directional characters in it.
@@ -10463,15 +10463,21 @@ const TestIterator = struct {
     }
 };
 
-test "bidi: defaults to never" {
+test "bidi: defaults" {
     const testing = std.testing;
     var cfg = try Config.default(testing.allocator);
     defer cfg.deinit();
 
-    // The default has to stay `never` until the phases that make
-    // reordering safe to enable have landed and been reviewed. A user
-    // who has not asked for bidi must see no change at all.
-    try testing.expectEqual(Bidi.never, cfg.bidi);
+    // Reordering is on by default. Right-to-left text is unreadable
+    // without it, and the people who need it are the least able to know
+    // that a setting exists to fix it.
+    //
+    // This is the line to change to turn the feature off for everyone,
+    // which is why it is asserted rather than left implicit.
+    try testing.expectEqual(Bidi.auto, cfg.bidi);
+
+    // The paragraph direction still follows the content, per rules P2
+    // and P3, rather than being forced either way.
     try testing.expectEqual(
         BidiDefaultDirection.auto,
         cfg.@"bidi-default-direction",

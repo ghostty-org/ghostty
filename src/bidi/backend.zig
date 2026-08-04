@@ -25,9 +25,16 @@ pub const Backend = enum {
     pub fn default(target: std.Target) Backend {
         _ = target;
 
-        // Bidi is not enabled by default yet. The rendering pipeline that
-        // consumes it does not exist, so anything other than `noop` would
-        // only add cost. This flips once the phases that integrate it land.
+        // The pipeline that consumes bidi results is complete, and the
+        // `bidi` config option now defaults to reordering. This still
+        // returns `noop`, so a default build compiles no resolver and
+        // the option has nothing to drive: reordering requires
+        // `-Dbidi-backend=zig`.
+        //
+        // That is deliberate. Turning this on is what exposes every user
+        // to the feature, and it is gated on review by people who read
+        // the scripts involved, which no amount of passing tests
+        // substitutes for.
         return .noop;
     }
 };
