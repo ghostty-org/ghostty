@@ -91,6 +91,51 @@ pub const RowBidi = struct {
         return if (self.identity) 0 else self.levels[i];
     }
 
+    /// The logical column a pointer at the given visual column is over.
+    ///
+    /// This is what mouse reporting has to send. A program that enables
+    /// mouse tracking addresses the screen in logical columns, the same
+    /// space its own cursor movement uses, so reporting the visual
+    /// column would make every click land somewhere else in any editor
+    /// showing right-to-left text.
+    pub inline fn hitTest(self: *const RowBidi, v: VisualCol) LogicalCol {
+        return self.logicalCol(v);
+    }
+
+    /// The logical position a selection anchored at this pointer should
+    /// start from.
+    ///
+    /// A click does not select a cell, it places a caret between two of
+    /// them, so which side of the cell the pointer is on decides which
+    /// gap is meant. For a left-to-right cell the right half means the
+    /// gap after it; for a right-to-left cell the halves are mirrored on
+    /// screen, so the LEFT half is the one that means "after" in logical
+    /// order.
+    ///
+    /// Without this, selecting a single right-to-left character by
+    /// dragging across it is fiddly in a way that feels broken rather
+    /// than merely imprecise.
+    pub fn selectionAnchor(
+        self: *const RowBidi,
+        v: VisualCol,
+        right_half: bool,
+    ) LogicalCol {
+        const l = self.logicalCol(v);
+        const rtl = self.level(l) & 1 == 1;
+
+        // The pointer is past the middle of the character in logical
+        // terms when it is on the trailing side of the cell, which is
+        // the right half going left to right and the left half going
+        // right to left.
+        const trailing = if (rtl) !right_half else right_half;
+        if (!trailing) return l;
+
+        // Clamp at the end of the row: there is no gap past the last
+        // column to anchor in.
+        const next = l.int() +| 1;
+        return .from(@min(next, self.cols));
+    }
+
     /// Convert a logical column range into the visual ranges it covers.
     ///
     /// A selection is logically contiguous, but a logically contiguous
@@ -1008,5 +1053,139 @@ test "forced rtl direction reorders a row with no strong characters" {
             const l: LogicalCol = .from(@intCast(i));
             try testing.expectEqual(i, r.logicalCol(r.visualCol(l)).int());
         }
+    }
+}
+
+test "selection: per-cell membership agrees with visual segments" {
+    // Two different mechanisms decide what a selection covers, and they
+    // have to agree or the highlight will not line up with the runs
+    // beneath it.
+    //
+    // The cell loop draws a background wherever the LOGICAL column it is
+    // displaying falls inside the selected range. The run iterator
+    // instead breaks runs at the edges of the VISUAL segments returned
+    // by visualSegments. If those disagreed, a run could be shaped as
+    // partly selected while a different set of cells was painted, and
+    // the boundary would land in the wrong place.
+    const r = testMixedRow();
+
+    var lo: u16 = 0;
+    while (lo < r.cols) : (lo += 1) {
+        var hi: u16 = lo;
+        while (hi < r.cols) : (hi += 1) {
+            // What the cell loop would paint: walk visual columns and
+            // test the logical column each one shows.
+            var painted: [8]bool = @splat(false);
+            var v: u16 = 0;
+            while (v < r.cols) : (v += 1) {
+                const l = r.logicalCol(.from(v)).int();
+                if (l >= lo and l <= hi) painted[v] = true;
+            }
+
+            // What the run iterator would break on.
+            var covered: [8]bool = @splat(false);
+            for (r.visualSegments(lo, hi).slice()) |seg| {
+                var i = seg.start;
+                while (i <= seg.end) : (i += 1) covered[i] = true;
+            }
+
+            try testing.expectEqualSlices(
+                bool,
+                painted[0..r.cols],
+                covered[0..r.cols],
+            );
+        }
+    }
+}
+
+test "selection: a range crossing a direction boundary is discontiguous" {
+    const r = testMixedRow();
+
+    // Logical c, A, B. On screen "c" is at visual 2 while A and B are at
+    // visual 5 and 4, leaving a gap at visual 3 that is not selected.
+    // The gap is correct: the character displayed there is logical 5,
+    // which is outside the range.
+    var painted: [6]bool = @splat(false);
+    for (r.visualSegments(2, 4).slice()) |seg| {
+        var i = seg.start;
+        while (i <= seg.end) : (i += 1) painted[i] = true;
+    }
+
+    try testing.expectEqualSlices(
+        bool,
+        &.{ false, false, true, false, true, true },
+        &painted,
+    );
+
+    // And the unselected gap really does display a column outside the
+    // range, rather than being an off-by-one.
+    const gap_logical = r.logicalCol(.from(3)).int();
+    try testing.expect(gap_logical < 2 or gap_logical > 4);
+}
+
+test "hitTest: reports the logical column under the pointer" {
+    const r = testMixedRow();
+
+    // The Latin half is untouched.
+    for (0..3) |i| {
+        try testing.expectEqual(i, r.hitTest(.from(@intCast(i))).int());
+    }
+
+    // The right-to-left half is reversed on screen, so clicking the
+    // leftmost of those three cells is a click on the LAST of them in
+    // logical order. A program tracking the mouse addresses columns
+    // logically, so this is the number it has to receive.
+    try testing.expectEqual(@as(u16, 5), r.hitTest(.from(3)).int());
+    try testing.expectEqual(@as(u16, 4), r.hitTest(.from(4)).int());
+    try testing.expectEqual(@as(u16, 3), r.hitTest(.from(5)).int());
+}
+
+test "hitTest: identity rows report the column itself" {
+    const r: RowBidi = .identityFor(40, &.{});
+    for (0..40) |i| {
+        try testing.expectEqual(i, r.hitTest(.from(@intCast(i))).int());
+    }
+}
+
+test "selectionAnchor: which half means after depends on direction" {
+    const r = testMixedRow();
+
+    // Left to right: the left half anchors before the cell, the right
+    // half after it.
+    try testing.expectEqual(@as(u16, 1), r.selectionAnchor(.from(1), false).int());
+    try testing.expectEqual(@as(u16, 2), r.selectionAnchor(.from(1), true).int());
+
+    // Right to left: the halves are mirrored on screen, so it is the
+    // LEFT half that means "after" in logical order. Visual column 4
+    // shows logical column 4; its left half anchors at logical 5.
+    try testing.expectEqual(@as(u16, 4), r.selectionAnchor(.from(4), true).int());
+    try testing.expectEqual(@as(u16, 5), r.selectionAnchor(.from(4), false).int());
+}
+
+test "selectionAnchor: clamps at the end of the row" {
+    const r = testMixedRow();
+
+    // The trailing side of the logically last column has no gap after
+    // it to anchor in, so it clamps rather than running past the row.
+    const last = r.selectionAnchor(.from(3), false);
+    try testing.expect(last.int() <= r.cols);
+
+    const identity: RowBidi = .identityFor(4, &.{});
+    try testing.expectEqual(
+        @as(u16, 4),
+        identity.selectionAnchor(.from(3), true).int(),
+    );
+}
+
+test "selectionAnchor: identity rows behave as they always did" {
+    const r: RowBidi = .identityFor(10, &.{});
+
+    // With no reordering every cell is left to right, so the left half
+    // anchors on the cell and the right half after it, which is what
+    // the gesture code has always assumed.
+    for (0..10) |i| {
+        const v: VisualCol = .from(@intCast(i));
+        try testing.expectEqual(i, r.selectionAnchor(v, false).int());
+        try testing.expectEqual(i + 1, r.selectionAnchor(v, true).int());
     }
 }
