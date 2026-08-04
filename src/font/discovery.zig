@@ -316,6 +316,61 @@ pub const Fontconfig = struct {
         pub fn next(self: *DiscoverIterator) fontconfig.Error!?DeferredFace {
             if (self.i >= self.fonts.len) return null;
 
+            slant: {
+                const roman: i32 =
+                    @intFromEnum(fontconfig.Slant.roman);
+                const italic: i32 =
+                    @intFromEnum(fontconfig.Slant.italic);
+                const oblique: i32 =
+                    @intFromEnum(fontconfig.Slant.oblique);
+
+                const requested: i32 = switch (self.pattern.get(.slant, 0) catch
+                    fontconfig.Value{ .integer = roman }) {
+                    .integer => |value| value,
+                    else => roman,
+                };
+
+                const matched: i32 = switch (self.fonts[self.i].get(.slant, 0) catch
+                    fontconfig.Value{ .integer = roman }) {
+                    .integer => |value| value,
+                    else => roman,
+                };
+
+                const requested_slanted: bool =
+                    requested == italic or requested == oblique;
+                const matched_slanted: bool =
+                    matched == italic or matched == oblique;
+
+                if (requested_slanted and !matched_slanted) return null;
+
+                break :slant;
+            }
+
+            weight: {
+                const regular: i32 =
+                    @intFromEnum(fontconfig.Weight.regular);
+                const bold_min: i32 =
+                    @intFromEnum(fontconfig.Weight.demibold);
+
+                const requested: i32 = switch (self.pattern.get(.weight, 0) catch
+                    fontconfig.Value{ .integer = regular }) {
+                    .integer => |value| value,
+                    else => regular,
+                };
+
+                const mismatch: bool = requested >= bold_min and
+                    switch (self.fonts[self.i].get(.weight, 0) catch
+                        fontconfig.Value{ .integer = regular }) {
+                        .integer => |value| value < bold_min,
+                        .range => false, // go with fontconfig's result
+                        else => true,
+                    };
+
+                if (mismatch) return null;
+
+                break :weight;
+            }
+
             // Get the copied pattern from our fontset that has the
             // attributes configured for rendering.
             const font_pattern = try self.config.fontRenderPrepare(
