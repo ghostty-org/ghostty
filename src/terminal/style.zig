@@ -1,5 +1,6 @@
 const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
+const fastprint = @import("../fastprint.zig");
 const color = @import("color.zig");
 const sgr = @import("sgr.zig");
 const page = @import("page.zig");
@@ -331,62 +332,140 @@ pub const Style = struct {
             self: VTFormatter,
             writer: *std.Io.Writer,
         ) !void {
+            // Style emission is a hot path when formatting styled terminal
+            // contents, so all of the sequences are assembled in a buffer
+            // and written in one call rather than going through the
+            // (slower) format string machinery with a write per sequence.
+            //
+            // Worst case: `\x1b[0m` (4) + 7 flags (28) + `\x1b[53m` (5) +
+            // `\x1b[4:2m` (6) + 3 RGB colors (19 each = 57) = 100.
+            var buf: [128]u8 = undefined;
+
             // Always reset the style. Styles are fully self-contained.
             // Even if this style is empty, then that means we want to go
             // back to the default.
-            try writer.writeAll("\x1b[0m");
+            buf[0..4].* = "\x1b[0m".*;
+            var len: usize = 4;
 
             // Our flags
-            if (self.style.flags.bold) try writer.writeAll("\x1b[1m");
-            if (self.style.flags.faint) try writer.writeAll("\x1b[2m");
-            if (self.style.flags.italic) try writer.writeAll("\x1b[3m");
-            if (self.style.flags.blink) try writer.writeAll("\x1b[5m");
-            if (self.style.flags.inverse) try writer.writeAll("\x1b[7m");
-            if (self.style.flags.invisible) try writer.writeAll("\x1b[8m");
-            if (self.style.flags.strikethrough) try writer.writeAll("\x1b[9m");
-            if (self.style.flags.overline) try writer.writeAll("\x1b[53m");
+            if (self.style.flags.bold) {
+                buf[len..][0..4].* = "\x1b[1m".*;
+                len += 4;
+            }
+            if (self.style.flags.faint) {
+                buf[len..][0..4].* = "\x1b[2m".*;
+                len += 4;
+            }
+            if (self.style.flags.italic) {
+                buf[len..][0..4].* = "\x1b[3m".*;
+                len += 4;
+            }
+            if (self.style.flags.blink) {
+                buf[len..][0..4].* = "\x1b[5m".*;
+                len += 4;
+            }
+            if (self.style.flags.inverse) {
+                buf[len..][0..4].* = "\x1b[7m".*;
+                len += 4;
+            }
+            if (self.style.flags.invisible) {
+                buf[len..][0..4].* = "\x1b[8m".*;
+                len += 4;
+            }
+            if (self.style.flags.strikethrough) {
+                buf[len..][0..4].* = "\x1b[9m".*;
+                len += 4;
+            }
+            if (self.style.flags.overline) {
+                buf[len..][0..5].* = "\x1b[53m".*;
+                len += 5;
+            }
             switch (self.style.flags.underline) {
                 .none => {},
-                .single => try writer.writeAll("\x1b[4m"),
-                .double => try writer.writeAll("\x1b[4:2m"),
-                .curly => try writer.writeAll("\x1b[4:3m"),
-                .dotted => try writer.writeAll("\x1b[4:4m"),
-                .dashed => try writer.writeAll("\x1b[4:5m"),
+                .single => {
+                    buf[len..][0..4].* = "\x1b[4m".*;
+                    len += 4;
+                },
+                .double => {
+                    buf[len..][0..6].* = "\x1b[4:2m".*;
+                    len += 6;
+                },
+                .curly => {
+                    buf[len..][0..6].* = "\x1b[4:3m".*;
+                    len += 6;
+                },
+                .dotted => {
+                    buf[len..][0..6].* = "\x1b[4:4m".*;
+                    len += 6;
+                },
+                .dashed => {
+                    buf[len..][0..6].* = "\x1b[4:5m".*;
+                    len += 6;
+                },
             }
 
-            // Various RGB colors.
-            try self.formatColor(writer, 38, self.style.fg_color);
-            try self.formatColor(writer, 48, self.style.bg_color);
-            try self.formatColor(writer, 58, self.style.underline_color);
+            // Various colors.
+            len += self.appendColor(buf[len..], 38, self.style.fg_color);
+            len += self.appendColor(buf[len..], 48, self.style.bg_color);
+            len += self.appendColor(buf[len..], 58, self.style.underline_color);
+
+            try writer.writeAll(buf[0..len]);
         }
 
-        fn formatColor(
+        /// Appends a standalone `\x1b[{prefix};5;{idx}m` or
+        /// `\x1b[{prefix};2;{r};{g};{b}m` sequence to buf, returning the
+        /// length written.
+        fn appendColor(
             self: VTFormatter,
-            writer: *std.Io.Writer,
+            buf: []u8,
             prefix: u8,
             value: Color,
-        ) !void {
+        ) usize {
             switch (value) {
-                .none => {},
+                .none => return 0,
+
                 .palette => |idx| {
-                    if (self.palette) |p| {
-                        const rgb = p[idx];
-                        try writer.print(
-                            "\x1b[{d};2;{d};{d};{d}m",
-                            .{ prefix, rgb.r, rgb.g, rgb.b },
-                        );
-                    } else {
-                        try writer.print(
-                            "\x1b[{d};5;{d}m",
-                            .{ prefix, idx },
-                        );
-                    }
+                    // Direct RGB: `\x1b[{prefix};2;{r};{g};{b}m`
+                    if (self.palette) |p| return appendColorRgb(
+                        buf,
+                        prefix,
+                        p[idx],
+                    );
+
+                    // Palette reference: `\x1b[{prefix};5;{idx}m`
+                    buf[0..2].* = "\x1b[".*;
+                    var len: usize = 2;
+                    len += fastprint.printDecimal(u8, buf[len..], prefix);
+                    buf[len..][0..3].* = ";5;".*;
+                    len += 3;
+                    len += fastprint.printDecimal(u8, buf[len..], idx);
+                    buf[len] = 'm';
+                    len += 1;
+                    return len;
                 },
-                .rgb => |rgb| try writer.print(
-                    "\x1b[{d};2;{d};{d};{d}m",
-                    .{ prefix, rgb.r, rgb.g, rgb.b },
-                ),
+
+                .rgb => |rgb| return appendColorRgb(buf, prefix, rgb),
             }
+        }
+
+        /// Appends `\x1b[{prefix};2;{r};{g};{b}m` to buf, returning the
+        /// length written.
+        fn appendColorRgb(buf: []u8, prefix: u8, rgb: color.RGB) usize {
+            buf[0..2].* = "\x1b[".*;
+            var len: usize = 2;
+            len += fastprint.printDecimal(u8, buf[len..], prefix);
+            buf[len..][0..3].* = ";2;".*;
+            len += 3;
+            len += fastprint.printDecimal(u8, buf[len..], rgb.r);
+            buf[len] = ';';
+            len += 1;
+            len += fastprint.printDecimal(u8, buf[len..], rgb.g);
+            buf[len] = ';';
+            len += 1;
+            len += fastprint.printDecimal(u8, buf[len..], rgb.b);
+            buf[len] = 'm';
+            len += 1;
+            return len;
         }
     };
 
@@ -444,18 +523,52 @@ pub const Style = struct {
             property: []const u8,
             c: Color,
         ) !void {
+            // Style emission is a hot path when formatting styled terminal
+            // contents, so the values are assembled in a buffer and written
+            // in one call rather than going through the (slower) format
+            // string machinery.
+            var buf: [32]u8 = undefined;
+            var len: usize = 0;
             switch (c) {
-                .none => {},
+                .none => return,
+
+                // `{property}: rgb({r}, {g}, {b});`
                 .palette => |idx| {
                     if (self.palette) |p| {
-                        const rgb = p[idx];
-                        try writer.print("{s}: rgb({d}, {d}, {d});", .{ property, rgb.r, rgb.g, rgb.b });
+                        len = formatColorRgb(&buf, p[idx]);
                     } else {
-                        try writer.print("{s}: var(--vt-palette-{d});", .{ property, idx });
+                        // `{property}: var(--vt-palette-{idx});`
+                        const prefix = ": var(--vt-palette-";
+                        buf[0..prefix.len].* = prefix.*;
+                        len = prefix.len;
+                        len += fastprint.printDecimal(u8, buf[len..], idx);
+                        buf[len..][0..2].* = ");".*;
+                        len += 2;
                     }
                 },
-                .rgb => |rgb| try writer.print("{s}: rgb({d}, {d}, {d});", .{ property, rgb.r, rgb.g, rgb.b }),
+
+                .rgb => |rgb| len = formatColorRgb(&buf, rgb),
             }
+
+            try writer.writeAll(property);
+            try writer.writeAll(buf[0..len]);
+        }
+
+        /// Writes `: rgb({r}, {g}, {b});` into buf, returning the length
+        /// written.
+        fn formatColorRgb(buf: *[32]u8, rgb: color.RGB) usize {
+            buf[0..6].* = ": rgb(".*;
+            var len: usize = 6;
+            len += fastprint.printDecimal(u8, buf[len..], rgb.r);
+            buf[len..][0..2].* = ", ".*;
+            len += 2;
+            len += fastprint.printDecimal(u8, buf[len..], rgb.g);
+            buf[len..][0..2].* = ", ".*;
+            len += 2;
+            len += fastprint.printDecimal(u8, buf[len..], rgb.b);
+            buf[len..][0..2].* = ");".*;
+            len += 2;
+            return len;
         }
     };
 

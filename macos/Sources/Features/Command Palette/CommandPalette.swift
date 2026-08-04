@@ -79,6 +79,7 @@ struct CommandPaletteView: View {
             let filtered = options.filter {
                 $0.title.matchedIndices(for: query) != nil ||
                 ($0.subtitle?.matchedIndices(for: query) != nil) ||
+                ($0.description?.matchedIndices(for: query) != nil) ||
                 colorMatchScore(for: $0.leadingColor, query: query) > 0
             }
 
@@ -401,7 +402,7 @@ private struct CommandRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     highlightedTitle
 
-                    if let subtitle = option.subtitle {
+                    if let subtitle = option.subtitle ?? option.description {
                         highlightedSubtitle(subtitle)
                             .font(.caption)
                             .foregroundStyle(.secondary)

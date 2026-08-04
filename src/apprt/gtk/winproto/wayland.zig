@@ -22,6 +22,7 @@ const input = @import("../../../input.zig");
 const ApprtWindow = @import("../class/window.zig").Window;
 const GlobalShortcuts = @import("../class/global_shortcuts.zig").GlobalShortcuts;
 const BlurRegion = @import("BlurRegion.zig");
+const gtk_version = @import("../gtk_version.zig");
 
 const log = std.log.scoped(.winproto_wayland);
 
@@ -174,6 +175,12 @@ pub const Window = struct {
         };
 
         const bg_effect: ?*ext.BackgroundEffectSurfaceV1 = bg: {
+            if (gtk_version.runtimeAtLeast(4, 23, 3)) {
+                // GTK 4.23.3 added an official way to do background blur,
+                // so we don't need to do anything on our own.
+                break :bg null;
+            }
+
             const mgr = app.globals.get(.ext_background_effect) orelse
                 break :bg null;
 

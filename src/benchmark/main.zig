@@ -6,6 +6,7 @@ pub const CodepointWidth = @import("CodepointWidth.zig");
 pub const GraphemeBreak = @import("GraphemeBreak.zig");
 pub const HyperlinkMap = @import("HyperlinkMap.zig");
 pub const ScreenClone = @import("ScreenClone.zig");
+pub const TerminalFormatter = @import("TerminalFormatter.zig");
 pub const TerminalParser = @import("TerminalParser.zig");
 pub const TerminalResize = @import("TerminalResize.zig");
 pub const TerminalSnapshot = @import("TerminalSnapshot.zig");

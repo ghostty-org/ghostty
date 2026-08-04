@@ -62,9 +62,19 @@ pub fn initGlobalDomain() error{OutOfMemory}!void {
 }
 
 /// Translate a message for the Ghostty domain.
+///
+/// If this is called at comptime, the direct msgid is returned without
+/// translation. This still allows the string to be marked for translation
+/// while remaining usable in comptime contexts.
 pub fn _(msgid: [*:0]const u8) [*:0]const u8 {
     if (comptime !build_config.i18n) return msgid;
+    if (@inComptime()) return msgid;
     return dgettext(build_config.bundle_id, msgid);
+}
+
+/// Mark a string for translation without translating it immediately.
+pub fn N_(msgid: [:0]const u8) [:0]const u8 {
+    return msgid;
 }
 
 /// Canonicalize a locale name from a platform-specific value to
@@ -190,4 +200,11 @@ test "canonicalizeLocale darwin" {
     // canonicalizeLocale does not handle encodings and will turn them into
     // underscores. We should parse them out before calling this function.
     try testing.expectEqualStrings("en_US.UTF_8", try canonicalizeLocale(&buf, "en_US.UTF-8"));
+}
+
+test "_ returns msgid at comptime" {
+    const testing = std.testing;
+
+    const msgid = comptime @"_"("Ghostty");
+    try testing.expectEqualStrings("Ghostty", std.mem.span(msgid));
 }

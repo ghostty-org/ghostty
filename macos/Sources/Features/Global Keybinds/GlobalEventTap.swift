@@ -1,4 +1,5 @@
 import Cocoa
+import ApplicationServices
 import CoreGraphics
 import Carbon
 import OSLog
@@ -18,8 +19,7 @@ class GlobalEventTap {
     // created.
     fileprivate var eventTap: CFMachPort?
 
-    // This is the timer used to retry enabling the global event tap if we
-    // don't have permissions.
+    // Polls Accessibility permission before enabling the global event tap.
     private var enableTimer: Timer?
 
     // Private init so it can't be constructed outside of our singleton
@@ -29,29 +29,36 @@ class GlobalEventTap {
         disable()
     }
 
-    // Enable the global event tap. This is safe to call if it is already enabled.
-    // If enabling fails due to permissions, this will start a timer to retry since
-    // accessibility permissions take affect immediately.
+    // Enable the global event tap. This is safe to call if it is already enabled or
+    // waiting for Accessibility permission.
     func enable() {
-        if eventTap != nil {
-            // Already enabled
+        // If we already have a tap or we're already checking on a timer, do nothing.
+        guard eventTap == nil, enableTimer == nil else { return }
+
+        // Creating a CGEventTap without Accessibility permission leaks a Mach port
+        // inside CoreGraphics on each failed attempt. Request permission once and
+        // poll the non-leaking trust check instead of retrying tap creation.
+        if AXIsProcessTrusted() {
+            _ = tryEnable()
             return
         }
 
-        // If we are already trying to enable, then stop the timer and restart it.
-        if let enableTimer {
-            enableTimer.invalidate()
-        }
+        // Ask macOS to prompt for Accessibility access. Approval happens
+        // asynchronously, so ignore the current result and poll below.
+        Self.logger.info("No accessibility permission detected, prompting...")
+        let options = [
+            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true,
+        ] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
 
-        // Try to enable the event tap immediately. If this succeeds then we're done!
-        if tryEnable() {
-            return
-        }
+        // Check in a timer
+        enableTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self, AXIsProcessTrusted() else { return }
 
-        // Failed, probably due to permissions. The permissions dialog should've
-        // popped up. We retry on a timer since once the permissions are granted
-        // then they take affect immediately.
-        enableTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            // Stop polling before attempting creation. If creation fails for a
+            // reason other than permissions, we must not retry it indefinitely.
+            self.enableTimer?.invalidate()
+            self.enableTimer = nil
             _ = self.tryEnable()
         }
     }
@@ -88,10 +95,7 @@ class GlobalEventTap {
                 callback: cgEventFlagsChangedHandler(proxy:type:cgEvent:userInfo:),
                 userInfo: nil
         ) else {
-            // Return false if creation failed. This is usually because we don't have
-            // Accessibility permissions but can probably be other reasons I don't
-            // know about.
-            Self.logger.debug("creating global event tap failed, missing permissions?")
+            Self.logger.warning("creating global event tap failed despite Accessibility permission")
             return false
         }
 

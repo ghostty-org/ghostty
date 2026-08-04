@@ -17,6 +17,7 @@ const PageList = @import("PageList.zig");
 const selection_codepoints = @import("selection_codepoints.zig");
 const StringMap = @import("StringMap.zig");
 const ScreenFormatter = @import("formatter.zig").ScreenFormatter;
+const PinMap = @import("formatter.zig").PinMap;
 const osc = @import("osc.zig");
 const pagepkg = @import("page.zig");
 const point = @import("point.zig");
@@ -2910,7 +2911,7 @@ pub fn selectionString(
     formatter.content = .{ .selection = opts.sel };
 
     // If we have a string map, we need to set that up.
-    var pins: std.ArrayList(Pin) = .empty;
+    var pins: PinMap.Map = .empty;
     defer pins.deinit(alloc);
     if (opts.map != null) formatter.pin_map = .{
         .alloc = alloc,
@@ -2928,11 +2929,13 @@ pub fn selectionString(
         const map_string = try alloc.dupeZ(u8, text);
         errdefer alloc.free(map_string);
         try selectionString_tw.check(.copy_map);
-        const map_pins = try pins.toOwnedSlice(alloc);
         map.* = .{
             .string = map_string,
-            .map = map_pins,
+            .map = pins,
         };
+
+        // Ownership of the pin map moved to the string map.
+        pins = .empty;
     }
 
     return text;

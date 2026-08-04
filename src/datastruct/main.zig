@@ -8,7 +8,6 @@ const intrusive_linked_list = @import("intrusive_linked_list.zig");
 const segmented_pool = @import("segmented_pool.zig");
 const split_tree = @import("split_tree.zig");
 
-pub const lru = @import("lru.zig");
 pub const BlockingQueue = blocking_queue.BlockingQueue;
 pub const CacheTable = cache_table.CacheTable;
 pub const CircBuf = circ_buf.CircBuf;

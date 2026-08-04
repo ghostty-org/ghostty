@@ -1540,7 +1540,7 @@ pub const Action = union(enum) {
         const value_info = @typeInfo(Value);
         switch (Value) {
             void => {},
-            []const u8 => try std.zig.stringEscape(value, writer),
+            []const u8 => try writer.print("{s}", .{value}),
             else => switch (value_info) {
                 .@"enum" => try writer.print("{t}", .{value}),
                 .float => try writer.print("{d}", .{value}),
@@ -4692,12 +4692,14 @@ test "action: format" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    const a: Action = .{ .text = "👻" };
+    const a: Action = .{ .text = "👻Ghostty'\"" };
 
     var buf: std.Io.Writer.Allocating = .init(alloc);
     defer buf.deinit();
     try a.format(&buf.writer);
-    try testing.expectEqualStrings("text:\\xf0\\x9f\\x91\\xbb", buf.written());
+
+    const b = try Binding.Action.parse(buf.written());
+    try testing.expect(a.equal(b));
 }
 
 test "action: format set title" {
