@@ -551,6 +551,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             font_features: std.ArrayListUnmanaged([:0]const u8),
             font_styles: font.CodepointResolver.StyleStatus,
             font_shaping_break: configpkg.FontShapingBreak,
+            bidi: configpkg.Config.Bidi,
+            bidi_default_direction: configpkg.Config.BidiDefaultDirection,
             cursor_color: ?configpkg.Config.TerminalColor,
             cursor_opacity: f64,
             cursor_text: ?configpkg.Config.TerminalColor,
@@ -622,6 +624,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .font_features = font_features.list,
                     .font_styles = font_styles,
                     .font_shaping_break = config.@"font-shaping-break",
+                    .bidi = config.bidi,
+                    .bidi_default_direction = config.@"bidi-default-direction",
 
                     .cursor_color = config.@"cursor-color",
                     .cursor_text = config.@"cursor-text",
@@ -2668,24 +2672,22 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // behavior and cost can be measured on their own, before
             // rendering depends on it.
             //
-            // This is comptime-gated on the backend so that the default
-            // build, which does no reordering, does not pay for a row
-            // hash it would never use. With the noop backend the maps
-            // stay empty and the run iterator walks logical order, which
-            // is exactly what it did before bidi existed.
+            // Resolve bidi for this row.
             //
-            // Note the cursor and selection columns passed below are
-            // still logical. Converting them to visual columns is a
-            // separate change; until then a build with reordering
-            // enabled will place the cursor and selection edges wrongly
-            // on rows that reorder.
+            // When disabled this is a complete bypass: no row hash, no
+            // resolver call, and the identity maps below make every
+            // coordinate mapping and the run iterator behave exactly as
+            // they did before bidi existed. That is the default, so the
+            // cost of the feature for a user who has not asked for it is
+            // one branch per row.
             var row_bidi: rendererbidi.RowBidi =
                 .identityFor(@intCast(cells_len), &.{});
-            if (comptime bidipkg.options.backend != .noop) {
+            if (self.bidiEnabled()) {
                 row_bidi = self.bidi_cache.resolve(
                     self.alloc,
                     cells_slice,
                     @intCast(cells_len),
+                    self.bidiOptions(),
                 ) catch |err| bidi: {
                     log.warn(
                         "error resolving bidi row y={} err={}",
@@ -3290,6 +3292,29 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             });
         }
 
+        /// Whether bidi resolution should run at all.
+        ///
+        /// `always` and `auto` differ only in intent: the resolver
+        /// already short-circuits a row it cannot affect, so `always`
+        /// exists to make that path skippable for diagnostics rather
+        /// than to change any output.
+        inline fn bidiEnabled(self: *const Self) bool {
+            // A build without a real backend can never reorder, so the
+            // whole thing folds away at comptime.
+            if (comptime bidipkg.options.backend == .noop) return false;
+            return self.config.bidi != .never;
+        }
+
+        fn bidiOptions(self: *const Self) rendererbidi.Options {
+            return .{
+                .direction = switch (self.config.bidi_default_direction) {
+                    .auto => .auto,
+                    .ltr => .ltr,
+                    .rtl => .rtl,
+                },
+            };
+        }
+
         /// Map a logical column on a viewport row to the visual column
         /// it is displayed at.
         ///
@@ -3303,8 +3328,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             logical_x: terminal.size.CellCountInt,
         ) terminal.size.CellCountInt {
             // Nothing reorders, so the two spaces coincide. This is the
-            // whole cost of the mapping in the default build.
-            if (comptime bidipkg.options.backend == .noop) return logical_x;
+            // whole cost of the mapping when bidi is off.
+            if (!self.bidiEnabled()) return logical_x;
 
             const state = &self.terminal_state;
             const rows = state.row_data.items(.cells);
@@ -3318,6 +3343,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.alloc,
                 cells,
                 cols,
+                self.bidiOptions(),
             ) catch return logical_x;
 
             return @intCast(row_bidi.visualCol(.from(logical_x)).int());

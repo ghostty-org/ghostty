@@ -377,6 +377,54 @@ language: ?[:0]const u8 = null,
 /// Available since: 1.2.0
 @"font-shaping-break": FontShapingBreak = .{},
 
+/// Whether to apply the Unicode Bidirectional Algorithm (UAX #9) when
+/// displaying text.
+///
+/// Terminals store text in "logical" order: the order a program wrote it
+/// and the order it will read it back. Scripts such as Arabic, Hebrew and
+/// Persian are written right to left, so displaying them correctly means
+/// reordering each line for display while leaving the stored text alone.
+/// Without this, right-to-left text appears reversed and Arabic letters
+/// are not joined to each other.
+///
+/// Valid values:
+///
+///   * `never` - Never reorder. Text is displayed in the order it is
+///     stored. This is the behavior of Ghostty before this option
+///     existed.
+///
+///   * `auto` - Reorder lines that contain right-to-left text. Lines
+///     without any are unaffected and cost nothing.
+///
+///   * `always` - Run the algorithm on every line regardless of content.
+///     This exists for diagnostics; `auto` produces the same output.
+///
+/// Note that some programs perform their own reordering and send text
+/// already in visual order. Those need `never`, or their output will be
+/// reordered twice.
+bidi: Bidi = .never,
+
+/// The paragraph direction to assume for a line with no strongly
+/// directional characters in it.
+///
+/// Rules P2 and P3 of UAX #9 take the direction of a paragraph from its
+/// first strongly directional character. A line of digits and punctuation
+/// has none, and this decides what happens then.
+///
+/// Valid values:
+///
+///   * `auto` - Use the first strong character, falling back to left to
+///     right when there is none. This is what the Unicode algorithm
+///     specifies.
+///
+///   * `ltr` - Always left to right.
+///
+///   * `rtl` - Always right to left. Useful for a session that is
+///     predominantly in a right-to-left language.
+///
+/// Has no effect when `bidi` is `never`.
+@"bidi-default-direction": BidiDefaultDirection = .auto,
+
 /// What color space to use when performing alpha blending.
 ///
 /// This affects the appearance of text and of any images with transparency.
@@ -8596,6 +8644,20 @@ pub const FontSyntheticStyle = packed struct {
     @"bold-italic": bool = true,
 };
 
+/// See "bidi" for documentation.
+pub const Bidi = enum {
+    never,
+    auto,
+    always,
+};
+
+/// See "bidi-default-direction" for documentation.
+pub const BidiDefaultDirection = enum {
+    auto,
+    ltr,
+    rtl,
+};
+
 /// See "font-shaping-break" for documentation
 pub const FontShapingBreak = packed struct {
     cursor: bool = true,
@@ -10374,6 +10436,50 @@ const TestIterator = struct {
         return result;
     }
 };
+
+test "bidi: defaults to never" {
+    const testing = std.testing;
+    var cfg = try Config.default(testing.allocator);
+    defer cfg.deinit();
+
+    // The default has to stay `never` until the phases that make
+    // reordering safe to enable have landed and been reviewed. A user
+    // who has not asked for bidi must see no change at all.
+    try testing.expectEqual(Bidi.never, cfg.bidi);
+    try testing.expectEqual(
+        BidiDefaultDirection.auto,
+        cfg.@"bidi-default-direction",
+    );
+}
+
+test "bidi: parses every value" {
+    const testing = std.testing;
+    var cfg = try Config.default(testing.allocator);
+    defer cfg.deinit();
+    const alloc = cfg._arena.?.allocator();
+
+    inline for (.{
+        .{ "never", Bidi.never },
+        .{ "auto", Bidi.auto },
+        .{ "always", Bidi.always },
+    }) |case| {
+        var it: TestIterator = .{ .data = &.{"--bidi=" ++ case[0]} };
+        try cli.args.parse(Config, alloc, &cfg, &it);
+        try testing.expectEqual(case[1], cfg.bidi);
+    }
+
+    inline for (.{
+        .{ "auto", BidiDefaultDirection.auto },
+        .{ "ltr", BidiDefaultDirection.ltr },
+        .{ "rtl", BidiDefaultDirection.rtl },
+    }) |case| {
+        var it: TestIterator = .{
+            .data = &.{"--bidi-default-direction=" ++ case[0]},
+        };
+        try cli.args.parse(Config, alloc, &cfg, &it);
+        try testing.expectEqual(case[1], cfg.@"bidi-default-direction");
+    }
+}
 
 test "parse hook: invalid command" {
     const testing = std.testing;

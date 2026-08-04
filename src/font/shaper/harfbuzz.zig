@@ -5,6 +5,7 @@ const harfbuzz = @import("harfbuzz");
 const font = @import("../main.zig");
 const terminal = @import("../../terminal/main.zig");
 const bidi = @import("../../bidi/main.zig");
+const rendererbidi = @import("../../renderer/bidi.zig");
 const unicode = @import("../../unicode/main.zig");
 const Feature = font.shape.Feature;
 const FeatureList = font.shape.FeatureList;
@@ -3020,4 +3021,116 @@ test "run: clusters are relative to the run's logical start" {
         try testing.expectEqual(@as(u32, 'c'), added[2].codepoint);
         try testing.expectEqual(@as(u32, 2), added[2].cluster);
     }
+}
+
+test "end to end: arabic renders in visual order with joining" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    // Everything except the GPU: resolve a real row of Arabic through
+    // the bidi cache, iterate its runs in visual order, shape them, and
+    // check the glyphs come out where and how they should.
+    //
+    // The noop backend cannot reorder, so there is nothing to check.
+    if (comptime bidi.options.backend == .noop) return error.SkipZigTest;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    var cache: rendererbidi.BidiCache = .init(alloc);
+    defer cache.deinit(alloc);
+
+    var t = try terminal.Terminal.init(io, alloc, .{ .cols = 8, .rows = 3 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // "abc" then three Arabic letters. In a left-to-right paragraph the
+    // Latin stays put and the Arabic is displayed right to left after
+    // it.
+    s.nextSlice("abc\u{0628}\u{062A}\u{0645}");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    const cells = state.row_data.get(0).cells.slice();
+    const row_bidi = try cache.resolve(alloc, cells, 8, .{});
+
+    // The row contains right-to-left text, so it must have been
+    // reordered. If this fails the rest of the test proves nothing.
+    try testing.expect(!row_bidi.identity);
+    try testing.expectEqual(bidi.Direction.ltr, row_bidi.direction);
+
+    // Logical columns 3, 4, 5 hold the Arabic and must appear in the
+    // reverse order on screen.
+    try testing.expect(
+        row_bidi.visualCol(.from(3)).int() >
+            row_bidi.visualCol(.from(5)).int(),
+    );
+
+    // The Latin is untouched.
+    for (0..3) |i| {
+        try testing.expectEqual(i, row_bidi.visualCol(.from(@intCast(i))).int());
+    }
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = cells,
+        .v2l = row_bidi.v2l,
+        .levels = row_bidi.levels,
+    });
+
+    var total_cells: u16 = 0;
+    var expect_offset: u16 = 0;
+    var saw_rtl = false;
+    var arabic_glyphs: [8]u32 = undefined;
+    var arabic_len: usize = 0;
+
+    while (try it.next(alloc)) |run| {
+        // Runs tile the row in visual order without gaps or overlap,
+        // which is what the renderer's cell loop requires.
+        try testing.expectEqual(expect_offset, run.offset);
+        expect_offset += run.cells;
+        total_cells += run.cells;
+
+        const shaped = try shaper.shape(run);
+
+        // Shaped cell x always ascends. This is the invariant the
+        // renderer asserts while walking visual columns.
+        var x: u16 = 0;
+        for (shaped) |c| {
+            try testing.expect(c.x >= x);
+            try testing.expect(c.x < run.cells);
+            x = c.x;
+        }
+
+        if (run.direction == .rtl) {
+            saw_rtl = true;
+            try testing.expectEqual(@as(font.shape.Level, 1), run.level);
+            for (shaped) |c| {
+                arabic_glyphs[arabic_len] = c.glyph_index;
+                arabic_len += 1;
+            }
+        }
+    }
+
+    try testing.expect(saw_rtl);
+
+    // Six cells of content, not the eight columns of the grid: the
+    // trailing empty columns are trimmed, and "trailing" is visual, so
+    // trimming still works on a reordered row.
+    try testing.expectEqual(@as(u16, 6), total_cells);
+
+    // The Arabic is one run of three cells, so its letters are joined:
+    // three distinct contextual forms rather than three isolated ones.
+    // A pipeline that reordered correctly but split the run per cell
+    // would still fail here, which is the point.
+    try testing.expectEqual(@as(usize, 3), arabic_len);
+    try testing.expect(arabic_glyphs[0] != arabic_glyphs[1]);
+    try testing.expect(arabic_glyphs[1] != arabic_glyphs[2]);
+    try testing.expect(arabic_glyphs[0] != arabic_glyphs[2]);
 }

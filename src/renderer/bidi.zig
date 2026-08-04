@@ -146,6 +146,19 @@ pub const RowBidi = struct {
     }
 };
 
+/// How to resolve a row.
+pub const Options = struct {
+    /// The paragraph direction to use when a row has no strongly
+    /// directional character (UAX #9 rules P2/P3).
+    direction: bidi.ParagraphDirection = .auto,
+
+    /// Folded into the cache key, so a change of direction does not
+    /// serve results resolved under the previous one.
+    fn hashSeed(self: Options) u64 {
+        return @intFromEnum(self.direction) +% 1;
+    }
+};
+
 /// A cache of resolved rows, keyed by row content.
 ///
 /// Keying on content rather than on row position means a stale entry is
@@ -170,6 +183,14 @@ pub const BidiCache = struct {
 
     /// The bidi resolver. Owned here so its internal buffers stay warm.
     resolver: bidi.Resolver = .empty,
+
+    /// Number of times the resolver was actually invoked.
+    ///
+    /// Only maintained in debug builds. It exists so that "bidi = never
+    /// is a complete bypass" can be asserted rather than argued: a test
+    /// renders with the option off and checks this never moved.
+    resolve_count: if (std.debug.runtime_safety) usize else void =
+        if (std.debug.runtime_safety) 0 else {},
 
     /// The most entries we hold before dropping everything and starting
     /// over. A terminal screen is at most a few hundred rows and many
@@ -235,8 +256,11 @@ pub const BidiCache = struct {
         alloc: Allocator,
         cells: std.MultiArrayList(terminal.RenderState.Cell).Slice,
         cols: u16,
+        opts: Options,
     ) Allocator.Error!RowBidi {
-        const hash = hashRow(cells, cols);
+        if (std.debug.runtime_safety) self.resolve_count += 1;
+
+        const hash = hashRow(cells, cols) ^ opts.hashSeed();
         if (self.entries.get(hash)) |cached| return cached;
 
         // Dropping everything at the bound is crude but correct, and it
@@ -247,7 +271,7 @@ pub const BidiCache = struct {
             self.reset();
         }
 
-        const row = try self.resolveUncached(alloc, cells, cols, hash);
+        const row = try self.resolveUncached(alloc, cells, cols, hash, opts);
         try self.entries.put(alloc, hash, row);
         return row;
     }
@@ -258,6 +282,7 @@ pub const BidiCache = struct {
         cells: std.MultiArrayList(terminal.RenderState.Cell).Slice,
         cols: u16,
         hash: u64,
+        opts: Options,
     ) Allocator.Error!RowBidi {
         self.scratch.clear();
         try self.buildElements(alloc, cells, cols);
@@ -265,7 +290,7 @@ pub const BidiCache = struct {
         const result = try self.resolver.resolve(
             alloc,
             self.scratch.codepoints.items,
-            .{},
+            .{ .direction = opts.direction },
         );
 
         // The common case: nothing to reorder, so nothing is stored.
@@ -540,7 +565,7 @@ test "BidiCache: ascii resolves to identity and allocates nothing per row" {
     var row = try TestRow.init(alloc, 20, "hello world");
     defer row.deinit(alloc);
 
-    const r = try cache.resolve(alloc, row.cells(), 20);
+    const r = try cache.resolve(alloc, row.cells(), 20, .{});
     try testing.expect(r.identity);
     try testing.expectEqual(@as(u16, 20), r.cols);
 
@@ -570,10 +595,10 @@ test "BidiCache: repeated resolves of the same row hit the cache" {
     var row = try TestRow.init(alloc, 20, "hello");
     defer row.deinit(alloc);
 
-    _ = try cache.resolve(alloc, row.cells(), 20);
+    _ = try cache.resolve(alloc, row.cells(), 20, .{});
     try testing.expectEqual(@as(u32, 1), cache.entries.count());
 
-    for (0..32) |_| _ = try cache.resolve(alloc, row.cells(), 20);
+    for (0..32) |_| _ = try cache.resolve(alloc, row.cells(), 20, .{});
     try testing.expectEqual(@as(u32, 1), cache.entries.count());
 }
 
@@ -588,8 +613,8 @@ test "BidiCache: reset drops entries and bumps the generation" {
     var b = try TestRow.init(alloc, 20, "two");
     defer b.deinit(alloc);
 
-    _ = try cache.resolve(alloc, a.cells(), 20);
-    _ = try cache.resolve(alloc, b.cells(), 20);
+    _ = try cache.resolve(alloc, a.cells(), 20, .{});
+    _ = try cache.resolve(alloc, b.cells(), 20, .{});
     try testing.expectEqual(@as(u32, 2), cache.entries.count());
 
     const gen = cache.generation;
@@ -598,7 +623,7 @@ test "BidiCache: reset drops entries and bumps the generation" {
     try testing.expectEqual(gen +% 1, cache.generation);
 
     // Still usable afterwards.
-    _ = try cache.resolve(alloc, a.cells(), 20);
+    _ = try cache.resolve(alloc, a.cells(), 20, .{});
     try testing.expectEqual(@as(u32, 1), cache.entries.count());
 }
 
@@ -614,7 +639,7 @@ test "BidiCache: elements are per cell, not per column" {
     var row = try TestRow.init(alloc, 4, "\u{4E00}\u{4E8C}");
     defer row.deinit(alloc);
 
-    _ = try cache.resolve(alloc, row.cells(), 4);
+    _ = try cache.resolve(alloc, row.cells(), 4, .{});
     try testing.expectEqual(@as(usize, 2), cache.scratch.codepoints.items.len);
     try testing.expectEqualSlices(u16, &.{ 0, 2 }, cache.scratch.cols.items);
     try testing.expectEqualSlices(u8, &.{ 2, 2 }, cache.scratch.widths.items);
@@ -638,7 +663,7 @@ test "BidiCache: element widths always cover the row" {
         var row = try TestRow.init(alloc, 8, str);
         defer row.deinit(alloc);
 
-        _ = try cache.resolve(alloc, row.cells(), 8);
+        _ = try cache.resolve(alloc, row.cells(), 8, .{});
 
         var sum: usize = 0;
         for (cache.scratch.widths.items) |w| sum += w;
@@ -663,7 +688,7 @@ test "BidiCache: reordering keeps wide cells intact" {
     var row = try TestRow.init(alloc, 6, "\u{05D0}\u{05D1}\u{4E00}");
     defer row.deinit(alloc);
 
-    const r = try cache.resolve(alloc, row.cells(), 6);
+    const r = try cache.resolve(alloc, row.cells(), 6, .{});
     try testing.expect(!r.identity);
 
     // The two permutations must be mutual inverses over every column.
@@ -838,7 +863,7 @@ test "a resolved ascii row maps identically" {
     var row = try TestRow.init(alloc, 20, "hello world 123");
     defer row.deinit(alloc);
 
-    const r = try cache.resolve(alloc, row.cells(), 20);
+    const r = try cache.resolve(alloc, row.cells(), 20, .{});
     try testing.expect(r.identity);
 
     for (0..20) |i| {
@@ -900,4 +925,88 @@ test "wide cell: stepping back happens logically, not visually" {
     // character entirely.
     try testing.expectEqual(@as(u16, 1), r.visualCol(.from(0)).int());
     try testing.expectEqual(@as(u16, 1), r.logicalCol(.from(0)).int());
+}
+
+test "resolve_count tracks invocations" {
+    if (!std.debug.runtime_safety) return error.SkipZigTest;
+
+    const alloc = testing.allocator;
+
+    var cache: BidiCache = .init(alloc);
+    defer cache.deinit(alloc);
+
+    var row = try TestRow.init(alloc, 20, "hello");
+    defer row.deinit(alloc);
+
+    try testing.expectEqual(@as(usize, 0), cache.resolve_count);
+
+    // Every call counts, cache hit or not. The renderer's guarantee is
+    // that with bidi off it does not call this at all, so what has to be
+    // observable is the call, not the work it did.
+    _ = try cache.resolve(alloc, row.cells(), 20, .{});
+    try testing.expectEqual(@as(usize, 1), cache.resolve_count);
+
+    for (0..9) |_| _ = try cache.resolve(alloc, row.cells(), 20, .{});
+    try testing.expectEqual(@as(usize, 10), cache.resolve_count);
+}
+
+test "paragraph direction is part of the cache key" {
+    const alloc = testing.allocator;
+
+    var cache: BidiCache = .init(alloc);
+    defer cache.deinit(alloc);
+
+    var row = try TestRow.init(alloc, 20, "hello");
+    defer row.deinit(alloc);
+
+    // Resolving the same row under a different assumed paragraph
+    // direction can give a different answer, so the two must not share a
+    // cache entry. Without the direction in the key the second call
+    // would be served the first one's result.
+    _ = try cache.resolve(alloc, row.cells(), 20, .{ .direction = .ltr });
+    const after_first = cache.entries.count();
+
+    _ = try cache.resolve(alloc, row.cells(), 20, .{ .direction = .rtl });
+    try testing.expect(cache.entries.count() > after_first);
+
+    // And the same options do share one.
+    const before = cache.entries.count();
+    _ = try cache.resolve(alloc, row.cells(), 20, .{ .direction = .ltr });
+    try testing.expectEqual(before, cache.entries.count());
+}
+
+test "forced rtl direction reorders a row with no strong characters" {
+    if (comptime bidi.options.backend == .noop) return error.SkipZigTest;
+
+    const alloc = testing.allocator;
+
+    var cache: BidiCache = .init(alloc);
+    defer cache.deinit(alloc);
+
+    // Digits and punctuation only: no strongly directional character, so
+    // rules P2 and P3 have nothing to go on and the configured default
+    // decides. This is exactly what bidi-default-direction is for.
+    var row = try TestRow.init(alloc, 5, "12 34");
+    defer row.deinit(alloc);
+
+    // Left to right leaves it alone.
+    {
+        const r = try cache.resolve(alloc, row.cells(), 5, .{ .direction = .ltr });
+        try testing.expect(r.identity);
+    }
+
+    // Right to left moves the run to the other end. The digits keep
+    // their own left-to-right order within the run, which is rule L1
+    // and the reason a phone number in Hebrew text still reads
+    // correctly.
+    {
+        const r = try cache.resolve(alloc, row.cells(), 5, .{ .direction = .rtl });
+        try testing.expect(!r.identity);
+        try testing.expectEqual(bidi.Direction.rtl, r.direction);
+
+        for (0..r.cols) |i| {
+            const l: LogicalCol = .from(@intCast(i));
+            try testing.expectEqual(i, r.logicalCol(r.visualCol(l)).int());
+        }
+    }
 }
