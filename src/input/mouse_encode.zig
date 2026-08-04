@@ -55,6 +55,25 @@ pub const Event = struct {
     /// The action of this mouse event.
     action: mouse.Action = .press,
 
+    /// The logical column to report, overriding the one derived from
+    /// `pos`.
+    ///
+    /// A pixel position gives the VISUAL column the pointer is over. A
+    /// program that turns on mouse tracking addresses the screen in
+    /// logical columns, the same space its own cursor movement uses, so
+    /// on a row displaying right-to-left text the two differ and
+    /// reporting the visual one makes every click land elsewhere.
+    ///
+    /// The caller resolves this, because doing so needs the screen and
+    /// this module deliberately has no access to it. Null means the two
+    /// spaces coincide, which is the case for any row without
+    /// right-to-left text and for every row when bidi is off.
+    ///
+    /// Note this does not affect the SGR-Pixels format, which reports
+    /// raw pixel coordinates by design and leaves the caller to
+    /// interpret them.
+    logical_x: ?u16 = null,
+
     /// The button involved in this event. This can be null in the
     /// case of a motion action with no pressed buttons.
     button: ?mouse.Button = null,
@@ -101,7 +120,11 @@ pub fn encode(
         if (!opts.any_button_pressed) return;
     }
 
-    const cell = posToCell(event.pos, opts.size);
+    const cell = cell: {
+        var c = posToCell(event.pos, opts.size);
+        if (event.logical_x) |x| c.x = x;
+        break :cell c;
+    };
 
     // We only send motion events when the cell changed unless
     // we're tracking raw pixels.
@@ -777,5 +800,105 @@ test "motion is deduped by last cell except sgr pixels" {
             .last_cell = &last,
         });
         try testing.expect(writer.buffered().len > 0);
+    }
+}
+
+test "logical column override replaces the derived column" {
+    // A click reported at the wrong column is the failure this exists to
+    // prevent: a program tracking the mouse would place its cursor on a
+    // different character than the one clicked, on every row containing
+    // right-to-left text.
+    var data: [32]u8 = undefined;
+
+    // Without an override the column comes from the pixel position.
+    {
+        var writer: std.Io.Writer = .fixed(&data);
+        try encode(&writer, .{
+            .button = .left,
+            .action = .press,
+            .pos = .{ .x = 4, .y = 5 },
+        }, .{
+            .event = .any,
+            .format = .sgr,
+            .size = testSize(),
+        });
+        try testing.expectEqualStrings("\x1B[<0;5;6M", writer.buffered());
+    }
+
+    // With one, the column is replaced and the row is untouched.
+    {
+        var writer: std.Io.Writer = .fixed(&data);
+        try encode(&writer, .{
+            .button = .left,
+            .action = .press,
+            .logical_x = 7,
+            .pos = .{ .x = 4, .y = 5 },
+        }, .{
+            .event = .any,
+            .format = .sgr,
+            .size = testSize(),
+        });
+        try testing.expectEqualStrings("\x1B[<0;8;6M", writer.buffered());
+    }
+}
+
+test "logical column override participates in motion deduplication" {
+    var data: [32]u8 = undefined;
+    var last: ?point.Coordinate = null;
+
+    // Two motions over the same pixel but different logical columns are
+    // different events and both must be reported. Deduplicating on the
+    // pixel-derived column would swallow the second, which on a
+    // reordered row is a real motion the program needs to see.
+    {
+        var writer: std.Io.Writer = .fixed(&data);
+        try encode(&writer, .{
+            .button = .left,
+            .action = .motion,
+            .logical_x = 3,
+            .pos = .{ .x = 4, .y = 5 },
+        }, .{
+            .event = .any,
+            .format = .sgr,
+            .size = testSize(),
+            .any_button_pressed = true,
+            .last_cell = &last,
+        });
+        try testing.expect(writer.buffered().len > 0);
+    }
+
+    {
+        var writer: std.Io.Writer = .fixed(&data);
+        try encode(&writer, .{
+            .button = .left,
+            .action = .motion,
+            .logical_x = 9,
+            .pos = .{ .x = 4, .y = 5 },
+        }, .{
+            .event = .any,
+            .format = .sgr,
+            .size = testSize(),
+            .any_button_pressed = true,
+            .last_cell = &last,
+        });
+        try testing.expect(writer.buffered().len > 0);
+    }
+
+    // And repeating the same logical column still deduplicates.
+    {
+        var writer: std.Io.Writer = .fixed(&data);
+        try encode(&writer, .{
+            .button = .left,
+            .action = .motion,
+            .logical_x = 9,
+            .pos = .{ .x = 4, .y = 5 },
+        }, .{
+            .event = .any,
+            .format = .sgr,
+            .size = testSize(),
+            .any_button_pressed = true,
+            .last_cell = &last,
+        });
+        try testing.expectEqual(@as(usize, 0), writer.buffered().len);
     }
 }

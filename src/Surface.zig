@@ -3738,10 +3738,26 @@ fn mouseReport(
 
     var data: termio.Message.WriteReq.Small.Array = undefined;
     var writer: std.Io.Writer = .fixed(&data);
+    // The pointer position gives the visual column. A program tracking
+    // the mouse addresses the screen logically, so on a reordered row
+    // the two differ and the click has to be reported where the
+    // character actually lives. This reads the io terminal directly, as
+    // the rest of this function already does.
+    const logical_x: ?u16 = logical: {
+        if (comptime bidipkg.options.backend == .noop) break :logical null;
+        if (self.config.bidi == .never) break :logical null;
+        const vp = self.posToViewport(pos.x, pos.y);
+        break :logical self.logicalColFor(
+            self.io.terminal.screens.active,
+            vp,
+        );
+    };
+
     input.mouse_encode.encode(&writer, .{
         .button = button,
         .action = action,
         .mods = mods,
+        .logical_x = logical_x,
         .pos = .{
             .x = pos.x,
             .y = pos.y,
@@ -4796,17 +4812,37 @@ fn viewportToLogical(
     self: *Surface,
     vp: terminal.point.Coordinate,
 ) terminal.point.Coordinate {
-    // Nothing can reorder, so the two spaces coincide.
-    if (comptime bidipkg.options.backend == .noop) return vp;
-    if (self.config.bidi == .never) return vp;
+    return .{
+        .x = self.logicalColFor(
+            self.renderer_state.terminal.screens.active,
+            vp,
+        ),
+        .y = vp.y,
+    };
+}
 
-    const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
+/// The logical column displayed at a viewport coordinate on the given
+/// screen.
+///
+/// The screen is passed explicitly because the two callers reach it
+/// differently: selection goes through the renderer state under its
+/// mutex, while mouse reporting reads the io terminal directly, as the
+/// rest of that function already does.
+fn logicalColFor(
+    self: *Surface,
+    screen: *terminal.Screen,
+    vp: terminal.point.Coordinate,
+) terminal.size.CellCountInt {
+    // Nothing can reorder, so the two spaces coincide.
+    if (comptime bidipkg.options.backend == .noop) return vp.x;
+    if (self.config.bidi == .never) return vp.x;
+
     const pin = screen.pages.pin(.{ .viewport = .{ .x = 0, .y = vp.y } }) orelse
-        return vp;
+        return vp.x;
 
     const cells = pin.cells(.all);
     const cols: u16 = @intCast(cells.len);
-    if (vp.x >= cols) return vp;
+    if (vp.x >= cols) return vp.x;
 
     const row_bidi = self.bidi_cache.resolve(
         self.alloc,
@@ -4819,13 +4855,10 @@ fn viewportToLogical(
         } },
     ) catch |err| {
         log.warn("error resolving bidi for pointer row err={}", .{err});
-        return vp;
+        return vp.x;
     };
 
-    return .{
-        .x = @intCast(row_bidi.hitTest(.from(vp.x)).int()),
-        .y = vp.y,
-    };
+    return @intCast(row_bidi.hitTest(.from(vp.x)).int());
 }
 
 /// Scroll to the bottom of the viewport.
