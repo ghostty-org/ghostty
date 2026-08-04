@@ -3322,6 +3322,36 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// running program addresses, but it has to be drawn where the
         /// character actually appears. The row was already resolved
         /// while its cells were built, so this is a cache hit.
+        /// Whether the given logical column on a viewport row resolves
+        /// to a right-to-left embedding level.
+        ///
+        /// Used only to pick the cursor's shape. The cursor position
+        /// itself is never changed by this.
+        fn isRtlAt(
+            self: *Self,
+            y: usize,
+            logical_x: terminal.size.CellCountInt,
+        ) bool {
+            if (!self.bidiEnabled()) return false;
+
+            const state = &self.terminal_state;
+            const rows = state.row_data.items(.cells);
+            if (y >= rows.len) return false;
+
+            const cells = rows[y].slice().items(.raw);
+            const cols: u16 = @intCast(cells.len);
+            if (logical_x >= cols) return false;
+
+            const row_bidi = self.bidi_cache.resolve(
+                self.alloc,
+                cells,
+                cols,
+                self.bidiOptions(),
+            ) catch return false;
+
+            return row_bidi.level(.from(logical_x)) & 1 == 1;
+        }
+
         fn visualColFor(
             self: *Self,
             y: usize,
@@ -3392,7 +3422,17 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     const sprite: font.Sprite = switch (cursor_style) {
                         .block => .cursor_rect,
                         .block_hollow => .cursor_hollow_rect,
-                        .bar => .cursor_bar,
+
+                        // A bar marks the gap the next character will
+                        // fill, and that gap is on the other side of the
+                        // cell in right-to-left text. Block shapes cover
+                        // the whole cell either way, so they are left
+                        // alone.
+                        .bar => if (self.isRtlAt(cursor_vp.y, logical_x))
+                            .cursor_bar_rtl
+                        else
+                            .cursor_bar,
+
                         .underline => .cursor_underline,
                         .lock => unreachable,
                     };

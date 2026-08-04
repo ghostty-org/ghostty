@@ -345,6 +345,48 @@ pub fn cursor_bar(
     }, .on);
 }
 
+/// The bar cursor for a right-to-left position.
+///
+/// A bar cursor marks the gap where the next character will go. In
+/// right-to-left text that gap is on the other side of the cell, so the
+/// bar sits on the right edge, mirroring `cursor_bar`.
+///
+/// The short flag along the top points the way the text runs. Without
+/// some such mark, a bar between two characters at a direction boundary
+/// is ambiguous: it sits in the same place either way, and nothing tells
+/// you which run the next character will join.
+pub fn cursor_bar_rtl(
+    cp: u32,
+    canvas: *font.sprite.Canvas,
+    width: u32,
+    height: u32,
+    metrics: font.Metrics,
+) !void {
+    _ = cp;
+
+    const thickness: i32 = @intCast(metrics.cursor_thickness);
+    const right: i32 = @as(i32, @intCast(width)) - @divFloor(thickness + 1, 2);
+
+    // The bar itself, half its thickness over the right edge so that it
+    // sits centered between characters, as the left-to-right one does
+    // over the left edge.
+    canvas.rect(.{
+        .x = right,
+        .y = 0,
+        .width = @intCast(metrics.cursor_thickness),
+        .height = @intCast(height),
+    }, .on);
+
+    // The flag, pointing left along the top.
+    const flag_width: i32 = @max(thickness * 3, 3);
+    canvas.rect(.{
+        .x = right - flag_width,
+        .y = 0,
+        .width = @intCast(flag_width),
+        .height = @intCast(metrics.cursor_thickness),
+    }, .on);
+}
+
 pub fn cursor_underline(
     cp: u32,
     canvas: *font.sprite.Canvas,

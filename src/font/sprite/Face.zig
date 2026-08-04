@@ -666,3 +666,49 @@ test "full height cursor sprites respect cursor height metric" {
 test {
     std.testing.refAllDecls(@This());
 }
+
+test "rtl bar cursor renders and mirrors the ltr one" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var atlas: font.Atlas = try .init(alloc, 128, .grayscale);
+    defer atlas.deinit(alloc);
+
+    var face: Face = .{
+        .metrics = .calc(.{
+            .px_per_em = 16,
+            .cell_width = 8.0,
+            .ascent = 12.0,
+            .descent = -4.0,
+            .line_gap = 0.0,
+        }),
+    };
+
+    // The sprite exists and draws. Adding an enum value without a
+    // matching draw function silently yields a blank glyph, since the
+    // lookup returns null and the renderer substitutes an empty one, so
+    // this checks it actually produced something.
+    const rtl = try face.renderGlyph(
+        alloc,
+        &atlas,
+        @intFromEnum(Sprite.cursor_bar_rtl),
+        .{ .grid_metrics = face.metrics },
+    );
+    try testing.expect(rtl.width > 0);
+    try testing.expect(rtl.height > 0);
+
+    // It follows the same height rules as the left-to-right bar, since
+    // it is the same cursor drawn on the other edge.
+    const ltr = try face.renderGlyph(
+        alloc,
+        &atlas,
+        @intFromEnum(Sprite.cursor_bar),
+        .{ .grid_metrics = face.metrics },
+    );
+    try testing.expectEqual(ltr.height, rtl.height);
+    try testing.expectEqual(ltr.offset_y, rtl.offset_y);
+
+    // And it is a different shape: it carries the flag that says which
+    // way the text runs, so it must be wider than a plain bar.
+    try testing.expect(rtl.width > ltr.width);
+}
