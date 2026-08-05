@@ -30,7 +30,6 @@ class BaseTerminalController: NSWindowController,
                               NSWindowDelegate,
                               TerminalViewDelegate,
                               TerminalViewModel,
-                              ClipboardConfirmationViewDelegate,
                               FullscreenDelegate {
     /// Weak surface-to-controller ownership independent of AppKit's transient
     /// view and window attachment state.
@@ -1173,20 +1172,24 @@ class BaseTerminalController: NSWindowController,
             contents: str,
             request: request,
             state: state,
-            delegate: self
         )
-        window.beginSheet(self.clipboardConfirmation!.window!)
+        Task {
+            let response = await clipboardConfirmation?.present()
+            switch response {
+            case .alertFirstButtonReturn:
+                clipboardConfirmationComplete(.cancel, request)
+            case .alertSecondButtonReturn:
+                clipboardConfirmationComplete(.confirm, request)
+            default:
+                clipboardConfirmation = nil
+            }
+        }
     }
 
-    func clipboardConfirmationComplete(_ action: ClipboardConfirmationView.Action, _ request: Ghostty.ClipboardRequest) {
+    func clipboardConfirmationComplete(_ action: ClipboardConfirmationController.Action, _ request: Ghostty.ClipboardRequest) {
         // End our clipboard confirmation no matter what
         guard let cc = self.clipboardConfirmation else { return }
         self.clipboardConfirmation = nil
-
-        // Close the sheet
-        if let ccWindow = cc.window {
-            window?.endSheet(ccWindow)
-        }
 
         switch request {
         case let .osc_52_write(pasteboard):
