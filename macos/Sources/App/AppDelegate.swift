@@ -1437,8 +1437,6 @@ extension AppDelegate: NSMenuItemValidation {
                 item.title = "Redo"
             }
             return undoManager.canRedo
-        case menuCut?.action:
-            return false
         default:
             return true
         }
